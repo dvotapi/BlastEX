@@ -1,0 +1,13 @@
+{
+  "terminal.integrated.profiles.osx": {
+    "zsh (venv)": {
+      "path": "zsh",
+      "args": [
+        "-l",
+        "-c",
+        "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; exec zsh"
+      ]
+    }
+  },
+  "terminal.integrated.defaultProfile.osx": "zsh (venv)"
+}

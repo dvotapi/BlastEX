@@ -1,0 +1,19 @@
+{
+  "id": "contour_blasting",
+  "name": "Контурное взрывание",
+  "description": "Бурение контурных скважин, заряжание и взрывание контура.",
+  "phases": [
+    {
+      "id": "contour_blasting",
+      "name": "Контурное взрывание",
+      "enabled": true,
+      "modules": [
+        "drilling",
+        "materials",
+        "labor",
+        "fixed"
+      ],
+      "volume_source": "footage_m"
+    }
+  ]
+}

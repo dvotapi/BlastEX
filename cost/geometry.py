@@ -25,7 +25,7 @@ import math
 
 from Blast import ExplosiveProperties
 
-from cost.models import BlockGeometry, HoleGeometry, InitiationConfig
+from cost.models import BlockCalculationInput, BlockGeometry, HoleGeometry, InitiationConfig
 
 NSI_LENGTH_OPTIONS_M = [3.6, 4.2, 4.8, 6.0, 7.2, 8.5, 9.0, 10.0, 12.0, 15.0, 18.0]
 DETONATOR_DELAY_MS_OPTIONS = list(range(450, 1001, 50))
@@ -243,6 +243,96 @@ def block_geometry_table_rows(block: BlockGeometry) -> list[tuple[str, str]]:
         ("НСИ стартовое, шт", f"{block.total_start_nsi}"),
         ("Длина скважинного НСИ на блок, м", f"{block.total_nsi_length_m:.0f}"),
     ]
+
+
+def drilling_hole_table_rows(hole: HoleGeometry) -> list[tuple[str, str]]:
+    """Таблица скважины для сценария «только бурение» (без ВВ)."""
+    return [
+        ("Сетка a×b, м", f"{hole.grid_a_m:g} × {hole.grid_b_m:g}"),
+        ("Глубина, м", f"{hole.depth_m:.1f}"),
+        ("Перебур, м", f"{hole.overdrill_m:.1f}"),
+        ("Выход, м³", f"{hole.yield_m3:.2f}"),
+        ("Диаметр коронки, мм", f"{hole.charge_diameter_mm:.0f}"),
+    ]
+
+
+def drilling_block_table_rows(block: BlockGeometry) -> list[tuple[str, str]]:
+    """Таблица блока для сценария «только бурение»."""
+    return [
+        ("Объём блока, м³", f"{block.block_volume_m3:.0f}"),
+        ("Скважин, шт.", f"{block.hole_count}"),
+        ("Доп. скважины, %", f"{block.additional_holes_pct * 100:.1f}"),
+        ("Всего скважин, шт.", f"{block.total_holes}"),
+        ("Погонаж бурения, п.м.", f"{block.drilling_footage_m:.0f}"),
+    ]
+
+
+def contour_hole_table_rows(hole: HoleGeometry, *, initiation: InitiationConfig) -> list[tuple[str, str]]:
+    """Скважина контура: удельный расход на п.м."""
+    q_per_m = hole.charge_mass_kg / hole.charge_length_m if hole.charge_length_m > 0 else 0.0
+    rows = hole_geometry_table_rows(hole, initiation=initiation)
+    rows.append(("Удельный расход, кг/п.м.", f"{q_per_m:.2f}"))
+    return rows
+
+
+def build_manual_block_input(
+    *,
+    block_volume_m3: float = 0.0,
+    total_holes: int = 0,
+    drilling_footage_m: float = 0.0,
+    total_charge_mass_kg: float = 0.0,
+    production_volume_tons: float = 0.0,
+    explosive_key: str = "",
+) -> BlockCalculationInput:
+    """Синтетический блок для сценариев без геометрии БВР (ПВВ, ЭВВ, RC)."""
+    hole = HoleGeometry(
+        grid_a_m=0.0,
+        grid_b_m=0.0,
+        depth_m=0.0,
+        overdrill_m=0.0,
+        undercharge_m=0.0,
+        charge_length_m=0.0,
+        charge_diameter_m=0.0,
+        capacity_kg_per_m=0.0,
+        charge_mass_kg=0.0,
+        yield_m3=0.0,
+        specific_q_kg_m3=0.0,
+        explosive_name="",
+        explosive_label="",
+    )
+    block = BlockGeometry(
+        block_volume_m3=block_volume_m3,
+        yield_per_hole_m3=0.0,
+        hole_count=total_holes,
+        additional_holes_pct=0.0,
+        additional_holes=0,
+        total_holes=total_holes,
+        drilling_footage_m=drilling_footage_m,
+        total_charge_mass_kg=total_charge_mass_kg,
+        specific_q_kg_m3=(
+            total_charge_mass_kg / block_volume_m3 if block_volume_m3 > 0 else 0.0
+        ),
+        intermediate_detonators_per_hole=0,
+        nsi_per_hole=0,
+        nsi_length_1_m=0.0,
+        nsi_length_2_m=0.0,
+        detonator_delay_ms=0,
+        total_intermediate_detonators=0,
+        total_downhole_nsi=0,
+        total_nsi_length_m=0.0,
+        total_boosters=0,
+        total_surface_nsi=0,
+        total_start_nsi=0,
+    )
+    initiation = InitiationConfig(0, 0, 0.0, 0.0, 0)
+    return BlockCalculationInput(
+        hole=hole,
+        block=block,
+        initiation=initiation,
+        explosive_key=explosive_key,
+        hole_depth_m=0.0,
+        production_volume_tons=production_volume_tons,
+    )
 
 
 def geometry_table_rows(

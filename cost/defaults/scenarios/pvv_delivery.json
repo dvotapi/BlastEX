@@ -1,0 +1,18 @@
+{
+  "id": "pvv_delivery",
+  "name": "Поставка ПВВ в скважину",
+  "description": "Заряжание скважин патронированными или гранулированными ВВ (ПВV/АСП).",
+  "phases": [
+    {
+      "id": "pvv_delivery",
+      "name": "Поставка ПВВ в скважину",
+      "enabled": true,
+      "modules": [
+        "materials",
+        "labor",
+        "fixed"
+      ],
+      "volume_source": "block_m3"
+    }
+  ]
+}

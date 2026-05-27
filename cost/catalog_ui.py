@@ -12,6 +12,7 @@ from cost.catalog import (
     items_by_category,
 )
 from cost.drilling_ui import render_drilling_price_readonly
+from cost.fixed_costs_ui import render_fixed_costs_editor
 
 
 def _init_catalog_state() -> None:
@@ -80,8 +81,8 @@ def render_catalog_tab() -> None:
     _init_catalog_state()
     st.subheader("Справочник номенклатуры и цен")
     st.caption(
-        "Цены без НДС. Номенклатура подбирается автоматически по техническому расчёту; "
-        "здесь можно править наименования и цены."
+        "Цены без НДС. Изменения сохраняются кнопкой «Сохранить» в панели над вкладками. "
+        "Номенклатура подбирается автоматически по техническому расчёту."
     )
 
     col_reset, _ = st.columns([1, 3])
@@ -146,5 +147,7 @@ def render_catalog_tab() -> None:
         )
 
     st.session_state["cost_catalog_records"] = merged
+    st.divider()
+    render_fixed_costs_editor()
     st.divider()
     render_drilling_price_readonly()

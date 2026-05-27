@@ -1,0 +1,19 @@
+{
+  "id": "drill_blast",
+  "name": "Буровзрывные работы",
+  "description": "Комплекс: бурение, заряжание, взрывные работы на блоке.",
+  "phases": [
+    {
+      "id": "drill_blast",
+      "name": "Буровзрывные работы",
+      "enabled": true,
+      "modules": [
+        "materials",
+        "drilling",
+        "labor",
+        "fixed"
+      ],
+      "volume_source": "block_m3"
+    }
+  ]
+}

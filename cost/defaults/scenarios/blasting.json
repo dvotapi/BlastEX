@@ -1,0 +1,18 @@
+{
+  "id": "blasting",
+  "name": "Взрывные работы",
+  "description": "Инициирование, взрывные работы и сопутствующие СИ без бурения и заряжания ВМ.",
+  "phases": [
+    {
+      "id": "blasting",
+      "name": "Взрывные работы",
+      "enabled": true,
+      "modules": [
+        "materials",
+        "labor",
+        "fixed"
+      ],
+      "volume_source": "block_m3"
+    }
+  ]
+}

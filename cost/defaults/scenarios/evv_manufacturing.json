@@ -1,0 +1,18 @@
+{
+  "id": "evv_manufacturing",
+  "name": "Производство компонентов ЭВВ",
+  "description": "Изготовление компонентов эмульсионных ВВ на базе или пункте приготовления.",
+  "phases": [
+    {
+      "id": "evv_manufacturing",
+      "name": "Производство компонентов ЭВВ",
+      "enabled": true,
+      "modules": [
+        "manufacturing",
+        "labor",
+        "fixed"
+      ],
+      "volume_source": "custom"
+    }
+  ]
+}

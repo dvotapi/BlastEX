@@ -1,0 +1,18 @@
+{
+  "id": "drilling",
+  "name": "Буровые работы",
+  "description": "Бурение скважин без заряжания и взрывания.",
+  "phases": [
+    {
+      "id": "drilling",
+      "name": "Буровые работы",
+      "enabled": true,
+      "modules": [
+        "drilling",
+        "labor",
+        "fixed"
+      ],
+      "volume_source": "footage_m"
+    }
+  ]
+}

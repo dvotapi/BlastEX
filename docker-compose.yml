@@ -1,0 +1,11 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blastex-api
+    ports:
+      - "8000:8000"
+    environment:
+      BLASTEX_CORS_ORIGINS: "*"
+    restart: unless-stopped

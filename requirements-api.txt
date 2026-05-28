@@ -1,0 +1,4 @@
+# Зависимости REST API (поверх основного приложения)
+-r requirements.txt
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0

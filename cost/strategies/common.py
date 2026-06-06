@@ -41,7 +41,11 @@ def run_drilling_module(
         ctx.work_object.name,
         volume_m=block_data.block.drilling_footage_m,
     )
-    unit_cost = calculate_drilling_unit_cost(drilling_input)
+    unit_cost = calculate_drilling_unit_cost(
+        drilling_input,
+        work_objects=ctx.work_objects or [ctx.work_object],
+        drill_rigs=ctx.drill_rigs or None,
+    )
     total_cost = calculate_drilling_cost(
         block=block_data.block,
         hole_depth_m=block_data.hole_depth_m,

@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from cost.admin_auth import can_edit_references, require_admin_or_readonly
 from cost.catalog import (
     DEFAULT_CATALOG,
     CatalogItem,
@@ -11,8 +12,6 @@ from cost.catalog import (
     catalog_to_records,
     items_by_category,
 )
-from cost.drilling_ui import render_drilling_price_readonly
-from cost.fixed_costs_ui import render_fixed_costs_editor
 
 
 def _init_catalog_state() -> None:
@@ -77,77 +76,84 @@ def _edit_category(
     return out
 
 
-def render_catalog_tab() -> None:
+def _render_catalog_readonly(catalog: list[CatalogItem]) -> None:
+    rows = catalog_to_records(catalog)
+    if not rows:
+        st.caption("Справочник пуст.")
+        return
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def render_nomenclature_section() -> None:
     _init_catalog_state()
-    st.subheader("Справочник номенклатуры и цен")
-    st.caption(
-        "Цены без НДС. Изменения сохраняются кнопкой «Сохранить» в панели над вкладками. "
-        "Номенклатура подбирается автоматически по техническому расчёту."
-    )
-
-    col_reset, _ = st.columns([1, 3])
-    with col_reset:
-        if st.button("Сбросить к Excel-смете", key="catalog_reset"):
-            st.session_state["cost_catalog_records"] = catalog_to_records(DEFAULT_CATALOG)
-            st.rerun()
-
+    st.markdown("**Номенклатура и цены (ВВ, СВ, СИ)**")
+    st.caption("Цены без НДС. Номенклатура подбирается автоматически по техническому расчёту.")
     catalog = get_active_catalog()
-    merged: list[dict] = []
 
-    with st.expander("ВВ — взрывчатые вещества", expanded=True):
-        merged.extend(
-            _edit_category(
-                title="",
-                category="explosive",
-                unit="кг",
-                catalog=catalog,
-                editor_key="catalog_editor_explosive",
-            )
-        )
-    with st.expander("СВ — промежуточные детонаторы", expanded=True):
-        merged.extend(
-            _edit_category(
-                title="",
-                category="detonator",
-                unit="кг",
-                catalog=catalog,
-                editor_key="catalog_editor_detonator",
-                show_mass=True,
-            )
-        )
-    with st.expander("СИ — НСИ скважинное (Искра-С, Rionel)", expanded=True):
-        merged.extend(
-            _edit_category(
-                title="",
-                category="downhole_nsi",
-                unit="шт",
-                catalog=catalog,
-                editor_key="catalog_editor_downhole_nsi",
-                show_length=True,
-            )
-        )
-    with st.expander("СИ — НСИ поверхностное и стартовое", expanded=False):
-        merged.extend(
-            _edit_category(
-                title="Поверхностное НСИ (Искра-П)",
-                category="surface_nsi",
-                unit="шт",
-                catalog=catalog,
-                editor_key="catalog_editor_surface_nsi",
-            )
-        )
-        merged.extend(
-            _edit_category(
-                title="Стартовое НСИ (Искра-Старт)",
-                category="start_nsi",
-                unit="шт",
-                catalog=catalog,
-                editor_key="catalog_editor_start_nsi",
-            )
-        )
+    if can_edit_references() and st.button("Сбросить номенклатуру", key="catalog_reset"):
+        st.session_state["cost_catalog_records"] = catalog_to_records(DEFAULT_CATALOG)
+        st.rerun()
 
-    st.session_state["cost_catalog_records"] = merged
-    st.divider()
-    render_fixed_costs_editor()
-    st.divider()
-    render_drilling_price_readonly()
+    if require_admin_or_readonly(
+        readonly_message="Номенклатура доступна только для просмотра. Войдите как администратор."
+    ):
+        merged: list[dict] = []
+        with st.expander("ВВ — взрывчатые вещества", expanded=True):
+            merged.extend(
+                _edit_category(
+                    title="",
+                    category="explosive",
+                    unit="кг",
+                    catalog=catalog,
+                    editor_key="catalog_editor_explosive",
+                )
+            )
+        with st.expander("СВ — промежуточные детонаторы", expanded=True):
+            merged.extend(
+                _edit_category(
+                    title="",
+                    category="detonator",
+                    unit="кг",
+                    catalog=catalog,
+                    editor_key="catalog_editor_detonator",
+                    show_mass=True,
+                )
+            )
+        with st.expander("СИ — НСИ скважинное (Искра-С, Rionel)", expanded=True):
+            merged.extend(
+                _edit_category(
+                    title="",
+                    category="downhole_nsi",
+                    unit="шт",
+                    catalog=catalog,
+                    editor_key="catalog_editor_downhole_nsi",
+                    show_length=True,
+                )
+            )
+        with st.expander("СИ — НСИ поверхностное и стартовое", expanded=False):
+            merged.extend(
+                _edit_category(
+                    title="Поверхностное НСИ (Искра-П)",
+                    category="surface_nsi",
+                    unit="шт",
+                    catalog=catalog,
+                    editor_key="catalog_editor_surface_nsi",
+                )
+            )
+            merged.extend(
+                _edit_category(
+                    title="Стартовое НСИ (Искра-Старт)",
+                    category="start_nsi",
+                    unit="шт",
+                    catalog=catalog,
+                    editor_key="catalog_editor_start_nsi",
+                )
+            )
+        st.session_state["cost_catalog_records"] = merged
+    else:
+        _render_catalog_readonly(catalog)
+
+
+def render_catalog_tab() -> None:
+    """Обратная совместимость: только номенклатура."""
+    render_nomenclature_section()

@@ -17,6 +17,8 @@ from cost.drilling_data import (
     DEFAULT_OBJECT_NAME,
     DEFAULT_RIG_NAME,
     SHIFT_HOURS,
+    DrillRig,
+    WorkObject,
     find_object,
     find_rig,
 )
@@ -106,8 +108,12 @@ class DrillingCostResult:
     amount: float
 
 
-def _resolve_object_params(params: DrillingUnitCostInput) -> tuple[float, float]:
-    obj = find_object(params.object_name)
+def _resolve_object_params(
+    params: DrillingUnitCostInput,
+    *,
+    work_objects: Iterable[WorkObject] | None = None,
+) -> tuple[float, float]:
+    obj = find_object(params.object_name, work_objects)
     km = params.mobilization_km
     if km is None:
         km = obj.mobilization_km if obj else 300.0
@@ -117,11 +123,16 @@ def _resolve_object_params(params: DrillingUnitCostInput) -> tuple[float, float]
     return km, diesel
 
 
-def calculate_drilling_unit_cost(params: DrillingUnitCostInput) -> DrillingUnitCostResult:
+def calculate_drilling_unit_cost(
+    params: DrillingUnitCostInput,
+    *,
+    work_objects: Iterable[WorkObject] | None = None,
+    drill_rigs: Iterable[DrillRig] | None = None,
+) -> DrillingUnitCostResult:
     """Калькулятор цены бурения за 1 п.м. по логике Excel."""
     volume = max(params.volume_m, 1e-9)
-    rig = find_rig(params.rig_name)
-    mobilization_km, diesel_price_ton = _resolve_object_params(params)
+    rig = find_rig(params.rig_name, drill_rigs)
+    mobilization_km, diesel_price_ton = _resolve_object_params(params, work_objects=work_objects)
 
     commercial_speed = params.tech_speed_m_h * (SHIFT_HOURS - params.nonproductive_h_per_shift)
     fuel_l_h = rig.fuel_l_per_h

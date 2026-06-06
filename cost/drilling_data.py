@@ -1,7 +1,8 @@
 """Справочники для расчёта стоимости бурения (листы «ОС Буровые», «Объекты работ»)."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -46,15 +47,58 @@ DEFAULT_DIESEL_PRICE_TON_RUB = 80_000.0
 SHIFT_HOURS = 11
 
 
-def find_rig(name: str) -> DrillRig:
-    for rig in DEFAULT_DRILL_RIGS:
+def work_objects_to_records(objects: Iterable[WorkObject]) -> list[dict]:
+    return [asdict(obj) for obj in objects]
+
+
+def work_objects_from_records(records: list[dict]) -> list[WorkObject]:
+    objects: list[WorkObject] = []
+    for row in records:
+        name = str(row.get("name", "")).strip()
+        if not name:
+            continue
+        diesel = row.get("diesel_price_ton_rub")
+        objects.append(
+            WorkObject(
+                name=name,
+                mobilization_km=float(row.get("mobilization_km", 0) or 0),
+                diesel_price_ton_rub=float(diesel) if diesel not in (None, "") else None,
+            )
+        )
+    return objects
+
+
+def drill_rigs_to_records(rigs: Iterable[DrillRig]) -> list[dict]:
+    return [asdict(rig) for rig in rigs]
+
+
+def drill_rigs_from_records(records: list[dict]) -> list[DrillRig]:
+    rigs: list[DrillRig] = []
+    for row in records:
+        name = str(row.get("name", "")).strip()
+        if not name:
+            continue
+        rigs.append(
+            DrillRig(
+                name=name,
+                depreciation_per_shift_rub=float(row.get("depreciation_per_shift_rub", 0) or 0),
+                fuel_l_per_h=float(row.get("fuel_l_per_h", 0) or 0),
+            )
+        )
+    return rigs
+
+
+def find_rig(name: str, rigs: Iterable[DrillRig] | None = None) -> DrillRig:
+    source = rigs if rigs is not None else DEFAULT_DRILL_RIGS
+    for rig in source:
         if rig.name == name:
             return rig
-    return DEFAULT_DRILL_RIGS[0]
+    return next(iter(source if rigs is not None else DEFAULT_DRILL_RIGS))
 
 
-def find_object(name: str) -> WorkObject | None:
-    for obj in DEFAULT_WORK_OBJECTS:
+def find_object(name: str, objects: Iterable[WorkObject] | None = None) -> WorkObject | None:
+    source = objects if objects is not None else DEFAULT_WORK_OBJECTS
+    for obj in source:
         if obj.name == name:
             return obj
     return None

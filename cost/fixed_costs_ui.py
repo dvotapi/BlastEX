@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from cost.admin_auth import can_edit_references, require_admin_or_readonly
 from cost.fixed_costs import (
     DEFAULT_FIXED_COSTS,
     SECTION_ORDER,
@@ -70,20 +71,28 @@ def render_fixed_costs_editor() -> None:
 
     col_reset, _ = st.columns([1, 3])
     with col_reset:
-        if st.button("Сбросить постоянные расходы", key="fixed_costs_reset"):
+        if can_edit_references() and st.button("Сбросить постоянные расходы", key="fixed_costs_reset"):
             st.session_state["fixed_cost_records"] = fixed_costs_to_records(DEFAULT_FIXED_COSTS)
             st.rerun()
 
     items = get_active_fixed_costs()
-    merged: list[dict] = []
-    for section in SECTION_ORDER:
-        with st.expander(f"{section} — {SECTION_TITLES[section]}", expanded=section in ("2.1", "2.3")):
-            merged.extend(
-                _edit_section(
-                    section=section,
-                    items=items,
-                    editor_key=f"fixed_cost_editor_{section.replace('.', '_')}",
+    if require_admin_or_readonly(
+        readonly_message="Постоянные расходы доступны только для просмотра. Войдите как администратор."
+    ):
+        merged: list[dict] = []
+        for section in SECTION_ORDER:
+            with st.expander(f"{section} — {SECTION_TITLES[section]}", expanded=section in ("2.1", "2.3")):
+                merged.extend(
+                    _edit_section(
+                        section=section,
+                        items=items,
+                        editor_key=f"fixed_cost_editor_{section.replace('.', '_')}",
+                    )
                 )
-            )
-
-    st.session_state["fixed_cost_records"] = merged
+        st.session_state["fixed_cost_records"] = merged
+    else:
+        st.dataframe(
+            pd.DataFrame(fixed_costs_to_records(items)),
+            use_container_width=True,
+            hide_index=True,
+        )

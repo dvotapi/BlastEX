@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from cost.drilling_data import DrillRig, WorkObject
+
 if TYPE_CHECKING:
     from cost.catalog import CatalogItem
     from cost.drilling import (
@@ -11,7 +13,6 @@ if TYPE_CHECKING:
         DrillingUnitCostInput,
         DrillingUnitCostResult,
     )
-    from cost.drilling_data import WorkObject
     from cost.fixed_costs import FixedCostItem, FixedCostsResult
     from cost.labor import JobPosition, LaborAssignment, LaborFOTResult, LaborFOTSettings
     from cost.materials import MaterialsSelection, VariableMaterialsResult
@@ -111,6 +112,8 @@ class CalculationContext:
     drilling_input_base: DrillingUnitCostInput
     labor_settings: LaborFOTSettings = field(default_factory=lambda: _default_labor_settings())
     scenario_phase_overrides: dict[str, bool] = field(default_factory=dict)
+    work_objects: list[WorkObject] = field(default_factory=list)
+    drill_rigs: list[DrillRig] = field(default_factory=list)
 
 
 def _default_labor_settings() -> LaborFOTSettings:

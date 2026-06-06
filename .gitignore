@@ -6,3 +6,4 @@ max_bot.log
 data/*.jsonl
 data/teams/
 !data/teams/.gitkeep
+.streamlit/secrets.toml

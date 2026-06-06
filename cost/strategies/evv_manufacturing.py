@@ -72,7 +72,7 @@ class ExplosiveManufacturingStrategy(BaseScenarioStrategy):
                     additional_holes=0,
                     total_holes=0,
                     drilling_footage_m=0,
-                    total_charge_mass_kg=production_tons * 1000,
+                    total_charge_mass_kg=0,
                     specific_q_kg_m3=0,
                     intermediate_detonators_per_hole=0,
                     nsi_per_hole=0,

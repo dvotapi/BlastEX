@@ -5,7 +5,8 @@ from typing import Any
 
 from cost.catalog import catalog_from_records
 from cost.drilling import DrillingUnitCostInput
-from cost.drilling_data import DEFAULT_OBJECT_NAME, DEFAULT_WORK_OBJECTS, find_object
+from cost.drilling_data import DEFAULT_OBJECT_NAME, DEFAULT_WORK_OBJECTS
+from cost.references_store import find_work_object, get_drill_rigs, get_work_objects
 from cost.fixed_costs import fixed_costs_from_records
 from cost.labor import (
     LaborFOTSettings,
@@ -24,12 +25,12 @@ class CostEngine:
         work_object_name = str(
             session_state.get("active_work_object_name", DEFAULT_OBJECT_NAME)
         )
-        work_object = find_object(work_object_name)
+        work_object = find_work_object(session_state, work_object_name)
         if work_object is None:
-            work_object = next(
-                (obj for obj in DEFAULT_WORK_OBJECTS if obj.name == DEFAULT_OBJECT_NAME),
-                DEFAULT_WORK_OBJECTS[0],
-            )
+            work_object = find_work_object(session_state, DEFAULT_OBJECT_NAME)
+        if work_object is None:
+            objects = get_work_objects(session_state)
+            work_object = objects[0] if objects else DEFAULT_WORK_OBJECTS[0]
 
         drilling_dict = dict(session_state.get("drilling_calculator_input", {}))
         if not drilling_dict:
@@ -42,6 +43,8 @@ class CostEngine:
 
         return CalculationContext(
             work_object=work_object,
+            work_objects=get_work_objects(session_state),
+            drill_rigs=get_drill_rigs(session_state),
             catalog=catalog_from_records(session_state.get("cost_catalog_records", [])),
             labor_catalog=labor_catalog_from_records(
                 session_state.get("labor_catalog_records", [])
@@ -69,8 +72,25 @@ class CostEngine:
             scenario_id or str(session_state.get("active_scenario_id", "drill_blast"))
         )
         ctx = self.build_context(session_state)
+        return self.calculate_with_context(
+            context=ctx,
+            block_data=block_data,
+            scenario_id=scenario_id,
+            **kwargs,
+        )
+
+    def calculate_with_context(
+        self,
+        *,
+        context: CalculationContext,
+        block_data: BlockCalculationInput | None = None,
+        scenario_id: str,
+        **kwargs: Any,
+    ) -> AggregatedCostResult:
+        """Расчёт сметы по готовому контексту (REST API и тесты)."""
+        scenario_id = normalize_scenario_id(scenario_id)
         strategy = ScenarioStrategyFactory.create(scenario_id)
-        return strategy.calculate(block_data, ctx, **kwargs)
+        return strategy.calculate(block_data, context, **kwargs)
 
     def scenario_supports_module(
         self,
@@ -96,4 +116,8 @@ class CostEngine:
             ctx.drilling_input_base,
             ctx.work_object.name,
         )
-        return calculate_drilling_unit_cost(params).price_per_m
+        return calculate_drilling_unit_cost(
+            params,
+            work_objects=ctx.work_objects or None,
+            drill_rigs=ctx.drill_rigs or None,
+        ).price_per_m

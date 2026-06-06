@@ -9,13 +9,8 @@ from cost.drilling import (
     calculate_drilling_unit_cost,
     unit_cost_summary_rows,
 )
-from cost.drilling_data import (
-    DEFAULT_DRILL_RIGS,
-    DEFAULT_OBJECT_NAME,
-    DEFAULT_RIG_NAME,
-    DEFAULT_WORK_OBJECTS,
-    find_object,
-)
+from cost.drilling_data import DEFAULT_OBJECT_NAME, DEFAULT_RIG_NAME
+from cost.references_store import find_drill_rig, find_work_object, get_drill_rigs, get_work_objects
 
 
 def _init_drilling_calculator_state() -> None:
@@ -34,8 +29,14 @@ def get_drilling_price_per_m() -> float:
 
 
 def _sync_drilling_price() -> None:
+    from cost.references_store import get_drill_rigs, get_work_objects
+
     params = DrillingUnitCostInput(**st.session_state["drilling_calculator_input"])
-    result = calculate_drilling_unit_cost(params)
+    result = calculate_drilling_unit_cost(
+        params,
+        work_objects=get_work_objects(st.session_state),
+        drill_rigs=get_drill_rigs(st.session_state),
+    )
     st.session_state["drilling_price_per_m"] = result.price_per_m
     st.session_state["drilling_unit_cost_result"] = result
 
@@ -114,7 +115,7 @@ def render_drilling_tab() -> None:
 
     with left:
         st.markdown("**Исходные данные**")
-        object_names = [o.name for o in DEFAULT_WORK_OBJECTS]
+        object_names = [o.name for o in get_work_objects(st.session_state)]
         object_idx = object_names.index(params.object_name) if params.object_name in object_names else 0
 
         object_name = st.selectbox(
@@ -123,7 +124,7 @@ def render_drilling_tab() -> None:
             index=object_idx,
             key="drill_object",
         )
-        obj = find_object(object_name)
+        obj = find_work_object(st.session_state, object_name)
         default_km = obj.mobilization_km if obj else 300.0
         default_diesel = obj.diesel_price_ton_rub if obj and obj.diesel_price_ton_rub else 80_000.0
 
@@ -143,8 +144,8 @@ def render_drilling_tab() -> None:
             key="drill_crown_mm",
         )
 
-        rig_names = [r.name for r in DEFAULT_DRILL_RIGS]
-        rig_idx = rig_names.index(params.rig_name) if params.rig_name in rig_names else rig_names.index(DEFAULT_RIG_NAME)
+        rig_names = [r.name for r in get_drill_rigs(st.session_state)]
+        rig_idx = rig_names.index(params.rig_name) if params.rig_name in rig_names else rig_names.index(DEFAULT_RIG_NAME) if DEFAULT_RIG_NAME in rig_names else 0
         rig_name = st.selectbox("Тип буровой установки", options=rig_names, index=rig_idx, key="drill_rig")
 
         tech_speed = st.number_input(

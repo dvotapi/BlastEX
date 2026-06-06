@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from cost.drilling_data import DEFAULT_OBJECT_NAME, DEFAULT_WORK_OBJECTS
+from cost.drilling_data import DEFAULT_OBJECT_NAME
 from cost.engine import CostEngine
 from cost.persistence import (
     DEFAULT_TEAM_ID,
@@ -15,6 +15,7 @@ from cost.persistence import (
     save_current_workspace,
     save_team_settings,
 )
+from cost.references_store import get_work_objects, init_references_state
 from cost.scenarios import DEFAULT_SCENARIO_ID, get_scenario_calc_profile, get_scenario_template, list_scenario_templates
 
 
@@ -42,6 +43,7 @@ def init_workspace() -> None:
         team_id=team_id,
         scenario_id=settings.active_scenario_id,
     )
+    init_references_state(st.session_state)
     st.session_state["active_work_object_name"] = settings.active_work_object_name
     st.session_state["workspace_team_name"] = settings.team_name
     st.session_state["workspace_bootstrapped"] = True
@@ -93,12 +95,18 @@ def render_workspace_toolbar() -> None:
     with bar1:
         st.markdown(f"**Команда:** {team_name}")
     with bar2:
-        object_names = [obj.name for obj in DEFAULT_WORK_OBJECTS]
-        current_object = str(st.session_state.get("active_work_object_name", DEFAULT_OBJECT_NAME))
+        object_names = [obj.name for obj in get_work_objects(st.session_state)]
+        if "active_work_object_name" not in st.session_state:
+            st.session_state["active_work_object_name"] = DEFAULT_OBJECT_NAME
+        elif st.session_state["active_work_object_name"] not in object_names:
+            st.session_state["active_work_object_name"] = (
+                DEFAULT_OBJECT_NAME
+                if DEFAULT_OBJECT_NAME in object_names
+                else object_names[0]
+            )
         st.selectbox(
             "Объект работ",
             options=object_names,
-            index=object_names.index(current_object) if current_object in object_names else 0,
             key="active_work_object_name",
         )
     with bar3:

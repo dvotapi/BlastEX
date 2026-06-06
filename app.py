@@ -6,8 +6,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from Blast import (
-    RockProperties,
-    ExplosiveProperties,
     TargetParams,
     BlastEngine,
     CROWNS_MM,
@@ -26,7 +24,12 @@ from cost.geometry import (
     normalize_initiation_config,
 )
 from cost.catalog import items_by_category
-from cost.catalog_ui import get_active_catalog, render_catalog_tab
+from cost.admin_auth import render_admin_panel
+from cost.catalog_ui import get_active_catalog
+from cost.references_tab_ui import render_references_tab
+from cost.references_store import get_explosives_dict, get_rocks_dict
+from cost.explosive_data import DEFAULT_EXPLOSIVE_KEY
+from cost.rock_data import DEFAULT_ROCK_NAME
 from cost.drilling_ui import render_drilling_tab
 from cost.drilling import drilling_table_rows
 from cost.engine import CostEngine
@@ -38,25 +41,7 @@ from cost.persistence_ui import get_active_scenario_id, init_workspace, render_w
 from cost.scenarios import DEFAULT_SCENARIO_ID, ScenarioCalcProfile, get_scenario_calc_profile, get_scenario_template
 from blast_hole_viz import draw_hole_section
 
-# --- Справочники ВВ и пород ---
-
-EXPLOSIVES = {
-    "ПВВ Гранулит-РП": ExplosiveProperties("Гранулит-РП", 0.85, 3.76),
-    "ПЭВВ ЭВЕРСИН Э-100": ExplosiveProperties("ЭВЕРСИН Э-100", 1.12, 2.99),
-}
-
-# Короткие подписи на схеме заряда
-EXPLOSIVE_LABELS = {
-    "ПВВ Гранулит-РП": "ГРАНУЛИТ-РП",
-    "ПЭВВ ЭВЕРСИН Э-100": "ЭВЕРСИН",
-}
-
-ROCKS = {
-    "Габбро-диабаз": RockProperties("Габбро-диабаз", 2.9, 168, 2.2),
-    "Гранит": RockProperties("Гранит", 2.65, 150, 2.0),
-    "Известняк": RockProperties("Известняк", 2.5, 80, 1.5),
-    "Песчаник": RockProperties("Песчаник", 2.4, 100, 1.8),
-}
+# --- Справочники ВВ (см. вкладку «Справочники») ---
 
 def _inject_hole_viz_styles() -> None:
     st.markdown(
@@ -191,8 +176,13 @@ def _render_hole_panel(
     undercharge_m = min(default_undercharge_m, max(0.0, depth_m - 0.5))
 
     if show_charge_design:
-        explosive_options = list(EXPLOSIVES.keys())
-        default_idx = explosive_options.index(default_explosive_key)
+        explosives = get_explosives_dict(st.session_state)
+        explosive_options = list(explosives.keys())
+        default_idx = (
+            explosive_options.index(default_explosive_key)
+            if default_explosive_key in explosive_options
+            else 0
+        )
 
         explosive_key = st.selectbox(
             "Тип ВВ",
@@ -271,8 +261,9 @@ def _render_hole_panel(
         )
         undercharge_m = max(0.0, depth_m - 0.5)
 
-    explosive = EXPLOSIVES[explosive_key]
-    label = EXPLOSIVE_LABELS.get(explosive_key, explosive.name)
+    explosive_item = get_explosives_dict(st.session_state)[explosive_key]
+    explosive = explosive_item.properties
+    label = explosive_item.label
     hole = calculate_hole_geometry(
         grid_a_m=grid_a_m,
         grid_b_m=grid_b_m,
@@ -881,13 +872,20 @@ def _render_full_bvr_calc_page(profile: ScenarioCalcProfile) -> None:
 
     with col1:
         st.subheader("Взрывчатое вещество (ВВ)")
+        explosives = get_explosives_dict(st.session_state)
+        explosive_keys = list(explosives.keys())
+        default_explosive_idx = (
+            explosive_keys.index(DEFAULT_EXPLOSIVE_KEY)
+            if DEFAULT_EXPLOSIVE_KEY in explosive_keys
+            else 0
+        )
         explosive_key = st.selectbox(
             "ВВ",
-            options=list(EXPLOSIVES.keys()),
-            index=0,
+            options=explosive_keys,
+            index=default_explosive_idx,
             key="explosive",
         )
-        explosive = EXPLOSIVES[explosive_key]
+        explosive = explosives[explosive_key].properties
         with st.expander("Параметры выбранного ВВ"):
             st.write(f"**{explosive.name}**")
             st.write(f"- Плотность заряжания: {explosive.density_t_m3} т/м³")
@@ -895,13 +893,20 @@ def _render_full_bvr_calc_page(profile: ScenarioCalcProfile) -> None:
 
     with col2:
         st.subheader("Порода")
+        rocks = get_rocks_dict(st.session_state)
+        rock_names = list(rocks.keys())
+        default_rock_idx = (
+            rock_names.index(DEFAULT_ROCK_NAME)
+            if DEFAULT_ROCK_NAME in rock_names
+            else 0
+        )
         rock_key = st.selectbox(
             "Порода",
-            options=list(ROCKS.keys()),
-            index=0,
+            options=rock_names,
+            index=default_rock_idx,
             key="rock",
         )
-        rock = ROCKS[rock_key]
+        rock = rocks[rock_key]
         with st.expander("Параметры выбранной породы"):
             st.write(f"**{rock.name}**")
             st.write(f"- Плотность: {rock.density_t_m3} т/м³")
@@ -1047,14 +1052,15 @@ def _render_calc_page() -> None:
 def main():
     st.set_page_config(page_title="BlastEX", page_icon="💥", layout="wide")
     init_workspace()
+    render_admin_panel()
     st.title("💥 BlastEX — расчёт параметров взрывания")
     render_workspace_toolbar()
 
     tab_calc, tab_drilling, tab_labor, tab_catalog = st.tabs(
-        ["Расчёт", "Расчёт стоимости бурения", "Расчёт ФОТ", "Справочник номенклатуры и цен"]
+        ["Расчёт", "Расчёт стоимости бурения", "Расчёт ФОТ", "Справочники"]
     )
     with tab_catalog:
-        render_catalog_tab()
+        render_references_tab()
     with tab_drilling:
         render_drilling_tab()
     with tab_labor:

@@ -49,5 +49,48 @@ class DrillRigListResponse(BaseModel):
     default_name: str
 
 
+class ExplosiveCatalogSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    key: str
+    name: str
+    density_t_m3: float = Field(..., gt=0)
+    power_mj_kg: float = Field(..., gt=0)
+    chart_label: str = ""
+
+
+class ExplosiveListResponse(BaseModel):
+    items: list[ExplosiveCatalogSchema]
+    default_key: str
+
+
+class FixedAssetDepreciationSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    initial_cost_rub: float = Field(..., ge=0)
+    useful_life_months: float = Field(..., gt=0)
+    productive_shifts_per_month: float = Field(..., gt=0)
+    depreciation_per_shift_rub: float = Field(..., ge=0)
+
+
+class FixedAssetDepreciationListResponse(BaseModel):
+    items: list[FixedAssetDepreciationSchema]
+
+
+class RockSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    density_t_m3: float = Field(..., gt=0)
+    ucs_mpa: float = Field(..., ge=0)
+    fissuring_ff: float = Field(..., ge=0)
+
+
+class RockListResponse(BaseModel):
+    items: list[RockSchema]
+    default_name: str
+
+
 class CatalogListResponse(BaseModel):
     items: list[CatalogItemSchema]

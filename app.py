@@ -25,6 +25,7 @@ from cost.geometry import (
 )
 from cost.catalog import items_by_category
 from cost.admin_auth import render_admin_panel
+from cost.auth import current_user, render_login_gate
 from cost.catalog_ui import get_active_catalog
 from cost.references_tab_ui import render_references_tab
 from cost.references_store import get_explosives_dict, get_rocks_dict
@@ -1051,6 +1052,13 @@ def _render_calc_page() -> None:
 
 def main():
     st.set_page_config(page_title="BlastEX", page_icon="💥", layout="wide")
+    if not render_login_gate():
+        return
+    user = current_user()
+    if user is None:
+        return
+    st.session_state["workspace_team_id"] = user.organization_id
+    st.session_state["workspace_team_name"] = user.organization_name
     init_workspace()
     render_admin_panel()
     st.title("💥 BlastEX — расчёт параметров взрывания")

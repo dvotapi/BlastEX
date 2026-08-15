@@ -4,14 +4,15 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from api.exceptions import BlastExError
-from api.routers import blast, cost, references
+from api.routers import auth, blast, cost, references
+from api.security import require_internal_access
 
 API_PREFIX = "/api/v1"
 
@@ -133,6 +134,8 @@ def root() -> dict[str, str]:
     return {"service": "BlastEX API", "docs": "/docs", "api_prefix": API_PREFIX}
 
 
-app.include_router(references.router, prefix=API_PREFIX)
-app.include_router(blast.router, prefix=API_PREFIX)
-app.include_router(cost.router, prefix=API_PREFIX)
+app.include_router(auth.router, prefix=API_PREFIX)
+_internal_dependencies = [Depends(require_internal_access)]
+app.include_router(references.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
+app.include_router(blast.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
+app.include_router(cost.router, prefix=API_PREFIX, dependencies=_internal_dependencies)

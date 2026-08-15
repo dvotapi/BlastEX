@@ -1,14 +1,18 @@
 # BlastEX
 
-Калькулятор параметров взрывных работ и сметы БВР: подбор сетки скважин по модели Кузнецова, интерактивная схема заряда, расчёт стоимости бурения и агрегированная смета по сценариям.
+Калькулятор параметров взрывных работ и сметы БВР: новый React-интерфейс,
+подбор сетки скважин по модели Кузнецова, интерактивная схема заряда,
+расчёт стоимости бурения и агрегированная смета по сценариям.
 
 ## Возможности
 
 - **Технологический расчёт** — оптимизация удельного расхода ВВ, ЛНС, сетки скважин, оценка негабарита.
 - **Смета** — переменные и постоянные затраты, ФОТ, стоимость бурения, несколько сценариев (`drill_blast`, `blasting`, `drilling` и др.).
-- **Справочники команды** — породы, ВВ, амортизация ОС, объекты работ, бурстанки, номенклатура и цены; сохранение в `data/teams/{id}/`.
+- **Справочники организации** — породы, ВВ, амортизация ОС, объекты работ, бурстанки, номенклатура и цены; сохранение в `data/teams/{id}/`.
 - **REST API** — расчёты БВР и сметы без Streamlit UI.
-- **Админ-режим** — редактирование справочников по паролю.
+- **Внутренний доступ** — обязательный вход по email/паролю и роли `admin`, `reference_editor`, `user`.
+
+Подключение внешних организаций в текущей версии отключено заглушкой.
 
 ---
 
@@ -20,6 +24,7 @@ BlastEX/
 ├── blast_hole.py            # Геометрия заряда одной скважины
 ├── blast_hole_viz.py        # Визуализация сечения скважины
 ├── app.py                   # Веб-интерфейс (Streamlit)
+├── frontend/                # Новый интерфейс React + TypeScript
 ├── max_bot.py               # Бот для мессенджера MAX
 ├── api/                     # REST API (FastAPI)
 │   ├── main.py
@@ -35,7 +40,7 @@ BlastEX/
 │   └── strategies/          # Сценарии сметы
 ├── data/teams/              # Данные команд (сценарии, references.json)
 ├── .streamlit/
-│   └── secrets.toml.example # Пример пароля администратора
+│   └── secrets.toml.example # Пример внутренних пользователей
 ├── requirements.txt
 ├── requirements-api.txt
 ├── Dockerfile
@@ -55,7 +60,29 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Веб-интерфейс (Streamlit)
+### 2. Новый веб-интерфейс (React)
+
+В первом терминале запустите API:
+
+```bash
+export BLASTEX_SESSION_SECRET="локальный-секрет"
+export BLASTEX_COOKIE_SECURE=false
+uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Во втором терминале:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Откроется `http://127.0.0.1:5173`. Vite передаёт запросы `/api` локальному
+FastAPI. Основной экран расчёта уже перенесён; бурение, ФОТ и справочники пока
+показывают заглушки и продолжают работать в резервном Streamlit-интерфейсе.
+
+### 3. Резервный интерфейс (Streamlit)
 
 ```bash
 source .venv/bin/activate
@@ -64,38 +91,67 @@ streamlit run app.py
 
 Откроется `http://localhost:8501`.
 
-**Пароль администратора** (для редактирования справочников):
+**Внутренние пользователи:**
 
 ```bash
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
-# отредактируйте admin_password в .streamlit/secrets.toml
+python3 scripts/hash_password.py
+# вставьте полученный password_hash и задайте email/роль в secrets.toml
 ```
 
-Или через переменную окружения:
+Роли:
 
-```bash
-export BLASTEX_ADMIN_PASSWORD="ваш-пароль"
-streamlit run app.py
-```
+- `admin` — расчёты, справочники и администрирование;
+- `reference_editor` — расчёты и редактирование справочников;
+- `user` — расчёты и просмотр справочников.
+
+Альтернатива файлу secrets — JSON-массив пользователей в
+`BLASTEX_USERS_JSON`. Старые установки с `BLASTEX_ADMIN_PASSWORD` или
+`[blastex].admin_password` продолжают работать с email `admin@localhost`
+(его можно переопределить через `BLASTEX_ADMIN_EMAIL`).
 
 После смены пароля или создания `secrets.toml` перезапустите Streamlit.
 
-### 3. REST API (опционально)
+### 4. REST API (опционально)
 
 ```bash
 source .venv/bin/activate
 pip install -r requirements-api.txt
+export BLASTEX_API_KEY="длинный-случайный-секрет"
 uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 - Swagger UI: `http://localhost:8000/docs`
 - Health: `http://localhost:8000/health`
 
-Через Docker (только API):
+### 5. Единый запуск через Docker
+
+Создайте хеш пароля и `.env`:
 
 ```bash
+python3 scripts/hash_password.py
+cp .env.example .env
+# замените секреты, email, название организации и password_hash
 docker compose up --build
 ```
+
+Откроется `http://localhost`. FastAPI не публикуется отдельным портом, а данные
+`data/teams` сохраняются в Docker volume.
+
+Для VDS с доменом задайте в `.env`:
+
+```dotenv
+BLASTEX_SITE_ADDRESS=blast.example.ru
+BLASTEX_CORS_ORIGINS=https://blast.example.ru
+BLASTEX_COOKIE_SECURE=true
+```
+
+Caddy автоматически настроит HTTPS, если DNS домена указывает на VDS и наружу
+открыты порты 80 и 443.
+
+Все маршруты `/api/v1/*` требуют заголовок `X-API-Key`. Без переменной
+`BLASTEX_API_KEY` API закрывается с кодом `503`; `/health` остаётся доступным
+для проверки состояния контейнера.
 
 ---
 
@@ -108,7 +164,8 @@ docker compose up --build
 | **Расчёт ФОТ** | Фонд оплаты труда |
 | **Справочники** | Породы, ВВ, амортизация ОС, объекты и станки, номенклатура, постоянные расходы |
 
-Панель над вкладками: выбор команды, объекта работ, сценария, кнопки **Сохранить** / **Загрузить**.
+Панель над вкладками: внутренняя организация текущего пользователя, объект
+работ, сценарий, кнопки **Сохранить** / **Загрузить**.
 
 ### Справочники
 

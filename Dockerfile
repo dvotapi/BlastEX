@@ -35,6 +35,9 @@ COPY Blast.py app.py blast_hole_viz.py ./
 COPY cost/ ./cost/
 COPY api/ ./api/
 
+RUN mkdir -p /app/data/teams \
+    && chown -R appuser:appuser /app/data
+
 USER appuser
 
 EXPOSE 8000

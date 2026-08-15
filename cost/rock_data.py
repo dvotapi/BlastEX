@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import math
 from typing import Iterable
 
 from Blast import RockProperties
@@ -14,6 +15,14 @@ DEFAULT_ROCKS: tuple[RockProperties, ...] = (
 )
 
 DEFAULT_ROCK_NAME = "Габбро-диабаз"
+
+
+def _finite_float(value: object, default: float = 0.0) -> float:
+    try:
+        parsed = float(value or default)
+    except (TypeError, ValueError):
+        return default
+    return parsed if math.isfinite(parsed) else default
 
 
 def rocks_to_records(rocks: Iterable[RockProperties]) -> list[dict]:
@@ -29,9 +38,9 @@ def rocks_from_records(records: list[dict]) -> list[RockProperties]:
         rocks.append(
             RockProperties(
                 name=name,
-                density_t_m3=float(row.get("density_t_m3", 0) or 0),
-                ucs_mpa=float(row.get("ucs_mpa", 0) or 0),
-                fissuring_ff=float(row.get("fissuring_ff", 0) or 0),
+                density_t_m3=_finite_float(row.get("density_t_m3")),
+                ucs_mpa=_finite_float(row.get("ucs_mpa")),
+                fissuring_ff=_finite_float(row.get("fissuring_ff")),
             )
         )
     return rocks

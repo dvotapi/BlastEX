@@ -17,6 +17,7 @@ from cost.persistence import (
 )
 from cost.references_store import get_work_objects, init_references_state
 from cost.scenarios import DEFAULT_SCENARIO_ID, get_scenario_calc_profile, get_scenario_template, list_scenario_templates
+from cost.auth import current_user
 
 
 def get_active_scenario_id() -> str:
@@ -35,7 +36,8 @@ def init_workspace() -> None:
     if st.session_state.get("workspace_bootstrapped"):
         return
 
-    team_id = DEFAULT_TEAM_ID
+    user = current_user()
+    team_id = user.organization_id if user else DEFAULT_TEAM_ID
     bootstrap_team_scenarios(team_id)
     settings = load_team_settings(team_id)
     load_workspace_scenario(
@@ -45,7 +47,9 @@ def init_workspace() -> None:
     )
     init_references_state(st.session_state)
     st.session_state["active_work_object_name"] = settings.active_work_object_name
-    st.session_state["workspace_team_name"] = settings.team_name
+    st.session_state["workspace_team_name"] = (
+        user.organization_name if user else settings.team_name
+    )
     st.session_state["workspace_bootstrapped"] = True
 
 

@@ -4,8 +4,36 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: blastex-api
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
-      BLASTEX_CORS_ORIGINS: "*"
+      BLASTEX_CORS_ORIGINS: "${BLASTEX_CORS_ORIGINS:-http://localhost}"
+      BLASTEX_API_KEY: "${BLASTEX_API_KEY:?Set BLASTEX_API_KEY before startup}"
+      BLASTEX_SESSION_SECRET: "${BLASTEX_SESSION_SECRET:?Set BLASTEX_SESSION_SECRET before startup}"
+      BLASTEX_USERS_JSON: "${BLASTEX_USERS_JSON:?Set BLASTEX_USERS_JSON before startup}"
+      BLASTEX_COOKIE_SECURE: "${BLASTEX_COOKIE_SECURE:-false}"
+    volumes:
+      - blastex_data:/app/data
     restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      BLASTEX_SITE_ADDRESS: "${BLASTEX_SITE_ADDRESS:-http://localhost}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  blastex_data:
+  caddy_data:
+  caddy_config:

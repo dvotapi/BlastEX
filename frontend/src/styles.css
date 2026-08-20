@@ -7,7 +7,7 @@ button, input, select { font:inherit; }
 button { cursor:pointer; }
 .loading-screen, .login-page { min-height:100vh; display:grid; place-items:center; background:radial-gradient(circle at 70% 20%,#254d3d 0,#10271d 42%,#09150f 100%); color:#fff; }
 .loading-screen { align-content:center; gap:12px; }
-.loading-screen span, .login-brand span, .brand span { width:42px; height:42px; display:grid; place-items:center; border-radius:12px; background:#e5b94c; color:#17231c; font-weight:800; }
+.loading-screen span, .login-brand span, .brand span { width:42px; height:42px; display:grid; place-items:center; border-radius:12px; background:rgba(229, 185, 76, 0.55); color:#17231c; font-weight:800; }
 .login-card { width:min(430px,calc(100% - 32px)); padding:36px; border:1px solid rgba(255,255,255,.14); border-radius:22px; background:rgba(14,32,24,.86); box-shadow:0 30px 100px rgba(0,0,0,.35); backdrop-filter:blur(18px); }
 .login-brand { display:flex; align-items:center; gap:12px; font-size:18px; font-weight:800; margin-bottom:30px; }
 .login-card h1 { margin:0 0 8px; font-size:28px; }

@@ -153,6 +153,29 @@ Caddy автоматически настроит HTTPS, если DNS домен
 `BLASTEX_API_KEY` API закрывается с кодом `503`; `/health` остаётся доступным
 для проверки состояния контейнера.
 
+### 6. Автоматический production-деплой
+
+Workflow `.github/workflows/deploy.yml` запускается после каждого push в
+`main`: выполняет Python-тесты, собирает React-фронтенд и по SSH обновляет
+production VPS. Ручной запуск доступен через `workflow_dispatch`.
+
+Для GitHub Environment `production` нужны секреты:
+
+| Секрет | Назначение |
+|--------|------------|
+| `VPS_HOST` | IP-адрес или hostname сервера |
+| `VPS_USER` | SSH-пользователь деплоя |
+| `VPS_SSH_PRIVATE_KEY` | отдельный приватный deploy-ключ |
+| `VPS_KNOWN_HOSTS` | закреплённый SSH host key сервера |
+
+На сервере репозиторий должен находиться в
+`/root/complex-services-web/blastex`, а `.env` и внешняя Docker-сеть
+`blastex-edge` создаются при первичном ручном развёртывании. Скрипт
+`scripts/deploy_vps.sh` сохраняет предыдущие Docker-образы и откатывает их,
+если новая версия не проходит health-check. Ключ GitHub Actions на VPS должен
+быть ограничен forced command `/usr/local/sbin/deploy-blastex` и опцией
+`restrict`, чтобы его нельзя было использовать для произвольного SSH-доступа.
+
 ---
 
 ## Веб-интерфейс

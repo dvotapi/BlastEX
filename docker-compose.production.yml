@@ -1,0 +1,39 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: blastex-api:latest
+    container_name: blastex-api
+    env_file:
+      - .env
+    expose:
+      - "8000"
+    volumes:
+      - blastex_data:/app/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: blastex-web:latest
+    container_name: blastex-web
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      BLASTEX_SITE_ADDRESS: ":80"
+    expose:
+      - "80"
+    networks:
+      - default
+      - blastex-edge
+    restart: unless-stopped
+
+networks:
+  blastex-edge:
+    external: true
+
+volumes:
+  blastex_data:

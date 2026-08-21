@@ -8,7 +8,7 @@ import os
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import datetime, timezone
 
-from fastapi import Cookie, Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, status
 
 SESSION_COOKIE = "blastex_session"
 
@@ -79,4 +79,23 @@ def require_internal_access(
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Требуется вход во внутренний сервис.",
+    )
+
+
+def current_team_id(session: dict[str, object] = Depends(require_internal_access)) -> str:
+    """ID команды текущего пользователя (или дефолтная команда для service-ключа)."""
+    org = session.get("org")
+    return str(org) if org else "default"
+
+
+def require_reference_editor(
+    session: dict[str, object] = Depends(require_internal_access),
+) -> dict[str, object]:
+    """Только admin / reference_editor (и внутренний service-ключ) могут писать справочники."""
+    role = str(session.get("role", ""))
+    if role in {"admin", "reference_editor", "service"}:
+        return session
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Редактирование справочников доступно администратору или редактору.",
     )

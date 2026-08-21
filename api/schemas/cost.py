@@ -91,6 +91,8 @@ class ManualScenarioInputSchema(BaseModel):
 
 
 class DrillingUnitCostInputSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     volume_m: float = Field(2343.688167787891, gt=0)
     crown_mm: float = Field(152.0, gt=0)
     rig_name: str = "JK 830-3"
@@ -111,6 +113,8 @@ class LaborFOTSettingsSchema(BaseModel):
 
 
 class JobPositionSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     fixed_salary_monthly: float = Field(..., ge=0)
@@ -118,6 +122,8 @@ class JobPositionSchema(BaseModel):
 
 
 class LaborAssignmentSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     position_id: str
     headcount: float = Field(..., gt=0)
@@ -126,6 +132,8 @@ class LaborAssignmentSchema(BaseModel):
 
 
 class FixedCostItemSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     section: str
     name: str
@@ -270,3 +278,36 @@ class AggregatedCostResultSchema(BaseModel):
 
 # Forward ref для рекурсивной модели
 AggregatedCostResultSchema.model_rebuild()
+
+
+# --- Отдельные калькуляторы (бурение, ФОТ, авто-подбор номенклатуры) ---
+
+
+class DrillingUnitCalculateRequest(BaseModel):
+    input: DrillingUnitCostInputSchema
+
+
+class DrillingUnitCalculateResponse(BaseModel):
+    result: DrillingUnitCostResultSchema
+    summary_rows: list[tuple[str, str]]
+
+
+class LaborCalculateRequest(BaseModel):
+    labor_catalog: list[JobPositionSchema]
+    labor_assignments: list[LaborAssignmentSchema]
+    settings: LaborFOTSettingsSchema = Field(default_factory=LaborFOTSettingsSchema)
+
+
+class LaborCalculateResponse(BaseModel):
+    result: LaborFOTResultSchema
+    table_rows: list[dict[str, float | str]]
+    summary_rows: list[tuple[str, str]]
+
+
+class MaterialsAutoRequest(BaseModel):
+    explosive_key: str
+    initiation: InitiationConfigSchema
+
+
+class MaterialsAutoResponse(BaseModel):
+    selection: MaterialsSelectionSchema

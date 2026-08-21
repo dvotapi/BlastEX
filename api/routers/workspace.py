@@ -162,7 +162,6 @@ def put_active_scenario(
     return _load_state(team_id)
 
 
-
 @router.get("/workspace/defaults", response_model=DefaultReferencesResponse)
 def workspace_defaults() -> DefaultReferencesResponse:
     """Дефолтные значения справочников и снапшота — для кнопок «Сбросить …»."""
@@ -184,6 +183,7 @@ def workspace_defaults() -> DefaultReferencesResponse:
             DrillingUnitCostInput().__dict__
         ),
     )
+
 
 @router.get("/scenarios", response_model=list[ScenarioListItemSchema])
 def list_scenarios() -> list[ScenarioListItemSchema]:

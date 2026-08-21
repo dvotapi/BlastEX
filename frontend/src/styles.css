@@ -68,3 +68,109 @@ button { cursor:pointer; }
   .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { height:64px; padding:0 16px; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
   .mobile-nav { position:fixed; z-index:10; left:0; right:0; bottom:0; display:flex; justify-content:space-around; padding:7px 5px max(7px,env(safe-area-inset-bottom)); border-top:1px solid #dce4e0; background:#fff; }.mobile-nav button { display:grid; gap:2px; place-items:center; border:0; background:transparent; color:#78857f; font-size:9px; }.mobile-nav button b { color:#6d7a73; font-size:16px; }.mobile-nav button.active, .mobile-nav button.active b { color:#247752; }
 }
+
+/* --- Рабочее пространство: панель команды/сценария/сохранения --- */
+.workspace-bar { margin:0 28px 18px; padding:14px 18px; border:1px solid #d9e2dd; border-radius:14px; background:#fff; }
+.workspace-bar.loading { padding:14px 18px; color:#6e7c75; font-size:12px; }
+.workspace-bar-row { display:flex; flex-wrap:wrap; align-items:flex-end; gap:16px; }
+.wb-field { display:grid; gap:5px; font-size:12px; }
+.wb-field label { color:#78857f; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
+.wb-field select { padding:8px 10px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; min-width:180px; }
+.wb-field b { font-size:13px; }
+.wb-status span.dirty { color:#a6650f; font-weight:700; }
+.wb-status span.clean { color:#247752; font-weight:700; }
+.wb-actions { margin-left:auto; }
+.workspace-bar-caption { margin-top:12px; padding-top:12px; border-top:1px solid #edf1ef; font-size:12px; color:#6e7c75; }
+.scenario-switch-warning { margin-bottom:12px; padding:12px 14px; border-radius:10px; background:#fdf3e2; color:#7a5417; font-size:12px; display:grid; gap:8px; }
+.scenario-switch-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.scenario-switch-actions button { padding:7px 11px; border:1px solid #e4c98a; border-radius:8px; background:#fff; font-size:11px; font-weight:700; }
+.scenario-phases { margin-top:8px; }
+.scenario-phases ul { margin:8px 0 0; padding:0; list-style:none; display:grid; gap:6px; }
+.scenario-phases label { display:flex; align-items:center; gap:8px; font-size:12px; }
+
+/* --- Общие элементы страниц --- */
+.page-content-wrap { padding:0 28px 40px; }
+.page-content { padding:25px 28px 40px; }
+.page-content-wrap .page-content { padding:0; }
+.page-caption { margin:0 0 14px; color:#6e7c75; font-size:12px; line-height:1.6; }
+h2 { margin:0 0 6px; font-size:20px; letter-spacing:-.4px; }
+h4 { margin:20px 0 8px; font-size:14px; }
+h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
+.button-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+.button-row button { padding:9px 13px; border:1px solid #cfd9d4; border-radius:9px; background:#fff; font-size:12px; font-weight:700; color:#3b4b43; }
+.button-row button:disabled { opacity:.5; cursor:not-allowed; }
+.field-inline { display:grid; gap:6px; max-width:280px; margin-bottom:14px; font-size:12px; font-weight:700; }
+.field-inline input, .field-inline select { padding:9px 10px; border:1px solid #cfd9d4; border-radius:8px; }
+.calc-inputs-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px; }
+.calc-inputs-grid label { display:grid; gap:6px; font-size:11px; font-weight:700; color:#3b4b43; }
+.calc-inputs-grid input, .calc-inputs-grid select { padding:9px 10px; border:1px solid #cfd9d4; border-radius:8px; }
+.crown-select { display:flex; flex-wrap:wrap; gap:8px 14px; border:1px solid #dce4e0; border-radius:10px; padding:10px 12px; }
+.crown-select legend { padding:0 4px; font-size:11px; font-weight:700; color:#3b4b43; }
+.crown-checkbox { display:flex; align-items:center; gap:5px; font-size:12px; }
+
+/* --- Метрики и таблицы --- */
+.metrics-table-wrap h4 { margin:0 0 4px; font-size:13px; }
+.hole-metrics-table { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:10px; }
+.hole-metrics-table th, .hole-metrics-table td { padding:6px 8px; border-bottom:1px solid #edf1ef; text-align:left; }
+.hole-metrics-table th { color:#78857f; font-weight:650; }
+.hole-metrics-table td:last-child { text-align:right; white-space:nowrap; }
+.table-scroll table { width:100%; border-collapse:collapse; font-size:12px; }
+.table-scroll th, .table-scroll td { padding:8px 10px; border-bottom:1px solid #edf1ef; text-align:left; }
+.table-scroll th.num, .table-scroll td.num { text-align:right; }
+.table-empty { color:#87948d; font-size:12px; }
+
+/* --- Редактируемые таблицы --- */
+.editable-table input[type="text"], .editable-table input[type="number"], .editable-table select { width:100%; padding:6px 8px; border:1px solid #d3dcd7; border-radius:6px; font-size:12px; }
+.editable-table input[type="checkbox"] { width:16px; height:16px; }
+.row-remove { border:0; background:transparent; color:#9e3025; font-size:13px; padding:2px 6px; }
+.row-add { margin-top:8px; padding:8px 12px; border:1px dashed #9db8ab; border-radius:9px; background:transparent; color:#2d7556; font-size:12px; font-weight:700; }
+
+/* --- Схема заряда и панель варианта --- */
+.hole-panels-row { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.hole-panel { padding:16px; border:1px solid #d9e2dd; border-radius:14px; background:#fff; }
+.hole-panel h3 { margin:0 0 12px; font-size:14px; }
+.hole-panel-controls { display:grid; gap:10px; margin-bottom:14px; }
+.hole-panel-controls label { display:grid; gap:6px; font-size:11px; font-weight:700; color:#3b4b43; }
+.hole-panel-controls select, .hole-panel-controls input[type="range"] { padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; }
+.hole-viz-row { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin-bottom:12px; }
+.hole-scheme-svg { flex:0 0 auto; max-width:42%; }
+.hole-scheme-svg svg { max-width:100%; height:auto; }
+.hole-viz-tables { flex:1 1 260px; min-width:220px; }
+.hole-visualization { margin-top:24px; }
+.hole-visualization h2 { margin-bottom:12px; }
+
+/* --- Смета --- */
+.cost-panel { margin-top:14px; padding-top:14px; border-top:1px solid #edf1ef; }
+.cost-panel h4 { margin:0 0 6px; font-size:13px; }
+.cost-caption { margin:6px 0; color:#6e7c75; font-size:12px; }
+.cost-total { margin:12px 0 0; font-size:13px; }
+.cost-section { margin-top:12px; }
+.materials-selection { margin-bottom:12px; }
+.composite-breakdown { margin-top:10px; font-size:12px; color:#6e7c75; }
+.composite-breakdown ul { margin:6px 0 0; padding-left:18px; }
+.metric-standalone { margin:4px 0; font-size:22px; }
+.metric-standalone strong { color:#17231d; }
+
+/* --- Бурение --- */
+.drilling-grid { display:grid; grid-template-columns:minmax(280px,380px) minmax(0,1fr); gap:22px; align-items:start; }
+.drilling-inputs { display:grid; gap:10px; }
+.drilling-inputs label { display:grid; gap:6px; font-size:11px; font-weight:700; color:#3b4b43; }
+.drilling-inputs input, .drilling-inputs select { padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; }
+.drilling-results { min-width:0; }
+
+/* --- Справочники --- */
+.sub-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; border-bottom:1px solid #dce4e0; padding-bottom:10px; }
+.sub-tabs button { padding:8px 13px; border:1px solid transparent; border-radius:8px; background:transparent; color:#6e7c75; font-size:12px; font-weight:700; }
+.sub-tabs button.active { background:#e5f4eb; color:#1c5c40; }
+.catalog-category { margin-bottom:16px; border:1px solid #dce4e0; border-radius:10px; padding:10px 14px; }
+.catalog-category summary { cursor:pointer; font-weight:700; font-size:13px; padding:4px 0; }
+
+@media (max-width:900px) {
+  .hole-panels-row { grid-template-columns:1fr; }
+  .drilling-grid { grid-template-columns:1fr; }
+}
+@media (max-width:760px) {
+  .workspace-bar { margin:0 14px 14px; }
+  .page-content-wrap { padding:0 14px 28px; }
+  .wb-actions { margin-left:0; }
+}

@@ -58,21 +58,34 @@
 
 .section-view-panel .panel-body { gap:10px; }
 .section-svg { display:block; width:100%; height:auto; background:#fbfcfb; border:1px solid #e2e8e5; border-radius:11px; }
-.section-bench-line { stroke:#c7d1cc; stroke-width:1; stroke-dasharray:5 3; }
-.section-label { fill:#5c6a63; font-size:9.5px; }
-.section-hole-outline { stroke:#c7d1cc; stroke-width:2; }
-.section-collar { fill:#2d7556; }
-.section-deck { stroke-width:6; stroke-linecap:butt; }
-.section-deck.deck-charge { stroke:#c0392b; }
-.section-deck.deck-stemming { stroke:#a9835a; }
-.section-deck.deck-air { stroke:#8fb7d9; stroke-dasharray:3 3; }
-.section-legend { display:flex; gap:14px; font-size:11px; color:#5c6a63; }
-.section-legend i { display:inline-block; width:14px; height:4px; margin-right:5px; vertical-align:middle; border-radius:2px; }
-.section-legend i.deck-charge { background:#c0392b; }
-.section-legend i.deck-stemming { background:#a9835a; }
-.section-legend i.deck-air { background:#8fb7d9; }
-.section-primer path { fill:#e4b94f; stroke:#173125; stroke-width:1; }
-.section-legend i.legend-primer { width:9px; height:9px; border-radius:2px; background:#e4b94f; border:1px solid #173125; }
+
+/* --- Профиль уступа --- */
+.rock-mass { stroke:none; }
+.bench-profile { fill:none; stroke:#7d8c84; stroke-width:1.8; stroke-linejoin:round; }
+.bench-level { stroke:#94a49b; stroke-width:1; stroke-dasharray:6 4; }
+.section-level-label { fill:#6f7d76; font-size:9.5px; }
+
+/* --- Подписи скважин --- */
+.section-hole-id { fill:#17231d; font-size:10.5px; font-weight:700; }
+.section-hole-meta { fill:#7b8982; font-size:8.5px; }
+.section-hole-mass { fill:#3b4b43; font-size:9.5px; font-weight:650; paint-order:stroke; stroke:#fbfcfb; stroke-width:2.6px; stroke-linejoin:round; }
+.section-level-label { paint-order:stroke; stroke:#fbfcfb; stroke-width:2.6px; stroke-linejoin:round; }
+.section-hole { cursor:pointer; }
+.section-hole.active .section-hole-id { fill:#2d7556; }
+
+.section-tooltip rect { fill:rgba(16,41,31,.9); }
+.section-tooltip text { fill:#eaf3ef; font-size:9.5px; }
+.section-note { margin-left:auto; color:#8b978f; font-size:10px; font-style:italic; }
+
+/* --- Легенда --- */
+.section-legend { display:flex; align-items:center; gap:14px; font-size:11px; color:#5c6a63; flex-wrap:wrap; }
+.section-legend i { display:inline-block; width:13px; height:9px; margin-right:5px; vertical-align:middle; border-radius:2px; border:1px solid #7d8c84; }
+.section-legend i.legend-charge { background:#d0483c; border-color:#7d2b23; }
+.section-legend i.legend-stemming { background:#a9835a; border-color:#8a6742; }
+.section-legend i.legend-air { background:repeating-linear-gradient(45deg,#fff 0 2px,#8fb7d9 2px 3px); }
+.section-legend i.legend-primer { background:#e4b94f; border-color:#173125; }
+.section-legend i.legend-subdrill { background:repeating-linear-gradient(-45deg,#f7f9f8 0 2px,#c9d3cd 2px 3px); }
+.section-legend i.legend-rock { background:repeating-linear-gradient(45deg,#e8ece9 0 3px,#b8c4bd 3px 4px); }
 
 .charge-color-hint { display:flex; align-items:center; gap:8px; font-size:11px; color:#5c6a63; }
 .charge-color-hint .charge-scale { flex:1; height:8px; border-radius:4px; background:linear-gradient(90deg,#f4d35e,#c0392b); }

@@ -564,6 +564,7 @@ export function DesignPage({
                   contour={document.contour}
                   holes={document.holes}
                   loads={document.loads}
+                  network={document.network}
                   rowAzimuthDeg={patternParams.row_azimuth_deg}
                   selectedRow={selectedRow}
                   onSelectedRowChange={setSelectedRow}

@@ -4,6 +4,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
+import matplotlib
+
+matplotlib.use("Agg")  # без дисплея в контейнере — до любого импорта pyplot
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from api.exceptions import BlastExError
-from api.routers import auth, blast, cost, references
+from api.routers import auth, blast, cost, references, workspace
 from api.security import require_internal_access
 
 API_PREFIX = "/api/v1"
@@ -139,3 +143,4 @@ _internal_dependencies = [Depends(require_internal_access)]
 app.include_router(references.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(blast.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(cost.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
+app.include_router(workspace.router, prefix=API_PREFIX, dependencies=_internal_dependencies)

@@ -58,7 +58,7 @@ button { cursor:pointer; }
 .metrics-grid > div { padding:14px; border:1px solid #dce4e0; border-radius:12px; background:#fff; }
 .metrics-grid span { display:block; margin-bottom:7px; color:#78857f; font-size:10px; }.metrics-grid strong { font-size:20px; letter-spacing:-.4px; }.metrics-grid small { margin-left:4px; color:#6e7b75; font-size:10px; }
 .result-chart { display:block; width:100%; height:190px; padding:10px 16px 4px; }
-.result-chart line { stroke:#e2e9e5; }.result-chart polyline { fill:none; stroke:#2d7957; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }.result-chart circle { fill:#e4b94f; stroke:#173125; stroke-width:2; }.result-chart text { fill:#718078; font-size:9px; }
+.result-chart line { stroke:#e2e9e5; }.result-chart polyline { fill:none; stroke:#2d7957; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }.result-chart circle { fill:#e4b94f; stroke:#173125; stroke-width:2; }.result-chart text { fill:#718078; font-size:9px; }.result-chart .axis-line, .result-chart .axis-tick { stroke:#8c9c93; stroke-width:1.2; }.result-chart .axis-label { fill:#617068; font-size:9px; }
 .chart-empty { height:190px; display:grid; place-items:center; color:#87948d; font-size:12px; }
 .table-scroll { overflow:auto; }.variants-panel table { width:100%; border-collapse:collapse; font-size:11px; }.variants-panel th, .variants-panel td { padding:10px 12px; border-bottom:1px solid #edf1ef; text-align:left; white-space:nowrap; }.variants-panel th { color:#748079; font-weight:650; }.variants-panel tbody tr { cursor:pointer; }.variants-panel tbody tr:hover, .variants-panel tr.selected { background:#edf7f1; }.row-radio { width:14px; height:14px; display:grid; place-items:center; border:1px solid #2d7957; border-radius:50%; }.selected .row-radio:after { content:""; width:7px; height:7px; border-radius:50%; background:#2d7957; }
 .variants-actions { padding:13px 17px 15px; border-top:1px solid #edf1ef; display:flex; justify-content:flex-end; }
@@ -138,8 +138,15 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .hole-panel-controls label { display:grid; gap:6px; font-size:11px; font-weight:700; color:#3b4b43; }
 .hole-panel-controls select, .hole-panel-controls input[type="range"] { padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; }
 .hole-viz-row { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin-bottom:12px; }
-.hole-scheme-svg { flex:0 0 auto; max-width:42%; }
-.hole-scheme-svg svg { max-width:100%; height:auto; }
+.hole-scheme { flex:0 0 auto; max-width:42%; display:grid; gap:7px; }
+.hole-scheme-svg { display:block; width:100%; height:auto; background:#fbfcfb; border:1px solid #e2e8e5; border-radius:11px; }
+.hole-scheme-title { fill:#17231d; font-size:9px; font-weight:700; letter-spacing:.5px; }
+.hole-scheme-ground { opacity:.55; }
+.hole-scheme-surface { stroke:#7d8c84; stroke-width:1.8; }
+.hole-scheme-mass { fill:#2a2f2c; font-size:9.5px; font-weight:700; paint-order:stroke; stroke:#fff; stroke-width:2.4px; }
+.hole-scheme-caption { display:grid; gap:1px; font-size:10px; line-height:1.35; color:#6f7d76; text-align:center; }
+.hole-scheme-caption b { color:#3b4b43; font-size:10.5px; }
+.hole-scheme-caption small { color:#8b978f; font-style:italic; font-size:8.5px; }
 .hole-viz-tables { flex:1 1 260px; min-width:220px; }
 .hole-visualization { margin-top:24px; }
 .hole-visualization h2 { margin-bottom:12px; }

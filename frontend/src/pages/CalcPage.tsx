@@ -21,9 +21,20 @@ function ResultsChart({ variants }: { variants: BlastVariant[] }) {
   const x = (index: number) => pad.left + index * ((width - pad.left - pad.right) / Math.max(1, variants.length - 1));
   const y = (value: number) => pad.top + ((maxQ - value) / (maxQ - minQ)) * (height - pad.top - pad.bottom);
   const points = variants.map((item, index) => `${x(index)},${y(item.specific_q_kg_m3)}`).join(" ");
+  const tickCount = 4;
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => minQ + ((maxQ - minQ) * i) / tickCount);
   return (
     <svg className="result-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Зависимость удельного расхода от диаметра коронки">
-      {[0, 1, 2].map((line) => <line key={line} x1={pad.left} x2={width - pad.right} y1={pad.top + line * 58} y2={pad.top + line * 58} />)}
+      {ticks.map((value) => (
+        <line key={value} className="grid-line" x1={pad.left} x2={width - pad.right} y1={y(value)} y2={y(value)} />
+      ))}
+      <line className="axis-line" x1={pad.left} x2={pad.left} y1={pad.top} y2={height - pad.bottom} />
+      {ticks.map((value) => (
+        <g key={value}>
+          <line className="axis-tick" x1={pad.left - 4} x2={pad.left} y1={y(value)} y2={y(value)} />
+          <text className="axis-label" x={pad.left - 8} y={y(value)} textAnchor="end" dominantBaseline="middle">{value.toFixed(2)}</text>
+        </g>
+      ))}
       <polyline points={points} />
       {variants.map((item, index) => <g key={item.crown_mm}><circle cx={x(index)} cy={y(item.specific_q_kg_m3)} r="5" /><text x={x(index)} y={height - 10} textAnchor="middle">{item.crown_mm}</text></g>)}
     </svg>

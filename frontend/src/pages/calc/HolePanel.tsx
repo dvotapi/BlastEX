@@ -4,6 +4,7 @@ import { useWorkspace } from "../../app/useWorkspace";
 import { MetricsTable } from "../../components/MetricsTable";
 import type { BlastGeometryResponse } from "../../types";
 import { CostPanel } from "./CostPanel";
+import { HoleSchemeView } from "./HoleSchemeView";
 
 const NSI_LENGTH_DEFAULT_1 = 12.0;
 const NSI_LENGTH_DEFAULT_2 = 6.0;
@@ -59,7 +60,6 @@ export function HolePanel({
   const [nsiLength2M, setNsiLength2M] = useState(NSI_LENGTH_DEFAULT_2);
   const [detonatorDelayMs, setDetonatorDelayMs] = useState(DETONATOR_DELAY_DEFAULT);
   const [geometry, setGeometry] = useState<BlastGeometryResponse | null>(null);
-  const [svg, setSvg] = useState("");
   const [error, setError] = useState("");
 
   const effectiveUnderchargeM = showChargeDesign ? underchargeM : Math.max(0, depthM - 0.5);
@@ -88,9 +88,6 @@ export function HolePanel({
     let cancelled = false;
     api.geometry(payload).then((res) => { if (!cancelled) { setGeometry(res); setError(""); } })
       .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Ошибка расчёта геометрии."); });
-    if (showChargeDesign) {
-      api.holeSchemeSvg(payload).then((res) => { if (!cancelled) setSvg(res); }).catch(() => undefined);
-    }
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -153,8 +150,13 @@ export function HolePanel({
 
       {geometry && (
         <div className="hole-viz-row">
-          {showChargeDesign && svg && (
-            <div className="hole-scheme-svg" dangerouslySetInnerHTML={{ __html: svg }} />
+          {showChargeDesign && (
+            <HoleSchemeView
+              hole={geometry.hole}
+              initiation={geometry.initiation}
+              crownMm={crownMm}
+              title={geometry.label}
+            />
           )}
           <div className="hole-viz-tables">
             <MetricsTable title="Скважина" rows={geometry.hole_rows} />

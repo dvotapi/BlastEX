@@ -3,12 +3,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Response, status
 
+from api.schemas.cost import AggregatedCostResultSchema
 from api.schemas.design import (
     AnalyzeRequest,
     AnalyzeResponse,
     BlastDesignSchema,
     ChargeGenerateRequest,
     ChargeGenerateResponse,
+    DesignCostRequest,
     DesignListResponse,
     PatternGenerateRequest,
     PatternGenerateResponse,
@@ -39,6 +41,11 @@ def post_tie_generate(request: TieGenerateRequest) -> TieGenerateResponse:
 @router.post("/analyze", response_model=AnalyzeResponse)
 def post_analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     return design_service.analyze_design(request)
+
+
+@router.post("/cost", response_model=AggregatedCostResultSchema)
+def post_design_cost(request: DesignCostRequest) -> AggregatedCostResultSchema:
+    return design_service.estimate_design_cost(request)
 
 
 @router.get("/plans", response_model=DesignListResponse)
@@ -82,3 +89,11 @@ def export_plan_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{design_id}.csv"'},
     )
+
+
+@router.get("/plans/{design_id}/passport.html")
+def export_plan_passport(
+    design_id: str, session: dict = Depends(require_internal_access)
+) -> Response:
+    html_text = design_service.export_plan_passport(session["org"], design_id)
+    return Response(content=html_text, media_type="text/html")

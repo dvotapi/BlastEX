@@ -191,6 +191,20 @@ export type AnalyzeResponse = {
   ppv_mm_s: number | null;
 };
 
+export type CostScenarioId = "drill_blast" | "drilling" | "blasting" | "contour_blasting";
+
+export type DesignCostResult = {
+  scenario_id: string;
+  work_object_name: string;
+  total_amount_rub: number;
+  cost_per_m3: number;
+  cost_per_ton: number;
+  variable_total_rub: number;
+  fixed_total_rub: number;
+  labor_total_rub: number;
+  notes: string[];
+};
+
 export function emptyContour(): BlockContour {
   return {
     vertices: [],

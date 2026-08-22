@@ -6,6 +6,8 @@ import type {
   ChargeExplosive,
   ChargeGenerateResponse,
   ChargeRules,
+  CostScenarioId,
+  DesignCostResult,
   DesignSummary,
   Hole,
   PatternGenerateResponse,
@@ -96,6 +98,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ design, isoline_step_ms: isolineStepMs, mic_window_ms: micWindowMs, ppv }),
       }),
+    cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
+      request<DesignCostResult>("/api/v1/design/cost", {
+        method: "POST",
+        body: JSON.stringify({ design, scenario_id: scenarioId }),
+      }),
+    passportUrl: (designId: string) => `/api/v1/design/plans/${designId}/passport.html`,
     listPlans: () => request<{ items: DesignSummary[] }>("/api/v1/design/plans"),
     createPlan: (design: BlastDesign) =>
       request<BlastDesign>("/api/v1/design/plans", { method: "POST", body: JSON.stringify(design) }),

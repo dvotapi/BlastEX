@@ -10,6 +10,8 @@ import {
   emptyDesign,
   type AnalyzeResponse,
   type ChargeRules,
+  type CostScenarioId,
+  type DesignCostResult,
   type DesignSummary,
   type Hole,
   type HoleLoad,
@@ -20,6 +22,7 @@ import {
   type TieParams,
 } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
+import { CostPanel } from "./CostPanel";
 import { designReducer, initDesignState } from "./designReducer";
 import { HoleTable } from "./HoleTable";
 import { PatternPanel } from "./PatternPanel";
@@ -75,6 +78,10 @@ export function DesignPage({
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const animationFrameRef = useRef<number | null>(null);
+
+  const [scenarioId, setScenarioId] = useState<CostScenarioId>("drill_blast");
+  const [costResult, setCostResult] = useState<DesignCostResult | null>(null);
+  const [costBusy, setCostBusy] = useState(false);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -302,6 +309,34 @@ export function DesignPage({
     }
   }
 
+  async function calculateCost() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    setCostBusy(true);
+    setError("");
+    try {
+      const designForCost = {
+        ...document,
+        pattern_params: patternParams as unknown as Record<string, unknown>,
+        charge_rules: chargeRules as unknown as Record<string, unknown>,
+        explosive_key: explosiveKey,
+      };
+      const result = await api.design.cost(designForCost, scenarioId);
+      setCostResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось рассчитать смету.");
+    } finally {
+      setCostBusy(false);
+    }
+  }
+
+  function printPassport() {
+    if (!document.design_id) return;
+    window.open(api.design.passportUrl(document.design_id), "_blank");
+  }
+
   function togglePlay() {
     if (!analysis) return;
     if (!playing && currentMs >= maxAnimationMs) setCurrentMs(0);
@@ -352,6 +387,7 @@ export function DesignPage({
       setAnalysis(null);
       setCurrentMs(0);
       setPlaying(false);
+      setCostResult(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -383,6 +419,7 @@ export function DesignPage({
     setAnalysis(null);
     setCurrentMs(0);
     setPlaying(false);
+    setCostResult(null);
   }
 
   async function exportCsv() {
@@ -480,7 +517,15 @@ export function DesignPage({
             onDelete={deletePlan}
             onNew={newPlan}
             onExportCsv={exportCsv}
+            onPrintPassport={printPassport}
             busy={saveBusy}
+          />
+          <CostPanel
+            scenarioId={scenarioId}
+            onScenarioChange={setScenarioId}
+            onCalculate={calculateCost}
+            busy={costBusy}
+            result={costResult}
           />
         </div>
         <div className="design-main">

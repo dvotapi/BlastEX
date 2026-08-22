@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.schemas.blast import ExplosivePropertiesSchema
+from api.schemas.cost import CalculationContextInputSchema, MaterialsSelectionSchema
 
 
 class Point3Schema(BaseModel):
@@ -192,6 +193,14 @@ class AnalyzeResponse(BaseModel):
     mic: MicSchema
     isolines: list[IsolineSchema]
     ppv_mm_s: float | None = None
+
+
+class DesignCostRequest(BaseModel):
+    design: BlastDesignSchema
+    scenario_id: str = Field(..., examples=["drill_blast"])
+    work_object_name: str | None = None
+    context: CalculationContextInputSchema | None = None
+    materials_selection: MaterialsSelectionSchema | None = None
 
 
 class DesignSummarySchema(BaseModel):

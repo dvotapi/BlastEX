@@ -61,12 +61,17 @@ button { cursor:pointer; }
 .result-chart line { stroke:#e2e9e5; }.result-chart polyline { fill:none; stroke:#2d7957; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }.result-chart circle { fill:#e4b94f; stroke:#173125; stroke-width:2; }.result-chart text { fill:#718078; font-size:9px; }
 .chart-empty { height:190px; display:grid; place-items:center; color:#87948d; font-size:12px; }
 .table-scroll { overflow:auto; }.variants-panel table { width:100%; border-collapse:collapse; font-size:11px; }.variants-panel th, .variants-panel td { padding:10px 12px; border-bottom:1px solid #edf1ef; text-align:left; white-space:nowrap; }.variants-panel th { color:#748079; font-weight:650; }.variants-panel tbody tr { cursor:pointer; }.variants-panel tbody tr:hover, .variants-panel tr.selected { background:#edf7f1; }.row-radio { width:14px; height:14px; display:grid; place-items:center; border:1px solid #2d7957; border-radius:50%; }.selected .row-radio:after { content:""; width:7px; height:7px; border-radius:50%; background:#2d7957; }
+.variants-actions { padding:13px 17px 15px; border-top:1px solid #edf1ef; display:flex; justify-content:flex-end; }
+.secondary-button, .danger-button { border-radius:9px; padding:9px 13px; font-size:12px; font-weight:700; border:1px solid #ced9d3; background:#fff; color:#3b4b43; }
+.secondary-button:hover { border-color:#2d7556; color:#2d7556; }
+.danger-button { border-color:#e7c3bd; color:#9e3025; }
+.danger-button:hover { background:#fce9e7; }
 .coming-soon { min-height:calc(100vh - 72px); display:grid; place-items:center; align-content:center; text-align:center; color:#617068; }.coming-soon span { font-size:38px; color:#2d7556; }.coming-soon h1 { margin:14px 0 5px; color:#17231d; }.coming-soon p { margin:0; font-size:13px; }
 .mobile-nav { display:none; }
 @media (max-width:900px) { .metrics-grid { grid-template-columns:1fr 1fr; }.calculator-grid { grid-template-columns:290px minmax(0,1fr); } }
 @media (max-width:760px) {
   .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { height:64px; padding:0 16px; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
-  .mobile-nav { position:fixed; z-index:10; left:0; right:0; bottom:0; display:flex; justify-content:space-around; padding:7px 5px max(7px,env(safe-area-inset-bottom)); border-top:1px solid #dce4e0; background:#fff; }.mobile-nav button { display:grid; gap:2px; place-items:center; border:0; background:transparent; color:#78857f; font-size:9px; }.mobile-nav button b { color:#6d7a73; font-size:16px; }.mobile-nav button.active, .mobile-nav button.active b { color:#247752; }
+  .mobile-nav { position:fixed; z-index:10; left:0; right:0; bottom:0; display:flex; justify-content:space-around; padding:7px 2px max(7px,env(safe-area-inset-bottom)); border-top:1px solid #dce4e0; background:#fff; }.mobile-nav button { display:grid; gap:2px; place-items:center; border:0; background:transparent; color:#78857f; font-size:8px; padding:2px; }.mobile-nav button b { color:#6d7a73; font-size:15px; }.mobile-nav button.active, .mobile-nav button.active b { color:#247752; }
 }
 
 /* --- Рабочее пространство: панель команды/сценария/сохранения --- */

@@ -1,18 +1,38 @@
 import { useState } from "react";
-import type { User } from "../types";
+import type { BlastVariant, User } from "../types";
 import { WorkspaceProvider } from "./useWorkspace";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { CalcPage } from "../pages/CalcPage";
+import { DesignPage } from "../pages/design/DesignPage";
 import { DrillingPage } from "../pages/DrillingPage";
 import { LaborPage } from "../pages/LaborPage";
 import { ReferencesPage } from "../pages/ReferencesPage";
 
-const PAGES = ["Расчёт", "Бурение", "ФОТ", "Справочники"] as const;
+const PAGES = ["Расчёт", "Проектирование", "Бурение", "ФОТ", "Справочники"] as const;
 type Page = (typeof PAGES)[number];
-const ICONS: Record<Page, string> = { "Расчёт": "◫", "Бурение": "⌁", "ФОТ": "◎", "Справочники": "▤" };
+const ICONS: Record<Page, string> = {
+  "Расчёт": "◫",
+  "Проектирование": "⛏",
+  "Бурение": "⌁",
+  "ФОТ": "◎",
+  "Справочники": "▤",
+};
+const TITLES: Record<Page, string> = {
+  "Расчёт": "Расчёт БВР",
+  "Проектирование": "Проектирование БВР",
+  "Бурение": "Бурение",
+  "ФОТ": "ФОТ",
+  "Справочники": "Справочники",
+};
 
 export function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [page, setPage] = useState<Page>("Расчёт");
+  const [pendingVariant, setPendingVariant] = useState<BlastVariant | null>(null);
+
+  function sendToDesign(variant: BlastVariant) {
+    setPendingVariant(variant);
+    setPage("Проектирование");
+  }
 
   return (
     <WorkspaceProvider user={user}>
@@ -36,11 +56,18 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
         </aside>
         <main className="workspace">
           <header className="topbar">
-            <div><b>{page === "Расчёт" ? "Расчёт БВР" : page}</b><span>{user.organization_name}</span></div>
+            <div><b>{TITLES[page]}</b><span>{user.organization_name}</span></div>
             <button className="logout-button" onClick={onLogout}>Выйти</button>
           </header>
-          <WorkspaceBar />
-          {page === "Расчёт" && <CalcPage />}
+          {page !== "Проектирование" && <WorkspaceBar />}
+          {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} />}
+          {page === "Проектирование" && (
+            <DesignPage
+              user={user}
+              incomingVariant={pendingVariant}
+              onVariantConsumed={() => setPendingVariant(null)}
+            />
+          )}
           {page === "Бурение" && <DrillingPage />}
           {page === "ФОТ" && <LaborPage />}
           {page === "Справочники" && <ReferencesPage />}

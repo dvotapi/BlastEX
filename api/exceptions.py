@@ -30,3 +30,16 @@ class ScenarioNotFoundError(BlastExError):
 class InvalidGeometryError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="invalid_geometry")
+
+
+class DesignNotFoundError(BlastExError):
+    def __init__(self, design_id: str) -> None:
+        super().__init__(
+            f"Паспорт БВР «{design_id}» не найден.",
+            error_type="design_not_found",
+        )
+
+
+class InvalidDesignError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_design")

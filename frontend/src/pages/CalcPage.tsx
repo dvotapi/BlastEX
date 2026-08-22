@@ -30,7 +30,13 @@ function ResultsChart({ variants }: { variants: BlastVariant[] }) {
   );
 }
 
-function FullBvrCalc({ explosiveBasis }: { explosiveBasis: "per_m3" | "per_m" }) {
+function FullBvrCalc({
+  explosiveBasis,
+  onSendToDesign,
+}: {
+  explosiveBasis: "per_m3" | "per_m";
+  onSendToDesign?: (variant: BlastVariant) => void;
+}) {
   const [rocks, setRocks] = useState<Rock[]>([]);
   const [explosives, setExplosives] = useState<Explosive[]>([]);
   const [rockName, setRockName] = useState("");
@@ -133,6 +139,11 @@ function FullBvrCalc({ explosiveBasis }: { explosiveBasis: "per_m3" | "per_m" })
             <div className="table-scroll"><table><thead><tr><th></th><th>Коронка</th><th>Сетка a × b</th><th>q</th><th>Негабарит</th></tr></thead><tbody>
               {variants.map((item, index) => <tr key={item.crown_mm} className={index === selectedIndex ? "selected" : ""} onClick={() => setSelectedIndex(index)}><td><span className="row-radio" /></td><td><b>Ø {item.crown_mm} мм</b></td><td>{item.grid_label} м</td><td>{item.specific_q_kg_m3.toFixed(2)}</td><td>{item.oversize_pct.toFixed(1)}%</td></tr>)}
             </tbody></table></div>
+            {selected && onSendToDesign && (
+              <div className="panel-body" style={{ borderTop: "1px solid var(--line, #d7e0db)", paddingTop: 12 }}>
+                <button className="secondary-button" onClick={() => onSendToDesign(selected)}>Перенести в проект →</button>
+              </div>
+            )}
           </section>
         </div>
       </div>
@@ -189,7 +200,7 @@ function FullBvrCalc({ explosiveBasis }: { explosiveBasis: "per_m3" | "per_m" })
   );
 }
 
-export function CalcPage() {
+export function CalcPage({ onSendToDesign }: { onSendToDesign?: (variant: BlastVariant) => void }) {
   const { activeScenario, loading } = useWorkspace();
   if (loading) return <div className="page-content">Загрузка…</div>;
   if (!activeScenario) return <div className="page-content">Выберите сценарий.</div>;
@@ -203,7 +214,10 @@ export function CalcPage() {
       ) : profile.mode === "drilling_geometry" ? (
         <DrillingGeometryPage />
       ) : (
-        <FullBvrCalc explosiveBasis={profile.explosive_basis === "per_m" ? "per_m" : "per_m3"} />
+        <FullBvrCalc
+          explosiveBasis={profile.explosive_basis === "per_m" ? "per_m" : "per_m3"}
+          onSendToDesign={onSendToDesign}
+        />
       )}
     </div>
   );

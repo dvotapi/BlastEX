@@ -1,0 +1,105 @@
+.design-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+.mode-switch, .history-controls { display:flex; gap:6px; }
+.mode-switch button, .history-controls button { padding:8px 14px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }
+.mode-switch button.active { background:#2d7556; border-color:#2d7556; color:#fff; }
+.history-controls button:disabled { opacity:.45; cursor:default; }
+
+.design-grid { display:grid; grid-template-columns:minmax(260px,320px) minmax(0,1fr); gap:18px; align-items:start; margin-top:18px; }
+.design-sidebar { display:grid; gap:18px; }
+.design-main { display:grid; gap:18px; min-width:0; }
+
+.plan-canvas-wrap { position:relative; border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#fbfcfb; }
+.plan-canvas { display:block; width:100%; height:520px; touch-action:none; cursor:crosshair; }
+.plan-canvas-hint { position:absolute; left:12px; bottom:10px; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.78); color:#eaf3ef; font-size:10.5px; pointer-events:none; }
+
+.axis-line { stroke:#e2e9e5; stroke-width:1; }
+.contour-shape { fill:rgba(45,117,86,.08); stroke:none; }
+.contour-edge { stroke:#8fa399; stroke-width:2; }
+.contour-edge.free { stroke:#e5b94c; stroke-width:3.5; }
+.contour-vertex { fill:#fff; stroke:#2d7556; stroke-width:2; cursor:grab; }
+
+.hole-marker circle { fill:#2d7556; stroke:#fff; stroke-width:1.5; cursor:pointer; }
+.hole-marker.kind-contour circle { fill:#e5b94c; }
+.hole-marker.kind-presplit circle,
+.hole-marker.kind-trim circle { fill:#7a6ee0; }
+.hole-marker.selected circle { stroke:#173125; stroke-width:2.5; }
+.hole-marker.disabled circle { fill:#c3cdc7; }
+
+.dimension line { stroke:#2d7556; stroke-width:1.5; stroke-dasharray:4 3; }
+.dimension text { fill:#17372a; font-size:10px; text-anchor:middle; }
+.dimension.warn line { stroke:#c0392b; }
+.dimension.warn text { fill:#c0392b; font-weight:700; }
+
+.rubber-band { fill:rgba(45,117,86,.12); stroke:#2d7556; stroke-width:1; stroke-dasharray:3 2; }
+
+.pattern-type-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.pattern-type-option { display:grid; gap:4px; justify-items:center; padding:10px 4px; border:1px solid #d9e2dd; border-radius:11px; background:#fff; text-align:center; }
+.pattern-type-option.active { border-color:#2d7556; background:#edf7f1; }
+.pattern-type-option b { font-size:10.5px; }
+.pattern-type-option small { color:#7b8982; font-size:9px; }
+.grid-preview { width:32px; height:32px; }
+.grid-preview circle { fill:#2d7556; }
+
+.plans-panel .panel-body { gap:12px; }
+.plans-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.plans-list { list-style:none; margin:6px 0 0; padding:0; display:grid; gap:4px; max-height:220px; overflow:auto; }
+.plans-list li { display:flex; align-items:center; gap:6px; border-radius:9px; }
+.plans-list li.active { background:#edf7f1; }
+.plans-list-open { flex:1; min-width:0; text-align:left; padding:8px 10px; border:0; background:transparent; display:grid; gap:2px; }
+.plans-list-open b { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.plans-list-open small { color:#7b8982; font-size:10px; }
+.plans-list-delete { border:0; background:transparent; color:#9e3025; padding:6px 10px; font-size:12px; }
+
+.hole-table-panel .table-scroll { max-height:280px; }
+.hole-table-panel select, .hole-table-panel input { border:1px solid #cfd9d4; border-radius:6px; padding:4px 6px; font-size:11px; width:100%; }
+.hole-table-actions { display:flex; align-items:center; justify-content:space-between; padding:10px 17px; border-top:1px solid #edf1ef; font-size:12px; }
+
+.panel > header select { border:1px solid #ced9d3; border-radius:8px; padding:5px 8px; font-size:11px; background:#fff; color:#3b4b43; }
+
+.section-view-panel .panel-body { gap:10px; }
+.section-svg { display:block; width:100%; height:auto; background:#fbfcfb; border:1px solid #e2e8e5; border-radius:11px; }
+.section-bench-line { stroke:#c7d1cc; stroke-width:1; stroke-dasharray:5 3; }
+.section-label { fill:#5c6a63; font-size:9.5px; }
+.section-hole-outline { stroke:#c7d1cc; stroke-width:2; }
+.section-collar { fill:#2d7556; }
+.section-deck { stroke-width:6; stroke-linecap:butt; }
+.section-deck.deck-charge { stroke:#c0392b; }
+.section-deck.deck-stemming { stroke:#a9835a; }
+.section-deck.deck-air { stroke:#8fb7d9; stroke-dasharray:3 3; }
+.section-legend { display:flex; gap:14px; font-size:11px; color:#5c6a63; }
+.section-legend i { display:inline-block; width:14px; height:4px; margin-right:5px; vertical-align:middle; border-radius:2px; }
+.section-legend i.deck-charge { background:#c0392b; }
+.section-legend i.deck-stemming { background:#a9835a; }
+.section-legend i.deck-air { background:#8fb7d9; }
+
+.charge-color-hint { display:flex; align-items:center; gap:8px; font-size:11px; color:#5c6a63; }
+.charge-color-hint .charge-scale { flex:1; height:8px; border-radius:4px; background:linear-gradient(90deg,#f4d35e,#c0392b); }
+
+.checkbox-row { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; }
+.checkbox-row input { width:auto; }
+.ppv-kn { display:flex; gap:6px; }
+.ppv-kn input { width:50%; padding:10px 8px; border:1px solid #cfd9d4; border-radius:9px; }
+
+.animation-controls { display:flex; align-items:center; gap:10px; }
+.animation-controls input[type="range"] { flex:1; accent-color:#2d7556; }
+.animation-controls span { font-size:11px; color:#5c6a63; min-width:60px; text-align:right; }
+
+.warnings-list { display:grid; gap:6px; max-height:180px; overflow:auto; }
+.warning-item { padding:8px 10px; border-radius:8px; background:#fdf3e0; color:#8a5a1a; font-size:11px; line-height:1.4; }
+
+.connector-line { stroke:#7a6ee0; stroke-width:1.2; opacity:0.65; marker-end:url(#arrow-connector); }
+.connector-label { fill:#5c4fc4; font-size:8px; }
+.isoline-segment { stroke:#2d9cdb; stroke-width:1; opacity:0.55; }
+.isoline-label { fill:#1c6fa5; font-size:8.5px; }
+.hole-marker.unfired circle { opacity:0.25; }
+.hole-marker.fired circle { stroke:#e5b94c; stroke-width:2.5; }
+
+.scene3d-wrap { position:relative; border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#f3f6f4; }
+.scene3d-canvas { width:100%; height:560px; }
+.scene3d-canvas canvas { display:block; }
+.scene3d-reset { position:absolute; top:12px; right:12px; padding:8px 12px; border:1px solid #ced9d3; border-radius:9px; background:rgba(255,255,255,.92); color:#3b4b43; font-size:11px; font-weight:700; }
+.scene3d-hint { position:absolute; left:12px; bottom:10px; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.78); color:#eaf3ef; font-size:10.5px; pointer-events:none; }
+.scene3d-loading { height:560px; display:grid; place-items:center; border:1px solid #d9e2dd; border-radius:15px; background:#f3f6f4; color:#69776f; font-size:13px; }
+@media (max-width:900px) { .scene3d-canvas { height:420px; } }
+
+@media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

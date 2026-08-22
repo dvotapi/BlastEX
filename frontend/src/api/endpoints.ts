@@ -1,4 +1,4 @@
-import { get, post, put, requestSvg } from "./client";
+import { del, get, post, put, requestSvg } from "./client";
 import type {
   AggregatedCostResult,
   BlastGeometryResponse,
@@ -24,6 +24,23 @@ import type {
   WorkspaceSnapshot,
   WorkspaceState,
 } from "../types";
+import type {
+  AnalyzeResponse,
+  BlastDesign,
+  BlockContour,
+  ChargeExplosive,
+  ChargeGenerateResponse,
+  ChargeRules,
+  CostScenarioId,
+  DesignCostResult,
+  DesignSummary,
+  Hole,
+  PatternGenerateResponse,
+  PpvRequest,
+  SchemeType,
+  TieGenerateResponse,
+  TieParams,
+} from "../types/design";
 
 const V1 = "/api/v1";
 
@@ -120,6 +137,49 @@ export const api = {
     ),
   materialsAuto: (explosive_key: string, initiation: InitiationConfig) =>
     post<{ selection: MaterialsSelection }>(`${V1}/cost/materials-auto`, { explosive_key, initiation }),
+
+  // --- проектирование БВР ---
+  design: {
+    pattern: (contour: BlockContour, params: Record<string, unknown>, existingHoles: Hole[] = []) =>
+      post<PatternGenerateResponse>(`${V1}/design/pattern`, {
+        contour,
+        params,
+        existing_holes: existingHoles,
+      }),
+    charge: (holes: Hole[], rules: ChargeRules, explosive: ChargeExplosive) =>
+      post<ChargeGenerateResponse>(`${V1}/design/charge`, { holes, rules, explosive }),
+    tie: (holes: Hole[], scheme: SchemeType, params: TieParams) =>
+      post<TieGenerateResponse>(`${V1}/design/tie/generate`, { holes, scheme, params }),
+    analyze: (design: BlastDesign, isolineStepMs: number, micWindowMs: number, ppv: PpvRequest | null) =>
+      post<AnalyzeResponse>(`${V1}/design/analyze`, {
+        design,
+        isoline_step_ms: isolineStepMs,
+        mic_window_ms: micWindowMs,
+        ppv,
+      }),
+    cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
+      post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
+    passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,
+    listPlans: () => get<{ items: DesignSummary[] }>(`${V1}/design/plans`),
+    createPlan: (design: BlastDesign) => post<BlastDesign>(`${V1}/design/plans`, design),
+    getPlan: (designId: string) => get<BlastDesign>(`${V1}/design/plans/${designId}`),
+    savePlan: (designId: string, design: BlastDesign) =>
+      put<BlastDesign>(`${V1}/design/plans/${designId}`, design),
+    deletePlan: (designId: string) => del<void>(`${V1}/design/plans/${designId}`),
+    exportCsv: async (designId: string, fileName: string) => {
+      const response = await fetch(`${V1}/design/plans/${designId}/export.csv`, { credentials: "include" });
+      if (!response.ok) throw new Error("Не удалось экспортировать паспорт.");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    },
+  },
 };
 
 export type GeometryRequest = {

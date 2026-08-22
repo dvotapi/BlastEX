@@ -75,4 +75,23 @@
 .charge-color-hint { display:flex; align-items:center; gap:8px; font-size:11px; color:#5c6a63; }
 .charge-color-hint .charge-scale { flex:1; height:8px; border-radius:4px; background:linear-gradient(90deg,#f4d35e,#c0392b); }
 
+.checkbox-row { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; }
+.checkbox-row input { width:auto; }
+.ppv-kn { display:flex; gap:6px; }
+.ppv-kn input { width:50%; padding:10px 8px; border:1px solid #cfd9d4; border-radius:9px; }
+
+.animation-controls { display:flex; align-items:center; gap:10px; }
+.animation-controls input[type="range"] { flex:1; accent-color:#2d7556; }
+.animation-controls span { font-size:11px; color:#5c6a63; min-width:60px; text-align:right; }
+
+.warnings-list { display:grid; gap:6px; max-height:180px; overflow:auto; }
+.warning-item { padding:8px 10px; border-radius:8px; background:#fdf3e0; color:#8a5a1a; font-size:11px; line-height:1.4; }
+
+.connector-line { stroke:#7a6ee0; stroke-width:1.2; opacity:0.65; marker-end:url(#arrow-connector); }
+.connector-label { fill:#5c4fc4; font-size:8px; }
+.isoline-segment { stroke:#2d9cdb; stroke-width:1; opacity:0.55; }
+.isoline-label { fill:#1c6fa5; font-size:8.5px; }
+.hole-marker.unfired circle { opacity:0.25; }
+.hole-marker.fired circle { stroke:#e5b94c; stroke-width:2.5; }
+
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

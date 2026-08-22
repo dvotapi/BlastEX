@@ -129,6 +129,71 @@ class ChargeGenerateResponse(BaseModel):
     total_holes_charged: int
 
 
+class TieGenerateRequest(BaseModel):
+    holes: list[HoleSchema]
+    scheme: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class TieGenerateResponse(BaseModel):
+    network: InitiationNetworkSchema
+    starters_count: int
+    connectors_count: int
+
+
+class ValidationWarningSchema(BaseModel):
+    code: str
+    hole_id: str | None = None
+    message: str
+
+
+class SummarySchema(BaseModel):
+    hole_count: int
+    production_hole_count: int
+    contour_hole_count: int
+    drilling_footage_m: float
+    block_volume_m3: float
+    total_charge_kg: float
+    avg_specific_q_kg_m3: float
+    explosive_breakdown_kg: dict[str, float]
+    charged_hole_count: int
+    loads_by_hole_count: int
+
+
+class MicSchema(BaseModel):
+    mic_kg: float
+    window_start_ms: float
+    hole_ids: list[str]
+
+
+class IsolineSchema(BaseModel):
+    time_ms: float
+    segments: list[list[list[float]]]
+
+
+class PpvRequestSchema(BaseModel):
+    distance_m: float = Field(..., gt=0)
+    k: float = 200.0
+    n: float = 1.6
+
+
+class AnalyzeRequest(BaseModel):
+    design: BlastDesignSchema
+    isoline_step_ms: float = Field(25.0, gt=0)
+    mic_window_ms: float = Field(8.0, gt=0)
+    ppv: PpvRequestSchema | None = None
+
+
+class AnalyzeResponse(BaseModel):
+    times_ms: dict[str, float]
+    timing_warnings: list[str]
+    validation_warnings: list[ValidationWarningSchema]
+    summary: SummarySchema
+    mic: MicSchema
+    isolines: list[IsolineSchema]
+    ppv_mm_s: float | None = None
+
+
 class DesignSummarySchema(BaseModel):
     design_id: str
     name: str

@@ -4,12 +4,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Response, status
 
 from api.schemas.design import (
+    AnalyzeRequest,
+    AnalyzeResponse,
     BlastDesignSchema,
     ChargeGenerateRequest,
     ChargeGenerateResponse,
     DesignListResponse,
     PatternGenerateRequest,
     PatternGenerateResponse,
+    TieGenerateRequest,
+    TieGenerateResponse,
 )
 from api.security import require_internal_access
 from api.services import design_service
@@ -25,6 +29,16 @@ def post_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse:
 @router.post("/charge", response_model=ChargeGenerateResponse)
 def post_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
     return design_service.generate_charge(request)
+
+
+@router.post("/tie/generate", response_model=TieGenerateResponse)
+def post_tie_generate(request: TieGenerateRequest) -> TieGenerateResponse:
+    return design_service.generate_tie(request)
+
+
+@router.post("/analyze", response_model=AnalyzeResponse)
+def post_analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+    return design_service.analyze_design(request)
 
 
 @router.get("/plans", response_model=DesignListResponse)

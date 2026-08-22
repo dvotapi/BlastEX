@@ -1,7 +1,7 @@
 // Единственный источник истины для документа паспорта БВР на клиенте:
 // useReducer + стек undo/redo. Камера, выделение и режим инструмента — вне
 // документа (не должны попадать в историю правок).
-import type { BenchSurface, BlastDesign, ChargeRules, Hole, HoleLoad, PatternParams } from "../../types/design";
+import type { BenchSurface, BlastDesign, ChargeRules, Hole, HoleLoad, InitiationNetwork, PatternParams } from "../../types/design";
 
 export type DesignAction =
   | { type: "LOAD"; design: BlastDesign }
@@ -17,6 +17,7 @@ export type DesignAction =
   | { type: "DELETE_HOLES"; ids: string[] }
   | { type: "SET_CHARGE_RULES"; rules: Partial<ChargeRules> }
   | { type: "SET_LOADS"; loads: HoleLoad[] }
+  | { type: "SET_NETWORK"; network: InitiationNetwork }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -93,6 +94,8 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       return { ...document, charge_rules: { ...document.charge_rules, ...action.rules } };
     case "SET_LOADS":
       return { ...document, loads: action.loads };
+    case "SET_NETWORK":
+      return { ...document, network: action.network };
     default:
       return document;
   }
@@ -109,6 +112,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "ADD_HOLE",
   "DELETE_HOLES",
   "SET_LOADS",
+  "SET_NETWORK",
 ];
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {

@@ -129,6 +129,68 @@ export type DesignSummary = {
   hole_count: number;
 };
 
+export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid";
+export type SystemType = InitiationNetwork["system"];
+
+export type TieParams = {
+  system: SystemType;
+  interval_ms: number;
+  downhole_delay_ms: number;
+  include_contour: boolean;
+};
+
+export type TieGenerateResponse = {
+  network: InitiationNetwork;
+  starters_count: number;
+  connectors_count: number;
+};
+
+export type ValidationWarning = {
+  code: string;
+  hole_id: string | null;
+  message: string;
+};
+
+export type DesignSummaryStats = {
+  hole_count: number;
+  production_hole_count: number;
+  contour_hole_count: number;
+  drilling_footage_m: number;
+  block_volume_m3: number;
+  total_charge_kg: number;
+  avg_specific_q_kg_m3: number;
+  explosive_breakdown_kg: Record<string, number>;
+  charged_hole_count: number;
+  loads_by_hole_count: number;
+};
+
+export type MicResult = {
+  mic_kg: number;
+  window_start_ms: number;
+  hole_ids: string[];
+};
+
+export type Isoline = {
+  time_ms: number;
+  segments: number[][][];
+};
+
+export type PpvRequest = {
+  distance_m: number;
+  k: number;
+  n: number;
+};
+
+export type AnalyzeResponse = {
+  times_ms: Record<string, number>;
+  timing_warnings: string[];
+  validation_warnings: ValidationWarning[];
+  summary: DesignSummaryStats;
+  mic: MicResult;
+  isolines: Isoline[];
+  ppv_mm_s: number | null;
+};
+
 export function emptyContour(): BlockContour {
   return {
     vertices: [],
@@ -154,6 +216,19 @@ export function emptyDesign(): BlastDesign {
     explosive_key: "",
   };
 }
+
+export const DEFAULT_TIE_PARAMS: TieParams = {
+  system: "nonel",
+  interval_ms: 25,
+  downhole_delay_ms: 500,
+  include_contour: false,
+};
+
+export const DEFAULT_PPV_REQUEST: PpvRequest = {
+  distance_m: 200,
+  k: 200,
+  n: 1.6,
+};
 
 export const DEFAULT_CHARGE_RULES: ChargeRules = {
   hole_oversize_coeff: 1.05,

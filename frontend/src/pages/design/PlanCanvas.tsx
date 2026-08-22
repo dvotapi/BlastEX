@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ruNumber } from "../../lib/format";
 import {
   Camera,
@@ -11,7 +11,7 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { BlockContour, Hole, HoleLoad, Point3 } from "../../types/design";
+import type { BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3 } from "../../types/design";
 
 const HOLE_HIT_RADIUS_PX = 11;
 const VERTEX_HIT_RADIUS_PX = 9;
@@ -42,6 +42,10 @@ export function PlanCanvas({
   onCameraChange,
   spacingHint,
   loadsById,
+  network,
+  isolines,
+  timesMs,
+  animationMs,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -56,6 +60,10 @@ export function PlanCanvas({
   onCameraChange: (camera: Camera) => void;
   spacingHint: { a: number; b: number };
   loadsById?: Record<string, HoleLoad>;
+  network?: InitiationNetwork | null;
+  isolines?: Isoline[];
+  timesMs?: Record<string, number> | null;
+  animationMs?: number | null;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -234,6 +242,12 @@ export function PlanCanvas({
   const maxChargeKg = loadsById
     ? Math.max(0, ...Object.values(loadsById).map((ld) => ld.total_charge_kg))
     : 0;
+  const holesById = useMemo(() => {
+    const map = new Map<string, Hole>();
+    for (const h of holes) map.set(h.id, h);
+    return map;
+  }, [holes]);
+  const animating = timesMs != null && animationMs != null;
 
   return (
     <div className="plan-canvas-wrap">
@@ -246,8 +260,24 @@ export function PlanCanvas({
         onPointerUp={handlePointerUp}
         onDoubleClick={handleDoubleClick}
       >
+        <defs>
+          <marker id="arrow-connector" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#7a6ee0" />
+          </marker>
+        </defs>
+
         <line x1={0} y1={origin.y} x2={viewport.width} y2={origin.y} className="axis-line" />
         <line x1={origin.x} y1={0} x2={origin.x} y2={viewport.height} className="axis-line" />
+
+        {isolines?.map((iso, i) => (
+          <g key={`iso-${i}`}>
+            {iso.segments.map((seg, j) => {
+              const a = worldToScreen(camera, viewport, { x: seg[0][0], y: seg[0][1] });
+              const b = worldToScreen(camera, viewport, { x: seg[1][0], y: seg[1][1] });
+              return <line key={j} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="isoline-segment" />;
+            })}
+          </g>
+        ))}
 
         {contour.vertices.length >= 2 && (
           <polygon
@@ -267,13 +297,33 @@ export function PlanCanvas({
           return <circle key={`vertex-${i}`} cx={p.x} cy={p.y} r={5} className="contour-vertex" />;
         })}
 
+        {network?.connectors.map((c, i) => {
+          const from = holesById.get(c.from_hole);
+          const to = holesById.get(c.to_hole);
+          if (!from || !to) return null;
+          const a = worldToScreen(camera, viewport, { x: from.collar.x, y: from.collar.y });
+          const b = worldToScreen(camera, viewport, { x: to.collar.x, y: to.collar.y });
+          const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          return (
+            <g key={`conn-${i}`}>
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="connector-line" markerEnd="url(#arrow-connector)" />
+              {c.delay_ms > 0 && <text x={mid.x} y={mid.y - 2} className="connector-label">{ruNumber(c.delay_ms, 0)}</text>}
+            </g>
+          );
+        })}
+
         {holes.map((h) => {
           const p = holeScreenPos(h);
           const isSelected = selected.has(h.id);
           const load = loadsById?.[h.id];
           const chargeColor = load && maxChargeKg > 0 ? chargeMassColor(load.total_charge_kg, maxChargeKg) : null;
+          let animClass = "";
+          if (animating) {
+            const t = timesMs![h.id];
+            animClass = t !== undefined && t <= animationMs! ? " fired" : " unfired";
+          }
           return (
-            <g key={h.id} className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${!h.enabled ? " disabled" : ""}`}>
+            <g key={h.id} className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${!h.enabled ? " disabled" : ""}${animClass}`}>
               <circle cx={p.x} cy={p.y} r={isSelected ? 7 : 5.5} style={chargeColor ? { fill: chargeColor } : undefined} />
             </g>
           );

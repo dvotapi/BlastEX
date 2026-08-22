@@ -1,5 +1,6 @@
 import type { BlastVariant, Explosive, Rock, User } from "./types";
 import type {
+  AnalyzeResponse,
   BlastDesign,
   BlockContour,
   ChargeExplosive,
@@ -8,6 +9,10 @@ import type {
   DesignSummary,
   Hole,
   PatternGenerateResponse,
+  PpvRequest,
+  SchemeType,
+  TieGenerateResponse,
+  TieParams,
 } from "./types/design";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -80,6 +85,16 @@ export const api = {
       request<ChargeGenerateResponse>("/api/v1/design/charge", {
         method: "POST",
         body: JSON.stringify({ holes, rules, explosive }),
+      }),
+    tie: (holes: Hole[], scheme: SchemeType, params: TieParams) =>
+      request<TieGenerateResponse>("/api/v1/design/tie/generate", {
+        method: "POST",
+        body: JSON.stringify({ holes, scheme, params }),
+      }),
+    analyze: (design: BlastDesign, isolineStepMs: number, micWindowMs: number, ppv: PpvRequest | null) =>
+      request<AnalyzeResponse>("/api/v1/design/analyze", {
+        method: "POST",
+        body: JSON.stringify({ design, isoline_step_ms: isolineStepMs, mic_window_ms: micWindowMs, ppv }),
       }),
     listPlans: () => request<{ items: DesignSummary[] }>("/api/v1/design/plans"),
     createPlan: (design: BlastDesign) =>

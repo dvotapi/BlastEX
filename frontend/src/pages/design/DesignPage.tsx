@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "../../api";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import type { BlastVariant, Explosive, User } from "../../types";
 import {
   DEFAULT_CHARGE_RULES,
   DEFAULT_PATTERN_PARAMS,
+  DEFAULT_PPV_REQUEST,
+  DEFAULT_TIE_PARAMS,
   emptyDesign,
+  type AnalyzeResponse,
   type ChargeRules,
   type DesignSummary,
   type Hole,
   type HoleLoad,
   type PatternParams,
   type Point3,
+  type PpvRequest,
+  type SchemeType,
+  type TieParams,
 } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
 import { designReducer, initDesignState } from "./designReducer";
@@ -21,6 +27,8 @@ import { PlanCanvas } from "./PlanCanvas";
 import { PlansPanel } from "./PlansPanel";
 import { SectionView } from "./SectionView";
 import { SummaryPanel } from "./SummaryPanel";
+import { TiePanel } from "./TiePanel";
+import { TimingPanel } from "./TimingPanel";
 
 let manualHoleCounter = 0;
 
@@ -36,7 +44,7 @@ export function DesignPage({
   const [state, dispatch] = useReducer(designReducer, emptyDesign(), initDesignState);
   const document = state.present;
 
-  const [mode, setMode] = useState<"contour" | "holes" | "charge">("contour");
+  const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing">("contour");
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 6 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [patternParams, setPatternParams] = useState<PatternParams>(DEFAULT_PATTERN_PARAMS);
@@ -51,6 +59,46 @@ export function DesignPage({
   const [chargeRules, setChargeRules] = useState<ChargeRules>(DEFAULT_CHARGE_RULES);
   const [chargeBusy, setChargeBusy] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
+
+  const [tieScheme, setTieScheme] = useState<SchemeType>("row");
+  const [tieParams, setTieParams] = useState<TieParams>(DEFAULT_TIE_PARAMS);
+  const [tieBusy, setTieBusy] = useState(false);
+  const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
+  const [analyzeBusy, setAnalyzeBusy] = useState(false);
+  const [isolineStepMs, setIsolineStepMs] = useState(25);
+  const [showIsolines, setShowIsolines] = useState(true);
+  const [ppv, setPpv] = useState<PpvRequest>(DEFAULT_PPV_REQUEST);
+  const [playing, setPlaying] = useState(false);
+  const [currentMs, setCurrentMs] = useState(0);
+  const animationFrameRef = useRef<number | null>(null);
+
+  const maxAnimationMs = useMemo(() => {
+    const values = analysis ? Object.values(analysis.times_ms) : [];
+    return values.length ? Math.max(...values) : 0;
+  }, [analysis]);
+
+  useEffect(() => {
+    if (!playing || !analysis) return;
+    let lastReal = performance.now();
+    const rate = maxAnimationMs > 0 ? maxAnimationMs / 6000 : 1; // ~6с на всю анимацию
+    function tick(now: number) {
+      const deltaReal = now - lastReal;
+      lastReal = now;
+      setCurrentMs((prev) => {
+        const next = prev + deltaReal * rate;
+        if (next >= maxAnimationMs) {
+          setPlaying(false);
+          return maxAnimationMs;
+        }
+        return next;
+      });
+      animationFrameRef.current = requestAnimationFrame(tick);
+    }
+    animationFrameRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
+    };
+  }, [playing, analysis, maxAnimationMs]);
 
   useEffect(() => { refreshPlans(); }, []);
 
@@ -193,6 +241,62 @@ export function DesignPage({
     }
   }
 
+  async function generateTie() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    setTieBusy(true);
+    setError("");
+    try {
+      const result = await api.design.tie(document.holes, tieScheme, tieParams);
+      dispatch({ type: "SET_NETWORK", network: result.network });
+      setAnalysis(null);
+      setCurrentMs(0);
+      setPlaying(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось построить схему коммутации.");
+    } finally {
+      setTieBusy(false);
+    }
+  }
+
+  async function runAnalyze() {
+    if (!document.network.starters.length) {
+      setError("Сначала постройте схему коммутации.");
+      return;
+    }
+    setAnalyzeBusy(true);
+    setError("");
+    try {
+      const designForAnalysis = {
+        ...document,
+        pattern_params: patternParams as unknown as Record<string, unknown>,
+        charge_rules: chargeRules as unknown as Record<string, unknown>,
+        explosive_key: explosiveKey,
+      };
+      const result = await api.design.analyze(designForAnalysis, isolineStepMs, 8.0, ppv);
+      setAnalysis(result);
+      setCurrentMs(0);
+      setPlaying(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось рассчитать тайминг.");
+    } finally {
+      setAnalyzeBusy(false);
+    }
+  }
+
+  function togglePlay() {
+    if (!analysis) return;
+    if (!playing && currentMs >= maxAnimationMs) setCurrentMs(0);
+    setPlaying((prev) => !prev);
+  }
+
+  function scrub(ms: number) {
+    setPlaying(false);
+    setCurrentMs(ms);
+  }
+
   async function savePlan() {
     setSaveBusy(true);
     setError("");
@@ -229,6 +333,9 @@ export function DesignPage({
       setBlockVolumeM3(null);
       setSelected(new Set());
       setSelectedRow(null);
+      setAnalysis(null);
+      setCurrentMs(0);
+      setPlaying(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -253,9 +360,13 @@ export function DesignPage({
     dispatch({ type: "LOAD", design: emptyDesign() });
     setPatternParams(DEFAULT_PATTERN_PARAMS);
     setChargeRules(DEFAULT_CHARGE_RULES);
+    setTieParams(DEFAULT_TIE_PARAMS);
     setBlockVolumeM3(null);
     setSelected(new Set());
     setSelectedRow(null);
+    setAnalysis(null);
+    setCurrentMs(0);
+    setPlaying(false);
   }
 
   async function exportCsv() {
@@ -280,6 +391,8 @@ export function DesignPage({
           <button className={mode === "contour" ? "active" : ""} onClick={() => setMode("contour")}>Контур</button>
           <button className={mode === "holes" ? "active" : ""} onClick={() => setMode("holes")}>Скважины</button>
           <button className={mode === "charge" ? "active" : ""} onClick={() => setMode("charge")}>Заряжание</button>
+          <button className={mode === "tie" ? "active" : ""} onClick={() => setMode("tie")}>Коммутация</button>
+          <button className={mode === "timing" ? "active" : ""} onClick={() => setMode("timing")}>Тайминг</button>
         </div>
         <div className="history-controls">
           <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length} title="Отменить (Ctrl+Z)">↶ Отменить</button>
@@ -301,6 +414,32 @@ export function DesignPage({
               onCalculate={calculateCharge}
               busy={chargeBusy}
             />
+          ) : mode === "tie" ? (
+            <TiePanel
+              scheme={tieScheme}
+              params={tieParams}
+              onSchemeChange={setTieScheme}
+              onParamsChange={(patch) => setTieParams((prev) => ({ ...prev, ...patch }))}
+              onGenerate={generateTie}
+              busy={tieBusy}
+            />
+          ) : mode === "timing" ? (
+            <TimingPanel
+              analysis={analysis}
+              busy={analyzeBusy}
+              onAnalyze={runAnalyze}
+              isolineStepMs={isolineStepMs}
+              onIsolineStepChange={setIsolineStepMs}
+              showIsolines={showIsolines}
+              onToggleIsolines={() => setShowIsolines((prev) => !prev)}
+              ppv={ppv}
+              onPpvChange={(patch) => setPpv((prev) => ({ ...prev, ...patch }))}
+              playing={playing}
+              onPlayToggle={togglePlay}
+              currentMs={currentMs}
+              maxMs={maxAnimationMs}
+              onScrub={scrub}
+            />
           ) : (
             <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
           )}
@@ -321,7 +460,7 @@ export function DesignPage({
           <PlanCanvas
             contour={document.contour}
             holes={document.holes}
-            mode={mode === "charge" ? "holes" : mode}
+            mode={mode === "contour" ? "contour" : "holes"}
             selected={selected}
             onSelectedChange={setSelected}
             onContourVerticesChange={onContourVerticesChange}
@@ -332,6 +471,10 @@ export function DesignPage({
             onCameraChange={setCamera}
             spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
             loadsById={mode === "charge" ? loadsById : undefined}
+            network={mode === "tie" || mode === "timing" ? document.network : undefined}
+            isolines={mode === "timing" && showIsolines ? analysis?.isolines : undefined}
+            timesMs={mode === "timing" ? analysis?.times_ms : undefined}
+            animationMs={mode === "timing" && analysis ? currentMs : undefined}
           />
           {mode === "charge" ? (
             <SectionView

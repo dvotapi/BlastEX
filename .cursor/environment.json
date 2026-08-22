@@ -1,0 +1,20 @@
+{
+  "name": "BlastEX",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "api",
+      "command": "bash .cursor/run-api.sh",
+      "description": "FastAPI backend (uvicorn) on 127.0.0.1:8000 with dev-only auth (admin@blastex.dev / blastex)."
+    },
+    {
+      "name": "frontend",
+      "command": "cd frontend && npm run dev",
+      "description": "React/Vite dev server on 127.0.0.1:5173, proxies /api and /health to the backend."
+    }
+  ],
+  "ports": [
+    { "name": "api", "port": 8000 },
+    { "name": "frontend", "port": 5173 }
+  ]
+}

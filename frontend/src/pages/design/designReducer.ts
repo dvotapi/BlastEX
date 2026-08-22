@@ -45,17 +45,39 @@ function moveHole(hole: Hole, dx: number, dy: number): Hole {
   };
 }
 
+function emptyNetwork(): InitiationNetwork {
+  return { system: "nonel", starters: [], connectors: [], downhole_delay_ms: {}, electronic_times_ms: {} };
+}
+
+function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick<BlastDesign, "loads" | "network"> {
+  const loads = document.loads.filter((ld) => holeIds.has(ld.hole_id));
+  const network = document.network;
+  return {
+    loads,
+    network: {
+      ...network,
+      starters: network.starters.filter((id) => holeIds.has(id)),
+      connectors: network.connectors.filter((c) => holeIds.has(c.from_hole) && holeIds.has(c.to_hole)),
+      downhole_delay_ms: Object.fromEntries(Object.entries(network.downhole_delay_ms).filter(([id]) => holeIds.has(id))),
+      electronic_times_ms: Object.fromEntries(Object.entries(network.electronic_times_ms).filter(([id]) => holeIds.has(id))),
+    },
+  };
+}
+
 function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesign {
   switch (action.type) {
     case "LOAD":
       return action.design;
     case "SET_NAME":
       return { ...document, name: action.name };
-    case "SET_CONTOUR_VERTICES":
+    case "SET_CONTOUR_VERTICES": {
+      const total = action.vertices.length;
+      const free_faces = document.contour.free_faces.filter(([a, b]) => a >= 0 && a < total && b >= 0 && b < total);
       return {
         ...document,
-        contour: { ...document.contour, vertices: action.vertices, free_faces: [] },
+        contour: { ...document.contour, vertices: action.vertices, free_faces },
       };
+    }
     case "TOGGLE_FREE_FACE": {
       const total = document.contour.vertices.length;
       if (total < 2) return document;
@@ -71,7 +93,12 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     case "SET_PATTERN_PARAMS":
       return { ...document, pattern_params: { ...document.pattern_params, ...action.params } };
     case "SET_HOLES":
-      return { ...document, holes: action.holes };
+      return {
+        ...document,
+        holes: action.holes,
+        loads: [],
+        network: emptyNetwork(),
+      };
     case "MOVE_HOLES": {
       const ids = new Set(action.ids);
       return {
@@ -88,7 +115,9 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       return { ...document, holes: [...document.holes, action.hole] };
     case "DELETE_HOLES": {
       const ids = new Set(action.ids);
-      return { ...document, holes: document.holes.filter((h) => !ids.has(h.id)) };
+      const holes = document.holes.filter((h) => !ids.has(h.id));
+      const holeIds = new Set(holes.map((h) => h.id));
+      return { ...document, holes, ...pruneLoadsAndNetwork(document, holeIds) };
     }
     case "SET_CHARGE_RULES":
       return { ...document, charge_rules: { ...document.charge_rules, ...action.rules } };

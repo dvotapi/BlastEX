@@ -20,13 +20,15 @@ def summary(design: BlastDesign) -> dict[str, Any]:
     contour_holes = [h for h in enabled if h.kind == "contour"]
     footage = sum(h.length_m for h in enabled)
 
-    loads_by_hole = {ld.hole_id: ld for ld in design.loads}
-    total_charge_kg = sum(ld.total_charge_kg for ld in design.loads)
-    charged = [ld for ld in design.loads if ld.total_charge_kg > 0]
+    enabled_ids = {h.id for h in enabled}
+    active_loads = [ld for ld in design.loads if ld.hole_id in enabled_ids]
+    loads_by_hole = {ld.hole_id: ld for ld in active_loads}
+    total_charge_kg = sum(ld.total_charge_kg for ld in active_loads)
+    charged = [ld for ld in active_loads if ld.total_charge_kg > 0]
     avg_q = sum(ld.specific_q_kg_m3 for ld in charged) / len(charged) if charged else 0.0
 
     explosive_breakdown: dict[str, float] = {}
-    for ld in design.loads:
+    for ld in active_loads:
         for deck in ld.decks:
             if deck.kind == "charge" and deck.explosive_key:
                 explosive_breakdown[deck.explosive_key] = (

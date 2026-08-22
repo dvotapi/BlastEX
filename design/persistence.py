@@ -60,8 +60,18 @@ def designs_dir(team_id: str) -> Path:
     return team_dir(team_id) / "designs"
 
 
+def _validate_design_id(design_id: str) -> None:
+    if not design_id or design_id != Path(design_id).name or design_id in {".", ".."}:
+        raise DesignNotFoundError(f"Паспорт БВР «{design_id}» не найден.")
+
+
 def design_path(team_id: str, design_id: str) -> Path:
-    return designs_dir(team_id) / f"{design_id}.json"
+    _validate_design_id(design_id)
+    base = designs_dir(team_id).resolve()
+    path = (base / f"{design_id}.json").resolve()
+    if not path.is_relative_to(base):
+        raise DesignNotFoundError(f"Паспорт БВР «{design_id}» не найден.")
+    return path
 
 
 def ensure_designs_layout(team_id: str) -> None:

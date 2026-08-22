@@ -1,7 +1,7 @@
 // Императивная three.js-сцена: просмотр блока и скважин в 3D. Источник
 // истины по-прежнему 2D-план — здесь только визуализация и клик-выделение,
 // без редактирования геометрии.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { BlockContour, Hole } from "../../types/design";
@@ -42,6 +42,7 @@ export function Scene3D({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<SceneState | null>(null);
+  const [reframeTick, setReframeTick] = useState(0);
   const onSelectHoleRef = useRef(onSelectHole);
   useEffect(() => {
     onSelectHoleRef.current = onSelectHole;
@@ -186,8 +187,7 @@ export function Scene3D({
       state.framed = true;
     }
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contour, holes, selected]);
+  }, [contour, holes, selected, reframeTick]);
 
   return (
     <div className="scene3d-wrap">
@@ -197,6 +197,7 @@ export function Scene3D({
         className="scene3d-reset"
         onClick={() => {
           if (stateRef.current) stateRef.current.framed = false;
+          setReframeTick((tick) => tick + 1);
         }}
       >
         ⟲ Сбросить обзор

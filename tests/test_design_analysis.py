@@ -41,6 +41,16 @@ class SummaryTests(unittest.TestCase):
         self.assertAlmostEqual(result["total_charge_kg"], sum(ld.total_charge_kg for ld in design.loads), places=2)
         self.assertIn("Гранулит-РП", result["explosive_breakdown_kg"])
 
+    def test_summary_ignores_orphan_loads(self):
+        design, _times = _design()
+        orphan = design.loads[0]
+        design.loads = [orphan]
+        design.holes = design.holes[1:]
+        result = summary(design)
+        self.assertEqual(result["total_charge_kg"], 0.0)
+        self.assertEqual(result["charged_hole_count"], 0)
+        self.assertEqual(result["loads_by_hole_count"], 0)
+
 
 class ChargePerDelayTests(unittest.TestCase):
     def test_mic_window_never_exceeds_total_charge(self):

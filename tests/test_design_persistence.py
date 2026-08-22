@@ -68,6 +68,12 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         with self.assertRaises(DesignNotFoundError):
             load_design(TEAM_ID, "no-such-id")
 
+    def test_path_traversal_id_rejected(self):
+        with self.assertRaises(DesignNotFoundError):
+            load_design(TEAM_ID, "../secret")
+        with self.assertRaises(DesignNotFoundError):
+            delete_design(TEAM_ID, "../../outside")
+
     def test_designs_are_isolated_per_team(self):
         save_design(TEAM_ID, self._sample_design())
         self.assertEqual(list_designs("another-team"), [])

@@ -1,0 +1,54 @@
+/* Общие примитивы чертежей скважины (components/holeDrawing): разрез по ряду
+   в проекте и схема заряда в расчёте рисуются одними и теми же классами. */
+
+.hole-barrel-void { fill:#f7f9f8; }
+.hole-barrel-wall { stroke:#7d8c84; stroke-width:1.4; }
+.hole-barrel-toe { fill:none; stroke:#7d8c84; stroke-width:1.4; }
+.hole-barrel-collar { stroke:#2d7556; stroke-width:2.6; stroke-linecap:round; }
+.hole-barrel.highlighted .hole-barrel-wall,
+.hole-barrel.highlighted .hole-barrel-toe { stroke:#2d7556; stroke-width:2; }
+
+.hole-deck { cursor:default; }
+.hole-deck path { transition:opacity .12s ease; }
+.hole-deck:hover path { opacity:.82; }
+.hole-deck.dimmed path { opacity:.4; }
+
+/* Боевик и волновод лежат поверх дек, но не должны перехватывать наведение —
+   иначе подсказка по деке не появляется под линией НСИ. */
+.hole-primer { pointer-events:none; }
+.hole-primer-body { fill:#e4b94f; stroke:#173125; stroke-width:1.1; }
+.hole-primer-cap { stroke:#173125; stroke-width:1.6; }
+.hole-primer-nsi { fill:none; stroke:#2d7556; stroke-width:1.5; stroke-linejoin:round; stroke-linecap:round; }
+.hole-primer.variant-secondary .hole-primer-nsi { stroke:#1565c0; stroke-dasharray:4 2.5; }
+.hole-primer-nsi-end { fill:#2d7556; stroke:#fff; stroke-width:.8; }
+.hole-primer.variant-secondary .hole-primer-nsi-end { fill:#1565c0; }
+.hole-primer-label { fill:#173125; font-size:8px; font-weight:700; paint-order:stroke; stroke:#fff; stroke-width:2.4px; stroke-linejoin:round; }
+/* Подписи лежат поверх штриховок — белая подложка через paint-order. */
+.hole-primer-delay { fill:#8a5a1a; font-size:8.5px; font-weight:700; paint-order:stroke; stroke:#fff; stroke-width:2.6px; stroke-linejoin:round; }
+
+.hole-dimension-line { stroke:#2d7556; stroke-width:1; }
+.hole-dimension-ext { stroke:#9fb3a8; stroke-width:.8; stroke-dasharray:3 2; }
+.hole-dimension-text { fill:#1f4a37; font-size:8.5px; font-weight:650; }
+
+/* Масштабная линейка */
+.scale-bar-plate { fill:rgba(255,255,255,.86); stroke:#dfe6e2; stroke-width:1; }
+.scale-bar-fill.dark { fill:#3b4b43; }
+.scale-bar-fill.light { fill:#fff; }
+.scale-bar-frame { fill:none; stroke:#3b4b43; stroke-width:1; }
+.scale-bar-label { fill:#3b4b43; font-size:8.5px; font-weight:650; }
+.scale-bar-note { fill:#6f7d76; font-size:8.5px; }
+
+/* Маркер замечания */
+.warning-badge { cursor:help; }
+.warning-badge-shape { fill:#e0483a; stroke:#7d2b23; stroke-width:1; stroke-linejoin:round; }
+.warning-badge-mark { fill:#fff; font-size:9px; font-weight:800; }
+.warning-badge-count { fill:#9e3025; font-size:8px; font-weight:700; paint-order:stroke; stroke:#fff; stroke-width:2.4px; }
+/* Подсветка проблемной скважины — ореол вокруг ствола: перекраска стенок
+   маскировала бы саму конструкцию заряда. */
+.section-hole.flagged .hole-barrel-void { stroke:#e0483a; stroke-width:3; stroke-opacity:.5; }
+
+.depth-scale-axis { stroke:#8c9c93; stroke-width:1.1; }
+.depth-scale-tick { stroke:#a9b7af; stroke-width:1; }
+.depth-scale-tick.major { stroke:#8c9c93; stroke-width:1.2; }
+.depth-scale-label { fill:#6f7d76; font-size:8.5px; }
+.depth-scale-title { fill:#8b978f; font-size:8.5px; letter-spacing:.4px; }

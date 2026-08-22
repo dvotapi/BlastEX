@@ -1,0 +1,57 @@
+.design-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+.mode-switch, .history-controls { display:flex; gap:6px; }
+.mode-switch button, .history-controls button { padding:8px 14px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }
+.mode-switch button.active { background:#2d7556; border-color:#2d7556; color:#fff; }
+.history-controls button:disabled { opacity:.45; cursor:default; }
+
+.design-grid { display:grid; grid-template-columns:minmax(260px,320px) minmax(0,1fr); gap:18px; align-items:start; margin-top:18px; }
+.design-sidebar { display:grid; gap:18px; }
+.design-main { display:grid; gap:18px; min-width:0; }
+
+.plan-canvas-wrap { position:relative; border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#fbfcfb; }
+.plan-canvas { display:block; width:100%; height:520px; touch-action:none; cursor:crosshair; }
+.plan-canvas-hint { position:absolute; left:12px; bottom:10px; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.78); color:#eaf3ef; font-size:10.5px; pointer-events:none; }
+
+.axis-line { stroke:#e2e9e5; stroke-width:1; }
+.contour-shape { fill:rgba(45,117,86,.08); stroke:none; }
+.contour-edge { stroke:#8fa399; stroke-width:2; }
+.contour-edge.free { stroke:#e5b94c; stroke-width:3.5; }
+.contour-vertex { fill:#fff; stroke:#2d7556; stroke-width:2; cursor:grab; }
+
+.hole-marker circle { fill:#2d7556; stroke:#fff; stroke-width:1.5; cursor:pointer; }
+.hole-marker.kind-contour circle { fill:#e5b94c; }
+.hole-marker.kind-presplit circle,
+.hole-marker.kind-trim circle { fill:#7a6ee0; }
+.hole-marker.selected circle { stroke:#173125; stroke-width:2.5; }
+.hole-marker.disabled circle { fill:#c3cdc7; }
+
+.dimension line { stroke:#2d7556; stroke-width:1.5; stroke-dasharray:4 3; }
+.dimension text { fill:#17372a; font-size:10px; text-anchor:middle; }
+.dimension.warn line { stroke:#c0392b; }
+.dimension.warn text { fill:#c0392b; font-weight:700; }
+
+.rubber-band { fill:rgba(45,117,86,.12); stroke:#2d7556; stroke-width:1; stroke-dasharray:3 2; }
+
+.pattern-type-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.pattern-type-option { display:grid; gap:4px; justify-items:center; padding:10px 4px; border:1px solid #d9e2dd; border-radius:11px; background:#fff; text-align:center; }
+.pattern-type-option.active { border-color:#2d7556; background:#edf7f1; }
+.pattern-type-option b { font-size:10.5px; }
+.pattern-type-option small { color:#7b8982; font-size:9px; }
+.grid-preview { width:32px; height:32px; }
+.grid-preview circle { fill:#2d7556; }
+
+.plans-panel .panel-body { gap:12px; }
+.plans-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.plans-list { list-style:none; margin:6px 0 0; padding:0; display:grid; gap:4px; max-height:220px; overflow:auto; }
+.plans-list li { display:flex; align-items:center; gap:6px; border-radius:9px; }
+.plans-list li.active { background:#edf7f1; }
+.plans-list-open { flex:1; min-width:0; text-align:left; padding:8px 10px; border:0; background:transparent; display:grid; gap:2px; }
+.plans-list-open b { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.plans-list-open small { color:#7b8982; font-size:10px; }
+.plans-list-delete { border:0; background:transparent; color:#9e3025; padding:6px 10px; font-size:12px; }
+
+.hole-table-panel .table-scroll { max-height:280px; }
+.hole-table-panel select, .hole-table-panel input { border:1px solid #cfd9d4; border-radius:6px; padding:4px 6px; font-size:11px; width:100%; }
+.hole-table-actions { display:flex; align-items:center; justify-content:space-between; padding:10px 17px; border-top:1px solid #edf1ef; font-size:12px; }
+
+@media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

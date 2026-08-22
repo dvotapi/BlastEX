@@ -1,4 +1,11 @@
 import type { BlastVariant, Explosive, Rock, User } from "./types";
+import type {
+  BlastDesign,
+  BlockContour,
+  DesignSummary,
+  Hole,
+  PatternGenerateResponse,
+} from "./types/design";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -60,4 +67,31 @@ export const api = {
         max_oversize_threshold_pct: input.threshold,
       }),
     }),
+  design: {
+    pattern: (contour: BlockContour, params: Record<string, unknown>, existingHoles: Hole[] = []) =>
+      request<PatternGenerateResponse>("/api/v1/design/pattern", {
+        method: "POST",
+        body: JSON.stringify({ contour, params, existing_holes: existingHoles }),
+      }),
+    listPlans: () => request<{ items: DesignSummary[] }>("/api/v1/design/plans"),
+    createPlan: (design: BlastDesign) =>
+      request<BlastDesign>("/api/v1/design/plans", { method: "POST", body: JSON.stringify(design) }),
+    getPlan: (designId: string) => request<BlastDesign>(`/api/v1/design/plans/${designId}`),
+    savePlan: (designId: string, design: BlastDesign) =>
+      request<BlastDesign>(`/api/v1/design/plans/${designId}`, { method: "PUT", body: JSON.stringify(design) }),
+    deletePlan: (designId: string) => request<void>(`/api/v1/design/plans/${designId}`, { method: "DELETE" }),
+    exportCsv: async (designId: string, fileName: string) => {
+      const response = await fetch(`/api/v1/design/plans/${designId}/export.csv`, { credentials: "include" });
+      if (!response.ok) throw new Error("Не удалось экспортировать паспорт.");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    },
+  },
 };

@@ -27,6 +27,10 @@ const SCALE_X = 46; // отступ слева под шкалу отметок
 const FIT_MARGIN = 0.9;
 /** Целевая ширина ствола самой крупной скважины при вписывании, px. */
 const TARGET_BARREL_PX = 15;
+/** Ниже этой ширины ствол перестаёт читаться. */
+const MIN_BARREL_PX = 3;
+/** Сдвиг курсора, после которого жест считается панорамой, а не кликом. */
+const DRAG_THRESHOLD_PX = 4;
 
 type Tooltip = { x: number; y: number; text: string };
 
@@ -49,24 +53,33 @@ export function SectionView({
   selectedRow: number | null;
   onSelectedRowChange: (row: number) => void;
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
+  // <svg> появляется только когда в ряду есть скважины, поэтому наблюдаем за
+  // ним через callback-ref: обычный useRef с эффектом на [] не сработал бы,
+  // если первый рендер прошёл по ветке «сетки ещё нет».
+  const [svgEl, setSvgEl] = useState<SVGSVGElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const attachSvg = useCallback((el: SVGSVGElement | null) => {
+    svgRef.current = el;
+    setSvgEl(el);
+  }, []);
   const [viewport, setViewport] = useState<Viewport>({ width: 860, height: VIEW_HEIGHT });
   const [camera, setCamera] = useState<Camera | null>(null);
   const [exaggeration, setExaggeration] = useState(1);
   const [hovered, setHovered] = useState<Tooltip | null>(null);
   const [activeHole, setActiveHole] = useState<string | null>(null);
   const [panFrom, setPanFrom] = useState<{ screen: Vec2; camera: Camera } | null>(null);
+  /** Панорама «съедает» клик: иначе каждое перетаскивание переключало подсветку. */
+  const dragMoved = useRef(false);
 
   useEffect(() => {
-    const el = svgRef.current;
-    if (!el) return;
+    if (!svgEl) return;
     const observer = new ResizeObserver((entries) => {
       const box = entries[0]?.contentRect;
       if (box && box.width > 0) setViewport({ width: box.width, height: box.height || VIEW_HEIGHT });
     });
-    observer.observe(el);
+    observer.observe(svgEl);
     return () => observer.disconnect();
-  }, []);
+  }, [svgEl]);
 
   const loadById = useMemo(() => {
     const map = new Map<string, HoleLoad>();
@@ -122,6 +135,7 @@ export function SectionView({
       zMin: Math.min(...zValues),
       zMax: Math.max(...zValues),
       maxDiameterM: Math.max(...rowHoles.map((r) => r.hole.diameter_mm)) / 1000,
+      minDiameterM: Math.min(...rowHoles.map((r) => r.hole.diameter_mm)) / 1000,
     };
   }, [rowHoles, contour.bench]);
 
@@ -151,14 +165,25 @@ export function SectionView({
       };
       setCamera(next);
       setExaggeration(
-        exaggerationFactor(bounds.maxDiameterM, scale, TARGET_BARREL_PX, bounds.meanGap * scale * 0.3),
+        exaggerationFactor({
+          maxDiameterM: bounds.maxDiameterM,
+          minDiameterM: bounds.minDiameterM,
+          pxPerM: scale,
+          targetPx: TARGET_BARREL_PX,
+          maxWidthPx: bounds.meanGap * scale * 0.3,
+          minWidthPx: MIN_BARREL_PX,
+        }),
       );
     },
     [bounds, viewport.width, viewport.height],
   );
 
-  // Вписываем при первой отрисовке и при смене ряда/размера панели.
-  const fitKey = `${row}:${rowHoles.length}:${Math.round(viewport.width)}`;
+  // Вписываем заново при смене ряда, размера панели и самой геометрии: иначе
+  // после правки отметок уступа или глубины камера остаётся смотреть в пустоту.
+  const geometryKey = bounds
+    ? [bounds.uMin, bounds.uMax, bounds.zMin, bounds.zMax].map((v) => Math.round(v * 100)).join(",")
+    : "";
+  const fitKey = `${row}:${rowHoles.length}:${Math.round(viewport.width)}:${geometryKey}`;
   const lastFitKey = useRef("");
   useEffect(() => {
     if (!bounds) return;
@@ -204,25 +229,36 @@ export function SectionView({
     const collarPx = toScreen(u, hole.collar.z);
     const toePx = toScreen(uToe, hole.toe.z);
     const length = holeLength(hole.collar, hole.toe) || 1;
-    // Ширина ствола: реальный диаметр × общий коэффициент преувеличения.
-    const widthPx = Math.max(3, (hole.diameter_mm / 1000) * cam.scale * exaggeration);
+    // Ширина ствола ровно та, что заявлена подписью ⌀ ×N: нижний предел уже
+    // заложен в сам коэффициент, отсекать здесь нельзя — подпись начнёт врать.
+    const widthPx = (hole.diameter_mm / 1000) * cam.scale * exaggeration;
     return makeAxis(collarPx, toePx, length, widthPx);
   }
 
-  const first = rowHoles[0];
-  const last = rowHoles[rowHoles.length - 1];
+  // Скважины, попавшие в текущий кадр. В режиме «Уступ» длинный ряд уходит за
+  // край, поэтому и размеры, и полную глубину привязываем к видимым скважинам,
+  // а не к первой/последней в ряду — иначе выносные размеры уезжают с экрана.
+  const visible = rowHoles.filter(({ hole }) => {
+    const x = makeHoleAxis(hole).collar.x;
+    return x > SCALE_X + 24 && x < viewport.width - 150;
+  });
+  const first = visible[0] ?? rowHoles[0];
+  const dimHole = visible.length ? visible[visible.length - 1] : null;
   const firstAxis = makeHoleAxis(first.hole);
-  const lastAxis = makeHoleAxis(last.hole);
-  const lastLoad = loadById.get(last.hole.id);
-  const lastLength = holeLength(last.hole.collar, last.hole.toe) || 1;
-  const lastChargeDecks = lastLoad?.decks.filter((d) => d.kind === "charge") ?? [];
-  const lastStemming = lastLoad?.decks.filter((d) => d.kind === "stemming").reduce((s, d) => s + (d.to_m - d.from_m), 0) ?? 0;
-  const lastChargeLen = lastChargeDecks.reduce((s, d) => s + (d.to_m - d.from_m), 0);
-  const chargeColumnFromM = lastChargeDecks.length ? Math.min(...lastChargeDecks.map((d) => d.from_m)) : 0;
-  const chargeColumnToM = lastChargeDecks.length ? Math.max(...lastChargeDecks.map((d) => d.to_m)) : 0;
-  const dimX = lastAxis.collar.x + lastAxis.widthPx / 2 + 40;
+  const dimAxis = dimHole ? makeHoleAxis(dimHole.hole) : null;
+  const dimLoad = dimHole ? loadById.get(dimHole.hole.id) : undefined;
+  const dimLength = dimHole ? holeLength(dimHole.hole.collar, dimHole.hole.toe) || 1 : 0;
+  const dimChargeDecks = dimLoad?.decks.filter((d) => d.kind === "charge") ?? [];
+  const dimStemming = dimLoad?.decks.filter((d) => d.kind === "stemming").reduce((s, d) => s + (d.to_m - d.from_m), 0) ?? 0;
+  const dimChargeLen = dimChargeDecks.reduce((s, d) => s + (d.to_m - d.from_m), 0);
+  const chargeColumnFromM = dimChargeDecks.length ? Math.min(...dimChargeDecks.map((d) => d.from_m)) : 0;
+  const chargeColumnToM = dimChargeDecks.length ? Math.max(...dimChargeDecks.map((d) => d.to_m)) : 0;
+  const dimX = dimAxis ? dimAxis.collar.x + dimAxis.widthPx / 2 + 40 : 0;
 
-  const flaggedCount = rowHoles.filter(({ hole }) => warningsByHole.has(hole.id)).length;
+  // Считаем сами замечания, а не помеченные скважины: на одной скважине их
+  // может быть несколько, и часть замечаний относится к другим рядам.
+  const rowWarningCount = rowHoles.reduce((sum, { hole }) => sum + (warningsByHole.get(hole.id)?.length ?? 0), 0);
+  const totalWarningCount = warnings?.length ?? 0;
   // Плотность скважин на экране решает, какие подписи ещё читаемы.
   const spacingPx = bounds!.meanGap * cam.scale;
   const detail = labelDetail(spacingPx);
@@ -240,6 +276,7 @@ export function SectionView({
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return;
     (e.target as Element).setPointerCapture?.(e.pointerId);
+    dragMoved.current = false;
     setPanFrom({ screen: { x: e.clientX - rect.left, y: e.clientY - rect.top }, camera });
   }
 
@@ -249,6 +286,7 @@ export function SectionView({
     if (!rect) return;
     const dx = e.clientX - rect.left - panFrom.screen.x;
     const dy = e.clientY - rect.top - panFrom.screen.y;
+    if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) dragMoved.current = true;
     setCamera({
       x: panFrom.camera.x - dx / panFrom.camera.scale,
       y: panFrom.camera.y + dy / panFrom.camera.scale,
@@ -275,7 +313,7 @@ export function SectionView({
       <div className="panel-body">
         <div className="section-canvas-wrap">
           <svg
-            ref={svgRef}
+            ref={attachSvg}
             className={`section-svg${panFrom ? " panning" : ""}`}
             role="img"
             aria-label="Разрез по ряду скважин"
@@ -334,7 +372,7 @@ export function SectionView({
                 <g
                   key={hole.id}
                   className={`section-hole${active ? " active" : ""}${holeWarnings ? " flagged" : ""}`}
-                  onClick={() => setActiveHole(active ? null : hole.id)}
+                  onClick={() => { if (dragMoved.current) return; setActiveHole(active ? null : hole.id); }}
                 >
                   <HoleBarrel axis={axis} prefix={DRAW_PREFIX} subdrillFromM={subdrillFromM} highlighted={active} />
 
@@ -400,43 +438,43 @@ export function SectionView({
               );
             })}
 
-            {lastLoad && (
+            {dimAxis && dimHole && dimLoad && (
               <>
-                {lastStemming > 0 && (
+                {dimStemming > 0 && (
                   <VerticalDimension
                     prefix={DRAW_PREFIX}
                     x={dimX}
-                    y1={lastAxis.at(0).y}
-                    y2={lastAxis.at(lastStemming).y}
-                    tickFromX={lastAxis.collar.x + lastAxis.widthPx / 2}
+                    y1={dimAxis.at(0).y}
+                    y2={dimAxis.at(dimStemming).y}
+                    tickFromX={dimAxis.collar.x + dimAxis.widthPx / 2}
                     labelSide="right"
-                    label={`забойка ${ruNumber(lastStemming, 1)}`}
+                    label={`забойка ${ruNumber(dimStemming, 1)}`}
                   />
                 )}
                 {chargeColumnToM > chargeColumnFromM && (
                   <VerticalDimension
                     prefix={DRAW_PREFIX}
                     x={dimX}
-                    y1={lastAxis.at(chargeColumnFromM).y}
-                    y2={lastAxis.at(chargeColumnToM).y}
-                    tickFromX={lastAxis.collar.x + lastAxis.widthPx / 2}
+                    y1={dimAxis.at(chargeColumnFromM).y}
+                    y2={dimAxis.at(chargeColumnToM).y}
+                    tickFromX={dimAxis.collar.x + dimAxis.widthPx / 2}
                     labelSide="right"
                     label={
-                      lastChargeDecks.length > 1
-                        ? `колонна ${ruNumber(chargeColumnToM - chargeColumnFromM, 1)} · ВВ ${ruNumber(lastChargeLen, 1)}`
-                        : `заряд ${ruNumber(lastChargeLen, 1)}`
+                      dimChargeDecks.length > 1
+                        ? `колонна ${ruNumber(chargeColumnToM - chargeColumnFromM, 1)} · ВВ ${ruNumber(dimChargeLen, 1)}`
+                        : `заряд ${ruNumber(dimChargeLen, 1)}`
                     }
                   />
                 )}
-                {last.hole.subdrill_m > 0 && (
+                {dimHole.hole.subdrill_m > 0 && (
                   <VerticalDimension
                     prefix={DRAW_PREFIX}
                     x={dimX}
-                    y1={lastAxis.at(lastLength - last.hole.subdrill_m).y}
-                    y2={lastAxis.at(lastLength).y}
-                    tickFromX={lastAxis.collar.x + lastAxis.widthPx / 2}
+                    y1={dimAxis.at(dimLength - dimHole.hole.subdrill_m).y}
+                    y2={dimAxis.at(dimLength).y}
+                    tickFromX={dimAxis.collar.x + dimAxis.widthPx / 2}
                     labelSide="right"
-                    label={`перебур ${ruNumber(last.hole.subdrill_m, 1)}`}
+                    label={`перебур ${ruNumber(dimHole.hole.subdrill_m, 1)}`}
                   />
                 )}
               </>
@@ -490,8 +528,11 @@ export function SectionView({
           <span><i className="legend-primer" /> боевик + НСИ</span>
           <span><i className="legend-subdrill" /> перебур</span>
           <span><i className="legend-rock" /> массив</span>
-          {flaggedCount > 0 && (
-            <span className="legend-warning"><i className="legend-flag" /> замечаний: {flaggedCount}</span>
+          {rowWarningCount > 0 && (
+            <span className="legend-warning">
+              <i className="legend-flag" /> замечаний в ряду: {rowWarningCount}
+              {totalWarningCount > rowWarningCount && ` · всего по блоку: ${totalWarningCount}`}
+            </span>
           )}
           <small className="section-note">масштаб по осям единый · ⌀ скважин ×{ruNumber(exaggeration, 0)}</small>
         </div>

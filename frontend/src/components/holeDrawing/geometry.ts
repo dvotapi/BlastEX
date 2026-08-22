@@ -45,17 +45,30 @@ export function niceScaleBarM(pxPerM: number, targetPx = 110): number {
  * преувеличивают — но коэффициент должен быть один на весь чертёж и указан
  * на нём, иначе чертёж вводит в заблуждение.
  */
-export function exaggerationFactor(
-  maxDiameterM: number,
-  pxPerM: number,
-  targetPx: number,
-  /** Предел ширины ствола, чтобы соседние скважины не сливались в сплошную стену. */
+export function exaggerationFactor({
+  maxDiameterM,
+  minDiameterM,
+  pxPerM,
+  targetPx,
   maxWidthPx = Number.POSITIVE_INFINITY,
-): number {
+  minWidthPx = 0,
+}: {
+  maxDiameterM: number;
+  /** Самая тонкая скважина ряда — она должна остаться видимой. */
+  minDiameterM?: number;
+  pxPerM: number;
+  targetPx: number;
+  /** Предел ширины ствола, чтобы соседние скважины не сливались в сплошную стену. */
+  maxWidthPx?: number;
+  /** Нижний предел ширины: закладывается в сам коэффициент, а не в отсечку при
+   *  отрисовке, иначе ствол окажется шире, чем заявлено подписью ⌀ ×N. */
+  minWidthPx?: number;
+}): number {
   if (maxDiameterM <= 0 || pxPerM <= 0) return 1;
-  const natural = maxDiameterM * pxPerM;
-  const capped = Math.min(targetPx, maxWidthPx);
-  return Math.max(1, Math.round(capped / natural));
+  const byTarget = Math.min(targetPx, maxWidthPx) / (maxDiameterM * pxPerM);
+  const thinnest = minDiameterM && minDiameterM > 0 ? minDiameterM : maxDiameterM;
+  const byMinWidth = minWidthPx > 0 ? minWidthPx / (thinnest * pxPerM) : 0;
+  return Math.max(1, Math.round(Math.max(byTarget, byMinWidth)));
 }
 
 /**

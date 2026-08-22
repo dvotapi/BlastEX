@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "../../api";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import type { BlastVariant, Explosive, User } from "../../types";
@@ -30,6 +30,10 @@ import { SummaryPanel } from "./SummaryPanel";
 import { TiePanel } from "./TiePanel";
 import { TimingPanel } from "./TimingPanel";
 
+// three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
+// чтобы не раздувать основной бандл для остальных режимов редактора.
+const Scene3D = lazy(() => import("./Scene3D").then((m) => ({ default: m.Scene3D })));
+
 let manualHoleCounter = 0;
 
 export function DesignPage({
@@ -44,7 +48,7 @@ export function DesignPage({
   const [state, dispatch] = useReducer(designReducer, emptyDesign(), initDesignState);
   const document = state.present;
 
-  const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing">("contour");
+  const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing" | "3d">("contour");
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 6 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [patternParams, setPatternParams] = useState<PatternParams>(DEFAULT_PATTERN_PARAMS);
@@ -217,6 +221,18 @@ export function DesignPage({
     if (!selected.size) return;
     dispatch({ type: "DELETE_HOLES", ids: Array.from(selected) });
     setSelected(new Set());
+  }
+
+  function onSelectHole3D(id: string, additive: boolean) {
+    setSelected((prev) => {
+      if (additive) {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }
+      return new Set([id]);
+    });
   }
 
   async function calculateCharge() {
@@ -393,6 +409,7 @@ export function DesignPage({
           <button className={mode === "charge" ? "active" : ""} onClick={() => setMode("charge")}>Заряжание</button>
           <button className={mode === "tie" ? "active" : ""} onClick={() => setMode("tie")}>Коммутация</button>
           <button className={mode === "timing" ? "active" : ""} onClick={() => setMode("timing")}>Тайминг</button>
+          <button className={mode === "3d" ? "active" : ""} onClick={() => setMode("3d")}>3D</button>
         </div>
         <div className="history-controls">
           <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length} title="Отменить (Ctrl+Z)">↶ Отменить</button>
@@ -440,6 +457,16 @@ export function DesignPage({
               maxMs={maxAnimationMs}
               onScrub={scrub}
             />
+          ) : mode === "3d" ? (
+            <section className="panel">
+              <header><b>3D-вид</b><span>06</span></header>
+              <div className="panel-body">
+                <small>
+                  Просмотр контура блока и наклонных скважин в пространстве. Правка геометрии
+                  выполняется на 2D-плане — здесь только вращение, зум и выбор скважины кликом.
+                </small>
+              </div>
+            </section>
           ) : (
             <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
           )}
@@ -457,42 +484,55 @@ export function DesignPage({
           />
         </div>
         <div className="design-main">
-          <PlanCanvas
-            contour={document.contour}
-            holes={document.holes}
-            mode={mode === "contour" ? "contour" : "holes"}
-            selected={selected}
-            onSelectedChange={setSelected}
-            onContourVerticesChange={onContourVerticesChange}
-            onToggleFreeFace={onToggleFreeFace}
-            onMoveHoles={onMoveHoles}
-            onAddHole={onAddHole}
-            camera={camera}
-            onCameraChange={setCamera}
-            spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
-            loadsById={mode === "charge" ? loadsById : undefined}
-            network={mode === "tie" || mode === "timing" ? document.network : undefined}
-            isolines={mode === "timing" && showIsolines ? analysis?.isolines : undefined}
-            timesMs={mode === "timing" ? analysis?.times_ms : undefined}
-            animationMs={mode === "timing" && analysis ? currentMs : undefined}
-          />
-          {mode === "charge" ? (
-            <SectionView
-              contour={document.contour}
-              holes={document.holes}
-              loads={document.loads}
-              rowAzimuthDeg={patternParams.row_azimuth_deg}
-              selectedRow={selectedRow}
-              onSelectedRowChange={setSelectedRow}
-            />
+          {mode === "3d" ? (
+            <Suspense fallback={<div className="scene3d-loading">Загружаем 3D-движок…</div>}>
+              <Scene3D
+                contour={document.contour}
+                holes={document.holes}
+                selected={selected}
+                onSelectHole={onSelectHole3D}
+              />
+            </Suspense>
           ) : (
-            <HoleTable
-              holes={document.holes}
-              selected={selected}
-              onSelectedChange={setSelected}
-              onUpdateHole={onUpdateHole}
-              onDeleteSelected={deleteSelected}
-            />
+            <>
+              <PlanCanvas
+                contour={document.contour}
+                holes={document.holes}
+                mode={mode === "contour" ? "contour" : "holes"}
+                selected={selected}
+                onSelectedChange={setSelected}
+                onContourVerticesChange={onContourVerticesChange}
+                onToggleFreeFace={onToggleFreeFace}
+                onMoveHoles={onMoveHoles}
+                onAddHole={onAddHole}
+                camera={camera}
+                onCameraChange={setCamera}
+                spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
+                loadsById={mode === "charge" ? loadsById : undefined}
+                network={mode === "tie" || mode === "timing" ? document.network : undefined}
+                isolines={mode === "timing" && showIsolines ? analysis?.isolines : undefined}
+                timesMs={mode === "timing" ? analysis?.times_ms : undefined}
+                animationMs={mode === "timing" && analysis ? currentMs : undefined}
+              />
+              {mode === "charge" ? (
+                <SectionView
+                  contour={document.contour}
+                  holes={document.holes}
+                  loads={document.loads}
+                  rowAzimuthDeg={patternParams.row_azimuth_deg}
+                  selectedRow={selectedRow}
+                  onSelectedRowChange={setSelectedRow}
+                />
+              ) : (
+                <HoleTable
+                  holes={document.holes}
+                  selected={selected}
+                  onSelectedChange={setSelected}
+                  onUpdateHole={onUpdateHole}
+                  onDeleteSelected={deleteSelected}
+                />
+              )}
+            </>
           )}
         </div>
       </div>

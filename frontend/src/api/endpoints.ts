@@ -75,6 +75,7 @@ export const api = {
     lumpSize: number;
     benchHeight: number;
     overdrill: number;
+    oversizeCoeff: number;
     spacing: number;
     threshold: number;
     crownDiametersMm: number[];
@@ -90,7 +91,7 @@ export const api = {
         lump_size_mm: input.lumpSize,
         hole_diameter_mm: 0,
         overdrill_m: input.overdrill,
-        hole_oversize_coeff: 1.05,
+        hole_oversize_coeff: input.oversizeCoeff,
         spacing_coeff_m: input.spacing,
         bench_height_m: input.benchHeight,
       },

@@ -79,7 +79,7 @@ function FullBvrCalc({ explosiveBasis }: { explosiveBasis: "per_m3" | "per_m" })
     setError("");
     try {
       const result = await api.optimize({
-        rock, explosive, lumpSize, benchHeight, overdrill, spacing, threshold, crownDiametersMm: selectedCrowns,
+        rock, explosive, lumpSize, benchHeight, overdrill, oversizeCoeff, spacing, threshold, crownDiametersMm: selectedCrowns,
       });
       setVariants(result.variants);
       const preferred = result.variants.findIndex((v) => v.crown_mm === 152);
@@ -178,6 +178,7 @@ function FullBvrCalc({ explosiveBasis }: { explosiveBasis: "per_m3" | "per_m" })
               defaultUnderchargeM={2.0}
               showChargeDesign={true}
               explosiveBasis={explosiveBasis}
+              isBlastContextSource={false}
               nsiLengthOptions={nsiLengthOptions}
               detonatorDelayOptions={detonatorDelayOptions}
             />

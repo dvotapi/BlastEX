@@ -25,6 +25,7 @@ export function HolePanel({
   showChargeDesign,
   explosiveBasis,
   showCostPanel = true,
+  isBlastContextSource = true,
   nsiLengthOptions,
   detonatorDelayOptions,
 }: {
@@ -43,6 +44,7 @@ export function HolePanel({
   showChargeDesign: boolean;
   explosiveBasis: "per_m3" | "per_m" | "none";
   showCostPanel?: boolean;
+  isBlastContextSource?: boolean;
   nsiLengthOptions: number[];
   detonatorDelayOptions: number[];
 }) {
@@ -170,6 +172,8 @@ export function HolePanel({
           block={geometry.block}
           initiation={geometry.initiation}
           holeDepthM={depthM}
+          holeOversizeCoeff={holeOversizeCoeff}
+          isBlastContextSource={isBlastContextSource}
         />
       )}
     </div>

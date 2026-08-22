@@ -88,12 +88,18 @@ def current_team_id(session: dict[str, object] = Depends(require_internal_access
     return str(org) if org else "default"
 
 
+REFERENCE_EDITOR_ROLES = {"admin", "reference_editor", "service"}
+
+
+def is_reference_editor(session: dict[str, object]) -> bool:
+    return str(session.get("role", "")) in REFERENCE_EDITOR_ROLES
+
+
 def require_reference_editor(
     session: dict[str, object] = Depends(require_internal_access),
 ) -> dict[str, object]:
     """Только admin / reference_editor (и внутренний service-ключ) могут писать справочники."""
-    role = str(session.get("role", ""))
-    if role in {"admin", "reference_editor", "service"}:
+    if is_reference_editor(session):
         return session
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

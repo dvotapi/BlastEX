@@ -98,9 +98,34 @@ class DrillingUnitCostInputSchema(BaseModel):
     rig_name: str = "JK 830-3"
     tech_speed_m_h: float = Field(12.0, gt=0)
     nonproductive_h_per_shift: float = Field(1.0, ge=0)
+
+    crown_m_per_piece: float = Field(700.0, gt=0)
+    crown_price_rub: float = Field(25_000.0, ge=0)
+    ppu_m_per_piece: float = Field(7_000.0, gt=0)
+    ppu_price_rub: float = Field(100_000.0, ge=0)
+    rig_tools_m_per_set: float = Field(15_000.0, gt=0)
+    rig_tools_set_price_rub: float = Field(155_000.0, ge=0)
+    casing_m_per_drill_m: float = Field(0.03, ge=0)
+    casing_price_rub_per_m: float = Field(450.0, ge=0)
+
+    shifts_toir: float = Field(2.0, ge=0)
+    shifts_cleaning: float = Field(1.0, ge=0)
+
+    spares_rub_per_m: float = Field(30.0, ge=0)
+    consumables_rub_per_m: float = Field(10.0, ge=0)
+    fot_rub_per_m: float = Field(150.0, ge=0)
+
     object_name: str = ""
     mobilization_km: float | None = None
     diesel_price_ton_rub: float | None = None
+    mobilization_rub_per_km: float = Field(450.0, ge=0)
+    mobilization_divisor: float = Field(6.0, gt=0)
+
+    line_release_rub_per_shift: float = Field(200.0, ge=0)
+    include_med_exams: bool = True
+
+    overhead_production_rub: float = Field(100_000.0, ge=0)
+    overhead_admin_rub: float = Field(100_000.0, ge=0)
     profit_factor: float = Field(1.2, gt=0)
 
 

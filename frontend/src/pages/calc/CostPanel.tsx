@@ -46,6 +46,8 @@ export function CostPanel({
   block,
   initiation,
   holeDepthM,
+  holeOversizeCoeff = 1.05,
+  isBlastContextSource = true,
   blockDataOverride,
 }: {
   panelKey: string;
@@ -55,6 +57,8 @@ export function CostPanel({
   block: BlockGeometry;
   initiation: InitiationConfig;
   holeDepthM: number;
+  holeOversizeCoeff?: number;
+  isBlastContextSource?: boolean;
   blockDataOverride?: BlockDataOverride;
 }) {
   const { state, activeScenario, setBlastContext } = useWorkspace();
@@ -95,17 +99,18 @@ export function CostPanel({
   }, [showMaterials, effExplosiveKey, effInitiation.nsi_per_hole, effInitiation.nsi_length_1_m, effInitiation.nsi_length_2_m, catalog.length]);
 
   useEffect(() => {
+    if (!isBlastContextSource) return;
     if (effBlock.block_volume_m3 > 0) {
       setBlastContext({
         blockVolumeM3: effBlock.block_volume_m3,
         additionalHolesPct: effBlock.additional_holes_pct,
         drillingFootageM: effBlock.drilling_footage_m,
         totalHoles: effBlock.total_holes,
-        crownMm: effHole.charge_diameter_m ? (effHole.charge_diameter_m * 1000) / 1.05 : 0,
+        crownMm: effHole.charge_diameter_m ? (effHole.charge_diameter_m * 1000) / holeOversizeCoeff : 0,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effBlock.block_volume_m3, effBlock.total_holes]);
+  }, [isBlastContextSource, effBlock.block_volume_m3, effBlock.total_holes, holeOversizeCoeff]);
 
   useEffect(() => {
     if (!state || !activeScenario) return;

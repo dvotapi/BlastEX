@@ -25,7 +25,7 @@ from api.schemas.workspace import (
     WorkspaceSnapshotSchema,
     WorkspaceStateSchema,
 )
-from api.security import current_team_id
+from api.security import current_team_id, is_reference_editor, require_internal_access
 from cost.catalog import DEFAULT_CATALOG
 from cost.depreciation_data import DEFAULT_DEPRECIATION_ASSETS
 from cost.drilling import calculate_drilling_unit_cost, DrillingUnitCostInput
@@ -118,6 +118,7 @@ def get_workspace(team_id: str = Depends(current_team_id)) -> WorkspaceStateSche
 def put_workspace_snapshot(
     payload: SaveWorkspaceRequest,
     team_id: str = Depends(current_team_id),
+    session: dict = Depends(require_internal_access),
 ) -> WorkspaceStateSchema:
     settings = load_team_settings(team_id)
     scenario_id = normalize_scenario_id(payload.snapshot.scenario_id)
@@ -134,14 +135,15 @@ def put_workspace_snapshot(
     )
     save_scenario_snapshot(team_id, snapshot)
 
-    refs = TeamReferences(
-        work_object_records=payload.references.work_object_records,
-        drill_rig_records=payload.references.drill_rig_records,
-        rock_records=payload.references.rock_records,
-        explosive_records=payload.references.explosive_records,
-        depreciation_asset_records=payload.references.depreciation_asset_records,
-    )
-    save_team_references(team_id, refs)
+    if is_reference_editor(session):
+        refs = TeamReferences(
+            work_object_records=payload.references.work_object_records,
+            drill_rig_records=payload.references.drill_rig_records,
+            rock_records=payload.references.rock_records,
+            explosive_records=payload.references.explosive_records,
+            depreciation_asset_records=payload.references.depreciation_asset_records,
+        )
+        save_team_references(team_id, refs)
 
     settings.active_scenario_id = scenario_id
     if payload.active_work_object_name:

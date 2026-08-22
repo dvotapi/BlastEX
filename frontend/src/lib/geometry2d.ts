@@ -79,3 +79,19 @@ export function holeFromCollar(collar: Point3, depthM: number, angleDeg: number,
     z: collar.z - vertical,
   };
 }
+
+/**
+ * Зеркалит design/geometry.py::local_basis — направление вдоль ряда, только
+ * для проекции скважин на ось разреза по ряду на клиенте. Не используется
+ * для раскладки сетки (та считается на сервере).
+ */
+export function localBasis(rowAzimuthDeg: number): { rowDir: Vec2; advanceDir: Vec2 } {
+  const az = (rowAzimuthDeg * Math.PI) / 180;
+  const rowDir = { x: Math.sin(az), y: Math.cos(az) };
+  const advanceDir = { x: rowDir.y, y: -rowDir.x };
+  return { rowDir, advanceDir };
+}
+
+export function holeLength(collar: Point3, toe: Point3): number {
+  return Math.hypot(toe.x - collar.x, toe.y - collar.y, toe.z - collar.z);
+}

@@ -1,15 +1,19 @@
 """Сервис проекта БВР: раскладка сетки и хранение паспортов команды."""
 from __future__ import annotations
 
+from Blast import ExplosiveProperties
 from api.exceptions import DesignNotFoundError, InvalidDesignError, InvalidGeometryError
 from api.schemas.design import (
     BlastDesignSchema,
+    ChargeGenerateRequest,
+    ChargeGenerateResponse,
     DesignListResponse,
     DesignSummarySchema,
     PatternGenerateRequest,
     PatternGenerateResponse,
 )
 from design import persistence as design_persistence
+from design.charging import apply_charge_rules
 from design.export import holes_csv
 from design.geometry import block_volume
 from design.models import BlastDesign, BlockContour, Hole
@@ -28,6 +32,25 @@ def generate_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse
         holes=[h.to_dict() for h in holes],
         hole_count=len(holes),
         block_volume_m3=round(block_volume(contour), 2),
+    )
+
+
+def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
+    holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
+    if not holes:
+        raise InvalidDesignError("Список скважин пуст — нечего заряжать.")
+
+    explosive = ExplosiveProperties(
+        name=request.explosive.name,
+        density_t_m3=request.explosive.density_t_m3,
+        power_mj_kg=request.explosive.power_mj_kg,
+    )
+    loads = apply_charge_rules(holes, request.rules, explosive)
+
+    return ChargeGenerateResponse(
+        loads=[ld.to_dict() for ld in loads],
+        total_charge_kg=round(sum(ld.total_charge_kg for ld in loads), 2),
+        total_holes_charged=sum(1 for ld in loads if ld.total_charge_kg > 0),
     )
 
 

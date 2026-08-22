@@ -1,13 +1,25 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { api } from "../../api";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
-import type { BlastVariant, User } from "../../types";
-import { DEFAULT_PATTERN_PARAMS, emptyDesign, type DesignSummary, type Hole, type PatternParams, type Point3 } from "../../types/design";
+import type { BlastVariant, Explosive, User } from "../../types";
+import {
+  DEFAULT_CHARGE_RULES,
+  DEFAULT_PATTERN_PARAMS,
+  emptyDesign,
+  type ChargeRules,
+  type DesignSummary,
+  type Hole,
+  type HoleLoad,
+  type PatternParams,
+  type Point3,
+} from "../../types/design";
+import { ChargePanel } from "./ChargePanel";
 import { designReducer, initDesignState } from "./designReducer";
 import { HoleTable } from "./HoleTable";
 import { PatternPanel } from "./PatternPanel";
 import { PlanCanvas } from "./PlanCanvas";
 import { PlansPanel } from "./PlansPanel";
+import { SectionView } from "./SectionView";
 import { SummaryPanel } from "./SummaryPanel";
 
 let manualHoleCounter = 0;
@@ -24,7 +36,7 @@ export function DesignPage({
   const [state, dispatch] = useReducer(designReducer, emptyDesign(), initDesignState);
   const document = state.present;
 
-  const [mode, setMode] = useState<"contour" | "holes">("contour");
+  const [mode, setMode] = useState<"contour" | "holes" | "charge">("contour");
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 6 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [patternParams, setPatternParams] = useState<PatternParams>(DEFAULT_PATTERN_PARAMS);
@@ -34,7 +46,30 @@ export function DesignPage({
   const [saveBusy, setSaveBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const [explosives, setExplosives] = useState<Explosive[]>([]);
+  const [explosiveKey, setExplosiveKey] = useState("");
+  const [chargeRules, setChargeRules] = useState<ChargeRules>(DEFAULT_CHARGE_RULES);
+  const [chargeBusy, setChargeBusy] = useState(false);
+  const [selectedRow, setSelectedRow] = useState<number | null>(null);
+
   useEffect(() => { refreshPlans(); }, []);
+
+  useEffect(() => {
+    api.explosives()
+      .then((data) => {
+        setExplosives(data.items);
+        setExplosiveKey((prev) => prev || data.default_key);
+      })
+      .catch(() => {
+        // Справочник ВВ не критичен для геометрии сетки — молча пропускаем.
+      });
+  }, []);
+
+  const loadsById = useMemo(() => {
+    const map: Record<string, HoleLoad> = {};
+    for (const load of document.loads) map[load.hole_id] = load;
+    return map;
+  }, [document.loads]);
 
   useEffect(() => {
     if (!incomingVariant) return;
@@ -86,6 +121,7 @@ export function DesignPage({
       dispatch({ type: "SET_HOLES", holes: result.holes });
       setBlockVolumeM3(result.block_volume_m3);
       setSelected(new Set());
+      setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось построить сетку.");
     } finally {
@@ -135,11 +171,38 @@ export function DesignPage({
     setSelected(new Set());
   }
 
+  async function calculateCharge() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    const explosive = explosives.find((item) => item.key === explosiveKey);
+    if (!explosive) {
+      setError("Выберите взрывчатое вещество.");
+      return;
+    }
+    setChargeBusy(true);
+    setError("");
+    try {
+      const result = await api.design.charge(document.holes, chargeRules, explosive);
+      dispatch({ type: "SET_LOADS", loads: result.loads });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось рассчитать заряжание.");
+    } finally {
+      setChargeBusy(false);
+    }
+  }
+
   async function savePlan() {
     setSaveBusy(true);
     setError("");
     try {
-      const toSave = { ...document, pattern_params: patternParams as unknown as Record<string, unknown> };
+      const toSave = {
+        ...document,
+        pattern_params: patternParams as unknown as Record<string, unknown>,
+        charge_rules: chargeRules as unknown as Record<string, unknown>,
+        explosive_key: explosiveKey,
+      };
       const saved = document.design_id ? await api.design.savePlan(document.design_id, toSave) : await api.design.createPlan(toSave);
       dispatch({ type: "LOAD", design: saved });
       await refreshPlans();
@@ -159,8 +222,13 @@ export function DesignPage({
       if (design.pattern_params && Object.keys(design.pattern_params).length) {
         setPatternParams({ ...DEFAULT_PATTERN_PARAMS, ...(design.pattern_params as Partial<PatternParams>) });
       }
+      if (design.charge_rules && Object.keys(design.charge_rules).length) {
+        setChargeRules({ ...DEFAULT_CHARGE_RULES, ...(design.charge_rules as Partial<ChargeRules>) });
+      }
+      if (design.explosive_key) setExplosiveKey(design.explosive_key);
       setBlockVolumeM3(null);
       setSelected(new Set());
+      setSelectedRow(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -184,8 +252,10 @@ export function DesignPage({
   function newPlan() {
     dispatch({ type: "LOAD", design: emptyDesign() });
     setPatternParams(DEFAULT_PATTERN_PARAMS);
+    setChargeRules(DEFAULT_CHARGE_RULES);
     setBlockVolumeM3(null);
     setSelected(new Set());
+    setSelectedRow(null);
   }
 
   async function exportCsv() {
@@ -209,6 +279,7 @@ export function DesignPage({
         <div className="mode-switch">
           <button className={mode === "contour" ? "active" : ""} onClick={() => setMode("contour")}>Контур</button>
           <button className={mode === "holes" ? "active" : ""} onClick={() => setMode("holes")}>Скважины</button>
+          <button className={mode === "charge" ? "active" : ""} onClick={() => setMode("charge")}>Заряжание</button>
         </div>
         <div className="history-controls">
           <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length} title="Отменить (Ctrl+Z)">↶ Отменить</button>
@@ -216,11 +287,23 @@ export function DesignPage({
         </div>
       </div>
 
-      <SummaryPanel holes={document.holes} blockVolumeM3={blockVolumeM3} />
+      <SummaryPanel holes={document.holes} blockVolumeM3={blockVolumeM3} loads={document.loads.length ? document.loads : undefined} />
 
       <div className="design-grid">
         <div className="design-sidebar">
-          <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
+          {mode === "charge" ? (
+            <ChargePanel
+              rules={chargeRules}
+              explosives={explosives}
+              explosiveKey={explosiveKey}
+              onExplosiveKeyChange={setExplosiveKey}
+              onChange={(patch) => setChargeRules((prev) => ({ ...prev, ...patch }))}
+              onCalculate={calculateCharge}
+              busy={chargeBusy}
+            />
+          ) : (
+            <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
+          )}
           <PlansPanel
             plans={plans}
             currentDesignId={document.design_id}
@@ -238,7 +321,7 @@ export function DesignPage({
           <PlanCanvas
             contour={document.contour}
             holes={document.holes}
-            mode={mode}
+            mode={mode === "charge" ? "holes" : mode}
             selected={selected}
             onSelectedChange={setSelected}
             onContourVerticesChange={onContourVerticesChange}
@@ -248,14 +331,26 @@ export function DesignPage({
             camera={camera}
             onCameraChange={setCamera}
             spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
+            loadsById={mode === "charge" ? loadsById : undefined}
           />
-          <HoleTable
-            holes={document.holes}
-            selected={selected}
-            onSelectedChange={setSelected}
-            onUpdateHole={onUpdateHole}
-            onDeleteSelected={deleteSelected}
-          />
+          {mode === "charge" ? (
+            <SectionView
+              contour={document.contour}
+              holes={document.holes}
+              loads={document.loads}
+              rowAzimuthDeg={patternParams.row_azimuth_deg}
+              selectedRow={selectedRow}
+              onSelectedRowChange={setSelectedRow}
+            />
+          ) : (
+            <HoleTable
+              holes={document.holes}
+              selected={selected}
+              onSelectedChange={setSelected}
+              onUpdateHole={onUpdateHole}
+              onDeleteSelected={deleteSelected}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -11,7 +11,7 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { BlockContour, Hole, Point3 } from "../../types/design";
+import type { BlockContour, Hole, HoleLoad, Point3 } from "../../types/design";
 
 const HOLE_HIT_RADIUS_PX = 11;
 const VERTEX_HIT_RADIUS_PX = 9;
@@ -41,6 +41,7 @@ export function PlanCanvas({
   camera,
   onCameraChange,
   spacingHint,
+  loadsById,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -54,6 +55,7 @@ export function PlanCanvas({
   camera: Camera;
   onCameraChange: (camera: Camera) => void;
   spacingHint: { a: number; b: number };
+  loadsById?: Record<string, HoleLoad>;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -229,6 +231,9 @@ export function PlanCanvas({
 
   const origin = worldToScreen(camera, viewport, { x: 0, y: 0 });
   const freeFaceSet = new Set(contour.free_faces.map((f) => f.join("-")));
+  const maxChargeKg = loadsById
+    ? Math.max(0, ...Object.values(loadsById).map((ld) => ld.total_charge_kg))
+    : 0;
 
   return (
     <div className="plan-canvas-wrap">
@@ -265,9 +270,11 @@ export function PlanCanvas({
         {holes.map((h) => {
           const p = holeScreenPos(h);
           const isSelected = selected.has(h.id);
+          const load = loadsById?.[h.id];
+          const chargeColor = load && maxChargeKg > 0 ? chargeMassColor(load.total_charge_kg, maxChargeKg) : null;
           return (
             <g key={h.id} className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${!h.enabled ? " disabled" : ""}`}>
-              <circle cx={p.x} cy={p.y} r={isSelected ? 7 : 5.5} />
+              <circle cx={p.x} cy={p.y} r={isSelected ? 7 : 5.5} style={chargeColor ? { fill: chargeColor } : undefined} />
             </g>
           );
         })}
@@ -301,6 +308,12 @@ export function PlanCanvas({
       </div>
     </div>
   );
+}
+
+function chargeMassColor(massKg: number, maxMassKg: number): string {
+  const ratio = Math.max(0, Math.min(1, massKg / maxMassKg));
+  const hue = 48 - 48 * ratio; // жёлтый (лёгкий заряд) → красный (тяжёлый)
+  return `hsl(${hue}, 72%, 46%)`;
 }
 
 function round2(v: number): number {

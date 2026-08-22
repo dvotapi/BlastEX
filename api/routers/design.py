@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, Response, status
 
 from api.schemas.design import (
     BlastDesignSchema,
+    ChargeGenerateRequest,
+    ChargeGenerateResponse,
     DesignListResponse,
     PatternGenerateRequest,
     PatternGenerateResponse,
@@ -18,6 +20,11 @@ router = APIRouter(prefix="/design", tags=["design"])
 @router.post("/pattern", response_model=PatternGenerateResponse)
 def post_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse:
     return design_service.generate_pattern(request)
+
+
+@router.post("/charge", response_model=ChargeGenerateResponse)
+def post_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
+    return design_service.generate_charge(request)
 
 
 @router.get("/plans", response_model=DesignListResponse)

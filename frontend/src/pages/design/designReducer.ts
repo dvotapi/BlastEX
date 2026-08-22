@@ -1,7 +1,7 @@
 // Единственный источник истины для документа паспорта БВР на клиенте:
 // useReducer + стек undo/redo. Камера, выделение и режим инструмента — вне
 // документа (не должны попадать в историю правок).
-import type { BenchSurface, BlastDesign, Hole, PatternParams } from "../../types/design";
+import type { BenchSurface, BlastDesign, ChargeRules, Hole, HoleLoad, PatternParams } from "../../types/design";
 
 export type DesignAction =
   | { type: "LOAD"; design: BlastDesign }
@@ -15,6 +15,8 @@ export type DesignAction =
   | { type: "UPDATE_HOLE"; id: string; patch: Partial<Hole> }
   | { type: "ADD_HOLE"; hole: Hole }
   | { type: "DELETE_HOLES"; ids: string[] }
+  | { type: "SET_CHARGE_RULES"; rules: Partial<ChargeRules> }
+  | { type: "SET_LOADS"; loads: HoleLoad[] }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -87,6 +89,10 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       const ids = new Set(action.ids);
       return { ...document, holes: document.holes.filter((h) => !ids.has(h.id)) };
     }
+    case "SET_CHARGE_RULES":
+      return { ...document, charge_rules: { ...document.charge_rules, ...action.rules } };
+    case "SET_LOADS":
+      return { ...document, loads: action.loads };
     default:
       return document;
   }
@@ -102,6 +108,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "UPDATE_HOLE",
   "ADD_HOLE",
   "DELETE_HOLES",
+  "SET_LOADS",
 ];
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {
@@ -123,7 +130,11 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
   const nextPresent = reduceDocument(state.present, action);
   if (nextPresent === state.present) return state;
 
-  if (action.type === "SET_PATTERN_PARAMS" || !UNDOABLE.includes(action.type)) {
+  if (
+    action.type === "SET_PATTERN_PARAMS" ||
+    action.type === "SET_CHARGE_RULES" ||
+    !UNDOABLE.includes(action.type)
+  ) {
     // Параметры раскладки не создают отдельный шаг истории — они меняются
     // на каждое нажатие клавиши в форме, а не как правка документа.
     return { ...state, present: nextPresent };

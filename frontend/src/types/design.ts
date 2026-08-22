@@ -100,6 +100,28 @@ export type PatternGenerateResponse = {
   block_volume_m3: number;
 };
 
+export type DeckingType = "continuous" | "spaced";
+
+export type ChargeRules = {
+  hole_oversize_coeff: number;
+  stemming_m: number | null;
+  stemming_k: number;
+  decking: DeckingType;
+  deck_count: number;
+  air_gap_m: number;
+  primer_offset_m: number;
+  grid_a_m: number;
+  grid_b_m: number;
+};
+
+export type ChargeExplosive = { name: string; density_t_m3: number; power_mj_kg: number };
+
+export type ChargeGenerateResponse = {
+  loads: HoleLoad[];
+  total_charge_kg: number;
+  total_holes_charged: number;
+};
+
 export type DesignSummary = {
   design_id: string;
   name: string;
@@ -132,6 +154,18 @@ export function emptyDesign(): BlastDesign {
     explosive_key: "",
   };
 }
+
+export const DEFAULT_CHARGE_RULES: ChargeRules = {
+  hole_oversize_coeff: 1.05,
+  stemming_m: null,
+  stemming_k: 20,
+  decking: "continuous",
+  deck_count: 2,
+  air_gap_m: 1,
+  primer_offset_m: 0.3,
+  grid_a_m: 5,
+  grid_b_m: 4,
+};
 
 export const DEFAULT_PATTERN_PARAMS: PatternParams = {
   pattern: "staggered",

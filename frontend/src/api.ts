@@ -2,6 +2,9 @@ import type { BlastVariant, Explosive, Rock, User } from "./types";
 import type {
   BlastDesign,
   BlockContour,
+  ChargeExplosive,
+  ChargeGenerateResponse,
+  ChargeRules,
   DesignSummary,
   Hole,
   PatternGenerateResponse,
@@ -72,6 +75,11 @@ export const api = {
       request<PatternGenerateResponse>("/api/v1/design/pattern", {
         method: "POST",
         body: JSON.stringify({ contour, params, existing_holes: existingHoles }),
+      }),
+    charge: (holes: Hole[], rules: ChargeRules, explosive: ChargeExplosive) =>
+      request<ChargeGenerateResponse>("/api/v1/design/charge", {
+        method: "POST",
+        body: JSON.stringify({ holes, rules, explosive }),
       }),
     listPlans: () => request<{ items: DesignSummary[] }>("/api/v1/design/plans"),
     createPlan: (design: BlastDesign) =>

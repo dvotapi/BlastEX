@@ -54,4 +54,25 @@
 .hole-table-panel select, .hole-table-panel input { border:1px solid #cfd9d4; border-radius:6px; padding:4px 6px; font-size:11px; width:100%; }
 .hole-table-actions { display:flex; align-items:center; justify-content:space-between; padding:10px 17px; border-top:1px solid #edf1ef; font-size:12px; }
 
+.panel > header select { border:1px solid #ced9d3; border-radius:8px; padding:5px 8px; font-size:11px; background:#fff; color:#3b4b43; }
+
+.section-view-panel .panel-body { gap:10px; }
+.section-svg { display:block; width:100%; height:auto; background:#fbfcfb; border:1px solid #e2e8e5; border-radius:11px; }
+.section-bench-line { stroke:#c7d1cc; stroke-width:1; stroke-dasharray:5 3; }
+.section-label { fill:#5c6a63; font-size:9.5px; }
+.section-hole-outline { stroke:#c7d1cc; stroke-width:2; }
+.section-collar { fill:#2d7556; }
+.section-deck { stroke-width:6; stroke-linecap:butt; }
+.section-deck.deck-charge { stroke:#c0392b; }
+.section-deck.deck-stemming { stroke:#a9835a; }
+.section-deck.deck-air { stroke:#8fb7d9; stroke-dasharray:3 3; }
+.section-legend { display:flex; gap:14px; font-size:11px; color:#5c6a63; }
+.section-legend i { display:inline-block; width:14px; height:4px; margin-right:5px; vertical-align:middle; border-radius:2px; }
+.section-legend i.deck-charge { background:#c0392b; }
+.section-legend i.deck-stemming { background:#a9835a; }
+.section-legend i.deck-air { background:#8fb7d9; }
+
+.charge-color-hint { display:flex; align-items:center; gap:8px; font-size:11px; color:#5c6a63; }
+.charge-color-hint .charge-scale { flex:1; height:8px; border-radius:4px; background:linear-gradient(90deg,#f4d35e,#c0392b); }
+
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

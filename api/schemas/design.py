@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.blast import ExplosivePropertiesSchema
+
 
 class Point3Schema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -113,6 +115,18 @@ class PatternGenerateResponse(BaseModel):
     holes: list[HoleSchema]
     hole_count: int
     block_volume_m3: float
+
+
+class ChargeGenerateRequest(BaseModel):
+    holes: list[HoleSchema]
+    rules: dict[str, Any] = Field(default_factory=dict)
+    explosive: ExplosivePropertiesSchema
+
+
+class ChargeGenerateResponse(BaseModel):
+    loads: list[HoleLoadSchema]
+    total_charge_kg: float
+    total_holes_charged: int
 
 
 class DesignSummarySchema(BaseModel):

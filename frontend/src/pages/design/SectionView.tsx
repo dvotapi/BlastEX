@@ -113,6 +113,14 @@ export function SectionView({
                     />
                   );
                 })}
+                {load?.primers.map((primerM, i) => {
+                  const p = pointAt(hole, length > 0 ? primerM / length : 0);
+                  return (
+                    <g key={`primer-${i}`} className="section-primer" transform={`translate(${p.x} ${p.y})`}>
+                      <path d="M0,-6 L6,0 L0,6 L-6,0 Z" />
+                    </g>
+                  );
+                })}
                 <circle cx={collarPx.x} cy={collarPx.y} r={4} className="section-collar" />
                 <text x={collarPx.x} y={collarPx.y - 8} className="section-label" textAnchor="middle">{hole.id}</text>
                 {load && load.total_charge_kg > 0 && (
@@ -128,6 +136,7 @@ export function SectionView({
           <span><i className="deck-charge" /> заряд</span>
           <span><i className="deck-stemming" /> забойка</span>
           <span><i className="deck-air" /> промежуток</span>
+          <span><i className="legend-primer" /> боевик</span>
         </div>
       </div>
     </section>

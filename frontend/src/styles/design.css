@@ -71,6 +71,8 @@
 .section-legend i.deck-charge { background:#c0392b; }
 .section-legend i.deck-stemming { background:#a9835a; }
 .section-legend i.deck-air { background:#8fb7d9; }
+.section-primer path { fill:#e4b94f; stroke:#173125; stroke-width:1; }
+.section-legend i.legend-primer { width:9px; height:9px; border-radius:2px; background:#e4b94f; border:1px solid #173125; }
 
 .charge-color-hint { display:flex; align-items:center; gap:8px; font-size:11px; color:#5c6a63; }
 .charge-color-hint .charge-scale { flex:1; height:8px; border-radius:4px; background:linear-gradient(90deg,#f4d35e,#c0392b); }

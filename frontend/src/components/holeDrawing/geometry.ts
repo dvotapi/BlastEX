@@ -29,6 +29,56 @@ export function depthTicks(fromM: number, toM: number, stepM: number): number[] 
   return ticks;
 }
 
+/** «Круглая» длина масштабной линейки, ближайшая к целевой длине в пикселях. */
+export function niceScaleBarM(pxPerM: number, targetPx = 110): number {
+  const raw = targetPx / pxPerM;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(1e-6, raw))));
+  for (const step of [1, 2, 2.5, 5, 10]) {
+    if (step * magnitude >= raw) return step * magnitude;
+  }
+  return 10 * magnitude;
+}
+
+/**
+ * Во сколько раз диаметр скважины на чертеже крупнее натурального.
+ * Диаметр 0,15 м при масштабе всего уступа не виден вовсе, поэтому его
+ * преувеличивают — но коэффициент должен быть один на весь чертёж и указан
+ * на нём, иначе чертёж вводит в заблуждение.
+ */
+export function exaggerationFactor(
+  maxDiameterM: number,
+  pxPerM: number,
+  targetPx: number,
+  /** Предел ширины ствола, чтобы соседние скважины не сливались в сплошную стену. */
+  maxWidthPx = Number.POSITIVE_INFINITY,
+): number {
+  if (maxDiameterM <= 0 || pxPerM <= 0) return 1;
+  const natural = maxDiameterM * pxPerM;
+  const capped = Math.min(targetPx, maxWidthPx);
+  return Math.max(1, Math.round(capped / natural));
+}
+
+/**
+ * Уровень детализации подписей по плотности скважин на экране: при тесной
+ * расстановке подписи сливаются в кашу, поэтому часть из них скрывается,
+ * а номера прореживаются.
+ */
+export function labelDetail(spacingPx: number): {
+  showId: boolean;
+  showMeta: boolean;
+  showMass: boolean;
+  showPrimerLabels: boolean;
+  idEvery: number;
+} {
+  return {
+    showId: spacingPx >= 16,
+    showMeta: spacingPx >= 62,
+    showMass: spacingPx >= 46,
+    showPrimerLabels: spacingPx >= 54,
+    idEvery: spacingPx >= 30 ? 1 : Math.max(1, Math.ceil(30 / Math.max(1, spacingPx))),
+  };
+}
+
 /**
  * Ширина ствола на чертеже. Диаметр скважины (0,1–0,3 м) на фоне уступа в 10 м
  * в масштабе не виден, поэтому ширина преувеличена, но остаётся пропорциональной

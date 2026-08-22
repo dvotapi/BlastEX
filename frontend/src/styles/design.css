@@ -57,7 +57,15 @@
 .panel > header select { border:1px solid #ced9d3; border-radius:8px; padding:5px 8px; font-size:11px; background:#fff; color:#3b4b43; }
 
 .section-view-panel .panel-body { gap:10px; }
-.section-svg { display:block; width:100%; height:auto; background:#fbfcfb; border:1px solid #e2e8e5; border-radius:11px; }
+.section-canvas-wrap { position:relative; border:1px solid #e2e8e5; border-radius:11px; overflow:hidden; background:#fbfcfb; }
+.section-svg { display:block; width:100%; height:460px; background:#fbfcfb; touch-action:none; cursor:grab; }
+.section-svg.panning { cursor:grabbing; }
+/* Кнопки внизу справа: сверху над устьями идут номера скважин. */
+.section-controls { position:absolute; bottom:10px; right:10px; display:flex; gap:6px; }
+.section-controls button { min-width:30px; padding:6px 10px; border:1px solid #ced9d3; border-radius:8px; background:rgba(255,255,255,.94); color:#3b4b43; font-size:11px; font-weight:700; }
+.section-controls button:hover { border-color:#2d7556; color:#2d7556; }
+.section-hint { position:absolute; left:12px; top:10px; padding:5px 9px; border-radius:8px; background:rgba(16,41,31,.72); color:#eaf3ef; font-size:10px; pointer-events:none; }
+@media (max-width:900px) { .section-svg { height:380px; } }
 
 /* --- Профиль уступа --- */
 .rock-mass { stroke:none; }
@@ -86,6 +94,8 @@
 .section-legend i.legend-primer { background:#e4b94f; border-color:#173125; }
 .section-legend i.legend-subdrill { background:repeating-linear-gradient(-45deg,#f7f9f8 0 2px,#c9d3cd 2px 3px); }
 .section-legend i.legend-rock { background:repeating-linear-gradient(45deg,#e8ece9 0 3px,#b8c4bd 3px 4px); }
+.section-legend .legend-warning { color:#9e3025; font-weight:700; }
+.section-legend i.legend-flag { background:#e0483a; border-color:#7d2b23; clip-path:polygon(50% 0,100% 100%,0 100%); border:0; }
 
 .charge-color-hint { display:flex; align-items:center; gap:8px; font-size:11px; color:#5c6a63; }
 .charge-color-hint .charge-scale { flex:1; height:8px; border-radius:4px; background:linear-gradient(90deg,#f4d35e,#c0392b); }

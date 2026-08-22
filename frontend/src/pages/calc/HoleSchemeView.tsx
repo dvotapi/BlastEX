@@ -92,6 +92,9 @@ export function HoleSchemeView({
 
   const dimX = xAxis + width / 2 + 26;
   const barrelEdge = xAxis + width / 2;
+  // Во сколько раз ствол на схеме шире натурального — указываем на чертеже.
+  const pxPerM = (yBottom - yTop) / depthM;
+  const exaggeration = Math.max(1, Math.round(width / ((crownMm / 1000) * pxPerM)));
 
   return (
     <div className="hole-scheme">
@@ -198,7 +201,7 @@ export function HoleSchemeView({
       <div className="hole-scheme-caption">
         <b>{hole.explosive_label || hole.explosive_name}</b>
         <span>⌀ {ruNumber(crownMm, 0)}/{ruNumber(hole.charge_diameter_m * 1000, 0)} мм</span>
-        <small>диаметр вне масштаба</small>
+        <small>глубина в масштабе · ⌀ ×{ruNumber(exaggeration, 0)}</small>
       </div>
     </div>
   );

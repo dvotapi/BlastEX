@@ -565,6 +565,7 @@ export function DesignPage({
                   holes={document.holes}
                   loads={document.loads}
                   network={document.network}
+                  warnings={analysis?.validation_warnings}
                   rowAzimuthDeg={patternParams.row_azimuth_deg}
                   selectedRow={selectedRow}
                   onSelectedRowChange={setSelectedRow}

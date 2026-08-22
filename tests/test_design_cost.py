@@ -60,6 +60,51 @@ class DesignCostConversionTests(unittest.TestCase):
         self.assertGreater(result.total_amount_rub, 0.0)
         self.assertIsNotNone(result.drilling_total_cost)
 
+    def test_downhole_nsi_counts_only_holes_actually_in_network(self):
+        # Контурные скважины по умолчанию не включаются в схему коммутации
+        # (build_template_network(include_contour=False)) — total_downhole_nsi
+        # должен отражать это, а не общее число скважин блока.
+        contour = BlockContour(
+            vertices=[Point3(x=x, y=y, z=0.0) for x, y in [(0, 0), (20, 0), (20, 16), (0, 16)]],
+            free_faces=[[0, 1]],
+            bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0),
+        )
+        params = {
+            "pattern": "rectangular",
+            "spacing_a_m": 4.0,
+            "burden_b_m": 4.0,
+            "offset_from_face_m": 0.0,
+            "edge_margin_m": 0.0,
+            "contour_row": True,
+            "contour_spacing_m": 4.0,
+            "contour_offset_m": 2.0,
+        }
+        holes = generate_pattern(contour, params)
+        self.assertTrue(any(h.kind == "contour" for h in holes), "test setup must include contour holes")
+
+        loads = apply_charge_rules(
+            holes, {"stemming_m": 3.0, "decking": "continuous", "grid_a_m": 4.0, "grid_b_m": 4.0}, EXPLOSIVE
+        )
+        network = build_template_network(holes, "row", {"system": "nonel"})
+        wired_count = len(network.downhole_delay_ms)
+        self.assertLess(wired_count, len(holes), "test setup must exclude some holes from the network")
+
+        design = BlastDesign(
+            design_id="test",
+            name="Контур",
+            contour=contour,
+            holes=holes,
+            loads=loads,
+            network=network,
+            pattern_params=params,
+            explosive_key="ПВВ Гранулит-РП",
+        )
+        request = DesignCostRequest(design=BlastDesignSchema(**design.to_dict()), scenario_id="drill_blast")
+        result = estimate_design_cost(request)
+
+        self.assertEqual(result.block_geometry.total_downhole_nsi, wired_count)
+        self.assertAlmostEqual(result.block_geometry.total_nsi_length_m, wired_count * 12.0, places=2)
+
     def test_empty_design_raises(self):
         design = BlastDesign(design_id="empty")
         request = DesignCostRequest(

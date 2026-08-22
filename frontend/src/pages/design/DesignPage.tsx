@@ -401,6 +401,12 @@ export function DesignPage({
       if (id === document.design_id) {
         dispatch({ type: "LOAD", design: emptyDesign() });
         setBlockVolumeM3(null);
+        setSelected(new Set());
+        setSelectedRow(null);
+        setAnalysis(null);
+        setCurrentMs(0);
+        setPlaying(false);
+        setCostResult(null);
       }
       await refreshPlans();
     } catch (reason) {

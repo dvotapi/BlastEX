@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 from Blast import ExplosiveProperties
 from design.analysis import charge_per_delay, estimate_ppv, summary, timing_isolines, validate
@@ -40,6 +41,22 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(result["hole_count"], len(design.holes))
         self.assertAlmostEqual(result["total_charge_kg"], sum(ld.total_charge_kg for ld in design.loads), places=2)
         self.assertIn("Гранулит-РП", result["explosive_breakdown_kg"])
+
+    def test_disabled_hole_charge_excluded_from_totals(self):
+        design, _times = _design()
+        disabled_hole = design.holes[0]
+        design.holes[0] = replace(disabled_hole, enabled=False)
+        disabled_load = next(ld for ld in design.loads if ld.hole_id == disabled_hole.id)
+
+        result = summary(design)
+
+        expected_total = sum(ld.total_charge_kg for ld in design.loads if ld.hole_id != disabled_hole.id)
+        self.assertGreater(disabled_load.total_charge_kg, 0.0)
+        self.assertAlmostEqual(result["total_charge_kg"], expected_total, places=2)
+        self.assertEqual(result["charged_hole_count"], len(design.loads) - 1)
+        # Масса отключённой скважины не должна попадать в разбивку по ВВ.
+        breakdown_total = sum(result["explosive_breakdown_kg"].values())
+        self.assertAlmostEqual(breakdown_total, expected_total, places=2)
 
 
 class ChargePerDelayTests(unittest.TestCase):

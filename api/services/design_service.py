@@ -200,7 +200,10 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
     network = design.network
     is_nonel = network.system == "nonel"
     total_surface_nsi = len([c for c in network.connectors if c.kind == "surface_nsi"]) if is_nonel else 0
-    total_downhole_nsi = total_holes if is_nonel and network.downhole_delay_ms else 0
+    # downhole_delay_ms содержит запись только для скважин, реально включённых
+    # в схему (build_template_network по умолчанию не берёт контурные скважины) —
+    # total_holes здесь был бы завышением, если в проекте есть контурные скважины.
+    total_downhole_nsi = len(network.downhole_delay_ms) if is_nonel else 0
     total_start_nsi = len(network.starters) if is_nonel else 0
     downhole_delay_ms = int(next(iter(network.downhole_delay_ms.values()), 500)) if network.downhole_delay_ms else 500
 
@@ -247,7 +250,7 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
         detonator_delay_ms=downhole_delay_ms,
         total_intermediate_detonators=total_primers,
         total_downhole_nsi=total_downhole_nsi,
-        total_nsi_length_m=total_holes * 12.0,
+        total_nsi_length_m=total_downhole_nsi * 12.0,
         total_boosters=total_primers,
         total_surface_nsi=total_surface_nsi,
         total_start_nsi=total_start_nsi,

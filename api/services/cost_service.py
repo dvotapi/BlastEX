@@ -55,3 +55,95 @@ def calculate_cost(request: CostCalculateRequest) -> AggregatedCostResultSchema:
         explosive_id=materials_selection.explosive_id if materials_selection else None,
     )
     return aggregated_result_to_schema(result)
+
+
+def calculate_drilling_unit(
+    request: "DrillingUnitCalculateRequest", team_id: str
+) -> "DrillingUnitCalculateResponse":
+    from dataclasses import asdict
+
+    from api.schemas.cost import (
+        DrillingCostLineSchema,
+        DrillingUnitCalculateResponse,
+        DrillingUnitCostResultSchema,
+    )
+    from cost.drilling import DrillingUnitCostInput, calculate_drilling_unit_cost, unit_cost_summary_rows
+    from cost.drilling_data import DEFAULT_DRILL_RIGS, DEFAULT_WORK_OBJECTS, drill_rigs_from_records, work_objects_from_records
+    from cost.persistence import load_team_references
+
+    refs = load_team_references(team_id)
+    work_objects = work_objects_from_records(refs.work_object_records) or list(DEFAULT_WORK_OBJECTS)
+    drill_rigs = drill_rigs_from_records(refs.drill_rig_records) or list(DEFAULT_DRILL_RIGS)
+
+    params = DrillingUnitCostInput(**request.input.model_dump())
+    result = calculate_drilling_unit_cost(params, work_objects=work_objects, drill_rigs=drill_rigs)
+
+    result_schema = DrillingUnitCostResultSchema(
+        commercial_speed_m_per_shift=result.commercial_speed_m_per_shift,
+        fuel_l_per_m=result.fuel_l_per_m,
+        direct_cost_per_m=result.direct_cost_per_m,
+        cost_per_m=result.cost_per_m,
+        price_per_m=result.price_per_m,
+        diesel_share=result.diesel_share,
+        lines=[DrillingCostLineSchema(**asdict(line)) for line in result.lines],
+    )
+    return DrillingUnitCalculateResponse(
+        result=result_schema,
+        summary_rows=unit_cost_summary_rows(result),
+    )
+
+
+def calculate_labor(request: "LaborCalculateRequest") -> "LaborCalculateResponse":
+    from dataclasses import asdict
+
+    from api.schemas.cost import LaborCalculateResponse, LaborFOTResultSchema, LaborLineResultSchema
+    from cost.labor import (
+        LaborFOTSettings,
+        calculate_labor_fot,
+        labor_assignments_from_records,
+        labor_catalog_from_records,
+        labor_summary_rows,
+        labor_table_rows,
+    )
+
+    catalog = labor_catalog_from_records([item.model_dump() for item in request.labor_catalog])
+    assignments = labor_assignments_from_records(
+        [item.model_dump() for item in request.labor_assignments]
+    )
+    settings = LaborFOTSettings(**request.settings.model_dump())
+    result = calculate_labor_fot(catalog=catalog, assignments=assignments, settings=settings)
+
+    result_schema = LaborFOTResultSchema(
+        lines=[LaborLineResultSchema(**asdict(line)) for line in result.lines],
+        gross_salary=result.gross_salary,
+        accident_contribution=result.accident_contribution,
+        social_contribution=result.social_contribution,
+        vacation_reserve=result.vacation_reserve,
+        contributions_total=result.contributions_total,
+        total_fot=result.total_fot,
+    )
+    return LaborCalculateResponse(
+        result=result_schema,
+        table_rows=labor_table_rows(result),
+        summary_rows=labor_summary_rows(result),
+    )
+
+
+def resolve_materials_auto(request: "MaterialsAutoRequest", team_id: str) -> "MaterialsAutoResponse":
+    from api.schemas.cost import MaterialsAutoResponse, MaterialsSelectionSchema
+    from cost.materials import auto_materials_selection
+    from cost.models import InitiationConfig
+    from cost.persistence import load_scenario_snapshot, load_team_settings
+
+    from cost.catalog import DEFAULT_CATALOG, catalog_from_records
+
+    settings = load_team_settings(team_id)
+    snapshot = load_scenario_snapshot(team_id, settings.active_scenario_id)
+    catalog = catalog_from_records(snapshot.cost_catalog_records) or list(DEFAULT_CATALOG)
+
+    selection = auto_materials_selection(
+        catalog=catalog,
+        explosive_key=request.explosive_key,
+        initiation=InitiationConfig(**request.initiation.model_dump()),
+    )
+    return MaterialsAutoResponse(selection=MaterialsSelectionSchema(**selection.__dict__))

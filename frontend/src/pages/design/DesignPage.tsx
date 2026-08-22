@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { api } from "../../api";
+import { api } from "../../api/endpoints";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import type { BlastVariant, Explosive, User } from "../../types";
 import {

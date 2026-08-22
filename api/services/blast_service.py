@@ -54,3 +54,49 @@ def optimize_blast(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
         rock_name=rock.name,
         explosive_name=explosive.name,
     )
+
+
+def resolve_explosive_item(team_id: str, explosive_key: str):
+    """ВВ команды по ключу UI, с откатом на первый элемент (как selectbox в Streamlit)."""
+    from cost.explosive_data import DEFAULT_EXPLOSIVES, explosives_from_records
+    from cost.persistence import load_team_references
+
+    refs = load_team_references(team_id)
+    items = explosives_from_records(refs.explosive_records) or list(DEFAULT_EXPLOSIVES)
+    return next((item for item in items if item.key == explosive_key), items[0])
+
+
+def compute_geometry(payload, team_id: str):
+    """Геометрия скважины и блока для панели схемы заряда (api/schemas/blast.BlastGeometryRequest)."""
+    from cost.geometry import (
+        calculate_block_geometry,
+        calculate_hole_geometry,
+        normalize_initiation_config,
+    )
+
+    explosive_item = resolve_explosive_item(team_id, payload.explosive_key)
+    initiation = normalize_initiation_config(
+        intermediate_detonators_per_hole=payload.intermediate_detonators_per_hole,
+        nsi_per_hole=payload.nsi_per_hole,
+        nsi_length_1_m=payload.nsi_length_1_m,
+        nsi_length_2_m=payload.nsi_length_2_m,
+        detonator_delay_ms=payload.detonator_delay_ms,
+    )
+    hole = calculate_hole_geometry(
+        grid_a_m=payload.grid_a_m,
+        grid_b_m=payload.grid_b_m,
+        depth_m=payload.depth_m,
+        overdrill_m=payload.overdrill_m,
+        undercharge_m=payload.undercharge_m,
+        crown_mm=payload.crown_mm,
+        hole_oversize_coeff=payload.hole_oversize_coeff,
+        explosive=explosive_item.properties,
+        explosive_label=explosive_item.label,
+    )
+    block = calculate_block_geometry(
+        block_volume_m3=payload.block_volume_m3,
+        hole=hole,
+        additional_holes_pct=payload.additional_holes_pct,
+        initiation=initiation,
+    )
+    return hole, block, initiation, explosive_item.label

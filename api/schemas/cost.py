@@ -91,14 +91,41 @@ class ManualScenarioInputSchema(BaseModel):
 
 
 class DrillingUnitCostInputSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     volume_m: float = Field(2343.688167787891, gt=0)
     crown_mm: float = Field(152.0, gt=0)
     rig_name: str = "JK 830-3"
     tech_speed_m_h: float = Field(12.0, gt=0)
     nonproductive_h_per_shift: float = Field(1.0, ge=0)
+
+    crown_m_per_piece: float = Field(700.0, gt=0)
+    crown_price_rub: float = Field(25_000.0, ge=0)
+    ppu_m_per_piece: float = Field(7_000.0, gt=0)
+    ppu_price_rub: float = Field(100_000.0, ge=0)
+    rig_tools_m_per_set: float = Field(15_000.0, gt=0)
+    rig_tools_set_price_rub: float = Field(155_000.0, ge=0)
+    casing_m_per_drill_m: float = Field(0.03, ge=0)
+    casing_price_rub_per_m: float = Field(450.0, ge=0)
+
+    shifts_toir: float = Field(2.0, ge=0)
+    shifts_cleaning: float = Field(1.0, ge=0)
+
+    spares_rub_per_m: float = Field(30.0, ge=0)
+    consumables_rub_per_m: float = Field(10.0, ge=0)
+    fot_rub_per_m: float = Field(150.0, ge=0)
+
     object_name: str = ""
     mobilization_km: float | None = None
     diesel_price_ton_rub: float | None = None
+    mobilization_rub_per_km: float = Field(450.0, ge=0)
+    mobilization_divisor: float = Field(6.0, gt=0)
+
+    line_release_rub_per_shift: float = Field(200.0, ge=0)
+    include_med_exams: bool = True
+
+    overhead_production_rub: float = Field(100_000.0, ge=0)
+    overhead_admin_rub: float = Field(100_000.0, ge=0)
     profit_factor: float = Field(1.2, gt=0)
 
 
@@ -111,6 +138,8 @@ class LaborFOTSettingsSchema(BaseModel):
 
 
 class JobPositionSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     fixed_salary_monthly: float = Field(..., ge=0)
@@ -118,6 +147,8 @@ class JobPositionSchema(BaseModel):
 
 
 class LaborAssignmentSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     position_id: str
     headcount: float = Field(..., gt=0)
@@ -126,6 +157,8 @@ class LaborAssignmentSchema(BaseModel):
 
 
 class FixedCostItemSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     section: str
     name: str
@@ -270,3 +303,36 @@ class AggregatedCostResultSchema(BaseModel):
 
 # Forward ref для рекурсивной модели
 AggregatedCostResultSchema.model_rebuild()
+
+
+# --- Отдельные калькуляторы (бурение, ФОТ, авто-подбор номенклатуры) ---
+
+
+class DrillingUnitCalculateRequest(BaseModel):
+    input: DrillingUnitCostInputSchema
+
+
+class DrillingUnitCalculateResponse(BaseModel):
+    result: DrillingUnitCostResultSchema
+    summary_rows: list[tuple[str, str]]
+
+
+class LaborCalculateRequest(BaseModel):
+    labor_catalog: list[JobPositionSchema]
+    labor_assignments: list[LaborAssignmentSchema]
+    settings: LaborFOTSettingsSchema = Field(default_factory=LaborFOTSettingsSchema)
+
+
+class LaborCalculateResponse(BaseModel):
+    result: LaborFOTResultSchema
+    table_rows: list[dict[str, float | str]]
+    summary_rows: list[tuple[str, str]]
+
+
+class MaterialsAutoRequest(BaseModel):
+    explosive_key: str
+    initiation: InitiationConfigSchema
+
+
+class MaterialsAutoResponse(BaseModel):
+    selection: MaterialsSelectionSchema

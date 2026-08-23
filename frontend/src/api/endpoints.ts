@@ -78,6 +78,7 @@ import type {
   DesignScenarioParams,
   DesignScenarioSummary,
   OptimizationResult,
+  DesignRecommendation,
   ScenarioCompareResponse,
   PredictedFragmentation,
   PredictedVibrationSnapshot,
@@ -437,6 +438,34 @@ export const api = {
       params: DesignScenarioParams;
       persist?: boolean;
     }) => post<DesignScenario>(`${V1}/design/optimize/promote`, payload),
+    recommend: (payload: {
+      design: BlastDesign;
+      profile: string;
+      variables?: Array<{
+        name: string;
+        values?: Array<number | string>;
+        minimum?: number | null;
+        maximum?: number | null;
+        step?: number | null;
+      }>;
+      objectives?: string[];
+      target_x50_mm?: number;
+      max_candidates?: number;
+      persist?: boolean;
+      persist_as_scenario?: boolean;
+      params?: DesignScenarioParams;
+      constraints?: { max_ppv_mm_s?: number; max_oversize_pct?: number; max_cost_rub?: number };
+    }) => post<DesignRecommendation>(`${V1}/design/recommend`, payload),
+    promoteRecommendation: (payload: {
+      design: BlastDesign;
+      name: string;
+      params: DesignScenarioParams;
+      persist?: boolean;
+    }) => post<DesignScenario>(`${V1}/design/recommend/promote`, payload),
+    listRecommendations: (designId: string) =>
+      get<{ items: Array<{ recommendation_id: string; profile: string; created_at: string }>; design_id: string; auto_applied: boolean }>(
+        `${V1}/design/plans/${designId}/recommendations`,
+      ),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,
     listPlans: () => get<{ items: DesignSummary[] }>(`${V1}/design/plans`),
     createPlan: (design: BlastDesign) => post<BlastDesign>(`${V1}/design/plans`, design),

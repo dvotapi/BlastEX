@@ -123,3 +123,16 @@ class OptimizationNotFoundError(BlastExError):
 class InvalidOptimizationError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="invalid_optimization")
+
+
+class RecommendationNotFoundError(BlastExError):
+    def __init__(self, recommendation_id: str) -> None:
+        super().__init__(
+            f"Рекомендация «{recommendation_id}» не найдена.",
+            error_type="recommendation_not_found",
+        )
+
+
+class InvalidRecommendationError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_recommendation")

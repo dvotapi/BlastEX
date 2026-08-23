@@ -2310,3 +2310,78 @@ export const OPTIMIZATION_OBJECTIVE_UNITS: Record<string, string> = {
   target_x50: "мм",
 };
 
+export type RecommendationProfileKey =
+  | "BALANCED"
+  | "LOW_COST"
+  | "FINE_FRAGMENTATION"
+  | "LOW_VIBRATION";
+
+export type RecommendationReason = {
+  kind: string;
+  title: string;
+  detail: string;
+  metric: string;
+  unit: string;
+  baseline: number | null;
+  recommended: number | null;
+  delta: number | null;
+  role: string;
+};
+
+export type RecommendationAssessment = {
+  target_name: string;
+  target_label: string;
+  unit: string;
+  prediction: number | null;
+  uncertainty: UncertaintyInterval;
+  confidence: string;
+  confidence_label: string;
+  similarity_score: number;
+  applicability_warning: string;
+  comparable_count: number;
+  in_domain: boolean;
+  sample_count: number;
+  extrapolated_features: string[];
+  explanation: PredictionExplanation;
+  model_id: string;
+  model_available: boolean;
+  role: string;
+};
+
+export type DesignRecommendation = {
+  recommendation_id: string;
+  design_id: string;
+  profile: RecommendationProfileKey | string;
+  suggested: OptimizationCandidate | null;
+  baseline: OptimizationCandidate | null;
+  alternatives: OptimizationCandidate[];
+  profile_picks: Record<string, string>;
+  reasons: RecommendationReason[];
+  assessments: RecommendationAssessment[];
+  objectives: string[];
+  target_x50_mm: number;
+  search_run_id: string;
+  evaluated: number;
+  pareto_count: number;
+  method: string;
+  auto_applied: boolean;
+  approved: boolean;
+  replaces_design: boolean;
+  modifies_design: boolean;
+  applied_as: string;
+  source_design_role: string;
+  suggested_role: string;
+  engineer_decides: boolean;
+  source_revision_sha256: string;
+  approved_unchanged: boolean;
+  created_at: string;
+  warnings: string[];
+};
+
+export const RECOMMENDATION_PROFILE_LABELS: Record<string, string> = {
+  BALANCED: "Сбалансированный",
+  LOW_COST: "Низкая стоимость",
+  FINE_FRAGMENTATION: "Мелкое дробление",
+  LOW_VIBRATION: "Низкая сейсмика",
+};
+

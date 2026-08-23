@@ -58,6 +58,7 @@ import {
   type OutcomeSummary,
   type DesignScenario,
   type DesignScenarioSummary,
+  type DesignRecommendation,
   type OptimizationCandidate,
   type OptimizationResult,
   type ScenarioCompareResponse,
@@ -92,6 +93,7 @@ import { CalibrationPanel } from "./CalibrationPanel";
 import { OutcomePanel } from "./OutcomePanel";
 import { ScenarioPanel } from "./ScenarioPanel";
 import { OptimizationPanel, type OptimizationVariableDraft } from "./OptimizationPanel";
+import { RecommendationPanel } from "./RecommendationPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -218,6 +220,10 @@ export function DesignPage({
     { name: "inclination_deg", label: "Наклон", unit: "°", enabled: false, valuesText: "0, 10" },
     { name: "delay_interval_ms", label: "Замедление", unit: "мс", enabled: false, valuesText: "17, 25, 42" },
   ]);
+  const [recBusy, setRecBusy] = useState(false);
+  const [recResult, setRecResult] = useState<DesignRecommendation | null>(null);
+  const [recProfile, setRecProfile] = useState("BALANCED");
+  const [recUseOverlays, setRecUseOverlays] = useState(false);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -1434,6 +1440,77 @@ export function DesignPage({
     }
   }
 
+  async function runRecommendation() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    const variables = optVariables
+      .filter((item) => item.enabled)
+      .map((item) => ({ name: item.name, values: parseOptValues(item.name, item.valuesText) }));
+    setRecBusy(true);
+    setError("");
+    try {
+      const result = await api.design.recommend({
+        design: designPayload(),
+        profile: recProfile,
+        variables,
+        objectives: optObjectives,
+        target_x50_mm: optTargetX50Mm,
+        max_candidates: optMaxCandidates,
+        persist: Boolean(document.design_id),
+        params: {
+          cost_scenario_id: scenarioId,
+          site_id: datasetSiteId.trim(),
+          use_production_overlays: recUseOverlays,
+        },
+      });
+      setRecResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось получить рекомендацию.");
+    } finally {
+      setRecBusy(false);
+    }
+  }
+
+  async function promoteRecommendation(candidate: OptimizationCandidate) {
+    setRecBusy(true);
+    setError("");
+    try {
+      const created = await api.design.promoteRecommendation({
+        design: designPayload(),
+        name: `Рекомендация ${recProfile}`,
+        persist: Boolean(document.design_id),
+        params: candidate.params,
+      });
+      if (document.design_id) {
+        const listed = await api.design.listScenarios(document.design_id);
+        setScenarioItems(listed.items);
+      } else {
+        setScenarioInline((prev) => [...prev, created]);
+        setScenarioItems((prev) => [
+          ...prev,
+          {
+            scenario_id: created.scenario_id,
+            design_id: created.design_id,
+            name: created.name,
+            kind: created.kind,
+            created_at: created.created_at,
+            diameter_mm: created.outcomes.diameter_mm,
+            spacing_a_m: created.outcomes.spacing_a_m,
+            burden_b_m: created.outcomes.burden_b_m,
+            powder_factor_kg_m3: created.outcomes.powder_factor_kg_m3,
+            hole_count: created.outcomes.hole_count,
+          },
+        ]);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сохранить рекомендацию как сценарий.");
+    } finally {
+      setRecBusy(false);
+    }
+  }
+
   async function compareDesignScenarios() {
     if (!scenarioItems.length && !scenarioInline.length) {
       setError("Сначала добавьте хотя бы один сценарий.");
@@ -1940,6 +2017,16 @@ export function DesignPage({
             busy={optBusy}
             onRun={runOptimization}
             onPromote={promoteOptimizationCandidate}
+          />
+          <RecommendationPanel
+            profile={recProfile}
+            onProfileChange={setRecProfile}
+            useOverlays={recUseOverlays}
+            onUseOverlaysChange={setRecUseOverlays}
+            result={recResult}
+            busy={recBusy}
+            onRun={runRecommendation}
+            onPromote={promoteRecommendation}
           />
         </div>
         <div className="design-main">

@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from api.exceptions import BlastExError
-from api.routers import auth, blast, cost, calibration, datasets, design, optimization, outcomes, references, scenarios, workspace
+from api.routers import auth, blast, cost, calibration, datasets, design, optimization, outcomes, recommendation, references, scenarios, workspace
 from api.security import require_internal_access
 
 API_PREFIX = "/api/v1"
@@ -149,4 +149,5 @@ app.include_router(calibration.router, prefix=API_PREFIX, dependencies=_internal
 app.include_router(outcomes.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(scenarios.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(optimization.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
+app.include_router(recommendation.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(workspace.router, prefix=API_PREFIX, dependencies=_internal_dependencies)

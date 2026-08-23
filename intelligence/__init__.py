@@ -2,6 +2,8 @@
 outcomes (BDX-013), prediction uncertainty (BDX-014) and explainability
 (BDX-015). Design-scenario comparison lives in ``design.scenarios`` (BDX-016).
 Deterministic multi-objective search lives in ``design.optimization`` (BDX-017).
+ML design recommendation (profiles, never auto-applied) lives in
+``design.recommendation`` (BDX-018).
 
 Training never reads mutable production records. Predictions are overlays and
 do not silently modify or approve an engineering design. A point estimate is

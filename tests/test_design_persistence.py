@@ -173,7 +173,7 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         )
         saved = save_design(TEAM_ID, design)
         loaded = load_design(TEAM_ID, saved.design_id)
-        self.assertEqual(loaded.version, 6)
+        self.assertEqual(loaded.version, 7)
         self.assertEqual(loaded.network.timing_mode, "expression")
         self.assertEqual(loaded.network.timing_expression, "interval * row")
         self.assertEqual(loaded.network.detonators[0].channel_id, "ch-1")
@@ -225,6 +225,38 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         self.assertEqual(loaded.receptors, [])
         self.assertEqual(loaded.vibration_models, [])
         self.assertEqual(loaded.vibration_measurements, [])
+        self.assertEqual(loaded.as_drilled_holes, [])
+
+    def test_as_drilled_round_trip_keeps_designed_holes(self):
+        from design.models import AsDrilledHole, Hole
+
+        design = self._sample_design()
+        designed = Hole(
+            id="1-01",
+            row=1,
+            col=1,
+            collar=Point3(x=2.0, y=3.0, z=0.0),
+            toe=Point3(x=2.0, y=3.0, z=-11.0),
+            diameter_mm=152.0,
+        )
+        design.holes = [designed]
+        design.as_drilled_holes = [
+            AsDrilledHole(
+                design_hole_id="1-01",
+                actual_collar=Point3(x=2.4, y=3.1, z=0.0),
+                actual_toe=Point3(x=2.6, y=3.3, z=-11.2),
+                actual_depth=11.25,
+                actual_diameter=165.0,
+            )
+        ]
+        saved = save_design(TEAM_ID, design)
+        loaded = load_design(TEAM_ID, saved.design_id)
+        self.assertEqual(loaded.holes[0].collar.to_dict(), {"x": 2.0, "y": 3.0, "z": 0.0})
+        self.assertEqual(loaded.holes[0].toe.to_dict(), {"x": 2.0, "y": 3.0, "z": -11.0})
+        self.assertAlmostEqual(loaded.holes[0].diameter_mm, 152.0)
+        self.assertEqual(loaded.as_drilled_holes[0].role, "executed")
+        self.assertAlmostEqual(loaded.as_drilled_holes[0].actual_collar.x, 2.4)
+        self.assertAlmostEqual(loaded.as_drilled_holes[0].actual_diameter, 165.0)
 
 
 if __name__ == "__main__":

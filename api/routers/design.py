@@ -38,6 +38,12 @@ from api.schemas.design import (
     VibrationConventionsResponse,
     VibrationPredictRequest,
     VibrationPredictResponse,
+    AsDrilledRecordRequest,
+    AsDrilledRecordResponse,
+    AsDrilledCompareRequest,
+    AsDrilledCompareResponse,
+    MwdImportRequest,
+    MwdSchemaResponse,
 )
 from api.security import require_internal_access
 from api.services import design_service
@@ -123,6 +129,26 @@ def get_vibration_conventions() -> VibrationConventionsResponse:
 @router.post("/vibration", response_model=VibrationPredictResponse)
 def post_vibration(request: VibrationPredictRequest) -> VibrationPredictResponse:
     return design_service.predict_vibration(request)
+
+
+@router.get("/as-drilled/mwd-schema", response_model=MwdSchemaResponse)
+def get_mwd_schema() -> MwdSchemaResponse:
+    return design_service.list_mwd_schema()
+
+
+@router.post("/as-drilled", response_model=AsDrilledRecordResponse)
+def post_as_drilled(request: AsDrilledRecordRequest) -> AsDrilledRecordResponse:
+    return design_service.record_as_drilled(request)
+
+
+@router.post("/as-drilled/compare", response_model=AsDrilledCompareResponse)
+def post_as_drilled_compare(request: AsDrilledCompareRequest) -> AsDrilledCompareResponse:
+    return design_service.compare_as_drilled(request)
+
+
+@router.post("/as-drilled/mwd", response_model=AsDrilledRecordResponse)
+def post_as_drilled_mwd(request: MwdImportRequest) -> AsDrilledRecordResponse:
+    return design_service.import_mwd(request)
 
 
 @router.post("/cost", response_model=AggregatedCostResultSchema)

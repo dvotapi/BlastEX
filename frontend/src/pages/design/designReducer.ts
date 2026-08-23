@@ -17,6 +17,7 @@ import type {
   Receptor,
   VibrationMeasurement,
   VibrationModel,
+  AsDrilledHole,
 } from "../../types/design";
 import {
   defaultVibrationModel,
@@ -58,6 +59,9 @@ export type DesignAction =
   | { type: "SET_VIBRATION_MEASUREMENTS"; measurements: VibrationMeasurement[] }
   | { type: "UPSERT_MEASUREMENT"; measurement: VibrationMeasurement }
   | { type: "DELETE_MEASUREMENT"; id: string }
+  | { type: "SET_AS_DRILLED"; holes: AsDrilledHole[] }
+  | { type: "UPSERT_AS_DRILLED"; hole: AsDrilledHole }
+  | { type: "DELETE_AS_DRILLED"; designHoleId: string }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -108,6 +112,7 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
     receptors: design.receptors ?? [],
     vibration_models: design.vibration_models?.length ? design.vibration_models : [defaultVibrationModel()],
     vibration_measurements: design.vibration_measurements ?? [],
+    as_drilled_holes: design.as_drilled_holes ?? [],
   };
 }
 
@@ -177,6 +182,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         holes: action.holes.map(normalizeHole),
         loads: [],
         network: emptyNetwork(),
+        as_drilled_holes: [],
       };
     case "MOVE_HOLES": {
       const ids = new Set(action.ids);
@@ -208,7 +214,12 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       const ids = new Set(action.ids);
       const holes = document.holes.filter((h) => !ids.has(h.id));
       const holeIds = new Set(holes.map((h) => h.id));
-      return { ...document, holes, ...pruneLoadsAndNetwork(document, holeIds) };
+      return {
+        ...document,
+        holes,
+        as_drilled_holes: document.as_drilled_holes.filter((item) => holeIds.has(item.design_hole_id)),
+        ...pruneLoadsAndNetwork(document, holeIds),
+      };
     }
     case "SET_CHARGE_RULES":
       return { ...document, charge_rules: { ...document.charge_rules, ...action.rules } };
@@ -275,6 +286,22 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         ...document,
         vibration_measurements: document.vibration_measurements.filter((item) => item.id !== action.id),
       };
+    case "SET_AS_DRILLED":
+      return { ...document, as_drilled_holes: action.holes };
+    case "UPSERT_AS_DRILLED": {
+      const exists = document.as_drilled_holes.some((item) => item.design_hole_id === action.hole.design_hole_id);
+      return {
+        ...document,
+        as_drilled_holes: exists
+          ? document.as_drilled_holes.map((item) => (item.design_hole_id === action.hole.design_hole_id ? action.hole : item))
+          : [...document.as_drilled_holes, action.hole],
+      };
+    }
+    case "DELETE_AS_DRILLED":
+      return {
+        ...document,
+        as_drilled_holes: document.as_drilled_holes.filter((item) => item.design_hole_id !== action.designHoleId),
+      };
     case "SET_HOLE_GEOLOGY": {
       const byId = new Map(action.holes.map((h) => [h.id, h]));
       return {
@@ -324,6 +351,9 @@ const UNDOABLE: DesignAction["type"][] = [
   "SET_VIBRATION_MEASUREMENTS",
   "UPSERT_MEASUREMENT",
   "DELETE_MEASUREMENT",
+  "SET_AS_DRILLED",
+  "UPSERT_AS_DRILLED",
+  "DELETE_AS_DRILLED",
 ];
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {

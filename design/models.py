@@ -10,11 +10,21 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-DESIGN_VERSION = 6
+DESIGN_VERSION = 7
 
 DATA_ROLES = ("designed", "executed", "predicted", "measured")
+ROLE_DESIGNED = "designed"
+ROLE_EXECUTED = "executed"
 ROLE_PREDICTED = "predicted"
 ROLE_MEASURED = "measured"
+MWD_FIELD_IDS = (
+    "depth_m",
+    "penetration_rate",
+    "rotation_pressure",
+    "feed_pressure",
+    "torque",
+    "air_pressure",
+)
 RECEPTOR_KINDS = (
     "building",
     "pipeline",
@@ -509,6 +519,149 @@ class Hole:
         """Высота уступа по оси скважины без учёта перебура (для выхода породы)."""
         subdrill_vertical = self.subdrill_m * math.cos(math.radians(self.angle_deg))
         return max(0.0, (self.collar.z - self.toe.z) - subdrill_vertical)
+
+
+def _point_distance(a: Point3, b: Point3) -> float:
+    dx = a.x - b.x
+    dy = a.y - b.y
+    dz = a.z - b.z
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+@dataclass
+class SurveyPoint:
+    """Downhole survey sample along an executed hole, metres from the actual collar."""
+
+    depth_m: float
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "depth_m": self.depth_m,
+            "x": self.x,
+            "y": self.y,
+            "z": self.z,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> SurveyPoint:
+        data = data or {}
+        return cls(
+            depth_m=float(data.get("depth_m", data.get("depth", 0.0)) or 0.0),
+            x=_opt_float(data, "x"),
+            y=_opt_float(data, "y"),
+            z=_opt_float(data, "z"),
+        )
+
+    @property
+    def has_xyz(self) -> bool:
+        return self.x is not None and self.y is not None and self.z is not None
+
+
+@dataclass
+class MwdSample:
+    """Manufacturer-neutral MWD reading. Names are physical quantities, not vendor tags."""
+
+    depth_m: float
+    penetration_rate: float | None = None
+    rotation_pressure: float | None = None
+    feed_pressure: float | None = None
+    torque: float | None = None
+    air_pressure: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "depth_m": self.depth_m,
+            "penetration_rate": self.penetration_rate,
+            "rotation_pressure": self.rotation_pressure,
+            "feed_pressure": self.feed_pressure,
+            "torque": self.torque,
+            "air_pressure": self.air_pressure,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> MwdSample:
+        data = data or {}
+        return cls(
+            depth_m=float(data.get("depth_m", data.get("depth", 0.0)) or 0.0),
+            penetration_rate=_opt_float(data, "penetration_rate"),
+            rotation_pressure=_opt_float(data, "rotation_pressure"),
+            feed_pressure=_opt_float(data, "feed_pressure"),
+            torque=_opt_float(data, "torque"),
+            air_pressure=_opt_float(data, "air_pressure"),
+        )
+
+
+@dataclass
+class AsDrilledHole:
+    """Executed drilling of one designed hole. Never written back onto Hole."""
+
+    design_hole_id: str
+    actual_collar: Point3
+    actual_toe: Point3
+    actual_depth: float = 0.0
+    actual_diameter: float = 0.0
+    survey_points: list[SurveyPoint] = field(default_factory=list)
+    mwd_samples: list[MwdSample] = field(default_factory=list)
+    role: str = ROLE_EXECUTED
+    provenance: DataProvenance = field(default_factory=lambda: DataProvenance(role=ROLE_EXECUTED))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "design_hole_id": self.design_hole_id,
+            "actual_collar": self.actual_collar.to_dict(),
+            "actual_toe": self.actual_toe.to_dict(),
+            "actual_depth": self.actual_depth,
+            "actual_diameter": self.actual_diameter,
+            "survey_points": [item.to_dict() for item in self.survey_points],
+            "mwd_samples": [item.to_dict() for item in self.mwd_samples],
+            "role": ROLE_EXECUTED,
+            "provenance": self.provenance.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> AsDrilledHole:
+        data = data or {}
+        provenance = DataProvenance.from_dict(data.get("provenance"))
+        provenance.role = ROLE_EXECUTED
+        return cls(
+            design_hole_id=str(data.get("design_hole_id", data.get("hole_id", "")) or ""),
+            actual_collar=Point3.from_dict(data.get("actual_collar", {})),
+            actual_toe=Point3.from_dict(data.get("actual_toe", {})),
+            actual_depth=float(data.get("actual_depth", 0.0) or 0.0),
+            actual_diameter=float(data.get("actual_diameter", data.get("actual_diameter_mm", 0.0)) or 0.0),
+            survey_points=[SurveyPoint.from_dict(item) for item in data.get("survey_points", [])],
+            mwd_samples=[MwdSample.from_dict(item) for item in data.get("mwd_samples", [])],
+            role=ROLE_EXECUTED,
+            provenance=provenance,
+        )
+
+    @property
+    def length_m(self) -> float:
+        if self.actual_depth > 0:
+            return self.actual_depth
+        return _point_distance(self.actual_collar, self.actual_toe)
+
+    @property
+    def angle_deg(self) -> float:
+        horizontal = math.hypot(
+            self.actual_toe.x - self.actual_collar.x,
+            self.actual_toe.y - self.actual_collar.y,
+        )
+        vertical = self.actual_collar.z - self.actual_toe.z
+        if horizontal == 0.0 and vertical == 0.0:
+            return 0.0
+        return math.degrees(math.atan2(horizontal, vertical))
+
+    @property
+    def azimuth_deg(self) -> float:
+        dx = self.actual_toe.x - self.actual_collar.x
+        dy = self.actual_toe.y - self.actual_collar.y
+        if dx == 0.0 and dy == 0.0:
+            return 0.0
+        return math.degrees(math.atan2(dx, dy)) % 360.0
 
 
 def is_explosive_deck_kind(kind: str) -> bool:
@@ -1524,6 +1677,7 @@ class BlastDesign:
     receptors: list[Receptor] = field(default_factory=list)
     vibration_models: list[VibrationModel] = field(default_factory=list)
     vibration_measurements: list[VibrationMeasurement] = field(default_factory=list)
+    as_drilled_holes: list[AsDrilledHole] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         from design.spatial.coordinates import CoordinateSystem
@@ -1555,6 +1709,7 @@ class BlastDesign:
             "receptors": [item.to_dict() for item in self.receptors],
             "vibration_models": [item.to_dict() for item in self.vibration_models],
             "vibration_measurements": [item.to_dict() for item in self.vibration_measurements],
+            "as_drilled_holes": [item.to_dict() for item in self.as_drilled_holes],
         }
 
     @classmethod
@@ -1584,4 +1739,5 @@ class BlastDesign:
             vibration_measurements=[
                 VibrationMeasurement.from_dict(item) for item in data.get("vibration_measurements", [])
             ],
+            as_drilled_holes=[AsDrilledHole.from_dict(item) for item in data.get("as_drilled_holes", [])],
         )

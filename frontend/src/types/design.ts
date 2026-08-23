@@ -381,6 +381,80 @@ export type VibrationPredictResponse = {
   receptor_count: number;
 };
 
+export type SurveyPoint = {
+  depth_m: number;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+};
+
+export type MwdSample = {
+  depth_m: number;
+  penetration_rate: number | null;
+  rotation_pressure: number | null;
+  feed_pressure: number | null;
+  torque: number | null;
+  air_pressure: number | null;
+};
+
+export type AsDrilledHole = {
+  design_hole_id: string;
+  actual_collar: Point3;
+  actual_toe: Point3;
+  actual_depth: number;
+  actual_diameter: number;
+  survey_points: SurveyPoint[];
+  mwd_samples: MwdSample[];
+  role: "executed";
+  provenance: DataProvenance;
+};
+
+export type HoleDeviation = {
+  design_hole_id: string;
+  role: "executed" | string;
+  collar_offset_m: number;
+  toe_offset_m: number;
+  depth_deviation_m: number;
+  angle_deviation_deg: number;
+  azimuth_deviation_deg: number;
+  actual_burden_m: number | null;
+  actual_spacing_m: number | null;
+  designed_burden_m: number | null;
+  designed_spacing_m: number | null;
+  actual_depth_m: number;
+  designed_depth_m: number;
+  actual_diameter_mm: number;
+  designed_diameter_mm: number;
+};
+
+export type AsDrilledCompareResponse = {
+  role: "executed" | string;
+  compared_count: number;
+  designed_count: number;
+  as_drilled_count: number;
+  pattern_basis: "executed" | "mixed" | "none" | string;
+  deviations: HoleDeviation[];
+  warnings: string[];
+  as_drilled_holes: AsDrilledHole[];
+};
+
+export type MwdFieldInfo = {
+  id: string;
+  aliases: string[];
+  unit: string;
+  required: boolean;
+  description: string;
+};
+
+export type MwdSchemaResponse = {
+  kind: string;
+  role: string;
+  manufacturer: string | null;
+  vendor_format: string | null;
+  note: string;
+  fields: MwdFieldInfo[];
+};
+
 export type BlastDesign = {
   design_id: string;
   name: string;
@@ -401,6 +475,7 @@ export type BlastDesign = {
   receptors: Receptor[];
   vibration_models: VibrationModel[];
   vibration_measurements: VibrationMeasurement[];
+  as_drilled_holes: AsDrilledHole[];
 };
 
 export type PatternType = "square" | "rectangular" | "staggered" | "variable" | "domain_dependent";
@@ -701,7 +776,7 @@ export function emptyDesign(): BlastDesign {
   return {
     design_id: "",
     name: "Новый паспорт",
-    version: 6,
+    version: 7,
     updated_at: "",
     contour: emptyContour(),
     holes: [],
@@ -718,6 +793,7 @@ export function emptyDesign(): BlastDesign {
     receptors: [],
     vibration_models: [defaultVibrationModel()],
     vibration_measurements: [],
+    as_drilled_holes: [],
   };
 }
 
@@ -767,6 +843,34 @@ export function emptyVibrationMeasurement(receptorId: string, existing: Vibratio
     notes: "",
   };
 }
+
+export function emptyAsDrilled(hole: Hole): AsDrilledHole {
+  return {
+    design_hole_id: hole.id,
+    actual_collar: { ...hole.collar },
+    actual_toe: { ...hole.toe },
+    actual_depth: Math.hypot(
+      hole.toe.x - hole.collar.x,
+      hole.toe.y - hole.collar.y,
+      hole.toe.z - hole.collar.z,
+    ),
+    actual_diameter: hole.diameter_mm,
+    survey_points: [],
+    mwd_samples: [],
+    role: "executed",
+    provenance: emptyProvenance("executed"),
+  };
+}
+
+export const AS_DRILLED_METRIC_LABELS: Record<string, string> = {
+  collar_offset_m: "Смещение устья",
+  toe_offset_m: "Смещение забоя",
+  depth_deviation_m: "Отклонение глубины",
+  angle_deviation_deg: "Отклонение угла",
+  azimuth_deviation_deg: "Отклонение азимута",
+  actual_burden_m: "Фактическая ЛНС",
+  actual_spacing_m: "Фактический шаг",
+};
 
 export const RECEPTOR_KIND_LABELS: Record<ReceptorKind, string> = {
   building: "Здание",

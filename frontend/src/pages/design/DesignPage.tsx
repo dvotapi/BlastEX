@@ -34,6 +34,8 @@ import {
   type ReceptorKind,
   type VibrationModel,
   type VibrationPredictResponse,
+  type AsDrilledCompareResponse,
+  type AsDrilledHole,
   type SchemeType,
   type SurfaceConnector,
   type SurfaceKind,
@@ -55,6 +57,7 @@ import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
 import { TimingPanel } from "./TimingPanel";
 import { VibrationPanel } from "./VibrationPanel";
+import { AsDrilledPanel } from "./AsDrilledPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -122,6 +125,9 @@ export function DesignPage({
   const [lumpSizeMm, setLumpSizeMm] = useState(400);
   const [fragResult, setFragResult] = useState<FragmentationPredictResponse | null>(null);
   const [fragBusy, setFragBusy] = useState(false);
+  const [asDrilledBusy, setAsDrilledBusy] = useState(false);
+  const [asDrilledResult, setAsDrilledResult] = useState<AsDrilledCompareResponse | null>(null);
+  const [showAsDrilled, setShowAsDrilled] = useState(true);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -242,6 +248,7 @@ export function DesignPage({
       dispatch({ type: "SET_HOLES", holes: result.holes });
       setBlockVolumeM3(result.block_volume_m3);
       setFragResult(null);
+      setAsDrilledResult(null);
       await refreshMaps({ ...document, holes: result.holes, pattern_params: patternParams as unknown as Record<string, unknown> });
       setSelected(new Set());
       setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
@@ -719,6 +726,73 @@ export function DesignPage({
     }
   }
 
+  function designPayload() {
+    return {
+      ...document,
+      pattern_params: patternParams as unknown as Record<string, unknown>,
+      charge_rules: chargeRules as unknown as Record<string, unknown>,
+      explosive_key: explosiveKey,
+    };
+  }
+
+  async function recordAsDrilled(item: AsDrilledHole) {
+    if (!document.holes.some((hole) => hole.id === item.design_hole_id)) {
+      setError("Сначала выберите проектную скважину.");
+      return;
+    }
+    const designedBefore = document.holes.map((hole) => JSON.stringify(hole));
+    setAsDrilledBusy(true);
+    setError("");
+    try {
+      const result = await api.design.recordAsDrilled(designPayload(), [item]);
+      if (result.holes && result.holes.some((hole, index) => JSON.stringify(hole) !== designedBefore[index])) {
+        setError("Сервер не должен менять проектные скважины при записи факта.");
+      }
+      dispatch({ type: "SET_AS_DRILLED", holes: result.as_drilled_holes });
+      setAsDrilledResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось записать факт бурения.");
+    } finally {
+      setAsDrilledBusy(false);
+    }
+  }
+
+  async function compareAsDrilled() {
+    setAsDrilledBusy(true);
+    setError("");
+    try {
+      const result = await api.design.compareAsDrilled(designPayload());
+      setAsDrilledResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сравнить факт с проектом.");
+      setAsDrilledResult(null);
+    } finally {
+      setAsDrilledBusy(false);
+    }
+  }
+
+  async function importMwd(designHoleId: string, samples: Record<string, number | null>[]) {
+    if (!samples.length) {
+      setError("MWD: нужен JSON-массив отсчётов с полем depth / depth_m.");
+      return;
+    }
+    const designedBefore = document.holes.map((hole) => JSON.stringify({ collar: hole.collar, toe: hole.toe }));
+    setAsDrilledBusy(true);
+    setError("");
+    try {
+      const result = await api.design.importMwd(designPayload(), designHoleId, samples, "manual-json");
+      if (result.holes && result.holes.some((hole, index) => JSON.stringify({ collar: hole.collar, toe: hole.toe }) !== designedBefore[index])) {
+        setError("Импорт MWD не должен менять проектные устье и забой.");
+      }
+      dispatch({ type: "SET_AS_DRILLED", holes: result.as_drilled_holes });
+      setAsDrilledResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось импортировать MWD.");
+    } finally {
+      setAsDrilledBusy(false);
+    }
+  }
+
   function printPassport() {
     if (!document.design_id) return;
     window.open(api.design.passportUrl(document.design_id), "_blank");
@@ -783,6 +857,7 @@ export function DesignPage({
       setSelectedReceptorId(design.receptors[0]?.id ?? null);
       setPlacingReceptor(false);
       setPendingTieFromId(null);
+      setAsDrilledResult(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -823,6 +898,7 @@ export function DesignPage({
     setSelectedReceptorId(null);
     setPlacingReceptor(false);
     setPendingTieFromId(null);
+    setAsDrilledResult(null);
   }
 
   async function exportCsv() {
@@ -1013,6 +1089,23 @@ export function DesignPage({
             busy={vibBusy}
             result={vibResult}
           />
+          <AsDrilledPanel
+            holes={document.holes}
+            asDrilled={document.as_drilled_holes}
+            selectedHoleId={selected.size === 1 ? Array.from(selected)[0] : null}
+            onSelectedHoleIdChange={(id) => setSelected(id ? new Set([id]) : new Set())}
+            onRecord={recordAsDrilled}
+            onDelete={(designHoleId) => {
+              dispatch({ type: "DELETE_AS_DRILLED", designHoleId });
+              setAsDrilledResult(null);
+            }}
+            onCompare={compareAsDrilled}
+            onImportMwd={importMwd}
+            busy={asDrilledBusy}
+            result={asDrilledResult}
+            showOverlay={showAsDrilled}
+            onToggleOverlay={() => setShowAsDrilled((prev) => !prev)}
+          />
         </div>
         <div className="design-main">
           {mode === "3d" ? (
@@ -1093,6 +1186,8 @@ export function DesignPage({
                   setPlacingReceptor(false);
                 }}
                 vibrationPredictions={vibResult?.predictions}
+                asDrilled={document.as_drilled_holes}
+                showAsDrilled={showAsDrilled && document.as_drilled_holes.length > 0}
               />
               {mode === "charge" ? (
                 <SectionView

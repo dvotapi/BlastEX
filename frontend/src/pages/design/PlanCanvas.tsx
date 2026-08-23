@@ -65,6 +65,7 @@ export function PlanCanvas({
   onDeleteHoles,
   camera,
   onCameraChange,
+  fitToken,
   spacingHint,
   loadsById,
   network,
@@ -84,6 +85,8 @@ export function PlanCanvas({
   onDeleteHoles: (ids: string[]) => void;
   camera: Camera;
   onCameraChange: (camera: Camera) => void;
+  /** Меняется, когда страница подменила геометрию целиком — план вписывается в окно. */
+  fitToken: number;
   spacingHint: { a: number; b: number };
   loadsById?: Record<string, HoleLoad>;
   network?: InitiationNetwork | null;
@@ -118,6 +121,8 @@ export function PlanCanvas({
     setDragState(next);
   }, []);
   const pinchRef = useRef<{ pointers: Map<number, Vec2>; distance: number; center: Vec2 } | null>(null);
+  // Тап на тачскрине, чья правка ждёт отпускания пальца (см. handlePointerDown).
+  const pendingTapRef = useRef<{ pointerId: number; screen: Vec2 } | null>(null);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -145,6 +150,9 @@ export function PlanCanvas({
     [contour.vertices, holes],
   );
 
+  const contentPointsRef = useRef(contentPoints);
+  contentPointsRef.current = contentPoints;
+
   const fitToContent = useCallback(() => {
     const bounds = boundsOf(contentPoints);
     if (!bounds) {
@@ -154,19 +162,16 @@ export function PlanCanvas({
     onCameraChange(fitCamera(bounds, viewportRef.current, 0.12, camera.scale));
   }, [contentPoints, onCameraChange, camera.scale]);
 
-  // Геометрия, появившаяся целым набором (открыли паспорт, разложили сетку),
-  // сразу вписывается в окно. Ручное добавление точки по одной вид не трогает —
-  // иначе план «уезжает» из-под курсора между кликами.
-  const previousCountRef = useRef(contentPoints.length);
+  // Геометрию, пришедшую целым набором (открыли паспорт, разложили сетку,
+  // начали новый паспорт), показываем целиком. Сигнал даёт страница сменой
+  // `fitToken`: считать по числу точек нельзя — у нового паспорта их может быть
+  // столько же или меньше, и он остался бы за краем экрана. Ручное добавление
+  // точки токен не меняет, поэтому план не «уезжает» из-под курсора.
   useEffect(() => {
-    const previous = previousCountRef.current;
-    const current = contentPoints.length;
-    previousCountRef.current = current;
-    if (current - previous < 2) return;
-    const bounds = boundsOf(contentPoints);
-    if (bounds) onCameraChange(fitCamera(bounds, viewportRef.current, 0.12, camera.scale));
+    const bounds = boundsOf(contentPointsRef.current);
+    onCameraChange(bounds ? fitCamera(bounds, viewportRef.current, 0.12, DEFAULT_CAMERA.scale) : DEFAULT_CAMERA);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentPoints.length]);
+  }, [fitToken]);
 
   const zoomBy = useCallback(
     (factor: number, at?: Vec2) => {
@@ -349,6 +354,34 @@ export function PlanCanvas({
     onContourChange(next.vertices, next.freeFaces);
   }
 
+  /**
+   * Действие текущего инструмента по одиночному клику/тапу. Вынесено отдельно,
+   * потому что на тачскрине его приходится откладывать до отпускания пальца.
+   */
+  function runToolTap(screen: Vec2) {
+    if (mode === "contour") {
+      const vertexIndex = hitVertex(screen);
+      const edge = hitEdge(screen);
+      if (tool === "face") {
+        if (edge) onToggleFreeFace(edge.index);
+        return;
+      }
+      if (tool === "add") {
+        if (vertexIndex !== null) return;
+        if (edge) splitEdge(edge.index, worldOf(edge.point));
+        else appendVertex(worldOf(screen));
+        return;
+      }
+      setSelectedVertices(new Set());
+      return;
+    }
+    if (tool === "add") {
+      if (!hitHole(screen)) onAddHole(applySnap(worldOf(screen)));
+      return;
+    }
+    if (selected.size) onSelectedChange(new Set());
+  }
+
   function startPan(e: React.PointerEvent, screen: Vec2) {
     setDrag({ kind: "pan", pointerId: e.pointerId, startScreen: screen, startCamera: camera, moved: false, button: e.button });
   }
@@ -368,7 +401,19 @@ export function PlanCanvas({
         const [a, b] = Array.from(pinch.pointers.values());
         pinch.distance = distance(a, b);
         pinch.center = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        // Второй палец превращает касание в щипок: отложенная правка отменяется.
+        pendingTapRef.current = null;
         setDrag({ kind: "none" });
+        return;
+      }
+      // Первый палец щипка не должен ставить точку или помечать откос: тянем
+      // холст, а действие инструмента выполняем при отпускании — если второй
+      // палец так и не появился и палец остался на месте.
+      const grabsObject =
+        tool === "select" && (mode === "contour" ? hitVertex(screen) !== null : hitHole(screen) !== null);
+      if (!grabsObject && tool !== "pan") {
+        pendingTapRef.current = { pointerId: e.pointerId, screen };
+        startPan(e, screen);
         return;
       }
     }
@@ -384,13 +429,8 @@ export function PlanCanvas({
       const vertexIndex = hitVertex(screen);
       const edge = hitEdge(screen);
 
-      if (tool === "face") {
-        if (edge) onToggleFreeFace(edge.index);
-        return;
-      }
-      if (tool === "add") {
-        if (edge && vertexIndex === null) splitEdge(edge.index, worldOf(edge.point));
-        else if (vertexIndex === null) appendVertex(worldOf(screen));
+      if (tool === "face" || tool === "add") {
+        runToolTap(screen);
         return;
       }
       // tool === "select"
@@ -427,7 +467,7 @@ export function PlanCanvas({
 
     // mode === "holes"
     if (tool === "add") {
-      if (!hitHole(screen)) onAddHole(applySnap(worldOf(screen)));
+      runToolTap(screen);
       return;
     }
     const hole = hitHole(screen);
@@ -548,7 +588,15 @@ export function PlanCanvas({
       else pinch.distance = 0;
     }
 
+    const pendingTap = pendingTapRef.current;
+    if (pendingTap && pendingTap.pointerId === e.pointerId) pendingTapRef.current = null;
+
     if (drag.kind !== "none" && drag.pointerId === e.pointerId) {
+      // Касание закончилось на месте и вторым пальцем не стало — выполняем то,
+      // что мышью происходит сразу по нажатию.
+      if (drag.kind === "pan" && !drag.moved && pendingTap && pendingTap.pointerId === e.pointerId) {
+        runToolTap(screen);
+      }
       if (drag.kind === "pan" && !drag.moved && drag.button === 2) {
         // Правый клик без перетаскивания — быстрое удаление объекта под курсором.
         if (mode === "contour") {
@@ -593,6 +641,18 @@ export function PlanCanvas({
       setDrag({ kind: "none" });
     }
     updateHover(screen);
+  }
+
+  function handlePointerCancel(e: React.PointerEvent) {
+    // Жест прерван системой — правку не выполняем и перетаскивание отменяем.
+    const pinch = pinchRef.current;
+    if (pinch) {
+      pinch.pointers.delete(e.pointerId);
+      if (pinch.pointers.size === 0) pinchRef.current = null;
+      else pinch.distance = 0;
+    }
+    pendingTapRef.current = null;
+    setDrag({ kind: "none" });
   }
 
   function handlePointerLeave() {
@@ -810,7 +870,7 @@ export function PlanCanvas({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onPointerLeave={handlePointerLeave}
         onDoubleClick={handleDoubleClick}
         onContextMenu={(e) => e.preventDefault()}

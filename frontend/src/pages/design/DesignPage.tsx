@@ -53,6 +53,8 @@ export function DesignPage({
 
   const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing" | "3d">("contour");
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 6 });
+  // Инкремент = «геометрию подменили целиком»: план вписывается в окно заново.
+  const [fitToken, setFitToken] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [patternParams, setPatternParams] = useState<PatternParams>(DEFAULT_PATTERN_PARAMS);
   const [blockVolumeM3, setBlockVolumeM3] = useState<number | null>(null);
@@ -180,6 +182,7 @@ export function DesignPage({
       dispatch({ type: "SET_HOLES", holes: result.holes });
       setBlockVolumeM3(result.block_volume_m3);
       setSelected(new Set());
+      setFitToken((prev) => prev + 1);
       setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось построить сетку.");
@@ -390,6 +393,7 @@ export function DesignPage({
       }
       if (design.explosive_key) setExplosiveKey(design.explosive_key);
       setBlockVolumeM3(null);
+      setFitToken((prev) => prev + 1);
       setSelected(new Set());
       setSelectedRow(null);
       setAnalysis(null);
@@ -409,6 +413,7 @@ export function DesignPage({
       if (id === document.design_id) {
         dispatch({ type: "LOAD", design: emptyDesign() });
         setBlockVolumeM3(null);
+        setFitToken((prev) => prev + 1);
       }
       await refreshPlans();
     } catch (reason) {
@@ -418,6 +423,7 @@ export function DesignPage({
 
   function newPlan() {
     dispatch({ type: "LOAD", design: emptyDesign() });
+    setFitToken((prev) => prev + 1);
     setPatternParams(DEFAULT_PATTERN_PARAMS);
     setChargeRules(DEFAULT_CHARGE_RULES);
     setTieParams(DEFAULT_TIE_PARAMS);
@@ -561,6 +567,7 @@ export function DesignPage({
                 onDeleteHoles={deleteHoles}
                 camera={camera}
                 onCameraChange={setCamera}
+                fitToken={fitToken}
                 spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
                 loadsById={mode === "charge" ? loadsById : undefined}
                 network={mode === "tie" || mode === "timing" ? document.network : undefined}

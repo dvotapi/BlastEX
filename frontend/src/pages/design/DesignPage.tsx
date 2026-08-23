@@ -81,6 +81,7 @@ import {
   type SpatialOverlay,
   type SpatialSummary,
   type MovementPredictResponse,
+  type BlastPassport,
 } from "../../types/design";
 import { emptyHoleGeology } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
@@ -114,6 +115,7 @@ import { RegistryPanel } from "./RegistryPanel";
 import { DriftPanel } from "./DriftPanel";
 import { SpatialPanel } from "./SpatialPanel";
 import { MovementPanel } from "./MovementPanel";
+import { PassportPanel } from "./PassportPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -266,6 +268,8 @@ export function DesignPage({
   const [spatialSelected, setSpatialSelected] = useState<SpatialModel | null>(null);
   const [spatialOverlay, setSpatialOverlay] = useState<SpatialOverlay | null>(null);
   const [movementResult, setMovementResult] = useState<MovementPredictResponse | null>(null);
+  const [passportResult, setPassportResult] = useState<BlastPassport | null>(null);
+  const [passportBusy, setPassportBusy] = useState(false);
   const [movementBusy, setMovementBusy] = useState(false);
   const [showMovementVectors, setShowMovementVectors] = useState(true);
 
@@ -1960,9 +1964,67 @@ export function DesignPage({
     }
   }
 
-  function printPassport() {
-    if (!document.design_id) return;
-    window.open(api.design.passportUrl(document.design_id), "_blank");
+  function currentDesignPayload() {
+    return {
+      ...document,
+      pattern_params: patternParams as unknown as Record<string, unknown>,
+      charge_rules: chargeRules as unknown as Record<string, unknown>,
+      explosive_key: explosiveKey,
+    };
+  }
+
+  async function assemblePassport() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    setPassportBusy(true);
+    setError("");
+    try {
+      const result = await api.design.buildPassport({
+        design: currentDesignPayload(),
+        lump_size_mm: lumpSizeMm,
+        planned_cost: costResult
+          ? {
+              total_amount_rub: costResult.total_amount_rub,
+              cost_per_m3: costResult.cost_per_m3,
+              variable_total_rub: costResult.variable_total_rub,
+              labor_total_rub: costResult.labor_total_rub,
+              fixed_total_rub: costResult.fixed_total_rub,
+            }
+          : undefined,
+      });
+      setPassportResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось собрать паспорт.");
+      setPassportResult(null);
+    } finally {
+      setPassportBusy(false);
+    }
+  }
+
+  async function printPassport() {
+    setError("");
+    try {
+      if (document.holes.length) {
+        const htmlText = await api.design.renderPassportHtml({
+          design: currentDesignPayload(),
+          lump_size_mm: lumpSizeMm,
+          planned_cost: costResult
+            ? { total_amount_rub: costResult.total_amount_rub, cost_per_m3: costResult.cost_per_m3 }
+            : undefined,
+        });
+        const blob = new Blob([htmlText], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank");
+        return;
+      }
+      if (document.design_id) {
+        window.open(api.design.passportUrl(document.design_id), "_blank");
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
+    }
   }
 
   function togglePlay() {
@@ -2510,6 +2572,12 @@ export function DesignPage({
             selectedHoleId={selected.size === 1 ? Array.from(selected)[0] : null}
             showVectors={showMovementVectors}
             onToggleVectors={() => setShowMovementVectors((prev) => !prev)}
+          />
+          <PassportPanel
+            onAssemble={assemblePassport}
+            onPrint={printPassport}
+            busy={passportBusy}
+            result={passportResult}
           />
           <DriftPanel
             models={registryItems}

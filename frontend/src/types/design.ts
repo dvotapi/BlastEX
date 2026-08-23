@@ -2906,6 +2906,146 @@ export type SpatialOverlay = {
   data_roles: Record<string, string>;
 };
 
+export type PassportRole = DataRole;
+
+export type PassportMetricRow = {
+  key: string;
+  label: string;
+  unit: string;
+  section: string;
+  designed: number | null;
+  executed: number | null;
+  predicted: number | null;
+  measured: number | null;
+  designed_text: string;
+  executed_text: string;
+  predicted_text: string;
+  measured_text: string;
+  roles: Record<"designed" | "executed" | "predicted" | "measured", PassportRole>;
+};
+
+export type PassportDesigned = {
+  role: "designed";
+  name: string;
+  rock_name: string;
+  explosive_key: string;
+  initiation_system: string;
+  spacing_a_m: number | null;
+  burden_b_m: number | null;
+  diameter_mm: number | null;
+  subdrill_m: number | null;
+  hole_count: number;
+  production_hole_count: number;
+  contour_hole_count: number;
+  charged_hole_count: number;
+  drilling_metres: number;
+  block_volume_m3: number;
+  explosive_mass_kg: number;
+  powder_factor_kg_m3: number;
+  lump_size_mm: number | null;
+  max_oversize_pct: number | null;
+};
+
+export type PassportExecuted = {
+  role: "executed";
+  as_drilled_count: number;
+  as_charged_count: number;
+  as_fired_count: number;
+  drilling_metres: number | null;
+  explosive_mass_kg: number | null;
+  mean_diameter_mm: number | null;
+};
+
+export type PassportPredicted = {
+  role: "predicted";
+  x20_mm: number | null;
+  x50_mm: number | null;
+  x80_mm: number | null;
+  oversize_pct: number | null;
+  fragmentation_model: string;
+  fragmentation_model_version: string;
+  mic_kg: number | null;
+  ppv_mm_s: number | null;
+  vibration_convention: string;
+  throw_m: number | null;
+  heave_m: number | null;
+  swell_factor: number | null;
+  muckpile_volume_m3: number | null;
+  movement_kind: string;
+  movement_label: string;
+  cost_rub: number | null;
+  cost_per_m3: number | null;
+};
+
+export type PassportMeasured = {
+  role: "measured";
+  x20_mm: number | null;
+  x50_mm: number | null;
+  x80_mm: number | null;
+  oversize_pct: number | null;
+  ppv_mm_s: number | null;
+  throw_m: number | null;
+  heave_m: number | null;
+  muckpile_volume_m3: number | null;
+  cost_rub: number | null;
+  cost_per_m3: number | null;
+  recorded_at: string;
+};
+
+export type BlastPassport = {
+  kind: string;
+  version: string;
+  design_id: string;
+  name: string;
+  generated_at: string;
+  updated_at: string;
+  approved: boolean;
+  auto_approved: boolean;
+  design_rewritten: boolean;
+  disclaimer: string;
+  roles: PassportRole[];
+  role_labels_ru: Record<string, string>;
+  role_labels_en: Record<string, string>;
+  designed: PassportDesigned;
+  executed: PassportExecuted;
+  predicted: PassportPredicted;
+  measured: PassportMeasured;
+  planned_cost: {
+    role: "designed";
+    total_amount_rub: number | null;
+    cost_per_m3: number | null;
+    variable_total_rub: number | null;
+    labor_total_rub: number | null;
+    fixed_total_rub: number | null;
+    notes: string;
+  } | null;
+  comparison: PassportMetricRow[];
+  holes: Array<{
+    hole_id: string;
+    kind: string;
+    enabled: boolean;
+    collar_x_m: number;
+    collar_y_m: number;
+    collar_z_m: number;
+    designed: {
+      role: "designed";
+      length_m: number;
+      angle_deg: number;
+      azimuth_deg: number;
+      diameter_mm: number;
+      charge_mass_kg: number | null;
+      specific_q_kg_m3: number | null;
+    };
+    executed: {
+      role: "executed";
+      length_m: number | null;
+      diameter_mm: number | null;
+      charge_mass_kg: number | null;
+    };
+  }>;
+  warnings: string[];
+};
+
 export type DriftReport = {
   report_id: string;
   team_id: string;

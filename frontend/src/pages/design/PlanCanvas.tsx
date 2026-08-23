@@ -11,7 +11,7 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3 } from "../../types/design";
+import type { BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3 } from "../../types/design";
 
 const HOLE_HIT_RADIUS_PX = 11;
 const VERTEX_HIT_RADIUS_PX = 9;
@@ -46,6 +46,9 @@ export function PlanCanvas({
   isolines,
   timesMs,
   animationMs,
+  domains,
+  drawingDomainId,
+  onDomainVertexAdd,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -64,6 +67,9 @@ export function PlanCanvas({
   isolines?: Isoline[];
   timesMs?: Record<string, number> | null;
   animationMs?: number | null;
+  domains?: BlastDomain[];
+  drawingDomainId?: string | null;
+  onDomainVertexAdd?: (domainId: string, point: Point3) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -155,6 +161,12 @@ export function PlanCanvas({
 
     if (spacePressed || e.button === 1) {
       setDrag({ kind: "pan", startScreen: screen, startCamera: camera });
+      return;
+    }
+
+    if (drawingDomainId && onDomainVertexAdd) {
+      const world = worldOf(screen);
+      onDomainVertexAdd(drawingDomainId, { x: round2(world.x), y: round2(world.y), z: contour.bench.crest_z_m });
       return;
     }
 
@@ -279,6 +291,31 @@ export function PlanCanvas({
           </g>
         ))}
 
+        {domains?.map((domain) => {
+          if (domain.polygon.length < 2) return null;
+          const screenPts = domain.polygon.map((v) => worldToScreen(camera, viewport, v));
+          const points = screenPts.map((p) => `${p.x},${p.y}`).join(" ");
+          const closed = domain.polygon.length >= 3
+            ? `${points} ${screenPts[0].x},${screenPts[0].y}`
+            : points;
+          return (
+            <g key={`domain-${domain.id}`}>
+              {domain.polygon.length >= 3 && (
+                <polygon
+                  className={`domain-shape${domain.id === drawingDomainId ? " active" : ""}`}
+                  points={points}
+                  style={{ fill: domain.color || "#8fa399" }}
+                />
+              )}
+              <polyline
+                className="domain-outline"
+                points={closed}
+                style={{ stroke: domain.color || "#8fa399" }}
+              />
+            </g>
+          );
+        })}
+
         {contour.vertices.length >= 2 && (
           <polygon
             className="contour-shape"
@@ -292,9 +329,13 @@ export function PlanCanvas({
           const isFree = freeFaceSet.has([i, (i + 1) % contour.vertices.length].join("-"));
           return <line key={`edge-${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={isFree ? "contour-edge free" : "contour-edge"} />;
         })}
-        {mode === "contour" && contour.vertices.map((v, i) => {
+        {mode === "contour" && !drawingDomainId && contour.vertices.map((v, i) => {
           const p = worldToScreen(camera, viewport, v);
           return <circle key={`vertex-${i}`} cx={p.x} cy={p.y} r={5} className="contour-vertex" />;
+        })}
+        {drawingDomainId && domains?.find((d) => d.id === drawingDomainId)?.polygon.map((v, i) => {
+          const p = worldToScreen(camera, viewport, v);
+          return <rect key={`dvertex-${i}`} x={p.x - 4} y={p.y - 4} width={8} height={8} className="domain-vertex" />;
         })}
 
         {network?.connectors.map((c, i) => {
@@ -352,9 +393,11 @@ export function PlanCanvas({
         )}
       </svg>
       <div className="plan-canvas-hint">
-        {mode === "contour"
-          ? "Клик по пустому месту — новая точка контура · клик по ребру — открытый откос · пробел + перетаскивание — панорама"
-          : "Двойной клик — новая скважина · перетаскивание — перемещение · рамка — выделение · пробел + перетаскивание — панорама"}
+        {drawingDomainId
+          ? "Клик — вершина геологического региона · пробел + перетаскивание — панорама"
+          : mode === "contour"
+            ? "Клик по пустому месту — новая точка контура · клик по ребру — открытый откос · пробел + перетаскивание — панорама"
+            : "Двойной клик — новая скважина · перетаскивание — перемещение · рамка — выделение · пробел + перетаскивание — панорама"}
       </div>
     </div>
   );

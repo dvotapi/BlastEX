@@ -41,7 +41,7 @@ export function HoleTable({
         <table>
           <thead>
             <tr>
-              <th></th><th>ID</th><th>Тип</th><th>X, м</th><th>Y, м</th><th>Z устья, м</th><th>Глубина, м</th><th>Ø, мм</th><th>Перебур, м</th>
+              <th></th><th>ID</th><th>Тип</th><th>X, м</th><th>Y, м</th><th>Z устья, м</th><th>Глубина, м</th><th>Ø, мм</th><th>Перебур, м</th><th>Геология</th>
             </tr>
           </thead>
           <tbody>
@@ -72,6 +72,7 @@ export function HoleTable({
                   <td>
                     <input type="number" step="0.1" value={h.subdrill_m} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { subdrill_m: Number(e.target.value) })} />
                   </td>
+                  <td>{geologySummary(h)}</td>
                 </tr>
               );
             })}
@@ -86,4 +87,10 @@ export function HoleTable({
       )}
     </section>
   );
+}
+
+function geologySummary(hole: Hole): string {
+  const designed = hole.intervals ?? [];
+  if (!designed.length) return "—";
+  return designed.map((iv) => `${iv.from_m.toFixed(0)}–${iv.to_m.toFixed(0)} ${iv.domain_name || iv.domain_id}`).join("; ");
 }

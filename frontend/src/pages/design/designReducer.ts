@@ -13,8 +13,9 @@ import type {
   PatternParams,
   SurfaceKind,
   SurfaceModel,
+  BlastDomain,
 } from "../../types/design";
-import { emptyCoordinateSystem, emptySurfaces } from "../../types/design";
+import { emptyCoordinateSystem, emptyHoleGeology, emptySurfaces } from "../../types/design";
 
 export type DesignAction =
   | { type: "LOAD"; design: BlastDesign }
@@ -34,6 +35,11 @@ export type DesignAction =
   | { type: "SET_CHARGE_RULES"; rules: Partial<ChargeRules> }
   | { type: "SET_LOADS"; loads: HoleLoad[] }
   | { type: "SET_NETWORK"; network: InitiationNetwork }
+  | { type: "SET_DOMAINS"; domains: BlastDomain[] }
+  | { type: "UPSERT_DOMAIN"; domain: BlastDomain }
+  | { type: "DELETE_DOMAIN"; id: string }
+  | { type: "SET_WATER_TABLE"; water_table_z_m: number | null }
+  | { type: "SET_HOLE_GEOLOGY"; holes: Hole[] }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -64,11 +70,18 @@ function moveHole(hole: Hole, dx: number, dy: number, document: BlastDesign): Ho
   };
 }
 
+function normalizeHole(hole: Hole): Hole {
+  return { ...emptyHoleGeology(), ...hole };
+}
+
 function normalizeDesign(design: BlastDesign): BlastDesign {
   return {
     ...design,
     coordinate_system: { ...emptyCoordinateSystem(), ...design.coordinate_system },
     surfaces: { ...emptySurfaces(), ...design.surfaces },
+    domains: design.domains ?? [],
+    water_table_z_m: design.water_table_z_m ?? null,
+    holes: (design.holes ?? []).map(normalizeHole),
   };
 }
 
@@ -128,7 +141,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     case "SET_HOLES":
       return {
         ...document,
-        holes: action.holes,
+        holes: action.holes.map(normalizeHole),
         loads: [],
         network: emptyNetwork(),
       };
@@ -136,16 +149,28 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       const ids = new Set(action.ids);
       return {
         ...document,
-        holes: document.holes.map((h) => (ids.has(h.id) ? moveHole(h, action.dx, action.dy, document) : h)),
+        holes: document.holes.map((h) => {
+          if (!ids.has(h.id)) return h;
+          const moved = moveHole(h, action.dx, action.dy, document);
+          return { ...moved, intervals: [], water_intervals: [] };
+        }),
       };
     }
     case "UPDATE_HOLE":
       return {
         ...document,
-        holes: document.holes.map((h) => (h.id === action.id ? { ...h, ...action.patch } : h)),
+        holes: document.holes.map((h) => {
+          if (h.id !== action.id) return h;
+          const next = { ...h, ...action.patch };
+          if (action.patch.collar || action.patch.toe) {
+            next.intervals = [];
+            next.water_intervals = [];
+          }
+          return next;
+        }),
       };
     case "ADD_HOLE":
-      return { ...document, holes: [...document.holes, action.hole] };
+      return { ...document, holes: [...document.holes, normalizeHole(action.hole)] };
     case "DELETE_HOLES": {
       const ids = new Set(action.ids);
       const holes = document.holes.filter((h) => !ids.has(h.id));
@@ -158,6 +183,38 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       return { ...document, loads: action.loads };
     case "SET_NETWORK":
       return { ...document, network: action.network };
+    case "SET_DOMAINS":
+      return { ...document, domains: action.domains };
+    case "UPSERT_DOMAIN": {
+      const exists = document.domains.some((d) => d.id === action.domain.id);
+      return {
+        ...document,
+        domains: exists
+          ? document.domains.map((d) => (d.id === action.domain.id ? action.domain : d))
+          : [...document.domains, action.domain],
+      };
+    }
+    case "DELETE_DOMAIN":
+      return { ...document, domains: document.domains.filter((d) => d.id !== action.id) };
+    case "SET_WATER_TABLE":
+      return { ...document, water_table_z_m: action.water_table_z_m };
+    case "SET_HOLE_GEOLOGY": {
+      const byId = new Map(action.holes.map((h) => [h.id, h]));
+      return {
+        ...document,
+        holes: document.holes.map((h) => {
+          const next = byId.get(h.id);
+          if (!next) return h;
+          return {
+            ...h,
+            intervals: next.intervals ?? [],
+            water_intervals: next.water_intervals ?? [],
+            measured_intervals: next.measured_intervals ?? h.measured_intervals,
+            measured_water_intervals: next.measured_water_intervals ?? h.measured_water_intervals,
+          };
+        }),
+      };
+    }
     default:
       return document;
   }
@@ -177,6 +234,11 @@ const UNDOABLE: DesignAction["type"][] = [
   "DELETE_HOLES",
   "SET_LOADS",
   "SET_NETWORK",
+  "SET_DOMAINS",
+  "UPSERT_DOMAIN",
+  "DELETE_DOMAIN",
+  "SET_WATER_TABLE",
+  "SET_HOLE_GEOLOGY",
 ];
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {

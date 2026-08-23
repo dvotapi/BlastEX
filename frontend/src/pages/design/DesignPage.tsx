@@ -23,9 +23,11 @@ import {
   type SurfaceKind,
   type TieParams,
 } from "../../types/design";
+import { emptyHoleGeology } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
 import { CostPanel } from "./CostPanel";
 import { designReducer, initDesignState } from "./designReducer";
+import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleTable } from "./HoleTable";
 import { PatternPanel } from "./PatternPanel";
 import { PlanCanvas } from "./PlanCanvas";
@@ -62,6 +64,9 @@ export function DesignPage({
   const [plans, setPlans] = useState<DesignSummary[]>([]);
   const [patternBusy, setPatternBusy] = useState(false);
   const [surfaceBusy, setSurfaceBusy] = useState(false);
+  const [geologyBusy, setGeologyBusy] = useState(false);
+  const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
+  const [drawingDomain, setDrawingDomain] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -185,6 +190,9 @@ export function DesignPage({
       setBlockVolumeM3(result.block_volume_m3);
       setSelected(new Set());
       setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
+      if (document.domains.length) {
+        await interceptHoles(result.holes, document.domains, document.water_table_z_m);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось построить сетку.");
     } finally {
@@ -257,6 +265,7 @@ export function DesignPage({
       kind: "production",
       source: "manual",
       enabled: true,
+      ...emptyHoleGeology(),
     };
     dispatch({ type: "ADD_HOLE", hole });
   }
@@ -369,6 +378,65 @@ export function DesignPage({
     }
   }
 
+  async function interceptHoles(
+    holes = document.holes,
+    domains = document.domains,
+    waterTable = document.water_table_z_m,
+  ) {
+    if (!domains.length || !holes.length) {
+      setError("Задайте домены и скважины, затем пересеките ось с геологией.");
+      return;
+    }
+    setGeologyBusy(true);
+    setError("");
+    try {
+      const result = await api.design.interceptGeology(holes, domains, waterTable);
+      dispatch({ type: "SET_HOLE_GEOLOGY", holes: result.holes });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось пересечь скважины с доменами.");
+    } finally {
+      setGeologyBusy(false);
+    }
+  }
+
+  function upsertDomain(domain: typeof document.domains[number]) {
+    dispatch({ type: "UPSERT_DOMAIN", domain });
+  }
+
+  function deleteDomain(id: string) {
+    dispatch({ type: "DELETE_DOMAIN", id });
+    if (selectedDomainId === id) {
+      setSelectedDomainId(null);
+      setDrawingDomain(false);
+    }
+  }
+
+  function copyContourToDomain(id: string) {
+    const domain = document.domains.find((item) => item.id === id);
+    if (!domain) return;
+    if (document.contour.vertices.length < 3) {
+      setError("Сначала нарисуйте контур блока — его можно взять как регион домена.");
+      return;
+    }
+    dispatch({
+      type: "UPSERT_DOMAIN",
+      domain: { ...domain, polygon: document.contour.vertices.map((v) => ({ ...v })) },
+    });
+  }
+
+  function loadExampleLayers() {
+    const layers = exampleLayeredDomains(document.contour);
+    dispatch({ type: "SET_DOMAINS", domains: layers });
+    setSelectedDomainId(layers[0]?.id ?? null);
+    setDrawingDomain(false);
+  }
+
+  function addDomainVertex(domainId: string, point: Point3) {
+    const domain = document.domains.find((item) => item.id === domainId);
+    if (!domain) return;
+    dispatch({ type: "UPSERT_DOMAIN", domain: { ...domain, polygon: [...domain.polygon, point] } });
+  }
+
   function printPassport() {
     if (!document.design_id) return;
     window.open(api.design.passportUrl(document.design_id), "_blank");
@@ -425,6 +493,8 @@ export function DesignPage({
       setCurrentMs(0);
       setPlaying(false);
       setCostResult(null);
+      setSelectedDomainId(design.domains[0]?.id ?? null);
+      setDrawingDomain(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -457,6 +527,8 @@ export function DesignPage({
     setCurrentMs(0);
     setPlaying(false);
     setCostResult(null);
+    setSelectedDomainId(null);
+    setDrawingDomain(false);
   }
 
   async function exportCsv() {
@@ -471,7 +543,7 @@ export function DesignPage({
   return (
     <div className="page-content">
       <div className="page-heading">
-        <div><h1>Проектирование БВР</h1><p>Съёмка уступа → контур блока → сетка скважин</p></div>
+        <div><h1>Проектирование БВР</h1><p>Съёмка уступа → геология → контур блока → сетка скважин</p></div>
         <span className="save-status">● {user.organization_name}</span>
       </div>
       {error && <div className="page-error" role="alert">{error}</div>}
@@ -555,6 +627,26 @@ export function DesignPage({
                   busy={surfaceBusy}
                 />
               )}
+              <GeologyPanel
+                domains={document.domains}
+                selectedDomainId={selectedDomainId}
+                onSelectedDomainIdChange={(id) => {
+                  setSelectedDomainId(id);
+                  setDrawingDomain(false);
+                }}
+                drawing={drawingDomain}
+                onToggleDrawing={() => setDrawingDomain((prev) => !prev)}
+                waterTableZ={document.water_table_z_m}
+                holes={document.holes}
+                selectedHoleIds={selected}
+                busy={geologyBusy}
+                onUpsert={upsertDomain}
+                onDelete={deleteDomain}
+                onCopyContour={copyContourToDomain}
+                onExampleLayers={loadExampleLayers}
+                onWaterTableChange={(value) => dispatch({ type: "SET_WATER_TABLE", water_table_z_m: value })}
+                onIntercept={() => interceptHoles()}
+              />
               <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
             </>
           )}
@@ -610,6 +702,9 @@ export function DesignPage({
                 isolines={mode === "timing" && showIsolines ? analysis?.isolines : undefined}
                 timesMs={mode === "timing" ? analysis?.times_ms : undefined}
                 animationMs={mode === "timing" && analysis ? currentMs : undefined}
+                domains={document.domains}
+                drawingDomainId={drawingDomain && selectedDomainId && (mode === "contour" || mode === "holes") ? selectedDomainId : null}
+                onDomainVertexAdd={addDomainVertex}
               />
               {mode === "charge" ? (
                 <SectionView

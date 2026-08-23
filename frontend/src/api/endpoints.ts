@@ -45,6 +45,8 @@ import type {
   SurfaceStats,
   TieGenerateResponse,
   TieParams,
+  BlastDomain,
+  GeologyInterceptResponse,
 } from "../types/design";
 
 const V1 = "/api/v1";
@@ -163,6 +165,14 @@ export const api = {
       post<{ surface: SurfaceModel; stats: SurfaceStats }>(`${V1}/design/surfaces/import`, payload),
     sampleSurface: (surface: SurfaceModel, points: Array<[number, number]>) =>
       post<{ elevations: Array<number | null> }>(`${V1}/design/surfaces/sample`, { surface, points }),
+    assignDomain: (domain: BlastDomain, polygon: BlastDomain["polygon"]) =>
+      post<{ domain: BlastDomain }>(`${V1}/design/geology/assign`, { domain, polygon }),
+    interceptGeology: (holes: Hole[], domains: BlastDomain[], waterTableZ: number | null) =>
+      post<GeologyInterceptResponse>(`${V1}/design/geology/intercept`, {
+        holes,
+        domains,
+        water_table_z_m: waterTableZ,
+      }),
     charge: (holes: Hole[], rules: ChargeRules, explosive: ChargeExplosive) =>
       post<ChargeGenerateResponse>(`${V1}/design/charge`, { holes, rules, explosive }),
     tie: (holes: Hole[], scheme: SchemeType, params: TieParams) =>

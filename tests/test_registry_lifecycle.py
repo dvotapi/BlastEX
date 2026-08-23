@@ -46,7 +46,7 @@ class RegistryLifecycleTests(unittest.TestCase):
         model = train_from_snapshot(snapshot, model_type="kuzram_residual", model_id="cal-1")
         return save_calibration(TEAM_ID, model), snapshot
 
-    def _outcome(self):
+    def _outcome_model(self):
         snapshot = save_snapshot(TEAM_ID, synthetic_outcome_snapshot(dataset_id="out-snap"))
         model = train_outcome(snapshot, model_type="fragmentation", model_id="out-1")
         return save_outcome(TEAM_ID, model), snapshot
@@ -123,7 +123,7 @@ class RegistryLifecycleTests(unittest.TestCase):
 
     def test_catalog_wraps_existing_families_with_checksum_and_lineage(self):
         cal, cal_snap = self._calibration()
-        out, out_snap = self._outcome()
+        out, out_snap = self._outcome_model()
         learned, learn_snap = self._learning()
         items = list_records(TEAM_ID)
         self.assertEqual(len(items), 3)
@@ -220,7 +220,7 @@ class RegistryLifecycleTests(unittest.TestCase):
         self.assertEqual(still.status, STATUS_CANDIDATE)
 
     def test_new_production_retires_previous_of_same_slot(self):
-        first, _ = self._outcome()
+        first, _ = self._outcome_model()
         snapshot = save_snapshot(TEAM_ID, synthetic_outcome_snapshot(n=8, dataset_id="out-snap-2"))
         second = save_outcome(
             TEAM_ID,

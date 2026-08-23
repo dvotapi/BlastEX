@@ -66,6 +66,9 @@ class ScenarioParams:
     stemming_m: float | None = None
     subdrill_m: float | None = None
     pattern: str | None = None
+    explosive_key: str | None = None
+    inclination_deg: float | None = None
+    delay_interval_ms: float | None = None
     cost_scenario_id: str = "drill_blast"
     fragmentation_model: str = "kuzram"
     lump_size_mm: float = 400.0
@@ -85,6 +88,9 @@ class ScenarioParams:
             "stemming_m": self.stemming_m,
             "subdrill_m": self.subdrill_m,
             "pattern": self.pattern,
+            "explosive_key": self.explosive_key,
+            "inclination_deg": self.inclination_deg,
+            "delay_interval_ms": self.delay_interval_ms,
             "cost_scenario_id": self.cost_scenario_id,
             "fragmentation_model": self.fragmentation_model,
             "lump_size_mm": self.lump_size_mm,
@@ -109,6 +115,9 @@ class ScenarioParams:
             stemming_m=_opt_float(data, "stemming_m"),
             subdrill_m=_opt_float(data, "subdrill_m"),
             pattern=str(data["pattern"]).strip() if data.get("pattern") else None,
+            explosive_key=str(data["explosive_key"]).strip() if data.get("explosive_key") else None,
+            inclination_deg=_opt_float(data, "inclination_deg"),
+            delay_interval_ms=_opt_float(data, "delay_interval_ms"),
             cost_scenario_id=str(data.get("cost_scenario_id") or "drill_blast"),
             fragmentation_model=str(data.get("fragmentation_model") or "kuzram"),
             lump_size_mm=float(data.get("lump_size_mm") or 400.0),

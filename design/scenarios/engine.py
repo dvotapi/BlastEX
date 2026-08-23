@@ -59,6 +59,13 @@ def resolve_explosive(design: BlastDesign) -> ExplosiveProperties:
     return DEFAULT_EXPLOSIVE
 
 
+def _assert_known_explosive(key: str) -> None:
+    for item in DEFAULT_EXPLOSIVES:
+        if key in {item.key, item.name, item.label}:
+            return
+    raise InvalidScenarioParamsError(f"Неизвестное ВВ «{key}».")
+
+
 def _positive(value: float | None, label: str) -> None:
     if value is None:
         return
@@ -77,6 +84,16 @@ def validate_params(params: ScenarioParams) -> None:
         raise InvalidScenarioParamsError("Забойка не может быть отрицательной.")
     if params.subdrill_m is not None and float(params.subdrill_m) < 0:
         raise InvalidScenarioParamsError("Перебур не может быть отрицательным.")
+    if params.inclination_deg is not None:
+        angle = float(params.inclination_deg)
+        if angle < 0 or angle > 45:
+            raise InvalidScenarioParamsError("Наклон скважины задаётся от вертикали в диапазоне 0–45°.")
+    if params.delay_interval_ms is not None and float(params.delay_interval_ms) <= 0:
+        raise InvalidScenarioParamsError("Замедление должно быть больше нуля (мс).")
+    if params.explosive_key is not None and not str(params.explosive_key).strip():
+        raise InvalidScenarioParamsError("Тип ВВ не может быть пустым.")
+    if params.explosive_key:
+        _assert_known_explosive(str(params.explosive_key).strip())
 
 
 def _mean(values: list[float]) -> float | None:
@@ -120,9 +137,14 @@ def apply_params(design: BlastDesign, params: ScenarioParams) -> BlastDesign:
         pattern["diameter_mm"] = geometry["diameter_mm"]
     if params.subdrill_m is not None:
         pattern["subdrill_m"] = float(params.subdrill_m)
+    if params.inclination_deg is not None:
+        pattern["angle_deg"] = float(params.inclination_deg)
     if params.pattern:
         pattern["pattern"] = params.pattern
     overlay.pattern_params = pattern
+
+    if params.explosive_key:
+        overlay.explosive_key = str(params.explosive_key).strip()
 
     regenerate_grid = any(
         value is not None
@@ -132,6 +154,7 @@ def apply_params(design: BlastDesign, params: ScenarioParams) -> BlastDesign:
             params.burden_b_m,
             params.subdrill_m,
             params.pattern,
+            params.inclination_deg,
         )
     )
     if regenerate_grid and len(overlay.contour.vertices) >= 3:
@@ -142,10 +165,16 @@ def apply_params(design: BlastDesign, params: ScenarioParams) -> BlastDesign:
             overlay.surfaces,
             overlay.domains,
         )
-    elif geometry["diameter_mm"] is not None:
-        diameter = float(geometry["diameter_mm"])
-        for hole in overlay.holes:
-            hole.diameter_mm = diameter
+    else:
+        if geometry["diameter_mm"] is not None:
+            diameter = float(geometry["diameter_mm"])
+            for hole in overlay.holes:
+                hole.diameter_mm = diameter
+        if params.inclination_deg is not None:
+            from design.editing import apply_inclination
+
+            angle = float(params.inclination_deg)
+            overlay.holes = [apply_inclination(hole, angle) for hole in overlay.holes]
 
     rules = dict(overlay.charge_rules or {})
     if geometry["spacing_a_m"] is not None:
@@ -158,7 +187,12 @@ def apply_params(design: BlastDesign, params: ScenarioParams) -> BlastDesign:
         rules["target_pf"] = float(params.powder_factor_kg_m3)
     overlay.charge_rules = rules
 
-    rebuild_charges = regenerate_grid or params.stemming_m is not None or params.powder_factor_kg_m3 is not None
+    rebuild_charges = (
+        regenerate_grid
+        or params.stemming_m is not None
+        or params.powder_factor_kg_m3 is not None
+        or params.explosive_key is not None
+    )
     if overlay.holes and (rebuild_charges or not overlay.loads):
         explosive = resolve_explosive(overlay)
         overlay.loads = apply_charge_rules(
@@ -169,7 +203,9 @@ def apply_params(design: BlastDesign, params: ScenarioParams) -> BlastDesign:
         )
         if params.powder_factor_kg_m3 is not None:
             _scale_loads_to_powder_factor(overlay.loads, float(params.powder_factor_kg_m3))
-        _rebuild_network(overlay)
+        _rebuild_network(overlay, params.delay_interval_ms)
+    elif params.delay_interval_ms is not None and overlay.holes:
+        _rebuild_network(overlay, params.delay_interval_ms)
 
     return overlay
 
@@ -190,18 +226,21 @@ def _scale_loads_to_powder_factor(loads: list[HoleLoad], powder_factor: float) -
         load.specific_q_kg_m3 = load.total_charge_kg / volume if volume > 0 else 0.0
 
 
-def _rebuild_network(overlay: BlastDesign) -> None:
+def _rebuild_network(overlay: BlastDesign, delay_interval_ms: float | None = None) -> None:
     timing_params = dict(overlay.network.timing_params or {})
     scheme = str(timing_params.get("scheme") or "row")
     if "system" not in timing_params:
         timing_params["system"] = overlay.network.system or "nonel"
+    if delay_interval_ms is not None:
+        timing_params["interval_ms"] = float(delay_interval_ms)
     try:
         overlay.network = build_template_network(overlay.holes, scheme, timing_params)
         overlay.network.timing_params = timing_params
     except TimingExprError:
-        overlay.network = build_template_network(
-            overlay.holes, "row", {"system": overlay.network.system or "nonel"}
-        )
+        fallback = {"system": overlay.network.system or "nonel"}
+        if delay_interval_ms is not None:
+            fallback["interval_ms"] = float(delay_interval_ms)
+        overlay.network = build_template_network(overlay.holes, "row", fallback)
 
 
 def _fragmentation_outcomes(overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes) -> None:

@@ -18,6 +18,9 @@ class ScenarioParamsSchema(BaseModel):
     stemming_m: float | None = Field(None, ge=0)
     subdrill_m: float | None = Field(None, ge=0)
     pattern: str | None = None
+    explosive_key: str | None = None
+    inclination_deg: float | None = Field(None, ge=0, le=45)
+    delay_interval_ms: float | None = Field(None, gt=0)
     cost_scenario_id: str = "drill_blast"
     fragmentation_model: str = "kuzram"
     lump_size_mm: float = Field(400.0, gt=0)

@@ -591,6 +591,44 @@ def predict_fragmentation(request: FragmentationPredictRequest) -> Fragmentation
     return FragmentationPredictResponse(**payload)
 
 
+def list_movement_models():
+    from api.schemas.movement import MovementModelsResponse
+    from simulation.movement.engine import list_models
+    from simulation.movement.models import estimate_kind_payload
+
+    payload = estimate_kind_payload()
+    return MovementModelsResponse(models=list_models(), **payload)
+
+
+def predict_movement(request):
+    from api.schemas.movement import MovementPredictRequest, MovementPredictResponse
+    from design.models import BlastDesign
+    from simulation.movement.engine import predict_design
+    from simulation.movement.models import MeasuredMuckpileEcho
+
+    if not isinstance(request, MovementPredictRequest):
+        request = MovementPredictRequest.model_validate(request)
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    before_holes = [hole.to_dict() for hole in design.holes]
+    before_loads = [load.to_dict() for load in design.loads]
+    before_pattern = dict(design.pattern_params or {})
+    measured = [MeasuredMuckpileEcho.from_dict(item.model_dump()) for item in request.measured]
+    try:
+        payload = predict_design(design, measured=measured)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if [hole.to_dict() for hole in design.holes] != before_holes:
+        raise InvalidDesignError("Оценка развала не должна переписывать проектные скважины.")
+    if [load.to_dict() for load in design.loads] != before_loads:
+        raise InvalidDesignError("Оценка развала не должна переписывать заряжание.")
+    if dict(design.pattern_params or {}) != before_pattern:
+        raise InvalidDesignError("Оценка развала не должна переписывать сетку.")
+    if payload.get("is_physics_simulation"):
+        raise InvalidDesignError("Оценка развала не является физической симуляцией.")
+    return MovementPredictResponse(**payload)
+
+
 def edit_hole_geometry(request: HoleGeometryEditRequest) -> HoleGeometryEditResponse:
     hole = Hole.from_dict(request.hole.model_dump())
     contour = BlockContour.from_dict(request.contour.model_dump()) if request.contour is not None else None

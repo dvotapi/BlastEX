@@ -59,6 +59,7 @@ from api.schemas.design import (
     BlastResultCompareRequest,
     BlastResultCompareResponse,
 )
+from api.schemas.movement import MovementModelsResponse, MovementPredictRequest, MovementPredictResponse
 from api.security import require_internal_access
 from api.services import design_service
 
@@ -83,6 +84,16 @@ def get_fragmentation_models() -> FragmentationModelsResponse:
 @router.post("/fragmentation", response_model=FragmentationPredictResponse)
 def post_fragmentation(request: FragmentationPredictRequest) -> FragmentationPredictResponse:
     return design_service.predict_fragmentation(request)
+
+
+@router.get("/movement/models", response_model=MovementModelsResponse)
+def get_movement_models() -> MovementModelsResponse:
+    return design_service.list_movement_models()
+
+
+@router.post("/movement", response_model=MovementPredictResponse)
+def post_movement(request: MovementPredictRequest) -> MovementPredictResponse:
+    return design_service.predict_movement(request)
 
 
 @router.post("/holes/geometry", response_model=HoleGeometryEditResponse)

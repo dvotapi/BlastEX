@@ -2,8 +2,8 @@
 
 Training reads only immutable snapshots from ``intelligence.datasets``.
 Artifacts store ``team_id`` / ``site_id`` isolation keys. Cross-tenant
-access fails. Models stay ``candidate`` until an explicit status change —
-the registry lifecycle itself is BDX-020.
+access fails. Models stay ``candidate`` until an explicit human-gated
+promotion in ``intelligence.registry`` (BDX-020).
 """
 from intelligence.calibration.algorithms import available_algorithms, get_algorithm
 from intelligence.learning.isolation import (

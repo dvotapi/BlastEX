@@ -3,7 +3,7 @@
 Artifacts live in ``data/teams/{team_id}/learning/``. Isolation keys
 ``team_id`` / ``site_id`` are stored on every record. Cross-tenant access
 fails. The estimator file is immutable; only status may change after training.
-This is not the BDX-020 registry lifecycle.
+Formal staging / production / archive promotion is ``intelligence.registry``.
 """
 from __future__ import annotations
 

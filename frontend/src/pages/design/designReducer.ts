@@ -79,7 +79,11 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
     ...design,
     coordinate_system: { ...emptyCoordinateSystem(), ...design.coordinate_system },
     surfaces: { ...emptySurfaces(), ...design.surfaces },
-    domains: design.domains ?? [],
+    domains: (design.domains ?? []).map((domain) => ({
+      ...domain,
+      spacing_a_m: domain.spacing_a_m ?? null,
+      burden_b_m: domain.burden_b_m ?? null,
+    })),
     water_table_z_m: design.water_table_z_m ?? null,
     holes: (design.holes ?? []).map(normalizeHole),
   };

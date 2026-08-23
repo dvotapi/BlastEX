@@ -38,6 +38,8 @@ export function emptyDomain(existing: BlastDomain[], name = "Новый доме
     priority: existing.length,
     color: DOMAIN_COLORS[existing.length % DOMAIN_COLORS.length],
     notes: "",
+    spacing_a_m: null,
+    burden_b_m: null,
   };
 }
 
@@ -78,6 +80,8 @@ export function exampleLayeredDomains(contour: BlockContour): BlastDomain[] {
     priority: index,
     color: layer.color,
     notes: "Пример слоёв 0–3 / 3–8 / 8–11 м",
+    spacing_a_m: null,
+    burden_b_m: null,
   }));
 }
 
@@ -211,7 +215,31 @@ export function GeologyPanel({
                 />
               </label>
             </div>
-            <small>Пустой полигон действует на весь план. Иначе домен режется по контуру в плане.</small>
+            <div className="field-pair">
+              <label>
+                Шаг a домена, м
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={selected.spacing_a_m ?? ""}
+                  placeholder="из сетки"
+                  onChange={(e) => patchSelected({ spacing_a_m: e.target.value === "" ? null : Number(e.target.value) })}
+                />
+              </label>
+              <label>
+                ЛНС b домена, м
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={selected.burden_b_m ?? ""}
+                  placeholder="из сетки"
+                  onChange={(e) => patchSelected({ burden_b_m: e.target.value === "" ? null : Number(e.target.value) })}
+                />
+              </label>
+            </div>
+            <small>Пустой полигон действует на весь план. Иначе домен режется по контуру в плане. Шаг и ЛНС нужны для сетки «по доменам».</small>
             <div className="plans-actions">
               <button type="button" className="secondary-button" onClick={() => onCopyContour(selected.id)}>Взять контур блока</button>
               <button type="button" className={drawing ? "calculate-button" : "secondary-button"} onClick={onToggleDrawing}>

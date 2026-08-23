@@ -8,14 +8,18 @@ import {
   DEFAULT_PATTERN_PARAMS,
   DEFAULT_PPV_REQUEST,
   DEFAULT_TIE_PARAMS,
+  MAP_METRIC_LABELS,
   emptyDesign,
   type AnalyzeResponse,
   type ChargeRules,
   type CostScenarioId,
   type DesignCostResult,
   type DesignSummary,
+  type EngineeringMaps,
   type Hole,
+  type HoleKind,
   type HoleLoad,
+  type MapMetric,
   type PatternParams,
   type Point3,
   type PpvRequest,
@@ -91,6 +95,9 @@ export function DesignPage({
   const [scenarioId, setScenarioId] = useState<CostScenarioId>("drill_blast");
   const [costResult, setCostResult] = useState<DesignCostResult | null>(null);
   const [costBusy, setCostBusy] = useState(false);
+  const [insertKind, setInsertKind] = useState<HoleKind>("production");
+  const [maps, setMaps] = useState<EngineeringMaps | null>(null);
+  const [mapMetric, setMapMetric] = useState<MapMetric | "">("");
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -139,6 +146,17 @@ export function DesignPage({
     return map;
   }, [document.loads]);
 
+  const mapOverlay = useMemo(() => {
+    if (!mapMetric || !maps) return { values: undefined as Record<string, number> | undefined, range: null as { min: number; max: number } | null };
+    const values: Record<string, number> = {};
+    for (const sample of maps.holes) {
+      const raw = sample[mapMetric];
+      if (raw !== null && raw !== undefined) values[sample.hole_id] = raw;
+    }
+    const stat = maps.stats[mapMetric];
+    return { values, range: stat ? { min: stat.min, max: stat.max } : null };
+  }, [mapMetric, maps]);
+
   useEffect(() => {
     if (!incomingVariant) return;
     setPatternParams((prev) => ({
@@ -185,9 +203,10 @@ export function DesignPage({
     setPatternBusy(true);
     setError("");
     try {
-      const result = await api.design.pattern(document.contour, patternParams, document.holes, document.surfaces);
+      const result = await api.design.pattern(document.contour, patternParams, document.holes, document.surfaces, document.domains);
       dispatch({ type: "SET_HOLES", holes: result.holes });
       setBlockVolumeM3(result.block_volume_m3);
+      await refreshMaps({ ...document, holes: result.holes, pattern_params: patternParams as unknown as Record<string, unknown> });
       setSelected(new Set());
       setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
       if (document.domains.length) {
@@ -245,10 +264,48 @@ export function DesignPage({
     dispatch({ type: "UPDATE_HOLE", id, patch });
   }
 
-  function onAddHole(world: Vec2) {
-    manualHoleCounter += 1;
+  async function refreshMaps(design = document) {
+    if (!design.holes.length) {
+      setMaps(null);
+      return;
+    }
+    try {
+      const result = await api.design.maps({
+        ...design,
+        pattern_params: patternParams as unknown as Record<string, unknown>,
+        charge_rules: chargeRules as unknown as Record<string, unknown>,
+        explosive_key: explosiveKey,
+      });
+      setMaps(result);
+    } catch {
+      setMaps(null);
+    }
+  }
+
+  async function onAddHole(world: Vec2) {
     const x = Math.round(world.x * 100) / 100;
     const y = Math.round(world.y * 100) / 100;
+    try {
+      const result = await api.design.insertHole({
+        contour: document.contour,
+        x,
+        y,
+        params: {
+          kind: insertKind,
+          diameter_mm: patternParams.diameter_mm,
+          subdrill_m: patternParams.subdrill_m,
+          angle_deg: patternParams.angle_deg,
+          azimuth_deg: patternParams.azimuth_deg,
+        },
+        existing_holes: document.holes,
+        surfaces: document.surfaces,
+      });
+      dispatch({ type: "ADD_HOLE", hole: { ...emptyHoleGeology(), ...result.hole } });
+      return;
+    } catch {
+      // Local fallback keeps the editor usable if the insert endpoint is unavailable.
+    }
+    manualHoleCounter += 1;
     const z = collarZFromSurfaces(document.surfaces, x, y, document.contour.bench.crest_z_m);
     const collar: Point3 = { x, y, z };
     const floorZ = surfaceElevation(document.surfaces.floor, x, y) ?? document.contour.bench.toe_z_m;
@@ -262,7 +319,7 @@ export function DesignPage({
       toe,
       diameter_mm: patternParams.diameter_mm,
       subdrill_m: patternParams.subdrill_m,
-      kind: "production",
+      kind: insertKind,
       source: "manual",
       enabled: true,
       ...emptyHoleGeology(),
@@ -346,6 +403,7 @@ export function DesignPage({
       };
       const result = await api.design.analyze(designForAnalysis, isolineStepMs, 8.0, ppv);
       setAnalysis(result);
+      if (result.maps) setMaps(result.maps);
       setCurrentMs(0);
       setPlaying(false);
     } catch (reason) {
@@ -495,6 +553,7 @@ export function DesignPage({
       setCostResult(null);
       setSelectedDomainId(design.domains[0]?.id ?? null);
       setDrawingDomain(false);
+      setMaps(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -529,6 +588,7 @@ export function DesignPage({
     setCostResult(null);
     setSelectedDomainId(null);
     setDrawingDomain(false);
+    setMaps(null);
   }
 
   async function exportCsv() {
@@ -684,6 +744,26 @@ export function DesignPage({
             </Suspense>
           ) : (
             <>
+              <div className="map-toolbar">
+                <label>
+                  Карта
+                  <select value={mapMetric} onChange={(e) => {
+                    const next = e.target.value as MapMetric | "";
+                    setMapMetric(next);
+                    if (next && !maps) refreshMaps();
+                  }}>
+                    <option value="">тип скважины</option>
+                    {Object.entries(MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                {mapMetric && mapOverlay.range && (
+                  <span className="map-legend">
+                    <small>{mapOverlay.range.min.toFixed(1)}</small>
+                    <i />
+                    <small>{mapOverlay.range.max.toFixed(1)} м</small>
+                  </span>
+                )}
+              </div>
               <PlanCanvas
                 contour={document.contour}
                 holes={document.holes}
@@ -705,6 +785,8 @@ export function DesignPage({
                 domains={document.domains}
                 drawingDomainId={drawingDomain && selectedDomainId && (mode === "contour" || mode === "holes") ? selectedDomainId : null}
                 onDomainVertexAdd={addDomainVertex}
+                mapValues={mapMetric ? mapOverlay.values : undefined}
+                mapRange={mapMetric ? mapOverlay.range : null}
               />
               {mode === "charge" ? (
                 <SectionView
@@ -725,6 +807,8 @@ export function DesignPage({
                   onSelectedChange={setSelected}
                   onUpdateHole={onUpdateHole}
                   onDeleteSelected={deleteSelected}
+                  insertKind={insertKind}
+                  onInsertKindChange={setInsertKind}
                 />
               )}
             </>

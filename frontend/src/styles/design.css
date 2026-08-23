@@ -22,6 +22,10 @@
 .hole-marker.kind-contour circle { fill:#e5b94c; }
 .hole-marker.kind-presplit circle,
 .hole-marker.kind-trim circle { fill:#7a6ee0; }
+.hole-marker.kind-buffer circle { fill:#d0784a; }
+.hole-marker.kind-stab circle { fill:#8b5a2b; }
+.hole-marker.kind-satellite circle { fill:#4a90a4; }
+.hole-marker.kind-infill circle { fill:#1f5d46; }
 .hole-marker.selected circle { stroke:#173125; stroke-width:2.5; }
 .hole-marker.disabled circle { fill:#c3cdc7; }
 
@@ -40,7 +44,8 @@
 .surface-card .secondary-button { padding:5px 8px; font-size:11px; }
 
 .panel-body input[type="text"],
-.panel-body input[type="color"] { width:100%; padding:10px 11px; border:1px solid #cfd9d4; border-radius:9px; color:#17231d; background:#fbfcfb; outline:none; }
+.panel-body input[type="color"],
+.panel-body select { width:100%; padding:10px 11px; border:1px solid #cfd9d4; border-radius:9px; color:#17231d; background:#fbfcfb; outline:none; }
 .panel-body input[type="color"] { padding:4px; height:40px; }
 
 .geology-list { display:grid; gap:6px; }
@@ -60,6 +65,17 @@
 .interval-row { display:flex; justify-content:space-between; gap:8px; font-size:11px; color:#3b4b43; }
 
 .pattern-type-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.pattern-type-grid-5 { grid-template-columns:repeat(3,1fr); }
+.row-params { display:grid; gap:6px; }
+.row-params-line { display:grid; grid-template-columns:18px 1fr 1fr 1.2fr; gap:6px; align-items:center; }
+.row-params-line b { font-size:11px; color:#5c6a63; }
+.kind-flags { display:grid; grid-template-columns:1fr 1fr; gap:4px 10px; }
+.hole-insert-kind { display:grid; gap:4px; padding:10px 17px 0; }
+.hole-insert-kind select { width:100%; padding:8px 10px; border:1px solid #cfd9d4; border-radius:8px; }
+.map-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.map-toolbar select { border:1px solid #ced9d3; border-radius:8px; padding:6px 8px; font-size:11px; background:#fff; }
+.map-legend { display:flex; align-items:center; gap:6px; font-size:10px; color:#5c6a63; }
+.map-legend i { width:72px; height:8px; border-radius:4px; background:linear-gradient(90deg,#2f80ed,#27ae60,#f2c94c,#eb5757); }
 .pattern-type-option { display:grid; gap:4px; justify-items:center; padding:10px 4px; border:1px solid #d9e2dd; border-radius:11px; background:#fff; text-align:center; }
 .pattern-type-option.active { border-color:#2d7556; background:#edf7f1; }
 .pattern-type-option b { font-size:10.5px; }

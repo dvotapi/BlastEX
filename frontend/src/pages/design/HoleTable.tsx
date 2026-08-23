@@ -1,12 +1,7 @@
+import { angleAzimuth, holeFromCollar, holeLength } from "../../lib/geometry2d";
 import { ruNumber } from "../../lib/format";
 import type { Hole, HoleKind } from "../../types/design";
-
-const KIND_LABELS: Record<HoleKind, string> = {
-  production: "Рабочая",
-  contour: "Контурная",
-  presplit: "Предщелевая",
-  trim: "Оконтуривающая",
-};
+import { HOLE_KIND_LABELS } from "../../types/design";
 
 export function HoleTable({
   holes,
@@ -14,12 +9,16 @@ export function HoleTable({
   onSelectedChange,
   onUpdateHole,
   onDeleteSelected,
+  insertKind,
+  onInsertKindChange,
 }: {
   holes: Hole[];
   selected: Set<string>;
   onSelectedChange: (ids: Set<string>) => void;
   onUpdateHole: (id: string, patch: Partial<Hole>) => void;
   onDeleteSelected: () => void;
+  insertKind: HoleKind;
+  onInsertKindChange: (kind: HoleKind) => void;
 }) {
   function toggleRow(id: string, additive: boolean) {
     if (!additive) {
@@ -31,24 +30,55 @@ export function HoleTable({
     onSelectedChange(next);
   }
 
+  function patchAxis(hole: Hole, next: { depth?: number; angle?: number; azimuth?: number }) {
+    const current = angleAzimuth(hole.collar, hole.toe);
+    const depth = next.depth ?? holeLength(hole.collar, hole.toe);
+    const angle = next.angle ?? current.angleDeg;
+    const azimuth = next.azimuth ?? current.azimuthDeg;
+    onUpdateHole(hole.id, { toe: holeFromCollar(hole.collar, depth, angle, azimuth) });
+  }
+
   return (
     <section className="panel hole-table-panel">
       <header>
         <b>Скважины</b>
         <span>{holes.length ? `${holes.length} шт.` : "Пусто"}</span>
       </header>
+      <div className="hole-insert-kind">
+        <label>
+          Тип новой скважины
+          <select value={insertKind} onChange={(e) => onInsertKindChange(e.target.value as HoleKind)}>
+            {Object.entries(HOLE_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <small>Двойной клик по плану добавляет ручную скважину этого типа.</small>
+      </div>
       <div className="table-scroll">
         <table>
           <thead>
             <tr>
-              <th></th><th>ID</th><th>Тип</th><th>X, м</th><th>Y, м</th><th>Z устья, м</th><th>Глубина, м</th><th>Ø, мм</th><th>Перебур, м</th><th>Геология</th>
+              <th></th>
+              <th>ID</th>
+              <th>Тип</th>
+              <th>X, м</th>
+              <th>Y, м</th>
+              <th>Z устья</th>
+              <th>Забой X</th>
+              <th>Забой Y</th>
+              <th>Забой Z</th>
+              <th>Глубина</th>
+              <th>Угол, °</th>
+              <th>Азимут, °</th>
+              <th>Ø, мм</th>
+              <th>Перебур</th>
+              <th>Источник</th>
+              <th>Геология</th>
             </tr>
           </thead>
           <tbody>
             {holes.map((h) => {
-              const length = Math.sqrt(
-                (h.toe.x - h.collar.x) ** 2 + (h.toe.y - h.collar.y) ** 2 + (h.toe.z - h.collar.z) ** 2,
-              );
+              const length = holeLength(h.collar, h.toe);
+              const { angleDeg, azimuthDeg } = angleAzimuth(h.collar, h.toe);
               return (
                 <tr
                   key={h.id}
@@ -59,19 +89,37 @@ export function HoleTable({
                   <td><b>{h.id}</b></td>
                   <td>
                     <select value={h.kind} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { kind: e.target.value as HoleKind })}>
-                      {Object.entries(KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      {Object.entries(HOLE_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
                   </td>
                   <td>{ruNumber(h.collar.x, 2)}</td>
                   <td>{ruNumber(h.collar.y, 2)}</td>
                   <td>{ruNumber(h.collar.z, 2)}</td>
-                  <td>{ruNumber(length, 2)}</td>
+                  <td>
+                    <input type="number" step="0.1" value={round3(h.toe.x)} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { toe: { ...h.toe, x: Number(e.target.value) } })} />
+                  </td>
+                  <td>
+                    <input type="number" step="0.1" value={round3(h.toe.y)} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { toe: { ...h.toe, y: Number(e.target.value) } })} />
+                  </td>
+                  <td>
+                    <input type="number" step="0.1" value={round3(h.toe.z)} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { toe: { ...h.toe, z: Number(e.target.value) } })} />
+                  </td>
+                  <td>
+                    <input type="number" step="0.1" value={round3(length)} onClick={(e) => e.stopPropagation()} onChange={(e) => patchAxis(h, { depth: Number(e.target.value) })} />
+                  </td>
+                  <td>
+                    <input type="number" step="0.5" value={round3(angleDeg)} onClick={(e) => e.stopPropagation()} onChange={(e) => patchAxis(h, { angle: Number(e.target.value) })} />
+                  </td>
+                  <td>
+                    <input type="number" step="1" value={round3(azimuthDeg)} onClick={(e) => e.stopPropagation()} onChange={(e) => patchAxis(h, { azimuth: Number(e.target.value) })} />
+                  </td>
                   <td>
                     <input type="number" value={h.diameter_mm} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { diameter_mm: Number(e.target.value) })} />
                   </td>
                   <td>
                     <input type="number" step="0.1" value={h.subdrill_m} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { subdrill_m: Number(e.target.value) })} />
                   </td>
+                  <td>{h.source === "manual" ? "ручная" : "сетка"}</td>
                   <td>{geologySummary(h)}</td>
                 </tr>
               );
@@ -93,4 +141,8 @@ function geologySummary(hole: Hole): string {
   const designed = hole.intervals ?? [];
   if (!designed.length) return "—";
   return designed.map((iv) => `${iv.from_m.toFixed(0)}–${iv.to_m.toFixed(0)} ${iv.domain_name || iv.domain_id}`).join("; ");
+}
+
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }

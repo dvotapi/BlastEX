@@ -49,6 +49,8 @@ export function PlanCanvas({
   domains,
   drawingDomainId,
   onDomainVertexAdd,
+  mapValues,
+  mapRange,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -70,6 +72,8 @@ export function PlanCanvas({
   domains?: BlastDomain[];
   drawingDomainId?: string | null;
   onDomainVertexAdd?: (domainId: string, point: Point3) => void;
+  mapValues?: Record<string, number>;
+  mapRange?: { min: number; max: number } | null;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -357,7 +361,10 @@ export function PlanCanvas({
           const p = holeScreenPos(h);
           const isSelected = selected.has(h.id);
           const load = loadsById?.[h.id];
+          const mapValue = mapValues?.[h.id];
+          const mapColor = mapValue !== undefined && mapRange ? mapMetricColor(mapValue, mapRange.min, mapRange.max) : null;
           const chargeColor = load && maxChargeKg > 0 ? chargeMassColor(load.total_charge_kg, maxChargeKg) : null;
+          const fillColor = mapColor ?? chargeColor;
           let animClass = "";
           if (animating) {
             const t = timesMs![h.id];
@@ -365,7 +372,7 @@ export function PlanCanvas({
           }
           return (
             <g key={h.id} className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${!h.enabled ? " disabled" : ""}${animClass}`}>
-              <circle cx={p.x} cy={p.y} r={isSelected ? 7 : 5.5} style={chargeColor ? { fill: chargeColor } : undefined} />
+              <circle cx={p.x} cy={p.y} r={isSelected ? 7 : 5.5} style={fillColor ? { fill: fillColor } : undefined} />
             </g>
           );
         })}
@@ -401,6 +408,13 @@ export function PlanCanvas({
       </div>
     </div>
   );
+}
+
+function mapMetricColor(value: number, min: number, max: number): string {
+  const span = max - min;
+  const ratio = span <= 1e-9 ? 0.5 : Math.max(0, Math.min(1, (value - min) / span));
+  const hue = 210 - 210 * ratio; // blue (low) → red (high)
+  return `hsl(${hue}, 70%, 46%)`;
 }
 
 function chargeMassColor(massKg: number, maxMassKg: number): string {

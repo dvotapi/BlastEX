@@ -65,7 +65,8 @@ export function PlanCanvas({
   onDeleteHoles,
   camera,
   onCameraChange,
-  fitToken,
+  pendingFit,
+  onFitApplied,
   spacingHint,
   loadsById,
   network,
@@ -85,8 +86,10 @@ export function PlanCanvas({
   onDeleteHoles: (ids: string[]) => void;
   camera: Camera;
   onCameraChange: (camera: Camera) => void;
-  /** Меняется, когда страница подменила геометрию целиком — план вписывается в окно. */
-  fitToken: number;
+  /** Страница подменила геометрию целиком — план нужно вписать в окно. */
+  pendingFit: boolean;
+  /** Вызывается после вписывания, чтобы запрос не сработал повторно. */
+  onFitApplied: () => void;
   spacingHint: { a: number; b: number };
   loadsById?: Record<string, HoleLoad>;
   network?: InitiationNetwork | null;
@@ -124,12 +127,19 @@ export function PlanCanvas({
   // Тап на тачскрине, чья правка ждёт отпускания пальца (см. handlePointerDown).
   const pendingTapRef = useRef<{ pointerId: number; screen: Vec2 } | null>(null);
 
+  // До первого замера вьюпорта его размеры — заглушка, и вписывать по ним
+  // нельзя: масштаб получился бы от чужого размера окна.
+  const [viewportMeasured, setViewportMeasured] = useState(false);
+
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
     const observer = new ResizeObserver((entries) => {
       const box = entries[0]?.contentRect;
-      if (box && box.width > 0 && box.height > 0) setViewport({ width: box.width, height: box.height });
+      if (box && box.width > 0 && box.height > 0) {
+        setViewport({ width: box.width, height: box.height });
+        setViewportMeasured(true);
+      }
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -163,15 +173,19 @@ export function PlanCanvas({
   }, [contentPoints, onCameraChange, camera.scale]);
 
   // Геометрию, пришедшую целым набором (открыли паспорт, разложили сетку,
-  // начали новый паспорт), показываем целиком. Сигнал даёт страница сменой
-  // `fitToken`: считать по числу точек нельзя — у нового паспорта их может быть
-  // столько же или меньше, и он остался бы за краем экрана. Ручное добавление
-  // точки токен не меняет, поэтому план не «уезжает» из-под курсора.
+  // начали новый паспорт), показываем целиком. Запрос приходит от страницы
+  // флагом `pendingFit`: считать по числу точек нельзя — у нового паспорта их
+  // может быть столько же или меньше, и он остался бы за краем экрана. Ручное
+  // добавление точки флаг не поднимает, поэтому план не «уезжает» из-под
+  // курсора, а флаг вместо счётчика переживает размонтирование на вкладке «3D»:
+  // возврат к плану сохраняет камеру, но отложенное вписывание не теряется.
   useEffect(() => {
+    if (!pendingFit || !viewportMeasured) return;
     const bounds = boundsOf(contentPointsRef.current);
     onCameraChange(bounds ? fitCamera(bounds, viewportRef.current, 0.12, DEFAULT_CAMERA.scale) : DEFAULT_CAMERA);
+    onFitApplied();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitToken]);
+  }, [pendingFit, viewportMeasured, viewport.width, viewport.height]);
 
   const zoomBy = useCallback(
     (factor: number, at?: Vec2) => {

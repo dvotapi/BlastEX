@@ -1,7 +1,20 @@
 // Единственный источник истины для документа паспорта БВР на клиенте:
 // useReducer + стек undo/redo. Камера, выделение и режим инструмента — вне
 // документа (не должны попадать в историю правок).
-import type { BenchSurface, BlastDesign, ChargeRules, Hole, HoleLoad, InitiationNetwork, PatternParams } from "../../types/design";
+import { collarZFromSurfaces } from "../../lib/surfaces";
+import type {
+  BenchSurface,
+  BlastDesign,
+  ChargeRules,
+  CoordinateSystem,
+  Hole,
+  HoleLoad,
+  InitiationNetwork,
+  PatternParams,
+  SurfaceKind,
+  SurfaceModel,
+} from "../../types/design";
+import { emptyCoordinateSystem, emptySurfaces } from "../../types/design";
 
 export type DesignAction =
   | { type: "LOAD"; design: BlastDesign }
@@ -9,6 +22,9 @@ export type DesignAction =
   | { type: "SET_CONTOUR_VERTICES"; vertices: BlastDesign["contour"]["vertices"] }
   | { type: "TOGGLE_FREE_FACE"; edgeIndex: number }
   | { type: "SET_BENCH"; bench: Partial<BenchSurface> }
+  | { type: "SET_COORDINATE_SYSTEM"; patch: Partial<CoordinateSystem> }
+  | { type: "SET_SURFACE"; surface: SurfaceModel }
+  | { type: "CLEAR_SURFACE"; kind: SurfaceKind }
   | { type: "SET_PATTERN_PARAMS"; params: Partial<PatternParams> }
   | { type: "SET_HOLES"; holes: Hole[] }
   | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number }
@@ -37,11 +53,22 @@ function edgeKey(index: number, total: number): number[] {
   return [index, (index + 1) % total];
 }
 
-function moveHole(hole: Hole, dx: number, dy: number): Hole {
+function moveHole(hole: Hole, dx: number, dy: number, document: BlastDesign): Hole {
+  const x = hole.collar.x + dx;
+  const y = hole.collar.y + dy;
+  const z = collarZFromSurfaces(document.surfaces, x, y, hole.collar.z);
   return {
     ...hole,
-    collar: { ...hole.collar, x: hole.collar.x + dx, y: hole.collar.y + dy },
-    toe: { ...hole.toe, x: hole.toe.x + dx, y: hole.toe.y + dy },
+    collar: { ...hole.collar, x, y, z },
+    toe: { ...hole.toe, x: hole.toe.x + dx, y: hole.toe.y + dy, z: hole.toe.z + (z - hole.collar.z) },
+  };
+}
+
+function normalizeDesign(design: BlastDesign): BlastDesign {
+  return {
+    ...design,
+    coordinate_system: { ...emptyCoordinateSystem(), ...design.coordinate_system },
+    surfaces: { ...emptySurfaces(), ...design.surfaces },
   };
 }
 
@@ -67,7 +94,7 @@ function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick
 function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesign {
   switch (action.type) {
     case "LOAD":
-      return action.design;
+      return normalizeDesign(action.design);
     case "SET_NAME":
       return { ...document, name: action.name };
     case "SET_CONTOUR_VERTICES": {
@@ -90,6 +117,12 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     }
     case "SET_BENCH":
       return { ...document, contour: { ...document.contour, bench: { ...document.contour.bench, ...action.bench } } };
+    case "SET_COORDINATE_SYSTEM":
+      return { ...document, coordinate_system: { ...document.coordinate_system, ...action.patch } };
+    case "SET_SURFACE":
+      return { ...document, surfaces: { ...document.surfaces, [action.surface.kind]: action.surface } };
+    case "CLEAR_SURFACE":
+      return { ...document, surfaces: { ...document.surfaces, [action.kind]: null } };
     case "SET_PATTERN_PARAMS":
       return { ...document, pattern_params: { ...document.pattern_params, ...action.params } };
     case "SET_HOLES":
@@ -103,7 +136,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       const ids = new Set(action.ids);
       return {
         ...document,
-        holes: document.holes.map((h) => (ids.has(h.id) ? moveHole(h, action.dx, action.dy) : h)),
+        holes: document.holes.map((h) => (ids.has(h.id) ? moveHole(h, action.dx, action.dy, document) : h)),
       };
     }
     case "UPDATE_HOLE":
@@ -135,6 +168,8 @@ const UNDOABLE: DesignAction["type"][] = [
   "SET_CONTOUR_VERTICES",
   "TOGGLE_FREE_FACE",
   "SET_BENCH",
+  "SET_SURFACE",
+  "CLEAR_SURFACE",
   "SET_HOLES",
   "MOVE_HOLES",
   "UPDATE_HOLE",

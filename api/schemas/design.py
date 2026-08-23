@@ -89,6 +89,83 @@ class InitiationNetworkSchema(BaseModel):
     electronic_times_ms: dict[str, float] = Field(default_factory=dict)
 
 
+class CoordinateSystemSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str = "local"
+    epsg: int | None = None
+    origin_x: float = 0.0
+    origin_y: float = 0.0
+    origin_z: float = 0.0
+    units: str = "m"
+
+
+class TINSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    vertices: list[Point3Schema] = Field(default_factory=list)
+    triangles: list[list[int]] = Field(default_factory=list)
+
+
+class SurfaceModelSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: str
+    name: str = ""
+    source_format: str = ""
+    source_name: str = ""
+    created_at: str = ""
+    coordinate_system: CoordinateSystemSchema = Field(default_factory=CoordinateSystemSchema)
+    points: list[Point3Schema] = Field(default_factory=list)
+    polylines: list[list[Point3Schema]] = Field(default_factory=list)
+    tin: TINSchema = Field(default_factory=TINSchema)
+
+
+class SurfaceSetSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    top: SurfaceModelSchema | None = None
+    floor: SurfaceModelSchema | None = None
+    face: SurfaceModelSchema | None = None
+    post_blast: SurfaceModelSchema | None = None
+
+
+class SurfaceStatsSchema(BaseModel):
+    kind: str
+    name: str
+    source_format: str = ""
+    source_name: str = ""
+    point_count: int = 0
+    triangle_count: int = 0
+    polyline_count: int = 0
+    z_min: float | None = None
+    z_max: float | None = None
+    bounds: dict[str, float] | None = None
+
+
+class SurfaceImportRequest(BaseModel):
+    content: str
+    filename: str = ""
+    format: str | None = None
+    kind: str = "top"
+    name: str = ""
+    coordinate_system: CoordinateSystemSchema = Field(default_factory=CoordinateSystemSchema)
+
+
+class SurfaceImportResponse(BaseModel):
+    surface: SurfaceModelSchema
+    stats: SurfaceStatsSchema
+
+
+class SurfaceSampleRequest(BaseModel):
+    surface: SurfaceModelSchema
+    points: list[list[float]] = Field(default_factory=list)
+
+
+class SurfaceSampleResponse(BaseModel):
+    elevations: list[float | None]
+
+
 class BlastDesignSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -104,12 +181,15 @@ class BlastDesignSchema(BaseModel):
     charge_rules: dict[str, Any] = Field(default_factory=dict)
     rock_name: str = ""
     explosive_key: str = ""
+    coordinate_system: CoordinateSystemSchema = Field(default_factory=CoordinateSystemSchema)
+    surfaces: SurfaceSetSchema = Field(default_factory=SurfaceSetSchema)
 
 
 class PatternGenerateRequest(BaseModel):
     contour: BlockContourSchema
     params: dict[str, Any] = Field(default_factory=dict)
     existing_holes: list[HoleSchema] = Field(default_factory=list)
+    surfaces: SurfaceSetSchema | None = None
 
 
 class PatternGenerateResponse(BaseModel):

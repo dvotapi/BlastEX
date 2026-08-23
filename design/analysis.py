@@ -40,7 +40,7 @@ def summary(design: BlastDesign) -> dict[str, Any]:
         "production_hole_count": len(production),
         "contour_hole_count": len(contour_holes),
         "drilling_footage_m": round(footage, 2),
-        "block_volume_m3": round(block_volume(design.contour), 2),
+        "block_volume_m3": round(block_volume(design.contour, design.surfaces), 2),
         "total_charge_kg": round(total_charge_kg, 2),
         "avg_specific_q_kg_m3": round(avg_q, 4),
         "explosive_breakdown_kg": {k: round(v, 2) for k, v in explosive_breakdown.items()},

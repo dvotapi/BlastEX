@@ -8,6 +8,61 @@ export type BenchSurface = {
   face_angle_deg: number;
 };
 
+export type CoordinateSystem = {
+  name: string;
+  epsg: number | null;
+  origin_x: number;
+  origin_y: number;
+  origin_z: number;
+  units: string;
+};
+
+export type SurfaceKind = "top" | "floor" | "face" | "post_blast";
+
+export type TIN = {
+  vertices: Point3[];
+  triangles: number[][];
+};
+
+export type SurfaceModel = {
+  kind: SurfaceKind;
+  name: string;
+  source_format: string;
+  source_name: string;
+  created_at: string;
+  coordinate_system: CoordinateSystem;
+  points: Point3[];
+  polylines: Point3[][];
+  tin: TIN;
+};
+
+export type SurfaceSet = {
+  top: SurfaceModel | null;
+  floor: SurfaceModel | null;
+  face: SurfaceModel | null;
+  post_blast: SurfaceModel | null;
+};
+
+export type SurfaceStats = {
+  kind: SurfaceKind;
+  name: string;
+  source_format: string;
+  source_name: string;
+  point_count: number;
+  triangle_count: number;
+  polyline_count: number;
+  z_min: number | null;
+  z_max: number | null;
+  bounds: {
+    min_x: number;
+    min_y: number;
+    min_z: number;
+    max_x: number;
+    max_y: number;
+    max_z: number;
+  } | null;
+};
+
 export type BlockContour = {
   vertices: Point3[];
   free_faces: number[][];
@@ -76,6 +131,8 @@ export type BlastDesign = {
   charge_rules: Record<string, unknown>;
   rock_name: string;
   explosive_key: string;
+  coordinate_system: CoordinateSystem;
+  surfaces: SurfaceSet;
 };
 
 export type PatternType = "square" | "rectangular" | "staggered";
@@ -205,6 +262,14 @@ export type DesignCostResult = {
   notes: string[];
 };
 
+export function emptyCoordinateSystem(): CoordinateSystem {
+  return { name: "local", epsg: null, origin_x: 0, origin_y: 0, origin_z: 0, units: "m" };
+}
+
+export function emptySurfaces(): SurfaceSet {
+  return { top: null, floor: null, face: null, post_blast: null };
+}
+
 export function emptyContour(): BlockContour {
   return {
     vertices: [],
@@ -218,7 +283,7 @@ export function emptyDesign(): BlastDesign {
   return {
     design_id: "",
     name: "Новый паспорт",
-    version: 1,
+    version: 2,
     updated_at: "",
     contour: emptyContour(),
     holes: [],
@@ -228,6 +293,8 @@ export function emptyDesign(): BlastDesign {
     charge_rules: {},
     rock_name: "",
     explosive_key: "",
+    coordinate_system: emptyCoordinateSystem(),
+    surfaces: emptySurfaces(),
   };
 }
 

@@ -41,7 +41,7 @@ export function HoleTable({
         <table>
           <thead>
             <tr>
-              <th></th><th>ID</th><th>Тип</th><th>X, м</th><th>Y, м</th><th>Глубина, м</th><th>Ø, мм</th><th>Перебур, м</th>
+              <th></th><th>ID</th><th>Тип</th><th>X, м</th><th>Y, м</th><th>Z устья, м</th><th>Глубина, м</th><th>Ø, мм</th><th>Перебур, м</th>
             </tr>
           </thead>
           <tbody>
@@ -64,6 +64,7 @@ export function HoleTable({
                   </td>
                   <td>{ruNumber(h.collar.x, 2)}</td>
                   <td>{ruNumber(h.collar.y, 2)}</td>
+                  <td>{ruNumber(h.collar.z, 2)}</td>
                   <td>{ruNumber(length, 2)}</td>
                   <td>
                     <input type="number" value={h.diameter_mm} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { diameter_mm: Number(e.target.value) })} />

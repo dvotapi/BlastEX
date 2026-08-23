@@ -10,7 +10,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-DESIGN_VERSION = 1
+DESIGN_VERSION = 2
 
 
 @dataclass
@@ -293,6 +293,17 @@ class BlastDesign:
     charge_rules: dict[str, Any] = field(default_factory=dict)
     rock_name: str = ""
     explosive_key: str = ""
+    coordinate_system: Any = None
+    surfaces: Any = None
+
+    def __post_init__(self) -> None:
+        from design.spatial.coordinates import CoordinateSystem
+        from design.spatial.surfaces import SurfaceSet
+
+        if self.coordinate_system is None:
+            self.coordinate_system = CoordinateSystem()
+        if self.surfaces is None:
+            self.surfaces = SurfaceSet()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -308,10 +319,15 @@ class BlastDesign:
             "charge_rules": dict(self.charge_rules),
             "rock_name": self.rock_name,
             "explosive_key": self.explosive_key,
+            "coordinate_system": self.coordinate_system.to_dict(),
+            "surfaces": self.surfaces.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BlastDesign:
+        from design.spatial.coordinates import CoordinateSystem
+        from design.spatial.surfaces import SurfaceSet
+
         return cls(
             design_id=str(data.get("design_id", "")),
             name=str(data.get("name", "Новый паспорт")),
@@ -325,4 +341,6 @@ class BlastDesign:
             charge_rules=dict(data.get("charge_rules", {})),
             rock_name=str(data.get("rock_name", "")),
             explosive_key=str(data.get("explosive_key", "")),
+            coordinate_system=CoordinateSystem.from_dict(data.get("coordinate_system")),
+            surfaces=SurfaceSet.from_dict(data.get("surfaces")),
         )

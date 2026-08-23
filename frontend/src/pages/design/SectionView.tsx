@@ -19,7 +19,8 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { BlockContour, Hole, HoleLoad, InitiationNetwork, ValidationWarning } from "../../types/design";
+import { surfaceElevation } from "../../lib/surfaces";
+import type { BlockContour, Hole, HoleLoad, InitiationNetwork, SurfaceSet, ValidationWarning } from "../../types/design";
 
 const DRAW_PREFIX = "sec";
 const VIEW_HEIGHT = 460;
@@ -38,6 +39,7 @@ export function SectionView({
   contour,
   holes,
   loads,
+  surfaces,
   network,
   warnings,
   rowAzimuthDeg,
@@ -47,6 +49,7 @@ export function SectionView({
   contour: BlockContour;
   holes: Hole[];
   loads: HoleLoad[];
+  surfaces?: SurfaceSet;
   network?: InitiationNetwork | null;
   warnings?: ValidationWarning[];
   rowAzimuthDeg: number;
@@ -121,6 +124,12 @@ export function SectionView({
     const uValues = rowHoles.map((r) => r.u);
     const zValues = rowHoles.flatMap((r) => [r.hole.collar.z, r.hole.toe.z]);
     zValues.push(contour.bench.crest_z_m, contour.bench.toe_z_m);
+    for (const { hole } of rowHoles) {
+      const topZ = surfaceElevation(surfaces?.top, hole.collar.x, hole.collar.y);
+      const floorZ = surfaceElevation(surfaces?.floor, hole.collar.x, hole.collar.y);
+      if (topZ !== null) zValues.push(topZ);
+      if (floorZ !== null) zValues.push(floorZ);
+    }
     const gaps = uValues.slice(1).map((u, i) => u - uValues[i]);
     const meanGap = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 5;
     const benchHeightM = Math.max(0, contour.bench.crest_z_m - contour.bench.toe_z_m);
@@ -137,7 +146,7 @@ export function SectionView({
       maxDiameterM: Math.max(...rowHoles.map((r) => r.hole.diameter_mm)) / 1000,
       minDiameterM: Math.min(...rowHoles.map((r) => r.hole.diameter_mm)) / 1000,
     };
-  }, [rowHoles, contour.bench]);
+  }, [rowHoles, contour.bench, surfaces]);
 
   /**
    * "bench" — уступ на всю высоту панели, длинный ряд листается панорамой
@@ -205,15 +214,19 @@ export function SectionView({
   const toScreen = (u: number, z: number) => worldToScreen(cam, viewport, { x: u, y: z });
   const sy = (z: number) => toScreen(0, z).y;
 
-  const yCrest = sy(contour.bench.crest_z_m);
-  const yToeLevel = sy(contour.bench.toe_z_m);
+  const profile = sampleRowProfile(rowHoles, surfaces, contour.bench.crest_z_m, contour.bench.toe_z_m);
+  const yCrest = sy(profile.crestZ);
+  const yToeLevel = sy(profile.floorZ);
   const xFaceTop = toScreen(bounds!.uFaceTop, 0).x;
   const xFaceBottom = toScreen(bounds!.uFaceTop - bounds!.faceRunM, 0).x;
+  const topPolyline = profile.top.map((p) => `${toScreen(p.u, p.z).x} ${sy(p.z)}`);
+  const rockCrest = topPolyline.length ? `L${topPolyline.join(" L")}` : `L${xFaceTop} ${yCrest} L${viewport.width + 40} ${yCrest}`;
 
   const rockPath = [
     `M${xFaceBottom} ${yToeLevel}`,
-    `L${xFaceTop} ${yCrest}`,
-    `L${viewport.width + 40} ${yCrest}`,
+    `L${xFaceTop} ${sy(profile.top[0]?.z ?? profile.crestZ)}`,
+    rockCrest.startsWith("L") ? rockCrest : `L${xFaceTop} ${yCrest}`,
+    `L${viewport.width + 40} ${sy(profile.top[profile.top.length - 1]?.z ?? profile.crestZ)}`,
     `L${viewport.width + 40} ${viewport.height + 40}`,
     `L${xFaceBottom} ${viewport.height + 40}`,
     "Z",
@@ -329,14 +342,18 @@ export function SectionView({
             <path className="rock-mass" d={rockPath} fill={`url(#${DRAW_PREFIX}-rock)`} />
             <path
               className="bench-profile"
-              d={`M${xFaceBottom} ${yToeLevel} L${xFaceTop} ${yCrest} L${viewport.width + 40} ${yCrest}`}
+              d={
+                profile.top.length
+                  ? `M${xFaceBottom} ${yToeLevel} L${xFaceTop} ${sy(profile.top[0].z)} L${topPolyline.join(" L")}`
+                  : `M${xFaceBottom} ${yToeLevel} L${xFaceTop} ${yCrest} L${viewport.width + 40} ${yCrest}`
+              }
             />
             <line className="bench-level" x1={SCALE_X} y1={yToeLevel} x2={viewport.width} y2={yToeLevel} />
             <text className="section-level-label" x={SCALE_X + 8} y={yCrest - 7} textAnchor="start">
-              бровка {ruNumber(contour.bench.crest_z_m, 1)}
+              бровка {ruNumber(profile.crestZ, 1)}
             </text>
             <text className="section-level-label" x={SCALE_X + 8} y={yToeLevel - 6} textAnchor="start">
-              подошва {ruNumber(contour.bench.toe_z_m, 1)}
+              подошва {ruNumber(profile.floorZ, 1)}
             </text>
 
             <DepthScale
@@ -539,4 +556,37 @@ export function SectionView({
       </div>
     </section>
   );
+}
+
+function sampleRowProfile(
+  rowHoles: Array<{ hole: Hole; u: number }>,
+  surfaces: SurfaceSet | undefined,
+  fallbackCrest: number,
+  fallbackFloor: number,
+) {
+  const top: Array<{ u: number; z: number }> = [];
+  const floor: Array<{ u: number; z: number }> = [];
+  if (!rowHoles.length) {
+    return { top, floor, crestZ: fallbackCrest, floorZ: fallbackFloor };
+  }
+  const first = rowHoles[0];
+  const last = rowHoles[rowHoles.length - 1];
+  const span = Math.max(1e-6, last.u - first.u);
+  const samples = Math.max(8, Math.min(48, rowHoles.length * 3));
+  for (let i = 0; i <= samples; i += 1) {
+    const t = i / samples;
+    const u = first.u + span * t;
+    const x = first.hole.collar.x + (last.hole.collar.x - first.hole.collar.x) * t;
+    const y = first.hole.collar.y + (last.hole.collar.y - first.hole.collar.y) * t;
+    const topZ = surfaceElevation(surfaces?.top, x, y);
+    const floorZ = surfaceElevation(surfaces?.floor, x, y);
+    top.push({ u, z: topZ ?? fallbackCrest });
+    floor.push({ u, z: floorZ ?? fallbackFloor });
+  }
+  return {
+    top,
+    floor,
+    crestZ: top.reduce((s, p) => s + p.z, 0) / top.length,
+    floorZ: floor.reduce((s, p) => s + p.z, 0) / floor.length,
+  };
 }

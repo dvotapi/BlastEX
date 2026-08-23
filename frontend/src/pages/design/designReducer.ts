@@ -18,6 +18,8 @@ import type {
   VibrationMeasurement,
   VibrationModel,
   AsDrilledHole,
+  AsChargedHole,
+  AsFiredHole,
 } from "../../types/design";
 import {
   defaultVibrationModel,
@@ -62,6 +64,12 @@ export type DesignAction =
   | { type: "SET_AS_DRILLED"; holes: AsDrilledHole[] }
   | { type: "UPSERT_AS_DRILLED"; hole: AsDrilledHole }
   | { type: "DELETE_AS_DRILLED"; designHoleId: string }
+  | { type: "SET_AS_CHARGED"; holes: AsChargedHole[] }
+  | { type: "UPSERT_AS_CHARGED"; hole: AsChargedHole }
+  | { type: "DELETE_AS_CHARGED"; designHoleId: string }
+  | { type: "SET_AS_FIRED"; holes: AsFiredHole[] }
+  | { type: "UPSERT_AS_FIRED"; hole: AsFiredHole }
+  | { type: "DELETE_AS_FIRED"; designHoleId: string }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -113,6 +121,8 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
     vibration_models: design.vibration_models?.length ? design.vibration_models : [defaultVibrationModel()],
     vibration_measurements: design.vibration_measurements ?? [],
     as_drilled_holes: design.as_drilled_holes ?? [],
+    as_charged_holes: design.as_charged_holes ?? [],
+    as_fired_holes: design.as_fired_holes ?? [],
   };
 }
 
@@ -183,6 +193,8 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         loads: [],
         network: emptyNetwork(),
         as_drilled_holes: [],
+        as_charged_holes: [],
+        as_fired_holes: [],
       };
     case "MOVE_HOLES": {
       const ids = new Set(action.ids);
@@ -218,6 +230,8 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         ...document,
         holes,
         as_drilled_holes: document.as_drilled_holes.filter((item) => holeIds.has(item.design_hole_id)),
+        as_charged_holes: document.as_charged_holes.filter((item) => holeIds.has(item.design_hole_id)),
+        as_fired_holes: document.as_fired_holes.filter((item) => holeIds.has(item.design_hole_id)),
         ...pruneLoadsAndNetwork(document, holeIds),
       };
     }
@@ -302,6 +316,38 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         ...document,
         as_drilled_holes: document.as_drilled_holes.filter((item) => item.design_hole_id !== action.designHoleId),
       };
+    case "SET_AS_CHARGED":
+      return { ...document, as_charged_holes: action.holes };
+    case "UPSERT_AS_CHARGED": {
+      const exists = document.as_charged_holes.some((item) => item.design_hole_id === action.hole.design_hole_id);
+      return {
+        ...document,
+        as_charged_holes: exists
+          ? document.as_charged_holes.map((item) => (item.design_hole_id === action.hole.design_hole_id ? action.hole : item))
+          : [...document.as_charged_holes, action.hole],
+      };
+    }
+    case "DELETE_AS_CHARGED":
+      return {
+        ...document,
+        as_charged_holes: document.as_charged_holes.filter((item) => item.design_hole_id !== action.designHoleId),
+      };
+    case "SET_AS_FIRED":
+      return { ...document, as_fired_holes: action.holes };
+    case "UPSERT_AS_FIRED": {
+      const exists = document.as_fired_holes.some((item) => item.design_hole_id === action.hole.design_hole_id);
+      return {
+        ...document,
+        as_fired_holes: exists
+          ? document.as_fired_holes.map((item) => (item.design_hole_id === action.hole.design_hole_id ? action.hole : item))
+          : [...document.as_fired_holes, action.hole],
+      };
+    }
+    case "DELETE_AS_FIRED":
+      return {
+        ...document,
+        as_fired_holes: document.as_fired_holes.filter((item) => item.design_hole_id !== action.designHoleId),
+      };
     case "SET_HOLE_GEOLOGY": {
       const byId = new Map(action.holes.map((h) => [h.id, h]));
       return {
@@ -354,6 +400,12 @@ const UNDOABLE: DesignAction["type"][] = [
   "SET_AS_DRILLED",
   "UPSERT_AS_DRILLED",
   "DELETE_AS_DRILLED",
+  "SET_AS_CHARGED",
+  "UPSERT_AS_CHARGED",
+  "DELETE_AS_CHARGED",
+  "SET_AS_FIRED",
+  "UPSERT_AS_FIRED",
+  "DELETE_AS_FIRED",
 ];
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {

@@ -11,7 +11,7 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { AsDrilledHole, BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, Receptor, VibrationPrediction } from "../../types/design";
+import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, Receptor, VibrationPrediction } from "../../types/design";
 import { RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 
 const HOLE_HIT_RADIUS_PX = 11;
@@ -64,6 +64,8 @@ export function PlanCanvas({
   vibrationPredictions,
   asDrilled,
   showAsDrilled,
+  asCharged,
+  asFired,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -98,6 +100,8 @@ export function PlanCanvas({
   vibrationPredictions?: VibrationPrediction[];
   asDrilled?: AsDrilledHole[];
   showAsDrilled?: boolean;
+  asCharged?: AsChargedHole[];
+  asFired?: AsFiredHole[];
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -509,9 +513,13 @@ export function PlanCanvas({
           );
           const pending = pendingTieFromId === h.id;
           const t = timesMs?.[h.id];
+          const charged = (asCharged ?? []).some((item) => item.design_hole_id === h.id);
+          const fired = (asFired ?? []).some((item) => item.design_hole_id === h.id);
           return (
             <g key={h.id} className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}`}>
               <circle cx={p.x} cy={p.y} r={isSelected || pending ? 7 : 5.5} style={fillColor ? { fill: fillColor } : undefined} />
+              {charged && <circle cx={p.x + 7} cy={p.y - 6} r={2.2} className="as-charged-dot" />}
+              {fired && <circle cx={p.x + 7} cy={p.y + 6} r={2.2} className="as-fired-dot" />}
               {mode === "timing" && t !== undefined && (
                 <text x={p.x + 8} y={p.y - 6} className="hole-time-label">{ruNumber(t, 0)}</text>
               )}

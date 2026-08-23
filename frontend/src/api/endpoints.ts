@@ -54,6 +54,11 @@ import type {
   VibrationPredictResponse,
   AsDrilledHole,
   AsDrilledCompareResponse,
+  AsChargedHole,
+  AsChargedCompareResponse,
+  AsFiredHole,
+  AsFiredCompareResponse,
+  ExecutionCompareResponse,
   MwdSchemaResponse,
 } from "../types/design";
 
@@ -263,6 +268,24 @@ export const api = {
         samples,
         source,
       }),
+    recordAsCharged: (design: BlastDesign, holes: AsChargedHole[], replace = false) =>
+      post<AsChargedCompareResponse & { holes: Hole[]; loads: BlastDesign["loads"] }>(`${V1}/design/as-charged`, {
+        design,
+        holes,
+        replace,
+      }),
+    compareAsCharged: (design: BlastDesign) =>
+      post<AsChargedCompareResponse>(`${V1}/design/as-charged/compare`, { design }),
+    recordAsFired: (design: BlastDesign, holes: AsFiredHole[], replace = false) =>
+      post<AsFiredCompareResponse & { holes: Hole[]; network: BlastDesign["network"] }>(`${V1}/design/as-fired`, {
+        design,
+        holes,
+        replace,
+      }),
+    compareAsFired: (design: BlastDesign) =>
+      post<AsFiredCompareResponse>(`${V1}/design/as-fired/compare`, { design }),
+    compareExecution: (design: BlastDesign) =>
+      post<ExecutionCompareResponse>(`${V1}/design/execution/compare`, { design }),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,

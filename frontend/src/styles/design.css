@@ -248,4 +248,23 @@
 .as-drilled-mwd { width:100%; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11px; }
 .check-row { display:flex; align-items:center; gap:8px; font-size:12px; }
 
+.as-charged-swatch { width:10px; height:10px; border-radius:50%; background:#2d7556; }
+.as-fired-swatch { width:10px; height:10px; border-radius:50%; background:#5b4a9a; }
+.as-charged-dot { fill:#2d7556; stroke:#fff; stroke-width:0.6; }
+.as-fired-dot { fill:#5b4a9a; stroke:#fff; stroke-width:0.6; }
+.as-charged-head, .as-charged-row, .as-fired-head, .as-fired-row, .exec-compare-head, .exec-compare-row {
+  display:grid; grid-template-columns:1.1fr 0.7fr 0.7fr 0.7fr; gap:6px;
+  font-size:11px; padding:4px 6px; border-radius:6px; text-align:left;
+}
+.exec-compare-head, .exec-compare-row { grid-template-columns:1.4fr 0.6fr 0.6fr; }
+.as-charged-head, .as-fired-head, .exec-compare-head { color:#5c6a63; font-weight:600; }
+.as-charged-row, .as-fired-row { background:#f6f8f7; border:0; cursor:pointer; color:inherit; }
+.as-charged-row.over, .as-fired-row.over { background:#fdecea; color:#9e3025; }
+.as-charged-row.active { outline:1px solid #2d7556; }
+.as-fired-row.active { outline:1px solid #5b4a9a; }
+.exec-compare-table { display:grid; gap:3px; }
+.exec-compare-row { background:#f6f8f7; }
+.exec-deck-row { display:grid; grid-template-columns:1.1fr 0.6fr 0.6fr 0.9fr 0.6fr auto; gap:4px; align-items:center; }
+.exec-deck-row input, .exec-deck-row select { min-width:0; }
+
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

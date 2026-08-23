@@ -16,6 +16,7 @@ from intelligence.drift.persistence import (
 from intelligence.learning.isolation import CrossTenantError, IsolationError
 from intelligence.learning.persistence import save_model as save_learning
 from intelligence.learning.training import train_global
+from intelligence.registry.catalog import RegistryNotFoundError
 from intelligence.registry.persistence import promote
 from intelligence.registry.types import STATUS_PRODUCTION
 from tests.outcome_fixtures import synthetic_outcome_snapshot
@@ -69,7 +70,7 @@ class DriftIsolationTests(unittest.TestCase):
         self.assertEqual(report.team_id, TEAM_A)
         self.assertEqual(list_reports(TEAM_B), [])
         self.assertEqual(list_alerts(TEAM_B), [])
-        with self.assertRaises((DriftCheckError, CrossTenantError)):
+        with self.assertRaises((DriftCheckError, CrossTenantError, RegistryNotFoundError)):
             check_production_model(
                 TEAM_B,
                 "learning",

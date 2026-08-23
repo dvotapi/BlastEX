@@ -29,6 +29,7 @@ from intelligence.drift.types import (
     utc_now_iso,
 )
 from intelligence.learning.isolation import require_team_id
+from intelligence.registry.catalog import RegistryNotFoundError
 from intelligence.registry.persistence import get_record
 from intelligence.registry.types import STATUS_PRODUCTION
 
@@ -187,7 +188,10 @@ def check_production_model(
     Does not train. Does not promote. Does not swap the live artifact.
     """
     team = require_team_id(team_id)
-    record = get_record(team, family, model_id)
+    try:
+        record = get_record(team, family, model_id)
+    except RegistryNotFoundError as exc:
+        raise DriftCheckError(str(exc)) from exc
     if record.status != STATUS_PRODUCTION:
         raise DriftCheckError(
             f"Дрифт считается относительно производственной модели, "

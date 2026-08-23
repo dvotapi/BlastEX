@@ -80,7 +80,8 @@ from design import persistence as design_persistence
 from design.analysis import charge_per_delay, estimate_ppv, summary as run_summary, timing_isolines, validate as run_validate
 from design.charging import apply_charge_rules
 from design.editing import apply_hole_geometry, insert_manual_hole
-from design.export import holes_csv, passport_html
+from design.export import holes_csv
+from design.reporting.html import passport_html
 from design.geometry import block_volume
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.maps import engineering_maps

@@ -156,12 +156,35 @@ export type Hole = {
   measured_water_intervals: WaterInterval[];
 };
 
+export type DeckKind =
+  | "stemming"
+  | "charge"
+  | "bulk_explosive"
+  | "packaged_explosive"
+  | "air"
+  | "air_deck"
+  | "inert_deck"
+  | "water_deck"
+  | "primer"
+  | "booster"
+  | "detonator";
+
 export type Deck = {
-  kind: "charge" | "stemming" | "air";
+  kind: DeckKind | string;
   from_m: number;
   to_m: number;
   explosive_key: string;
   mass_kg: number;
+  product?: string;
+};
+
+export type PrimerKind = "primer" | "booster" | "detonator";
+
+export type PrimerItem = {
+  position_m: number;
+  product: string;
+  mass_kg: number;
+  kind: PrimerKind | string;
 };
 
 export type HoleLoad = {
@@ -171,6 +194,7 @@ export type HoleLoad = {
   influence_volume_m3: number;
   specific_q_kg_m3: number;
   primers: number[];
+  primer_items?: PrimerItem[];
 };
 
 export type Connector = {
@@ -280,6 +304,53 @@ export type PatternGenerateResponse = {
 
 export type DeckingType = "continuous" | "spaced";
 
+export type GeologicalInterval = "" | "any" | "bottom" | "column" | "collar";
+export type ChargeActionRegion = "interval" | "bottom" | "column" | "collar" | "remaining";
+
+export type ChargeCondition = {
+  hole_kinds: string[];
+  rows: number[];
+  depth_min_m: number | null;
+  depth_max_m: number | null;
+  diameter_min_mm: number | null;
+  diameter_max_mm: number | null;
+  burden_min_m: number | null;
+  burden_max_m: number | null;
+  spacing_min_m: number | null;
+  spacing_max_m: number | null;
+  rock_domain_ids: string[];
+  geological_interval: GeologicalInterval | string;
+  water: WaterCondition | string;
+  distance_to_face_min_m: number | null;
+  distance_to_face_max_m: number | null;
+  target_pf_min: number | null;
+  target_pf_max: number | null;
+};
+
+export type ChargeAction = {
+  kind: DeckKind | string;
+  explosive_key: string;
+  product: string;
+  region: ChargeActionRegion | string;
+  length_m: number | null;
+  mass_kg: number | null;
+  place_primer: boolean;
+  primer_offset_m: number | null;
+  primer_product: string;
+  primer_mass_kg: number;
+  primer_kind: PrimerKind | string;
+};
+
+export type ChargeTemplate = {
+  id: string;
+  name: string;
+  conditions: ChargeCondition;
+  actions: ChargeAction[];
+  priority: number;
+  enabled: boolean;
+  notes: string;
+};
+
 export type ChargeRules = {
   hole_oversize_coeff: number;
   stemming_m: number | null;
@@ -290,6 +361,9 @@ export type ChargeRules = {
   primer_offset_m: number;
   grid_a_m: number;
   grid_b_m: number;
+  bottom_length_m: number;
+  target_pf: number | null;
+  templates: ChargeTemplate[];
 };
 
 export type ChargeExplosive = { name: string; density_t_m3: number; power_mj_kg: number };
@@ -437,7 +511,7 @@ export function emptyDesign(): BlastDesign {
   return {
     design_id: "",
     name: "Новый паспорт",
-    version: 3,
+    version: 4,
     updated_at: "",
     contour: emptyContour(),
     holes: [],
@@ -467,6 +541,104 @@ export const DEFAULT_PPV_REQUEST: PpvRequest = {
   n: 1.6,
 };
 
+export function emptyChargeCondition(): ChargeCondition {
+  return {
+    hole_kinds: [],
+    rows: [],
+    depth_min_m: null,
+    depth_max_m: null,
+    diameter_min_mm: null,
+    diameter_max_mm: null,
+    burden_min_m: null,
+    burden_max_m: null,
+    spacing_min_m: null,
+    spacing_max_m: null,
+    rock_domain_ids: [],
+    geological_interval: "",
+    water: "",
+    distance_to_face_min_m: null,
+    distance_to_face_max_m: null,
+    target_pf_min: null,
+    target_pf_max: null,
+  };
+}
+
+export function emptyChargeAction(): ChargeAction {
+  return {
+    kind: "bulk_explosive",
+    explosive_key: "",
+    product: "",
+    region: "interval",
+    length_m: null,
+    mass_kg: null,
+    place_primer: false,
+    primer_offset_m: null,
+    primer_product: "",
+    primer_mass_kg: 0,
+    primer_kind: "primer",
+  };
+}
+
+export function emptyChargeTemplate(existing: ChargeTemplate[] = []): ChargeTemplate {
+  const used = new Set(existing.map((item) => item.id));
+  let index = existing.length + 1;
+  while (used.has(`T-${index}`)) index += 1;
+  return {
+    id: `T-${index}`,
+    name: "Новый шаблон",
+    conditions: emptyChargeCondition(),
+    actions: [emptyChargeAction()],
+    priority: existing.length ? Math.max(...existing.map((item) => item.priority)) + 10 : 10,
+    enabled: true,
+    notes: "",
+  };
+}
+
+export function exampleChargeTemplates(): ChargeTemplate[] {
+  return [
+    {
+      id: "T-bottom",
+      name: "Дно — плотная эмульсия",
+      priority: 30,
+      enabled: true,
+      notes: "Нижняя часть скважины: высокое давление",
+      conditions: { ...emptyChargeCondition(), geological_interval: "bottom" },
+      actions: [{ ...emptyChargeAction(), explosive_key: "Эмульсия плотная", region: "bottom", length_m: 2, place_primer: true }],
+    },
+    {
+      id: "T-wet",
+      name: "Обводнение — водоустойчивая эмульсия",
+      priority: 20,
+      enabled: true,
+      notes: "Мокрый интервал нельзя заряжать АНФО",
+      conditions: { ...emptyChargeCondition(), water: "wet" },
+      actions: [{ ...emptyChargeAction(), explosive_key: "Эмульсия водоустойчивая", region: "interval", place_primer: true }],
+    },
+    {
+      id: "T-dry",
+      name: "Сухая колонна — АНФО",
+      priority: 10,
+      enabled: true,
+      notes: "Сухой столб между забойкой и дном",
+      conditions: { ...emptyChargeCondition(), water: "dry" },
+      actions: [{ ...emptyChargeAction(), explosive_key: "АНФО", region: "interval" }],
+    },
+  ];
+}
+
+export const EXPLOSIVE_DECK_KINDS = new Set<string>(["charge", "bulk_explosive", "packaged_explosive"]);
+
+export function isExplosiveDeckKind(kind: string): boolean {
+  return EXPLOSIVE_DECK_KINDS.has(kind);
+}
+
+export function primerDepths(load: HoleLoad): number[] {
+  if (load.primer_items && load.primer_items.length) {
+    return load.primer_items.map((item) => item.position_m);
+  }
+  return load.primers ?? [];
+}
+
 export const DEFAULT_CHARGE_RULES: ChargeRules = {
   hole_oversize_coeff: 1.05,
   stemming_m: null,
@@ -477,6 +649,39 @@ export const DEFAULT_CHARGE_RULES: ChargeRules = {
   primer_offset_m: 0.3,
   grid_a_m: 5,
   grid_b_m: 4,
+  bottom_length_m: 2,
+  target_pf: null,
+  templates: [],
+};
+
+export const DECK_KIND_LABELS: Record<string, string> = {
+  stemming: "Забойка",
+  charge: "Заряд",
+  bulk_explosive: "Россыпное ВВ",
+  packaged_explosive: "Патронированное ВВ",
+  air: "Воздушный промежуток",
+  air_deck: "Воздушный промежуток",
+  inert_deck: "Инертный промежуток",
+  water_deck: "Водяной промежуток",
+  primer: "Боевик",
+  booster: "Бустер",
+  detonator: "Детонатор",
+};
+
+export const CHARGE_REGION_LABELS: Record<string, string> = {
+  interval: "Интервал",
+  bottom: "Дно",
+  column: "Колонна",
+  collar: "Устье",
+  remaining: "Остаток",
+};
+
+export const GEOLOGICAL_INTERVAL_LABELS: Record<string, string> = {
+  "": "любой",
+  any: "любой",
+  bottom: "дно",
+  column: "колонна",
+  collar: "устье",
 };
 
 export const DEFAULT_PATTERN_PARAMS: PatternParams = {

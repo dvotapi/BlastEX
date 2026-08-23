@@ -12,6 +12,7 @@ export type DeckLike = {
   to_m: number;
   explosive_key?: string;
   mass_kg?: number;
+  product?: string;
 };
 
 export function DeckShape({
@@ -36,13 +37,19 @@ export function DeckShape({
   if (width <= 0 || deck.to_m - deck.from_m <= 1e-6) return null;
   const path = barrelSegmentPath(from, to, width);
 
-  const charge = deck.kind === "charge";
+  const charge = deck.kind === "charge" || deck.kind === "bulk_explosive" || deck.kind === "packaged_explosive";
   const fill = charge
-    ? explosiveColor(deck.explosive_key)
+    ? explosiveColor(deck.explosive_key, deck.product)
     : deck.kind === "stemming"
       ? `url(#${id.stemming})`
-      : `url(#${id.air})`;
-  const stroke = charge ? darken(explosiveColor(deck.explosive_key), 0.4) : DRAW.barrelWall;
+      : deck.kind === "inert_deck"
+        ? `url(#${id.inert})`
+        : deck.kind === "water_deck"
+          ? `url(#${id.water})`
+          : deck.kind === "primer" || deck.kind === "booster" || deck.kind === "detonator"
+            ? DRAW.primer
+            : `url(#${id.air})`;
+  const stroke = charge ? darken(explosiveColor(deck.explosive_key, deck.product), 0.4) : DRAW.barrelWall;
 
   return (
     <g

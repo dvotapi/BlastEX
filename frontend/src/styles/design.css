@@ -134,6 +134,19 @@
 .section-legend i.legend-charge { background:#d0483c; border-color:#7d2b23; }
 .section-legend i.legend-stemming { background:#a9835a; border-color:#8a6742; }
 .section-legend i.legend-air { background:repeating-linear-gradient(45deg,#fff 0 2px,#8fb7d9 2px 3px); }
+.section-legend i.legend-water { background:#c5dff0; border-color:#5a8fb3; }
+.section-legend i.legend-inert { background:repeating-linear-gradient(45deg,#d7d2c8 0 2px,#9a9284 2px 3px); }
+
+.template-head { display:grid; gap:2px; }
+.template-head b { font-size:12px; }
+.template-card { display:grid; gap:8px; padding:10px; border:1px solid #d9e2dd; border-radius:9px; background:#fff; }
+.template-card.disabled { opacity:.55; }
+.template-card-head { display:grid; grid-template-columns:auto 1fr 88px auto; gap:6px; align-items:center; }
+.template-priority { display:grid; gap:2px; font-size:10px; color:#5c6a63; }
+.template-priority input { padding:6px 8px; }
+.template-action { display:grid; gap:6px; padding:8px; border:1px solid #edf1ef; border-radius:8px; background:#f7faf8; }
+.template-card details { display:grid; gap:8px; }
+.template-card summary { cursor:pointer; font-size:11px; font-weight:700; color:#3b4b43; }
 .section-legend i.legend-primer { background:#e4b94f; border-color:#173125; }
 .section-legend i.legend-subdrill { background:repeating-linear-gradient(-45deg,#f7f9f8 0 2px,#c9d3cd 2px 3px); }
 .section-legend i.legend-rock { background:repeating-linear-gradient(45deg,#e8ece9 0 3px,#b8c4bd 3px 4px); }

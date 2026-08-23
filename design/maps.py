@@ -1,7 +1,7 @@
 """Per-hole engineering maps for a blast design (phase BDX-003).
 
 Heatmap-style data: one record per enabled hole plus min/avg/max stats.
-Charging (BDX-004) is not computed here.
+Charging (BDX-004) consumes burden/spacing from these samples when present.
 """
 from __future__ import annotations
 

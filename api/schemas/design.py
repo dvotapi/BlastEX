@@ -127,6 +127,66 @@ class DeckSchema(BaseModel):
     to_m: float = Field(..., ge=0)
     explosive_key: str = ""
     mass_kg: float = Field(0.0, ge=0)
+    product: str = ""
+
+
+class PrimerSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    position_m: float = Field(..., ge=0)
+    product: str = ""
+    mass_kg: float = Field(0.0, ge=0)
+    kind: str = "primer"
+
+
+class ChargeConditionSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    hole_kinds: list[str] = Field(default_factory=list)
+    rows: list[int] = Field(default_factory=list)
+    depth_min_m: float | None = None
+    depth_max_m: float | None = None
+    diameter_min_mm: float | None = None
+    diameter_max_mm: float | None = None
+    burden_min_m: float | None = None
+    burden_max_m: float | None = None
+    spacing_min_m: float | None = None
+    spacing_max_m: float | None = None
+    rock_domain_ids: list[str] = Field(default_factory=list)
+    geological_interval: str = ""
+    water: str = ""
+    distance_to_face_min_m: float | None = None
+    distance_to_face_max_m: float | None = None
+    target_pf_min: float | None = None
+    target_pf_max: float | None = None
+
+
+class ChargeActionSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: str = "bulk_explosive"
+    explosive_key: str = ""
+    product: str = ""
+    region: str = "interval"
+    length_m: float | None = None
+    mass_kg: float | None = None
+    place_primer: bool = False
+    primer_offset_m: float | None = None
+    primer_product: str = ""
+    primer_mass_kg: float = 0.0
+    primer_kind: str = "primer"
+
+
+class ChargeTemplateSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str = ""
+    conditions: ChargeConditionSchema = Field(default_factory=ChargeConditionSchema)
+    actions: list[ChargeActionSchema] = Field(default_factory=list)
+    priority: int = 0
+    enabled: bool = True
+    notes: str = ""
 
 
 class HoleLoadSchema(BaseModel):
@@ -138,6 +198,7 @@ class HoleLoadSchema(BaseModel):
     influence_volume_m3: float = Field(0.0, ge=0)
     specific_q_kg_m3: float = Field(0.0, ge=0)
     primers: list[float] = Field(default_factory=list)
+    primer_items: list[PrimerSchema] = Field(default_factory=list)
 
 
 class ConnectorSchema(BaseModel):
@@ -275,6 +336,8 @@ class ChargeGenerateRequest(BaseModel):
     holes: list[HoleSchema]
     rules: dict[str, Any] = Field(default_factory=dict)
     explosive: ExplosivePropertiesSchema
+    contour: BlockContourSchema | None = None
+    explosives: list[ExplosivePropertiesSchema] = Field(default_factory=list)
 
 
 class ChargeGenerateResponse(BaseModel):

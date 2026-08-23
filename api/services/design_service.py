@@ -154,7 +154,16 @@ def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
         density_t_m3=request.explosive.density_t_m3,
         power_mj_kg=request.explosive.power_mj_kg,
     )
-    loads = apply_charge_rules(holes, request.rules, explosive)
+    catalog = [
+        ExplosiveProperties(
+            name=item.name,
+            density_t_m3=item.density_t_m3,
+            power_mj_kg=item.power_mj_kg,
+        )
+        for item in request.explosives
+    ]
+    contour = BlockContour.from_dict(request.contour.model_dump()) if request.contour is not None else None
+    loads = apply_charge_rules(holes, request.rules, explosive, contour=contour, explosives=catalog)
 
     return ChargeGenerateResponse(
         loads=[ld.to_dict() for ld in loads],

@@ -3,36 +3,67 @@
 Масса заряда считается через `cost.geometry.charge_diameter_m` и
 `linear_capacity_kg_per_m` — теми же функциями, что и смета (`cost/geometry.py`),
 поэтому масса заряда скважины в проекте и в смете совпадает до килограмма.
+
+Если в `rules["templates"]` есть шаблоны (BDX-004), применяется пространственный
+движок. Иначе — прежние простые правила сплошного / рассредоточенного заряда.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 from Blast import ExplosiveProperties
 from cost.geometry import charge_diameter_m, linear_capacity_kg_per_m
+from design.charge_templates import apply_charge_templates
 from design.geology import designed_rock_intervals, properties_at
-from design.models import Deck, Hole, HoleInterval, HoleLoad, RockPropertySet
+from design.models import (
+    BlockContour,
+    ChargeTemplate,
+    Deck,
+    Hole,
+    HoleInterval,
+    HoleLoad,
+    Primer,
+    RockPropertySet,
+    is_explosive_deck_kind,
+    templates_from_rules,
+)
 
 DECKING_TYPES = ("continuous", "spaced")
 
 
 def hole_geology_for_charging(hole: Hole) -> list[HoleInterval]:
-    """Designed rock intervals available to a future charging-rules engine (BDX-004).
-
-    This phase only exposes the data. Measured intervals are intentionally excluded.
-    """
+    """Designed rock intervals consumed by the charging-rules engine."""
     return designed_rock_intervals(hole)
 
 
 def rock_properties_for_charging(hole: Hole, along_m: float) -> RockPropertySet | None:
-    """Designed properties at a depth along the hole. BDX-004 will consume this."""
+    """Designed properties at a depth along the hole."""
     return properties_at(hole, along_m)
+
+
+def _explosive_catalog(
+    default: ExplosiveProperties,
+    extras: Iterable[ExplosiveProperties] | dict[str, ExplosiveProperties] | None,
+) -> dict[str, ExplosiveProperties]:
+    catalog: dict[str, ExplosiveProperties] = {default.name: default}
+    if extras is None:
+        return catalog
+    if isinstance(extras, dict):
+        catalog.update(extras)
+        return catalog
+    for item in extras:
+        catalog[item.name] = item
+    return catalog
 
 
 def apply_charge_rules(
     holes: list[Hole],
     rules: dict[str, Any],
     explosive: ExplosiveProperties,
+    *,
+    contour: BlockContour | None = None,
+    explosives: Iterable[ExplosiveProperties] | dict[str, ExplosiveProperties] | None = None,
+    templates: list[ChargeTemplate] | None = None,
 ) -> list[HoleLoad]:
     """Строит заряжание для каждой скважины по единым правилам.
 
@@ -45,7 +76,20 @@ def apply_charge_rules(
       air_gap_m              длина воздушного промежутка между зарядами при "spaced", м
       primer_offset_m        отступ боевика от нижнего торца деки заряда, м
       grid_a_m, grid_b_m     сетка для объёма влияния скважины (a×b×эффективная высота уступа)
+      bottom_length_m        длина «дна» для шаблонов, м
+      templates              список ChargeTemplate (условия / действия / приоритет)
     """
+    resolved = templates if templates is not None else templates_from_rules(rules)
+    if resolved:
+        return apply_charge_templates(
+            holes,
+            rules,
+            explosive,
+            contour=contour,
+            catalog=_explosive_catalog(explosive, explosives),
+            templates=resolved,
+        )
+
     hole_oversize_coeff = float(rules.get("hole_oversize_coeff", 1.05))
     stemming_m_fixed = rules.get("stemming_m")
     stemming_k = float(rules.get("stemming_k", 20.0))
@@ -108,10 +152,13 @@ def _charge_hole(
 
     charge_spans = _charge_spans(charge_length_total, stemming_m, decking, deck_count, air_gap_m)
     primers: list[float] = []
+    primer_items: list[Primer] = []
     for from_m, to_m in charge_spans:
         mass_kg = (to_m - from_m) * capacity
         decks.append(Deck(kind="charge", from_m=from_m, to_m=to_m, explosive_key=explosive.name, mass_kg=mass_kg))
-        primers.append(max(from_m, to_m - primer_offset_m))
+        position = max(from_m, to_m - primer_offset_m)
+        primers.append(position)
+        primer_items.append(Primer(position_m=position, product=explosive.name, kind="primer"))
 
     # Воздушные промежутки между зарядами при рассредоточенном заряде.
     for (_, prev_to), (next_from, _) in zip(charge_spans, charge_spans[1:]):
@@ -120,7 +167,7 @@ def _charge_hole(
 
     decks.sort(key=lambda d: d.from_m)
 
-    total_charge_kg = sum(d.mass_kg for d in decks if d.kind == "charge")
+    total_charge_kg = sum(d.mass_kg for d in decks if is_explosive_deck_kind(d.kind))
     influence_volume_m3 = grid_a_m * grid_b_m * hole.bench_height_m
     specific_q = total_charge_kg / influence_volume_m3 if influence_volume_m3 > 0 else 0.0
 
@@ -131,6 +178,7 @@ def _charge_hole(
         influence_volume_m3=influence_volume_m3,
         specific_q_kg_m3=specific_q,
         primers=primers,
+        primer_items=primer_items,
     )
 
 

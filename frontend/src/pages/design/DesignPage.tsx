@@ -358,7 +358,15 @@ export function DesignPage({
     setChargeBusy(true);
     setError("");
     try {
-      const result = await api.design.charge(document.holes, chargeRules, explosive);
+      const catalog = explosives.map((item) => ({
+        name: item.name,
+        density_t_m3: item.density_t_m3,
+        power_mj_kg: item.power_mj_kg,
+      }));
+      const result = await api.design.charge(document.holes, chargeRules, explosive, {
+        contour: document.contour,
+        explosives: catalog,
+      });
       dispatch({ type: "SET_LOADS", loads: result.loads });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось рассчитать заряжание.");
@@ -632,6 +640,7 @@ export function DesignPage({
               rules={chargeRules}
               explosives={explosives}
               explosiveKey={explosiveKey}
+              domains={document.domains}
               onExplosiveKeyChange={setExplosiveKey}
               onChange={(patch) => setChargeRules((prev) => ({ ...prev, ...patch }))}
               onCalculate={calculateCharge}

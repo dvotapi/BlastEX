@@ -45,6 +45,16 @@ class InvalidDesignError(BlastExError):
         super().__init__(message, error_type="invalid_design")
 
 
+class InvalidLifecycleError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_lifecycle")
+
+
+class FrozenDesignError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="frozen_design")
+
+
 class InvalidSurveyError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="invalid_survey")

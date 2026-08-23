@@ -10,7 +10,9 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-DESIGN_VERSION = 8
+from design.lifecycle import LifecycleEvent, STATUS_DRAFT, normalize_status as normalize_lifecycle_status
+
+DESIGN_VERSION = 9
 
 DATA_ROLES = ("designed", "executed", "predicted", "measured")
 ROLE_DESIGNED = "designed"
@@ -1850,6 +1852,11 @@ class BlastDesign:
     as_charged_holes: list[AsChargedHole] = field(default_factory=list)
     as_fired_holes: list[AsFiredHole] = field(default_factory=list)
     blast_result: Any = None
+    lifecycle_status: str = STATUS_DRAFT
+    revision: int = 0
+    parent_design_id: str = ""
+    designed_sha256: str = ""
+    lifecycle_events: list[LifecycleEvent] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         from design.spatial.coordinates import CoordinateSystem
@@ -1859,6 +1866,11 @@ class BlastDesign:
             self.coordinate_system = CoordinateSystem()
         if self.surfaces is None:
             self.surfaces = SurfaceSet()
+        self.lifecycle_status = normalize_lifecycle_status(self.lifecycle_status, STATUS_DRAFT)
+        self.lifecycle_events = [
+            item if isinstance(item, LifecycleEvent) else LifecycleEvent.from_dict(item)
+            for item in self.lifecycle_events
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1885,6 +1897,11 @@ class BlastDesign:
             "as_charged_holes": [item.to_dict() for item in self.as_charged_holes],
             "as_fired_holes": [item.to_dict() for item in self.as_fired_holes],
             "blast_result": self.blast_result.to_dict() if self.blast_result is not None else None,
+            "lifecycle_status": self.lifecycle_status,
+            "revision": int(self.revision),
+            "parent_design_id": self.parent_design_id,
+            "designed_sha256": self.designed_sha256,
+            "lifecycle_events": [item.to_dict() for item in self.lifecycle_events],
         }
 
     @classmethod
@@ -1918,4 +1935,11 @@ class BlastDesign:
             as_charged_holes=[AsChargedHole.from_dict(item) for item in data.get("as_charged_holes", [])],
             as_fired_holes=[AsFiredHole.from_dict(item) for item in data.get("as_fired_holes", [])],
             blast_result=_blast_result_from_dict(data.get("blast_result")),
+            lifecycle_status=str(data.get("lifecycle_status", STATUS_DRAFT) or STATUS_DRAFT),
+            revision=int(data.get("revision", 0) or 0),
+            parent_design_id=str(data.get("parent_design_id", "") or ""),
+            designed_sha256=str(data.get("designed_sha256", "") or ""),
+            lifecycle_events=[
+                LifecycleEvent.from_dict(item) for item in data.get("lifecycle_events", [])
+            ],
         )

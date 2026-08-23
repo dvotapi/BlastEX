@@ -48,7 +48,7 @@ class AsDrilledModelTests(unittest.TestCase):
         payload = design.to_dict()
         self.assertEqual(payload["version"], DESIGN_VERSION)
         self.assertEqual(payload["as_drilled_holes"], [])
-        self.assertEqual(DESIGN_VERSION, 8)
+        self.assertEqual(DESIGN_VERSION, 9)
 
     def test_record_does_not_overwrite_designed_hole(self):
         design = BlastDesign(design_id="ad", holes=[_hole()])

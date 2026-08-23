@@ -12,6 +12,7 @@ import {
   zoomAt,
 } from "../../lib/geometry2d";
 import type { BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3 } from "../../types/design";
+import { networkTies } from "../../types/design";
 
 const HOLE_HIT_RADIUS_PX = 11;
 const VERTEX_HIT_RADIUS_PX = 9;
@@ -19,7 +20,7 @@ const EDGE_HIT_RADIUS_PX = 8;
 const NEIGHBOUR_COUNT = 5;
 const SPACING_TOLERANCE_M = 0.5;
 
-type Mode = "contour" | "holes";
+type Mode = "contour" | "holes" | "tie" | "timing";
 
 type DragState =
   | { kind: "none" }
@@ -46,6 +47,9 @@ export function PlanCanvas({
   isolines,
   timesMs,
   animationMs,
+  pendingTieFromId,
+  onTieHoles,
+  onClearPendingTie,
   domains,
   drawingDomainId,
   onDomainVertexAdd,
@@ -69,6 +73,9 @@ export function PlanCanvas({
   isolines?: Isoline[];
   timesMs?: Record<string, number> | null;
   animationMs?: number | null;
+  pendingTieFromId?: string | null;
+  onTieHoles?: (fromId: string, toId: string) => void;
+  onClearPendingTie?: () => void;
   domains?: BlastDomain[];
   drawingDomainId?: string | null;
   onDomainVertexAdd?: (domainId: string, point: Point3) => void;
@@ -190,12 +197,28 @@ export function PlanCanvas({
       return;
     }
 
-    // mode === "holes"
     const hole = hitHole(screen);
+    if (mode === "tie" && hole && onTieHoles) {
+      if (pendingTieFromId && pendingTieFromId !== hole.id) {
+        onTieHoles(pendingTieFromId, hole.id);
+      } else {
+        onSelectedChange(new Set([hole.id]));
+      }
+      return;
+    }
+
     if (hole) {
       const ids = selected.has(hole.id) && selected.size > 0 ? Array.from(selected) : [hole.id];
       if (!selected.has(hole.id)) onSelectedChange(new Set(ids));
-      setDrag({ kind: "holes", ids, startWorld: worldOf(screen), deltaWorld: { x: 0, y: 0 } });
+      if (mode === "holes") {
+        setDrag({ kind: "holes", ids, startWorld: worldOf(screen), deltaWorld: { x: 0, y: 0 } });
+      }
+      return;
+    }
+
+    if (mode === "tie") {
+      onClearPendingTie?.();
+      if (!e.shiftKey) onSelectedChange(new Set());
       return;
     }
 
@@ -285,15 +308,30 @@ export function PlanCanvas({
         <line x1={0} y1={origin.y} x2={viewport.width} y2={origin.y} className="axis-line" />
         <line x1={origin.x} y1={0} x2={origin.x} y2={viewport.height} className="axis-line" />
 
-        {isolines?.map((iso, i) => (
-          <g key={`iso-${i}`}>
-            {iso.segments.map((seg, j) => {
-              const a = worldToScreen(camera, viewport, { x: seg[0][0], y: seg[0][1] });
-              const b = worldToScreen(camera, viewport, { x: seg[1][0], y: seg[1][1] });
-              return <line key={j} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="isoline-segment" />;
-            })}
-          </g>
-        ))}
+        {isolines?.map((iso, i) => {
+          const passed = animating && iso.time_ms <= animationMs!;
+          const nextIso = isolines[i + 1];
+          const isFront = animating && iso.time_ms <= animationMs! && (nextIso == null || nextIso.time_ms > animationMs!);
+          const cls = isFront ? "isoline-segment front" : passed ? "isoline-segment passed" : "isoline-segment";
+          return (
+            <g key={`iso-${i}`}>
+              {iso.segments.map((seg, j) => {
+                const a = worldToScreen(camera, viewport, { x: seg[0][0], y: seg[0][1] });
+                const b = worldToScreen(camera, viewport, { x: seg[1][0], y: seg[1][1] });
+                return <line key={j} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={cls} />;
+              })}
+              {iso.segments[0] && (
+                <text
+                  x={worldToScreen(camera, viewport, { x: iso.segments[0][0][0], y: iso.segments[0][0][1] }).x}
+                  y={worldToScreen(camera, viewport, { x: iso.segments[0][0][0], y: iso.segments[0][0][1] }).y - 4}
+                  className={`isoline-label${isFront ? " front" : ""}`}
+                >
+                  {ruNumber(iso.time_ms, 0)}
+                </text>
+              )}
+            </g>
+          );
+        })}
 
         {domains?.map((domain) => {
           if (domain.polygon.length < 2) return null;
@@ -342,7 +380,20 @@ export function PlanCanvas({
           return <rect key={`dvertex-${i}`} x={p.x - 4} y={p.y - 4} width={8} height={8} className="domain-vertex" />;
         })}
 
-        {network?.connectors.map((c, i) => {
+        {network?.detonating_cords?.map((cord) => {
+          const pts = cord.hole_ids.map((id) => holesById.get(id)).filter((h): h is Hole => Boolean(h));
+          if (pts.length < 2) return null;
+          const screen = pts.map((h) => worldToScreen(camera, viewport, { x: h.collar.x, y: h.collar.y }));
+          return (
+            <polyline
+              key={cord.id}
+              className="detcord-line"
+              fill="none"
+              points={screen.map((p) => `${p.x},${p.y}`).join(" ")}
+            />
+          );
+        })}
+        {(network ? networkTies(network) : []).map((c, i) => {
           const from = holesById.get(c.from_hole);
           const to = holesById.get(c.to_hole);
           if (!from || !to) return null;
@@ -350,7 +401,7 @@ export function PlanCanvas({
           const b = worldToScreen(camera, viewport, { x: to.collar.x, y: to.collar.y });
           const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
           return (
-            <g key={`conn-${i}`}>
+            <g key={c.id || `conn-${i}`}>
               <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="connector-line" markerEnd="url(#arrow-connector)" />
               {c.delay_ms > 0 && <text x={mid.x} y={mid.y - 2} className="connector-label">{ruNumber(c.delay_ms, 0)}</text>}
             </g>
@@ -370,9 +421,17 @@ export function PlanCanvas({
             const t = timesMs![h.id];
             animClass = t !== undefined && t <= animationMs! ? " fired" : " unfired";
           }
+          const isStarter = Boolean(
+            network?.starter_items?.some((item) => item.hole_id === h.id) || network?.starters?.includes(h.id),
+          );
+          const pending = pendingTieFromId === h.id;
+          const t = timesMs?.[h.id];
           return (
-            <g key={h.id} className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${!h.enabled ? " disabled" : ""}${animClass}`}>
-              <circle cx={p.x} cy={p.y} r={isSelected ? 7 : 5.5} style={fillColor ? { fill: fillColor } : undefined} />
+            <g key={h.id} className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}`}>
+              <circle cx={p.x} cy={p.y} r={isSelected || pending ? 7 : 5.5} style={fillColor ? { fill: fillColor } : undefined} />
+              {mode === "timing" && t !== undefined && (
+                <text x={p.x + 8} y={p.y - 6} className="hole-time-label">{ruNumber(t, 0)}</text>
+              )}
             </g>
           );
         })}
@@ -404,7 +463,13 @@ export function PlanCanvas({
           ? "Клик — вершина геологического региона · пробел + перетаскивание — панорама"
           : mode === "contour"
             ? "Клик по пустому месту — новая точка контура · клик по ребру — открытый откос · пробел + перетаскивание — панорама"
-            : "Двойной клик — новая скважина · перетаскивание — перемещение · рамка — выделение · пробел + перетаскивание — панорама"}
+            : mode === "tie"
+              ? pendingTieFromId
+                ? `Связь от ${pendingTieFromId}: кликните вторую скважину · пустое место — сброс`
+                : "Клик по скважине — начало связи · две скважины создают коннектор · пробел + перетаскивание — панорама"
+              : mode === "timing"
+                ? "Анимация последовательности взрыва и изолинии времени · пробел + перетаскивание — панорама"
+                : "Двойной клик — новая скважина · перетаскивание — перемещение · рамка — выделение · пробел + перетаскивание — панорама"}
       </div>
     </div>
   );

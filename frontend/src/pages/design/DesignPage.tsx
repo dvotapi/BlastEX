@@ -10,6 +10,8 @@ import {
   DEFAULT_TIE_PARAMS,
   MAP_METRIC_LABELS,
   emptyDesign,
+  networkTies,
+  normalizeNetwork,
   type AnalyzeResponse,
   type ChargeRules,
   type CostScenarioId,
@@ -24,6 +26,7 @@ import {
   type Point3,
   type PpvRequest,
   type SchemeType,
+  type SurfaceConnector,
   type SurfaceKind,
   type TieParams,
 } from "../../types/design";
@@ -83,6 +86,7 @@ export function DesignPage({
   const [tieScheme, setTieScheme] = useState<SchemeType>("row");
   const [tieParams, setTieParams] = useState<TieParams>(DEFAULT_TIE_PARAMS);
   const [tieBusy, setTieBusy] = useState(false);
+  const [pendingTieFromId, setPendingTieFromId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
   const [isolineStepMs, setIsolineStepMs] = useState(25);
@@ -375,6 +379,79 @@ export function DesignPage({
     }
   }
 
+  function addManualTie(fromId: string, toId: string) {
+    const network = normalizeNetwork(document.network);
+    const delay = tieParams.interval_ms || 25;
+    const kind = network.system === "detcord" ? "ds_relay" : network.system === "electronic" ? "electronic" : "surface_nsi";
+    const id = `sc-${fromId}-${toId}`;
+    const nextTies = networkTies(network).filter((item) => !(item.from_hole === fromId && item.to_hole === toId));
+    nextTies.push({ id, from_hole: fromId, to_hole: toId, delay_ms: delay, kind, product: "" });
+    const starterItems = network.starter_items.length ? [...network.starter_items] : network.starters.map((holeId) => ({ id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" }));
+    if (!starterItems.some((item) => item.hole_id === fromId) && !nextTies.some((item) => item.to_hole === fromId)) {
+      starterItems.push({ id: `st-${fromId}`, hole_id: fromId, delay_ms: 0, kind: "starter" });
+    }
+    dispatch({
+      type: "SET_NETWORK",
+      network: {
+        ...network,
+        surface_connectors: nextTies,
+        connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
+        starter_items: starterItems,
+        starters: starterItems.map((item) => item.hole_id),
+      },
+    });
+    setPendingTieFromId(null);
+    setAnalysis(null);
+  }
+
+  function updateManualTie(tie: SurfaceConnector, delayMs: number) {
+    const network = normalizeNetwork(document.network);
+    const nextTies = networkTies(network).map((item) => (item.id === tie.id ? { ...item, delay_ms: delayMs } : item));
+    dispatch({
+      type: "SET_NETWORK",
+      network: {
+        ...network,
+        surface_connectors: nextTies,
+        connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
+      },
+    });
+    setAnalysis(null);
+  }
+
+  function removeManualTie(connectorId: string) {
+    const network = normalizeNetwork(document.network);
+    const nextTies = networkTies(network).filter((item) => item.id !== connectorId);
+    dispatch({
+      type: "SET_NETWORK",
+      network: {
+        ...network,
+        surface_connectors: nextTies,
+        connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
+      },
+    });
+    setAnalysis(null);
+  }
+
+  function toggleStartersFromSelection() {
+    if (!selected.size) return;
+    const network = normalizeNetwork(document.network);
+    const current = new Set(
+      (network.starter_items.length ? network.starter_items.map((item) => item.hole_id) : network.starters),
+    );
+    const selectedIds = Array.from(selected);
+    const allSelectedAreStarters = selectedIds.every((id) => current.has(id));
+    for (const id of selectedIds) {
+      if (allSelectedAreStarters) current.delete(id);
+      else current.add(id);
+    }
+    const starterItems = Array.from(current).map((holeId) => ({ id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" }));
+    dispatch({
+      type: "SET_NETWORK",
+      network: { ...network, starter_items: starterItems, starters: starterItems.map((item) => item.hole_id) },
+    });
+    setAnalysis(null);
+  }
+
   async function generateTie() {
     if (!document.holes.length) {
       setError("Сначала постройте сетку скважин.");
@@ -383,11 +460,15 @@ export function DesignPage({
     setTieBusy(true);
     setError("");
     try {
-      const result = await api.design.tie(document.holes, tieScheme, tieParams);
+      const result = await api.design.tie(document.holes, tieScheme, {
+        ...tieParams,
+        selected_hole_ids: Array.from(selected),
+      });
       dispatch({ type: "SET_NETWORK", network: result.network });
       setAnalysis(null);
       setCurrentMs(0);
       setPlaying(false);
+      setPendingTieFromId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось построить схему коммутации.");
     } finally {
@@ -396,7 +477,16 @@ export function DesignPage({
   }
 
   async function runAnalyze() {
-    if (!document.network.starters.length) {
+    const network = normalizeNetwork(document.network);
+    const hasNetwork = Boolean(
+      network.starters.length
+      || network.starter_items.length
+      || network.connectors.length
+      || network.surface_connectors.length
+      || Object.keys(network.electronic_times_ms).length
+      || network.electronic_channels.length,
+    );
+    if (!hasNetwork) {
       setError("Сначала постройте схему коммутации.");
       return;
     }
@@ -411,6 +501,9 @@ export function DesignPage({
       };
       const result = await api.design.analyze(designForAnalysis, isolineStepMs, 8.0, ppv);
       setAnalysis(result);
+      if (result.firing_events) {
+        dispatch({ type: "SET_NETWORK", network: { ...normalizeNetwork(document.network), firing_events: result.firing_events } });
+      }
       if (result.maps) setMaps(result.maps);
       setCurrentMs(0);
       setPlaying(false);
@@ -562,6 +655,7 @@ export function DesignPage({
       setSelectedDomainId(design.domains[0]?.id ?? null);
       setDrawingDomain(false);
       setMaps(null);
+      setPendingTieFromId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -597,6 +691,7 @@ export function DesignPage({
     setSelectedDomainId(null);
     setDrawingDomain(false);
     setMaps(null);
+    setPendingTieFromId(null);
   }
 
   async function exportCsv() {
@@ -650,9 +745,15 @@ export function DesignPage({
             <TiePanel
               scheme={tieScheme}
               params={tieParams}
+              network={document.network}
+              selectedCount={selected.size}
+              pendingFromId={pendingTieFromId}
               onSchemeChange={setTieScheme}
               onParamsChange={(patch) => setTieParams((prev) => ({ ...prev, ...patch }))}
               onGenerate={generateTie}
+              onUpdateTie={updateManualTie}
+              onRemoveTie={removeManualTie}
+              onToggleStarters={toggleStartersFromSelection}
               busy={tieBusy}
             />
           ) : mode === "timing" ? (
@@ -776,9 +877,14 @@ export function DesignPage({
               <PlanCanvas
                 contour={document.contour}
                 holes={document.holes}
-                mode={mode === "contour" ? "contour" : "holes"}
+                mode={mode === "contour" ? "contour" : mode === "tie" ? "tie" : mode === "timing" ? "timing" : "holes"}
                 selected={selected}
-                onSelectedChange={setSelected}
+                onSelectedChange={(ids) => {
+                  setSelected(ids);
+                  if (mode === "tie" && ids.size === 1 && !pendingTieFromId) {
+                    setPendingTieFromId(Array.from(ids)[0]);
+                  }
+                }}
                 onContourVerticesChange={onContourVerticesChange}
                 onToggleFreeFace={onToggleFreeFace}
                 onMoveHoles={onMoveHoles}
@@ -791,6 +897,9 @@ export function DesignPage({
                 isolines={mode === "timing" && showIsolines ? analysis?.isolines : undefined}
                 timesMs={mode === "timing" ? analysis?.times_ms : undefined}
                 animationMs={mode === "timing" && analysis ? currentMs : undefined}
+                pendingTieFromId={mode === "tie" ? pendingTieFromId : null}
+                onTieHoles={addManualTie}
+                onClearPendingTie={() => setPendingTieFromId(null)}
                 domains={document.domains}
                 drawingDomainId={drawingDomain && selectedDomainId && (mode === "contour" || mode === "holes") ? selectedDomainId : null}
                 onDomainVertexAdd={addDomainVertex}

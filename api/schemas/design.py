@@ -210,6 +210,84 @@ class ConnectorSchema(BaseModel):
     kind: str = "surface_nsi"
 
 
+class DetonatorSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    hole_id: str
+    delay_ms: float = 0.0
+    product: str = ""
+    kind: str = "electronic"
+    deck_index: int | None = None
+    primer_index: int | None = None
+    channel_id: str = ""
+
+
+class SurfaceConnectorSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    from_hole: str
+    to_hole: str
+    delay_ms: float = 0.0
+    kind: str = "surface_nsi"
+    product: str = ""
+
+
+class DownholeConnectorSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    hole_id: str
+    delay_ms: float = 0.0
+    kind: str = "downhole_nsi"
+    deck_index: int | None = None
+    primer_index: int | None = None
+    product: str = ""
+
+
+class DetonatingCordSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    hole_ids: list[str] = Field(default_factory=list)
+    velocity_m_s: float = 7000.0
+    relay_delay_ms: float = 0.0
+    product: str = ""
+
+
+class StarterSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    hole_id: str
+    delay_ms: float = 0.0
+    kind: str = "starter"
+
+
+class ElectronicChannelSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    hole_id: str
+    time_ms: float = 0.0
+    deck_index: int | None = None
+    primer_index: int | None = None
+    label: str = ""
+
+
+class FiringEventSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    hole_id: str
+    time_ms: float = 0.0
+    level: str = "hole"
+    deck_index: int | None = None
+    primer_index: int | None = None
+    mass_kg: float = 0.0
+
+
 class InitiationNetworkSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -218,6 +296,17 @@ class InitiationNetworkSchema(BaseModel):
     connectors: list[ConnectorSchema] = Field(default_factory=list)
     downhole_delay_ms: dict[str, float] = Field(default_factory=dict)
     electronic_times_ms: dict[str, float] = Field(default_factory=dict)
+    detonators: list[DetonatorSchema] = Field(default_factory=list)
+    surface_connectors: list[SurfaceConnectorSchema] = Field(default_factory=list)
+    downhole_connectors: list[DownholeConnectorSchema] = Field(default_factory=list)
+    detonating_cords: list[DetonatingCordSchema] = Field(default_factory=list)
+    starter_items: list[StarterSchema] = Field(default_factory=list)
+    electronic_channels: list[ElectronicChannelSchema] = Field(default_factory=list)
+    firing_events: list[FiringEventSchema] = Field(default_factory=list)
+    timing_mode: str = ""
+    timing_expression: str = ""
+    timing_params: dict[str, Any] = Field(default_factory=dict)
+    selected_hole_ids: list[str] = Field(default_factory=list)
 
 
 class CoordinateSystemSchema(BaseModel):
@@ -460,6 +549,7 @@ class AnalyzeResponse(BaseModel):
     isolines: list[IsolineSchema]
     ppv_mm_s: float | None = None
     maps: EngineeringMapsSchema | None = None
+    firing_events: list[FiringEventSchema] = Field(default_factory=list)
 
 
 class DesignCostRequest(BaseModel):

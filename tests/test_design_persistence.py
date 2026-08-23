@@ -119,6 +119,67 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         self.assertEqual(loaded.loads[0].primer_items[0].kind, "booster")
         self.assertAlmostEqual(loaded.loads[0].primer_items[0].mass_kg, 0.4)
 
+    def test_legacy_network_hydrates_v2_objects(self):
+        import json
+        from design.persistence import design_path, ensure_designs_layout
+
+        ensure_designs_layout(TEAM_ID)
+        payload = {
+            "design_id": "legacy-net",
+            "name": "Старая схема",
+            "holes": [],
+            "contour": {"vertices": [], "free_faces": [], "bench": {}, "name": "Блок"},
+            "network": {
+                "system": "nonel",
+                "starters": ["1-01"],
+                "connectors": [{"from_hole": "1-01", "to_hole": "1-02", "delay_ms": 25.0, "kind": "surface_nsi"}],
+                "downhole_delay_ms": {"1-01": 500.0},
+                "electronic_times_ms": {},
+            },
+        }
+        path = design_path(TEAM_ID, "legacy-net")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        loaded = load_design(TEAM_ID, "legacy-net")
+        self.assertEqual(loaded.network.starters, ["1-01"])
+        self.assertEqual(len(loaded.network.starter_items), 1)
+        self.assertEqual(loaded.network.starter_items[0].hole_id, "1-01")
+        self.assertEqual(len(loaded.network.surface_connectors), 1)
+        self.assertEqual(loaded.network.surface_connectors[0].to_hole, "1-02")
+        self.assertEqual(loaded.network.downhole_connectors[0].delay_ms, 500.0)
+
+    def test_initiation_v2_round_trip(self):
+        from design.models import (
+            Detonator,
+            ElectronicChannel,
+            FiringEvent,
+            InitiationNetwork,
+            Starter,
+            SurfaceConnector,
+        )
+
+        design = self._sample_design()
+        design.network = InitiationNetwork(
+            system="electronic",
+            timing_mode="expression",
+            timing_expression="interval * row",
+            starters=["1-01"],
+            starter_items=[Starter(id="st-1", hole_id="1-01")],
+            surface_connectors=[
+                SurfaceConnector(id="sc-1", from_hole="1-01", to_hole="1-02", delay_ms=17.0, kind="electronic")
+            ],
+            detonators=[Detonator(id="det-1", hole_id="1-01", kind="electronic", channel_id="ch-1")],
+            electronic_channels=[ElectronicChannel(id="ch-1", hole_id="1-01", time_ms=0.0)],
+            firing_events=[FiringEvent(id="fire-1", hole_id="1-01", time_ms=0.0, level="hole")],
+        )
+        saved = save_design(TEAM_ID, design)
+        loaded = load_design(TEAM_ID, saved.design_id)
+        self.assertEqual(loaded.version, 5)
+        self.assertEqual(loaded.network.timing_mode, "expression")
+        self.assertEqual(loaded.network.timing_expression, "interval * row")
+        self.assertEqual(loaded.network.detonators[0].channel_id, "ch-1")
+        self.assertEqual(loaded.network.firing_events[0].level, "hole")
+        self.assertEqual(loaded.network.connectors[0].to_hole, "1-02")
+
 
 if __name__ == "__main__":
     unittest.main()

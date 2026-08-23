@@ -1,6 +1,23 @@
 import { ruNumber } from "../../lib/format";
 import type { AnalyzeResponse, PpvRequest } from "../../types/design";
 
+const LEVEL_LABELS: Record<string, string> = {
+  hole: "скважина",
+  deck: "дека",
+  primer: "боевик",
+};
+
+const DIAGNOSTIC_LABELS: Record<string, string> = {
+  unconnected_holes: "Нет связи",
+  hole_disconnected: "Нет связи",
+  duplicate_times: "Одинаковое время",
+  unexpected_firing_order: "Порядок взрыва",
+  high_mic: "Высокий MIC",
+  insufficient_delays: "Малая задержка",
+  relief_direction: "Направление выброса",
+  isolated_network_branches: "Изолированная ветвь",
+};
+
 export function TimingPanel({
   analysis,
   busy,
@@ -32,7 +49,14 @@ export function TimingPanel({
   maxMs: number;
   onScrub: (ms: number) => void;
 }) {
-  const warnings = analysis ? [...analysis.timing_warnings.map((m) => ({ message: m })), ...analysis.validation_warnings] : [];
+  const warnings = analysis
+    ? [...analysis.timing_warnings.map((m) => ({ code: "unconnected_holes", message: m })), ...analysis.validation_warnings]
+    : [];
+  const timingCodes = new Set(Object.keys(DIAGNOSTIC_LABELS));
+  const timingWarnings = warnings.filter((item) => !item.code || timingCodes.has(item.code));
+  const otherWarnings = warnings.filter((item) => item.code && !timingCodes.has(item.code));
+  const events = analysis?.firing_events ?? [];
+  const fired = events.filter((item) => item.time_ms <= currentMs).length;
 
   return (
     <section className="panel">
@@ -83,12 +107,36 @@ export function TimingPanel({
                 value={Math.min(currentMs, maxMs)}
                 onChange={(e) => onScrub(Number(e.target.value))}
               />
-              <span>{ruNumber(currentMs, 0)} мс</span>
+              <span>{ruNumber(currentMs, 0)} / {ruNumber(maxMs, 0)} мс</span>
             </div>
+            <small>Сработало событий: {fired} из {events.length || Object.keys(analysis.times_ms).length}. Изолиния фронта подсвечивается на плане.</small>
 
-            {warnings.length > 0 && (
+            {events.length > 0 && (
+              <div className="firing-table">
+                {events.slice(0, 24).map((event) => (
+                  <div key={event.id} className={`firing-row${event.time_ms <= currentMs ? " fired" : ""}`}>
+                    <span>{event.hole_id}</span>
+                    <small>{LEVEL_LABELS[event.level] ?? event.level}{event.deck_index != null ? ` ${event.deck_index + 1}` : ""}{event.primer_index != null ? ` ${event.primer_index + 1}` : ""}</small>
+                    <b>{ruNumber(event.time_ms, 0)} мс</b>
+                  </div>
+                ))}
+                {events.length > 24 && <small>Показаны первые 24 из {events.length} событий.</small>}
+              </div>
+            )}
+
+            {timingWarnings.length > 0 && (
               <div className="warnings-list">
-                {warnings.map((w, i) => <div key={i} className="warning-item">{w.message}</div>)}
+                {timingWarnings.map((w, i) => (
+                  <div key={`t-${i}`} className="warning-item">
+                    {w.code && DIAGNOSTIC_LABELS[w.code] ? <b>{DIAGNOSTIC_LABELS[w.code]}. </b> : null}
+                    {w.message}
+                  </div>
+                ))}
+              </div>
+            )}
+            {otherWarnings.length > 0 && (
+              <div className="warnings-list">
+                {otherWarnings.map((w, i) => <div key={`o-${i}`} className="warning-item">{w.message}</div>)}
               </div>
             )}
           </>

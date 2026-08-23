@@ -201,8 +201,83 @@ export type Connector = {
   from_hole: string;
   to_hole: string;
   delay_ms: number;
-  kind: "surface_nsi" | "ds_relay" | "electronic";
+  kind: "surface_nsi" | "ds_relay" | "electronic" | "detonating_cord" | string;
 };
+
+export type Detonator = {
+  id: string;
+  hole_id: string;
+  delay_ms: number;
+  product: string;
+  kind: "electronic" | "nonel" | "detonating_cord" | string;
+  deck_index: number | null;
+  primer_index: number | null;
+  channel_id: string;
+};
+
+export type SurfaceConnector = {
+  id: string;
+  from_hole: string;
+  to_hole: string;
+  delay_ms: number;
+  kind: "surface_nsi" | "ds_relay" | "electronic" | "detonating_cord" | string;
+  product: string;
+};
+
+export type DownholeConnector = {
+  id: string;
+  hole_id: string;
+  delay_ms: number;
+  kind: "downhole_nsi" | "electronic" | "detonating_cord" | string;
+  deck_index: number | null;
+  primer_index: number | null;
+  product: string;
+};
+
+export type DetonatingCord = {
+  id: string;
+  hole_ids: string[];
+  velocity_m_s: number;
+  relay_delay_ms: number;
+  product: string;
+};
+
+export type Starter = {
+  id: string;
+  hole_id: string;
+  delay_ms: number;
+  kind: string;
+};
+
+export type ElectronicChannel = {
+  id: string;
+  hole_id: string;
+  time_ms: number;
+  deck_index: number | null;
+  primer_index: number | null;
+  label: string;
+};
+
+export type FiringLevel = "hole" | "deck" | "primer";
+
+export type FiringEvent = {
+  id: string;
+  hole_id: string;
+  time_ms: number;
+  level: FiringLevel | string;
+  deck_index: number | null;
+  primer_index: number | null;
+  mass_kg: number;
+};
+
+export type ElectronicTimingMode =
+  | "row"
+  | "selection"
+  | "direction"
+  | "gradient"
+  | "v_pattern"
+  | "diagonal"
+  | "expression";
 
 export type InitiationNetwork = {
   system: "nonel" | "electronic" | "detcord";
@@ -210,6 +285,17 @@ export type InitiationNetwork = {
   connectors: Connector[];
   downhole_delay_ms: Record<string, number>;
   electronic_times_ms: Record<string, number>;
+  detonators: Detonator[];
+  surface_connectors: SurfaceConnector[];
+  downhole_connectors: DownholeConnector[];
+  detonating_cords: DetonatingCord[];
+  starter_items: Starter[];
+  electronic_channels: ElectronicChannel[];
+  firing_events: FiringEvent[];
+  timing_mode: ElectronicTimingMode | "";
+  timing_expression: string;
+  timing_params: Record<string, unknown>;
+  selected_hole_ids: string[];
 };
 
 export type BlastDesign = {
@@ -389,6 +475,13 @@ export type TieParams = {
   interval_ms: number;
   downhole_delay_ms: number;
   include_contour: boolean;
+  timing_mode: ElectronicTimingMode | "";
+  timing_expression: string;
+  direction_azimuth_deg: number;
+  gradient_from_ms: number;
+  gradient_to_ms: number;
+  base_ms: number;
+  selected_hole_ids: string[];
 };
 
 export type TieGenerateResponse = {
@@ -443,6 +536,7 @@ export type AnalyzeResponse = {
   isolines: Isoline[];
   ppv_mm_s: number | null;
   maps?: EngineeringMaps | null;
+  firing_events?: FiringEvent[];
 };
 
 export type CostScenarioId = "drill_blast" | "drilling" | "blasting" | "contour_blasting";
@@ -511,12 +605,12 @@ export function emptyDesign(): BlastDesign {
   return {
     design_id: "",
     name: "Новый паспорт",
-    version: 4,
+    version: 5,
     updated_at: "",
     contour: emptyContour(),
     holes: [],
     loads: [],
-    network: { system: "nonel", starters: [], connectors: [], downhole_delay_ms: {}, electronic_times_ms: {} },
+    network: emptyNetwork(),
     pattern_params: {},
     charge_rules: {},
     rock_name: "",
@@ -528,12 +622,88 @@ export function emptyDesign(): BlastDesign {
   };
 }
 
+export function emptyNetwork(): InitiationNetwork {
+  return {
+    system: "nonel",
+    starters: [],
+    connectors: [],
+    downhole_delay_ms: {},
+    electronic_times_ms: {},
+    detonators: [],
+    surface_connectors: [],
+    downhole_connectors: [],
+    detonating_cords: [],
+    starter_items: [],
+    electronic_channels: [],
+    firing_events: [],
+    timing_mode: "",
+    timing_expression: "",
+    timing_params: {},
+    selected_hole_ids: [],
+  };
+}
+
+export function normalizeNetwork(raw?: Partial<InitiationNetwork> | null): InitiationNetwork {
+  const base = emptyNetwork();
+  if (!raw) return base;
+  return {
+    ...base,
+    ...raw,
+    starters: raw.starters ?? [],
+    connectors: raw.connectors ?? [],
+    downhole_delay_ms: raw.downhole_delay_ms ?? {},
+    electronic_times_ms: raw.electronic_times_ms ?? {},
+    detonators: raw.detonators ?? [],
+    surface_connectors: raw.surface_connectors ?? [],
+    downhole_connectors: raw.downhole_connectors ?? [],
+    detonating_cords: raw.detonating_cords ?? [],
+    starter_items: raw.starter_items ?? [],
+    electronic_channels: raw.electronic_channels ?? [],
+    firing_events: raw.firing_events ?? [],
+    timing_mode: raw.timing_mode ?? "",
+    timing_expression: raw.timing_expression ?? "",
+    timing_params: raw.timing_params ?? {},
+    selected_hole_ids: raw.selected_hole_ids ?? [],
+  };
+}
+
+export function networkTies(network: InitiationNetwork): SurfaceConnector[] {
+  if (network.surface_connectors && network.surface_connectors.length) {
+    return network.surface_connectors;
+  }
+  return (network.connectors ?? []).map((item) => ({
+    id: `sc-${item.from_hole}-${item.to_hole}`,
+    from_hole: item.from_hole,
+    to_hole: item.to_hole,
+    delay_ms: item.delay_ms,
+    kind: item.kind,
+    product: "",
+  }));
+}
+
 export const DEFAULT_TIE_PARAMS: TieParams = {
   system: "nonel",
   interval_ms: 25,
   downhole_delay_ms: 500,
   include_contour: false,
+  timing_mode: "",
+  timing_expression: "",
+  direction_azimuth_deg: 0,
+  gradient_from_ms: 0,
+  gradient_to_ms: 250,
+  base_ms: 0,
+  selected_hole_ids: [],
 };
+
+export const ELECTRONIC_MODE_OPTIONS: { value: ElectronicTimingMode; label: string; hint: string }[] = [
+  { value: "row", label: "По рядам", hint: "ряд × интервал" },
+  { value: "selection", label: "По выбору", hint: "порядок выделения" },
+  { value: "direction", label: "По направлению", hint: "проекция на азимут" },
+  { value: "gradient", label: "Градиент", hint: "от–до по блоку" },
+  { value: "v_pattern", label: "V-схема", hint: "от центра ряда" },
+  { value: "diagonal", label: "Диагональ", hint: "ряд + колонка" },
+  { value: "expression", label: "Выражение", hint: "row, col, interval" },
+];
 
 export const DEFAULT_PPV_REQUEST: PpvRequest = {
   distance_m: 200,

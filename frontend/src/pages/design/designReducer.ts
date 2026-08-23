@@ -15,7 +15,7 @@ import type {
   SurfaceModel,
   BlastDomain,
 } from "../../types/design";
-import { emptyCoordinateSystem, emptyHoleGeology, emptySurfaces } from "../../types/design";
+import { emptyCoordinateSystem, emptyHoleGeology, emptyNetwork, emptySurfaces, normalizeNetwork } from "../../types/design";
 
 export type DesignAction =
   | { type: "LOAD"; design: BlastDesign }
@@ -86,16 +86,13 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
     })),
     water_table_z_m: design.water_table_z_m ?? null,
     holes: (design.holes ?? []).map(normalizeHole),
+    network: normalizeNetwork(design.network),
   };
-}
-
-function emptyNetwork(): InitiationNetwork {
-  return { system: "nonel", starters: [], connectors: [], downhole_delay_ms: {}, electronic_times_ms: {} };
 }
 
 function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick<BlastDesign, "loads" | "network"> {
   const loads = document.loads.filter((ld) => holeIds.has(ld.hole_id));
-  const network = document.network;
+  const network = normalizeNetwork(document.network);
   return {
     loads,
     network: {
@@ -104,6 +101,17 @@ function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick
       connectors: network.connectors.filter((c) => holeIds.has(c.from_hole) && holeIds.has(c.to_hole)),
       downhole_delay_ms: Object.fromEntries(Object.entries(network.downhole_delay_ms).filter(([id]) => holeIds.has(id))),
       electronic_times_ms: Object.fromEntries(Object.entries(network.electronic_times_ms).filter(([id]) => holeIds.has(id))),
+      detonators: network.detonators.filter((item) => holeIds.has(item.hole_id)),
+      surface_connectors: network.surface_connectors.filter((item) => holeIds.has(item.from_hole) && holeIds.has(item.to_hole)),
+      downhole_connectors: network.downhole_connectors.filter((item) => holeIds.has(item.hole_id)),
+      detonating_cords: network.detonating_cords.map((cord) => ({
+        ...cord,
+        hole_ids: cord.hole_ids.filter((id) => holeIds.has(id)),
+      })).filter((cord) => cord.hole_ids.length >= 2),
+      starter_items: network.starter_items.filter((item) => holeIds.has(item.hole_id)),
+      electronic_channels: network.electronic_channels.filter((item) => holeIds.has(item.hole_id)),
+      firing_events: network.firing_events.filter((item) => holeIds.has(item.hole_id)),
+      selected_hole_ids: network.selected_hole_ids.filter((id) => holeIds.has(id)),
     },
   };
 }
@@ -186,7 +194,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     case "SET_LOADS":
       return { ...document, loads: action.loads };
     case "SET_NETWORK":
-      return { ...document, network: action.network };
+      return { ...document, network: normalizeNetwork(action.network) };
     case "SET_DOMAINS":
       return { ...document, domains: action.domains };
     case "UPSERT_DOMAIN": {

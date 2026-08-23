@@ -170,10 +170,27 @@
 
 .connector-line { stroke:#7a6ee0; stroke-width:1.2; opacity:0.65; marker-end:url(#arrow-connector); }
 .connector-label { fill:#5c4fc4; font-size:8px; }
-.isoline-segment { stroke:#2d9cdb; stroke-width:1; opacity:0.55; }
+.detcord-line { stroke:#c45c1a; stroke-width:2; stroke-dasharray:5 3; opacity:0.7; }
+.isoline-segment { stroke:#2d9cdb; stroke-width:1; opacity:0.35; }
+.isoline-segment.passed { stroke:#3aa3d8; opacity:0.55; }
+.isoline-segment.front { stroke:#e5b94c; stroke-width:2.2; opacity:0.95; }
 .isoline-label { fill:#1c6fa5; font-size:8.5px; }
+.isoline-label.front { fill:#8a6a12; font-weight:700; }
 .hole-marker.unfired circle { opacity:0.25; }
 .hole-marker.fired circle { stroke:#e5b94c; stroke-width:2.5; }
+.hole-marker.starter circle { stroke:#1f6f4a; stroke-width:2; }
+.hole-marker.pending-tie circle { stroke:#7a6ee0; stroke-width:2.4; }
+.hole-time-label { fill:#3b4b43; font-size:8px; font-weight:700; }
+
+.tie-edit-block { display:grid; gap:8px; padding-top:6px; border-top:1px solid #e2eae6; }
+.tie-edit-block b { font-size:12px; }
+.tie-list { display:grid; gap:6px; max-height:180px; overflow:auto; }
+.tie-row { display:grid; grid-template-columns:1fr 70px 28px; gap:6px; align-items:center; font-size:11px; }
+.tie-row input { padding:6px 8px; }
+.ghost-button { border:0; background:#f3f6f4; border-radius:7px; cursor:pointer; font-size:14px; }
+.firing-table { display:grid; gap:4px; max-height:200px; overflow:auto; }
+.firing-row { display:grid; grid-template-columns:1fr auto auto; gap:8px; font-size:11px; padding:4px 6px; border-radius:6px; background:#f6f8f7; }
+.firing-row.fired { background:#eef6e8; }
 
 .scene3d-wrap { position:relative; border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#f3f6f4; }
 .scene3d-canvas { width:100%; height:560px; }

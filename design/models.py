@@ -10,7 +10,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-DESIGN_VERSION = 4
+DESIGN_VERSION = 5
 
 DATA_ROLES = ("designed", "executed", "predicted", "measured")
 WATER_CONDITIONS = ("dry", "moist", "wet", "flowing")
@@ -816,9 +816,37 @@ class HoleLoad:
         )
 
 
+DETONATOR_KINDS = ("electronic", "nonel", "detonating_cord")
+SURFACE_CONNECTOR_KINDS = ("surface_nsi", "ds_relay", "electronic", "detonating_cord")
+DOWNHOLE_CONNECTOR_KINDS = ("downhole_nsi", "electronic", "detonating_cord")
+FIRING_LEVELS = ("hole", "deck", "primer")
+ELECTRONIC_TIMING_MODES = (
+    "row",
+    "selection",
+    "direction",
+    "gradient",
+    "v_pattern",
+    "diagonal",
+    "expression",
+)
+TIMING_LEVELS = FIRING_LEVELS
+
+
+def _opt_int(data: dict[str, Any], key: str) -> int | None:
+    raw = data.get(key)
+    if raw is None or raw == "":
+        return None
+    return int(raw)
+
+
+def _normalize_choice(value: Any, allowed: tuple[str, ...], default: str) -> str:
+    text = str(value or default).strip()
+    return text if text in allowed else default
+
+
 @dataclass
 class Connector:
-    """Связь в схеме инициирования (поверхностная или внутрискважинная)."""
+    """Legacy surface/downhole link. Kept so old passports still load."""
 
     from_hole: str
     to_hole: str
@@ -839,27 +867,382 @@ class Connector:
 
 
 @dataclass
+class Detonator:
+    """In-hole initiator assigned to a hole, deck, or primer."""
+
+    id: str
+    hole_id: str
+    delay_ms: float = 0.0
+    product: str = ""
+    kind: str = "electronic"
+    deck_index: int | None = None
+    primer_index: int | None = None
+    channel_id: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "delay_ms": self.delay_ms,
+            "product": self.product,
+            "kind": _normalize_choice(self.kind, DETONATOR_KINDS, "electronic"),
+            "deck_index": self.deck_index,
+            "primer_index": self.primer_index,
+            "channel_id": self.channel_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Detonator:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", "") or ""),
+            delay_ms=float(data.get("delay_ms", 0.0) or 0.0),
+            product=str(data.get("product", "") or ""),
+            kind=_normalize_choice(data.get("kind"), DETONATOR_KINDS, "electronic"),
+            deck_index=_opt_int(data, "deck_index"),
+            primer_index=_opt_int(data, "primer_index"),
+            channel_id=str(data.get("channel_id", "") or ""),
+        )
+
+
+@dataclass
+class SurfaceConnector:
+    """Editable surface delay between two holes."""
+
+    id: str
+    from_hole: str
+    to_hole: str
+    delay_ms: float = 0.0
+    kind: str = "surface_nsi"
+    product: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "from_hole": self.from_hole,
+            "to_hole": self.to_hole,
+            "delay_ms": self.delay_ms,
+            "kind": _normalize_choice(self.kind, SURFACE_CONNECTOR_KINDS, "surface_nsi"),
+            "product": self.product,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> SurfaceConnector:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            from_hole=str(data.get("from_hole", "") or ""),
+            to_hole=str(data.get("to_hole", "") or ""),
+            delay_ms=float(data.get("delay_ms", 0.0) or 0.0),
+            kind=_normalize_choice(data.get("kind"), SURFACE_CONNECTOR_KINDS, "surface_nsi"),
+            product=str(data.get("product", "") or ""),
+        )
+
+
+@dataclass
+class DownholeConnector:
+    """Downhole delay from surface arrival to a hole, deck, or primer."""
+
+    id: str
+    hole_id: str
+    delay_ms: float = 0.0
+    kind: str = "downhole_nsi"
+    deck_index: int | None = None
+    primer_index: int | None = None
+    product: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "delay_ms": self.delay_ms,
+            "kind": _normalize_choice(self.kind, DOWNHOLE_CONNECTOR_KINDS, "downhole_nsi"),
+            "deck_index": self.deck_index,
+            "primer_index": self.primer_index,
+            "product": self.product,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> DownholeConnector:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", "") or ""),
+            delay_ms=float(data.get("delay_ms", 0.0) or 0.0),
+            kind=_normalize_choice(data.get("kind"), DOWNHOLE_CONNECTOR_KINDS, "downhole_nsi"),
+            deck_index=_opt_int(data, "deck_index"),
+            primer_index=_opt_int(data, "primer_index"),
+            product=str(data.get("product", "") or ""),
+        )
+
+
+@dataclass
+class DetonatingCord:
+    """Detonating-cord run along an ordered list of holes."""
+
+    id: str
+    hole_ids: list[str] = field(default_factory=list)
+    velocity_m_s: float = 7000.0
+    relay_delay_ms: float = 0.0
+    product: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_ids": list(self.hole_ids),
+            "velocity_m_s": self.velocity_m_s,
+            "relay_delay_ms": self.relay_delay_ms,
+            "product": self.product,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> DetonatingCord:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_ids=[str(item) for item in data.get("hole_ids", []) if str(item)],
+            velocity_m_s=float(data.get("velocity_m_s", 7000.0) or 7000.0),
+            relay_delay_ms=float(data.get("relay_delay_ms", 0.0) or 0.0),
+            product=str(data.get("product", "") or ""),
+        )
+
+
+@dataclass
+class Starter:
+    """Network start point: a hole that receives the first signal."""
+
+    id: str
+    hole_id: str
+    delay_ms: float = 0.0
+    kind: str = "starter"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "delay_ms": self.delay_ms,
+            "kind": self.kind or "starter",
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Starter:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", data.get("id", "")) or ""),
+            delay_ms=float(data.get("delay_ms", 0.0) or 0.0),
+            kind=str(data.get("kind", "starter") or "starter"),
+        )
+
+
+@dataclass
+class ElectronicChannel:
+    """Programmed electronic-detonator channel (absolute time)."""
+
+    id: str
+    hole_id: str
+    time_ms: float = 0.0
+    deck_index: int | None = None
+    primer_index: int | None = None
+    label: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "time_ms": self.time_ms,
+            "deck_index": self.deck_index,
+            "primer_index": self.primer_index,
+            "label": self.label,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> ElectronicChannel:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", "") or ""),
+            time_ms=float(data.get("time_ms", 0.0) or 0.0),
+            deck_index=_opt_int(data, "deck_index"),
+            primer_index=_opt_int(data, "primer_index"),
+            label=str(data.get("label", "") or ""),
+        )
+
+
+@dataclass
+class FiringEvent:
+    """Resolved fire of a hole, deck, or primer at an absolute time."""
+
+    id: str
+    hole_id: str
+    time_ms: float
+    level: str = "hole"
+    deck_index: int | None = None
+    primer_index: int | None = None
+    mass_kg: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "time_ms": self.time_ms,
+            "level": _normalize_choice(self.level, FIRING_LEVELS, "hole"),
+            "deck_index": self.deck_index,
+            "primer_index": self.primer_index,
+            "mass_kg": self.mass_kg,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> FiringEvent:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", "") or ""),
+            time_ms=float(data.get("time_ms", 0.0) or 0.0),
+            level=_normalize_choice(data.get("level"), FIRING_LEVELS, "hole"),
+            deck_index=_opt_int(data, "deck_index"),
+            primer_index=_opt_int(data, "primer_index"),
+            mass_kg=float(data.get("mass_kg", 0.0) or 0.0),
+        )
+
+
+def _legacy_surface_id(from_hole: str, to_hole: str) -> str:
+    return f"sc-{from_hole}-{to_hole}"
+
+
+@dataclass
 class InitiationNetwork:
-    """Схема инициирования блока."""
+    """Initiation network 2.0. Legacy fields stay so old designs load."""
 
     system: str = "nonel"  # nonel | electronic | detcord
     starters: list[str] = field(default_factory=list)
     connectors: list[Connector] = field(default_factory=list)
     downhole_delay_ms: dict[str, float] = field(default_factory=dict)
     electronic_times_ms: dict[str, float] = field(default_factory=dict)
+    detonators: list[Detonator] = field(default_factory=list)
+    surface_connectors: list[SurfaceConnector] = field(default_factory=list)
+    downhole_connectors: list[DownholeConnector] = field(default_factory=list)
+    detonating_cords: list[DetonatingCord] = field(default_factory=list)
+    starter_items: list[Starter] = field(default_factory=list)
+    electronic_channels: list[ElectronicChannel] = field(default_factory=list)
+    firing_events: list[FiringEvent] = field(default_factory=list)
+    timing_mode: str = ""
+    timing_expression: str = ""
+    timing_params: dict[str, Any] = field(default_factory=dict)
+    selected_hole_ids: list[str] = field(default_factory=list)
+
+    def hydrate_from_legacy(self) -> None:
+        """Fill 2.0 objects from first-generation fields when they are empty."""
+        if not self.starter_items and self.starters:
+            self.starter_items = [
+                Starter(id=f"st-{hole_id}", hole_id=hole_id) for hole_id in self.starters
+            ]
+        if not self.surface_connectors and self.connectors:
+            self.surface_connectors = [
+                SurfaceConnector(
+                    id=_legacy_surface_id(item.from_hole, item.to_hole) or f"sc-{index}",
+                    from_hole=item.from_hole,
+                    to_hole=item.to_hole,
+                    delay_ms=item.delay_ms,
+                    kind=item.kind if item.kind in SURFACE_CONNECTOR_KINDS else "surface_nsi",
+                )
+                for index, item in enumerate(self.connectors)
+            ]
+        if not self.downhole_connectors and self.downhole_delay_ms:
+            self.downhole_connectors = [
+                DownholeConnector(id=f"dh-{hole_id}", hole_id=hole_id, delay_ms=delay)
+                for hole_id, delay in self.downhole_delay_ms.items()
+            ]
+        if not self.electronic_channels and self.electronic_times_ms:
+            self.electronic_channels = [
+                ElectronicChannel(id=f"ch-{hole_id}", hole_id=hole_id, time_ms=time_ms)
+                for hole_id, time_ms in self.electronic_times_ms.items()
+            ]
+        if not self.detonators:
+            kind = "electronic" if self.system == "electronic" else "nonel"
+            if self.electronic_channels:
+                self.detonators = [
+                    Detonator(
+                        id=f"det-{channel.hole_id}",
+                        hole_id=channel.hole_id,
+                        delay_ms=0.0,
+                        kind="electronic",
+                        deck_index=channel.deck_index,
+                        primer_index=channel.primer_index,
+                        channel_id=channel.id,
+                    )
+                    for channel in self.electronic_channels
+                    if channel.hole_id
+                ]
+            elif self.downhole_connectors:
+                self.detonators = [
+                    Detonator(
+                        id=f"det-{item.hole_id}",
+                        hole_id=item.hole_id,
+                        delay_ms=item.delay_ms,
+                        kind=kind,
+                        deck_index=item.deck_index,
+                        primer_index=item.primer_index,
+                    )
+                    for item in self.downhole_connectors
+                    if item.hole_id
+                ]
+
+    def sync_legacy_from_v2(self) -> None:
+        """Keep first-generation fields in sync so old readers still work."""
+        if self.starter_items:
+            self.starters = [item.hole_id for item in self.starter_items if item.hole_id]
+        if self.surface_connectors:
+            self.connectors = [
+                Connector(
+                    from_hole=item.from_hole,
+                    to_hole=item.to_hole,
+                    delay_ms=item.delay_ms,
+                    kind=item.kind,
+                )
+                for item in self.surface_connectors
+            ]
+        hole_downhole = {
+            item.hole_id: item.delay_ms
+            for item in self.downhole_connectors
+            if item.hole_id and item.deck_index is None and item.primer_index is None
+        }
+        if hole_downhole:
+            self.downhole_delay_ms = hole_downhole
+        hole_channels = {
+            item.hole_id: item.time_ms
+            for item in self.electronic_channels
+            if item.hole_id and item.deck_index is None and item.primer_index is None
+        }
+        if hole_channels:
+            self.electronic_times_ms = hole_channels
 
     def to_dict(self) -> dict[str, Any]:
+        self.sync_legacy_from_v2()
         return {
             "system": self.system,
             "starters": list(self.starters),
             "connectors": [c.to_dict() for c in self.connectors],
             "downhole_delay_ms": dict(self.downhole_delay_ms),
             "electronic_times_ms": dict(self.electronic_times_ms),
+            "detonators": [item.to_dict() for item in self.detonators],
+            "surface_connectors": [item.to_dict() for item in self.surface_connectors],
+            "downhole_connectors": [item.to_dict() for item in self.downhole_connectors],
+            "detonating_cords": [item.to_dict() for item in self.detonating_cords],
+            "starter_items": [item.to_dict() for item in self.starter_items],
+            "electronic_channels": [item.to_dict() for item in self.electronic_channels],
+            "firing_events": [item.to_dict() for item in self.firing_events],
+            "timing_mode": self.timing_mode,
+            "timing_expression": self.timing_expression,
+            "timing_params": dict(self.timing_params),
+            "selected_hole_ids": list(self.selected_hole_ids),
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> InitiationNetwork:
-        return cls(
+    def from_dict(cls, data: dict[str, Any] | None) -> InitiationNetwork:
+        data = data or {}
+        network = cls(
             system=str(data.get("system", "nonel")),
             starters=[str(s) for s in data.get("starters", [])],
             connectors=[Connector.from_dict(c) for c in data.get("connectors", [])],
@@ -869,7 +1252,41 @@ class InitiationNetwork:
             electronic_times_ms={
                 str(k): float(v) for k, v in data.get("electronic_times_ms", {}).items()
             },
+            detonators=[Detonator.from_dict(item) for item in data.get("detonators", [])],
+            surface_connectors=[
+                SurfaceConnector.from_dict(item) for item in data.get("surface_connectors", [])
+            ],
+            downhole_connectors=[
+                DownholeConnector.from_dict(item) for item in data.get("downhole_connectors", [])
+            ],
+            detonating_cords=[
+                DetonatingCord.from_dict(item) for item in data.get("detonating_cords", [])
+            ],
+            starter_items=[Starter.from_dict(item) for item in data.get("starter_items", [])],
+            electronic_channels=[
+                ElectronicChannel.from_dict(item) for item in data.get("electronic_channels", [])
+            ],
+            firing_events=[FiringEvent.from_dict(item) for item in data.get("firing_events", [])],
+            timing_mode=str(data.get("timing_mode", "") or ""),
+            timing_expression=str(data.get("timing_expression", "") or ""),
+            timing_params=dict(data.get("timing_params", {}) or {}),
+            selected_hole_ids=[str(item) for item in data.get("selected_hole_ids", [])],
         )
+        has_v2 = any(
+            [
+                data.get("detonators"),
+                data.get("surface_connectors"),
+                data.get("downhole_connectors"),
+                data.get("detonating_cords"),
+                data.get("starter_items"),
+                data.get("electronic_channels"),
+            ]
+        )
+        if not has_v2:
+            network.hydrate_from_legacy()
+        else:
+            network.sync_legacy_from_v2()
+        return network
 
 
 @dataclass

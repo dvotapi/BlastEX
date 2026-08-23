@@ -52,6 +52,9 @@ import type {
   Receptor,
   VibrationMeasurement,
   VibrationPredictResponse,
+  AsDrilledHole,
+  AsDrilledCompareResponse,
+  MwdSchemaResponse,
 } from "../types/design";
 
 const V1 = "/api/v1";
@@ -248,6 +251,18 @@ export const api = {
       mic_window_ms?: number;
       measured?: VibrationMeasurement[];
     }) => post<VibrationPredictResponse>(`${V1}/design/vibration`, payload),
+    mwdSchema: () => get<MwdSchemaResponse>(`${V1}/design/as-drilled/mwd-schema`),
+    recordAsDrilled: (design: BlastDesign, holes: AsDrilledHole[], replace = false) =>
+      post<AsDrilledCompareResponse & { holes: Hole[] }>(`${V1}/design/as-drilled`, { design, holes, replace }),
+    compareAsDrilled: (design: BlastDesign) =>
+      post<AsDrilledCompareResponse>(`${V1}/design/as-drilled/compare`, { design }),
+    importMwd: (design: BlastDesign, design_hole_id: string, samples: Record<string, number | null>[], source = "") =>
+      post<AsDrilledCompareResponse & { holes: Hole[] }>(`${V1}/design/as-drilled/mwd`, {
+        design,
+        design_hole_id,
+        samples,
+        source,
+      }),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,

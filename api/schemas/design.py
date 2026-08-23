@@ -427,6 +427,75 @@ class VibrationMeasurementSchema(BaseModel):
     notes: str = ""
 
 
+class SurveyPointSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    depth_m: float = Field(0.0, ge=0)
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+
+
+class MwdSampleSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    depth_m: float = Field(0.0, ge=0)
+    penetration_rate: float | None = None
+    rotation_pressure: float | None = None
+    feed_pressure: float | None = None
+    torque: float | None = None
+    air_pressure: float | None = None
+
+
+class AsDrilledHoleSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    design_hole_id: str
+    actual_collar: Point3Schema
+    actual_toe: Point3Schema
+    actual_depth: float = Field(0.0, ge=0)
+    actual_diameter: float = Field(0.0, ge=0)
+    survey_points: list[SurveyPointSchema] = Field(default_factory=list)
+    mwd_samples: list[MwdSampleSchema] = Field(default_factory=list)
+    role: str = "executed"
+    provenance: DataProvenanceSchema = Field(default_factory=DataProvenanceSchema)
+
+
+class HoleDeviationSchema(BaseModel):
+    design_hole_id: str
+    role: str = "executed"
+    collar_offset_m: float
+    toe_offset_m: float
+    depth_deviation_m: float
+    angle_deviation_deg: float
+    azimuth_deviation_deg: float
+    actual_burden_m: float | None = None
+    actual_spacing_m: float | None = None
+    designed_burden_m: float | None = None
+    designed_spacing_m: float | None = None
+    actual_depth_m: float = 0.0
+    designed_depth_m: float = 0.0
+    actual_diameter_mm: float = 0.0
+    designed_diameter_mm: float = 0.0
+
+
+class MwdFieldSchema(BaseModel):
+    id: str
+    aliases: list[str] = Field(default_factory=list)
+    unit: str = ""
+    required: bool = False
+    description: str = ""
+
+
+class MwdSchemaResponse(BaseModel):
+    kind: str = "mwd"
+    role: str = "executed"
+    manufacturer: str | None = None
+    vendor_format: str | None = None
+    note: str = ""
+    fields: list[MwdFieldSchema] = Field(default_factory=list)
+
+
 class BlastDesignSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -449,6 +518,39 @@ class BlastDesignSchema(BaseModel):
     receptors: list[ReceptorSchema] = Field(default_factory=list)
     vibration_models: list[VibrationModelSchema] = Field(default_factory=list)
     vibration_measurements: list[VibrationMeasurementSchema] = Field(default_factory=list)
+    as_drilled_holes: list[AsDrilledHoleSchema] = Field(default_factory=list)
+
+
+class AsDrilledRecordRequest(BaseModel):
+    design: BlastDesignSchema
+    holes: list[AsDrilledHoleSchema] = Field(default_factory=list)
+    replace: bool = False
+
+
+class AsDrilledCompareRequest(BaseModel):
+    design: BlastDesignSchema
+
+
+class AsDrilledCompareResponse(BaseModel):
+    role: str = "executed"
+    compared_count: int = 0
+    designed_count: int = 0
+    as_drilled_count: int = 0
+    pattern_basis: str = "none"
+    deviations: list[HoleDeviationSchema] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    as_drilled_holes: list[AsDrilledHoleSchema] = Field(default_factory=list)
+
+
+class AsDrilledRecordResponse(AsDrilledCompareResponse):
+    holes: list[HoleSchema] = Field(default_factory=list)
+
+
+class MwdImportRequest(BaseModel):
+    design: BlastDesignSchema
+    design_hole_id: str
+    samples: list[dict[str, Any]] = Field(default_factory=list)
+    source: str = ""
 
 
 class PatternGenerateRequest(BaseModel):

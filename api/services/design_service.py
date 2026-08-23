@@ -54,6 +54,12 @@ from api.schemas.design import (
     VibrationConventionsResponse,
     VibrationPredictRequest,
     VibrationPredictResponse,
+    AsDrilledRecordRequest,
+    AsDrilledRecordResponse,
+    AsDrilledCompareRequest,
+    AsDrilledCompareResponse,
+    MwdImportRequest,
+    MwdSchemaResponse,
 )
 from api.services.cost_service import calculate_cost
 from design import persistence as design_persistence
@@ -65,6 +71,7 @@ from design.geometry import block_volume
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.maps import engineering_maps
 from design.models import (
+    AsDrilledHole,
     BlastDesign,
     BlastDomain,
     BlockContour,
@@ -268,6 +275,70 @@ def predict_vibration(request: VibrationPredictRequest) -> VibrationPredictRespo
     except (ValueError, ScaledDistanceMismatchError) as exc:
         raise InvalidDesignError(str(exc)) from exc
     return VibrationPredictResponse(**payload)
+
+
+def list_mwd_schema() -> MwdSchemaResponse:
+    from design.as_drilled import mwd_import_schema
+
+    return MwdSchemaResponse(**mwd_import_schema())
+
+
+def record_as_drilled(request: AsDrilledRecordRequest) -> AsDrilledRecordResponse:
+    from design.as_drilled import compare_design, record_as_drilled_many
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = [hole.to_dict() for hole in design.holes]
+    try:
+        record_as_drilled_many(
+            design,
+            [AsDrilledHole.from_dict(item.model_dump()) for item in request.holes],
+            replace=request.replace,
+        )
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    designed_after = [hole.to_dict() for hole in design.holes]
+    if designed_after != designed_before:
+        raise InvalidDesignError("Запись факта бурения не должна менять проектные скважины.")
+    return AsDrilledRecordResponse(
+        **payload,
+        holes=designed_after,
+    )
+
+
+def compare_as_drilled(request: AsDrilledCompareRequest) -> AsDrilledCompareResponse:
+    from design.as_drilled import compare_design
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = [hole.to_dict() for hole in design.holes]
+    try:
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if [hole.to_dict() for hole in design.holes] != designed_before:
+        raise InvalidDesignError("Сравнение факта с проектом не должно менять проектные скважины.")
+    return AsDrilledCompareResponse(**payload)
+
+
+def import_mwd(request: MwdImportRequest) -> AsDrilledRecordResponse:
+    from design.as_drilled import attach_mwd, compare_design, parse_mwd_samples
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = [hole.to_dict() for hole in design.holes]
+    try:
+        attach_mwd(
+            design,
+            request.design_hole_id,
+            parse_mwd_samples(request.samples),
+            source=request.source,
+        )
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    designed_after = [hole.to_dict() for hole in design.holes]
+    if designed_after != designed_before:
+        raise InvalidDesignError("Импорт MWD не должен менять проектные скважины.")
+    return AsDrilledRecordResponse(**payload, holes=designed_after)
 
 
 def list_fragmentation_models() -> FragmentationModelsResponse:

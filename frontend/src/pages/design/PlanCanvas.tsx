@@ -11,7 +11,7 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, Receptor, VibrationPrediction } from "../../types/design";
+import type { AsDrilledHole, BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, Receptor, VibrationPrediction } from "../../types/design";
 import { RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 
 const HOLE_HIT_RADIUS_PX = 11;
@@ -62,6 +62,8 @@ export function PlanCanvas({
   onAddReceptor,
   onSelectReceptor,
   vibrationPredictions,
+  asDrilled,
+  showAsDrilled,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -94,6 +96,8 @@ export function PlanCanvas({
   onAddReceptor?: (world: Vec2) => void;
   onSelectReceptor?: (id: string) => void;
   vibrationPredictions?: VibrationPrediction[];
+  asDrilled?: AsDrilledHole[];
+  showAsDrilled?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -463,6 +467,30 @@ export function PlanCanvas({
           );
         })}
 
+        {showAsDrilled && (asDrilled ?? []).map((item) => {
+          const designed = holesById.get(item.design_hole_id);
+          const actual = worldToScreen(camera, viewport, { x: item.actual_collar.x, y: item.actual_collar.y });
+          const designedScreen = designed
+            ? worldToScreen(camera, viewport, { x: designed.collar.x, y: designed.collar.y })
+            : null;
+          const selectedExec = selected.has(item.design_hole_id);
+          return (
+            <g key={`ad-${item.design_hole_id}`} className={`as-drilled-marker${selectedExec ? " selected" : ""}`}>
+              {designedScreen && (
+                <line
+                  x1={designedScreen.x}
+                  y1={designedScreen.y}
+                  x2={actual.x}
+                  y2={actual.y}
+                  className="as-drilled-offset"
+                />
+              )}
+              <circle cx={actual.x} cy={actual.y} r={selectedExec ? 6.5 : 5} />
+              <text x={actual.x + 8} y={actual.y + 10} className="as-drilled-label">факт</text>
+            </g>
+          );
+        })}
+
         {holes.map((h) => {
           const p = holeScreenPos(h);
           const isSelected = selected.has(h.id);
@@ -526,7 +554,9 @@ export function PlanCanvas({
                 : "Клик по скважине — начало связи · две скважины создают коннектор · пробел + перетаскивание — панорама"
               : mode === "timing"
                 ? "Анимация последовательности взрыва и изолинии времени · пробел + перетаскивание — панорама"
-                : "Двойной клик — новая скважина · перетаскивание — перемещение · рамка — выделение · пробел + перетаскивание — панорама"}
+                : showAsDrilled
+                  ? "Оранжевое кольцо — факт бурения, линия — смещение устья относительно проекта"
+                  : "Двойной клик — новая скважина · перетаскивание — перемещение · рамка — выделение · пробел + перетаскивание — панорама"}
       </div>
     </div>
   );

@@ -267,4 +267,13 @@
 .exec-deck-row { display:grid; grid-template-columns:1.1fr 0.6fr 0.6fr 0.9fr 0.6fr auto; gap:4px; align-items:center; }
 .exec-deck-row input, .exec-deck-row select { min-width:0; }
 
+.post-blast-table { display:grid; gap:3px; }
+.post-blast-head, .post-blast-row {
+  display:grid; grid-template-columns:1.4fr 0.8fr 0.8fr 0.6fr; gap:6px;
+  font-size:11px; padding:4px 6px; border-radius:6px; text-align:left;
+}
+.post-blast-head { color:#5c6a63; font-weight:600; }
+.post-blast-row { background:#f6f8f7; }
+.post-blast-row.over { background:#fdecea; color:#9e3025; }
+
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

@@ -336,6 +336,7 @@ export type VibrationMeasurement = {
   id: string;
   receptor_id: string;
   ppv_mm_s: number;
+  frequency_hz: number | null;
   role: "measured";
   distance_m: number | null;
   mic_kg: number | null;
@@ -590,6 +591,7 @@ export type BlastDesign = {
   as_drilled_holes: AsDrilledHole[];
   as_charged_holes: AsChargedHole[];
   as_fired_holes: AsFiredHole[];
+  blast_result: BlastResult | null;
 };
 
 export type PatternType = "square" | "rectangular" | "staggered" | "variable" | "domain_dependent";
@@ -910,6 +912,7 @@ export function emptyDesign(): BlastDesign {
     as_drilled_holes: [],
     as_charged_holes: [],
     as_fired_holes: [],
+    blast_result: null,
   };
 }
 
@@ -948,6 +951,7 @@ export function emptyVibrationMeasurement(receptorId: string, existing: Vibratio
     id: `VM-${index}`,
     receptor_id: receptorId,
     ppv_mm_s: 0,
+    frequency_hz: null,
     role: "measured",
     distance_m: null,
     mic_kg: null,
@@ -1046,6 +1050,270 @@ export const AS_FIRED_METRIC_LABELS: Record<string, string> = {
   programmed_time_delta_ms: "Δ программного времени",
   verified_time_delta_ms: "Δ проверенного времени",
   timing_error_ms: "Ошибка таймера",
+};
+
+export type ToeCondition = "clean" | "minor" | "heavy" | "unbroken" | "";
+
+export const TOE_CONDITION_LABELS: Record<string, string> = {
+  clean: "Чистый забой",
+  minor: "Небольшой недобур",
+  heavy: "Сильный недобур",
+  unbroken: "Не взорвано",
+};
+
+export type PredictedVibrationSnapshot = {
+  receptor_id: string;
+  ppv_mm_s: number;
+  frequency_hz: number | null;
+  receptor_name: string;
+  role: "predicted";
+};
+
+export type MeasuredVibration = {
+  role: "measured";
+  ppv_mm_s: number | null;
+  frequency_hz: number | null;
+  receptor_id: string;
+  measurements: VibrationMeasurement[];
+  source: string;
+  method: string;
+  timestamp: string;
+  notes: string;
+};
+
+export type MeasuredMuckpile = {
+  role: "measured";
+  length_m: number | null;
+  width_m: number | null;
+  height_m: number | null;
+  volume_m3: number | null;
+  throw_m: number | null;
+  notes: string;
+};
+
+export type DesignedMuckpile = {
+  role: "designed";
+  length_m: number | null;
+  width_m: number | null;
+  height_m: number | null;
+  volume_m3: number | null;
+  throw_m: number | null;
+  notes: string;
+};
+
+export type MeasuredBackbreak = {
+  role: "measured";
+  max_m: number | null;
+  mean_m: number | null;
+  crest_loss_m: number | null;
+  notes: string;
+};
+
+export type DesignedBackbreak = {
+  role: "designed";
+  max_m: number | null;
+  mean_m: number | null;
+  crest_loss_m: number | null;
+  notes: string;
+};
+
+export type MeasuredToeCondition = {
+  role: "measured";
+  condition: ToeCondition | string;
+  leftover_height_m: number | null;
+  notes: string;
+};
+
+export type FlyrockObservation = {
+  role: "measured";
+  max_range_m: number | null;
+  count: number | null;
+  notes: string;
+};
+
+export type SecondaryBreaking = {
+  role: "measured";
+  volume_m3: number | null;
+  hours: number | null;
+  cost_rub: number | null;
+  method: string;
+  notes: string;
+};
+
+export type ActualCost = {
+  role: "measured";
+  total_amount_rub: number | null;
+  cost_per_m3: number | null;
+  variable_total_rub: number | null;
+  labor_total_rub: number | null;
+  fixed_total_rub: number | null;
+  secondary_breaking_rub: number | null;
+  notes: string;
+};
+
+export type PlannedCost = {
+  role: "designed";
+  total_amount_rub: number | null;
+  cost_per_m3: number | null;
+  variable_total_rub: number | null;
+  labor_total_rub: number | null;
+  fixed_total_rub: number | null;
+  secondary_breaking_rub: number | null;
+  notes: string;
+};
+
+export type ComparisonBasis = {
+  predicted_fragmentation: PredictedFragmentation | null;
+  predicted_vibration: PredictedVibrationSnapshot[];
+  planned_cost: PlannedCost | null;
+  designed_fragmentation: DesignedFragmentationTarget | null;
+  designed_muckpile: DesignedMuckpile | null;
+  designed_backbreak: DesignedBackbreak | null;
+  designed_toe_condition: string;
+};
+
+export type BlastResult = {
+  design_id: string;
+  role: "measured";
+  fragmentation: MeasuredFragmentation | null;
+  vibration: MeasuredVibration | null;
+  muckpile: MeasuredMuckpile | null;
+  backbreak: MeasuredBackbreak | null;
+  toe_condition: MeasuredToeCondition | null;
+  flyrock_observations: FlyrockObservation[];
+  secondary_breaking: SecondaryBreaking | null;
+  cost_actual: ActualCost | null;
+  basis: ComparisonBasis | null;
+  recorded_at: string;
+  provenance: DataProvenance;
+};
+
+export type ComparisonRow = {
+  metric: string;
+  label: string;
+  unit: string;
+  predicted: number | null;
+  measured: number | string | null;
+  designed: number | string | null;
+  actual: number | string | null;
+  predicted_minus_measured: number | null;
+  measured_minus_predicted: number | null;
+  relative_error_pct: number | null;
+  designed_minus_actual: number | null;
+  actual_minus_designed: number | null;
+  receptor_id?: string | null;
+  designed_label?: string | null;
+  actual_label?: string | null;
+  mismatch?: boolean | null;
+};
+
+export type BlastResultCompareResponse = {
+  role: string;
+  comparison: string;
+  has_result: boolean;
+  predicted_vs_measured: ComparisonRow[];
+  designed_vs_actual: ComparisonRow[];
+  planned_vs_actual_cost: ComparisonRow[];
+  warnings: string[];
+  result: BlastResult | null;
+};
+
+export function emptyMeasuredFragmentation(): MeasuredFragmentation {
+  return {
+    role: "measured",
+    x20_mm: null,
+    x50_mm: null,
+    x80_mm: null,
+    oversize_pct: null,
+    curve: [],
+    source: "",
+    method: "",
+  };
+}
+
+export function emptyMeasuredVibration(): MeasuredVibration {
+  return {
+    role: "measured",
+    ppv_mm_s: null,
+    frequency_hz: null,
+    receptor_id: "",
+    measurements: [],
+    source: "",
+    method: "",
+    timestamp: "",
+    notes: "",
+  };
+}
+
+export function emptyMeasuredMuckpile(): MeasuredMuckpile {
+  return { role: "measured", length_m: null, width_m: null, height_m: null, volume_m3: null, throw_m: null, notes: "" };
+}
+
+export function emptyMeasuredBackbreak(): MeasuredBackbreak {
+  return { role: "measured", max_m: null, mean_m: null, crest_loss_m: null, notes: "" };
+}
+
+export function emptyMeasuredToe(): MeasuredToeCondition {
+  return { role: "measured", condition: "clean", leftover_height_m: null, notes: "" };
+}
+
+export function emptyFlyrock(): FlyrockObservation {
+  return { role: "measured", max_range_m: null, count: null, notes: "" };
+}
+
+export function emptySecondaryBreaking(): SecondaryBreaking {
+  return { role: "measured", volume_m3: null, hours: null, cost_rub: null, method: "", notes: "" };
+}
+
+export function emptyActualCost(): ActualCost {
+  return {
+    role: "measured",
+    total_amount_rub: null,
+    cost_per_m3: null,
+    variable_total_rub: null,
+    labor_total_rub: null,
+    fixed_total_rub: null,
+    secondary_breaking_rub: null,
+    notes: "",
+  };
+}
+
+export function emptyBlastResult(designId = ""): BlastResult {
+  return {
+    design_id: designId,
+    role: "measured",
+    fragmentation: emptyMeasuredFragmentation(),
+    vibration: emptyMeasuredVibration(),
+    muckpile: emptyMeasuredMuckpile(),
+    backbreak: emptyMeasuredBackbreak(),
+    toe_condition: emptyMeasuredToe(),
+    flyrock_observations: [emptyFlyrock()],
+    secondary_breaking: emptySecondaryBreaking(),
+    cost_actual: emptyActualCost(),
+    basis: null,
+    recorded_at: "",
+    provenance: emptyProvenance("measured"),
+  };
+}
+
+export const POST_BLAST_METRIC_LABELS: Record<string, string> = {
+  p20_mm: "P20",
+  p50_mm: "P50",
+  p80_mm: "P80",
+  oversize_pct: "Негабарит",
+  ppv_mm_s: "PPV",
+  frequency_hz: "Частота",
+  length_m: "Длина развала",
+  width_m: "Ширина развала",
+  height_m: "Высота развала",
+  volume_m3: "Объём развала",
+  throw_m: "Отброс",
+  max_m: "Вывал, макс.",
+  mean_m: "Вывал, среднее",
+  crest_loss_m: "Потеря бровки",
+  leftover_height_m: "Остаток на почве",
+  total_amount_rub: "Итого",
+  cost_per_m3: "Цена за м³",
 };
 
 export const RECEPTOR_KIND_LABELS: Record<ReceptorKind, string> = {
@@ -1422,6 +1690,8 @@ export type MeasuredFragmentation = {
   curve: DistributionPoint[];
   source: string;
   method: string;
+  timestamp?: string;
+  notes?: string;
 };
 
 export type DesignedFragmentationTarget = {

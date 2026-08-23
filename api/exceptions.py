@@ -159,3 +159,23 @@ class ImmutableLearningError(BlastExError):
 class LearningIsolationError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="learning_isolation")
+
+
+class RegistryNotFoundError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="registry_not_found")
+
+
+class InvalidRegistryError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_registry")
+
+
+class ImmutableRegistryError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="immutable_registry")
+
+
+class RegistryIsolationError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="registry_isolation")

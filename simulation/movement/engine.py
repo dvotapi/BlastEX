@@ -175,17 +175,21 @@ def _site_muckpile(
     mean_throw = sum(item.throw_m for item in holes) / len(holes)
     mean_heave = sum(item.heave_m for item in holes) / len(holes)
     mean_bench = sum(item.inputs.bench_height_m for item in holes) / len(holes)
+    mean_spacing = sum(item.inputs.spacing_m for item in holes) / len(holes)
+    original_pts = [(item.x, item.y) for item in holes]
     predicted_pts = [(item.predicted_x, item.predicted_y) for item in holes]
     face = mean_outward_normal(design.contour)
-    length_m, width_m = along_across_extents(predicted_pts, face)
+    orig_length, orig_width = along_across_extents(original_pts, face)
+    pred_length, pred_width = along_across_extents(predicted_pts, face)
+    length_m = max(orig_length, pred_length) + 0.5 * mean_spacing
+    width_m = max(orig_width + mean_throw, pred_width)
     if length_m <= 0:
         length_m = max((item.inputs.spacing_m for item in holes), default=0.0) * max(1, len({item.inputs.row for item in holes}))
     if width_m <= 0:
         width_m = mean_throw + max((item.inputs.burden_m for item in holes), default=0.0)
     volume = in_situ * mean_swell
+    # Envelope of collars is not the pile footprint — do not inflate height to V/(L·W).
     height = mean_bench + mean_heave
-    if length_m > 0 and width_m > 0:
-        height = max(height, volume / (length_m * width_m))
     centroid_x = sum(item.predicted_x for item in holes) / len(holes)
     centroid_y = sum(item.predicted_y for item in holes) / len(holes)
     provenance = ModelProvenance(

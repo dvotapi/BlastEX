@@ -104,6 +104,9 @@ class MovementEngineTests(unittest.TestCase):
         self.assertGreater(result["muckpile"]["heave_m"], 0.0)
         self.assertGreater(result["muckpile"]["swell_factor"], 1.0)
         self.assertGreater(result["muckpile"]["volume_m3"], result["muckpile"]["in_situ_volume_m3"])
+        bench = result["holes"][0]["inputs"]["bench_height_m"]
+        self.assertLess(result["muckpile"]["height_m"], bench * result["muckpile"]["swell_factor"] + 2.0)
+        self.assertGreater(result["muckpile"]["height_m"], bench)
         self.assertEqual(len(result["holes"]), len([h for h in design.holes if h.enabled]))
         self.assertTrue(all(row["role"] == ROLE_PREDICTED for row in result["holes"]))
         self.assertEqual(list(result["maps"]["metrics"]), list(MOVEMENT_MAP_METRICS))

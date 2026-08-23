@@ -97,3 +97,16 @@ class InvalidOutcomeError(BlastExError):
 class ImmutableOutcomeError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="immutable_outcome")
+
+
+class DesignScenarioNotFoundError(BlastExError):
+    def __init__(self, scenario_id: str) -> None:
+        super().__init__(
+            f"Сценарий проекта «{scenario_id}» не найден.",
+            error_type="design_scenario_not_found",
+        )
+
+
+class InvalidDesignScenarioError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_design_scenario")

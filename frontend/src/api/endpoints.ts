@@ -64,6 +64,11 @@ import type {
   DatasetSnapshot,
   DatasetSummary,
   SampleValidation,
+  CalibrationAlgorithm,
+  CalibrationModel,
+  CalibrationModelType,
+  CalibrationPredictResponse,
+  CalibrationSummary,
   PredictedFragmentation,
   PredictedVibrationSnapshot,
   PlannedCost,
@@ -326,6 +331,26 @@ export const api = {
     getDataset: (datasetId: string) => get<DatasetSnapshot>(`${V1}/datasets/${datasetId}`),
     previewDatasetSample: (site_id: string, design: BlastDesign) =>
       post<SampleValidation>(`${V1}/datasets/preview`, { site_id, design }),
+    listCalibrationModels: () => get<{ items: CalibrationSummary[] }>(`${V1}/calibration/models`),
+    trainCalibration: (payload: {
+      dataset_id: string;
+      model_type: CalibrationModelType | string;
+      algorithm?: string;
+      site_id?: string;
+    }) => post<CalibrationModel>(`${V1}/calibration/models`, payload),
+    getCalibrationModel: (modelId: string) => get<CalibrationModel>(`${V1}/calibration/models/${modelId}`),
+    setCalibrationStatus: (modelId: string, status: string) =>
+      post<CalibrationModel>(`${V1}/calibration/models/${modelId}/status`, { status }),
+    predictCalibration: (payload: {
+      model_type: CalibrationModelType | string;
+      model_id?: string;
+      site_id?: string;
+      use_production?: boolean;
+      baseline?: number | null;
+      features?: Record<string, unknown>;
+      design?: BlastDesign;
+    }) => post<CalibrationPredictResponse>(`${V1}/calibration/predict`, payload),
+    calibrationAlgorithms: () => get<{ items: CalibrationAlgorithm[]; default: string }>(`${V1}/calibration/algorithms`),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,

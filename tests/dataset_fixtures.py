@@ -38,18 +38,22 @@ from simulation.fragmentation.models import (
     PredictedFragmentation,
 )
 
-PROVENANCE_EXECUTED = DataProvenance(
-    source="field",
-    method="logger",
-    timestamp="2024-06-01T08:00:00+00:00",
-    role=ROLE_EXECUTED,
-)
-PROVENANCE_MEASURED = DataProvenance(
-    source="field",
-    method="sieve",
-    timestamp="2024-06-01T16:00:00+00:00",
-    role=ROLE_MEASURED,
-)
+def executed_provenance() -> DataProvenance:
+    return DataProvenance(
+        source="field",
+        method="logger",
+        timestamp="2024-06-01T08:00:00+00:00",
+        role=ROLE_EXECUTED,
+    )
+
+
+def measured_provenance() -> DataProvenance:
+    return DataProvenance(
+        source="field",
+        method="sieve",
+        timestamp="2024-06-01T16:00:00+00:00",
+        role=ROLE_MEASURED,
+    )
 
 
 def closed_design(design_id: str = "blast-closed") -> BlastDesign:
@@ -116,7 +120,7 @@ def closed_design(design_id: str = "blast-closed") -> BlastDesign:
                 actual_toe=Point3(x=2.3, y=2.1, z=-11.2),
                 actual_depth=11.2,
                 actual_diameter=152.0,
-                provenance=PROVENANCE_EXECUTED,
+                provenance=executed_provenance(),
             )
         ],
         as_charged_holes=[
@@ -125,7 +129,7 @@ def closed_design(design_id: str = "blast-closed") -> BlastDesign:
                 charge_mass_kg=78.0,
                 stemming_length_m=2.4,
                 explosive_product="anfo",
-                provenance=PROVENANCE_EXECUTED,
+                provenance=executed_provenance(),
             )
         ],
         as_fired_holes=[
@@ -134,7 +138,7 @@ def closed_design(design_id: str = "blast-closed") -> BlastDesign:
                 detonator=Detonator(id="det-1", hole_id=hole.id, delay_ms=25.0),
                 programmed_time_ms=25.0,
                 verified_time_ms=27.0,
-                provenance=PROVENANCE_EXECUTED,
+                provenance=executed_provenance(),
             )
         ],
         blast_result=BlastResult(
@@ -160,6 +164,6 @@ def closed_design(design_id: str = "blast-closed") -> BlastDesign:
                 planned_cost=PlannedCost(total_amount_rub=1_700_000.0, cost_per_m3=85.0),
             ),
             recorded_at="2024-06-01T16:00:00+00:00",
-            provenance=PROVENANCE_MEASURED,
+            provenance=measured_provenance(),
         ),
     )

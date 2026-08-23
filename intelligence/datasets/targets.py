@@ -149,5 +149,24 @@ def extract_targets(
 
 
 def target_group_has_values(group: dict[str, Any]) -> bool:
-    skip = {"group", "role", "source", "method", "receptor_id", "predicted_role", "designed_role", "planned_role", "secondary_breaking_method", "toe_condition"}
-    return _has_number(*(value for key, value in group.items() if key not in skip and not str(key).endswith("_role")))
+    skip = {
+        "group",
+        "role",
+        "source",
+        "method",
+        "receptor_id",
+        "predicted_role",
+        "designed_role",
+        "planned_role",
+        "secondary_breaking_method",
+        "toe_condition",
+        "measurement_count",
+        "flyrock_count",
+    }
+    return _has_number(
+        *(
+            value
+            for key, value in group.items()
+            if key not in skip and not str(key).endswith("_role") and not str(key).endswith("_count")
+        )
+    )

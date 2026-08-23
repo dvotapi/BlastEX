@@ -6,6 +6,7 @@ BlastDesign / BlastResult objects. Training must read snapshots only.
 from __future__ import annotations
 
 import copy
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -215,8 +216,7 @@ def build_snapshot(
     """Build an immutable snapshot. Incomplete blasts are listed, not included."""
     if not site_id:
         raise ValueError("Для снимка датасета нужен site_id.")
-    if not dataset_id:
-        raise ValueError("Для снимка датасета нужен dataset_id.")
+    dataset_id = str(dataset_id or "").strip() or uuid.uuid4().hex[:12]
     if int(dataset_version) < 1:
         raise ValueError("dataset_version должен быть >= 1.")
 

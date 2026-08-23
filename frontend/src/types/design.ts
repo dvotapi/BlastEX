@@ -1817,3 +1817,114 @@ export type DatasetSummary = {
   rejected_count: number;
   immutable: boolean;
 };
+
+export type CalibrationModelType = "kuzram_residual" | "oversize_residual" | "ppv_residual";
+export type CalibrationStatus = "candidate" | "production" | "retired";
+
+export const CALIBRATION_MODEL_TYPES: Array<{ value: CalibrationModelType; label: string }> = [
+  { value: "kuzram_residual", label: "Kuz-Ram (x50)" },
+  { value: "oversize_residual", label: "Негабарит" },
+  { value: "ppv_residual", label: "PPV" },
+];
+
+export const CALIBRATION_STATUS_LABELS: Record<CalibrationStatus, string> = {
+  candidate: "кандидат",
+  production: "производство",
+  retired: "снята",
+};
+
+export type CalibrationMetrics = {
+  n_samples?: number;
+  mae?: number | null;
+  rmse?: number | null;
+  r2?: number | null;
+  baseline_mae?: number | null;
+  calibrated_mae?: number | null;
+  metrics_split?: string;
+  [key: string]: unknown;
+};
+
+export type CalibrationModel = {
+  model_id: string;
+  site_id: string;
+  model_type: CalibrationModelType | string;
+  model_version: number;
+  training_dataset_id: string;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  metrics: CalibrationMetrics;
+  status: CalibrationStatus | string;
+  algorithm: string;
+  feature_names: string[];
+  target_name: string;
+  baseline_field: string;
+  measured_field: string;
+  sample_count: number;
+  source_blast_ids: string[];
+  artifact_sha256: string;
+  status_updated_at: string;
+};
+
+export type CalibrationSummary = {
+  model_id: string;
+  site_id: string;
+  model_type: CalibrationModelType | string;
+  model_version: number;
+  training_dataset_id: string;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  metrics: CalibrationMetrics;
+  status: CalibrationStatus | string;
+  algorithm: string;
+  sample_count: number;
+};
+
+export type CalibrationProvenance = {
+  site_id: string;
+  model_id: string;
+  model_type: string;
+  model_version: number;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  algorithm: string;
+  status: string;
+  applied_as: string;
+  modifies_design: boolean;
+  baseline_source: string;
+  role: string;
+};
+
+export type CalibrationPredictResponse = {
+  baseline: number;
+  residual: number;
+  calibrated: number;
+  model_id: string;
+  site_id: string;
+  model_type: string;
+  model_version: number;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  algorithm: string;
+  status: string;
+  metrics: CalibrationMetrics;
+  applied_as: string;
+  modifies_design: boolean;
+  calibration_applied: boolean;
+  baseline_source: string;
+  unit: string;
+  warnings: string[];
+  role: string;
+  provenance: CalibrationProvenance;
+};
+
+export type CalibrationAlgorithm = {
+  name: string;
+  label: string;
+  kind: string;
+  available: boolean;
+};
+

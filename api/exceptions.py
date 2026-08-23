@@ -61,3 +61,21 @@ class DatasetNotFoundError(BlastExError):
 class ImmutableDatasetError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="immutable_dataset")
+
+
+class CalibrationNotFoundError(BlastExError):
+    def __init__(self, model_id: str) -> None:
+        super().__init__(
+            f"Модель калибровки «{model_id}» не найдена.",
+            error_type="calibration_not_found",
+        )
+
+
+class InvalidCalibrationError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_calibration")
+
+
+class ImmutableCalibrationError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="immutable_calibration")

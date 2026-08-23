@@ -46,6 +46,11 @@ import {
   type DatasetSnapshot,
   type DatasetSummary,
   type SampleValidation,
+  type CalibrationAlgorithm,
+  type CalibrationModel,
+  type CalibrationModelType,
+  type CalibrationPredictResponse,
+  type CalibrationSummary,
   type SchemeType,
   type SurfaceConnector,
   type SurfaceKind,
@@ -73,6 +78,7 @@ import { AsFiredPanel } from "./AsFiredPanel";
 import { ExecutionComparePanel } from "./ExecutionComparePanel";
 import { PostBlastPanel } from "./PostBlastPanel";
 import { DatasetPanel } from "./DatasetPanel";
+import { CalibrationPanel } from "./CalibrationPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -157,6 +163,13 @@ export function DesignPage({
   const [datasetItems, setDatasetItems] = useState<DatasetSummary[]>([]);
   const [datasetSelected, setDatasetSelected] = useState<DatasetSnapshot | null>(null);
   const [datasetPreview, setDatasetPreview] = useState<SampleValidation | null>(null);
+  const [calibrationBusy, setCalibrationBusy] = useState(false);
+  const [calibrationType, setCalibrationType] = useState<CalibrationModelType>("kuzram_residual");
+  const [calibrationAlgorithm, setCalibrationAlgorithm] = useState("random_forest");
+  const [calibrationAlgorithms, setCalibrationAlgorithms] = useState<CalibrationAlgorithm[]>([]);
+  const [calibrationItems, setCalibrationItems] = useState<CalibrationSummary[]>([]);
+  const [calibrationSelected, setCalibrationSelected] = useState<CalibrationModel | null>(null);
+  const [calibrationOverlay, setCalibrationOverlay] = useState<CalibrationPredictResponse | null>(null);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -186,7 +199,7 @@ export function DesignPage({
     };
   }, [playing, analysis, maxAnimationMs]);
 
-  useEffect(() => { refreshPlans(); refreshDatasets(); }, []);
+  useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); }, []);
 
   useEffect(() => {
     api.explosives()
@@ -1023,6 +1036,107 @@ export function DesignPage({
     }
   }
 
+  async function refreshCalibrations() {
+    try {
+      const [models, algos] = await Promise.all([
+        api.design.listCalibrationModels(),
+        api.design.calibrationAlgorithms(),
+      ]);
+      setCalibrationItems(models.items);
+      setCalibrationAlgorithms(algos.items);
+      if (!algos.items.some((item) => item.name === calibrationAlgorithm && item.available)) {
+        setCalibrationAlgorithm(algos.default || "random_forest");
+      }
+    } catch {
+      setCalibrationItems([]);
+    }
+  }
+
+  async function trainCalibration() {
+    if (!datasetSelected?.dataset_id) {
+      setError("Сначала соберите или откройте снимок датасета.");
+      return;
+    }
+    setCalibrationBusy(true);
+    setError("");
+    try {
+      const trained = await api.design.trainCalibration({
+        dataset_id: datasetSelected.dataset_id,
+        model_type: calibrationType,
+        algorithm: calibrationAlgorithm,
+        site_id: datasetSiteId.trim() || datasetSelected.site_id,
+      });
+      setCalibrationSelected(trained);
+      setCalibrationOverlay(null);
+      await refreshCalibrations();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось обучить модель калибровки.");
+    } finally {
+      setCalibrationBusy(false);
+    }
+  }
+
+  async function openCalibration(modelId: string) {
+    setCalibrationBusy(true);
+    setError("");
+    try {
+      setCalibrationSelected(await api.design.getCalibrationModel(modelId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось открыть модель калибровки.");
+    } finally {
+      setCalibrationBusy(false);
+    }
+  }
+
+  async function markCalibrationProduction() {
+    if (!calibrationSelected) return;
+    setCalibrationBusy(true);
+    setError("");
+    try {
+      const updated = await api.design.setCalibrationStatus(calibrationSelected.model_id, "production");
+      setCalibrationSelected(updated);
+      await refreshCalibrations();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сменить статус модели.");
+    } finally {
+      setCalibrationBusy(false);
+    }
+  }
+
+  function overlayBaseline(): number | null {
+    if (calibrationType === "ppv_residual") {
+      const values = (vibResult?.predictions ?? []).map((item) => item.ppv_mm_s).filter((value) => value != null);
+      return values.length ? Math.max(...values) : null;
+    }
+    const prediction = fragResult?.site.prediction;
+    if (!prediction) return null;
+    if (calibrationType === "oversize_residual") return prediction.oversize_pct;
+    return prediction.x50_mm;
+  }
+
+  async function applyCalibrationOverlay() {
+    if (!calibrationSelected) {
+      setError("Выберите модель калибровки, чтобы показать рекомендацию.");
+      return;
+    }
+    setCalibrationBusy(true);
+    setError("");
+    try {
+      const overlay = await api.design.predictCalibration({
+        model_type: calibrationType,
+        model_id: calibrationSelected.model_id,
+        site_id: datasetSiteId.trim() || calibrationSelected.site_id,
+        baseline: overlayBaseline(),
+        design: designPayload(),
+      });
+      setCalibrationOverlay(overlay);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось применить калибровку.");
+    } finally {
+      setCalibrationBusy(false);
+    }
+  }
+
   function printPassport() {
     if (!document.design_id) return;
     window.open(api.design.passportUrl(document.design_id), "_blank");
@@ -1412,6 +1526,25 @@ export function DesignPage({
             }}
             onBuild={buildDataset}
             onOpen={openDataset}
+          />
+          <CalibrationPanel
+            siteId={datasetSiteId || datasetSelected?.site_id || ""}
+            datasetId={datasetSelected?.dataset_id || ""}
+            datasetLabel={datasetSelected ? (datasetSelected.name || `Снимок v${datasetSelected.dataset_version}`) : ""}
+            modelType={calibrationType}
+            onModelTypeChange={setCalibrationType}
+            algorithm={calibrationAlgorithm}
+            onAlgorithmChange={setCalibrationAlgorithm}
+            algorithms={calibrationAlgorithms}
+            models={calibrationItems}
+            selected={calibrationSelected}
+            overlay={calibrationOverlay}
+            busy={calibrationBusy}
+            onRefresh={refreshCalibrations}
+            onTrain={trainCalibration}
+            onOpen={openCalibration}
+            onMarkProduction={markCalibrationProduction}
+            onApplyOverlay={applyCalibrationOverlay}
           />
         </div>
         <div className="design-main">

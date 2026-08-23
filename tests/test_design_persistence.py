@@ -173,7 +173,7 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         )
         saved = save_design(TEAM_ID, design)
         loaded = load_design(TEAM_ID, saved.design_id)
-        self.assertEqual(loaded.version, 7)
+        self.assertEqual(loaded.version, 8)
         self.assertEqual(loaded.network.timing_mode, "expression")
         self.assertEqual(loaded.network.timing_expression, "interval * row")
         self.assertEqual(loaded.network.detonators[0].channel_id, "ch-1")
@@ -226,6 +226,8 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         self.assertEqual(loaded.vibration_models, [])
         self.assertEqual(loaded.vibration_measurements, [])
         self.assertEqual(loaded.as_drilled_holes, [])
+        self.assertEqual(loaded.as_charged_holes, [])
+        self.assertEqual(loaded.as_fired_holes, [])
 
     def test_as_drilled_round_trip_keeps_designed_holes(self):
         from design.models import AsDrilledHole, Hole
@@ -256,7 +258,78 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         self.assertAlmostEqual(loaded.holes[0].diameter_mm, 152.0)
         self.assertEqual(loaded.as_drilled_holes[0].role, "executed")
         self.assertAlmostEqual(loaded.as_drilled_holes[0].actual_collar.x, 2.4)
-        self.assertAlmostEqual(loaded.as_drilled_holes[0].actual_diameter, 165.0)
+        self.assertEqual(loaded.as_drilled_holes[0].actual_diameter, 165.0)
+
+    def test_as_charged_and_as_fired_round_trip_keeps_designed_load_and_network(self):
+        from design.models import (
+            AsChargedHole,
+            AsFiredHole,
+            Deck,
+            Detonator,
+            Hole,
+            HoleLoad,
+            Primer,
+        )
+
+        design = self._sample_design()
+        designed = Hole(
+            id="1-01",
+            row=1,
+            col=1,
+            collar=Point3(x=2.0, y=3.0, z=0.0),
+            toe=Point3(x=2.0, y=3.0, z=-11.0),
+            diameter_mm=152.0,
+        )
+        design.holes = [designed]
+        design.loads = [
+            HoleLoad(
+                hole_id="1-01",
+                decks=[
+                    Deck(kind="stemming", from_m=0, to_m=3.0),
+                    Deck(kind="bulk_explosive", from_m=3.0, to_m=11.0, mass_kg=80.0, product="ANFO"),
+                ],
+                total_charge_kg=80.0,
+                primer_items=[Primer(position_m=10.5, product="T-500", mass_kg=0.4)],
+            )
+        ]
+        design.network.detonators = [Detonator(id="det-1", hole_id="1-01", product="i-kon", kind="electronic")]
+        design.network.electronic_times_ms = {"1-01": 25.0}
+        design.as_charged_holes = [
+            AsChargedHole(
+                design_hole_id="1-01",
+                decks=[
+                    Deck(kind="stemming", from_m=0, to_m=2.8),
+                    Deck(kind="bulk_explosive", from_m=2.8, to_m=11.1, mass_kg=84.0, product="Emulsion"),
+                ],
+                explosive_product="Emulsion",
+                charge_mass_kg=84.0,
+                stemming_length_m=2.8,
+                primer_items=[Primer(position_m=10.8, product="T-500", mass_kg=0.45)],
+                loading_timestamp="2026-08-23T10:00:00+00:00",
+            )
+        ]
+        design.as_fired_holes = [
+            AsFiredHole(
+                design_hole_id="1-01",
+                detonator=Detonator(id="det-actual", hole_id="1-01", product="DaveyTronic", kind="electronic"),
+                programmed_time_ms=27.0,
+                verified_time_ms=27.4,
+                firing_timestamp="2026-08-23T14:00:00+00:00",
+            )
+        ]
+        saved = save_design(TEAM_ID, design)
+        loaded = load_design(TEAM_ID, saved.design_id)
+        self.assertAlmostEqual(loaded.loads[0].total_charge_kg, 80.0)
+        self.assertEqual(loaded.loads[0].decks[1].product, "ANFO")
+        self.assertEqual(loaded.network.detonators[0].product, "i-kon")
+        self.assertAlmostEqual(loaded.network.electronic_times_ms["1-01"], 25.0)
+        self.assertEqual(loaded.as_charged_holes[0].role, "executed")
+        self.assertAlmostEqual(loaded.as_charged_holes[0].charge_mass_kg, 84.0)
+        self.assertEqual(loaded.as_charged_holes[0].explosive_product, "Emulsion")
+        self.assertEqual(loaded.as_fired_holes[0].role, "executed")
+        self.assertAlmostEqual(loaded.as_fired_holes[0].programmed_time_ms, 27.0)
+        self.assertAlmostEqual(loaded.as_fired_holes[0].verified_time_ms or 0.0, 27.4)
+        self.assertEqual(loaded.as_fired_holes[0].detonator.product, "DaveyTronic")
 
 
 if __name__ == "__main__":

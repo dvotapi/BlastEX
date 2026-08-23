@@ -10,7 +10,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-DESIGN_VERSION = 7
+DESIGN_VERSION = 8
 
 DATA_ROLES = ("designed", "executed", "predicted", "measured")
 ROLE_DESIGNED = "designed"
@@ -986,6 +986,95 @@ class HoleLoad:
         )
 
 
+def stemming_length_m(decks: list[Deck]) -> float:
+    """Total stemming interval length, collar-positive depths."""
+    total = 0.0
+    for deck in decks:
+        if str(deck.kind) == "stemming":
+            total += abs(float(deck.to_m) - float(deck.from_m))
+    return total
+
+
+def explosive_charge_mass_kg(decks: list[Deck]) -> float:
+    return sum(float(deck.mass_kg or 0.0) for deck in decks if is_explosive_deck_kind(deck.kind))
+
+
+def primary_explosive_product(decks: list[Deck], fallback: str = "") -> str:
+    explosive = [deck for deck in decks if is_explosive_deck_kind(deck.kind)]
+    if not explosive:
+        return fallback
+    best = max(explosive, key=lambda deck: (float(deck.mass_kg or 0.0), abs(deck.to_m - deck.from_m)))
+    return str(best.product or best.explosive_key or fallback)
+
+
+def primer_position_m(items: list[Primer], depths: list[float] | None = None) -> float | None:
+    if items:
+        return float(items[0].position_m)
+    if depths:
+        return float(depths[0])
+    return None
+
+
+def charge_column_bounds_m(decks: list[Deck]) -> tuple[float | None, float | None]:
+    explosive = [deck for deck in decks if is_explosive_deck_kind(deck.kind)]
+    if not explosive:
+        return None, None
+    return min(float(deck.from_m) for deck in explosive), max(float(deck.to_m) for deck in explosive)
+
+
+@dataclass
+class AsChargedHole:
+    """Executed charging of one designed hole. Never written back onto HoleLoad."""
+
+    design_hole_id: str
+    decks: list[Deck] = field(default_factory=list)
+    primers: list[float] = field(default_factory=list)
+    primer_items: list[Primer] = field(default_factory=list)
+    explosive_product: str = ""
+    charge_mass_kg: float = 0.0
+    stemming_length_m: float = 0.0
+    loading_timestamp: str = ""
+    role: str = ROLE_EXECUTED
+    provenance: DataProvenance = field(default_factory=lambda: DataProvenance(role=ROLE_EXECUTED))
+
+    def to_dict(self) -> dict[str, Any]:
+        items = list(self.primer_items)
+        if not items and self.primers:
+            items = [Primer(position_m=depth) for depth in self.primers]
+        depths = list(self.primers) if self.primers else [item.position_m for item in items]
+        return {
+            "design_hole_id": self.design_hole_id,
+            "decks": [deck.to_dict() for deck in self.decks],
+            "primers": depths,
+            "primer_items": [item.to_dict() for item in items],
+            "explosive_product": self.explosive_product,
+            "charge_mass_kg": self.charge_mass_kg,
+            "stemming_length_m": self.stemming_length_m,
+            "loading_timestamp": self.loading_timestamp,
+            "role": ROLE_EXECUTED,
+            "provenance": self.provenance.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> AsChargedHole:
+        data = data or {}
+        provenance = DataProvenance.from_dict(data.get("provenance"))
+        provenance.role = ROLE_EXECUTED
+        depths, items = _parse_primers(data)
+        return cls(
+            design_hole_id=str(data.get("design_hole_id", data.get("hole_id", "")) or ""),
+            decks=[Deck.from_dict(deck) for deck in data.get("decks", [])],
+            primers=depths,
+            primer_items=items,
+            explosive_product=str(data.get("explosive_product", data.get("product", "")) or ""),
+            charge_mass_kg=float(data.get("charge_mass_kg", data.get("total_charge_kg", 0.0)) or 0.0),
+            stemming_length_m=float(data.get("stemming_length_m", 0.0) or 0.0),
+            loading_timestamp=str(data.get("loading_timestamp", "") or ""),
+            role=ROLE_EXECUTED,
+            provenance=provenance,
+        )
+
+
 DETONATOR_KINDS = ("electronic", "nonel", "detonating_cord")
 SURFACE_CONNECTOR_KINDS = ("surface_nsi", "ds_relay", "electronic", "detonating_cord")
 DOWNHOLE_CONNECTOR_KINDS = ("downhole_nsi", "electronic", "detonating_cord")
@@ -1073,6 +1162,74 @@ class Detonator:
             deck_index=_opt_int(data, "deck_index"),
             primer_index=_opt_int(data, "primer_index"),
             channel_id=str(data.get("channel_id", "") or ""),
+        )
+
+
+@dataclass
+class AsFiredHole:
+    """Executed firing of one designed hole. Never written back onto the network."""
+
+    design_hole_id: str
+    detonator: Detonator = field(default_factory=lambda: Detonator(id="", hole_id=""))
+    programmed_time_ms: float = 0.0
+    verified_time_ms: float | None = None
+    firing_timestamp: str = ""
+    role: str = ROLE_EXECUTED
+    provenance: DataProvenance = field(default_factory=lambda: DataProvenance(role=ROLE_EXECUTED))
+
+    def to_dict(self) -> dict[str, Any]:
+        detonator = self.detonator
+        if not detonator.hole_id:
+            detonator = Detonator(
+                id=detonator.id,
+                hole_id=self.design_hole_id,
+                delay_ms=detonator.delay_ms,
+                product=detonator.product,
+                kind=detonator.kind,
+                deck_index=detonator.deck_index,
+                primer_index=detonator.primer_index,
+                channel_id=detonator.channel_id,
+            )
+        return {
+            "design_hole_id": self.design_hole_id,
+            "detonator": detonator.to_dict(),
+            "detonator_id": detonator.id,
+            "detonator_product": detonator.product,
+            "detonator_kind": detonator.kind,
+            "programmed_time_ms": self.programmed_time_ms,
+            "verified_time_ms": self.verified_time_ms,
+            "firing_timestamp": self.firing_timestamp,
+            "role": ROLE_EXECUTED,
+            "provenance": self.provenance.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> AsFiredHole:
+        data = data or {}
+        provenance = DataProvenance.from_dict(data.get("provenance"))
+        provenance.role = ROLE_EXECUTED
+        raw_detonator = data.get("detonator")
+        if isinstance(raw_detonator, dict):
+            detonator = Detonator.from_dict(raw_detonator)
+        else:
+            detonator = Detonator(
+                id=str(data.get("detonator_id", "") or ""),
+                hole_id=str(data.get("design_hole_id", data.get("hole_id", "")) or ""),
+                delay_ms=float(data.get("detonator_delay_ms", data.get("delay_ms", 0.0)) or 0.0),
+                product=str(data.get("detonator_product", data.get("product", "")) or ""),
+                kind=str(data.get("detonator_kind", data.get("kind", "electronic")) or "electronic"),
+            )
+        hole_id = str(data.get("design_hole_id", data.get("hole_id", detonator.hole_id)) or "")
+        if not detonator.hole_id:
+            detonator.hole_id = hole_id
+        return cls(
+            design_hole_id=hole_id,
+            detonator=detonator,
+            programmed_time_ms=float(data.get("programmed_time_ms", 0.0) or 0.0),
+            verified_time_ms=_opt_float(data, "verified_time_ms"),
+            firing_timestamp=str(data.get("firing_timestamp", "") or ""),
+            role=ROLE_EXECUTED,
+            provenance=provenance,
         )
 
 
@@ -1678,6 +1835,8 @@ class BlastDesign:
     vibration_models: list[VibrationModel] = field(default_factory=list)
     vibration_measurements: list[VibrationMeasurement] = field(default_factory=list)
     as_drilled_holes: list[AsDrilledHole] = field(default_factory=list)
+    as_charged_holes: list[AsChargedHole] = field(default_factory=list)
+    as_fired_holes: list[AsFiredHole] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         from design.spatial.coordinates import CoordinateSystem
@@ -1710,6 +1869,8 @@ class BlastDesign:
             "vibration_models": [item.to_dict() for item in self.vibration_models],
             "vibration_measurements": [item.to_dict() for item in self.vibration_measurements],
             "as_drilled_holes": [item.to_dict() for item in self.as_drilled_holes],
+            "as_charged_holes": [item.to_dict() for item in self.as_charged_holes],
+            "as_fired_holes": [item.to_dict() for item in self.as_fired_holes],
         }
 
     @classmethod
@@ -1740,4 +1901,6 @@ class BlastDesign:
                 VibrationMeasurement.from_dict(item) for item in data.get("vibration_measurements", [])
             ],
             as_drilled_holes=[AsDrilledHole.from_dict(item) for item in data.get("as_drilled_holes", [])],
+            as_charged_holes=[AsChargedHole.from_dict(item) for item in data.get("as_charged_holes", [])],
+            as_fired_holes=[AsFiredHole.from_dict(item) for item in data.get("as_fired_holes", [])],
         )

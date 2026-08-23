@@ -82,6 +82,8 @@ class VibrationModelTests(unittest.TestCase):
         self.assertEqual(payload["receptors"], [])
         self.assertEqual(payload["vibration_measurements"], [])
         self.assertEqual(payload["as_drilled_holes"], [])
+        self.assertEqual(payload["as_charged_holes"], [])
+        self.assertEqual(payload["as_fired_holes"], [])
 
 
 class ScaledDistanceConventionTests(unittest.TestCase):

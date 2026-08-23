@@ -20,6 +20,16 @@ from intelligence.datasets.validation import SampleValidation, validate_sample
 DATASET_KIND = "training_snapshot"
 
 
+def _extract_snapshot_holes(design: BlastDesign, *, site_id: str) -> list[dict[str, Any]]:
+    """Freeze hole-level rows at snapshot time. Training never rereads the live design."""
+    try:
+        from intelligence.spatial.features import extract_hole_observations, snapshot_hole_payload
+
+        return snapshot_hole_payload(extract_hole_observations(design, site_id=site_id, include_physics=True))
+    except Exception:
+        return []
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -67,6 +77,7 @@ class TrainingSample:
     targets: dict[str, dict[str, Any]]
     provenance: dict[str, Any]
     validation: SampleValidation
+    holes: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -77,6 +88,7 @@ class TrainingSample:
             "targets": _copy(self.targets),
             "provenance": _copy(self.provenance),
             "validation": self.validation.to_dict(),
+            "holes": _copy(self.holes),
         }
 
     @classmethod
@@ -90,6 +102,7 @@ class TrainingSample:
             features=_copy(data.get("features") or {}),
             targets=_copy(data.get("targets") or {}),
             provenance=_copy(data.get("provenance") or {}),
+            holes=_copy(data.get("holes") or []),
             validation=SampleValidation(
                 ok=bool(validation_raw.get("ok", False)),
                 reasons=list(validation_raw.get("reasons") or []),
@@ -105,6 +118,7 @@ def build_sample(design: BlastDesign, *, site_id: str) -> TrainingSample:
     fired_coverage = (features.get("EXECUTION") or {}).get("fired_coverage")
     targets = extract_targets(design.blast_result, fired_coverage=fired_coverage)
     provenance = sample_provenance(design, site_id=site_id)
+    holes = _extract_snapshot_holes(design, site_id=site_id)
     validation = validate_sample(
         design=design,
         features=features,
@@ -120,6 +134,7 @@ def build_sample(design: BlastDesign, *, site_id: str) -> TrainingSample:
         targets=_copy(targets),
         provenance=_copy(provenance),
         validation=validation,
+        holes=_copy(holes),
     )
 
 

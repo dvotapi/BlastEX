@@ -9,6 +9,7 @@ import type {
   HoleLoad,
 } from "../../types/design";
 import { AS_CHARGED_METRIC_LABELS, DECK_KIND_LABELS, emptyAsCharged } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function Metric({ label, value, unit, digits, warn }: { label: string; value: number | null; unit: string; digits: number; warn?: boolean }) {
   return (
@@ -40,6 +41,7 @@ export function AsChargedPanel({
   busy,
   result,
   explosiveKey,
+  locked = false,
 }: {
   holes: Hole[];
   loads: HoleLoad[];
@@ -52,6 +54,7 @@ export function AsChargedPanel({
   busy: boolean;
   result: AsChargedCompareResponse | null;
   explosiveKey: string;
+  locked?: boolean;
 }) {
   const selectedDesigned = holes.find((hole) => hole.id === selectedHoleId) ?? null;
   const selectedLoad = loads.find((load) => load.hole_id === selectedHoleId) ?? null;
@@ -83,7 +86,7 @@ export function AsChargedPanel({
 
   return (
     <section className="panel">
-      <header><b>Факт заряжания</b><span>11</span></header>
+      <header><b>Факт заряжания</b><RoleBadge role="executed" /></header>
       <div className="panel-body">
         <small>
           Проектный заряд не меняется. Здесь — фактический продукт, масса, деки, забойка, боевик и время заряжания.
@@ -172,11 +175,11 @@ export function AsChargedPanel({
             <button type="button" className="ghost-button" onClick={() => patch({ decks: [...current.decks, emptyDeck()] })}>Добавить деку</button>
 
             <div className="plans-actions">
-              <button type="button" className="calculate-button" onClick={recordCurrent} disabled={busy}>
+              <button type="button" className="calculate-button" onClick={recordCurrent} disabled={busy || locked}>
                 {busy ? "Пишем…" : "Записать факт"}
               </button>
               {selectedExecuted && (
-                <button type="button" className="ghost-button" onClick={() => onDelete(selectedDesigned.id)}>Удалить факт</button>
+                <button type="button" className="ghost-button" onClick={() => onDelete(selectedDesigned.id)} disabled={locked}>Удалить факт</button>
               )}
             </div>
           </>

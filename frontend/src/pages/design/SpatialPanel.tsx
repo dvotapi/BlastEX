@@ -1,5 +1,6 @@
 import { ruNumber } from "../../lib/format";
 import type { SpatialModel, SpatialOverlay, SpatialSummary } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function formatValue(value: number | null | undefined, digits: number): string {
   if (value == null || Number.isNaN(value)) return "—";
@@ -37,7 +38,7 @@ export function SpatialPanel({
 
   return (
     <section className="panel">
-      <header><b>Скважинный ML</b><span>24</span></header>
+      <header><b>Скважинный ML</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small>
           Прогноз X50 / негабарита / забоя и остатков по скважине или окрестности.

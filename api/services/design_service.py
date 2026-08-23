@@ -31,6 +31,7 @@ from api.schemas.design import (
     LifecycleStateSchema,
     LifecycleStatusSchema,
     LifecycleTransitionRequest,
+    WorkstationMetaResponse,
     EngineeringMapsRequest,
     EngineeringMapsSchema,
     FragmentationModelsResponse,
@@ -85,6 +86,7 @@ from api.schemas.design import (
 from api.services.cost_service import calculate_cost
 from design import lifecycle as design_lifecycle
 from design import persistence as design_persistence
+from design import workstation as design_workstation
 from design.analysis import charge_per_delay, estimate_ppv, summary as run_summary, timing_isolines, validate as run_validate
 from design.charging import apply_charge_rules
 from design.editing import apply_hole_geometry, insert_manual_hole
@@ -727,6 +729,10 @@ def lifecycle_meta() -> LifecycleMetaResponse:
         data_roles=dict(design_lifecycle.DATA_ROLES),
         auto_transition=False,
     )
+
+
+def workstation_meta() -> WorkstationMetaResponse:
+    return WorkstationMetaResponse(**design_workstation.workstation_meta())
 
 
 def _lifecycle_state(design: BlastDesign) -> LifecycleStateSchema:

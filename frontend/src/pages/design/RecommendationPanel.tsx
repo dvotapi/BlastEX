@@ -9,6 +9,7 @@ import {
   OPTIMIZATION_OBJECTIVE_UNITS,
   RECOMMENDATION_PROFILE_LABELS,
 } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 import { ExplanationBlock } from "./ExplanationBlock";
 import { UncertaintyBlock } from "./UncertaintyBlock";
 
@@ -77,7 +78,7 @@ export function RecommendationPanel({
   const objectives = result?.objectives ?? [];
   return (
     <section className="panel">
-      <header><b>ML-рекомендация</b><span>20</span></header>
+      <header><b>ML-рекомендация</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small>
           Предлагает оверлей по профилю. Паспорт не утверждается и не перезаписывается. Решение принимает инженер.

@@ -13,6 +13,7 @@ import {
   SCALED_DISTANCE_LABELS,
   emptyVibrationMeasurement,
 } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const KINDS = Object.entries(RECEPTOR_KIND_LABELS) as Array<[ReceptorKind, string]>;
 const CONVENTIONS = Object.entries(SCALED_DISTANCE_LABELS) as Array<[ScaledDistanceConvention, string]>;
@@ -75,7 +76,13 @@ export function VibrationPanel({
 
   return (
     <section className="panel">
-      <header><b>Сейсмика</b><span>09</span></header>
+      <header>
+        <b>Сейсмика</b>
+        <span className="role-legend compact">
+          <RoleBadge role="predicted" />
+          <RoleBadge role="measured" />
+        </span>
+      </header>
       <div className="panel-body">
         <small>
           Площадочный закон <b>PPV = K × SDⁿ</b>. Конвенция приведённого расстояния хранится в модели

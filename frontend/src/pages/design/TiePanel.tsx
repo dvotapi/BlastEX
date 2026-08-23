@@ -7,6 +7,7 @@ import {
   type SystemType,
   type TieParams,
 } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const SCHEME_OPTIONS: { value: SchemeType; label: string; hint: string }[] = [
   { value: "row", label: "Порядная", hint: "фронт по рядам" },
@@ -54,7 +55,7 @@ export function TiePanel({
 
   return (
     <section className="panel">
-      <header><b>Коммутация</b><span>04</span></header>
+      <header><b>Коммутация</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
         <label>Система инициирования
           <select value={params.system} onChange={(e) => onParamsChange({ system: e.target.value as SystemType })}>

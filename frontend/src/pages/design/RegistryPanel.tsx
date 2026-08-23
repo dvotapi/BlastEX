@@ -6,6 +6,7 @@ import {
   type RegistryRecord,
   type RegistryStatus,
 } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function statusLabel(status: string): string {
   return REGISTRY_STATUS_LABELS[status as RegistryStatus] ?? status;
@@ -55,7 +56,7 @@ export function RegistryPanel({
 
   return (
     <section className="panel">
-      <header><b>Реестр моделей</b><span>22</span></header>
+      <header><b>Реестр моделей</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small>
           Версии, контрольная сумма и происхождение снимка. Продвижение только вручную:

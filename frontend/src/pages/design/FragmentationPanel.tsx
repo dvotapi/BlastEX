@@ -5,6 +5,7 @@ import {
   type FragmentationPredictResponse,
   type FragmentationRegion,
 } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function curvePath(region: FragmentationRegion): string {
   const curve = region.prediction.curve.filter((point) => point.size_mm > 0);
@@ -56,7 +57,7 @@ export function FragmentationPanel({
 
   return (
     <section className="panel">
-      <header><b>Дробление</b><span>08</span></header>
+      <header><b>Дробление</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <label>Модель
           <select value={model} onChange={(e) => onModelChange(e.target.value as FragmentationModelId)}>

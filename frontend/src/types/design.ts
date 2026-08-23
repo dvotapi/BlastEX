@@ -598,6 +598,33 @@ export type LifecycleMeta = {
   auto_transition: boolean;
 };
 
+export type WorkstationStageInfo = {
+  id: string;
+  label: string;
+  role: string;
+  role_code: string;
+  mutation: string;
+  panels: string[];
+  order: number;
+};
+
+export type WorkstationMeta = {
+  workflow: string[];
+  stages: WorkstationStageInfo[];
+  statuses: LifecycleStatusInfo[];
+  status_labels: Record<string, string>;
+  transitions: Array<{ from_status: string; to_status: string; label: string }>;
+  data_roles: Record<string, string>;
+  role_codes: Record<string, string>;
+  role_labels_ru: Record<string, string>;
+  role_labels_en: Record<string, string>;
+  overlay_roles: Record<string, string | string[]>;
+  display_units: Record<string, string>;
+  mutations: Record<string, string[]>;
+  auto_transition: boolean;
+  silent_unit_conversion: boolean;
+};
+
 export type LifecycleState = {
   design_id: string;
   name: string;

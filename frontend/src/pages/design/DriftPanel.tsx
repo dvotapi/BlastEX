@@ -12,6 +12,7 @@ import {
   type RegistryFamily,
   type RegistryRecord,
 } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function severityLabel(value: string): string {
   return DRIFT_SEVERITY_LABELS[value as DriftSeverity] ?? value;
@@ -68,7 +69,7 @@ export function DriftPanel({
 
   return (
     <section className="panel">
-      <header><b>Мониторинг дрифта</b><span>23</span></header>
+      <header><b>Мониторинг дрифта</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small>
           Сравнение текущего снимка со снимком обучения производственной модели.

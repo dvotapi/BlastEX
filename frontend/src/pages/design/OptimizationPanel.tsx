@@ -1,6 +1,7 @@
 import { ruNumber } from "../../lib/format";
 import type { OptimizationCandidate, OptimizationResult } from "../../types/design";
 import { OPTIMIZATION_OBJECTIVE_LABELS, OPTIMIZATION_OBJECTIVE_UNITS } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 export type OptimizationVariableDraft = {
   name: string;
@@ -65,7 +66,7 @@ export function OptimizationPanel({
     : [];
   return (
     <section className="panel">
-      <header><b>Оптимизация Парето</b><span>19</span></header>
+      <header><b>Оптимизация Парето</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small>
           Детерминированный перебор оверлеев. Утверждённый паспорт не заменяется и не перезаписывается. RL нет.

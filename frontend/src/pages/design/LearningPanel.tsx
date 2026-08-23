@@ -13,6 +13,7 @@ import {
 } from "../../types/design";
 import { UncertaintyBlock } from "./UncertaintyBlock";
 import { ExplanationBlock } from "./ExplanationBlock";
+import { RoleBadge } from "./RoleBadge";
 
 function statusLabel(status: string): string {
   return OUTCOME_STATUS_LABELS[status as LearningStatus] ?? status;
@@ -79,7 +80,7 @@ export function LearningPanel({
 
   return (
     <section className="panel">
-      <header><b>Глобальное и площадочное обучение</b><span>21</span></header>
+      <header><b>Глобальное и площадочное обучение</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small>
           Два уровня: глобальный prior команды и адаптация площадки. Снимки одной команды не попадают в другую.

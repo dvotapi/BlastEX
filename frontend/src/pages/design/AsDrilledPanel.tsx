@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ruNumber } from "../../lib/format";
 import type { AsDrilledCompareResponse, AsDrilledHole, Hole, HoleDeviation, Point3 } from "../../types/design";
 import { AS_DRILLED_METRIC_LABELS, emptyAsDrilled } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function Metric({ label, value, unit, digits, warn }: { label: string; value: number | null; unit: string; digits: number; warn?: boolean }) {
   return (
@@ -30,6 +31,7 @@ export function AsDrilledPanel({
   result,
   showOverlay,
   onToggleOverlay,
+  locked = false,
 }: {
   holes: Hole[];
   asDrilled: AsDrilledHole[];
@@ -43,6 +45,7 @@ export function AsDrilledPanel({
   result: AsDrilledCompareResponse | null;
   showOverlay: boolean;
   onToggleOverlay: () => void;
+  locked?: boolean;
 }) {
   const selectedDesigned = holes.find((hole) => hole.id === selectedHoleId) ?? null;
   const selectedExecuted = asDrilled.find((item) => item.design_hole_id === selectedHoleId) ?? null;
@@ -84,7 +87,7 @@ export function AsDrilledPanel({
 
   return (
     <section className="panel">
-      <header><b>Факт бурения</b><span>10</span></header>
+      <header><b>Факт бурения</b><RoleBadge role="executed" /></header>
       <div className="panel-body">
         <small>
           Проект и факт хранятся отдельно. Запись устья, забоя или MWD не переписывает проектные скважины.
@@ -152,11 +155,11 @@ export function AsDrilledPanel({
               </label>
             </div>
             <div className="plans-actions">
-              <button type="button" className="calculate-button" onClick={recordCurrent} disabled={busy}>
+              <button type="button" className="calculate-button" onClick={recordCurrent} disabled={busy || locked}>
                 {busy ? "Пишем…" : "Записать факт"}
               </button>
               {selectedExecuted && (
-                <button type="button" className="ghost-button" onClick={() => onDelete(selectedDesigned.id)}>Удалить факт</button>
+                <button type="button" className="ghost-button" onClick={() => onDelete(selectedDesigned.id)} disabled={locked}>Удалить факт</button>
               )}
             </div>
           </>
@@ -205,7 +208,7 @@ export function AsDrilledPanel({
             <b>Импорт MWD</b>
             <small>JSON-массив: глубина, скорость проходки, давление вращения, подача, крутящий момент, воздух.</small>
             <textarea className="as-drilled-mwd" rows={4} value={mwdText} onChange={(e) => setMwdText(e.target.value)} />
-            <button type="button" className="secondary-button" onClick={importMwd} disabled={busy}>
+            <button type="button" className="secondary-button" onClick={importMwd} disabled={busy || locked}>
               Привязать MWD к {selectedHoleId}
             </button>
             {selectedExecuted && selectedExecuted.mwd_samples.length > 0 && (

@@ -8,6 +8,7 @@ import type {
   WaterCondition,
 } from "../../types/design";
 import { emptyProvenance, emptyRockProperties } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const DOMAIN_COLORS = ["#c4a574", "#6b8f71", "#7a6ee0", "#d0784a", "#4a90a4", "#b85c7a"];
 
@@ -138,7 +139,7 @@ export function GeologyPanel({
 
   return (
     <section className="panel">
-      <header><b>Геология</b><span>02а</span></header>
+      <header><b>Геология</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
         <small>
           Проектные домены — отдельный слой над поверхностью уступа. Замеренные интервалы скважины

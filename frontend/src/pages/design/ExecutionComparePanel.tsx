@@ -1,5 +1,6 @@
 import { ruNumber } from "../../lib/format";
 import type { ExecutionCompareResponse } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function Metric({ label, value, unit }: { label: string; value: number; unit: string }) {
   return (
@@ -25,7 +26,13 @@ export function ExecutionComparePanel({
   const fired = result?.design_vs_fired;
   return (
     <section className="panel">
-      <header><b>Сравнение исполнения</b><span>13</span></header>
+      <header>
+        <b>Сравнение исполнения</b>
+        <span className="role-legend compact">
+          <RoleBadge role="designed" />
+          <RoleBadge role="executed" />
+        </span>
+      </header>
       <div className="panel-body">
         <small>
           Три независимых отчёта: проект ↔ бурение, проект ↔ заряд, проект ↔ взрыв. Факт никогда не переписывает проект.

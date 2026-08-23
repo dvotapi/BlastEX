@@ -16,6 +16,7 @@ import {
   emptyChargeTemplate,
   exampleChargeTemplates,
 } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const WATER_OPTIONS = [
   { value: "", label: "любая" },
@@ -94,7 +95,7 @@ export function ChargePanel({
 
   return (
     <section className="panel">
-      <header><b>Заряжание</b><span>03</span></header>
+      <header><b>Заряжание</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
         <label>Взрывчатое вещество по умолчанию
           <select value={explosiveKey} onChange={(e) => onExplosiveKeyChange(e.target.value)}>

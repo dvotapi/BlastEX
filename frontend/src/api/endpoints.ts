@@ -37,6 +37,7 @@ import type {
   DesignSummary,
   LifecycleMeta,
   LifecycleState,
+  WorkstationMeta,
   Hole,
   EngineeringMaps,
   PatternGenerateResponse,
@@ -652,6 +653,7 @@ export const api = {
       put<BlastDesign>(`${V1}/design/plans/${designId}`, design),
     deletePlan: (designId: string) => del<void>(`${V1}/design/plans/${designId}`),
     lifecycleMeta: () => get<LifecycleMeta>(`${V1}/design/lifecycle/meta`),
+    workstationMeta: () => get<WorkstationMeta>(`${V1}/design/workstation/meta`),
     getPlanLifecycle: (designId: string) =>
       get<LifecycleState>(`${V1}/design/plans/${designId}/lifecycle`),
     transitionPlan: (designId: string, payload: { to_status: string; confirm: boolean; note?: string }) =>

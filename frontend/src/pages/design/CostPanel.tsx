@@ -1,5 +1,6 @@
 import { ruNumber } from "../../lib/format";
 import type { CostScenarioId, DesignCostResult } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const SCENARIO_OPTIONS: { value: CostScenarioId; label: string }[] = [
   { value: "drill_blast", label: "Буровзрывные работы" },
@@ -23,7 +24,7 @@ export function CostPanel({
 }) {
   return (
     <section className="panel">
-      <header><b>Смета по проекту</b><span>07</span></header>
+      <header><b>Смета по проекту</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
         <label>Вид работ
           <select value={scenarioId} onChange={(e) => onScenarioChange(e.target.value as CostScenarioId)}>

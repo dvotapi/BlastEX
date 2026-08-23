@@ -11,6 +11,7 @@ import {
 } from "../../types/design";
 import { UncertaintyBlock } from "./UncertaintyBlock";
 import { ExplanationBlock } from "./ExplanationBlock";
+import { RoleBadge } from "./RoleBadge";
 
 function statusLabel(status: string): string {
   return CALIBRATION_STATUS_LABELS[status as CalibrationStatus] ?? status;
@@ -61,7 +62,7 @@ export function CalibrationPanel({
 
   return (
     <section className="panel">
-      <header><b>Калибровка площадки</b><span>16</span></header>
+      <header><b>Калибровка площадки</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small>
           Гибрид: инженерный базис (Kuz-Ram / PPV) плюс ML-невязка. Рекомендация не перезаписывает проект.

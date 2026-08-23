@@ -15,6 +15,7 @@ import {
   emptyBlastResult,
   emptyFlyrock,
 } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function Metric({ label, value, unit, digits, warn }: { label: string; value: number | null; unit: string; digits: number; warn?: boolean }) {
   return (
@@ -59,6 +60,7 @@ export function PostBlastPanel({
   onClear,
   busy,
   result,
+  locked = false,
 }: {
   designId: string;
   stored: BlastResult | null;
@@ -88,6 +90,7 @@ export function PostBlastPanel({
   onClear: () => void;
   busy: boolean;
   result: BlastResultCompareResponse | null;
+  locked?: boolean;
 }) {
   const draft = useMemo(() => stored ?? emptyBlastResult(designId), [stored, designId]);
   const [form, setForm] = useState<BlastResult | null>(null);
@@ -163,7 +166,7 @@ export function PostBlastPanel({
 
   return (
     <section className="panel">
-      <header><b>После взрыва</b><span>14</span></header>
+      <header><b>После взрыва</b><RoleBadge role="measured" /></header>
       <div className="panel-body">
         <small>
           Измерения не переписывают прогноз и проект. Сравнение: прогноз ↔ замер, проект ↔ факт, смета ↔ факт.
@@ -293,11 +296,11 @@ export function PostBlastPanel({
         </div>
 
         <div className="plans-actions">
-          <button type="button" className="calculate-button" onClick={recordCurrent} disabled={busy}>
+          <button type="button" className="calculate-button" onClick={recordCurrent} disabled={busy || locked}>
             {busy ? "Пишем…" : "Записать результаты"}
           </button>
           {stored && (
-            <button type="button" className="ghost-button" onClick={onClear}>Очистить</button>
+            <button type="button" className="ghost-button" onClick={onClear} disabled={locked}>Очистить</button>
           )}
         </div>
         <button type="button" className="secondary-button" onClick={onCompare} disabled={busy || !stored}>

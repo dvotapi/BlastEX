@@ -199,3 +199,23 @@ class ImmutableDriftError(BlastExError):
 class DriftIsolationError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="drift_isolation")
+
+
+class SpatialNotFoundError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="spatial_not_found")
+
+
+class InvalidSpatialError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_spatial")
+
+
+class ImmutableSpatialError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="immutable_spatial")
+
+
+class SpatialIsolationError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="spatial_isolation")

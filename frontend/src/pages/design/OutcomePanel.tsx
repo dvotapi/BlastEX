@@ -9,7 +9,9 @@ import {
   type OutcomePredictResponse,
   type OutcomeStatus,
   type OutcomeSummary,
+  type OutcomeTargetPrediction,
 } from "../../types/design";
+import { UncertaintyBlock } from "./UncertaintyBlock";
 
 function statusLabel(status: string): string {
   return OUTCOME_STATUS_LABELS[status as OutcomeStatus] ?? status;
@@ -18,6 +20,33 @@ function statusLabel(status: string): string {
 function formatValue(value: number | null | undefined, digits: number): string {
   if (value == null || Number.isNaN(value)) return "—";
   return ruNumber(value, digits);
+}
+
+function targetDigits(name: string): number {
+  return name === "toe_probability" || name === "max_ppv_mm_s" ? 2 : 1;
+}
+
+function PanelMetric({
+  title,
+  item,
+  unit,
+  digits,
+}: {
+  title: string;
+  item: OutcomeTargetPrediction | null | undefined;
+  unit: string;
+  digits: number;
+}) {
+  return (
+    <div>
+      <span>{title}</span>
+      <strong>{formatValue(item?.value, digits)}</strong>
+      <small>{unit}</small>
+      {item?.uncertainty?.lower != null && item.uncertainty.upper != null && (
+        <small>интервал {formatValue(item.uncertainty.lower, digits)}–{formatValue(item.uncertainty.upper, digits)}</small>
+      )}
+    </div>
+  );
 }
 
 export function OutcomePanel({
@@ -147,47 +176,57 @@ export function OutcomePanel({
               {Object.values(overlay.predictions).map((item) => (
                 <div key={item.target_name}>
                   <span>{item.label || item.target_name}</span>
-                  <strong>{formatValue(item.value, item.target_name === "toe_probability" ? 2 : 1)}</strong>
+                  <strong>{formatValue(item.value, targetDigits(item.target_name))}</strong>
                   <small>{item.unit}</small>
                 </div>
               ))}
             </div>
+            <UncertaintyBlock
+              label={overlay.predictions[overlay.primary_target]?.label || overlay.primary_target || "исхода"}
+              value={overlay.prediction ?? overlay.predicted}
+              unit={overlay.unit}
+              digits={targetDigits(overlay.primary_target)}
+              uncertainty={overlay.uncertainty}
+              confidence={overlay.confidence}
+              confidenceLabelText={overlay.confidence_label}
+              similarityScore={overlay.similarity_score}
+              comparableCount={overlay.comparable_count}
+              applicabilityWarning={overlay.applicability_warning}
+            />
             <small>
               {overlay.class_name || overlay.model_type} v{overlay.model_version} · {statusLabel(overlay.status)}
             </small>
-            {overlay.warnings[0] && <small className="frag-warnings">{overlay.warnings[0]}</small>}
+            {overlay.warnings.filter((item) => item !== overlay.applicability_warning)[0] && (
+              <small className="frag-warnings">
+                {overlay.warnings.filter((item) => item !== overlay.applicability_warning)[0]}
+              </small>
+            )}
           </div>
         )}
         {panel && (
           <div className="outcome-overlay">
             <small>Рекомендуемые исходы · ML не утверждает паспорт</small>
             <div className="metrics-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-              <div>
-                <span>X50</span>
-                <strong>{formatValue(panel.x50_mm?.value, 1)}</strong>
-                <small>мм</small>
-              </div>
-              <div>
-                <span>X80</span>
-                <strong>{formatValue(panel.x80_mm?.value, 1)}</strong>
-                <small>мм</small>
-              </div>
-              <div>
-                <span>Негабарит</span>
-                <strong>{formatValue(panel.oversize_pct?.value, 1)}</strong>
-                <small>%</small>
-              </div>
-              <div>
-                <span>PPV</span>
-                <strong>{formatValue(panel.ppv?.value, 2)}</strong>
-                <small>мм/с</small>
-              </div>
-              <div>
-                <span>Риск забоя</span>
-                <strong>{formatValue(panel.toe_risk?.value, 2)}</strong>
-                <small>0–1</small>
-              </div>
+              <PanelMetric title="X50" item={panel.x50_mm} unit="мм" digits={1} />
+              <PanelMetric title="X80" item={panel.x80_mm} unit="мм" digits={1} />
+              <PanelMetric title="Негабарит" item={panel.oversize_pct} unit="%" digits={1} />
+              <PanelMetric title="PPV" item={panel.ppv} unit="мм/с" digits={2} />
+              <PanelMetric title="Риск забоя" item={panel.toe_risk} unit="0–1" digits={2} />
             </div>
+            {panel.x50_mm?.prediction_applied && (
+              <UncertaintyBlock
+                label="X50"
+                value={panel.x50_mm.value}
+                unit="мм"
+                digits={1}
+                uncertainty={panel.x50_mm.uncertainty}
+                confidence={panel.x50_mm.confidence}
+                confidenceLabelText={panel.x50_mm.confidence_label}
+                similarityScore={panel.x50_mm.similarity_score}
+                comparableCount={panel.x50_mm.comparable_count}
+                applicabilityWarning={panel.applicability_warning || panel.x50_mm.applicability_warning}
+              />
+            )}
             <small>
               {panel.models.fragmentation?.prediction_applied
                 ? `FragmentationModel v${panel.models.fragmentation.model_version}`
@@ -205,7 +244,11 @@ export function OutcomePanel({
                 ? `ToeRiskModel v${panel.models.toe_risk.model_version}`
                 : "нет модели забоя"}
             </small>
-            {panel.warnings[0] && <small className="frag-warnings">{panel.warnings[0]}</small>}
+            {panel.warnings.filter((item) => item !== panel.applicability_warning)[0] && (
+              <small className="frag-warnings">
+                {panel.warnings.filter((item) => item !== panel.applicability_warning)[0]}
+              </small>
+            )}
           </div>
         )}
       </div>

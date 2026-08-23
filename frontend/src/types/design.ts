@@ -1897,10 +1897,40 @@ export type CalibrationProvenance = {
   role: string;
 };
 
+export type UncertaintyInterval = {
+  std: number | null;
+  lower: number | null;
+  upper: number | null;
+  method: string;
+};
+
+export type UncertaintyFields = {
+  prediction?: number | null;
+  uncertainty: UncertaintyInterval;
+  confidence: string;
+  confidence_label?: string;
+  similarity_score: number;
+  applicability_warning: string;
+  comparable_count: number;
+  in_domain: boolean;
+  sample_count?: number;
+  extrapolated_features?: string[];
+};
+
 export type CalibrationPredictResponse = {
   baseline: number;
   residual: number;
   calibrated: number;
+  prediction?: number | null;
+  uncertainty: UncertaintyInterval;
+  confidence: string;
+  confidence_label?: string;
+  similarity_score: number;
+  applicability_warning: string;
+  comparable_count: number;
+  in_domain: boolean;
+  sample_count?: number;
+  extrapolated_features?: string[];
   model_id: string;
   site_id: string;
   model_type: string;
@@ -1943,10 +1973,20 @@ export const OUTCOME_STATUS_LABELS = CALIBRATION_STATUS_LABELS;
 export type OutcomeTargetPrediction = {
   target_name: string;
   value: number | null;
+  prediction?: number | null;
   unit: string;
   label: string;
   model_type: string;
   prediction_applied: boolean;
+  uncertainty?: UncertaintyInterval;
+  confidence?: string;
+  confidence_label?: string;
+  similarity_score?: number;
+  applicability_warning?: string;
+  comparable_count?: number;
+  in_domain?: boolean;
+  sample_count?: number;
+  extrapolated_features?: string[];
 };
 
 export type OutcomeModel = {
@@ -2008,7 +2048,17 @@ export type OutcomeProvenance = {
 
 export type OutcomePredictResponse = {
   predicted: number | null;
+  prediction?: number | null;
   predictions: Record<string, OutcomeTargetPrediction>;
+  uncertainty: UncertaintyInterval;
+  confidence: string;
+  confidence_label?: string;
+  similarity_score: number;
+  applicability_warning: string;
+  comparable_count: number;
+  in_domain: boolean;
+  sample_count?: number;
+  extrapolated_features?: string[];
   model_id: string;
   site_id: string;
   model_type: string;
@@ -2042,5 +2092,6 @@ export type OutcomePanelResponse = {
   toe_risk: OutcomeTargetPrediction | null;
   models: Partial<Record<OutcomeModelType, OutcomePredictResponse>>;
   warnings: string[];
+  applicability_warning?: string;
 };
 

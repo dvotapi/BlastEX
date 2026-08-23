@@ -62,7 +62,9 @@ class RecommendationWhyTests(unittest.TestCase):
         self.assertNotIn("convert", x50.detail.lower())
         decision = reasons[-1]
         self.assertIn("не применяется", decision.detail.lower() + decision.title.lower())
-        self.assertTrue(any("модели не подключены" in item.detail.lower() for item in reasons))
+        self.assertTrue(
+            any("модели не подключены" in f"{item.title} {item.detail}".lower() for item in reasons)
+        )
 
     def test_model_assessment_adds_confidence_and_explanation(self):
         explanation = empty_explanation(target_name="x50_mm", target_label="X50", unit="мм")

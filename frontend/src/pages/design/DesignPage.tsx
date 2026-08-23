@@ -69,6 +69,8 @@ import {
   type LearningModel,
   type LearningPredictResponse,
   type LearningSummary,
+  type RegistryFamily,
+  type RegistryRecord,
 } from "../../types/design";
 import { emptyHoleGeology } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
@@ -98,6 +100,7 @@ import { ScenarioPanel } from "./ScenarioPanel";
 import { OptimizationPanel, type OptimizationVariableDraft } from "./OptimizationPanel";
 import { RecommendationPanel } from "./RecommendationPanel";
 import { LearningPanel } from "./LearningPanel";
+import { RegistryPanel } from "./RegistryPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -235,6 +238,10 @@ export function DesignPage({
   const [learningItems, setLearningItems] = useState<LearningSummary[]>([]);
   const [learningSelected, setLearningSelected] = useState<LearningModel | null>(null);
   const [learningOverlay, setLearningOverlay] = useState<LearningPredictResponse | null>(null);
+  const [registryBusy, setRegistryBusy] = useState(false);
+  const [registryFamily, setRegistryFamily] = useState<RegistryFamily | "">("");
+  const [registryItems, setRegistryItems] = useState<RegistryRecord[]>([]);
+  const [registrySelected, setRegistrySelected] = useState<RegistryRecord | null>(null);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -265,6 +272,7 @@ export function DesignPage({
   }, [playing, analysis, maxAnimationMs]);
 
   useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); refreshLearning(); }, []);
+  useEffect(() => { refreshRegistry(); }, [registryFamily]);
 
   useEffect(() => {
     api.explosives()
@@ -1134,6 +1142,7 @@ export function DesignPage({
       setCalibrationSelected(trained);
       setCalibrationOverlay(null);
       await refreshCalibrations();
+      await refreshRegistry();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось обучить модель калибровки.");
     } finally {
@@ -1161,6 +1170,7 @@ export function DesignPage({
       const updated = await api.design.setCalibrationStatus(calibrationSelected.model_id, "production");
       setCalibrationSelected(updated);
       await refreshCalibrations();
+      await refreshRegistry();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сменить статус модели.");
     } finally {
@@ -1235,6 +1245,7 @@ export function DesignPage({
       setOutcomeSelected(trained);
       setOutcomeOverlay(null);
       await refreshOutcomes();
+      await refreshRegistry();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось обучить модель исхода.");
     } finally {
@@ -1262,6 +1273,7 @@ export function DesignPage({
       const updated = await api.design.setOutcomeStatus(outcomeSelected.model_id, "production");
       setOutcomeSelected(updated);
       await refreshOutcomes();
+      await refreshRegistry();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сменить статус модели.");
     } finally {
@@ -1359,6 +1371,7 @@ export function DesignPage({
       setLearningSelected(trained);
       setLearningOverlay(null);
       await refreshLearning();
+      await refreshRegistry();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось обучить глобальный prior.");
     } finally {
@@ -1393,6 +1406,7 @@ export function DesignPage({
       setLearningSelected(trained);
       setLearningOverlay(null);
       await refreshLearning();
+      await refreshRegistry();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось адаптировать модель площадки.");
     } finally {
@@ -1420,6 +1434,7 @@ export function DesignPage({
       const updated = await api.design.setLearningStatus(learningSelected.model_id, "production");
       setLearningSelected(updated);
       await refreshLearning();
+      await refreshRegistry();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сменить статус модели.");
     } finally {
@@ -1447,6 +1462,53 @@ export function DesignPage({
       setError(reason instanceof Error ? reason.message : "Не удалось получить прогноз обучения.");
     } finally {
       setLearningBusy(false);
+    }
+  }
+
+  async function refreshRegistry() {
+    try {
+      const listed = await api.design.listRegistryModels(
+        registryFamily ? { family: registryFamily } : undefined,
+      );
+      setRegistryItems(listed.items);
+      if (registrySelected) {
+        const fresh = listed.items.find(
+          (item) => item.family === registrySelected.family && item.model_id === registrySelected.model_id,
+        );
+        if (fresh) setRegistrySelected(fresh);
+      }
+    } catch {
+      setRegistryItems([]);
+    }
+  }
+
+  async function openRegistry(family: string, modelId: string) {
+    setRegistryBusy(true);
+    setError("");
+    try {
+      setRegistrySelected(await api.design.getRegistryModel(family, modelId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось открыть карточку реестра.");
+    } finally {
+      setRegistryBusy(false);
+    }
+  }
+
+  async function promoteRegistry(toStatus: string) {
+    if (!registrySelected) return;
+    setRegistryBusy(true);
+    setError("");
+    try {
+      const updated = await api.design.promoteRegistryModel(registrySelected.family, registrySelected.model_id, {
+        to_status: toStatus,
+        confirm: true,
+      });
+      setRegistrySelected(updated);
+      await refreshRegistry();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось продвинуть модель.");
+    } finally {
+      setRegistryBusy(false);
     }
   }
 
@@ -2197,6 +2259,17 @@ export function DesignPage({
             onOpen={openLearning}
             onMarkProduction={markLearningProduction}
             onPredict={predictLearning}
+          />
+          <RegistryPanel
+            family={registryFamily}
+            onFamilyChange={setRegistryFamily}
+            models={registryItems}
+            selected={registrySelected}
+            busy={registryBusy}
+            actor={user.email}
+            onRefresh={refreshRegistry}
+            onOpen={openRegistry}
+            onPromote={promoteRegistry}
           />
         </div>
         <div className="design-main">

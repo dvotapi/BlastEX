@@ -2,7 +2,8 @@
 
 A global/prior model is trained inside one tenant. A site model may start
 from that prior and store ``team_id`` / ``site_id`` isolation keys. Status
-starts as ``candidate``; nothing here is a model-registry lifecycle (BDX-020).
+starts as ``candidate``. Formal promotion lives in ``intelligence.registry``
+(BDX-020).
 """
 from __future__ import annotations
 

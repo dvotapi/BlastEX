@@ -93,6 +93,9 @@ import type {
   RegistryRecord,
   DriftAlert,
   DriftReport,
+  SpatialModel,
+  SpatialOverlay,
+  SpatialSummary,
 } from "../types/design";
 
 const V1 = "/api/v1";
@@ -482,6 +485,39 @@ export const api = {
         action: string;
         next_step: string;
       }>(`${V1}/drift/meta`),
+    listSpatialModels: (query?: { site_id?: string }) => {
+      const params = new URLSearchParams();
+      if (query?.site_id) params.set("site_id", query.site_id);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: SpatialSummary[]; modifies_design: boolean }>(`${V1}/spatial/models${suffix}`);
+    },
+    trainSpatial: (payload: {
+      dataset_id: string;
+      site_id?: string;
+      algorithm?: string;
+      neighbor_k?: number;
+    }) => post<SpatialModel>(`${V1}/spatial/models`, payload),
+    getSpatialModel: (modelId: string) =>
+      get<SpatialModel>(`${V1}/spatial/models/${encodeURIComponent(modelId)}`),
+    setSpatialStatus: (modelId: string, status: string) =>
+      post<SpatialModel>(`${V1}/spatial/models/${encodeURIComponent(modelId)}/status`, { status }),
+    predictSpatial: (payload: {
+      design: BlastDesign;
+      model_id?: string;
+      site_id?: string;
+      use_production?: boolean;
+      block?: Record<string, number | null | undefined>;
+      neighbor_k?: number;
+    }) => post<SpatialOverlay>(`${V1}/spatial/predict`, payload),
+    spatialMeta: () =>
+      get<{
+        metrics: Array<{ name: string; unit: string; label: string; role: string }>;
+        map_metrics: Array<{ name: string; unit: string; label: string; role: string }>;
+        data_roles: Record<string, string>;
+        applied_as: string;
+        modifies_design: boolean;
+        role: string;
+      }>(`${V1}/spatial/meta`),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     createScenario: (payload: {

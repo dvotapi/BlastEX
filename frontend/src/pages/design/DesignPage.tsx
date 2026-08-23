@@ -11,9 +11,11 @@ import {
   FRAGMENTATION_MAP_METRIC_LABELS,
   MAP_METRIC_LABELS,
   MAP_METRIC_UNITS,
+  SPATIAL_MAP_METRIC_LABELS,
   emptyDesign,
   emptyReceptor,
   isFragmentationMapMetric,
+  isSpatialMapMetric,
   networkTies,
   normalizeNetwork,
   type AnalyzeResponse,
@@ -73,6 +75,9 @@ import {
   type RegistryRecord,
   type DriftAlert,
   type DriftReport,
+  type SpatialModel,
+  type SpatialOverlay,
+  type SpatialSummary,
 } from "../../types/design";
 import { emptyHoleGeology } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
@@ -104,6 +109,7 @@ import { RecommendationPanel } from "./RecommendationPanel";
 import { LearningPanel } from "./LearningPanel";
 import { RegistryPanel } from "./RegistryPanel";
 import { DriftPanel } from "./DriftPanel";
+import { SpatialPanel } from "./SpatialPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -251,6 +257,10 @@ export function DesignPage({
   const [driftDatasetId, setDriftDatasetId] = useState("");
   const [driftReport, setDriftReport] = useState<DriftReport | null>(null);
   const [driftAlerts, setDriftAlerts] = useState<DriftAlert[]>([]);
+  const [spatialBusy, setSpatialBusy] = useState(false);
+  const [spatialItems, setSpatialItems] = useState<SpatialSummary[]>([]);
+  const [spatialSelected, setSpatialSelected] = useState<SpatialModel | null>(null);
+  const [spatialOverlay, setSpatialOverlay] = useState<SpatialOverlay | null>(null);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -280,7 +290,7 @@ export function DesignPage({
     };
   }, [playing, analysis, maxAnimationMs]);
 
-  useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); refreshLearning(); refreshDriftAlerts(); }, []);
+  useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); refreshLearning(); refreshDriftAlerts(); refreshSpatial(); }, []);
   useEffect(() => { refreshRegistry(); }, [registryFamily]);
 
   useEffect(() => {
@@ -312,6 +322,17 @@ export function DesignPage({
       const stat = fragResult.maps.stats[mapMetric];
       return { values, range: stat ? { min: stat.min, max: stat.max } : null };
     }
+    if (isSpatialMapMetric(mapMetric)) {
+      if (!spatialOverlay?.maps) return { values: undefined, range: null };
+      const key = mapMetric.replace(/^ml_/, "");
+      const values: Record<string, number> = {};
+      for (const sample of spatialOverlay.maps.holes) {
+        const raw = sample[key];
+        if (typeof raw === "number") values[String(sample.hole_id)] = raw;
+      }
+      const stat = spatialOverlay.maps.stats[key];
+      return { values, range: stat ? { min: stat.min, max: stat.max } : null };
+    }
     if (!maps) return { values: undefined, range: null };
     const values: Record<string, number> = {};
     for (const sample of maps.holes) {
@@ -320,7 +341,7 @@ export function DesignPage({
     }
     const stat = maps.stats[mapMetric];
     return { values, range: stat ? { min: stat.min, max: stat.max } : null };
-  }, [mapMetric, maps, fragResult]);
+  }, [mapMetric, maps, fragResult, spatialOverlay]);
 
   useEffect(() => {
     if (!incomingVariant) return;
@@ -1579,6 +1600,92 @@ export function DesignPage({
     }
   }
 
+  async function refreshSpatial() {
+    try {
+      const listed = await api.design.listSpatialModels({
+        site_id: datasetSiteId.trim() || datasetSelected?.site_id || undefined,
+      });
+      setSpatialItems(listed.items);
+    } catch {
+      setSpatialItems([]);
+    }
+  }
+
+  async function trainSpatial() {
+    if (!datasetSelected?.dataset_id) {
+      setError("Выберите неизменяемый снимок датасета для обучения скважинной модели.");
+      return;
+    }
+    setSpatialBusy(true);
+    setError("");
+    try {
+      const trained = await api.design.trainSpatial({
+        dataset_id: datasetSelected.dataset_id,
+        site_id: datasetSiteId.trim() || datasetSelected.site_id,
+      });
+      setSpatialSelected(trained);
+      await refreshSpatial();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось обучить скважинную модель.");
+    } finally {
+      setSpatialBusy(false);
+    }
+  }
+
+  async function openSpatial(modelId: string) {
+    setSpatialBusy(true);
+    setError("");
+    try {
+      setSpatialSelected(await api.design.getSpatialModel(modelId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось открыть скважинную модель.");
+    } finally {
+      setSpatialBusy(false);
+    }
+  }
+
+  async function markSpatialProduction() {
+    if (!spatialSelected) return;
+    setSpatialBusy(true);
+    setError("");
+    try {
+      const updated = await api.design.setSpatialStatus(spatialSelected.model_id, "production");
+      setSpatialSelected(updated);
+      await refreshSpatial();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сменить статус скважинной модели.");
+    } finally {
+      setSpatialBusy(false);
+    }
+  }
+
+  async function predictSpatial() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    setSpatialBusy(true);
+    setError("");
+    try {
+      const overlay = await api.design.predictSpatial({
+        design: designPayload(),
+        model_id: spatialSelected?.model_id,
+        site_id: datasetSiteId.trim() || spatialSelected?.site_id || "",
+        use_production: !spatialSelected,
+        block: {
+          x50_mm: outcomePanel?.x50_mm?.value ?? outcomeOverlay?.predicted ?? undefined,
+          oversize_pct: outcomePanel?.oversize_pct?.value ?? undefined,
+          toe_probability: outcomePanel?.toe_risk?.value ?? undefined,
+        },
+      });
+      setSpatialOverlay(overlay);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось построить скважинную карту.");
+    } finally {
+      setSpatialBusy(false);
+    }
+  }
+
   async function createDesignScenario() {
     if (!document.holes.length) {
       setError("Сначала постройте сетку скважин.");
@@ -1884,6 +1991,8 @@ export function DesignPage({
       setOutcomeOverlay(null);
       setOutcomePanel(null);
       setLearningOverlay(null);
+      setSpatialOverlay(null);
+      setSpatialSelected(null);
       setScenarioItems([]);
       setScenarioInline([]);
       setScenarioCompare(null);
@@ -2338,6 +2447,20 @@ export function DesignPage({
             onOpen={openRegistry}
             onPromote={promoteRegistry}
           />
+          <SpatialPanel
+            siteId={datasetSiteId || datasetSelected?.site_id || ""}
+            datasetId={datasetSelected?.dataset_id || ""}
+            datasetLabel={datasetSelected ? (datasetSelected.name || `Снимок v${datasetSelected.dataset_version}`) : ""}
+            models={spatialItems}
+            selected={spatialSelected}
+            overlay={spatialOverlay}
+            busy={spatialBusy}
+            onRefresh={refreshSpatial}
+            onTrain={trainSpatial}
+            onOpen={openSpatial}
+            onMarkProduction={markSpatialProduction}
+            onPredict={predictSpatial}
+          />
           <DriftPanel
             models={registryItems}
             selectedModelId={driftFamily && driftModelId ? `${driftFamily}:${driftModelId}` : ""}
@@ -2377,11 +2500,16 @@ export function DesignPage({
                       if (!fragResult && !fragBusy) predictFragmentation();
                       return;
                     }
+                    if (isSpatialMapMetric(next)) {
+                      if (!spatialOverlay && !spatialBusy) predictSpatial();
+                      return;
+                    }
                     if (!maps) refreshMaps();
                   }}>
                     <option value="">тип скважины</option>
                     {Object.entries(MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     {Object.entries(FRAGMENTATION_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    {Object.entries(SPATIAL_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </label>
                 {mapMetric && mapOverlay.range && (

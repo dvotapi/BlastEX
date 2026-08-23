@@ -8,7 +8,8 @@ per-site adaptation, tenant isolation) lives in ``intelligence.learning``
 (BDX-019). Formal model-registry lifecycle (human-gated promotion, checksum,
 dataset lineage) lives in ``intelligence.registry`` (BDX-020). Feature /
 target / prediction drift monitoring (alerts only, never auto-deploy) lives
-in ``intelligence.drift`` (BDX-021).
+in ``intelligence.drift`` (BDX-021). Hole- / neighborhood-level predictions
+and residual maps live in ``intelligence.spatial`` (BDX-022).
 
 Training never reads mutable production records. Predictions are overlays and
 do not silently modify or approve an engineering design. A point estimate is
@@ -16,4 +17,6 @@ never returned without an interval, confidence, similarity, applicability
 check and a driver / recommendation explanation. Snapshots and models of one
 tenant never leak into another. Registry promotion is explicit and never
 auto-deploys a candidate. Drift alerts never retrain or swap the live model.
+Spatial overlays stay on the predicted layer and never overwrite designed
+charges or the approved pattern.
 """

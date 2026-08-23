@@ -2385,3 +2385,147 @@ export const RECOMMENDATION_PROFILE_LABELS: Record<string, string> = {
   LOW_VIBRATION: "Низкая сейсмика",
 };
 
+export type LearningScope = "global" | "site";
+export type LearningStatus = CalibrationStatus;
+
+export const LEARNING_SCOPE_LABELS: Record<LearningScope, string> = {
+  global: "Глобальный prior",
+  site: "Площадка",
+};
+
+export type IsolationKeys = {
+  team_id: string;
+  site_id: string;
+  scope: string;
+};
+
+export type LearningModel = {
+  model_id: string;
+  team_id: string;
+  site_id: string;
+  scope: LearningScope | string;
+  isolation: IsolationKeys;
+  model_type: OutcomeModelType | string;
+  class_name: string;
+  model_version: number;
+  training_dataset_id: string;
+  training_dataset_ids: string[];
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  metrics: CalibrationMetrics;
+  status: LearningStatus | string;
+  algorithm: string;
+  feature_names: string[];
+  target_names: string[];
+  primary_target: string;
+  sample_count: number;
+  source_blast_ids: string[];
+  source_site_ids: string[];
+  artifact_sha256: string;
+  status_updated_at: string;
+  prior_model_id: string;
+  prior_team_id: string;
+  prior_scope: string;
+  adaptation: string;
+  data_roles: Record<string, string>;
+  auto_approved: boolean;
+};
+
+export type LearningSummary = {
+  model_id: string;
+  team_id: string;
+  site_id: string;
+  scope: LearningScope | string;
+  model_type: OutcomeModelType | string;
+  class_name: string;
+  model_version: number;
+  training_dataset_id: string;
+  training_dataset_ids: string[];
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  metrics: CalibrationMetrics;
+  status: LearningStatus | string;
+  algorithm: string;
+  primary_target: string;
+  target_names: string[];
+  sample_count: number;
+  prior_model_id: string;
+  adaptation: string;
+  source_site_ids: string[];
+};
+
+export type LearningTargetPrediction = OutcomeTargetPrediction & {
+  global_value?: number | null;
+  residual_value?: number | null;
+  role?: string;
+};
+
+export type LearningProvenance = {
+  team_id: string;
+  site_id: string;
+  scope: string;
+  model_id: string;
+  model_type: string;
+  class_name: string;
+  model_version: number;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  algorithm: string;
+  status: string;
+  applied_as: string;
+  modifies_design: boolean;
+  auto_approved: boolean;
+  role: string;
+  prediction_role: string;
+  primary_target: string;
+  prior_model_id: string;
+  adaptation: string;
+  data_roles: Record<string, string>;
+};
+
+export type LearningPredictResponse = {
+  predicted: number | null;
+  prediction?: number | null;
+  predictions: Record<string, LearningTargetPrediction>;
+  uncertainty: UncertaintyInterval;
+  confidence: string;
+  confidence_label?: string;
+  similarity_score: number;
+  applicability_warning: string;
+  comparable_count: number;
+  in_domain: boolean;
+  sample_count?: number;
+  extrapolated_features?: string[];
+  explanation?: PredictionExplanation;
+  model_id: string;
+  team_id: string;
+  site_id: string;
+  scope: string;
+  isolation: IsolationKeys;
+  model_type: string;
+  class_name: string;
+  model_version: number;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  algorithm: string;
+  status: string;
+  metrics: CalibrationMetrics;
+  primary_target: string;
+  unit: string;
+  applied_as: string;
+  modifies_design: boolean;
+  prediction_applied: boolean;
+  auto_approved: boolean;
+  warnings: string[];
+  role: string;
+  prior_model_id: string;
+  adaptation: string;
+  data_roles: Record<string, string>;
+  provenance: LearningProvenance;
+};
+
+

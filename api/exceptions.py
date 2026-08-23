@@ -136,3 +136,26 @@ class RecommendationNotFoundError(BlastExError):
 class InvalidRecommendationError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="invalid_recommendation")
+
+
+class LearningNotFoundError(BlastExError):
+    def __init__(self, model_id: str) -> None:
+        super().__init__(
+            f"Модель обучения «{model_id}» не найдена.",
+            error_type="learning_not_found",
+        )
+
+
+class InvalidLearningError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_learning")
+
+
+class ImmutableLearningError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="immutable_learning")
+
+
+class LearningIsolationError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="learning_isolation")

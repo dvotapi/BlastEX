@@ -143,6 +143,7 @@ def explain_estimator(
         target_name=target_name,
         target_label=target_label,
         unit=unit,
+        training_matrix=training_matrix,
     )
     rec_summary = recommendations[0].summary if recommendations else ""
     return PredictionExplanation(

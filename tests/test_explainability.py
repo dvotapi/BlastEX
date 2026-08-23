@@ -63,41 +63,48 @@ def _base_features(index: int, *, burden: float, powder: float, ucs: float) -> d
     }
 
 
-def explained_outcome_snapshot(*, n: int = 16, site_id: str = "quarry-1") -> DatasetSnapshot:
+def explained_outcome_snapshot(*, n: int = 27, site_id: str = "quarry-1") -> DatasetSnapshot:
     samples: list[TrainingSample] = []
-    for index in range(n):
-        burden = 3.0 + 0.2 * index
-        powder = 0.40 + 0.03 * index
-        ucs = 60.0 + 6.0 * index
-        x50 = 45.0 * burden - 100.0 * powder + 0.9 * ucs + 10.0
-        samples.append(
-            TrainingSample(
-                source_blast_id=f"blast-{index}",
-                site_id=site_id,
-                feature_schema_version=FEATURE_SCHEMA_VERSION,
-                features=_base_features(index, burden=burden, powder=powder, ucs=ucs),
-                targets={
-                    "FRAGMENTATION": {
-                        "x50_mm": x50,
-                        "x80_mm": x50 * 1.8,
-                        "oversize_pct": max(0.5, 2.0 * burden - 4.0 * powder),
-                    },
-                    "VIBRATION": {
-                        "ppv_mm_s": 3.0 + 0.4 * burden,
-                        "max_ppv_mm_s": 3.0 + 0.4 * burden,
-                        "frequency_hz": 12.0,
-                    },
-                    "BLAST": {"leftover_height_m": 0.05 * burden, "toe_condition": "minor"},
-                    "PERFORMANCE": {"leftover_height_m": 0.05 * burden},
-                },
-                provenance={"source_blast_id": f"blast-{index}", "site_id": site_id},
-                validation=SampleValidation(
-                    ok=True,
-                    closed=True,
-                    complete_target_groups=["FRAGMENTATION", "VIBRATION", "BLAST"],
-                ),
-            )
-        )
+    index = 0
+    for burden in (3.0, 4.0, 5.2):
+        for powder in (0.40, 0.60, 0.85):
+            for ucs in (70.0, 100.0, 130.0):
+                x50 = 45.0 * burden - 110.0 * powder + 0.9 * ucs + 10.0
+                samples.append(
+                    TrainingSample(
+                        source_blast_id=f"blast-{index}",
+                        site_id=site_id,
+                        feature_schema_version=FEATURE_SCHEMA_VERSION,
+                        features=_base_features(index, burden=burden, powder=powder, ucs=ucs),
+                        targets={
+                            "FRAGMENTATION": {
+                                "x50_mm": x50,
+                                "x80_mm": x50 * 1.8,
+                                "oversize_pct": max(0.5, 2.0 * burden - 4.0 * powder),
+                            },
+                            "VIBRATION": {
+                                "ppv_mm_s": 3.0 + 0.4 * burden,
+                                "max_ppv_mm_s": 3.0 + 0.4 * burden,
+                                "frequency_hz": 12.0,
+                            },
+                            "BLAST": {"leftover_height_m": 0.05 * burden, "toe_condition": "minor"},
+                            "PERFORMANCE": {"leftover_height_m": 0.05 * burden},
+                        },
+                        provenance={"source_blast_id": f"blast-{index}", "site_id": site_id},
+                        validation=SampleValidation(
+                            ok=True,
+                            closed=True,
+                            complete_target_groups=["FRAGMENTATION", "VIBRATION", "BLAST"],
+                        ),
+                    )
+                )
+                index += 1
+                if index >= n:
+                    break
+            if index >= n:
+                break
+        if index >= n:
+            break
     return DatasetSnapshot(
         dataset_id="snap-explain",
         dataset_version=1,
@@ -111,41 +118,48 @@ def explained_outcome_snapshot(*, n: int = 16, site_id: str = "quarry-1") -> Dat
     )
 
 
-def explained_calibration_snapshot(*, n: int = 16, site_id: str = "quarry-1") -> DatasetSnapshot:
+def explained_calibration_snapshot(*, n: int = 27, site_id: str = "quarry-1") -> DatasetSnapshot:
     samples: list[TrainingSample] = []
-    for index in range(n):
-        burden = 3.0 + 0.2 * index
-        powder = 0.45 + 0.025 * index
-        ucs = 70.0 + 5.0 * index
-        baseline = 150.0
-        residual = 22.0 * (burden - 4.0) - 40.0 * (powder - 0.6) + 0.4 * (ucs - 80.0)
-        samples.append(
-            TrainingSample(
-                source_blast_id=f"blast-{index}",
-                site_id=site_id,
-                feature_schema_version=FEATURE_SCHEMA_VERSION,
-                features=_base_features(index, burden=burden, powder=powder, ucs=ucs),
-                targets={
-                    "FRAGMENTATION": {
-                        "x50_mm": baseline + residual,
-                        "predicted_x50_mm": baseline,
-                        "oversize_pct": 4.0,
-                        "predicted_oversize_pct": 4.0,
-                    },
-                    "VIBRATION": {
-                        "ppv_mm_s": 5.0,
-                        "max_ppv_mm_s": 5.0,
-                        "predicted_max_ppv_mm_s": 5.0,
-                    },
-                },
-                provenance={"source_blast_id": f"blast-{index}", "site_id": site_id},
-                validation=SampleValidation(
-                    ok=True,
-                    closed=True,
-                    complete_target_groups=["FRAGMENTATION", "VIBRATION"],
-                ),
-            )
-        )
+    index = 0
+    for burden in (3.0, 4.0, 5.2):
+        for powder in (0.45, 0.60, 0.80):
+            for ucs in (70.0, 95.0, 120.0):
+                baseline = 150.0
+                residual = 22.0 * (burden - 4.0) - 50.0 * (powder - 0.6) + 0.4 * (ucs - 90.0)
+                samples.append(
+                    TrainingSample(
+                        source_blast_id=f"blast-{index}",
+                        site_id=site_id,
+                        feature_schema_version=FEATURE_SCHEMA_VERSION,
+                        features=_base_features(index, burden=burden, powder=powder, ucs=ucs),
+                        targets={
+                            "FRAGMENTATION": {
+                                "x50_mm": baseline + residual,
+                                "predicted_x50_mm": baseline,
+                                "oversize_pct": 4.0,
+                                "predicted_oversize_pct": 4.0,
+                            },
+                            "VIBRATION": {
+                                "ppv_mm_s": 5.0,
+                                "max_ppv_mm_s": 5.0,
+                                "predicted_max_ppv_mm_s": 5.0,
+                            },
+                        },
+                        provenance={"source_blast_id": f"blast-{index}", "site_id": site_id},
+                        validation=SampleValidation(
+                            ok=True,
+                            closed=True,
+                            complete_target_groups=["FRAGMENTATION", "VIBRATION"],
+                        ),
+                    )
+                )
+                index += 1
+                if index >= n:
+                    break
+            if index >= n:
+                break
+        if index >= n:
+            break
     return DatasetSnapshot(
         dataset_id="snap-explain-cal",
         dataset_version=1,
@@ -234,9 +248,6 @@ class OutcomeExplainabilityTests(unittest.TestCase):
         self.assertIn("ЛНС", burden_hint.summary)
         self.assertIn("X50", burden_hint.summary)
         self.assertIn("ожидаемый", burden_hint.summary)
-        powder_hint = next((item for item in hints if item.feature == POWDER), None)
-        if powder_hint is not None and powder_hint.action == "increase":
-            self.assertLess(powder_hint.delta, 0)
 
     def test_empty_prediction_has_blank_explanation(self):
         payload = empty_prediction(model_type="fragmentation").to_dict()

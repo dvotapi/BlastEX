@@ -24,14 +24,14 @@ from intelligence.uncertainty.labels import feature_label
 # Controllable blast-design knobs. Geology / environment / baseline are not levers.
 CONTROLLABLE_FEATURES: dict[str, dict[str, float | str]] = {
     "GEOMETRY.mean_burden_m": {
-        "step": 0.2,
-        "frac": 0.1,
+        "step": 0.4,
+        "frac": 0.12,
         "min_value": 0.5,
         "preferred_action": ACTION_REDUCE,
     },
     "GEOMETRY.mean_spacing_m": {
-        "step": 0.2,
-        "frac": 0.1,
+        "step": 0.4,
+        "frac": 0.12,
         "min_value": 0.5,
         "preferred_action": ACTION_REDUCE,
     },
@@ -79,6 +79,86 @@ ACTION_LABELS_RU = {
 }
 
 TOP_RECOMMENDATIONS = 4
+
+
+def _column_bounds(
+    training_matrix: list[list[float]] | np.ndarray | None,
+    index: int,
+) -> tuple[float | None, float | None]:
+    if training_matrix is None:
+        return None, None
+    matrix = np.asarray(training_matrix, dtype=float)
+    if matrix.ndim != 2 or matrix.size == 0 or index >= matrix.shape[1]:
+        return None, None
+    column = matrix[:, index]
+    return float(np.min(column)), float(np.max(column))
+
+
+def _probe_values(
+    *,
+    current: float,
+    action: str,
+    step: float,
+    min_value: float,
+    lo: float | None,
+    hi: float | None,
+) -> list[float]:
+    values: list[float] = []
+    if action == ACTION_REDUCE:
+        values.append(max(min_value, current - step))
+        if lo is not None and hi is not None and hi > lo:
+            span = hi - lo
+            values.append(max(min_value, current - max(step, 0.45 * span)))
+            values.append(max(min_value, 0.5 * (current + lo)))
+        values = [item for item in values if item < current - 1e-9]
+    else:
+        values.append(current + step)
+        if lo is not None and hi is not None and hi > lo:
+            span = hi - lo
+            values.append(current + max(step, 0.45 * span))
+            values.append(0.5 * (current + hi))
+        values = [item for item in values if item > current + 1e-9]
+    unique: list[float] = []
+    for item in values:
+        if not any(abs(item - seen) < 1e-9 for seen in unique):
+            unique.append(item)
+    return unique
+
+
+def _evaluate_action(
+    *,
+    action: str,
+    current_vector: np.ndarray,
+    index: int,
+    current_prediction: float,
+    predict_scalar: Callable[[np.ndarray], float],
+    step: float,
+    min_value: float,
+    lo: float | None,
+    hi: float | None,
+    threshold: float,
+) -> tuple[str, float, float] | None:
+    best: tuple[str, float, float] | None = None
+    for probe_value in _probe_values(
+        current=float(current_vector[index]),
+        action=action,
+        step=step,
+        min_value=min_value,
+        lo=lo,
+        hi=hi,
+    ):
+        probe = np.array(current_vector, copy=True)
+        probe[index] = probe_value
+        delta = float(predict_scalar(probe)) - current_prediction
+        if abs(delta) < threshold:
+            continue
+        candidate = (action, delta, probe_value - float(current_vector[index]))
+        if best is None or abs(candidate[1]) > abs(best[1]):
+            best = candidate
+            # Prefer the smallest move that already clears the threshold.
+            if abs(probe_value - float(current_vector[index])) <= step + 1e-9:
+                return candidate
+    return best
 
 
 def _step_size(current: float, spec: dict[str, float | str]) -> float:
@@ -146,6 +226,7 @@ def recommendation_deltas(
     target_label: str,
     unit: str,
     top_n: int = TOP_RECOMMENDATIONS,
+    training_matrix: list[list[float]] | np.ndarray | None = None,
 ) -> list[RecommendationHint]:
     """Perturb each controllable column and keep the strongest overlay deltas."""
     x = np.asarray(vector, dtype=float).reshape(-1)
@@ -166,26 +247,41 @@ def recommendation_deltas(
             continue
         min_value = float(spec.get("min_value") or 0.0)
         preferred = str(spec.get("preferred_action") or ACTION_REDUCE)
-        candidates: list[tuple[str, float, float]] = []
-
-        reduced = max(min_value, current_value - step)
-        if abs(reduced - current_value) > 1e-9:
-            probe = np.array(x, copy=True)
-            probe[index] = reduced
-            delta = float(predict_scalar(probe)) - current
-            candidates.append((ACTION_REDUCE, delta, reduced - current_value))
-
-        increased = current_value + step
-        probe = np.array(x, copy=True)
-        probe[index] = increased
-        delta = float(predict_scalar(probe)) - current
-        candidates.append((ACTION_INCREASE, delta, step))
-
-        meaningful = [item for item in candidates if abs(item[1]) >= threshold]
-        if not meaningful:
+        lo, hi = _column_bounds(training_matrix, index)
+        candidates = [
+            item
+            for item in (
+                _evaluate_action(
+                    action=ACTION_REDUCE,
+                    current_vector=x,
+                    index=index,
+                    current_prediction=current,
+                    predict_scalar=predict_scalar,
+                    step=step,
+                    min_value=min_value,
+                    lo=lo,
+                    hi=hi,
+                    threshold=threshold,
+                ),
+                _evaluate_action(
+                    action=ACTION_INCREASE,
+                    current_vector=x,
+                    index=index,
+                    current_prediction=current,
+                    predict_scalar=predict_scalar,
+                    step=step,
+                    min_value=min_value,
+                    lo=lo,
+                    hi=hi,
+                    threshold=threshold,
+                ),
+            )
+            if item is not None
+        ]
+        if not candidates:
             continue
-        preferred_hit = next((item for item in meaningful if item[0] == preferred), None)
-        chosen = preferred_hit or max(meaningful, key=lambda item: abs(item[1]))
+        preferred_hit = next((item for item in candidates if item[0] == preferred), None)
+        chosen = preferred_hit or max(candidates, key=lambda item: abs(item[1]))
         hints.append(
             _hint(
                 feature=feature,

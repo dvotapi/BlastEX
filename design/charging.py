@@ -10,9 +10,23 @@ from typing import Any
 
 from Blast import ExplosiveProperties
 from cost.geometry import charge_diameter_m, linear_capacity_kg_per_m
-from design.models import Deck, Hole, HoleLoad
+from design.geology import designed_rock_intervals, properties_at
+from design.models import Deck, Hole, HoleInterval, HoleLoad, RockPropertySet
 
 DECKING_TYPES = ("continuous", "spaced")
+
+
+def hole_geology_for_charging(hole: Hole) -> list[HoleInterval]:
+    """Designed rock intervals available to a future charging-rules engine (BDX-004).
+
+    This phase only exposes the data. Measured intervals are intentionally excluded.
+    """
+    return designed_rock_intervals(hole)
+
+
+def rock_properties_for_charging(hole: Hole, along_m: float) -> RockPropertySet | None:
+    """Designed properties at a depth along the hole. BDX-004 will consume this."""
+    return properties_at(hole, along_m)
 
 
 def apply_charge_rules(

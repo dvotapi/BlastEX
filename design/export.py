@@ -28,6 +28,8 @@ CSV_COLUMNS = [
     "subdrill_m",
     "charge_mass_kg",
     "specific_q_kg_m3",
+    "geology_intervals",
+    "water_intervals",
 ]
 
 
@@ -59,6 +61,14 @@ def holes_csv(design: BlastDesign) -> str:
                 hole.subdrill_m,
                 round(load.total_charge_kg, 1) if load else "",
                 round(load.specific_q_kg_m3, 3) if load else "",
+                "; ".join(
+                    f"{iv.from_m:.1f}-{iv.to_m:.1f} {iv.domain_name or iv.domain_id}"
+                    for iv in hole.intervals
+                ),
+                "; ".join(
+                    f"{iv.from_m:.1f}-{iv.to_m:.1f} {iv.condition}"
+                    for iv in hole.water_intervals
+                ),
             ]
         )
     return "﻿" + buffer.getvalue()

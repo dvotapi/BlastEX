@@ -78,6 +78,23 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         save_design(TEAM_ID, self._sample_design())
         self.assertEqual(list_designs("another-team"), [])
 
+    def test_legacy_json_without_geology_loads(self):
+        from design.persistence import design_path, ensure_designs_layout
+        import json
+
+        ensure_designs_layout(TEAM_ID)
+        payload = {
+            "design_id": "legacy01",
+            "name": "Без геологии",
+            "holes": [],
+            "contour": {"vertices": [], "free_faces": [], "bench": {}, "name": "Блок"},
+        }
+        path = design_path(TEAM_ID, "legacy01")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        loaded = load_design(TEAM_ID, "legacy01")
+        self.assertEqual(loaded.domains, [])
+        self.assertIsNone(loaded.water_table_z_m)
+
 
 if __name__ == "__main__":
     unittest.main()

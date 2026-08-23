@@ -20,6 +20,10 @@ from api.schemas.design import (
     SurfaceSampleResponse,
     TieGenerateRequest,
     TieGenerateResponse,
+    GeologyAssignRequest,
+    GeologyAssignResponse,
+    GeologyInterceptRequest,
+    GeologyInterceptResponse,
 )
 from api.security import require_internal_access
 from api.services import design_service
@@ -40,6 +44,16 @@ def post_surface_import(request: SurfaceImportRequest) -> SurfaceImportResponse:
 @router.post("/surfaces/sample", response_model=SurfaceSampleResponse)
 def post_surface_sample(request: SurfaceSampleRequest) -> SurfaceSampleResponse:
     return design_service.sample_surface(request)
+
+
+@router.post("/geology/assign", response_model=GeologyAssignResponse)
+def post_geology_assign(request: GeologyAssignRequest) -> GeologyAssignResponse:
+    return design_service.assign_domain(request)
+
+
+@router.post("/geology/intercept", response_model=GeologyInterceptResponse)
+def post_geology_intercept(request: GeologyInterceptRequest) -> GeologyInterceptResponse:
+    return design_service.intercept_geology(request)
 
 
 @router.post("/charge", response_model=ChargeGenerateResponse)

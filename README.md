@@ -29,7 +29,8 @@ BlastEX/
 ├── max_bot.py               # Бот для мессенджера MAX
 ├── design/                  # Проектирование блока
 │   ├── spatial/             # TIN-поверхности и импорт съёмки (XYZ/CSV/DXF/GeoJSON)
-│   └── geology.py           # Домены, свойства породы, пересечение оси скважины
+│   ├── geology.py           # Домены, свойства породы, пересечение оси скважины
+│   └── as_drilled.py        # Факт бурения, отклонения от проекта, схема MWD
 ├── api/                     # REST API (FastAPI)
 │   ├── main.py
 │   └── routers/             # blast, cost, references, design

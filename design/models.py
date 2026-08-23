@@ -1748,6 +1748,7 @@ class VibrationMeasurement:
     receptor_id: str
     ppv_mm_s: float
     role: str = ROLE_MEASURED
+    frequency_hz: float | None = None
     distance_m: float | None = None
     mic_kg: float | None = None
     scaled_distance: str = ""
@@ -1765,6 +1766,7 @@ class VibrationMeasurement:
             "id": self.id,
             "receptor_id": self.receptor_id,
             "ppv_mm_s": self.ppv_mm_s,
+            "frequency_hz": self.frequency_hz,
             "role": ROLE_MEASURED,
             "distance_m": self.distance_m,
             "mic_kg": self.mic_kg,
@@ -1787,6 +1789,7 @@ class VibrationMeasurement:
             receptor_id=str(data.get("receptor_id", "") or ""),
             ppv_mm_s=float(data.get("ppv_mm_s", 0.0) or 0.0),
             role=ROLE_MEASURED,
+            frequency_hz=_opt_float(data, "frequency_hz"),
             distance_m=_opt_float(data, "distance_m"),
             mic_kg=_opt_float(data, "mic_kg"),
             scaled_distance=convention,
@@ -1796,6 +1799,15 @@ class VibrationMeasurement:
             event_label=str(data.get("event_label", "") or ""),
             notes=str(data.get("notes", "") or ""),
         )
+
+
+def _blast_result_from_dict(data: dict[str, Any] | None) -> Any:
+    """Load a post-blast result without importing at module import time."""
+    if not data:
+        return None
+    from design.blast_result import BlastResult
+
+    return BlastResult.from_dict(data)
 
 
 def default_vibration_model() -> VibrationModel:
@@ -1837,6 +1849,7 @@ class BlastDesign:
     as_drilled_holes: list[AsDrilledHole] = field(default_factory=list)
     as_charged_holes: list[AsChargedHole] = field(default_factory=list)
     as_fired_holes: list[AsFiredHole] = field(default_factory=list)
+    blast_result: Any = None
 
     def __post_init__(self) -> None:
         from design.spatial.coordinates import CoordinateSystem
@@ -1871,6 +1884,7 @@ class BlastDesign:
             "as_drilled_holes": [item.to_dict() for item in self.as_drilled_holes],
             "as_charged_holes": [item.to_dict() for item in self.as_charged_holes],
             "as_fired_holes": [item.to_dict() for item in self.as_fired_holes],
+            "blast_result": self.blast_result.to_dict() if self.blast_result is not None else None,
         }
 
     @classmethod
@@ -1903,4 +1917,5 @@ class BlastDesign:
             as_drilled_holes=[AsDrilledHole.from_dict(item) for item in data.get("as_drilled_holes", [])],
             as_charged_holes=[AsChargedHole.from_dict(item) for item in data.get("as_charged_holes", [])],
             as_fired_holes=[AsFiredHole.from_dict(item) for item in data.get("as_fired_holes", [])],
+            blast_result=_blast_result_from_dict(data.get("blast_result")),
         )

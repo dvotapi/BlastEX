@@ -228,6 +228,7 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         self.assertEqual(loaded.as_drilled_holes, [])
         self.assertEqual(loaded.as_charged_holes, [])
         self.assertEqual(loaded.as_fired_holes, [])
+        self.assertIsNone(loaded.blast_result)
 
     def test_as_drilled_round_trip_keeps_designed_holes(self):
         from design.models import AsDrilledHole, Hole
@@ -330,6 +331,78 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         self.assertAlmostEqual(loaded.as_fired_holes[0].programmed_time_ms, 27.0)
         self.assertAlmostEqual(loaded.as_fired_holes[0].verified_time_ms or 0.0, 27.4)
         self.assertEqual(loaded.as_fired_holes[0].detonator.product, "DaveyTronic")
+
+    def test_blast_result_round_trip_keeps_predicted_separate(self):
+        from design.blast_result import (
+            ActualCost,
+            BlastResult,
+            ComparisonBasis,
+            MeasuredMuckpile,
+            MeasuredVibration,
+            PlannedCost,
+        )
+        from design.models import Hole
+        from simulation.fragmentation.models import (
+            MeasuredFragmentation,
+            ModelProvenance,
+            PredictedFragmentation,
+        )
+
+        design = self._sample_design()
+        design.holes = [
+            Hole(
+                id="1-01",
+                row=1,
+                col=1,
+                collar=Point3(x=2.0, y=3.0, z=0.0),
+                toe=Point3(x=2.0, y=3.0, z=-11.0),
+                diameter_mm=152.0,
+            )
+        ]
+        design.blast_result = BlastResult(
+            design_id=design.design_id or "saved",
+            fragmentation=MeasuredFragmentation(x20_mm=90.0, x50_mm=175.0, x80_mm=320.0, oversize_pct=6.0, source="sieve"),
+            vibration=MeasuredVibration(ppv_mm_s=3.5, frequency_hz=15.0, receptor_id="R-1"),
+            muckpile=MeasuredMuckpile(length_m=41.0, width_m=17.0, height_m=6.2),
+            cost_actual=ActualCost(total_amount_rub=1_900_000.0, cost_per_m3=95.0),
+            basis=ComparisonBasis(
+                predicted_fragmentation=PredictedFragmentation(
+                    x20_mm=80.0,
+                    x50_mm=150.0,
+                    x80_mm=280.0,
+                    oversize_pct=4.0,
+                    powder_factor_kg_m3=0.7,
+                    provenance=ModelProvenance(model="kuzram", model_version="1"),
+                ),
+                planned_cost=PlannedCost(total_amount_rub=1_600_000.0, cost_per_m3=80.0),
+            ),
+        )
+        saved = save_design(TEAM_ID, design)
+        loaded = load_design(TEAM_ID, saved.design_id)
+        self.assertEqual(loaded.holes[0].collar.to_dict(), {"x": 2.0, "y": 3.0, "z": 0.0})
+        self.assertEqual(loaded.blast_result.role, "measured")
+        self.assertEqual(loaded.blast_result.fragmentation.role, "measured")
+        self.assertAlmostEqual(loaded.blast_result.fragmentation.x50_mm, 175.0)
+        self.assertEqual(loaded.blast_result.basis.predicted_fragmentation.role, "predicted")
+        self.assertAlmostEqual(loaded.blast_result.basis.predicted_fragmentation.x50_mm, 150.0)
+        self.assertEqual(loaded.blast_result.basis.planned_cost.role, "designed")
+        self.assertAlmostEqual(loaded.blast_result.vibration.frequency_hz, 15.0)
+
+    def test_legacy_json_without_blast_result_loads(self):
+        import json
+        from design.persistence import design_path, ensure_designs_layout
+
+        ensure_designs_layout(TEAM_ID)
+        payload = {
+            "design_id": "legacy-br",
+            "name": "Без результатов",
+            "holes": [],
+            "contour": {"vertices": [], "free_faces": [], "bench": {}, "name": "Блок"},
+        }
+        path = design_path(TEAM_ID, "legacy-br")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        loaded = load_design(TEAM_ID, "legacy-br")
+        self.assertIsNone(loaded.blast_result)
 
 
 if __name__ == "__main__":

@@ -70,6 +70,10 @@ from api.schemas.design import (
     AsFiredCompareResponse,
     ExecutionCompareRequest,
     ExecutionCompareResponse,
+    BlastResultRecordRequest,
+    BlastResultRecordResponse,
+    BlastResultCompareRequest,
+    BlastResultCompareResponse,
 )
 from api.services.cost_service import calculate_cost
 from design import persistence as design_persistence
@@ -448,6 +452,82 @@ def compare_execution(request: ExecutionCompareRequest) -> ExecutionCompareRespo
     if _guard_designed(design) != designed_before:
         raise InvalidDesignError("Сводка исполнения не должна менять проектные скважины, заряд или сеть.")
     return ExecutionCompareResponse(**payload)
+
+
+def _basis_from_request(request):
+    from design.blast_result import (
+        ComparisonBasis,
+        DesignedBackbreak,
+        DesignedMuckpile,
+        PlannedCost,
+        PredictedVibrationSnapshot,
+    )
+    from simulation.fragmentation.models import DesignedFragmentationTarget, PredictedFragmentation
+
+    predicted_frag = None
+    if request.predicted_fragmentation is not None:
+        predicted_frag = PredictedFragmentation.from_dict(request.predicted_fragmentation.model_dump())
+    planned = None
+    if request.planned_cost is not None:
+        planned = PlannedCost.from_dict(request.planned_cost.model_dump())
+    designed_frag = None
+    if request.designed_fragmentation is not None:
+        designed_frag = DesignedFragmentationTarget.from_dict(request.designed_fragmentation.model_dump())
+    designed_muck = None
+    if request.designed_muckpile is not None:
+        designed_muck = DesignedMuckpile.from_dict(request.designed_muckpile.model_dump())
+    designed_bb = None
+    if request.designed_backbreak is not None:
+        designed_bb = DesignedBackbreak.from_dict(request.designed_backbreak.model_dump())
+    return ComparisonBasis(
+        predicted_fragmentation=predicted_frag,
+        predicted_vibration=[
+            PredictedVibrationSnapshot.from_dict(item.model_dump()) for item in request.predicted_vibration
+        ],
+        planned_cost=planned,
+        designed_fragmentation=designed_frag,
+        designed_muckpile=designed_muck,
+        designed_backbreak=designed_bb,
+        designed_toe_condition=request.designed_toe_condition,
+    )
+
+
+def record_blast_result(request: BlastResultRecordRequest) -> BlastResultRecordResponse:
+    from design.blast_result import BlastResult, compare_result, record_blast_result as persist_result
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        persist_result(
+            design,
+            BlastResult.from_dict(request.result.model_dump()),
+            basis=_basis_from_request(request),
+        )
+        payload = compare_result(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Запись результатов взрыва не должна менять проектные скважины, заряд или сеть.")
+    return BlastResultRecordResponse(
+        **payload,
+        holes=[hole.to_dict() for hole in design.holes],
+        loads=[load.to_dict() for load in design.loads],
+        network=design.network.to_dict(),
+    )
+
+
+def compare_blast_result(request: BlastResultCompareRequest) -> BlastResultCompareResponse:
+    from design.blast_result import compare_result
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        payload = compare_result(design, basis=_basis_from_request(request))
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Сравнение результатов взрыва не должно менять проектные скважины, заряд или сеть.")
+    return BlastResultCompareResponse(**payload)
 
 
 def list_fragmentation_models() -> FragmentationModelsResponse:

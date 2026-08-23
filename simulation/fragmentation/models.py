@@ -159,12 +159,24 @@ class DesignedFragmentationTarget:
     max_oversize_pct: float = 5.0
     role: str = ROLE_DESIGNED
 
+    def __post_init__(self) -> None:
+        self.role = ROLE_DESIGNED
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "lump_size_mm": self.lump_size_mm,
             "max_oversize_pct": self.max_oversize_pct,
             "role": ROLE_DESIGNED,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> DesignedFragmentationTarget:
+        data = data or {}
+        return cls(
+            lump_size_mm=float(data.get("lump_size_mm", 0.0) or 0.0),
+            max_oversize_pct=float(data.get("max_oversize_pct", 5.0) or 5.0),
+            role=ROLE_DESIGNED,
+        )
 
 
 @dataclass
@@ -210,11 +222,18 @@ class PredictedFragmentation:
         )
 
 
+def _first_opt_float(data: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        if key in data and data.get(key) is not None and data.get(key) != "":
+            return _opt_float(data, key)
+    return None
+
+
 @dataclass
 class MeasuredFragmentation:
     """Sieve or image measurement. The predictor never writes this type.
 
-    Filled later (BDX-010). Kept here so predicted and measured stay distinct.
+    P20/P50/P80 are stored as x20_mm / x50_mm / x80_mm. Role is always measured.
     """
 
     x20_mm: float | None = None
@@ -224,6 +243,8 @@ class MeasuredFragmentation:
     curve: list[DistributionPoint] = field(default_factory=list)
     source: str = ""
     method: str = ""
+    timestamp: str = ""
+    notes: str = ""
     role: str = ROLE_MEASURED
 
     def __post_init__(self) -> None:
@@ -235,8 +256,29 @@ class MeasuredFragmentation:
             "x20_mm": self.x20_mm,
             "x50_mm": self.x50_mm,
             "x80_mm": self.x80_mm,
+            "p20_mm": self.x20_mm,
+            "p50_mm": self.x50_mm,
+            "p80_mm": self.x80_mm,
             "oversize_pct": self.oversize_pct,
             "curve": [point.to_dict() for point in self.curve],
             "source": self.source,
             "method": self.method,
+            "timestamp": self.timestamp,
+            "notes": self.notes,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> MeasuredFragmentation:
+        data = data or {}
+        return cls(
+            x20_mm=_first_opt_float(data, "x20_mm", "p20_mm", "P20"),
+            x50_mm=_first_opt_float(data, "x50_mm", "p50_mm", "P50"),
+            x80_mm=_first_opt_float(data, "x80_mm", "p80_mm", "P80"),
+            oversize_pct=_first_opt_float(data, "oversize_pct", "oversize"),
+            curve=[DistributionPoint.from_dict(item) for item in data.get("curve", [])],
+            source=str(data.get("source", "") or ""),
+            method=str(data.get("method", "") or ""),
+            timestamp=str(data.get("timestamp", "") or ""),
+            notes=str(data.get("notes", "") or ""),
+            role=ROLE_MEASURED,
+        )

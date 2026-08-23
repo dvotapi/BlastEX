@@ -416,6 +416,7 @@ class VibrationMeasurementSchema(BaseModel):
     id: str = ""
     receptor_id: str = ""
     ppv_mm_s: float = 0.0
+    frequency_hz: float | None = None
     role: str = "measured"
     distance_m: float | None = None
     mic_kg: float | None = None
@@ -551,6 +552,7 @@ class BlastDesignSchema(BaseModel):
     as_drilled_holes: list[AsDrilledHoleSchema] = Field(default_factory=list)
     as_charged_holes: list[AsChargedHoleSchema] = Field(default_factory=list)
     as_fired_holes: list[AsFiredHoleSchema] = Field(default_factory=list)
+    blast_result: BlastResultSchema | None = None
 
 
 class AsDrilledRecordRequest(BaseModel):
@@ -703,6 +705,194 @@ class ExecutionCompareResponse(BaseModel):
     as_charged_count: int = 0
     as_fired_count: int = 0
     warnings: list[str] = Field(default_factory=list)
+
+
+class PredictedVibrationSnapshotSchema(BaseModel):
+    receptor_id: str = ""
+    ppv_mm_s: float = 0.0
+    frequency_hz: float | None = None
+    receptor_name: str = ""
+    role: str = "predicted"
+
+
+class MeasuredVibrationSchema(BaseModel):
+    role: str = "measured"
+    ppv_mm_s: float | None = None
+    frequency_hz: float | None = None
+    receptor_id: str = ""
+    measurements: list[VibrationMeasurementSchema] = Field(default_factory=list)
+    source: str = ""
+    method: str = ""
+    timestamp: str = ""
+    notes: str = ""
+
+
+class MeasuredMuckpileSchema(BaseModel):
+    role: str = "measured"
+    length_m: float | None = None
+    width_m: float | None = None
+    height_m: float | None = None
+    volume_m3: float | None = None
+    throw_m: float | None = None
+    notes: str = ""
+
+
+class DesignedMuckpileSchema(BaseModel):
+    role: str = "designed"
+    length_m: float | None = None
+    width_m: float | None = None
+    height_m: float | None = None
+    volume_m3: float | None = None
+    throw_m: float | None = None
+    notes: str = ""
+
+
+class MeasuredBackbreakSchema(BaseModel):
+    role: str = "measured"
+    max_m: float | None = None
+    mean_m: float | None = None
+    crest_loss_m: float | None = None
+    notes: str = ""
+
+
+class DesignedBackbreakSchema(BaseModel):
+    role: str = "designed"
+    max_m: float | None = None
+    mean_m: float | None = None
+    crest_loss_m: float | None = None
+    notes: str = ""
+
+
+class MeasuredToeConditionSchema(BaseModel):
+    role: str = "measured"
+    condition: str = ""
+    leftover_height_m: float | None = None
+    notes: str = ""
+
+
+class FlyrockObservationSchema(BaseModel):
+    role: str = "measured"
+    max_range_m: float | None = None
+    count: int | None = None
+    notes: str = ""
+
+
+class SecondaryBreakingSchema(BaseModel):
+    role: str = "measured"
+    volume_m3: float | None = None
+    hours: float | None = None
+    cost_rub: float | None = None
+    method: str = ""
+    notes: str = ""
+
+
+class ActualCostSchema(BaseModel):
+    role: str = "measured"
+    total_amount_rub: float | None = None
+    cost_per_m3: float | None = None
+    variable_total_rub: float | None = None
+    labor_total_rub: float | None = None
+    fixed_total_rub: float | None = None
+    secondary_breaking_rub: float | None = None
+    notes: str = ""
+
+
+class PlannedCostSchema(BaseModel):
+    role: str = "designed"
+    total_amount_rub: float | None = None
+    cost_per_m3: float | None = None
+    variable_total_rub: float | None = None
+    labor_total_rub: float | None = None
+    fixed_total_rub: float | None = None
+    secondary_breaking_rub: float | None = None
+    notes: str = ""
+
+
+class ComparisonBasisSchema(BaseModel):
+    predicted_fragmentation: PredictedFragmentationSchema | None = None
+    predicted_vibration: list[PredictedVibrationSnapshotSchema] = Field(default_factory=list)
+    planned_cost: PlannedCostSchema | None = None
+    designed_fragmentation: DesignedFragmentationTargetSchema | None = None
+    designed_muckpile: DesignedMuckpileSchema | None = None
+    designed_backbreak: DesignedBackbreakSchema | None = None
+    designed_toe_condition: str = "clean"
+
+
+class BlastResultSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    design_id: str = ""
+    role: str = "measured"
+    fragmentation: MeasuredFragmentationSchema | None = None
+    vibration: MeasuredVibrationSchema | None = None
+    muckpile: MeasuredMuckpileSchema | None = None
+    backbreak: MeasuredBackbreakSchema | None = None
+    toe_condition: MeasuredToeConditionSchema | None = None
+    flyrock_observations: list[FlyrockObservationSchema] = Field(default_factory=list)
+    secondary_breaking: SecondaryBreakingSchema | None = None
+    cost_actual: ActualCostSchema | None = None
+    basis: ComparisonBasisSchema | None = None
+    recorded_at: str = ""
+    provenance: DataProvenanceSchema = Field(default_factory=DataProvenanceSchema)
+
+
+class ComparisonRowSchema(BaseModel):
+    metric: str
+    label: str
+    unit: str = ""
+    predicted: float | None = None
+    measured: float | str | None = None
+    designed: float | str | None = None
+    actual: float | str | None = None
+    predicted_minus_measured: float | None = None
+    measured_minus_predicted: float | None = None
+    relative_error_pct: float | None = None
+    designed_minus_actual: float | None = None
+    actual_minus_designed: float | None = None
+    receptor_id: str | None = None
+    designed_label: str | None = None
+    actual_label: str | None = None
+    mismatch: bool | None = None
+
+
+class BlastResultRecordRequest(BaseModel):
+    design: BlastDesignSchema
+    result: BlastResultSchema
+    predicted_fragmentation: PredictedFragmentationSchema | None = None
+    predicted_vibration: list[PredictedVibrationSnapshotSchema] = Field(default_factory=list)
+    planned_cost: PlannedCostSchema | None = None
+    designed_fragmentation: DesignedFragmentationTargetSchema | None = None
+    designed_muckpile: DesignedMuckpileSchema | None = None
+    designed_backbreak: DesignedBackbreakSchema | None = None
+    designed_toe_condition: str = "clean"
+
+
+class BlastResultCompareRequest(BaseModel):
+    design: BlastDesignSchema
+    predicted_fragmentation: PredictedFragmentationSchema | None = None
+    predicted_vibration: list[PredictedVibrationSnapshotSchema] = Field(default_factory=list)
+    planned_cost: PlannedCostSchema | None = None
+    designed_fragmentation: DesignedFragmentationTargetSchema | None = None
+    designed_muckpile: DesignedMuckpileSchema | None = None
+    designed_backbreak: DesignedBackbreakSchema | None = None
+    designed_toe_condition: str = "clean"
+
+
+class BlastResultCompareResponse(BaseModel):
+    role: str = "measured"
+    comparison: str = "post_blast"
+    has_result: bool = False
+    predicted_vs_measured: list[ComparisonRowSchema] = Field(default_factory=list)
+    designed_vs_actual: list[ComparisonRowSchema] = Field(default_factory=list)
+    planned_vs_actual_cost: list[ComparisonRowSchema] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    result: BlastResultSchema | None = None
+
+
+class BlastResultRecordResponse(BlastResultCompareResponse):
+    holes: list[HoleSchema] = Field(default_factory=list)
+    loads: list[HoleLoadSchema] = Field(default_factory=list)
+    network: InitiationNetworkSchema = Field(default_factory=InitiationNetworkSchema)
 
 
 class PatternGenerateRequest(BaseModel):
@@ -923,10 +1113,15 @@ class MeasuredFragmentationSchema(BaseModel):
     x20_mm: float | None = None
     x50_mm: float | None = None
     x80_mm: float | None = None
+    p20_mm: float | None = None
+    p50_mm: float | None = None
+    p80_mm: float | None = None
     oversize_pct: float | None = None
     curve: list[DistributionPointSchema] = Field(default_factory=list)
     source: str = ""
     method: str = ""
+    timestamp: str = ""
+    notes: str = ""
 
 
 class DesignedFragmentationTargetSchema(BaseModel):

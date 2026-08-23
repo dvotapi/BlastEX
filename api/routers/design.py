@@ -54,6 +54,10 @@ from api.schemas.design import (
     AsFiredCompareResponse,
     ExecutionCompareRequest,
     ExecutionCompareResponse,
+    BlastResultRecordRequest,
+    BlastResultRecordResponse,
+    BlastResultCompareRequest,
+    BlastResultCompareResponse,
 )
 from api.security import require_internal_access
 from api.services import design_service
@@ -184,6 +188,16 @@ def post_as_fired_compare(request: AsFiredCompareRequest) -> AsFiredCompareRespo
 @router.post("/execution/compare", response_model=ExecutionCompareResponse)
 def post_execution_compare(request: ExecutionCompareRequest) -> ExecutionCompareResponse:
     return design_service.compare_execution(request)
+
+
+@router.post("/blast-result", response_model=BlastResultRecordResponse)
+def post_blast_result(request: BlastResultRecordRequest) -> BlastResultRecordResponse:
+    return design_service.record_blast_result(request)
+
+
+@router.post("/blast-result/compare", response_model=BlastResultCompareResponse)
+def post_blast_result_compare(request: BlastResultCompareRequest) -> BlastResultCompareResponse:
+    return design_service.compare_blast_result(request)
 
 
 @router.post("/cost", response_model=AggregatedCostResultSchema)

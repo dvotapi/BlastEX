@@ -15,7 +15,15 @@ class ScenarioModelTests(unittest.TestCase):
             scenario_id="scn-a",
             design_id="blast-1",
             name="Сценарий A",
-            params=ScenarioParams(diameter_mm=165.0, spacing_a_m=6.0, burden_b_m=5.0, powder_factor_kg_m3=0.65),
+            params=ScenarioParams(
+                diameter_mm=165.0,
+                spacing_a_m=6.0,
+                burden_b_m=5.0,
+                powder_factor_kg_m3=0.65,
+                explosive_key="ПВВ Гранулит-РП",
+                inclination_deg=10.0,
+                delay_interval_ms=25.0,
+            ),
             outcomes=ScenarioOutcomes(
                 drilling_metres=120.0,
                 explosive_mass_kg=800.0,
@@ -38,6 +46,9 @@ class ScenarioModelTests(unittest.TestCase):
         self.assertEqual(restored.applied_as, "scenario_overlay")
         self.assertEqual(restored.params.diameter_mm, 165.0)
         self.assertEqual(restored.params.spacing_a_m, 6.0)
+        self.assertEqual(restored.params.explosive_key, "ПВВ Гранулит-РП")
+        self.assertEqual(restored.params.inclination_deg, 10.0)
+        self.assertEqual(restored.params.delay_interval_ms, 25.0)
         self.assertEqual(restored.outcomes.x50_mm, 210.0)
         self.assertEqual(restored.outcomes.metric_value("total_predicted_cost_rub"), 210000.0)
 

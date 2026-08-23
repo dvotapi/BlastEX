@@ -312,5 +312,15 @@
 .scenario-compare-table tr.pareto th { color:#245c3c; }
 .opt-axis { display:grid; grid-template-columns:auto 1fr 1.4fr; gap:8px; align-items:center; }
 .opt-axis input[type="text"] { width:100%; }
+.recommendation-result { display:grid; gap:8px; }
+.recommendation-banner {
+  color:#5a3d12; background:#fde8d4; border-radius:6px; padding:6px 8px; font-weight:600;
+}
+.recommendation-why { list-style:none; margin:0; padding:0; display:grid; gap:4px; }
+.recommendation-why li {
+  font-size:12px; background:#f3f7f4; border-radius:6px; padding:6px 8px; display:grid; gap:2px;
+}
+.recommendation-why strong { color:#17231d; }
+.recommendation-assessment { display:grid; gap:6px; background:#f3f7f4; border-radius:8px; padding:8px; }
 
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

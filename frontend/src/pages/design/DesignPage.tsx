@@ -71,6 +71,8 @@ import {
   type LearningSummary,
   type RegistryFamily,
   type RegistryRecord,
+  type DriftAlert,
+  type DriftReport,
 } from "../../types/design";
 import { emptyHoleGeology } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
@@ -101,6 +103,7 @@ import { OptimizationPanel, type OptimizationVariableDraft } from "./Optimizatio
 import { RecommendationPanel } from "./RecommendationPanel";
 import { LearningPanel } from "./LearningPanel";
 import { RegistryPanel } from "./RegistryPanel";
+import { DriftPanel } from "./DriftPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -242,6 +245,12 @@ export function DesignPage({
   const [registryFamily, setRegistryFamily] = useState<RegistryFamily | "">("");
   const [registryItems, setRegistryItems] = useState<RegistryRecord[]>([]);
   const [registrySelected, setRegistrySelected] = useState<RegistryRecord | null>(null);
+  const [driftBusy, setDriftBusy] = useState(false);
+  const [driftFamily, setDriftFamily] = useState("");
+  const [driftModelId, setDriftModelId] = useState("");
+  const [driftDatasetId, setDriftDatasetId] = useState("");
+  const [driftReport, setDriftReport] = useState<DriftReport | null>(null);
+  const [driftAlerts, setDriftAlerts] = useState<DriftAlert[]>([]);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -271,7 +280,7 @@ export function DesignPage({
     };
   }, [playing, analysis, maxAnimationMs]);
 
-  useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); refreshLearning(); }, []);
+  useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); refreshLearning(); refreshDriftAlerts(); }, []);
   useEffect(() => { refreshRegistry(); }, [registryFamily]);
 
   useEffect(() => {
@@ -1512,6 +1521,64 @@ export function DesignPage({
     }
   }
 
+  async function refreshDriftAlerts() {
+    try {
+      const listed = await api.design.listDriftAlerts({ acknowledged: false });
+      setDriftAlerts(listed.items);
+    } catch {
+      setDriftAlerts([]);
+    }
+  }
+
+  function selectDriftModel(family: string, modelId: string) {
+    setDriftFamily(family);
+    setDriftModelId(modelId);
+  }
+
+  async function runDriftCheck() {
+    if (!driftFamily || !driftModelId || !driftDatasetId) {
+      setError("Выберите производственную модель и текущий снимок наблюдений.");
+      return;
+    }
+    setDriftBusy(true);
+    setError("");
+    try {
+      const report = await api.design.checkDrift({
+        family: driftFamily,
+        model_id: driftModelId,
+        current_dataset_id: driftDatasetId,
+      });
+      setDriftReport(report);
+      setDriftAlerts(report.alerts.filter((item) => !item.acknowledged));
+      await refreshRegistry();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось проверить дрифт.");
+    } finally {
+      setDriftBusy(false);
+    }
+  }
+
+  async function acknowledgeDrift(alertId: string) {
+    setDriftBusy(true);
+    setError("");
+    try {
+      await api.design.acknowledgeDriftAlert(alertId, { confirm: true });
+      await refreshDriftAlerts();
+      if (driftReport) {
+        setDriftReport({
+          ...driftReport,
+          alerts: driftReport.alerts.map((item) =>
+            item.alert_id === alertId ? { ...item, acknowledged: true, auto_deployed: false } : item,
+          ),
+        });
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось подтвердить сигнал дрифта.");
+    } finally {
+      setDriftBusy(false);
+    }
+  }
+
   async function createDesignScenario() {
     if (!document.holes.length) {
       setError("Сначала постройте сетку скважин.");
@@ -2270,6 +2337,20 @@ export function DesignPage({
             onRefresh={refreshRegistry}
             onOpen={openRegistry}
             onPromote={promoteRegistry}
+          />
+          <DriftPanel
+            models={registryItems}
+            selectedModelId={driftFamily && driftModelId ? `${driftFamily}:${driftModelId}` : ""}
+            onModelChange={selectDriftModel}
+            snapshots={datasetItems}
+            currentDatasetId={driftDatasetId}
+            onCurrentDatasetChange={setDriftDatasetId}
+            report={driftReport}
+            alerts={driftAlerts}
+            busy={driftBusy}
+            actor={user.email}
+            onCheck={runDriftCheck}
+            onAcknowledge={acknowledgeDrift}
           />
         </div>
         <div className="design-main">

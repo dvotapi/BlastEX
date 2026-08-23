@@ -179,3 +179,23 @@ class ImmutableRegistryError(BlastExError):
 class RegistryIsolationError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="registry_isolation")
+
+
+class DriftNotFoundError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="drift_not_found")
+
+
+class InvalidDriftError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_drift")
+
+
+class ImmutableDriftError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="immutable_drift")
+
+
+class DriftIsolationError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="drift_isolation")

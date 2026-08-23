@@ -6,12 +6,14 @@ ML design recommendation (profiles, never auto-applied) lives in
 ``design.recommendation`` (BDX-018). Two-level learning (global prior plus
 per-site adaptation, tenant isolation) lives in ``intelligence.learning``
 (BDX-019). Formal model-registry lifecycle (human-gated promotion, checksum,
-dataset lineage) lives in ``intelligence.registry`` (BDX-020).
+dataset lineage) lives in ``intelligence.registry`` (BDX-020). Feature /
+target / prediction drift monitoring (alerts only, never auto-deploy) lives
+in ``intelligence.drift`` (BDX-021).
 
 Training never reads mutable production records. Predictions are overlays and
 do not silently modify or approve an engineering design. A point estimate is
 never returned without an interval, confidence, similarity, applicability
 check and a driver / recommendation explanation. Snapshots and models of one
 tenant never leak into another. Registry promotion is explicit and never
-auto-deploys a candidate.
+auto-deploys a candidate. Drift alerts never retrain or swap the live model.
 """

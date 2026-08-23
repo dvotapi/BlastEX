@@ -91,6 +91,8 @@ import type {
   LearningPredictResponse,
   LearningSummary,
   RegistryRecord,
+  DriftAlert,
+  DriftReport,
 } from "../types/design";
 
 const V1 = "/api/v1";
@@ -449,6 +451,37 @@ export const api = {
         statuses: Array<{ name: string; label: string; allowed_transitions: string[] }>;
         auto_deployed: boolean;
       }>(`${V1}/registry/meta`),
+    checkDrift: (payload: { family: string; model_id: string; current_dataset_id: string }) =>
+      post<DriftReport>(`${V1}/drift/check`, payload),
+    listDriftReports: (query?: { family?: string; model_id?: string }) => {
+      const params = new URLSearchParams();
+      if (query?.family) params.set("family", query.family);
+      if (query?.model_id) params.set("model_id", query.model_id);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: DriftReport[]; auto_deployed: boolean; auto_retrained: boolean }>(`${V1}/drift/reports${suffix}`);
+    },
+    getDriftReport: (reportId: string) =>
+      get<DriftReport>(`${V1}/drift/reports/${encodeURIComponent(reportId)}`),
+    listDriftAlerts: (query?: { family?: string; model_id?: string; acknowledged?: boolean }) => {
+      const params = new URLSearchParams();
+      if (query?.family) params.set("family", query.family);
+      if (query?.model_id) params.set("model_id", query.model_id);
+      if (query?.acknowledged != null) params.set("acknowledged", String(query.acknowledged));
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: DriftAlert[]; auto_deployed: boolean; auto_retrained: boolean }>(`${V1}/drift/alerts${suffix}`);
+    },
+    acknowledgeDriftAlert: (alertId: string, payload: { confirm: boolean }) =>
+      post<DriftAlert>(`${V1}/drift/alerts/${encodeURIComponent(alertId)}/acknowledge`, payload),
+    driftMeta: () =>
+      get<{
+        kinds: Array<{ name: string; label: string }>;
+        severities: Array<{ name: string; label: string }>;
+        data_roles: Record<string, string>;
+        auto_deployed: boolean;
+        auto_retrained: boolean;
+        action: string;
+        next_step: string;
+      }>(`${V1}/drift/meta`),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     createScenario: (payload: {

@@ -26,6 +26,9 @@ from api.schemas.design import (
     DesignSummarySchema,
     EngineeringMapsRequest,
     EngineeringMapsSchema,
+    FragmentationModelsResponse,
+    FragmentationPredictRequest,
+    FragmentationPredictResponse,
     HoleGeometryEditRequest,
     HoleGeometryEditResponse,
     HoleInsertRequest,
@@ -218,6 +221,67 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
 def design_maps(request: EngineeringMapsRequest) -> EngineeringMapsSchema:
     design = BlastDesign.from_dict(request.design.model_dump())
     return EngineeringMapsSchema(**engineering_maps(design))
+
+
+def list_fragmentation_models() -> FragmentationModelsResponse:
+    from simulation.fragmentation.engine import list_models
+
+    return FragmentationModelsResponse(models=list_models())
+
+
+def predict_fragmentation(request: FragmentationPredictRequest) -> FragmentationPredictResponse:
+    from simulation.fragmentation.engine import predict_design
+    from simulation.fragmentation.models import Calibration, DistributionPoint, MeasuredFragmentation
+    from simulation.fragmentation.regions import ExplosiveSpec, RockSpec
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    rock = None
+    if request.rock is not None:
+        rock = RockSpec(
+            name=request.rock.name,
+            density_t_m3=request.rock.density_t_m3,
+            ucs_mpa=request.rock.ucs_mpa,
+            fissuring_ff=request.rock.fissuring_ff,
+        )
+    explosive = None
+    if request.explosive is not None:
+        explosive = ExplosiveSpec(
+            name=request.explosive.name,
+            density_t_m3=request.explosive.density_t_m3,
+            power_mj_kg=request.explosive.power_mj_kg,
+        )
+    catalog = {
+        item.name: ExplosiveSpec(name=item.name, density_t_m3=item.density_t_m3, power_mj_kg=item.power_mj_kg)
+        for item in request.explosives
+    }
+    measured = [
+        MeasuredFragmentation(
+            x20_mm=item.x20_mm,
+            x50_mm=item.x50_mm,
+            x80_mm=item.x80_mm,
+            oversize_pct=item.oversize_pct,
+            curve=[DistributionPoint.from_dict(point.model_dump()) for point in item.curve],
+            source=item.source,
+            method=item.method,
+        )
+        for item in request.measured
+    ]
+    try:
+        payload = predict_design(
+            design,
+            model=request.model,
+            lump_size_mm=request.lump_size_mm,
+            max_oversize_pct=request.max_oversize_pct,
+            calibration=Calibration.from_dict(request.calibration),
+            default_rock=rock,
+            default_explosive=explosive,
+            explosives=catalog or None,
+            hole_oversize_coeff=request.hole_oversize_coeff,
+            measured=measured,
+        )
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    return FragmentationPredictResponse(**payload)
 
 
 def edit_hole_geometry(request: HoleGeometryEditRequest) -> HoleGeometryEditResponse:

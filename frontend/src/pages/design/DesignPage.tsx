@@ -8,8 +8,11 @@ import {
   DEFAULT_PATTERN_PARAMS,
   DEFAULT_PPV_REQUEST,
   DEFAULT_TIE_PARAMS,
+  FRAGMENTATION_MAP_METRIC_LABELS,
   MAP_METRIC_LABELS,
+  MAP_METRIC_UNITS,
   emptyDesign,
+  isFragmentationMapMetric,
   networkTies,
   normalizeNetwork,
   type AnalyzeResponse,
@@ -18,10 +21,12 @@ import {
   type DesignCostResult,
   type DesignSummary,
   type EngineeringMaps,
+  type FragmentationModelId,
+  type FragmentationPredictResponse,
   type Hole,
   type HoleKind,
   type HoleLoad,
-  type MapMetric,
+  type OverlayMetric,
   type PatternParams,
   type Point3,
   type PpvRequest,
@@ -34,6 +39,7 @@ import { emptyHoleGeology } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
 import { CostPanel } from "./CostPanel";
 import { designReducer, initDesignState } from "./designReducer";
+import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleTable } from "./HoleTable";
 import { PatternPanel } from "./PatternPanel";
@@ -101,7 +107,11 @@ export function DesignPage({
   const [costBusy, setCostBusy] = useState(false);
   const [insertKind, setInsertKind] = useState<HoleKind>("production");
   const [maps, setMaps] = useState<EngineeringMaps | null>(null);
-  const [mapMetric, setMapMetric] = useState<MapMetric | "">("");
+  const [mapMetric, setMapMetric] = useState<OverlayMetric | "">("");
+  const [fragModel, setFragModel] = useState<FragmentationModelId>("kuzram");
+  const [lumpSizeMm, setLumpSizeMm] = useState(400);
+  const [fragResult, setFragResult] = useState<FragmentationPredictResponse | null>(null);
+  const [fragBusy, setFragBusy] = useState(false);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -151,7 +161,18 @@ export function DesignPage({
   }, [document.loads]);
 
   const mapOverlay = useMemo(() => {
-    if (!mapMetric || !maps) return { values: undefined as Record<string, number> | undefined, range: null as { min: number; max: number } | null };
+    if (!mapMetric) return { values: undefined as Record<string, number> | undefined, range: null as { min: number; max: number } | null };
+    if (isFragmentationMapMetric(mapMetric)) {
+      if (!fragResult?.maps) return { values: undefined, range: null };
+      const values: Record<string, number> = {};
+      for (const sample of fragResult.maps.holes) {
+        const raw = sample[mapMetric];
+        if (raw !== null && raw !== undefined) values[sample.hole_id] = raw;
+      }
+      const stat = fragResult.maps.stats[mapMetric];
+      return { values, range: stat ? { min: stat.min, max: stat.max } : null };
+    }
+    if (!maps) return { values: undefined, range: null };
     const values: Record<string, number> = {};
     for (const sample of maps.holes) {
       const raw = sample[mapMetric];
@@ -159,7 +180,7 @@ export function DesignPage({
     }
     const stat = maps.stats[mapMetric];
     return { values, range: stat ? { min: stat.min, max: stat.max } : null };
-  }, [mapMetric, maps]);
+  }, [mapMetric, maps, fragResult]);
 
   useEffect(() => {
     if (!incomingVariant) return;
@@ -210,6 +231,7 @@ export function DesignPage({
       const result = await api.design.pattern(document.contour, patternParams, document.holes, document.surfaces, document.domains);
       dispatch({ type: "SET_HOLES", holes: result.holes });
       setBlockVolumeM3(result.block_volume_m3);
+      setFragResult(null);
       await refreshMaps({ ...document, holes: result.holes, pattern_params: patternParams as unknown as Record<string, unknown> });
       setSelected(new Set());
       setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
@@ -283,6 +305,44 @@ export function DesignPage({
       setMaps(result);
     } catch {
       setMaps(null);
+    }
+  }
+
+  async function predictFragmentation() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    const explosive = explosives.find((item) => item.key === explosiveKey);
+    setFragBusy(true);
+    setError("");
+    try {
+      const result = await api.design.fragmentation({
+        design: {
+          ...document,
+          pattern_params: patternParams as unknown as Record<string, unknown>,
+          charge_rules: chargeRules as unknown as Record<string, unknown>,
+          explosive_key: explosiveKey,
+        },
+        model: fragModel,
+        lump_size_mm: lumpSizeMm,
+        max_oversize_pct: 5,
+        explosive: explosive
+          ? { name: explosive.name, density_t_m3: explosive.density_t_m3, power_mj_kg: explosive.power_mj_kg }
+          : undefined,
+        explosives: explosives.map((item) => ({
+          name: item.name,
+          density_t_m3: item.density_t_m3,
+          power_mj_kg: item.power_mj_kg,
+        })),
+        hole_oversize_coeff: chargeRules.hole_oversize_coeff,
+      });
+      setFragResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось рассчитать дробление.");
+      setFragResult(null);
+    } finally {
+      setFragBusy(false);
     }
   }
 
@@ -372,6 +432,7 @@ export function DesignPage({
         explosives: catalog,
       });
       dispatch({ type: "SET_LOADS", loads: result.loads });
+      setFragResult(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось рассчитать заряжание.");
     } finally {
@@ -655,6 +716,7 @@ export function DesignPage({
       setSelectedDomainId(design.domains[0]?.id ?? null);
       setDrawingDomain(false);
       setMaps(null);
+      setFragResult(null);
       setPendingTieFromId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
@@ -691,6 +753,7 @@ export function DesignPage({
     setSelectedDomainId(null);
     setDrawingDomain(false);
     setMaps(null);
+    setFragResult(null);
     setPendingTieFromId(null);
   }
 
@@ -840,6 +903,16 @@ export function DesignPage({
             busy={costBusy}
             result={costResult}
           />
+          <FragmentationPanel
+            model={fragModel}
+            onModelChange={setFragModel}
+            lumpSizeMm={lumpSizeMm}
+            onLumpSizeChange={setLumpSizeMm}
+            onPredict={predictFragmentation}
+            busy={fragBusy}
+            result={fragResult}
+            selectedHoleId={selected.size === 1 ? Array.from(selected)[0] : null}
+          />
         </div>
         <div className="design-main">
           {mode === "3d" ? (
@@ -858,19 +931,25 @@ export function DesignPage({
                 <label>
                   Карта
                   <select value={mapMetric} onChange={(e) => {
-                    const next = e.target.value as MapMetric | "";
+                    const next = e.target.value as OverlayMetric | "";
                     setMapMetric(next);
-                    if (next && !maps) refreshMaps();
+                    if (!next) return;
+                    if (isFragmentationMapMetric(next)) {
+                      if (!fragResult && !fragBusy) predictFragmentation();
+                      return;
+                    }
+                    if (!maps) refreshMaps();
                   }}>
                     <option value="">тип скважины</option>
                     {Object.entries(MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    {Object.entries(FRAGMENTATION_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </label>
                 {mapMetric && mapOverlay.range && (
                   <span className="map-legend">
                     <small>{mapOverlay.range.min.toFixed(1)}</small>
                     <i />
-                    <small>{mapOverlay.range.max.toFixed(1)} м</small>
+                    <small>{mapOverlay.range.max.toFixed(1)} {MAP_METRIC_UNITS[mapMetric]}</small>
                   </span>
                 )}
               </div>

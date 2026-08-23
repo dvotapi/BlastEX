@@ -1,5 +1,11 @@
 import math  # Импортируем модуль математики (нужен для ПИ и возведения в степень)
-from dataclasses import dataclass  # Импортируем декоратор для создания удобных структур данных 
+from dataclasses import dataclass  # Импортируем декоратор для создания удобных структур данных
+
+from simulation.fragmentation.distributions import rosin_rammler_oversize_pct
+from simulation.fragmentation.kuznetsov import kuznetsov_x50_mm, rock_factor_A
+from simulation.fragmentation.kuzram import cunningham_uniformity_n
+from simulation.fragmentation.units import relative_weight_strength
+ 
 
 # --- БЛОК ОПИСАНИЯ ДАННЫХ Классов ---
 
@@ -37,15 +43,12 @@ class BlastEngine:
         self.explosive = explosive  # Запоминаем данные о взрывчатке
         self.target = target        # Запоминаем цеелевые настройки
 
-    # Внутренний расчет индекса взрываемости (по формулам Лилли/Kuz-Ram)
+    # Rock factor A and RE_weight live in simulation.fragmentation (BDX-006).
     def _get_rock_factor(self):
-        # Суммируем факторы прочности, плотности и структуры с коэффициентами
-        index = self.rock.ucs_mpa / 20 + self.rock.density_t_m3 * 2.5 + 7
-        return 0.12 * index  # Возвращаем итоговое число (Rock Factor "A")
+        return rock_factor_A(self.rock.ucs_mpa, self.rock.density_t_m3)
 
     def _get_re_weight(self) -> float:
-        
-        return self.explosive.power_mj_kg / 4.184 # Расчет тротилового эквивалента по энергии на кг (Теплота взрыва тротила Q TNT = 4.184 МДж/кг)
+        return relative_weight_strength(self.explosive.power_mj_kg)
 
 
     def _get_E_for_kuznetsov(self) -> float:
@@ -73,14 +76,11 @@ class BlastEngine:
         charge_mass = cap_m * total_depth_m * 0.8  # Масса заряда (коэф. заполнения 80%)
         v_hole = charge_mass / q # Объем скважины
         W = math.sqrt(v_hole / (self.target.spacing_coeff_m * self.target.bench_height_m)) # ЛНС
-        A = self._get_rock_factor()  # Индекс породы
-        # Кузнецов: x50 ∝ (115/E)^(19/30); E = 115·RE_weight ⇒ множитель (1/RE_weight)^(19/30).
+        A = self._get_rock_factor()
         re_weight = self._get_re_weight()
-        x50_cm = A * math.pow(q, -0.8) * math.pow(charge_mass, 1/6) * math.pow(re_weight, -19/30)
-        x50_mm = x50_cm * 10  # см → мм
-        n = max(0.8, (2.2 - 14 * (W / d_m)) * (1 + (self.target.spacing_coeff_m - 1)/2)) # Показатель однородности дробимости
-        xc = x50_mm / math.pow(math.log(2), 1/n) # Характеристический размер куска
-        oversize = (math.exp(-math.pow(self.target.lump_size_mm / xc, n))) * 100 # Выход негабарита
+        x50_mm = kuznetsov_x50_mm(A, q, charge_mass, re_weight)
+        n = cunningham_uniformity_n(W, d_m, self.target.spacing_coeff_m)
+        oversize = rosin_rammler_oversize_pct(x50_mm, n, self.target.lump_size_mm)
         
         return {
            "diameter": diameter_mm, # Диаметр скважины
@@ -110,21 +110,10 @@ class BlastEngine:
         
         # 3. Применяем модель Кузнецова (ищем средний размер куска x50)
         A = self._get_rock_factor()
-        # Кузнецов: x50 ∝ (1/RE_weight)^(19/30), RE_weight = Q_exp/4.184 — более сильное ВВ даёт меньше x50
         re_weight = self._get_re_weight()
-        x50_cm = A * math.pow(target_q, -0.8) * math.pow(charge_mass, 1/6) * math.pow(re_weight, -19/30)
-        x50_mm = x50_cm * 10  # см → мм
-        
-        # 4. Считаем показатель однородности дробимости (n) по Каннингему
-        # Он зависит от того, насколько "густо" натыканы скважины относительно их диаметра
-        n = (2.2 - 14 * (W / d_m)) * (1 + (self.target.spacing_coeff_m - 1)/2)
-        n = max(0.8, n) # Ограничиваем n снизу, чтобы расчет не превратился в абсурд
-        
-        # 5. Считаем выход негабарита через распределение Розина-Рамблера
-        # xc - это характеристический размер куска (математическая константа распределения)
-        xc = x50_mm / math.pow(math.log(2), 1/n)
-        # Формула дает вероятность встретить кусок больше заданного в lump_size_mm
-        oversize = (math.exp(-math.pow(self.target.lump_size_mm / xc, n))) * 100
+        x50_mm = kuznetsov_x50_mm(A, target_q, charge_mass, re_weight)
+        n = cunningham_uniformity_n(W, d_m, self.target.spacing_coeff_m)
+        oversize = rosin_rammler_oversize_pct(x50_mm, n, self.target.lump_size_mm)
         
         # Возвращаем результаты в виде словаря (ключ: значение)
         return {

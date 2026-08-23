@@ -200,4 +200,12 @@
 .scene3d-loading { height:560px; display:grid; place-items:center; border:1px solid #d9e2dd; border-radius:15px; background:#f3f6f4; color:#69776f; font-size:13px; }
 @media (max-width:900px) { .scene3d-canvas { height:420px; } }
 
+.frag-caption { display:flex; justify-content:space-between; gap:8px; align-items:baseline; font-size:11px; color:#5c6a63; }
+.frag-caption b { color:#173125; font-size:12px; }
+.frag-curve { width:100%; height:88px; background:#f7faf8; border:1px solid #d9e2dd; border-radius:9px; }
+.frag-curve line { stroke:#d9e2dd; stroke-width:1; }
+.frag-curve path { fill:none; stroke:#2d7556; stroke-width:2; }
+.frag-curve text { fill:#7b8982; font-size:8px; }
+.frag-warnings { color:#a15c32; }
+
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

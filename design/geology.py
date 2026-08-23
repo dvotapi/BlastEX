@@ -126,6 +126,11 @@ def _domain_contains(domain: BlastDomain, point: Point3) -> bool:
     return True
 
 
+def domain_at(domains: list[BlastDomain], point: Point3) -> BlastDomain | None:
+    """Highest-priority designed domain covering a point. Empty polygon = whole plan."""
+    return _pick_domain(domains, point)
+
+
 def _pick_domain(domains: list[BlastDomain], point: Point3) -> BlastDomain | None:
     best: BlastDomain | None = None
     best_index = -1

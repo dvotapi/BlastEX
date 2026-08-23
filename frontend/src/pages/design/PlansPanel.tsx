@@ -34,7 +34,7 @@ export function PlansPanel({
           <button className="calculate-button" onClick={onSave} disabled={busy}>{currentDesignId ? "Сохранить" : "Сохранить как новый"}</button>
           <button className="secondary-button" onClick={onNew} disabled={busy}>Новый паспорт</button>
           <button className="secondary-button" onClick={onExportCsv} disabled={busy || !currentDesignId}>Экспорт CSV</button>
-          <button className="secondary-button" onClick={onPrintPassport} disabled={busy || !currentDesignId}>Печать паспорта</button>
+          <button className="secondary-button" onClick={onPrintPassport} disabled={busy}>Печать паспорта</button>
         </div>
         {plans.length > 0 && (
           <ul className="plans-list">

@@ -60,6 +60,7 @@ import type {
   AsFiredHole,
   AsFiredCompareResponse,
   ExecutionCompareResponse,
+  BlastPassport,
   BlastResult,
   BlastResultCompareResponse,
   DatasetSnapshot,
@@ -603,6 +604,45 @@ export const api = {
         `${V1}/design/plans/${designId}/recommendations`,
       ),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,
+    passportRoles: () =>
+      get<{
+        roles: string[];
+        labels_ru: Record<string, string>;
+        labels_en: Record<string, string>;
+        approved: boolean;
+        auto_approved: boolean;
+        disclaimer: string;
+      }>(`${V1}/design/passport/roles`),
+    buildPassport: (payload: {
+      design: BlastDesign;
+      lump_size_mm?: number;
+      max_oversize_pct?: number;
+      fragmentation_model?: string;
+      include_predictions?: boolean;
+      planned_cost?: {
+        total_amount_rub?: number;
+        cost_per_m3?: number;
+        variable_total_rub?: number;
+        labor_total_rub?: number;
+        fixed_total_rub?: number;
+        notes?: string;
+      };
+    }) => post<BlastPassport>(`${V1}/design/passport`, payload),
+    renderPassportHtml: async (payload: {
+      design: BlastDesign;
+      lump_size_mm?: number;
+      planned_cost?: { total_amount_rub?: number; cost_per_m3?: number };
+    }) => {
+      const response = await fetch(`${V1}/design/passport.html`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error("Не удалось собрать печатную форму паспорта.");
+      return response.text();
+    },
+    getPlanPassport: (designId: string) => get<BlastPassport>(`${V1}/design/plans/${designId}/passport`),
     listPlans: () => get<{ items: DesignSummary[] }>(`${V1}/design/plans`),
     createPlan: (design: BlastDesign) => post<BlastDesign>(`${V1}/design/plans`, design),
     getPlan: (designId: string) => get<BlastDesign>(`${V1}/design/plans/${designId}`),

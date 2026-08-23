@@ -60,8 +60,9 @@ from api.schemas.design import (
     BlastResultCompareResponse,
 )
 from api.schemas.movement import MovementModelsResponse, MovementPredictRequest, MovementPredictResponse
+from api.schemas.reporting import PassportBuildRequest, PassportDocumentSchema, PassportRolesResponse
 from api.security import require_internal_access
-from api.services import design_service
+from api.services import design_service, reporting_service
 
 router = APIRouter(prefix="/design", tags=["design"])
 
@@ -259,9 +260,32 @@ def export_plan_csv(
     )
 
 
+@router.get("/passport/roles", response_model=PassportRolesResponse)
+def get_passport_roles() -> PassportRolesResponse:
+    return reporting_service.list_roles()
+
+
+@router.post("/passport", response_model=PassportDocumentSchema)
+def post_passport(request: PassportBuildRequest) -> PassportDocumentSchema:
+    return reporting_service.build_from_request(request)
+
+
+@router.post("/passport.html")
+def post_passport_html(request: PassportBuildRequest) -> Response:
+    html_text = reporting_service.render_from_request(request)
+    return Response(content=html_text, media_type="text/html")
+
+
+@router.get("/plans/{design_id}/passport", response_model=PassportDocumentSchema)
+def get_plan_passport(
+    design_id: str, session: dict = Depends(require_internal_access)
+) -> PassportDocumentSchema:
+    return reporting_service.get_plan_passport(session["org"], design_id)
+
+
 @router.get("/plans/{design_id}/passport.html")
 def export_plan_passport(
     design_id: str, session: dict = Depends(require_internal_access)
 ) -> Response:
-    html_text = design_service.export_plan_passport(session["org"], design_id)
+    html_text = reporting_service.export_plan_passport_html(session["org"], design_id)
     return Response(content=html_text, media_type="text/html")

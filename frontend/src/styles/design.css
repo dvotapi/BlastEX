@@ -208,6 +208,21 @@
 .frag-curve text { fill:#7b8982; font-size:8px; }
 .frag-warnings { color:#a15c32; }
 .movement-disclaimer { color:#6a4a28; }
+.passport-roles { display:flex; flex-wrap:wrap; gap:6px; }
+.passport-role { display:inline-block; padding:3px 8px; border-radius:999px; font-size:10px; font-weight:700; }
+.passport-role.role-designed { background:#e8f3ec; color:#173125; }
+.passport-role.role-executed { background:#eef2ff; color:#2a3a7a; }
+.passport-role.role-predicted { background:#fff3d6; color:#6a4a28; }
+.passport-role.role-measured { background:#fdecea; color:#7a2a22; }
+.passport-disclaimer { color:#6a4a28; }
+.passport-table { display:grid; gap:3px; max-height:280px; overflow:auto; }
+.passport-head, .passport-row { display:grid; grid-template-columns:1.4fr repeat(4, .8fr); gap:6px; font-size:11px; padding:4px 6px; border-radius:6px; }
+.passport-head { color:#5c6a63; font-weight:700; }
+.passport-row { background:#f6f8f7; }
+.passport-row .col-designed { color:#173125; }
+.passport-row .col-executed { color:#2a3a7a; }
+.passport-row .col-predicted { color:#6a4a28; }
+.passport-row .col-measured { color:#7a2a22; }
 .movement-vector line { stroke:#8a5a1a; stroke-width:1.6; opacity:0.9; }
 
 .receptor-marker rect { fill:#c45c1a; stroke:#fff; stroke-width:1.2; }

@@ -51,7 +51,18 @@ class PassportHtmlTests(unittest.TestCase):
         design = _design()
         html_text = passport_html(design)
         self.assertIn("Тестовый паспорт", html_text)
-        self.assertEqual(html_text.count("<tr>"), len(design.holes) + 1)
+        holes_body = html_text.split('class="holes-table"', 1)[1]
+        self.assertEqual(holes_body.count("<tr>"), len(design.holes) + 1)
+
+    def test_passport_keeps_role_columns_visible(self):
+        design = _design()
+        html_text = passport_html(design)
+        self.assertIn("DESIGNED", html_text)
+        self.assertIn("EXECUTED", html_text)
+        self.assertIn("PREDICTED", html_text)
+        self.assertIn("MEASURED", html_text)
+        self.assertIn("col-predicted", html_text)
+        self.assertIn("не утверждён автоматически", html_text.lower())
 
     def test_passport_escapes_html_in_name(self):
         design = _design()

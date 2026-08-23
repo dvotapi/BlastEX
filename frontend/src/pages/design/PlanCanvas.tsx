@@ -126,6 +126,8 @@ export function PlanCanvas({
     setDragState(next);
   }, []);
   const pinchRef = useRef<{ pointers: Map<number, Vec2>; distance: number; center: Vec2 } | null>(null);
+  // Опознанный тачпад: его обычная прокрутка панорамирует, а не масштабирует.
+  const trackpadRef = useRef(false);
   // Тап на тачскрине, чья правка ждёт отпускания пальца (см. handlePointerDown).
   const pendingTapRef = useRef<{ pointerId: number; screen: Vec2 } | null>(null);
 
@@ -198,7 +200,13 @@ export function PlanCanvas({
   );
 
   // React вешает wheel пассивно, поэтому preventDefault там не работает и
-  // страница прокручивается вместо зума — слушаем событие нативно.
+  // страница прокручивается или масштабируется вместо плана — слушаем нативно.
+  //
+  // Тачпад и мышь дают разные жесты, и путать их нельзя: на тачпаде щипок —
+  // это wheel с ctrlKey, а двумя пальцами листают (как в картах и Figma), тогда
+  // как колесо мыши привычно масштабирует. Тачпад узнаём по дробному шагу или
+  // горизонтальной составляющей и запоминаем — дальше все обычные прокрутки от
+  // него панорамируют.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -207,21 +215,59 @@ export function PlanCanvas({
       const rect = el!.getBoundingClientRect();
       const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? rect.height : 1;
-      if (e.shiftKey || e.altKey) {
-        const shift = e.deltaY * unit;
-        onCameraChange(
-          e.shiftKey
-            ? panCameraByScreen(cameraRef.current, shift, 0)
-            : panCameraByScreen(cameraRef.current, 0, shift),
-        );
+      const dx = e.deltaX * unit;
+      const dy = e.deltaY * unit;
+
+      if (!e.ctrlKey && (dx !== 0 || !Number.isInteger(e.deltaY) || Math.abs(dy) < 40)) {
+        trackpadRef.current = true;
+      }
+
+      const zooming = e.ctrlKey || e.metaKey || (!trackpadRef.current && !e.shiftKey && !e.altKey);
+      if (zooming) {
+        const factor = Math.exp(-dy * (e.ctrlKey ? 0.012 : 0.0022));
+        onCameraChange(zoomAt(cameraRef.current, viewportRef.current, screen, factor));
         return;
       }
-      const delta = e.deltaY * unit * (e.ctrlKey ? 0.6 : 1);
-      const factor = Math.exp(-delta * 0.0022);
-      onCameraChange(zoomAt(cameraRef.current, viewportRef.current, screen, factor));
+      // Shift превращает вертикальную прокрутку колеса в горизонтальную.
+      const pan = e.shiftKey && dx === 0 ? { x: dy, y: 0 } : { x: dx, y: dy };
+      onCameraChange(panCameraByScreen(cameraRef.current, pan.x, pan.y));
     }
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
+  }, [onCameraChange]);
+
+  // Safari (и старые WebKit) шлют щипок не как wheel, а отдельными жестами.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    let lastScale = 1;
+    function onGestureStart(e: Event) {
+      e.preventDefault();
+      lastScale = 1;
+    }
+    function onGestureChange(e: Event) {
+      e.preventDefault();
+      const scale = (e as unknown as { scale: number }).scale;
+      if (!scale || !Number.isFinite(scale)) return;
+      const rect = el!.getBoundingClientRect();
+      const point = {
+        x: ((e as MouseEvent).clientX || rect.width / 2 + rect.left) - rect.left,
+        y: ((e as MouseEvent).clientY || rect.height / 2 + rect.top) - rect.top,
+      };
+      onCameraChange(zoomAt(cameraRef.current, viewportRef.current, point, scale / lastScale));
+      lastScale = scale;
+    }
+    function onGestureEnd(e: Event) {
+      e.preventDefault();
+    }
+    el.addEventListener("gesturestart", onGestureStart);
+    el.addEventListener("gesturechange", onGestureChange);
+    el.addEventListener("gestureend", onGestureEnd);
+    return () => {
+      el.removeEventListener("gesturestart", onGestureStart);
+      el.removeEventListener("gesturechange", onGestureChange);
+      el.removeEventListener("gestureend", onGestureEnd);
+    };
   }, [onCameraChange]);
 
   const deleteSelectedVertices = useCallback(() => {
@@ -249,6 +295,12 @@ export function PlanCanvas({
       if (!el || !el.tagName) return false;
       return el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable;
     }
+    function onScreen(): boolean {
+      const wrap = wrapRef.current;
+      if (!wrap) return false;
+      const box = wrap.getBoundingClientRect();
+      return box.bottom > 0 && box.top < window.innerHeight && box.width > 0;
+    }
     function active(target: EventTarget | null): boolean {
       if (isTyping(target)) return false;
       // Курсор над планом — пробел всегда панорама. Если же курсор увели, а
@@ -257,7 +309,10 @@ export function PlanCanvas({
       const focused = document.activeElement;
       if (focused && (focused.tagName === "BUTTON" || focused.tagName === "A")) return false;
       const wrap = wrapRef.current;
-      return !!wrap && wrap.contains(focused);
+      if (wrap && wrap.contains(focused)) return true;
+      // Фокуса нет ни на чём (частый случай: страницу прокрутили колесом, по
+      // кнопкам не кликали) — пробел иначе пролистает страницу под планом.
+      return (!focused || focused === document.body || focused === document.documentElement) && onScreen();
     }
     function onKeyDown(e: KeyboardEvent) {
       if (e.code !== "Space" || !active(e.target)) return;
@@ -539,6 +594,7 @@ export function PlanCanvas({
 
   function handlePointerMove(e: React.PointerEvent) {
     const drag = dragRef.current;
+    pointerInsideRef.current = true;
     const screen = toScreenPoint(e);
     setCursorWorld(worldOf(screen));
 
@@ -1101,7 +1157,8 @@ export function PlanCanvas({
           <b>Управление планом</b>
           <ul>
             <li><i>Перемещение:</i> тянуть правой или средней кнопкой мыши, либо пробел + перетаскивание, либо инструмент «Панорама», либо стрелки на клавиатуре.</li>
-            <li><i>Масштаб:</i> колесо мыши над планом (страница при этом не прокручивается), кнопки ＋/−, клавиши + и −, «По размеру» или 0 — вписать всё в окно.</li>
+            <li><i>Масштаб:</i> колесо мыши над планом, щипок на тачпаде, Ctrl/⌘ с прокруткой, кнопки ＋/−, клавиши + и −. «По размеру» или 0 — вписать всё в окно.</li>
+            <li><i>Тачпад:</i> двумя пальцами — панорама, щипок — масштаб. Страница под планом при этом не прокручивается и не масштабируется.</li>
             <li><i>Контур:</i> «Точка» — клик добавляет вершину, клик по ребру вставляет её в середину ребра. «Выбор» — перетаскивание вершины, рамка выделяет несколько.</li>
             <li><i>Удаление точки:</i> двойной клик по ней, правый клик, крестик рядом с ней или Delete для выделенных.</li>
             <li><i>Откосы:</i> инструмент «Откос» — клик по ребру помечает его открытым.</li>
@@ -1112,8 +1169,8 @@ export function PlanCanvas({
       ) : (
         <div className="plan-canvas-hint">
           {mode === "contour"
-            ? "Колесо — масштаб · правая кнопка или пробел — перемещение · двойной клик по точке — удалить · «？» — все жесты"
-            : "Колесо — масштаб · правая кнопка или пробел — перемещение · двойной клик — новая скважина · «？» — все жесты"}
+            ? "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик по точке — удалить · «？» — все жесты"
+            : "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик — новая скважина · «？» — все жесты"}
         </div>
       )}
       </div>

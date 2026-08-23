@@ -90,6 +90,7 @@ import type {
   LearningModel,
   LearningPredictResponse,
   LearningSummary,
+  RegistryRecord,
 } from "../types/design";
 
 const V1 = "/api/v1";
@@ -430,6 +431,24 @@ export const api = {
     }) => post<LearningPredictResponse>(`${V1}/learning/predict`, payload),
     learningAlgorithms: () =>
       get<{ items: CalibrationAlgorithm[]; default: string }>(`${V1}/learning/algorithms`),
+    listRegistryModels: (query?: { family?: string; status?: string; site_id?: string }) => {
+      const params = new URLSearchParams();
+      if (query?.family) params.set("family", query.family);
+      if (query?.status) params.set("status", query.status);
+      if (query?.site_id) params.set("site_id", query.site_id);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: RegistryRecord[]; auto_deployed: boolean }>(`${V1}/registry/models${suffix}`);
+    },
+    getRegistryModel: (family: string, modelId: string) =>
+      get<RegistryRecord>(`${V1}/registry/models/${encodeURIComponent(family)}/${encodeURIComponent(modelId)}`),
+    promoteRegistryModel: (family: string, modelId: string, payload: { to_status: string; confirm: boolean; note?: string }) =>
+      post<RegistryRecord>(`${V1}/registry/models/${encodeURIComponent(family)}/${encodeURIComponent(modelId)}/promote`, payload),
+    registryMeta: () =>
+      get<{
+        families: Array<{ name: string; label: string }>;
+        statuses: Array<{ name: string; label: string; allowed_transitions: string[] }>;
+        auto_deployed: boolean;
+      }>(`${V1}/registry/meta`),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     createScenario: (payload: {

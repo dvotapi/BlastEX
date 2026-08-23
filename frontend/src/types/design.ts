@@ -2528,4 +2528,68 @@ export type LearningPredictResponse = {
   provenance: LearningProvenance;
 };
 
+export type RegistryFamily = "calibration" | "outcomes" | "learning";
+export type RegistryStatus = "candidate" | "staging" | "production" | "retired" | "archived";
+
+export const REGISTRY_FAMILY_LABELS: Record<RegistryFamily, string> = {
+  calibration: "Калибровка",
+  outcomes: "Исходы",
+  learning: "Обучение",
+};
+
+export const REGISTRY_STATUS_LABELS: Record<RegistryStatus, string> = {
+  candidate: "кандидат",
+  staging: "стейджинг",
+  production: "производство",
+  retired: "снята",
+  archived: "архив",
+};
+
+export const REGISTRY_FAMILIES: Array<{ value: RegistryFamily; label: string }> = [
+  { value: "calibration", label: REGISTRY_FAMILY_LABELS.calibration },
+  { value: "outcomes", label: REGISTRY_FAMILY_LABELS.outcomes },
+  { value: "learning", label: REGISTRY_FAMILY_LABELS.learning },
+];
+
+export type RegistryLineage = {
+  training_dataset_id: string;
+  training_dataset_ids: string[];
+  training_dataset_version: number;
+  feature_schema_version: string;
+};
+
+export type RegistryTransition = {
+  from_status: string;
+  to_status: string;
+  actor: string;
+  at: string;
+  note: string;
+  confirm: boolean;
+  auto_deployed: boolean;
+};
+
+export type RegistryRecord = {
+  family: RegistryFamily | string;
+  model_id: string;
+  team_id: string;
+  site_id: string;
+  scope: string;
+  model_type: string;
+  class_name: string;
+  model_version: number;
+  status: RegistryStatus | string;
+  source_status: string;
+  checksum: string;
+  lineage: RegistryLineage;
+  training_date: string;
+  algorithm: string;
+  sample_count: number;
+  promoted_by: string;
+  promoted_at: string;
+  transitions: RegistryTransition[];
+  allowed_transitions: string[];
+  auto_deployed: boolean;
+  data_roles: Record<string, string>;
+};
+
 

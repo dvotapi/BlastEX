@@ -77,6 +77,7 @@ import type {
   DesignScenario,
   DesignScenarioParams,
   DesignScenarioSummary,
+  OptimizationResult,
   ScenarioCompareResponse,
   PredictedFragmentation,
   PredictedVibrationSnapshot,
@@ -412,6 +413,30 @@ export const api = {
       design?: BlastDesign;
       inline?: DesignScenario[];
     }) => post<ScenarioCompareResponse>(`${V1}/design/scenarios/compare`, payload),
+    optimize: (payload: {
+      design: BlastDesign;
+      variables: Array<{
+        name: string;
+        values?: Array<number | string>;
+        minimum?: number | null;
+        maximum?: number | null;
+        step?: number | null;
+      }>;
+      objectives?: string[];
+      target_x50_mm?: number;
+      max_candidates?: number;
+      include_baseline?: boolean;
+      persist?: boolean;
+      persist_pareto_as_scenarios?: boolean;
+      params?: DesignScenarioParams;
+      constraints?: { max_ppv_mm_s?: number; max_oversize_pct?: number; max_cost_rub?: number };
+    }) => post<OptimizationResult>(`${V1}/design/optimize`, payload),
+    promoteOptimization: (payload: {
+      design: BlastDesign;
+      name: string;
+      params: DesignScenarioParams;
+      persist?: boolean;
+    }) => post<DesignScenario>(`${V1}/design/optimize/promote`, payload),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,
     listPlans: () => get<{ items: DesignSummary[] }>(`${V1}/design/plans`),
     createPlan: (design: BlastDesign) => post<BlastDesign>(`${V1}/design/plans`, design),

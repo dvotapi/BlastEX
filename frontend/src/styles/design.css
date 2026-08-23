@@ -309,5 +309,8 @@
 }
 .scenario-compare-table tbody th small { display:block; font-weight:400; color:#5c6a63; }
 .scenario-compare-table td.best { background:#e8f1ea; color:#245c3c; font-weight:700; }
+.scenario-compare-table tr.pareto th { color:#245c3c; }
+.opt-axis { display:grid; grid-template-columns:auto 1fr 1.4fr; gap:8px; align-items:center; }
+.opt-axis input[type="text"] { width:100%; }
 
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

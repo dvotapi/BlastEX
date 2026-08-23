@@ -2142,6 +2142,9 @@ export type DesignScenarioParams = {
   stemming_m?: number | null;
   subdrill_m?: number | null;
   pattern?: string | null;
+  explosive_key?: string | null;
+  inclination_deg?: number | null;
+  delay_interval_ms?: number | null;
   cost_scenario_id?: string;
   fragmentation_model?: string;
   lump_size_mm?: number;
@@ -2229,5 +2232,81 @@ export type ScenarioCompareResponse = {
   is_optimiser: boolean;
   approved_unchanged: boolean;
   warnings: string[];
+};
+
+export type OptimizationVariableBound = {
+  name: string;
+  values?: Array<number | string>;
+  minimum?: number | null;
+  maximum?: number | null;
+  step?: number | null;
+};
+
+export type OptimizationObjectiveScore = {
+  key: string;
+  value: number | null;
+  unit: string;
+  role: string;
+  sense: string;
+};
+
+export type OptimizationCandidate = {
+  candidate_id: string;
+  params: DesignScenarioParams;
+  outcomes: DesignScenarioOutcomes;
+  decision: { values: Record<string, number | string> };
+  objectives: Record<string, number | null>;
+  scores: OptimizationObjectiveScore[];
+  feasible: boolean;
+  on_pareto: boolean;
+  pareto_rank: number;
+  kind: string;
+  overlay_revision_sha256: string;
+  source_revision_sha256: string;
+  warnings: string[];
+  applied_as: string;
+  modifies_design: boolean;
+  role: string;
+};
+
+export type OptimizationResult = {
+  run_id: string;
+  design_id: string;
+  candidates: OptimizationCandidate[];
+  pareto_front: OptimizationCandidate[];
+  compromise_candidate_id: string | null;
+  objectives: string[];
+  target_x50_mm: number;
+  evaluated: number;
+  feasible: number;
+  skipped: number;
+  method: string;
+  uses_rl: boolean;
+  replaces_design: boolean;
+  modifies_design: boolean;
+  applied_as: string;
+  source_design_role: string;
+  candidate_role: string;
+  source_revision_sha256: string;
+  approved_unchanged: boolean;
+  created_at: string;
+  warnings: string[];
+  space: Array<{ name: string; values: Array<number | string>; unit: string; kind: string }>;
+};
+
+export const OPTIMIZATION_OBJECTIVE_LABELS: Record<string, string> = {
+  cost: "Затраты",
+  oversize: "Негабарит",
+  drilling_metres: "Погонаж",
+  ppv: "PPV",
+  target_x50: "ΔX50",
+};
+
+export const OPTIMIZATION_OBJECTIVE_UNITS: Record<string, string> = {
+  cost: "₽",
+  oversize: "%",
+  drilling_metres: "м",
+  ppv: "мм/с",
+  target_x50: "мм",
 };
 

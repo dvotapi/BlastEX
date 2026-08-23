@@ -58,6 +58,8 @@ import {
   type OutcomeSummary,
   type DesignScenario,
   type DesignScenarioSummary,
+  type OptimizationCandidate,
+  type OptimizationResult,
   type ScenarioCompareResponse,
   type SchemeType,
   type SurfaceConnector,
@@ -89,6 +91,7 @@ import { DatasetPanel } from "./DatasetPanel";
 import { CalibrationPanel } from "./CalibrationPanel";
 import { OutcomePanel } from "./OutcomePanel";
 import { ScenarioPanel } from "./ScenarioPanel";
+import { OptimizationPanel, type OptimizationVariableDraft } from "./OptimizationPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -198,6 +201,23 @@ export function DesignPage({
   const [scenarioItems, setScenarioItems] = useState<DesignScenarioSummary[]>([]);
   const [scenarioInline, setScenarioInline] = useState<DesignScenario[]>([]);
   const [scenarioCompare, setScenarioCompare] = useState<ScenarioCompareResponse | null>(null);
+  const [optBusy, setOptBusy] = useState(false);
+  const [optResult, setOptResult] = useState<OptimizationResult | null>(null);
+  const [optTargetX50Mm, setOptTargetX50Mm] = useState(200);
+  const [optMaxCandidates, setOptMaxCandidates] = useState(24);
+  const [optObjectives, setOptObjectives] = useState<string[]>([
+    "cost", "oversize", "drilling_metres", "ppv", "target_x50",
+  ]);
+  const [optVariables, setOptVariables] = useState<OptimizationVariableDraft[]>([
+    { name: "diameter_mm", label: "Диаметр", unit: "мм", enabled: true, valuesText: "152, 165" },
+    { name: "burden_b_m", label: "ЛНС", unit: "м", enabled: true, valuesText: "3.5, 4.0, 4.5" },
+    { name: "spacing_a_m", label: "Шаг", unit: "м", enabled: true, valuesText: "4.5, 5.0, 5.5" },
+    { name: "subdrill_m", label: "Перебур", unit: "м", enabled: false, valuesText: "0.8, 1.0, 1.2" },
+    { name: "stemming_m", label: "Забойка", unit: "м", enabled: false, valuesText: "2.5, 3.0, 3.5" },
+    { name: "explosive_key", label: "Тип ВВ", unit: "", enabled: false, valuesText: "ПВВ Гранулит-РП, ПЭВВ ЭВЕРСИН Э-100" },
+    { name: "inclination_deg", label: "Наклон", unit: "°", enabled: false, valuesText: "0, 10" },
+    { name: "delay_interval_ms", label: "Замедление", unit: "мс", enabled: false, valuesText: "17, 25, 42" },
+  ]);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -1331,6 +1351,89 @@ export function DesignPage({
     }
   }
 
+  function parseOptValues(name: string, text: string): Array<number | string> {
+    return text.split(/[,;]+/).map((part) => part.trim()).filter(Boolean).map((part) => {
+      if (name === "explosive_key") return part;
+      const value = Number(part.replace(",", "."));
+      return Number.isFinite(value) ? value : part;
+    });
+  }
+
+  async function runOptimization() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    const variables = optVariables
+      .filter((item) => item.enabled)
+      .map((item) => ({ name: item.name, values: parseOptValues(item.name, item.valuesText) }));
+    if (!variables.length) {
+      setError("Включите хотя бы одну переменную поиска.");
+      return;
+    }
+    if (!optObjectives.length) {
+      setError("Включите хотя бы одну цель.");
+      return;
+    }
+    setOptBusy(true);
+    setError("");
+    try {
+      const result = await api.design.optimize({
+        design: designPayload(),
+        variables,
+        objectives: optObjectives,
+        target_x50_mm: optTargetX50Mm,
+        max_candidates: optMaxCandidates,
+        include_baseline: true,
+        persist: Boolean(document.design_id),
+        params: { cost_scenario_id: scenarioId, site_id: datasetSiteId.trim() },
+      });
+      setOptResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось выполнить поиск Парето.");
+    } finally {
+      setOptBusy(false);
+    }
+  }
+
+  async function promoteOptimizationCandidate(candidate: OptimizationCandidate) {
+    setOptBusy(true);
+    setError("");
+    try {
+      const created = await api.design.promoteOptimization({
+        design: designPayload(),
+        name: `Парето ${candidate.candidate_id}`,
+        persist: Boolean(document.design_id),
+        params: candidate.params,
+      });
+      if (document.design_id) {
+        const listed = await api.design.listScenarios(document.design_id);
+        setScenarioItems(listed.items);
+      } else {
+        setScenarioInline((prev) => [...prev, created]);
+        setScenarioItems((prev) => [
+          ...prev,
+          {
+            scenario_id: created.scenario_id,
+            design_id: created.design_id,
+            name: created.name,
+            kind: created.kind,
+            created_at: created.created_at,
+            diameter_mm: created.outcomes.diameter_mm,
+            spacing_a_m: created.outcomes.spacing_a_m,
+            burden_b_m: created.outcomes.burden_b_m,
+            powder_factor_kg_m3: created.outcomes.powder_factor_kg_m3,
+            hole_count: created.outcomes.hole_count,
+          },
+        ]);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сохранить кандидат как сценарий.");
+    } finally {
+      setOptBusy(false);
+    }
+  }
+
   async function compareDesignScenarios() {
     if (!scenarioItems.length && !scenarioInline.length) {
       setError("Сначала добавьте хотя бы один сценарий.");
@@ -1428,6 +1531,7 @@ export function DesignPage({
       setScenarioItems([]);
       setScenarioInline([]);
       setScenarioCompare(null);
+      setOptResult(null);
       if (design.design_id) {
         const listed = await api.design.listScenarios(design.design_id);
         setScenarioItems(listed.items);
@@ -1480,6 +1584,7 @@ export function DesignPage({
     setScenarioItems([]);
     setScenarioInline([]);
     setScenarioCompare(null);
+    setOptResult(null);
   }
 
   async function exportCsv() {
@@ -1814,6 +1919,27 @@ export function DesignPage({
             busy={scenarioBusy}
             onCreate={createDesignScenario}
             onCompare={compareDesignScenarios}
+          />
+          <OptimizationPanel
+            targetX50Mm={optTargetX50Mm}
+            onTargetX50Change={setOptTargetX50Mm}
+            maxCandidates={optMaxCandidates}
+            onMaxCandidatesChange={setOptMaxCandidates}
+            variables={optVariables}
+            onVariableToggle={(name, enabled) =>
+              setOptVariables((prev) => prev.map((item) => item.name === name ? { ...item, enabled } : item))
+            }
+            onVariableValuesChange={(name, valuesText) =>
+              setOptVariables((prev) => prev.map((item) => item.name === name ? { ...item, valuesText } : item))
+            }
+            objectives={optObjectives}
+            onObjectiveToggle={(key, enabled) =>
+              setOptObjectives((prev) => enabled ? (prev.includes(key) ? prev : [...prev, key]) : prev.filter((item) => item !== key))
+            }
+            result={optResult}
+            busy={optBusy}
+            onRun={runOptimization}
+            onPromote={promoteOptimizationCandidate}
           />
         </div>
         <div className="design-main">

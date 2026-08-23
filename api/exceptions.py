@@ -79,3 +79,21 @@ class InvalidCalibrationError(BlastExError):
 class ImmutableCalibrationError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="immutable_calibration")
+
+
+class OutcomeNotFoundError(BlastExError):
+    def __init__(self, model_id: str) -> None:
+        super().__init__(
+            f"Модель исхода «{model_id}» не найдена.",
+            error_type="outcome_not_found",
+        )
+
+
+class InvalidOutcomeError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_outcome")
+
+
+class ImmutableOutcomeError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="immutable_outcome")

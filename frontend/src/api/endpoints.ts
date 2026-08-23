@@ -69,6 +69,11 @@ import type {
   CalibrationModelType,
   CalibrationPredictResponse,
   CalibrationSummary,
+  OutcomeModel,
+  OutcomeModelType,
+  OutcomePanelResponse,
+  OutcomePredictResponse,
+  OutcomeSummary,
   PredictedFragmentation,
   PredictedVibrationSnapshot,
   PlannedCost,
@@ -351,6 +356,37 @@ export const api = {
       design?: BlastDesign;
     }) => post<CalibrationPredictResponse>(`${V1}/calibration/predict`, payload),
     calibrationAlgorithms: () => get<{ items: CalibrationAlgorithm[]; default: string }>(`${V1}/calibration/algorithms`),
+    listOutcomeModels: (modelType?: string) =>
+      get<{ items: OutcomeSummary[] }>(`${V1}/outcomes/models${modelType ? `?model_type=${encodeURIComponent(modelType)}` : ""}`),
+    trainOutcome: (payload: {
+      dataset_id: string;
+      model_type: OutcomeModelType | string;
+      algorithm?: string;
+      site_id?: string;
+    }) => post<OutcomeModel>(`${V1}/outcomes/models`, payload),
+    getOutcomeModel: (modelId: string) => get<OutcomeModel>(`${V1}/outcomes/models/${modelId}`),
+    setOutcomeStatus: (modelId: string, status: string) =>
+      post<OutcomeModel>(`${V1}/outcomes/models/${modelId}/status`, { status }),
+    predictOutcome: (payload: {
+      model_type: OutcomeModelType | string;
+      model_id?: string;
+      site_id?: string;
+      use_production?: boolean;
+      features?: Record<string, unknown>;
+      design?: BlastDesign;
+    }) => post<OutcomePredictResponse>(`${V1}/outcomes/predict`, payload),
+    predictAllOutcomes: (payload: {
+      site_id?: string;
+      use_production?: boolean;
+      model_ids?: Partial<Record<OutcomeModelType, string>>;
+      features?: Record<string, unknown>;
+      design?: BlastDesign;
+    }) => post<OutcomePanelResponse>(`${V1}/outcomes/predict-all`, payload),
+    outcomeAlgorithms: () => get<{ items: CalibrationAlgorithm[]; default: string }>(`${V1}/outcomes/algorithms`),
+    outcomeModelTypes: () =>
+      get<{ items: Array<{ name: string; class_name: string; label: string; primary_target: string }> }>(
+        `${V1}/outcomes/model-types`,
+      ),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,

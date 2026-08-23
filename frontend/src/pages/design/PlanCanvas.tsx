@@ -32,6 +32,10 @@ const CLICK_SLOP_PX = 4;
 const GRID_TARGET_PX = 70;
 const ZOOM_STEP = 1.3;
 const ARROW_PAN_PX = 60;
+// Пауза, после которой прокрутка считается новым жестом (и устройство —
+// определяется заново), и окно, в котором колесо после щипка WebKit — эхо.
+const WHEEL_GESTURE_GAP_MS = 400;
+const GESTURE_ECHO_MS = 500;
 const DEFAULT_CAMERA: Camera = { x: 0, y: 0, scale: 6 };
 
 type Mode = "contour" | "holes";
@@ -126,8 +130,10 @@ export function PlanCanvas({
     setDragState(next);
   }, []);
   const pinchRef = useRef<{ pointers: Map<number, Vec2>; distance: number; center: Vec2 } | null>(null);
-  // Опознанный тачпад: его обычная прокрутка панорамирует, а не масштабирует.
-  const trackpadRef = useRef(false);
+  // Трактовка текущей серии событий колеса и время последнего щипка-жеста
+  // WebKit — оба нужны, чтобы не переключать поведение посреди жеста.
+  const wheelGestureRef = useRef<{ mode: "pan" | "zoom"; at: number }>({ mode: "zoom", at: 0 });
+  const gestureZoomAtRef = useRef(0);
   // Тап на тачскрине, чья правка ждёт отпускания пальца (см. handlePointerDown).
   const pendingTapRef = useRef<{ pointerId: number; screen: Vec2 } | null>(null);
 
@@ -202,11 +208,12 @@ export function PlanCanvas({
   // React вешает wheel пассивно, поэтому preventDefault там не работает и
   // страница прокручивается или масштабируется вместо плана — слушаем нативно.
   //
-  // Тачпад и мышь дают разные жесты, и путать их нельзя: на тачпаде щипок —
-  // это wheel с ctrlKey, а двумя пальцами листают (как в картах и Figma), тогда
-  // как колесо мыши привычно масштабирует. Тачпад узнаём по дробному шагу или
-  // горизонтальной составляющей и запоминаем — дальше все обычные прокрутки от
-  // него панорамируют.
+  // Тачпад и мышь дают разные жесты, и путать их нельзя: на тачпаде щипок — это
+  // wheel с ctrlKey, а двумя пальцами листают (как в картах и Figma), тогда как
+  // колесо мыши привычно масштабирует. Устройство определяется для каждого
+  // жеста заново — «залипание» на сессию отобрало бы у внешней мыши
+  // масштабирование; чтобы жест не переключился на середине, подряд идущие
+  // события (пауза меньше WHEEL_GESTURE_GAP_MS) сохраняют прежнюю трактовку.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -217,26 +224,47 @@ export function PlanCanvas({
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? rect.height : 1;
       const dx = e.deltaX * unit;
       const dy = e.deltaY * unit;
+      const now = e.timeStamp || performance.now();
 
-      if (!e.ctrlKey && (dx !== 0 || !Number.isInteger(e.deltaY) || Math.abs(dy) < 40)) {
-        trackpadRef.current = true;
-      }
+      // Safari шлёт щипок и жестами, и колесом с ctrlKey — иначе масштаб
+      // применился бы дважды и план «прыгал» бы вдвое быстрее.
+      if (now - gestureZoomAtRef.current < GESTURE_ECHO_MS) return;
 
-      const zooming = e.ctrlKey || e.metaKey || (!trackpadRef.current && !e.shiftKey && !e.altKey);
-      if (zooming) {
-        const factor = Math.exp(-dy * (e.ctrlKey ? 0.012 : 0.0022));
-        onCameraChange(zoomAt(cameraRef.current, viewportRef.current, screen, factor));
+      const zoomAtPoint = (delta: number) => {
+        // Щипок даёт мелкие приращения, колесо мыши — крупные: одинаковый
+        // коэффициент делал бы Ctrl+колесо неуправляемо резким.
+        const step = Math.abs(delta) < 40 ? 0.012 : 0.0022;
+        onCameraChange(zoomAt(cameraRef.current, viewportRef.current, screen, Math.exp(-delta * step)));
+      };
+
+      if (e.ctrlKey || e.metaKey) {
+        zoomAtPoint(dy);
         return;
       }
-      // Shift превращает вертикальную прокрутку колеса в горизонтальную.
-      const pan = e.shiftKey && dx === 0 ? { x: dy, y: 0 } : { x: dx, y: dy };
-      onCameraChange(panCameraByScreen(cameraRef.current, pan.x, pan.y));
+      if (e.shiftKey) {
+        // Chromium сам переносит Shift+колесо в горизонтальную ось.
+        onCameraChange(panCameraByScreen(cameraRef.current, dx || dy, 0));
+        return;
+      }
+
+      const previous = wheelGestureRef.current;
+      const continuing = now - previous.at < WHEEL_GESTURE_GAP_MS;
+      // Тачпад: дробный шаг прокрутки или мелкие приращения. Колесо мыши даёт
+      // целые «щелчки» (обычно 100 или 120), в том числе по горизонтали при
+      // Shift, поэтому одна горизонтальная составляющая тачпад не выдаёт.
+      const trackpad =
+        !Number.isInteger(e.deltaX) || !Number.isInteger(e.deltaY) || Math.max(Math.abs(dx), Math.abs(dy)) < 40;
+      const mode = continuing ? previous.mode : trackpad ? "pan" : "zoom";
+      wheelGestureRef.current = { mode, at: now };
+
+      if (mode === "zoom") zoomAtPoint(dy);
+      else onCameraChange(panCameraByScreen(cameraRef.current, dx, dy));
     }
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [onCameraChange]);
 
-  // Safari (и старые WebKit) шлют щипок не как wheel, а отдельными жестами.
+  // WebKit шлёт щипок отдельными жестами (в дополнение к колесу с ctrlKey).
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -244,11 +272,13 @@ export function PlanCanvas({
     function onGestureStart(e: Event) {
       e.preventDefault();
       lastScale = 1;
+      gestureZoomAtRef.current = e.timeStamp || performance.now();
     }
     function onGestureChange(e: Event) {
       e.preventDefault();
+      gestureZoomAtRef.current = e.timeStamp || performance.now();
       const scale = (e as unknown as { scale: number }).scale;
-      if (!scale || !Number.isFinite(scale)) return;
+      if (!scale || !Number.isFinite(scale) || lastScale <= 0) return;
       const rect = el!.getBoundingClientRect();
       const point = {
         x: ((e as MouseEvent).clientX || rect.width / 2 + rect.left) - rect.left,
@@ -259,6 +289,7 @@ export function PlanCanvas({
     }
     function onGestureEnd(e: Event) {
       e.preventDefault();
+      gestureZoomAtRef.current = e.timeStamp || performance.now();
     }
     el.addEventListener("gesturestart", onGestureStart);
     el.addEventListener("gesturechange", onGestureChange);

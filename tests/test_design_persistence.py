@@ -173,12 +173,58 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         )
         saved = save_design(TEAM_ID, design)
         loaded = load_design(TEAM_ID, saved.design_id)
-        self.assertEqual(loaded.version, 5)
+        self.assertEqual(loaded.version, 6)
         self.assertEqual(loaded.network.timing_mode, "expression")
         self.assertEqual(loaded.network.timing_expression, "interval * row")
         self.assertEqual(loaded.network.detonators[0].channel_id, "ch-1")
         self.assertEqual(loaded.network.firing_events[0].level, "hole")
         self.assertEqual(loaded.network.connectors[0].to_hole, "1-02")
+
+    def test_receptors_and_vibration_round_trip(self):
+        from design.models import Receptor, VibrationMeasurement, VibrationModel
+
+        design = self._sample_design()
+        design.receptors = [
+            Receptor(id="R-1", name="Офис", kind="building", location=Point3(x=80.0, y=10.0, z=0.0), ppv_limit_mm_s=5.0)
+        ]
+        design.vibration_models = [
+            VibrationModel(
+                id="vm-site",
+                k=180.0,
+                n=1.5,
+                scaled_distance="r_over_q_sqrt",
+                calibration_source="кампания 2024",
+                confidence=0.7,
+            )
+        ]
+        design.vibration_measurements = [
+            VibrationMeasurement(id="VM-1", receptor_id="R-1", ppv_mm_s=3.2, source="сейсмопост", scaled_distance="r_over_q_sqrt")
+        ]
+        saved = save_design(TEAM_ID, design)
+        loaded = load_design(TEAM_ID, saved.design_id)
+        self.assertEqual(loaded.receptors[0].kind, "building")
+        self.assertAlmostEqual(loaded.receptors[0].ppv_limit_mm_s or 0.0, 5.0)
+        self.assertEqual(loaded.vibration_models[0].scaled_distance, "r_over_q_sqrt")
+        self.assertEqual(loaded.vibration_measurements[0].role, "measured")
+        self.assertAlmostEqual(loaded.vibration_measurements[0].ppv_mm_s, 3.2)
+
+    def test_legacy_json_without_vibration_loads(self):
+        import json
+        from design.persistence import design_path, ensure_designs_layout
+
+        ensure_designs_layout(TEAM_ID)
+        payload = {
+            "design_id": "legacy-vib",
+            "name": "Без сейсмики",
+            "holes": [],
+            "contour": {"vertices": [], "free_faces": [], "bench": {}, "name": "Блок"},
+        }
+        path = design_path(TEAM_ID, "legacy-vib")
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        loaded = load_design(TEAM_ID, "legacy-vib")
+        self.assertEqual(loaded.receptors, [])
+        self.assertEqual(loaded.vibration_models, [])
+        self.assertEqual(loaded.vibration_measurements, [])
 
 
 if __name__ == "__main__":

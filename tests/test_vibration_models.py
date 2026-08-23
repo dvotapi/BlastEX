@@ -132,7 +132,7 @@ class VibrationMeasurementTests(unittest.TestCase):
         design = BlastDesign(design_id="d")
         with self.assertRaises(ValueError):
             attach_measurement(design, VibrationMeasurement(id="VM-1", receptor_id="R-9", ppv_mm_s=2.0))
-        attach_receptor(design, Receptor(id="R-9", name="пост", kind="monitoring_station"))
+        attach_receptor(design, Receptor(id="R-9", name="пост", kind="monitoring_station", location=Point3(x=0, y=0, z=0)))
         stored = attach_measurement(
             design,
             VibrationMeasurement(id="", receptor_id="R-9", ppv_mm_s=2.0, scaled_distance="usbm"),

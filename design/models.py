@@ -1360,7 +1360,7 @@ class Receptor:
     id: str
     name: str = ""
     kind: str = "building"
-    location: Point3 = field(default_factory=Point3)
+    location: Point3 = field(default_factory=lambda: Point3(x=0.0, y=0.0, z=0.0))
     ppv_limit_mm_s: float | None = None
     notes: str = ""
 

@@ -50,6 +50,7 @@ from intelligence.datasets import persistence as dataset_persistence
 def _model_schema(model) -> CalibrationModelSchema:
     payload = model.to_dict()
     payload.pop("estimator", None)
+    payload.pop("training_matrix", None)
     return CalibrationModelSchema(**payload)
 
 

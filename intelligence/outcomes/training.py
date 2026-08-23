@@ -19,6 +19,8 @@ from intelligence.outcomes.types import (
     spec_for,
     utc_now_iso,
 )
+from intelligence.uncertainty.domain import compute_feature_ranges
+from intelligence.uncertainty.types import ranges_to_dict
 
 
 def next_model_version(existing_versions: list[int]) -> int:
@@ -138,6 +140,16 @@ def train_from_snapshot(
         metrics["r2"] = per_target[primary]["r2"]
         metrics["leave_one_out"] = per_target[primary].get("leave_one_out")
 
+    matrix_source = tables.get(primary) if primary in estimators else None
+    if matrix_source is None:
+        matrix_source = next((tables[name] for name in estimators), None)
+    feature_ranges = {}
+    training_matrix: list[list[float]] = []
+    if matrix_source is not None and matrix_source.X:
+        feature_names = list(matrix_source.feature_names) or feature_names
+        feature_ranges = ranges_to_dict(compute_feature_ranges(matrix_source.X, feature_names))
+        training_matrix = [list(row) for row in matrix_source.X]
+
     return OutcomeModel(
         model_id=str(model_id or "").strip() or uuid.uuid4().hex[:12],
         site_id=site,
@@ -156,5 +168,7 @@ def train_from_snapshot(
         class_name=spec["class_name"],
         sample_count=max_samples,
         source_blast_ids=source_ids,
+        feature_ranges=feature_ranges,
+        training_matrix=training_matrix,
         estimators=estimators,
     )

@@ -8,6 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.schemas.design import BlastDesignSchema
 
 
+class UncertaintyIntervalSchema(BaseModel):
+    std: float | None = None
+    lower: float | None = None
+    upper: float | None = None
+    method: str = "none"
+
+
 class CalibrationMetricsSchema(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -42,6 +49,7 @@ class CalibrationModelSchema(BaseModel):
     source_blast_ids: list[str] = Field(default_factory=list)
     artifact_sha256: str = ""
     status_updated_at: str = ""
+    feature_ranges: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
 class CalibrationSummarySchema(BaseModel):
@@ -106,6 +114,16 @@ class CalibrationPredictResponse(BaseModel):
     baseline: float
     residual: float
     calibrated: float
+    prediction: float | None = None
+    uncertainty: UncertaintyIntervalSchema = Field(default_factory=UncertaintyIntervalSchema)
+    confidence: str = ""
+    confidence_label: str = ""
+    similarity_score: float = 0.0
+    applicability_warning: str = ""
+    comparable_count: int = 0
+    in_domain: bool = True
+    sample_count: int = 0
+    extrapolated_features: list[str] = Field(default_factory=list)
     model_id: str = ""
     site_id: str = ""
     model_type: str

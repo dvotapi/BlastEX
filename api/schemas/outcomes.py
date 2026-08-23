@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.calibration import UncertaintyIntervalSchema
 from api.schemas.design import BlastDesignSchema
 
 
@@ -49,6 +50,7 @@ class OutcomeModelSchema(BaseModel):
     source_blast_ids: list[str] = Field(default_factory=list)
     artifact_sha256: str = ""
     status_updated_at: str = ""
+    feature_ranges: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
 class OutcomeSummarySchema(BaseModel):
@@ -123,15 +125,35 @@ class OutcomeProvenanceSchema(BaseModel):
 class OutcomeTargetPredictionSchema(BaseModel):
     target_name: str
     value: float | None = None
+    prediction: float | None = None
     unit: str = ""
     label: str = ""
     model_type: str = ""
     prediction_applied: bool = False
+    uncertainty: UncertaintyIntervalSchema = Field(default_factory=UncertaintyIntervalSchema)
+    confidence: str = ""
+    confidence_label: str = ""
+    similarity_score: float = 0.0
+    applicability_warning: str = ""
+    comparable_count: int = 0
+    in_domain: bool = True
+    sample_count: int = 0
+    extrapolated_features: list[str] = Field(default_factory=list)
 
 
 class OutcomePredictResponse(BaseModel):
     predicted: float | None = None
+    prediction: float | None = None
     predictions: dict[str, OutcomeTargetPredictionSchema] = Field(default_factory=dict)
+    uncertainty: UncertaintyIntervalSchema = Field(default_factory=UncertaintyIntervalSchema)
+    confidence: str = ""
+    confidence_label: str = ""
+    similarity_score: float = 0.0
+    applicability_warning: str = ""
+    comparable_count: int = 0
+    in_domain: bool = True
+    sample_count: int = 0
+    extrapolated_features: list[str] = Field(default_factory=list)
     model_id: str = ""
     site_id: str = ""
     model_type: str
@@ -165,3 +187,4 @@ class OutcomePanelResponse(BaseModel):
     toe_risk: OutcomeTargetPredictionSchema | None = None
     models: dict[str, OutcomePredictResponse] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+    applicability_warning: str = ""

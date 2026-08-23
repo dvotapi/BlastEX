@@ -59,6 +59,7 @@ from intelligence.outcomes.types import (
 def _model_schema(model) -> OutcomeModelSchema:
     payload = model.to_dict()
     payload.pop("estimators", None)
+    payload.pop("training_matrix", None)
     return OutcomeModelSchema(**payload)
 
 
@@ -275,6 +276,16 @@ def predict_panel(team_id: str, request: OutcomePredictAllRequest) -> OutcomePan
     vibration = models["vibration"]
     oversize = models["oversize"]
     toe = models["toe_risk"]
+    applicability = next(
+        (
+            item.applicability_warning
+            for item in (fragmentation, oversize, vibration, toe)
+            if item.applicability_warning
+        ),
+        "",
+    )
+    if applicability:
+        warnings.insert(0, applicability)
     return OutcomePanelResponse(
         applied_as="recommendation_overlay",
         modifies_design=False,
@@ -287,4 +298,5 @@ def predict_panel(team_id: str, request: OutcomePredictAllRequest) -> OutcomePan
         toe_risk=_panel_target(toe, TARGET_TOE_RISK),
         models=models,
         warnings=list(dict.fromkeys(warnings)),
+        applicability_warning=applicability,
     )

@@ -25,6 +25,7 @@ from intelligence.calibration.types import (
     normalize_model_type,
 )
 from intelligence.datasets.features import extract_features
+from intelligence.uncertainty.assess import assess_vector, unavailable
 from design.models import BlastDesign
 
 
@@ -63,7 +64,7 @@ def apply_residual(
     residual = float(algo.predict(model.estimator, X)[0])
     calibrated = clamp_calibrated(model.model_type, float(baseline) + residual)
     spec = MODEL_SPECS[normalize_model_type(model.model_type)]
-    return CalibrationPrediction(
+    result = CalibrationPrediction(
         baseline=float(baseline),
         residual=residual,
         calibrated=calibrated,
@@ -85,6 +86,23 @@ def apply_residual(
         warnings=_warnings_for(model),
         role=ROLE_RECOMMENDATION,
     )
+    rmse = (model.metrics or {}).get("rmse")
+    assessment = assess_vector(
+        prediction=calibrated,
+        vector=vector,
+        feature_names=model.feature_names,
+        feature_ranges=model.feature_ranges,
+        training_matrix=model.training_matrix,
+        estimator=model.estimator,
+        rmse=float(rmse) if rmse is not None else None,
+        residual_offset=float(baseline),
+        clamp=lambda value, model_type=model.model_type: clamp_calibrated(model_type, value),
+        X=X,
+    )
+    result.apply_assessment(assessment)
+    result.calibrated = float(assessment.prediction) if assessment.prediction is not None else calibrated
+    result.residual = result.calibrated - float(baseline)
+    return result
 
 
 def baseline_without_model(
@@ -99,7 +117,7 @@ def baseline_without_model(
     warnings = ["Калибровка не применена: используется только инженерный базис."]
     if reason:
         warnings.insert(0, reason)
-    return CalibrationPrediction(
+    result = CalibrationPrediction(
         baseline=float(baseline),
         residual=0.0,
         calibrated=float(baseline),
@@ -121,6 +139,13 @@ def baseline_without_model(
         warnings=warnings,
         role=ROLE_RECOMMENDATION,
     )
+    result.apply_assessment(
+        unavailable(
+            prediction=float(baseline),
+            reason=reason or "Калибровка не применена: интервал ML недоступен.",
+        )
+    )
+    return result
 
 
 def features_from_design(design: BlastDesign, *, site_id: str) -> dict[str, Any]:

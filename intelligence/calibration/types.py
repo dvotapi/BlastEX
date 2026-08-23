@@ -10,6 +10,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from intelligence.explainability.types import (
+    PredictionExplanation,
+    copy_explanation,
+    empty_explanation,
+    explanation_from_payload,
+)
 from intelligence.uncertainty.types import (
     PredictionAssessment,
     UncertaintyInterval,
@@ -255,6 +261,7 @@ class CalibrationPrediction:
     confidence_label: str = ""
     sample_count: int = 0
     extrapolated_features: list[str] = field(default_factory=list)
+    explanation: PredictionExplanation = field(default_factory=empty_explanation)
 
     def apply_assessment(self, assessment: PredictionAssessment) -> None:
         payload = assessment.to_dict()
@@ -270,6 +277,9 @@ class CalibrationPrediction:
         self.extrapolated_features = list(payload["extrapolated_features"])
         if self.applicability_warning and self.applicability_warning not in self.warnings:
             self.warnings.insert(0, self.applicability_warning)
+
+    def apply_explanation(self, explanation: PredictionExplanation | dict[str, Any] | None) -> None:
+        self.explanation = explanation_from_payload(explanation)
 
     def to_dict(self) -> dict[str, Any]:
         assessment = self.uncertainty or UncertaintyInterval.none().to_dict()
@@ -288,6 +298,7 @@ class CalibrationPrediction:
             "in_domain": bool(self.in_domain),
             "sample_count": int(self.sample_count),
             "extrapolated_features": list(self.extrapolated_features),
+            "explanation": copy_explanation(self.explanation),
             "model_id": self.model_id,
             "site_id": self.site_id,
             "model_type": self.model_type,

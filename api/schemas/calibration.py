@@ -15,6 +15,42 @@ class UncertaintyIntervalSchema(BaseModel):
     method: str = "none"
 
 
+class FeatureDriverSchema(BaseModel):
+    feature: str = ""
+    label: str = ""
+    label_en: str = ""
+    share_pct: float = 0.0
+    importance_pct: float = 0.0
+    shap_value: float = 0.0
+    direction: str = "neutral"
+
+
+class RecommendationHintSchema(BaseModel):
+    feature: str = ""
+    label: str = ""
+    label_en: str = ""
+    action: str = ""
+    action_label: str = ""
+    delta: float = 0.0
+    unit: str = ""
+    target_name: str = ""
+    target_label: str = ""
+    step: float = 0.0
+    summary: str = ""
+
+
+class PredictionExplanationSchema(BaseModel):
+    method: str = "none"
+    expected_value: float | None = None
+    drivers: list[FeatureDriverSchema] = Field(default_factory=list)
+    recommendations: list[RecommendationHintSchema] = Field(default_factory=list)
+    target_name: str = ""
+    target_label: str = ""
+    unit: str = ""
+    summary: str = ""
+    recommendation_summary: str = ""
+
+
 class CalibrationMetricsSchema(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -124,6 +160,7 @@ class CalibrationPredictResponse(BaseModel):
     in_domain: bool = True
     sample_count: int = 0
     extrapolated_features: list[str] = Field(default_factory=list)
+    explanation: PredictionExplanationSchema = Field(default_factory=PredictionExplanationSchema)
     model_id: str = ""
     site_id: str = ""
     model_type: str

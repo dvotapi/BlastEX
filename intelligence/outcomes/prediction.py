@@ -26,6 +26,8 @@ from intelligence.outcomes.types import (
     normalize_model_type,
     spec_for,
 )
+from intelligence.explainability.explain import explain_estimator
+from intelligence.explainability.types import empty_explanation
 from intelligence.uncertainty.assess import assess_vector, unavailable
 from intelligence.uncertainty.types import PredictionAssessment, UncertaintyInterval
 
@@ -139,8 +141,22 @@ def apply_model(
         )
         item.apply_assessment(assessment)
         item.value = float(assessment.prediction) if assessment.prediction is not None else item.value
+        item.apply_explanation(
+            explain_estimator(
+                estimator=estimator,
+                vector=vector,
+                feature_names=model.feature_names,
+                training_matrix=model.training_matrix,
+                predict_fn=lambda matrix, est=estimator: algo.predict(est, matrix),
+                clamp=lambda value, target=name: clamp_predicted(target, value),
+                target_name=name,
+                target_label=item.label,
+                unit=item.unit,
+            )
+        )
     result.apply_assessment(_target_as_assessment(predictions[primary]))
     result.predicted = predictions[primary].value
+    result.apply_explanation(predictions[primary].explanation)
     return result
 
 
@@ -180,6 +196,7 @@ def empty_prediction(
     result.apply_assessment(
         unavailable(reason=reason or "Прогноз исхода не применён: интервал ML недоступен.")
     )
+    result.apply_explanation(empty_explanation(target_name=result.primary_target, unit=result.unit))
     return result
 
 

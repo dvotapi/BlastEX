@@ -17,6 +17,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from intelligence.explainability.types import (
+    PredictionExplanation,
+    copy_explanation,
+    empty_explanation,
+    explanation_from_payload,
+)
 from intelligence.uncertainty.types import (
     PredictionAssessment,
     UncertaintyInterval,
@@ -374,6 +380,7 @@ class TargetPrediction:
     in_domain: bool = True
     sample_count: int = 0
     extrapolated_features: list[str] = field(default_factory=list)
+    explanation: PredictionExplanation = field(default_factory=empty_explanation)
 
     def apply_assessment(self, assessment: PredictionAssessment) -> None:
         payload = assessment.to_dict()
@@ -389,6 +396,9 @@ class TargetPrediction:
         self.in_domain = bool(payload["in_domain"])
         self.sample_count = int(payload["sample_count"])
         self.extrapolated_features = list(payload["extrapolated_features"])
+
+    def apply_explanation(self, explanation: PredictionExplanation | dict[str, Any] | None) -> None:
+        self.explanation = explanation_from_payload(explanation)
 
     def to_dict(self) -> dict[str, Any]:
         prediction = self.prediction if self.prediction is not None else self.value
@@ -410,6 +420,7 @@ class TargetPrediction:
             "in_domain": bool(self.in_domain),
             "sample_count": int(self.sample_count),
             "extrapolated_features": list(self.extrapolated_features),
+            "explanation": copy_explanation(self.explanation),
         }
 
 
@@ -447,6 +458,7 @@ class OutcomePrediction:
     in_domain: bool = True
     sample_count: int = 0
     extrapolated_features: list[str] = field(default_factory=list)
+    explanation: PredictionExplanation = field(default_factory=empty_explanation)
 
     def apply_assessment(self, assessment: PredictionAssessment) -> None:
         payload = assessment.to_dict()
@@ -465,17 +477,24 @@ class OutcomePrediction:
         if self.applicability_warning and self.applicability_warning not in self.warnings:
             self.warnings.insert(0, self.applicability_warning)
 
+    def apply_explanation(self, explanation: PredictionExplanation | dict[str, Any] | None) -> None:
+        self.explanation = explanation_from_payload(explanation)
+
     def to_dict(self) -> dict[str, Any]:
         primary = self.predictions.get(self.primary_target)
         unit = self.unit or (primary.unit if primary else "")
         predicted = self.predicted if self.predicted is not None else (primary.value if primary else None)
         prediction = self.prediction if self.prediction is not None else predicted
         uncertainty = self.uncertainty or (primary.uncertainty if primary and primary.uncertainty else UncertaintyInterval.none().to_dict())
+        explanation = copy_explanation(self.explanation)
+        if explanation.get("method") == "none" and primary is not None:
+            explanation = copy_explanation(primary.explanation)
         return {
             "predicted": predicted,
             "prediction": prediction,
             "predictions": {name: item.to_dict() for name, item in self.predictions.items()},
             "uncertainty": _copy(uncertainty),
+            "explanation": explanation,
             "confidence": self.confidence or (primary.confidence if primary else ""),
             "confidence_label": self.confidence_label or (primary.confidence_label if primary else ""),
             "similarity_score": float(self.similarity_score if self.similarity_score or not primary else primary.similarity_score),

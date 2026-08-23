@@ -93,7 +93,10 @@ export function TimingPanel({
                 <div><span>Ориентировочная скорость колебаний</span><strong>{ruNumber(analysis.ppv_mm_s, 2)}</strong><small>мм/с</small></div>
               </div>
             )}
-            <small>Коэффициенты K и n сильно зависят от массива — значения ориентировочные, не норматив.</small>
+            <small>
+              Быстрая оценка в конвенции Q⅓/R. Калиброванный закон площадки, рецепторы и замеры —
+              в панели «Сейсмика».
+            </small>
 
             <div className="animation-controls">
               <button className="secondary-button" onClick={onPlayToggle} disabled={maxMs <= 0}>

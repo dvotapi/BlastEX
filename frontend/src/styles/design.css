@@ -208,4 +208,27 @@
 .frag-curve text { fill:#7b8982; font-size:8px; }
 .frag-warnings { color:#a15c32; }
 
+.receptor-marker rect { fill:#c45c1a; stroke:#fff; stroke-width:1.2; }
+.receptor-marker.kind-building rect { fill:#7a4b2d; }
+.receptor-marker.kind-pipeline rect { fill:#3b6ea5; }
+.receptor-marker.kind-crusher rect { fill:#8a5a1a; }
+.receptor-marker.kind-highwall rect { fill:#5c6a63; }
+.receptor-marker.kind-power_line rect { fill:#c9a227; }
+.receptor-marker.kind-monitoring_station rect { fill:#2d7556; }
+.receptor-marker.selected rect { stroke:#173125; stroke-width:2.2; }
+.receptor-marker.over rect { fill:#c0392b; }
+.receptor-label { fill:#3b4b43; font-size:8.5px; font-weight:700; }
+.receptor-swatch { width:10px; height:10px; border-radius:2px; transform:rotate(45deg); background:#c45c1a; }
+.receptor-swatch.kind-building { background:#7a4b2d; }
+.receptor-swatch.kind-pipeline { background:#3b6ea5; }
+.receptor-swatch.kind-crusher { background:#8a5a1a; }
+.receptor-swatch.kind-highwall { background:#5c6a63; }
+.receptor-swatch.kind-power_line { background:#c9a227; }
+.receptor-swatch.kind-monitoring_station { background:#2d7556; }
+.vib-table { display:grid; gap:4px; max-height:180px; overflow:auto; }
+.vib-row { display:grid; grid-template-columns:1fr auto auto; gap:8px; font-size:11px; padding:4px 6px; border-radius:6px; background:#f6f8f7; }
+.vib-row.over { background:#fdecea; color:#9e3025; }
+.vib-warn-metric strong { color:#9e3025; }
+.secondary-button.active { background:#e8f3ec; border-color:#2d7556; color:#173125; }
+
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

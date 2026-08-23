@@ -298,6 +298,89 @@ export type InitiationNetwork = {
   selected_hole_ids: string[];
 };
 
+export type ReceptorKind =
+  | "building"
+  | "pipeline"
+  | "crusher"
+  | "highwall"
+  | "power_line"
+  | "monitoring_station";
+
+export type ScaledDistanceConvention =
+  | "q_cube_over_r"
+  | "r_over_q_cube"
+  | "q_sqrt_over_r"
+  | "r_over_q_sqrt";
+
+export type Receptor = {
+  id: string;
+  name: string;
+  kind: ReceptorKind;
+  location: Point3;
+  ppv_limit_mm_s: number | null;
+  notes: string;
+};
+
+export type VibrationModel = {
+  id: string;
+  name: string;
+  k: number;
+  n: number;
+  scaled_distance: ScaledDistanceConvention;
+  calibration_source: string;
+  confidence: number;
+  notes: string;
+};
+
+export type VibrationMeasurement = {
+  id: string;
+  receptor_id: string;
+  ppv_mm_s: number;
+  role: "measured";
+  distance_m: number | null;
+  mic_kg: number | null;
+  scaled_distance: ScaledDistanceConvention | "";
+  source: string;
+  method: string;
+  timestamp: string;
+  event_label: string;
+  notes: string;
+};
+
+export type VibrationPrediction = {
+  receptor_id: string;
+  receptor_name: string;
+  receptor_kind: ReceptorKind | string;
+  role: "predicted";
+  ppv_mm_s: number;
+  distance_m: number;
+  nearest_hole_id: string;
+  mic_kg: number;
+  mic_window_ms: number;
+  mic_hole_ids: string[];
+  scaled_distance: ScaledDistanceConvention | string;
+  scaled_distance_value: number;
+  scaled_distance_formula: string;
+  k: number;
+  n: number;
+  model_id: string;
+  ppv_limit_mm_s: number | null;
+  exceeds_limit: boolean;
+  measured: VibrationMeasurement[];
+};
+
+export type VibrationPredictResponse = {
+  model: VibrationModel;
+  convention: string;
+  convention_formula: string;
+  mic: MicResult;
+  mic_window_ms: number;
+  predictions: VibrationPrediction[];
+  measured: VibrationMeasurement[];
+  warnings: string[];
+  receptor_count: number;
+};
+
 export type BlastDesign = {
   design_id: string;
   name: string;
@@ -315,6 +398,9 @@ export type BlastDesign = {
   surfaces: SurfaceSet;
   domains: BlastDomain[];
   water_table_z_m: number | null;
+  receptors: Receptor[];
+  vibration_models: VibrationModel[];
+  vibration_measurements: VibrationMeasurement[];
 };
 
 export type PatternType = "square" | "rectangular" | "staggered" | "variable" | "domain_dependent";
@@ -615,7 +701,7 @@ export function emptyDesign(): BlastDesign {
   return {
     design_id: "",
     name: "Новый паспорт",
-    version: 5,
+    version: 6,
     updated_at: "",
     contour: emptyContour(),
     holes: [],
@@ -629,8 +715,81 @@ export function emptyDesign(): BlastDesign {
     surfaces: emptySurfaces(),
     domains: [],
     water_table_z_m: null,
+    receptors: [],
+    vibration_models: [defaultVibrationModel()],
+    vibration_measurements: [],
   };
 }
+
+export function defaultVibrationModel(): VibrationModel {
+  return {
+    id: "vm-site",
+    name: "Площадочный закон",
+    k: 200,
+    n: 1.6,
+    scaled_distance: "q_cube_over_r",
+    calibration_source: "ориентировочно",
+    confidence: 0.3,
+    notes: "PPV = K × SD^n. Коэффициенты ориентировочные, не норматив.",
+  };
+}
+
+export function emptyReceptor(existing: Receptor[], kind: ReceptorKind = "building"): Receptor {
+  const used = new Set(existing.map((item) => item.id));
+  let index = existing.length + 1;
+  while (used.has(`R-${index}`)) index += 1;
+  return {
+    id: `R-${index}`,
+    name: RECEPTOR_KIND_LABELS[kind],
+    kind,
+    location: { x: 0, y: 0, z: 0 },
+    ppv_limit_mm_s: null,
+    notes: "",
+  };
+}
+
+export function emptyVibrationMeasurement(receptorId: string, existing: VibrationMeasurement[]): VibrationMeasurement {
+  const used = new Set(existing.map((item) => item.id));
+  let index = existing.length + 1;
+  while (used.has(`VM-${index}`)) index += 1;
+  return {
+    id: `VM-${index}`,
+    receptor_id: receptorId,
+    ppv_mm_s: 0,
+    role: "measured",
+    distance_m: null,
+    mic_kg: null,
+    scaled_distance: "",
+    source: "",
+    method: "",
+    timestamp: "",
+    event_label: "",
+    notes: "",
+  };
+}
+
+export const RECEPTOR_KIND_LABELS: Record<ReceptorKind, string> = {
+  building: "Здание",
+  pipeline: "Трубопровод",
+  crusher: "Дробилка",
+  highwall: "Борт / уступ",
+  power_line: "ЛЭП",
+  monitoring_station: "Сейсмопост",
+};
+
+export const SCALED_DISTANCE_LABELS: Record<ScaledDistanceConvention, string> = {
+  q_cube_over_r: "Q⅓ / R",
+  r_over_q_cube: "R / Q⅓",
+  q_sqrt_over_r: "√Q / R",
+  r_over_q_sqrt: "R / √Q",
+};
+
+export const SCALED_DISTANCE_FORMULAS: Record<ScaledDistanceConvention, string> = {
+  q_cube_over_r: "SD = Q^(1/3) / R",
+  r_over_q_cube: "SD = R / Q^(1/3)",
+  q_sqrt_over_r: "SD = Q^(1/2) / R",
+  r_over_q_sqrt: "SD = R / Q^(1/2)",
+};
 
 export function emptyNetwork(): InitiationNetwork {
   return {

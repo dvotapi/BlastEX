@@ -11,12 +11,13 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3 } from "../../types/design";
-import { networkTies } from "../../types/design";
+import type { BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, Receptor, VibrationPrediction } from "../../types/design";
+import { RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 
 const HOLE_HIT_RADIUS_PX = 11;
 const VERTEX_HIT_RADIUS_PX = 9;
 const EDGE_HIT_RADIUS_PX = 8;
+const RECEPTOR_HIT_RADIUS_PX = 12;
 const NEIGHBOUR_COUNT = 5;
 const SPACING_TOLERANCE_M = 0.5;
 
@@ -55,6 +56,12 @@ export function PlanCanvas({
   onDomainVertexAdd,
   mapValues,
   mapRange,
+  receptors,
+  selectedReceptorId,
+  placingReceptor,
+  onAddReceptor,
+  onSelectReceptor,
+  vibrationPredictions,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -81,6 +88,12 @@ export function PlanCanvas({
   onDomainVertexAdd?: (domainId: string, point: Point3) => void;
   mapValues?: Record<string, number>;
   mapRange?: { min: number; max: number } | null;
+  receptors?: Receptor[];
+  selectedReceptorId?: string | null;
+  placingReceptor?: boolean;
+  onAddReceptor?: (world: Vec2) => void;
+  onSelectReceptor?: (id: string) => void;
+  vibrationPredictions?: VibrationPrediction[];
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -130,6 +143,16 @@ export function PlanCanvas({
     return worldToScreen(camera, viewport, point);
   }
 
+  function hitReceptor(screen: Vec2): Receptor | null {
+    const items = receptors ?? [];
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const receptor = items[i];
+      const p = worldToScreen(camera, viewport, { x: receptor.location.x, y: receptor.location.y });
+      if (distance(p, screen) <= RECEPTOR_HIT_RADIUS_PX) return receptor;
+    }
+    return null;
+  }
+
   function hitHole(screen: Vec2): Hole | null {
     for (let i = holes.length - 1; i >= 0; i -= 1) {
       const h = holes[i];
@@ -172,6 +195,23 @@ export function PlanCanvas({
 
     if (spacePressed || e.button === 1) {
       setDrag({ kind: "pan", startScreen: screen, startCamera: camera });
+      return;
+    }
+
+    if (placingReceptor && onAddReceptor) {
+      const world = worldOf(screen);
+      const existing = hitReceptor(screen);
+      if (existing && onSelectReceptor) {
+        onSelectReceptor(existing.id);
+        return;
+      }
+      onAddReceptor({ x: round2(world.x), y: round2(world.y) });
+      return;
+    }
+
+    const receptorHit = hitReceptor(screen);
+    if (receptorHit && onSelectReceptor && !drawingDomainId) {
+      onSelectReceptor(receptorHit.id);
       return;
     }
 
@@ -408,6 +448,21 @@ export function PlanCanvas({
           );
         })}
 
+        {(receptors ?? []).map((receptor) => {
+          const p = worldToScreen(camera, viewport, { x: receptor.location.x, y: receptor.location.y });
+          const pred = vibrationPredictions?.find((item) => item.receptor_id === receptor.id);
+          const selectedRec = receptor.id === selectedReceptorId;
+          return (
+            <g key={`rec-${receptor.id}`} className={`receptor-marker kind-${receptor.kind}${selectedRec ? " selected" : ""}${pred?.exceeds_limit ? " over" : ""}`}>
+              <rect x={p.x - 6} y={p.y - 6} width={12} height={12} transform={`rotate(45 ${p.x} ${p.y})`} />
+              <text x={p.x + 10} y={p.y - 6} className="receptor-label">
+                {receptor.name || RECEPTOR_KIND_LABELS[receptor.kind] || receptor.kind}
+                {pred ? ` ${ruNumber(pred.ppv_mm_s, 1)}` : ""}
+              </text>
+            </g>
+          );
+        })}
+
         {holes.map((h) => {
           const p = holeScreenPos(h);
           const isSelected = selected.has(h.id);
@@ -459,7 +514,9 @@ export function PlanCanvas({
         )}
       </svg>
       <div className="plan-canvas-hint">
-        {drawingDomainId
+        {placingReceptor
+          ? "Клик — новый рецептор на плане · пробел + перетаскивание — панорама"
+          : drawingDomainId
           ? "Клик — вершина геологического региона · пробел + перетаскивание — панорама"
           : mode === "contour"
             ? "Клик по пустому месту — новая точка контура · клик по ребру — открытый откос · пробел + перетаскивание — панорама"

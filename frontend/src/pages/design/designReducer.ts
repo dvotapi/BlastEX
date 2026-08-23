@@ -14,8 +14,18 @@ import type {
   SurfaceKind,
   SurfaceModel,
   BlastDomain,
+  Receptor,
+  VibrationMeasurement,
+  VibrationModel,
 } from "../../types/design";
-import { emptyCoordinateSystem, emptyHoleGeology, emptyNetwork, emptySurfaces, normalizeNetwork } from "../../types/design";
+import {
+  defaultVibrationModel,
+  emptyCoordinateSystem,
+  emptyHoleGeology,
+  emptyNetwork,
+  emptySurfaces,
+  normalizeNetwork,
+} from "../../types/design";
 
 export type DesignAction =
   | { type: "LOAD"; design: BlastDesign }
@@ -40,6 +50,14 @@ export type DesignAction =
   | { type: "DELETE_DOMAIN"; id: string }
   | { type: "SET_WATER_TABLE"; water_table_z_m: number | null }
   | { type: "SET_HOLE_GEOLOGY"; holes: Hole[] }
+  | { type: "SET_RECEPTORS"; receptors: Receptor[] }
+  | { type: "UPSERT_RECEPTOR"; receptor: Receptor }
+  | { type: "DELETE_RECEPTOR"; id: string }
+  | { type: "SET_VIBRATION_MODELS"; models: VibrationModel[] }
+  | { type: "UPSERT_VIBRATION_MODEL"; model: VibrationModel }
+  | { type: "SET_VIBRATION_MEASUREMENTS"; measurements: VibrationMeasurement[] }
+  | { type: "UPSERT_MEASUREMENT"; measurement: VibrationMeasurement }
+  | { type: "DELETE_MEASUREMENT"; id: string }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -87,6 +105,9 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
     water_table_z_m: design.water_table_z_m ?? null,
     holes: (design.holes ?? []).map(normalizeHole),
     network: normalizeNetwork(design.network),
+    receptors: design.receptors ?? [],
+    vibration_models: design.vibration_models?.length ? design.vibration_models : [defaultVibrationModel()],
+    vibration_measurements: design.vibration_measurements ?? [],
   };
 }
 
@@ -210,6 +231,50 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       return { ...document, domains: document.domains.filter((d) => d.id !== action.id) };
     case "SET_WATER_TABLE":
       return { ...document, water_table_z_m: action.water_table_z_m };
+    case "SET_RECEPTORS":
+      return { ...document, receptors: action.receptors };
+    case "UPSERT_RECEPTOR": {
+      const exists = document.receptors.some((item) => item.id === action.receptor.id);
+      return {
+        ...document,
+        receptors: exists
+          ? document.receptors.map((item) => (item.id === action.receptor.id ? action.receptor : item))
+          : [...document.receptors, action.receptor],
+      };
+    }
+    case "DELETE_RECEPTOR":
+      return {
+        ...document,
+        receptors: document.receptors.filter((item) => item.id !== action.id),
+        vibration_measurements: document.vibration_measurements.filter((item) => item.receptor_id !== action.id),
+      };
+    case "SET_VIBRATION_MODELS":
+      return { ...document, vibration_models: action.models };
+    case "UPSERT_VIBRATION_MODEL": {
+      const exists = document.vibration_models.some((item) => item.id === action.model.id);
+      return {
+        ...document,
+        vibration_models: exists
+          ? document.vibration_models.map((item) => (item.id === action.model.id ? action.model : item))
+          : [...document.vibration_models, action.model],
+      };
+    }
+    case "SET_VIBRATION_MEASUREMENTS":
+      return { ...document, vibration_measurements: action.measurements };
+    case "UPSERT_MEASUREMENT": {
+      const exists = document.vibration_measurements.some((item) => item.id === action.measurement.id);
+      return {
+        ...document,
+        vibration_measurements: exists
+          ? document.vibration_measurements.map((item) => (item.id === action.measurement.id ? action.measurement : item))
+          : [...document.vibration_measurements, action.measurement],
+      };
+    }
+    case "DELETE_MEASUREMENT":
+      return {
+        ...document,
+        vibration_measurements: document.vibration_measurements.filter((item) => item.id !== action.id),
+      };
     case "SET_HOLE_GEOLOGY": {
       const byId = new Map(action.holes.map((h) => [h.id, h]));
       return {
@@ -251,6 +316,14 @@ const UNDOABLE: DesignAction["type"][] = [
   "DELETE_DOMAIN",
   "SET_WATER_TABLE",
   "SET_HOLE_GEOLOGY",
+  "SET_RECEPTORS",
+  "UPSERT_RECEPTOR",
+  "DELETE_RECEPTOR",
+  "SET_VIBRATION_MODELS",
+  "UPSERT_VIBRATION_MODEL",
+  "SET_VIBRATION_MEASUREMENTS",
+  "UPSERT_MEASUREMENT",
+  "DELETE_MEASUREMENT",
 ];
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {

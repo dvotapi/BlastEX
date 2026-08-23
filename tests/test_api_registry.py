@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from api.exceptions import InvalidRegistryError, RegistryIsolationError, RegistryNotFoundError
-from api.schemas.learning import LearningGlobalTrainRequest
+from api.schemas.learning import LearningGlobalTrainRequest, LearningPredictRequest
 from api.schemas.registry import RegistryPromoteRequest
 from api.services import learning_service, registry_service
 from intelligence.datasets.persistence import save_snapshot
@@ -108,6 +108,29 @@ class RegistryApiTests(unittest.TestCase):
                 RegistryPromoteRequest(to_status="production", confirm=True),
                 actor="other@mine",
             )
+
+    def test_staging_is_not_silent_production(self):
+        trained, snapshot = self._train_learning()
+        registry_service.promote_registry_model(
+            TEAM_ID,
+            "learning",
+            trained.model_id,
+            RegistryPromoteRequest(to_status="staging", confirm=True),
+            actor="lead@mine",
+        )
+        silent = learning_service.predict_learning(
+            TEAM_ID,
+            LearningPredictRequest(
+                model_type="fragmentation",
+                scope="global",
+                use_production=True,
+                features=snapshot.samples[0].features,
+            ),
+        )
+        self.assertFalse(silent.prediction_applied)
+        self.assertNotEqual(silent.status, "production")
+        self.assertFalse(silent.modifies_design)
+        self.assertFalse(silent.auto_approved)
 
     def test_meta_lists_families_and_statuses(self):
         meta = registry_service.catalog_meta()

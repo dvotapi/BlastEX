@@ -61,6 +61,9 @@ import type {
   ExecutionCompareResponse,
   BlastResult,
   BlastResultCompareResponse,
+  DatasetSnapshot,
+  DatasetSummary,
+  SampleValidation,
   PredictedFragmentation,
   PredictedVibrationSnapshot,
   PlannedCost,
@@ -313,6 +316,16 @@ export const api = {
       ),
     compareBlastResult: (design: BlastDesign) =>
       post<BlastResultCompareResponse>(`${V1}/design/blast-result/compare`, { design }),
+    listDatasets: () => get<{ items: DatasetSummary[] }>(`${V1}/datasets`),
+    buildDataset: (payload: {
+      site_id: string;
+      name?: string;
+      design_ids?: string[];
+      include_design?: BlastDesign;
+    }) => post<DatasetSnapshot>(`${V1}/datasets`, payload),
+    getDataset: (datasetId: string) => get<DatasetSnapshot>(`${V1}/datasets/${datasetId}`),
+    previewDatasetSample: (site_id: string, design: BlastDesign) =>
+      post<SampleValidation>(`${V1}/datasets/preview`, { site_id, design }),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,

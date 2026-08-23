@@ -43,6 +43,9 @@ import {
   type ExecutionCompareResponse,
   type BlastResult,
   type BlastResultCompareResponse,
+  type DatasetSnapshot,
+  type DatasetSummary,
+  type SampleValidation,
   type SchemeType,
   type SurfaceConnector,
   type SurfaceKind,
@@ -69,6 +72,7 @@ import { AsChargedPanel } from "./AsChargedPanel";
 import { AsFiredPanel } from "./AsFiredPanel";
 import { ExecutionComparePanel } from "./ExecutionComparePanel";
 import { PostBlastPanel } from "./PostBlastPanel";
+import { DatasetPanel } from "./DatasetPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -147,6 +151,12 @@ export function DesignPage({
   const [executionResult, setExecutionResult] = useState<ExecutionCompareResponse | null>(null);
   const [blastResultBusy, setBlastResultBusy] = useState(false);
   const [blastResultCompare, setBlastResultCompare] = useState<BlastResultCompareResponse | null>(null);
+  const [datasetBusy, setDatasetBusy] = useState(false);
+  const [datasetSiteId, setDatasetSiteId] = useState("");
+  const [datasetName, setDatasetName] = useState("");
+  const [datasetItems, setDatasetItems] = useState<DatasetSummary[]>([]);
+  const [datasetSelected, setDatasetSelected] = useState<DatasetSnapshot | null>(null);
+  const [datasetPreview, setDatasetPreview] = useState<SampleValidation | null>(null);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -176,7 +186,7 @@ export function DesignPage({
     };
   }, [playing, analysis, maxAnimationMs]);
 
-  useEffect(() => { refreshPlans(); }, []);
+  useEffect(() => { refreshPlans(); refreshDatasets(); }, []);
 
   useEffect(() => {
     api.explosives()
@@ -956,6 +966,63 @@ export function DesignPage({
     }
   }
 
+  async function refreshDatasets() {
+    try {
+      const data = await api.design.listDatasets();
+      setDatasetItems(data.items);
+    } catch {
+      setDatasetItems([]);
+    }
+  }
+
+  async function previewDataset() {
+    if (!datasetSiteId.trim()) {
+      setDatasetPreview(null);
+      return;
+    }
+    try {
+      const result = await api.design.previewDatasetSample(datasetSiteId.trim(), designPayload());
+      setDatasetPreview(result);
+    } catch {
+      setDatasetPreview(null);
+    }
+  }
+
+  async function buildDataset() {
+    if (!datasetSiteId.trim()) {
+      setError("Укажите площадку (site_id), чтобы собрать снимок датасета.");
+      return;
+    }
+    setDatasetBusy(true);
+    setError("");
+    try {
+      const snapshot = await api.design.buildDataset({
+        site_id: datasetSiteId.trim(),
+        name: datasetName.trim(),
+        include_design: designPayload(),
+      });
+      setDatasetSelected(snapshot);
+      await refreshDatasets();
+      await previewDataset();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось собрать снимок датасета.");
+    } finally {
+      setDatasetBusy(false);
+    }
+  }
+
+  async function openDataset(datasetId: string) {
+    setDatasetBusy(true);
+    setError("");
+    try {
+      setDatasetSelected(await api.design.getDataset(datasetId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось открыть снимок датасета.");
+    } finally {
+      setDatasetBusy(false);
+    }
+  }
+
   function printPassport() {
     if (!document.design_id) return;
     window.open(api.design.passportUrl(document.design_id), "_blank");
@@ -1329,6 +1396,22 @@ export function DesignPage({
             }}
             busy={blastResultBusy}
             result={blastResultCompare}
+          />
+          <DatasetPanel
+            siteId={datasetSiteId}
+            onSiteIdChange={setDatasetSiteId}
+            name={datasetName}
+            onNameChange={setDatasetName}
+            snapshots={datasetItems}
+            selected={datasetSelected}
+            preview={datasetPreview}
+            busy={datasetBusy}
+            onRefresh={() => {
+              refreshDatasets();
+              previewDataset();
+            }}
+            onBuild={buildDataset}
+            onOpen={openDataset}
           />
         </div>
         <div className="design-main">

@@ -1765,3 +1765,55 @@ export type FragmentationPredictResponse = {
 export function isFragmentationMapMetric(metric: string): metric is FragmentationMapMetric {
   return metric === "x50" || metric === "x80" || metric === "oversize" || metric === "powder_factor";
 }
+
+export type SampleValidation = {
+  ok: boolean;
+  closed: boolean;
+  reasons: string[];
+  complete_target_groups: string[];
+};
+
+export type TrainingSample = {
+  source_blast_id: string;
+  site_id: string;
+  feature_schema_version: string;
+  features: Record<string, Record<string, unknown>>;
+  targets: Record<string, Record<string, unknown>>;
+  provenance: Record<string, unknown>;
+  validation: SampleValidation;
+};
+
+export type RejectedSample = {
+  source_blast_id: string;
+  reasons: string[];
+  closed: boolean;
+};
+
+export type DatasetSnapshot = {
+  dataset_id: string;
+  dataset_version: number;
+  feature_schema_version: string;
+  source_blast_ids: string[];
+  created_at: string;
+  site_id: string;
+  name: string;
+  kind: string;
+  sample_count: number;
+  rejected_count: number;
+  samples: TrainingSample[];
+  rejected: RejectedSample[];
+  immutable: boolean;
+};
+
+export type DatasetSummary = {
+  dataset_id: string;
+  name: string;
+  dataset_version: number;
+  feature_schema_version: string;
+  site_id: string;
+  created_at: string;
+  source_blast_ids: string[];
+  sample_count: number;
+  rejected_count: number;
+  immutable: boolean;
+};

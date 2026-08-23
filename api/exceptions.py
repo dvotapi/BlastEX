@@ -48,3 +48,16 @@ class InvalidDesignError(BlastExError):
 class InvalidSurveyError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="invalid_survey")
+
+
+class DatasetNotFoundError(BlastExError):
+    def __init__(self, dataset_id: str) -> None:
+        super().__init__(
+            f"Снимок датасета «{dataset_id}» не найден.",
+            error_type="dataset_not_found",
+        )
+
+
+class ImmutableDatasetError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="immutable_dataset")

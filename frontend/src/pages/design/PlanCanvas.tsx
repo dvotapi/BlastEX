@@ -133,7 +133,7 @@ export function PlanCanvas({
   // Трактовка текущей серии событий колеса и время последнего щипка-жеста
   // WebKit — оба нужны, чтобы не переключать поведение посреди жеста.
   const wheelGestureRef = useRef<{ mode: "pan" | "zoom"; at: number }>({ mode: "zoom", at: 0 });
-  const gestureZoomAtRef = useRef(0);
+  const gestureZoomAtRef = useRef(Number.NEGATIVE_INFINITY);
   // Тап на тачскрине, чья правка ждёт отпускания пальца (см. handlePointerDown).
   const pendingTapRef = useRef<{ pointerId: number; screen: Vec2 } | null>(null);
 
@@ -226,10 +226,6 @@ export function PlanCanvas({
       const dy = e.deltaY * unit;
       const now = e.timeStamp || performance.now();
 
-      // Safari шлёт щипок и жестами, и колесом с ctrlKey — иначе масштаб
-      // применился бы дважды и план «прыгал» бы вдвое быстрее.
-      if (now - gestureZoomAtRef.current < GESTURE_ECHO_MS) return;
-
       const zoomAtPoint = (delta: number) => {
         // Щипок даёт мелкие приращения, колесо мыши — крупные: одинаковый
         // коэффициент делал бы Ctrl+колесо неуправляемо резким.
@@ -238,6 +234,10 @@ export function PlanCanvas({
       };
 
       if (e.ctrlKey || e.metaKey) {
+        // WebKit шлёт щипок и жестами, и колесом с ctrlKey — без этой проверки
+        // масштаб применился бы дважды. Панорамирующие события гасить не нужно,
+        // поэтому проверка стоит только на ветке масштабирования.
+        if (now - gestureZoomAtRef.current < GESTURE_ECHO_MS) return;
         zoomAtPoint(dy);
         return;
       }
@@ -254,7 +254,10 @@ export function PlanCanvas({
       // Shift, поэтому одна горизонтальная составляющая тачпад не выдаёт.
       const trackpad =
         !Number.isInteger(e.deltaX) || !Number.isInteger(e.deltaY) || Math.max(Math.abs(dx), Math.abs(dy)) < 40;
-      const mode = continuing ? previous.mode : trackpad ? "pan" : "zoom";
+      let mode: "pan" | "zoom" = continuing ? previous.mode : trackpad ? "pan" : "zoom";
+      // Чисто горизонтальную прокрутку масштабировать нечем (масштаб считается
+      // по вертикали) — это всегда панорама, в том числе у колеса с наклоном.
+      if (mode === "zoom" && dy === 0 && dx !== 0) mode = "pan";
       wheelGestureRef.current = { mode, at: now };
 
       if (mode === "zoom") zoomAtPoint(dy);

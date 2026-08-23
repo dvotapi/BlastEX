@@ -51,6 +51,11 @@ import {
   type CalibrationModelType,
   type CalibrationPredictResponse,
   type CalibrationSummary,
+  type OutcomeModel,
+  type OutcomeModelType,
+  type OutcomePanelResponse,
+  type OutcomePredictResponse,
+  type OutcomeSummary,
   type SchemeType,
   type SurfaceConnector,
   type SurfaceKind,
@@ -79,6 +84,7 @@ import { ExecutionComparePanel } from "./ExecutionComparePanel";
 import { PostBlastPanel } from "./PostBlastPanel";
 import { DatasetPanel } from "./DatasetPanel";
 import { CalibrationPanel } from "./CalibrationPanel";
+import { OutcomePanel } from "./OutcomePanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -170,6 +176,14 @@ export function DesignPage({
   const [calibrationItems, setCalibrationItems] = useState<CalibrationSummary[]>([]);
   const [calibrationSelected, setCalibrationSelected] = useState<CalibrationModel | null>(null);
   const [calibrationOverlay, setCalibrationOverlay] = useState<CalibrationPredictResponse | null>(null);
+  const [outcomeBusy, setOutcomeBusy] = useState(false);
+  const [outcomeType, setOutcomeType] = useState<OutcomeModelType>("fragmentation");
+  const [outcomeAlgorithm, setOutcomeAlgorithm] = useState("random_forest");
+  const [outcomeAlgorithms, setOutcomeAlgorithms] = useState<CalibrationAlgorithm[]>([]);
+  const [outcomeItems, setOutcomeItems] = useState<OutcomeSummary[]>([]);
+  const [outcomeSelected, setOutcomeSelected] = useState<OutcomeModel | null>(null);
+  const [outcomeOverlay, setOutcomeOverlay] = useState<OutcomePredictResponse | null>(null);
+  const [outcomePanel, setOutcomePanel] = useState<OutcomePanelResponse | null>(null);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -199,7 +213,7 @@ export function DesignPage({
     };
   }, [playing, analysis, maxAnimationMs]);
 
-  useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); }, []);
+  useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); }, []);
 
   useEffect(() => {
     api.explosives()
@@ -1137,6 +1151,116 @@ export function DesignPage({
     }
   }
 
+  async function refreshOutcomes() {
+    try {
+      const [models, algos] = await Promise.all([
+        api.design.listOutcomeModels(),
+        api.design.outcomeAlgorithms(),
+      ]);
+      setOutcomeItems(models.items);
+      setOutcomeAlgorithms(algos.items);
+      if (!algos.items.some((item) => item.name === outcomeAlgorithm && item.available)) {
+        setOutcomeAlgorithm(algos.default || "random_forest");
+      }
+    } catch {
+      setOutcomeItems([]);
+    }
+  }
+
+  async function trainOutcome() {
+    if (!datasetSelected?.dataset_id) {
+      setError("Сначала соберите или откройте снимок датасета.");
+      return;
+    }
+    setOutcomeBusy(true);
+    setError("");
+    try {
+      const trained = await api.design.trainOutcome({
+        dataset_id: datasetSelected.dataset_id,
+        model_type: outcomeType,
+        algorithm: outcomeAlgorithm,
+        site_id: datasetSiteId.trim() || datasetSelected.site_id,
+      });
+      setOutcomeSelected(trained);
+      setOutcomeOverlay(null);
+      await refreshOutcomes();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось обучить модель исхода.");
+    } finally {
+      setOutcomeBusy(false);
+    }
+  }
+
+  async function openOutcome(modelId: string) {
+    setOutcomeBusy(true);
+    setError("");
+    try {
+      setOutcomeSelected(await api.design.getOutcomeModel(modelId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось открыть модель исхода.");
+    } finally {
+      setOutcomeBusy(false);
+    }
+  }
+
+  async function markOutcomeProduction() {
+    if (!outcomeSelected) return;
+    setOutcomeBusy(true);
+    setError("");
+    try {
+      const updated = await api.design.setOutcomeStatus(outcomeSelected.model_id, "production");
+      setOutcomeSelected(updated);
+      await refreshOutcomes();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сменить статус модели.");
+    } finally {
+      setOutcomeBusy(false);
+    }
+  }
+
+  async function predictOutcomeType() {
+    if (!outcomeSelected) {
+      setError("Выберите модель исхода, чтобы показать рекомендацию.");
+      return;
+    }
+    setOutcomeBusy(true);
+    setError("");
+    try {
+      const overlay = await api.design.predictOutcome({
+        model_type: outcomeType,
+        model_id: outcomeSelected.model_id,
+        site_id: datasetSiteId.trim() || outcomeSelected.site_id,
+        design: designPayload(),
+      });
+      setOutcomeOverlay(overlay);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось получить прогноз исхода.");
+    } finally {
+      setOutcomeBusy(false);
+    }
+  }
+
+  async function predictAllOutcomes() {
+    setOutcomeBusy(true);
+    setError("");
+    try {
+      const modelIds = outcomeSelected
+        ? { [outcomeSelected.model_type as OutcomeModelType]: outcomeSelected.model_id }
+        : undefined;
+      const panel = await api.design.predictAllOutcomes({
+        site_id: datasetSiteId.trim() || outcomeSelected?.site_id || "",
+        use_production: true,
+        model_ids: modelIds,
+        design: designPayload(),
+      });
+      setOutcomePanel(panel);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось получить прогноз исходов.");
+    } finally {
+      setOutcomeBusy(false);
+    }
+  }
+
   function printPassport() {
     if (!document.design_id) return;
     window.open(api.design.passportUrl(document.design_id), "_blank");
@@ -1206,6 +1330,9 @@ export function DesignPage({
       setAsFiredResult(null);
       setExecutionResult(null);
       setBlastResultCompare(null);
+      setCalibrationOverlay(null);
+      setOutcomeOverlay(null);
+      setOutcomePanel(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -1545,6 +1672,27 @@ export function DesignPage({
             onOpen={openCalibration}
             onMarkProduction={markCalibrationProduction}
             onApplyOverlay={applyCalibrationOverlay}
+          />
+          <OutcomePanel
+            siteId={datasetSiteId || datasetSelected?.site_id || ""}
+            datasetId={datasetSelected?.dataset_id || ""}
+            datasetLabel={datasetSelected ? (datasetSelected.name || `Снимок v${datasetSelected.dataset_version}`) : ""}
+            modelType={outcomeType}
+            onModelTypeChange={setOutcomeType}
+            algorithm={outcomeAlgorithm}
+            onAlgorithmChange={setOutcomeAlgorithm}
+            algorithms={outcomeAlgorithms}
+            models={outcomeItems}
+            selected={outcomeSelected}
+            overlay={outcomeOverlay}
+            panel={outcomePanel}
+            busy={outcomeBusy}
+            onRefresh={refreshOutcomes}
+            onTrain={trainOutcome}
+            onOpen={openOutcome}
+            onMarkProduction={markOutcomeProduction}
+            onPredictType={predictOutcomeType}
+            onPredictAll={predictAllOutcomes}
           />
         </div>
         <div className="design-main">

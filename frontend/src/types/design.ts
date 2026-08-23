@@ -1928,3 +1928,119 @@ export type CalibrationAlgorithm = {
   available: boolean;
 };
 
+export type OutcomeModelType = "fragmentation" | "vibration" | "oversize" | "toe_risk";
+export type OutcomeStatus = CalibrationStatus;
+
+export const OUTCOME_MODEL_TYPES: Array<{ value: OutcomeModelType; label: string; className: string }> = [
+  { value: "fragmentation", label: "Кусковатость (X50 / X80)", className: "FragmentationModel" },
+  { value: "vibration", label: "Сейсмика (PPV / частота)", className: "VibrationModel" },
+  { value: "oversize", label: "Негабарит", className: "OversizeModel" },
+  { value: "toe_risk", label: "Риск забоя", className: "ToeRiskModel" },
+];
+
+export const OUTCOME_STATUS_LABELS = CALIBRATION_STATUS_LABELS;
+
+export type OutcomeTargetPrediction = {
+  target_name: string;
+  value: number | null;
+  unit: string;
+  label: string;
+  model_type: string;
+  prediction_applied: boolean;
+};
+
+export type OutcomeModel = {
+  model_id: string;
+  site_id: string;
+  model_type: OutcomeModelType | string;
+  class_name: string;
+  model_version: number;
+  training_dataset_id: string;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  metrics: CalibrationMetrics;
+  status: OutcomeStatus | string;
+  algorithm: string;
+  feature_names: string[];
+  target_names: string[];
+  primary_target: string;
+  sample_count: number;
+  source_blast_ids: string[];
+  artifact_sha256: string;
+  status_updated_at: string;
+};
+
+export type OutcomeSummary = {
+  model_id: string;
+  site_id: string;
+  model_type: OutcomeModelType | string;
+  class_name: string;
+  model_version: number;
+  training_dataset_id: string;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  metrics: CalibrationMetrics;
+  status: OutcomeStatus | string;
+  algorithm: string;
+  primary_target: string;
+  target_names: string[];
+  sample_count: number;
+};
+
+export type OutcomeProvenance = {
+  site_id: string;
+  model_id: string;
+  model_type: string;
+  class_name: string;
+  model_version: number;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  algorithm: string;
+  status: string;
+  applied_as: string;
+  modifies_design: boolean;
+  role: string;
+  primary_target: string;
+};
+
+export type OutcomePredictResponse = {
+  predicted: number | null;
+  predictions: Record<string, OutcomeTargetPrediction>;
+  model_id: string;
+  site_id: string;
+  model_type: string;
+  class_name: string;
+  model_version: number;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  algorithm: string;
+  status: string;
+  metrics: CalibrationMetrics;
+  primary_target: string;
+  unit: string;
+  applied_as: string;
+  modifies_design: boolean;
+  prediction_applied: boolean;
+  warnings: string[];
+  role: string;
+  provenance: OutcomeProvenance;
+};
+
+export type OutcomePanelResponse = {
+  applied_as: string;
+  modifies_design: boolean;
+  role: string;
+  x50_mm: OutcomeTargetPrediction | null;
+  x80_mm: OutcomeTargetPrediction | null;
+  oversize_pct: OutcomeTargetPrediction | null;
+  ppv: OutcomeTargetPrediction | null;
+  frequency_hz: OutcomeTargetPrediction | null;
+  toe_risk: OutcomeTargetPrediction | null;
+  models: Partial<Record<OutcomeModelType, OutcomePredictResponse>>;
+  warnings: string[];
+};
+

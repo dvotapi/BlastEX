@@ -188,8 +188,8 @@ export function DesignPage({
     }
   }
 
-  function onContourVerticesChange(vertices: Point3[]) {
-    dispatch({ type: "SET_CONTOUR_VERTICES", vertices });
+  function onContourChange(vertices: Point3[], freeFaces?: number[][], coalesce?: boolean) {
+    dispatch({ type: "SET_CONTOUR_VERTICES", vertices, free_faces: freeFaces, coalesce });
   }
 
   function onToggleFreeFace(edgeIndex: number) {
@@ -224,10 +224,18 @@ export function DesignPage({
     dispatch({ type: "ADD_HOLE", hole });
   }
 
+  function deleteHoles(ids: string[]) {
+    if (!ids.length) return;
+    dispatch({ type: "DELETE_HOLES", ids });
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
   function deleteSelected() {
-    if (!selected.size) return;
-    dispatch({ type: "DELETE_HOLES", ids: Array.from(selected) });
-    setSelected(new Set());
+    deleteHoles(Array.from(selected));
   }
 
   function onSelectHole3D(id: string, additive: boolean) {
@@ -546,10 +554,11 @@ export function DesignPage({
                 mode={mode === "contour" ? "contour" : "holes"}
                 selected={selected}
                 onSelectedChange={setSelected}
-                onContourVerticesChange={onContourVerticesChange}
+                onContourChange={onContourChange}
                 onToggleFreeFace={onToggleFreeFace}
                 onMoveHoles={onMoveHoles}
                 onAddHole={onAddHole}
+                onDeleteHoles={deleteHoles}
                 camera={camera}
                 onCameraChange={setCamera}
                 spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}

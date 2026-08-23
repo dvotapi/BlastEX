@@ -276,4 +276,8 @@
 .post-blast-row { background:#f6f8f7; }
 .post-blast-row.over { background:#fdecea; color:#9e3025; }
 
+.dataset-preview, .dataset-detail { display:grid; gap:6px; }
+.dataset-tags { display:flex; flex-wrap:wrap; gap:4px; }
+.dataset-tags i { font-style:normal; font-size:10px; background:#edf7f1; color:#2d7556; border-radius:999px; padding:2px 7px; }
+
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

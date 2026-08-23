@@ -10,6 +10,7 @@ import {
   type CalibrationSummary,
 } from "../../types/design";
 import { UncertaintyBlock } from "./UncertaintyBlock";
+import { ExplanationBlock } from "./ExplanationBlock";
 
 function statusLabel(status: string): string {
   return CALIBRATION_STATUS_LABELS[status as CalibrationStatus] ?? status;
@@ -147,6 +148,10 @@ export function CalibrationPanel({
               similarityScore={overlay.similarity_score}
               comparableCount={overlay.comparable_count}
               applicabilityWarning={overlay.applicability_warning}
+            />
+            <ExplanationBlock
+              explanation={overlay.explanation}
+              fallbackTitle={modelType === "ppv_residual" ? "PPV" : modelType === "oversize_residual" ? "негабарита" : "X50"}
             />
             <small>
               {overlay.calibration_applied

@@ -12,6 +12,7 @@ import {
   type OutcomeTargetPrediction,
 } from "../../types/design";
 import { UncertaintyBlock } from "./UncertaintyBlock";
+import { ExplanationBlock } from "./ExplanationBlock";
 
 function statusLabel(status: string): string {
   return OUTCOME_STATUS_LABELS[status as OutcomeStatus] ?? status;
@@ -193,6 +194,10 @@ export function OutcomePanel({
               comparableCount={overlay.comparable_count}
               applicabilityWarning={overlay.applicability_warning}
             />
+            <ExplanationBlock
+              explanation={overlay.explanation || overlay.predictions[overlay.primary_target]?.explanation}
+              fallbackTitle={overlay.predictions[overlay.primary_target]?.label || overlay.primary_target || "исхода"}
+            />
             <small>
               {overlay.class_name || overlay.model_type} v{overlay.model_version} · {statusLabel(overlay.status)}
             </small>
@@ -227,6 +232,15 @@ export function OutcomePanel({
                 applicabilityWarning={panel.applicability_warning || panel.x50_mm.applicability_warning}
               />
             )}
+            <ExplanationBlock
+              explanation={
+                panel.x50_mm?.explanation
+                || panel.models.fragmentation?.explanation
+                || panel.oversize_pct?.explanation
+                || panel.ppv?.explanation
+              }
+              fallbackTitle="X50"
+            />
             <small>
               {panel.models.fragmentation?.prediction_applied
                 ? `FragmentationModel v${panel.models.fragmentation.model_version}`

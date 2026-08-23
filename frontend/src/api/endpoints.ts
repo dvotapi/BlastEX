@@ -87,6 +87,9 @@ import type {
   DesignedMuckpile,
   DesignedBackbreak,
   MwdSchemaResponse,
+  LearningModel,
+  LearningPredictResponse,
+  LearningSummary,
 } from "../types/design";
 
 const V1 = "/api/v1";
@@ -393,6 +396,40 @@ export const api = {
       get<{ items: Array<{ name: string; class_name: string; label: string; primary_target: string }> }>(
         `${V1}/outcomes/model-types`,
       ),
+    listLearningModels: (query?: { model_type?: string; scope?: string; site_id?: string }) => {
+      const params = new URLSearchParams();
+      if (query?.model_type) params.set("model_type", query.model_type);
+      if (query?.scope) params.set("scope", query.scope);
+      if (query?.site_id) params.set("site_id", query.site_id);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: LearningSummary[]; auto_approved: boolean }>(`${V1}/learning/models${suffix}`);
+    },
+    trainLearningGlobal: (payload: {
+      dataset_ids: string[];
+      model_type: OutcomeModelType | string;
+      algorithm?: string;
+    }) => post<LearningModel>(`${V1}/learning/global`, payload),
+    trainLearningSite: (payload: {
+      dataset_ids: string[];
+      site_id: string;
+      model_type: OutcomeModelType | string;
+      algorithm?: string;
+      prior_model_id?: string;
+    }) => post<LearningModel>(`${V1}/learning/site`, payload),
+    getLearningModel: (modelId: string) => get<LearningModel>(`${V1}/learning/models/${modelId}`),
+    setLearningStatus: (modelId: string, status: string) =>
+      post<LearningModel>(`${V1}/learning/models/${modelId}/status`, { status }),
+    predictLearning: (payload: {
+      model_type: OutcomeModelType | string;
+      model_id?: string;
+      site_id?: string;
+      scope?: string;
+      use_production?: boolean;
+      features?: Record<string, unknown>;
+      design?: BlastDesign;
+    }) => post<LearningPredictResponse>(`${V1}/learning/predict`, payload),
+    learningAlgorithms: () =>
+      get<{ items: CalibrationAlgorithm[]; default: string }>(`${V1}/learning/algorithms`),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     createScenario: (payload: {

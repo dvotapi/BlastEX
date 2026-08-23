@@ -66,6 +66,9 @@ import {
   type SurfaceConnector,
   type SurfaceKind,
   type TieParams,
+  type LearningModel,
+  type LearningPredictResponse,
+  type LearningSummary,
 } from "../../types/design";
 import { emptyHoleGeology } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
@@ -94,6 +97,7 @@ import { OutcomePanel } from "./OutcomePanel";
 import { ScenarioPanel } from "./ScenarioPanel";
 import { OptimizationPanel, type OptimizationVariableDraft } from "./OptimizationPanel";
 import { RecommendationPanel } from "./RecommendationPanel";
+import { LearningPanel } from "./LearningPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -224,6 +228,13 @@ export function DesignPage({
   const [recResult, setRecResult] = useState<DesignRecommendation | null>(null);
   const [recProfile, setRecProfile] = useState("BALANCED");
   const [recUseOverlays, setRecUseOverlays] = useState(false);
+  const [learningBusy, setLearningBusy] = useState(false);
+  const [learningType, setLearningType] = useState<OutcomeModelType>("fragmentation");
+  const [learningAlgorithm, setLearningAlgorithm] = useState("random_forest");
+  const [learningAlgorithms, setLearningAlgorithms] = useState<CalibrationAlgorithm[]>([]);
+  const [learningItems, setLearningItems] = useState<LearningSummary[]>([]);
+  const [learningSelected, setLearningSelected] = useState<LearningModel | null>(null);
+  const [learningOverlay, setLearningOverlay] = useState<LearningPredictResponse | null>(null);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -253,7 +264,7 @@ export function DesignPage({
     };
   }, [playing, analysis, maxAnimationMs]);
 
-  useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); }, []);
+  useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); refreshLearning(); }, []);
 
   useEffect(() => {
     api.explosives()
@@ -1301,6 +1312,144 @@ export function DesignPage({
     }
   }
 
+  function learningSnapshotIds(scope: "global" | "site"): string[] {
+    const site = datasetSiteId.trim() || datasetSelected?.site_id || "";
+    if (scope === "site") {
+      const matching = datasetItems.filter((item) => item.site_id === site);
+      if (matching.length) return matching.map((item) => item.dataset_id);
+      if (datasetSelected && (!site || datasetSelected.site_id === site)) {
+        return [datasetSelected.dataset_id];
+      }
+      return [];
+    }
+    if (datasetItems.length) return datasetItems.map((item) => item.dataset_id);
+    return datasetSelected ? [datasetSelected.dataset_id] : [];
+  }
+
+  async function refreshLearning() {
+    try {
+      const [models, algos] = await Promise.all([
+        api.design.listLearningModels(),
+        api.design.learningAlgorithms(),
+      ]);
+      setLearningItems(models.items);
+      setLearningAlgorithms(algos.items);
+      if (!algos.items.some((item) => item.name === learningAlgorithm && item.available)) {
+        setLearningAlgorithm(algos.default || "random_forest");
+      }
+    } catch {
+      setLearningItems([]);
+    }
+  }
+
+  async function trainLearningGlobal() {
+    const datasetIds = learningSnapshotIds("global");
+    if (!datasetIds.length) {
+      setError("Сначала соберите или откройте снимок датасета.");
+      return;
+    }
+    setLearningBusy(true);
+    setError("");
+    try {
+      const trained = await api.design.trainLearningGlobal({
+        dataset_ids: datasetIds,
+        model_type: learningType,
+        algorithm: learningAlgorithm,
+      });
+      setLearningSelected(trained);
+      setLearningOverlay(null);
+      await refreshLearning();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось обучить глобальный prior.");
+    } finally {
+      setLearningBusy(false);
+    }
+  }
+
+  async function trainLearningSite() {
+    const site = datasetSiteId.trim() || datasetSelected?.site_id || "";
+    const datasetIds = learningSnapshotIds("site");
+    if (!site) {
+      setError("Укажите площадку (site_id) для адаптации.");
+      return;
+    }
+    if (!datasetIds.length) {
+      setError("Для адаптации нужны снимки этой площадки.");
+      return;
+    }
+    setLearningBusy(true);
+    setError("");
+    try {
+      const priorId = learningSelected?.scope === "global" && learningSelected.model_type === learningType
+        ? learningSelected.model_id
+        : learningItems.find((item) => item.scope === "global" && item.model_type === learningType)?.model_id;
+      const trained = await api.design.trainLearningSite({
+        dataset_ids: datasetIds,
+        site_id: site,
+        model_type: learningType,
+        algorithm: learningAlgorithm,
+        prior_model_id: priorId,
+      });
+      setLearningSelected(trained);
+      setLearningOverlay(null);
+      await refreshLearning();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось адаптировать модель площадки.");
+    } finally {
+      setLearningBusy(false);
+    }
+  }
+
+  async function openLearning(modelId: string) {
+    setLearningBusy(true);
+    setError("");
+    try {
+      setLearningSelected(await api.design.getLearningModel(modelId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось открыть модель обучения.");
+    } finally {
+      setLearningBusy(false);
+    }
+  }
+
+  async function markLearningProduction() {
+    if (!learningSelected) return;
+    setLearningBusy(true);
+    setError("");
+    try {
+      const updated = await api.design.setLearningStatus(learningSelected.model_id, "production");
+      setLearningSelected(updated);
+      await refreshLearning();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сменить статус модели.");
+    } finally {
+      setLearningBusy(false);
+    }
+  }
+
+  async function predictLearning() {
+    if (!learningSelected) {
+      setError("Выберите модель обучения, чтобы показать рекомендацию.");
+      return;
+    }
+    setLearningBusy(true);
+    setError("");
+    try {
+      const overlay = await api.design.predictLearning({
+        model_type: learningType,
+        model_id: learningSelected.model_id,
+        site_id: datasetSiteId.trim() || learningSelected.site_id,
+        scope: learningSelected.scope,
+        design: designPayload(),
+      });
+      setLearningOverlay(overlay);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось получить прогноз обучения.");
+    } finally {
+      setLearningBusy(false);
+    }
+  }
+
   async function createDesignScenario() {
     if (!document.holes.length) {
       setError("Сначала постройте сетку скважин.");
@@ -1605,6 +1754,7 @@ export function DesignPage({
       setCalibrationOverlay(null);
       setOutcomeOverlay(null);
       setOutcomePanel(null);
+      setLearningOverlay(null);
       setScenarioItems([]);
       setScenarioInline([]);
       setScenarioCompare(null);
@@ -2027,6 +2177,26 @@ export function DesignPage({
             busy={recBusy}
             onRun={runRecommendation}
             onPromote={promoteRecommendation}
+          />
+          <LearningPanel
+            siteId={datasetSiteId || datasetSelected?.site_id || ""}
+            datasetLabel={datasetSelected ? (datasetSelected.name || `Снимок v${datasetSelected.dataset_version}`) : ""}
+            snapshotCount={datasetItems.length || (datasetSelected ? 1 : 0)}
+            modelType={learningType}
+            onModelTypeChange={setLearningType}
+            algorithm={learningAlgorithm}
+            onAlgorithmChange={setLearningAlgorithm}
+            algorithms={learningAlgorithms}
+            models={learningItems}
+            selected={learningSelected}
+            overlay={learningOverlay}
+            busy={learningBusy}
+            onRefresh={refreshLearning}
+            onTrainGlobal={trainLearningGlobal}
+            onTrainSite={trainLearningSite}
+            onOpen={openLearning}
+            onMarkProduction={markLearningProduction}
+            onPredict={predictLearning}
           />
         </div>
         <div className="design-main">

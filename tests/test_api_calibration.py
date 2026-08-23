@@ -56,6 +56,12 @@ class CalibrationApiTests(unittest.TestCase):
         self.assertEqual(prediction.applied_as, "recommendation_overlay")
         self.assertEqual(prediction.provenance.model_version, trained.model_version)
         self.assertGreater(prediction.calibrated, prediction.baseline)
+        self.assertIsNotNone(prediction.prediction)
+        self.assertIn(prediction.confidence, {"high", "medium", "low"})
+        self.assertIsInstance(prediction.similarity_score, float)
+        self.assertIsInstance(prediction.applicability_warning, str)
+        self.assertIsNotNone(prediction.uncertainty.lower)
+        self.assertIsNotNone(prediction.uncertainty.upper)
 
         promoted = calibration_service.update_status(
             TEAM_ID, trained.model_id, CalibrationStatusRequest(status="production")

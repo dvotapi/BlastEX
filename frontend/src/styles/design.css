@@ -97,7 +97,14 @@
 
 .hole-table-panel .table-scroll { max-height:280px; }
 .hole-table-panel select, .hole-table-panel input { border:1px solid #cfd9d4; border-radius:6px; padding:4px 6px; font-size:11px; width:100%; }
-.hole-table-actions { display:flex; align-items:center; justify-content:space-between; padding:10px 17px; border-top:1px solid #edf1ef; font-size:12px; }
+.hole-table-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 17px; border-top:1px solid #edf1ef; font-size:12px; }
+.hole-table-buttons { display:flex; gap:8px; }
+.hole-table-buttons button { padding:6px 12px; border:1px solid #ced9d3; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
+.hole-table-buttons button:hover { border-color:#2d7556; color:#2d7556; }
+/* Скважина вне расчёта: строка приглушена, как и её маркер на плане. */
+.hole-table-panel tr.disabled td { color:#9aa8a1; }
+.hole-table-panel tr.disabled td b { font-weight:600; }
+.hole-enabled-toggle { width:auto; margin:0; accent-color:#2d7556; cursor:pointer; }
 
 .panel > header select { border:1px solid #ced9d3; border-radius:8px; padding:5px 8px; font-size:11px; background:#fff; color:#3b4b43; }
 

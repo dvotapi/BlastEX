@@ -241,6 +241,10 @@ export function DesignPage({
     });
   }
 
+  function setHolesEnabled(ids: string[], enabled: boolean) {
+    dispatch({ type: "SET_HOLES_ENABLED", ids, enabled });
+  }
+
   function deleteSelected() {
     deleteHoles(Array.from(selected));
   }
@@ -569,6 +573,7 @@ export function DesignPage({
                 onMoveHoles={onMoveHoles}
                 onAddHole={onAddHole}
                 onDeleteHoles={deleteHoles}
+                onSetHolesEnabled={setHolesEnabled}
                 camera={camera}
                 onCameraChange={setCamera}
                 pendingFit={pendingFit}
@@ -598,6 +603,7 @@ export function DesignPage({
                   onSelectedChange={setSelected}
                   onUpdateHole={onUpdateHole}
                   onDeleteSelected={deleteSelected}
+                  onSetEnabled={setHolesEnabled}
                 />
               )}
             </>

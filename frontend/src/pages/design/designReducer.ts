@@ -15,6 +15,7 @@ export type DesignAction =
   | { type: "UPDATE_HOLE"; id: string; patch: Partial<Hole> }
   | { type: "ADD_HOLE"; hole: Hole }
   | { type: "DELETE_HOLES"; ids: string[] }
+  | { type: "SET_HOLES_ENABLED"; ids: string[]; enabled: boolean }
   | { type: "SET_CHARGE_RULES"; rules: Partial<ChargeRules> }
   | { type: "SET_LOADS"; loads: HoleLoad[] }
   | { type: "SET_NETWORK"; network: InitiationNetwork }
@@ -116,6 +117,16 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       };
     case "ADD_HOLE":
       return { ...document, holes: [...document.holes, action.hole] };
+    case "SET_HOLES_ENABLED": {
+      // Отключённая скважина остаётся в паспорте и на плане, но выпадает из
+      // объёмов, погонажа, заряжания и тайминга — их считает сервер по флагу.
+      const ids = new Set(action.ids);
+      if (!ids.size) return document;
+      return {
+        ...document,
+        holes: document.holes.map((h) => (ids.has(h.id) ? { ...h, enabled: action.enabled } : h)),
+      };
+    }
     case "DELETE_HOLES": {
       const ids = new Set(action.ids);
       const holes = document.holes.filter((h) => !ids.has(h.id));
@@ -143,6 +154,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "UPDATE_HOLE",
   "ADD_HOLE",
   "DELETE_HOLES",
+  "SET_HOLES_ENABLED",
   "SET_LOADS",
   "SET_NETWORK",
 ];

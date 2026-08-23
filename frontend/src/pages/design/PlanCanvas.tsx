@@ -63,6 +63,7 @@ export function PlanCanvas({
   onMoveHoles,
   onAddHole,
   onDeleteHoles,
+  onSetHolesEnabled,
   camera,
   onCameraChange,
   pendingFit,
@@ -84,6 +85,7 @@ export function PlanCanvas({
   onMoveHoles: (ids: string[], dx: number, dy: number) => void;
   onAddHole: (world: Vec2) => void;
   onDeleteHoles: (ids: string[]) => void;
+  onSetHolesEnabled: (ids: string[], enabled: boolean) => void;
   camera: Camera;
   onCameraChange: (camera: Camera) => void;
   /** Страница подменила геометрию целиком — план нужно вписать в окно. */
@@ -408,6 +410,9 @@ export function PlanCanvas({
     const drag = dragRef.current;
     if (e.button === 2 && drag.kind !== "none") return;
     const screen = toScreenPoint(e);
+    // Shift-клик по холсту браузер трактует как продолжение выделения текста и
+    // подсвечивает пол-страницы — снимаем выделение до начала жеста.
+    if (e.shiftKey) window.getSelection()?.removeAllRanges();
     wrapRef.current?.focus({ preventScroll: true });
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
 
@@ -797,6 +802,10 @@ export function PlanCanvas({
       ? toScreen(contour.vertices[hover.index])
       : null;
 
+  // Кнопка «Исключить/Вернуть» переключает весь выбор разом: если хоть одна
+  // скважина уже вне расчёта, кнопка возвращает выбранные в расчёт.
+  const allSelectedEnabled = holes.every((h) => !selected.has(h.id) || h.enabled);
+
   const tools: { id: PlanTool; label: string; icon: string; title: string }[] = [
     { id: "select", label: "Выбор", icon: "⬈", title: "Выбор и перетаскивание (V)" },
     {
@@ -866,6 +875,18 @@ export function PlanCanvas({
         </div>
       ) : (
         <div className="plan-tool-group">
+          <button
+            type="button"
+            title={
+              allSelectedEnabled
+                ? "Исключить выделенные скважины из расчёта — на плане останутся серыми"
+                : "Вернуть выделенные скважины в расчёт"
+            }
+            disabled={!selected.size}
+            onClick={() => onSetHolesEnabled(Array.from(selected), !allSelectedEnabled)}
+          >
+            {allSelectedEnabled ? "⃠ Исключить" : "✓ Вернуть"}{selected.size ? ` (${selected.size})` : ""}
+          </button>
           <button
             type="button"
             title="Удалить выделенные скважины (Delete)"

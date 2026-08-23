@@ -461,6 +461,36 @@ class AsDrilledHoleSchema(BaseModel):
     provenance: DataProvenanceSchema = Field(default_factory=DataProvenanceSchema)
 
 
+class AsChargedHoleSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    design_hole_id: str
+    decks: list[DeckSchema] = Field(default_factory=list)
+    primers: list[float] = Field(default_factory=list)
+    primer_items: list[PrimerSchema] = Field(default_factory=list)
+    explosive_product: str = ""
+    charge_mass_kg: float = Field(0.0, ge=0)
+    stemming_length_m: float = Field(0.0, ge=0)
+    loading_timestamp: str = ""
+    role: str = "executed"
+    provenance: DataProvenanceSchema = Field(default_factory=DataProvenanceSchema)
+
+
+class AsFiredHoleSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    design_hole_id: str
+    detonator: DetonatorSchema = Field(default_factory=lambda: DetonatorSchema(id="", hole_id=""))
+    detonator_id: str = ""
+    detonator_product: str = ""
+    detonator_kind: str = "electronic"
+    programmed_time_ms: float = 0.0
+    verified_time_ms: float | None = None
+    firing_timestamp: str = ""
+    role: str = "executed"
+    provenance: DataProvenanceSchema = Field(default_factory=DataProvenanceSchema)
+
+
 class HoleDeviationSchema(BaseModel):
     design_hole_id: str
     role: str = "executed"
@@ -519,6 +549,8 @@ class BlastDesignSchema(BaseModel):
     vibration_models: list[VibrationModelSchema] = Field(default_factory=list)
     vibration_measurements: list[VibrationMeasurementSchema] = Field(default_factory=list)
     as_drilled_holes: list[AsDrilledHoleSchema] = Field(default_factory=list)
+    as_charged_holes: list[AsChargedHoleSchema] = Field(default_factory=list)
+    as_fired_holes: list[AsFiredHoleSchema] = Field(default_factory=list)
 
 
 class AsDrilledRecordRequest(BaseModel):
@@ -551,6 +583,126 @@ class MwdImportRequest(BaseModel):
     design_hole_id: str
     samples: list[dict[str, Any]] = Field(default_factory=list)
     source: str = ""
+
+
+class ChargeDeviationSchema(BaseModel):
+    design_hole_id: str
+    role: str = "executed"
+    comparison: str = "design_vs_charged"
+    designed_product: str = ""
+    actual_product: str = ""
+    product_mismatch: bool = False
+    designed_charge_kg: float = 0.0
+    actual_charge_kg: float = 0.0
+    charge_mass_delta_kg: float = 0.0
+    designed_stemming_m: float = 0.0
+    actual_stemming_m: float = 0.0
+    stemming_delta_m: float = 0.0
+    designed_primer_m: float | None = None
+    actual_primer_m: float | None = None
+    primer_position_delta_m: float | None = None
+    designed_deck_from_m: float | None = None
+    designed_deck_to_m: float | None = None
+    actual_deck_from_m: float | None = None
+    actual_deck_to_m: float | None = None
+    deck_from_delta_m: float | None = None
+    deck_to_delta_m: float | None = None
+    actual_hole_depth_m: float = 0.0
+    depth_basis: str = "designed"
+    leftover_unloaded_m: float | None = None
+    overcharge_m: float | None = None
+    loading_timestamp: str = ""
+    deck_count: int = 0
+    designed_deck_count: int = 0
+
+
+class FiredDeviationSchema(BaseModel):
+    design_hole_id: str
+    role: str = "executed"
+    comparison: str = "design_vs_fired"
+    designed_time_ms: float | None = None
+    programmed_time_ms: float = 0.0
+    verified_time_ms: float | None = None
+    programmed_time_delta_ms: float | None = None
+    verified_time_delta_ms: float | None = None
+    timing_error_ms: float | None = None
+    designed_detonator_id: str = ""
+    actual_detonator_id: str = ""
+    designed_detonator_product: str = ""
+    actual_detonator_product: str = ""
+    designed_detonator_kind: str = ""
+    actual_detonator_kind: str = ""
+    detonator_product_mismatch: bool = False
+    detonator_kind_mismatch: bool = False
+    firing_timestamp: str = ""
+
+
+class AsChargedRecordRequest(BaseModel):
+    design: BlastDesignSchema
+    holes: list[AsChargedHoleSchema] = Field(default_factory=list)
+    replace: bool = False
+
+
+class AsChargedCompareRequest(BaseModel):
+    design: BlastDesignSchema
+
+
+class AsChargedCompareResponse(BaseModel):
+    role: str = "executed"
+    comparison: str = "design_vs_charged"
+    compared_count: int = 0
+    designed_count: int = 0
+    as_charged_count: int = 0
+    deviations: list[ChargeDeviationSchema] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    as_charged_holes: list[AsChargedHoleSchema] = Field(default_factory=list)
+
+
+class AsChargedRecordResponse(AsChargedCompareResponse):
+    holes: list[HoleSchema] = Field(default_factory=list)
+    loads: list[HoleLoadSchema] = Field(default_factory=list)
+
+
+class AsFiredRecordRequest(BaseModel):
+    design: BlastDesignSchema
+    holes: list[AsFiredHoleSchema] = Field(default_factory=list)
+    replace: bool = False
+
+
+class AsFiredCompareRequest(BaseModel):
+    design: BlastDesignSchema
+
+
+class AsFiredCompareResponse(BaseModel):
+    role: str = "executed"
+    comparison: str = "design_vs_fired"
+    compared_count: int = 0
+    designed_count: int = 0
+    as_fired_count: int = 0
+    deviations: list[FiredDeviationSchema] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    as_fired_holes: list[AsFiredHoleSchema] = Field(default_factory=list)
+
+
+class AsFiredRecordResponse(AsFiredCompareResponse):
+    holes: list[HoleSchema] = Field(default_factory=list)
+    network: InitiationNetworkSchema = Field(default_factory=InitiationNetworkSchema)
+
+
+class ExecutionCompareRequest(BaseModel):
+    design: BlastDesignSchema
+
+
+class ExecutionCompareResponse(BaseModel):
+    role: str = "executed"
+    designed_count: int = 0
+    design_vs_drilled: AsDrilledCompareResponse = Field(default_factory=AsDrilledCompareResponse)
+    design_vs_charged: AsChargedCompareResponse = Field(default_factory=AsChargedCompareResponse)
+    design_vs_fired: AsFiredCompareResponse = Field(default_factory=AsFiredCompareResponse)
+    as_drilled_count: int = 0
+    as_charged_count: int = 0
+    as_fired_count: int = 0
+    warnings: list[str] = Field(default_factory=list)
 
 
 class PatternGenerateRequest(BaseModel):

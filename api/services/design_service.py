@@ -60,6 +60,16 @@ from api.schemas.design import (
     AsDrilledCompareResponse,
     MwdImportRequest,
     MwdSchemaResponse,
+    AsChargedRecordRequest,
+    AsChargedRecordResponse,
+    AsChargedCompareRequest,
+    AsChargedCompareResponse,
+    AsFiredRecordRequest,
+    AsFiredRecordResponse,
+    AsFiredCompareRequest,
+    AsFiredCompareResponse,
+    ExecutionCompareRequest,
+    ExecutionCompareResponse,
 )
 from api.services.cost_service import calculate_cost
 from design import persistence as design_persistence
@@ -71,7 +81,9 @@ from design.geometry import block_volume
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.maps import engineering_maps
 from design.models import (
+    AsChargedHole,
     AsDrilledHole,
+    AsFiredHole,
     BlastDesign,
     BlastDomain,
     BlockContour,
@@ -339,6 +351,103 @@ def import_mwd(request: MwdImportRequest) -> AsDrilledRecordResponse:
     if designed_after != designed_before:
         raise InvalidDesignError("Импорт MWD не должен менять проектные скважины.")
     return AsDrilledRecordResponse(**payload, holes=designed_after)
+
+
+def _guard_designed(design: BlastDesign) -> tuple:
+    return (
+        [hole.to_dict() for hole in design.holes],
+        [load.to_dict() for load in design.loads],
+        [item.to_dict() for item in design.network.detonators],
+        dict(design.network.electronic_times_ms),
+    )
+
+
+def record_as_charged(request: AsChargedRecordRequest) -> AsChargedRecordResponse:
+    from design.as_charged import compare_design, record_as_charged_many
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        record_as_charged_many(
+            design,
+            [AsChargedHole.from_dict(item.model_dump()) for item in request.holes],
+            replace=request.replace,
+        )
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Запись факта заряжания не должна менять проектные скважины, заряд или сеть.")
+    return AsChargedRecordResponse(
+        **payload,
+        holes=[hole.to_dict() for hole in design.holes],
+        loads=[load.to_dict() for load in design.loads],
+    )
+
+
+def compare_as_charged(request: AsChargedCompareRequest) -> AsChargedCompareResponse:
+    from design.as_charged import compare_design
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Сравнение факта заряжания не должно менять проектные скважины, заряд или сеть.")
+    return AsChargedCompareResponse(**payload)
+
+
+def record_as_fired(request: AsFiredRecordRequest) -> AsFiredRecordResponse:
+    from design.as_fired import compare_design, record_as_fired_many
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        record_as_fired_many(
+            design,
+            [AsFiredHole.from_dict(item.model_dump()) for item in request.holes],
+            replace=request.replace,
+        )
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Запись факта взрыва не должна менять проектные скважины, заряд или сеть.")
+    return AsFiredRecordResponse(
+        **payload,
+        holes=[hole.to_dict() for hole in design.holes],
+        network=design.network.to_dict(),
+    )
+
+
+def compare_as_fired(request: AsFiredCompareRequest) -> AsFiredCompareResponse:
+    from design.as_fired import compare_design
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Сравнение факта взрыва не должно менять проектные скважины, заряд или сеть.")
+    return AsFiredCompareResponse(**payload)
+
+
+def compare_execution(request: ExecutionCompareRequest) -> ExecutionCompareResponse:
+    from design.execution import compare_execution as run_compare_execution
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        payload = run_compare_execution(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Сводка исполнения не должна менять проектные скважины, заряд или сеть.")
+    return ExecutionCompareResponse(**payload)
 
 
 def list_fragmentation_models() -> FragmentationModelsResponse:

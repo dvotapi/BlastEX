@@ -438,6 +438,118 @@ export type AsDrilledCompareResponse = {
   as_drilled_holes: AsDrilledHole[];
 };
 
+export type AsChargedHole = {
+  design_hole_id: string;
+  decks: Deck[];
+  primers: number[];
+  primer_items: PrimerItem[];
+  explosive_product: string;
+  charge_mass_kg: number;
+  stemming_length_m: number;
+  loading_timestamp: string;
+  role: "executed";
+  provenance: DataProvenance;
+};
+
+export type ChargeDeviation = {
+  design_hole_id: string;
+  role: "executed" | string;
+  comparison: "design_vs_charged" | string;
+  designed_product: string;
+  actual_product: string;
+  product_mismatch: boolean;
+  designed_charge_kg: number;
+  actual_charge_kg: number;
+  charge_mass_delta_kg: number;
+  designed_stemming_m: number;
+  actual_stemming_m: number;
+  stemming_delta_m: number;
+  designed_primer_m: number | null;
+  actual_primer_m: number | null;
+  primer_position_delta_m: number | null;
+  designed_deck_from_m: number | null;
+  designed_deck_to_m: number | null;
+  actual_deck_from_m: number | null;
+  actual_deck_to_m: number | null;
+  deck_from_delta_m: number | null;
+  deck_to_delta_m: number | null;
+  actual_hole_depth_m: number;
+  depth_basis: "drilled" | "designed" | string;
+  leftover_unloaded_m: number | null;
+  overcharge_m: number | null;
+  loading_timestamp: string;
+  deck_count: number;
+  designed_deck_count: number;
+};
+
+export type AsChargedCompareResponse = {
+  role: "executed" | string;
+  comparison: "design_vs_charged" | string;
+  compared_count: number;
+  designed_count: number;
+  as_charged_count: number;
+  deviations: ChargeDeviation[];
+  warnings: string[];
+  as_charged_holes: AsChargedHole[];
+};
+
+export type AsFiredHole = {
+  design_hole_id: string;
+  detonator: Detonator;
+  detonator_id?: string;
+  detonator_product?: string;
+  detonator_kind?: string;
+  programmed_time_ms: number;
+  verified_time_ms: number | null;
+  firing_timestamp: string;
+  role: "executed";
+  provenance: DataProvenance;
+};
+
+export type FiredDeviation = {
+  design_hole_id: string;
+  role: "executed" | string;
+  comparison: "design_vs_fired" | string;
+  designed_time_ms: number | null;
+  programmed_time_ms: number;
+  verified_time_ms: number | null;
+  programmed_time_delta_ms: number | null;
+  verified_time_delta_ms: number | null;
+  timing_error_ms: number | null;
+  designed_detonator_id: string;
+  actual_detonator_id: string;
+  designed_detonator_product: string;
+  actual_detonator_product: string;
+  designed_detonator_kind: string;
+  actual_detonator_kind: string;
+  detonator_product_mismatch: boolean;
+  detonator_kind_mismatch: boolean;
+  firing_timestamp: string;
+};
+
+export type AsFiredCompareResponse = {
+  role: "executed" | string;
+  comparison: "design_vs_fired" | string;
+  compared_count: number;
+  designed_count: number;
+  as_fired_count: number;
+  deviations: FiredDeviation[];
+  warnings: string[];
+  as_fired_holes: AsFiredHole[];
+};
+
+export type ExecutionCompareResponse = {
+  role: "executed" | string;
+  designed_count: number;
+  design_vs_drilled: AsDrilledCompareResponse;
+  design_vs_charged: AsChargedCompareResponse;
+  design_vs_fired: AsFiredCompareResponse;
+  as_drilled_count: number;
+  as_charged_count: number;
+  as_fired_count: number;
+  warnings: string[];
+};
+
 export type MwdFieldInfo = {
   id: string;
   aliases: string[];
@@ -476,6 +588,8 @@ export type BlastDesign = {
   vibration_models: VibrationModel[];
   vibration_measurements: VibrationMeasurement[];
   as_drilled_holes: AsDrilledHole[];
+  as_charged_holes: AsChargedHole[];
+  as_fired_holes: AsFiredHole[];
 };
 
 export type PatternType = "square" | "rectangular" | "staggered" | "variable" | "domain_dependent";
@@ -776,7 +890,7 @@ export function emptyDesign(): BlastDesign {
   return {
     design_id: "",
     name: "Новый паспорт",
-    version: 7,
+    version: 8,
     updated_at: "",
     contour: emptyContour(),
     holes: [],
@@ -794,6 +908,8 @@ export function emptyDesign(): BlastDesign {
     vibration_models: [defaultVibrationModel()],
     vibration_measurements: [],
     as_drilled_holes: [],
+    as_charged_holes: [],
+    as_fired_holes: [],
   };
 }
 
@@ -862,6 +978,52 @@ export function emptyAsDrilled(hole: Hole): AsDrilledHole {
   };
 }
 
+export function emptyAsCharged(load: HoleLoad | null, holeId: string, explosiveKey = ""): AsChargedHole {
+  const decks = load?.decks ? load.decks.map((deck) => ({ ...deck })) : [];
+  const primerItems = load?.primer_items ? load.primer_items.map((item) => ({ ...item })) : [];
+  const primers = load?.primers ? [...load.primers] : primerItems.map((item) => item.position_m);
+  const explosiveDecks = decks.filter((deck) => deck.kind === "charge" || deck.kind === "bulk_explosive" || deck.kind === "packaged_explosive");
+  const stemming = decks.filter((deck) => deck.kind === "stemming").reduce((sum, deck) => sum + Math.abs(deck.to_m - deck.from_m), 0);
+  const best = explosiveDecks.reduce<Deck | null>((acc, deck) => (!acc || deck.mass_kg > acc.mass_kg ? deck : acc), null);
+  return {
+    design_hole_id: holeId,
+    decks,
+    primers,
+    primer_items: primerItems,
+    explosive_product: best?.product || best?.explosive_key || explosiveKey,
+    charge_mass_kg: load?.total_charge_kg ?? explosiveDecks.reduce((sum, deck) => sum + deck.mass_kg, 0),
+    stemming_length_m: stemming,
+    loading_timestamp: "",
+    role: "executed",
+    provenance: emptyProvenance("executed"),
+  };
+}
+
+export function emptyAsFired(holeId: string, network: InitiationNetwork, designedTimeMs = 0): AsFiredHole {
+  const detonator = network.detonators.find((item) => item.hole_id === holeId) ?? {
+    id: `det-${holeId}`,
+    hole_id: holeId,
+    delay_ms: 0,
+    product: "",
+    kind: "electronic",
+    deck_index: null,
+    primer_index: null,
+    channel_id: "",
+  };
+  const programmed = network.electronic_times_ms[holeId]
+    ?? network.electronic_channels.find((item) => item.hole_id === holeId)?.time_ms
+    ?? designedTimeMs;
+  return {
+    design_hole_id: holeId,
+    detonator: { ...detonator },
+    programmed_time_ms: programmed,
+    verified_time_ms: null,
+    firing_timestamp: "",
+    role: "executed",
+    provenance: emptyProvenance("executed"),
+  };
+}
+
 export const AS_DRILLED_METRIC_LABELS: Record<string, string> = {
   collar_offset_m: "Смещение устья",
   toe_offset_m: "Смещение забоя",
@@ -870,6 +1032,20 @@ export const AS_DRILLED_METRIC_LABELS: Record<string, string> = {
   azimuth_deviation_deg: "Отклонение азимута",
   actual_burden_m: "Фактическая ЛНС",
   actual_spacing_m: "Фактический шаг",
+};
+
+export const AS_CHARGED_METRIC_LABELS: Record<string, string> = {
+  charge_mass_delta_kg: "Δ массы заряда",
+  stemming_delta_m: "Δ забойки",
+  primer_position_delta_m: "Δ боевика",
+  leftover_unloaded_m: "Недозаряд",
+  overcharge_m: "Перезаряд",
+};
+
+export const AS_FIRED_METRIC_LABELS: Record<string, string> = {
+  programmed_time_delta_ms: "Δ программного времени",
+  verified_time_delta_ms: "Δ проверенного времени",
+  timing_error_ms: "Ошибка таймера",
 };
 
 export const RECEPTOR_KIND_LABELS: Record<ReceptorKind, string> = {

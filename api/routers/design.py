@@ -44,6 +44,16 @@ from api.schemas.design import (
     AsDrilledCompareResponse,
     MwdImportRequest,
     MwdSchemaResponse,
+    AsChargedRecordRequest,
+    AsChargedRecordResponse,
+    AsChargedCompareRequest,
+    AsChargedCompareResponse,
+    AsFiredRecordRequest,
+    AsFiredRecordResponse,
+    AsFiredCompareRequest,
+    AsFiredCompareResponse,
+    ExecutionCompareRequest,
+    ExecutionCompareResponse,
 )
 from api.security import require_internal_access
 from api.services import design_service
@@ -149,6 +159,31 @@ def post_as_drilled_compare(request: AsDrilledCompareRequest) -> AsDrilledCompar
 @router.post("/as-drilled/mwd", response_model=AsDrilledRecordResponse)
 def post_as_drilled_mwd(request: MwdImportRequest) -> AsDrilledRecordResponse:
     return design_service.import_mwd(request)
+
+
+@router.post("/as-charged", response_model=AsChargedRecordResponse)
+def post_as_charged(request: AsChargedRecordRequest) -> AsChargedRecordResponse:
+    return design_service.record_as_charged(request)
+
+
+@router.post("/as-charged/compare", response_model=AsChargedCompareResponse)
+def post_as_charged_compare(request: AsChargedCompareRequest) -> AsChargedCompareResponse:
+    return design_service.compare_as_charged(request)
+
+
+@router.post("/as-fired", response_model=AsFiredRecordResponse)
+def post_as_fired(request: AsFiredRecordRequest) -> AsFiredRecordResponse:
+    return design_service.record_as_fired(request)
+
+
+@router.post("/as-fired/compare", response_model=AsFiredCompareResponse)
+def post_as_fired_compare(request: AsFiredCompareRequest) -> AsFiredCompareResponse:
+    return design_service.compare_as_fired(request)
+
+
+@router.post("/execution/compare", response_model=ExecutionCompareResponse)
+def post_execution_compare(request: ExecutionCompareRequest) -> ExecutionCompareResponse:
+    return design_service.compare_execution(request)
 
 
 @router.post("/cost", response_model=AggregatedCostResultSchema)

@@ -36,6 +36,11 @@ import {
   type VibrationPredictResponse,
   type AsDrilledCompareResponse,
   type AsDrilledHole,
+  type AsChargedCompareResponse,
+  type AsChargedHole,
+  type AsFiredCompareResponse,
+  type AsFiredHole,
+  type ExecutionCompareResponse,
   type SchemeType,
   type SurfaceConnector,
   type SurfaceKind,
@@ -58,6 +63,9 @@ import { TiePanel } from "./TiePanel";
 import { TimingPanel } from "./TimingPanel";
 import { VibrationPanel } from "./VibrationPanel";
 import { AsDrilledPanel } from "./AsDrilledPanel";
+import { AsChargedPanel } from "./AsChargedPanel";
+import { AsFiredPanel } from "./AsFiredPanel";
+import { ExecutionComparePanel } from "./ExecutionComparePanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -128,6 +136,12 @@ export function DesignPage({
   const [asDrilledBusy, setAsDrilledBusy] = useState(false);
   const [asDrilledResult, setAsDrilledResult] = useState<AsDrilledCompareResponse | null>(null);
   const [showAsDrilled, setShowAsDrilled] = useState(true);
+  const [asChargedBusy, setAsChargedBusy] = useState(false);
+  const [asChargedResult, setAsChargedResult] = useState<AsChargedCompareResponse | null>(null);
+  const [asFiredBusy, setAsFiredBusy] = useState(false);
+  const [asFiredResult, setAsFiredResult] = useState<AsFiredCompareResponse | null>(null);
+  const [executionBusy, setExecutionBusy] = useState(false);
+  const [executionResult, setExecutionResult] = useState<ExecutionCompareResponse | null>(null);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -249,6 +263,9 @@ export function DesignPage({
       setBlockVolumeM3(result.block_volume_m3);
       setFragResult(null);
       setAsDrilledResult(null);
+      setAsChargedResult(null);
+      setAsFiredResult(null);
+      setExecutionResult(null);
       await refreshMaps({ ...document, holes: result.holes, pattern_params: patternParams as unknown as Record<string, unknown> });
       setSelected(new Set());
       setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
@@ -793,6 +810,106 @@ export function DesignPage({
     }
   }
 
+  async function recordAsCharged(item: AsChargedHole) {
+    if (!document.holes.some((hole) => hole.id === item.design_hole_id)) {
+      setError("Сначала выберите проектную скважину.");
+      return;
+    }
+    const designedBefore = {
+      holes: document.holes.map((hole) => JSON.stringify(hole)),
+      loads: document.loads.map((load) => JSON.stringify(load)),
+    };
+    setAsChargedBusy(true);
+    setError("");
+    try {
+      const result = await api.design.recordAsCharged(designPayload(), [item]);
+      if (
+        result.holes?.some((hole, index) => JSON.stringify(hole) !== designedBefore.holes[index])
+        || result.loads?.some((load, index) => JSON.stringify(load) !== designedBefore.loads[index])
+      ) {
+        setError("Сервер не должен менять проектные скважины или заряд при записи факта.");
+      }
+      dispatch({ type: "SET_AS_CHARGED", holes: result.as_charged_holes });
+      setAsChargedResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось записать факт заряжания.");
+    } finally {
+      setAsChargedBusy(false);
+    }
+  }
+
+  async function compareAsCharged() {
+    setAsChargedBusy(true);
+    setError("");
+    try {
+      const result = await api.design.compareAsCharged(designPayload());
+      setAsChargedResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сравнить факт заряжания с проектом.");
+      setAsChargedResult(null);
+    } finally {
+      setAsChargedBusy(false);
+    }
+  }
+
+  async function recordAsFired(item: AsFiredHole) {
+    if (!document.holes.some((hole) => hole.id === item.design_hole_id)) {
+      setError("Сначала выберите проектную скважину.");
+      return;
+    }
+    const designedBefore = {
+      holes: document.holes.map((hole) => JSON.stringify(hole)),
+    };
+    setAsFiredBusy(true);
+    setError("");
+    try {
+      const result = await api.design.recordAsFired(designPayload(), [item]);
+      if (
+        result.holes?.some((hole, index) => JSON.stringify(hole) !== designedBefore.holes[index])
+        || (result.network && JSON.stringify(result.network.detonators) !== JSON.stringify(document.network.detonators))
+      ) {
+        setError("Сервер не должен менять проектные скважины или сеть при записи факта взрыва.");
+      }
+      dispatch({ type: "SET_AS_FIRED", holes: result.as_fired_holes });
+      setAsFiredResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось записать факт взрыва.");
+    } finally {
+      setAsFiredBusy(false);
+    }
+  }
+
+  async function compareAsFired() {
+    setAsFiredBusy(true);
+    setError("");
+    try {
+      const result = await api.design.compareAsFired(designPayload());
+      setAsFiredResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сравнить факт взрыва с проектом.");
+      setAsFiredResult(null);
+    } finally {
+      setAsFiredBusy(false);
+    }
+  }
+
+  async function compareExecution() {
+    setExecutionBusy(true);
+    setError("");
+    try {
+      const result = await api.design.compareExecution(designPayload());
+      setExecutionResult(result);
+      setAsDrilledResult(result.design_vs_drilled);
+      setAsChargedResult(result.design_vs_charged);
+      setAsFiredResult(result.design_vs_fired);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сравнить исполнение с проектом.");
+      setExecutionResult(null);
+    } finally {
+      setExecutionBusy(false);
+    }
+  }
+
   function printPassport() {
     if (!document.design_id) return;
     window.open(api.design.passportUrl(document.design_id), "_blank");
@@ -858,6 +975,9 @@ export function DesignPage({
       setPlacingReceptor(false);
       setPendingTieFromId(null);
       setAsDrilledResult(null);
+      setAsChargedResult(null);
+      setAsFiredResult(null);
+      setExecutionResult(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -899,6 +1019,9 @@ export function DesignPage({
     setPlacingReceptor(false);
     setPendingTieFromId(null);
     setAsDrilledResult(null);
+    setAsChargedResult(null);
+    setAsFiredResult(null);
+    setExecutionResult(null);
   }
 
   async function exportCsv() {
@@ -1106,6 +1229,43 @@ export function DesignPage({
             showOverlay={showAsDrilled}
             onToggleOverlay={() => setShowAsDrilled((prev) => !prev)}
           />
+          <AsChargedPanel
+            holes={document.holes}
+            loads={document.loads}
+            asCharged={document.as_charged_holes}
+            selectedHoleId={selected.size === 1 ? Array.from(selected)[0] : null}
+            onSelectedHoleIdChange={(id) => setSelected(id ? new Set([id]) : new Set())}
+            onRecord={recordAsCharged}
+            onDelete={(designHoleId) => {
+              dispatch({ type: "DELETE_AS_CHARGED", designHoleId });
+              setAsChargedResult(null);
+            }}
+            onCompare={compareAsCharged}
+            busy={asChargedBusy}
+            result={asChargedResult}
+            explosiveKey={explosiveKey}
+          />
+          <AsFiredPanel
+            holes={document.holes}
+            network={document.network}
+            asFired={document.as_fired_holes}
+            timesMs={analysis?.times_ms ?? null}
+            selectedHoleId={selected.size === 1 ? Array.from(selected)[0] : null}
+            onSelectedHoleIdChange={(id) => setSelected(id ? new Set([id]) : new Set())}
+            onRecord={recordAsFired}
+            onDelete={(designHoleId) => {
+              dispatch({ type: "DELETE_AS_FIRED", designHoleId });
+              setAsFiredResult(null);
+            }}
+            onCompare={compareAsFired}
+            busy={asFiredBusy}
+            result={asFiredResult}
+          />
+          <ExecutionComparePanel
+            busy={executionBusy}
+            result={executionResult}
+            onCompare={compareExecution}
+          />
         </div>
         <div className="design-main">
           {mode === "3d" ? (
@@ -1188,6 +1348,8 @@ export function DesignPage({
                 vibrationPredictions={vibResult?.predictions}
                 asDrilled={document.as_drilled_holes}
                 showAsDrilled={showAsDrilled && document.as_drilled_holes.length > 0}
+                asCharged={document.as_charged_holes}
+                asFired={document.as_fired_holes}
               />
               {mode === "charge" ? (
                 <SectionView

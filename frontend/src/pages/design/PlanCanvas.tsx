@@ -237,7 +237,7 @@ export function PlanCanvas({
   }
 
   function handleDoubleClick(e: React.MouseEvent) {
-    if (mode !== "holes") return;
+    if (mode !== "holes" || drawingDomainId) return;
     const screen = toScreenPoint(e);
     if (hitHole(screen)) return;
     onAddHole(worldOf(screen));

@@ -294,4 +294,20 @@
   color:#8a3b12; background:#fde8d4; border-radius:6px; padding:6px 8px; font-weight:600;
 }
 
+.scenario-compare-wrap { overflow:auto; }
+.scenario-compare-table {
+  width:100%; border-collapse:collapse; font-size:11px;
+}
+.scenario-compare-table th, .scenario-compare-table td {
+  padding:4px 6px; text-align:right; background:#f6f8f7; border-radius:4px;
+}
+.scenario-compare-table thead th {
+  color:#5c6a63; font-weight:600; text-align:center; background:transparent;
+}
+.scenario-compare-table tbody th {
+  text-align:left; font-weight:600; background:transparent; color:#17231d;
+}
+.scenario-compare-table tbody th small { display:block; font-weight:400; color:#5c6a63; }
+.scenario-compare-table td.best { background:#e8f1ea; color:#245c3c; font-weight:700; }
+
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }

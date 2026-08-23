@@ -2592,4 +2592,92 @@ export type RegistryRecord = {
   data_roles: Record<string, string>;
 };
 
+export type DriftKind = "feature" | "target" | "prediction";
+export type DriftSeverity = "ok" | "watch" | "alert";
+
+export const DRIFT_KIND_LABELS: Record<DriftKind, string> = {
+  feature: "Признаки",
+  target: "Цели (факт)",
+  prediction: "Прогнозы",
+};
+
+export const DRIFT_SEVERITY_LABELS: Record<DriftSeverity, string> = {
+  ok: "норма",
+  watch: "наблюдение",
+  alert: "сигнал",
+};
+
+export const DRIFT_ROLE_LABELS: Record<string, string> = {
+  designed: "проект",
+  executed: "исполнение",
+  predicted: "прогноз",
+  measured: "факт",
+};
+
+export type DriftMetric = {
+  name: string;
+  kind: DriftKind | string;
+  role: string;
+  unit: string;
+  baseline_count: number;
+  current_count: number;
+  baseline_mean: number | null;
+  current_mean: number | null;
+  baseline_std: number | null;
+  current_std: number | null;
+  psi: number | null;
+  ks: number | null;
+  mean_shift: number | null;
+  severity: DriftSeverity | string;
+  reasons: string[];
+};
+
+export type DriftAlert = {
+  alert_id: string;
+  team_id: string;
+  family: string;
+  model_id: string;
+  kind: DriftKind | string;
+  role: string;
+  metric_name: string;
+  severity: DriftSeverity | string;
+  message: string;
+  report_id: string;
+  site_id: string;
+  created_at: string;
+  acknowledged: boolean;
+  acknowledged_by: string;
+  acknowledged_at: string;
+  auto_deployed: boolean;
+  auto_retrained: boolean;
+  live_model_unchanged: boolean;
+  action: string;
+};
+
+export type DriftReport = {
+  report_id: string;
+  team_id: string;
+  family: string;
+  model_id: string;
+  model_checksum: string;
+  model_status: string;
+  training_dataset_ids: string[];
+  training_dataset_version: number;
+  current_dataset_id: string;
+  current_dataset_version: number;
+  feature_schema_version: string;
+  site_id: string;
+  created_at: string;
+  overall_severity: DriftSeverity | string;
+  metrics: DriftMetric[];
+  alerts: DriftAlert[];
+  warnings: string[];
+  data_roles: Record<string, string>;
+  auto_deployed: boolean;
+  auto_retrained: boolean;
+  live_model_unchanged: boolean;
+  action: string;
+  next_step: string;
+};
+
 

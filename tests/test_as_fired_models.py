@@ -68,7 +68,7 @@ class AsFiredModelTests(unittest.TestCase):
         design = BlastDesign(design_id="af")
         payload = design.to_dict()
         self.assertEqual(payload["as_fired_holes"], [])
-        self.assertEqual(DESIGN_VERSION, 8)
+        self.assertEqual(DESIGN_VERSION, 9)
 
     def test_record_does_not_overwrite_designed_network(self):
         design = _design()

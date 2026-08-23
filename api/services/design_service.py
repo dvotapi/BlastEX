@@ -4,8 +4,10 @@ from __future__ import annotations
 from Blast import ExplosiveProperties
 from api.exceptions import (
     DesignNotFoundError,
+    FrozenDesignError,
     InvalidDesignError,
     InvalidGeometryError,
+    InvalidLifecycleError,
     InvalidSurveyError,
 )
 from api.schemas.cost import (
@@ -22,8 +24,13 @@ from api.schemas.design import (
     ChargeGenerateRequest,
     ChargeGenerateResponse,
     DesignCostRequest,
+    DesignForkRequest,
     DesignListResponse,
     DesignSummarySchema,
+    LifecycleMetaResponse,
+    LifecycleStateSchema,
+    LifecycleStatusSchema,
+    LifecycleTransitionRequest,
     EngineeringMapsRequest,
     EngineeringMapsSchema,
     FragmentationModelsResponse,
@@ -76,6 +83,7 @@ from api.schemas.design import (
     BlastResultCompareResponse,
 )
 from api.services.cost_service import calculate_cost
+from design import lifecycle as design_lifecycle
 from design import persistence as design_persistence
 from design.analysis import charge_per_delay, estimate_ppv, summary as run_summary, timing_isolines, validate as run_validate
 from design.charging import apply_charge_rules
@@ -655,10 +663,18 @@ def list_plans(team_id: str) -> DesignListResponse:
     )
 
 
-def create_plan(team_id: str, schema: BlastDesignSchema) -> BlastDesignSchema:
+def _map_lifecycle_error(exc: Exception) -> None:
+    if isinstance(exc, design_lifecycle.FrozenDesignError):
+        raise FrozenDesignError(str(exc)) from exc
+    if isinstance(exc, design_lifecycle.InvalidLifecycleError):
+        raise InvalidLifecycleError(str(exc)) from exc
+
+
+def create_plan(team_id: str, schema: BlastDesignSchema, *, actor: str = "") -> BlastDesignSchema:
     design = BlastDesign.from_dict(schema.model_dump())
     design.design_id = ""  # новый паспорт всегда получает свежий id
-    saved = design_persistence.save_design(team_id, design)
+    design.lifecycle_status = design_lifecycle.STATUS_DRAFT
+    saved = design_persistence.save_design(team_id, design, actor=actor)
     return BlastDesignSchema(**saved.to_dict())
 
 
@@ -670,12 +686,18 @@ def get_plan(team_id: str, design_id: str) -> BlastDesignSchema:
     return BlastDesignSchema(**design.to_dict())
 
 
-def save_plan(team_id: str, design_id: str, schema: BlastDesignSchema) -> BlastDesignSchema:
+def save_plan(
+    team_id: str, design_id: str, schema: BlastDesignSchema, *, actor: str = ""
+) -> BlastDesignSchema:
     if schema.design_id and schema.design_id != design_id:
         raise InvalidDesignError("Идентификатор паспорта в теле запроса не совпадает с адресом.")
     design = BlastDesign.from_dict(schema.model_dump())
     design.design_id = design_id
-    saved = design_persistence.save_design(team_id, design)
+    try:
+        saved = design_persistence.save_design(team_id, design, actor=actor)
+    except (design_lifecycle.FrozenDesignError, design_lifecycle.InvalidLifecycleError) as exc:
+        _map_lifecycle_error(exc)
+        raise
     return BlastDesignSchema(**saved.to_dict())
 
 
@@ -684,13 +706,92 @@ def delete_plan(team_id: str, design_id: str) -> None:
         design_persistence.delete_design(team_id, design_id)
     except design_persistence.DesignNotFoundError as exc:
         raise DesignNotFoundError(design_id) from exc
+    except design_lifecycle.FrozenDesignError as exc:
+        raise FrozenDesignError(str(exc)) from exc
 
 
-def rename_plan(team_id: str, design_id: str, name: str) -> BlastDesignSchema:
+def rename_plan(team_id: str, design_id: str, name: str, *, actor: str = "") -> BlastDesignSchema:
     try:
-        design = design_persistence.rename_design(team_id, design_id, name)
+        design = design_persistence.rename_design(team_id, design_id, name, actor=actor)
     except design_persistence.DesignNotFoundError as exc:
         raise DesignNotFoundError(design_id) from exc
+    except (design_lifecycle.FrozenDesignError, design_lifecycle.InvalidLifecycleError) as exc:
+        _map_lifecycle_error(exc)
+        raise
+    return BlastDesignSchema(**design.to_dict())
+
+
+def lifecycle_meta() -> LifecycleMetaResponse:
+    return LifecycleMetaResponse(
+        statuses=[LifecycleStatusSchema(**item) for item in design_lifecycle.listed_statuses()],
+        data_roles=dict(design_lifecycle.DATA_ROLES),
+        auto_transition=False,
+    )
+
+
+def _lifecycle_state(design: BlastDesign) -> LifecycleStateSchema:
+    status = design.lifecycle_status
+    return LifecycleStateSchema(
+        design_id=design.design_id,
+        name=design.name,
+        lifecycle_status=status,
+        revision=design.revision,
+        parent_design_id=design.parent_design_id,
+        designed_sha256=design.designed_sha256,
+        allowed_transitions=design_lifecycle.allowed_transitions(status),
+        allowed_mutations=sorted(design_lifecycle.ALLOWED_MUTATIONS[status]),
+        frozen_designed=not design_lifecycle.designed_mutable(status),
+        frozen_record=design_lifecycle.is_record_frozen(status),
+        events=[item.to_dict() for item in design.lifecycle_events],
+    )
+
+
+def get_plan_lifecycle(team_id: str, design_id: str) -> LifecycleStateSchema:
+    try:
+        design = design_persistence.load_design(team_id, design_id)
+    except design_persistence.DesignNotFoundError as exc:
+        raise DesignNotFoundError(design_id) from exc
+    return _lifecycle_state(design)
+
+
+def transition_plan(
+    team_id: str,
+    design_id: str,
+    request: LifecycleTransitionRequest,
+    *,
+    actor: str,
+) -> LifecycleStateSchema:
+    try:
+        design = design_persistence.transition_design(
+            team_id,
+            design_id,
+            to_status=request.to_status,
+            actor=actor,
+            confirm=request.confirm,
+            note=request.note,
+        )
+    except design_persistence.DesignNotFoundError as exc:
+        raise DesignNotFoundError(design_id) from exc
+    except (design_lifecycle.FrozenDesignError, design_lifecycle.InvalidLifecycleError) as exc:
+        _map_lifecycle_error(exc)
+        raise
+    return _lifecycle_state(design)
+
+
+def fork_plan(
+    team_id: str,
+    design_id: str,
+    request: DesignForkRequest,
+    *,
+    actor: str = "",
+) -> BlastDesignSchema:
+    try:
+        design = design_persistence.fork_design(team_id, design_id, name=request.name, actor=actor)
+    except design_persistence.DesignNotFoundError as exc:
+        raise DesignNotFoundError(design_id) from exc
+    except (design_lifecycle.FrozenDesignError, design_lifecycle.InvalidLifecycleError) as exc:
+        _map_lifecycle_error(exc)
+        raise
     return BlastDesignSchema(**design.to_dict())
 
 

@@ -94,6 +94,9 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         loaded = load_design(TEAM_ID, "legacy01")
         self.assertEqual(loaded.domains, [])
         self.assertIsNone(loaded.water_table_z_m)
+        self.assertEqual(loaded.lifecycle_status, "draft")
+        self.assertEqual(loaded.revision, 0)
+        self.assertEqual(loaded.lifecycle_events, [])
 
     def test_charge_templates_round_trip_in_charge_rules(self):
         from design.charge_templates import example_wet_dry_bottom_templates
@@ -173,7 +176,7 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         )
         saved = save_design(TEAM_ID, design)
         loaded = load_design(TEAM_ID, saved.design_id)
-        self.assertEqual(loaded.version, 8)
+        self.assertEqual(loaded.version, 9)
         self.assertEqual(loaded.network.timing_mode, "expression")
         self.assertEqual(loaded.network.timing_expression, "interval * row")
         self.assertEqual(loaded.network.detonators[0].channel_id, "ch-1")

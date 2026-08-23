@@ -126,6 +126,11 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
     as_charged_holes: design.as_charged_holes ?? [],
     as_fired_holes: design.as_fired_holes ?? [],
     blast_result: design.blast_result ?? null,
+    lifecycle_status: design.lifecycle_status || "draft",
+    revision: design.revision ?? 0,
+    parent_design_id: design.parent_design_id ?? "",
+    designed_sha256: design.designed_sha256 ?? "",
+    lifecycle_events: design.lifecycle_events ?? [],
   };
 }
 

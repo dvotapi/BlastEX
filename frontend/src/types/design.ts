@@ -568,6 +568,50 @@ export type MwdSchemaResponse = {
   fields: MwdFieldInfo[];
 };
 
+export type DesignLifecycleStatus = "draft" | "in_review" | "approved" | "executed" | "closed";
+
+export type LifecycleEvent = {
+  kind: string;
+  at: string;
+  actor: string;
+  from_status: string;
+  to_status: string;
+  note: string;
+  confirm: boolean;
+  revision: number;
+  designed_sha256: string;
+  mutations: string[];
+};
+
+export type LifecycleStatusInfo = {
+  name: DesignLifecycleStatus | string;
+  label: string;
+  allowed_transitions: string[];
+  allowed_mutations: string[];
+  frozen_designed: boolean;
+  frozen_record: boolean;
+};
+
+export type LifecycleMeta = {
+  statuses: LifecycleStatusInfo[];
+  data_roles: Record<string, string>;
+  auto_transition: boolean;
+};
+
+export type LifecycleState = {
+  design_id: string;
+  name: string;
+  lifecycle_status: DesignLifecycleStatus | string;
+  revision: number;
+  parent_design_id: string;
+  designed_sha256: string;
+  allowed_transitions: string[];
+  allowed_mutations: string[];
+  frozen_designed: boolean;
+  frozen_record: boolean;
+  events: LifecycleEvent[];
+};
+
 export type BlastDesign = {
   design_id: string;
   name: string;
@@ -592,6 +636,11 @@ export type BlastDesign = {
   as_charged_holes: AsChargedHole[];
   as_fired_holes: AsFiredHole[];
   blast_result: BlastResult | null;
+  lifecycle_status: DesignLifecycleStatus | string;
+  revision: number;
+  parent_design_id: string;
+  designed_sha256: string;
+  lifecycle_events: LifecycleEvent[];
 };
 
 export type PatternType = "square" | "rectangular" | "staggered" | "variable" | "domain_dependent";
@@ -760,6 +809,10 @@ export type DesignSummary = {
   name: string;
   updated_at: string;
   hole_count: number;
+  lifecycle_status?: DesignLifecycleStatus | string;
+  revision?: number;
+  designed_sha256?: string;
+  parent_design_id?: string;
 };
 
 export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid";
@@ -900,7 +953,7 @@ export function emptyDesign(): BlastDesign {
   return {
     design_id: "",
     name: "Новый паспорт",
-    version: 8,
+    version: 9,
     updated_at: "",
     contour: emptyContour(),
     holes: [],
@@ -921,6 +974,11 @@ export function emptyDesign(): BlastDesign {
     as_charged_holes: [],
     as_fired_holes: [],
     blast_result: null,
+    lifecycle_status: "draft",
+    revision: 0,
+    parent_design_id: "",
+    designed_sha256: "",
+    lifecycle_events: [],
   };
 }
 

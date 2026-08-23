@@ -527,6 +527,21 @@ class MwdSchemaResponse(BaseModel):
     fields: list[MwdFieldSchema] = Field(default_factory=list)
 
 
+class LifecycleEventSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: str
+    at: str = ""
+    actor: str = ""
+    from_status: str = ""
+    to_status: str = ""
+    note: str = ""
+    confirm: bool = False
+    revision: int = 0
+    designed_sha256: str = ""
+    mutations: list[str] = Field(default_factory=list)
+
+
 class BlastDesignSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -553,6 +568,11 @@ class BlastDesignSchema(BaseModel):
     as_charged_holes: list[AsChargedHoleSchema] = Field(default_factory=list)
     as_fired_holes: list[AsFiredHoleSchema] = Field(default_factory=list)
     blast_result: BlastResultSchema | None = None
+    lifecycle_status: str = "draft"
+    revision: int = 0
+    parent_design_id: str = ""
+    designed_sha256: str = ""
+    lifecycle_events: list[LifecycleEventSchema] = Field(default_factory=list)
 
 
 class AsDrilledRecordRequest(BaseModel):
@@ -1053,6 +1073,49 @@ class DesignSummarySchema(BaseModel):
     name: str
     updated_at: str
     hole_count: int
+    lifecycle_status: str = "draft"
+    revision: int = 0
+    designed_sha256: str = ""
+    parent_design_id: str = ""
+
+
+class LifecycleStatusSchema(BaseModel):
+    name: str
+    label: str
+    allowed_transitions: list[str] = Field(default_factory=list)
+    allowed_mutations: list[str] = Field(default_factory=list)
+    frozen_designed: bool = False
+    frozen_record: bool = False
+
+
+class LifecycleMetaResponse(BaseModel):
+    statuses: list[LifecycleStatusSchema] = Field(default_factory=list)
+    data_roles: dict[str, str] = Field(default_factory=dict)
+    auto_transition: bool = False
+
+
+class LifecycleTransitionRequest(BaseModel):
+    to_status: str
+    confirm: bool = False
+    note: str = ""
+
+
+class LifecycleStateSchema(BaseModel):
+    design_id: str
+    name: str = ""
+    lifecycle_status: str
+    revision: int = 0
+    parent_design_id: str = ""
+    designed_sha256: str = ""
+    allowed_transitions: list[str] = Field(default_factory=list)
+    allowed_mutations: list[str] = Field(default_factory=list)
+    frozen_designed: bool = False
+    frozen_record: bool = False
+    events: list[LifecycleEventSchema] = Field(default_factory=list)
+
+
+class DesignForkRequest(BaseModel):
+    name: str = ""
 
 
 class DesignListResponse(BaseModel):

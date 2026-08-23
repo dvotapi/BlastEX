@@ -35,6 +35,8 @@ import type {
   CostScenarioId,
   DesignCostResult,
   DesignSummary,
+  LifecycleMeta,
+  LifecycleState,
   Hole,
   EngineeringMaps,
   PatternGenerateResponse,
@@ -649,6 +651,13 @@ export const api = {
     savePlan: (designId: string, design: BlastDesign) =>
       put<BlastDesign>(`${V1}/design/plans/${designId}`, design),
     deletePlan: (designId: string) => del<void>(`${V1}/design/plans/${designId}`),
+    lifecycleMeta: () => get<LifecycleMeta>(`${V1}/design/lifecycle/meta`),
+    getPlanLifecycle: (designId: string) =>
+      get<LifecycleState>(`${V1}/design/plans/${designId}/lifecycle`),
+    transitionPlan: (designId: string, payload: { to_status: string; confirm: boolean; note?: string }) =>
+      post<LifecycleState>(`${V1}/design/plans/${designId}/lifecycle`, payload),
+    forkPlan: (designId: string, name = "") =>
+      post<BlastDesign>(`${V1}/design/plans/${designId}/fork`, { name }),
     exportCsv: async (designId: string, fileName: string) => {
       const response = await fetch(`${V1}/design/plans/${designId}/export.csv`, { credentials: "include" });
       if (!response.ok) throw new Error("Не удалось экспортировать паспорт.");

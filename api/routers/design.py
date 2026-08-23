@@ -11,7 +11,11 @@ from api.schemas.design import (
     ChargeGenerateRequest,
     ChargeGenerateResponse,
     DesignCostRequest,
+    DesignForkRequest,
     DesignListResponse,
+    LifecycleMetaResponse,
+    LifecycleStateSchema,
+    LifecycleTransitionRequest,
     EngineeringMapsRequest,
     EngineeringMapsSchema,
     FragmentationModelsResponse,
@@ -222,11 +226,16 @@ def list_plans(session: dict = Depends(require_internal_access)) -> DesignListRe
     return design_service.list_plans(session["org"])
 
 
+@router.get("/lifecycle/meta", response_model=LifecycleMetaResponse)
+def get_lifecycle_meta() -> LifecycleMetaResponse:
+    return design_service.lifecycle_meta()
+
+
 @router.post("/plans", response_model=BlastDesignSchema, status_code=status.HTTP_201_CREATED)
 def create_plan(
     body: BlastDesignSchema, session: dict = Depends(require_internal_access)
 ) -> BlastDesignSchema:
-    return design_service.create_plan(session["org"], body)
+    return design_service.create_plan(session["org"], body, actor=str(session.get("sub") or ""))
 
 
 @router.get("/plans/{design_id}", response_model=BlastDesignSchema)
@@ -240,12 +249,46 @@ def save_plan(
     body: BlastDesignSchema,
     session: dict = Depends(require_internal_access),
 ) -> BlastDesignSchema:
-    return design_service.save_plan(session["org"], design_id, body)
+    return design_service.save_plan(
+        session["org"], design_id, body, actor=str(session.get("sub") or "")
+    )
 
 
 @router.delete("/plans/{design_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_plan(design_id: str, session: dict = Depends(require_internal_access)) -> None:
     design_service.delete_plan(session["org"], design_id)
+
+
+@router.get("/plans/{design_id}/lifecycle", response_model=LifecycleStateSchema)
+def get_plan_lifecycle(
+    design_id: str, session: dict = Depends(require_internal_access)
+) -> LifecycleStateSchema:
+    return design_service.get_plan_lifecycle(session["org"], design_id)
+
+
+@router.post("/plans/{design_id}/lifecycle", response_model=LifecycleStateSchema)
+def transition_plan(
+    design_id: str,
+    request: LifecycleTransitionRequest,
+    session: dict = Depends(require_internal_access),
+) -> LifecycleStateSchema:
+    return design_service.transition_plan(
+        session["org"],
+        design_id,
+        request,
+        actor=str(session.get("sub") or ""),
+    )
+
+
+@router.post("/plans/{design_id}/fork", response_model=BlastDesignSchema, status_code=status.HTTP_201_CREATED)
+def fork_plan(
+    design_id: str,
+    request: DesignForkRequest,
+    session: dict = Depends(require_internal_access),
+) -> BlastDesignSchema:
+    return design_service.fork_plan(
+        session["org"], design_id, request, actor=str(session.get("sub") or "")
+    )
 
 
 @router.get("/plans/{design_id}/export.csv")

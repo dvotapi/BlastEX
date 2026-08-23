@@ -69,6 +69,9 @@ class OutcomeApiTests(unittest.TestCase):
         self.assertIsInstance(prediction.applicability_warning, str)
         self.assertIsNotNone(prediction.uncertainty.lower)
         self.assertIsNotNone(prediction.uncertainty.upper)
+        self.assertTrue(prediction.explanation.drivers)
+        self.assertTrue(prediction.predictions["x50_mm"].explanation.drivers)
+        self.assertIn("X50", prediction.explanation.summary)
 
         promoted = outcome_service.update_status(
             TEAM_ID, trained.model_id, OutcomeStatusRequest(status="production")
@@ -156,6 +159,8 @@ class OutcomeApiTests(unittest.TestCase):
         self.assertIsNotNone(panel.x50_mm.uncertainty.lower)
         self.assertIsNotNone(panel.x50_mm.uncertainty.upper)
         self.assertIn(panel.x50_mm.confidence, {"high", "medium", "low"})
+        self.assertTrue(panel.x50_mm.explanation.drivers)
+        self.assertTrue(panel.models["fragmentation"].explanation.drivers)
 
     def test_train_from_closed_blast_snapshot(self):
         designs = varied_closed_outcome_designs(6)

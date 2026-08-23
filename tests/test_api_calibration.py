@@ -62,6 +62,8 @@ class CalibrationApiTests(unittest.TestCase):
         self.assertIsInstance(prediction.applicability_warning, str)
         self.assertIsNotNone(prediction.uncertainty.lower)
         self.assertIsNotNone(prediction.uncertainty.upper)
+        self.assertTrue(prediction.explanation.drivers)
+        self.assertTrue(prediction.explanation.summary)
 
         promoted = calibration_service.update_status(
             TEAM_ID, trained.model_id, CalibrationStatusRequest(status="production")

@@ -1904,6 +1904,42 @@ export type UncertaintyInterval = {
   method: string;
 };
 
+export type FeatureDriver = {
+  feature: string;
+  label: string;
+  label_en: string;
+  share_pct: number;
+  importance_pct: number;
+  shap_value: number;
+  direction: string;
+};
+
+export type RecommendationHint = {
+  feature: string;
+  label: string;
+  label_en: string;
+  action: string;
+  action_label: string;
+  delta: number;
+  unit: string;
+  target_name: string;
+  target_label: string;
+  step: number;
+  summary: string;
+};
+
+export type PredictionExplanation = {
+  method: string;
+  expected_value: number | null;
+  drivers: FeatureDriver[];
+  recommendations: RecommendationHint[];
+  target_name: string;
+  target_label: string;
+  unit: string;
+  summary: string;
+  recommendation_summary: string;
+};
+
 export type UncertaintyFields = {
   prediction?: number | null;
   uncertainty: UncertaintyInterval;
@@ -1931,6 +1967,7 @@ export type CalibrationPredictResponse = {
   in_domain: boolean;
   sample_count?: number;
   extrapolated_features?: string[];
+  explanation?: PredictionExplanation;
   model_id: string;
   site_id: string;
   model_type: string;
@@ -1987,6 +2024,7 @@ export type OutcomeTargetPrediction = {
   in_domain?: boolean;
   sample_count?: number;
   extrapolated_features?: string[];
+  explanation?: PredictionExplanation;
 };
 
 export type OutcomeModel = {
@@ -2059,6 +2097,7 @@ export type OutcomePredictResponse = {
   in_domain: boolean;
   sample_count?: number;
   extrapolated_features?: string[];
+  explanation?: PredictionExplanation;
   model_id: string;
   site_id: string;
   model_type: string;

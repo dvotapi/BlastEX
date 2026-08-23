@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.calibration import UncertaintyIntervalSchema
+from api.schemas.calibration import PredictionExplanationSchema, UncertaintyIntervalSchema
 from api.schemas.design import BlastDesignSchema
 
 
@@ -139,6 +139,7 @@ class OutcomeTargetPredictionSchema(BaseModel):
     in_domain: bool = True
     sample_count: int = 0
     extrapolated_features: list[str] = Field(default_factory=list)
+    explanation: PredictionExplanationSchema = Field(default_factory=PredictionExplanationSchema)
 
 
 class OutcomePredictResponse(BaseModel):
@@ -154,6 +155,7 @@ class OutcomePredictResponse(BaseModel):
     in_domain: bool = True
     sample_count: int = 0
     extrapolated_features: list[str] = Field(default_factory=list)
+    explanation: PredictionExplanationSchema = Field(default_factory=PredictionExplanationSchema)
     model_id: str = ""
     site_id: str = ""
     model_type: str

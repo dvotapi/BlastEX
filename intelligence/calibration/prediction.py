@@ -25,6 +25,8 @@ from intelligence.calibration.types import (
     normalize_model_type,
 )
 from intelligence.datasets.features import extract_features
+from intelligence.explainability.explain import explain_estimator
+from intelligence.explainability.types import empty_explanation
 from intelligence.uncertainty.assess import assess_vector, unavailable
 from design.models import BlastDesign
 
@@ -102,6 +104,23 @@ def apply_residual(
     result.apply_assessment(assessment)
     result.calibrated = float(assessment.prediction) if assessment.prediction is not None else calibrated
     result.residual = result.calibrated - float(baseline)
+    target_label = "X50" if model.model_type == MODEL_KUZRAM_RESIDUAL else (
+        "Негабарит" if model.model_type == MODEL_OVERSIZE_RESIDUAL else "PPV"
+    )
+    result.apply_explanation(
+        explain_estimator(
+            estimator=model.estimator,
+            vector=vector,
+            feature_names=model.feature_names,
+            training_matrix=model.training_matrix,
+            predict_fn=lambda matrix: algo.predict(model.estimator, matrix),
+            clamp=lambda value, model_type=model.model_type: clamp_calibrated(model_type, value),
+            residual_offset=float(baseline),
+            target_name=model.target_name or spec.get("measured_field") or model.model_type,
+            target_label=target_label,
+            unit=spec["unit"],
+        )
+    )
     return result
 
 
@@ -145,6 +164,7 @@ def baseline_without_model(
             reason=reason or "Калибровка не применена: интервал ML недоступен.",
         )
     )
+    result.apply_explanation(empty_explanation(unit=spec["unit"]))
     return result
 
 

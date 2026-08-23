@@ -249,6 +249,17 @@ export function VibrationPanel({
                   onChange={(e) => onUpsertMeasurement({ ...item, ppv_mm_s: Number(e.target.value) })}
                 />
                 <small>мм/с</small>
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="Гц"
+                  value={item.frequency_hz ?? ""}
+                  onChange={(e) => onUpsertMeasurement({
+                    ...item,
+                    frequency_hz: e.target.value === "" ? null : Number(e.target.value),
+                  })}
+                />
+                <small>Гц</small>
                 <button type="button" className="ghost-button" onClick={() => onDeleteMeasurement(item.id)}>×</button>
               </div>
             ))}

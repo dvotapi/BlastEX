@@ -41,6 +41,8 @@ import {
   type AsFiredCompareResponse,
   type AsFiredHole,
   type ExecutionCompareResponse,
+  type BlastResult,
+  type BlastResultCompareResponse,
   type SchemeType,
   type SurfaceConnector,
   type SurfaceKind,
@@ -66,6 +68,7 @@ import { AsDrilledPanel } from "./AsDrilledPanel";
 import { AsChargedPanel } from "./AsChargedPanel";
 import { AsFiredPanel } from "./AsFiredPanel";
 import { ExecutionComparePanel } from "./ExecutionComparePanel";
+import { PostBlastPanel } from "./PostBlastPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -142,6 +145,8 @@ export function DesignPage({
   const [asFiredResult, setAsFiredResult] = useState<AsFiredCompareResponse | null>(null);
   const [executionBusy, setExecutionBusy] = useState(false);
   const [executionResult, setExecutionResult] = useState<ExecutionCompareResponse | null>(null);
+  const [blastResultBusy, setBlastResultBusy] = useState(false);
+  const [blastResultCompare, setBlastResultCompare] = useState<BlastResultCompareResponse | null>(null);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -266,6 +271,7 @@ export function DesignPage({
       setAsChargedResult(null);
       setAsFiredResult(null);
       setExecutionResult(null);
+      setBlastResultCompare(null);
       await refreshMaps({ ...document, holes: result.holes, pattern_params: patternParams as unknown as Record<string, unknown> });
       setSelected(new Set());
       setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
@@ -910,6 +916,46 @@ export function DesignPage({
     }
   }
 
+  async function recordBlastResult(item: BlastResult, extras: Parameters<typeof api.design.recordBlastResult>[2]) {
+    const designedBefore = {
+      holes: document.holes.map((hole) => JSON.stringify(hole)),
+      loads: document.loads.map((load) => JSON.stringify(load)),
+      detonators: JSON.stringify(document.network.detonators),
+    };
+    setBlastResultBusy(true);
+    setError("");
+    try {
+      const result = await api.design.recordBlastResult(designPayload(), item, extras);
+      if (
+        result.holes?.some((hole, index) => JSON.stringify(hole) !== designedBefore.holes[index])
+        || result.loads?.some((load, index) => JSON.stringify(load) !== designedBefore.loads[index])
+        || (result.network && JSON.stringify(result.network.detonators) !== designedBefore.detonators)
+      ) {
+        setError("Сервер не должен менять проект при записи результатов взрыва.");
+      }
+      dispatch({ type: "SET_BLAST_RESULT", result: result.result });
+      setBlastResultCompare(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось записать результаты взрыва.");
+    } finally {
+      setBlastResultBusy(false);
+    }
+  }
+
+  async function compareBlastResult() {
+    setBlastResultBusy(true);
+    setError("");
+    try {
+      const result = await api.design.compareBlastResult(designPayload());
+      setBlastResultCompare(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сравнить результаты взрыва.");
+      setBlastResultCompare(null);
+    } finally {
+      setBlastResultBusy(false);
+    }
+  }
+
   function printPassport() {
     if (!document.design_id) return;
     window.open(api.design.passportUrl(document.design_id), "_blank");
@@ -978,6 +1024,7 @@ export function DesignPage({
       setAsChargedResult(null);
       setAsFiredResult(null);
       setExecutionResult(null);
+      setBlastResultCompare(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -1022,6 +1069,7 @@ export function DesignPage({
     setAsChargedResult(null);
     setAsFiredResult(null);
     setExecutionResult(null);
+    setBlastResultCompare(null);
   }
 
   async function exportCsv() {
@@ -1265,6 +1313,22 @@ export function DesignPage({
             busy={executionBusy}
             result={executionResult}
             onCompare={compareExecution}
+          />
+          <PostBlastPanel
+            designId={document.design_id}
+            stored={document.blast_result}
+            fragResult={fragResult}
+            vibResult={vibResult}
+            costResult={costResult}
+            lumpSizeMm={lumpSizeMm}
+            onRecord={recordBlastResult}
+            onCompare={compareBlastResult}
+            onClear={() => {
+              dispatch({ type: "SET_BLAST_RESULT", result: null });
+              setBlastResultCompare(null);
+            }}
+            busy={blastResultBusy}
+            result={blastResultCompare}
           />
         </div>
         <div className="design-main">

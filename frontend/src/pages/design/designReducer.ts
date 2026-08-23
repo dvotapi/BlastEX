@@ -20,6 +20,7 @@ import type {
   AsDrilledHole,
   AsChargedHole,
   AsFiredHole,
+  BlastResult,
 } from "../../types/design";
 import {
   defaultVibrationModel,
@@ -70,6 +71,7 @@ export type DesignAction =
   | { type: "SET_AS_FIRED"; holes: AsFiredHole[] }
   | { type: "UPSERT_AS_FIRED"; hole: AsFiredHole }
   | { type: "DELETE_AS_FIRED"; designHoleId: string }
+  | { type: "SET_BLAST_RESULT"; result: BlastResult | null }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -123,6 +125,7 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
     as_drilled_holes: design.as_drilled_holes ?? [],
     as_charged_holes: design.as_charged_holes ?? [],
     as_fired_holes: design.as_fired_holes ?? [],
+    blast_result: design.blast_result ?? null,
   };
 }
 
@@ -195,6 +198,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         as_drilled_holes: [],
         as_charged_holes: [],
         as_fired_holes: [],
+        blast_result: null,
       };
     case "MOVE_HOLES": {
       const ids = new Set(action.ids);
@@ -348,6 +352,8 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         ...document,
         as_fired_holes: document.as_fired_holes.filter((item) => item.design_hole_id !== action.designHoleId),
       };
+    case "SET_BLAST_RESULT":
+      return { ...document, blast_result: action.result };
     case "SET_HOLE_GEOLOGY": {
       const byId = new Map(action.holes.map((h) => [h.id, h]));
       return {

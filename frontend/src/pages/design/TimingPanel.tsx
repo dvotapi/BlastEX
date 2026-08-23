@@ -1,5 +1,6 @@
 import { ruNumber } from "../../lib/format";
 import type { AnalyzeResponse, PpvRequest } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const LEVEL_LABELS: Record<string, string> = {
   hole: "скважина",
@@ -60,7 +61,7 @@ export function TimingPanel({
 
   return (
     <section className="panel">
-      <header><b>Тайминг</b><span>05</span></header>
+      <header><b>Тайминг</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
         <div className="field-pair">
           <label>Шаг изолиний, мс<input type="number" min="5" step="5" value={isolineStepMs} onChange={(e) => onIsolineStepChange(Number(e.target.value))} /></label>

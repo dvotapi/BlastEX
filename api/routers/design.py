@@ -16,6 +16,7 @@ from api.schemas.design import (
     LifecycleMetaResponse,
     LifecycleStateSchema,
     LifecycleTransitionRequest,
+    WorkstationMetaResponse,
     EngineeringMapsRequest,
     EngineeringMapsSchema,
     FragmentationModelsResponse,
@@ -229,6 +230,11 @@ def list_plans(session: dict = Depends(require_internal_access)) -> DesignListRe
 @router.get("/lifecycle/meta", response_model=LifecycleMetaResponse)
 def get_lifecycle_meta() -> LifecycleMetaResponse:
     return design_service.lifecycle_meta()
+
+
+@router.get("/workstation/meta", response_model=WorkstationMetaResponse)
+def get_workstation_meta() -> WorkstationMetaResponse:
+    return design_service.workstation_meta()
 
 
 @router.post("/plans", response_model=BlastDesignSchema, status_code=status.HTTP_201_CREATED)

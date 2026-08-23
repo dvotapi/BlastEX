@@ -13,6 +13,7 @@ import {
 } from "../../types/design";
 import { UncertaintyBlock } from "./UncertaintyBlock";
 import { ExplanationBlock } from "./ExplanationBlock";
+import { RoleBadge } from "./RoleBadge";
 
 function statusLabel(status: string): string {
   return OUTCOME_STATUS_LABELS[status as OutcomeStatus] ?? status;
@@ -99,7 +100,7 @@ export function OutcomePanel({
 
   return (
     <section className="panel">
-      <header><b>Прогноз исходов</b><span>17</span></header>
+      <header><b>Прогноз исходов</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small>
           Отдельные модели кусковатости, сейсмики, негабарита и риска забоя. Рекомендация не перезаписывает проект.

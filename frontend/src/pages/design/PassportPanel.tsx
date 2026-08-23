@@ -1,5 +1,6 @@
 import { ruNumber } from "../../lib/format";
 import type { BlastPassport, PassportMetricRow } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function RoleChip({ role }: { role: "designed" | "executed" | "predicted" | "measured" }) {
   const labels = {
@@ -48,7 +49,15 @@ export function PassportPanel({
 
   return (
     <section className="panel">
-      <header><b>Официальный паспорт</b><span>26</span></header>
+      <header>
+        <b>Официальный паспорт</b>
+        <span className="role-legend compact">
+          <RoleBadge role="designed" />
+          <RoleBadge role="executed" />
+          <RoleBadge role="predicted" />
+          <RoleBadge role="measured" />
+        </span>
+      </header>
       <div className="panel-body">
         <small>
           Инженерный документ: проектные параметры, прогноз (явно помечен), смета, сейсмика и дробление.

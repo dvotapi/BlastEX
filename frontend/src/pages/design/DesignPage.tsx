@@ -82,8 +82,23 @@ import {
   type SpatialSummary,
   type MovementPredictResponse,
   type BlastPassport,
+  type DesignLifecycleStatus,
 } from "../../types/design";
 import { emptyHoleGeology } from "../../types/design";
+import {
+  canEditDesigned,
+  canEditExecution,
+  canEditMeasured,
+  canEditMetadata,
+  freezeMessage,
+  isRecordFrozen,
+  overlayRole,
+  statusLabel,
+  type WorkflowStageId,
+} from "../../lib/lifecycle";
+import { RoleBadge } from "./RoleBadge";
+import { LifecyclePanel } from "./LifecyclePanel";
+import { WorkflowNav } from "./WorkflowNav";
 import { ChargePanel } from "./ChargePanel";
 import { CostPanel } from "./CostPanel";
 import { designReducer, initDesignState } from "./designReducer";
@@ -136,6 +151,14 @@ export function DesignPage({
   const document = state.present;
 
   const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing" | "3d">("contour");
+  const [workflowStage, setWorkflowStage] = useState<WorkflowStageId>("survey");
+  const [lifecycleConfirm, setLifecycleConfirm] = useState(false);
+  const [lifecycleNote, setLifecycleNote] = useState("");
+  const designedLocked = !canEditDesigned(document.lifecycle_status);
+  const executionLocked = !canEditExecution(document.lifecycle_status);
+  const measuredLocked = !canEditMeasured(document.lifecycle_status);
+  const metadataLocked = !canEditMetadata(document.lifecycle_status);
+  const recordFrozen = isRecordFrozen(document.lifecycle_status);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 6 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [patternParams, setPatternParams] = useState<PatternParams>(DEFAULT_PATTERN_PARAMS);
@@ -393,6 +416,30 @@ export function DesignPage({
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
+  function rejectLocked(kind: "designed" | "execution" | "measured"): boolean {
+    const allowed = kind === "designed" ? !designedLocked : kind === "execution" ? !executionLocked : !measuredLocked;
+    if (allowed) return false;
+    setError(freezeMessage(document.lifecycle_status, kind));
+    return true;
+  }
+
+  function selectStage(next: WorkflowStageId) {
+    setWorkflowStage(next);
+    if (next === "survey" || next === "geology") setMode("contour");
+    else if (next === "pattern") setMode("holes");
+    else if (next === "charge") setMode("charge");
+    else if (next === "timing") setMode("timing");
+    else if (next === "simulation" || next === "execution") setMode("holes");
+  }
+
+  function selectMode(next: typeof mode) {
+    setMode(next);
+    if (next === "contour") setWorkflowStage("survey");
+    else if (next === "holes") setWorkflowStage("pattern");
+    else if (next === "charge") setWorkflowStage("charge");
+    else if (next === "tie" || next === "timing") setWorkflowStage("timing");
+  }
+
   async function refreshPlans() {
     try {
       const result = await api.design.listPlans();
@@ -403,6 +450,7 @@ export function DesignPage({
   }
 
   async function generatePattern() {
+    if (rejectLocked("designed")) return;
     if (document.contour.vertices.length < 3) {
       setError("Нарисуйте контур блока (не менее трёх точек) перед раскладкой сетки.");
       return;
@@ -433,6 +481,7 @@ export function DesignPage({
   }
 
   function onContourVerticesChange(vertices: Point3[]) {
+    if (rejectLocked("designed")) return;
     const draped = vertices.map((v) => ({
       ...v,
       z: collarZFromSurfaces(document.surfaces, v.x, v.y, document.contour.bench.crest_z_m),
@@ -441,6 +490,7 @@ export function DesignPage({
   }
 
   async function importSurface(kind: SurfaceKind, file: File) {
+    if (rejectLocked("designed")) return;
     setSurfaceBusy(true);
     setError("");
     try {
@@ -466,14 +516,17 @@ export function DesignPage({
   }
 
   function onToggleFreeFace(edgeIndex: number) {
+    if (rejectLocked("designed")) return;
     dispatch({ type: "TOGGLE_FREE_FACE", edgeIndex });
   }
 
   function onMoveHoles(ids: string[], dx: number, dy: number) {
+    if (rejectLocked("designed")) return;
     dispatch({ type: "MOVE_HOLES", ids, dx, dy });
   }
 
   function onUpdateHole(id: string, patch: Partial<Hole>) {
+    if (rejectLocked("designed")) return;
     dispatch({ type: "UPDATE_HOLE", id, patch });
   }
 
@@ -559,6 +612,7 @@ export function DesignPage({
   }
 
   async function onAddHole(world: Vec2) {
+    if (rejectLocked("designed")) return;
     const x = Math.round(world.x * 100) / 100;
     const y = Math.round(world.y * 100) / 100;
     try {
@@ -604,6 +658,7 @@ export function DesignPage({
   }
 
   function deleteSelected() {
+    if (rejectLocked("designed")) return;
     if (!selected.size) return;
     dispatch({ type: "DELETE_HOLES", ids: Array.from(selected) });
     setSelected(new Set());
@@ -622,6 +677,7 @@ export function DesignPage({
   }
 
   async function calculateCharge() {
+    if (rejectLocked("designed")) return;
     if (!document.holes.length) {
       setError("Сначала постройте сетку скважин.");
       return;
@@ -653,6 +709,7 @@ export function DesignPage({
   }
 
   function addManualTie(fromId: string, toId: string) {
+    if (rejectLocked("designed")) return;
     const network = normalizeNetwork(document.network);
     const delay = tieParams.interval_ms || 25;
     const kind = network.system === "detcord" ? "ds_relay" : network.system === "electronic" ? "electronic" : "surface_nsi";
@@ -678,6 +735,7 @@ export function DesignPage({
   }
 
   function updateManualTie(tie: SurfaceConnector, delayMs: number) {
+    if (rejectLocked("designed")) return;
     const network = normalizeNetwork(document.network);
     const nextTies = networkTies(network).map((item) => (item.id === tie.id ? { ...item, delay_ms: delayMs } : item));
     dispatch({
@@ -692,6 +750,7 @@ export function DesignPage({
   }
 
   function removeManualTie(connectorId: string) {
+    if (rejectLocked("designed")) return;
     const network = normalizeNetwork(document.network);
     const nextTies = networkTies(network).filter((item) => item.id !== connectorId);
     dispatch({
@@ -706,6 +765,7 @@ export function DesignPage({
   }
 
   function toggleStartersFromSelection() {
+    if (rejectLocked("designed")) return;
     if (!selected.size) return;
     const network = normalizeNetwork(document.network);
     const current = new Set(
@@ -726,6 +786,7 @@ export function DesignPage({
   }
 
   async function generateTie() {
+    if (rejectLocked("designed")) return;
     if (!document.holes.length) {
       setError("Сначала постройте сетку скважин.");
       return;
@@ -815,6 +876,7 @@ export function DesignPage({
     domains = document.domains,
     waterTable = document.water_table_z_m,
   ) {
+    if (rejectLocked("designed")) return;
     if (!domains.length || !holes.length) {
       setError("Задайте домены и скважины, затем пересеките ось с геологией.");
       return;
@@ -832,10 +894,12 @@ export function DesignPage({
   }
 
   function upsertDomain(domain: typeof document.domains[number]) {
+    if (rejectLocked("designed")) return;
     dispatch({ type: "UPSERT_DOMAIN", domain });
   }
 
   function deleteDomain(id: string) {
+    if (rejectLocked("designed")) return;
     dispatch({ type: "DELETE_DOMAIN", id });
     if (selectedDomainId === id) {
       setSelectedDomainId(null);
@@ -844,6 +908,7 @@ export function DesignPage({
   }
 
   function copyContourToDomain(id: string) {
+    if (rejectLocked("designed")) return;
     const domain = document.domains.find((item) => item.id === id);
     if (!domain) return;
     if (document.contour.vertices.length < 3) {
@@ -857,6 +922,7 @@ export function DesignPage({
   }
 
   function loadExampleLayers() {
+    if (rejectLocked("designed")) return;
     const layers = exampleLayeredDomains(document.contour);
     dispatch({ type: "SET_DOMAINS", domains: layers });
     setSelectedDomainId(layers[0]?.id ?? null);
@@ -864,6 +930,7 @@ export function DesignPage({
   }
 
   function addDomainVertex(domainId: string, point: Point3) {
+    if (rejectLocked("designed")) return;
     const domain = document.domains.find((item) => item.id === domainId);
     if (!domain) return;
     dispatch({ type: "UPSERT_DOMAIN", domain: { ...domain, polygon: [...domain.polygon, point] } });
@@ -883,6 +950,7 @@ export function DesignPage({
   }
 
   function addReceptorAt(world: { x: number; y: number }) {
+    if (rejectLocked("designed")) return;
     const kind: ReceptorKind = "building";
     const created = emptyReceptor(document.receptors, kind);
     created.location = { x: world.x, y: world.y, z: document.contour.bench.crest_z_m };
@@ -931,6 +999,7 @@ export function DesignPage({
   }
 
   async function recordAsDrilled(item: AsDrilledHole) {
+    if (rejectLocked("execution")) return;
     if (!document.holes.some((hole) => hole.id === item.design_hole_id)) {
       setError("Сначала выберите проектную скважину.");
       return;
@@ -967,6 +1036,7 @@ export function DesignPage({
   }
 
   async function importMwd(designHoleId: string, samples: Record<string, number | null>[]) {
+    if (rejectLocked("execution")) return;
     if (!samples.length) {
       setError("MWD: нужен JSON-массив отсчётов с полем depth / depth_m.");
       return;
@@ -989,6 +1059,7 @@ export function DesignPage({
   }
 
   async function recordAsCharged(item: AsChargedHole) {
+    if (rejectLocked("execution")) return;
     if (!document.holes.some((hole) => hole.id === item.design_hole_id)) {
       setError("Сначала выберите проектную скважину.");
       return;
@@ -1031,6 +1102,7 @@ export function DesignPage({
   }
 
   async function recordAsFired(item: AsFiredHole) {
+    if (rejectLocked("execution")) return;
     if (!document.holes.some((hole) => hole.id === item.design_hole_id)) {
       setError("Сначала выберите проектную скважину.");
       return;
@@ -1089,6 +1161,7 @@ export function DesignPage({
   }
 
   async function recordBlastResult(item: BlastResult, extras: Parameters<typeof api.design.recordBlastResult>[2]) {
+    if (rejectLocked("measured")) return;
     const designedBefore = {
       holes: document.holes.map((hole) => JSON.stringify(hole)),
       loads: document.loads.map((load) => JSON.stringify(load)),
@@ -2038,7 +2111,62 @@ export function DesignPage({
     setCurrentMs(ms);
   }
 
+  async function transitionLifecycle(toStatus: DesignLifecycleStatus) {
+    if (!document.design_id) {
+      setError("Сначала сохраните паспорт.");
+      return;
+    }
+    if (!lifecycleConfirm) {
+      setError("Смена статуса требует явного подтверждения.");
+      return;
+    }
+    setSaveBusy(true);
+    setError("");
+    try {
+      await api.design.transitionPlan(document.design_id, {
+        to_status: toStatus,
+        confirm: true,
+        note: lifecycleNote,
+      });
+      const design = await api.design.getPlan(document.design_id);
+      dispatch({ type: "LOAD", design });
+      setLifecycleConfirm(false);
+      setLifecycleNote("");
+      await refreshPlans();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сменить статус паспорта.");
+    } finally {
+      setSaveBusy(false);
+    }
+  }
+
+  async function forkPlan() {
+    if (!document.design_id) {
+      setError("Сначала сохраните паспорт.");
+      return;
+    }
+    setSaveBusy(true);
+    setError("");
+    try {
+      const forked = await api.design.forkPlan(document.design_id, `${document.name} · ревизия`);
+      dispatch({ type: "LOAD", design: forked });
+      setLifecycleConfirm(false);
+      setLifecycleNote("");
+      setWorkflowStage("survey");
+      setMode("contour");
+      await refreshPlans();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось создать ревизию.");
+    } finally {
+      setSaveBusy(false);
+    }
+  }
+
   async function savePlan() {
+    if (document.design_id && recordFrozen) {
+      setError(freezeMessage(document.lifecycle_status));
+      return;
+    }
     setSaveBusy(true);
     setError("");
     try {
@@ -2168,76 +2296,83 @@ export function DesignPage({
   return (
     <div className="page-content">
       <div className="page-heading">
-        <div><h1>Проектирование БВР</h1><p>Съёмка уступа → геология → контур блока → сетка скважин</p></div>
-        <span className="save-status">● {user.organization_name}</span>
+        <div>
+          <h1>Проектирование БВР</h1>
+          <p>Съёмка → геология → сетка → заряд → тайминг → симуляция → исполнение → интеллект → сценарии → отчёт</p>
+        </div>
+        <span className={`save-status lifecycle-pill status-${document.lifecycle_status}`}>
+          ● {statusLabel(document.lifecycle_status)}
+        </span>
       </div>
       {error && <div className="page-error" role="alert">{error}</div>}
+      {designedLocked && (
+        <div className="lifecycle-banner" role="status">
+          {recordFrozen
+            ? "Паспорт закрыт: DESIGNED / EXECUTED / MEASURED заморожены. Создайте ревизию, чтобы править дальше."
+            : "Слой DESIGNED заморожен. Сетку, заряд и тайминг нельзя менять. Исполнение и замер — отдельно, сценарии остаются оверлеями."}
+        </div>
+      )}
 
       <div className="design-toolbar">
         <div className="mode-switch">
-          <button className={mode === "contour" ? "active" : ""} onClick={() => setMode("contour")}>Контур</button>
-          <button className={mode === "holes" ? "active" : ""} onClick={() => setMode("holes")}>Скважины</button>
-          <button className={mode === "charge" ? "active" : ""} onClick={() => setMode("charge")}>Заряжание</button>
-          <button className={mode === "tie" ? "active" : ""} onClick={() => setMode("tie")}>Коммутация</button>
-          <button className={mode === "timing" ? "active" : ""} onClick={() => setMode("timing")}>Тайминг</button>
-          <button className={mode === "3d" ? "active" : ""} onClick={() => setMode("3d")}>3D</button>
+          <button className={mode === "contour" ? "active" : ""} onClick={() => selectMode("contour")}>Контур</button>
+          <button className={mode === "holes" ? "active" : ""} onClick={() => selectMode("holes")}>Скважины</button>
+          <button className={mode === "charge" ? "active" : ""} onClick={() => selectMode("charge")}>Заряжание</button>
+          <button className={mode === "tie" ? "active" : ""} onClick={() => selectMode("tie")}>Коммутация</button>
+          <button className={mode === "timing" ? "active" : ""} onClick={() => selectMode("timing")}>Тайминг</button>
+          <button className={mode === "3d" ? "active" : ""} onClick={() => selectMode("3d")}>3D</button>
         </div>
         <div className="history-controls">
-          <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length} title="Отменить (Ctrl+Z)">↶ Отменить</button>
-          <button onClick={() => dispatch({ type: "REDO" })} disabled={!state.future.length} title="Повторить (Ctrl+Shift+Z)">↷ Повторить</button>
+          <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length || designedLocked} title="Отменить (Ctrl+Z)">↶ Отменить</button>
+          <button onClick={() => dispatch({ type: "REDO" })} disabled={!state.future.length || designedLocked} title="Повторить (Ctrl+Shift+Z)">↷ Повторить</button>
         </div>
       </div>
+      <WorkflowNav stage={workflowStage} onStageChange={selectStage} />
 
       <SummaryPanel holes={document.holes} blockVolumeM3={blockVolumeM3} loads={document.loads.length ? document.loads : undefined} />
 
       <div className="design-grid">
         <div className="design-sidebar">
-          {mode === "charge" ? (
-            <ChargePanel
-              rules={chargeRules}
-              explosives={explosives}
-              explosiveKey={explosiveKey}
-              domains={document.domains}
-              onExplosiveKeyChange={setExplosiveKey}
-              onChange={(patch) => setChargeRules((prev) => ({ ...prev, ...patch }))}
-              onCalculate={calculateCharge}
-              busy={chargeBusy}
-            />
-          ) : mode === "tie" ? (
-            <TiePanel
-              scheme={tieScheme}
-              params={tieParams}
-              network={document.network}
-              selectedCount={selected.size}
-              pendingFromId={pendingTieFromId}
-              onSchemeChange={setTieScheme}
-              onParamsChange={(patch) => setTieParams((prev) => ({ ...prev, ...patch }))}
-              onGenerate={generateTie}
-              onUpdateTie={updateManualTie}
-              onRemoveTie={removeManualTie}
-              onToggleStarters={toggleStartersFromSelection}
-              busy={tieBusy}
-            />
-          ) : mode === "timing" ? (
-            <TimingPanel
-              analysis={analysis}
-              busy={analyzeBusy}
-              onAnalyze={runAnalyze}
-              isolineStepMs={isolineStepMs}
-              onIsolineStepChange={setIsolineStepMs}
-              showIsolines={showIsolines}
-              onToggleIsolines={() => setShowIsolines((prev) => !prev)}
-              ppv={ppv}
-              onPpvChange={(patch) => setPpv((prev) => ({ ...prev, ...patch }))}
-              playing={playing}
-              onPlayToggle={togglePlay}
-              currentMs={currentMs}
-              maxMs={maxAnimationMs}
-              onScrub={scrub}
-            />
-          ) : mode === "3d" ? (
+          <LifecyclePanel
+            designId={document.design_id}
+            status={document.lifecycle_status}
+            revision={document.revision}
+            parentDesignId={document.parent_design_id}
+            designedSha256={document.designed_sha256}
+            events={document.lifecycle_events}
+            busy={saveBusy}
+            confirm={lifecycleConfirm}
+            note={lifecycleNote}
+            onConfirmChange={setLifecycleConfirm}
+            onNoteChange={setLifecycleNote}
+            onTransition={transitionLifecycle}
+            onFork={forkPlan}
+          />
+          <PlansPanel
+            plans={plans}
+            currentDesignId={document.design_id}
+            currentName={document.name}
+            currentStatus={document.lifecycle_status}
+            onNameChange={(name) => {
+              if (metadataLocked) {
+                setError(freezeMessage(document.lifecycle_status));
+                return;
+              }
+              dispatch({ type: "SET_NAME", name });
+            }}
+            onSave={savePlan}
+            onOpen={openPlan}
+            onDelete={deletePlan}
+            onNew={newPlan}
+            onExportCsv={exportCsv}
+            onPrintPassport={printPassport}
+            busy={saveBusy}
+            nameLocked={metadataLocked}
+            saveLocked={recordFrozen}
+          />
+          {mode === "3d" && (
             <section className="panel">
-              <header><b>3D-вид</b><span>06</span></header>
+              <header><b>3D-вид</b><RoleBadge role="designed" /></header>
               <div className="panel-body">
                 <small>
                   Просмотр контура блока и наклонных скважин в пространстве. Правка геометрии
@@ -2245,20 +2380,23 @@ export function DesignPage({
                 </small>
               </div>
             </section>
-          ) : (
-            <>
-              {mode === "contour" && (
-                <SurfacePanel
-                  surfaces={document.surfaces}
-                  bench={document.contour.bench}
-                  coordinateSystem={document.coordinate_system}
-                  onBenchChange={(bench) => dispatch({ type: "SET_BENCH", bench })}
-                  onCoordinateSystemChange={(patch) => dispatch({ type: "SET_COORDINATE_SYSTEM", patch })}
-                  onImport={importSurface}
-                  onClear={(kind) => dispatch({ type: "CLEAR_SURFACE", kind })}
-                  busy={surfaceBusy}
-                />
-              )}
+          )}
+          {workflowStage === "survey" && (
+            <fieldset className="workstation-lock" disabled={designedLocked}>
+              <SurfacePanel
+                surfaces={document.surfaces}
+                bench={document.contour.bench}
+                coordinateSystem={document.coordinate_system}
+                onBenchChange={(bench) => dispatch({ type: "SET_BENCH", bench })}
+                onCoordinateSystemChange={(patch) => dispatch({ type: "SET_COORDINATE_SYSTEM", patch })}
+                onImport={importSurface}
+                onClear={(kind) => dispatch({ type: "CLEAR_SURFACE", kind })}
+                busy={surfaceBusy}
+              />
+            </fieldset>
+          )}
+          {workflowStage === "geology" && (
+            <fieldset className="workstation-lock" disabled={designedLocked}>
               <GeologyPanel
                 domains={document.domains}
                 selectedDomainId={selectedDomainId}
@@ -2279,29 +2417,62 @@ export function DesignPage({
                 onWaterTableChange={(value) => dispatch({ type: "SET_WATER_TABLE", water_table_z_m: value })}
                 onIntercept={() => interceptHoles()}
               />
-              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
-            </>
+            </fieldset>
           )}
-          <PlansPanel
-            plans={plans}
-            currentDesignId={document.design_id}
-            currentName={document.name}
-            onNameChange={(name) => dispatch({ type: "SET_NAME", name })}
-            onSave={savePlan}
-            onOpen={openPlan}
-            onDelete={deletePlan}
-            onNew={newPlan}
-            onExportCsv={exportCsv}
-            onPrintPassport={printPassport}
-            busy={saveBusy}
-          />
-          <CostPanel
-            scenarioId={scenarioId}
-            onScenarioChange={setScenarioId}
-            onCalculate={calculateCost}
-            busy={costBusy}
-            result={costResult}
-          />
+          {workflowStage === "pattern" && (
+            <fieldset className="workstation-lock" disabled={designedLocked}>
+              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
+            </fieldset>
+          )}
+          {workflowStage === "charge" && (
+            <fieldset className="workstation-lock" disabled={designedLocked}>
+              <ChargePanel
+                rules={chargeRules}
+                explosives={explosives}
+                explosiveKey={explosiveKey}
+                domains={document.domains}
+                onExplosiveKeyChange={setExplosiveKey}
+                onChange={(patch) => setChargeRules((prev) => ({ ...prev, ...patch }))}
+                onCalculate={calculateCharge}
+                busy={chargeBusy}
+              />
+            </fieldset>
+          )}
+          {workflowStage === "timing" && (
+            <fieldset className="workstation-lock" disabled={designedLocked}>
+              <TiePanel
+                scheme={tieScheme}
+                params={tieParams}
+                network={document.network}
+                selectedCount={selected.size}
+                pendingFromId={pendingTieFromId}
+                onSchemeChange={setTieScheme}
+                onParamsChange={(patch) => setTieParams((prev) => ({ ...prev, ...patch }))}
+                onGenerate={generateTie}
+                onUpdateTie={updateManualTie}
+                onRemoveTie={removeManualTie}
+                onToggleStarters={toggleStartersFromSelection}
+                busy={tieBusy}
+              />
+              <TimingPanel
+                analysis={analysis}
+                busy={analyzeBusy}
+                onAnalyze={runAnalyze}
+                isolineStepMs={isolineStepMs}
+                onIsolineStepChange={setIsolineStepMs}
+                showIsolines={showIsolines}
+                onToggleIsolines={() => setShowIsolines((prev) => !prev)}
+                ppv={ppv}
+                onPpvChange={(patch) => setPpv((prev) => ({ ...prev, ...patch }))}
+                playing={playing}
+                onPlayToggle={togglePlay}
+                currentMs={currentMs}
+                maxMs={maxAnimationMs}
+                onScrub={scrub}
+              />
+            </fieldset>
+          )}
+          {workflowStage === "simulation" && <>
           <FragmentationPanel
             model={fragModel}
             onModelChange={setFragModel}
@@ -2314,7 +2485,10 @@ export function DesignPage({
           />
           <VibrationPanel
             model={siteModel()}
-            onModelChange={(patch) => dispatch({ type: "UPSERT_VIBRATION_MODEL", model: { ...siteModel(), ...patch } })}
+            onModelChange={(patch) => {
+              if (rejectLocked("designed")) return;
+              dispatch({ type: "UPSERT_VIBRATION_MODEL", model: { ...siteModel(), ...patch } });
+            }}
             receptors={document.receptors}
             selectedReceptorId={selectedReceptorId}
             onSelectedReceptorIdChange={(id) => {
@@ -2327,23 +2501,41 @@ export function DesignPage({
               setDrawingDomain(false);
             }}
             onUpsertReceptor={(receptor) => {
+              if (rejectLocked("designed")) return;
               dispatch({ type: "UPSERT_RECEPTOR", receptor });
               setVibResult(null);
             }}
             onDeleteReceptor={(id) => {
+              if (rejectLocked("designed")) return;
               dispatch({ type: "DELETE_RECEPTOR", id });
               if (selectedReceptorId === id) setSelectedReceptorId(null);
               setVibResult(null);
             }}
             measurements={document.vibration_measurements}
-            onUpsertMeasurement={(measurement) => dispatch({ type: "UPSERT_MEASUREMENT", measurement })}
-            onDeleteMeasurement={(id) => dispatch({ type: "DELETE_MEASUREMENT", id })}
+            onUpsertMeasurement={(measurement) => {
+              if (rejectLocked("measured")) return;
+              dispatch({ type: "UPSERT_MEASUREMENT", measurement });
+            }}
+            onDeleteMeasurement={(id) => {
+              if (rejectLocked("measured")) return;
+              dispatch({ type: "DELETE_MEASUREMENT", id });
+            }}
             micWindowMs={micWindowMs}
             onMicWindowChange={setMicWindowMs}
             onPredict={predictVibration}
             busy={vibBusy}
             result={vibResult}
           />
+          <MovementPanel
+            onPredict={predictMovement}
+            busy={movementBusy}
+            result={movementResult}
+            selectedHoleId={selected.size === 1 ? Array.from(selected)[0] : null}
+            showVectors={showMovementVectors}
+            onToggleVectors={() => setShowMovementVectors((prev) => !prev)}
+          />
+          </>}
+          {workflowStage === "execution" && <>
           <AsDrilledPanel
             holes={document.holes}
             asDrilled={document.as_drilled_holes}
@@ -2351,6 +2543,7 @@ export function DesignPage({
             onSelectedHoleIdChange={(id) => setSelected(id ? new Set([id]) : new Set())}
             onRecord={recordAsDrilled}
             onDelete={(designHoleId) => {
+              if (rejectLocked("execution")) return;
               dispatch({ type: "DELETE_AS_DRILLED", designHoleId });
               setAsDrilledResult(null);
             }}
@@ -2360,6 +2553,7 @@ export function DesignPage({
             result={asDrilledResult}
             showOverlay={showAsDrilled}
             onToggleOverlay={() => setShowAsDrilled((prev) => !prev)}
+            locked={executionLocked}
           />
           <AsChargedPanel
             holes={document.holes}
@@ -2369,6 +2563,7 @@ export function DesignPage({
             onSelectedHoleIdChange={(id) => setSelected(id ? new Set([id]) : new Set())}
             onRecord={recordAsCharged}
             onDelete={(designHoleId) => {
+              if (rejectLocked("execution")) return;
               dispatch({ type: "DELETE_AS_CHARGED", designHoleId });
               setAsChargedResult(null);
             }}
@@ -2376,6 +2571,7 @@ export function DesignPage({
             busy={asChargedBusy}
             result={asChargedResult}
             explosiveKey={explosiveKey}
+            locked={executionLocked}
           />
           <AsFiredPanel
             holes={document.holes}
@@ -2386,12 +2582,14 @@ export function DesignPage({
             onSelectedHoleIdChange={(id) => setSelected(id ? new Set([id]) : new Set())}
             onRecord={recordAsFired}
             onDelete={(designHoleId) => {
+              if (rejectLocked("execution")) return;
               dispatch({ type: "DELETE_AS_FIRED", designHoleId });
               setAsFiredResult(null);
             }}
             onCompare={compareAsFired}
             busy={asFiredBusy}
             result={asFiredResult}
+            locked={executionLocked}
           />
           <ExecutionComparePanel
             busy={executionBusy}
@@ -2408,12 +2606,16 @@ export function DesignPage({
             onRecord={recordBlastResult}
             onCompare={compareBlastResult}
             onClear={() => {
+              if (rejectLocked("measured")) return;
               dispatch({ type: "SET_BLAST_RESULT", result: null });
               setBlastResultCompare(null);
             }}
             busy={blastResultBusy}
             result={blastResultCompare}
+            locked={measuredLocked}
           />
+          </>}
+          {workflowStage === "intelligence" && <>
           <DatasetPanel
             siteId={datasetSiteId}
             onSiteIdChange={setDatasetSiteId}
@@ -2470,6 +2672,8 @@ export function DesignPage({
             onPredictType={predictOutcomeType}
             onPredictAll={predictAllOutcomes}
           />
+          </>}
+          {workflowStage === "scenarios" && <>
           <ScenarioPanel
             name={scenarioName}
             onNameChange={setScenarioName}
@@ -2520,6 +2724,8 @@ export function DesignPage({
             onRun={runRecommendation}
             onPromote={promoteRecommendation}
           />
+          </>}
+          {workflowStage === "intelligence" && <>
           <LearningPanel
             siteId={datasetSiteId || datasetSelected?.site_id || ""}
             datasetLabel={datasetSelected ? (datasetSelected.name || `Снимок v${datasetSelected.dataset_version}`) : ""}
@@ -2565,20 +2771,6 @@ export function DesignPage({
             onMarkProduction={markSpatialProduction}
             onPredict={predictSpatial}
           />
-          <MovementPanel
-            onPredict={predictMovement}
-            busy={movementBusy}
-            result={movementResult}
-            selectedHoleId={selected.size === 1 ? Array.from(selected)[0] : null}
-            showVectors={showMovementVectors}
-            onToggleVectors={() => setShowMovementVectors((prev) => !prev)}
-          />
-          <PassportPanel
-            onAssemble={assemblePassport}
-            onPrint={printPassport}
-            busy={passportBusy}
-            result={passportResult}
-          />
           <DriftPanel
             models={registryItems}
             selectedModelId={driftFamily && driftModelId ? `${driftFamily}:${driftModelId}` : ""}
@@ -2593,6 +2785,22 @@ export function DesignPage({
             onCheck={runDriftCheck}
             onAcknowledge={acknowledgeDrift}
           />
+          </>}
+          {workflowStage === "report" && <>
+          <PassportPanel
+            onAssemble={assemblePassport}
+            onPrint={printPassport}
+            busy={passportBusy}
+            result={passportResult}
+          />
+          <CostPanel
+            scenarioId={scenarioId}
+            onScenarioChange={setScenarioId}
+            onCalculate={calculateCost}
+            busy={costBusy}
+            result={costResult}
+          />
+          </>}
         </div>
         <div className="design-main">
           {mode === "3d" ? (
@@ -2642,6 +2850,7 @@ export function DesignPage({
                     <small>{mapOverlay.range.max.toFixed(1)} {MAP_METRIC_UNITS[mapMetric]}</small>
                   </span>
                 )}
+                <RoleBadge role={showAsDrilled && document.as_drilled_holes.length > 0 && !mapMetric ? "executed" : overlayRole(mapMetric)} />
               </div>
               <PlanCanvas
                 contour={document.contour}
@@ -2711,6 +2920,7 @@ export function DesignPage({
                   onDeleteSelected={deleteSelected}
                   insertKind={insertKind}
                   onInsertKindChange={setInsertKind}
+                  locked={designedLocked}
                 />
               )}
             </>

@@ -1,4 +1,5 @@
 import type { DatasetSnapshot, DatasetSummary, SampleValidation } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const FEATURE_GROUPS = ["SITE", "GEOLOGY", "GEOMETRY", "CHARGING", "TIMING", "EXECUTION", "ENVIRONMENT"];
 const TARGET_GROUPS = ["FRAGMENTATION", "VIBRATION", "BLAST", "PERFORMANCE", "ECONOMICS"];
@@ -48,7 +49,7 @@ export function DatasetPanel({
 }) {
   return (
     <section className="panel">
-      <header><b>Датасет обучения</b><span>15</span></header>
+      <header><b>Датасет обучения</b><RoleBadge role="measured" /></header>
       <div className="panel-body">
         <small>
           Снимок закрытых взрывов. Обучение идёт только с неизменяемой копии, не с живых паспортов.

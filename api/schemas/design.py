@@ -1094,6 +1094,47 @@ class LifecycleMetaResponse(BaseModel):
     auto_transition: bool = False
 
 
+class WorkstationRoleSchema(BaseModel):
+    name: str
+    code: str
+    label_ru: str
+    label_en: str
+
+
+class WorkstationStageSchema(BaseModel):
+    id: str
+    label: str
+    role: str
+    role_code: str
+    mutation: str = ""
+    panels: list[str] = Field(default_factory=list)
+    order: int
+
+
+class WorkstationTransitionSchema(BaseModel):
+    from_status: str
+    to_status: str
+    label: str
+
+
+class WorkstationMetaResponse(BaseModel):
+    workflow: list[str] = Field(default_factory=list)
+    stages: list[WorkstationStageSchema] = Field(default_factory=list)
+    statuses: list[LifecycleStatusSchema] = Field(default_factory=list)
+    status_labels: dict[str, str] = Field(default_factory=dict)
+    transitions: list[WorkstationTransitionSchema] = Field(default_factory=list)
+    data_roles: dict[str, str] = Field(default_factory=dict)
+    role_codes: dict[str, str] = Field(default_factory=dict)
+    role_labels_ru: dict[str, str] = Field(default_factory=dict)
+    role_labels_en: dict[str, str] = Field(default_factory=dict)
+    roles: list[WorkstationRoleSchema] = Field(default_factory=list)
+    overlay_roles: dict[str, str | list[str]] = Field(default_factory=dict)
+    display_units: dict[str, str] = Field(default_factory=dict)
+    mutations: dict[str, list[str]] = Field(default_factory=dict)
+    auto_transition: bool = False
+    silent_unit_conversion: bool = False
+
+
 class LifecycleTransitionRequest(BaseModel):
     to_status: str
     confirm: bool = False

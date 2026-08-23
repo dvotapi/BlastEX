@@ -1,3 +1,33 @@
+.role-legend { display:flex; flex-wrap:wrap; gap:6px; }
+.role-legend.compact { justify-content:flex-end; }
+.role-badge { display:inline-block; padding:3px 8px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:.02em; }
+.role-badge.role-designed { background:#e8f3ec; color:#173125; }
+.role-badge.role-executed { background:#eef2ff; color:#2a3a7a; }
+.role-badge.role-predicted { background:#fff3d6; color:#6a4a28; }
+.role-badge.role-measured { background:#fdecea; color:#7a2a22; }
+
+.lifecycle-pill { display:inline-block; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:700; background:#edf1ef; color:#3b4b43; }
+.lifecycle-pill.status-draft { background:#edf1ef; color:#3b4b43; }
+.lifecycle-pill.status-in_review { background:#fff3d6; color:#6a4a28; }
+.lifecycle-pill.status-approved { background:#e8f3ec; color:#173125; }
+.lifecycle-pill.status-executed { background:#eef2ff; color:#2a3a7a; }
+.lifecycle-pill.status-closed { background:#fdecea; color:#7a2a22; }
+.lifecycle-banner { margin:0 0 14px; padding:10px 12px; border-radius:10px; background:#fde8d4; color:#5a3d12; font-size:12px; font-weight:600; }
+.lifecycle-freeze { color:#8a3b12; background:#fde8d4; border-radius:6px; padding:6px 8px; font-weight:600; }
+.lifecycle-meta { display:flex; flex-wrap:wrap; gap:8px; font-size:10px; color:#5c6a63; }
+.lifecycle-log { list-style:none; margin:0; padding:0; display:grid; gap:4px; }
+.lifecycle-log li { display:grid; gap:2px; padding:6px 8px; border-radius:8px; background:#f6f8f7; font-size:11px; }
+.lifecycle-log small { color:#7b8982; }
+
+.workflow-nav { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 16px; }
+.workflow-nav button { display:grid; gap:2px; padding:7px 10px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
+.workflow-nav button small { font-size:9px; color:#7b8982; font-weight:600; }
+.workflow-nav button.active { background:#2d7556; border-color:#2d7556; color:#fff; }
+.workflow-nav button.active small { color:#d7efe4; }
+
+.workstation-lock { border:0; margin:0; padding:0; min-width:0; display:grid; gap:18px; }
+.workstation-lock:disabled { opacity:.72; }
+
 .design-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
 .mode-switch, .history-controls { display:flex; gap:6px; }
 .mode-switch button, .history-controls button { padding:8px 14px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }

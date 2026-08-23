@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ruNumber } from "../../lib/format";
 import type { BenchSurface, CoordinateSystem, SurfaceKind, SurfaceModel, SurfaceSet } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const KIND_OPTIONS: { value: SurfaceKind; label: string }[] = [
   { value: "top", label: "Кровля" },
@@ -46,7 +47,7 @@ export function SurfacePanel({
 
   return (
     <section className="panel">
-      <header><b>Съёмка уступа</b><span>01</span></header>
+      <header><b>Съёмка уступа</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
         <label>
           Система координат

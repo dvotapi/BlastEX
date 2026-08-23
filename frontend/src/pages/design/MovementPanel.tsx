@@ -1,5 +1,6 @@
 import { ruNumber } from "../../lib/format";
 import type { MovementPredictResponse } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function Metric({ label, value, unit, digits }: { label: string; value: number; unit: string; digits: number }) {
   return (
@@ -31,7 +32,7 @@ export function MovementPanel({
 
   return (
     <section className="panel">
-      <header><b>Развал и вывал</b><span>25</span></header>
+      <header><b>Развал и вывал</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small className="movement-disclaimer">
           оценка / estimate — эмпирическая кинематическая модель. Это не физическая симуляция.

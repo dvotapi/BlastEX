@@ -3,6 +3,7 @@ import type {
   DesignScenarioSummary,
   ScenarioCompareResponse,
 } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 function formatMetric(key: string, value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
@@ -52,7 +53,7 @@ export function ScenarioPanel({
 }) {
   return (
     <section className="panel">
-      <header><b>Сценарии сетки</b><span>18</span></header>
+      <header><b>Сценарии сетки</b><RoleBadge role="predicted" /></header>
       <div className="panel-body">
         <small>
           Копии поверх утверждённого паспорта: диаметр, сетка и q. Проектные скважины и заряды не перезаписываются.

@@ -2,6 +2,7 @@ import { angleAzimuth, holeFromCollar, holeLength } from "../../lib/geometry2d";
 import { ruNumber } from "../../lib/format";
 import type { Hole, HoleKind } from "../../types/design";
 import { HOLE_KIND_LABELS } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 export function HoleTable({
   holes,
@@ -11,6 +12,7 @@ export function HoleTable({
   onDeleteSelected,
   insertKind,
   onInsertKindChange,
+  locked = false,
 }: {
   holes: Hole[];
   selected: Set<string>;
@@ -19,6 +21,7 @@ export function HoleTable({
   onDeleteSelected: () => void;
   insertKind: HoleKind;
   onInsertKindChange: (kind: HoleKind) => void;
+  locked?: boolean;
 }) {
   function toggleRow(id: string, additive: boolean) {
     if (!additive) {
@@ -42,8 +45,12 @@ export function HoleTable({
     <section className="panel hole-table-panel">
       <header>
         <b>Скважины</b>
-        <span>{holes.length ? `${holes.length} шт.` : "Пусто"}</span>
+        <span className="role-legend compact">
+          <RoleBadge role="designed" />
+          <span>{holes.length ? `${holes.length} шт.` : "Пусто"}</span>
+        </span>
       </header>
+      <fieldset className="workstation-lock" disabled={locked}>
       <div className="hole-insert-kind">
         <label>
           Тип новой скважины
@@ -133,6 +140,7 @@ export function HoleTable({
           <button className="danger-button" onClick={onDeleteSelected}>Удалить</button>
         </div>
       )}
+      </fieldset>
     </section>
   );
 }

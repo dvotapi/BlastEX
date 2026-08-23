@@ -8,6 +8,7 @@ import type {
   InitiationNetwork,
 } from "../../types/design";
 import { AS_FIRED_METRIC_LABELS, emptyAsFired } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const DETONATOR_KINDS = [
   { value: "electronic", label: "Электронный" },
@@ -41,6 +42,7 @@ export function AsFiredPanel({
   onCompare,
   busy,
   result,
+  locked = false,
 }: {
   holes: Hole[];
   network: InitiationNetwork;
@@ -53,6 +55,7 @@ export function AsFiredPanel({
   onCompare: () => void;
   busy: boolean;
   result: AsFiredCompareResponse | null;
+  locked?: boolean;
 }) {
   const selectedDesigned = holes.find((hole) => hole.id === selectedHoleId) ?? null;
   const selectedExecuted = asFired.find((item) => item.design_hole_id === selectedHoleId) ?? null;
@@ -81,7 +84,7 @@ export function AsFiredPanel({
 
   return (
     <section className="panel">
-      <header><b>Факт взрыва</b><span>12</span></header>
+      <header><b>Факт взрыва</b><RoleBadge role="executed" /></header>
       <div className="panel-body">
         <small>
           Проектная сеть не меняется. Здесь — фактический детонатор, программное время, проверенное время и отметка взрыва.
@@ -163,11 +166,11 @@ export function AsFiredPanel({
               <input type="text" placeholder="2026-08-23T14:30:00+00:00" value={current.firing_timestamp} onChange={(e) => patch({ firing_timestamp: e.target.value })} />
             </label>
             <div className="plans-actions">
-              <button type="button" className="calculate-button" onClick={recordCurrent} disabled={busy}>
+              <button type="button" className="calculate-button" onClick={recordCurrent} disabled={busy || locked}>
                 {busy ? "Пишем…" : "Записать факт"}
               </button>
               {selectedExecuted && (
-                <button type="button" className="ghost-button" onClick={() => onDelete(selectedDesigned.id)}>Удалить факт</button>
+                <button type="button" className="ghost-button" onClick={() => onDelete(selectedDesigned.id)} disabled={locked}>Удалить факт</button>
               )}
             </div>
           </>

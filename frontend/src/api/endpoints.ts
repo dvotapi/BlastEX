@@ -49,6 +49,7 @@ import type {
   BlastDomain,
   GeologyInterceptResponse,
   FragmentationPredictResponse,
+  MovementPredictResponse,
   Receptor,
   VibrationMeasurement,
   VibrationPredictResponse,
@@ -225,6 +226,16 @@ export const api = {
       explosives?: ChargeExplosive[];
       hole_oversize_coeff?: number;
     }) => post<FragmentationPredictResponse>(`${V1}/design/fragmentation`, payload),
+    movementModels: () => get<{
+      models: Array<{ id: string; version: string; label: string }>;
+      kind: string;
+      label_ru: string;
+      label_en: string;
+      disclaimer: string;
+      is_physics_simulation: boolean;
+    }>(`${V1}/design/movement/models`),
+    movement: (payload: { design: BlastDesign }) =>
+      post<MovementPredictResponse>(`${V1}/design/movement`, payload),
     editHoleGeometry: (payload: {
       hole: Hole;
       patch: Record<string, unknown>;

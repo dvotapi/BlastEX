@@ -653,7 +653,8 @@ export type SpatialMapMetric =
   | "ml_residual_x50"
   | "ml_residual_oversize"
   | "ml_residual_toe";
-export type OverlayMetric = MapMetric | FragmentationMapMetric | SpatialMapMetric;
+export type MovementMapMetric = "throw" | "heave" | "swell";
+export type OverlayMetric = MapMetric | FragmentationMapMetric | SpatialMapMetric | MovementMapMetric;
 
 export type HoleMapSample = {
   hole_id: string;
@@ -1642,6 +1643,12 @@ export const FRAGMENTATION_MAP_METRIC_LABELS: Record<FragmentationMapMetric, str
   powder_factor: "Уд. расход (прогноз)",
 };
 
+export const MOVEMENT_MAP_METRIC_LABELS: Record<MovementMapMetric, string> = {
+  throw: "Отброс (оценка)",
+  heave: "Вывал (оценка)",
+  swell: "Разрыхление (оценка)",
+};
+
 export const SPATIAL_MAP_METRIC_LABELS: Record<SpatialMapMetric, string> = {
   ml_x50: "X50 (скважина, ML)",
   ml_oversize: "Негабарит (скважина, ML)",
@@ -1669,6 +1676,9 @@ export const MAP_METRIC_UNITS: Record<OverlayMetric, string> = {
   ml_residual_x50: "мм",
   ml_residual_oversize: "%",
   ml_residual_toe: "",
+  throw: "м",
+  heave: "м",
+  swell: "",
 };
 
 export const FRAGMENTATION_MODELS: { value: FragmentationModelId; label: string }[] = [
@@ -1791,6 +1801,114 @@ export function isFragmentationMapMetric(metric: string): metric is Fragmentatio
 export function isSpatialMapMetric(metric: string): metric is SpatialMapMetric {
   return metric.startsWith("ml_");
 }
+
+export function isMovementMapMetric(metric: string): metric is MovementMapMetric {
+  return metric === "throw" || metric === "heave" || metric === "swell";
+}
+
+export type MovementInputs = {
+  burden_m: number;
+  spacing_m: number;
+  bench_height_m: number;
+  diameter_mm: number;
+  diameter_m: number;
+  charge_mass_kg: number;
+  powder_factor_kg_m3: number;
+  stemming_m: number;
+  influence_volume_m3: number;
+  face_distance_m: number;
+  fire_time_ms: number | null;
+  row: number;
+};
+
+export type PredictedHoleMovement = {
+  hole_id: string;
+  role: "predicted";
+  x: number;
+  y: number;
+  dx_m: number;
+  dy_m: number;
+  dz_m: number;
+  throw_m: number;
+  heave_m: number;
+  direction_deg: number;
+  swell_factor: number;
+  predicted_x: number;
+  predicted_y: number;
+  predicted_z: number;
+  hole_kind?: string;
+  kind: "empirical_kinematic_estimate" | string;
+  label_ru: string;
+  label_en: string;
+  disclaimer: string;
+  is_physics_simulation: boolean;
+  inputs: MovementInputs;
+  provenance: Record<string, unknown>;
+};
+
+export type PredictedMuckpileEstimate = {
+  role: "predicted";
+  length_m: number;
+  width_m: number;
+  height_m: number;
+  volume_m3: number;
+  throw_m: number;
+  heave_m: number;
+  swell_factor: number;
+  in_situ_volume_m3: number;
+  centroid_x: number;
+  centroid_y: number;
+  envelope: Array<{ x: number; y: number }>;
+  notes: string;
+  kind: "empirical_kinematic_estimate" | string;
+  label_ru: string;
+  label_en: string;
+  disclaimer: string;
+  is_physics_simulation: boolean;
+  provenance: Record<string, unknown>;
+};
+
+export type MovementMaps = {
+  metrics: MovementMapMetric[];
+  role: "predicted";
+  holes: Array<{
+    hole_id: string;
+    kind: string;
+    x: number;
+    y: number;
+    throw: number | null;
+    heave: number | null;
+    swell: number | null;
+  }>;
+  stats: Record<string, { min: number; avg: number; max: number; count: number }>;
+};
+
+export type MovementPredictResponse = {
+  model: string;
+  model_version: string;
+  role: "predicted";
+  kind: "empirical_kinematic_estimate" | string;
+  label_ru: string;
+  label_en: string;
+  disclaimer: string;
+  is_physics_simulation: boolean;
+  prediction_applied: boolean;
+  design_rewritten: boolean;
+  muckpile: PredictedMuckpileEstimate;
+  holes: PredictedHoleMovement[];
+  maps: MovementMaps;
+  warnings: string[];
+  measured: Array<{
+    role: "measured";
+    length_m: number | null;
+    width_m: number | null;
+    height_m: number | null;
+    volume_m3: number | null;
+    throw_m: number | null;
+    notes: string;
+  }>;
+  map_metrics: MovementMapMetric[];
+};
 
 export type SampleValidation = {
   ok: boolean;

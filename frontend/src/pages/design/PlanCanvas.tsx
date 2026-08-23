@@ -11,7 +11,7 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, Receptor, VibrationPrediction } from "../../types/design";
+import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
 import { RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 
 const HOLE_HIT_RADIUS_PX = 11;
@@ -66,6 +66,8 @@ export function PlanCanvas({
   showAsDrilled,
   asCharged,
   asFired,
+  movementVectors,
+  showMovementVectors,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -102,6 +104,8 @@ export function PlanCanvas({
   showAsDrilled?: boolean;
   asCharged?: AsChargedHole[];
   asFired?: AsFiredHole[];
+  movementVectors?: PredictedHoleMovement[];
+  showMovementVectors?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -351,6 +355,9 @@ export function PlanCanvas({
           <marker id="arrow-connector" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="#7a6ee0" />
           </marker>
+          <marker id="arrow-movement" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#8a5a1a" />
+          </marker>
         </defs>
 
         <line x1={0} y1={origin.y} x2={viewport.width} y2={origin.y} className="axis-line" />
@@ -467,6 +474,17 @@ export function PlanCanvas({
                 {receptor.name || RECEPTOR_KIND_LABELS[receptor.kind] || receptor.kind}
                 {pred ? ` ${ruNumber(pred.ppv_mm_s, 1)}` : ""}
               </text>
+            </g>
+          );
+        })}
+
+        {showMovementVectors && (movementVectors ?? []).map((item) => {
+          if (item.throw_m <= 0 && item.heave_m <= 0) return null;
+          const from = worldToScreen(camera, viewport, { x: item.x, y: item.y });
+          const to = worldToScreen(camera, viewport, { x: item.predicted_x, y: item.predicted_y });
+          return (
+            <g key={`mv-${item.hole_id}`} className="movement-vector">
+              <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} markerEnd="url(#arrow-movement)" />
             </g>
           );
         })}

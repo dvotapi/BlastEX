@@ -19,6 +19,8 @@ from intelligence.calibration.types import (
 )
 from intelligence.datasets.builder import DatasetSnapshot
 from intelligence.datasets.features import FEATURE_SCHEMA_VERSION
+from intelligence.uncertainty.domain import compute_feature_ranges
+from intelligence.uncertainty.types import ranges_to_dict
 
 
 def next_model_version(existing_versions: list[int]) -> int:
@@ -105,6 +107,7 @@ def train_from_snapshot(
     y = np.asarray(table.y, dtype=float)
     estimator = algo.fit(X, y, random_state=42)
     metrics = evaluate_table(estimator, algo.name, table)
+    ranges = ranges_to_dict(compute_feature_ranges(table.X, table.feature_names))
 
     return CalibrationModel(
         model_id=str(model_id or "").strip() or uuid.uuid4().hex[:12],
@@ -124,5 +127,7 @@ def train_from_snapshot(
         measured_field=spec["measured_field"],
         sample_count=len(table.y),
         source_blast_ids=list(table.source_blast_ids),
+        feature_ranges=ranges,
+        training_matrix=[list(row) for row in table.X],
         estimator=estimator,
     )

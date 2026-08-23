@@ -63,6 +63,12 @@ class OutcomeApiTests(unittest.TestCase):
         self.assertIsNotNone(prediction.predicted)
         self.assertIn("x50_mm", prediction.predictions)
         self.assertIn("x80_mm", prediction.predictions)
+        self.assertIsNotNone(prediction.prediction)
+        self.assertIn(prediction.confidence, {"high", "medium", "low"})
+        self.assertIsInstance(prediction.similarity_score, float)
+        self.assertIsInstance(prediction.applicability_warning, str)
+        self.assertIsNotNone(prediction.uncertainty.lower)
+        self.assertIsNotNone(prediction.uncertainty.upper)
 
         promoted = outcome_service.update_status(
             TEAM_ID, trained.model_id, OutcomeStatusRequest(status="production")
@@ -147,6 +153,9 @@ class OutcomeApiTests(unittest.TestCase):
         self.assertGreater(panel.x50_mm.value, 0)
         self.assertGreaterEqual(panel.toe_risk.value, 0.0)
         self.assertLessEqual(panel.toe_risk.value, 1.0)
+        self.assertIsNotNone(panel.x50_mm.uncertainty.lower)
+        self.assertIsNotNone(panel.x50_mm.uncertainty.upper)
+        self.assertIn(panel.x50_mm.confidence, {"high", "medium", "low"})
 
     def test_train_from_closed_blast_snapshot(self):
         designs = varied_closed_outcome_designs(6)
@@ -182,6 +191,28 @@ class OutcomeApiTests(unittest.TestCase):
         self.assertIn("random_forest", algo_names)
         self.assertIn("extra_trees", algo_names)
         self.assertEqual(listed.default, "random_forest")
+
+    def test_predict_flags_extrapolated_diameter(self):
+        snapshot = self._stored_snapshot()
+        trained = outcome_service.train_outcome(
+            TEAM_ID,
+            OutcomeTrainRequest(dataset_id=snapshot.dataset_id, model_type="fragmentation"),
+        )
+        features = copy.deepcopy(snapshot.samples[0].features)
+        features["GEOMETRY"]["mean_diameter_mm"] = 311.0
+        prediction = outcome_service.predict_outcome(
+            TEAM_ID,
+            OutcomePredictRequest(
+                model_type="fragmentation",
+                model_id=trained.model_id,
+                site_id="quarry-1",
+                features=features,
+            ),
+        )
+        self.assertFalse(prediction.in_domain)
+        self.assertEqual(prediction.confidence, "low")
+        self.assertIn("диаметр", prediction.applicability_warning)
+        self.assertIn("311", prediction.applicability_warning)
 
 
 if __name__ == "__main__":

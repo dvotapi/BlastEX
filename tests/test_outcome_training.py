@@ -146,6 +146,12 @@ class OutcomePredictionTests(unittest.TestCase):
         self.assertIn("x80_mm", prediction.predictions)
         self.assertGreater(prediction.predictions["x50_mm"].value, 0)
         self.assertGreater(prediction.predictions["x80_mm"].value, prediction.predictions["x50_mm"].value)
+        payload = prediction.to_dict()
+        for key in ("prediction", "uncertainty", "confidence", "similarity_score", "applicability_warning"):
+            self.assertIn(key, payload)
+        self.assertEqual(payload["prediction"], prediction.predicted)
+        self.assertLessEqual(payload["uncertainty"]["lower"], payload["prediction"])
+        self.assertGreaterEqual(payload["uncertainty"]["upper"], payload["prediction"])
 
     def test_candidate_warning_is_present(self):
         model = train_from_snapshot(synthetic_outcome_snapshot(), model_type="oversize")

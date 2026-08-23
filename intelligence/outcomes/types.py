@@ -17,6 +17,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from intelligence.uncertainty.types import (
+    PredictionAssessment,
+    UncertaintyInterval,
+    matrix_from_payload,
+    ranges_from_dict,
+    ranges_to_dict,
+)
+
 STATUS_CANDIDATE = "candidate"
 STATUS_PRODUCTION = "production"
 STATUS_RETIRED = "retired"
@@ -257,6 +265,8 @@ class OutcomeModel:
     source_blast_ids: list[str] = field(default_factory=list)
     artifact_sha256: str = ""
     status_updated_at: str = ""
+    feature_ranges: dict[str, dict[str, float]] = field(default_factory=dict)
+    training_matrix: list[list[float]] = field(default_factory=list)
     estimators: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
@@ -281,12 +291,15 @@ class OutcomeModel:
             "source_blast_ids": list(self.source_blast_ids),
             "artifact_sha256": self.artifact_sha256,
             "status_updated_at": self.status_updated_at,
+            "feature_ranges": ranges_to_dict(self.feature_ranges),
+            "training_matrix": [list(row) for row in self.training_matrix],
         }
 
     def summary(self) -> dict[str, Any]:
         payload = self.to_dict()
         payload.pop("feature_names", None)
         payload.pop("source_blast_ids", None)
+        payload.pop("training_matrix", None)
         payload["source_blast_count"] = len(self.source_blast_ids)
         return payload
 
@@ -320,6 +333,8 @@ class OutcomeModel:
             source_blast_ids=[str(item) for item in data.get("source_blast_ids", [])],
             artifact_sha256=str(data.get("artifact_sha256", "") or ""),
             status_updated_at=str(data.get("status_updated_at", "") or ""),
+            feature_ranges=ranges_to_dict(ranges_from_dict(data.get("feature_ranges") or {})),
+            training_matrix=matrix_from_payload(data.get("training_matrix")),
             estimators=dict(stored),
         )
 
@@ -349,15 +364,52 @@ class TargetPrediction:
     label: str
     model_type: str
     prediction_applied: bool = True
+    prediction: float | None = None
+    uncertainty: dict[str, Any] = field(default_factory=dict)
+    confidence: str = ""
+    confidence_label: str = ""
+    similarity_score: float = 0.0
+    applicability_warning: str = ""
+    comparable_count: int = 0
+    in_domain: bool = True
+    sample_count: int = 0
+    extrapolated_features: list[str] = field(default_factory=list)
+
+    def apply_assessment(self, assessment: PredictionAssessment) -> None:
+        payload = assessment.to_dict()
+        self.prediction = payload["prediction"]
+        if payload["prediction"] is not None:
+            self.value = float(payload["prediction"])
+        self.uncertainty = payload["uncertainty"]
+        self.confidence = payload["confidence"]
+        self.confidence_label = payload["confidence_label"]
+        self.similarity_score = float(payload["similarity_score"])
+        self.applicability_warning = str(payload["applicability_warning"] or "")
+        self.comparable_count = int(payload["comparable_count"])
+        self.in_domain = bool(payload["in_domain"])
+        self.sample_count = int(payload["sample_count"])
+        self.extrapolated_features = list(payload["extrapolated_features"])
 
     def to_dict(self) -> dict[str, Any]:
+        prediction = self.prediction if self.prediction is not None else self.value
+        uncertainty = self.uncertainty or UncertaintyInterval.none().to_dict()
         return {
             "target_name": self.target_name,
             "value": self.value,
+            "prediction": prediction,
             "unit": self.unit,
             "label": self.label,
             "model_type": self.model_type,
             "prediction_applied": self.prediction_applied,
+            "uncertainty": _copy(uncertainty),
+            "confidence": self.confidence,
+            "confidence_label": self.confidence_label,
+            "similarity_score": float(self.similarity_score),
+            "applicability_warning": self.applicability_warning,
+            "comparable_count": int(self.comparable_count),
+            "in_domain": bool(self.in_domain),
+            "sample_count": int(self.sample_count),
+            "extrapolated_features": list(self.extrapolated_features),
         }
 
 
@@ -385,14 +437,53 @@ class OutcomePrediction:
     prediction_applied: bool = True
     warnings: list[str] = field(default_factory=list)
     role: str = ROLE_RECOMMENDATION
+    prediction: float | None = None
+    uncertainty: dict[str, Any] = field(default_factory=dict)
+    confidence: str = ""
+    confidence_label: str = ""
+    similarity_score: float = 0.0
+    applicability_warning: str = ""
+    comparable_count: int = 0
+    in_domain: bool = True
+    sample_count: int = 0
+    extrapolated_features: list[str] = field(default_factory=list)
+
+    def apply_assessment(self, assessment: PredictionAssessment) -> None:
+        payload = assessment.to_dict()
+        self.prediction = payload["prediction"]
+        if payload["prediction"] is not None:
+            self.predicted = float(payload["prediction"])
+        self.uncertainty = payload["uncertainty"]
+        self.confidence = payload["confidence"]
+        self.confidence_label = payload["confidence_label"]
+        self.similarity_score = float(payload["similarity_score"])
+        self.applicability_warning = str(payload["applicability_warning"] or "")
+        self.comparable_count = int(payload["comparable_count"])
+        self.in_domain = bool(payload["in_domain"])
+        self.sample_count = int(payload["sample_count"])
+        self.extrapolated_features = list(payload["extrapolated_features"])
+        if self.applicability_warning and self.applicability_warning not in self.warnings:
+            self.warnings.insert(0, self.applicability_warning)
 
     def to_dict(self) -> dict[str, Any]:
         primary = self.predictions.get(self.primary_target)
         unit = self.unit or (primary.unit if primary else "")
         predicted = self.predicted if self.predicted is not None else (primary.value if primary else None)
+        prediction = self.prediction if self.prediction is not None else predicted
+        uncertainty = self.uncertainty or (primary.uncertainty if primary and primary.uncertainty else UncertaintyInterval.none().to_dict())
         return {
             "predicted": predicted,
+            "prediction": prediction,
             "predictions": {name: item.to_dict() for name, item in self.predictions.items()},
+            "uncertainty": _copy(uncertainty),
+            "confidence": self.confidence or (primary.confidence if primary else ""),
+            "confidence_label": self.confidence_label or (primary.confidence_label if primary else ""),
+            "similarity_score": float(self.similarity_score if self.similarity_score or not primary else primary.similarity_score),
+            "applicability_warning": self.applicability_warning or (primary.applicability_warning if primary else ""),
+            "comparable_count": int(self.comparable_count or (primary.comparable_count if primary else 0)),
+            "in_domain": bool(self.in_domain if self.confidence else (primary.in_domain if primary else False)),
+            "sample_count": int(self.sample_count or (primary.sample_count if primary else 0)),
+            "extrapolated_features": list(self.extrapolated_features or (primary.extrapolated_features if primary else [])),
             "model_id": self.model_id,
             "site_id": self.site_id,
             "model_type": self.model_type,

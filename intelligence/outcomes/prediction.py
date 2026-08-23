@@ -26,6 +26,28 @@ from intelligence.outcomes.types import (
     normalize_model_type,
     spec_for,
 )
+from intelligence.uncertainty.assess import assess_vector, unavailable
+from intelligence.uncertainty.types import PredictionAssessment, UncertaintyInterval
+
+
+def _target_as_assessment(item: TargetPrediction) -> PredictionAssessment:
+    uncertainty = item.uncertainty or UncertaintyInterval.none().to_dict()
+    return PredictionAssessment(
+        prediction=item.prediction if item.prediction is not None else item.value,
+        uncertainty=UncertaintyInterval(
+            std=uncertainty.get("std"),
+            lower=uncertainty.get("lower"),
+            upper=uncertainty.get("upper"),
+            method=str(uncertainty.get("method") or "none"),
+        ),
+        confidence=item.confidence,
+        similarity_score=item.similarity_score,
+        applicability_warning=item.applicability_warning,
+        comparable_count=item.comparable_count,
+        in_domain=item.in_domain,
+        sample_count=item.sample_count,
+        extrapolated_features=list(item.extrapolated_features),
+    )
 
 
 def clamp_predicted(target_name: str, value: float) -> float:
@@ -77,7 +99,7 @@ def apply_model(
         raise ValueError("В артефакте нет обученных целей для прогноза.")
     primary = model.primary_target if model.primary_target in predictions else next(iter(predictions))
     primary_pred = predictions[primary]
-    return OutcomePrediction(
+    result = OutcomePrediction(
         predicted=primary_pred.value,
         predictions=predictions,
         model_id=model.model_id,
@@ -99,6 +121,27 @@ def apply_model(
         warnings=_warnings_for(model),
         role=ROLE_RECOMMENDATION,
     )
+    per_target_metrics = (model.metrics or {}).get("targets") or {}
+    for name, item in predictions.items():
+        target_rmse = (per_target_metrics.get(name) or {}).get("rmse")
+        if target_rmse is None and name == primary:
+            target_rmse = (model.metrics or {}).get("rmse")
+        assessment = assess_vector(
+            prediction=item.value,
+            vector=vector,
+            feature_names=model.feature_names,
+            feature_ranges=model.feature_ranges,
+            training_matrix=model.training_matrix,
+            estimator=model.estimators.get(name),
+            rmse=float(target_rmse) if target_rmse is not None else None,
+            clamp=lambda value, target=name: clamp_predicted(target, value),
+            X=X,
+        )
+        item.apply_assessment(assessment)
+        item.value = float(assessment.prediction) if assessment.prediction is not None else item.value
+    result.apply_assessment(_target_as_assessment(predictions[primary]))
+    result.predicted = predictions[primary].value
+    return result
 
 
 def empty_prediction(
@@ -112,7 +155,7 @@ def empty_prediction(
     if reason:
         warnings.insert(0, reason)
     warnings.append("ML не изменяет и не утверждает проект БВР — только слой рекомендации.")
-    return OutcomePrediction(
+    result = OutcomePrediction(
         predicted=None,
         predictions={},
         model_id="",
@@ -134,6 +177,10 @@ def empty_prediction(
         warnings=warnings,
         role=ROLE_RECOMMENDATION,
     )
+    result.apply_assessment(
+        unavailable(reason=reason or "Прогноз исхода не применён: интервал ML недоступен.")
+    )
+    return result
 
 
 def features_from_design(design: BlastDesign, *, site_id: str) -> dict[str, Any]:

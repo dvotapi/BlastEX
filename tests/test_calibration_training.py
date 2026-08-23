@@ -79,6 +79,12 @@ class CalibrationPredictionTests(unittest.TestCase):
         self.assertIn("provenance", prediction.to_dict())
         self.assertAlmostEqual(prediction.calibrated, prediction.baseline + prediction.residual)
         self.assertGreater(prediction.calibrated, prediction.baseline)
+        payload = prediction.to_dict()
+        for key in ("prediction", "uncertainty", "confidence", "similarity_score", "applicability_warning"):
+            self.assertIn(key, payload)
+        self.assertEqual(payload["prediction"], prediction.calibrated)
+        self.assertLessEqual(payload["uncertainty"]["lower"], payload["prediction"])
+        self.assertGreaterEqual(payload["uncertainty"]["upper"], payload["prediction"])
 
     def test_candidate_warning_is_present(self):
         model = train_from_snapshot(synthetic_snapshot(), model_type="kuzram_residual")

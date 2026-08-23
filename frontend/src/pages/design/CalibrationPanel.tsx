@@ -9,6 +9,7 @@ import {
   type CalibrationStatus,
   type CalibrationSummary,
 } from "../../types/design";
+import { UncertaintyBlock } from "./UncertaintyBlock";
 
 function statusLabel(status: string): string {
   return CALIBRATION_STATUS_LABELS[status as CalibrationStatus] ?? status;
@@ -135,12 +136,28 @@ export function CalibrationPanel({
               <div><span>Невязка</span><strong>{ruNumber(overlay.residual, 2)}</strong><small>{unit}</small></div>
               <div><span>Калибровка</span><strong>{ruNumber(overlay.calibrated, 2)}</strong><small>{unit}</small></div>
             </div>
+            <UncertaintyBlock
+              label="калибровки"
+              value={overlay.prediction ?? overlay.calibrated}
+              unit={unit}
+              digits={2}
+              uncertainty={overlay.uncertainty}
+              confidence={overlay.confidence}
+              confidenceLabelText={overlay.confidence_label}
+              similarityScore={overlay.similarity_score}
+              comparableCount={overlay.comparable_count}
+              applicabilityWarning={overlay.applicability_warning}
+            />
             <small>
               {overlay.calibration_applied
                 ? `${overlay.model_type} v${overlay.model_version} · ${statusLabel(overlay.status)}`
                 : "Калибровка не применена, показан только инженерный базис"}
             </small>
-            {overlay.warnings[0] && <small className="frag-warnings">{overlay.warnings[0]}</small>}
+            {overlay.warnings.filter((item) => item !== overlay.applicability_warning)[0] && (
+              <small className="frag-warnings">
+                {overlay.warnings.filter((item) => item !== overlay.applicability_warning)[0]}
+              </small>
+            )}
           </div>
         )}
       </div>

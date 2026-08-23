@@ -207,6 +207,8 @@
 .frag-curve path { fill:none; stroke:#2d7556; stroke-width:2; }
 .frag-curve text { fill:#7b8982; font-size:8px; }
 .frag-warnings { color:#a15c32; }
+.movement-disclaimer { color:#6a4a28; }
+.movement-vector line { stroke:#8a5a1a; stroke-width:1.6; opacity:0.9; }
 
 .receptor-marker rect { fill:#c45c1a; stroke:#fff; stroke-width:1.2; }
 .receptor-marker.kind-building rect { fill:#7a4b2d; }

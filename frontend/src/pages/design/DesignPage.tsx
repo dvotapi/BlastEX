@@ -12,10 +12,12 @@ import {
   MAP_METRIC_LABELS,
   MAP_METRIC_UNITS,
   SPATIAL_MAP_METRIC_LABELS,
+  MOVEMENT_MAP_METRIC_LABELS,
   emptyDesign,
   emptyReceptor,
   isFragmentationMapMetric,
   isSpatialMapMetric,
+  isMovementMapMetric,
   networkTies,
   normalizeNetwork,
   type AnalyzeResponse,
@@ -78,6 +80,7 @@ import {
   type SpatialModel,
   type SpatialOverlay,
   type SpatialSummary,
+  type MovementPredictResponse,
 } from "../../types/design";
 import { emptyHoleGeology } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
@@ -110,6 +113,7 @@ import { LearningPanel } from "./LearningPanel";
 import { RegistryPanel } from "./RegistryPanel";
 import { DriftPanel } from "./DriftPanel";
 import { SpatialPanel } from "./SpatialPanel";
+import { MovementPanel } from "./MovementPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -261,6 +265,9 @@ export function DesignPage({
   const [spatialItems, setSpatialItems] = useState<SpatialSummary[]>([]);
   const [spatialSelected, setSpatialSelected] = useState<SpatialModel | null>(null);
   const [spatialOverlay, setSpatialOverlay] = useState<SpatialOverlay | null>(null);
+  const [movementResult, setMovementResult] = useState<MovementPredictResponse | null>(null);
+  const [movementBusy, setMovementBusy] = useState(false);
+  const [showMovementVectors, setShowMovementVectors] = useState(true);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -333,6 +340,16 @@ export function DesignPage({
       const stat = spatialOverlay.maps.stats[key];
       return { values, range: stat ? { min: stat.min, max: stat.max } : null };
     }
+    if (isMovementMapMetric(mapMetric)) {
+      if (!movementResult?.maps) return { values: undefined, range: null };
+      const values: Record<string, number> = {};
+      for (const sample of movementResult.maps.holes) {
+        const raw = sample[mapMetric];
+        if (raw !== null && raw !== undefined) values[sample.hole_id] = raw;
+      }
+      const stat = movementResult.maps.stats[mapMetric];
+      return { values, range: stat ? { min: stat.min, max: stat.max } : null };
+    }
     if (!maps) return { values: undefined, range: null };
     const values: Record<string, number> = {};
     for (const sample of maps.holes) {
@@ -341,7 +358,7 @@ export function DesignPage({
     }
     const stat = maps.stats[mapMetric];
     return { values, range: stat ? { min: stat.min, max: stat.max } : null };
-  }, [mapMetric, maps, fragResult, spatialOverlay]);
+  }, [mapMetric, maps, fragResult, spatialOverlay, movementResult]);
 
   useEffect(() => {
     if (!incomingVariant) return;
@@ -471,6 +488,31 @@ export function DesignPage({
       setMaps(result);
     } catch {
       setMaps(null);
+    }
+  }
+
+  async function predictMovement() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    setMovementBusy(true);
+    setError("");
+    try {
+      const result = await api.design.movement({
+        design: {
+          ...document,
+          pattern_params: patternParams as unknown as Record<string, unknown>,
+          charge_rules: chargeRules as unknown as Record<string, unknown>,
+          explosive_key: explosiveKey,
+        },
+      });
+      setMovementResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось оценить развал и вывал.");
+      setMovementResult(null);
+    } finally {
+      setMovementBusy(false);
     }
   }
 
@@ -2461,6 +2503,14 @@ export function DesignPage({
             onMarkProduction={markSpatialProduction}
             onPredict={predictSpatial}
           />
+          <MovementPanel
+            onPredict={predictMovement}
+            busy={movementBusy}
+            result={movementResult}
+            selectedHoleId={selected.size === 1 ? Array.from(selected)[0] : null}
+            showVectors={showMovementVectors}
+            onToggleVectors={() => setShowMovementVectors((prev) => !prev)}
+          />
           <DriftPanel
             models={registryItems}
             selectedModelId={driftFamily && driftModelId ? `${driftFamily}:${driftModelId}` : ""}
@@ -2504,12 +2554,17 @@ export function DesignPage({
                       if (!spatialOverlay && !spatialBusy) predictSpatial();
                       return;
                     }
+                    if (isMovementMapMetric(next)) {
+                      if (!movementResult && !movementBusy) predictMovement();
+                      return;
+                    }
                     if (!maps) refreshMaps();
                   }}>
                     <option value="">тип скважины</option>
                     {Object.entries(MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     {Object.entries(FRAGMENTATION_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     {Object.entries(SPATIAL_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    {Object.entries(MOVEMENT_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </label>
                 {mapMetric && mapOverlay.range && (
@@ -2564,6 +2619,8 @@ export function DesignPage({
                 showAsDrilled={showAsDrilled && document.as_drilled_holes.length > 0}
                 asCharged={document.as_charged_holes}
                 asFired={document.as_fired_holes}
+                movementVectors={movementResult?.holes}
+                showMovementVectors={showMovementVectors && Boolean(movementResult)}
               />
               {mode === "charge" ? (
                 <SectionView

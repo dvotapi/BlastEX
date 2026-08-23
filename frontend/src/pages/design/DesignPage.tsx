@@ -152,7 +152,9 @@ export function DesignPage({
         dispatch({ type: e.shiftKey ? "REDO" : "UNDO" });
         return;
       }
-      if ((e.key === "Delete" || e.key === "Backspace") && !typing && selected.size > 0) {
+      // В режиме контура Delete относится к вершинам блока (их обрабатывает
+      // сам холст), и выделенные ранее скважины трогать нельзя.
+      if ((e.key === "Delete" || e.key === "Backspace") && !typing && mode !== "contour" && selected.size > 0) {
         e.preventDefault();
         deleteSelected();
       }

@@ -42,8 +42,8 @@ const SNAP_OPTIONS = [0, 0.25, 0.5, 1, 2.5, 5];
 type DragState =
   | { kind: "none" }
   | { kind: "pan"; pointerId: number; startScreen: Vec2; startCamera: Camera; moved: boolean; button: number }
-  | { kind: "vertex"; pointerId: number; index: number; grabOffset: Vec2; moved: boolean }
-  | { kind: "holes"; pointerId: number; ids: string[]; anchorId: string; startWorld: Vec2; deltaWorld: Vec2; moved: boolean }
+  | { kind: "vertex"; pointerId: number; index: number; startScreen: Vec2; grabOffset: Vec2; moved: boolean }
+  | { kind: "holes"; pointerId: number; ids: string[]; anchorId: string; startScreen: Vec2; startWorld: Vec2; deltaWorld: Vec2; moved: boolean }
   | { kind: "rubber"; pointerId: number; startScreen: Vec2; currentScreen: Vec2; additive: boolean; moved: boolean };
 
 type Hover =
@@ -352,6 +352,10 @@ export function PlanCanvas({
       z: contour.bench.crest_z_m,
     });
     onContourChange(next.vertices, next.freeFaces);
+    // Вставка сдвигает индексы следующих вершин — выделение переиндексируем,
+    // иначе Delete удалил бы не те точки.
+    const insertAt = edgeIndex + 1;
+    setSelectedVertices((prev) => new Set(Array.from(prev, (i) => (i >= insertAt ? i + 1 : i))));
   }
 
   /**
@@ -449,6 +453,7 @@ export function PlanCanvas({
           kind: "vertex",
           pointerId: e.pointerId,
           index: vertexIndex,
+          startScreen: screen,
           grabOffset: { x: vertexScreen.x - screen.x, y: vertexScreen.y - screen.y },
           moved: false,
         });
@@ -475,10 +480,16 @@ export function PlanCanvas({
       let ids: string[];
       if (e.shiftKey || e.ctrlKey || e.metaKey) {
         const next = new Set(selected);
-        if (next.has(hole.id)) next.delete(hole.id);
-        else next.add(hole.id);
+        if (next.has(hole.id)) {
+          // Клик снял выделение — перетаскивать только что отпущенную
+          // скважину нельзя, иначе она уедет вслед за курсором.
+          next.delete(hole.id);
+          onSelectedChange(next);
+          return;
+        }
+        next.add(hole.id);
         onSelectedChange(next);
-        ids = Array.from(next.size ? next : new Set([hole.id]));
+        ids = Array.from(next);
       } else if (selected.has(hole.id)) {
         ids = Array.from(selected);
       } else {
@@ -490,6 +501,7 @@ export function PlanCanvas({
         pointerId: e.pointerId,
         ids,
         anchorId: hole.id,
+        startScreen: screen,
         startWorld: worldOf(screen),
         deltaWorld: { x: 0, y: 0 },
         moved: false,
@@ -519,7 +531,9 @@ export function PlanCanvas({
         const nextDistance = distance(a, b);
         const nextCenter = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         if (pinch.distance > 0) {
-          const zoomed = zoomAt(camera, viewport, nextCenter, nextDistance / pinch.distance);
+          // Несколько touchmove успевают прийти до перерисовки, поэтому камеру
+          // берём из ref — иначе приращения масштаба и сдвига теряются.
+          const zoomed = zoomAt(cameraRef.current, viewportRef.current, nextCenter, nextDistance / pinch.distance);
           onCameraChange(
             panCameraByScreen(zoomed, -(nextCenter.x - pinch.center.x), -(nextCenter.y - pinch.center.y)),
           );
@@ -548,6 +562,9 @@ export function PlanCanvas({
       return;
     }
     if (drag.kind === "vertex") {
+      // Пока курсор не ушёл дальше порога — это клик, а не перетаскивание:
+      // иначе привязка сдвинула бы вершину на сетку от одного дрожания мыши.
+      if (!drag.moved && distance(screen, drag.startScreen) <= CLICK_SLOP_PX) return;
       const target = { x: screen.x + drag.grabOffset.x, y: screen.y + drag.grabOffset.y };
       const world = applySnap(worldOf(target));
       const next = contour.vertices.map((v, i) => (i === drag.index ? { ...v, x: world.x, y: world.y } : v));
@@ -558,6 +575,7 @@ export function PlanCanvas({
       return;
     }
     if (drag.kind === "holes") {
+      if (!drag.moved && distance(screen, drag.startScreen) <= CLICK_SLOP_PX) return;
       const anchor = holes.find((h) => h.id === drag.anchorId);
       const raw = worldOf(screen);
       let delta = { x: raw.x - drag.startWorld.x, y: raw.y - drag.startWorld.y };
@@ -686,11 +704,12 @@ export function PlanCanvas({
     if (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA") return;
     const key = e.key.toLowerCase();
     if (key === "delete" || key === "backspace") {
-      if (mode === "contour" && selectedVertices.size) {
-        e.preventDefault();
-        e.stopPropagation();
-        deleteSelectedVertices();
-      }
+      if (mode !== "contour") return;
+      // В режиме контура Delete принадлежит вершинам: даже когда выделять
+      // нечего, событие не должно дойти до удаления выделенных скважин.
+      e.preventDefault();
+      e.stopPropagation();
+      if (selectedVertices.size) deleteSelectedVertices();
       return;
     }
     if (key === "escape") {
@@ -707,10 +726,10 @@ export function PlanCanvas({
     else if (key === "+" || key === "=") zoomBy(ZOOM_STEP);
     else if (key === "-" || key === "_") zoomBy(1 / ZOOM_STEP);
     else if (key === "0") fitToContent();
-    else if (key === "arrowleft") { e.preventDefault(); onCameraChange(panCameraByScreen(camera, -ARROW_PAN_PX, 0)); }
-    else if (key === "arrowright") { e.preventDefault(); onCameraChange(panCameraByScreen(camera, ARROW_PAN_PX, 0)); }
-    else if (key === "arrowup") { e.preventDefault(); onCameraChange(panCameraByScreen(camera, 0, -ARROW_PAN_PX)); }
-    else if (key === "arrowdown") { e.preventDefault(); onCameraChange(panCameraByScreen(camera, 0, ARROW_PAN_PX)); }
+    else if (key === "arrowleft") { e.preventDefault(); onCameraChange(panCameraByScreen(cameraRef.current, -ARROW_PAN_PX, 0)); }
+    else if (key === "arrowright") { e.preventDefault(); onCameraChange(panCameraByScreen(cameraRef.current, ARROW_PAN_PX, 0)); }
+    else if (key === "arrowup") { e.preventDefault(); onCameraChange(panCameraByScreen(cameraRef.current, 0, -ARROW_PAN_PX)); }
+    else if (key === "arrowdown") { e.preventDefault(); onCameraChange(panCameraByScreen(cameraRef.current, 0, ARROW_PAN_PX)); }
   }
 
   const panning = drag.kind === "pan";

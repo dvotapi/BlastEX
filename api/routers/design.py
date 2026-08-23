@@ -33,6 +33,11 @@ from api.schemas.design import (
     GeologyAssignResponse,
     GeologyInterceptRequest,
     GeologyInterceptResponse,
+    ReceptorAttachRequest,
+    ReceptorAttachResponse,
+    VibrationConventionsResponse,
+    VibrationPredictRequest,
+    VibrationPredictResponse,
 )
 from api.security import require_internal_access
 from api.services import design_service
@@ -103,6 +108,21 @@ def post_tie_generate(request: TieGenerateRequest) -> TieGenerateResponse:
 @router.post("/analyze", response_model=AnalyzeResponse)
 def post_analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     return design_service.analyze_design(request)
+
+
+@router.post("/receptors", response_model=ReceptorAttachResponse)
+def post_receptor(request: ReceptorAttachRequest) -> ReceptorAttachResponse:
+    return design_service.attach_receptor(request)
+
+
+@router.get("/vibration/conventions", response_model=VibrationConventionsResponse)
+def get_vibration_conventions() -> VibrationConventionsResponse:
+    return design_service.list_vibration_conventions()
+
+
+@router.post("/vibration", response_model=VibrationPredictResponse)
+def post_vibration(request: VibrationPredictRequest) -> VibrationPredictResponse:
+    return design_service.predict_vibration(request)
 
 
 @router.post("/cost", response_model=AggregatedCostResultSchema)

@@ -646,7 +646,14 @@ export type MapMetric =
   | "collar_burden";
 
 export type FragmentationMapMetric = "x50" | "x80" | "oversize" | "powder_factor";
-export type OverlayMetric = MapMetric | FragmentationMapMetric;
+export type SpatialMapMetric =
+  | "ml_x50"
+  | "ml_oversize"
+  | "ml_toe"
+  | "ml_residual_x50"
+  | "ml_residual_oversize"
+  | "ml_residual_toe";
+export type OverlayMetric = MapMetric | FragmentationMapMetric | SpatialMapMetric;
 
 export type HoleMapSample = {
   hole_id: string;
@@ -1635,6 +1642,15 @@ export const FRAGMENTATION_MAP_METRIC_LABELS: Record<FragmentationMapMetric, str
   powder_factor: "Уд. расход (прогноз)",
 };
 
+export const SPATIAL_MAP_METRIC_LABELS: Record<SpatialMapMetric, string> = {
+  ml_x50: "X50 (скважина, ML)",
+  ml_oversize: "Негабарит (скважина, ML)",
+  ml_toe: "Риск забоя (скважина, ML)",
+  ml_residual_x50: "Остаток X50 (скважина)",
+  ml_residual_oversize: "Остаток негабарита (скважина)",
+  ml_residual_toe: "Остаток риска забоя (скважина)",
+};
+
 export const MAP_METRIC_UNITS: Record<OverlayMetric, string> = {
   burden: "м",
   spacing: "м",
@@ -1647,6 +1663,12 @@ export const MAP_METRIC_UNITS: Record<OverlayMetric, string> = {
   x80: "мм",
   oversize: "%",
   powder_factor: "кг/м³",
+  ml_x50: "мм",
+  ml_oversize: "%",
+  ml_toe: "",
+  ml_residual_x50: "мм",
+  ml_residual_oversize: "%",
+  ml_residual_toe: "",
 };
 
 export const FRAGMENTATION_MODELS: { value: FragmentationModelId; label: string }[] = [
@@ -1764,6 +1786,10 @@ export type FragmentationPredictResponse = {
 
 export function isFragmentationMapMetric(metric: string): metric is FragmentationMapMetric {
   return metric === "x50" || metric === "x80" || metric === "oversize" || metric === "powder_factor";
+}
+
+export function isSpatialMapMetric(metric: string): metric is SpatialMapMetric {
+  return metric.startsWith("ml_");
 }
 
 export type SampleValidation = {
@@ -2652,6 +2678,114 @@ export type DriftAlert = {
   auto_retrained: boolean;
   live_model_unchanged: boolean;
   action: string;
+};
+
+export type SpatialHolePrediction = {
+  hole_id: string;
+  x: number;
+  y: number;
+  kind: string;
+  x50_mm: number | null;
+  oversize_pct: number | null;
+  toe_probability: number | null;
+  residual_x50_mm: number | null;
+  residual_oversize_pct: number | null;
+  residual_toe: number | null;
+  measured_x50_mm: number | null;
+  measured_oversize_pct: number | null;
+  measured_toe_probability: number | null;
+  residual_vs_measured_x50_mm: number | null;
+  residual_vs_measured_oversize_pct: number | null;
+  residual_vs_measured_toe: number | null;
+  neighbor_ids: string[];
+  role: "predicted" | string;
+  units: Record<string, string>;
+};
+
+export type SpatialNeighborhoodPrediction = {
+  hole_id: string;
+  member_ids: string[];
+  x: number;
+  y: number;
+  x50_mm: number | null;
+  oversize_pct: number | null;
+  toe_probability: number | null;
+  residual_x50_mm: number | null;
+  residual_oversize_pct: number | null;
+  residual_toe: number | null;
+  role: "predicted" | string;
+  units: Record<string, string>;
+};
+
+export type SpatialMaps = {
+  metrics: string[];
+  holes: Array<Record<string, number | string | null>>;
+  stats: Record<string, { min: number; avg: number; max: number; count: number }>;
+  units: Record<string, string>;
+  role: "predicted" | string;
+};
+
+export type SpatialModel = {
+  model_id: string;
+  team_id: string;
+  site_id: string;
+  model_version: number;
+  training_dataset_id: string;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  metrics: CalibrationMetrics;
+  status: string;
+  algorithm: string;
+  feature_names?: string[];
+  target_names?: string[];
+  class_name: string;
+  sample_count: number;
+  hole_count: number;
+  source_blast_ids?: string[];
+  artifact_sha256?: string;
+  status_updated_at?: string;
+  neighbor_k: number;
+  data_roles: Record<string, string>;
+};
+
+export type SpatialSummary = {
+  model_id: string;
+  team_id: string;
+  site_id: string;
+  model_version: number;
+  training_dataset_id: string;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  training_date: string;
+  metrics: CalibrationMetrics;
+  status: string;
+  algorithm: string;
+  class_name: string;
+  hole_count: number;
+  sample_count: number;
+};
+
+export type SpatialOverlay = {
+  holes: SpatialHolePrediction[];
+  neighborhoods: SpatialNeighborhoodPrediction[];
+  maps: SpatialMaps;
+  block: Record<string, number | null>;
+  model_id: string;
+  team_id: string;
+  site_id: string;
+  model_version: number;
+  training_dataset_version: number;
+  feature_schema_version: string;
+  algorithm: string;
+  status: string;
+  hole_count: number;
+  applied_as: string;
+  modifies_design: boolean;
+  prediction_applied: boolean;
+  warnings: string[];
+  role: "predicted" | string;
+  data_roles: Record<string, string>;
 };
 
 export type DriftReport = {

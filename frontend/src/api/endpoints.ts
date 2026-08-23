@@ -74,6 +74,10 @@ import type {
   OutcomePanelResponse,
   OutcomePredictResponse,
   OutcomeSummary,
+  DesignScenario,
+  DesignScenarioParams,
+  DesignScenarioSummary,
+  ScenarioCompareResponse,
   PredictedFragmentation,
   PredictedVibrationSnapshot,
   PlannedCost,
@@ -389,6 +393,25 @@ export const api = {
       ),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
+    createScenario: (payload: {
+      design: BlastDesign;
+      name: string;
+      params: DesignScenarioParams;
+      persist?: boolean;
+    }) => post<DesignScenario>(`${V1}/design/scenarios`, payload),
+    listScenarios: (designId: string) =>
+      get<{ items: DesignScenarioSummary[]; design_id: string; modifies_design: boolean }>(
+        `${V1}/design/plans/${designId}/scenarios`,
+      ),
+    getScenario: (designId: string, scenarioId: string) =>
+      get<DesignScenario>(`${V1}/design/plans/${designId}/scenarios/${scenarioId}`),
+    compareScenarios: (payload: {
+      design_id?: string;
+      scenario_ids?: string[];
+      include_baseline?: boolean;
+      design?: BlastDesign;
+      inline?: DesignScenario[];
+    }) => post<ScenarioCompareResponse>(`${V1}/design/scenarios/compare`, payload),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,
     listPlans: () => get<{ items: DesignSummary[] }>(`${V1}/design/plans`),
     createPlan: (design: BlastDesign) => post<BlastDesign>(`${V1}/design/plans`, design),

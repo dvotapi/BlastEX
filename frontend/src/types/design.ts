@@ -2134,3 +2134,100 @@ export type OutcomePanelResponse = {
   applicability_warning?: string;
 };
 
+export type DesignScenarioParams = {
+  diameter_mm?: number | null;
+  spacing_a_m?: number | null;
+  burden_b_m?: number | null;
+  powder_factor_kg_m3?: number | null;
+  stemming_m?: number | null;
+  subdrill_m?: number | null;
+  pattern?: string | null;
+  cost_scenario_id?: string;
+  fragmentation_model?: string;
+  lump_size_mm?: number;
+  mic_window_ms?: number;
+  vibration_model_id?: string;
+  site_id?: string;
+  use_production_overlays?: boolean;
+  outcome_model_ids?: Record<string, string>;
+  calibration_model_ids?: Record<string, string>;
+};
+
+export type DesignScenarioOutcomes = {
+  drilling_metres: number;
+  explosive_mass_kg: number;
+  powder_factor_kg_m3: number;
+  hole_count: number;
+  block_volume_m3: number;
+  diameter_mm: number | null;
+  spacing_a_m: number | null;
+  burden_b_m: number | null;
+  x50_mm: number | null;
+  x80_mm: number | null;
+  oversize_pct: number | null;
+  mic_kg: number | null;
+  ppv_mm_s: number | null;
+  direct_cost_rub: number | null;
+  total_predicted_cost_rub: number | null;
+  cost_per_m3: number | null;
+  x50_engineering_mm: number | null;
+  x80_engineering_mm: number | null;
+  oversize_engineering_pct: number | null;
+  ppv_engineering_mm_s: number | null;
+  fragmentation_source: string;
+  vibration_source: string;
+  cost_source: string;
+  ml_overlay_applied: boolean;
+  warnings: string[];
+};
+
+export type DesignScenario = {
+  scenario_id: string;
+  design_id: string;
+  name: string;
+  params: DesignScenarioParams;
+  outcomes: DesignScenarioOutcomes;
+  kind: "approved" | "overlay" | string;
+  source_design_updated_at: string;
+  source_revision_sha256: string;
+  overlay_revision_sha256: string;
+  created_at: string;
+  modifies_design: boolean;
+  applied_as: string;
+  approved_unchanged?: boolean;
+  approved_revision_sha256?: string;
+};
+
+export type DesignScenarioSummary = {
+  scenario_id: string;
+  design_id: string;
+  name: string;
+  kind: string;
+  created_at: string;
+  diameter_mm: number | null;
+  spacing_a_m: number | null;
+  burden_b_m: number | null;
+  powder_factor_kg_m3: number | null;
+  hole_count: number;
+};
+
+export type ScenarioCompareRow = {
+  key: string;
+  label: string;
+  unit: string;
+  values: Record<string, number | null>;
+  best_scenario_id: string | null;
+};
+
+export type ScenarioCompareResponse = {
+  metrics: Array<{ key: string; label: string; unit: string }>;
+  scenarios: Array<{ scenario_id: string; name: string; kind: string; design_id: string }>;
+  rows: ScenarioCompareRow[];
+  cells: Record<string, Record<string, number | null>>;
+  applied_as: string;
+  modifies_design: boolean;
+  is_optimiser: boolean;
+  approved_unchanged: boolean;
+  warnings: string[];
+};
+

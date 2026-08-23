@@ -56,6 +56,9 @@ import {
   type OutcomePanelResponse,
   type OutcomePredictResponse,
   type OutcomeSummary,
+  type DesignScenario,
+  type DesignScenarioSummary,
+  type ScenarioCompareResponse,
   type SchemeType,
   type SurfaceConnector,
   type SurfaceKind,
@@ -85,6 +88,7 @@ import { PostBlastPanel } from "./PostBlastPanel";
 import { DatasetPanel } from "./DatasetPanel";
 import { CalibrationPanel } from "./CalibrationPanel";
 import { OutcomePanel } from "./OutcomePanel";
+import { ScenarioPanel } from "./ScenarioPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -184,6 +188,16 @@ export function DesignPage({
   const [outcomeSelected, setOutcomeSelected] = useState<OutcomeModel | null>(null);
   const [outcomeOverlay, setOutcomeOverlay] = useState<OutcomePredictResponse | null>(null);
   const [outcomePanel, setOutcomePanel] = useState<OutcomePanelResponse | null>(null);
+  const [scenarioBusy, setScenarioBusy] = useState(false);
+  const [scenarioName, setScenarioName] = useState("Сценарий A");
+  const [scenarioDiameterMm, setScenarioDiameterMm] = useState(165);
+  const [scenarioSpacingM, setScenarioSpacingM] = useState(6);
+  const [scenarioBurdenM, setScenarioBurdenM] = useState(5);
+  const [scenarioPowderFactor, setScenarioPowderFactor] = useState(0.65);
+  const [scenarioUseOverlays, setScenarioUseOverlays] = useState(false);
+  const [scenarioItems, setScenarioItems] = useState<DesignScenarioSummary[]>([]);
+  const [scenarioInline, setScenarioInline] = useState<DesignScenario[]>([]);
+  const [scenarioCompare, setScenarioCompare] = useState<ScenarioCompareResponse | null>(null);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -1261,6 +1275,84 @@ export function DesignPage({
     }
   }
 
+  async function createDesignScenario() {
+    if (!document.holes.length) {
+      setError("Сначала постройте сетку скважин.");
+      return;
+    }
+    if (!scenarioName.trim()) {
+      setError("Задайте имя сценария.");
+      return;
+    }
+    setScenarioBusy(true);
+    setError("");
+    try {
+      const created = await api.design.createScenario({
+        design: designPayload(),
+        name: scenarioName.trim(),
+        persist: Boolean(document.design_id),
+        params: {
+          diameter_mm: scenarioDiameterMm,
+          spacing_a_m: scenarioSpacingM,
+          burden_b_m: scenarioBurdenM,
+          powder_factor_kg_m3: scenarioPowderFactor,
+          cost_scenario_id: scenarioId,
+          site_id: datasetSiteId.trim(),
+          use_production_overlays: scenarioUseOverlays,
+        },
+      });
+      if (document.design_id) {
+        const listed = await api.design.listScenarios(document.design_id);
+        setScenarioItems(listed.items);
+      } else {
+        setScenarioInline((prev) => [...prev, created]);
+        setScenarioItems((prev) => [
+          ...prev,
+          {
+            scenario_id: created.scenario_id,
+            design_id: created.design_id,
+            name: created.name,
+            kind: created.kind,
+            created_at: created.created_at,
+            diameter_mm: created.outcomes.diameter_mm,
+            spacing_a_m: created.outcomes.spacing_a_m,
+            burden_b_m: created.outcomes.burden_b_m,
+            powder_factor_kg_m3: created.outcomes.powder_factor_kg_m3,
+            hole_count: created.outcomes.hole_count,
+          },
+        ]);
+      }
+      setScenarioCompare(null);
+      if (scenarioName.trim() === "Сценарий A") setScenarioName("Сценарий B");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось построить сценарий.");
+    } finally {
+      setScenarioBusy(false);
+    }
+  }
+
+  async function compareDesignScenarios() {
+    if (!scenarioItems.length && !scenarioInline.length) {
+      setError("Сначала добавьте хотя бы один сценарий.");
+      return;
+    }
+    setScenarioBusy(true);
+    setError("");
+    try {
+      const table = await api.design.compareScenarios({
+        design_id: document.design_id,
+        include_baseline: true,
+        design: designPayload(),
+        inline: document.design_id ? [] : scenarioInline,
+      });
+      setScenarioCompare(table);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сравнить сценарии.");
+    } finally {
+      setScenarioBusy(false);
+    }
+  }
+
   function printPassport() {
     if (!document.design_id) return;
     window.open(api.design.passportUrl(document.design_id), "_blank");
@@ -1333,6 +1425,13 @@ export function DesignPage({
       setCalibrationOverlay(null);
       setOutcomeOverlay(null);
       setOutcomePanel(null);
+      setScenarioItems([]);
+      setScenarioInline([]);
+      setScenarioCompare(null);
+      if (design.design_id) {
+        const listed = await api.design.listScenarios(design.design_id);
+        setScenarioItems(listed.items);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
     } finally {
@@ -1378,6 +1477,9 @@ export function DesignPage({
     setAsFiredResult(null);
     setExecutionResult(null);
     setBlastResultCompare(null);
+    setScenarioItems([]);
+    setScenarioInline([]);
+    setScenarioCompare(null);
   }
 
   async function exportCsv() {
@@ -1693,6 +1795,25 @@ export function DesignPage({
             onMarkProduction={markOutcomeProduction}
             onPredictType={predictOutcomeType}
             onPredictAll={predictAllOutcomes}
+          />
+          <ScenarioPanel
+            name={scenarioName}
+            onNameChange={setScenarioName}
+            diameterMm={scenarioDiameterMm}
+            onDiameterChange={setScenarioDiameterMm}
+            spacingM={scenarioSpacingM}
+            onSpacingChange={setScenarioSpacingM}
+            burdenM={scenarioBurdenM}
+            onBurdenChange={setScenarioBurdenM}
+            powderFactor={scenarioPowderFactor}
+            onPowderFactorChange={setScenarioPowderFactor}
+            useOverlays={scenarioUseOverlays}
+            onUseOverlaysChange={setScenarioUseOverlays}
+            items={scenarioItems}
+            compare={scenarioCompare}
+            busy={scenarioBusy}
+            onCreate={createDesignScenario}
+            onCompare={compareDesignScenarios}
           />
         </div>
         <div className="design-main">

@@ -97,5 +97,11 @@ def delta_digits(unit: str, delta: float) -> int:
 def format_expected_delta(delta: float, unit: str) -> str:
     digits = delta_digits(unit, delta)
     signed = format_signed_delta(delta, digits=digits)
-    suffix = f" {unit}" if unit else ""
+    mapped = {
+        "mm": "мм",
+        "mm/s": "мм/с",
+        "Hz": "Гц",
+        "hz": "Гц",
+    }.get(str(unit or "").strip(), unit)
+    suffix = f" {mapped}" if mapped else ""
     return f"{signed}{suffix}"

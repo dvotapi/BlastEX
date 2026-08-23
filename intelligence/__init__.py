@@ -3,10 +3,13 @@ outcomes (BDX-013), prediction uncertainty (BDX-014) and explainability
 (BDX-015). Design-scenario comparison lives in ``design.scenarios`` (BDX-016).
 Deterministic multi-objective search lives in ``design.optimization`` (BDX-017).
 ML design recommendation (profiles, never auto-applied) lives in
-``design.recommendation`` (BDX-018).
+``design.recommendation`` (BDX-018). Two-level learning (global prior plus
+per-site adaptation, tenant isolation) lives in ``intelligence.learning``
+(BDX-019).
 
 Training never reads mutable production records. Predictions are overlays and
 do not silently modify or approve an engineering design. A point estimate is
 never returned without an interval, confidence, similarity, applicability
-check and a driver / recommendation explanation.
+check and a driver / recommendation explanation. Snapshots and models of one
+tenant never leak into another.
 """

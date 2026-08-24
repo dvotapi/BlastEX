@@ -8,25 +8,70 @@
 .design-sidebar { display:grid; gap:18px; }
 .design-main { display:grid; gap:18px; min-width:0; }
 
-.plan-canvas-wrap { position:relative; border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#fbfcfb; }
-.plan-canvas { display:block; width:100%; height:520px; touch-action:none; cursor:crosshair; }
-.plan-canvas-hint { position:absolute; left:12px; bottom:10px; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.78); color:#eaf3ef; font-size:10.5px; pointer-events:none; }
+.plan-canvas-panel { border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#fbfcfb; }
+.plan-canvas-wrap { position:relative; height:540px; background:#fbfcfb; touch-action:none; outline:none; user-select:none; }
+.plan-canvas-wrap:focus-visible { box-shadow:inset 0 0 0 2px rgba(45,117,86,.35); }
+.plan-canvas { display:block; width:100%; height:100%; touch-action:none; }
+.plan-canvas-wrap.cursor-default .plan-canvas { cursor:default; }
+.plan-canvas-wrap.cursor-crosshair .plan-canvas { cursor:crosshair; }
+.plan-canvas-wrap.cursor-move .plan-canvas { cursor:move; }
+.plan-canvas-wrap.cursor-face .plan-canvas { cursor:pointer; }
+.plan-canvas-wrap.cursor-grab .plan-canvas { cursor:grab; }
+.plan-canvas-wrap.cursor-grabbing .plan-canvas { cursor:grabbing; }
 
-.axis-line { stroke:#e2e9e5; stroke-width:1; }
+/* --- Панель инструментов плана --- */
+.plan-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:9px 10px; border-bottom:1px solid #e2e9e5; background:#f4f7f5; }
+.plan-tool-group { display:flex; align-items:stretch; gap:0; border:1px solid #d3ded8; border-radius:9px; background:#fff; overflow:hidden; }
+.plan-tool-group button { display:flex; align-items:center; gap:5px; padding:7px 10px; border:0; border-right:1px solid #e6ece9; background:transparent; color:#3b4b43; font-size:11px; font-weight:700; white-space:nowrap; cursor:pointer; }
+.plan-tool-group button:last-child { border-right:0; }
+.plan-tool-group button:hover:not(:disabled) { background:#edf7f1; color:#2d7556; }
+.plan-tool-group button.active { background:#2d7556; color:#fff; }
+.plan-tool-group button:disabled { opacity:.4; cursor:default; }
+.plan-toggle { display:flex; align-items:center; gap:5px; padding:6px 10px; border-right:1px solid #e6ece9; color:#3b4b43; font-size:11px; font-weight:700; white-space:nowrap; cursor:pointer; }
+.plan-toggle:last-child { border-right:0; }
+.plan-toggle input { width:auto; margin:0; accent-color:#2d7556; }
+.plan-toggle select { border:1px solid #d3ded8; border-radius:6px; padding:2px 4px; font-size:10.5px; background:#fff; color:#3b4b43; }
+.plan-help-toggle { margin-left:auto; width:30px; height:30px; border:1px solid #d3ded8; border-radius:50%; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; cursor:pointer; }
+.plan-help-toggle:hover, .plan-help-toggle.active { background:#2d7556; border-color:#2d7556; color:#fff; }
+
+.plan-readout { position:absolute; right:10px; bottom:40px; display:flex; gap:7px; padding:5px 9px; border-radius:8px; background:rgba(255,255,255,.92); border:1px solid #e2e9e5; color:#5c6a63; font-size:10.5px; font-variant-numeric:tabular-nums; pointer-events:none; }
+.plan-readout-sep { color:#c3cdc7; }
+
+.plan-canvas-hint { position:absolute; left:12px; bottom:10px; max-width:52%; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.78); color:#eaf3ef; font-size:10.5px; pointer-events:none; }
+.plan-help { position:absolute; right:10px; top:10px; width:min(380px,calc(100% - 24px)); max-height:calc(100% - 20px); overflow:auto; padding:12px 14px; border-radius:11px; background:rgba(16,41,31,.94); color:#eaf3ef; font-size:11px; line-height:1.5; box-shadow:0 6px 20px rgba(16,41,31,.28); }
+.plan-help b { display:block; margin-bottom:6px; font-size:12px; }
+.plan-help ul { margin:0; padding-left:16px; display:grid; gap:5px; }
+.plan-help i { font-style:normal; color:#a9d8bf; font-weight:700; }
+
+.vertex-delete-badge { position:absolute; width:20px; height:20px; padding:0; border:1px solid #c0392b; border-radius:50%; background:#fff; color:#c0392b; font-size:13px; font-weight:700; line-height:1; cursor:pointer; box-shadow:0 1px 4px rgba(23,49,37,.18); }
+.vertex-delete-badge:hover { background:#c0392b; color:#fff; }
+
+.grid-line { stroke:#eef2f0; stroke-width:1; }
+.grid-line.major { stroke:#e2eae6; }
+.axis-line { stroke:#cfdad4; stroke-width:1.2; }
+.plan-scale-bar line { stroke:#5c6a63; stroke-width:1.5; }
+.plan-scale-bar text { fill:#5c6a63; font-size:10px; text-anchor:middle; font-weight:700; paint-order:stroke; stroke:#fbfcfb; stroke-width:3px; stroke-linejoin:round; }
+
 .contour-shape { fill:rgba(45,117,86,.08); stroke:none; }
 .contour-edge { stroke:#8fa399; stroke-width:2; }
 .contour-edge.free { stroke:#e5b94c; stroke-width:3.5; }
-.contour-vertex { fill:#fff; stroke:#2d7556; stroke-width:2; cursor:grab; }
+.contour-edge.hovered { stroke:#2d7556; stroke-width:3; }
+.contour-insert-hint { fill:#fff; stroke:#2d7556; stroke-width:1.6; stroke-dasharray:2 2; }
+.contour-vertex { fill:#fff; stroke:#2d7556; stroke-width:2; }
+.contour-vertex-group.hovered .contour-vertex { stroke-width:3; }
+.contour-vertex-group.selected .contour-vertex { fill:#2d7556; stroke:#173125; stroke-width:2.5; }
+.contour-vertex-label { fill:#7b8982; font-size:9.5px; font-weight:700; paint-order:stroke; stroke:#fbfcfb; stroke-width:2.6px; stroke-linejoin:round; }
 
-.hole-marker circle { fill:#2d7556; stroke:#fff; stroke-width:1.5; cursor:pointer; }
+.hole-marker circle { fill:#2d7556; stroke:#fff; stroke-width:1.5; }
 .hole-marker.kind-contour circle { fill:#e5b94c; }
 .hole-marker.kind-presplit circle,
 .hole-marker.kind-trim circle { fill:#7a6ee0; }
+.hole-marker.hovered circle { stroke:#2d7556; stroke-width:2.5; }
 .hole-marker.selected circle { stroke:#173125; stroke-width:2.5; }
 .hole-marker.disabled circle { fill:#c3cdc7; }
 
 .dimension line { stroke:#2d7556; stroke-width:1.5; stroke-dasharray:4 3; }
-.dimension text { fill:#17372a; font-size:10px; text-anchor:middle; }
+.dimension text { fill:#17372a; font-size:10px; text-anchor:middle; paint-order:stroke; stroke:#fbfcfb; stroke-width:2.6px; stroke-linejoin:round; }
 .dimension.warn line { stroke:#c0392b; }
 .dimension.warn text { fill:#c0392b; font-weight:700; }
 
@@ -79,7 +124,14 @@
 
 .hole-table-panel .table-scroll { max-height:280px; }
 .hole-table-panel select, .hole-table-panel input { border:1px solid #cfd9d4; border-radius:6px; padding:4px 6px; font-size:11px; width:100%; }
-.hole-table-actions { display:flex; align-items:center; justify-content:space-between; padding:10px 17px; border-top:1px solid #edf1ef; font-size:12px; }
+.hole-table-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 17px; border-top:1px solid #edf1ef; font-size:12px; }
+.hole-table-buttons { display:flex; gap:8px; }
+.hole-table-buttons button { padding:6px 12px; border:1px solid #ced9d3; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
+.hole-table-buttons button:hover { border-color:#2d7556; color:#2d7556; }
+/* Скважина вне расчёта: строка приглушена, как и её маркер на плане. */
+.hole-table-panel tr.disabled td { color:#9aa8a1; }
+.hole-table-panel tr.disabled td b { font-weight:600; }
+.hole-enabled-toggle { width:auto; margin:0; accent-color:#2d7556; cursor:pointer; }
 
 .panel > header select { border:1px solid #ced9d3; border-radius:8px; padding:5px 8px; font-size:11px; background:#fff; color:#3b4b43; }
 
@@ -154,4 +206,6 @@
 .scene3d-loading { height:560px; display:grid; place-items:center; border:1px solid #d9e2dd; border-radius:15px; background:#f3f6f4; color:#69776f; font-size:13px; }
 @media (max-width:900px) { .scene3d-canvas { height:420px; } }
 
-@media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas { height:420px; } }
+@media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas-wrap { height:420px; } .plan-toolbar { gap:6px; padding:8px; } }
+/* На узком экране подсказка перекрыла бы строку координат — оставляем «？». */
+@media (max-width:760px) { .plan-canvas-hint { display:none; } .plan-readout { bottom:10px; } }

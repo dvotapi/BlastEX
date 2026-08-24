@@ -95,6 +95,30 @@ class DesignPersistenceRoundTripTests(unittest.TestCase):
         self.assertEqual(loaded.domains, [])
         self.assertIsNone(loaded.water_table_z_m)
 
+    def test_charge_templates_round_trip_in_charge_rules(self):
+        from design.charge_templates import example_wet_dry_bottom_templates
+        from design.models import HoleLoad, Primer
+
+        design = self._sample_design()
+        design.charge_rules = {
+            "stemming_m": 3.0,
+            "bottom_length_m": 2.0,
+            "templates": [item.to_dict() for item in example_wet_dry_bottom_templates()],
+        }
+        design.loads = [
+            HoleLoad(
+                hole_id="1-01",
+                primers=[10.7],
+                primer_items=[Primer(position_m=10.7, product="T-500", mass_kg=0.4, kind="booster")],
+            )
+        ]
+        saved = save_design(TEAM_ID, design)
+        loaded = load_design(TEAM_ID, saved.design_id)
+        self.assertEqual(len(loaded.charge_rules["templates"]), 3)
+        self.assertEqual(loaded.charge_rules["templates"][0]["id"], "T-bottom")
+        self.assertEqual(loaded.loads[0].primer_items[0].kind, "booster")
+        self.assertAlmostEqual(loaded.loads[0].primer_items[0].mass_kg, 0.4)
+
 
 if __name__ == "__main__":
     unittest.main()

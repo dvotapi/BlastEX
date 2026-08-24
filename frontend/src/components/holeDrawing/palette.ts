@@ -28,6 +28,8 @@ const EXPLOSIVE_COLORS: [string, string][] = [
   ["Э-100", "#d0483c"],
   ["Эмул", "#d97b45"],
   ["Игдан", "#c9a227"],
+  ["АНФО", "#c9a227"],
+  ["ANFO", "#c9a227"],
 ];
 
 const DEFAULT_EXPLOSIVE_COLOR = "#4472C4";

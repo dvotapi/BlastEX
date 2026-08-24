@@ -2,8 +2,7 @@
 
 Designed geology lives on `BlastDesign.domains` and `Hole.intervals`.
 Measured records stay on `Hole.measured_*` and are never overwritten here.
-Charging (BDX-004) and simulation consume `designed_rock_intervals` later;
-this module only makes the intervals available.
+Charging (BDX-004) consumes `designed_rock_intervals` and water intervals.
 """
 from __future__ import annotations
 

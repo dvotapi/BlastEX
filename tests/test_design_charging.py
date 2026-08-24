@@ -3,7 +3,7 @@ import unittest
 from Blast import ExplosiveProperties
 from cost.geometry import calculate_hole_geometry
 from design.charging import apply_charge_rules
-from design.models import Hole, Point3
+from design.models import Deck, Hole, HoleLoad, Point3, Primer
 
 EXPLOSIVE = ExplosiveProperties("Гранулит-РП", 0.85, 3.76)
 
@@ -127,6 +127,55 @@ class SpacedChargeTests(unittest.TestCase):
         decks = loads[0].decks
         self.assertEqual([d.kind for d in decks], ["stemming", "charge"])
         self.assertAlmostEqual(decks[1].to_m, hole.length_m)
+
+
+class PrimerObjectsTests(unittest.TestCase):
+    def test_simple_rules_emit_explicit_primer_objects(self):
+        hole = _vertical_hole()
+        load = apply_charge_rules([hole], {"stemming_m": 3.0, "primer_offset_m": 0.3}, EXPLOSIVE)[0]
+        self.assertEqual(len(load.primers), 1)
+        self.assertEqual(len(load.primer_items), 1)
+        self.assertAlmostEqual(load.primer_items[0].position_m, load.primers[0])
+        self.assertEqual(load.primer_items[0].product, EXPLOSIVE.name)
+        self.assertEqual(load.primer_items[0].kind, "primer")
+
+
+class OldDesignLoadTests(unittest.TestCase):
+    def test_legacy_primers_as_floats_become_primer_objects(self):
+        payload = {
+            "hole_id": "1-01",
+            "decks": [
+                {"kind": "stemming", "from_m": 0.0, "to_m": 3.0},
+                {"kind": "charge", "from_m": 3.0, "to_m": 11.0, "explosive_key": "Гранулит-РП", "mass_kg": 160.0},
+            ],
+            "total_charge_kg": 160.0,
+            "influence_volume_m3": 200.0,
+            "specific_q_kg_m3": 0.8,
+            "primers": [10.7],
+        }
+        load = HoleLoad.from_dict(payload)
+        self.assertEqual(load.primers, [10.7])
+        self.assertEqual(len(load.primer_items), 1)
+        self.assertAlmostEqual(load.primer_items[0].position_m, 10.7)
+        self.assertEqual(load.decks[1].kind, "charge")
+        self.assertEqual(load.decks[1].product, "")
+
+        restored = HoleLoad.from_dict(load.to_dict())
+        self.assertEqual(restored.primers, [10.7])
+        self.assertEqual(restored.primer_items[0].kind, "primer")
+
+    def test_legacy_deck_without_product_round_trips(self):
+        deck = Deck.from_dict({"kind": "air", "from_m": 4.0, "to_m": 5.0})
+        self.assertEqual(deck.kind, "air")
+        self.assertEqual(deck.product, "")
+        self.assertEqual(Deck.from_dict(deck.to_dict()).kind, "air")
+
+    def test_primer_from_float_and_dict(self):
+        self.assertAlmostEqual(Primer.from_dict(8.5).position_m, 8.5)
+        item = Primer.from_dict({"position_m": 7.2, "product": "T-500", "mass_kg": 0.4, "kind": "booster"})
+        self.assertEqual(item.product, "T-500")
+        self.assertEqual(item.kind, "booster")
+        self.assertAlmostEqual(item.mass_kg, 0.4)
 
 
 class StemmingFromCoefficientTests(unittest.TestCase):

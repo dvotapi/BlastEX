@@ -10,7 +10,7 @@ from collections import Counter
 
 from design.editing import spacing_report
 from design.geometry import block_volume, ensure_ccw, point_in_polygon, true_burden
-from design.models import HOLE_KINDS, BlastDesign, Hole
+from design.models import HOLE_KINDS, BlastDesign, Hole, is_explosive_deck_kind
 from design.timing import resolve_times
 
 Point2 = tuple[float, float]
@@ -33,7 +33,7 @@ def summary(design: BlastDesign) -> dict[str, Any]:
     explosive_breakdown: dict[str, float] = {}
     for ld in active_loads:
         for deck in ld.decks:
-            if deck.kind == "charge" and deck.explosive_key:
+            if is_explosive_deck_kind(deck.kind) and deck.explosive_key:
                 explosive_breakdown[deck.explosive_key] = (
                     explosive_breakdown.get(deck.explosive_key, 0.0) + deck.mass_kg
                 )

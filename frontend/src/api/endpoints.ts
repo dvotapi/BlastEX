@@ -196,8 +196,19 @@ export const api = {
         domains,
         water_table_z_m: waterTableZ,
       }),
-    charge: (holes: Hole[], rules: ChargeRules, explosive: ChargeExplosive) =>
-      post<ChargeGenerateResponse>(`${V1}/design/charge`, { holes, rules, explosive }),
+    charge: (
+      holes: Hole[],
+      rules: ChargeRules,
+      explosive: ChargeExplosive,
+      extras?: { contour?: BlockContour; explosives?: ChargeExplosive[] },
+    ) =>
+      post<ChargeGenerateResponse>(`${V1}/design/charge`, {
+        holes,
+        rules,
+        explosive,
+        contour: extras?.contour,
+        explosives: extras?.explosives ?? [],
+      }),
     tie: (holes: Hole[], scheme: SchemeType, params: TieParams) =>
       post<TieGenerateResponse>(`${V1}/design/tie/generate`, { holes, scheme, params }),
     analyze: (design: BlastDesign, isolineStepMs: number, micWindowMs: number, ppv: PpvRequest | null) =>

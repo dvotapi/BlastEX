@@ -10,10 +10,28 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-DESIGN_VERSION = 3
+DESIGN_VERSION = 4
 
 DATA_ROLES = ("designed", "executed", "predicted", "measured")
 WATER_CONDITIONS = ("dry", "moist", "wet", "flowing")
+DECK_KINDS = (
+    "stemming",
+    "charge",  # legacy alias of bulk_explosive
+    "bulk_explosive",
+    "packaged_explosive",
+    "air",  # legacy alias of air_deck
+    "air_deck",
+    "inert_deck",
+    "water_deck",
+    "primer",
+    "booster",
+    "detonator",
+)
+EXPLOSIVE_DECK_KINDS = frozenset({"charge", "bulk_explosive", "packaged_explosive"})
+AIR_DECK_KINDS = frozenset({"air", "air_deck"})
+PRIMER_KINDS = ("primer", "booster", "detonator")
+GEOLOGICAL_INTERVALS = ("", "any", "bottom", "column", "collar")
+CHARGE_ACTION_REGIONS = ("interval", "bottom", "column", "collar", "remaining")
 HOLE_KINDS = (
     "production",
     "buffer",
@@ -476,18 +494,274 @@ class Hole:
         return max(0.0, (self.collar.z - self.toe.z) - subdrill_vertical)
 
 
+def is_explosive_deck_kind(kind: str) -> bool:
+    """True for decks that carry explosive mass (legacy charge included)."""
+    return str(kind) in EXPLOSIVE_DECK_KINDS
+
+
+def is_air_deck_kind(kind: str) -> bool:
+    return str(kind) in AIR_DECK_KINDS
+
+
+@dataclass
+class Primer:
+    """In-hole initiator: position from collar plus product and mass.
+
+    Old designs stored only depths in ``HoleLoad.primers``. New loads keep both
+    the float list (backward compatible) and these explicit objects.
+    """
+
+    position_m: float
+    product: str = ""
+    mass_kg: float = 0.0
+    kind: str = "primer"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "position_m": self.position_m,
+            "product": self.product,
+            "mass_kg": self.mass_kg,
+            "kind": self.kind if self.kind in PRIMER_KINDS else "primer",
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | float | int) -> Primer:
+        if isinstance(data, (int, float)):
+            return cls(position_m=float(data))
+        raw_kind = str(data.get("kind", "primer") or "primer")
+        return cls(
+            position_m=float(data.get("position_m", data.get("depth_m", 0.0)) or 0.0),
+            product=str(data.get("product", data.get("explosive_key", "")) or ""),
+            mass_kg=float(data.get("mass_kg", 0.0) or 0.0),
+            kind=raw_kind if raw_kind in PRIMER_KINDS else "primer",
+        )
+
+
+def _parse_primers(data: dict[str, Any]) -> tuple[list[float], list[Primer]]:
+    """Accept old ``primers: [float]`` and new ``primer_items`` side by side."""
+    raw_items = data.get("primer_items")
+    raw_primers = data.get("primers", [])
+    items: list[Primer] = []
+    if raw_items:
+        items = [Primer.from_dict(item) for item in raw_items]
+    elif raw_primers:
+        items = [Primer.from_dict(item) for item in raw_primers]
+    depths = [item.position_m for item in items]
+    if not depths and raw_primers:
+        depths = [float(item) for item in raw_primers if isinstance(item, (int, float))]
+    return depths, items
+
+
+@dataclass
+class ChargeCondition:
+    """When a charge template applies. Empty / None fields mean “any”."""
+
+    hole_kinds: list[str] = field(default_factory=list)
+    rows: list[int] = field(default_factory=list)
+    depth_min_m: float | None = None
+    depth_max_m: float | None = None
+    diameter_min_mm: float | None = None
+    diameter_max_mm: float | None = None
+    burden_min_m: float | None = None
+    burden_max_m: float | None = None
+    spacing_min_m: float | None = None
+    spacing_max_m: float | None = None
+    rock_domain_ids: list[str] = field(default_factory=list)
+    geological_interval: str = ""
+    water: str = ""
+    distance_to_face_min_m: float | None = None
+    distance_to_face_max_m: float | None = None
+    target_pf_min: float | None = None
+    target_pf_max: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "hole_kinds": list(self.hole_kinds),
+            "rows": list(self.rows),
+            "depth_min_m": self.depth_min_m,
+            "depth_max_m": self.depth_max_m,
+            "diameter_min_mm": self.diameter_min_mm,
+            "diameter_max_mm": self.diameter_max_mm,
+            "burden_min_m": self.burden_min_m,
+            "burden_max_m": self.burden_max_m,
+            "spacing_min_m": self.spacing_min_m,
+            "spacing_max_m": self.spacing_max_m,
+            "rock_domain_ids": list(self.rock_domain_ids),
+            "geological_interval": self.geological_interval,
+            "water": self.water,
+            "distance_to_face_min_m": self.distance_to_face_min_m,
+            "distance_to_face_max_m": self.distance_to_face_max_m,
+            "target_pf_min": self.target_pf_min,
+            "target_pf_max": self.target_pf_max,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> ChargeCondition:
+        data = data or {}
+        rows_raw = data.get("rows") or []
+        return cls(
+            hole_kinds=[str(v) for v in data.get("hole_kinds", []) if str(v)],
+            rows=[int(v) for v in rows_raw],
+            depth_min_m=_opt_float(data, "depth_min_m"),
+            depth_max_m=_opt_float(data, "depth_max_m"),
+            diameter_min_mm=_opt_float(data, "diameter_min_mm"),
+            diameter_max_mm=_opt_float(data, "diameter_max_mm"),
+            burden_min_m=_opt_float(data, "burden_min_m"),
+            burden_max_m=_opt_float(data, "burden_max_m"),
+            spacing_min_m=_opt_float(data, "spacing_min_m"),
+            spacing_max_m=_opt_float(data, "spacing_max_m"),
+            rock_domain_ids=[str(v) for v in data.get("rock_domain_ids", []) if str(v)],
+            geological_interval=str(data.get("geological_interval", "") or ""),
+            water=str(data.get("water", "") or ""),
+            distance_to_face_min_m=_opt_float(data, "distance_to_face_min_m"),
+            distance_to_face_max_m=_opt_float(data, "distance_to_face_max_m"),
+            target_pf_min=_opt_float(data, "target_pf_min"),
+            target_pf_max=_opt_float(data, "target_pf_max"),
+        )
+
+
+@dataclass
+class ChargeAction:
+    """What to place when a template matches: product, region, optional primer."""
+
+    kind: str = "bulk_explosive"
+    explosive_key: str = ""
+    product: str = ""
+    region: str = "interval"
+    length_m: float | None = None
+    mass_kg: float | None = None
+    place_primer: bool = False
+    primer_offset_m: float | None = None
+    primer_product: str = ""
+    primer_mass_kg: float = 0.0
+    primer_kind: str = "primer"
+
+    def to_dict(self) -> dict[str, Any]:
+        kind = self.kind if self.kind in DECK_KINDS else "bulk_explosive"
+        region = self.region if self.region in CHARGE_ACTION_REGIONS else "interval"
+        primer_kind = self.primer_kind if self.primer_kind in PRIMER_KINDS else "primer"
+        return {
+            "kind": kind,
+            "explosive_key": self.explosive_key,
+            "product": self.product,
+            "region": region,
+            "length_m": self.length_m,
+            "mass_kg": self.mass_kg,
+            "place_primer": self.place_primer,
+            "primer_offset_m": self.primer_offset_m,
+            "primer_product": self.primer_product,
+            "primer_mass_kg": self.primer_mass_kg,
+            "primer_kind": primer_kind,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> ChargeAction:
+        data = data or {}
+        kind = str(data.get("kind", "bulk_explosive") or "bulk_explosive")
+        if kind == "charge":
+            kind = "bulk_explosive"
+        elif kind == "air":
+            kind = "air_deck"
+        elif kind not in DECK_KINDS:
+            kind = "bulk_explosive"
+        region = str(data.get("region", "interval") or "interval")
+        if region not in CHARGE_ACTION_REGIONS:
+            region = "interval"
+        primer_kind = str(data.get("primer_kind", "primer") or "primer")
+        if primer_kind not in PRIMER_KINDS:
+            primer_kind = "primer"
+        return cls(
+            kind=kind,
+            explosive_key=str(data.get("explosive_key", "") or ""),
+            product=str(data.get("product", "") or ""),
+            region=region,
+            length_m=_opt_float(data, "length_m"),
+            mass_kg=_opt_float(data, "mass_kg"),
+            place_primer=bool(data.get("place_primer", False)),
+            primer_offset_m=_opt_float(data, "primer_offset_m"),
+            primer_product=str(data.get("primer_product", "") or ""),
+            primer_mass_kg=float(data.get("primer_mass_kg", 0.0) or 0.0),
+            primer_kind=primer_kind,
+        )
+
+
+@dataclass
+class ChargeTemplate:
+    """Spatial charging rule: conditions + actions, applied by priority."""
+
+    id: str
+    name: str = ""
+    conditions: ChargeCondition = field(default_factory=ChargeCondition)
+    actions: list[ChargeAction] = field(default_factory=list)
+    priority: int = 0
+    enabled: bool = True
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "conditions": self.conditions.to_dict(),
+            "actions": [action.to_dict() for action in self.actions],
+            "priority": self.priority,
+            "enabled": self.enabled,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> ChargeTemplate:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            name=str(data.get("name", "") or ""),
+            conditions=ChargeCondition.from_dict(data.get("conditions")),
+            actions=[ChargeAction.from_dict(action) for action in data.get("actions", [])],
+            priority=int(data.get("priority", 0) or 0),
+            enabled=bool(data.get("enabled", True)),
+            notes=str(data.get("notes", "") or ""),
+        )
+
+
+def templates_from_rules(rules: dict[str, Any] | None) -> list[ChargeTemplate]:
+    """Read ``charge_rules.templates`` (or a top-level list) as ChargeTemplate."""
+    rules = rules or {}
+    raw = rules.get("templates")
+    if raw is None:
+        raw = rules.get("charge_templates")
+    if not raw:
+        return []
+    templates = [ChargeTemplate.from_dict(item) for item in raw]
+    return [item for item in templates if item.id or item.actions]
+
+
+def sort_templates(templates: list[ChargeTemplate]) -> list[ChargeTemplate]:
+    """Deterministic order: enabled first, then priority desc, then id asc."""
+    return sorted(
+        templates,
+        key=lambda item: (not item.enabled, -item.priority, item.id),
+    )
+
+
 @dataclass
 class Deck:
-    """Одна деко (заряд/забойка/воздушный промежуток) вдоль скважины от устья."""
+    """One interval along the hole: explosive, stemming, air, water, or inert."""
 
-    kind: str  # charge | stemming | air
+    kind: str  # see DECK_KINDS; unknown values are kept for old designs
     from_m: float
     to_m: float
     explosive_key: str = ""
     mass_kg: float = 0.0
+    product: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "kind": self.kind,
+            "from_m": self.from_m,
+            "to_m": self.to_m,
+            "explosive_key": self.explosive_key,
+            "mass_kg": self.mass_kg,
+            "product": self.product,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Deck:
@@ -497,6 +771,7 @@ class Deck:
             to_m=float(data.get("to_m", 0.0)),
             explosive_key=str(data.get("explosive_key", "")),
             mass_kg=float(data.get("mass_kg", 0.0)),
+            product=str(data.get("product", "") or ""),
         )
 
 
@@ -509,27 +784,35 @@ class HoleLoad:
     total_charge_kg: float = 0.0
     influence_volume_m3: float = 0.0
     specific_q_kg_m3: float = 0.0
-    primers: list[float] = field(default_factory=list)  # глубины боевиков, м от устья
+    primers: list[float] = field(default_factory=list)  # depths from collar, m
+    primer_items: list[Primer] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        items = list(self.primer_items)
+        if not items and self.primers:
+            items = [Primer(position_m=depth) for depth in self.primers]
+        depths = list(self.primers) if self.primers else [item.position_m for item in items]
         return {
             "hole_id": self.hole_id,
             "decks": [d.to_dict() for d in self.decks],
             "total_charge_kg": self.total_charge_kg,
             "influence_volume_m3": self.influence_volume_m3,
             "specific_q_kg_m3": self.specific_q_kg_m3,
-            "primers": list(self.primers),
+            "primers": depths,
+            "primer_items": [item.to_dict() for item in items],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> HoleLoad:
+        depths, items = _parse_primers(data)
         return cls(
             hole_id=str(data.get("hole_id", "")),
             decks=[Deck.from_dict(d) for d in data.get("decks", [])],
             total_charge_kg=float(data.get("total_charge_kg", 0.0)),
             influence_volume_m3=float(data.get("influence_volume_m3", 0.0)),
             specific_q_kg_m3=float(data.get("specific_q_kg_m3", 0.0)),
-            primers=[float(p) for p in data.get("primers", [])],
+            primers=depths,
+            primer_items=items,
         )
 
 

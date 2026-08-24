@@ -20,7 +20,7 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3 } from "../../types/design";
+import type { BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3 } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
 
 const HOLE_HIT_RADIUS_PX = 12;
@@ -78,6 +78,9 @@ export function PlanCanvas({
   isolines,
   timesMs,
   animationMs,
+  domains,
+  drawingDomainId,
+  onDomainVertexAdd,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -102,6 +105,9 @@ export function PlanCanvas({
   isolines?: Isoline[];
   timesMs?: Record<string, number> | null;
   animationMs?: number | null;
+  domains?: BlastDomain[];
+  drawingDomainId?: string | null;
+  onDomainVertexAdd?: (domainId: string, point: Point3) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -537,6 +543,12 @@ export function PlanCanvas({
     }
     if (e.button !== 0) return;
 
+    if (drawingDomainId && onDomainVertexAdd) {
+      const world = applySnap(worldOf(screen));
+      onDomainVertexAdd(drawingDomainId, { x: world.x, y: world.y, z: contour.bench.crest_z_m });
+      return;
+    }
+
     if (mode === "contour") {
       const vertexIndex = hitVertex(screen);
       const edge = hitEdge(screen);
@@ -792,6 +804,7 @@ export function PlanCanvas({
     // Двойной клик — сокращение инструмента «Выбор». У остальных инструментов
     // одиночный клик уже что-то делает, и дублировать его не нужно.
     if (tool !== "select") return;
+    if (drawingDomainId) return;
     const screen = toScreenPoint(e);
     if (mode === "contour") {
       const vertexIndex = hitVertex(screen);
@@ -1052,6 +1065,31 @@ export function PlanCanvas({
           </g>
         ))}
 
+        {domains?.map((domain) => {
+          if (domain.polygon.length < 2) return null;
+          const screenPts = domain.polygon.map((v) => toScreen(v));
+          const points = screenPts.map((p) => `${p.x},${p.y}`).join(" ");
+          const closed = domain.polygon.length >= 3
+            ? `${points} ${screenPts[0].x},${screenPts[0].y}`
+            : points;
+          return (
+            <g key={`domain-${domain.id}`}>
+              {domain.polygon.length >= 3 && (
+                <polygon
+                  className={`domain-shape${domain.id === drawingDomainId ? " active" : ""}`}
+                  points={points}
+                  style={{ fill: domain.color || "#8fa399" }}
+                />
+              )}
+              <polyline
+                className="domain-outline"
+                points={closed}
+                style={{ stroke: domain.color || "#8fa399" }}
+              />
+            </g>
+          );
+        })}
+
         {contour.vertices.length >= 3 && (
           <polygon
             className="contour-shape"
@@ -1075,11 +1113,11 @@ export function PlanCanvas({
           );
         })}
 
-        {mode === "contour" && hover.kind === "edge" && (tool === "add" || tool === "select") && (
+        {mode === "contour" && !drawingDomainId && hover.kind === "edge" && (tool === "add" || tool === "select") && (
           <circle cx={hover.point.x} cy={hover.point.y} r={4.5} className="contour-insert-hint" />
         )}
 
-        {mode === "contour" && contour.vertices.map((v, i) => {
+        {mode === "contour" && !drawingDomainId && contour.vertices.map((v, i) => {
           const p = toScreen(v);
           const isSelected = selectedVertices.has(i);
           const isHovered = hover.kind === "vertex" && hover.index === i;
@@ -1089,6 +1127,10 @@ export function PlanCanvas({
               <text x={p.x + 9} y={p.y - 8} className="contour-vertex-label">{i + 1}</text>
             </g>
           );
+        })}
+        {drawingDomainId && domains?.find((d) => d.id === drawingDomainId)?.polygon.map((v, i) => {
+          const p = toScreen(v);
+          return <rect key={`dvertex-${i}`} x={p.x - 4} y={p.y - 4} width={8} height={8} className="domain-vertex" />;
         })}
 
         {network?.connectors.map((c, i) => {
@@ -1158,7 +1200,7 @@ export function PlanCanvas({
         </g>
       </svg>
 
-      {hoveredVertexScreen && tool === "select" && (
+      {hoveredVertexScreen && tool === "select" && !drawingDomainId && (
         <button
           type="button"
           className="vertex-delete-badge"
@@ -1198,13 +1240,16 @@ export function PlanCanvas({
             <li><i>Откосы:</i> инструмент «Откос» — клик по ребру помечает его открытым.</li>
             <li><i>Скважины:</i> «Скважина» — клик добавляет, «Выбор» — перетаскивание (Shift — строго по оси), рамка выделяет, Delete удаляет.</li>
             <li><i>Клавиши:</i> V — выбор, A — добавление, F — откос, H — панорама, Esc — снять выделение.</li>
+            <li><i>Геология:</i> в режиме рисования региона клик ставит вершину полигона; остальные инструменты плана при этом не срабатывают.</li>
           </ul>
         </div>
       ) : (
         <div className="plan-canvas-hint">
-          {mode === "contour"
-            ? "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик по точке — удалить · «？» — все жесты"
-            : "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик — новая скважина · «？» — все жесты"}
+          {drawingDomainId
+            ? "Клик — вершина геологического региона · правой кнопкой или пробелом — перемещение · «？» — все жесты"
+            : mode === "contour"
+              ? "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик по точке — удалить · «？» — все жесты"
+              : "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик — новая скважина · «？» — все жесты"}
         </div>
       )}
       </div>

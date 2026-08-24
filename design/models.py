@@ -10,7 +10,12 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-DESIGN_VERSION = 2
+DESIGN_VERSION = 3
+
+DATA_ROLES = ("designed", "executed", "predicted", "measured")
+WATER_CONDITIONS = ("dry", "moist", "wet", "flowing")
+MPA_TO_PA = 1_000_000.0
+GPA_TO_PA = 1_000_000_000.0
 
 
 @dataclass
@@ -55,6 +60,281 @@ class BenchSurface:
     @property
     def height_m(self) -> float:
         return max(0.0, self.crest_z_m - self.toe_z_m)
+
+
+def _opt_float(data: dict[str, Any], key: str) -> float | None:
+    raw = data.get(key)
+    if raw is None or raw == "":
+        return None
+    return float(raw)
+
+
+def _normalize_role(value: Any, default: str = "designed") -> str:
+    role = str(value or default).strip().lower()
+    return role if role in DATA_ROLES else default
+
+
+def _normalize_water(value: Any, default: str = "") -> str:
+    condition = str(value or default).strip().lower()
+    if not condition:
+        return ""
+    return condition if condition in WATER_CONDITIONS else default
+
+
+@dataclass
+class DataProvenance:
+    """Who/how/when a geological record was created. Role is never inferred by ML."""
+
+    source: str = ""
+    method: str = ""
+    timestamp: str = ""
+    role: str = "designed"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "method": self.method,
+            "timestamp": self.timestamp,
+            "role": _normalize_role(self.role),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> DataProvenance:
+        data = data or {}
+        return cls(
+            source=str(data.get("source", "")),
+            method=str(data.get("method", "")),
+            timestamp=str(data.get("timestamp", "")),
+            role=_normalize_role(data.get("role")),
+        )
+
+
+@dataclass
+class RockPropertySet:
+    """Optional rock properties. Units are explicit; conversions are opt-in.
+
+    density_kg_m3          SI density, kg/m³
+    ucs_mpa                unconfined compressive strength, MPa
+    fracturing             qualitative description or index text
+    rqd_pct                rock quality designation, 0–100
+    youngs_modulus_gpa     Young's modulus, GPa
+    poisson_ratio          dimensionless
+    p_wave_velocity_m_s    P-wave velocity, m/s
+    joint_spacing_m        mean joint spacing, m
+    joint_dip_deg          joint dip, degrees
+    joint_dip_direction_deg  joint dip direction, degrees
+    blastability           qualitative description or index text
+    water_condition        dry | moist | wet | flowing
+    """
+
+    density_kg_m3: float | None = None
+    ucs_mpa: float | None = None
+    fracturing: str = ""
+    rqd_pct: float | None = None
+    youngs_modulus_gpa: float | None = None
+    poisson_ratio: float | None = None
+    p_wave_velocity_m_s: float | None = None
+    joint_spacing_m: float | None = None
+    joint_dip_deg: float | None = None
+    joint_dip_direction_deg: float | None = None
+    blastability: str = ""
+    water_condition: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "density_kg_m3": self.density_kg_m3,
+            "ucs_mpa": self.ucs_mpa,
+            "fracturing": self.fracturing,
+            "rqd_pct": self.rqd_pct,
+            "youngs_modulus_gpa": self.youngs_modulus_gpa,
+            "poisson_ratio": self.poisson_ratio,
+            "p_wave_velocity_m_s": self.p_wave_velocity_m_s,
+            "joint_spacing_m": self.joint_spacing_m,
+            "joint_dip_deg": self.joint_dip_deg,
+            "joint_dip_direction_deg": self.joint_dip_direction_deg,
+            "blastability": self.blastability,
+            "water_condition": _normalize_water(self.water_condition),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> RockPropertySet:
+        data = data or {}
+        return cls(
+            density_kg_m3=_opt_float(data, "density_kg_m3"),
+            ucs_mpa=_opt_float(data, "ucs_mpa"),
+            fracturing=str(data.get("fracturing", "")),
+            rqd_pct=_opt_float(data, "rqd_pct"),
+            youngs_modulus_gpa=_opt_float(data, "youngs_modulus_gpa"),
+            poisson_ratio=_opt_float(data, "poisson_ratio"),
+            p_wave_velocity_m_s=_opt_float(data, "p_wave_velocity_m_s"),
+            joint_spacing_m=_opt_float(data, "joint_spacing_m"),
+            joint_dip_deg=_opt_float(data, "joint_dip_deg"),
+            joint_dip_direction_deg=_opt_float(data, "joint_dip_direction_deg"),
+            blastability=str(data.get("blastability", "")),
+            water_condition=_normalize_water(data.get("water_condition")),
+        )
+
+    def ucs_pa(self) -> float | None:
+        """Explicit MPa → Pa (1 MPa = 1e6 Pa). Never applied implicitly."""
+        if self.ucs_mpa is None:
+            return None
+        return self.ucs_mpa * MPA_TO_PA
+
+    def youngs_modulus_pa(self) -> float | None:
+        """Explicit GPa → Pa (1 GPa = 1e9 Pa). Never applied implicitly."""
+        if self.youngs_modulus_gpa is None:
+            return None
+        return self.youngs_modulus_gpa * GPA_TO_PA
+
+    @staticmethod
+    def ucs_mpa_from_pa(ucs_pa: float) -> float:
+        """Explicit Pa → MPa. Callers must opt in."""
+        return float(ucs_pa) / MPA_TO_PA
+
+    @staticmethod
+    def youngs_modulus_gpa_from_pa(youngs_modulus_pa: float) -> float:
+        """Explicit Pa → GPa. Callers must opt in."""
+        return float(youngs_modulus_pa) / GPA_TO_PA
+
+
+@dataclass
+class BlastDomain:
+    """Designed geological domain: a plan polygon plus optional elevation bounds.
+
+    An empty polygon means the domain applies everywhere in plan (a layer).
+    Measured geology must not be stored here — use hole.measured_intervals.
+    """
+
+    id: str
+    name: str
+    polygon: list[Point3] = field(default_factory=list)
+    properties: RockPropertySet = field(default_factory=RockPropertySet)
+    provenance: DataProvenance = field(default_factory=DataProvenance)
+    z_top_m: float | None = None
+    z_bottom_m: float | None = None
+    priority: int = 0
+    color: str = ""
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "polygon": [p.to_dict() for p in self.polygon],
+            "properties": self.properties.to_dict(),
+            "provenance": self.provenance.to_dict(),
+            "z_top_m": self.z_top_m,
+            "z_bottom_m": self.z_bottom_m,
+            "priority": self.priority,
+            "color": self.color,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> BlastDomain:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "")),
+            name=str(data.get("name", "")),
+            polygon=[Point3.from_dict(p) for p in data.get("polygon", [])],
+            properties=RockPropertySet.from_dict(data.get("properties")),
+            provenance=DataProvenance.from_dict(data.get("provenance")),
+            z_top_m=_opt_float(data, "z_top_m"),
+            z_bottom_m=_opt_float(data, "z_bottom_m"),
+            priority=int(data.get("priority", 0) or 0),
+            color=str(data.get("color", "")),
+            notes=str(data.get("notes", "")),
+        )
+
+    @property
+    def points_xy(self) -> list[tuple[float, float]]:
+        return [(p.x, p.y) for p in self.polygon]
+
+    def elevation_bounds(self) -> tuple[float | None, float | None]:
+        """Return (z_top, z_bottom) with top ≥ bottom when both are set."""
+        top, bottom = self.z_top_m, self.z_bottom_m
+        if top is not None and bottom is not None and top < bottom:
+            return bottom, top
+        return top, bottom
+
+
+@dataclass
+class HoleInterval:
+    """Designed or measured rock interval along a hole, metres from collar."""
+
+    from_m: float
+    to_m: float
+    domain_id: str = ""
+    domain_name: str = ""
+    properties: RockPropertySet = field(default_factory=RockPropertySet)
+    provenance: DataProvenance = field(default_factory=DataProvenance)
+    role: str = "designed"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "from_m": self.from_m,
+            "to_m": self.to_m,
+            "domain_id": self.domain_id,
+            "domain_name": self.domain_name,
+            "properties": self.properties.to_dict(),
+            "provenance": self.provenance.to_dict(),
+            "role": _normalize_role(self.role),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> HoleInterval:
+        data = data or {}
+        start = float(data.get("from_m", 0.0))
+        end = float(data.get("to_m", 0.0))
+        if end < start:
+            start, end = end, start
+        return cls(
+            from_m=start,
+            to_m=end,
+            domain_id=str(data.get("domain_id", "")),
+            domain_name=str(data.get("domain_name", "")),
+            properties=RockPropertySet.from_dict(data.get("properties")),
+            provenance=DataProvenance.from_dict(data.get("provenance")),
+            role=_normalize_role(data.get("role")),
+        )
+
+
+@dataclass
+class WaterInterval:
+    """Designed or measured water along a hole, metres from collar."""
+
+    from_m: float
+    to_m: float
+    condition: str = "wet"
+    provenance: DataProvenance = field(default_factory=DataProvenance)
+    role: str = "designed"
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "from_m": self.from_m,
+            "to_m": self.to_m,
+            "condition": _normalize_water(self.condition, default="wet") or "wet",
+            "provenance": self.provenance.to_dict(),
+            "role": _normalize_role(self.role),
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> WaterInterval:
+        data = data or {}
+        start = float(data.get("from_m", 0.0))
+        end = float(data.get("to_m", 0.0))
+        if end < start:
+            start, end = end, start
+        return cls(
+            from_m=start,
+            to_m=end,
+            condition=_normalize_water(data.get("condition"), default="wet") or "wet",
+            provenance=DataProvenance.from_dict(data.get("provenance")),
+            role=_normalize_role(data.get("role")),
+            notes=str(data.get("notes", "")),
+        )
 
 
 @dataclass
@@ -102,6 +382,10 @@ class Hole:
     kind: str = "production"  # production | contour | presplit | trim
     source: str = "generated"  # generated | manual
     enabled: bool = True
+    intervals: list[HoleInterval] = field(default_factory=list)
+    water_intervals: list[WaterInterval] = field(default_factory=list)
+    measured_intervals: list[HoleInterval] = field(default_factory=list)
+    measured_water_intervals: list[WaterInterval] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -115,6 +399,10 @@ class Hole:
             "kind": self.kind,
             "source": self.source,
             "enabled": self.enabled,
+            "intervals": [iv.to_dict() for iv in self.intervals],
+            "water_intervals": [iv.to_dict() for iv in self.water_intervals],
+            "measured_intervals": [iv.to_dict() for iv in self.measured_intervals],
+            "measured_water_intervals": [iv.to_dict() for iv in self.measured_water_intervals],
         }
 
     @classmethod
@@ -130,6 +418,12 @@ class Hole:
             kind=str(data.get("kind", "production")),
             source=str(data.get("source", "generated")),
             enabled=bool(data.get("enabled", True)),
+            intervals=[HoleInterval.from_dict(iv) for iv in data.get("intervals", [])],
+            water_intervals=[WaterInterval.from_dict(iv) for iv in data.get("water_intervals", [])],
+            measured_intervals=[HoleInterval.from_dict(iv) for iv in data.get("measured_intervals", [])],
+            measured_water_intervals=[
+                WaterInterval.from_dict(iv) for iv in data.get("measured_water_intervals", [])
+            ],
         )
 
     @property
@@ -295,6 +589,8 @@ class BlastDesign:
     explosive_key: str = ""
     coordinate_system: Any = None
     surfaces: Any = None
+    domains: list[BlastDomain] = field(default_factory=list)
+    water_table_z_m: float | None = None
 
     def __post_init__(self) -> None:
         from design.spatial.coordinates import CoordinateSystem
@@ -321,6 +617,8 @@ class BlastDesign:
             "explosive_key": self.explosive_key,
             "coordinate_system": self.coordinate_system.to_dict(),
             "surfaces": self.surfaces.to_dict(),
+            "domains": [domain.to_dict() for domain in self.domains],
+            "water_table_z_m": self.water_table_z_m,
         }
 
     @classmethod
@@ -343,4 +641,6 @@ class BlastDesign:
             explosive_key=str(data.get("explosive_key", "")),
             coordinate_system=CoordinateSystem.from_dict(data.get("coordinate_system")),
             surfaces=SurfaceSet.from_dict(data.get("surfaces")),
+            domains=[BlastDomain.from_dict(d) for d in data.get("domains", [])],
+            water_table_z_m=_opt_float(data, "water_table_z_m"),
         )

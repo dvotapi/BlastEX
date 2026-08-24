@@ -4,12 +4,15 @@ import unittest
 from design.geometry import (
     angle_azimuth,
     block_volume,
+    collar_burden,
     hole_from_collar,
     offset_polygon,
     point_in_polygon,
     polygon_area,
+    toe_burden,
+    true_burden,
 )
-from design.models import BenchSurface, BlockContour, Point3
+from design.models import BenchSurface, BlockContour, Hole, Point3
 
 SQUARE = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
 
@@ -70,6 +73,26 @@ class HoleGeometryTests(unittest.TestCase):
         toe = hole_from_collar(collar, depth_m=18.0, angle_deg=20.0, azimuth_deg=200.0)
         length = math.dist((collar.x, collar.y, collar.z), (toe.x, toe.y, toe.z))
         self.assertAlmostEqual(length, 18.0, places=6)
+
+
+class BurdenGeometryTests(unittest.TestCase):
+    def test_collar_and_toe_burden_use_free_face(self):
+        contour = BlockContour(
+            vertices=[Point3(x=x, y=y, z=0.0) for x, y in SQUARE],
+            free_faces=[[0, 1]],
+            bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0),
+        )
+        hole = Hole(
+            id="1-01",
+            row=0,
+            col=0,
+            collar=Point3(x=5.0, y=3.0, z=0.0),
+            toe=Point3(x=5.0, y=4.0, z=-11.0),
+            diameter_mm=152.0,
+        )
+        self.assertAlmostEqual(collar_burden(hole, contour), 3.0)
+        self.assertAlmostEqual(toe_burden(hole, contour), 4.0)
+        self.assertAlmostEqual(true_burden(hole, contour), 4.0)
 
 
 class BlockVolumeTests(unittest.TestCase):

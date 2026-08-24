@@ -24,6 +24,12 @@ from api.schemas.design import (
     DesignCostRequest,
     DesignListResponse,
     DesignSummarySchema,
+    EngineeringMapsRequest,
+    EngineeringMapsSchema,
+    HoleGeometryEditRequest,
+    HoleGeometryEditResponse,
+    HoleInsertRequest,
+    HoleInsertResponse,
     MicSchema,
     PatternGenerateRequest,
     PatternGenerateResponse,
@@ -45,9 +51,11 @@ from api.services.cost_service import calculate_cost
 from design import persistence as design_persistence
 from design.analysis import charge_per_delay, estimate_ppv, summary as run_summary, timing_isolines, validate as run_validate
 from design.charging import apply_charge_rules
+from design.editing import apply_hole_geometry, insert_manual_hole
 from design.export import holes_csv, passport_html
 from design.geometry import block_volume
 from design.geology import apply_domains_to_holes, assign_domain_polygon
+from design.maps import engineering_maps
 from design.models import BlastDesign, BlastDomain, BlockContour, Hole, Point3
 from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
@@ -69,7 +77,8 @@ def generate_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse
 
     existing_holes = [Hole.from_dict(h.model_dump()) for h in request.existing_holes]
     surfaces = _surfaces_from_request(request.surfaces)
-    holes = run_generate_pattern(contour, request.params, existing_holes, surfaces)
+    domains = [BlastDomain.from_dict(d.model_dump()) for d in request.domains]
+    holes = run_generate_pattern(contour, request.params, existing_holes, surfaces, domains)
 
     return PatternGenerateResponse(
         holes=[h.to_dict() for h in holes],
@@ -188,7 +197,31 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
         mic=MicSchema(**mic_data),
         isolines=isolines_data,
         ppv_mm_s=ppv_mm_s,
+        maps=EngineeringMapsSchema(**engineering_maps(design)),
     )
+
+
+def design_maps(request: EngineeringMapsRequest) -> EngineeringMapsSchema:
+    design = BlastDesign.from_dict(request.design.model_dump())
+    return EngineeringMapsSchema(**engineering_maps(design))
+
+
+def edit_hole_geometry(request: HoleGeometryEditRequest) -> HoleGeometryEditResponse:
+    hole = Hole.from_dict(request.hole.model_dump())
+    contour = BlockContour.from_dict(request.contour.model_dump()) if request.contour is not None else None
+    surfaces = _surfaces_from_request(request.surfaces)
+    updated = apply_hole_geometry(hole, request.patch, contour, surfaces)
+    return HoleGeometryEditResponse(hole=updated.to_dict())
+
+
+def insert_hole(request: HoleInsertRequest) -> HoleInsertResponse:
+    contour = BlockContour.from_dict(request.contour.model_dump())
+    if len(contour.vertices) < 3:
+        raise InvalidGeometryError("Контур блока должен содержать не менее трёх точек.")
+    existing = [Hole.from_dict(h.model_dump()) for h in request.existing_holes]
+    surfaces = _surfaces_from_request(request.surfaces)
+    hole = insert_manual_hole(existing, request.x, request.y, contour, request.params, surfaces)
+    return HoleInsertResponse(hole=hole.to_dict())
 
 
 def list_plans(team_id: str) -> DesignListResponse:

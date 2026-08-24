@@ -12,6 +12,12 @@ from api.schemas.design import (
     ChargeGenerateResponse,
     DesignCostRequest,
     DesignListResponse,
+    EngineeringMapsRequest,
+    EngineeringMapsSchema,
+    HoleGeometryEditRequest,
+    HoleGeometryEditResponse,
+    HoleInsertRequest,
+    HoleInsertResponse,
     PatternGenerateRequest,
     PatternGenerateResponse,
     SurfaceImportRequest,
@@ -34,6 +40,21 @@ router = APIRouter(prefix="/design", tags=["design"])
 @router.post("/pattern", response_model=PatternGenerateResponse)
 def post_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse:
     return design_service.generate_pattern(request)
+
+
+@router.post("/maps", response_model=EngineeringMapsSchema)
+def post_maps(request: EngineeringMapsRequest) -> EngineeringMapsSchema:
+    return design_service.design_maps(request)
+
+
+@router.post("/holes/geometry", response_model=HoleGeometryEditResponse)
+def post_hole_geometry(request: HoleGeometryEditRequest) -> HoleGeometryEditResponse:
+    return design_service.edit_hole_geometry(request)
+
+
+@router.post("/holes/insert", response_model=HoleInsertResponse)
+def post_hole_insert(request: HoleInsertRequest) -> HoleInsertResponse:
+    return design_service.insert_hole(request)
 
 
 @router.post("/surfaces/import", response_model=SurfaceImportResponse)

@@ -1,12 +1,19 @@
-"""Поддержка ручной правки уже построенной сетки скважин."""
+"""Manual edits of an already generated hole pattern."""
 from __future__ import annotations
 
 import math
 from dataclasses import replace
 from typing import Any
 
-from design.geometry import local_basis, pattern_origin
-from design.models import BlockContour, Hole
+from design.geometry import (
+    angle_azimuth,
+    distance_to_free_faces,
+    drape_collar,
+    hole_from_collar,
+    local_basis,
+    pattern_origin,
+)
+from design.models import PRESERVED_HOLE_KINDS, BlockContour, Hole, Point3
 
 
 def _distance2d(a: Hole, b: Hole) -> float:
@@ -99,8 +106,8 @@ def renumber(
     row_dir, advance_dir = local_basis(row_azimuth_deg)
     origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
 
-    production = [h for h in holes if h.kind != "contour"]
-    contour_holes = [h for h in holes if h.kind == "contour"]
+    production = [h for h in holes if h.kind not in PRESERVED_HOLE_KINDS]
+    contour_holes = [h for h in holes if h.kind in PRESERVED_HOLE_KINDS]
 
     def _v(h: Hole) -> float:
         return (h.collar.x - origin[0]) * advance_dir[0] + (h.collar.y - origin[1]) * advance_dir[1]
@@ -127,3 +134,148 @@ def renumber(
             )
 
     return renumbered + contour_holes
+
+
+def apply_collar_xy(
+    hole: Hole,
+    x: float,
+    y: float,
+    contour: BlockContour,
+    surfaces: object | None = None,
+) -> Hole:
+    """Move the collar in plan and drape onto the top surface, keeping axis geometry."""
+    angle_deg, azimuth_deg = angle_azimuth(hole.collar, hole.toe)
+    depth_m = hole.length_m
+    collar, toe = drape_collar(
+        x, y, angle_deg, azimuth_deg, hole.subdrill_m, contour, surfaces, depth_m
+    )
+    return replace(hole, collar=collar, toe=toe, source=hole.source)
+
+
+def apply_toe(hole: Hole, toe: Point3) -> Hole:
+    """Replace the toe point. Collar stays put."""
+    return replace(hole, toe=toe)
+
+
+def apply_depth(hole: Hole, depth_m: float) -> Hole:
+    """Keep collar, inclination and azimuth; change drilled length."""
+    toe = hole_from_collar(hole.collar, max(0.0, float(depth_m)), hole.angle_deg, hole.azimuth_deg)
+    return replace(hole, toe=toe)
+
+
+def apply_inclination(hole: Hole, angle_deg: float) -> Hole:
+    """Keep collar, depth and azimuth; change inclination from vertical."""
+    toe = hole_from_collar(hole.collar, hole.length_m, float(angle_deg), hole.azimuth_deg)
+    return replace(hole, toe=toe)
+
+
+def apply_azimuth(hole: Hole, azimuth_deg: float) -> Hole:
+    """Keep collar, depth and inclination; change dip azimuth."""
+    toe = hole_from_collar(hole.collar, hole.length_m, hole.angle_deg, float(azimuth_deg))
+    return replace(hole, toe=toe)
+
+
+def apply_hole_geometry(
+    hole: Hole,
+    patch: dict[str, Any],
+    contour: BlockContour | None = None,
+    surfaces: object | None = None,
+) -> Hole:
+    """Apply collar / toe / depth / inclination / azimuth edits.
+
+    Collar XY moves drape onto terrain when a contour is provided.
+    """
+    updated = hole
+    if "collar" in patch and isinstance(patch["collar"], dict):
+        raw = patch["collar"]
+        x = float(raw.get("x", updated.collar.x))
+        y = float(raw.get("y", updated.collar.y))
+        if contour is not None:
+            updated = apply_collar_xy(updated, x, y, contour, surfaces)
+            if "z" in raw:
+                updated = replace(
+                    updated,
+                    collar=replace(updated.collar, z=float(raw["z"])),
+                )
+        else:
+            updated = replace(
+                updated,
+                collar=Point3(x=x, y=y, z=float(raw.get("z", updated.collar.z))),
+            )
+    if "x" in patch or "y" in patch:
+        x = float(patch.get("x", updated.collar.x))
+        y = float(patch.get("y", updated.collar.y))
+        if contour is not None:
+            updated = apply_collar_xy(updated, x, y, contour, surfaces)
+        else:
+            dx, dy = x - updated.collar.x, y - updated.collar.y
+            updated = replace(
+                updated,
+                collar=replace(updated.collar, x=x, y=y),
+                toe=replace(updated.toe, x=updated.toe.x + dx, y=updated.toe.y + dy),
+            )
+    if "toe" in patch and isinstance(patch["toe"], dict):
+        updated = apply_toe(updated, Point3.from_dict(patch["toe"]))
+    if "depth_m" in patch and patch["depth_m"] is not None:
+        updated = apply_depth(updated, float(patch["depth_m"]))
+    if "angle_deg" in patch and patch["angle_deg"] is not None:
+        updated = apply_inclination(updated, float(patch["angle_deg"]))
+    if "azimuth_deg" in patch and patch["azimuth_deg"] is not None:
+        updated = apply_azimuth(updated, float(patch["azimuth_deg"]))
+    if "kind" in patch and patch["kind"]:
+        updated = replace(updated, kind=str(patch["kind"]))
+    if "subdrill_m" in patch and patch["subdrill_m"] is not None:
+        updated = replace(updated, subdrill_m=float(patch["subdrill_m"]))
+    if "diameter_mm" in patch and patch["diameter_mm"] is not None:
+        updated = replace(updated, diameter_mm=float(patch["diameter_mm"]))
+    if "enabled" in patch:
+        updated = replace(updated, enabled=bool(patch["enabled"]))
+    return updated
+
+
+def insert_manual_hole(
+    holes: list[Hole],
+    x: float,
+    y: float,
+    contour: BlockContour,
+    params: dict[str, Any] | None = None,
+    surfaces: object | None = None,
+) -> Hole:
+    """Insert a manual hole draped onto terrain. Caller appends it to the list."""
+    params = params or {}
+    angle_deg = float(params.get("angle_deg", 0.0))
+    azimuth_deg = float(params.get("azimuth_deg", 0.0))
+    subdrill_m = float(params.get("subdrill_m", 1.0))
+    depth_override = params.get("depth_m")
+    depth_m = float(depth_override) if depth_override is not None else None
+    collar, toe = drape_collar(x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_m)
+    existing_manual = [h for h in holes if str(h.id).startswith("M-")]
+    next_index = len(existing_manual) + 1
+    kind = str(params.get("kind", "production"))
+    return Hole(
+        id=f"M-{next_index}",
+        row=-1000,
+        col=next_index,
+        collar=collar,
+        toe=toe,
+        diameter_mm=float(params.get("diameter_mm", 152.0)),
+        subdrill_m=subdrill_m,
+        kind=kind,
+        source="manual",
+    )
+
+
+def local_spacing(holes: list[Hole], hole: Hole) -> float | None:
+    """Distance to the nearest enabled neighbour in the same row."""
+    same_row = [h for h in holes if h.enabled and h.id != hole.id and h.row == hole.row]
+    if not same_row:
+        return None
+    return min(_distance2d(hole, other) for other in same_row)
+
+
+def local_burden(holes: list[Hole], hole: Hole, contour: BlockContour) -> float | None:
+    """Distance to the previous row, or collar-to-face if this is the first row."""
+    previous = [h for h in holes if h.enabled and h.row == hole.row - 1]
+    if previous:
+        return min(_distance2d(hole, other) for other in previous)
+    return distance_to_free_faces((hole.collar.x, hole.collar.y), contour)

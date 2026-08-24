@@ -91,6 +91,8 @@ class GeologySerializationTests(unittest.TestCase):
             z_bottom_m=-3.0,
             priority=1,
             color="#c4a574",
+            spacing_a_m=4.5,
+            burden_b_m=3.5,
         )
         hole = Hole(
             id="1-01",
@@ -112,6 +114,8 @@ class GeologySerializationTests(unittest.TestCase):
         self.assertEqual(len(restored.domains), 1)
         self.assertEqual(restored.domains[0].name, "weathered")
         self.assertEqual(restored.domains[0].properties.density_kg_m3, 2200.0)
+        self.assertAlmostEqual(restored.domains[0].spacing_a_m, 4.5)
+        self.assertAlmostEqual(restored.domains[0].burden_b_m, 3.5)
         self.assertEqual(restored.holes[0].intervals[0].domain_id, "D-w")
         self.assertEqual(restored.holes[0].water_intervals[0].condition, "wet")
         self.assertEqual(restored.holes[0].measured_intervals[0].role, "measured")

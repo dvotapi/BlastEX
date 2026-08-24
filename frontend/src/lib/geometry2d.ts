@@ -107,6 +107,17 @@ export function holeLength(collar: Point3, toe: Point3): number {
   return Math.hypot(toe.x - collar.x, toe.y - collar.y, toe.z - collar.z);
 }
 
+/** Mirrors design/geometry.py::angle_azimuth — collar/toe → inclination and dip azimuth. */
+export function angleAzimuth(collar: Point3, toe: Point3): { angleDeg: number; azimuthDeg: number } {
+  const horizontal = Math.hypot(toe.x - collar.x, toe.y - collar.y);
+  const vertical = collar.z - toe.z;
+  const angleDeg = horizontal || vertical ? (Math.atan2(horizontal, vertical) * 180) / Math.PI : 0;
+  const dx = toe.x - collar.x;
+  const dy = toe.y - collar.y;
+  const azimuthDeg = dx || dy ? (((Math.atan2(dx, dy) * 180) / Math.PI) + 360) % 360 : 0;
+  return { angleDeg, azimuthDeg };
+}
+
 export type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 
 /** Габариты набора точек; null — если точек нет. */

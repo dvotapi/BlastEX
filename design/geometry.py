@@ -295,8 +295,18 @@ def distance_to_free_faces(point_xy: Point2, contour: BlockContour) -> float | N
 
 
 def true_burden(hole: Hole, contour: BlockContour) -> float | None:
-    """ЛНС по забою (учитывает наклон скважины) до ближайшего открытого откоса."""
+    """True face burden: toe-to-face distance (accounts for hole inclination)."""
     return distance_to_free_faces((hole.toe.x, hole.toe.y), contour)
+
+
+def toe_burden(hole: Hole, contour: BlockContour) -> float | None:
+    """Burden measured at the toe (same 2D distance as true face burden)."""
+    return true_burden(hole, contour)
+
+
+def collar_burden(hole: Hole, contour: BlockContour) -> float | None:
+    """Burden measured at the collar to the nearest free face."""
+    return distance_to_free_faces((hole.collar.x, hole.collar.y), contour)
 
 
 def local_basis(row_azimuth_deg: float) -> tuple[Point2, Point2]:

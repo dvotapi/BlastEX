@@ -70,7 +70,15 @@ export type BlockContour = {
   name: string;
 };
 
-export type HoleKind = "production" | "contour" | "presplit" | "trim";
+export type HoleKind =
+  | "production"
+  | "buffer"
+  | "trim"
+  | "presplit"
+  | "contour"
+  | "stab"
+  | "satellite"
+  | "infill";
 export type HoleSource = "generated" | "manual";
 export type DataRole = "designed" | "executed" | "predicted" | "measured";
 export type WaterCondition = "dry" | "moist" | "wet" | "flowing" | "";
@@ -108,6 +116,8 @@ export type BlastDomain = {
   priority: number;
   color: string;
   notes: string;
+  spacing_a_m: number | null;
+  burden_b_m: number | null;
 };
 
 export type HoleInterval = {
@@ -197,7 +207,14 @@ export type BlastDesign = {
   water_table_z_m: number | null;
 };
 
-export type PatternType = "square" | "rectangular" | "staggered";
+export type PatternType = "square" | "rectangular" | "staggered" | "variable" | "domain_dependent";
+
+export type RowPatternParams = {
+  spacing_a_m: number;
+  burden_b_m: number;
+  shift_ratio: number;
+  kind: HoleKind;
+};
 
 export type PatternParams = {
   pattern: PatternType;
@@ -206,11 +223,53 @@ export type PatternParams = {
   row_shift_ratio: number;
   row_azimuth_deg: number;
   offset_from_face_m: number;
+  first_row_burden_m: number | null;
+  first_row_follow_face: boolean;
   edge_margin_m: number;
   diameter_mm: number;
   subdrill_m: number;
   angle_deg: number;
   azimuth_deg: number;
+  default_kind: HoleKind;
+  row_params: RowPatternParams[];
+  contour_row: boolean;
+  presplit_row: boolean;
+  trim_row: boolean;
+  buffer_row: boolean;
+  stab_row: boolean;
+  satellite_holes: boolean;
+  infill_holes: boolean;
+  contour_spacing_m: number;
+  presplit_spacing_m: number;
+  trim_spacing_m: number;
+  buffer_offset_m: number;
+  buffer_spacing_m: number;
+  stab_depth_m: number;
+  satellite_radius_m: number;
+  infill_gap_factor: number;
+};
+
+export type MapMetric = "burden" | "spacing" | "hole_depth" | "subdrill" | "bench_height" | "toe_burden" | "collar_burden";
+
+export type HoleMapSample = {
+  hole_id: string;
+  kind: HoleKind | string;
+  x: number;
+  y: number;
+  burden: number | null;
+  spacing: number | null;
+  hole_depth: number;
+  subdrill: number;
+  bench_height: number;
+  toe_burden: number | null;
+  collar_burden: number | null;
+  true_face_burden: number | null;
+};
+
+export type EngineeringMaps = {
+  metrics: MapMetric[];
+  holes: HoleMapSample[];
+  stats: Record<string, { min: number; avg: number; max: number; count: number }>;
 };
 
 export type PatternGenerateResponse = {
@@ -281,6 +340,7 @@ export type DesignSummaryStats = {
   explosive_breakdown_kg: Record<string, number>;
   charged_hole_count: number;
   loads_by_hole_count: number;
+  hole_counts_by_kind?: Record<string, number>;
 };
 
 export type MicResult = {
@@ -308,6 +368,7 @@ export type AnalyzeResponse = {
   mic: MicResult;
   isolines: Isoline[];
   ppv_mm_s: number | null;
+  maps?: EngineeringMaps | null;
 };
 
 export type CostScenarioId = "drill_blast" | "drilling" | "blasting" | "contour_blasting";
@@ -425,9 +486,52 @@ export const DEFAULT_PATTERN_PARAMS: PatternParams = {
   row_shift_ratio: 0.5,
   row_azimuth_deg: 0,
   offset_from_face_m: 2,
+  first_row_burden_m: null,
+  first_row_follow_face: false,
   edge_margin_m: 1,
   diameter_mm: 152,
   subdrill_m: 1,
   angle_deg: 0,
   azimuth_deg: 0,
+  default_kind: "production",
+  row_params: [
+    { spacing_a_m: 5, burden_b_m: 3.5, shift_ratio: 0, kind: "production" },
+    { spacing_a_m: 5, burden_b_m: 4, shift_ratio: 0.5, kind: "production" },
+  ],
+  contour_row: false,
+  presplit_row: false,
+  trim_row: false,
+  buffer_row: false,
+  stab_row: false,
+  satellite_holes: false,
+  infill_holes: false,
+  contour_spacing_m: 2,
+  presplit_spacing_m: 1.5,
+  trim_spacing_m: 2.5,
+  buffer_offset_m: 1.5,
+  buffer_spacing_m: 4,
+  stab_depth_m: 3,
+  satellite_radius_m: 1.5,
+  infill_gap_factor: 1.6,
+};
+
+export const HOLE_KIND_LABELS: Record<HoleKind, string> = {
+  production: "Рабочая",
+  buffer: "Буферная",
+  trim: "Оконтуривающая",
+  presplit: "Предщелевая",
+  contour: "Контурная",
+  stab: "Короткая",
+  satellite: "Сателлит",
+  infill: "Дополнительная",
+};
+
+export const MAP_METRIC_LABELS: Record<MapMetric, string> = {
+  burden: "ЛНС",
+  spacing: "Шаг",
+  hole_depth: "Глубина",
+  subdrill: "Перебур",
+  bench_height: "Высота уступа",
+  toe_burden: "ЛНС по забою",
+  collar_burden: "ЛНС по устью",
 };

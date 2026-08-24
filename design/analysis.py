@@ -6,9 +6,11 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from collections import Counter
+
 from design.editing import spacing_report
 from design.geometry import block_volume, ensure_ccw, point_in_polygon, true_burden
-from design.models import BlastDesign, Hole
+from design.models import HOLE_KINDS, BlastDesign, Hole
 from design.timing import resolve_times
 
 Point2 = tuple[float, float]
@@ -18,6 +20,7 @@ def summary(design: BlastDesign) -> dict[str, Any]:
     enabled = [h for h in design.holes if h.enabled]
     production = [h for h in enabled if h.kind == "production"]
     contour_holes = [h for h in enabled if h.kind == "contour"]
+    counts = Counter(h.kind for h in enabled)
     footage = sum(h.length_m for h in enabled)
 
     enabled_ids = {h.id for h in enabled}
@@ -39,6 +42,7 @@ def summary(design: BlastDesign) -> dict[str, Any]:
         "hole_count": len(enabled),
         "production_hole_count": len(production),
         "contour_hole_count": len(contour_holes),
+        "hole_counts_by_kind": {kind: counts.get(kind, 0) for kind in HOLE_KINDS},
         "drilling_footage_m": round(footage, 2),
         "block_volume_m3": round(block_volume(design.contour, design.surfaces), 2),
         "total_charge_kg": round(total_charge_kg, 2),
@@ -246,7 +250,7 @@ def validate(
         )
 
     for h in enabled:
-        if h.kind != "production":
+        if h.kind not in ("production", "buffer"):
             continue
         burden = true_burden(h, design.contour)
         if burden is not None and burden < min_burden_m:

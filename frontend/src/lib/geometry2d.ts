@@ -43,7 +43,18 @@ export function rectContains(rect: { minX: number; minY: number; maxX: number; m
   return p.x >= rect.minX && p.x <= rect.maxX && p.y >= rect.minY && p.y <= rect.maxY;
 }
 
-export function zoomAt(camera: Camera, viewport: Viewport, screenPoint: Vec2, factor: number, minScale = 0.5, maxScale = 200): Camera {
+// Пределы масштаба: от обзора карьерного блока целиком до отдельной скважины.
+export const MIN_SCALE = 0.05;
+export const MAX_SCALE = 400;
+
+export function zoomAt(
+  camera: Camera,
+  viewport: Viewport,
+  screenPoint: Vec2,
+  factor: number,
+  minScale = MIN_SCALE,
+  maxScale = MAX_SCALE,
+): Camera {
   const worldBefore = screenToWorld(camera, viewport, screenPoint);
   const nextScale = Math.min(maxScale, Math.max(minScale, camera.scale * factor));
   const nextCamera = { ...camera, scale: nextScale };
@@ -105,4 +116,84 @@ export function angleAzimuth(collar: Point3, toe: Point3): { angleDeg: number; a
   const dy = toe.y - collar.y;
   const azimuthDeg = dx || dy ? (((Math.atan2(dx, dy) * 180) / Math.PI) + 360) % 360 : 0;
   return { angleDeg, azimuthDeg };
+}
+
+export type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+/** Габариты набора точек; null — если точек нет. */
+export function boundsOf(points: Vec2[]): Bounds | null {
+  if (!points.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Камера, при которой габариты целиком попадают во вьюпорт с полями.
+ * Используется кнопкой «По размеру» и автоподгонкой после раскладки сетки.
+ */
+export function fitCamera(
+  bounds: Bounds,
+  viewport: Viewport,
+  padding = 0.12,
+  fallbackScale = 6,
+  minScale = MIN_SCALE,
+  maxScale = MAX_SCALE,
+): Camera {
+  const center = { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
+  const width = Math.max(bounds.maxX - bounds.minX, 0);
+  const height = Math.max(bounds.maxY - bounds.minY, 0);
+  const usableW = Math.max(viewport.width * (1 - padding * 2), 1);
+  const usableH = Math.max(viewport.height * (1 - padding * 2), 1);
+  const scaleX = width > 1e-6 ? usableW / width : Infinity;
+  const scaleY = height > 1e-6 ? usableH / height : Infinity;
+  const raw = Math.min(scaleX, scaleY);
+  const scale = Number.isFinite(raw) ? raw : fallbackScale;
+  return { x: center.x, y: center.y, scale: Math.min(maxScale, Math.max(minScale, scale)) };
+}
+
+/** Сдвиг камеры на заданное число экранных пикселей. */
+export function panCameraByScreen(camera: Camera, dxPx: number, dyPx: number): Camera {
+  return { ...camera, x: camera.x + dxPx / camera.scale, y: camera.y - dyPx / camera.scale };
+}
+
+/** Ближайший «круглый» шаг (1·10ⁿ, 2·10ⁿ, 5·10ⁿ) не меньше запрошенного. */
+export function niceStep(rough: number): number {
+  if (!Number.isFinite(rough) || rough <= 0) return 1;
+  const exponent = Math.floor(Math.log10(rough));
+  const base = 10 ** exponent;
+  const normalized = rough / base;
+  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return factor * base;
+}
+
+/** Мировые границы, видимые во вьюпорте при текущей камере. */
+export function visibleBounds(camera: Camera, viewport: Viewport): Bounds {
+  const topLeft = screenToWorld(camera, viewport, { x: 0, y: 0 });
+  const bottomRight = screenToWorld(camera, viewport, { x: viewport.width, y: viewport.height });
+  return {
+    minX: Math.min(topLeft.x, bottomRight.x),
+    maxX: Math.max(topLeft.x, bottomRight.x),
+    minY: Math.min(topLeft.y, bottomRight.y),
+    maxY: Math.max(topLeft.y, bottomRight.y),
+  };
+}
+
+/** Проекция точки на отрезок и расстояние до неё — попадание курсором по ребру. */
+export function projectOnSegment(p: Vec2, a: Vec2, b: Vec2): { point: Vec2; distance: number; t: number } {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq < 1e-9) return { point: a, distance: distance(p, a), t: 0 };
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq));
+  const point = { x: a.x + t * dx, y: a.y + t * dy };
+  return { point, distance: distance(p, point), t };
 }

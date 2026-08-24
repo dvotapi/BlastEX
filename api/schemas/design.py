@@ -386,6 +386,47 @@ class SurfaceSampleResponse(BaseModel):
     elevations: list[float | None]
 
 
+class ReceptorSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    name: str = ""
+    kind: str = "building"
+    location: Point3Schema = Field(default_factory=lambda: Point3Schema(x=0.0, y=0.0, z=0.0))
+    ppv_limit_mm_s: float | None = None
+    notes: str = ""
+
+
+class VibrationModelSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    name: str = ""
+    k: float = 200.0
+    n: float = 1.6
+    scaled_distance: str = "q_cube_over_r"
+    calibration_source: str = ""
+    confidence: float = Field(0.3, ge=0.0, le=1.0)
+    notes: str = ""
+
+
+class VibrationMeasurementSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = ""
+    receptor_id: str = ""
+    ppv_mm_s: float = 0.0
+    role: str = "measured"
+    distance_m: float | None = None
+    mic_kg: float | None = None
+    scaled_distance: str = ""
+    source: str = ""
+    method: str = ""
+    timestamp: str = ""
+    event_label: str = ""
+    notes: str = ""
+
+
 class BlastDesignSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -405,6 +446,9 @@ class BlastDesignSchema(BaseModel):
     surfaces: SurfaceSetSchema = Field(default_factory=SurfaceSetSchema)
     domains: list[BlastDomainSchema] = Field(default_factory=list)
     water_table_z_m: float | None = None
+    receptors: list[ReceptorSchema] = Field(default_factory=list)
+    vibration_models: list[VibrationModelSchema] = Field(default_factory=list)
+    vibration_measurements: list[VibrationMeasurementSchema] = Field(default_factory=list)
 
 
 class PatternGenerateRequest(BaseModel):
@@ -721,3 +765,65 @@ class FragmentationPredictResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     measured: list[MeasuredFragmentationSchema] = Field(default_factory=list)
     calibration: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReceptorAttachRequest(BaseModel):
+    design: BlastDesignSchema
+    receptor: ReceptorSchema
+
+
+class ReceptorAttachResponse(BaseModel):
+    receptor: ReceptorSchema
+    receptors: list[ReceptorSchema]
+
+
+class VibrationConventionSchema(BaseModel):
+    id: str
+    label: str
+    formula: str
+
+
+class VibrationConventionsResponse(BaseModel):
+    conventions: list[VibrationConventionSchema]
+    law: str = "PPV = K × SD^n"
+
+
+class VibrationPredictRequest(BaseModel):
+    design: BlastDesignSchema
+    model_id: str = ""
+    mic_window_ms: float = Field(8.0, gt=0)
+    measured: list[VibrationMeasurementSchema] = Field(default_factory=list)
+
+
+class VibrationPredictionSchema(BaseModel):
+    receptor_id: str
+    receptor_name: str = ""
+    receptor_kind: str = ""
+    role: str = "predicted"
+    ppv_mm_s: float
+    distance_m: float
+    nearest_hole_id: str = ""
+    mic_kg: float
+    mic_window_ms: float
+    mic_hole_ids: list[str] = Field(default_factory=list)
+    scaled_distance: str
+    scaled_distance_value: float
+    scaled_distance_formula: str = ""
+    k: float
+    n: float
+    model_id: str
+    ppv_limit_mm_s: float | None = None
+    exceeds_limit: bool = False
+    measured: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class VibrationPredictResponse(BaseModel):
+    model: VibrationModelSchema
+    convention: str
+    convention_formula: str
+    mic: MicSchema
+    mic_window_ms: float
+    predictions: list[VibrationPredictionSchema] = Field(default_factory=list)
+    measured: list[VibrationMeasurementSchema] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    receptor_count: int = 0

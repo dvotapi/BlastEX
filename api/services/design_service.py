@@ -49,6 +49,11 @@ from api.schemas.design import (
     GeologyAssignResponse,
     GeologyInterceptRequest,
     GeologyInterceptResponse,
+    ReceptorAttachRequest,
+    ReceptorAttachResponse,
+    VibrationConventionsResponse,
+    VibrationPredictRequest,
+    VibrationPredictResponse,
 )
 from api.services.cost_service import calculate_cost
 from design import persistence as design_persistence
@@ -59,7 +64,15 @@ from design.export import holes_csv, passport_html
 from design.geometry import block_volume
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.maps import engineering_maps
-from design.models import BlastDesign, BlastDomain, BlockContour, Hole, Point3
+from design.models import (
+    BlastDesign,
+    BlastDomain,
+    BlockContour,
+    Hole,
+    Point3,
+    Receptor,
+    VibrationMeasurement,
+)
 from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
@@ -221,6 +234,40 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
 def design_maps(request: EngineeringMapsRequest) -> EngineeringMapsSchema:
     design = BlastDesign.from_dict(request.design.model_dump())
     return EngineeringMapsSchema(**engineering_maps(design))
+
+
+def attach_receptor(request: ReceptorAttachRequest) -> ReceptorAttachResponse:
+    from design.vibration import attach_receptor as attach
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    receptor = attach(design, Receptor.from_dict(request.receptor.model_dump()))
+    return ReceptorAttachResponse(
+        receptor=receptor.to_dict(),
+        receptors=[item.to_dict() for item in design.receptors],
+    )
+
+
+def list_vibration_conventions() -> VibrationConventionsResponse:
+    from design.vibration import list_conventions
+
+    return VibrationConventionsResponse(conventions=list_conventions())
+
+
+def predict_vibration(request: VibrationPredictRequest) -> VibrationPredictResponse:
+    from design.vibration import ScaledDistanceMismatchError, predict_design
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    measured = [VibrationMeasurement.from_dict(item.model_dump()) for item in request.measured]
+    try:
+        payload = predict_design(
+            design,
+            model_id=request.model_id,
+            mic_window_ms=request.mic_window_ms,
+            measurements=measured,
+        )
+    except (ValueError, ScaledDistanceMismatchError) as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    return VibrationPredictResponse(**payload)
 
 
 def list_fragmentation_models() -> FragmentationModelsResponse:

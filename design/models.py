@@ -10,9 +10,26 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-DESIGN_VERSION = 5
+DESIGN_VERSION = 6
 
 DATA_ROLES = ("designed", "executed", "predicted", "measured")
+ROLE_PREDICTED = "predicted"
+ROLE_MEASURED = "measured"
+RECEPTOR_KINDS = (
+    "building",
+    "pipeline",
+    "crusher",
+    "highwall",
+    "power_line",
+    "monitoring_station",
+)
+SCALED_DISTANCE_CONVENTIONS = (
+    "q_cube_over_r",
+    "r_over_q_cube",
+    "q_sqrt_over_r",
+    "r_over_q_sqrt",
+)
+DEFAULT_VIBRATION_CONVENTION = "q_cube_over_r"
 WATER_CONDITIONS = ("dry", "moist", "wet", "flowing")
 DECK_KINDS = (
     "stemming",
@@ -1289,6 +1306,201 @@ class InitiationNetwork:
         return network
 
 
+def _normalize_receptor_kind(value: Any, default: str = "building") -> str:
+    kind = str(value or default).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "здание": "building",
+        "здание_жилое": "building",
+        "труба": "pipeline",
+        "трубопровод": "pipeline",
+        "дробилка": "crusher",
+        "борт": "highwall",
+        "уступ": "highwall",
+        "лэп": "power_line",
+        "powerline": "power_line",
+        "линия": "power_line",
+        "сейсмопост": "monitoring_station",
+        "monitor": "monitoring_station",
+        "station": "monitoring_station",
+    }
+    if kind in RECEPTOR_KINDS:
+        return kind
+    return aliases.get(kind, default if default in RECEPTOR_KINDS else "building")
+
+
+def _normalize_sd_convention(value: Any, default: str = DEFAULT_VIBRATION_CONVENTION) -> str:
+    text = str(value or default).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "cube": DEFAULT_VIBRATION_CONVENTION,
+        "cube_root": DEFAULT_VIBRATION_CONVENTION,
+        "q13_over_r": DEFAULT_VIBRATION_CONVENTION,
+        "cis": DEFAULT_VIBRATION_CONVENTION,
+        "r_over_q13": "r_over_q_cube",
+        "square": "r_over_q_sqrt",
+        "square_root": "r_over_q_sqrt",
+        "usbm": "r_over_q_sqrt",
+    }
+    if text in SCALED_DISTANCE_CONVENTIONS:
+        return text
+    return aliases.get(text, default if default in SCALED_DISTANCE_CONVENTIONS else DEFAULT_VIBRATION_CONVENTION)
+
+
+def _clamp_confidence(value: Any, default: float = 0.3) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(1.0, confidence))
+
+
+@dataclass
+class Receptor:
+    """Protected or monitored site object. Predicted PPV is not stored here."""
+
+    id: str
+    name: str = ""
+    kind: str = "building"
+    location: Point3 = field(default_factory=lambda: Point3(x=0.0, y=0.0, z=0.0))
+    ppv_limit_mm_s: float | None = None
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "kind": _normalize_receptor_kind(self.kind),
+            "location": self.location.to_dict(),
+            "ppv_limit_mm_s": self.ppv_limit_mm_s,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Receptor:
+        data = data or {}
+        loc = data.get("location") or {}
+        if not loc and any(key in data for key in ("x", "y", "z")):
+            loc = {"x": data.get("x", 0.0), "y": data.get("y", 0.0), "z": data.get("z", 0.0)}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            name=str(data.get("name", "") or ""),
+            kind=_normalize_receptor_kind(data.get("kind")),
+            location=Point3.from_dict(loc),
+            ppv_limit_mm_s=_opt_float(data, "ppv_limit_mm_s"),
+            notes=str(data.get("notes", "") or ""),
+        )
+
+
+@dataclass
+class VibrationModel:
+    """Explicit site law PPV = K × SD^n. SD convention is part of the identity."""
+
+    id: str
+    name: str = ""
+    k: float = 200.0
+    n: float = 1.6
+    scaled_distance: str = DEFAULT_VIBRATION_CONVENTION
+    calibration_source: str = ""
+    confidence: float = 0.3
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "k": self.k,
+            "n": self.n,
+            "scaled_distance": _normalize_sd_convention(self.scaled_distance),
+            "calibration_source": self.calibration_source,
+            "confidence": _clamp_confidence(self.confidence),
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> VibrationModel:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            name=str(data.get("name", "") or ""),
+            k=float(data.get("k", 200.0) or 200.0),
+            n=float(data.get("n", 1.6) if data.get("n") is not None else 1.6),
+            scaled_distance=_normalize_sd_convention(data.get("scaled_distance")),
+            calibration_source=str(data.get("calibration_source", "") or ""),
+            confidence=_clamp_confidence(data.get("confidence"), default=0.3),
+            notes=str(data.get("notes", "") or ""),
+        )
+
+
+@dataclass
+class VibrationMeasurement:
+    """Measured PPV at a receptor. Never stored as a prediction."""
+
+    id: str
+    receptor_id: str
+    ppv_mm_s: float
+    role: str = ROLE_MEASURED
+    distance_m: float | None = None
+    mic_kg: float | None = None
+    scaled_distance: str = ""
+    source: str = ""
+    method: str = ""
+    timestamp: str = ""
+    event_label: str = ""
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        convention = str(self.scaled_distance or "").strip()
+        if convention:
+            convention = _normalize_sd_convention(convention)
+        return {
+            "id": self.id,
+            "receptor_id": self.receptor_id,
+            "ppv_mm_s": self.ppv_mm_s,
+            "role": ROLE_MEASURED,
+            "distance_m": self.distance_m,
+            "mic_kg": self.mic_kg,
+            "scaled_distance": convention,
+            "source": self.source,
+            "method": self.method,
+            "timestamp": self.timestamp,
+            "event_label": self.event_label,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> VibrationMeasurement:
+        data = data or {}
+        convention = str(data.get("scaled_distance", "") or "").strip()
+        if convention:
+            convention = _normalize_sd_convention(convention)
+        return cls(
+            id=str(data.get("id", "") or ""),
+            receptor_id=str(data.get("receptor_id", "") or ""),
+            ppv_mm_s=float(data.get("ppv_mm_s", 0.0) or 0.0),
+            role=ROLE_MEASURED,
+            distance_m=_opt_float(data, "distance_m"),
+            mic_kg=_opt_float(data, "mic_kg"),
+            scaled_distance=convention,
+            source=str(data.get("source", "") or ""),
+            method=str(data.get("method", "") or ""),
+            timestamp=str(data.get("timestamp", "") or ""),
+            event_label=str(data.get("event_label", "") or ""),
+            notes=str(data.get("notes", "") or ""),
+        )
+
+
+def default_vibration_model() -> VibrationModel:
+    return VibrationModel(
+        id="vm-site",
+        name="Площадочный закон",
+        k=200.0,
+        n=1.6,
+        scaled_distance=DEFAULT_VIBRATION_CONVENTION,
+        calibration_source="ориентировочно",
+        confidence=0.3,
+        notes="PPV = K × SD^n. Коэффициенты ориентировочные, не норматив.",
+    )
+
+
 @dataclass
 class BlastDesign:
     """Паспорт БВР — агрегат всего проекта блока."""
@@ -1309,6 +1521,9 @@ class BlastDesign:
     surfaces: Any = None
     domains: list[BlastDomain] = field(default_factory=list)
     water_table_z_m: float | None = None
+    receptors: list[Receptor] = field(default_factory=list)
+    vibration_models: list[VibrationModel] = field(default_factory=list)
+    vibration_measurements: list[VibrationMeasurement] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         from design.spatial.coordinates import CoordinateSystem
@@ -1337,6 +1552,9 @@ class BlastDesign:
             "surfaces": self.surfaces.to_dict(),
             "domains": [domain.to_dict() for domain in self.domains],
             "water_table_z_m": self.water_table_z_m,
+            "receptors": [item.to_dict() for item in self.receptors],
+            "vibration_models": [item.to_dict() for item in self.vibration_models],
+            "vibration_measurements": [item.to_dict() for item in self.vibration_measurements],
         }
 
     @classmethod
@@ -1361,4 +1579,9 @@ class BlastDesign:
             surfaces=SurfaceSet.from_dict(data.get("surfaces")),
             domains=[BlastDomain.from_dict(d) for d in data.get("domains", [])],
             water_table_z_m=_opt_float(data, "water_table_z_m"),
+            receptors=[Receptor.from_dict(item) for item in data.get("receptors", [])],
+            vibration_models=[VibrationModel.from_dict(item) for item in data.get("vibration_models", [])],
+            vibration_measurements=[
+                VibrationMeasurement.from_dict(item) for item in data.get("vibration_measurements", [])
+            ],
         )

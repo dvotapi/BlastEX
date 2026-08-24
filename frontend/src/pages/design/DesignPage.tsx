@@ -12,6 +12,7 @@ import {
   MAP_METRIC_LABELS,
   MAP_METRIC_UNITS,
   emptyDesign,
+  emptyReceptor,
   isFragmentationMapMetric,
   networkTies,
   normalizeNetwork,
@@ -30,6 +31,9 @@ import {
   type PatternParams,
   type Point3,
   type PpvRequest,
+  type ReceptorKind,
+  type VibrationModel,
+  type VibrationPredictResponse,
   type SchemeType,
   type SurfaceConnector,
   type SurfaceKind,
@@ -50,6 +54,7 @@ import { SummaryPanel } from "./SummaryPanel";
 import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
 import { TimingPanel } from "./TimingPanel";
+import { VibrationPanel } from "./VibrationPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -101,7 +106,12 @@ export function DesignPage({
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
   const [isolineStepMs, setIsolineStepMs] = useState(25);
   const [showIsolines, setShowIsolines] = useState(true);
+  const [micWindowMs, setMicWindowMs] = useState(8);
   const [ppv, setPpv] = useState<PpvRequest>(DEFAULT_PPV_REQUEST);
+  const [placingReceptor, setPlacingReceptor] = useState(false);
+  const [selectedReceptorId, setSelectedReceptorId] = useState<string | null>(null);
+  const [vibResult, setVibResult] = useState<VibrationPredictResponse | null>(null);
+  const [vibBusy, setVibBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const animationFrameRef = useRef<number | null>(null);
@@ -579,7 +589,7 @@ export function DesignPage({
         charge_rules: chargeRules as unknown as Record<string, unknown>,
         explosive_key: explosiveKey,
       };
-      const result = await api.design.analyze(designForAnalysis, isolineStepMs, 8.0, ppv);
+      const result = await api.design.analyze(designForAnalysis, isolineStepMs, micWindowMs, ppv);
       setAnalysis(result);
       if (result.firing_events) {
         dispatch({ type: "SET_NETWORK", network: { ...normalizeNetwork(document.network), firing_events: result.firing_events } });
@@ -676,6 +686,58 @@ export function DesignPage({
     dispatch({ type: "UPSERT_DOMAIN", domain: { ...domain, polygon: [...domain.polygon, point] } });
   }
 
+  function siteModel(): VibrationModel {
+    return document.vibration_models[0] ?? {
+      id: "vm-site",
+      name: "Площадочный закон",
+      k: 200,
+      n: 1.6,
+      scaled_distance: "q_cube_over_r",
+      calibration_source: "ориентировочно",
+      confidence: 0.3,
+      notes: "",
+    };
+  }
+
+  function addReceptorAt(world: { x: number; y: number }) {
+    const kind: ReceptorKind = "building";
+    const created = emptyReceptor(document.receptors, kind);
+    created.location = { x: world.x, y: world.y, z: document.contour.bench.crest_z_m };
+    dispatch({ type: "UPSERT_RECEPTOR", receptor: created });
+    setSelectedReceptorId(created.id);
+    setPlacingReceptor(false);
+    setDrawingDomain(false);
+    setVibResult(null);
+  }
+
+  async function predictVibration() {
+    if (!document.receptors.length) {
+      setError("Поставьте хотя бы один рецептор на план.");
+      return;
+    }
+    setVibBusy(true);
+    setError("");
+    try {
+      const result = await api.design.vibration({
+        design: {
+          ...document,
+          pattern_params: patternParams as unknown as Record<string, unknown>,
+          charge_rules: chargeRules as unknown as Record<string, unknown>,
+          explosive_key: explosiveKey,
+        },
+        model_id: siteModel().id,
+        mic_window_ms: micWindowMs,
+        measured: document.vibration_measurements,
+      });
+      setVibResult(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось рассчитать сейсмику.");
+      setVibResult(null);
+    } finally {
+      setVibBusy(false);
+    }
+  }
+
   function printPassport() {
     if (!document.design_id) return;
     window.open(api.design.passportUrl(document.design_id), "_blank");
@@ -737,6 +799,9 @@ export function DesignPage({
       setDrawingDomain(false);
       setMaps(null);
       setFragResult(null);
+      setVibResult(null);
+      setSelectedReceptorId(design.receptors[0]?.id ?? null);
+      setPlacingReceptor(false);
       setPendingTieFromId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
@@ -776,6 +841,9 @@ export function DesignPage({
     setDrawingDomain(false);
     setMaps(null);
     setFragResult(null);
+    setVibResult(null);
+    setSelectedReceptorId(null);
+    setPlacingReceptor(false);
     setPendingTieFromId(null);
   }
 
@@ -935,6 +1003,38 @@ export function DesignPage({
             result={fragResult}
             selectedHoleId={selected.size === 1 ? Array.from(selected)[0] : null}
           />
+          <VibrationPanel
+            model={siteModel()}
+            onModelChange={(patch) => dispatch({ type: "UPSERT_VIBRATION_MODEL", model: { ...siteModel(), ...patch } })}
+            receptors={document.receptors}
+            selectedReceptorId={selectedReceptorId}
+            onSelectedReceptorIdChange={(id) => {
+              setSelectedReceptorId(id);
+              setPlacingReceptor(false);
+            }}
+            placing={placingReceptor}
+            onTogglePlacing={() => {
+              setPlacingReceptor((prev) => !prev);
+              setDrawingDomain(false);
+            }}
+            onUpsertReceptor={(receptor) => {
+              dispatch({ type: "UPSERT_RECEPTOR", receptor });
+              setVibResult(null);
+            }}
+            onDeleteReceptor={(id) => {
+              dispatch({ type: "DELETE_RECEPTOR", id });
+              if (selectedReceptorId === id) setSelectedReceptorId(null);
+              setVibResult(null);
+            }}
+            measurements={document.vibration_measurements}
+            onUpsertMeasurement={(measurement) => dispatch({ type: "UPSERT_MEASUREMENT", measurement })}
+            onDeleteMeasurement={(id) => dispatch({ type: "DELETE_MEASUREMENT", id })}
+            micWindowMs={micWindowMs}
+            onMicWindowChange={setMicWindowMs}
+            onPredict={predictVibration}
+            busy={vibBusy}
+            result={vibResult}
+          />
         </div>
         <div className="design-main">
           {mode === "3d" ? (
@@ -1006,10 +1106,19 @@ export function DesignPage({
                 onTieHoles={addManualTie}
                 onClearPendingTie={() => setPendingTieFromId(null)}
                 domains={document.domains}
-                drawingDomainId={drawingDomain && selectedDomainId && (mode === "contour" || mode === "holes") ? selectedDomainId : null}
+                drawingDomainId={drawingDomain && selectedDomainId && (mode === "contour" || mode === "holes") && !placingReceptor ? selectedDomainId : null}
                 onDomainVertexAdd={addDomainVertex}
                 mapValues={mapMetric ? mapOverlay.values : undefined}
                 mapRange={mapMetric ? mapOverlay.range : null}
+                receptors={document.receptors}
+                selectedReceptorId={selectedReceptorId}
+                placingReceptor={placingReceptor}
+                onAddReceptor={addReceptorAt}
+                onSelectReceptor={(id) => {
+                  setSelectedReceptorId(id);
+                  setPlacingReceptor(false);
+                }}
+                vibrationPredictions={vibResult?.predictions}
               />
               {mode === "charge" ? (
                 <SectionView

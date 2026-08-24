@@ -20,13 +20,14 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3 } from "../../types/design";
-import { networkTies } from "../../types/design";
+import type { BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, Receptor, VibrationPrediction } from "../../types/design";
+import { RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
 
 const HOLE_HIT_RADIUS_PX = 12;
 const VERTEX_HIT_RADIUS_PX = 10;
 const EDGE_HIT_RADIUS_PX = 8;
+const RECEPTOR_HIT_RADIUS_PX = 12;
 const NEIGHBOUR_COUNT = 5;
 const SPACING_TOLERANCE_M = 0.5;
 const CLICK_SLOP_PX = 4;
@@ -87,6 +88,12 @@ export function PlanCanvas({
   onDomainVertexAdd,
   mapValues,
   mapRange,
+  receptors,
+  selectedReceptorId,
+  placingReceptor,
+  onAddReceptor,
+  onSelectReceptor,
+  vibrationPredictions,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -119,6 +126,12 @@ export function PlanCanvas({
   onDomainVertexAdd?: (domainId: string, point: Point3) => void;
   mapValues?: Record<string, number>;
   mapRange?: { min: number; max: number } | null;
+  receptors?: Receptor[];
+  selectedReceptorId?: string | null;
+  placingReceptor?: boolean;
+  onAddReceptor?: (world: Vec2) => void;
+  onSelectReceptor?: (id: string) => void;
+  vibrationPredictions?: VibrationPrediction[];
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -414,6 +427,16 @@ export function PlanCanvas({
     return toScreen(point);
   }
 
+  function hitReceptor(screen: Vec2): Receptor | null {
+    const items = receptors ?? [];
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const receptor = items[i];
+      const p = worldToScreen(camera, viewport, { x: receptor.location.x, y: receptor.location.y });
+      if (distance(p, screen) <= RECEPTOR_HIT_RADIUS_PX) return receptor;
+    }
+    return null;
+  }
+
   function hitHole(screen: Vec2): Hole | null {
     for (let i = holes.length - 1; i >= 0; i -= 1) {
       const h = holes[i];
@@ -553,6 +576,23 @@ export function PlanCanvas({
       return;
     }
     if (e.button !== 0) return;
+
+    if (placingReceptor && onAddReceptor) {
+      const world = applySnap(worldOf(screen));
+      const existing = hitReceptor(screen);
+      if (existing && onSelectReceptor) {
+        onSelectReceptor(existing.id);
+        return;
+      }
+      onAddReceptor({ x: world.x, y: world.y });
+      return;
+    }
+
+    const receptorHit = hitReceptor(screen);
+    if (receptorHit && onSelectReceptor && !drawingDomainId) {
+      onSelectReceptor(receptorHit.id);
+      return;
+    }
 
     if (drawingDomainId && onDomainVertexAdd) {
       const world = applySnap(worldOf(screen));
@@ -1202,6 +1242,21 @@ export function PlanCanvas({
           );
         })}
 
+        {(receptors ?? []).map((receptor) => {
+          const p = worldToScreen(camera, viewport, { x: receptor.location.x, y: receptor.location.y });
+          const pred = vibrationPredictions?.find((item) => item.receptor_id === receptor.id);
+          const selectedRec = receptor.id === selectedReceptorId;
+          return (
+            <g key={`rec-${receptor.id}`} className={`receptor-marker kind-${receptor.kind}${selectedRec ? " selected" : ""}${pred?.exceeds_limit ? " over" : ""}`}>
+              <rect x={p.x - 6} y={p.y - 6} width={12} height={12} transform={`rotate(45 ${p.x} ${p.y})`} />
+              <text x={p.x + 10} y={p.y - 6} className="receptor-label">
+                {receptor.name || RECEPTOR_KIND_LABELS[receptor.kind] || receptor.kind}
+                {pred ? ` ${ruNumber(pred.ppv_mm_s, 1)}` : ""}
+              </text>
+            </g>
+          );
+        })}
+
         {holes.map((h) => {
           const p = holeScreenPos(h);
           const isSelected = selected.has(h.id);
@@ -1264,8 +1319,7 @@ export function PlanCanvas({
           <text x={scaleBarPx / 2} y={-7}>{formatMeters(scaleBarMeters)} м</text>
         </g>
       </svg>
-
-      {hoveredVertexScreen && tool === "select" && !drawingDomainId && (
+      {hoveredVertexScreen && tool === "select" && !drawingDomainId && !placingReceptor && (
         <button
           type="button"
           className="vertex-delete-badge"
@@ -1307,11 +1361,14 @@ export function PlanCanvas({
             <li><i>Клавиши:</i> V — выбор, A — добавление, F — откос, H — панорама, Esc — снять выделение.</li>
             <li><i>Геология:</i> в режиме рисования региона клик ставит вершину полигона; остальные инструменты плана при этом не срабатывают.</li>
             <li><i>Инициирование:</i> в режиме связей клик по двум скважинам создаёт коннектор; в тайминге показаны изолинии и метки времени.</li>
+            <li><i>Рецепторы:</i> в режиме расстановки клик по плану ставит охраняемый объект; клик по маркеру выбирает его.</li>
           </ul>
         </div>
       ) : (
         <div className="plan-canvas-hint">
-          {drawingDomainId
+          {placingReceptor
+            ? "Клик — новый рецептор на плане · правой кнопкой или пробелом — перемещение · «？» — все жесты"
+            : drawingDomainId
             ? "Клик — вершина геологического региона · правой кнопкой или пробелом — перемещение · «？» — все жесты"
             : mode === "contour"
               ? "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик по точке — удалить · «？» — все жесты"

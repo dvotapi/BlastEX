@@ -49,6 +49,9 @@ import type {
   BlastDomain,
   GeologyInterceptResponse,
   FragmentationPredictResponse,
+  Receptor,
+  VibrationMeasurement,
+  VibrationPredictResponse,
 } from "../types/design";
 
 const V1 = "/api/v1";
@@ -233,6 +236,18 @@ export const api = {
         mic_window_ms: micWindowMs,
         ppv,
       }),
+    attachReceptor: (design: BlastDesign, receptor: Receptor) =>
+      post<{ receptor: Receptor; receptors: Receptor[] }>(`${V1}/design/receptors`, { design, receptor }),
+    vibrationConventions: () =>
+      get<{ conventions: Array<{ id: string; label: string; formula: string }>; law: string }>(
+        `${V1}/design/vibration/conventions`,
+      ),
+    vibration: (payload: {
+      design: BlastDesign;
+      model_id?: string;
+      mic_window_ms?: number;
+      measured?: VibrationMeasurement[];
+    }) => post<VibrationPredictResponse>(`${V1}/design/vibration`, payload),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,

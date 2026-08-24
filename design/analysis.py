@@ -536,10 +536,14 @@ def timing_diagnostics(
 
 
 def estimate_ppv(mic_kg: float, distance_m: float, k: float, n: float) -> float:
-    """Приведённое расстояние: V = K·(Q^(1/3)/R)^n. Коэффициенты K и n сильно
-    зависят от массива и вводятся пользователем — значения по умолчанию
-    в UI помечаются как ориентировочные, не как норматив."""
-    if mic_kg <= 0 or distance_m <= 0:
-        return 0.0
-    scaled_distance = (mic_kg ** (1.0 / 3.0)) / distance_m
-    return k * scaled_distance**n
+    """Legacy single-point PPV in the ``q_cube_over_r`` convention: V = K·(Q^(1/3)/R)^n.
+
+    Site-calibrated laws live on ``VibrationModel`` and must carry their own
+    scaled-distance convention. Do not reuse this helper with a square-root
+    or R/Q law — call ``design.vibration.predict_ppv`` instead.
+    """
+    from design.models import VibrationModel
+    from design.vibration import CONVENTION_Q_CUBE_OVER_R, predict_ppv
+
+    model = VibrationModel(id="legacy-analyze", k=k, n=n, scaled_distance=CONVENTION_Q_CUBE_OVER_R)
+    return predict_ppv(mic_kg, distance_m, model)

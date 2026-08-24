@@ -71,6 +71,10 @@ export function DesignPage({
 
   const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing" | "3d">("contour");
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 6 });
+  // Флаг «геометрию подменили целиком»: план вписывается в окно заново. Именно
+  // флаг, а не счётчик, — запрос переживает уход на вкладку «3D» и обратно
+  // (холст там размонтируется), но не срабатывает повторно.
+  const [pendingFit, setPendingFit] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [patternParams, setPatternParams] = useState<PatternParams>(DEFAULT_PATTERN_PARAMS);
   const [blockVolumeM3, setBlockVolumeM3] = useState<number | null>(null);
@@ -202,7 +206,9 @@ export function DesignPage({
         dispatch({ type: e.shiftKey ? "REDO" : "UNDO" });
         return;
       }
-      if ((e.key === "Delete" || e.key === "Backspace") && !typing && selected.size > 0) {
+      // В режиме контура Delete относится к вершинам блока (их обрабатывает
+      // сам холст), и выделенные ранее скважины трогать нельзя.
+      if ((e.key === "Delete" || e.key === "Backspace") && !typing && mode !== "contour" && selected.size > 0) {
         e.preventDefault();
         deleteSelected();
       }
@@ -234,6 +240,7 @@ export function DesignPage({
       setFragResult(null);
       await refreshMaps({ ...document, holes: result.holes, pattern_params: patternParams as unknown as Record<string, unknown> });
       setSelected(new Set());
+      setPendingFit(true);
       setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
       if (document.domains.length) {
         await interceptHoles(result.holes, document.domains, document.water_table_z_m);
@@ -245,12 +252,12 @@ export function DesignPage({
     }
   }
 
-  function onContourVerticesChange(vertices: Point3[]) {
+  function onContourChange(vertices: Point3[], freeFaces?: number[][], coalesce?: boolean) {
     const draped = vertices.map((v) => ({
       ...v,
       z: collarZFromSurfaces(document.surfaces, v.x, v.y, document.contour.bench.crest_z_m),
     }));
-    dispatch({ type: "SET_CONTOUR_VERTICES", vertices: draped });
+    dispatch({ type: "SET_CONTOUR_VERTICES", vertices: draped, free_faces: freeFaces, coalesce });
   }
 
   async function importSurface(kind: SurfaceKind, file: File) {
@@ -391,10 +398,22 @@ export function DesignPage({
     dispatch({ type: "ADD_HOLE", hole });
   }
 
+  function deleteHoles(ids: string[]) {
+    if (!ids.length) return;
+    dispatch({ type: "DELETE_HOLES", ids });
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function setHolesEnabled(ids: string[], enabled: boolean) {
+    dispatch({ type: "SET_HOLES_ENABLED", ids, enabled });
+  }
+
   function deleteSelected() {
-    if (!selected.size) return;
-    dispatch({ type: "DELETE_HOLES", ids: Array.from(selected) });
-    setSelected(new Set());
+    deleteHoles(Array.from(selected));
   }
 
   function onSelectHole3D(id: string, additive: boolean) {
@@ -707,6 +726,7 @@ export function DesignPage({
       }
       if (design.explosive_key) setExplosiveKey(design.explosive_key);
       setBlockVolumeM3(null);
+      setPendingFit(true);
       setSelected(new Set());
       setSelectedRow(null);
       setAnalysis(null);
@@ -731,6 +751,7 @@ export function DesignPage({
       if (id === document.design_id) {
         dispatch({ type: "LOAD", design: emptyDesign() });
         setBlockVolumeM3(null);
+        setPendingFit(true);
       }
       await refreshPlans();
     } catch (reason) {
@@ -740,6 +761,7 @@ export function DesignPage({
 
   function newPlan() {
     dispatch({ type: "LOAD", design: emptyDesign() });
+    setPendingFit(true);
     setPatternParams(DEFAULT_PATTERN_PARAMS);
     setChargeRules(DEFAULT_CHARGE_RULES);
     setTieParams(DEFAULT_TIE_PARAMS);
@@ -964,12 +986,16 @@ export function DesignPage({
                     setPendingTieFromId(Array.from(ids)[0]);
                   }
                 }}
-                onContourVerticesChange={onContourVerticesChange}
+                onContourChange={onContourChange}
                 onToggleFreeFace={onToggleFreeFace}
                 onMoveHoles={onMoveHoles}
                 onAddHole={onAddHole}
+                onDeleteHoles={deleteHoles}
+                onSetHolesEnabled={setHolesEnabled}
                 camera={camera}
                 onCameraChange={setCamera}
+                pendingFit={pendingFit}
+                onFitApplied={() => setPendingFit(false)}
                 spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
                 loadsById={mode === "charge" ? loadsById : undefined}
                 network={mode === "tie" || mode === "timing" ? document.network : undefined}
@@ -1006,6 +1032,7 @@ export function DesignPage({
                   onDeleteSelected={deleteSelected}
                   insertKind={insertKind}
                   onInsertKindChange={setInsertKind}
+                  onSetEnabled={setHolesEnabled}
                 />
               )}
             </>

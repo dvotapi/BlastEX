@@ -19,7 +19,7 @@ import { emptyCoordinateSystem, emptySurfaces } from "../../types/design";
 export type DesignAction =
   | { type: "LOAD"; design: BlastDesign }
   | { type: "SET_NAME"; name: string }
-  | { type: "SET_CONTOUR_VERTICES"; vertices: BlastDesign["contour"]["vertices"] }
+  | { type: "SET_CONTOUR_VERTICES"; vertices: BlastDesign["contour"]["vertices"]; free_faces?: number[][]; coalesce?: boolean }
   | { type: "TOGGLE_FREE_FACE"; edgeIndex: number }
   | { type: "SET_BENCH"; bench: Partial<BenchSurface> }
   | { type: "SET_COORDINATE_SYSTEM"; patch: Partial<CoordinateSystem> }
@@ -31,6 +31,7 @@ export type DesignAction =
   | { type: "UPDATE_HOLE"; id: string; patch: Partial<Hole> }
   | { type: "ADD_HOLE"; hole: Hole }
   | { type: "DELETE_HOLES"; ids: string[] }
+  | { type: "SET_HOLES_ENABLED"; ids: string[]; enabled: boolean }
   | { type: "SET_CHARGE_RULES"; rules: Partial<ChargeRules> }
   | { type: "SET_LOADS"; loads: HoleLoad[] }
   | { type: "SET_NETWORK"; network: InitiationNetwork }
@@ -98,8 +99,11 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     case "SET_NAME":
       return { ...document, name: action.name };
     case "SET_CONTOUR_VERTICES": {
+      // Вставка и удаление вершин присылают пересчитанные пометки откосов:
+      // индексы рёбер при этом сдвигаются, и сохранить старые нельзя.
       const total = action.vertices.length;
-      const free_faces = document.contour.free_faces.filter(([a, b]) => a >= 0 && a < total && b >= 0 && b < total);
+      const source = action.free_faces ?? document.contour.free_faces;
+      const free_faces = source.filter(([a, b]) => a >= 0 && a < total && b >= 0 && b < total);
       return {
         ...document,
         contour: { ...document.contour, vertices: action.vertices, free_faces },
@@ -146,6 +150,16 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       };
     case "ADD_HOLE":
       return { ...document, holes: [...document.holes, action.hole] };
+    case "SET_HOLES_ENABLED": {
+      // Отключённая скважина остаётся в паспорте и на плане, но выпадает из
+      // объёмов, погонажа, заряжания и тайминга — их считает сервер по флагу.
+      const ids = new Set(action.ids);
+      if (!ids.size) return document;
+      return {
+        ...document,
+        holes: document.holes.map((h) => (ids.has(h.id) ? { ...h, enabled: action.enabled } : h)),
+      };
+    }
     case "DELETE_HOLES": {
       const ids = new Set(action.ids);
       const holes = document.holes.filter((h) => !ids.has(h.id));
@@ -175,6 +189,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "UPDATE_HOLE",
   "ADD_HOLE",
   "DELETE_HOLES",
+  "SET_HOLES_ENABLED",
   "SET_LOADS",
   "SET_NETWORK",
 ];
@@ -201,10 +216,13 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
   if (
     action.type === "SET_PATTERN_PARAMS" ||
     action.type === "SET_CHARGE_RULES" ||
+    (action.type === "SET_CONTOUR_VERTICES" && action.coalesce) ||
     !UNDOABLE.includes(action.type)
   ) {
     // Параметры раскладки не создают отдельный шаг истории — они меняются
     // на каждое нажатие клавиши в форме, а не как правка документа.
+    // Так же и продолжение перетаскивания вершины (coalesce): шаг истории
+    // создаёт только первое смещение, дальше правится уже текущее состояние.
     return { ...state, present: nextPresent };
   }
 

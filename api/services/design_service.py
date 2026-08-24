@@ -61,7 +61,7 @@ from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
-from design.timing import build_template_network, resolve_times
+from design.timing import TimingExprError, build_template_network, resolve_network
 
 
 def _surfaces_from_request(payload) -> SurfaceSet | None:
@@ -176,7 +176,10 @@ def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
     holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
     if not holes:
         raise InvalidDesignError("Список скважин пуст — нечего коммутировать.")
-    network = build_template_network(holes, request.scheme, request.params)
+    try:
+        network = build_template_network(holes, request.scheme, request.params)
+    except TimingExprError as exc:
+        raise InvalidDesignError(str(exc)) from exc
     return TieGenerateResponse(
         network=network.to_dict(),
         starters_count=len(network.starters),
@@ -188,10 +191,11 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
     design = BlastDesign.from_dict(request.design.model_dump())
     enabled_holes = [h for h in design.holes if h.enabled]
 
-    times, timing_warnings = resolve_times(design.network, enabled_holes)
+    result = resolve_network(design.network, enabled_holes, design.loads)
+    times, timing_warnings = result.times_ms, result.warnings
     validation_warnings = run_validate(design)
     summary_data = run_summary(design)
-    mic_data = charge_per_delay(times, design.loads, window_ms=request.mic_window_ms)
+    mic_data = charge_per_delay(times, design.loads, window_ms=request.mic_window_ms, events=result.events)
     isolines_data = timing_isolines(times, enabled_holes, step_ms=request.isoline_step_ms)
 
     ppv_mm_s = None
@@ -207,6 +211,7 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
         isolines=isolines_data,
         ppv_mm_s=ppv_mm_s,
         maps=EngineeringMapsSchema(**engineering_maps(design)),
+        firing_events=[event.to_dict() for event in result.events],
     )
 
 

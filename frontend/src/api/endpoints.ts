@@ -31,6 +31,7 @@ import type {
   ChargeExplosive,
   ChargeGenerateResponse,
   ChargeRules,
+  CoordinateSystem,
   CostScenarioId,
   DesignCostResult,
   DesignSummary,
@@ -38,6 +39,10 @@ import type {
   PatternGenerateResponse,
   PpvRequest,
   SchemeType,
+  SurfaceKind,
+  SurfaceModel,
+  SurfaceSet,
+  SurfaceStats,
   TieGenerateResponse,
   TieParams,
 } from "../types/design";
@@ -140,12 +145,24 @@ export const api = {
 
   // --- проектирование БВР ---
   design: {
-    pattern: (contour: BlockContour, params: Record<string, unknown>, existingHoles: Hole[] = []) =>
+    pattern: (contour: BlockContour, params: Record<string, unknown>, existingHoles: Hole[] = [], surfaces?: SurfaceSet) =>
       post<PatternGenerateResponse>(`${V1}/design/pattern`, {
         contour,
         params,
         existing_holes: existingHoles,
+        surfaces,
       }),
+    importSurface: (payload: {
+      content: string;
+      filename: string;
+      kind: SurfaceKind;
+      format?: string;
+      name?: string;
+      coordinate_system?: CoordinateSystem;
+    }) =>
+      post<{ surface: SurfaceModel; stats: SurfaceStats }>(`${V1}/design/surfaces/import`, payload),
+    sampleSurface: (surface: SurfaceModel, points: Array<[number, number]>) =>
+      post<{ elevations: Array<number | null> }>(`${V1}/design/surfaces/sample`, { surface, points }),
     charge: (holes: Hole[], rules: ChargeRules, explosive: ChargeExplosive) =>
       post<ChargeGenerateResponse>(`${V1}/design/charge`, { holes, rules, explosive }),
     tie: (holes: Hole[], scheme: SchemeType, params: TieParams) =>

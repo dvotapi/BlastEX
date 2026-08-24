@@ -77,6 +77,13 @@
 
 .rubber-band { fill:rgba(45,117,86,.12); stroke:#2d7556; stroke-width:1; stroke-dasharray:3 2; }
 
+.surface-list { display:grid; gap:6px; }
+.surface-card { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border:1px solid #d9e2dd; border-radius:9px; background:#fff; }
+.surface-card.empty { color:#7b8982; }
+.surface-card b { font-size:12px; display:block; }
+.surface-card small { color:#7b8982; font-size:10px; }
+.surface-card .secondary-button { padding:5px 8px; font-size:11px; }
+
 .pattern-type-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
 .pattern-type-option { display:grid; gap:4px; justify-items:center; padding:10px 4px; border:1px solid #d9e2dd; border-radius:11px; background:#fff; text-align:center; }
 .pattern-type-option.active { border-color:#2d7556; background:#edf7f1; }

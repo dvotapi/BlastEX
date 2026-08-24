@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 from Blast import ExplosiveProperties
-from api.exceptions import DesignNotFoundError, InvalidDesignError, InvalidGeometryError
+from api.exceptions import (
+    DesignNotFoundError,
+    InvalidDesignError,
+    InvalidGeometryError,
+    InvalidSurveyError,
+)
 from api.schemas.cost import (
     AggregatedCostResultSchema,
     BlockGeometrySchema,
@@ -23,6 +28,11 @@ from api.schemas.design import (
     PatternGenerateRequest,
     PatternGenerateResponse,
     SummarySchema,
+    SurfaceImportRequest,
+    SurfaceImportResponse,
+    SurfaceSampleRequest,
+    SurfaceSampleResponse,
+    SurfaceStatsSchema,
     TieGenerateRequest,
     TieGenerateResponse,
     ValidationWarningSchema,
@@ -35,7 +45,16 @@ from design.export import holes_csv, passport_html
 from design.geometry import block_volume
 from design.models import BlastDesign, BlockContour, Hole
 from design.pattern import generate_pattern as run_generate_pattern
+from design.spatial.coordinates import CoordinateSystem
+from design.spatial.io import SurveyImportError, import_survey
+from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import build_template_network, resolve_times
+
+
+def _surfaces_from_request(payload) -> SurfaceSet | None:
+    if payload is None:
+        return None
+    return SurfaceSet.from_dict(payload.model_dump())
 
 
 def generate_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse:
@@ -44,13 +63,50 @@ def generate_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse
         raise InvalidGeometryError("Контур блока должен содержать не менее трёх точек.")
 
     existing_holes = [Hole.from_dict(h.model_dump()) for h in request.existing_holes]
-    holes = run_generate_pattern(contour, request.params, existing_holes)
+    surfaces = _surfaces_from_request(request.surfaces)
+    holes = run_generate_pattern(contour, request.params, existing_holes, surfaces)
 
     return PatternGenerateResponse(
         holes=[h.to_dict() for h in holes],
         hole_count=len(holes),
-        block_volume_m3=round(block_volume(contour), 2),
+        block_volume_m3=round(block_volume(contour, surfaces), 2),
     )
+
+
+def import_surface(request: SurfaceImportRequest) -> SurfaceImportResponse:
+    kind = request.kind if request.kind in SURFACE_KINDS else "top"
+    try:
+        survey = import_survey(request.content, filename=request.filename, format=request.format)
+    except SurveyImportError as exc:
+        raise InvalidSurveyError(str(exc)) from exc
+    surface = build_surface(
+        kind,
+        survey.points,
+        polylines=survey.polylines,
+        name=request.name,
+        source_format=survey.source_format,
+        source_name=survey.source_name or request.filename,
+        coordinate_system=CoordinateSystem.from_dict(request.coordinate_system.model_dump()),
+    )
+    if not surface.has_tin and not surface.points:
+        raise InvalidSurveyError("Не удалось построить поверхность: слишком мало точек.")
+    return SurfaceImportResponse(
+        surface=SurfaceModel.from_dict(surface.to_dict()).to_dict(),
+        stats=SurfaceStatsSchema(**surface.stats()),
+    )
+
+
+def sample_surface(request: SurfaceSampleRequest) -> SurfaceSampleResponse:
+    surface = SurfaceModel.from_dict(request.surface.model_dump())
+    if surface is None:
+        raise InvalidSurveyError("Поверхность не задана.")
+    elevations: list[float | None] = []
+    for raw in request.points:
+        if len(raw) < 2:
+            elevations.append(None)
+            continue
+        elevations.append(surface.elevation_at(float(raw[0]), float(raw[1])))
+    return SurfaceSampleResponse(elevations=elevations)
 
 
 def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
@@ -193,7 +249,7 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
     ]
     avg_undercharge_m = sum(stemming_lengths) / len(stemming_lengths) if stemming_lengths else 0.0
 
-    block_volume_m3 = block_volume(design.contour)
+    block_volume_m3 = block_volume(design.contour, design.surfaces)
     specific_q = total_charge_mass_kg / block_volume_m3 if block_volume_m3 > 0 else 0.0
     yield_per_hole_m3 = block_volume_m3 / total_holes if total_holes else 0.0
 

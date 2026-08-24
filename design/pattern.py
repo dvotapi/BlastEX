@@ -5,14 +5,14 @@ import math
 from typing import Any
 
 from design.geometry import (
+    drape_collar,
     ensure_ccw,
-    hole_from_collar,
     local_basis,
     offset_polygon,
     pattern_origin,
     point_in_polygon,
 )
-from design.models import BlockContour, Hole, Point3
+from design.models import BlockContour, Hole
 
 PATTERN_TYPES = ("square", "rectangular", "staggered")
 
@@ -21,6 +21,7 @@ def generate_pattern(
     contour: BlockContour,
     params: dict[str, Any],
     existing_holes: list[Hole] | None = None,
+    surfaces: object | None = None,
 ) -> list[Hole]:
     """Строит регулярную сетку скважин внутри контура блока.
 
@@ -52,8 +53,8 @@ def generate_pattern(
     subdrill_m = float(params.get("subdrill_m", 1.0))
     angle_deg = float(params.get("angle_deg", 0.0))
     azimuth_deg = float(params.get("azimuth_deg", row_azimuth_deg))
-    depth_m = params.get("depth_m")
-    depth_m = float(depth_m) if depth_m is not None else contour.bench.height_m + subdrill_m
+    depth_override = params.get("depth_m")
+    depth_override = float(depth_override) if depth_override is not None else None
 
     verts = ensure_ccw(contour.points_xy)
     if len(verts) < 3 or spacing_a <= 0 or burden_b <= 0:
@@ -74,8 +75,6 @@ def generate_pattern(
     u_min, u_max = min(us) - spacing_a, max(us) + spacing_a
     v_max = max(vs) + burden_b
 
-    collar_z = contour.bench.crest_z_m
-
     holes: list[Hole] = []
     row_index = 0
     v = offset_from_face
@@ -87,8 +86,9 @@ def generate_pattern(
             x = origin[0] + row_dir[0] * u + advance_dir[0] * v
             y = origin[1] + row_dir[1] * u + advance_dir[1] * v
             if point_in_polygon((x, y), boundary):
-                collar = Point3(x=x, y=y, z=collar_z)
-                toe = hole_from_collar(collar, depth_m, angle_deg, azimuth_deg)
+                collar, toe = drape_collar(
+                    x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_override
+                )
                 holes.append(
                     Hole(
                         id=f"{row_index + 1}-{col_index + 1:02d}",
@@ -107,7 +107,9 @@ def generate_pattern(
         row_index += 1
         v += burden_b
 
-    contour_holes = _generate_contour_row(contour, params, collar_z, diameter_mm, depth_m, subdrill_m)
+    contour_holes = _generate_contour_row(
+        contour, params, diameter_mm, depth_override, subdrill_m, surfaces
+    )
     holes.extend(contour_holes)
 
     manual = _keep_manual(existing_holes)
@@ -123,10 +125,10 @@ def _keep_manual(existing_holes: list[Hole] | None) -> list[Hole]:
 def _generate_contour_row(
     contour: BlockContour,
     params: dict[str, Any],
-    collar_z: float,
     default_diameter_mm: float,
-    default_depth_m: float,
+    default_depth_m: float | None,
     default_subdrill_m: float,
+    surfaces: object | None = None,
 ) -> list[Hole]:
     if not params.get("contour_row"):
         return []
@@ -135,7 +137,8 @@ def _generate_contour_row(
     if spacing <= 0:
         return []
     diameter_mm = float(params.get("contour_diameter_mm", default_diameter_mm))
-    depth_m = float(params.get("contour_depth_m", default_depth_m))
+    raw_depth = params.get("contour_depth_m", default_depth_m)
+    depth_m = float(raw_depth) if raw_depth is not None else None
     subdrill_m = float(params.get("contour_subdrill_m", default_subdrill_m))
     angle_deg = float(params.get("contour_angle_deg", 0.0))
 
@@ -156,8 +159,9 @@ def _generate_contour_row(
             while distance <= length:
                 x = a[0] + ux * distance
                 y = a[1] + uy * distance
-                collar = Point3(x=x, y=y, z=collar_z)
-                toe = hole_from_collar(collar, depth_m, angle_deg, azimuth_deg)
+                collar, toe = drape_collar(
+                    x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_m
+                )
                 holes.append(
                     Hole(
                         id=f"K{edge_idx + 1}-{col_index + 1:02d}",

@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { BlockContour, Hole } from "../../types/design";
+import type { BlockContour, Hole, SurfaceModel, SurfaceSet } from "../../types/design";
 
 const KIND_COLOR: Record<string, number> = {
   production: 0x2d7556,
@@ -24,6 +24,7 @@ type SceneState = {
   controls: OrbitControls;
   holeGroup: THREE.Group;
   contourGroup: THREE.Group;
+  surfaceGroup: THREE.Group;
   observer: ResizeObserver;
   rafId: number;
   framed: boolean;
@@ -32,11 +33,13 @@ type SceneState = {
 export function Scene3D({
   contour,
   holes,
+  surfaces,
   selected,
   onSelectHole,
 }: {
   contour: BlockContour;
   holes: Hole[];
+  surfaces?: SurfaceSet;
   selected: Set<string>;
   onSelectHole: (id: string, additive: boolean) => void;
 }) {
@@ -72,6 +75,8 @@ export function Scene3D({
 
     const holeGroup = new THREE.Group();
     const contourGroup = new THREE.Group();
+    const surfaceGroup = new THREE.Group();
+    scene.add(surfaceGroup);
     scene.add(contourGroup);
     scene.add(holeGroup);
 
@@ -110,7 +115,7 @@ export function Scene3D({
     }
     animate();
 
-    stateRef.current = { scene, camera, renderer, controls, holeGroup, contourGroup, observer, rafId, framed: false };
+    stateRef.current = { scene, camera, renderer, controls, holeGroup, contourGroup, surfaceGroup, observer, rafId, framed: false };
 
     return () => {
       cancelAnimationFrame(rafId);
@@ -127,15 +132,19 @@ export function Scene3D({
   useEffect(() => {
     const state = stateRef.current;
     if (!state) return;
-    const { scene, camera, controls, holeGroup, contourGroup } = state;
+    const { scene, camera, controls, holeGroup, contourGroup, surfaceGroup } = state;
 
     const points: Vec3[] = [...contour.vertices];
     for (const h of holes) {
       points.push(h.collar, h.toe);
     }
+    for (const surface of [surfaces?.top, surfaces?.floor, surfaces?.face, surfaces?.post_blast]) {
+      if (surface?.tin.vertices.length) points.push(...surface.tin.vertices);
+    }
     if (points.length === 0) {
       clearGroup(holeGroup);
       clearGroup(contourGroup);
+      clearGroup(surfaceGroup);
       return;
     }
 
@@ -143,6 +152,12 @@ export function Scene3D({
     const centerY = points.reduce((s, p) => s + p.y, 0) / points.length;
     const centerZ = points.reduce((s, p) => s + p.z, 0) / points.length;
     const toThree = (p: Vec3) => new THREE.Vector3(p.x - centerX, p.z - centerZ, -(p.y - centerY));
+
+    clearGroup(surfaceGroup);
+    addSurfaceMesh(surfaceGroup, surfaces?.top, toThree, 0x6f9e7a, 0.38);
+    addSurfaceMesh(surfaceGroup, surfaces?.floor, toThree, 0x8a8175, 0.32);
+    addSurfaceMesh(surfaceGroup, surfaces?.face, toThree, 0xc4a574, 0.4);
+    addSurfaceMesh(surfaceGroup, surfaces?.post_blast, toThree, 0x8b5a3c, 0.28);
 
     clearGroup(contourGroup);
     if (contour.vertices.length >= 2) {
@@ -187,7 +202,7 @@ export function Scene3D({
       state.framed = true;
     }
 
-  }, [contour, holes, selected, reframeTick]);
+  }, [contour, holes, surfaces, selected, reframeTick]);
 
   return (
     <div className="scene3d-wrap">
@@ -217,6 +232,36 @@ function clearGroup(group: THREE.Group) {
       else material.dispose();
     }
   }
+}
+
+function addSurfaceMesh(
+  group: THREE.Group,
+  surface: SurfaceModel | null | undefined,
+  toThree: (p: Vec3) => THREE.Vector3,
+  color: number,
+  opacity: number,
+) {
+  if (!surface?.tin.triangles.length) return;
+  const positions: number[] = [];
+  for (const tri of surface.tin.triangles) {
+    if (tri.length < 3) continue;
+    for (const index of tri.slice(0, 3)) {
+      const vertex = surface.tin.vertices[index];
+      if (!vertex) continue;
+      const p = toThree(vertex);
+      positions.push(p.x, p.y, p.z);
+    }
+  }
+  if (positions.length < 9) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  group.add(new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({
+    color,
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+  })));
 }
 
 function addLine(group: THREE.Group, points: Vec3[], toThree: (p: Vec3) => THREE.Vector3, color: number, width: number) {

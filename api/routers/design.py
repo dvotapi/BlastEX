@@ -14,6 +14,10 @@ from api.schemas.design import (
     DesignListResponse,
     PatternGenerateRequest,
     PatternGenerateResponse,
+    SurfaceImportRequest,
+    SurfaceImportResponse,
+    SurfaceSampleRequest,
+    SurfaceSampleResponse,
     TieGenerateRequest,
     TieGenerateResponse,
 )
@@ -26,6 +30,16 @@ router = APIRouter(prefix="/design", tags=["design"])
 @router.post("/pattern", response_model=PatternGenerateResponse)
 def post_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse:
     return design_service.generate_pattern(request)
+
+
+@router.post("/surfaces/import", response_model=SurfaceImportResponse)
+def post_surface_import(request: SurfaceImportRequest) -> SurfaceImportResponse:
+    return design_service.import_surface(request)
+
+
+@router.post("/surfaces/sample", response_model=SurfaceSampleResponse)
+def post_surface_sample(request: SurfaceSampleRequest) -> SurfaceSampleResponse:
+    return design_service.sample_surface(request)
 
 
 @router.post("/charge", response_model=ChargeGenerateResponse)

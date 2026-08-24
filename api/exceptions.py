@@ -43,3 +43,8 @@ class DesignNotFoundError(BlastExError):
 class InvalidDesignError(BlastExError):
     def __init__(self, message: str) -> None:
         super().__init__(message, error_type="invalid_design")
+
+
+class InvalidSurveyError(BlastExError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_type="invalid_survey")

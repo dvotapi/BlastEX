@@ -147,9 +147,99 @@ def offset_polygon(poly: list[Point2], distance_m: float) -> list[Point2]:
     return new_vertices
 
 
-def block_volume(contour: BlockContour) -> float:
-    """Объём блока: площадь контура × высота уступа."""
+def block_volume(contour: BlockContour, surfaces: object | None = None) -> float:
+    """Объём блока: площадь × высота плоскости или интеграл между TIN кровли и подошвы."""
+    top = getattr(surfaces, "top", None) if surfaces is not None else None
+    floor = getattr(surfaces, "floor", None) if surfaces is not None else None
+    if top is not None and top.has_tin:
+        return _volume_from_surfaces(contour, top, floor)
     return polygon_area(contour.points_xy) * contour.bench.height_m
+
+
+def _volume_from_surfaces(contour: BlockContour, top: object, floor: object | None) -> float:
+    """Численный интеграл (z_top − z_floor) по сетке внутри контура."""
+    verts = contour.points_xy
+    if len(verts) < 3:
+        return 0.0
+    xs = [p[0] for p in verts]
+    ys = [p[1] for p in verts]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    span = max(max_x - min_x, max_y - min_y, 1.0)
+    step = max(span / 40.0, 0.5)
+    volume = 0.0
+    y = min_y + step * 0.5
+    while y <= max_y:
+        x = min_x + step * 0.5
+        while x <= max_x:
+            if point_in_polygon((x, y), verts):
+                z_top = top.elevation_at(x, y)
+                if z_top is None:
+                    z_top = contour.bench.crest_z_m
+                z_floor = None
+                if floor is not None and getattr(floor, "has_tin", False):
+                    z_floor = floor.elevation_at(x, y)
+                if z_floor is None:
+                    z_floor = contour.bench.toe_z_m
+                volume += max(0.0, z_top - z_floor) * step * step
+            x += step
+        y += step
+    return volume
+
+
+def collar_elevation(x: float, y: float, contour: BlockContour, surfaces: object | None = None) -> float:
+    """Отметка устья: TIN кровли, иначе плоскость бровки."""
+    top = getattr(surfaces, "top", None) if surfaces is not None else None
+    if top is not None:
+        z = top.elevation_at(x, y)
+        if z is not None:
+            return z
+    return contour.bench.crest_z_m
+
+
+def hole_depth_m(
+    collar: Point3,
+    angle_deg: float,
+    azimuth_deg: float,
+    subdrill_m: float,
+    contour: BlockContour,
+    surfaces: object | None = None,
+    depth_m: float | None = None,
+) -> float:
+    """Глубина по оси: явный параметр, иначе пересечение с подошвой + перебур."""
+    if depth_m is not None:
+        return max(0.0, float(depth_m))
+    floor = getattr(surfaces, "floor", None) if surfaces is not None else None
+    if floor is not None and getattr(floor, "has_tin", False):
+        probe = hole_from_collar(collar, contour.bench.height_m + subdrill_m + 50.0, angle_deg, azimuth_deg)
+        hit = floor.line_intersection(collar, probe)
+        if hit is not None:
+            along = math.dist((collar.x, collar.y, collar.z), (hit.x, hit.y, hit.z))
+            return along + subdrill_m
+        floor_z = floor.elevation_at(collar.x, collar.y)
+        if floor_z is not None:
+            vertical = collar.z - floor_z
+            cos_a = math.cos(math.radians(angle_deg))
+            if abs(cos_a) < 1e-9:
+                return max(0.0, vertical) + subdrill_m
+            return max(0.0, vertical / cos_a) + subdrill_m
+    return contour.bench.height_m + subdrill_m
+
+
+def drape_collar(
+    x: float,
+    y: float,
+    angle_deg: float,
+    azimuth_deg: float,
+    subdrill_m: float,
+    contour: BlockContour,
+    surfaces: object | None = None,
+    depth_m: float | None = None,
+) -> tuple[Point3, Point3]:
+    """Устье на кровле и забой по подошве (или по плоскому уступу)."""
+    collar = Point3(x=x, y=y, z=collar_elevation(x, y, contour, surfaces))
+    depth = hole_depth_m(collar, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_m)
+    return collar, hole_from_collar(collar, depth, angle_deg, azimuth_deg)
 
 
 def hole_from_collar(

@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
+import { collarZFromSurfaces, surfaceElevation } from "../../lib/surfaces";
 import type { BlastVariant, Explosive, User } from "../../types";
 import {
   DEFAULT_CHARGE_RULES,
@@ -19,6 +20,7 @@ import {
   type Point3,
   type PpvRequest,
   type SchemeType,
+  type SurfaceKind,
   type TieParams,
 } from "../../types/design";
 import { ChargePanel } from "./ChargePanel";
@@ -30,6 +32,7 @@ import { PlanCanvas } from "./PlanCanvas";
 import { PlansPanel } from "./PlansPanel";
 import { SectionView } from "./SectionView";
 import { SummaryPanel } from "./SummaryPanel";
+import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
 import { TimingPanel } from "./TimingPanel";
 
@@ -62,6 +65,7 @@ export function DesignPage({
   const [blockVolumeM3, setBlockVolumeM3] = useState<number | null>(null);
   const [plans, setPlans] = useState<DesignSummary[]>([]);
   const [patternBusy, setPatternBusy] = useState(false);
+  const [surfaceBusy, setSurfaceBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -182,7 +186,7 @@ export function DesignPage({
     setPatternBusy(true);
     setError("");
     try {
-      const result = await api.design.pattern(document.contour, patternParams, document.holes);
+      const result = await api.design.pattern(document.contour, patternParams, document.holes, document.surfaces);
       dispatch({ type: "SET_HOLES", holes: result.holes });
       setBlockVolumeM3(result.block_volume_m3);
       setSelected(new Set());
@@ -196,7 +200,36 @@ export function DesignPage({
   }
 
   function onContourChange(vertices: Point3[], freeFaces?: number[][], coalesce?: boolean) {
-    dispatch({ type: "SET_CONTOUR_VERTICES", vertices, free_faces: freeFaces, coalesce });
+    const draped = vertices.map((v) => ({
+      ...v,
+      z: collarZFromSurfaces(document.surfaces, v.x, v.y, document.contour.bench.crest_z_m),
+    }));
+    dispatch({ type: "SET_CONTOUR_VERTICES", vertices: draped, free_faces: freeFaces, coalesce });
+  }
+
+  async function importSurface(kind: SurfaceKind, file: File) {
+    setSurfaceBusy(true);
+    setError("");
+    try {
+      const content = await file.text();
+      const result = await api.design.importSurface({
+        content,
+        filename: file.name,
+        kind,
+        coordinate_system: document.coordinate_system,
+      });
+      dispatch({ type: "SET_SURFACE", surface: result.surface });
+      if (kind === "top" && result.stats.z_max !== null) {
+        dispatch({ type: "SET_BENCH", bench: { crest_z_m: result.stats.z_max } });
+      }
+      if (kind === "floor" && result.stats.z_min !== null) {
+        dispatch({ type: "SET_BENCH", bench: { toe_z_m: result.stats.z_min } });
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось импортировать съёмку.");
+    } finally {
+      setSurfaceBusy(false);
+    }
   }
 
   function onToggleFreeFace(edgeIndex: number) {
@@ -213,8 +246,12 @@ export function DesignPage({
 
   function onAddHole(world: Vec2) {
     manualHoleCounter += 1;
-    const collar: Point3 = { x: Math.round(world.x * 100) / 100, y: Math.round(world.y * 100) / 100, z: document.contour.bench.crest_z_m };
-    const depth = document.contour.bench.crest_z_m - document.contour.bench.toe_z_m + patternParams.subdrill_m;
+    const x = Math.round(world.x * 100) / 100;
+    const y = Math.round(world.y * 100) / 100;
+    const z = collarZFromSurfaces(document.surfaces, x, y, document.contour.bench.crest_z_m);
+    const collar: Point3 = { x, y, z };
+    const floorZ = surfaceElevation(document.surfaces.floor, x, y) ?? document.contour.bench.toe_z_m;
+    const depth = z - floorZ + patternParams.subdrill_m;
     const toe = holeFromCollar(collar, depth, patternParams.angle_deg, patternParams.azimuth_deg);
     const hole: Hole = {
       id: `M-${manualHoleCounter}`,
@@ -456,7 +493,7 @@ export function DesignPage({
   return (
     <div className="page-content">
       <div className="page-heading">
-        <div><h1>Проектирование БВР</h1><p>Контур блока → сетка скважин → ручная правка</p></div>
+        <div><h1>Проектирование БВР</h1><p>Съёмка уступа → контур блока → сетка скважин</p></div>
         <span className="save-status">● {user.organization_name}</span>
       </div>
       {error && <div className="page-error" role="alert">{error}</div>}
@@ -527,7 +564,21 @@ export function DesignPage({
               </div>
             </section>
           ) : (
-            <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
+            <>
+              {mode === "contour" && (
+                <SurfacePanel
+                  surfaces={document.surfaces}
+                  bench={document.contour.bench}
+                  coordinateSystem={document.coordinate_system}
+                  onBenchChange={(bench) => dispatch({ type: "SET_BENCH", bench })}
+                  onCoordinateSystemChange={(patch) => dispatch({ type: "SET_COORDINATE_SYSTEM", patch })}
+                  onImport={importSurface}
+                  onClear={(kind) => dispatch({ type: "CLEAR_SURFACE", kind })}
+                  busy={surfaceBusy}
+                />
+              )}
+              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
+            </>
           )}
           <PlansPanel
             plans={plans}
@@ -556,6 +607,7 @@ export function DesignPage({
               <Scene3D
                 contour={document.contour}
                 holes={document.holes}
+                surfaces={document.surfaces}
                 selected={selected}
                 onSelectHole={onSelectHole3D}
               />
@@ -590,6 +642,7 @@ export function DesignPage({
                   contour={document.contour}
                   holes={document.holes}
                   loads={document.loads}
+                  surfaces={document.surfaces}
                   network={document.network}
                   warnings={analysis?.validation_warnings}
                   rowAzimuthDeg={patternParams.row_azimuth_deg}

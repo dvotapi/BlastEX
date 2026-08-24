@@ -14,6 +14,18 @@ DESIGN_VERSION = 3
 
 DATA_ROLES = ("designed", "executed", "predicted", "measured")
 WATER_CONDITIONS = ("dry", "moist", "wet", "flowing")
+HOLE_KINDS = (
+    "production",
+    "buffer",
+    "trim",
+    "presplit",
+    "contour",
+    "stab",
+    "satellite",
+    "infill",
+)
+# Wall / auxiliary kinds keep their own ids when the production grid is renumbered.
+PRESERVED_HOLE_KINDS = ("contour", "presplit", "trim", "satellite")
 MPA_TO_PA = 1_000_000.0
 GPA_TO_PA = 1_000_000_000.0
 
@@ -215,6 +227,8 @@ class BlastDomain:
     priority: int = 0
     color: str = ""
     notes: str = ""
+    spacing_a_m: float | None = None
+    burden_b_m: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -228,6 +242,8 @@ class BlastDomain:
             "priority": self.priority,
             "color": self.color,
             "notes": self.notes,
+            "spacing_a_m": self.spacing_a_m,
+            "burden_b_m": self.burden_b_m,
         }
 
     @classmethod
@@ -244,6 +260,8 @@ class BlastDomain:
             priority=int(data.get("priority", 0) or 0),
             color=str(data.get("color", "")),
             notes=str(data.get("notes", "")),
+            spacing_a_m=_opt_float(data, "spacing_a_m"),
+            burden_b_m=_opt_float(data, "burden_b_m"),
         )
 
     @property
@@ -379,7 +397,7 @@ class Hole:
     toe: Point3
     diameter_mm: float
     subdrill_m: float = 0.0
-    kind: str = "production"  # production | contour | presplit | trim
+    kind: str = "production"  # see HOLE_KINDS; unknown values are kept for old designs
     source: str = "generated"  # generated | manual
     enabled: bool = True
     intervals: list[HoleInterval] = field(default_factory=list)

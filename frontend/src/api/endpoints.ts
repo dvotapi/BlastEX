@@ -36,6 +36,7 @@ import type {
   DesignCostResult,
   DesignSummary,
   Hole,
+  EngineeringMaps,
   PatternGenerateResponse,
   PpvRequest,
   SchemeType,
@@ -147,13 +148,35 @@ export const api = {
 
   // --- проектирование БВР ---
   design: {
-    pattern: (contour: BlockContour, params: Record<string, unknown>, existingHoles: Hole[] = [], surfaces?: SurfaceSet) =>
+    pattern: (
+      contour: BlockContour,
+      params: Record<string, unknown>,
+      existingHoles: Hole[] = [],
+      surfaces?: SurfaceSet,
+      domains: BlastDomain[] = [],
+    ) =>
       post<PatternGenerateResponse>(`${V1}/design/pattern`, {
         contour,
         params,
         existing_holes: existingHoles,
         surfaces,
+        domains,
       }),
+    maps: (design: BlastDesign) => post<EngineeringMaps>(`${V1}/design/maps`, { design }),
+    editHoleGeometry: (payload: {
+      hole: Hole;
+      patch: Record<string, unknown>;
+      contour?: BlockContour;
+      surfaces?: SurfaceSet;
+    }) => post<{ hole: Hole }>(`${V1}/design/holes/geometry`, payload),
+    insertHole: (payload: {
+      contour: BlockContour;
+      x: number;
+      y: number;
+      params?: Record<string, unknown>;
+      existing_holes?: Hole[];
+      surfaces?: SurfaceSet;
+    }) => post<{ hole: Hole }>(`${V1}/design/holes/insert`, payload),
     importSurface: (payload: {
       content: string;
       filename: string;

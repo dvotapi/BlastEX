@@ -73,6 +73,8 @@ class BlastDomainSchema(BaseModel):
     priority: int = 0
     color: str = ""
     notes: str = ""
+    spacing_a_m: float | None = None
+    burden_b_m: float | None = None
 
 
 class HoleIntervalSchema(BaseModel):
@@ -260,6 +262,7 @@ class PatternGenerateRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     existing_holes: list[HoleSchema] = Field(default_factory=list)
     surfaces: SurfaceSetSchema | None = None
+    domains: list[BlastDomainSchema] = Field(default_factory=list)
 
 
 class PatternGenerateResponse(BaseModel):
@@ -309,6 +312,56 @@ class SummarySchema(BaseModel):
     explosive_breakdown_kg: dict[str, float]
     charged_hole_count: int
     loads_by_hole_count: int
+    hole_counts_by_kind: dict[str, int] = Field(default_factory=dict)
+
+
+class HoleMapSampleSchema(BaseModel):
+    hole_id: str
+    kind: str = "production"
+    x: float
+    y: float
+    burden: float | None = None
+    spacing: float | None = None
+    hole_depth: float = 0.0
+    subdrill: float = 0.0
+    bench_height: float = 0.0
+    toe_burden: float | None = None
+    collar_burden: float | None = None
+    true_face_burden: float | None = None
+
+
+class EngineeringMapsSchema(BaseModel):
+    metrics: list[str] = Field(default_factory=list)
+    holes: list[HoleMapSampleSchema] = Field(default_factory=list)
+    stats: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+
+class EngineeringMapsRequest(BaseModel):
+    design: BlastDesignSchema
+
+
+class HoleGeometryEditRequest(BaseModel):
+    hole: HoleSchema
+    patch: dict[str, Any] = Field(default_factory=dict)
+    contour: BlockContourSchema | None = None
+    surfaces: SurfaceSetSchema | None = None
+
+
+class HoleGeometryEditResponse(BaseModel):
+    hole: HoleSchema
+
+
+class HoleInsertRequest(BaseModel):
+    contour: BlockContourSchema
+    x: float
+    y: float
+    params: dict[str, Any] = Field(default_factory=dict)
+    existing_holes: list[HoleSchema] = Field(default_factory=list)
+    surfaces: SurfaceSetSchema | None = None
+
+
+class HoleInsertResponse(BaseModel):
+    hole: HoleSchema
 
 
 class MicSchema(BaseModel):
@@ -343,6 +396,7 @@ class AnalyzeResponse(BaseModel):
     mic: MicSchema
     isolines: list[IsolineSchema]
     ppv_mm_s: float | None = None
+    maps: EngineeringMapsSchema | None = None
 
 
 class DesignCostRequest(BaseModel):

@@ -34,6 +34,70 @@ class BlockContourSchema(BaseModel):
     name: str = "Блок"
 
 
+class DataProvenanceSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    source: str = ""
+    method: str = ""
+    timestamp: str = ""
+    role: str = "designed"
+
+
+class RockPropertySetSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    density_kg_m3: float | None = None
+    ucs_mpa: float | None = None
+    fracturing: str = ""
+    rqd_pct: float | None = None
+    youngs_modulus_gpa: float | None = None
+    poisson_ratio: float | None = None
+    p_wave_velocity_m_s: float | None = None
+    joint_spacing_m: float | None = None
+    joint_dip_deg: float | None = None
+    joint_dip_direction_deg: float | None = None
+    blastability: str = ""
+    water_condition: str = ""
+
+
+class BlastDomainSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    polygon: list[Point3Schema] = Field(default_factory=list)
+    properties: RockPropertySetSchema = Field(default_factory=RockPropertySetSchema)
+    provenance: DataProvenanceSchema = Field(default_factory=DataProvenanceSchema)
+    z_top_m: float | None = None
+    z_bottom_m: float | None = None
+    priority: int = 0
+    color: str = ""
+    notes: str = ""
+
+
+class HoleIntervalSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    from_m: float = Field(..., ge=0)
+    to_m: float = Field(..., ge=0)
+    domain_id: str = ""
+    domain_name: str = ""
+    properties: RockPropertySetSchema = Field(default_factory=RockPropertySetSchema)
+    provenance: DataProvenanceSchema = Field(default_factory=DataProvenanceSchema)
+    role: str = "designed"
+
+
+class WaterIntervalSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    from_m: float = Field(..., ge=0)
+    to_m: float = Field(..., ge=0)
+    condition: str = "wet"
+    provenance: DataProvenanceSchema = Field(default_factory=DataProvenanceSchema)
+    role: str = "designed"
+    notes: str = ""
+
+
 class HoleSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -47,6 +111,10 @@ class HoleSchema(BaseModel):
     kind: str = "production"
     source: str = "generated"
     enabled: bool = True
+    intervals: list[HoleIntervalSchema] = Field(default_factory=list)
+    water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
+    measured_intervals: list[HoleIntervalSchema] = Field(default_factory=list)
+    measured_water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
 
 
 class DeckSchema(BaseModel):
@@ -183,6 +251,8 @@ class BlastDesignSchema(BaseModel):
     explosive_key: str = ""
     coordinate_system: CoordinateSystemSchema = Field(default_factory=CoordinateSystemSchema)
     surfaces: SurfaceSetSchema = Field(default_factory=SurfaceSetSchema)
+    domains: list[BlastDomainSchema] = Field(default_factory=list)
+    water_table_z_m: float | None = None
 
 
 class PatternGenerateRequest(BaseModel):
@@ -296,3 +366,24 @@ class DesignListResponse(BaseModel):
 
 class DesignRenameRequest(BaseModel):
     name: str = Field(..., min_length=1)
+
+
+class GeologyAssignRequest(BaseModel):
+    domain: BlastDomainSchema
+    polygon: list[Point3Schema] = Field(default_factory=list)
+
+
+class GeologyAssignResponse(BaseModel):
+    domain: BlastDomainSchema
+
+
+class GeologyInterceptRequest(BaseModel):
+    holes: list[HoleSchema] = Field(default_factory=list)
+    domains: list[BlastDomainSchema] = Field(default_factory=list)
+    water_table_z_m: float | None = None
+
+
+class GeologyInterceptResponse(BaseModel):
+    holes: list[HoleSchema]
+    interval_count: int
+    water_interval_count: int

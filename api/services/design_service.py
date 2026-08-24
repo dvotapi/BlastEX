@@ -36,6 +36,10 @@ from api.schemas.design import (
     TieGenerateRequest,
     TieGenerateResponse,
     ValidationWarningSchema,
+    GeologyAssignRequest,
+    GeologyAssignResponse,
+    GeologyInterceptRequest,
+    GeologyInterceptResponse,
 )
 from api.services.cost_service import calculate_cost
 from design import persistence as design_persistence
@@ -43,7 +47,8 @@ from design.analysis import charge_per_delay, estimate_ppv, summary as run_summa
 from design.charging import apply_charge_rules
 from design.export import holes_csv, passport_html
 from design.geometry import block_volume
-from design.models import BlastDesign, BlockContour, Hole
+from design.geology import apply_domains_to_holes, assign_domain_polygon
+from design.models import BlastDesign, BlastDomain, BlockContour, Hole, Point3
 from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
@@ -107,6 +112,27 @@ def sample_surface(request: SurfaceSampleRequest) -> SurfaceSampleResponse:
             continue
         elevations.append(surface.elevation_at(float(raw[0]), float(raw[1])))
     return SurfaceSampleResponse(elevations=elevations)
+
+
+def assign_domain(request: GeologyAssignRequest) -> GeologyAssignResponse:
+    domain = BlastDomain.from_dict(request.domain.model_dump())
+    polygon = [Point3.from_dict(p.model_dump()) for p in request.polygon]
+    try:
+        assigned = assign_domain_polygon(domain, polygon)
+    except ValueError as exc:
+        raise InvalidGeometryError(str(exc)) from exc
+    return GeologyAssignResponse(domain=assigned.to_dict())
+
+
+def intercept_geology(request: GeologyInterceptRequest) -> GeologyInterceptResponse:
+    holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
+    domains = [BlastDomain.from_dict(d.model_dump()) for d in request.domains]
+    updated = apply_domains_to_holes(holes, domains, water_table_z_m=request.water_table_z_m)
+    return GeologyInterceptResponse(
+        holes=[h.to_dict() for h in updated],
+        interval_count=sum(len(h.intervals) for h in updated),
+        water_interval_count=sum(len(h.water_intervals) for h in updated),
+    )
 
 
 def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:

@@ -72,6 +72,62 @@ export type BlockContour = {
 
 export type HoleKind = "production" | "contour" | "presplit" | "trim";
 export type HoleSource = "generated" | "manual";
+export type DataRole = "designed" | "executed" | "predicted" | "measured";
+export type WaterCondition = "dry" | "moist" | "wet" | "flowing" | "";
+
+export type DataProvenance = {
+  source: string;
+  method: string;
+  timestamp: string;
+  role: DataRole;
+};
+
+export type RockPropertySet = {
+  density_kg_m3: number | null;
+  ucs_mpa: number | null;
+  fracturing: string;
+  rqd_pct: number | null;
+  youngs_modulus_gpa: number | null;
+  poisson_ratio: number | null;
+  p_wave_velocity_m_s: number | null;
+  joint_spacing_m: number | null;
+  joint_dip_deg: number | null;
+  joint_dip_direction_deg: number | null;
+  blastability: string;
+  water_condition: WaterCondition;
+};
+
+export type BlastDomain = {
+  id: string;
+  name: string;
+  polygon: Point3[];
+  properties: RockPropertySet;
+  provenance: DataProvenance;
+  z_top_m: number | null;
+  z_bottom_m: number | null;
+  priority: number;
+  color: string;
+  notes: string;
+};
+
+export type HoleInterval = {
+  from_m: number;
+  to_m: number;
+  domain_id: string;
+  domain_name: string;
+  properties: RockPropertySet;
+  provenance: DataProvenance;
+  role: DataRole;
+};
+
+export type WaterInterval = {
+  from_m: number;
+  to_m: number;
+  condition: Exclude<WaterCondition, "">;
+  provenance: DataProvenance;
+  role: DataRole;
+  notes: string;
+};
 
 export type Hole = {
   id: string;
@@ -84,6 +140,10 @@ export type Hole = {
   kind: HoleKind;
   source: HoleSource;
   enabled: boolean;
+  intervals: HoleInterval[];
+  water_intervals: WaterInterval[];
+  measured_intervals: HoleInterval[];
+  measured_water_intervals: WaterInterval[];
 };
 
 export type Deck = {
@@ -133,6 +193,8 @@ export type BlastDesign = {
   explosive_key: string;
   coordinate_system: CoordinateSystem;
   surfaces: SurfaceSet;
+  domains: BlastDomain[];
+  water_table_z_m: number | null;
 };
 
 export type PatternType = "square" | "rectangular" | "staggered";
@@ -262,6 +324,37 @@ export type DesignCostResult = {
   notes: string[];
 };
 
+export type GeologyInterceptResponse = {
+  holes: Hole[];
+  interval_count: number;
+  water_interval_count: number;
+};
+
+export function emptyProvenance(role: DataRole = "designed"): DataProvenance {
+  return { source: "engineer", method: "manual", timestamp: "", role };
+}
+
+export function emptyRockProperties(): RockPropertySet {
+  return {
+    density_kg_m3: null,
+    ucs_mpa: null,
+    fracturing: "",
+    rqd_pct: null,
+    youngs_modulus_gpa: null,
+    poisson_ratio: null,
+    p_wave_velocity_m_s: null,
+    joint_spacing_m: null,
+    joint_dip_deg: null,
+    joint_dip_direction_deg: null,
+    blastability: "",
+    water_condition: "",
+  };
+}
+
+export function emptyHoleGeology(): Pick<Hole, "intervals" | "water_intervals" | "measured_intervals" | "measured_water_intervals"> {
+  return { intervals: [], water_intervals: [], measured_intervals: [], measured_water_intervals: [] };
+}
+
 export function emptyCoordinateSystem(): CoordinateSystem {
   return { name: "local", epsg: null, origin_x: 0, origin_y: 0, origin_z: 0, units: "m" };
 }
@@ -283,7 +376,7 @@ export function emptyDesign(): BlastDesign {
   return {
     design_id: "",
     name: "Новый паспорт",
-    version: 2,
+    version: 3,
     updated_at: "",
     contour: emptyContour(),
     holes: [],
@@ -295,6 +388,8 @@ export function emptyDesign(): BlastDesign {
     explosive_key: "",
     coordinate_system: emptyCoordinateSystem(),
     surfaces: emptySurfaces(),
+    domains: [],
+    water_table_z_m: null,
   };
 }
 

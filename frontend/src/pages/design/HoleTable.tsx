@@ -11,6 +11,7 @@ export function HoleTable({
   onDeleteSelected,
   insertKind,
   onInsertKindChange,
+  onSetEnabled,
 }: {
   holes: Hole[];
   selected: Set<string>;
@@ -19,6 +20,7 @@ export function HoleTable({
   onDeleteSelected: () => void;
   insertKind: HoleKind;
   onInsertKindChange: (kind: HoleKind) => void;
+  onSetEnabled: (ids: string[], enabled: boolean) => void;
 }) {
   function toggleRow(id: string, additive: boolean) {
     if (!additive) {
@@ -37,6 +39,10 @@ export function HoleTable({
     const azimuth = next.azimuth ?? current.azimuthDeg;
     onUpdateHole(hole.id, { toe: holeFromCollar(hole.collar, depth, angle, azimuth) });
   }
+
+  const selectedHoles = holes.filter((h) => selected.has(h.id));
+  const allSelectedEnabled = selectedHoles.every((h) => h.enabled);
+  const disabledCount = selectedHoles.filter((h) => !h.enabled).length;
 
   return (
     <section className="panel hole-table-panel">
@@ -58,6 +64,7 @@ export function HoleTable({
           <thead>
             <tr>
               <th></th>
+              <th title="Скважина участвует в расчёте">Вкл.</th>
               <th>ID</th>
               <th>Тип</th>
               <th>X, м</th>
@@ -82,10 +89,21 @@ export function HoleTable({
               return (
                 <tr
                   key={h.id}
-                  className={selected.has(h.id) ? "selected" : ""}
+                  className={`${selected.has(h.id) ? "selected" : ""}${h.enabled ? "" : " disabled"}`.trim()}
                   onClick={(e) => toggleRow(h.id, e.shiftKey || e.metaKey || e.ctrlKey)}
                 >
                   <td><span className="row-radio" /></td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      className="hole-enabled-toggle"
+                      checked={h.enabled}
+                      title={h.enabled ? "Исключить скважину из расчёта" : "Вернуть скважину в расчёт"}
+                      aria-label={`Скважина ${h.id} участвует в расчёте`}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => onSetEnabled([h.id], e.target.checked)}
+                    />
+                  </td>
                   <td><b>{h.id}</b></td>
                   <td>
                     <select value={h.kind} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { kind: e.target.value as HoleKind })}>
@@ -129,8 +147,13 @@ export function HoleTable({
       </div>
       {selected.size > 0 && (
         <div className="hole-table-actions">
-          <span>{selected.size} выбрано</span>
-          <button className="danger-button" onClick={onDeleteSelected}>Удалить</button>
+          <span>{selected.size} выбрано{disabledCount ? ` · ${disabledCount} вне расчёта` : ""}</span>
+          <div className="hole-table-buttons">
+            <button onClick={() => onSetEnabled(Array.from(selected), !allSelectedEnabled)}>
+              {allSelectedEnabled ? "Исключить из расчёта" : "Вернуть в расчёт"}
+            </button>
+            <button className="danger-button" onClick={onDeleteSelected}>Удалить</button>
+          </div>
         </div>
       )}
     </section>

@@ -14,6 +14,9 @@ from api.schemas.design import (
     DesignListResponse,
     EngineeringMapsRequest,
     EngineeringMapsSchema,
+    FragmentationModelsResponse,
+    FragmentationPredictRequest,
+    FragmentationPredictResponse,
     HoleGeometryEditRequest,
     HoleGeometryEditResponse,
     HoleInsertRequest,
@@ -45,6 +48,16 @@ def post_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse:
 @router.post("/maps", response_model=EngineeringMapsSchema)
 def post_maps(request: EngineeringMapsRequest) -> EngineeringMapsSchema:
     return design_service.design_maps(request)
+
+
+@router.get("/fragmentation/models", response_model=FragmentationModelsResponse)
+def get_fragmentation_models() -> FragmentationModelsResponse:
+    return design_service.list_fragmentation_models()
+
+
+@router.post("/fragmentation", response_model=FragmentationPredictResponse)
+def post_fragmentation(request: FragmentationPredictRequest) -> FragmentationPredictResponse:
+    return design_service.predict_fragmentation(request)
 
 
 @router.post("/holes/geometry", response_model=HoleGeometryEditResponse)

@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.blast import ExplosivePropertiesSchema
+from api.schemas.blast import ExplosivePropertiesSchema, RockPropertiesSchema
 from api.schemas.cost import CalculationContextInputSchema, MaterialsSelectionSchema
 
 
@@ -594,3 +594,130 @@ class GeologyInterceptResponse(BaseModel):
     holes: list[HoleSchema]
     interval_count: int
     water_interval_count: int
+
+
+class DistributionPointSchema(BaseModel):
+    size_mm: float
+    passing_pct: float
+
+
+class ModelProvenanceSchema(BaseModel):
+    model: str
+    model_version: str
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    calibration: dict[str, Any] = Field(default_factory=dict)
+
+
+class PredictedFragmentationSchema(BaseModel):
+    role: str = "predicted"
+    x20_mm: float
+    x50_mm: float
+    x80_mm: float
+    oversize_pct: float
+    powder_factor_kg_m3: float
+    curve: list[DistributionPointSchema] = Field(default_factory=list)
+    provenance: ModelProvenanceSchema
+
+
+class MeasuredFragmentationSchema(BaseModel):
+    role: str = "measured"
+    x20_mm: float | None = None
+    x50_mm: float | None = None
+    x80_mm: float | None = None
+    oversize_pct: float | None = None
+    curve: list[DistributionPointSchema] = Field(default_factory=list)
+    source: str = ""
+    method: str = ""
+
+
+class DesignedFragmentationTargetSchema(BaseModel):
+    role: str = "designed"
+    lump_size_mm: float
+    max_oversize_pct: float = 5.0
+
+
+class FragmentationInputsSchema(BaseModel):
+    burden_m: float = 0.0
+    spacing_m: float = 0.0
+    bench_height_m: float = 0.0
+    diameter_mm: float = 0.0
+    charge_mass_kg: float = 0.0
+    powder_factor_kg_m3: float = 0.0
+    stemming_m: float = 0.0
+    explosive_name: str = ""
+    explosive_density_t_m3: float = 0.0
+    explosive_energy_mj_kg: float = 0.0
+    rock_name: str = ""
+    rock_density_t_m3: float = 0.0
+    rock_ucs_mpa: float = 0.0
+    rock_fissuring: float = 0.0
+    lump_size_mm: float = 0.0
+    hole_oversize_coeff: float = 1.05
+    influence_volume_m3: float = 0.0
+
+
+class FragmentationRegionSchema(BaseModel):
+    id: str
+    kind: str
+    hole_ids: list[str] = Field(default_factory=list)
+    x: float = 0.0
+    y: float = 0.0
+    hole_kind: str = "production"
+    inputs: FragmentationInputsSchema
+    prediction: PredictedFragmentationSchema
+    warnings: list[str] = Field(default_factory=list)
+
+
+class FragmentationMapSampleSchema(BaseModel):
+    hole_id: str
+    kind: str = "production"
+    x: float
+    y: float
+    x50: float | None = None
+    x80: float | None = None
+    oversize: float | None = None
+    powder_factor: float | None = None
+
+
+class FragmentationMapsSchema(BaseModel):
+    metrics: list[str] = Field(default_factory=list)
+    holes: list[FragmentationMapSampleSchema] = Field(default_factory=list)
+    stats: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+
+class FragmentationModelInfoSchema(BaseModel):
+    id: str
+    version: str
+    label: str
+    distribution: str
+
+
+class FragmentationModelsResponse(BaseModel):
+    models: list[FragmentationModelInfoSchema]
+
+
+class FragmentationPredictRequest(BaseModel):
+    design: BlastDesignSchema
+    model: str = "kuzram"
+    lump_size_mm: float = Field(400.0, gt=0)
+    max_oversize_pct: float = Field(5.0, gt=0, le=100)
+    calibration: dict[str, Any] = Field(default_factory=dict)
+    rock: RockPropertiesSchema | None = None
+    explosive: ExplosivePropertiesSchema | None = None
+    explosives: list[ExplosivePropertiesSchema] = Field(default_factory=list)
+    hole_oversize_coeff: float | None = Field(None, ge=1.0, le=1.5)
+    measured: list[MeasuredFragmentationSchema] = Field(default_factory=list)
+
+
+class FragmentationPredictResponse(BaseModel):
+    model: str
+    model_version: str
+    target: DesignedFragmentationTargetSchema
+    site: FragmentationRegionSchema
+    holes: list[FragmentationRegionSchema] = Field(default_factory=list)
+    regions: list[FragmentationRegionSchema] = Field(default_factory=list)
+    maps: FragmentationMapsSchema
+    warnings: list[str] = Field(default_factory=list)
+    measured: list[MeasuredFragmentationSchema] = Field(default_factory=list)
+    calibration: dict[str, Any] = Field(default_factory=dict)

@@ -48,6 +48,7 @@ import type {
   TieParams,
   BlastDomain,
   GeologyInterceptResponse,
+  FragmentationPredictResponse,
 } from "../types/design";
 
 const V1 = "/api/v1";
@@ -163,6 +164,20 @@ export const api = {
         domains,
       }),
     maps: (design: BlastDesign) => post<EngineeringMaps>(`${V1}/design/maps`, { design }),
+    fragmentationModels: () => get<{ models: Array<{ id: string; version: string; label: string; distribution: string }> }>(
+      `${V1}/design/fragmentation/models`,
+    ),
+    fragmentation: (payload: {
+      design: BlastDesign;
+      model: string;
+      lump_size_mm: number;
+      max_oversize_pct?: number;
+      calibration?: Record<string, number | null>;
+      rock?: { name: string; density_t_m3: number; ucs_mpa: number; fissuring_ff: number };
+      explosive?: ChargeExplosive;
+      explosives?: ChargeExplosive[];
+      hole_oversize_coeff?: number;
+    }) => post<FragmentationPredictResponse>(`${V1}/design/fragmentation`, payload),
     editHoleGeometry: (payload: {
       hole: Hole;
       patch: Record<string, unknown>;

@@ -359,7 +359,17 @@ export type PatternParams = {
   infill_gap_factor: number;
 };
 
-export type MapMetric = "burden" | "spacing" | "hole_depth" | "subdrill" | "bench_height" | "toe_burden" | "collar_burden";
+export type MapMetric =
+  | "burden"
+  | "spacing"
+  | "hole_depth"
+  | "subdrill"
+  | "bench_height"
+  | "toe_burden"
+  | "collar_burden";
+
+export type FragmentationMapMetric = "x50" | "x80" | "oversize" | "powder_factor";
+export type OverlayMetric = MapMetric | FragmentationMapMetric;
 
 export type HoleMapSample = {
   hole_id: string;
@@ -910,3 +920,139 @@ export const MAP_METRIC_LABELS: Record<MapMetric, string> = {
   toe_burden: "ЛНС по забою",
   collar_burden: "ЛНС по устью",
 };
+
+export const FRAGMENTATION_MAP_METRIC_LABELS: Record<FragmentationMapMetric, string> = {
+  x50: "X50 (прогноз)",
+  x80: "X80 (прогноз)",
+  oversize: "Негабарит (прогноз)",
+  powder_factor: "Уд. расход (прогноз)",
+};
+
+export const MAP_METRIC_UNITS: Record<OverlayMetric, string> = {
+  burden: "м",
+  spacing: "м",
+  hole_depth: "м",
+  subdrill: "м",
+  bench_height: "м",
+  toe_burden: "м",
+  collar_burden: "м",
+  x50: "мм",
+  x80: "мм",
+  oversize: "%",
+  powder_factor: "кг/м³",
+};
+
+export const FRAGMENTATION_MODELS: { value: FragmentationModelId; label: string }[] = [
+  { value: "kuznetsov", label: "Кузнецов" },
+  { value: "kuzram", label: "Kuz-Ram" },
+  { value: "swebrec", label: "Swebrec" },
+];
+
+export type FragmentationModelId = "kuznetsov" | "kuzram" | "swebrec";
+
+export type DistributionPoint = {
+  size_mm: number;
+  passing_pct: number;
+};
+
+export type ModelProvenance = {
+  model: string;
+  model_version: string;
+  inputs: Record<string, unknown>;
+  parameters: Record<string, unknown>;
+  calibration: Record<string, unknown>;
+};
+
+export type PredictedFragmentation = {
+  role: "predicted";
+  x20_mm: number;
+  x50_mm: number;
+  x80_mm: number;
+  oversize_pct: number;
+  powder_factor_kg_m3: number;
+  curve: DistributionPoint[];
+  provenance: ModelProvenance;
+};
+
+export type MeasuredFragmentation = {
+  role: "measured";
+  x20_mm: number | null;
+  x50_mm: number | null;
+  x80_mm: number | null;
+  oversize_pct: number | null;
+  curve: DistributionPoint[];
+  source: string;
+  method: string;
+};
+
+export type DesignedFragmentationTarget = {
+  role: "designed";
+  lump_size_mm: number;
+  max_oversize_pct: number;
+};
+
+export type FragmentationInputs = {
+  burden_m: number;
+  spacing_m: number;
+  bench_height_m: number;
+  diameter_mm: number;
+  charge_mass_kg: number;
+  powder_factor_kg_m3: number;
+  stemming_m: number;
+  explosive_name: string;
+  explosive_density_t_m3: number;
+  explosive_energy_mj_kg: number;
+  rock_name: string;
+  rock_density_t_m3: number;
+  rock_ucs_mpa: number;
+  rock_fissuring: number;
+  lump_size_mm: number;
+  hole_oversize_coeff: number;
+  influence_volume_m3: number;
+};
+
+export type FragmentationRegion = {
+  id: string;
+  kind: string;
+  hole_ids: string[];
+  x: number;
+  y: number;
+  hole_kind: string;
+  inputs: FragmentationInputs;
+  prediction: PredictedFragmentation;
+  warnings: string[];
+};
+
+export type FragmentationMapSample = {
+  hole_id: string;
+  kind: string;
+  x: number;
+  y: number;
+  x50: number | null;
+  x80: number | null;
+  oversize: number | null;
+  powder_factor: number | null;
+};
+
+export type FragmentationMaps = {
+  metrics: FragmentationMapMetric[];
+  holes: FragmentationMapSample[];
+  stats: Record<string, { min: number; avg: number; max: number; count: number }>;
+};
+
+export type FragmentationPredictResponse = {
+  model: string;
+  model_version: string;
+  target: DesignedFragmentationTarget;
+  site: FragmentationRegion;
+  holes: FragmentationRegion[];
+  regions: FragmentationRegion[];
+  maps: FragmentationMaps;
+  warnings: string[];
+  measured: MeasuredFragmentation[];
+  calibration: Record<string, unknown>;
+};
+
+export function isFragmentationMapMetric(metric: string): metric is FragmentationMapMetric {
+  return metric === "x50" || metric === "x80" || metric === "oversize" || metric === "powder_factor";
+}

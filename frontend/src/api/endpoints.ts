@@ -35,6 +35,9 @@ import type {
   CostScenarioId,
   DesignCostResult,
   DesignSummary,
+  LifecycleMeta,
+  LifecycleState,
+  WorkstationMeta,
   Hole,
   EngineeringMaps,
   PatternGenerateResponse,
@@ -48,6 +51,56 @@ import type {
   TieParams,
   BlastDomain,
   GeologyInterceptResponse,
+  FragmentationPredictResponse,
+  MovementPredictResponse,
+  Receptor,
+  VibrationMeasurement,
+  VibrationPredictResponse,
+  AsDrilledHole,
+  AsDrilledCompareResponse,
+  AsChargedHole,
+  AsChargedCompareResponse,
+  AsFiredHole,
+  AsFiredCompareResponse,
+  ExecutionCompareResponse,
+  BlastPassport,
+  BlastResult,
+  BlastResultCompareResponse,
+  DatasetSnapshot,
+  DatasetSummary,
+  SampleValidation,
+  CalibrationAlgorithm,
+  CalibrationModel,
+  CalibrationModelType,
+  CalibrationPredictResponse,
+  CalibrationSummary,
+  OutcomeModel,
+  OutcomeModelType,
+  OutcomePanelResponse,
+  OutcomePredictResponse,
+  OutcomeSummary,
+  DesignScenario,
+  DesignScenarioParams,
+  DesignScenarioSummary,
+  OptimizationResult,
+  DesignRecommendation,
+  ScenarioCompareResponse,
+  PredictedFragmentation,
+  PredictedVibrationSnapshot,
+  PlannedCost,
+  DesignedFragmentationTarget,
+  DesignedMuckpile,
+  DesignedBackbreak,
+  MwdSchemaResponse,
+  LearningModel,
+  LearningPredictResponse,
+  LearningSummary,
+  RegistryRecord,
+  DriftAlert,
+  DriftReport,
+  SpatialModel,
+  SpatialOverlay,
+  SpatialSummary,
 } from "../types/design";
 
 const V1 = "/api/v1";
@@ -163,6 +216,30 @@ export const api = {
         domains,
       }),
     maps: (design: BlastDesign) => post<EngineeringMaps>(`${V1}/design/maps`, { design }),
+    fragmentationModels: () => get<{ models: Array<{ id: string; version: string; label: string; distribution: string }> }>(
+      `${V1}/design/fragmentation/models`,
+    ),
+    fragmentation: (payload: {
+      design: BlastDesign;
+      model: string;
+      lump_size_mm: number;
+      max_oversize_pct?: number;
+      calibration?: Record<string, number | null>;
+      rock?: { name: string; density_t_m3: number; ucs_mpa: number; fissuring_ff: number };
+      explosive?: ChargeExplosive;
+      explosives?: ChargeExplosive[];
+      hole_oversize_coeff?: number;
+    }) => post<FragmentationPredictResponse>(`${V1}/design/fragmentation`, payload),
+    movementModels: () => get<{
+      models: Array<{ id: string; version: string; label: string }>;
+      kind: string;
+      label_ru: string;
+      label_en: string;
+      disclaimer: string;
+      is_physics_simulation: boolean;
+    }>(`${V1}/design/movement/models`),
+    movement: (payload: { design: BlastDesign }) =>
+      post<MovementPredictResponse>(`${V1}/design/movement`, payload),
     editHoleGeometry: (payload: {
       hole: Hole;
       patch: Record<string, unknown>;
@@ -196,9 +273,20 @@ export const api = {
         domains,
         water_table_z_m: waterTableZ,
       }),
-    charge: (holes: Hole[], rules: ChargeRules, explosive: ChargeExplosive) =>
-      post<ChargeGenerateResponse>(`${V1}/design/charge`, { holes, rules, explosive }),
-    tie: (holes: Hole[], scheme: SchemeType, params: TieParams) =>
+    charge: (
+      holes: Hole[],
+      rules: ChargeRules,
+      explosive: ChargeExplosive,
+      extras?: { contour?: BlockContour; explosives?: ChargeExplosive[] },
+    ) =>
+      post<ChargeGenerateResponse>(`${V1}/design/charge`, {
+        holes,
+        rules,
+        explosive,
+        contour: extras?.contour,
+        explosives: extras?.explosives ?? [],
+      }),
+    tie: (holes: Hole[], scheme: SchemeType, params: TieParams & Record<string, unknown>) =>
       post<TieGenerateResponse>(`${V1}/design/tie/generate`, { holes, scheme, params }),
     analyze: (design: BlastDesign, isolineStepMs: number, micWindowMs: number, ppv: PpvRequest | null) =>
       post<AnalyzeResponse>(`${V1}/design/analyze`, {
@@ -207,15 +295,371 @@ export const api = {
         mic_window_ms: micWindowMs,
         ppv,
       }),
+    attachReceptor: (design: BlastDesign, receptor: Receptor) =>
+      post<{ receptor: Receptor; receptors: Receptor[] }>(`${V1}/design/receptors`, { design, receptor }),
+    vibrationConventions: () =>
+      get<{ conventions: Array<{ id: string; label: string; formula: string }>; law: string }>(
+        `${V1}/design/vibration/conventions`,
+      ),
+    vibration: (payload: {
+      design: BlastDesign;
+      model_id?: string;
+      mic_window_ms?: number;
+      measured?: VibrationMeasurement[];
+    }) => post<VibrationPredictResponse>(`${V1}/design/vibration`, payload),
+    mwdSchema: () => get<MwdSchemaResponse>(`${V1}/design/as-drilled/mwd-schema`),
+    recordAsDrilled: (design: BlastDesign, holes: AsDrilledHole[], replace = false) =>
+      post<AsDrilledCompareResponse & { holes: Hole[] }>(`${V1}/design/as-drilled`, { design, holes, replace }),
+    compareAsDrilled: (design: BlastDesign) =>
+      post<AsDrilledCompareResponse>(`${V1}/design/as-drilled/compare`, { design }),
+    importMwd: (design: BlastDesign, design_hole_id: string, samples: Record<string, number | null>[], source = "") =>
+      post<AsDrilledCompareResponse & { holes: Hole[] }>(`${V1}/design/as-drilled/mwd`, {
+        design,
+        design_hole_id,
+        samples,
+        source,
+      }),
+    recordAsCharged: (design: BlastDesign, holes: AsChargedHole[], replace = false) =>
+      post<AsChargedCompareResponse & { holes: Hole[]; loads: BlastDesign["loads"] }>(`${V1}/design/as-charged`, {
+        design,
+        holes,
+        replace,
+      }),
+    compareAsCharged: (design: BlastDesign) =>
+      post<AsChargedCompareResponse>(`${V1}/design/as-charged/compare`, { design }),
+    recordAsFired: (design: BlastDesign, holes: AsFiredHole[], replace = false) =>
+      post<AsFiredCompareResponse & { holes: Hole[]; network: BlastDesign["network"] }>(`${V1}/design/as-fired`, {
+        design,
+        holes,
+        replace,
+      }),
+    compareAsFired: (design: BlastDesign) =>
+      post<AsFiredCompareResponse>(`${V1}/design/as-fired/compare`, { design }),
+    compareExecution: (design: BlastDesign) =>
+      post<ExecutionCompareResponse>(`${V1}/design/execution/compare`, { design }),
+    recordBlastResult: (
+      design: BlastDesign,
+      result: BlastResult,
+      extras: {
+        predicted_fragmentation?: PredictedFragmentation | null;
+        predicted_vibration?: PredictedVibrationSnapshot[];
+        planned_cost?: PlannedCost | null;
+        designed_fragmentation?: DesignedFragmentationTarget | null;
+        designed_muckpile?: DesignedMuckpile | null;
+        designed_backbreak?: DesignedBackbreak | null;
+        designed_toe_condition?: string;
+      } = {},
+    ) =>
+      post<BlastResultCompareResponse & { holes: Hole[]; loads: BlastDesign["loads"]; network: BlastDesign["network"] }>(
+        `${V1}/design/blast-result`,
+        { design, result, ...extras },
+      ),
+    compareBlastResult: (design: BlastDesign) =>
+      post<BlastResultCompareResponse>(`${V1}/design/blast-result/compare`, { design }),
+    listDatasets: () => get<{ items: DatasetSummary[] }>(`${V1}/datasets`),
+    buildDataset: (payload: {
+      site_id: string;
+      name?: string;
+      design_ids?: string[];
+      include_design?: BlastDesign;
+    }) => post<DatasetSnapshot>(`${V1}/datasets`, payload),
+    getDataset: (datasetId: string) => get<DatasetSnapshot>(`${V1}/datasets/${datasetId}`),
+    previewDatasetSample: (site_id: string, design: BlastDesign) =>
+      post<SampleValidation>(`${V1}/datasets/preview`, { site_id, design }),
+    listCalibrationModels: () => get<{ items: CalibrationSummary[] }>(`${V1}/calibration/models`),
+    trainCalibration: (payload: {
+      dataset_id: string;
+      model_type: CalibrationModelType | string;
+      algorithm?: string;
+      site_id?: string;
+    }) => post<CalibrationModel>(`${V1}/calibration/models`, payload),
+    getCalibrationModel: (modelId: string) => get<CalibrationModel>(`${V1}/calibration/models/${modelId}`),
+    setCalibrationStatus: (modelId: string, status: string) =>
+      post<CalibrationModel>(`${V1}/calibration/models/${modelId}/status`, { status }),
+    predictCalibration: (payload: {
+      model_type: CalibrationModelType | string;
+      model_id?: string;
+      site_id?: string;
+      use_production?: boolean;
+      baseline?: number | null;
+      features?: Record<string, unknown>;
+      design?: BlastDesign;
+    }) => post<CalibrationPredictResponse>(`${V1}/calibration/predict`, payload),
+    calibrationAlgorithms: () => get<{ items: CalibrationAlgorithm[]; default: string }>(`${V1}/calibration/algorithms`),
+    listOutcomeModels: (modelType?: string) =>
+      get<{ items: OutcomeSummary[] }>(`${V1}/outcomes/models${modelType ? `?model_type=${encodeURIComponent(modelType)}` : ""}`),
+    trainOutcome: (payload: {
+      dataset_id: string;
+      model_type: OutcomeModelType | string;
+      algorithm?: string;
+      site_id?: string;
+    }) => post<OutcomeModel>(`${V1}/outcomes/models`, payload),
+    getOutcomeModel: (modelId: string) => get<OutcomeModel>(`${V1}/outcomes/models/${modelId}`),
+    setOutcomeStatus: (modelId: string, status: string) =>
+      post<OutcomeModel>(`${V1}/outcomes/models/${modelId}/status`, { status }),
+    predictOutcome: (payload: {
+      model_type: OutcomeModelType | string;
+      model_id?: string;
+      site_id?: string;
+      use_production?: boolean;
+      features?: Record<string, unknown>;
+      design?: BlastDesign;
+    }) => post<OutcomePredictResponse>(`${V1}/outcomes/predict`, payload),
+    predictAllOutcomes: (payload: {
+      site_id?: string;
+      use_production?: boolean;
+      model_ids?: Partial<Record<OutcomeModelType, string>>;
+      features?: Record<string, unknown>;
+      design?: BlastDesign;
+    }) => post<OutcomePanelResponse>(`${V1}/outcomes/predict-all`, payload),
+    outcomeAlgorithms: () => get<{ items: CalibrationAlgorithm[]; default: string }>(`${V1}/outcomes/algorithms`),
+    outcomeModelTypes: () =>
+      get<{ items: Array<{ name: string; class_name: string; label: string; primary_target: string }> }>(
+        `${V1}/outcomes/model-types`,
+      ),
+    listLearningModels: (query?: { model_type?: string; scope?: string; site_id?: string }) => {
+      const params = new URLSearchParams();
+      if (query?.model_type) params.set("model_type", query.model_type);
+      if (query?.scope) params.set("scope", query.scope);
+      if (query?.site_id) params.set("site_id", query.site_id);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: LearningSummary[]; auto_approved: boolean }>(`${V1}/learning/models${suffix}`);
+    },
+    trainLearningGlobal: (payload: {
+      dataset_ids: string[];
+      model_type: OutcomeModelType | string;
+      algorithm?: string;
+    }) => post<LearningModel>(`${V1}/learning/global`, payload),
+    trainLearningSite: (payload: {
+      dataset_ids: string[];
+      site_id: string;
+      model_type: OutcomeModelType | string;
+      algorithm?: string;
+      prior_model_id?: string;
+    }) => post<LearningModel>(`${V1}/learning/site`, payload),
+    getLearningModel: (modelId: string) => get<LearningModel>(`${V1}/learning/models/${modelId}`),
+    setLearningStatus: (modelId: string, status: string) =>
+      post<LearningModel>(`${V1}/learning/models/${modelId}/status`, { status }),
+    predictLearning: (payload: {
+      model_type: OutcomeModelType | string;
+      model_id?: string;
+      site_id?: string;
+      scope?: string;
+      use_production?: boolean;
+      features?: Record<string, unknown>;
+      design?: BlastDesign;
+    }) => post<LearningPredictResponse>(`${V1}/learning/predict`, payload),
+    learningAlgorithms: () =>
+      get<{ items: CalibrationAlgorithm[]; default: string }>(`${V1}/learning/algorithms`),
+    listRegistryModels: (query?: { family?: string; status?: string; site_id?: string }) => {
+      const params = new URLSearchParams();
+      if (query?.family) params.set("family", query.family);
+      if (query?.status) params.set("status", query.status);
+      if (query?.site_id) params.set("site_id", query.site_id);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: RegistryRecord[]; auto_deployed: boolean }>(`${V1}/registry/models${suffix}`);
+    },
+    getRegistryModel: (family: string, modelId: string) =>
+      get<RegistryRecord>(`${V1}/registry/models/${encodeURIComponent(family)}/${encodeURIComponent(modelId)}`),
+    promoteRegistryModel: (family: string, modelId: string, payload: { to_status: string; confirm: boolean; note?: string }) =>
+      post<RegistryRecord>(`${V1}/registry/models/${encodeURIComponent(family)}/${encodeURIComponent(modelId)}/promote`, payload),
+    registryMeta: () =>
+      get<{
+        families: Array<{ name: string; label: string }>;
+        statuses: Array<{ name: string; label: string; allowed_transitions: string[] }>;
+        auto_deployed: boolean;
+      }>(`${V1}/registry/meta`),
+    checkDrift: (payload: { family: string; model_id: string; current_dataset_id: string }) =>
+      post<DriftReport>(`${V1}/drift/check`, payload),
+    listDriftReports: (query?: { family?: string; model_id?: string }) => {
+      const params = new URLSearchParams();
+      if (query?.family) params.set("family", query.family);
+      if (query?.model_id) params.set("model_id", query.model_id);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: DriftReport[]; auto_deployed: boolean; auto_retrained: boolean }>(`${V1}/drift/reports${suffix}`);
+    },
+    getDriftReport: (reportId: string) =>
+      get<DriftReport>(`${V1}/drift/reports/${encodeURIComponent(reportId)}`),
+    listDriftAlerts: (query?: { family?: string; model_id?: string; acknowledged?: boolean }) => {
+      const params = new URLSearchParams();
+      if (query?.family) params.set("family", query.family);
+      if (query?.model_id) params.set("model_id", query.model_id);
+      if (query?.acknowledged != null) params.set("acknowledged", String(query.acknowledged));
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: DriftAlert[]; auto_deployed: boolean; auto_retrained: boolean }>(`${V1}/drift/alerts${suffix}`);
+    },
+    acknowledgeDriftAlert: (alertId: string, payload: { confirm: boolean }) =>
+      post<DriftAlert>(`${V1}/drift/alerts/${encodeURIComponent(alertId)}/acknowledge`, payload),
+    driftMeta: () =>
+      get<{
+        kinds: Array<{ name: string; label: string }>;
+        severities: Array<{ name: string; label: string }>;
+        data_roles: Record<string, string>;
+        auto_deployed: boolean;
+        auto_retrained: boolean;
+        action: string;
+        next_step: string;
+      }>(`${V1}/drift/meta`),
+    listSpatialModels: (query?: { site_id?: string }) => {
+      const params = new URLSearchParams();
+      if (query?.site_id) params.set("site_id", query.site_id);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return get<{ items: SpatialSummary[]; modifies_design: boolean }>(`${V1}/spatial/models${suffix}`);
+    },
+    trainSpatial: (payload: {
+      dataset_id: string;
+      site_id?: string;
+      algorithm?: string;
+      neighbor_k?: number;
+    }) => post<SpatialModel>(`${V1}/spatial/models`, payload),
+    getSpatialModel: (modelId: string) =>
+      get<SpatialModel>(`${V1}/spatial/models/${encodeURIComponent(modelId)}`),
+    setSpatialStatus: (modelId: string, status: string) =>
+      post<SpatialModel>(`${V1}/spatial/models/${encodeURIComponent(modelId)}/status`, { status }),
+    predictSpatial: (payload: {
+      design: BlastDesign;
+      model_id?: string;
+      site_id?: string;
+      use_production?: boolean;
+      block?: Record<string, number | null | undefined>;
+      neighbor_k?: number;
+    }) => post<SpatialOverlay>(`${V1}/spatial/predict`, payload),
+    spatialMeta: () =>
+      get<{
+        metrics: Array<{ name: string; unit: string; label: string; role: string }>;
+        map_metrics: Array<{ name: string; unit: string; label: string; role: string }>;
+        data_roles: Record<string, string>;
+        applied_as: string;
+        modifies_design: boolean;
+        role: string;
+      }>(`${V1}/spatial/meta`),
     cost: (design: BlastDesign, scenarioId: CostScenarioId) =>
       post<DesignCostResult>(`${V1}/design/cost`, { design, scenario_id: scenarioId }),
+    createScenario: (payload: {
+      design: BlastDesign;
+      name: string;
+      params: DesignScenarioParams;
+      persist?: boolean;
+    }) => post<DesignScenario>(`${V1}/design/scenarios`, payload),
+    listScenarios: (designId: string) =>
+      get<{ items: DesignScenarioSummary[]; design_id: string; modifies_design: boolean }>(
+        `${V1}/design/plans/${designId}/scenarios`,
+      ),
+    getScenario: (designId: string, scenarioId: string) =>
+      get<DesignScenario>(`${V1}/design/plans/${designId}/scenarios/${scenarioId}`),
+    compareScenarios: (payload: {
+      design_id?: string;
+      scenario_ids?: string[];
+      include_baseline?: boolean;
+      design?: BlastDesign;
+      inline?: DesignScenario[];
+    }) => post<ScenarioCompareResponse>(`${V1}/design/scenarios/compare`, payload),
+    optimize: (payload: {
+      design: BlastDesign;
+      variables: Array<{
+        name: string;
+        values?: Array<number | string>;
+        minimum?: number | null;
+        maximum?: number | null;
+        step?: number | null;
+      }>;
+      objectives?: string[];
+      target_x50_mm?: number;
+      max_candidates?: number;
+      include_baseline?: boolean;
+      persist?: boolean;
+      persist_pareto_as_scenarios?: boolean;
+      params?: DesignScenarioParams;
+      constraints?: { max_ppv_mm_s?: number; max_oversize_pct?: number; max_cost_rub?: number };
+    }) => post<OptimizationResult>(`${V1}/design/optimize`, payload),
+    promoteOptimization: (payload: {
+      design: BlastDesign;
+      name: string;
+      params: DesignScenarioParams;
+      persist?: boolean;
+    }) => post<DesignScenario>(`${V1}/design/optimize/promote`, payload),
+    recommend: (payload: {
+      design: BlastDesign;
+      profile: string;
+      variables?: Array<{
+        name: string;
+        values?: Array<number | string>;
+        minimum?: number | null;
+        maximum?: number | null;
+        step?: number | null;
+      }>;
+      objectives?: string[];
+      target_x50_mm?: number;
+      max_candidates?: number;
+      persist?: boolean;
+      persist_as_scenario?: boolean;
+      params?: DesignScenarioParams;
+      constraints?: { max_ppv_mm_s?: number; max_oversize_pct?: number; max_cost_rub?: number };
+    }) => post<DesignRecommendation>(`${V1}/design/recommend`, payload),
+    promoteRecommendation: (payload: {
+      design: BlastDesign;
+      name: string;
+      params: DesignScenarioParams;
+      persist?: boolean;
+    }) => post<DesignScenario>(`${V1}/design/recommend/promote`, payload),
+    listRecommendations: (designId: string) =>
+      get<{ items: Array<{ recommendation_id: string; profile: string; created_at: string }>; design_id: string; auto_applied: boolean }>(
+        `${V1}/design/plans/${designId}/recommendations`,
+      ),
     passportUrl: (designId: string) => `${V1}/design/plans/${designId}/passport.html`,
+    passportRoles: () =>
+      get<{
+        roles: string[];
+        labels_ru: Record<string, string>;
+        labels_en: Record<string, string>;
+        approved: boolean;
+        auto_approved: boolean;
+        disclaimer: string;
+      }>(`${V1}/design/passport/roles`),
+    buildPassport: (payload: {
+      design: BlastDesign;
+      lump_size_mm?: number;
+      max_oversize_pct?: number;
+      fragmentation_model?: string;
+      include_predictions?: boolean;
+      planned_cost?: {
+        total_amount_rub?: number;
+        cost_per_m3?: number;
+        variable_total_rub?: number;
+        labor_total_rub?: number;
+        fixed_total_rub?: number;
+        notes?: string;
+      };
+    }) => post<BlastPassport>(`${V1}/design/passport`, payload),
+    renderPassportHtml: async (payload: {
+      design: BlastDesign;
+      lump_size_mm?: number;
+      planned_cost?: { total_amount_rub?: number; cost_per_m3?: number };
+    }) => {
+      const response = await fetch(`${V1}/design/passport.html`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error("Не удалось собрать печатную форму паспорта.");
+      return response.text();
+    },
+    getPlanPassport: (designId: string) => get<BlastPassport>(`${V1}/design/plans/${designId}/passport`),
     listPlans: () => get<{ items: DesignSummary[] }>(`${V1}/design/plans`),
     createPlan: (design: BlastDesign) => post<BlastDesign>(`${V1}/design/plans`, design),
     getPlan: (designId: string) => get<BlastDesign>(`${V1}/design/plans/${designId}`),
     savePlan: (designId: string, design: BlastDesign) =>
       put<BlastDesign>(`${V1}/design/plans/${designId}`, design),
     deletePlan: (designId: string) => del<void>(`${V1}/design/plans/${designId}`),
+    lifecycleMeta: () => get<LifecycleMeta>(`${V1}/design/lifecycle/meta`),
+    workstationMeta: () => get<WorkstationMeta>(`${V1}/design/workstation/meta`),
+    getPlanLifecycle: (designId: string) =>
+      get<LifecycleState>(`${V1}/design/plans/${designId}/lifecycle`),
+    transitionPlan: (designId: string, payload: { to_status: string; confirm: boolean; note?: string }) =>
+      post<LifecycleState>(`${V1}/design/plans/${designId}/lifecycle`, payload),
+    forkPlan: (designId: string, name = "") =>
+      post<BlastDesign>(`${V1}/design/plans/${designId}/fork`, { name }),
     exportCsv: async (designId: string, fileName: string) => {
       const response = await fetch(`${V1}/design/plans/${designId}/export.csv`, { credentials: "include" });
       if (!response.ok) throw new Error("Не удалось экспортировать паспорт.");

@@ -11,9 +11,17 @@ from api.schemas.design import (
     ChargeGenerateRequest,
     ChargeGenerateResponse,
     DesignCostRequest,
+    DesignForkRequest,
     DesignListResponse,
+    LifecycleMetaResponse,
+    LifecycleStateSchema,
+    LifecycleTransitionRequest,
+    WorkstationMetaResponse,
     EngineeringMapsRequest,
     EngineeringMapsSchema,
+    FragmentationModelsResponse,
+    FragmentationPredictRequest,
+    FragmentationPredictResponse,
     HoleGeometryEditRequest,
     HoleGeometryEditResponse,
     HoleInsertRequest,
@@ -30,9 +38,36 @@ from api.schemas.design import (
     GeologyAssignResponse,
     GeologyInterceptRequest,
     GeologyInterceptResponse,
+    ReceptorAttachRequest,
+    ReceptorAttachResponse,
+    VibrationConventionsResponse,
+    VibrationPredictRequest,
+    VibrationPredictResponse,
+    AsDrilledRecordRequest,
+    AsDrilledRecordResponse,
+    AsDrilledCompareRequest,
+    AsDrilledCompareResponse,
+    MwdImportRequest,
+    MwdSchemaResponse,
+    AsChargedRecordRequest,
+    AsChargedRecordResponse,
+    AsChargedCompareRequest,
+    AsChargedCompareResponse,
+    AsFiredRecordRequest,
+    AsFiredRecordResponse,
+    AsFiredCompareRequest,
+    AsFiredCompareResponse,
+    ExecutionCompareRequest,
+    ExecutionCompareResponse,
+    BlastResultRecordRequest,
+    BlastResultRecordResponse,
+    BlastResultCompareRequest,
+    BlastResultCompareResponse,
 )
+from api.schemas.movement import MovementModelsResponse, MovementPredictRequest, MovementPredictResponse
+from api.schemas.reporting import PassportBuildRequest, PassportDocumentSchema, PassportRolesResponse
 from api.security import require_internal_access
-from api.services import design_service
+from api.services import design_service, reporting_service
 
 router = APIRouter(prefix="/design", tags=["design"])
 
@@ -45,6 +80,26 @@ def post_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse:
 @router.post("/maps", response_model=EngineeringMapsSchema)
 def post_maps(request: EngineeringMapsRequest) -> EngineeringMapsSchema:
     return design_service.design_maps(request)
+
+
+@router.get("/fragmentation/models", response_model=FragmentationModelsResponse)
+def get_fragmentation_models() -> FragmentationModelsResponse:
+    return design_service.list_fragmentation_models()
+
+
+@router.post("/fragmentation", response_model=FragmentationPredictResponse)
+def post_fragmentation(request: FragmentationPredictRequest) -> FragmentationPredictResponse:
+    return design_service.predict_fragmentation(request)
+
+
+@router.get("/movement/models", response_model=MovementModelsResponse)
+def get_movement_models() -> MovementModelsResponse:
+    return design_service.list_movement_models()
+
+
+@router.post("/movement", response_model=MovementPredictResponse)
+def post_movement(request: MovementPredictRequest) -> MovementPredictResponse:
+    return design_service.predict_movement(request)
 
 
 @router.post("/holes/geometry", response_model=HoleGeometryEditResponse)
@@ -92,6 +147,76 @@ def post_analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     return design_service.analyze_design(request)
 
 
+@router.post("/receptors", response_model=ReceptorAttachResponse)
+def post_receptor(request: ReceptorAttachRequest) -> ReceptorAttachResponse:
+    return design_service.attach_receptor(request)
+
+
+@router.get("/vibration/conventions", response_model=VibrationConventionsResponse)
+def get_vibration_conventions() -> VibrationConventionsResponse:
+    return design_service.list_vibration_conventions()
+
+
+@router.post("/vibration", response_model=VibrationPredictResponse)
+def post_vibration(request: VibrationPredictRequest) -> VibrationPredictResponse:
+    return design_service.predict_vibration(request)
+
+
+@router.get("/as-drilled/mwd-schema", response_model=MwdSchemaResponse)
+def get_mwd_schema() -> MwdSchemaResponse:
+    return design_service.list_mwd_schema()
+
+
+@router.post("/as-drilled", response_model=AsDrilledRecordResponse)
+def post_as_drilled(request: AsDrilledRecordRequest) -> AsDrilledRecordResponse:
+    return design_service.record_as_drilled(request)
+
+
+@router.post("/as-drilled/compare", response_model=AsDrilledCompareResponse)
+def post_as_drilled_compare(request: AsDrilledCompareRequest) -> AsDrilledCompareResponse:
+    return design_service.compare_as_drilled(request)
+
+
+@router.post("/as-drilled/mwd", response_model=AsDrilledRecordResponse)
+def post_as_drilled_mwd(request: MwdImportRequest) -> AsDrilledRecordResponse:
+    return design_service.import_mwd(request)
+
+
+@router.post("/as-charged", response_model=AsChargedRecordResponse)
+def post_as_charged(request: AsChargedRecordRequest) -> AsChargedRecordResponse:
+    return design_service.record_as_charged(request)
+
+
+@router.post("/as-charged/compare", response_model=AsChargedCompareResponse)
+def post_as_charged_compare(request: AsChargedCompareRequest) -> AsChargedCompareResponse:
+    return design_service.compare_as_charged(request)
+
+
+@router.post("/as-fired", response_model=AsFiredRecordResponse)
+def post_as_fired(request: AsFiredRecordRequest) -> AsFiredRecordResponse:
+    return design_service.record_as_fired(request)
+
+
+@router.post("/as-fired/compare", response_model=AsFiredCompareResponse)
+def post_as_fired_compare(request: AsFiredCompareRequest) -> AsFiredCompareResponse:
+    return design_service.compare_as_fired(request)
+
+
+@router.post("/execution/compare", response_model=ExecutionCompareResponse)
+def post_execution_compare(request: ExecutionCompareRequest) -> ExecutionCompareResponse:
+    return design_service.compare_execution(request)
+
+
+@router.post("/blast-result", response_model=BlastResultRecordResponse)
+def post_blast_result(request: BlastResultRecordRequest) -> BlastResultRecordResponse:
+    return design_service.record_blast_result(request)
+
+
+@router.post("/blast-result/compare", response_model=BlastResultCompareResponse)
+def post_blast_result_compare(request: BlastResultCompareRequest) -> BlastResultCompareResponse:
+    return design_service.compare_blast_result(request)
+
+
 @router.post("/cost", response_model=AggregatedCostResultSchema)
 def post_design_cost(request: DesignCostRequest) -> AggregatedCostResultSchema:
     return design_service.estimate_design_cost(request)
@@ -102,11 +227,21 @@ def list_plans(session: dict = Depends(require_internal_access)) -> DesignListRe
     return design_service.list_plans(session["org"])
 
 
+@router.get("/lifecycle/meta", response_model=LifecycleMetaResponse)
+def get_lifecycle_meta() -> LifecycleMetaResponse:
+    return design_service.lifecycle_meta()
+
+
+@router.get("/workstation/meta", response_model=WorkstationMetaResponse)
+def get_workstation_meta() -> WorkstationMetaResponse:
+    return design_service.workstation_meta()
+
+
 @router.post("/plans", response_model=BlastDesignSchema, status_code=status.HTTP_201_CREATED)
 def create_plan(
     body: BlastDesignSchema, session: dict = Depends(require_internal_access)
 ) -> BlastDesignSchema:
-    return design_service.create_plan(session["org"], body)
+    return design_service.create_plan(session["org"], body, actor=str(session.get("sub") or ""))
 
 
 @router.get("/plans/{design_id}", response_model=BlastDesignSchema)
@@ -120,12 +255,46 @@ def save_plan(
     body: BlastDesignSchema,
     session: dict = Depends(require_internal_access),
 ) -> BlastDesignSchema:
-    return design_service.save_plan(session["org"], design_id, body)
+    return design_service.save_plan(
+        session["org"], design_id, body, actor=str(session.get("sub") or "")
+    )
 
 
 @router.delete("/plans/{design_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_plan(design_id: str, session: dict = Depends(require_internal_access)) -> None:
     design_service.delete_plan(session["org"], design_id)
+
+
+@router.get("/plans/{design_id}/lifecycle", response_model=LifecycleStateSchema)
+def get_plan_lifecycle(
+    design_id: str, session: dict = Depends(require_internal_access)
+) -> LifecycleStateSchema:
+    return design_service.get_plan_lifecycle(session["org"], design_id)
+
+
+@router.post("/plans/{design_id}/lifecycle", response_model=LifecycleStateSchema)
+def transition_plan(
+    design_id: str,
+    request: LifecycleTransitionRequest,
+    session: dict = Depends(require_internal_access),
+) -> LifecycleStateSchema:
+    return design_service.transition_plan(
+        session["org"],
+        design_id,
+        request,
+        actor=str(session.get("sub") or ""),
+    )
+
+
+@router.post("/plans/{design_id}/fork", response_model=BlastDesignSchema, status_code=status.HTTP_201_CREATED)
+def fork_plan(
+    design_id: str,
+    request: DesignForkRequest,
+    session: dict = Depends(require_internal_access),
+) -> BlastDesignSchema:
+    return design_service.fork_plan(
+        session["org"], design_id, request, actor=str(session.get("sub") or "")
+    )
 
 
 @router.get("/plans/{design_id}/export.csv")
@@ -140,9 +309,32 @@ def export_plan_csv(
     )
 
 
+@router.get("/passport/roles", response_model=PassportRolesResponse)
+def get_passport_roles() -> PassportRolesResponse:
+    return reporting_service.list_roles()
+
+
+@router.post("/passport", response_model=PassportDocumentSchema)
+def post_passport(request: PassportBuildRequest) -> PassportDocumentSchema:
+    return reporting_service.build_from_request(request)
+
+
+@router.post("/passport.html")
+def post_passport_html(request: PassportBuildRequest) -> Response:
+    html_text = reporting_service.render_from_request(request)
+    return Response(content=html_text, media_type="text/html")
+
+
+@router.get("/plans/{design_id}/passport", response_model=PassportDocumentSchema)
+def get_plan_passport(
+    design_id: str, session: dict = Depends(require_internal_access)
+) -> PassportDocumentSchema:
+    return reporting_service.get_plan_passport(session["org"], design_id)
+
+
 @router.get("/plans/{design_id}/passport.html")
 def export_plan_passport(
     design_id: str, session: dict = Depends(require_internal_access)
 ) -> Response:
-    html_text = design_service.export_plan_passport(session["org"], design_id)
+    html_text = reporting_service.export_plan_passport_html(session["org"], design_id)
     return Response(content=html_text, media_type="text/html")

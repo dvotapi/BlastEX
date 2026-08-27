@@ -1,5 +1,6 @@
 import type { HoleKind, PatternParams, PatternType, RowPatternParams } from "../../types/design";
 import { HOLE_KIND_LABELS } from "../../types/design";
+import { RoleBadge } from "./RoleBadge";
 
 const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
   { value: "square", label: "Квадратная", hint: "b = a" },
@@ -56,7 +57,7 @@ export function PatternPanel({
 
   return (
     <section className="panel">
-      <header><b>Раскладка сетки</b><span>02</span></header>
+      <header><b>Раскладка сетки</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
         <div className="pattern-type-grid pattern-type-grid-5">
           {PATTERN_OPTIONS.map((opt) => (

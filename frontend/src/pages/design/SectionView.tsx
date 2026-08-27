@@ -21,6 +21,7 @@ import {
 } from "../../lib/geometry2d";
 import { surfaceElevation } from "../../lib/surfaces";
 import type { BlockContour, Hole, HoleLoad, InitiationNetwork, SurfaceSet, ValidationWarning } from "../../types/design";
+import { isExplosiveDeckKind, primerDepths } from "../../types/design";
 
 const DRAW_PREFIX = "sec";
 const VIEW_HEIGHT = 460;
@@ -261,7 +262,7 @@ export function SectionView({
   const dimAxis = dimHole ? makeHoleAxis(dimHole.hole) : null;
   const dimLoad = dimHole ? loadById.get(dimHole.hole.id) : undefined;
   const dimLength = dimHole ? holeLength(dimHole.hole.collar, dimHole.hole.toe) || 1 : 0;
-  const dimChargeDecks = dimLoad?.decks.filter((d) => d.kind === "charge") ?? [];
+  const dimChargeDecks = dimLoad?.decks.filter((d) => isExplosiveDeckKind(d.kind)) ?? [];
   const dimStemming = dimLoad?.decks.filter((d) => d.kind === "stemming").reduce((s, d) => s + (d.to_m - d.from_m), 0) ?? 0;
   const dimChargeLen = dimChargeDecks.reduce((s, d) => s + (d.to_m - d.from_m), 0);
   const chargeColumnFromM = dimChargeDecks.length ? Math.min(...dimChargeDecks.map((d) => d.from_m)) : 0;
@@ -384,6 +385,7 @@ export function SectionView({
               const holeWarnings = warningsByHole.get(hole.id);
               const delayMs = network?.downhole_delay_ms?.[hole.id];
               const subdrillFromM = Math.max(0, axis.lengthM - (hole.subdrill_m || 0));
+              const holePrimers = load ? primerDepths(load) : [];
 
               return (
                 <g
@@ -408,12 +410,12 @@ export function SectionView({
                     />
                   ))}
 
-                  {load?.primers.map((depthM, i) => (
+                  {holePrimers.map((depthM, i) => (
                     <Primer
                       key={`primer-${i}`}
                       axis={axis}
                       depthM={depthM}
-                      label={detail.showPrimerLabels && load.primers.length > 1 ? `Д${i + 1}` : undefined}
+                      label={detail.showPrimerLabels && holePrimers.length > 1 ? `Д${i + 1}` : undefined}
                       delayLabel={detail.showPrimerLabels && i === 0 && delayMs !== undefined ? `${ruNumber(delayMs, 0)} мс` : undefined}
                       nsiOffsetPx={i === 0 ? 0 : 3.2}
                       nsiExitPx={14}
@@ -539,9 +541,11 @@ export function SectionView({
         </div>
 
         <div className="section-legend">
-          <span><i className="legend-charge" /> заряд</span>
+          <span><i className="legend-charge" /> заряд (несколько ВВ)</span>
           <span><i className="legend-stemming" /> забойка</span>
           <span><i className="legend-air" /> возд. промежуток</span>
+          <span><i className="legend-water" /> вода</span>
+          <span><i className="legend-inert" /> инерт</span>
           <span><i className="legend-primer" /> боевик + НСИ</span>
           <span><i className="legend-subdrill" /> перебур</span>
           <span><i className="legend-rock" /> массив</span>

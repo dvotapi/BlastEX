@@ -161,8 +161,16 @@ export function makeAxis(collar: Vec2, toe: Vec2, lengthM: number, widthPx: numb
 
 export const DECK_TITLE: Record<string, string> = {
   charge: "Заряд",
+  bulk_explosive: "Россыпное ВВ",
+  packaged_explosive: "Патронированное ВВ",
   stemming: "Забойка",
   air: "Возд. промежуток",
+  air_deck: "Возд. промежуток",
+  inert_deck: "Инертный промежуток",
+  water_deck: "Водяной промежуток",
+  primer: "Боевик",
+  booster: "Бустер",
+  detonator: "Детонатор",
 };
 
 /** Текст подсказки по деке: «Заряд 3,0–11,0 м · 8,0 м · 160 кг · ЭВЕРСИН Э-100». */
@@ -172,12 +180,14 @@ export function deckTooltip(deck: {
   to_m: number;
   mass_kg: number;
   explosive_key: string;
+  product?: string;
 }): string {
   const parts = [
     `${DECK_TITLE[deck.kind] ?? deck.kind} ${ruNumber(deck.from_m, 1)}–${ruNumber(deck.to_m, 1)} м`,
     `${ruNumber(Math.abs(deck.to_m - deck.from_m), 1)} м`,
   ];
   if (deck.mass_kg > 0) parts.push(`${ruNumber(deck.mass_kg, 0)} кг`);
-  if (deck.explosive_key) parts.push(deck.explosive_key);
+  if (deck.product) parts.push(deck.product);
+  else if (deck.explosive_key) parts.push(deck.explosive_key);
   return parts.join(" · ");
 }

@@ -14,8 +14,22 @@ import type {
   SurfaceKind,
   SurfaceModel,
   BlastDomain,
+  Receptor,
+  VibrationMeasurement,
+  VibrationModel,
+  AsDrilledHole,
+  AsChargedHole,
+  AsFiredHole,
+  BlastResult,
 } from "../../types/design";
-import { emptyCoordinateSystem, emptyHoleGeology, emptySurfaces } from "../../types/design";
+import {
+  defaultVibrationModel,
+  emptyCoordinateSystem,
+  emptyHoleGeology,
+  emptyNetwork,
+  emptySurfaces,
+  normalizeNetwork,
+} from "../../types/design";
 
 export type DesignAction =
   | { type: "LOAD"; design: BlastDesign }
@@ -41,6 +55,24 @@ export type DesignAction =
   | { type: "DELETE_DOMAIN"; id: string }
   | { type: "SET_WATER_TABLE"; water_table_z_m: number | null }
   | { type: "SET_HOLE_GEOLOGY"; holes: Hole[] }
+  | { type: "SET_RECEPTORS"; receptors: Receptor[] }
+  | { type: "UPSERT_RECEPTOR"; receptor: Receptor }
+  | { type: "DELETE_RECEPTOR"; id: string }
+  | { type: "SET_VIBRATION_MODELS"; models: VibrationModel[] }
+  | { type: "UPSERT_VIBRATION_MODEL"; model: VibrationModel }
+  | { type: "SET_VIBRATION_MEASUREMENTS"; measurements: VibrationMeasurement[] }
+  | { type: "UPSERT_MEASUREMENT"; measurement: VibrationMeasurement }
+  | { type: "DELETE_MEASUREMENT"; id: string }
+  | { type: "SET_AS_DRILLED"; holes: AsDrilledHole[] }
+  | { type: "UPSERT_AS_DRILLED"; hole: AsDrilledHole }
+  | { type: "DELETE_AS_DRILLED"; designHoleId: string }
+  | { type: "SET_AS_CHARGED"; holes: AsChargedHole[] }
+  | { type: "UPSERT_AS_CHARGED"; hole: AsChargedHole }
+  | { type: "DELETE_AS_CHARGED"; designHoleId: string }
+  | { type: "SET_AS_FIRED"; holes: AsFiredHole[] }
+  | { type: "UPSERT_AS_FIRED"; hole: AsFiredHole }
+  | { type: "DELETE_AS_FIRED"; designHoleId: string }
+  | { type: "SET_BLAST_RESULT"; result: BlastResult | null }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -87,16 +119,25 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
     })),
     water_table_z_m: design.water_table_z_m ?? null,
     holes: (design.holes ?? []).map(normalizeHole),
+    network: normalizeNetwork(design.network),
+    receptors: design.receptors ?? [],
+    vibration_models: design.vibration_models?.length ? design.vibration_models : [defaultVibrationModel()],
+    vibration_measurements: design.vibration_measurements ?? [],
+    as_drilled_holes: design.as_drilled_holes ?? [],
+    as_charged_holes: design.as_charged_holes ?? [],
+    as_fired_holes: design.as_fired_holes ?? [],
+    blast_result: design.blast_result ?? null,
+    lifecycle_status: design.lifecycle_status || "draft",
+    revision: design.revision ?? 0,
+    parent_design_id: design.parent_design_id ?? "",
+    designed_sha256: design.designed_sha256 ?? "",
+    lifecycle_events: design.lifecycle_events ?? [],
   };
-}
-
-function emptyNetwork(): InitiationNetwork {
-  return { system: "nonel", starters: [], connectors: [], downhole_delay_ms: {}, electronic_times_ms: {} };
 }
 
 function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick<BlastDesign, "loads" | "network"> {
   const loads = document.loads.filter((ld) => holeIds.has(ld.hole_id));
-  const network = document.network;
+  const network = normalizeNetwork(document.network);
   return {
     loads,
     network: {
@@ -105,6 +146,17 @@ function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick
       connectors: network.connectors.filter((c) => holeIds.has(c.from_hole) && holeIds.has(c.to_hole)),
       downhole_delay_ms: Object.fromEntries(Object.entries(network.downhole_delay_ms).filter(([id]) => holeIds.has(id))),
       electronic_times_ms: Object.fromEntries(Object.entries(network.electronic_times_ms).filter(([id]) => holeIds.has(id))),
+      detonators: network.detonators.filter((item) => holeIds.has(item.hole_id)),
+      surface_connectors: network.surface_connectors.filter((item) => holeIds.has(item.from_hole) && holeIds.has(item.to_hole)),
+      downhole_connectors: network.downhole_connectors.filter((item) => holeIds.has(item.hole_id)),
+      detonating_cords: network.detonating_cords.map((cord) => ({
+        ...cord,
+        hole_ids: cord.hole_ids.filter((id) => holeIds.has(id)),
+      })).filter((cord) => cord.hole_ids.length >= 2),
+      starter_items: network.starter_items.filter((item) => holeIds.has(item.hole_id)),
+      electronic_channels: network.electronic_channels.filter((item) => holeIds.has(item.hole_id)),
+      firing_events: network.firing_events.filter((item) => holeIds.has(item.hole_id)),
+      selected_hole_ids: network.selected_hole_ids.filter((id) => holeIds.has(id)),
     },
   };
 }
@@ -152,6 +204,10 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         holes: action.holes.map(normalizeHole),
         loads: [],
         network: emptyNetwork(),
+        as_drilled_holes: [],
+        as_charged_holes: [],
+        as_fired_holes: [],
+        blast_result: null,
       };
     case "MOVE_HOLES": {
       const ids = new Set(action.ids);
@@ -193,14 +249,21 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       const ids = new Set(action.ids);
       const holes = document.holes.filter((h) => !ids.has(h.id));
       const holeIds = new Set(holes.map((h) => h.id));
-      return { ...document, holes, ...pruneLoadsAndNetwork(document, holeIds) };
+      return {
+        ...document,
+        holes,
+        as_drilled_holes: document.as_drilled_holes.filter((item) => holeIds.has(item.design_hole_id)),
+        as_charged_holes: document.as_charged_holes.filter((item) => holeIds.has(item.design_hole_id)),
+        as_fired_holes: document.as_fired_holes.filter((item) => holeIds.has(item.design_hole_id)),
+        ...pruneLoadsAndNetwork(document, holeIds),
+      };
     }
     case "SET_CHARGE_RULES":
       return { ...document, charge_rules: { ...document.charge_rules, ...action.rules } };
     case "SET_LOADS":
       return { ...document, loads: action.loads };
     case "SET_NETWORK":
-      return { ...document, network: action.network };
+      return { ...document, network: normalizeNetwork(action.network) };
     case "SET_DOMAINS":
       return { ...document, domains: action.domains };
     case "UPSERT_DOMAIN": {
@@ -216,6 +279,100 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       return { ...document, domains: document.domains.filter((d) => d.id !== action.id) };
     case "SET_WATER_TABLE":
       return { ...document, water_table_z_m: action.water_table_z_m };
+    case "SET_RECEPTORS":
+      return { ...document, receptors: action.receptors };
+    case "UPSERT_RECEPTOR": {
+      const exists = document.receptors.some((item) => item.id === action.receptor.id);
+      return {
+        ...document,
+        receptors: exists
+          ? document.receptors.map((item) => (item.id === action.receptor.id ? action.receptor : item))
+          : [...document.receptors, action.receptor],
+      };
+    }
+    case "DELETE_RECEPTOR":
+      return {
+        ...document,
+        receptors: document.receptors.filter((item) => item.id !== action.id),
+        vibration_measurements: document.vibration_measurements.filter((item) => item.receptor_id !== action.id),
+      };
+    case "SET_VIBRATION_MODELS":
+      return { ...document, vibration_models: action.models };
+    case "UPSERT_VIBRATION_MODEL": {
+      const exists = document.vibration_models.some((item) => item.id === action.model.id);
+      return {
+        ...document,
+        vibration_models: exists
+          ? document.vibration_models.map((item) => (item.id === action.model.id ? action.model : item))
+          : [...document.vibration_models, action.model],
+      };
+    }
+    case "SET_VIBRATION_MEASUREMENTS":
+      return { ...document, vibration_measurements: action.measurements };
+    case "UPSERT_MEASUREMENT": {
+      const exists = document.vibration_measurements.some((item) => item.id === action.measurement.id);
+      return {
+        ...document,
+        vibration_measurements: exists
+          ? document.vibration_measurements.map((item) => (item.id === action.measurement.id ? action.measurement : item))
+          : [...document.vibration_measurements, action.measurement],
+      };
+    }
+    case "DELETE_MEASUREMENT":
+      return {
+        ...document,
+        vibration_measurements: document.vibration_measurements.filter((item) => item.id !== action.id),
+      };
+    case "SET_AS_DRILLED":
+      return { ...document, as_drilled_holes: action.holes };
+    case "UPSERT_AS_DRILLED": {
+      const exists = document.as_drilled_holes.some((item) => item.design_hole_id === action.hole.design_hole_id);
+      return {
+        ...document,
+        as_drilled_holes: exists
+          ? document.as_drilled_holes.map((item) => (item.design_hole_id === action.hole.design_hole_id ? action.hole : item))
+          : [...document.as_drilled_holes, action.hole],
+      };
+    }
+    case "DELETE_AS_DRILLED":
+      return {
+        ...document,
+        as_drilled_holes: document.as_drilled_holes.filter((item) => item.design_hole_id !== action.designHoleId),
+      };
+    case "SET_AS_CHARGED":
+      return { ...document, as_charged_holes: action.holes };
+    case "UPSERT_AS_CHARGED": {
+      const exists = document.as_charged_holes.some((item) => item.design_hole_id === action.hole.design_hole_id);
+      return {
+        ...document,
+        as_charged_holes: exists
+          ? document.as_charged_holes.map((item) => (item.design_hole_id === action.hole.design_hole_id ? action.hole : item))
+          : [...document.as_charged_holes, action.hole],
+      };
+    }
+    case "DELETE_AS_CHARGED":
+      return {
+        ...document,
+        as_charged_holes: document.as_charged_holes.filter((item) => item.design_hole_id !== action.designHoleId),
+      };
+    case "SET_AS_FIRED":
+      return { ...document, as_fired_holes: action.holes };
+    case "UPSERT_AS_FIRED": {
+      const exists = document.as_fired_holes.some((item) => item.design_hole_id === action.hole.design_hole_id);
+      return {
+        ...document,
+        as_fired_holes: exists
+          ? document.as_fired_holes.map((item) => (item.design_hole_id === action.hole.design_hole_id ? action.hole : item))
+          : [...document.as_fired_holes, action.hole],
+      };
+    }
+    case "DELETE_AS_FIRED":
+      return {
+        ...document,
+        as_fired_holes: document.as_fired_holes.filter((item) => item.design_hole_id !== action.designHoleId),
+      };
+    case "SET_BLAST_RESULT":
+      return { ...document, blast_result: action.result };
     case "SET_HOLE_GEOLOGY": {
       const byId = new Map(action.holes.map((h) => [h.id, h]));
       return {
@@ -258,6 +415,23 @@ const UNDOABLE: DesignAction["type"][] = [
   "DELETE_DOMAIN",
   "SET_WATER_TABLE",
   "SET_HOLE_GEOLOGY",
+  "SET_RECEPTORS",
+  "UPSERT_RECEPTOR",
+  "DELETE_RECEPTOR",
+  "SET_VIBRATION_MODELS",
+  "UPSERT_VIBRATION_MODEL",
+  "SET_VIBRATION_MEASUREMENTS",
+  "UPSERT_MEASUREMENT",
+  "DELETE_MEASUREMENT",
+  "SET_AS_DRILLED",
+  "UPSERT_AS_DRILLED",
+  "DELETE_AS_DRILLED",
+  "SET_AS_CHARGED",
+  "UPSERT_AS_CHARGED",
+  "DELETE_AS_CHARGED",
+  "SET_AS_FIRED",
+  "UPSERT_AS_FIRED",
+  "DELETE_AS_FIRED",
 ];
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {

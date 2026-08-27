@@ -71,7 +71,9 @@ class DisconnectedHoleTests(unittest.TestCase):
         # Убираем все коннекторы, ведущие к последней скважине — делаем её недостижимой.
         last_id = holes[-1].id
         network.connectors = [c for c in network.connectors if c.to_hole != last_id]
+        network.surface_connectors = [c for c in network.surface_connectors if c.to_hole != last_id]
         network.starters = [s for s in network.starters if s != last_id]
+        network.starter_items = [s for s in network.starter_items if s.hole_id != last_id]
         times, warnings = resolve_times(network, holes)
         self.assertNotIn(last_id, times)
         self.assertTrue(any(last_id in w for w in warnings))

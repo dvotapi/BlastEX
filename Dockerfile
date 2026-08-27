@@ -34,6 +34,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY Blast.py app.py blast_hole_viz.py ./
 COPY cost/ ./cost/
 COPY design/ ./design/
+COPY simulation/ ./simulation/
+COPY intelligence/ ./intelligence/
 COPY api/ ./api/
 
 RUN mkdir -p /app/data/teams \

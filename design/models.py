@@ -10,10 +10,57 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-DESIGN_VERSION = 3
+from design.lifecycle import LifecycleEvent, STATUS_DRAFT, normalize_status as normalize_lifecycle_status
+
+DESIGN_VERSION = 9
 
 DATA_ROLES = ("designed", "executed", "predicted", "measured")
+ROLE_DESIGNED = "designed"
+ROLE_EXECUTED = "executed"
+ROLE_PREDICTED = "predicted"
+ROLE_MEASURED = "measured"
+MWD_FIELD_IDS = (
+    "depth_m",
+    "penetration_rate",
+    "rotation_pressure",
+    "feed_pressure",
+    "torque",
+    "air_pressure",
+)
+RECEPTOR_KINDS = (
+    "building",
+    "pipeline",
+    "crusher",
+    "highwall",
+    "power_line",
+    "monitoring_station",
+)
+SCALED_DISTANCE_CONVENTIONS = (
+    "q_cube_over_r",
+    "r_over_q_cube",
+    "q_sqrt_over_r",
+    "r_over_q_sqrt",
+)
+DEFAULT_VIBRATION_CONVENTION = "q_cube_over_r"
 WATER_CONDITIONS = ("dry", "moist", "wet", "flowing")
+DECK_KINDS = (
+    "stemming",
+    "charge",  # legacy alias of bulk_explosive
+    "bulk_explosive",
+    "packaged_explosive",
+    "air",  # legacy alias of air_deck
+    "air_deck",
+    "inert_deck",
+    "water_deck",
+    "primer",
+    "booster",
+    "detonator",
+)
+EXPLOSIVE_DECK_KINDS = frozenset({"charge", "bulk_explosive", "packaged_explosive"})
+AIR_DECK_KINDS = frozenset({"air", "air_deck"})
+PRIMER_KINDS = ("primer", "booster", "detonator")
+GEOLOGICAL_INTERVALS = ("", "any", "bottom", "column", "collar")
+CHARGE_ACTION_REGIONS = ("interval", "bottom", "column", "collar", "remaining")
 HOLE_KINDS = (
     "production",
     "buffer",
@@ -476,18 +523,417 @@ class Hole:
         return max(0.0, (self.collar.z - self.toe.z) - subdrill_vertical)
 
 
+def _point_distance(a: Point3, b: Point3) -> float:
+    dx = a.x - b.x
+    dy = a.y - b.y
+    dz = a.z - b.z
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+@dataclass
+class SurveyPoint:
+    """Downhole survey sample along an executed hole, metres from the actual collar."""
+
+    depth_m: float
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "depth_m": self.depth_m,
+            "x": self.x,
+            "y": self.y,
+            "z": self.z,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> SurveyPoint:
+        data = data or {}
+        return cls(
+            depth_m=float(data.get("depth_m", data.get("depth", 0.0)) or 0.0),
+            x=_opt_float(data, "x"),
+            y=_opt_float(data, "y"),
+            z=_opt_float(data, "z"),
+        )
+
+    @property
+    def has_xyz(self) -> bool:
+        return self.x is not None and self.y is not None and self.z is not None
+
+
+@dataclass
+class MwdSample:
+    """Manufacturer-neutral MWD reading. Names are physical quantities, not vendor tags."""
+
+    depth_m: float
+    penetration_rate: float | None = None
+    rotation_pressure: float | None = None
+    feed_pressure: float | None = None
+    torque: float | None = None
+    air_pressure: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "depth_m": self.depth_m,
+            "penetration_rate": self.penetration_rate,
+            "rotation_pressure": self.rotation_pressure,
+            "feed_pressure": self.feed_pressure,
+            "torque": self.torque,
+            "air_pressure": self.air_pressure,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> MwdSample:
+        data = data or {}
+        return cls(
+            depth_m=float(data.get("depth_m", data.get("depth", 0.0)) or 0.0),
+            penetration_rate=_opt_float(data, "penetration_rate"),
+            rotation_pressure=_opt_float(data, "rotation_pressure"),
+            feed_pressure=_opt_float(data, "feed_pressure"),
+            torque=_opt_float(data, "torque"),
+            air_pressure=_opt_float(data, "air_pressure"),
+        )
+
+
+@dataclass
+class AsDrilledHole:
+    """Executed drilling of one designed hole. Never written back onto Hole."""
+
+    design_hole_id: str
+    actual_collar: Point3
+    actual_toe: Point3
+    actual_depth: float = 0.0
+    actual_diameter: float = 0.0
+    survey_points: list[SurveyPoint] = field(default_factory=list)
+    mwd_samples: list[MwdSample] = field(default_factory=list)
+    role: str = ROLE_EXECUTED
+    provenance: DataProvenance = field(default_factory=lambda: DataProvenance(role=ROLE_EXECUTED))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "design_hole_id": self.design_hole_id,
+            "actual_collar": self.actual_collar.to_dict(),
+            "actual_toe": self.actual_toe.to_dict(),
+            "actual_depth": self.actual_depth,
+            "actual_diameter": self.actual_diameter,
+            "survey_points": [item.to_dict() for item in self.survey_points],
+            "mwd_samples": [item.to_dict() for item in self.mwd_samples],
+            "role": ROLE_EXECUTED,
+            "provenance": self.provenance.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> AsDrilledHole:
+        data = data or {}
+        provenance = DataProvenance.from_dict(data.get("provenance"))
+        provenance.role = ROLE_EXECUTED
+        return cls(
+            design_hole_id=str(data.get("design_hole_id", data.get("hole_id", "")) or ""),
+            actual_collar=Point3.from_dict(data.get("actual_collar", {})),
+            actual_toe=Point3.from_dict(data.get("actual_toe", {})),
+            actual_depth=float(data.get("actual_depth", 0.0) or 0.0),
+            actual_diameter=float(data.get("actual_diameter", data.get("actual_diameter_mm", 0.0)) or 0.0),
+            survey_points=[SurveyPoint.from_dict(item) for item in data.get("survey_points", [])],
+            mwd_samples=[MwdSample.from_dict(item) for item in data.get("mwd_samples", [])],
+            role=ROLE_EXECUTED,
+            provenance=provenance,
+        )
+
+    @property
+    def length_m(self) -> float:
+        if self.actual_depth > 0:
+            return self.actual_depth
+        return _point_distance(self.actual_collar, self.actual_toe)
+
+    @property
+    def angle_deg(self) -> float:
+        horizontal = math.hypot(
+            self.actual_toe.x - self.actual_collar.x,
+            self.actual_toe.y - self.actual_collar.y,
+        )
+        vertical = self.actual_collar.z - self.actual_toe.z
+        if horizontal == 0.0 and vertical == 0.0:
+            return 0.0
+        return math.degrees(math.atan2(horizontal, vertical))
+
+    @property
+    def azimuth_deg(self) -> float:
+        dx = self.actual_toe.x - self.actual_collar.x
+        dy = self.actual_toe.y - self.actual_collar.y
+        if dx == 0.0 and dy == 0.0:
+            return 0.0
+        return math.degrees(math.atan2(dx, dy)) % 360.0
+
+
+def is_explosive_deck_kind(kind: str) -> bool:
+    """True for decks that carry explosive mass (legacy charge included)."""
+    return str(kind) in EXPLOSIVE_DECK_KINDS
+
+
+def is_air_deck_kind(kind: str) -> bool:
+    return str(kind) in AIR_DECK_KINDS
+
+
+@dataclass
+class Primer:
+    """In-hole initiator: position from collar plus product and mass.
+
+    Old designs stored only depths in ``HoleLoad.primers``. New loads keep both
+    the float list (backward compatible) and these explicit objects.
+    """
+
+    position_m: float
+    product: str = ""
+    mass_kg: float = 0.0
+    kind: str = "primer"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "position_m": self.position_m,
+            "product": self.product,
+            "mass_kg": self.mass_kg,
+            "kind": self.kind if self.kind in PRIMER_KINDS else "primer",
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | float | int) -> Primer:
+        if isinstance(data, (int, float)):
+            return cls(position_m=float(data))
+        raw_kind = str(data.get("kind", "primer") or "primer")
+        return cls(
+            position_m=float(data.get("position_m", data.get("depth_m", 0.0)) or 0.0),
+            product=str(data.get("product", data.get("explosive_key", "")) or ""),
+            mass_kg=float(data.get("mass_kg", 0.0) or 0.0),
+            kind=raw_kind if raw_kind in PRIMER_KINDS else "primer",
+        )
+
+
+def _parse_primers(data: dict[str, Any]) -> tuple[list[float], list[Primer]]:
+    """Accept old ``primers: [float]`` and new ``primer_items`` side by side."""
+    raw_items = data.get("primer_items")
+    raw_primers = data.get("primers", [])
+    items: list[Primer] = []
+    if raw_items:
+        items = [Primer.from_dict(item) for item in raw_items]
+    elif raw_primers:
+        items = [Primer.from_dict(item) for item in raw_primers]
+    depths = [item.position_m for item in items]
+    if not depths and raw_primers:
+        depths = [float(item) for item in raw_primers if isinstance(item, (int, float))]
+    return depths, items
+
+
+@dataclass
+class ChargeCondition:
+    """When a charge template applies. Empty / None fields mean “any”."""
+
+    hole_kinds: list[str] = field(default_factory=list)
+    rows: list[int] = field(default_factory=list)
+    depth_min_m: float | None = None
+    depth_max_m: float | None = None
+    diameter_min_mm: float | None = None
+    diameter_max_mm: float | None = None
+    burden_min_m: float | None = None
+    burden_max_m: float | None = None
+    spacing_min_m: float | None = None
+    spacing_max_m: float | None = None
+    rock_domain_ids: list[str] = field(default_factory=list)
+    geological_interval: str = ""
+    water: str = ""
+    distance_to_face_min_m: float | None = None
+    distance_to_face_max_m: float | None = None
+    target_pf_min: float | None = None
+    target_pf_max: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "hole_kinds": list(self.hole_kinds),
+            "rows": list(self.rows),
+            "depth_min_m": self.depth_min_m,
+            "depth_max_m": self.depth_max_m,
+            "diameter_min_mm": self.diameter_min_mm,
+            "diameter_max_mm": self.diameter_max_mm,
+            "burden_min_m": self.burden_min_m,
+            "burden_max_m": self.burden_max_m,
+            "spacing_min_m": self.spacing_min_m,
+            "spacing_max_m": self.spacing_max_m,
+            "rock_domain_ids": list(self.rock_domain_ids),
+            "geological_interval": self.geological_interval,
+            "water": self.water,
+            "distance_to_face_min_m": self.distance_to_face_min_m,
+            "distance_to_face_max_m": self.distance_to_face_max_m,
+            "target_pf_min": self.target_pf_min,
+            "target_pf_max": self.target_pf_max,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> ChargeCondition:
+        data = data or {}
+        rows_raw = data.get("rows") or []
+        return cls(
+            hole_kinds=[str(v) for v in data.get("hole_kinds", []) if str(v)],
+            rows=[int(v) for v in rows_raw],
+            depth_min_m=_opt_float(data, "depth_min_m"),
+            depth_max_m=_opt_float(data, "depth_max_m"),
+            diameter_min_mm=_opt_float(data, "diameter_min_mm"),
+            diameter_max_mm=_opt_float(data, "diameter_max_mm"),
+            burden_min_m=_opt_float(data, "burden_min_m"),
+            burden_max_m=_opt_float(data, "burden_max_m"),
+            spacing_min_m=_opt_float(data, "spacing_min_m"),
+            spacing_max_m=_opt_float(data, "spacing_max_m"),
+            rock_domain_ids=[str(v) for v in data.get("rock_domain_ids", []) if str(v)],
+            geological_interval=str(data.get("geological_interval", "") or ""),
+            water=str(data.get("water", "") or ""),
+            distance_to_face_min_m=_opt_float(data, "distance_to_face_min_m"),
+            distance_to_face_max_m=_opt_float(data, "distance_to_face_max_m"),
+            target_pf_min=_opt_float(data, "target_pf_min"),
+            target_pf_max=_opt_float(data, "target_pf_max"),
+        )
+
+
+@dataclass
+class ChargeAction:
+    """What to place when a template matches: product, region, optional primer."""
+
+    kind: str = "bulk_explosive"
+    explosive_key: str = ""
+    product: str = ""
+    region: str = "interval"
+    length_m: float | None = None
+    mass_kg: float | None = None
+    place_primer: bool = False
+    primer_offset_m: float | None = None
+    primer_product: str = ""
+    primer_mass_kg: float = 0.0
+    primer_kind: str = "primer"
+
+    def to_dict(self) -> dict[str, Any]:
+        kind = self.kind if self.kind in DECK_KINDS else "bulk_explosive"
+        region = self.region if self.region in CHARGE_ACTION_REGIONS else "interval"
+        primer_kind = self.primer_kind if self.primer_kind in PRIMER_KINDS else "primer"
+        return {
+            "kind": kind,
+            "explosive_key": self.explosive_key,
+            "product": self.product,
+            "region": region,
+            "length_m": self.length_m,
+            "mass_kg": self.mass_kg,
+            "place_primer": self.place_primer,
+            "primer_offset_m": self.primer_offset_m,
+            "primer_product": self.primer_product,
+            "primer_mass_kg": self.primer_mass_kg,
+            "primer_kind": primer_kind,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> ChargeAction:
+        data = data or {}
+        kind = str(data.get("kind", "bulk_explosive") or "bulk_explosive")
+        if kind == "charge":
+            kind = "bulk_explosive"
+        elif kind == "air":
+            kind = "air_deck"
+        elif kind not in DECK_KINDS:
+            kind = "bulk_explosive"
+        region = str(data.get("region", "interval") or "interval")
+        if region not in CHARGE_ACTION_REGIONS:
+            region = "interval"
+        primer_kind = str(data.get("primer_kind", "primer") or "primer")
+        if primer_kind not in PRIMER_KINDS:
+            primer_kind = "primer"
+        return cls(
+            kind=kind,
+            explosive_key=str(data.get("explosive_key", "") or ""),
+            product=str(data.get("product", "") or ""),
+            region=region,
+            length_m=_opt_float(data, "length_m"),
+            mass_kg=_opt_float(data, "mass_kg"),
+            place_primer=bool(data.get("place_primer", False)),
+            primer_offset_m=_opt_float(data, "primer_offset_m"),
+            primer_product=str(data.get("primer_product", "") or ""),
+            primer_mass_kg=float(data.get("primer_mass_kg", 0.0) or 0.0),
+            primer_kind=primer_kind,
+        )
+
+
+@dataclass
+class ChargeTemplate:
+    """Spatial charging rule: conditions + actions, applied by priority."""
+
+    id: str
+    name: str = ""
+    conditions: ChargeCondition = field(default_factory=ChargeCondition)
+    actions: list[ChargeAction] = field(default_factory=list)
+    priority: int = 0
+    enabled: bool = True
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "conditions": self.conditions.to_dict(),
+            "actions": [action.to_dict() for action in self.actions],
+            "priority": self.priority,
+            "enabled": self.enabled,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> ChargeTemplate:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            name=str(data.get("name", "") or ""),
+            conditions=ChargeCondition.from_dict(data.get("conditions")),
+            actions=[ChargeAction.from_dict(action) for action in data.get("actions", [])],
+            priority=int(data.get("priority", 0) or 0),
+            enabled=bool(data.get("enabled", True)),
+            notes=str(data.get("notes", "") or ""),
+        )
+
+
+def templates_from_rules(rules: dict[str, Any] | None) -> list[ChargeTemplate]:
+    """Read ``charge_rules.templates`` (or a top-level list) as ChargeTemplate."""
+    rules = rules or {}
+    raw = rules.get("templates")
+    if raw is None:
+        raw = rules.get("charge_templates")
+    if not raw:
+        return []
+    templates = [ChargeTemplate.from_dict(item) for item in raw]
+    return [item for item in templates if item.id or item.actions]
+
+
+def sort_templates(templates: list[ChargeTemplate]) -> list[ChargeTemplate]:
+    """Deterministic order: enabled first, then priority desc, then id asc."""
+    return sorted(
+        templates,
+        key=lambda item: (not item.enabled, -item.priority, item.id),
+    )
+
+
 @dataclass
 class Deck:
-    """Одна деко (заряд/забойка/воздушный промежуток) вдоль скважины от устья."""
+    """One interval along the hole: explosive, stemming, air, water, or inert."""
 
-    kind: str  # charge | stemming | air
+    kind: str  # see DECK_KINDS; unknown values are kept for old designs
     from_m: float
     to_m: float
     explosive_key: str = ""
     mass_kg: float = 0.0
+    product: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "kind": self.kind,
+            "from_m": self.from_m,
+            "to_m": self.to_m,
+            "explosive_key": self.explosive_key,
+            "mass_kg": self.mass_kg,
+            "product": self.product,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Deck:
@@ -497,6 +943,7 @@ class Deck:
             to_m=float(data.get("to_m", 0.0)),
             explosive_key=str(data.get("explosive_key", "")),
             mass_kg=float(data.get("mass_kg", 0.0)),
+            product=str(data.get("product", "") or ""),
         )
 
 
@@ -509,33 +956,158 @@ class HoleLoad:
     total_charge_kg: float = 0.0
     influence_volume_m3: float = 0.0
     specific_q_kg_m3: float = 0.0
-    primers: list[float] = field(default_factory=list)  # глубины боевиков, м от устья
+    primers: list[float] = field(default_factory=list)  # depths from collar, m
+    primer_items: list[Primer] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        items = list(self.primer_items)
+        if not items and self.primers:
+            items = [Primer(position_m=depth) for depth in self.primers]
+        depths = list(self.primers) if self.primers else [item.position_m for item in items]
         return {
             "hole_id": self.hole_id,
             "decks": [d.to_dict() for d in self.decks],
             "total_charge_kg": self.total_charge_kg,
             "influence_volume_m3": self.influence_volume_m3,
             "specific_q_kg_m3": self.specific_q_kg_m3,
-            "primers": list(self.primers),
+            "primers": depths,
+            "primer_items": [item.to_dict() for item in items],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> HoleLoad:
+        depths, items = _parse_primers(data)
         return cls(
             hole_id=str(data.get("hole_id", "")),
             decks=[Deck.from_dict(d) for d in data.get("decks", [])],
             total_charge_kg=float(data.get("total_charge_kg", 0.0)),
             influence_volume_m3=float(data.get("influence_volume_m3", 0.0)),
             specific_q_kg_m3=float(data.get("specific_q_kg_m3", 0.0)),
-            primers=[float(p) for p in data.get("primers", [])],
+            primers=depths,
+            primer_items=items,
         )
+
+
+def stemming_length_m(decks: list[Deck]) -> float:
+    """Total stemming interval length, collar-positive depths."""
+    total = 0.0
+    for deck in decks:
+        if str(deck.kind) == "stemming":
+            total += abs(float(deck.to_m) - float(deck.from_m))
+    return total
+
+
+def explosive_charge_mass_kg(decks: list[Deck]) -> float:
+    return sum(float(deck.mass_kg or 0.0) for deck in decks if is_explosive_deck_kind(deck.kind))
+
+
+def primary_explosive_product(decks: list[Deck], fallback: str = "") -> str:
+    explosive = [deck for deck in decks if is_explosive_deck_kind(deck.kind)]
+    if not explosive:
+        return fallback
+    best = max(explosive, key=lambda deck: (float(deck.mass_kg or 0.0), abs(deck.to_m - deck.from_m)))
+    return str(best.product or best.explosive_key or fallback)
+
+
+def primer_position_m(items: list[Primer], depths: list[float] | None = None) -> float | None:
+    if items:
+        return float(items[0].position_m)
+    if depths:
+        return float(depths[0])
+    return None
+
+
+def charge_column_bounds_m(decks: list[Deck]) -> tuple[float | None, float | None]:
+    explosive = [deck for deck in decks if is_explosive_deck_kind(deck.kind)]
+    if not explosive:
+        return None, None
+    return min(float(deck.from_m) for deck in explosive), max(float(deck.to_m) for deck in explosive)
+
+
+@dataclass
+class AsChargedHole:
+    """Executed charging of one designed hole. Never written back onto HoleLoad."""
+
+    design_hole_id: str
+    decks: list[Deck] = field(default_factory=list)
+    primers: list[float] = field(default_factory=list)
+    primer_items: list[Primer] = field(default_factory=list)
+    explosive_product: str = ""
+    charge_mass_kg: float = 0.0
+    stemming_length_m: float = 0.0
+    loading_timestamp: str = ""
+    role: str = ROLE_EXECUTED
+    provenance: DataProvenance = field(default_factory=lambda: DataProvenance(role=ROLE_EXECUTED))
+
+    def to_dict(self) -> dict[str, Any]:
+        items = list(self.primer_items)
+        if not items and self.primers:
+            items = [Primer(position_m=depth) for depth in self.primers]
+        depths = list(self.primers) if self.primers else [item.position_m for item in items]
+        return {
+            "design_hole_id": self.design_hole_id,
+            "decks": [deck.to_dict() for deck in self.decks],
+            "primers": depths,
+            "primer_items": [item.to_dict() for item in items],
+            "explosive_product": self.explosive_product,
+            "charge_mass_kg": self.charge_mass_kg,
+            "stemming_length_m": self.stemming_length_m,
+            "loading_timestamp": self.loading_timestamp,
+            "role": ROLE_EXECUTED,
+            "provenance": self.provenance.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> AsChargedHole:
+        data = data or {}
+        provenance = DataProvenance.from_dict(data.get("provenance"))
+        provenance.role = ROLE_EXECUTED
+        depths, items = _parse_primers(data)
+        return cls(
+            design_hole_id=str(data.get("design_hole_id", data.get("hole_id", "")) or ""),
+            decks=[Deck.from_dict(deck) for deck in data.get("decks", [])],
+            primers=depths,
+            primer_items=items,
+            explosive_product=str(data.get("explosive_product", data.get("product", "")) or ""),
+            charge_mass_kg=float(data.get("charge_mass_kg", data.get("total_charge_kg", 0.0)) or 0.0),
+            stemming_length_m=float(data.get("stemming_length_m", 0.0) or 0.0),
+            loading_timestamp=str(data.get("loading_timestamp", "") or ""),
+            role=ROLE_EXECUTED,
+            provenance=provenance,
+        )
+
+
+DETONATOR_KINDS = ("electronic", "nonel", "detonating_cord")
+SURFACE_CONNECTOR_KINDS = ("surface_nsi", "ds_relay", "electronic", "detonating_cord")
+DOWNHOLE_CONNECTOR_KINDS = ("downhole_nsi", "electronic", "detonating_cord")
+FIRING_LEVELS = ("hole", "deck", "primer")
+ELECTRONIC_TIMING_MODES = (
+    "row",
+    "selection",
+    "direction",
+    "gradient",
+    "v_pattern",
+    "diagonal",
+    "expression",
+)
+TIMING_LEVELS = FIRING_LEVELS
+
+
+def _opt_int(data: dict[str, Any], key: str) -> int | None:
+    raw = data.get(key)
+    if raw is None or raw == "":
+        return None
+    return int(raw)
+
+
+def _normalize_choice(value: Any, allowed: tuple[str, ...], default: str) -> str:
+    text = str(value or default).strip()
+    return text if text in allowed else default
 
 
 @dataclass
 class Connector:
-    """Связь в схеме инициирования (поверхностная или внутрискважинная)."""
+    """Legacy surface/downhole link. Kept so old passports still load."""
 
     from_hole: str
     to_hole: str
@@ -556,27 +1128,450 @@ class Connector:
 
 
 @dataclass
+class Detonator:
+    """In-hole initiator assigned to a hole, deck, or primer."""
+
+    id: str
+    hole_id: str
+    delay_ms: float = 0.0
+    product: str = ""
+    kind: str = "electronic"
+    deck_index: int | None = None
+    primer_index: int | None = None
+    channel_id: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "delay_ms": self.delay_ms,
+            "product": self.product,
+            "kind": _normalize_choice(self.kind, DETONATOR_KINDS, "electronic"),
+            "deck_index": self.deck_index,
+            "primer_index": self.primer_index,
+            "channel_id": self.channel_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Detonator:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", "") or ""),
+            delay_ms=float(data.get("delay_ms", 0.0) or 0.0),
+            product=str(data.get("product", "") or ""),
+            kind=_normalize_choice(data.get("kind"), DETONATOR_KINDS, "electronic"),
+            deck_index=_opt_int(data, "deck_index"),
+            primer_index=_opt_int(data, "primer_index"),
+            channel_id=str(data.get("channel_id", "") or ""),
+        )
+
+
+@dataclass
+class AsFiredHole:
+    """Executed firing of one designed hole. Never written back onto the network."""
+
+    design_hole_id: str
+    detonator: Detonator = field(default_factory=lambda: Detonator(id="", hole_id=""))
+    programmed_time_ms: float = 0.0
+    verified_time_ms: float | None = None
+    firing_timestamp: str = ""
+    role: str = ROLE_EXECUTED
+    provenance: DataProvenance = field(default_factory=lambda: DataProvenance(role=ROLE_EXECUTED))
+
+    def to_dict(self) -> dict[str, Any]:
+        detonator = self.detonator
+        if not detonator.hole_id:
+            detonator = Detonator(
+                id=detonator.id,
+                hole_id=self.design_hole_id,
+                delay_ms=detonator.delay_ms,
+                product=detonator.product,
+                kind=detonator.kind,
+                deck_index=detonator.deck_index,
+                primer_index=detonator.primer_index,
+                channel_id=detonator.channel_id,
+            )
+        return {
+            "design_hole_id": self.design_hole_id,
+            "detonator": detonator.to_dict(),
+            "detonator_id": detonator.id,
+            "detonator_product": detonator.product,
+            "detonator_kind": detonator.kind,
+            "programmed_time_ms": self.programmed_time_ms,
+            "verified_time_ms": self.verified_time_ms,
+            "firing_timestamp": self.firing_timestamp,
+            "role": ROLE_EXECUTED,
+            "provenance": self.provenance.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> AsFiredHole:
+        data = data or {}
+        provenance = DataProvenance.from_dict(data.get("provenance"))
+        provenance.role = ROLE_EXECUTED
+        raw_detonator = data.get("detonator")
+        if isinstance(raw_detonator, dict):
+            detonator = Detonator.from_dict(raw_detonator)
+        else:
+            detonator = Detonator(
+                id=str(data.get("detonator_id", "") or ""),
+                hole_id=str(data.get("design_hole_id", data.get("hole_id", "")) or ""),
+                delay_ms=float(data.get("detonator_delay_ms", data.get("delay_ms", 0.0)) or 0.0),
+                product=str(data.get("detonator_product", data.get("product", "")) or ""),
+                kind=str(data.get("detonator_kind", data.get("kind", "electronic")) or "electronic"),
+            )
+        hole_id = str(data.get("design_hole_id", data.get("hole_id", detonator.hole_id)) or "")
+        if not detonator.hole_id:
+            detonator.hole_id = hole_id
+        return cls(
+            design_hole_id=hole_id,
+            detonator=detonator,
+            programmed_time_ms=float(data.get("programmed_time_ms", 0.0) or 0.0),
+            verified_time_ms=_opt_float(data, "verified_time_ms"),
+            firing_timestamp=str(data.get("firing_timestamp", "") or ""),
+            role=ROLE_EXECUTED,
+            provenance=provenance,
+        )
+
+
+@dataclass
+class SurfaceConnector:
+    """Editable surface delay between two holes."""
+
+    id: str
+    from_hole: str
+    to_hole: str
+    delay_ms: float = 0.0
+    kind: str = "surface_nsi"
+    product: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "from_hole": self.from_hole,
+            "to_hole": self.to_hole,
+            "delay_ms": self.delay_ms,
+            "kind": _normalize_choice(self.kind, SURFACE_CONNECTOR_KINDS, "surface_nsi"),
+            "product": self.product,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> SurfaceConnector:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            from_hole=str(data.get("from_hole", "") or ""),
+            to_hole=str(data.get("to_hole", "") or ""),
+            delay_ms=float(data.get("delay_ms", 0.0) or 0.0),
+            kind=_normalize_choice(data.get("kind"), SURFACE_CONNECTOR_KINDS, "surface_nsi"),
+            product=str(data.get("product", "") or ""),
+        )
+
+
+@dataclass
+class DownholeConnector:
+    """Downhole delay from surface arrival to a hole, deck, or primer."""
+
+    id: str
+    hole_id: str
+    delay_ms: float = 0.0
+    kind: str = "downhole_nsi"
+    deck_index: int | None = None
+    primer_index: int | None = None
+    product: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "delay_ms": self.delay_ms,
+            "kind": _normalize_choice(self.kind, DOWNHOLE_CONNECTOR_KINDS, "downhole_nsi"),
+            "deck_index": self.deck_index,
+            "primer_index": self.primer_index,
+            "product": self.product,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> DownholeConnector:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", "") or ""),
+            delay_ms=float(data.get("delay_ms", 0.0) or 0.0),
+            kind=_normalize_choice(data.get("kind"), DOWNHOLE_CONNECTOR_KINDS, "downhole_nsi"),
+            deck_index=_opt_int(data, "deck_index"),
+            primer_index=_opt_int(data, "primer_index"),
+            product=str(data.get("product", "") or ""),
+        )
+
+
+@dataclass
+class DetonatingCord:
+    """Detonating-cord run along an ordered list of holes."""
+
+    id: str
+    hole_ids: list[str] = field(default_factory=list)
+    velocity_m_s: float = 7000.0
+    relay_delay_ms: float = 0.0
+    product: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_ids": list(self.hole_ids),
+            "velocity_m_s": self.velocity_m_s,
+            "relay_delay_ms": self.relay_delay_ms,
+            "product": self.product,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> DetonatingCord:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_ids=[str(item) for item in data.get("hole_ids", []) if str(item)],
+            velocity_m_s=float(data.get("velocity_m_s", 7000.0) or 7000.0),
+            relay_delay_ms=float(data.get("relay_delay_ms", 0.0) or 0.0),
+            product=str(data.get("product", "") or ""),
+        )
+
+
+@dataclass
+class Starter:
+    """Network start point: a hole that receives the first signal."""
+
+    id: str
+    hole_id: str
+    delay_ms: float = 0.0
+    kind: str = "starter"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "delay_ms": self.delay_ms,
+            "kind": self.kind or "starter",
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Starter:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", data.get("id", "")) or ""),
+            delay_ms=float(data.get("delay_ms", 0.0) or 0.0),
+            kind=str(data.get("kind", "starter") or "starter"),
+        )
+
+
+@dataclass
+class ElectronicChannel:
+    """Programmed electronic-detonator channel (absolute time)."""
+
+    id: str
+    hole_id: str
+    time_ms: float = 0.0
+    deck_index: int | None = None
+    primer_index: int | None = None
+    label: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "time_ms": self.time_ms,
+            "deck_index": self.deck_index,
+            "primer_index": self.primer_index,
+            "label": self.label,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> ElectronicChannel:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", "") or ""),
+            time_ms=float(data.get("time_ms", 0.0) or 0.0),
+            deck_index=_opt_int(data, "deck_index"),
+            primer_index=_opt_int(data, "primer_index"),
+            label=str(data.get("label", "") or ""),
+        )
+
+
+@dataclass
+class FiringEvent:
+    """Resolved fire of a hole, deck, or primer at an absolute time."""
+
+    id: str
+    hole_id: str
+    time_ms: float
+    level: str = "hole"
+    deck_index: int | None = None
+    primer_index: int | None = None
+    mass_kg: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "hole_id": self.hole_id,
+            "time_ms": self.time_ms,
+            "level": _normalize_choice(self.level, FIRING_LEVELS, "hole"),
+            "deck_index": self.deck_index,
+            "primer_index": self.primer_index,
+            "mass_kg": self.mass_kg,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> FiringEvent:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            hole_id=str(data.get("hole_id", "") or ""),
+            time_ms=float(data.get("time_ms", 0.0) or 0.0),
+            level=_normalize_choice(data.get("level"), FIRING_LEVELS, "hole"),
+            deck_index=_opt_int(data, "deck_index"),
+            primer_index=_opt_int(data, "primer_index"),
+            mass_kg=float(data.get("mass_kg", 0.0) or 0.0),
+        )
+
+
+def _legacy_surface_id(from_hole: str, to_hole: str) -> str:
+    return f"sc-{from_hole}-{to_hole}"
+
+
+@dataclass
 class InitiationNetwork:
-    """Схема инициирования блока."""
+    """Initiation network 2.0. Legacy fields stay so old designs load."""
 
     system: str = "nonel"  # nonel | electronic | detcord
     starters: list[str] = field(default_factory=list)
     connectors: list[Connector] = field(default_factory=list)
     downhole_delay_ms: dict[str, float] = field(default_factory=dict)
     electronic_times_ms: dict[str, float] = field(default_factory=dict)
+    detonators: list[Detonator] = field(default_factory=list)
+    surface_connectors: list[SurfaceConnector] = field(default_factory=list)
+    downhole_connectors: list[DownholeConnector] = field(default_factory=list)
+    detonating_cords: list[DetonatingCord] = field(default_factory=list)
+    starter_items: list[Starter] = field(default_factory=list)
+    electronic_channels: list[ElectronicChannel] = field(default_factory=list)
+    firing_events: list[FiringEvent] = field(default_factory=list)
+    timing_mode: str = ""
+    timing_expression: str = ""
+    timing_params: dict[str, Any] = field(default_factory=dict)
+    selected_hole_ids: list[str] = field(default_factory=list)
+
+    def hydrate_from_legacy(self) -> None:
+        """Fill 2.0 objects from first-generation fields when they are empty."""
+        if not self.starter_items and self.starters:
+            self.starter_items = [
+                Starter(id=f"st-{hole_id}", hole_id=hole_id) for hole_id in self.starters
+            ]
+        if not self.surface_connectors and self.connectors:
+            self.surface_connectors = [
+                SurfaceConnector(
+                    id=_legacy_surface_id(item.from_hole, item.to_hole) or f"sc-{index}",
+                    from_hole=item.from_hole,
+                    to_hole=item.to_hole,
+                    delay_ms=item.delay_ms,
+                    kind=item.kind if item.kind in SURFACE_CONNECTOR_KINDS else "surface_nsi",
+                )
+                for index, item in enumerate(self.connectors)
+            ]
+        if not self.downhole_connectors and self.downhole_delay_ms:
+            self.downhole_connectors = [
+                DownholeConnector(id=f"dh-{hole_id}", hole_id=hole_id, delay_ms=delay)
+                for hole_id, delay in self.downhole_delay_ms.items()
+            ]
+        if not self.electronic_channels and self.electronic_times_ms:
+            self.electronic_channels = [
+                ElectronicChannel(id=f"ch-{hole_id}", hole_id=hole_id, time_ms=time_ms)
+                for hole_id, time_ms in self.electronic_times_ms.items()
+            ]
+        if not self.detonators:
+            kind = "electronic" if self.system == "electronic" else "nonel"
+            if self.electronic_channels:
+                self.detonators = [
+                    Detonator(
+                        id=f"det-{channel.hole_id}",
+                        hole_id=channel.hole_id,
+                        delay_ms=0.0,
+                        kind="electronic",
+                        deck_index=channel.deck_index,
+                        primer_index=channel.primer_index,
+                        channel_id=channel.id,
+                    )
+                    for channel in self.electronic_channels
+                    if channel.hole_id
+                ]
+            elif self.downhole_connectors:
+                self.detonators = [
+                    Detonator(
+                        id=f"det-{item.hole_id}",
+                        hole_id=item.hole_id,
+                        delay_ms=item.delay_ms,
+                        kind=kind,
+                        deck_index=item.deck_index,
+                        primer_index=item.primer_index,
+                    )
+                    for item in self.downhole_connectors
+                    if item.hole_id
+                ]
+
+    def sync_legacy_from_v2(self) -> None:
+        """Keep first-generation fields in sync so old readers still work."""
+        if self.starter_items:
+            self.starters = [item.hole_id for item in self.starter_items if item.hole_id]
+        if self.surface_connectors:
+            self.connectors = [
+                Connector(
+                    from_hole=item.from_hole,
+                    to_hole=item.to_hole,
+                    delay_ms=item.delay_ms,
+                    kind=item.kind,
+                )
+                for item in self.surface_connectors
+            ]
+        hole_downhole = {
+            item.hole_id: item.delay_ms
+            for item in self.downhole_connectors
+            if item.hole_id and item.deck_index is None and item.primer_index is None
+        }
+        if hole_downhole:
+            self.downhole_delay_ms = hole_downhole
+        hole_channels = {
+            item.hole_id: item.time_ms
+            for item in self.electronic_channels
+            if item.hole_id and item.deck_index is None and item.primer_index is None
+        }
+        if hole_channels:
+            self.electronic_times_ms = hole_channels
 
     def to_dict(self) -> dict[str, Any]:
+        self.sync_legacy_from_v2()
         return {
             "system": self.system,
             "starters": list(self.starters),
             "connectors": [c.to_dict() for c in self.connectors],
             "downhole_delay_ms": dict(self.downhole_delay_ms),
             "electronic_times_ms": dict(self.electronic_times_ms),
+            "detonators": [item.to_dict() for item in self.detonators],
+            "surface_connectors": [item.to_dict() for item in self.surface_connectors],
+            "downhole_connectors": [item.to_dict() for item in self.downhole_connectors],
+            "detonating_cords": [item.to_dict() for item in self.detonating_cords],
+            "starter_items": [item.to_dict() for item in self.starter_items],
+            "electronic_channels": [item.to_dict() for item in self.electronic_channels],
+            "firing_events": [item.to_dict() for item in self.firing_events],
+            "timing_mode": self.timing_mode,
+            "timing_expression": self.timing_expression,
+            "timing_params": dict(self.timing_params),
+            "selected_hole_ids": list(self.selected_hole_ids),
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> InitiationNetwork:
-        return cls(
+    def from_dict(cls, data: dict[str, Any] | None) -> InitiationNetwork:
+        data = data or {}
+        network = cls(
             system=str(data.get("system", "nonel")),
             starters=[str(s) for s in data.get("starters", [])],
             connectors=[Connector.from_dict(c) for c in data.get("connectors", [])],
@@ -586,7 +1581,248 @@ class InitiationNetwork:
             electronic_times_ms={
                 str(k): float(v) for k, v in data.get("electronic_times_ms", {}).items()
             },
+            detonators=[Detonator.from_dict(item) for item in data.get("detonators", [])],
+            surface_connectors=[
+                SurfaceConnector.from_dict(item) for item in data.get("surface_connectors", [])
+            ],
+            downhole_connectors=[
+                DownholeConnector.from_dict(item) for item in data.get("downhole_connectors", [])
+            ],
+            detonating_cords=[
+                DetonatingCord.from_dict(item) for item in data.get("detonating_cords", [])
+            ],
+            starter_items=[Starter.from_dict(item) for item in data.get("starter_items", [])],
+            electronic_channels=[
+                ElectronicChannel.from_dict(item) for item in data.get("electronic_channels", [])
+            ],
+            firing_events=[FiringEvent.from_dict(item) for item in data.get("firing_events", [])],
+            timing_mode=str(data.get("timing_mode", "") or ""),
+            timing_expression=str(data.get("timing_expression", "") or ""),
+            timing_params=dict(data.get("timing_params", {}) or {}),
+            selected_hole_ids=[str(item) for item in data.get("selected_hole_ids", [])],
         )
+        has_v2 = any(
+            [
+                data.get("detonators"),
+                data.get("surface_connectors"),
+                data.get("downhole_connectors"),
+                data.get("detonating_cords"),
+                data.get("starter_items"),
+                data.get("electronic_channels"),
+            ]
+        )
+        if not has_v2:
+            network.hydrate_from_legacy()
+        else:
+            network.sync_legacy_from_v2()
+        return network
+
+
+def _normalize_receptor_kind(value: Any, default: str = "building") -> str:
+    kind = str(value or default).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "здание": "building",
+        "здание_жилое": "building",
+        "труба": "pipeline",
+        "трубопровод": "pipeline",
+        "дробилка": "crusher",
+        "борт": "highwall",
+        "уступ": "highwall",
+        "лэп": "power_line",
+        "powerline": "power_line",
+        "линия": "power_line",
+        "сейсмопост": "monitoring_station",
+        "monitor": "monitoring_station",
+        "station": "monitoring_station",
+    }
+    if kind in RECEPTOR_KINDS:
+        return kind
+    return aliases.get(kind, default if default in RECEPTOR_KINDS else "building")
+
+
+def _normalize_sd_convention(value: Any, default: str = DEFAULT_VIBRATION_CONVENTION) -> str:
+    text = str(value or default).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "cube": DEFAULT_VIBRATION_CONVENTION,
+        "cube_root": DEFAULT_VIBRATION_CONVENTION,
+        "q13_over_r": DEFAULT_VIBRATION_CONVENTION,
+        "cis": DEFAULT_VIBRATION_CONVENTION,
+        "r_over_q13": "r_over_q_cube",
+        "square": "r_over_q_sqrt",
+        "square_root": "r_over_q_sqrt",
+        "usbm": "r_over_q_sqrt",
+    }
+    if text in SCALED_DISTANCE_CONVENTIONS:
+        return text
+    return aliases.get(text, default if default in SCALED_DISTANCE_CONVENTIONS else DEFAULT_VIBRATION_CONVENTION)
+
+
+def _clamp_confidence(value: Any, default: float = 0.3) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(1.0, confidence))
+
+
+@dataclass
+class Receptor:
+    """Protected or monitored site object. Predicted PPV is not stored here."""
+
+    id: str
+    name: str = ""
+    kind: str = "building"
+    location: Point3 = field(default_factory=lambda: Point3(x=0.0, y=0.0, z=0.0))
+    ppv_limit_mm_s: float | None = None
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "kind": _normalize_receptor_kind(self.kind),
+            "location": self.location.to_dict(),
+            "ppv_limit_mm_s": self.ppv_limit_mm_s,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Receptor:
+        data = data or {}
+        loc = data.get("location") or {}
+        if not loc and any(key in data for key in ("x", "y", "z")):
+            loc = {"x": data.get("x", 0.0), "y": data.get("y", 0.0), "z": data.get("z", 0.0)}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            name=str(data.get("name", "") or ""),
+            kind=_normalize_receptor_kind(data.get("kind")),
+            location=Point3.from_dict(loc),
+            ppv_limit_mm_s=_opt_float(data, "ppv_limit_mm_s"),
+            notes=str(data.get("notes", "") or ""),
+        )
+
+
+@dataclass
+class VibrationModel:
+    """Explicit site law PPV = K × SD^n. SD convention is part of the identity."""
+
+    id: str
+    name: str = ""
+    k: float = 200.0
+    n: float = 1.6
+    scaled_distance: str = DEFAULT_VIBRATION_CONVENTION
+    calibration_source: str = ""
+    confidence: float = 0.3
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "k": self.k,
+            "n": self.n,
+            "scaled_distance": _normalize_sd_convention(self.scaled_distance),
+            "calibration_source": self.calibration_source,
+            "confidence": _clamp_confidence(self.confidence),
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> VibrationModel:
+        data = data or {}
+        return cls(
+            id=str(data.get("id", "") or ""),
+            name=str(data.get("name", "") or ""),
+            k=float(data.get("k", 200.0) or 200.0),
+            n=float(data.get("n", 1.6) if data.get("n") is not None else 1.6),
+            scaled_distance=_normalize_sd_convention(data.get("scaled_distance")),
+            calibration_source=str(data.get("calibration_source", "") or ""),
+            confidence=_clamp_confidence(data.get("confidence"), default=0.3),
+            notes=str(data.get("notes", "") or ""),
+        )
+
+
+@dataclass
+class VibrationMeasurement:
+    """Measured PPV at a receptor. Never stored as a prediction."""
+
+    id: str
+    receptor_id: str
+    ppv_mm_s: float
+    role: str = ROLE_MEASURED
+    frequency_hz: float | None = None
+    distance_m: float | None = None
+    mic_kg: float | None = None
+    scaled_distance: str = ""
+    source: str = ""
+    method: str = ""
+    timestamp: str = ""
+    event_label: str = ""
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        convention = str(self.scaled_distance or "").strip()
+        if convention:
+            convention = _normalize_sd_convention(convention)
+        return {
+            "id": self.id,
+            "receptor_id": self.receptor_id,
+            "ppv_mm_s": self.ppv_mm_s,
+            "frequency_hz": self.frequency_hz,
+            "role": ROLE_MEASURED,
+            "distance_m": self.distance_m,
+            "mic_kg": self.mic_kg,
+            "scaled_distance": convention,
+            "source": self.source,
+            "method": self.method,
+            "timestamp": self.timestamp,
+            "event_label": self.event_label,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> VibrationMeasurement:
+        data = data or {}
+        convention = str(data.get("scaled_distance", "") or "").strip()
+        if convention:
+            convention = _normalize_sd_convention(convention)
+        return cls(
+            id=str(data.get("id", "") or ""),
+            receptor_id=str(data.get("receptor_id", "") or ""),
+            ppv_mm_s=float(data.get("ppv_mm_s", 0.0) or 0.0),
+            role=ROLE_MEASURED,
+            frequency_hz=_opt_float(data, "frequency_hz"),
+            distance_m=_opt_float(data, "distance_m"),
+            mic_kg=_opt_float(data, "mic_kg"),
+            scaled_distance=convention,
+            source=str(data.get("source", "") or ""),
+            method=str(data.get("method", "") or ""),
+            timestamp=str(data.get("timestamp", "") or ""),
+            event_label=str(data.get("event_label", "") or ""),
+            notes=str(data.get("notes", "") or ""),
+        )
+
+
+def _blast_result_from_dict(data: dict[str, Any] | None) -> Any:
+    """Load a post-blast result without importing at module import time."""
+    if not data:
+        return None
+    from design.blast_result import BlastResult
+
+    return BlastResult.from_dict(data)
+
+
+def default_vibration_model() -> VibrationModel:
+    return VibrationModel(
+        id="vm-site",
+        name="Площадочный закон",
+        k=200.0,
+        n=1.6,
+        scaled_distance=DEFAULT_VIBRATION_CONVENTION,
+        calibration_source="ориентировочно",
+        confidence=0.3,
+        notes="PPV = K × SD^n. Коэффициенты ориентировочные, не норматив.",
+    )
 
 
 @dataclass
@@ -609,6 +1845,18 @@ class BlastDesign:
     surfaces: Any = None
     domains: list[BlastDomain] = field(default_factory=list)
     water_table_z_m: float | None = None
+    receptors: list[Receptor] = field(default_factory=list)
+    vibration_models: list[VibrationModel] = field(default_factory=list)
+    vibration_measurements: list[VibrationMeasurement] = field(default_factory=list)
+    as_drilled_holes: list[AsDrilledHole] = field(default_factory=list)
+    as_charged_holes: list[AsChargedHole] = field(default_factory=list)
+    as_fired_holes: list[AsFiredHole] = field(default_factory=list)
+    blast_result: Any = None
+    lifecycle_status: str = STATUS_DRAFT
+    revision: int = 0
+    parent_design_id: str = ""
+    designed_sha256: str = ""
+    lifecycle_events: list[LifecycleEvent] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         from design.spatial.coordinates import CoordinateSystem
@@ -618,6 +1866,11 @@ class BlastDesign:
             self.coordinate_system = CoordinateSystem()
         if self.surfaces is None:
             self.surfaces = SurfaceSet()
+        self.lifecycle_status = normalize_lifecycle_status(self.lifecycle_status, STATUS_DRAFT)
+        self.lifecycle_events = [
+            item if isinstance(item, LifecycleEvent) else LifecycleEvent.from_dict(item)
+            for item in self.lifecycle_events
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -637,6 +1890,18 @@ class BlastDesign:
             "surfaces": self.surfaces.to_dict(),
             "domains": [domain.to_dict() for domain in self.domains],
             "water_table_z_m": self.water_table_z_m,
+            "receptors": [item.to_dict() for item in self.receptors],
+            "vibration_models": [item.to_dict() for item in self.vibration_models],
+            "vibration_measurements": [item.to_dict() for item in self.vibration_measurements],
+            "as_drilled_holes": [item.to_dict() for item in self.as_drilled_holes],
+            "as_charged_holes": [item.to_dict() for item in self.as_charged_holes],
+            "as_fired_holes": [item.to_dict() for item in self.as_fired_holes],
+            "blast_result": self.blast_result.to_dict() if self.blast_result is not None else None,
+            "lifecycle_status": self.lifecycle_status,
+            "revision": int(self.revision),
+            "parent_design_id": self.parent_design_id,
+            "designed_sha256": self.designed_sha256,
+            "lifecycle_events": [item.to_dict() for item in self.lifecycle_events],
         }
 
     @classmethod
@@ -661,4 +1926,20 @@ class BlastDesign:
             surfaces=SurfaceSet.from_dict(data.get("surfaces")),
             domains=[BlastDomain.from_dict(d) for d in data.get("domains", [])],
             water_table_z_m=_opt_float(data, "water_table_z_m"),
+            receptors=[Receptor.from_dict(item) for item in data.get("receptors", [])],
+            vibration_models=[VibrationModel.from_dict(item) for item in data.get("vibration_models", [])],
+            vibration_measurements=[
+                VibrationMeasurement.from_dict(item) for item in data.get("vibration_measurements", [])
+            ],
+            as_drilled_holes=[AsDrilledHole.from_dict(item) for item in data.get("as_drilled_holes", [])],
+            as_charged_holes=[AsChargedHole.from_dict(item) for item in data.get("as_charged_holes", [])],
+            as_fired_holes=[AsFiredHole.from_dict(item) for item in data.get("as_fired_holes", [])],
+            blast_result=_blast_result_from_dict(data.get("blast_result")),
+            lifecycle_status=str(data.get("lifecycle_status", STATUS_DRAFT) or STATUS_DRAFT),
+            revision=int(data.get("revision", 0) or 0),
+            parent_design_id=str(data.get("parent_design_id", "") or ""),
+            designed_sha256=str(data.get("designed_sha256", "") or ""),
+            lifecycle_events=[
+                LifecycleEvent.from_dict(item) for item in data.get("lifecycle_events", [])
+            ],
         )

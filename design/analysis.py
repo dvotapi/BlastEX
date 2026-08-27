@@ -10,8 +10,8 @@ from collections import Counter
 
 from design.editing import spacing_report
 from design.geometry import block_volume, ensure_ccw, point_in_polygon, true_burden
-from design.models import HOLE_KINDS, BlastDesign, Hole
-from design.timing import resolve_times
+from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind
+from design.timing import resolve_network
 
 Point2 = tuple[float, float]
 
@@ -33,7 +33,7 @@ def summary(design: BlastDesign) -> dict[str, Any]:
     explosive_breakdown: dict[str, float] = {}
     for ld in active_loads:
         for deck in ld.decks:
-            if deck.kind == "charge" and deck.explosive_key:
+            if is_explosive_deck_kind(deck.kind) and deck.explosive_key:
                 explosive_breakdown[deck.explosive_key] = (
                     explosive_breakdown.get(deck.explosive_key, 0.0) + deck.mass_kg
                 )
@@ -54,34 +54,47 @@ def summary(design: BlastDesign) -> dict[str, Any]:
 
 
 def charge_per_delay(
-    times: dict[str, float], loads: list, window_ms: float = 8.0
+    times: dict[str, float],
+    loads: list,
+    window_ms: float = 8.0,
+    events: list[FiringEvent] | None = None,
 ) -> dict[str, Any]:
     """Максимальная масса ВВ, срабатывающая в любом скользящем окне `window_ms`.
 
     Это MIC (maximum instantaneous charge) — ключевой параметр для оценки
     сейсмического воздействия: чем больше ВВ детонирует практически
-    одновременно, тем выше колебания грунта.
+    одновременно, тем выше колебания грунта. Deck-level firing events are
+    preferred when they carry mass; otherwise hole totals are used.
     """
-    mass_by_hole = {ld.hole_id: ld.total_charge_kg for ld in loads if ld.total_charge_kg > 0}
-    events = sorted((times[hid], hid) for hid in mass_by_hole if hid in times)
-    if not events:
-        return {"mic_kg": 0.0, "window_start_ms": 0.0, "hole_ids": []}
+    if events:
+        deck_events = [item for item in events if item.level == "deck" and item.mass_kg > 0]
+        source = deck_events or [item for item in events if item.level == "hole" and item.mass_kg > 0]
+        timed = sorted((item.time_ms, item.hole_id, item.mass_kg) for item in source)
+        if timed:
+            return _mic_from_events(timed, window_ms)
 
+    mass_by_hole = {ld.hole_id: ld.total_charge_kg for ld in loads if ld.total_charge_kg > 0}
+    timed = sorted((times[hid], hid, mass_by_hole[hid]) for hid in mass_by_hole if hid in times)
+    if not timed:
+        return {"mic_kg": 0.0, "window_start_ms": 0.0, "hole_ids": []}
+    return _mic_from_events(timed, window_ms)
+
+
+def _mic_from_events(events: list[tuple[float, str, float]], window_ms: float) -> dict[str, Any]:
     best_mass = 0.0
     best_start = events[0][0]
     best_ids: list[str] = []
     left = 0
     running = 0.0
     for right in range(len(events)):
-        running += mass_by_hole[events[right][1]]
+        running += events[right][2]
         while events[right][0] - events[left][0] > window_ms:
-            running -= mass_by_hole[events[left][1]]
+            running -= events[left][2]
             left += 1
         if running > best_mass:
             best_mass = running
             best_start = events[left][0]
             best_ids = [events[i][1] for i in range(left, right + 1)]
-
     return {"mic_kg": round(best_mass, 2), "window_start_ms": best_start, "hole_ids": best_ids}
 
 
@@ -287,19 +300,250 @@ def validate(
                 }
             )
 
-    if design.network.connectors or design.network.starters:
-        _times, timing_warnings = resolve_times(design.network, enabled)
-        for message in timing_warnings:
-            warnings.append({"code": "hole_disconnected", "hole_id": None, "message": message})
+    if (
+        design.network.connectors
+        or design.network.starters
+        or design.network.surface_connectors
+        or design.network.starter_items
+        or design.network.electronic_channels
+        or design.network.electronic_times_ms
+    ):
+        result = resolve_network(design.network, enabled, design.loads)
+        for message in result.warnings:
+            hole_id = None
+            for hid in sorted((h.id for h in enabled), key=len, reverse=True):
+                if hid in message:
+                    hole_id = hid
+                    break
+            warnings.append({"code": "unconnected_holes", "hole_id": hole_id, "message": message})
+        warnings.extend(timing_diagnostics(design, result.times_ms, result.events))
+
+    return warnings
+
+
+def _neighbour_pairs(holes: list[Hole], max_distance_m: float) -> list[tuple[Hole, Hole, float]]:
+    pairs: list[tuple[Hole, Hole, float]] = []
+    for i, left in enumerate(holes):
+        for right in holes[i + 1 :]:
+            distance = math.hypot(left.collar.x - right.collar.x, left.collar.y - right.collar.y)
+            if 0 < distance <= max_distance_m:
+                pairs.append((left, right, distance))
+    return pairs
+
+
+def _face_distance(hole: Hole, design: BlastDesign) -> float | None:
+    """Distance from a hole to the nearest free-face edge (plan)."""
+    points = design.contour.points_xy
+    n = len(points)
+    if n < 2:
+        return None
+    edges = list(design.contour.free_faces)
+    if not edges:
+        # South edge of the bounding box — typical bench face when unmarked.
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        y_min = min(ys)
+        return abs(hole.collar.y - y_min)
+    best = None
+    for edge in edges:
+        if len(edge) < 2:
+            continue
+        a = points[edge[0] % n]
+        b = points[edge[1] % n]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length_sq = dx * dx + dy * dy
+        if length_sq < 1e-9:
+            distance = math.hypot(hole.collar.x - a[0], hole.collar.y - a[1])
+        else:
+            t = max(0.0, min(1.0, ((hole.collar.x - a[0]) * dx + (hole.collar.y - a[1]) * dy) / length_sq))
+            px, py = a[0] + t * dx, a[1] + t * dy
+            distance = math.hypot(hole.collar.x - px, hole.collar.y - py)
+        if best is None or distance < best:
+            best = distance
+    return best
+
+
+def timing_diagnostics(
+    design: BlastDesign,
+    times: dict[str, float],
+    events: list[FiringEvent] | None = None,
+    *,
+    min_delay_ms: float = 8.0,
+    mic_window_ms: float = 8.0,
+    high_mic_fraction: float = 0.35,
+    high_mic_kg: float = 2000.0,
+) -> list[dict[str, Any]]:
+    """Initiation-network diagnostics used by analyze/validate."""
+    warnings: list[dict[str, Any]] = []
+    enabled = [h for h in design.holes if h.enabled]
+    if not times:
+        return warnings
+
+    if design.network.system == "electronic":
+        rounded: dict[float, list[str]] = {}
+        for hole_id, time_ms in times.items():
+            rounded.setdefault(round(time_ms, 1), []).append(hole_id)
+        for time_ms, hole_ids in sorted(rounded.items()):
+            if len(hole_ids) > 1:
+                warnings.append(
+                    {
+                        "code": "duplicate_times",
+                        "hole_id": hole_ids[0],
+                        "message": (
+                            f"Одинаковое время {time_ms:.1f} мс у скважин {', '.join(hole_ids[:8])}"
+                            + ("…" if len(hole_ids) > 8 else "")
+                            + "."
+                        ),
+                    }
+                )
+
+    pattern_params = design.pattern_params or {}
+    expected_a = float(pattern_params.get("spacing_a_m") or 5.0)
+    expected_b = float(pattern_params.get("burden_b_m") or 4.0)
+    neighbour_limit = 1.6 * max(expected_a, expected_b)
+    for left, right, _distance in _neighbour_pairs(enabled, neighbour_limit):
+        if left.id not in times or right.id not in times:
+            continue
+        delta = abs(times[left.id] - times[right.id])
+        if 0 < delta < min_delay_ms:
+            warnings.append(
+                {
+                    "code": "insufficient_delays",
+                    "hole_id": left.id,
+                    "message": (
+                        f"Между {left.id} и {right.id} всего {delta:.1f} мс "
+                        f"(меньше {min_delay_ms:.0f} мс)."
+                    ),
+                }
+            )
+
+    face_by_id = {h.id: _face_distance(h, design) for h in enabled}
+    inversions = 0
+    for left, right, _distance in _neighbour_pairs(enabled, neighbour_limit):
+        if left.id not in times or right.id not in times:
+            continue
+        d_left, d_right = face_by_id.get(left.id), face_by_id.get(right.id)
+        if d_left is None or d_right is None:
+            continue
+        if d_left + 0.5 < d_right and times[left.id] > times[right.id] + min_delay_ms:
+            inversions += 1
+            if inversions <= 4:
+                warnings.append(
+                    {
+                        "code": "unexpected_firing_order",
+                        "hole_id": left.id,
+                        "message": (
+                            f"Скважина {right.id} дальше от откоса, но срабатывает раньше {left.id}."
+                        ),
+                    }
+                )
+
+    distances = [face_by_id[h.id] for h in enabled if h.id in times and face_by_id.get(h.id) is not None]
+    if len(distances) >= 4:
+        cutoff = min(distances) + 0.35 * (max(distances) - min(distances) or 1.0)
+        front_times = [
+            times[h.id]
+            for h in enabled
+            if h.id in times and face_by_id.get(h.id) is not None and face_by_id[h.id] <= cutoff
+        ]
+        back_times = [
+            times[h.id]
+            for h in enabled
+            if h.id in times and face_by_id.get(h.id) is not None and face_by_id[h.id] > cutoff
+        ]
+        if front_times and back_times and (sum(back_times) / len(back_times)) + min_delay_ms < (
+            sum(front_times) / len(front_times)
+        ):
+            warnings.append(
+                {
+                    "code": "relief_direction",
+                    "hole_id": None,
+                    "message": "Фронт инициирования идёт к открытому откосу, а не от него — нет линии наименьшего сопротивления.",
+                }
+            )
+
+    mic = charge_per_delay(times, design.loads, window_ms=mic_window_ms, events=events)
+    total_charge = sum(ld.total_charge_kg for ld in design.loads)
+    mic_limit = max(high_mic_kg, high_mic_fraction * total_charge) if total_charge > 0 else high_mic_kg
+    if mic["mic_kg"] > mic_limit and len(mic["hole_ids"]) > 2:
+        warnings.append(
+            {
+                "code": "high_mic",
+                "hole_id": mic["hole_ids"][0] if mic["hole_ids"] else None,
+                "message": (
+                    f"Высокий MIC: {mic['mic_kg']:.0f} кг в окне {mic_window_ms:.0f} мс "
+                    f"(скважины {', '.join(mic['hole_ids'][:6])})."
+                ),
+            }
+        )
+
+    hole_ids = {h.id for h in enabled}
+    adjacency: dict[str, set[str]] = {hid: set() for hid in hole_ids}
+    for item in design.network.surface_connectors or design.network.connectors:
+        from_hole = getattr(item, "from_hole", None)
+        to_hole = getattr(item, "to_hole", None)
+        if from_hole in adjacency and to_hole in adjacency:
+            adjacency[from_hole].add(to_hole)
+            adjacency[to_hole].add(from_hole)
+    for cord in design.network.detonating_cords:
+        for left_id, right_id in zip(cord.hole_ids, cord.hole_ids[1:]):
+            if left_id in adjacency and right_id in adjacency:
+                adjacency[left_id].add(right_id)
+                adjacency[right_id].add(left_id)
+
+    starters = {item.hole_id for item in design.network.starter_items} or set(design.network.starters)
+    visited: set[str] = set()
+
+    def _walk(start: str) -> set[str]:
+        stack = [start]
+        component: set[str] = set()
+        while stack:
+            node = stack.pop()
+            if node in component:
+                continue
+            component.add(node)
+            stack.extend(adjacency.get(node, ()))
+        return component
+
+    isolated: list[str] = []
+    for hole_id in sorted(hole_ids):
+        if hole_id in visited:
+            continue
+        component = _walk(hole_id)
+        visited |= component
+        if component.isdisjoint(starters) and any(
+            hole_id in times or neighbour in times for neighbour in component
+        ):
+            isolated.extend(sorted(component))
+        elif component.isdisjoint(starters) and any(adjacency[node] for node in component):
+            isolated.extend(sorted(component))
+    if isolated:
+        sample = isolated[:8]
+        warnings.append(
+            {
+                "code": "isolated_network_branches",
+                "hole_id": sample[0],
+                "message": (
+                    "Изолированные ветви сети: "
+                    + ", ".join(sample)
+                    + ("…" if len(isolated) > 8 else "")
+                    + "."
+                ),
+            }
+        )
 
     return warnings
 
 
 def estimate_ppv(mic_kg: float, distance_m: float, k: float, n: float) -> float:
-    """Приведённое расстояние: V = K·(Q^(1/3)/R)^n. Коэффициенты K и n сильно
-    зависят от массива и вводятся пользователем — значения по умолчанию
-    в UI помечаются как ориентировочные, не как норматив."""
-    if mic_kg <= 0 or distance_m <= 0:
-        return 0.0
-    scaled_distance = (mic_kg ** (1.0 / 3.0)) / distance_m
-    return k * scaled_distance**n
+    """Legacy single-point PPV in the ``q_cube_over_r`` convention: V = K·(Q^(1/3)/R)^n.
+
+    Site-calibrated laws live on ``VibrationModel`` and must carry their own
+    scaled-distance convention. Do not reuse this helper with a square-root
+    or R/Q law — call ``design.vibration.predict_ppv`` instead.
+    """
+    from design.models import VibrationModel
+    from design.vibration import CONVENTION_Q_CUBE_OVER_R, predict_ppv
+
+    model = VibrationModel(id="legacy-analyze", k=k, n=n, scaled_distance=CONVENTION_Q_CUBE_OVER_R)
+    return predict_ppv(mic_kg, distance_m, model)

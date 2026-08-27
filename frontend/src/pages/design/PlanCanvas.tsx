@@ -20,12 +20,14 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3 } from "../../types/design";
+import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
+import { RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
 
 const HOLE_HIT_RADIUS_PX = 12;
 const VERTEX_HIT_RADIUS_PX = 10;
 const EDGE_HIT_RADIUS_PX = 8;
+const RECEPTOR_HIT_RADIUS_PX = 12;
 const NEIGHBOUR_COUNT = 5;
 const SPACING_TOLERANCE_M = 0.5;
 const CLICK_SLOP_PX = 4;
@@ -38,7 +40,7 @@ const WHEEL_GESTURE_GAP_MS = 400;
 const GESTURE_ECHO_MS = 500;
 const DEFAULT_CAMERA: Camera = { x: 0, y: 0, scale: 6 };
 
-type Mode = "contour" | "holes";
+type Mode = "contour" | "holes" | "tie" | "timing";
 type PlanTool = "select" | "add" | "face" | "pan";
 
 const SNAP_OPTIONS = [0, 0.25, 0.5, 1, 2.5, 5];
@@ -78,11 +80,26 @@ export function PlanCanvas({
   isolines,
   timesMs,
   animationMs,
+  pendingTieFromId,
+  onTieHoles,
+  onClearPendingTie,
   domains,
   drawingDomainId,
   onDomainVertexAdd,
   mapValues,
   mapRange,
+  receptors,
+  selectedReceptorId,
+  placingReceptor,
+  onAddReceptor,
+  onSelectReceptor,
+  vibrationPredictions,
+  asDrilled,
+  showAsDrilled,
+  asCharged,
+  asFired,
+  movementVectors,
+  showMovementVectors,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -107,11 +124,26 @@ export function PlanCanvas({
   isolines?: Isoline[];
   timesMs?: Record<string, number> | null;
   animationMs?: number | null;
+  pendingTieFromId?: string | null;
+  onTieHoles?: (fromId: string, toId: string) => void;
+  onClearPendingTie?: () => void;
   domains?: BlastDomain[];
   drawingDomainId?: string | null;
   onDomainVertexAdd?: (domainId: string, point: Point3) => void;
   mapValues?: Record<string, number>;
   mapRange?: { min: number; max: number } | null;
+  receptors?: Receptor[];
+  selectedReceptorId?: string | null;
+  placingReceptor?: boolean;
+  onAddReceptor?: (world: Vec2) => void;
+  onSelectReceptor?: (id: string) => void;
+  vibrationPredictions?: VibrationPrediction[];
+  asDrilled?: AsDrilledHole[];
+  showAsDrilled?: boolean;
+  asCharged?: AsChargedHole[];
+  asFired?: AsFiredHole[];
+  movementVectors?: PredictedHoleMovement[];
+  showMovementVectors?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -407,6 +439,16 @@ export function PlanCanvas({
     return toScreen(point);
   }
 
+  function hitReceptor(screen: Vec2): Receptor | null {
+    const items = receptors ?? [];
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const receptor = items[i];
+      const p = worldToScreen(camera, viewport, { x: receptor.location.x, y: receptor.location.y });
+      if (distance(p, screen) <= RECEPTOR_HIT_RADIUS_PX) return receptor;
+    }
+    return null;
+  }
+
   function hitHole(screen: Vec2): Hole | null {
     for (let i = holes.length - 1; i >= 0; i -= 1) {
       const h = holes[i];
@@ -547,6 +589,23 @@ export function PlanCanvas({
     }
     if (e.button !== 0) return;
 
+    if (placingReceptor && onAddReceptor) {
+      const world = worldOf(screen);
+      const existing = hitReceptor(screen);
+      if (existing && onSelectReceptor) {
+        onSelectReceptor(existing.id);
+        return;
+      }
+      onAddReceptor({ x: round2(world.x), y: round2(world.y) });
+      return;
+    }
+
+    const receptorHit = hitReceptor(screen);
+    if (receptorHit && onSelectReceptor && !drawingDomainId) {
+      onSelectReceptor(receptorHit.id);
+      return;
+    }
+
     if (drawingDomainId && onDomainVertexAdd) {
       const world = applySnap(worldOf(screen));
       onDomainVertexAdd(drawingDomainId, { x: world.x, y: world.y, z: contour.bench.crest_z_m });
@@ -591,6 +650,21 @@ export function PlanCanvas({
         additive: e.shiftKey,
         moved: false,
       });
+      return;
+    }
+
+    if (mode === "tie") {
+      const tieHole = hitHole(screen);
+      if (tieHole && onTieHoles) {
+        if (pendingTieFromId && pendingTieFromId !== tieHole.id) {
+          onTieHoles(pendingTieFromId, tieHole.id);
+        } else {
+          onSelectedChange(new Set([tieHole.id]));
+        }
+        return;
+      }
+      onClearPendingTie?.();
+      if (!e.shiftKey) onSelectedChange(new Set());
       return;
     }
 
@@ -1041,6 +1115,9 @@ export function PlanCanvas({
           <marker id="arrow-connector" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="#7a6ee0" />
           </marker>
+          <marker id="arrow-movement" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#8a5a1a" />
+          </marker>
         </defs>
 
         {showGrid && (
@@ -1059,15 +1136,27 @@ export function PlanCanvas({
         <line x1={0} y1={origin.y} x2={viewport.width} y2={origin.y} className="axis-line" />
         <line x1={origin.x} y1={0} x2={origin.x} y2={viewport.height} className="axis-line" />
 
-        {isolines?.map((iso, i) => (
-          <g key={`iso-${i}`}>
-            {iso.segments.map((seg, j) => {
-              const a = toScreen({ x: seg[0][0], y: seg[0][1] });
-              const b = toScreen({ x: seg[1][0], y: seg[1][1] });
-              return <line key={j} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="isoline-segment" />;
-            })}
-          </g>
-        ))}
+        {isolines?.map((iso, i) => {
+          const passed = animating && iso.time_ms <= animationMs!;
+          const nextIso = isolines[i + 1];
+          const isFront = passed && (nextIso == null || nextIso.time_ms > animationMs!);
+          const cls = isFront ? "isoline-segment front" : passed ? "isoline-segment passed" : "isoline-segment";
+          const anchor = iso.segments[0] ? toScreen({ x: iso.segments[0][0][0], y: iso.segments[0][0][1] }) : null;
+          return (
+            <g key={`iso-${i}`}>
+              {iso.segments.map((seg, j) => {
+                const a = toScreen({ x: seg[0][0], y: seg[0][1] });
+                const b = toScreen({ x: seg[1][0], y: seg[1][1] });
+                return <line key={j} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={cls} />;
+              })}
+              {anchor && (
+                <text x={anchor.x} y={anchor.y - 4} className={`isoline-label${isFront ? " front" : ""}`}>
+                  {ruNumber(iso.time_ms, 0)}
+                </text>
+              )}
+            </g>
+          );
+        })}
 
         {domains?.map((domain) => {
           if (domain.polygon.length < 2) return null;
@@ -1137,7 +1226,20 @@ export function PlanCanvas({
           return <rect key={`dvertex-${i}`} x={p.x - 4} y={p.y - 4} width={8} height={8} className="domain-vertex" />;
         })}
 
-        {network?.connectors.map((c, i) => {
+        {network?.detonating_cords?.map((cord) => {
+          const pts = cord.hole_ids.map((id) => holesById.get(id)).filter((h): h is Hole => Boolean(h));
+          if (pts.length < 2) return null;
+          const screen = pts.map((h) => worldToScreen(camera, viewport, { x: h.collar.x, y: h.collar.y }));
+          return (
+            <polyline
+              key={cord.id}
+              className="detcord-line"
+              fill="none"
+              points={screen.map((p) => `${p.x},${p.y}`).join(" ")}
+            />
+          );
+        })}
+        {(network ? networkTies(network) : []).map((c, i) => {
           const from = holesById.get(c.from_hole);
           const to = holesById.get(c.to_hole);
           if (!from || !to) return null;
@@ -1145,9 +1247,59 @@ export function PlanCanvas({
           const b = toScreen({ x: to.collar.x, y: to.collar.y });
           const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
           return (
-            <g key={`conn-${i}`}>
+            <g key={c.id || `conn-${i}`}>
               <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="connector-line" markerEnd="url(#arrow-connector)" />
               {c.delay_ms > 0 && <text x={mid.x} y={mid.y - 2} className="connector-label">{ruNumber(c.delay_ms, 0)}</text>}
+            </g>
+          );
+        })}
+
+        {(receptors ?? []).map((receptor) => {
+          const p = worldToScreen(camera, viewport, { x: receptor.location.x, y: receptor.location.y });
+          const pred = vibrationPredictions?.find((item) => item.receptor_id === receptor.id);
+          const selectedRec = receptor.id === selectedReceptorId;
+          return (
+            <g key={`rec-${receptor.id}`} className={`receptor-marker kind-${receptor.kind}${selectedRec ? " selected" : ""}${pred?.exceeds_limit ? " over" : ""}`}>
+              <rect x={p.x - 6} y={p.y - 6} width={12} height={12} transform={`rotate(45 ${p.x} ${p.y})`} />
+              <text x={p.x + 10} y={p.y - 6} className="receptor-label">
+                {receptor.name || RECEPTOR_KIND_LABELS[receptor.kind] || receptor.kind}
+                {pred ? ` ${ruNumber(pred.ppv_mm_s, 1)}` : ""}
+              </text>
+            </g>
+          );
+        })}
+
+        {showMovementVectors && (movementVectors ?? []).map((item) => {
+          if (item.throw_m <= 0 && item.heave_m <= 0) return null;
+          const from = worldToScreen(camera, viewport, { x: item.x, y: item.y });
+          const to = worldToScreen(camera, viewport, { x: item.predicted_x, y: item.predicted_y });
+          return (
+            <g key={`mv-${item.hole_id}`} className="movement-vector">
+              <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} markerEnd="url(#arrow-movement)" />
+            </g>
+          );
+        })}
+
+        {showAsDrilled && (asDrilled ?? []).map((item) => {
+          const designed = holesById.get(item.design_hole_id);
+          const actual = worldToScreen(camera, viewport, { x: item.actual_collar.x, y: item.actual_collar.y });
+          const designedScreen = designed
+            ? worldToScreen(camera, viewport, { x: designed.collar.x, y: designed.collar.y })
+            : null;
+          const selectedExec = selected.has(item.design_hole_id);
+          return (
+            <g key={`ad-${item.design_hole_id}`} className={`as-drilled-marker${selectedExec ? " selected" : ""}`}>
+              {designedScreen && (
+                <line
+                  x1={designedScreen.x}
+                  y1={designedScreen.y}
+                  x2={actual.x}
+                  y2={actual.y}
+                  className="as-drilled-offset"
+                />
+              )}
+              <circle cx={actual.x} cy={actual.y} r={selectedExec ? 6.5 : 5} />
+              <text x={actual.x + 8} y={actual.y + 10} className="as-drilled-label">факт</text>
             </g>
           );
         })}
@@ -1167,12 +1319,24 @@ export function PlanCanvas({
             const t = timesMs![h.id];
             animClass = t !== undefined && t <= animationMs! ? " fired" : " unfired";
           }
+          const isStarter = Boolean(
+            network?.starter_items?.some((item) => item.hole_id === h.id) || network?.starters?.includes(h.id),
+          );
+          const pending = pendingTieFromId === h.id;
+          const t = timesMs?.[h.id];
+          const charged = (asCharged ?? []).some((item) => item.design_hole_id === h.id);
+          const fired = (asFired ?? []).some((item) => item.design_hole_id === h.id);
           return (
             <g
               key={h.id}
-              className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${animClass}`}
+              className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}`}
             >
-              <circle cx={p.x} cy={p.y} r={radius} style={fillColor ? { fill: fillColor } : undefined} />
+              <circle cx={p.x} cy={p.y} r={pending ? Math.max(radius, 7) : radius} style={fillColor ? { fill: fillColor } : undefined} />
+              {charged && <circle cx={p.x + 7} cy={p.y - 6} r={2.2} className="as-charged-dot" />}
+              {fired && <circle cx={p.x + 7} cy={p.y + 6} r={2.2} className="as-fired-dot" />}
+              {mode === "timing" && t !== undefined && (
+                <text x={p.x + 8} y={p.y - 6} className="hole-time-label">{ruNumber(t, 0)}</text>
+              )}
             </g>
           );
         })}
@@ -1248,15 +1412,27 @@ export function PlanCanvas({
             <li><i>Скважины:</i> «Скважина» — клик добавляет, «Выбор» — перетаскивание (Shift — строго по оси), рамка выделяет, Delete удаляет.</li>
             <li><i>Клавиши:</i> V — выбор, A — добавление, F — откос, H — панорама, Esc — снять выделение.</li>
             <li><i>Геология:</i> в режиме рисования региона клик ставит вершину полигона; остальные инструменты плана при этом не срабатывают.</li>
+            <li><i>Связи:</i> в режиме «Связь» клик по скважине начинает коннектор, вторая скважина его замыкает, клик по пустому месту сбрасывает.</li>
+            <li><i>Рецепторы:</i> при постановке рецептора клик ставит его на план, клик по существующему — выделяет.</li>
           </ul>
         </div>
       ) : (
         <div className="plan-canvas-hint">
-          {drawingDomainId
-            ? "Клик — вершина геологического региона · правой кнопкой или пробелом — перемещение · «？» — все жесты"
-            : mode === "contour"
-              ? "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик по точке — удалить · «？» — все жесты"
-              : "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик — новая скважина · «？» — все жесты"}
+          {placingReceptor
+            ? "Клик — новый рецептор на плане · правой кнопкой или пробелом — перемещение · «？» — все жесты"
+            : drawingDomainId
+              ? "Клик — вершина геологического региона · правой кнопкой или пробелом — перемещение · «？» — все жесты"
+              : mode === "contour"
+                ? "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик по точке — удалить · «？» — все жесты"
+                : mode === "tie"
+                  ? pendingTieFromId
+                    ? `Связь от ${pendingTieFromId}: кликните вторую скважину · пустое место — сброс`
+                    : "Клик по скважине — начало связи · две скважины создают коннектор · «？» — все жесты"
+                  : mode === "timing"
+                    ? "Анимация последовательности взрыва и изолинии времени · «？» — все жесты"
+                    : showAsDrilled
+                      ? "Оранжевое кольцо — факт бурения, линия — смещение устья относительно проекта"
+                      : "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик — новая скважина · «？» — все жесты"}
         </div>
       )}
       </div>

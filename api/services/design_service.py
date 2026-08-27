@@ -4,8 +4,10 @@ from __future__ import annotations
 from Blast import ExplosiveProperties
 from api.exceptions import (
     DesignNotFoundError,
+    FrozenDesignError,
     InvalidDesignError,
     InvalidGeometryError,
+    InvalidLifecycleError,
     InvalidSurveyError,
 )
 from api.schemas.cost import (
@@ -22,10 +24,19 @@ from api.schemas.design import (
     ChargeGenerateRequest,
     ChargeGenerateResponse,
     DesignCostRequest,
+    DesignForkRequest,
     DesignListResponse,
     DesignSummarySchema,
+    LifecycleMetaResponse,
+    LifecycleStateSchema,
+    LifecycleStatusSchema,
+    LifecycleTransitionRequest,
+    WorkstationMetaResponse,
     EngineeringMapsRequest,
     EngineeringMapsSchema,
+    FragmentationModelsResponse,
+    FragmentationPredictRequest,
+    FragmentationPredictResponse,
     HoleGeometryEditRequest,
     HoleGeometryEditResponse,
     HoleInsertRequest,
@@ -46,22 +57,61 @@ from api.schemas.design import (
     GeologyAssignResponse,
     GeologyInterceptRequest,
     GeologyInterceptResponse,
+    ReceptorAttachRequest,
+    ReceptorAttachResponse,
+    VibrationConventionsResponse,
+    VibrationPredictRequest,
+    VibrationPredictResponse,
+    AsDrilledRecordRequest,
+    AsDrilledRecordResponse,
+    AsDrilledCompareRequest,
+    AsDrilledCompareResponse,
+    MwdImportRequest,
+    MwdSchemaResponse,
+    AsChargedRecordRequest,
+    AsChargedRecordResponse,
+    AsChargedCompareRequest,
+    AsChargedCompareResponse,
+    AsFiredRecordRequest,
+    AsFiredRecordResponse,
+    AsFiredCompareRequest,
+    AsFiredCompareResponse,
+    ExecutionCompareRequest,
+    ExecutionCompareResponse,
+    BlastResultRecordRequest,
+    BlastResultRecordResponse,
+    BlastResultCompareRequest,
+    BlastResultCompareResponse,
 )
 from api.services.cost_service import calculate_cost
+from design import lifecycle as design_lifecycle
 from design import persistence as design_persistence
+from design import workstation as design_workstation
 from design.analysis import charge_per_delay, estimate_ppv, summary as run_summary, timing_isolines, validate as run_validate
 from design.charging import apply_charge_rules
 from design.editing import apply_hole_geometry, insert_manual_hole
-from design.export import holes_csv, passport_html
+from design.export import holes_csv
+from design.reporting.html import passport_html
 from design.geometry import block_volume
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.maps import engineering_maps
-from design.models import BlastDesign, BlastDomain, BlockContour, Hole, Point3
+from design.models import (
+    AsChargedHole,
+    AsDrilledHole,
+    AsFiredHole,
+    BlastDesign,
+    BlastDomain,
+    BlockContour,
+    Hole,
+    Point3,
+    Receptor,
+    VibrationMeasurement,
+)
 from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
-from design.timing import build_template_network, resolve_times
+from design.timing import TimingExprError, build_template_network, resolve_network
 
 
 def _surfaces_from_request(payload) -> SurfaceSet | None:
@@ -154,7 +204,16 @@ def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
         density_t_m3=request.explosive.density_t_m3,
         power_mj_kg=request.explosive.power_mj_kg,
     )
-    loads = apply_charge_rules(holes, request.rules, explosive)
+    catalog = [
+        ExplosiveProperties(
+            name=item.name,
+            density_t_m3=item.density_t_m3,
+            power_mj_kg=item.power_mj_kg,
+        )
+        for item in request.explosives
+    ]
+    contour = BlockContour.from_dict(request.contour.model_dump()) if request.contour is not None else None
+    loads = apply_charge_rules(holes, request.rules, explosive, contour=contour, explosives=catalog)
 
     return ChargeGenerateResponse(
         loads=[ld.to_dict() for ld in loads],
@@ -167,7 +226,10 @@ def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
     holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
     if not holes:
         raise InvalidDesignError("Список скважин пуст — нечего коммутировать.")
-    network = build_template_network(holes, request.scheme, request.params)
+    try:
+        network = build_template_network(holes, request.scheme, request.params)
+    except TimingExprError as exc:
+        raise InvalidDesignError(str(exc)) from exc
     return TieGenerateResponse(
         network=network.to_dict(),
         starters_count=len(network.starters),
@@ -179,10 +241,11 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
     design = BlastDesign.from_dict(request.design.model_dump())
     enabled_holes = [h for h in design.holes if h.enabled]
 
-    times, timing_warnings = resolve_times(design.network, enabled_holes)
+    result = resolve_network(design.network, enabled_holes, design.loads)
+    times, timing_warnings = result.times_ms, result.warnings
     validation_warnings = run_validate(design)
     summary_data = run_summary(design)
-    mic_data = charge_per_delay(times, design.loads, window_ms=request.mic_window_ms)
+    mic_data = charge_per_delay(times, design.loads, window_ms=request.mic_window_ms, events=result.events)
     isolines_data = timing_isolines(times, enabled_holes, step_ms=request.isoline_step_ms)
 
     ppv_mm_s = None
@@ -198,12 +261,383 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
         isolines=isolines_data,
         ppv_mm_s=ppv_mm_s,
         maps=EngineeringMapsSchema(**engineering_maps(design)),
+        firing_events=[event.to_dict() for event in result.events],
     )
 
 
 def design_maps(request: EngineeringMapsRequest) -> EngineeringMapsSchema:
     design = BlastDesign.from_dict(request.design.model_dump())
     return EngineeringMapsSchema(**engineering_maps(design))
+
+
+def attach_receptor(request: ReceptorAttachRequest) -> ReceptorAttachResponse:
+    from design.vibration import attach_receptor as attach
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    receptor = attach(design, Receptor.from_dict(request.receptor.model_dump()))
+    return ReceptorAttachResponse(
+        receptor=receptor.to_dict(),
+        receptors=[item.to_dict() for item in design.receptors],
+    )
+
+
+def list_vibration_conventions() -> VibrationConventionsResponse:
+    from design.vibration import list_conventions
+
+    return VibrationConventionsResponse(conventions=list_conventions())
+
+
+def predict_vibration(request: VibrationPredictRequest) -> VibrationPredictResponse:
+    from design.vibration import ScaledDistanceMismatchError, predict_design
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    measured = [VibrationMeasurement.from_dict(item.model_dump()) for item in request.measured]
+    try:
+        payload = predict_design(
+            design,
+            model_id=request.model_id,
+            mic_window_ms=request.mic_window_ms,
+            measurements=measured,
+        )
+    except (ValueError, ScaledDistanceMismatchError) as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    return VibrationPredictResponse(**payload)
+
+
+def list_mwd_schema() -> MwdSchemaResponse:
+    from design.as_drilled import mwd_import_schema
+
+    return MwdSchemaResponse(**mwd_import_schema())
+
+
+def record_as_drilled(request: AsDrilledRecordRequest) -> AsDrilledRecordResponse:
+    from design.as_drilled import compare_design, record_as_drilled_many
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = [hole.to_dict() for hole in design.holes]
+    try:
+        record_as_drilled_many(
+            design,
+            [AsDrilledHole.from_dict(item.model_dump()) for item in request.holes],
+            replace=request.replace,
+        )
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    designed_after = [hole.to_dict() for hole in design.holes]
+    if designed_after != designed_before:
+        raise InvalidDesignError("Запись факта бурения не должна менять проектные скважины.")
+    return AsDrilledRecordResponse(
+        **payload,
+        holes=designed_after,
+    )
+
+
+def compare_as_drilled(request: AsDrilledCompareRequest) -> AsDrilledCompareResponse:
+    from design.as_drilled import compare_design
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = [hole.to_dict() for hole in design.holes]
+    try:
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if [hole.to_dict() for hole in design.holes] != designed_before:
+        raise InvalidDesignError("Сравнение факта с проектом не должно менять проектные скважины.")
+    return AsDrilledCompareResponse(**payload)
+
+
+def import_mwd(request: MwdImportRequest) -> AsDrilledRecordResponse:
+    from design.as_drilled import attach_mwd, compare_design, parse_mwd_samples
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = [hole.to_dict() for hole in design.holes]
+    try:
+        attach_mwd(
+            design,
+            request.design_hole_id,
+            parse_mwd_samples(request.samples),
+            source=request.source,
+        )
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    designed_after = [hole.to_dict() for hole in design.holes]
+    if designed_after != designed_before:
+        raise InvalidDesignError("Импорт MWD не должен менять проектные скважины.")
+    return AsDrilledRecordResponse(**payload, holes=designed_after)
+
+
+def _guard_designed(design: BlastDesign) -> tuple:
+    return (
+        [hole.to_dict() for hole in design.holes],
+        [load.to_dict() for load in design.loads],
+        [item.to_dict() for item in design.network.detonators],
+        dict(design.network.electronic_times_ms),
+    )
+
+
+def record_as_charged(request: AsChargedRecordRequest) -> AsChargedRecordResponse:
+    from design.as_charged import compare_design, record_as_charged_many
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        record_as_charged_many(
+            design,
+            [AsChargedHole.from_dict(item.model_dump()) for item in request.holes],
+            replace=request.replace,
+        )
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Запись факта заряжания не должна менять проектные скважины, заряд или сеть.")
+    return AsChargedRecordResponse(
+        **payload,
+        holes=[hole.to_dict() for hole in design.holes],
+        loads=[load.to_dict() for load in design.loads],
+    )
+
+
+def compare_as_charged(request: AsChargedCompareRequest) -> AsChargedCompareResponse:
+    from design.as_charged import compare_design
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Сравнение факта заряжания не должно менять проектные скважины, заряд или сеть.")
+    return AsChargedCompareResponse(**payload)
+
+
+def record_as_fired(request: AsFiredRecordRequest) -> AsFiredRecordResponse:
+    from design.as_fired import compare_design, record_as_fired_many
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        record_as_fired_many(
+            design,
+            [AsFiredHole.from_dict(item.model_dump()) for item in request.holes],
+            replace=request.replace,
+        )
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Запись факта взрыва не должна менять проектные скважины, заряд или сеть.")
+    return AsFiredRecordResponse(
+        **payload,
+        holes=[hole.to_dict() for hole in design.holes],
+        network=design.network.to_dict(),
+    )
+
+
+def compare_as_fired(request: AsFiredCompareRequest) -> AsFiredCompareResponse:
+    from design.as_fired import compare_design
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        payload = compare_design(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Сравнение факта взрыва не должно менять проектные скважины, заряд или сеть.")
+    return AsFiredCompareResponse(**payload)
+
+
+def compare_execution(request: ExecutionCompareRequest) -> ExecutionCompareResponse:
+    from design.execution import compare_execution as run_compare_execution
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        payload = run_compare_execution(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Сводка исполнения не должна менять проектные скважины, заряд или сеть.")
+    return ExecutionCompareResponse(**payload)
+
+
+def _basis_from_request(request):
+    from design.blast_result import (
+        ComparisonBasis,
+        DesignedBackbreak,
+        DesignedMuckpile,
+        PlannedCost,
+        PredictedVibrationSnapshot,
+    )
+    from simulation.fragmentation.models import DesignedFragmentationTarget, PredictedFragmentation
+
+    predicted_frag = None
+    if request.predicted_fragmentation is not None:
+        predicted_frag = PredictedFragmentation.from_dict(request.predicted_fragmentation.model_dump())
+    planned = None
+    if request.planned_cost is not None:
+        planned = PlannedCost.from_dict(request.planned_cost.model_dump())
+    designed_frag = None
+    if request.designed_fragmentation is not None:
+        designed_frag = DesignedFragmentationTarget.from_dict(request.designed_fragmentation.model_dump())
+    designed_muck = None
+    if request.designed_muckpile is not None:
+        designed_muck = DesignedMuckpile.from_dict(request.designed_muckpile.model_dump())
+    designed_bb = None
+    if request.designed_backbreak is not None:
+        designed_bb = DesignedBackbreak.from_dict(request.designed_backbreak.model_dump())
+    return ComparisonBasis(
+        predicted_fragmentation=predicted_frag,
+        predicted_vibration=[
+            PredictedVibrationSnapshot.from_dict(item.model_dump()) for item in request.predicted_vibration
+        ],
+        planned_cost=planned,
+        designed_fragmentation=designed_frag,
+        designed_muckpile=designed_muck,
+        designed_backbreak=designed_bb,
+        designed_toe_condition=request.designed_toe_condition,
+    )
+
+
+def record_blast_result(request: BlastResultRecordRequest) -> BlastResultRecordResponse:
+    from design.blast_result import BlastResult, compare_result, record_blast_result as persist_result
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        persist_result(
+            design,
+            BlastResult.from_dict(request.result.model_dump()),
+            basis=_basis_from_request(request),
+        )
+        payload = compare_result(design)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Запись результатов взрыва не должна менять проектные скважины, заряд или сеть.")
+    return BlastResultRecordResponse(
+        **payload,
+        holes=[hole.to_dict() for hole in design.holes],
+        loads=[load.to_dict() for load in design.loads],
+        network=design.network.to_dict(),
+    )
+
+
+def compare_blast_result(request: BlastResultCompareRequest) -> BlastResultCompareResponse:
+    from design.blast_result import compare_result
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    designed_before = _guard_designed(design)
+    try:
+        payload = compare_result(design, basis=_basis_from_request(request))
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if _guard_designed(design) != designed_before:
+        raise InvalidDesignError("Сравнение результатов взрыва не должно менять проектные скважины, заряд или сеть.")
+    return BlastResultCompareResponse(**payload)
+
+
+def list_fragmentation_models() -> FragmentationModelsResponse:
+    from simulation.fragmentation.engine import list_models
+
+    return FragmentationModelsResponse(models=list_models())
+
+
+def predict_fragmentation(request: FragmentationPredictRequest) -> FragmentationPredictResponse:
+    from simulation.fragmentation.engine import predict_design
+    from simulation.fragmentation.models import Calibration, DistributionPoint, MeasuredFragmentation
+    from simulation.fragmentation.regions import ExplosiveSpec, RockSpec
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    rock = None
+    if request.rock is not None:
+        rock = RockSpec(
+            name=request.rock.name,
+            density_t_m3=request.rock.density_t_m3,
+            ucs_mpa=request.rock.ucs_mpa,
+            fissuring_ff=request.rock.fissuring_ff,
+        )
+    explosive = None
+    if request.explosive is not None:
+        explosive = ExplosiveSpec(
+            name=request.explosive.name,
+            density_t_m3=request.explosive.density_t_m3,
+            power_mj_kg=request.explosive.power_mj_kg,
+        )
+    catalog = {
+        item.name: ExplosiveSpec(name=item.name, density_t_m3=item.density_t_m3, power_mj_kg=item.power_mj_kg)
+        for item in request.explosives
+    }
+    measured = [
+        MeasuredFragmentation(
+            x20_mm=item.x20_mm,
+            x50_mm=item.x50_mm,
+            x80_mm=item.x80_mm,
+            oversize_pct=item.oversize_pct,
+            curve=[DistributionPoint.from_dict(point.model_dump()) for point in item.curve],
+            source=item.source,
+            method=item.method,
+        )
+        for item in request.measured
+    ]
+    try:
+        payload = predict_design(
+            design,
+            model=request.model,
+            lump_size_mm=request.lump_size_mm,
+            max_oversize_pct=request.max_oversize_pct,
+            calibration=Calibration.from_dict(request.calibration),
+            default_rock=rock,
+            default_explosive=explosive,
+            explosives=catalog or None,
+            hole_oversize_coeff=request.hole_oversize_coeff,
+            measured=measured,
+        )
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    return FragmentationPredictResponse(**payload)
+
+
+def list_movement_models():
+    from api.schemas.movement import MovementModelsResponse
+    from simulation.movement.engine import list_models
+    from simulation.movement.models import estimate_kind_payload
+
+    payload = estimate_kind_payload()
+    return MovementModelsResponse(models=list_models(), **payload)
+
+
+def predict_movement(request):
+    from api.schemas.movement import MovementPredictRequest, MovementPredictResponse
+    from design.models import BlastDesign
+    from simulation.movement.engine import predict_design
+    from simulation.movement.models import MeasuredMuckpileEcho
+
+    if not isinstance(request, MovementPredictRequest):
+        request = MovementPredictRequest.model_validate(request)
+
+    design = BlastDesign.from_dict(request.design.model_dump())
+    before_holes = [hole.to_dict() for hole in design.holes]
+    before_loads = [load.to_dict() for load in design.loads]
+    before_pattern = dict(design.pattern_params or {})
+    measured = [MeasuredMuckpileEcho.from_dict(item.model_dump()) for item in request.measured]
+    try:
+        payload = predict_design(design, measured=measured)
+    except ValueError as exc:
+        raise InvalidDesignError(str(exc)) from exc
+    if [hole.to_dict() for hole in design.holes] != before_holes:
+        raise InvalidDesignError("Оценка развала не должна переписывать проектные скважины.")
+    if [load.to_dict() for load in design.loads] != before_loads:
+        raise InvalidDesignError("Оценка развала не должна переписывать заряжание.")
+    if dict(design.pattern_params or {}) != before_pattern:
+        raise InvalidDesignError("Оценка развала не должна переписывать сетку.")
+    if payload.get("is_physics_simulation"):
+        raise InvalidDesignError("Оценка развала не является физической симуляцией.")
+    return MovementPredictResponse(**payload)
 
 
 def edit_hole_geometry(request: HoleGeometryEditRequest) -> HoleGeometryEditResponse:
@@ -231,10 +665,18 @@ def list_plans(team_id: str) -> DesignListResponse:
     )
 
 
-def create_plan(team_id: str, schema: BlastDesignSchema) -> BlastDesignSchema:
+def _map_lifecycle_error(exc: Exception) -> None:
+    if isinstance(exc, design_lifecycle.FrozenDesignError):
+        raise FrozenDesignError(str(exc)) from exc
+    if isinstance(exc, design_lifecycle.InvalidLifecycleError):
+        raise InvalidLifecycleError(str(exc)) from exc
+
+
+def create_plan(team_id: str, schema: BlastDesignSchema, *, actor: str = "") -> BlastDesignSchema:
     design = BlastDesign.from_dict(schema.model_dump())
     design.design_id = ""  # новый паспорт всегда получает свежий id
-    saved = design_persistence.save_design(team_id, design)
+    design.lifecycle_status = design_lifecycle.STATUS_DRAFT
+    saved = design_persistence.save_design(team_id, design, actor=actor)
     return BlastDesignSchema(**saved.to_dict())
 
 
@@ -246,12 +688,18 @@ def get_plan(team_id: str, design_id: str) -> BlastDesignSchema:
     return BlastDesignSchema(**design.to_dict())
 
 
-def save_plan(team_id: str, design_id: str, schema: BlastDesignSchema) -> BlastDesignSchema:
+def save_plan(
+    team_id: str, design_id: str, schema: BlastDesignSchema, *, actor: str = ""
+) -> BlastDesignSchema:
     if schema.design_id and schema.design_id != design_id:
         raise InvalidDesignError("Идентификатор паспорта в теле запроса не совпадает с адресом.")
     design = BlastDesign.from_dict(schema.model_dump())
     design.design_id = design_id
-    saved = design_persistence.save_design(team_id, design)
+    try:
+        saved = design_persistence.save_design(team_id, design, actor=actor)
+    except (design_lifecycle.FrozenDesignError, design_lifecycle.InvalidLifecycleError) as exc:
+        _map_lifecycle_error(exc)
+        raise
     return BlastDesignSchema(**saved.to_dict())
 
 
@@ -260,13 +708,96 @@ def delete_plan(team_id: str, design_id: str) -> None:
         design_persistence.delete_design(team_id, design_id)
     except design_persistence.DesignNotFoundError as exc:
         raise DesignNotFoundError(design_id) from exc
+    except design_lifecycle.FrozenDesignError as exc:
+        raise FrozenDesignError(str(exc)) from exc
 
 
-def rename_plan(team_id: str, design_id: str, name: str) -> BlastDesignSchema:
+def rename_plan(team_id: str, design_id: str, name: str, *, actor: str = "") -> BlastDesignSchema:
     try:
-        design = design_persistence.rename_design(team_id, design_id, name)
+        design = design_persistence.rename_design(team_id, design_id, name, actor=actor)
     except design_persistence.DesignNotFoundError as exc:
         raise DesignNotFoundError(design_id) from exc
+    except (design_lifecycle.FrozenDesignError, design_lifecycle.InvalidLifecycleError) as exc:
+        _map_lifecycle_error(exc)
+        raise
+    return BlastDesignSchema(**design.to_dict())
+
+
+def lifecycle_meta() -> LifecycleMetaResponse:
+    return LifecycleMetaResponse(
+        statuses=[LifecycleStatusSchema(**item) for item in design_lifecycle.listed_statuses()],
+        data_roles=dict(design_lifecycle.DATA_ROLES),
+        auto_transition=False,
+    )
+
+
+def workstation_meta() -> WorkstationMetaResponse:
+    return WorkstationMetaResponse(**design_workstation.workstation_meta())
+
+
+def _lifecycle_state(design: BlastDesign) -> LifecycleStateSchema:
+    status = design.lifecycle_status
+    return LifecycleStateSchema(
+        design_id=design.design_id,
+        name=design.name,
+        lifecycle_status=status,
+        revision=design.revision,
+        parent_design_id=design.parent_design_id,
+        designed_sha256=design.designed_sha256,
+        allowed_transitions=design_lifecycle.allowed_transitions(status),
+        allowed_mutations=sorted(design_lifecycle.ALLOWED_MUTATIONS[status]),
+        frozen_designed=not design_lifecycle.designed_mutable(status),
+        frozen_record=design_lifecycle.is_record_frozen(status),
+        events=[item.to_dict() for item in design.lifecycle_events],
+    )
+
+
+def get_plan_lifecycle(team_id: str, design_id: str) -> LifecycleStateSchema:
+    try:
+        design = design_persistence.load_design(team_id, design_id)
+    except design_persistence.DesignNotFoundError as exc:
+        raise DesignNotFoundError(design_id) from exc
+    return _lifecycle_state(design)
+
+
+def transition_plan(
+    team_id: str,
+    design_id: str,
+    request: LifecycleTransitionRequest,
+    *,
+    actor: str,
+) -> LifecycleStateSchema:
+    try:
+        design = design_persistence.transition_design(
+            team_id,
+            design_id,
+            to_status=request.to_status,
+            actor=actor,
+            confirm=request.confirm,
+            note=request.note,
+        )
+    except design_persistence.DesignNotFoundError as exc:
+        raise DesignNotFoundError(design_id) from exc
+    except (design_lifecycle.FrozenDesignError, design_lifecycle.InvalidLifecycleError) as exc:
+        _map_lifecycle_error(exc)
+        raise
+    return _lifecycle_state(design)
+
+
+def fork_plan(
+    team_id: str,
+    design_id: str,
+    request: DesignForkRequest,
+    *,
+    actor: str = "",
+) -> BlastDesignSchema:
+    try:
+        design = design_persistence.fork_design(team_id, design_id, name=request.name, actor=actor)
+    except design_persistence.DesignNotFoundError as exc:
+        raise DesignNotFoundError(design_id) from exc
+    except (design_lifecycle.FrozenDesignError, design_lifecycle.InvalidLifecycleError) as exc:
+        _map_lifecycle_error(exc)
+        raise
     return BlastDesignSchema(**design.to_dict())
 
 

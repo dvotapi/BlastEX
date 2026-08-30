@@ -12,6 +12,7 @@ services:
       BLASTEX_SESSION_SECRET: "${BLASTEX_SESSION_SECRET:?Set BLASTEX_SESSION_SECRET before startup}"
       BLASTEX_USERS_JSON: "${BLASTEX_USERS_JSON:?Set BLASTEX_USERS_JSON before startup}"
       BLASTEX_COOKIE_SECURE: "${BLASTEX_COOKIE_SECURE:-false}"
+      BLASTEX_DATABASE_URL: "${BLASTEX_DATABASE_URL:-}"
     volumes:
       - blastex_data:/app/data
     restart: unless-stopped

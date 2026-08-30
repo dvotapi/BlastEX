@@ -8,7 +8,8 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let message = "Не удалось выполнить запрос.";
     try {
       const payload = await response.json();
-      message = payload.detail || message;
+      if (typeof payload.detail === "string") message = payload.detail;
+      else if (payload.detail && typeof payload.detail.message === "string") message = payload.detail.message;
     } catch {
       // Response has no JSON body.
     }

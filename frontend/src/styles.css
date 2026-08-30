@@ -186,3 +186,77 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
   .page-content-wrap { padding:0 14px 28px; }
   .wb-actions { margin-left:0; }
 }
+
+/* --- Cost V2: справочники project1 --- */
+.reference-group-tabs { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:7px; margin-bottom:14px; }
+.reference-group-tabs button { padding:9px 11px; border:1px solid #d7e1dc; border-radius:9px; background:#fff; color:#53635b; font-size:11px; font-weight:700; }
+.reference-group-tabs button.active { border-color:#2d7556; background:#e7f4ed; color:#1d5b40; }
+.reference-editor-panel { margin-bottom:16px; }
+.reference-editor-panel > .table-scroll { max-height:58vh; }
+.reference-editor-panel table { min-width:1500px; }
+.reference-editor-panel th { position:sticky; z-index:1; top:0; background:#fff; }
+.reference-editor-panel input:not([type="checkbox"]), .reference-editor-panel textarea { width:100%; min-width:140px; padding:7px 8px; border:1px solid #d1dbd6; border-radius:7px; background:#fbfcfb; font:inherit; font-size:11px; }
+.reference-editor-panel textarea { min-width:300px; resize:vertical; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.reference-editor-panel td:last-child { display:grid; min-width:220px; gap:5px; }
+.reference-editor-panel .row-add { margin:12px; }
+.inactive-row { opacity:.55; background:#f4f5f4; }
+.validation-list { display:grid; gap:7px; margin:14px 0; padding:14px; border:1px solid #dbe3df; border-radius:12px; background:#fff; }
+.validation-list > b { margin-bottom:3px; font-size:12px; }
+.validation-list > div { display:grid; grid-template-columns:100px 1fr; align-items:start; gap:8px; padding:8px 10px; border-radius:8px; font-size:11px; }
+.validation-list > div.error { background:#fce9e7; color:#8b2c23; }
+.validation-list > div.warning { background:#fdf3e2; color:#745014; }
+.validation-list span { font-weight:800; }.validation-list p { margin:0; }
+.reference-publish-bar { position:sticky; z-index:3; bottom:12px; display:flex; flex-wrap:wrap; gap:8px; padding:12px; border:1px solid #cfdcd6; border-radius:12px; background:rgba(255,255,255,.95); box-shadow:0 8px 30px rgba(22,48,36,.12); backdrop-filter:blur(8px); }
+.reference-publish-bar input { flex:1 1 260px; padding:9px 10px; border:1px solid #cfd9d4; border-radius:8px; }
+.save-status.dirty { color:#8a590d; background:#fdf0d7; }
+
+/* --- Cost V2: экономика производственного юнита --- */
+.economics-page { display:grid; gap:18px; }
+.scenario-toolbar { padding:16px; }
+.scenario-toolbar .button-row { margin:14px 0 0; }
+.scenario-toolbar .primary-button { color:#fff; background:#2d7556; border-color:#2d7556; }
+.economic-fields-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:11px; }
+.economic-fields-grid label, .economic-options-grid label { display:grid; gap:6px; color:#425149; font-size:11px; font-weight:700; }
+.economic-fields-grid input, .economic-fields-grid select, .economic-options-grid input, .economic-options-grid select { width:100%; padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; }
+.economic-lines-section { display:grid; gap:11px; }
+.economic-section-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:15px; }
+.economic-section-heading h3 { margin:0 0 4px; font-size:16px; }.economic-section-heading p { margin:0; color:#738078; font-size:11px; }
+.economic-empty { padding:18px; border:1px dashed #bfcdc6; border-radius:12px; color:#78857f; background:#f9fbfa; font-size:12px; }
+.economic-line-card { overflow:hidden; border:1px solid #d5e0da; border-radius:14px; background:#fff; }
+.economic-line-card > header { min-height:48px; padding:0 15px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #e5ebe8; }
+.economic-line-card > header b { font-size:13px; }.economic-line-card > header .row-remove { width:auto; }
+.economic-line-card > .economic-fields-grid { padding:15px; }
+.economic-details { border-top:1px solid #e5ebe8; }
+.economic-details summary, .economic-capacity-panel summary { padding:12px 15px; cursor:pointer; color:#31483d; font-size:12px; font-weight:800; background:#f9fbfa; }
+.economic-details > .economic-fields-grid, .economic-details > .economic-options-grid { padding:14px 15px; }
+.economic-options-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; }
+.economic-options-grid .check-field, .economic-fields-grid .check-field { display:flex; align-items:center; gap:7px; min-height:35px; }
+.economic-options-grid .check-field input, .economic-fields-grid .check-field input { width:16px; height:16px; }
+.economic-plan-table table { min-width:2550px; }
+.economic-plan-table input, .operation-scope-table input, .operation-scope-table select, .economic-capacity-panel input, .economic-capacity-panel select { width:100%; min-width:95px; padding:6px 7px; border:1px solid #d2dcd7; border-radius:6px; background:#fff; font-size:11px; }
+.economic-plan-table td:first-child input { min-width:130px; }
+.economic-details > .row-add { margin:9px 14px 14px; }
+.operation-scope-table table { min-width:920px; }.operation-scope-table small { color:#98701e; }
+.economic-capacity-panel { overflow:hidden; border:1px solid #d6e0db; border-radius:13px; background:#fff; }
+.economic-capacity-panel .page-caption { padding:12px 15px; }.economic-capacity-panel table { min-width:1000px; }
+.economics-results { display:grid; gap:14px; padding-top:4px; }
+.economic-result-header h3 { margin:0 0 4px; }.economic-result-header p { margin:0; color:#78857f; font-size:11px; }
+.economic-summary-cards { display:grid; grid-template-columns:repeat(4,minmax(160px,1fr)); gap:10px; }
+.economic-summary-cards > div { padding:14px; border:1px solid #dae3df; border-radius:12px; background:#fff; }
+.economic-summary-cards span { display:block; min-height:30px; color:#718078; font-size:10px; }.economic-summary-cards b { font-size:17px; }
+.economic-summary-cards .positive { border-color:#b7d9c7; background:#f1faf5; }.economic-summary-cards .negative { border-color:#ebc3bd; background:#fff6f5; }
+.metric-negative { color:#a1362b; font-weight:700; }.capacity-over { color:#8f2f26; background:#fff4f2; }
+.calculation-warnings { padding:14px 16px; border:1px solid #ead39f; border-radius:12px; color:#684b17; background:#fff8e9; font-size:11px; }
+.calculation-warnings b { font-size:12px; }.calculation-warnings ul { margin:8px 0 0; padding-left:18px; display:grid; gap:4px; }
+.cost-line-details table { min-width:1250px; }
+
+@media (max-width:1050px) {
+  .economic-summary-cards { grid-template-columns:1fr 1fr; }
+}
+@media (max-width:760px) {
+  .reference-publish-bar { bottom:72px; }
+  .economic-section-heading { align-items:flex-start; flex-direction:column; }
+  .economic-summary-cards { grid-template-columns:1fr; }
+  .mobile-nav { justify-content:flex-start; overflow-x:auto; }
+  .mobile-nav button { min-width:70px; }
+}

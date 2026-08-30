@@ -1,0 +1,505 @@
+"""PostgreSQL-репозиторий Cost V2.
+
+Импортируется лениво зависимостью FastAPI, поэтому отсутствие настроенной БД
+не ломает Cost V1 и остальные маршруты приложения.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Sequence
+from uuid import uuid4
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+    desc,
+    select,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
+from cost.v2.references import default_reference_snapshot, normalize_sections
+from cost.v2.repository import (
+    EconomicsRecordNotFound,
+    ReferenceRevisionConflict,
+    ReferenceRevisionInfo,
+    StoredCalculationRun,
+    StoredScenario,
+)
+
+
+SCHEMA = "blastex"
+JsonType = JSON().with_variant(JSONB(), "postgresql")
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class ReferenceRevisionRow(Base):
+    __tablename__ = "reference_revisions"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "sequence_no", name="uq_reference_revision_sequence"),
+        Index("ix_reference_revision_latest", "organization_id", "sequence_no"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    published_by: Mapped[str] = mapped_column(String(320), nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ReferenceItemRow(Base):
+    __tablename__ = "reference_items"
+    __table_args__ = (
+        UniqueConstraint("revision_id", "section", "code", name="uq_reference_item_code"),
+        Index("ix_reference_item_lookup", "organization_id", "revision_id", "section"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.reference_revisions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    section: Mapped[str] = mapped_column(String(80), nullable=False)
+    code: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    valid_from: Mapped[Any | None] = mapped_column(Date, nullable=True)
+    valid_to: Mapped[Any | None] = mapped_column(Date, nullable=True)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    item_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class EconomicScenarioRow(Base):
+    __tablename__ = "economic_scenarios"
+    __table_args__ = (
+        Index("ix_economic_scenario_org_updated", "organization_id", "updated_at"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    production_unit_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
+class CalculationRunRow(Base):
+    __tablename__ = "calculation_runs"
+    __table_args__ = (
+        Index("ix_calculation_run_scenario", "organization_id", "scenario_id", "created_at"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    scenario_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.economic_scenarios.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    reference_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.reference_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    formula_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    input_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
+class AuditLogRow(Base):
+    __tablename__ = "audit_log"
+    __table_args__ = (
+        Index("ix_audit_org_created", "organization_id", "created_at"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    actor: Mapped[str] = mapped_column(String(320), nullable=False)
+    action: Mapped[str] = mapped_column(String(120), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    before_payload: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
+    after_payload: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PostgresEconomicsRepository:
+    def __init__(self, database_url: str) -> None:
+        self.engine = create_engine(database_url, pool_pre_ping=True, future=True)
+        self.session_factory = sessionmaker(self.engine, expire_on_commit=False, future=True)
+
+    def _latest_revision(self, session: Session, organization_id: str) -> ReferenceRevisionRow | None:
+        return session.scalar(
+            select(ReferenceRevisionRow)
+            .where(ReferenceRevisionRow.organization_id == organization_id)
+            .order_by(desc(ReferenceRevisionRow.sequence_no))
+            .limit(1)
+        )
+
+    def _ensure_defaults(self, organization_id: str) -> None:
+        with self.session_factory() as session, session.begin():
+            # Two first requests for the same organization must not both try to
+            # create revision No. 1. PostgreSQL releases this lock on commit.
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                {"lock_key": f"blastex-cost-v2:{organization_id}"},
+            )
+            if self._latest_revision(session, organization_id) is not None:
+                return
+            default = default_reference_snapshot()
+            revision_id = str(uuid4())
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            session.add(
+                ReferenceRevisionRow(
+                    id=revision_id,
+                    organization_id=organization_id,
+                    sequence_no=1,
+                    published_at=now,
+                    published_by="system",
+                    comment="Начальные справочники Cost V2",
+                )
+            )
+            # The reference rows have an FK to the newly created revision and
+            # are inserted in bulk below. Flush the parent explicitly so the
+            # database enforces the FK in the intended order.
+            session.flush()
+            self._insert_reference_items(session, organization_id, revision_id, default.sections)
+
+    def get_reference_snapshot(
+        self, organization_id: str, revision_id: str | None = None
+    ) -> ReferenceSnapshot:
+        self._ensure_defaults(organization_id)
+        with self.session_factory() as session:
+            if revision_id:
+                revision = session.get(ReferenceRevisionRow, revision_id)
+                if revision is None or revision.organization_id != organization_id:
+                    raise EconomicsRecordNotFound(f"Ревизия {revision_id} не найдена.")
+            else:
+                revision = self._latest_revision(session, organization_id)
+            assert revision is not None
+            rows = session.scalars(
+                select(ReferenceItemRow)
+                .where(
+                    ReferenceItemRow.organization_id == organization_id,
+                    ReferenceItemRow.revision_id == revision.id,
+                )
+                .order_by(ReferenceItemRow.section, ReferenceItemRow.code)
+            ).all()
+            sections: dict[str, list[ReferenceItem]] = {}
+            for row in rows:
+                sections.setdefault(row.section, []).append(
+                    ReferenceItem(
+                        code=row.code,
+                        name=row.name,
+                        payload=dict(row.payload or {}),
+                        is_active=row.is_active,
+                        valid_from=row.valid_from,
+                        valid_to=row.valid_to,
+                        source=row.source,
+                        comment=row.comment,
+                        revision=row.item_revision,
+                    )
+                )
+            return ReferenceSnapshot(
+                revision_id=revision.id,
+                sections={key: tuple(values) for key, values in sections.items()},
+                published_at=revision.published_at,
+                published_by=revision.published_by,
+            )
+
+    def list_reference_revisions(
+        self, organization_id: str
+    ) -> Sequence[ReferenceRevisionInfo]:
+        self._ensure_defaults(organization_id)
+        with self.session_factory() as session:
+            rows = session.scalars(
+                select(ReferenceRevisionRow)
+                .where(ReferenceRevisionRow.organization_id == organization_id)
+                .order_by(desc(ReferenceRevisionRow.sequence_no))
+            ).all()
+            return tuple(self._revision_info(row) for row in rows)
+
+    def publish_references(
+        self,
+        organization_id: str,
+        user_id: str,
+        base_revision: str,
+        sections: dict[str, Any],
+        comment: str = "",
+    ) -> ReferenceSnapshot:
+        self._ensure_defaults(organization_id)
+        normalized = normalize_sections(sections)
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        revision_id = str(uuid4())
+        with self.session_factory() as session, session.begin():
+            # Serialize publications per organization. Locking only the current
+            # revision row is not enough: a waiter could hold a statement
+            # snapshot taken before the winner inserted the next revision.
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                {"lock_key": f"blastex-cost-v2:{organization_id}"},
+            )
+            current = session.scalar(
+                select(ReferenceRevisionRow)
+                .where(ReferenceRevisionRow.organization_id == organization_id)
+                .order_by(desc(ReferenceRevisionRow.sequence_no))
+                .limit(1)
+                .with_for_update()
+            )
+            assert current is not None
+            if current.id != base_revision:
+                raise ReferenceRevisionConflict(base_revision, current.id)
+            before = self._snapshot_dict(session, organization_id, current.id)
+            session.add(
+                ReferenceRevisionRow(
+                    id=revision_id,
+                    organization_id=organization_id,
+                    sequence_no=current.sequence_no + 1,
+                    published_at=now,
+                    published_by=user_id,
+                    comment=comment,
+                )
+            )
+            self._insert_reference_items(session, organization_id, revision_id, normalized)
+            after = {
+                key: [item.to_dict() for item in values]
+                for key, values in normalized.items()
+            }
+            session.add(
+                AuditLogRow(
+                    id=str(uuid4()),
+                    organization_id=organization_id,
+                    actor=user_id,
+                    action="PUBLISH_REFERENCES",
+                    entity_type="reference_revision",
+                    entity_id=revision_id,
+                    before_payload=before,
+                    after_payload=after,
+                    created_at=now,
+                )
+            )
+        return self.get_reference_snapshot(organization_id, revision_id)
+
+    def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
+        with self.session_factory() as session:
+            rows = session.scalars(
+                select(EconomicScenarioRow)
+                .where(EconomicScenarioRow.organization_id == organization_id)
+                .order_by(desc(EconomicScenarioRow.updated_at))
+            ).all()
+            return tuple(self._stored_scenario(row) for row in rows)
+
+    def get_scenario(self, organization_id: str, scenario_id: str) -> StoredScenario:
+        with self.session_factory() as session:
+            row = session.get(EconomicScenarioRow, scenario_id)
+            if row is None or row.organization_id != organization_id:
+                raise EconomicsRecordNotFound(f"Сценарий {scenario_id} не найден.")
+            return self._stored_scenario(row)
+
+    def save_scenario(
+        self, organization_id: str, user_id: str, scenario: EconomicScenario
+    ) -> StoredScenario:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        scenario_id = scenario.id or str(uuid4())
+        normalized = EconomicScenario.from_dict({**scenario.to_dict(), "id": scenario_id})
+        with self.session_factory() as session, session.begin():
+            row = session.get(EconomicScenarioRow, scenario_id)
+            if row is not None and row.organization_id != organization_id:
+                raise EconomicsRecordNotFound(f"Сценарий {scenario_id} не найден.")
+            before = dict(row.payload) if row else None
+            if row is None:
+                row = EconomicScenarioRow(
+                    id=scenario_id,
+                    organization_id=organization_id,
+                    production_unit_code=normalized.production_unit_code,
+                    name=normalized.name,
+                    payload=normalized.to_dict(),
+                    created_at=now,
+                    created_by=user_id,
+                    updated_at=now,
+                    updated_by=user_id,
+                )
+                session.add(row)
+            else:
+                row.production_unit_code = normalized.production_unit_code
+                row.name = normalized.name
+                row.payload = normalized.to_dict()
+                row.updated_at = now
+                row.updated_by = user_id
+            session.add(
+                AuditLogRow(
+                    id=str(uuid4()),
+                    organization_id=organization_id,
+                    actor=user_id,
+                    action="CREATE_SCENARIO" if before is None else "UPDATE_SCENARIO",
+                    entity_type="economic_scenario",
+                    entity_id=scenario_id,
+                    before_payload=before,
+                    after_payload=normalized.to_dict(),
+                    created_at=now,
+                )
+            )
+        return self.get_scenario(organization_id, scenario_id)
+
+    def clone_scenario(
+        self, organization_id: str, user_id: str, scenario_id: str
+    ) -> StoredScenario:
+        source = self.get_scenario(organization_id, scenario_id)
+        clone = EconomicScenario.from_dict(
+            {
+                **source.scenario.to_dict(),
+                "id": str(uuid4()),
+                "name": f"{source.scenario.name} — копия",
+            }
+        )
+        return self.save_scenario(organization_id, user_id, clone)
+
+    def save_calculation_run(
+        self,
+        organization_id: str,
+        user_id: str,
+        scenario: EconomicScenario,
+        reference_revision_id: str,
+        formula_version: str,
+        result: dict[str, Any],
+    ) -> StoredCalculationRun:
+        run_id = str(uuid4())
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            session.add(
+                CalculationRunRow(
+                    id=run_id,
+                    organization_id=organization_id,
+                    scenario_id=scenario.id,
+                    reference_revision_id=reference_revision_id,
+                    formula_version=formula_version,
+                    input_snapshot=scenario.to_dict(),
+                    result=result,
+                    created_at=now,
+                    created_by=user_id,
+                )
+            )
+        return self.get_calculation_run(organization_id, run_id)
+
+    def get_calculation_run(
+        self, organization_id: str, run_id: str
+    ) -> StoredCalculationRun:
+        with self.session_factory() as session:
+            row = session.get(CalculationRunRow, run_id)
+            if row is None or row.organization_id != organization_id:
+                raise EconomicsRecordNotFound(f"Расчёт {run_id} не найден.")
+            return StoredCalculationRun(
+                id=row.id,
+                organization_id=row.organization_id,
+                scenario_id=row.scenario_id,
+                reference_revision_id=row.reference_revision_id,
+                formula_version=row.formula_version,
+                input_snapshot=dict(row.input_snapshot),
+                result=dict(row.result),
+                created_at=row.created_at,
+                created_by=row.created_by,
+            )
+
+    def _insert_reference_items(
+        self,
+        session: Session,
+        organization_id: str,
+        revision_id: str,
+        sections: dict[str, Any],
+    ) -> None:
+        for section, items in sections.items():
+            for item in items:
+                session.add(
+                    ReferenceItemRow(
+                        id=str(uuid4()),
+                        organization_id=organization_id,
+                        revision_id=revision_id,
+                        section=section,
+                        code=item.code,
+                        name=item.name,
+                        payload=item.payload,
+                        is_active=item.is_active,
+                        valid_from=item.valid_from,
+                        valid_to=item.valid_to,
+                        source=item.source,
+                        comment=item.comment,
+                        item_revision=item.revision,
+                    )
+                )
+
+    def _snapshot_dict(
+        self, session: Session, organization_id: str, revision_id: str
+    ) -> dict[str, Any]:
+        rows = session.scalars(
+            select(ReferenceItemRow).where(
+                ReferenceItemRow.organization_id == organization_id,
+                ReferenceItemRow.revision_id == revision_id,
+            )
+        ).all()
+        result: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            result.setdefault(row.section, []).append(
+                {
+                    "code": row.code,
+                    "name": row.name,
+                    "payload": row.payload,
+                    "is_active": row.is_active,
+                    "valid_from": row.valid_from.isoformat() if row.valid_from else None,
+                    "valid_to": row.valid_to.isoformat() if row.valid_to else None,
+                    "source": row.source,
+                    "comment": row.comment,
+                    "revision": row.item_revision,
+                }
+            )
+        return result
+
+    @staticmethod
+    def _revision_info(row: ReferenceRevisionRow) -> ReferenceRevisionInfo:
+        return ReferenceRevisionInfo(
+            id=row.id,
+            organization_id=row.organization_id,
+            sequence_no=row.sequence_no,
+            published_at=row.published_at,
+            published_by=row.published_by,
+            comment=row.comment,
+        )
+
+    @staticmethod
+    def _stored_scenario(row: EconomicScenarioRow) -> StoredScenario:
+        return StoredScenario(
+            scenario=EconomicScenario.from_dict(row.payload),
+            organization_id=row.organization_id,
+            created_at=row.created_at,
+            created_by=row.created_by,
+            updated_at=row.updated_at,
+            updated_by=row.updated_by,
+        )

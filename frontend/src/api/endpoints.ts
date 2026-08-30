@@ -102,6 +102,16 @@ import type {
   SpatialOverlay,
   SpatialSummary,
 } from "../types/design";
+import type {
+  CalculationRun,
+  EconomicScenario,
+  EconomicsReferenceItem,
+  EconomicsReferenceSnapshot,
+  ReferenceRevision,
+  ReferenceValidation,
+  StoredEconomicScenario,
+  TechnicalDriverSnapshot,
+} from "../types/economics";
 
 const V1 = "/api/v1";
 
@@ -198,6 +208,43 @@ export const api = {
     ),
   materialsAuto: (explosive_key: string, initiation: InitiationConfig) =>
     post<{ selection: MaterialsSelection }>(`${V1}/cost/materials-auto`, { explosive_key, initiation }),
+
+  // --- Cost V2: экономика производственного юнита ---
+  economics: {
+    technicalDrivers: (
+      block: Record<string, unknown>,
+      existingPhysical: Record<string, number | string> = {},
+      sourceId?: string,
+    ) => post<TechnicalDriverSnapshot>(`${V1}/economics/technical-drivers`, {
+      block,
+      existing_physical: existingPhysical,
+      source_id: sourceId ?? null,
+    }),
+    referenceSnapshot: (revisionId?: string) =>
+      get<EconomicsReferenceSnapshot>(
+        `${V1}/economics/references/snapshot${revisionId ? `?revision_id=${encodeURIComponent(revisionId)}` : ""}`
+      ),
+    validateReferences: (sections: Record<string, EconomicsReferenceItem[]>) =>
+      post<ReferenceValidation>(`${V1}/economics/references/validate`, { sections }),
+    publishReferences: (payload: {
+      base_revision: string;
+      sections: Record<string, EconomicsReferenceItem[]>;
+      comment: string;
+    }) => post<EconomicsReferenceSnapshot>(`${V1}/economics/references/publish`, payload),
+    revisions: () => get<ReferenceRevision[]>(`${V1}/economics/references/revisions`),
+    scenarios: () => get<StoredEconomicScenario[]>(`${V1}/economics/scenarios`),
+    scenario: (id: string) => get<StoredEconomicScenario>(`${V1}/economics/scenarios/${id}`),
+    createScenario: (scenario: EconomicScenario) =>
+      post<StoredEconomicScenario>(`${V1}/economics/scenarios`, scenario),
+    updateScenario: (id: string, scenario: EconomicScenario) =>
+      put<StoredEconomicScenario>(`${V1}/economics/scenarios/${id}`, scenario),
+    cloneScenario: (id: string) =>
+      post<StoredEconomicScenario>(`${V1}/economics/scenarios/${id}/clone`, {}),
+    calculateScenario: (id: string) =>
+      post<CalculationRun>(`${V1}/economics/scenarios/${id}/calculate`, {}),
+    calculationRun: (id: string) =>
+      get<CalculationRun>(`${V1}/economics/calculation-runs/${id}`),
+  },
 
   // --- проектирование БВР ---
   design: {

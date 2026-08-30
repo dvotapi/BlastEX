@@ -7,22 +7,28 @@ import { DesignPage } from "../pages/design/DesignPage";
 import { DrillingPage } from "../pages/DrillingPage";
 import { LaborPage } from "../pages/LaborPage";
 import { ReferencesPage } from "../pages/ReferencesPage";
+import { EconomicsPage } from "../pages/EconomicsPage";
+import { EconomicsReferencesPage } from "../pages/EconomicsReferencesPage";
 
-const PAGES = ["Расчёт", "Проектирование", "Бурение", "ФОТ", "Справочники"] as const;
+const PAGES = ["Расчёт", "Проектирование", "Экономика юнита", "Бурение", "ФОТ", "Справочники", "Справочники project1"] as const;
 type Page = (typeof PAGES)[number];
 const ICONS: Record<Page, string> = {
   "Расчёт": "◫",
   "Проектирование": "⛏",
+  "Экономика юнита": "₽",
   "Бурение": "⌁",
   "ФОТ": "◎",
   "Справочники": "▤",
+  "Справочники project1": "▦",
 };
 const TITLES: Record<Page, string> = {
   "Расчёт": "Расчёт БВР",
   "Проектирование": "Проектирование БВР",
+  "Экономика юнита": "Экономика производственного юнита",
   "Бурение": "Бурение",
   "ФОТ": "ФОТ",
   "Справочники": "Справочники",
+  "Справочники project1": "Справочники project1",
 };
 
 export function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
@@ -59,7 +65,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
             <div><b>{TITLES[page]}</b><span>{user.organization_name}</span></div>
             <button className="logout-button" onClick={onLogout}>Выйти</button>
           </header>
-          {page !== "Проектирование" && <WorkspaceBar />}
+          {page !== "Проектирование" && page !== "Экономика юнита" && page !== "Справочники project1" && <WorkspaceBar />}
           {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} />}
           {page === "Проектирование" && (
             <DesignPage
@@ -68,9 +74,11 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
               onVariantConsumed={() => setPendingVariant(null)}
             />
           )}
+          {page === "Экономика юнита" && <EconomicsPage />}
           {page === "Бурение" && <DrillingPage />}
           {page === "ФОТ" && <LaborPage />}
           {page === "Справочники" && <ReferencesPage />}
+          {page === "Справочники project1" && <EconomicsReferencesPage user={user} />}
         </main>
         <nav className="mobile-nav">
           {PAGES.map((item) => (

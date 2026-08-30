@@ -37,6 +37,9 @@ COPY design/ ./design/
 COPY simulation/ ./simulation/
 COPY intelligence/ ./intelligence/
 COPY api/ ./api/
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
+COPY scripts/start_api.py ./scripts/start_api.py
 
 RUN mkdir -p /app/data/teams \
     && chown -R appuser:appuser /app/data
@@ -48,4 +51,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "scripts/start_api.py"]

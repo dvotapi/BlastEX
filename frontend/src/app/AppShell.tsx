@@ -34,27 +34,59 @@ const TITLES: Record<Page, string> = {
 export function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [page, setPage] = useState<Page>("Расчёт");
   const [pendingVariant, setPendingVariant] = useState<BlastVariant | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const saved = window.localStorage.getItem("blastex.sidebar.collapsed");
+    // Start with the workspace-first layout; a user's explicit choice is kept.
+    return saved === null ? true : saved === "true";
+  });
 
   function sendToDesign(variant: BlastVariant) {
     setPendingVariant(variant);
     setPage("Проектирование");
   }
 
+  function toggleSidebar() {
+    setSidebarCollapsed((collapsed) => {
+      const next = !collapsed;
+      window.localStorage.setItem("blastex.sidebar.collapsed", String(next));
+      return next;
+    });
+  }
+
   return (
     <WorkspaceProvider user={user}>
-      <div className="app-shell">
-        <aside className="sidebar">
-          <div className="brand"><span>BX</span>BlastEX</div>
+      <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+        <aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
+          <div className="brand">
+            <span>BX</span>
+            <strong className="brand-name">BlastEX</strong>
+            <button
+              className="sidebar-toggle"
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={sidebarCollapsed ? "Развернуть боковую панель" : "Свернуть боковую панель"}
+              title={sidebarCollapsed ? "Развернуть панель" : "Свернуть панель"}
+            >
+              {sidebarCollapsed ? "›" : "‹"}
+            </button>
+          </div>
           <nav>
             {PAGES.map((item) => (
-              <button key={item} className={page === item ? "active" : ""} onClick={() => setPage(item)}>
-                <i>{ICONS[item]}</i>{item}
+              <button
+                key={item}
+                className={page === item ? "active" : ""}
+                onClick={() => setPage(item)}
+                title={sidebarCollapsed ? item : undefined}
+                aria-label={item}
+              >
+                <i aria-hidden="true">{ICONS[item]}</i><span>{item}</span>
               </button>
             ))}
           </nav>
           <div className="user-box">
             <div>{(user.display_name || user.email).slice(0, 2).toUpperCase()}</div>
-            <span>
+            <span className="user-details">
               <b>{user.display_name}</b>
               <small>{user.role === "admin" ? "Администратор" : user.role === "reference_editor" ? "Редактор" : "Пользователь"}</small>
             </span>

@@ -37,8 +37,10 @@ button { cursor:pointer; }
 .sidebar.collapsed .brand { justify-content:center; padding-right:0; padding-left:0; }
 .sidebar.collapsed .brand-name, .sidebar.collapsed .user-details { display:none; }
 .sidebar.collapsed .sidebar-toggle { position:absolute; top:5px; right:-7px; width:22px; height:22px; border-radius:50%; background:#2d7556; color:#fff; font-size:17px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
-.sidebar.collapsed nav button { justify-content:center; padding-right:8px; padding-left:8px; }
+.sidebar.collapsed nav button { min-width:0; justify-content:center; overflow:hidden; padding-right:8px; padding-left:8px; }
+.sidebar.collapsed nav button > span { display:none; }
 .sidebar.collapsed nav button i { width:auto; font-size:17px; }
+.sidebar.collapsed .user-box { justify-content:center; padding-right:0; padding-left:0; }
 .user-box { margin-top:auto; padding:18px 6px 0; border-top:1px solid #2b4439; display:flex; gap:10px; align-items:center; }
 .user-box > div { width:34px; height:34px; display:grid; place-items:center; border-radius:50%; background:#d8aa44; color:#17231c; font-size:11px; font-weight:800; }
 .user-box span { min-width:0; }

@@ -36,6 +36,7 @@ from cost.v2.repository import (
     ReferenceRevisionInfo,
     StoredCalculationRun,
     StoredScenario,
+    StoredTechnicalPassport,
 )
 
 
@@ -117,10 +118,50 @@ class CalculationRunRow(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
-    scenario_id: Mapped[str] = mapped_column(
+    scenario_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey(f"{SCHEMA}.economic_scenarios.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    reference_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.reference_revisions.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    formula_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    calculation_scope: Mapped[str] = mapped_column(String(20), nullable=False, default="UNIT")
+    technical_passport_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.technical_passports.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    site_code: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    period: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    technical_formula_version: Mapped[str] = mapped_column(
+        String(80), nullable=False, default=""
+    )
+    input_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
+class TechnicalPassportRow(Base):
+    __tablename__ = "technical_passports"
+    __table_args__ = (
+        Index("ix_technical_passport_org_site", "organization_id", "site_code", "created_at"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    site_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    object_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_passport_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.technical_passports.id", ondelete="RESTRICT"),
+        nullable=True,
     )
     reference_revision_id: Mapped[str] = mapped_column(
         String(36),
@@ -129,9 +170,65 @@ class CalculationRunRow(Base):
     )
     formula_version: Mapped[str] = mapped_column(String(80), nullable=False)
     input_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
-    result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    selected_variant: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    block_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    physical: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    lineage: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
+class LegacyWorkspaceSettingsRow(Base):
+    __tablename__ = "legacy_workspace_settings"
+    __table_args__ = ({"schema": SCHEMA},)
+
+    organization_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    team_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    active_scenario_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    active_work_object_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    reference_revision_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.reference_revisions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
+class LegacyCostScenarioRow(Base):
+    __tablename__ = "legacy_cost_scenarios"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "scenario_key", name="uq_legacy_cost_scenario_key"
+        ),
+        Index("ix_legacy_cost_scenario_org", "organization_id", "updated_at"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    scenario_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    reference_revision_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.reference_revisions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    labor_assignment_records: Mapped[list[dict[str, Any]]] = mapped_column(
+        JsonType, nullable=False, default=list
+    )
+    drilling_calculator_input: Mapped[dict[str, Any]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
+    scenario_phase_overrides: Mapped[dict[str, Any]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
 
 
 class AuditLogRow(Base):
@@ -402,6 +499,7 @@ class PostgresEconomicsRepository:
                     scenario_id=scenario.id,
                     reference_revision_id=reference_revision_id,
                     formula_version=formula_version,
+                    calculation_scope="UNIT",
                     input_snapshot=scenario.to_dict(),
                     result=result,
                     created_at=now,
@@ -427,7 +525,150 @@ class PostgresEconomicsRepository:
                 result=dict(row.result),
                 created_at=row.created_at,
                 created_by=row.created_by,
+                calculation_scope=row.calculation_scope,
+                technical_passport_id=row.technical_passport_id,
+                site_code=row.site_code,
+                period=row.period,
+                technical_formula_version=row.technical_formula_version,
             )
+
+    def list_technical_passports(
+        self, organization_id: str, site_code: str | None = None
+    ) -> Sequence[StoredTechnicalPassport]:
+        with self.session_factory() as session:
+            statement = select(TechnicalPassportRow).where(
+                TechnicalPassportRow.organization_id == organization_id
+            )
+            if site_code:
+                statement = statement.where(TechnicalPassportRow.site_code == site_code)
+            rows = session.scalars(statement.order_by(desc(TechnicalPassportRow.created_at))).all()
+            return tuple(self._stored_technical_passport(row) for row in rows)
+
+    def get_technical_passport(
+        self, organization_id: str, passport_id: str
+    ) -> StoredTechnicalPassport:
+        with self.session_factory() as session:
+            row = session.get(TechnicalPassportRow, passport_id)
+            if row is None or row.organization_id != organization_id:
+                raise EconomicsRecordNotFound(
+                    f"Технический паспорт {passport_id} не найден."
+                )
+            return self._stored_technical_passport(row)
+
+    def save_technical_passport(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        site_code: str,
+        object_name: str,
+        previous_passport_id: str | None,
+        reference_revision_id: str,
+        formula_version: str,
+        input_snapshot: dict[str, Any],
+        selected_variant: dict[str, Any],
+        block_snapshot: dict[str, Any],
+        physical: dict[str, Any],
+        lineage: dict[str, str],
+    ) -> StoredTechnicalPassport:
+        passport_id = str(uuid4())
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            revision = session.get(ReferenceRevisionRow, reference_revision_id)
+            if revision is None or revision.organization_id != organization_id:
+                raise EconomicsRecordNotFound(
+                    f"Ревизия {reference_revision_id} не найдена."
+                )
+            previous = None
+            if previous_passport_id:
+                previous = session.get(TechnicalPassportRow, previous_passport_id)
+                if previous is None or previous.organization_id != organization_id:
+                    raise EconomicsRecordNotFound(
+                        f"Технический паспорт {previous_passport_id} не найден."
+                    )
+                if previous.site_code != site_code:
+                    raise ValueError(
+                        "Новая версия паспорта должна относиться к тому же объекту."
+                    )
+            row = TechnicalPassportRow(
+                id=passport_id,
+                organization_id=organization_id,
+                site_code=site_code,
+                object_name=object_name,
+                version_no=(previous.version_no + 1 if previous else 1),
+                previous_passport_id=previous_passport_id,
+                reference_revision_id=reference_revision_id,
+                formula_version=formula_version,
+                input_snapshot=input_snapshot,
+                selected_variant=selected_variant,
+                block_snapshot=block_snapshot,
+                physical=physical,
+                lineage=lineage,
+                created_at=now,
+                created_by=user_id,
+            )
+            session.add(row)
+            session.add(
+                AuditLogRow(
+                    id=str(uuid4()),
+                    organization_id=organization_id,
+                    actor=user_id,
+                    action="CREATE_TECHNICAL_PASSPORT",
+                    entity_type="technical_passport",
+                    entity_id=passport_id,
+                    before_payload=None,
+                    after_payload={
+                        "site_code": site_code,
+                        "object_name": object_name,
+                        "version_no": row.version_no,
+                        "reference_revision_id": reference_revision_id,
+                    },
+                    created_at=now,
+                )
+            )
+        return self.get_technical_passport(organization_id, passport_id)
+
+    def save_event_calculation_run(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        reference_revision_id: str,
+        formula_version: str,
+        technical_formula_version: str,
+        technical_passport_id: str,
+        site_code: str,
+        period: str,
+        input_snapshot: dict[str, Any],
+        result: dict[str, Any],
+    ) -> StoredCalculationRun:
+        run_id = str(uuid4())
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            passport = session.get(TechnicalPassportRow, technical_passport_id)
+            if passport is None or passport.organization_id != organization_id:
+                raise EconomicsRecordNotFound(
+                    f"Технический паспорт {technical_passport_id} не найден."
+                )
+            session.add(
+                CalculationRunRow(
+                    id=run_id,
+                    organization_id=organization_id,
+                    scenario_id=None,
+                    reference_revision_id=reference_revision_id,
+                    formula_version=formula_version,
+                    calculation_scope="EVENT",
+                    technical_passport_id=technical_passport_id,
+                    site_code=site_code,
+                    period=period,
+                    technical_formula_version=technical_formula_version,
+                    input_snapshot=input_snapshot,
+                    result=result,
+                    created_at=now,
+                    created_by=user_id,
+                )
+            )
+        return self.get_calculation_run(organization_id, run_id)
 
     def _insert_reference_items(
         self,
@@ -502,4 +743,24 @@ class PostgresEconomicsRepository:
             created_by=row.created_by,
             updated_at=row.updated_at,
             updated_by=row.updated_by,
+        )
+
+    @staticmethod
+    def _stored_technical_passport(row: TechnicalPassportRow) -> StoredTechnicalPassport:
+        return StoredTechnicalPassport(
+            id=row.id,
+            organization_id=row.organization_id,
+            site_code=row.site_code,
+            object_name=row.object_name,
+            version_no=row.version_no,
+            previous_passport_id=row.previous_passport_id,
+            reference_revision_id=row.reference_revision_id,
+            formula_version=row.formula_version,
+            input_snapshot=dict(row.input_snapshot),
+            selected_variant=dict(row.selected_variant),
+            block_snapshot=dict(row.block_snapshot),
+            physical=dict(row.physical),
+            lineage={key: str(value) for key, value in dict(row.lineage).items()},
+            created_at=row.created_at,
+            created_by=row.created_by,
         )

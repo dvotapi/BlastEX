@@ -64,6 +64,8 @@ class _Portfolio:
 def calculate_scenario(
     scenario: EconomicScenario,
     references: ReferenceSnapshot,
+    *,
+    include_allocated_costs: bool = True,
 ) -> dict[str, Any]:
     """Рассчитать базовый и кандидатный портфели в одной версии справочников."""
 
@@ -95,6 +97,7 @@ def calculate_scenario(
         all_months,
         choices,
         references,
+        include_allocated_costs,
     )
     after_portfolio = _calculate_portfolio(
         scenario.production_unit_code,
@@ -102,6 +105,7 @@ def calculate_scenario(
         all_months,
         choices,
         references,
+        include_allocated_costs,
     )
 
     before = _portfolio_to_dict(before_portfolio, all_months)
@@ -132,6 +136,7 @@ def _calculate_portfolio(
     months: Sequence[str],
     capacity_choices: Mapping[str, CapacityChoice],
     references: ReferenceSnapshot,
+    include_allocated_costs: bool,
 ) -> _Portfolio:
     portfolio = _Portfolio()
     operations = operation_map(references)
@@ -238,13 +243,15 @@ def _calculate_portfolio(
         months,
         capacity_choices,
         references.active_items("resource_pools"),
+        include_allocated_costs,
     )
-    _apply_unit_cost_rules(
-        portfolio,
-        production_unit_code,
-        months,
-        cost_rules,
-    )
+    if include_allocated_costs:
+        _apply_unit_cost_rules(
+            portfolio,
+            production_unit_code,
+            months,
+            cost_rules,
+        )
     return portfolio
 
 
@@ -603,6 +610,7 @@ def _apply_resource_pools(
     months: Sequence[str],
     choices: Mapping[str, CapacityChoice],
     resources: Sequence[ReferenceItem],
+    include_allocated_costs: bool,
 ) -> None:
     portfolio.resource_meta = {item.code: item for item in resources}
     line_ids = list(portfolio.line_meta)
@@ -636,7 +644,7 @@ def _apply_resource_pools(
                         "VARIABLE",
                     )
 
-            if fixed_cost > 0:
+            if include_allocated_costs and fixed_cost > 0:
                 weights = _allocation_weights(
                     portfolio,
                     month,
@@ -679,7 +687,7 @@ def _apply_resource_pools(
                     "excess": _number(excess),
                 }
             )
-            if excess <= 0:
+            if excess <= 0 or not include_allocated_costs:
                 continue
             choice = choices.get(resource.code)
             excess_rate = (

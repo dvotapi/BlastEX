@@ -73,13 +73,18 @@ class StoredScenario:
 class StoredCalculationRun:
     id: str
     organization_id: str
-    scenario_id: str
+    scenario_id: str | None
     reference_revision_id: str
     formula_version: str
     input_snapshot: dict[str, Any]
     result: dict[str, Any]
     created_at: datetime
     created_by: str
+    calculation_scope: str = "UNIT"
+    technical_passport_id: str | None = None
+    site_code: str = ""
+    period: str = ""
+    technical_formula_version: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -90,6 +95,49 @@ class StoredCalculationRun:
             "formula_version": self.formula_version,
             "input_snapshot": self.input_snapshot,
             "result": self.result,
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by,
+            "calculation_scope": self.calculation_scope,
+            "technical_passport_id": self.technical_passport_id,
+            "site_code": self.site_code,
+            "period": self.period,
+            "technical_formula_version": self.technical_formula_version,
+        }
+
+
+@dataclass(frozen=True)
+class StoredTechnicalPassport:
+    id: str
+    organization_id: str
+    site_code: str
+    object_name: str
+    version_no: int
+    previous_passport_id: str | None
+    reference_revision_id: str
+    formula_version: str
+    input_snapshot: dict[str, Any]
+    selected_variant: dict[str, Any]
+    block_snapshot: dict[str, Any]
+    physical: dict[str, Any]
+    lineage: dict[str, str]
+    created_at: datetime
+    created_by: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "organization_id": self.organization_id,
+            "site_code": self.site_code,
+            "object_name": self.object_name,
+            "version_no": self.version_no,
+            "previous_passport_id": self.previous_passport_id,
+            "reference_revision_id": self.reference_revision_id,
+            "formula_version": self.formula_version,
+            "input_snapshot": self.input_snapshot,
+            "selected_variant": self.selected_variant,
+            "block_snapshot": self.block_snapshot,
+            "physical": self.physical,
+            "lineage": self.lineage,
             "created_at": self.created_at.isoformat(),
             "created_by": self.created_by,
         }
@@ -139,6 +187,46 @@ class EconomicsRepository(Protocol):
         self, organization_id: str, run_id: str
     ) -> StoredCalculationRun: ...
 
+    def list_technical_passports(
+        self, organization_id: str, site_code: str | None = None
+    ) -> Sequence[StoredTechnicalPassport]: ...
+
+    def get_technical_passport(
+        self, organization_id: str, passport_id: str
+    ) -> StoredTechnicalPassport: ...
+
+    def save_technical_passport(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        site_code: str,
+        object_name: str,
+        previous_passport_id: str | None,
+        reference_revision_id: str,
+        formula_version: str,
+        input_snapshot: dict[str, Any],
+        selected_variant: dict[str, Any],
+        block_snapshot: dict[str, Any],
+        physical: dict[str, Any],
+        lineage: dict[str, str],
+    ) -> StoredTechnicalPassport: ...
+
+    def save_event_calculation_run(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        reference_revision_id: str,
+        formula_version: str,
+        technical_formula_version: str,
+        technical_passport_id: str,
+        site_code: str,
+        period: str,
+        input_snapshot: dict[str, Any],
+        result: dict[str, Any],
+    ) -> StoredCalculationRun: ...
+
 
 class InMemoryEconomicsRepository:
     """Потокобезопасное хранилище для unit/API-тестов."""
@@ -149,6 +237,7 @@ class InMemoryEconomicsRepository:
         self._revisions: dict[str, list[ReferenceRevisionInfo]] = {}
         self._scenarios: dict[tuple[str, str], StoredScenario] = {}
         self._runs: dict[tuple[str, str], StoredCalculationRun] = {}
+        self._passports: dict[tuple[str, str], StoredTechnicalPassport] = {}
 
     def _ensure_org(self, organization_id: str) -> None:
         if organization_id in self._revisions:
@@ -309,3 +398,109 @@ class InMemoryEconomicsRepository:
                 return deepcopy(self._runs[(organization_id, run_id)])
             except KeyError as exc:
                 raise EconomicsRecordNotFound(f"Расчёт {run_id} не найден.") from exc
+
+    def list_technical_passports(
+        self, organization_id: str, site_code: str | None = None
+    ) -> Sequence[StoredTechnicalPassport]:
+        with self._lock:
+            rows = [
+                deepcopy(value)
+                for (org, _), value in self._passports.items()
+                if org == organization_id and (not site_code or value.site_code == site_code)
+            ]
+            return tuple(sorted(rows, key=lambda row: row.created_at, reverse=True))
+
+    def get_technical_passport(
+        self, organization_id: str, passport_id: str
+    ) -> StoredTechnicalPassport:
+        with self._lock:
+            try:
+                return deepcopy(self._passports[(organization_id, passport_id)])
+            except KeyError as exc:
+                raise EconomicsRecordNotFound(
+                    f"Технический паспорт {passport_id} не найден."
+                ) from exc
+
+    def save_technical_passport(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        site_code: str,
+        object_name: str,
+        previous_passport_id: str | None,
+        reference_revision_id: str,
+        formula_version: str,
+        input_snapshot: dict[str, Any],
+        selected_variant: dict[str, Any],
+        block_snapshot: dict[str, Any],
+        physical: dict[str, Any],
+        lineage: dict[str, str],
+    ) -> StoredTechnicalPassport:
+        with self._lock:
+            self.get_reference_snapshot(organization_id, reference_revision_id)
+            previous = (
+                self.get_technical_passport(organization_id, previous_passport_id)
+                if previous_passport_id
+                else None
+            )
+            if previous and previous.site_code != site_code:
+                raise EconomicsRepositoryError(
+                    "Новая версия паспорта должна относиться к тому же объекту."
+                )
+            passport_id = str(uuid4())
+            stored = StoredTechnicalPassport(
+                id=passport_id,
+                organization_id=organization_id,
+                site_code=site_code,
+                object_name=object_name,
+                version_no=(previous.version_no + 1 if previous else 1),
+                previous_passport_id=previous_passport_id,
+                reference_revision_id=reference_revision_id,
+                formula_version=formula_version,
+                input_snapshot=deepcopy(input_snapshot),
+                selected_variant=deepcopy(selected_variant),
+                block_snapshot=deepcopy(block_snapshot),
+                physical=deepcopy(physical),
+                lineage=deepcopy(lineage),
+                created_at=datetime.now(timezone.utc).replace(microsecond=0),
+                created_by=user_id,
+            )
+            self._passports[(organization_id, passport_id)] = stored
+            return deepcopy(stored)
+
+    def save_event_calculation_run(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        reference_revision_id: str,
+        formula_version: str,
+        technical_formula_version: str,
+        technical_passport_id: str,
+        site_code: str,
+        period: str,
+        input_snapshot: dict[str, Any],
+        result: dict[str, Any],
+    ) -> StoredCalculationRun:
+        with self._lock:
+            self.get_technical_passport(organization_id, technical_passport_id)
+            run_id = str(uuid4())
+            run = StoredCalculationRun(
+                id=run_id,
+                organization_id=organization_id,
+                scenario_id=None,
+                reference_revision_id=reference_revision_id,
+                formula_version=formula_version,
+                input_snapshot=deepcopy(input_snapshot),
+                result=deepcopy(result),
+                created_at=datetime.now(timezone.utc).replace(microsecond=0),
+                created_by=user_id,
+                calculation_scope="EVENT",
+                technical_passport_id=technical_passport_id,
+                site_code=site_code,
+                period=period,
+                technical_formula_version=technical_formula_version,
+            )
+            self._runs[(organization_id, run_id)] = run
+            return deepcopy(run)

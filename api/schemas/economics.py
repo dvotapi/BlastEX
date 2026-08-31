@@ -89,6 +89,7 @@ class MonthlyPlanSchema(BaseModel):
     month: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     billed_quantity: Decimal = Field(Decimal("0"), ge=0)
     physical: dict[str, Decimal] = Field(default_factory=dict)
+    technical_passport_id: str | None = None
 
     def to_domain(self) -> MonthlyPlan:
         return MonthlyPlan.from_dict(self.model_dump())
@@ -186,10 +187,61 @@ class StoredScenarioSchema(EconomicScenarioSchema):
 class CalculationRunSchema(BaseModel):
     id: str
     organization_id: str
-    scenario_id: str
+    scenario_id: str | None
     reference_revision_id: str
     formula_version: str
     input_snapshot: dict[str, Any]
     result: dict[str, Any]
     created_at: str
     created_by: str
+    calculation_scope: Literal["EVENT", "SITE", "UNIT"] = "UNIT"
+    technical_passport_id: str | None = None
+    site_code: str = ""
+    period: str = ""
+    technical_formula_version: str = ""
+
+
+class TechnicalPassportCreateSchema(BaseModel):
+    site_code: str = Field(..., min_length=1, max_length=80)
+    object_name: str = Field(..., min_length=1, max_length=300)
+    previous_passport_id: str | None = None
+    reference_revision_id: str | None = None
+    formula_version: str = Field("blast-geometry-v1", min_length=1, max_length=80)
+    input_snapshot: dict[str, Any] = Field(default_factory=dict)
+    selected_variant: dict[str, Any] = Field(default_factory=dict)
+    block: BlockGeometrySchema
+    existing_physical: dict[str, Decimal] = Field(default_factory=dict)
+
+
+class TechnicalPassportSchema(BaseModel):
+    id: str
+    organization_id: str
+    site_code: str
+    object_name: str
+    version_no: int
+    previous_passport_id: str | None = None
+    reference_revision_id: str
+    formula_version: str
+    input_snapshot: dict[str, Any]
+    selected_variant: dict[str, Any]
+    block_snapshot: dict[str, Any]
+    physical: dict[str, Decimal]
+    lineage: dict[str, str]
+    created_at: str
+    created_by: str
+
+
+class EventCalculationRequest(BaseModel):
+    technical_passport_id: str
+    name: str = Field("Один взрыв", min_length=1, max_length=300)
+    production_unit_code: str = Field(..., min_length=1, max_length=80)
+    package_code: str = Field(..., min_length=1, max_length=80)
+    customer_code: str = ""
+    billing_unit: str = "M3"
+    billed_quantity: Decimal | None = Field(None, ge=0)
+    market_price_rub: Decimal = Field(Decimal("0"), ge=0)
+    month: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    operation_overrides: list[OperationOverrideSchema] = Field(default_factory=list)
+    site_conditions: SiteConditionsSchema = Field(default_factory=SiteConditionsSchema)
+    options: dict[str, Any] = Field(default_factory=dict)
+    reference_revision_id: str | None = None

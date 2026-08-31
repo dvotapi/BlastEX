@@ -26,6 +26,9 @@ BLOCK_DRIVER_MAP: dict[str, str] = {
     "start_nsi": "total_start_nsi",
 }
 
+TECHNICAL_FORMULA_VERSION = "blast-geometry-v1"
+SCALABLE_BLOCK_DRIVERS = frozenset((*BLOCK_DRIVER_MAP.keys(), "blasts"))
+
 
 @dataclass(frozen=True)
 class TechnicalDriverSnapshot:
@@ -87,3 +90,27 @@ def adapt_blast_block(
         physical=physical,
         lineage=lineage,
     )
+
+
+def scale_passport_physical(
+    physical: Mapping[str, Any], planned_rock_volume_m3: Any
+) -> dict[str, Decimal]:
+    """Scale one typical block to a quarry monthly rock-volume plan.
+
+    Only extensive block quantities are scaled. Operational rates and manual
+    context (distance, productivity, tariffs) are intentionally left to the
+    economic service line and are not copied from a technical passport.
+    """
+
+    base_volume = decimal_value(physical.get("rock_volume_m3"))
+    planned_volume = decimal_value(planned_rock_volume_m3)
+    if base_volume <= 0:
+        raise ValueError("В техническом паспорте объём блока должен быть больше нуля.")
+    if planned_volume < 0:
+        raise ValueError("Плановый объём горной массы не может быть отрицательным.")
+    factor = planned_volume / base_volume
+    return {
+        key: decimal_value(value) * factor
+        for key, value in physical.items()
+        if key in SCALABLE_BLOCK_DRIVERS
+    }

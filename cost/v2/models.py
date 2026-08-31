@@ -156,6 +156,7 @@ class MonthlyPlan:
     month: str
     billed_quantity: Decimal
     physical: dict[str, Decimal] = field(default_factory=dict)
+    technical_passport_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "MonthlyPlan":
@@ -166,6 +167,11 @@ class MonthlyPlan:
                 str(key): decimal_value(value)
                 for key, value in dict(data.get("physical") or {}).items()
             },
+            technical_passport_id=(
+                str(data["technical_passport_id"])
+                if data.get("technical_passport_id")
+                else None
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -173,6 +179,7 @@ class MonthlyPlan:
             "month": self.month,
             "billed_quantity": str(self.billed_quantity),
             "physical": {key: str(value) for key, value in self.physical.items()},
+            "technical_passport_id": self.technical_passport_id,
         }
 
 

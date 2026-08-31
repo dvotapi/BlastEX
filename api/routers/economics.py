@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from api.schemas.economics import (
     CalculationRunSchema,
     EconomicScenarioSchema,
+    EventCalculationRequest,
     ReferencePublishRequest,
     ReferenceRevisionSchema,
     ReferenceSnapshotSchema,
@@ -14,10 +15,14 @@ from api.schemas.economics import (
     StoredScenarioSchema,
     TechnicalDriverRequest,
     TechnicalDriverResponse,
+    TechnicalPassportCreateSchema,
+    TechnicalPassportSchema,
 )
 from api.security import require_internal_access, require_reference_editor
 from api.services.economics_service import (
+    calculate_event_and_store,
     calculate_and_store,
+    create_technical_passport,
     get_economics_repository,
     reference_snapshot_payload,
     repository_error,
@@ -47,6 +52,75 @@ def technical_drivers(
         source_id=payload.source_id,
     )
     return TechnicalDriverResponse.model_validate(snapshot.to_dict())
+
+
+@router.get("/technical-passports", response_model=list[TechnicalPassportSchema])
+def list_technical_passports(
+    site_code: str | None = None,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> list[TechnicalPassportSchema]:
+    organization_id, _ = _identity(session)
+    try:
+        return [
+            TechnicalPassportSchema.model_validate(item.to_dict())
+            for item in repository.list_technical_passports(organization_id, site_code)
+        ]
+    except Exception as exc:
+        raise repository_error(exc) from exc
+
+
+@router.get("/technical-passports/{passport_id}", response_model=TechnicalPassportSchema)
+def get_technical_passport(
+    passport_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> TechnicalPassportSchema:
+    organization_id, _ = _identity(session)
+    try:
+        return TechnicalPassportSchema.model_validate(
+            repository.get_technical_passport(organization_id, passport_id).to_dict()
+        )
+    except Exception as exc:
+        raise repository_error(exc) from exc
+
+
+@router.post(
+    "/technical-passports",
+    response_model=TechnicalPassportSchema,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_technical_passport(
+    payload: TechnicalPassportCreateSchema,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> TechnicalPassportSchema:
+    organization_id, user_id = _identity(session)
+    try:
+        return TechnicalPassportSchema.model_validate(
+            create_technical_passport(repository, organization_id, user_id, payload)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except Exception as exc:
+        raise repository_error(exc) from exc
+
+
+@router.post("/calculations/event", response_model=CalculationRunSchema)
+def calculate_event(
+    payload: EventCalculationRequest,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> CalculationRunSchema:
+    organization_id, user_id = _identity(session)
+    try:
+        return CalculationRunSchema.model_validate(
+            calculate_event_and_store(repository, organization_id, user_id, payload)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except Exception as exc:
+        raise repository_error(exc) from exc
 
 
 @router.get("/references/snapshot", response_model=ReferenceSnapshotSchema)

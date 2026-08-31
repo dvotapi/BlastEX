@@ -101,6 +101,13 @@ import type {
   SpatialModel,
   SpatialOverlay,
   SpatialSummary,
+  MassBlastDocument,
+  MassBlastAttachment,
+  MassBlastProject,
+  MassBlastProjectSummary,
+  MassBlastProjectInput,
+  MassBlastRevision,
+  MassBlastValidation,
 } from "../types/design";
 import type {
   CalculationRun,
@@ -720,6 +727,43 @@ export const api = {
       link.remove();
       URL.revokeObjectURL(url);
     },
+  },
+
+  // --- проект массового взрыва ---
+  massBlast: {
+    list: () => get<MassBlastProjectSummary[]>(`${V1}/design/mass-blast-projects`),
+    create: (payload: MassBlastProjectInput) =>
+      post<MassBlastProject>(`${V1}/design/mass-blast-projects`, payload),
+    get: (id: string) => get<MassBlastProject>(`${V1}/design/mass-blast-projects/${id}`),
+    save: (id: string, payload: MassBlastProjectInput) =>
+      put<MassBlastProject>(`${V1}/design/mass-blast-projects/${id}`, payload),
+    validate: (id: string, requireAttachments = false) =>
+      post<MassBlastValidation>(`${V1}/design/mass-blast-projects/${id}/validate?require_attachments=${requireAttachments}`, {}),
+    createRevision: (id: string, payload: { expected_version: number; require_attachments?: boolean }) =>
+      post<MassBlastRevision>(`${V1}/design/mass-blast-projects/${id}/revisions`, payload),
+    approveRevision: (revisionId: string, payload: { role_code: string; decision: "approved" | "rejected"; comment?: string }) =>
+      post<{ id: string; role_code: string; decision: string }>(`${V1}/design/mass-blast-projects/revisions/${revisionId}/approvals`, payload),
+    transition: (id: string, payload: { to_status: string; expected_version: number; confirm: boolean; note?: string }) =>
+      post<MassBlastProject>(`${V1}/design/mass-blast-projects/${id}/lifecycle`, payload),
+    documents: (id: string) => get<MassBlastDocument[]>(`${V1}/design/mass-blast-projects/${id}/documents`),
+    attachments: (id: string) => get<MassBlastAttachment[]>(`${V1}/design/mass-blast-projects/${id}/attachments`),
+    uploadAttachment: async (id: string, kind: string, file: File) => {
+      const body = new FormData();
+      body.append("kind", kind);
+      body.append("file", file);
+      const response = await fetch(`${V1}/design/mass-blast-projects/${id}/attachments`, { method: "POST", credentials: "include", body });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(typeof payload?.detail === "string" ? payload.detail : "Не удалось загрузить приложение.");
+      }
+      return response.json() as Promise<MassBlastAttachment>;
+    },
+    deleteAttachment: (id: string, attachmentId: string) => del<void>(`${V1}/design/mass-blast-projects/${id}/attachments/${attachmentId}`),
+    attachmentUrl: (projectId: string, attachmentId: string) =>
+      `${V1}/design/mass-blast-projects/${projectId}/attachments/${attachmentId}/download`,
+    generateDocument: (id: string, payload: { revision_id: string; kind: "PROJECT" | "ORDER" | "SCHEDULE" | "PACKAGE"; format: "PDF" | "XLSX" | "ZIP" }) =>
+      post<MassBlastDocument>(`${V1}/design/mass-blast-projects/${id}/documents`, payload),
+    documentUrl: (documentId: string) => `${V1}/design/mass-blast-projects/documents/${documentId}/download`,
   },
 };
 

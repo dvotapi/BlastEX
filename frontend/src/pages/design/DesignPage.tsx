@@ -100,7 +100,6 @@ import { RoleBadge } from "./RoleBadge";
 import { LifecyclePanel } from "./LifecyclePanel";
 import { WorkflowNav } from "./WorkflowNav";
 import { ChargePanel } from "./ChargePanel";
-import { CostPanel } from "./CostPanel";
 import { designReducer, initDesignState } from "./designReducer";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
@@ -131,6 +130,7 @@ import { DriftPanel } from "./DriftPanel";
 import { SpatialPanel } from "./SpatialPanel";
 import { MovementPanel } from "./MovementPanel";
 import { PassportPanel } from "./PassportPanel";
+import { MassBlastPanel } from "./MassBlastPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -2815,13 +2815,7 @@ export function DesignPage({
             busy={passportBusy}
             result={passportResult}
           />
-          <CostPanel
-            scenarioId={scenarioId}
-            onScenarioChange={setScenarioId}
-            onCalculate={calculateCost}
-            busy={costBusy}
-            result={costResult}
-          />
+          <MassBlastPanel designId={document.design_id} designName={document.name} />
           </>}
         </div>
         <div className="design-main">

@@ -2,6 +2,99 @@
 
 export type Point3 = { x: number; y: number; z: number };
 
+export type MassBlastResponsibility = {
+  role_code: string;
+  employee_code: string;
+  employee_name: string;
+  position_name: string;
+};
+
+export type MassBlastGuardPost = {
+  code: string;
+  location: string;
+  responsible_employee_code: string;
+  notes: string;
+};
+
+export type MassBlastProjectInput = {
+  name: string;
+  site_code: string;
+  object_name: string;
+  customer_code: string;
+  blast_date: string;
+  blast_time: string;
+  document_profile_code: string;
+  reference_revision_id?: string | null;
+  blocks: Array<{ design_id: string; technical_passport_id?: string | null; code: string; horizon: string }>;
+  responsibilities: MassBlastResponsibility[];
+  safety_plan: Record<string, unknown>;
+  charging_schedule: Array<Record<string, unknown>>;
+  signal_plan: Record<string, unknown>;
+  guard_posts: MassBlastGuardPost[];
+  notifications: Array<{ recipient: string; channel: string; sent_at: string }>;
+  expected_version?: number;
+};
+
+export type MassBlastProject = Omit<MassBlastProjectInput, "blocks" | "expected_version"> & {
+  id: string;
+  blocks: Array<Record<string, unknown>>;
+  lifecycle_status: "draft" | "in_review" | "approved" | "executed" | "closed";
+  version: number;
+  current_revision_id: string | null;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+  updated_by: string;
+};
+
+export type MassBlastProjectSummary = Pick<MassBlastProject,
+  "id" | "name" | "site_code" | "object_name" | "blast_date" |
+  "lifecycle_status" | "version" | "current_revision_id" | "updated_at"
+> & { block_design_ids: string[] };
+
+export type MassBlastValidation = {
+  valid: boolean;
+  issues: Array<{ level: "error" | "warning"; code: string; message: string; path: string }>;
+  context: Record<string, unknown>;
+};
+
+export type MassBlastRevision = {
+  id: string;
+  project_id: string;
+  revision_no: number;
+  previous_revision_id: string | null;
+  reference_revision_id: string;
+  technical_formula_version: string;
+  document_template_version: string;
+  content_sha256: string;
+  created_at: string;
+  created_by: string;
+  context: Record<string, unknown>;
+};
+
+export type MassBlastDocument = {
+  id: string;
+  revision_id: string;
+  kind: string;
+  format: "PDF" | "XLSX" | "ZIP";
+  filename: string;
+  sha256: string;
+  created_at: string;
+};
+
+export type MassBlastAttachment = {
+  id: string;
+  project_id: string;
+  revision_id: string | null;
+  kind: string;
+  filename: string;
+  mime_type: string;
+  byte_size: number;
+  sha256: string;
+  created_at: string;
+  created_by: string;
+};
+
 export type BenchSurface = {
   crest_z_m: number;
   toe_z_m: number;
@@ -3156,5 +3249,3 @@ export type DriftReport = {
   action: string;
   next_step: string;
 };
-
-

@@ -25,6 +25,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && adduser --disabled-password --gecos "" appuser
 
@@ -41,7 +42,7 @@ COPY alembic.ini ./
 COPY migrations/ ./migrations/
 COPY scripts/start_api.py ./scripts/start_api.py
 
-RUN mkdir -p /app/data/teams \
+RUN mkdir -p /app/data/teams /app/data/mass_blast_documents /app/data/mass_blast_attachments \
     && chown -R appuser:appuser /app/data
 
 USER appuser

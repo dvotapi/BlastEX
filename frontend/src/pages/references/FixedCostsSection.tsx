@@ -31,7 +31,7 @@ function SectionTable({ section, title }: { section: string; title: string }) {
         onChange={handleChange}
         newRow={canEdit ? () => ({ id: "", section, name: "", amount_rub: 0, note: "", enabled: true }) : undefined}
         readOnly={!canEdit}
-        rowKey={(r, i) => r.id || i}
+        rowKey={(r, i) => r.row_id || `fixed-cost-${section}-${i}`}
       />
     </details>
   );

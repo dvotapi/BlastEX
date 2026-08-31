@@ -75,7 +75,7 @@ export function newServiceLine(packageCode: string): EconomicServiceLine {
     site_code: "",
     billing_unit: "M3",
     market_price_rub: 0,
-    monthly_plans: [{ month: currentMonth(), billed_quantity: 0, physical: {} }],
+    monthly_plans: [{ row_id: uid("plan"), month: currentMonth(), billed_quantity: 0, physical: {} }],
     operation_overrides: [],
     site_conditions: defaultConditions(),
     options: { internal_transfer: true },
@@ -223,7 +223,7 @@ export function ServiceLinesEditor({
                   <thead><tr><th>Месяц</th><th>Оплачиваемый объём</th>{PHYSICAL_FIELDS.map((field) => <th key={field.key}>{field.label}</th>)}<th /></tr></thead>
                   <tbody>
                     {line.monthly_plans.map((plan, planIndex) => (
-                      <tr key={`${line.id}-${plan.month}-${planIndex}`}>
+                      <tr key={plan.row_id || `${line.id}-plan-${planIndex}`}>
                         <td><input type="month" value={plan.month} onChange={(e) => updatePlan(lineIndex, planIndex, { month: e.target.value })} /></td>
                         <td><input type="number" min="0" value={plan.billed_quantity} onChange={(e) => updatePlan(lineIndex, planIndex, { billed_quantity: Number(e.target.value) })} /></td>
                         {PHYSICAL_FIELDS.map((field) => (
@@ -235,7 +235,7 @@ export function ServiceLinesEditor({
                   </tbody>
                 </table>
               </div>
-              <button className="row-add" onClick={() => updateLine(lineIndex, { monthly_plans: [...line.monthly_plans, { month: currentMonth(), billed_quantity: 0, physical: {} }] })}>+ Месяц</button>
+              <button className="row-add" onClick={() => updateLine(lineIndex, { monthly_plans: [...line.monthly_plans, { row_id: uid("plan"), month: currentMonth(), billed_quantity: 0, physical: {} }] })}>+ Месяц</button>
             </details>
 
             <details className="economic-details">

@@ -104,7 +104,7 @@ export function HolePanel({
         <div className="hole-panel-controls">
           <label>Тип ВВ
             <select value={explosiveKey} onChange={(e) => setExplosiveKey(e.target.value)}>
-              {explosiveList.map((e) => <option key={e.key} value={e.key}>{e.name}</option>)}
+              {explosiveList.map((e) => <option key={e.id || e.key} value={e.key}>{e.name}</option>)}
             </select>
           </label>
           <label className="range-label">

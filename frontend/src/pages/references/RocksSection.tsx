@@ -28,7 +28,7 @@ export function RocksSection() {
         onChange={(next) => updateReferences({ rock_records: next })}
         newRow={canEdit ? () => ({ name: "", density_t_m3: 2.5, ucs_mpa: 100, fissuring_ff: 1 }) : undefined}
         readOnly={!canEdit}
-        rowKey={(r, i) => r.name || i}
+        rowKey={(r, i) => r.id || `rock-${i}`}
       />
       {!canEdit && <p className="page-caption">Справочник пород доступен только для просмотра. Войдите как администратор.</p>}
     </section>

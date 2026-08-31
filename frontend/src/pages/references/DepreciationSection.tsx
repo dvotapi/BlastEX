@@ -40,7 +40,7 @@ export function DepreciationSection() {
         onChange={handleChange}
         newRow={canEdit ? () => withComputedRate({ name: "", initial_cost_rub: 0, useful_life_months: 84, productive_shifts_per_month: 22, depreciation_per_shift_rub: 0 }) : undefined}
         readOnly={!canEdit}
-        rowKey={(r, i) => r.name || i}
+        rowKey={(r, i) => r.id || `asset-${i}`}
       />
       {!canEdit && <p className="page-caption">Справочник амортизации ОС доступен только для просмотра. Войдите как администратор.</p>}
     </section>

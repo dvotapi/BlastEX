@@ -47,7 +47,7 @@ export function WorkspaceBar() {
         <div className="wb-field">
           <label>Объект работ</label>
           <select value={state.settings.active_work_object_name} onChange={(e) => setActiveWorkObjectName(e.target.value)}>
-            {state.references.work_object_records.map((o) => <option key={o.name} value={o.name}>{o.name}</option>)}
+            {state.references.work_object_records.map((o) => <option key={o.id || o.name} value={o.name}>{o.name}</option>)}
           </select>
         </div>
         <div className="wb-field">

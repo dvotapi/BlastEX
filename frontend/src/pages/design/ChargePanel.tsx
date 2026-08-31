@@ -99,7 +99,7 @@ export function ChargePanel({
       <div className="panel-body">
         <label>Взрывчатое вещество по умолчанию
           <select value={explosiveKey} onChange={(e) => onExplosiveKeyChange(e.target.value)}>
-            {explosives.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}
+            {explosives.map((item) => <option key={item.id || item.key} value={item.key}>{item.name}</option>)}
           </select>
         </label>
 
@@ -352,7 +352,7 @@ function TemplateCard({
           <label>Продукт / ВВ
             <select value={action.explosive_key} onChange={(e) => onPatchAction(index, { explosive_key: e.target.value, product: e.target.value })}>
               <option value="">по умолчанию</option>
-              {explosives.map((item) => <option key={item.key} value={item.name}>{item.name}</option>)}
+              {explosives.map((item) => <option key={item.id || item.key} value={item.name}>{item.name}</option>)}
               {!explosives.some((item) => item.name === action.explosive_key) && action.explosive_key && (
                 <option value={action.explosive_key}>{action.explosive_key}</option>
               )}

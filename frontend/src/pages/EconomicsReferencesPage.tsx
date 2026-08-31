@@ -7,8 +7,15 @@ import type {
   ReferenceValidationIssue,
 } from "../types/economics";
 
-type DraftItem = Omit<EconomicsReferenceItem, "payload"> & { payload_text: string };
+type DraftItem = Omit<EconomicsReferenceItem, "payload"> & { row_id: string; payload_text: string };
 type DraftSections = Record<string, DraftItem[]>;
+
+function draftRowId(): string {
+  const token = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `economics-reference-${token}`;
+}
 
 function stable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stable);
@@ -36,6 +43,7 @@ function toDraft(snapshot: EconomicsReferenceSnapshot): DraftSections {
   for (const meta of snapshot.section_catalog) {
     result[meta.code] = (snapshot.sections[meta.code] ?? []).map((item) => ({
       ...item,
+      row_id: draftRowId(),
       payload_text: JSON.stringify(item.payload, null, 2),
     }));
   }
@@ -65,7 +73,7 @@ function parseDraft(draft: DraftSections): {
           message: `Некорректные параметры JSON: ${reason instanceof Error ? reason.message : String(reason)}`,
         });
       }
-      const { payload_text: _, ...item } = row;
+      const { payload_text: _, row_id: __, ...item } = row;
       return { ...item, payload };
     });
   }
@@ -74,6 +82,7 @@ function parseDraft(draft: DraftSections): {
 
 function emptyItem(): DraftItem {
   return {
+    row_id: draftRowId(),
     code: "",
     name: "",
     payload_text: "{}",
@@ -249,7 +258,7 @@ export function EconomicsReferencesPage({ user }: { user: User }) {
             </thead>
             <tbody>
               {rows.map((row, index) => (
-                <tr key={`${row.code}-${index}`} className={row.is_active ? "" : "inactive-row"}>
+                <tr key={row.row_id} className={row.is_active ? "" : "inactive-row"}>
                   <td><input type="checkbox" checked={row.is_active} disabled={!canEdit} onChange={(e) => updateRow(index, { is_active: e.target.checked })} /></td>
                   <td><input value={row.code} disabled={!canEdit} onChange={(e) => updateRow(index, { code: e.target.value.toUpperCase() })} /></td>
                   <td><input value={row.name} disabled={!canEdit} onChange={(e) => updateRow(index, { name: e.target.value })} /></td>

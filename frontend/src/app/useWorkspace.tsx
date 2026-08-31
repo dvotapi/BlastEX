@@ -15,6 +15,12 @@ import type {
   WorkspaceSnapshot,
   WorkspaceState,
 } from "../types";
+import {
+  normalizeReferencePatch,
+  normalizeReferenceRows,
+  normalizeSnapshotPatch,
+  normalizeSnapshotRows,
+} from "./referenceRows";
 
 /** Контекст последнего расчёта на вкладке «Расчёт» — для кнопок
  * «Подставить объём/объёмы из расчёта БВР» на вкладках «Бурение» и «ФОТ». */
@@ -61,8 +67,13 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
     setError("");
     try {
       const [ws, sc] = await Promise.all([api.workspace(), api.scenarios()]);
-      setState(ws);
-      setSavedKey(JSON.stringify([ws.snapshot, ws.references, ws.settings.active_work_object_name]));
+      const normalized = {
+        ...ws,
+        snapshot: normalizeSnapshotRows(ws.snapshot),
+        references: normalizeReferenceRows(ws.references),
+      };
+      setState(normalized);
+      setSavedKey(JSON.stringify([normalized.snapshot, normalized.references, normalized.settings.active_work_object_name]));
       setScenarios(sc);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить рабочее пространство.");
@@ -79,11 +90,11 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
   }, [state, savedKey]);
 
   const updateSnapshot = useCallback((patch: Partial<WorkspaceSnapshot>) => {
-    setState((prev) => (prev ? { ...prev, snapshot: { ...prev.snapshot, ...patch } } : prev));
+    setState((prev) => (prev ? { ...prev, snapshot: { ...prev.snapshot, ...normalizeSnapshotPatch(patch) } } : prev));
   }, []);
 
   const updateReferences = useCallback((patch: Partial<TeamReferences>) => {
-    setState((prev) => (prev ? { ...prev, references: { ...prev.references, ...patch } } : prev));
+    setState((prev) => (prev ? { ...prev, references: { ...prev.references, ...normalizeReferencePatch(patch) } } : prev));
   }, []);
 
   const setActiveWorkObjectName = useCallback((name: string) => {
@@ -100,8 +111,13 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
         references: state.references,
         active_work_object_name: state.settings.active_work_object_name,
       });
-      setState(next);
-      setSavedKey(JSON.stringify([next.snapshot, next.references, next.settings.active_work_object_name]));
+      const normalized = {
+        ...next,
+        snapshot: normalizeSnapshotRows(next.snapshot),
+        references: normalizeReferenceRows(next.references),
+      };
+      setState(normalized);
+      setSavedKey(JSON.stringify([normalized.snapshot, normalized.references, normalized.settings.active_work_object_name]));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сохранить рабочее пространство.");
       throw reason;
@@ -114,8 +130,13 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
     setError("");
     try {
       const next = await api.switchScenario(scenarioId);
-      setState(next);
-      setSavedKey(JSON.stringify([next.snapshot, next.references, next.settings.active_work_object_name]));
+      const normalized = {
+        ...next,
+        snapshot: normalizeSnapshotRows(next.snapshot),
+        references: normalizeReferenceRows(next.references),
+      };
+      setState(normalized);
+      setSavedKey(JSON.stringify([normalized.snapshot, normalized.references, normalized.settings.active_work_object_name]));
       setBlastContext(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось переключить сценарий.");

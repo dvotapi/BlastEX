@@ -29,7 +29,7 @@ export function ExplosivesSection() {
         onChange={(next) => updateReferences({ explosive_records: next })}
         newRow={canEdit ? () => ({ key: "", name: "", density_t_m3: 1, power_mj_kg: 3, chart_label: "" }) : undefined}
         readOnly={!canEdit}
-        rowKey={(r, i) => r.key || i}
+        rowKey={(r, i) => r.id || `explosive-${i}`}
       />
       {!canEdit && <p className="page-caption">Справочник ВВ доступен только для просмотра. Войдите как администратор.</p>}
     </section>

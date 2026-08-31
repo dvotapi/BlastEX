@@ -35,7 +35,7 @@ function CategoryTable({
         onChange={handleChange}
         newRow={canEdit ? () => ({ id: "", name: "", category, unit, price: 0, note: "" }) : undefined}
         readOnly={!canEdit}
-        rowKey={(r, i) => r.id || i}
+        rowKey={(r, i) => r.row_id || `catalog-${category}-${i}`}
       />
     </details>
   );

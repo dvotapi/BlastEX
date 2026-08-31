@@ -61,6 +61,7 @@ export type TechnicalDriverSnapshot = {
 };
 
 export type MonthlyEconomicPlan = {
+  row_id?: string;
   month: string;
   billed_quantity: Numeric;
   physical: Record<string, Numeric>;

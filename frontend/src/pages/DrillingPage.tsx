@@ -77,14 +77,14 @@ export function DrillingPage() {
           <label>Объект
             <select value={input.object_name} onChange={(e) => set("object_name", e.target.value)}>
               <option value="">—</option>
-              {workObjects.map((o) => <option key={o.name} value={o.name}>{o.name}</option>)}
+              {workObjects.map((o) => <option key={o.id || o.name} value={o.name}>{o.name}</option>)}
             </select>
           </label>
           <label>Объём буровых работ, п.м.<input type="number" min={1} step={10} value={input.volume_m} onChange={(e) => set("volume_m", Number(e.target.value))} /></label>
           <label>Диаметр коронки, мм<input type="number" min={100} max={250} step={1} value={input.crown_mm} onChange={(e) => set("crown_mm", Number(e.target.value))} /></label>
           <label>Тип буровой установки
             <select value={input.rig_name} onChange={(e) => set("rig_name", e.target.value)}>
-              {drillRigs.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+              {drillRigs.map((r) => <option key={r.id || r.name} value={r.name}>{r.name}</option>)}
             </select>
           </label>
           <label>Технологическая скорость, м/ч<input type="number" min={1} step={0.5} value={input.tech_speed_m_h} onChange={(e) => set("tech_speed_m_h", Number(e.target.value))} /></label>

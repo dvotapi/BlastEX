@@ -9,6 +9,7 @@ export type User = {
 // --- Справочники ---
 
 export type Rock = {
+  id?: string;
   name: string;
   density_t_m3: number;
   ucs_mpa: number;
@@ -16,6 +17,7 @@ export type Rock = {
 };
 
 export type Explosive = {
+  id?: string;
   key: string;
   name: string;
   density_t_m3: number;
@@ -24,12 +26,14 @@ export type Explosive = {
 };
 
 export type WorkObject = {
+  id?: string;
   name: string;
   mobilization_km: number;
   diesel_price_ton_rub: number | null;
 };
 
 export type DrillRig = {
+  id?: string;
   name: string;
   depreciation_per_shift_rub: number;
   fuel_l_per_h: number;
@@ -38,6 +42,7 @@ export type DrillRig = {
 export type CatalogCategory = "explosive" | "detonator" | "downhole_nsi" | "surface_nsi" | "start_nsi";
 
 export type CatalogItem = {
+  row_id?: string;
   id: string;
   name: string;
   category: CatalogCategory;
@@ -49,6 +54,7 @@ export type CatalogItem = {
 };
 
 export type FixedAssetDepreciation = {
+  id?: string;
   name: string;
   initial_cost_rub: number;
   useful_life_months: number;
@@ -57,6 +63,7 @@ export type FixedAssetDepreciation = {
 };
 
 export type FixedCostItem = {
+  row_id?: string;
   id: string;
   section: string;
   name: string;
@@ -75,6 +82,7 @@ export const FIXED_COST_SECTIONS: [string, string][] = [
 ];
 
 export type JobPosition = {
+  row_id?: string;
   id: string;
   name: string;
   fixed_salary_monthly: number;
@@ -82,6 +90,7 @@ export type JobPosition = {
 };
 
 export type LaborAssignment = {
+  row_id?: string;
   id: string;
   position_id: string;
   headcount: number;

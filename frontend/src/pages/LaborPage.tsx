@@ -95,7 +95,7 @@ export function LaborPage() {
         rows={catalog}
         onChange={(rows) => updateSnapshot({ labor_catalog_records: rows })}
         newRow={() => ({ id: "", name: "", fixed_salary_monthly: 0, piece_rate_per_m3: 0 })}
-        rowKey={(r, i) => r.id || i}
+        rowKey={(r, i) => r.row_id || `labor-position-${i}`}
       />
 
       <h4>Штатное расписание на блок</h4>
@@ -110,7 +110,7 @@ export function LaborPage() {
         rows={assignments}
         onChange={(rows) => updateSnapshot({ labor_assignment_records: rows })}
         newRow={() => ({ id: `la_${Date.now()}`, position_id: positionIds[0] ?? "", headcount: 1, volume_m3: 0, employee_shifts: 1 })}
-        rowKey={(r, i) => r.id || i}
+        rowKey={(r, i) => r.row_id || `labor-assignment-${i}`}
       />
 
       {result && (

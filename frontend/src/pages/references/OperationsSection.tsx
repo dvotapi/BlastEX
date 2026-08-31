@@ -29,7 +29,7 @@ export function OperationsSection() {
         onChange={(next) => updateReferences({ work_object_records: next })}
         newRow={canEdit ? () => ({ name: "", mobilization_km: 0, diesel_price_ton_rub: null }) : undefined}
         readOnly={!canEdit}
-        rowKey={(r, i) => r.name || i}
+        rowKey={(r, i) => r.id || `work-object-${i}`}
       />
       {!canEdit && <p className="page-caption">Объекты работ доступны только для просмотра. Войдите как администратор.</p>}
 
@@ -48,7 +48,7 @@ export function OperationsSection() {
         onChange={(next) => updateReferences({ drill_rig_records: next })}
         newRow={canEdit ? () => ({ name: "", depreciation_per_shift_rub: 0, fuel_l_per_h: 0 }) : undefined}
         readOnly={!canEdit}
-        rowKey={(r, i) => r.name || i}
+        rowKey={(r, i) => r.id || `drill-rig-${i}`}
       />
       {!canEdit && <p className="page-caption">Справочник станков доступен только для просмотра. Войдите как администратор.</p>}
 

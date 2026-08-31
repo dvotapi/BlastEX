@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from api.exceptions import InvalidSurveyError
-from api.schemas.design import PatternGenerateRequest, SurfaceImportRequest
+from api.schemas.design import BenchDxfImportRequest, PatternGenerateRequest, SurfaceImportRequest
 from api.services import design_service
 from design.models import BenchSurface, BlockContour, Point3
 
@@ -26,6 +26,16 @@ class SurfaceImportApiTests(unittest.TestCase):
     def test_empty_file_rejected(self):
         with self.assertRaises(InvalidSurveyError):
             design_service.import_surface(SurfaceImportRequest(content="  ", filename="empty.xyz"))
+
+    def test_bench_dxf_creates_contour_and_three_surfaces(self):
+        from tests.test_spatial_import import BENCH_DXF
+
+        result = design_service.import_bench_dxf(BenchDxfImportRequest(content=BENCH_DXF, filename="block.dxf"))
+        self.assertEqual(len(result.contour.vertices), 6)
+        self.assertIsNotNone(result.surfaces.top)
+        self.assertIsNotNone(result.surfaces.floor)
+        self.assertIsNotNone(result.surfaces.face)
+        self.assertGreater(result.crest_z_m, result.toe_z_m)
 
 
 class PatternWithSurfacesApiTests(unittest.TestCase):

@@ -108,6 +108,7 @@ import type {
   MassBlastProjectInput,
   MassBlastRevision,
   MassBlastValidation,
+  BenchDxfImport,
 } from "../types/design";
 import type {
   CalculationRun,
@@ -317,6 +318,8 @@ export const api = {
       coordinate_system?: CoordinateSystem;
     }) =>
       post<{ surface: SurfaceModel; stats: SurfaceStats }>(`${V1}/design/surfaces/import`, payload),
+    importBenchDxf: (payload: { content: string; filename: string; coordinate_system?: CoordinateSystem }) =>
+      post<BenchDxfImport>(`${V1}/design/contour/import-dxf`, payload),
     sampleSurface: (surface: SurfaceModel, points: Array<[number, number]>) =>
       post<{ elevations: Array<number | null> }>(`${V1}/design/surfaces/sample`, { surface, points }),
     assignDomain: (domain: BlastDomain, polygon: BlastDomain["polygon"]) =>

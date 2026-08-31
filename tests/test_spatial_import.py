@@ -1,6 +1,6 @@
 import unittest
 
-from design.spatial.io import SurveyImportError, detect_format, import_survey
+from design.spatial.io import SurveyImportError, detect_format, import_bench_dxf, import_survey
 from design.spatial.surfaces import build_surface
 
 
@@ -66,6 +66,76 @@ GEOJSON = """
 }
 """
 
+BENCH_DXF = """0
+SECTION
+2
+ENTITIES
+0
+POLYLINE
+8
+верхняя бровка
+0
+VERTEX
+10
+0
+20
+0
+30
+110
+0
+VERTEX
+10
+10
+20
+0
+30
+111
+0
+VERTEX
+10
+10
+20
+10
+30
+110
+0
+SEQEND
+0
+POLYLINE
+8
+нижняя бровка
+0
+VERTEX
+10
+1
+20
+1
+30
+100
+0
+VERTEX
+10
+9
+20
+1
+30
+100
+0
+VERTEX
+10
+9
+20
+9
+30
+100
+0
+SEQEND
+0
+ENDSEC
+0
+EOF
+"""
+
 
 class DetectFormatTests(unittest.TestCase):
     def test_by_extension(self):
@@ -107,6 +177,13 @@ class ImportSurveyTests(unittest.TestCase):
     def test_no_coordinates_rejected(self):
         with self.assertRaises(SurveyImportError):
             import_survey("name,value\nfoo,bar\n", filename="bad.csv")
+
+    def test_bench_dxf_extracts_named_3d_brow_lines(self):
+        imported = import_bench_dxf(BENCH_DXF)
+        self.assertEqual(imported.crest_layer, "верхняя бровка")
+        self.assertEqual(imported.toe_layer, "нижняя бровка")
+        self.assertEqual(len(imported.contour), 6)
+        self.assertGreater(imported.crest_z_m, imported.toe_z_m)
 
 
 class BuildSurfaceTests(unittest.TestCase):

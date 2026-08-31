@@ -47,6 +47,8 @@ from api.schemas.design import (
     SummarySchema,
     SurfaceImportRequest,
     SurfaceImportResponse,
+    BenchDxfImportRequest,
+    BenchDxfImportResponse,
     SurfaceSampleRequest,
     SurfaceSampleResponse,
     SurfaceStatsSchema,
@@ -102,6 +104,7 @@ from design.models import (
     BlastDesign,
     BlastDomain,
     BlockContour,
+    BenchSurface,
     Hole,
     Point3,
     Receptor,
@@ -109,7 +112,7 @@ from design.models import (
 )
 from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
-from design.spatial.io import SurveyImportError, import_survey
+from design.spatial.io import SurveyImportError, import_bench_dxf as import_bench_dxf_source, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
 
@@ -157,6 +160,36 @@ def import_surface(request: SurfaceImportRequest) -> SurfaceImportResponse:
     return SurfaceImportResponse(
         surface=SurfaceModel.from_dict(surface.to_dict()).to_dict(),
         stats=SurfaceStatsSchema(**surface.stats()),
+    )
+
+
+def import_bench_dxf(request: BenchDxfImportRequest) -> BenchDxfImportResponse:
+    try:
+        imported = import_bench_dxf_source(request.content)
+    except SurveyImportError as exc:
+        raise InvalidSurveyError(str(exc)) from exc
+    coordinate_system = CoordinateSystem.from_dict(request.coordinate_system.model_dump())
+    source_name = request.filename or "block.dxf"
+    top = build_surface(
+        "top", imported.crest, polylines=[imported.crest], name="Верхняя бровка",
+        source_format="dxf", source_name=source_name, coordinate_system=coordinate_system,
+    )
+    floor = build_surface(
+        "floor", imported.toe, polylines=[imported.toe], name="Нижняя бровка",
+        source_format="dxf", source_name=source_name, coordinate_system=coordinate_system,
+    )
+    face = build_surface(
+        "face", [*imported.crest, *imported.toe], polylines=[imported.crest, imported.toe], name="Откос блока",
+        source_format="dxf", source_name=source_name, coordinate_system=coordinate_system,
+    )
+    contour = BlockContour(
+        name=source_name.rsplit(".", 1)[0], vertices=imported.contour,
+        bench=BenchSurface(crest_z_m=imported.crest_z_m, toe_z_m=imported.toe_z_m),
+    )
+    return BenchDxfImportResponse(
+        contour=contour.to_dict(), surfaces=SurfaceSet(top=top, floor=floor, face=face).to_dict(),
+        crest_layer=imported.crest_layer, toe_layer=imported.toe_layer,
+        crest_z_m=imported.crest_z_m, toe_z_m=imported.toe_z_m, vertex_count=len(imported.contour),
     )
 
 

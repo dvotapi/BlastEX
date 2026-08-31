@@ -24,6 +24,7 @@ export function SurfacePanel({
   onBenchChange,
   onCoordinateSystemChange,
   onImport,
+  onImportBlock,
   onClear,
   busy,
 }: {
@@ -33,11 +34,13 @@ export function SurfacePanel({
   onBenchChange: (patch: Partial<BenchSurface>) => void;
   onCoordinateSystemChange: (patch: Partial<CoordinateSystem>) => void;
   onImport: (kind: SurfaceKind, file: File) => void;
+  onImportBlock: (file: File) => void;
   onClear: (kind: SurfaceKind) => void;
   busy: boolean;
 }) {
   const [kind, setKind] = useState<SurfaceKind>("top");
   const inputRef = useRef<HTMLInputElement>(null);
+  const blockInputRef = useRef<HTMLInputElement>(null);
 
   function onFile(file: File | undefined) {
     if (!file) return;
@@ -78,6 +81,22 @@ export function SurfacePanel({
           </label>
         </div>
         <small>Плоскость используется, если съёмка не покрывает точку.</small>
+
+        <div className="dxf-block-import">
+          <b>3D‑каркас блока из DXF</b>
+          <small>Слои «верхняя бровка» и «нижняя бровка» создадут контур, кровлю, подошву и откос. Существующие скважины будут очищены.</small>
+          <input
+            ref={blockInputRef}
+            type="file"
+            accept=".dxf"
+            disabled={busy}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onImportBlock(file);
+              if (blockInputRef.current) blockInputRef.current.value = "";
+            }}
+          />
+        </div>
 
         <label>
           Тип поверхности

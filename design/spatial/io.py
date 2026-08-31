@@ -6,6 +6,7 @@ import io
 import json
 import re
 from dataclasses import dataclass
+from statistics import median
 from typing import Iterable
 
 from design.models import Point3
@@ -15,6 +16,28 @@ SUPPORTED_FORMATS = ("xyz", "csv", "dxf", "geojson")
 
 class SurveyImportError(ValueError):
     """Файл съёмки не удалось разобрать."""
+
+
+@dataclass
+class BenchDxfImport:
+    """Named 3D crest/toe polylines extracted from an ASCII DXF drawing."""
+
+    crest: list[Point3]
+    toe: list[Point3]
+    crest_layer: str
+    toe_layer: str
+
+    @property
+    def contour(self) -> list[Point3]:
+        return _clean_polyline([*self.crest, *reversed(self.toe)])
+
+    @property
+    def crest_z_m(self) -> float:
+        return float(median(point.z for point in self.crest))
+
+    @property
+    def toe_z_m(self) -> float:
+        return float(median(point.z for point in self.toe))
 
 
 @dataclass
@@ -85,6 +108,37 @@ def import_survey(
         source_format=fmt,
         source_name=filename,
     )
+
+
+def import_bench_dxf(content: str) -> BenchDxfImport:
+    """Extract the crest and toe polylines of a surveyed block from ASCII DXF.
+
+    DXF drawings often include labels and survey points.  This importer uses
+    only 3D/LW polylines with an explicit engineering layer name; it therefore
+    never silently turns arbitrary text or point clouds into a blast contour.
+    """
+
+    if not content or not content.strip() or "\x00" in content[:200]:
+        raise SurveyImportError("Для импорта блока нужен непустой ASCII DXF.")
+    records = _dxf_layered_polylines(content)
+    crest_candidates = [(layer, points) for layer, points in records if _is_crest_layer(layer)]
+    toe_candidates = [(layer, points) for layer, points in records if _is_toe_layer(layer)]
+    if not crest_candidates or not toe_candidates:
+        available = ", ".join(sorted({layer for layer, _ in records if layer})) or "нет"
+        raise SurveyImportError(
+            "Не найдены слои верхней и нижней бровки. "
+            f"Ожидались имена с «верх/crest/top» и «ниж/toe/floor/подошв»; найдены: {available}."
+        )
+    crest_layer, crest = max(crest_candidates, key=lambda item: len(item[1]))
+    toe_layer, toe = max(toe_candidates, key=lambda item: len(item[1]))
+    result = BenchDxfImport(crest=_clean_polyline(crest), toe=_clean_polyline(toe), crest_layer=crest_layer, toe_layer=toe_layer)
+    if len(result.crest) < 2 or len(result.toe) < 2 or len(result.contour) < 3:
+        raise SurveyImportError("Бровки должны содержать минимум по две разные точки.")
+    if abs(_polygon_area(result.contour)) < 0.01:
+        raise SurveyImportError("Бровки не образуют площадь блока в плане. Проверьте порядок точек в DXF.")
+    if result.crest_z_m <= result.toe_z_m:
+        raise SurveyImportError("Отметка верхней бровки должна быть выше нижней. Проверьте выбранные слои.")
+    return result
 
 
 def _looks_like_xyz_row(line: str) -> bool:
@@ -191,6 +245,114 @@ def _dxf_groups(content: str) -> list[tuple[int, str]]:
         groups.append((code, value))
         i += 2
     return groups
+
+
+def _dxf_layered_polylines(content: str) -> list[tuple[str, list[Point3]]]:
+    """Read POLYLINE/LWPOLYLINE entities and preserve their layer names."""
+
+    groups = _dxf_groups(content)
+    in_entities = False
+    entity = ""
+    layer = ""
+    records: list[tuple[str, list[Point3]]] = []
+    poly_points: list[Point3] = []
+    vertex: dict[int, str] = {}
+    lw_points: list[Point3] = []
+    lw_elevation = 0.0
+
+    def flush_vertex() -> None:
+        nonlocal vertex
+        point = _point_from_dxf(vertex, 10, 20, 30)
+        if point is not None:
+            poly_points.append(point)
+        vertex = {}
+
+    def flush_poly() -> None:
+        nonlocal poly_points, lw_points, lw_elevation
+        points = poly_points if poly_points else [
+            Point3(point.x, point.y, point.z if point.z else lw_elevation) for point in lw_points
+        ]
+        if len(points) >= 2:
+            records.append((layer, _clean_polyline(points)))
+        poly_points, lw_points, lw_elevation = [], [], 0.0
+
+    for code, raw in groups:
+        value = raw.strip()
+        if code == 0:
+            name = value.upper()
+            if name == "SECTION":
+                entity = "SECTION"
+                continue
+            if name == "ENDSEC":
+                if entity in {"POLYLINE", "LWPOLYLINE"}:
+                    flush_poly()
+                in_entities, entity = False, ""
+                continue
+            if not in_entities:
+                entity = name
+                continue
+            if entity == "VERTEX":
+                flush_vertex()
+            if name == "SEQEND":
+                if entity in {"VERTEX", "POLYLINE"}:
+                    flush_poly()
+                entity = ""
+                continue
+            if entity == "LWPOLYLINE":
+                flush_poly()
+            entity = name
+            if name in {"POLYLINE", "LWPOLYLINE"}:
+                layer, poly_points, lw_points, lw_elevation = "", [], [], 0.0
+            continue
+        if code == 2 and entity == "SECTION" and value.upper() == "ENTITIES":
+            in_entities, entity = True, ""
+            continue
+        if not in_entities:
+            continue
+        if code == 8 and entity in {"POLYLINE", "LWPOLYLINE"}:
+            layer = value
+        elif entity == "VERTEX" and code in {10, 20, 30}:
+            vertex[code] = value
+        elif entity == "LWPOLYLINE":
+            if code == 10:
+                lw_points.append(Point3(_safe_float(value), 0.0, 0.0))
+            elif code == 20 and lw_points:
+                point = lw_points[-1]
+                lw_points[-1] = Point3(point.x, _safe_float(value), point.z)
+            elif code == 30 and lw_points:
+                point = lw_points[-1]
+                lw_points[-1] = Point3(point.x, point.y, _safe_float(value))
+            elif code == 38:
+                lw_elevation = _safe_float(value)
+    if entity == "VERTEX":
+        flush_vertex()
+    if entity in {"POLYLINE", "LWPOLYLINE", "VERTEX"}:
+        flush_poly()
+    return records
+
+
+def _clean_polyline(points: Iterable[Point3]) -> list[Point3]:
+    clean: list[Point3] = []
+    for point in points:
+        if not clean or (abs(clean[-1].x - point.x) > 1e-7 or abs(clean[-1].y - point.y) > 1e-7):
+            clean.append(Point3(point.x, point.y, point.z))
+    if len(clean) > 2 and abs(clean[0].x - clean[-1].x) < 1e-7 and abs(clean[0].y - clean[-1].y) < 1e-7:
+        clean.pop()
+    return clean
+
+
+def _polygon_area(points: list[Point3]) -> float:
+    return 0.5 * sum(point.x * points[(index + 1) % len(points)].y - point.y * points[(index + 1) % len(points)].x for index, point in enumerate(points))
+
+
+def _is_crest_layer(layer: str) -> bool:
+    value = layer.casefold()
+    return any(token in value for token in ("верх", "crest", "top"))
+
+
+def _is_toe_layer(layer: str) -> bool:
+    value = layer.casefold()
+    return any(token in value for token in ("ниж", "toe", "floor", "подошв"))
 
 
 def _parse_dxf(content: str) -> tuple[list[Point3], list[list[Point3]]]:

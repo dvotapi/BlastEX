@@ -138,6 +138,15 @@ const Scene3D = lazy(() => import("./Scene3D").then((m) => ({ default: m.Scene3D
 
 let manualHoleCounter = 0;
 
+async function readSurveyFile(file: File): Promise<string> {
+  const bytes = await file.arrayBuffer();
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1251").decode(bytes);
+  }
+}
+
 export function DesignPage({
   user,
   incomingVariant,
@@ -438,14 +447,6 @@ export function DesignPage({
     else if (next === "simulation" || next === "execution") setMode("holes");
   }
 
-  function selectMode(next: typeof mode) {
-    setMode(next);
-    if (next === "contour") setWorkflowStage("survey");
-    else if (next === "holes") setWorkflowStage("pattern");
-    else if (next === "charge") setWorkflowStage("charge");
-    else if (next === "tie" || next === "timing") setWorkflowStage("timing");
-  }
-
   async function refreshPlans() {
     try {
       const result = await api.design.listPlans();
@@ -501,7 +502,7 @@ export function DesignPage({
     setSurfaceBusy(true);
     setError("");
     try {
-      const content = await file.text();
+      const content = await readSurveyFile(file);
       const result = await api.design.importSurface({
         content,
         filename: file.name,
@@ -517,6 +518,30 @@ export function DesignPage({
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось импортировать съёмку.");
+    } finally {
+      setSurfaceBusy(false);
+    }
+  }
+
+  async function importBenchDxf(file: File) {
+    if (rejectLocked("designed")) return;
+    if (document.holes.length && !window.confirm("Импорт заменит контур и очистит скважины, заряды и сеть. Продолжить?")) return;
+    setSurfaceBusy(true);
+    setError("");
+    try {
+      const result = await api.design.importBenchDxf({
+        content: await readSurveyFile(file), filename: file.name, coordinate_system: document.coordinate_system,
+      });
+      dispatch({ type: "SET_BENCH", bench: result.contour.bench });
+      if (result.surfaces.top) dispatch({ type: "SET_SURFACE", surface: result.surfaces.top });
+      if (result.surfaces.floor) dispatch({ type: "SET_SURFACE", surface: result.surfaces.floor });
+      if (result.surfaces.face) dispatch({ type: "SET_SURFACE", surface: result.surfaces.face });
+      dispatch({ type: "SET_CONTOUR_VERTICES", vertices: result.contour.vertices.map((point) => ({ ...point, z: result.crest_z_m })), free_faces: [] });
+      dispatch({ type: "SET_HOLES", holes: [] });
+      setSelected(new Set());
+      setPendingFit(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось импортировать DXF-каркас блока.");
     } finally {
       setSurfaceBusy(false);
     }
@@ -2320,7 +2345,7 @@ export function DesignPage({
       <div className="page-heading">
         <div>
           <h1>Проектирование БВР</h1>
-          <p>Съёмка → геология → сетка → заряд → тайминг → симуляция → исполнение → интеллект → сценарии → отчёт</p>
+          <p>{document.name || "Новый паспорт"} · инженерный маршрут</p>
         </div>
         <span className={`save-status lifecycle-pill status-${document.lifecycle_status}`}>
           ● {statusLabel(document.lifecycle_status)}
@@ -2335,16 +2360,10 @@ export function DesignPage({
         </div>
       )}
 
-      <div className="design-toolbar">
-        <div className="mode-switch">
-          <button className={mode === "contour" ? "active" : ""} onClick={() => selectMode("contour")}>Контур</button>
-          <button className={mode === "holes" ? "active" : ""} onClick={() => selectMode("holes")}>Скважины</button>
-          <button className={mode === "charge" ? "active" : ""} onClick={() => selectMode("charge")}>Заряжание</button>
-          <button className={mode === "tie" ? "active" : ""} onClick={() => selectMode("tie")}>Коммутация</button>
-          <button className={mode === "timing" ? "active" : ""} onClick={() => selectMode("timing")}>Тайминг</button>
-          <button className={mode === "3d" ? "active" : ""} onClick={() => selectMode("3d")}>3D</button>
-        </div>
+      <div className="design-toolbar compact">
         <div className="history-controls">
+          <button onClick={savePlan} disabled={saveBusy || recordFrozen}>{saveBusy ? "Сохраняю…" : "Сохранить"}</button>
+          <button className={mode === "3d" ? "active" : ""} onClick={() => setMode("3d")}>3D</button>
           <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length || designedLocked} title="Отменить (Ctrl+Z)">↶ Отменить</button>
           <button onClick={() => dispatch({ type: "REDO" })} disabled={!state.future.length || designedLocked} title="Повторить (Ctrl+Shift+Z)">↷ Повторить</button>
         </div>
@@ -2355,7 +2374,7 @@ export function DesignPage({
 
       <div className="design-grid">
         <div className="design-sidebar">
-          <LifecyclePanel
+          {workflowStage === "report" && <LifecyclePanel
             designId={document.design_id}
             status={document.lifecycle_status}
             revision={document.revision}
@@ -2369,8 +2388,8 @@ export function DesignPage({
             onNoteChange={setLifecycleNote}
             onTransition={transitionLifecycle}
             onFork={forkPlan}
-          />
-          <PlansPanel
+          />}
+          {workflowStage === "report" && <PlansPanel
             plans={plans}
             currentDesignId={document.design_id}
             currentName={document.name}
@@ -2391,7 +2410,7 @@ export function DesignPage({
             busy={saveBusy}
             nameLocked={metadataLocked}
             saveLocked={recordFrozen}
-          />
+          />}
           {mode === "3d" && (
             <section className="panel">
               <header><b>3D-вид</b><RoleBadge role="designed" /></header>
@@ -2412,6 +2431,7 @@ export function DesignPage({
                 onBenchChange={(bench) => dispatch({ type: "SET_BENCH", bench })}
                 onCoordinateSystemChange={(patch) => dispatch({ type: "SET_COORDINATE_SYSTEM", patch })}
                 onImport={importSurface}
+                onImportBlock={importBenchDxf}
                 onClear={(kind) => dispatch({ type: "CLEAR_SURFACE", kind })}
                 busy={surfaceBusy}
               />

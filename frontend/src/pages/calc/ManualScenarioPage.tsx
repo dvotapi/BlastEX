@@ -1,15 +1,5 @@
 import { useState } from "react";
-import type { HoleGeometry, InitiationConfig, ScenarioCalcProfile } from "../../types";
-import { CostPanel } from "./CostPanel";
-
-const ZERO_HOLE: HoleGeometry = {
-  grid_a_m: 0, grid_b_m: 0, depth_m: 0, overdrill_m: 0, undercharge_m: 0,
-  charge_length_m: 0, charge_diameter_m: 0, capacity_kg_per_m: 0, charge_mass_kg: 0,
-  yield_m3: 0, specific_q_kg_m3: 0, explosive_name: "", explosive_label: "",
-};
-const ZERO_INITIATION: InitiationConfig = {
-  intermediate_detonators_per_hole: 0, nsi_per_hole: 0, nsi_length_1_m: 0, nsi_length_2_m: 0, detonator_delay_ms: 0,
-};
+import type { ScenarioCalcProfile } from "../../types";
 
 export function ManualScenarioPage({ profile }: { profile: ScenarioCalcProfile }) {
   const [pvvMassKg, setPvvMassKg] = useState(10_000);
@@ -52,38 +42,16 @@ export function ManualScenarioPage({ profile }: { profile: ScenarioCalcProfile }
         </label>
       )}
 
-      <CostPanel
-        panelKey={`manual_${profile.manual_type}`}
-        variantTitle={variantTitle}
-        explosiveKey="ПВВ Гранулит-РП"
-        hole={ZERO_HOLE}
-        block={{
-          block_volume_m3: blockVolumeM3, yield_per_hole_m3: 0, hole_count: totalHoles,
-          additional_holes_pct: 0, additional_holes: 0, total_holes: totalHoles,
-          drilling_footage_m: drillingFootageM, total_charge_mass_kg: totalChargeMassKg,
-          specific_q_kg_m3: blockVolumeM3 > 0 ? totalChargeMassKg / blockVolumeM3 : 0,
-          intermediate_detonators_per_hole: 0, nsi_per_hole: 0, nsi_length_1_m: 0, nsi_length_2_m: 0,
-          detonator_delay_ms: 0, total_intermediate_detonators: 0, total_downhole_nsi: 0,
-          total_nsi_length_m: 0, total_boosters: 0, total_surface_nsi: 0, total_start_nsi: 0,
-        }}
-        initiation={ZERO_INITIATION}
-        holeDepthM={0}
-        blockDataOverride={{
-          hole: ZERO_HOLE,
-          block: {
-            block_volume_m3: blockVolumeM3, yield_per_hole_m3: 0, hole_count: totalHoles,
-            additional_holes_pct: 0, additional_holes: 0, total_holes: totalHoles,
-            drilling_footage_m: drillingFootageM, total_charge_mass_kg: totalChargeMassKg,
-            specific_q_kg_m3: blockVolumeM3 > 0 ? totalChargeMassKg / blockVolumeM3 : 0,
-            intermediate_detonators_per_hole: 0, nsi_per_hole: 0, nsi_length_1_m: 0, nsi_length_2_m: 0,
-            detonator_delay_ms: 0, total_intermediate_detonators: 0, total_downhole_nsi: 0,
-            total_nsi_length_m: 0, total_boosters: 0, total_surface_nsi: 0, total_start_nsi: 0,
-          },
-          initiation: ZERO_INITIATION,
-          explosiveKey: "ПВВ Гранулит-РП",
-          holeDepthM: 0,
-        }}
-      />
+      <section className="panel technical-summary-panel">
+        <header><b>Технические драйверы</b><span>{variantTitle}</span></header>
+        <div className="metrics-grid">
+          <div><span>Объём блока</span><strong>{blockVolumeM3.toLocaleString("ru-RU")}</strong><small>м³</small></div>
+          <div><span>Скважины</span><strong>{totalHoles.toLocaleString("ru-RU")}</strong><small>шт.</small></div>
+          <div><span>Бурение</span><strong>{drillingFootageM.toLocaleString("ru-RU")}</strong><small>м</small></div>
+          <div><span>ВМ</span><strong>{totalChargeMassKg.toLocaleString("ru-RU")}</strong><small>кг</small></div>
+        </div>
+        <p className="page-caption">Себестоимость операции рассчитывается на вкладке «Экономика».</p>
+      </section>
     </div>
   );
 }

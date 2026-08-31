@@ -25,7 +25,8 @@ export function HolePanel({
   defaultUnderchargeM,
   showChargeDesign,
   explosiveBasis,
-  showCostPanel = true,
+  // Смета Cost V1 больше не показывается на вкладке «Расчёт».
+  showCostPanel = false,
   isBlastContextSource = true,
   nsiLengthOptions,
   detonatorDelayOptions,

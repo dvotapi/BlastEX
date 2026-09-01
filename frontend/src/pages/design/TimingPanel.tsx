@@ -145,6 +145,7 @@ export function TimingPanel({
             )}
           </>
         )}
+        <small className="timing-map-note">На плане включите предустановку «Тайминг» или слои «Изолинии» и «Сеть инициирования», чтобы увидеть оверлеи карты.</small>
       </div>
     </section>
   );

@@ -2,6 +2,9 @@ export type MapLayerId = "fill" | "crest" | "toe" | "face" | "holes";
 
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
 
+/** @deprecated Используйте contourLayersFromView из viewPresets. */
+export { contourLayersFromView } from "./viewPresets";
+
 export const DEFAULT_MAP_LAYERS: MapLayerVisibility = {
   fill: true,
   crest: true,

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import { collarZFromSurfaces, surfaceElevation } from "../../lib/surfaces";
@@ -105,9 +105,8 @@ import { designReducer, initDesignState } from "./designReducer";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
-import { MapLegend, DEFAULT_MAP_LAYERS } from "./MapLegend";
 import { PatternPanel } from "./PatternPanel";
-import { PlanCanvas } from "./PlanCanvas";
+import { PlanCanvas, type CanvasToolRequest } from "./PlanCanvas";
 import { StageInspector } from "./StageInspector";
 import {
   holeSourceLabel,
@@ -140,6 +139,23 @@ import { SpatialPanel } from "./SpatialPanel";
 import { MovementPanel } from "./MovementPanel";
 import { PassportPanel } from "./PassportPanel";
 import { MassBlastPanel } from "./MassBlastPanel";
+import { VisibilityPanel } from "./VisibilityPanel";
+import { MapStatusBar } from "./MapStatusBar";
+import { HoleContextMenu, type HoleContextAction } from "./HoleContextMenu";
+import {
+  CommandPalette,
+  buildCameraCommands,
+  buildPresetCommands,
+  useCommandPaletteHotkey,
+} from "./CommandPalette";
+import { computeAllHoleHealth, summarizeHealth } from "./holeHealth";
+import {
+  applyViewPreset,
+  defaultDesignViewState,
+  patchDesignView,
+  stageDefaultPreset,
+  type DesignViewState,
+} from "./viewPresets";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -173,7 +189,17 @@ export function DesignPage({
   const [workflowStage, setWorkflowStage] = useState<WorkflowStageId>("survey");
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectHoleId, setInspectHoleId] = useState<string | null>(null);
-  const [mapLayers, setMapLayers] = useState(DEFAULT_MAP_LAYERS);
+  const [designView, setDesignView] = useState<DesignViewState>(() => defaultDesignViewState("survey"));
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [toolRequest, setToolRequest] = useState<CanvasToolRequest>(null);
+  const [contextMenu, setContextMenu] = useState<{ holeId: string; x: number; y: number } | null>(null);
+  const [mapStatus, setMapStatus] = useState({
+    cursorWorld: null as Vec2 | null,
+    scalePxPerM: 6,
+    gridStepM: 1,
+    measureDistanceM: null as number | null,
+    measureActive: false,
+  });
   const [lifecycleConfirm, setLifecycleConfirm] = useState(false);
   const [lifecycleNote, setLifecycleNote] = useState("");
   const designedLocked = !canEditDesigned(document.lifecycle_status);
@@ -370,6 +396,40 @@ export function DesignPage({
     return map;
   }, [document.loads]);
 
+  const holeHealthById = useMemo(
+    () =>
+      computeAllHoleHealth(document.holes, {
+        loadsById,
+        warnings: analysis?.validation_warnings,
+        network: document.network,
+        timesMs: analysis?.times_ms,
+        requireCharge: workflowStage === "charge" || designView.preset === "charge" || designView.preset === "review",
+        requireNetwork: workflowStage === "timing" || designView.preset === "network" || designView.preset === "timing" || designView.preset === "review",
+      }),
+    [document.holes, loadsById, analysis, document.network, workflowStage, designView.preset],
+  );
+
+  const healthSummary = useMemo(() => summarizeHealth(holeHealthById), [holeHealthById]);
+
+  useEffect(() => {
+    setDesignView((prev) => applyViewPreset(stageDefaultPreset(workflowStage), prev));
+  }, [workflowStage]);
+
+  useCommandPaletteHotkey(useCallback(() => setCommandPaletteOpen(true), []));
+
+  const paletteCommands = useMemo(
+    () => [
+      ...buildPresetCommands((preset) => setDesignView((prev) => applyViewPreset(preset, prev))),
+      ...buildCameraCommands({
+        onFit: () => setToolRequest({ kind: "fitAll" }),
+        onZoomSelection: () => setToolRequest({ kind: "zoomSelection" }),
+        onToggleMeasure: () => setToolRequest({ kind: "toggleMeasure" }),
+        onCameraMode3d: (mode) => setDesignView((prev) => ({ ...prev, cameraMode3d: mode })),
+      }),
+    ],
+    [],
+  );
+
   const mapOverlay = useMemo(() => {
     if (!mapMetric) return { values: undefined as Record<string, number> | undefined, range: null as { min: number; max: number } | null };
     if (isFragmentationMapMetric(mapMetric)) {
@@ -463,6 +523,41 @@ export function DesignPage({
     else if (next === "charge") setMode("charge");
     else if (next === "timing") setMode("timing");
     else setMode("holes");
+  }
+
+  function handleContextMenuAction(action: HoleContextAction) {
+    if (!contextMenu) return;
+    const holeId = contextMenu.holeId;
+    const hole = document.holes.find((item) => item.id === holeId);
+    if (!hole) {
+      setContextMenu(null);
+      return;
+    }
+    if (action === "inspect") {
+      setInspectHoleId(holeId);
+      setSelected(new Set([holeId]));
+    } else if (action === "delete") {
+      deleteHoles([holeId]);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(holeId);
+        return next;
+      });
+    } else if (action === "toggleEnabled") {
+      setHolesEnabled([holeId], !hole.enabled);
+    } else if (action === "zoom") {
+      setSelected(new Set([holeId]));
+      setToolRequest({ kind: "zoomSelection" });
+    } else if (action === "startTie") {
+      setMode("tie");
+      setWorkflowStage("timing");
+      setPendingTieFromId(holeId);
+      setSelected(new Set([holeId]));
+    } else if (action === "measure") {
+      setDesignView((prev) => ({ ...prev, showMeasure: true }));
+      setToolRequest({ kind: "toggleMeasure" });
+    }
+    setContextMenu(null);
   }
 
   async function refreshPlans() {
@@ -2423,6 +2518,9 @@ export function DesignPage({
                 <select value={mapMetric} onChange={(e) => {
                   const next = e.target.value as OverlayMetric | "";
                   setMapMetric(next);
+                  if (next) {
+                    setDesignView((prev) => patchDesignView(prev, { colorMode: "map" }));
+                  }
                   if (!next) return;
                   if (isFragmentationMapMetric(next)) {
                     if (!fragResult && !fragBusy) predictFragmentation();
@@ -2452,7 +2550,29 @@ export function DesignPage({
                   <small>{mapOverlay.range.max.toFixed(1)} {MAP_METRIC_UNITS[mapMetric]}</small>
                 </span>
               )}
+              <button
+                type="button"
+                className={`design-review-btn${designView.preset === "review" ? " active" : ""}`}
+                title="Режим проверки: диагностика, связи и замечания на карте"
+                onClick={() => setDesignView((prev) => applyViewPreset("review", prev))}
+              >
+                Проверка
+              </button>
               <RoleBadge role={showAsDrilled && document.as_drilled_holes.length > 0 && !mapMetric ? "executed" : overlayRole(mapMetric)} />
+            </div>
+          )}
+          {viewMode === "3d" && (
+            <div className="camera-mode-switch" aria-label="Режим камеры 3D">
+              {(["collar", "shaft", "toe"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={designView.cameraMode3d === mode ? "active" : ""}
+                  onClick={() => setDesignView((prev) => ({ ...prev, cameraMode3d: mode }))}
+                >
+                  {mode === "collar" ? "Устье" : mode === "shaft" ? "Ствол" : "Забой"}
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -2923,6 +3043,8 @@ export function DesignPage({
                 surfaces={document.surfaces}
                 selected={selected}
                 onSelectHole={onSelectHole3D}
+                cameraMode={designView.cameraMode3d}
+                holeColors={designView.showHealth ? holeHealthById : undefined}
               />
             </Suspense>
           ) : viewMode === "section" ? (
@@ -2936,6 +3058,9 @@ export function DesignPage({
               rowAzimuthDeg={patternParams.row_azimuth_deg}
               selectedRow={selectedRow}
               onSelectedRowChange={setSelectedRow}
+              healthById={holeHealthById}
+              selectedHoleIds={selected}
+              onHoleInspect={setInspectHoleId}
             />
           ) : (
             <PlanCanvas
@@ -2960,10 +3085,10 @@ export function DesignPage({
               pendingFit={pendingFit}
               onFitApplied={() => setPendingFit(false)}
               spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
-              loadsById={mode === "charge" ? loadsById : undefined}
-              network={mode === "tie" || mode === "timing" ? document.network : undefined}
-              isolines={mode === "timing" && showIsolines ? analysis?.isolines : undefined}
-              timesMs={mode === "timing" ? analysis?.times_ms : undefined}
+              loadsById={designView.colorMode === "charge" || designView.labelField === "charge" || mode === "charge" ? loadsById : undefined}
+              network={designView.layers.network || mode === "tie" || mode === "timing" ? document.network : undefined}
+              isolines={designView.layers.isolines && showIsolines ? analysis?.isolines : mode === "timing" && showIsolines ? analysis?.isolines : undefined}
+              timesMs={designView.labelField === "time" || mode === "timing" ? analysis?.times_ms : undefined}
               animationMs={mode === "timing" && analysis ? currentMs : undefined}
               pendingTieFromId={mode === "tie" ? pendingTieFromId : null}
               onTieHoles={addManualTie}
@@ -2989,13 +3114,48 @@ export function DesignPage({
               movementVectors={movementResult?.holes}
               showMovementVectors={showMovementVectors && Boolean(movementResult)}
               onHoleInspect={setInspectHoleId}
-              layers={mapLayers}
+              layers={designView.layers}
+              labelField={designView.labelField}
+              colorMode={designView.colorMode}
+              healthById={designView.showHealth ? holeHealthById : undefined}
+              toolRequest={toolRequest}
+              onToolRequestHandled={() => setToolRequest(null)}
+              onHoleContextMenu={(holeId, screen) => setContextMenu({ holeId, x: screen.x, y: screen.y })}
+              onMapStatus={setMapStatus}
               toePolylines={document.surfaces.floor?.polylines}
               insertKind={insertKind}
               onInsertKindChange={setInsertKind}
             />
           )}
-          {viewMode === "plan" && <MapLegend layers={mapLayers} onChange={setMapLayers} />}
+          {viewMode === "plan" && (
+            <>
+              <VisibilityPanel view={designView} onChange={setDesignView} />
+              <MapStatusBar
+                cursorWorld={mapStatus.cursorWorld}
+                scalePxPerM={mapStatus.scalePxPerM}
+                gridStepM={mapStatus.gridStepM}
+                selectedCount={selected.size}
+                issueCount={healthSummary.warning + healthSummary.error}
+                measureDistanceM={mapStatus.measureDistanceM}
+                measureActive={mapStatus.measureActive || designView.showMeasure}
+              />
+            </>
+          )}
+          {contextMenu && (
+            <HoleContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              holeId={contextMenu.holeId}
+              enabled={document.holes.find((h) => h.id === contextMenu.holeId)?.enabled ?? true}
+              onAction={handleContextMenuAction}
+              onClose={() => setContextMenu(null)}
+            />
+          )}
+          <CommandPalette
+            open={commandPaletteOpen}
+            commands={paletteCommands}
+            onClose={() => setCommandPaletteOpen(false)}
+          />
           {inspectHole && (
             <HoleInspector
               hole={inspectHole}

@@ -5,6 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { BlockContour, Hole, SurfaceModel, SurfaceSet } from "../../types/design";
+import type { HoleHealth } from "./holeHealth";
+import { healthColor } from "./holeHealth";
+import type { CameraMode3d } from "./viewPresets";
 
 const KIND_COLOR: Record<string, number> = {
   production: 0x2d7556,
@@ -36,12 +39,16 @@ export function Scene3D({
   surfaces,
   selected,
   onSelectHole,
+  cameraMode = "collar",
+  holeColors,
 }: {
   contour: BlockContour;
   holes: Hole[];
   surfaces?: SurfaceSet;
   selected: Set<string>;
   onSelectHole: (id: string, additive: boolean) => void;
+  cameraMode?: CameraMode3d;
+  holeColors?: Record<string, HoleHealth>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<SceneState | null>(null);
@@ -178,7 +185,11 @@ export function Scene3D({
     clearGroup(holeGroup);
     for (const h of holes) {
       const isSelected = selected.has(h.id);
-      const color = !h.enabled ? DISABLED_COLOR : isSelected ? SELECTED_COLOR : KIND_COLOR[h.kind] ?? 0x2d7556;
+      const health = holeColors?.[h.id];
+      let color = !h.enabled ? DISABLED_COLOR : isSelected ? SELECTED_COLOR : KIND_COLOR[h.kind] ?? 0x2d7556;
+      if (health && health.severity > 0 && !isSelected) {
+        color = parseInt(healthColor(health.code, health.severity).replace("#", ""), 16);
+      }
       addLine(holeGroup, [h.collar, h.toe], toThree, color, isSelected ? 3 : 1.5);
 
       const collarPos = toThree(h.collar);
@@ -196,13 +207,21 @@ export function Scene3D({
       for (const p of points) box.expandByPoint(toThree(p));
       const size = box.getSize(new THREE.Vector3());
       const radius = Math.max(10, size.length() * 0.7);
-      camera.position.set(radius * 0.8, radius * 0.7, radius * 0.8);
-      controls.target.set(0, -size.y / 4, 0);
+      if (cameraMode === "collar") {
+        camera.position.set(radius * 0.8, radius * 0.7, radius * 0.8);
+        controls.target.set(0, -size.y / 4, 0);
+      } else if (cameraMode === "shaft") {
+        camera.position.set(radius * 1.1, radius * 0.15, 0);
+        controls.target.set(0, -size.y / 3, 0);
+      } else {
+        camera.position.set(radius * 0.5, -radius * 0.35, radius * 0.9);
+        controls.target.set(0, -size.y / 2, 0);
+      }
       controls.update();
       state.framed = true;
     }
 
-  }, [contour, holes, surfaces, selected, reframeTick]);
+  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, holeColors]);
 
   return (
     <div className="scene3d-wrap">
@@ -217,7 +236,9 @@ export function Scene3D({
       >
         ⟲ Сбросить обзор
       </button>
-      <div className="scene3d-hint">Вращение — перетаскивание · зум — колесо · клик по скважине — выделение</div>
+      <div className="scene3d-hint">
+        Вращение — перетаскивание · зум — колесо · клик по скважине — выделение · режим камеры: {cameraMode === "collar" ? "устье" : cameraMode === "shaft" ? "ствол" : "забой"}
+      </div>
     </div>
   );
 }

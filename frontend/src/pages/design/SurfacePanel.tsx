@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { ruNumber } from "../../lib/format";
 import type { BenchSurface, CoordinateSystem, SurfaceKind, SurfaceModel, SurfaceSet } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
+import { isCrsUnconfirmed } from "./workflowStatus";
 
 const KIND_OPTIONS: { value: SurfaceKind; label: string }[] = [
   { value: "top", label: "Кровля" },
@@ -16,6 +17,23 @@ const KIND_HINT: Record<SurfaceKind, string> = {
   face: "Откос для 3D и разреза",
   post_blast: "Хранится отдельно, не подменяет проект",
 };
+
+function Section({
+  title,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  defaultOpen: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className="survey-section" open={defaultOpen}>
+      <summary>{title}</summary>
+      <div className="survey-section-body">{children}</div>
+    </details>
+  );
+}
 
 export function SurfacePanel({
   surfaces,
@@ -41,6 +59,8 @@ export function SurfacePanel({
   const [kind, setKind] = useState<SurfaceKind>("top");
   const inputRef = useRef<HTMLInputElement>(null);
   const blockInputRef = useRef<HTMLInputElement>(null);
+  const hasSurfaces = Boolean(surfaces.top || surfaces.floor || surfaces.face);
+  const crsWarning = isCrsUnconfirmed(coordinateSystem, hasSurfaces);
 
   function onFile(file: File | undefined) {
     if (!file) return;
@@ -48,47 +68,25 @@ export function SurfacePanel({
     if (inputRef.current) inputRef.current.value = "";
   }
 
+  function pickDxf() {
+    blockInputRef.current?.click();
+  }
+
   return (
     <section className="panel">
       <header><b>Съёмка уступа</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
-        <label>
-          Система координат
-          <input
-            value={coordinateSystem.name}
-            onChange={(e) => onCoordinateSystemChange({ name: e.target.value })}
-            placeholder="local / mine grid"
-          />
-        </label>
-        <label>
-          EPSG
-          <input
-            type="number"
-            value={coordinateSystem.epsg ?? ""}
-            onChange={(e) => onCoordinateSystemChange({ epsg: e.target.value === "" ? null : Number(e.target.value) })}
-            placeholder="не задан"
-          />
-        </label>
-
-        <div className="field-pair">
-          <label>
-            Бровка (плоскость), м
-            <input type="number" step="0.1" value={bench.crest_z_m} onChange={(e) => onBenchChange({ crest_z_m: Number(e.target.value) })} />
-          </label>
-          <label>
-            Подошва (плоскость), м
-            <input type="number" step="0.1" value={bench.toe_z_m} onChange={(e) => onBenchChange({ toe_z_m: Number(e.target.value) })} />
-          </label>
-        </div>
-        <small>Плоскость используется, если съёмка не покрывает точку.</small>
-
-        <div className="dxf-block-import">
-          <b>3D‑каркас блока из DXF</b>
+        <div className="dxf-block-import primary-import">
+          <b>Импортировать 3D‑каркас DXF</b>
           <small>Слои «верхняя бровка» и «нижняя бровка» создадут контур, кровлю, подошву и откос. Существующие скважины будут очищены.</small>
+          <button type="button" className="primary-button" disabled={busy} onClick={pickDxf}>
+            {busy ? "Импортирую…" : "Импортировать 3D‑каркас DXF"}
+          </button>
           <input
             ref={blockInputRef}
             type="file"
             accept=".dxf"
+            hidden
             disabled={busy}
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -98,34 +96,88 @@ export function SurfacePanel({
           />
         </div>
 
-        <label>
-          Тип поверхности
-          <select value={kind} onChange={(e) => setKind(e.target.value as SurfaceKind)}>
-            {KIND_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-        </label>
-        <small>{KIND_HINT[kind]}</small>
-
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xyz,.txt,.csv,.dxf,.geojson,.json"
-          disabled={busy}
-          onChange={(e) => onFile(e.target.files?.[0])}
-        />
-        <small>XYZ, CSV, DXF (точки и полилинии), GeoJSON</small>
-
-        <div className="surface-list">
-          {KIND_OPTIONS.map((opt) => (
-            <SurfaceCard
-              key={opt.value}
-              label={opt.label}
-              surface={surfaces[opt.value]}
-              onClear={() => onClear(opt.value)}
-              busy={busy}
+        <Section title="Координаты" defaultOpen={crsWarning || !hasSurfaces}>
+          {crsWarning && (
+            <div className="crs-banner" role="status">
+              Система координат не подтверждена. Импортированы реальные координаты, но EPSG не задан.
+            </div>
+          )}
+          <label>
+            Система координат
+            <input
+              value={coordinateSystem.name}
+              onChange={(e) => onCoordinateSystemChange({ name: e.target.value })}
+              placeholder="local / mine grid"
             />
-          ))}
-        </div>
+          </label>
+          <label>
+            EPSG
+            <input
+              type="number"
+              value={coordinateSystem.epsg ?? ""}
+              onChange={(e) => {
+                const epsg = e.target.value === "" ? null : Number(e.target.value);
+                onCoordinateSystemChange({ epsg, confirmed: epsg != null });
+              }}
+              placeholder="не задан"
+            />
+          </label>
+          {crsWarning && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => onCoordinateSystemChange({ confirmed: true })}
+            >
+              Подтвердить СК
+            </button>
+          )}
+        </Section>
+
+        <Section title="Бровки" defaultOpen={!hasSurfaces}>
+          <div className="field-pair">
+            <label>
+              Бровка (плоскость), м
+              <input type="number" step="0.1" value={bench.crest_z_m} onChange={(e) => onBenchChange({ crest_z_m: Number(e.target.value) })} />
+            </label>
+            <label>
+              Подошва (плоскость), м
+              <input type="number" step="0.1" value={bench.toe_z_m} onChange={(e) => onBenchChange({ toe_z_m: Number(e.target.value) })} />
+            </label>
+          </div>
+          <small>Плоскость используется, если съёмка не покрывает точку.</small>
+        </Section>
+
+        <Section title="Импорт" defaultOpen={false}>
+          <label>
+            Тип поверхности
+            <select value={kind} onChange={(e) => setKind(e.target.value as SurfaceKind)}>
+              {KIND_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </label>
+          <small>{KIND_HINT[kind]}</small>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".xyz,.txt,.csv,.dxf,.geojson,.json"
+            disabled={busy}
+            onChange={(e) => onFile(e.target.files?.[0])}
+          />
+          <small>XYZ, CSV, DXF (точки и полилинии), GeoJSON</small>
+        </Section>
+
+        <Section title="Поверхности" defaultOpen={hasSurfaces}>
+          <div className="surface-list">
+            {KIND_OPTIONS.map((opt) => (
+              <SurfaceCard
+                key={opt.value}
+                label={opt.label}
+                surface={surfaces[opt.value]}
+                onClear={() => onClear(opt.value)}
+                busy={busy}
+              />
+            ))}
+          </div>
+        </Section>
       </div>
     </section>
   );

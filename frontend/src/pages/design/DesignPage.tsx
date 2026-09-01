@@ -94,6 +94,7 @@ import {
   isRecordFrozen,
   overlayRole,
   statusLabel,
+  WORKFLOW_STAGES,
   type WorkflowStageId,
 } from "../../lib/lifecycle";
 import { RoleBadge } from "./RoleBadge";
@@ -103,9 +104,17 @@ import { ChargePanel } from "./ChargePanel";
 import { designReducer, initDesignState } from "./designReducer";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
-import { HoleTable } from "./HoleTable";
+import { HoleInspector } from "./HoleInspector";
+import { MapLegend, DEFAULT_MAP_LAYERS } from "./MapLegend";
 import { PatternPanel } from "./PatternPanel";
 import { PlanCanvas } from "./PlanCanvas";
+import { StageInspector } from "./StageInspector";
+import {
+  holeSourceLabel,
+  isCrsUnconfirmed,
+  statusesForDocument,
+  volumeSourceLabel,
+} from "./workflowStatus";
 import { PlansPanel } from "./PlansPanel";
 import { SectionView } from "./SectionView";
 import { SummaryPanel } from "./SummaryPanel";
@@ -159,8 +168,12 @@ export function DesignPage({
   const [state, dispatch] = useReducer(designReducer, emptyDesign(), initDesignState);
   const document = state.present;
 
-  const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing" | "3d">("contour");
+  const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing">("contour");
+  const [viewMode, setViewMode] = useState<"plan" | "3d" | "section">("plan");
   const [workflowStage, setWorkflowStage] = useState<WorkflowStageId>("survey");
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [inspectHoleId, setInspectHoleId] = useState<string | null>(null);
+  const [mapLayers, setMapLayers] = useState(DEFAULT_MAP_LAYERS);
   const [lifecycleConfirm, setLifecycleConfirm] = useState(false);
   const [lifecycleNote, setLifecycleNote] = useState("");
   const designedLocked = !canEditDesigned(document.lifecycle_status);
@@ -439,12 +452,17 @@ export function DesignPage({
   }
 
   function selectStage(next: WorkflowStageId) {
+    if (next === workflowStage) {
+      setInspectorOpen((open) => !open);
+      return;
+    }
     setWorkflowStage(next);
+    setInspectorOpen(true);
     if (next === "survey" || next === "geology") setMode("contour");
     else if (next === "pattern") setMode("holes");
     else if (next === "charge") setMode("charge");
     else if (next === "timing") setMode("timing");
-    else if (next === "simulation" || next === "execution") setMode("holes");
+    else setMode("holes");
   }
 
   async function refreshPlans() {
@@ -2340,39 +2358,107 @@ export function DesignPage({
     }
   }
 
+  const hasImportedSurvey = Boolean(document.surfaces.top || document.surfaces.floor || document.surfaces.face);
+  const crsUnconfirmed = isCrsUnconfirmed(document.coordinate_system, hasImportedSurvey);
+  const stageStatuses = statusesForDocument(document, { crsUnconfirmed });
+  const inspectHole = document.holes.find((h) => h.id === inspectHoleId) ?? null;
+  const stageTitle = WORKFLOW_STAGES.find((item) => item.id === workflowStage)?.label ?? "Параметры";
+
   return (
-    <div className="page-content">
-      <div className="page-heading">
-        <div>
-          <h1>Проектирование БВР</h1>
-          <p>{document.name || "Новый паспорт"} · инженерный маршрут</p>
-        </div>
+    <div className="design-workstation">
+      <header className="design-chrome">
+        <input
+          className="design-name-input"
+          value={document.name}
+          disabled={metadataLocked}
+          onChange={(e) => {
+            if (metadataLocked) {
+              setError(freezeMessage(document.lifecycle_status));
+              return;
+            }
+            dispatch({ type: "SET_NAME", name: e.target.value });
+          }}
+          aria-label="Название паспорта"
+        />
         <span className={`save-status lifecycle-pill status-${document.lifecycle_status}`}>
           ● {statusLabel(document.lifecycle_status)}
         </span>
-      </div>
-      {error && <div className="page-error" role="alert">{error}</div>}
-      {designedLocked && (
-        <div className="lifecycle-banner" role="status">
-          {recordFrozen
-            ? "Паспорт закрыт: DESIGNED / EXECUTED / MEASURED заморожены. Создайте ревизию, чтобы править дальше."
-            : "Слой DESIGNED заморожен. Сетку, заряд и тайминг нельзя менять. Исполнение и замер — отдельно, сценарии остаются оверлеями."}
-        </div>
-      )}
-
-      <div className="design-toolbar compact">
+        {crsUnconfirmed && (
+          <span className="crs-warning" role="status">Система координат не подтверждена</span>
+        )}
         <div className="history-controls">
           <button onClick={savePlan} disabled={saveBusy || recordFrozen}>{saveBusy ? "Сохраняю…" : "Сохранить"}</button>
-          <button className={mode === "3d" ? "active" : ""} onClick={() => setMode("3d")}>3D</button>
-          <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length || designedLocked} title="Отменить (Ctrl+Z)">↶ Отменить</button>
-          <button onClick={() => dispatch({ type: "REDO" })} disabled={!state.future.length || designedLocked} title="Повторить (Ctrl+Shift+Z)">↷ Повторить</button>
+          <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length || designedLocked} title="Отменить (Ctrl+Z)">↶</button>
+          <button onClick={() => dispatch({ type: "REDO" })} disabled={!state.future.length || designedLocked} title="Повторить (Ctrl+Shift+Z)">↷</button>
         </div>
-      </div>
-      <WorkflowNav stage={workflowStage} onStageChange={selectStage} />
+      </header>
+      {error && <div className="page-error" role="alert">{error}</div>}
+      {designedLocked && (
+        <div className="lifecycle-banner compact" role="status">
+          {recordFrozen
+            ? "Паспорт закрыт. Создайте ревизию, чтобы править дальше."
+            : "Слой DESIGNED заморожен. Исполнение и замер — отдельно, сценарии остаются оверлеями."}
+        </div>
+      )}
+      <WorkflowNav stage={workflowStage} statuses={stageStatuses} onStageChange={selectStage} />
+      <SummaryPanel
+        holes={document.holes}
+        blockVolumeM3={blockVolumeM3}
+        loads={document.loads.length ? document.loads : undefined}
+        holesSource={holeSourceLabel(document)}
+        volumeSource={volumeSourceLabel(document.surfaces, document.contour.vertices.length >= 3)}
+      />
 
-      <SummaryPanel holes={document.holes} blockVolumeM3={blockVolumeM3} loads={document.loads.length ? document.loads : undefined} />
-
-      <div className="design-grid">
+      <div className="design-map-stage">
+        <div className="map-chrome-row">
+          <div className="view-switch">
+            <button type="button" className={viewMode === "plan" ? "active" : ""} onClick={() => setViewMode("plan")}>План</button>
+            <button type="button" className={viewMode === "3d" ? "active" : ""} onClick={() => setViewMode("3d")}>3D</button>
+            <button type="button" className={viewMode === "section" ? "active" : ""} onClick={() => setViewMode("section")}>Разрез</button>
+          </div>
+          {viewMode === "plan" && (
+            <div className="map-toolbar">
+              <label>
+                Карта
+                <select value={mapMetric} onChange={(e) => {
+                  const next = e.target.value as OverlayMetric | "";
+                  setMapMetric(next);
+                  if (!next) return;
+                  if (isFragmentationMapMetric(next)) {
+                    if (!fragResult && !fragBusy) predictFragmentation();
+                    return;
+                  }
+                  if (isSpatialMapMetric(next)) {
+                    if (!spatialOverlay && !spatialBusy) predictSpatial();
+                    return;
+                  }
+                  if (isMovementMapMetric(next)) {
+                    if (!movementResult && !movementBusy) predictMovement();
+                    return;
+                  }
+                  if (!maps) refreshMaps();
+                }}>
+                  <option value="">тип скважины</option>
+                  {Object.entries(MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  {Object.entries(FRAGMENTATION_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  {Object.entries(SPATIAL_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  {Object.entries(MOVEMENT_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              {mapMetric && mapOverlay.range && (
+                <span className="map-legend">
+                  <small>{mapOverlay.range.min.toFixed(1)}</small>
+                  <i />
+                  <small>{mapOverlay.range.max.toFixed(1)} {MAP_METRIC_UNITS[mapMetric]}</small>
+                </span>
+              )}
+              <RoleBadge role={showAsDrilled && document.as_drilled_holes.length > 0 && !mapMetric ? "executed" : overlayRole(mapMetric)} />
+            </div>
+          )}
+        </div>
+        <div className="design-map-body">
+          {inspectorOpen && (
+            <StageInspector title={stageTitle} onClose={() => setInspectorOpen(false)}>
         <div className="design-sidebar">
           {workflowStage === "report" && <LifecyclePanel
             designId={document.design_id}
@@ -2411,17 +2497,6 @@ export function DesignPage({
             nameLocked={metadataLocked}
             saveLocked={recordFrozen}
           />}
-          {mode === "3d" && (
-            <section className="panel">
-              <header><b>3D-вид</b><RoleBadge role="designed" /></header>
-              <div className="panel-body">
-                <small>
-                  Просмотр контура блока и наклонных скважин в пространстве. Правка геометрии
-                  выполняется на 2D-плане — здесь только вращение, зум и выбор скважины кликом.
-                </small>
-              </div>
-            </section>
-          )}
           {workflowStage === "survey" && (
             <fieldset className="workstation-lock" disabled={designedLocked}>
               <SurfacePanel
@@ -2838,8 +2913,9 @@ export function DesignPage({
           <MassBlastPanel designId={document.design_id} designName={document.name} />
           </>}
         </div>
-        <div className="design-main">
-          {mode === "3d" ? (
+            </StageInspector>
+          )}
+          {viewMode === "3d" ? (
             <Suspense fallback={<div className="scene3d-loading">Загружаем 3D-движок…</div>}>
               <Scene3D
                 contour={document.contour}
@@ -2849,122 +2925,91 @@ export function DesignPage({
                 onSelectHole={onSelectHole3D}
               />
             </Suspense>
+          ) : viewMode === "section" ? (
+            <SectionView
+              contour={document.contour}
+              holes={document.holes}
+              loads={document.loads}
+              surfaces={document.surfaces}
+              network={document.network}
+              warnings={analysis?.validation_warnings}
+              rowAzimuthDeg={patternParams.row_azimuth_deg}
+              selectedRow={selectedRow}
+              onSelectedRowChange={setSelectedRow}
+            />
           ) : (
-            <>
-              <div className="map-toolbar">
-                <label>
-                  Карта
-                  <select value={mapMetric} onChange={(e) => {
-                    const next = e.target.value as OverlayMetric | "";
-                    setMapMetric(next);
-                    if (!next) return;
-                    if (isFragmentationMapMetric(next)) {
-                      if (!fragResult && !fragBusy) predictFragmentation();
-                      return;
-                    }
-                    if (isSpatialMapMetric(next)) {
-                      if (!spatialOverlay && !spatialBusy) predictSpatial();
-                      return;
-                    }
-                    if (isMovementMapMetric(next)) {
-                      if (!movementResult && !movementBusy) predictMovement();
-                      return;
-                    }
-                    if (!maps) refreshMaps();
-                  }}>
-                    <option value="">тип скважины</option>
-                    {Object.entries(MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    {Object.entries(FRAGMENTATION_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    {Object.entries(SPATIAL_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    {Object.entries(MOVEMENT_MAP_METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                  </select>
-                </label>
-                {mapMetric && mapOverlay.range && (
-                  <span className="map-legend">
-                    <small>{mapOverlay.range.min.toFixed(1)}</small>
-                    <i />
-                    <small>{mapOverlay.range.max.toFixed(1)} {MAP_METRIC_UNITS[mapMetric]}</small>
-                  </span>
-                )}
-                <RoleBadge role={showAsDrilled && document.as_drilled_holes.length > 0 && !mapMetric ? "executed" : overlayRole(mapMetric)} />
-              </div>
-              <PlanCanvas
-                contour={document.contour}
-                holes={document.holes}
-                mode={mode === "contour" ? "contour" : mode === "tie" ? "tie" : mode === "timing" ? "timing" : "holes"}
-                selected={selected}
-                onSelectedChange={(ids) => {
-                  setSelected(ids);
-                  if (mode === "tie" && ids.size === 1 && !pendingTieFromId) {
-                    setPendingTieFromId(Array.from(ids)[0]);
-                  }
-                }}
-                onContourChange={onContourChange}
-                onToggleFreeFace={onToggleFreeFace}
-                onMoveHoles={onMoveHoles}
-                onAddHole={onAddHole}
-                onDeleteHoles={deleteHoles}
-                onSetHolesEnabled={setHolesEnabled}
-                camera={camera}
-                onCameraChange={setCamera}
-                pendingFit={pendingFit}
-                onFitApplied={() => setPendingFit(false)}
-                spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
-                loadsById={mode === "charge" ? loadsById : undefined}
-                network={mode === "tie" || mode === "timing" ? document.network : undefined}
-                isolines={mode === "timing" && showIsolines ? analysis?.isolines : undefined}
-                timesMs={mode === "timing" ? analysis?.times_ms : undefined}
-                animationMs={mode === "timing" && analysis ? currentMs : undefined}
-                pendingTieFromId={mode === "tie" ? pendingTieFromId : null}
-                onTieHoles={addManualTie}
-                onClearPendingTie={() => setPendingTieFromId(null)}
-                domains={document.domains}
-                drawingDomainId={drawingDomain && selectedDomainId && (mode === "contour" || mode === "holes") && !placingReceptor ? selectedDomainId : null}
-                onDomainVertexAdd={addDomainVertex}
-                mapValues={mapMetric ? mapOverlay.values : undefined}
-                mapRange={mapMetric ? mapOverlay.range : null}
-                receptors={document.receptors}
-                selectedReceptorId={selectedReceptorId}
-                placingReceptor={placingReceptor}
-                onAddReceptor={addReceptorAt}
-                onSelectReceptor={(id) => {
-                  setSelectedReceptorId(id);
-                  setPlacingReceptor(false);
-                }}
-                vibrationPredictions={vibResult?.predictions}
-                asDrilled={document.as_drilled_holes}
-                showAsDrilled={showAsDrilled && document.as_drilled_holes.length > 0}
-                asCharged={document.as_charged_holes}
-                asFired={document.as_fired_holes}
-                movementVectors={movementResult?.holes}
-                showMovementVectors={showMovementVectors && Boolean(movementResult)}
-              />
-              {mode === "charge" ? (
-                <SectionView
-                  contour={document.contour}
-                  holes={document.holes}
-                  loads={document.loads}
-                  surfaces={document.surfaces}
-                  network={document.network}
-                  warnings={analysis?.validation_warnings}
-                  rowAzimuthDeg={patternParams.row_azimuth_deg}
-                  selectedRow={selectedRow}
-                  onSelectedRowChange={setSelectedRow}
-                />
-              ) : (
-                <HoleTable
-                  holes={document.holes}
-                  selected={selected}
-                  onSelectedChange={setSelected}
-                  onUpdateHole={onUpdateHole}
-                  onDeleteSelected={deleteSelected}
-                  insertKind={insertKind}
-                  onInsertKindChange={setInsertKind}
-                  onSetEnabled={setHolesEnabled}
-                  locked={designedLocked}
-                />
-              )}
-            </>
+            <PlanCanvas
+              contour={document.contour}
+              holes={document.holes}
+              mode={mode === "contour" ? "contour" : mode === "tie" ? "tie" : mode === "timing" ? "timing" : "holes"}
+              selected={selected}
+              onSelectedChange={(ids) => {
+                setSelected(ids);
+                if (mode === "tie" && ids.size === 1 && !pendingTieFromId) {
+                  setPendingTieFromId(Array.from(ids)[0]);
+                }
+              }}
+              onContourChange={onContourChange}
+              onToggleFreeFace={onToggleFreeFace}
+              onMoveHoles={onMoveHoles}
+              onAddHole={onAddHole}
+              onDeleteHoles={deleteHoles}
+              onSetHolesEnabled={setHolesEnabled}
+              camera={camera}
+              onCameraChange={setCamera}
+              pendingFit={pendingFit}
+              onFitApplied={() => setPendingFit(false)}
+              spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
+              loadsById={mode === "charge" ? loadsById : undefined}
+              network={mode === "tie" || mode === "timing" ? document.network : undefined}
+              isolines={mode === "timing" && showIsolines ? analysis?.isolines : undefined}
+              timesMs={mode === "timing" ? analysis?.times_ms : undefined}
+              animationMs={mode === "timing" && analysis ? currentMs : undefined}
+              pendingTieFromId={mode === "tie" ? pendingTieFromId : null}
+              onTieHoles={addManualTie}
+              onClearPendingTie={() => setPendingTieFromId(null)}
+              domains={document.domains}
+              drawingDomainId={drawingDomain && selectedDomainId && (mode === "contour" || mode === "holes") && !placingReceptor ? selectedDomainId : null}
+              onDomainVertexAdd={addDomainVertex}
+              mapValues={mapMetric ? mapOverlay.values : undefined}
+              mapRange={mapMetric ? mapOverlay.range : null}
+              receptors={document.receptors}
+              selectedReceptorId={selectedReceptorId}
+              placingReceptor={placingReceptor}
+              onAddReceptor={addReceptorAt}
+              onSelectReceptor={(id) => {
+                setSelectedReceptorId(id);
+                setPlacingReceptor(false);
+              }}
+              vibrationPredictions={vibResult?.predictions}
+              asDrilled={document.as_drilled_holes}
+              showAsDrilled={showAsDrilled && document.as_drilled_holes.length > 0}
+              asCharged={document.as_charged_holes}
+              asFired={document.as_fired_holes}
+              movementVectors={movementResult?.holes}
+              showMovementVectors={showMovementVectors && Boolean(movementResult)}
+              onHoleInspect={setInspectHoleId}
+              layers={mapLayers}
+              toePolylines={document.surfaces.floor?.polylines}
+              insertKind={insertKind}
+              onInsertKindChange={setInsertKind}
+            />
+          )}
+          {viewMode === "plan" && <MapLegend layers={mapLayers} onChange={setMapLayers} />}
+          {inspectHole && (
+            <HoleInspector
+              hole={inspectHole}
+              load={loadsById[inspectHole.id]}
+              locked={designedLocked}
+              onClose={() => setInspectHoleId(null)}
+              onUpdateHole={onUpdateHole}
+              onSetEnabled={setHolesEnabled}
+              onDelete={(id) => {
+                if (rejectLocked("designed")) return;
+                deleteHoles([id]);
+                setInspectHoleId(null);
+              }}
+            />
           )}
         </div>
       </div>

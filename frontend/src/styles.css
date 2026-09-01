@@ -47,6 +47,10 @@ button { cursor:pointer; }
 .user-box b, .user-box small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .user-box b { font-size:12px; }.user-box small { margin-top:3px; color:#8fa399; font-size:10px; }
 .workspace { min-width:0; overflow-x:clip; }
+.app-shell.design-mode { height:100vh; overflow:hidden; }
+.app-shell.design-mode .workspace { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.app-shell.design-mode .topbar { height:36px; padding:0 16px; flex:0 0 36px; }
+.app-shell.design-mode .topbar > div { display:none; }
 .topbar { height:72px; padding:0 28px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #dce4e0; background:#fff; }
 .topbar > div { display:grid; gap:4px; }.topbar b { font-size:17px; }.topbar span { color:#69776f; font-size:11px; }
 .logout-button { padding:8px 12px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }

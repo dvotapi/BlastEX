@@ -64,7 +64,7 @@ export function HoleTable({
             {Object.entries(HOLE_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
-        <small>Двойной клик по плану добавляет ручную скважину этого типа.</small>
+        <small>Инструмент «Скважина» добавляет точку кликом. Двойной клик по маркеру открывает карточку.</small>
       </div>
       <div className="table-scroll">
         <table>

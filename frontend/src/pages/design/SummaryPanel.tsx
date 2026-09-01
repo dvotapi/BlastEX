@@ -5,10 +5,14 @@ export function SummaryPanel({
   holes,
   blockVolumeM3,
   loads,
+  holesSource,
+  volumeSource,
 }: {
   holes: Hole[];
   blockVolumeM3: number | null;
   loads?: HoleLoad[];
+  holesSource: string;
+  volumeSource: string;
 }) {
   const production = holes.filter((h) => h.kind === "production" && h.enabled);
   const contourHoles = holes.filter((h) => (h.kind === "contour" || h.kind === "presplit" || h.kind === "trim") && h.enabled);
@@ -24,16 +28,20 @@ export function SummaryPanel({
     : null;
 
   return (
-    <div className="metrics-grid">
-      <div><span>Рабочих скважин</span><strong>{production.length}</strong><small>шт.</small></div>
-      <div><span>Контур / щель</span><strong>{contourHoles.length}</strong><small>шт.</small></div>
+    <div className="metrics-strip">
+      <div><span>Рабочих скважин</span><strong>{production.length}</strong><small>{holesSource}</small></div>
+      <div><span>Контурные скважины</span><strong>{contourHoles.length}</strong><small>шт.</small></div>
       {extraHoles.length > 0 && <div><span>Буфер / добор</span><strong>{extraHoles.length}</strong><small>шт.</small></div>}
-      <div><span>Погонаж бурения</span><strong>{ruNumber(footage, 1)}</strong><small>м</small></div>
-      <div><span>Объём блока</span><strong>{blockVolumeM3 !== null ? ruNumber(blockVolumeM3, 0) : "—"}</strong><small>м³</small></div>
+      <div><span>Погонаж бурения</span><strong>{ruNumber(footage, 1)} м</strong><small>{holesSource}</small></div>
+      <div>
+        <span>Объём блока</span>
+        <strong>{blockVolumeM3 !== null ? `${ruNumber(blockVolumeM3, 0)} м³` : "—"}</strong>
+        <small>{volumeSource}</small>
+      </div>
       {loads !== undefined && (
         <>
-          <div><span>Масса ВВ на блок</span><strong>{ruNumber(totalChargeKg, 0)}</strong><small>кг</small></div>
-          <div><span>Средний уд. расход</span><strong>{avgQ !== null ? ruNumber(avgQ, 3) : "—"}</strong><small>кг/м³</small></div>
+          <div><span>Масса ВВ</span><strong>{ruNumber(totalChargeKg, 0)} кг</strong><small>проектное</small></div>
+          <div><span>Средний q</span><strong>{avgQ !== null ? ruNumber(avgQ, 3) : "—"}</strong><small>кг/м³</small></div>
         </>
       )}
     </div>

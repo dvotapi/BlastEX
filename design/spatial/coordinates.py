@@ -15,6 +15,7 @@ class CoordinateSystem:
     origin_y: float = 0.0
     origin_z: float = 0.0
     units: str = "m"
+    confirmed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -31,4 +32,5 @@ class CoordinateSystem:
             origin_y=float(data.get("origin_y", 0.0)),
             origin_z=float(data.get("origin_z", 0.0)),
             units=str(data.get("units") or "m"),
+            confirmed=bool(data.get("confirmed", False)),
         )

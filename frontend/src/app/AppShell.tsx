@@ -56,7 +56,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
 
   return (
     <WorkspaceProvider user={user}>
-      <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+      <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}${page === "Проектирование" ? " design-mode" : ""}`}>
         <aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
           <div className="brand">
             <span>BX</span>

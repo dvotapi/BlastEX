@@ -108,6 +108,7 @@ export type CoordinateSystem = {
   origin_y: number;
   origin_z: number;
   units: string;
+  confirmed: boolean;
 };
 
 export type SurfaceKind = "top" | "floor" | "face" | "post_blast";
@@ -1063,7 +1064,7 @@ export function emptyHoleGeology(): Pick<Hole, "intervals" | "water_intervals" |
 }
 
 export function emptyCoordinateSystem(): CoordinateSystem {
-  return { name: "local", epsg: null, origin_x: 0, origin_y: 0, origin_z: 0, units: "m" };
+  return { name: "local", epsg: null, origin_x: 0, origin_y: 0, origin_z: 0, units: "m", confirmed: false };
 }
 
 export function emptySurfaces(): SurfaceSet {

@@ -20,9 +20,10 @@ import {
   worldToScreen,
   zoomAt,
 } from "../../lib/geometry2d";
-import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, Hole, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
-import { RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
+import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
+import { HOLE_KIND_LABELS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
+import { DEFAULT_MAP_LAYERS, type MapLayerVisibility } from "./MapLegend";
 
 const HOLE_HIT_RADIUS_PX = 12;
 const VERTEX_HIT_RADIUS_PX = 10;
@@ -100,6 +101,11 @@ export function PlanCanvas({
   asFired,
   movementVectors,
   showMovementVectors,
+  onHoleInspect,
+  layers = DEFAULT_MAP_LAYERS,
+  toePolylines,
+  insertKind,
+  onInsertKindChange,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -144,6 +150,11 @@ export function PlanCanvas({
   asFired?: AsFiredHole[];
   movementVectors?: PredictedHoleMovement[];
   showMovementVectors?: boolean;
+  onHoleInspect?: (id: string) => void;
+  layers?: MapLayerVisibility;
+  toePolylines?: Point3[][];
+  insertKind?: HoleKind;
+  onInsertKindChange?: (kind: HoleKind) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -894,7 +905,12 @@ export function PlanCanvas({
       if (edge) splitEdge(edge.index, worldOf(edge.point));
       return;
     }
-    if (!hitHole(screen)) onAddHole(applySnap(worldOf(screen)));
+    const hole = hitHole(screen);
+    if (hole) {
+      onSelectedChange(new Set([hole.id]));
+      onHoleInspect?.(hole.id);
+      return;
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -1076,6 +1092,14 @@ export function PlanCanvas({
           >
             🗑 Удалить скважины{selected.size ? ` (${selected.size})` : ""}
           </button>
+          {insertKind && onInsertKindChange && (
+            <label className="plan-toggle" title="Тип скважины при добавлении инструментом «Скважина»">
+              Тип
+              <select value={insertKind} onChange={(e) => onInsertKindChange(e.target.value as HoleKind)}>
+                {Object.entries(HOLE_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+          )}
         </div>
       )}
       <button
@@ -1183,17 +1207,30 @@ export function PlanCanvas({
           );
         })}
 
-        {contour.vertices.length >= 3 && (
+        {layers.fill && contour.vertices.length >= 3 && (
           <polygon
             className="contour-shape"
             points={contour.vertices.map((v) => { const p = toScreen(v); return `${p.x},${p.y}`; }).join(" ")}
           />
         )}
+        {layers.toe && (toePolylines ?? []).map((line, lineIndex) => (
+          line.length >= 2 ? (
+            <polyline
+              key={`toe-${lineIndex}`}
+              className="contour-edge toe"
+              fill="none"
+              points={line.map((v) => { const p = toScreen(v); return `${p.x},${p.y}`; }).join(" ")}
+            />
+          ) : null
+        ))}
         {contour.vertices.length >= 2 && contour.vertices.map((v, i) => {
           const a = toScreen(v);
           const b = toScreen(contour.vertices[(i + 1) % contour.vertices.length]);
           const isFree = freeFaceSet.has([i, (i + 1) % contour.vertices.length].join("-"));
           const isHovered = mode === "contour" && hover.kind === "edge" && hover.index === i;
+          const showAsFace = isFree && layers.face;
+          const showAsCrest = (!isFree && layers.crest) || (isFree && layers.crest && !layers.face);
+          if (!showAsFace && !showAsCrest) return null;
           return (
             <line
               key={`edge-${i}`}
@@ -1201,7 +1238,7 @@ export function PlanCanvas({
               y1={a.y}
               x2={b.x}
               y2={b.y}
-              className={`contour-edge${isFree ? " free" : ""}${isHovered ? " hovered" : ""}`}
+              className={`contour-edge${showAsFace ? " free" : ""}${isHovered ? " hovered" : ""}`}
             />
           );
         })}
@@ -1304,7 +1341,7 @@ export function PlanCanvas({
           );
         })}
 
-        {holes.map((h) => {
+        {layers.holes && holes.map((h) => {
           const p = holeScreenPos(h);
           const isSelected = selected.has(h.id);
           const isHovered = hover.kind === "hole" && hover.id === h.id;
@@ -1337,6 +1374,7 @@ export function PlanCanvas({
               {mode === "timing" && t !== undefined && (
                 <text x={p.x + 8} y={p.y - 6} className="hole-time-label">{ruNumber(t, 0)}</text>
               )}
+              <text x={p.x} y={p.y + radius + 11} className="hole-id-label">{h.id}</text>
             </g>
           );
         })}
@@ -1387,6 +1425,13 @@ export function PlanCanvas({
         </button>
       )}
 
+      <div className="plan-north" aria-hidden="true" title="Север">
+        <svg viewBox="0 0 28 36" width="28" height="36">
+          <polygon points="14,2 18,16 14,13 10,16" />
+          <text x="14" y="32">С</text>
+        </svg>
+      </div>
+
       <div className="plan-readout">
         {cursorWorld ? (
           <span>X {ruNumber(cursorWorld.x, 1)} · Y {ruNumber(cursorWorld.y, 1)} м</span>
@@ -1409,7 +1454,7 @@ export function PlanCanvas({
             <li><i>Контур:</i> «Точка» — клик добавляет вершину, клик по ребру вставляет её в середину ребра. «Выбор» — перетаскивание вершины, рамка выделяет несколько.</li>
             <li><i>Удаление точки:</i> двойной клик по ней, правый клик, крестик рядом с ней или Delete для выделенных.</li>
             <li><i>Откосы:</i> инструмент «Откос» — клик по ребру помечает его открытым.</li>
-            <li><i>Скважины:</i> «Скважина» — клик добавляет, «Выбор» — перетаскивание (Shift — строго по оси), рамка выделяет, Delete удаляет.</li>
+            <li><i>Скважины:</i> «Скважина» — клик добавляет. Двойной клик по маркеру открывает карточку. «Выбор» — перетаскивание (Shift — строго по оси), рамка выделяет, Delete удаляет.</li>
             <li><i>Клавиши:</i> V — выбор, A — добавление, F — откос, H — панорама, Esc — снять выделение.</li>
             <li><i>Геология:</i> в режиме рисования региона клик ставит вершину полигона; остальные инструменты плана при этом не срабатывают.</li>
             <li><i>Связи:</i> в режиме «Связь» клик по скважине начинает коннектор, вторая скважина его замыкает, клик по пустому месту сбрасывает.</li>

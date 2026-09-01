@@ -318,6 +318,7 @@ class CoordinateSystemSchema(BaseModel):
     origin_y: float = 0.0
     origin_z: float = 0.0
     units: str = "m"
+    confirmed: bool = False
 
 
 class TINSchema(BaseModel):

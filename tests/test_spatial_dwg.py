@@ -31,14 +31,14 @@ def test_missing_configured_converter_is_reported_as_absent(monkeypatch):
 
 
 def test_conversion_returns_the_produced_dxf(tmp_path, monkeypatch):
-    # Аргументы: -y -o <out> <in>; скрипт кладёт содержимое по пути из $3.
-    path = _fake_converter(tmp_path, 'printf "DXF PAYLOAD" > "$3"\nexit 0\n')
+    # Аргументы: -y -m -o <out> <in>; скрипт кладёт содержимое по пути из $4.
+    path = _fake_converter(tmp_path, 'printf "DXF PAYLOAD" > "$4"\nexit 0\n')
     monkeypatch.setenv("BLASTEX_DWG_CONVERTER", path)
     assert dwg.dwg_to_dxf(b"AC1032", "block.dwg") == b"DXF PAYLOAD"
 
 
 def test_conversion_passes_the_source_bytes(tmp_path, monkeypatch):
-    path = _fake_converter(tmp_path, 'cat "$4" > "$3"\nexit 0\n')
+    path = _fake_converter(tmp_path, 'cat "$5" > "$4"\nexit 0\n')
     monkeypatch.setenv("BLASTEX_DWG_CONVERTER", path)
     assert dwg.dwg_to_dxf(b"original bytes", "block.dwg") == b"original bytes"
 
@@ -61,9 +61,20 @@ def test_without_a_converter_the_user_is_told_to_save_as_dxf(monkeypatch):
 
 
 def test_temporary_files_are_cleaned_up(tmp_path, monkeypatch):
-    path = _fake_converter(tmp_path, 'printf "DXF" > "$3"\nexit 0\n')
+    path = _fake_converter(tmp_path, 'printf "DXF" > "$4"\nexit 0\n')
     monkeypatch.setenv("BLASTEX_DWG_CONVERTER", path)
     before = set(os.listdir(tmp_path.parent))
     dwg.dwg_to_dxf(b"AC1032", "block.dwg")
     leftovers = [name for name in set(os.listdir(tmp_path.parent)) - before if name.startswith("blastex-dwg-")]
     assert leftovers == []
+
+
+def test_minimal_dxf_output_is_requested(tmp_path, monkeypatch):
+    """LibreDWG обязан звать с -m: полный DXF ezdxf не читает."""
+
+    recorded = tmp_path / "args.txt"
+    path = _fake_converter(tmp_path, f'printf "%s" "$*" > "{recorded}"\nprintf "DXF" > "$4"\nexit 0\n')
+    monkeypatch.setenv("BLASTEX_DWG_CONVERTER", path)
+    dwg.dwg_to_dxf(b"AC1032", "block.dwg")
+    args = recorded.read_text().split()
+    assert args[:3] == ["-y", "-m", "-o"]

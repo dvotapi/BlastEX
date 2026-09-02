@@ -6,7 +6,8 @@ DWG — закрытый бинарный формат Autodesk, читать е
 Converter, разрешён к коммерческому использованию.
 
 Путь к конвертеру можно переопределить переменной `BLASTEX_DWG_CONVERTER` —
-тогда подойдёт любая утилита с совместимыми аргументами (`-y -o out.dxf in.dwg`).
+тогда подойдёт любая утилита с совместимыми аргументами
+(`-y -m -o out.dxf in.dwg`).
 """
 from __future__ import annotations
 
@@ -19,6 +20,14 @@ from pathlib import Path
 __all__ = ["DwgConversionError", "find_converter", "dwg_to_dxf"]
 
 CONVERTER_TIMEOUT_S = 120
+# `-m` — минимальный DXF: только $ACADVER, HANDSEED и ENTITIES.
+#
+# Не оптимизация, а необходимость: полный DXF от LibreDWG содержит нулевые и
+# повторяющиеся дескрипторы объектов, на которых ezdxf падает («Invalid handle
+# 0») даже в режиме восстановления. Минимальный вывод читается штатно, а слои,
+# отметки и координаты у примитивов сохраняются полностью — для выбора бровок
+# этого достаточно.
+CONVERTER_ARGS = ("-y", "-m")
 NO_CONVERTER_MESSAGE = (
     "На сервере не установлен конвертер DWG. "
     "Сохраните чертёж как DXF (Файл → Сохранить как → AutoCAD DXF) и загрузите его."
@@ -56,7 +65,7 @@ def dwg_to_dxf(data: bytes, filename: str = "drawing.dwg") -> bytes:
 
         try:
             completed = subprocess.run(  # noqa: S603 — путь берётся из конфигурации сервера
-                [converter, "-y", "-o", str(target), str(source)],
+                [converter, *CONVERTER_ARGS, "-o", str(target), str(source)],
                 capture_output=True,
                 timeout=CONVERTER_TIMEOUT_S,
                 check=False,

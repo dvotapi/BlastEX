@@ -36,12 +36,18 @@ export function Scene3D({
   surfaces,
   selected,
   onSelectHole,
+  cameraMode = "collar",
+  colorMode = "kind",
+  holeColors,
 }: {
   contour: BlockContour;
   holes: Hole[];
   surfaces?: SurfaceSet;
   selected: Set<string>;
   onSelectHole: (id: string, additive: boolean) => void;
+  cameraMode?: "collar" | "shaft" | "toe";
+  colorMode?: string;
+  holeColors?: Record<string, number>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<SceneState | null>(null);
@@ -178,17 +184,38 @@ export function Scene3D({
     clearGroup(holeGroup);
     for (const h of holes) {
       const isSelected = selected.has(h.id);
-      const color = !h.enabled ? DISABLED_COLOR : isSelected ? SELECTED_COLOR : KIND_COLOR[h.kind] ?? 0x2d7556;
-      addLine(holeGroup, [h.collar, h.toe], toThree, color, isSelected ? 3 : 1.5);
+      const color = !h.enabled
+        ? DISABLED_COLOR
+        : isSelected
+          ? SELECTED_COLOR
+          : holeColors?.[h.id] ?? KIND_COLOR[h.kind] ?? 0x2d7556;
+      const lineWidth = isSelected ? 3.5 : cameraMode === "shaft" ? 2.5 : 1.8;
+      addLine(holeGroup, [h.collar, h.toe], toThree, color, lineWidth);
 
-      const collarPos = toThree(h.collar);
+      const markerPoint = cameraMode === "toe" ? h.toe : h.collar;
+      const markerPos = toThree(markerPoint);
       const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(isSelected ? 0.6 : 0.4, 12, 12),
-        new THREE.MeshStandardMaterial({ color, emissive: isSelected ? 0x552222 : 0x000000 }),
+        new THREE.SphereGeometry(isSelected ? 0.75 : cameraMode === "collar" ? 0.55 : 0.35, 14, 14),
+        new THREE.MeshStandardMaterial({
+          color,
+          emissive: isSelected ? 0x552222 : colorMode === "health" ? 0x221111 : 0x000000,
+          metalness: cameraMode === "shaft" ? 0.15 : 0,
+          roughness: 0.65,
+        }),
       );
-      sphere.position.copy(collarPos);
+      sphere.position.copy(markerPos);
       sphere.userData.holeId = h.id;
       holeGroup.add(sphere);
+
+      if (cameraMode === "collar" || cameraMode === "toe") {
+        const other = cameraMode === "collar" ? h.toe : h.collar;
+        const dot = new THREE.Mesh(
+          new THREE.SphereGeometry(0.22, 8, 8),
+          new THREE.MeshStandardMaterial({ color: 0x9aa8a1 }),
+        );
+        dot.position.copy(toThree(other));
+        holeGroup.add(dot);
+      }
     }
 
     if (!state.framed && points.length > 0) {
@@ -202,7 +229,7 @@ export function Scene3D({
       state.framed = true;
     }
 
-  }, [contour, holes, surfaces, selected, reframeTick]);
+  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, colorMode, holeColors]);
 
   return (
     <div className="scene3d-wrap">
@@ -217,7 +244,7 @@ export function Scene3D({
       >
         ⟲ Сбросить обзор
       </button>
-      <div className="scene3d-hint">Вращение — перетаскивание · зум — колесо · клик по скважине — выделение</div>
+      <div className="scene3d-hint">Вращение — перетаскивание · зум — колесо · режим: устье / ствол / подошва</div>
     </div>
   );
 }

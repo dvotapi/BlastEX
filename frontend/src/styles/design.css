@@ -25,7 +25,7 @@
 .workflow-nav button.active { background:#2d7556; border-color:#2d7556; color:#fff; }
 .workflow-nav button.active small { color:#d7efe4; }
 .workflow-nav.icons { gap:4px; margin:0; padding:0; }
-.workflow-nav.icons button { position:relative; flex-direction:column; gap:2px; min-width:58px; padding:6px 4px 8px; }
+.workflow-nav.icons button { position:relative; flex-direction:column; gap:2px; min-width:54px; padding:4px 4px 6px; }
 .workflow-nav.icons button i { font-style:normal; font-size:14px; line-height:1; }
 .workflow-nav.icons button span { font-size:9px; font-weight:700; letter-spacing:.01em; }
 .workflow-nav.icons .stage-dot { position:absolute; top:5px; right:5px; width:6px; height:6px; border-radius:50%; background:#c3cdc7; }
@@ -35,9 +35,12 @@
 .workflow-nav.icons button.status-error { border-color:#e8b4ae; }
 .workflow-nav.icons button.status-locked { opacity:.7; }
 
-.design-workstation { flex:1; min-height:0; display:flex; flex-direction:column; gap:6px; padding:8px 12px 10px; }
+/* Хром над картой — две строки: [название · статус · этапы · сохранить] и
+   [вид · инструменты · сводка]. Всё остальное место отдаётся карте. */
+.design-workstation { flex:1; min-height:0; display:flex; flex-direction:column; gap:4px; padding:6px 10px 8px; }
 .design-chrome { display:flex; align-items:center; gap:8px; min-height:32px; }
-.design-name-input { flex:1; min-width:140px; max-width:420px; border:1px solid #d9e2dd; border-radius:8px; padding:6px 10px; font-size:14px; font-weight:700; background:#fff; color:#17231d; }
+.design-chrome .workflow-nav.icons { flex:1; min-width:0; }
+.design-name-input { flex:0 1 240px; min-width:120px; border:1px solid #d9e2dd; border-radius:8px; padding:6px 10px; font-size:13px; font-weight:700; background:#fff; color:#17231d; }
 .design-name-input:disabled { color:#7b8982; }
 .crs-warning { padding:4px 10px; border-radius:999px; background:#fff3d6; color:#6a4a28; font-size:11px; font-weight:700; white-space:nowrap; }
 .crs-banner { padding:8px 10px; border-radius:8px; background:#fff3d6; color:#6a4a28; font-size:12px; font-weight:600; line-height:1.35; }
@@ -50,9 +53,14 @@
 .metrics-strip span { color:#78857f; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; }
 .metrics-strip strong { font-size:13px; }
 .metrics-strip small { color:#8a9690; font-size:10px; }
+.map-chrome-metrics { margin-left:auto; min-width:0; max-width:100%; }
+.map-chrome-metrics .metrics-strip { gap:12px; padding:0; }
+.map-chrome-metrics .metrics-strip > div { padding:0; font-size:11px; }
+.map-chrome-metrics .metrics-strip strong { font-size:12px; }
+.map-chrome-metrics .metrics-strip small { display:none; }
 
-.design-map-stage { flex:1; min-height:0; display:flex; flex-direction:column; gap:6px; }
-.map-chrome-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.design-map-stage { flex:1; min-height:0; display:flex; flex-direction:column; gap:4px; }
+.map-chrome-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .view-switch { display:flex; border:1px solid #d3ded8; border-radius:9px; overflow:hidden; background:#fff; }
 .view-switch button { padding:6px 12px; border:0; border-right:1px solid #e6ece9; background:transparent; color:#3b4b43; font-size:11px; font-weight:700; }
 .view-switch button:last-child { border-right:0; }
@@ -66,10 +74,17 @@
 .design-map-body .scene3d-canvas { flex:1; height:auto; min-height:0; }
 .design-map-body .section-svg { flex:1; height:auto; min-height:280px; }
 
-.stage-inspector { position:absolute; z-index:4; top:8px; left:8px; width:min(360px, calc(100% - 16px)); max-height:calc(100% - 16px); display:flex; flex-direction:column; border:1px solid #d9e2dd; border-radius:12px; background:rgba(251,252,251,.97); box-shadow:0 10px 28px rgba(16,41,31,.16); }
-.stage-inspector > header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-bottom:1px solid #e8eeeb; }
+/* Плавающий инспектор этапа: тащится за заголовок (left/top задаёт компонент),
+   по высоте не выше 70% карты — остальное прокручивается внутри. */
+.stage-inspector { position:absolute; z-index:4; width:min(320px, calc(100% - 16px)); max-height:min(70%, calc(100% - 16px)); display:flex; flex-direction:column; border:1px solid #d9e2dd; border-radius:12px; background:rgba(251,252,251,.97); box-shadow:0 10px 28px rgba(16,41,31,.16); }
+.stage-inspector.dragging { user-select:none; box-shadow:0 14px 36px rgba(16,41,31,.26); }
+.stage-inspector.collapsed { width:auto; min-width:180px; }
+.stage-inspector > header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px 6px 10px; border-bottom:1px solid #e8eeeb; cursor:grab; touch-action:none; }
+.stage-inspector.dragging > header { cursor:grabbing; }
+.stage-inspector.collapsed > header { border-bottom:0; }
 .stage-inspector > header b { font-size:12px; }
-.stage-inspector-close { width:26px; height:26px; border:0; border-radius:7px; background:#eef2f0; color:#3b4b43; font-size:16px; line-height:1; }
+.stage-inspector-actions { display:flex; gap:4px; }
+.stage-inspector-close, .stage-inspector-collapse { width:24px; height:24px; border:0; border-radius:7px; background:#eef2f0; color:#3b4b43; font-size:15px; line-height:1; cursor:pointer; }
 .stage-inspector-body { overflow:auto; padding:8px; display:grid; gap:10px; }
 .stage-inspector .panel { margin:0; }
 .stage-inspector .panel > header { min-height:36px; padding:0 12px; }
@@ -109,7 +124,7 @@
 .hole-charge-svg { width:100%; max-width:240px; height:360px; background:#f7faf8; border:1px solid #e2e9e5; border-radius:10px; }
 .hole-charge-empty { display:grid; place-items:center; min-height:160px; color:#7b8982; font-size:12px; }
 
-@media (max-width:900px) { .hole-inspector-grid { grid-template-columns:1fr; } .stage-inspector { width:calc(100% - 16px); } }
+@media (max-width:900px) { .hole-inspector-grid { grid-template-columns:1fr; } .stage-inspector { width:calc(100% - 16px); } .design-chrome { flex-wrap:wrap; } .design-chrome .workflow-nav.icons { flex-basis:100%; order:3; } .map-chrome-metrics { margin-left:0; flex-basis:100%; } }
 
 .workstation-lock { border:0; margin:0; padding:0; min-width:0; display:grid; gap:18px; }
 .workstation-lock:disabled { opacity:.72; }
@@ -156,10 +171,9 @@
 .plan-help-toggle { margin-left:auto; width:30px; height:30px; border:1px solid #d3ded8; border-radius:50%; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; cursor:pointer; }
 .plan-help-toggle:hover, .plan-help-toggle.active { background:#2d7556; border-color:#2d7556; color:#fff; }
 
-.plan-readout { position:absolute; right:10px; bottom:40px; display:flex; gap:7px; padding:5px 9px; border-radius:8px; background:rgba(255,255,255,.92); border:1px solid #e2e9e5; color:#5c6a63; font-size:10.5px; font-variant-numeric:tabular-nums; pointer-events:none; }
-.plan-readout-sep { color:#c3cdc7; }
 
-.plan-canvas-hint { position:absolute; left:12px; bottom:10px; max-width:52%; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.78); color:#eaf3ef; font-size:10.5px; pointer-events:none; }
+/* bottom:44px — над статус-строкой карты (.map-status-bar), чтобы подсказка её не перекрывала */
+.plan-canvas-hint { position:absolute; left:12px; bottom:44px; max-width:52%; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.78); color:#eaf3ef; font-size:10.5px; pointer-events:none; }
 .plan-help { position:absolute; right:10px; top:10px; width:min(380px,calc(100% - 24px)); max-height:calc(100% - 20px); overflow:auto; padding:12px 14px; border-radius:11px; background:rgba(16,41,31,.94); color:#eaf3ef; font-size:11px; line-height:1.5; box-shadow:0 6px 20px rgba(16,41,31,.28); }
 .plan-help b { display:block; margin-bottom:6px; font-size:12px; }
 .plan-help ul { margin:0; padding-left:16px; display:grid; gap:5px; }
@@ -370,7 +384,7 @@
 .scene3d-canvas { width:100%; height:560px; }
 .scene3d-canvas canvas { display:block; }
 .scene3d-reset { position:absolute; top:12px; right:12px; padding:8px 12px; border:1px solid #ced9d3; border-radius:9px; background:rgba(255,255,255,.92); color:#3b4b43; font-size:11px; font-weight:700; }
-.scene3d-hint { position:absolute; left:12px; bottom:10px; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.78); color:#eaf3ef; font-size:10.5px; pointer-events:none; }
+.scene3d-hint { position:absolute; left:12px; bottom:44px; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.78); color:#eaf3ef; font-size:10.5px; pointer-events:none; }
 .scene3d-loading { height:560px; display:grid; place-items:center; border:1px solid #d9e2dd; border-radius:15px; background:#f3f6f4; color:#69776f; font-size:13px; }
 @media (max-width:900px) { .scene3d-canvas { height:420px; } }
 
@@ -514,6 +528,63 @@
 .recommendation-why strong { color:#17231d; }
 .recommendation-assessment { display:grid; gap:6px; background:#f3f7f4; border-radius:8px; padding:8px; }
 
+.visibility-panel-toggle { position:absolute; z-index:4; top:52px; right:8px; border:1px solid #d9e2dd; border-radius:8px; background:rgba(255,255,255,.95); padding:6px 10px; font-size:11px; cursor:pointer; }
+.visibility-panel { position:absolute; z-index:4; top:52px; right:8px; width:min(240px, 42vw); max-height:min(70vh, 520px); overflow:auto; display:grid; gap:8px; padding:10px; border:1px solid #d9e2dd; border-radius:12px; background:rgba(255,255,255,.96); font-size:11px; box-shadow:0 8px 24px rgba(16,41,31,.12); }
+.visibility-panel header, .visibility-panel footer { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.visibility-panel-close { border:none; background:transparent; font-size:16px; cursor:pointer; color:#5c6a63; }
+.visibility-presets { display:flex; flex-wrap:wrap; gap:4px; }
+.visibility-presets button { border:1px solid #d9e2dd; border-radius:999px; background:#f7faf8; padding:3px 8px; font-size:10px; cursor:pointer; }
+.visibility-presets button.active { background:#2d7556; border-color:#2d7556; color:#fff; }
+.visibility-search input { width:100%; border:1px solid #d9e2dd; border-radius:8px; padding:6px 8px; font-size:11px; }
+.visibility-layers section { display:grid; gap:4px; margin-top:4px; }
+.visibility-layers section small { color:#5c6a63; text-transform:uppercase; letter-spacing:.04em; }
+.visibility-layers label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+.legend-swatch.terrain { background:linear-gradient(90deg,#8fb39a,#6f8f7a); }
+.legend-swatch.network { background:#7a6ee0; }
+.legend-swatch.isolines { background:#9bb8d8; }
+.legend-swatch.throw { background:#c45a2c; }
+.legend-swatch.actual { background:#d07a2d; }
+.legend-swatch.health { background:#d8455a; }
+.legend-swatch.labels { background:#173125; width:10px; height:10px; border-radius:2px; }
+
+.map-status-bar { position:absolute; z-index:3; left:8px; right:8px; bottom:8px; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 10px; border-radius:8px; background:rgba(16,41,31,.84); color:#eaf3ef; font-size:10.5px; pointer-events:auto; }
+.map-status-sep { opacity:.45; }
+.map-status-issues { border:none; background:transparent; color:#ffb4b4; cursor:pointer; text-decoration:underline; font:inherit; padding:0; }
+.map-status-ok { color:#b8e0c8; }
+
+.hole-context-menu { position:fixed; z-index:20; min-width:190px; display:grid; gap:2px; padding:6px; border:1px solid #d9e2dd; border-radius:10px; background:#fff; box-shadow:0 10px 30px rgba(16,41,31,.18); }
+.hole-context-menu button { border:none; background:transparent; text-align:left; padding:7px 10px; border-radius:6px; font-size:12px; cursor:pointer; }
+.hole-context-menu button:hover { background:#eef5f1; }
+
+.command-palette-backdrop { position:fixed; inset:0; z-index:30; display:grid; place-items:start center; padding-top:12vh; background:rgba(16,41,31,.35); }
+.command-palette { width:min(520px, 92vw); border-radius:12px; background:#fff; box-shadow:0 18px 50px rgba(16,41,31,.28); overflow:hidden; }
+.command-palette input { width:100%; border:none; border-bottom:1px solid #e2e9e5; padding:12px 14px; font-size:14px; outline:none; }
+.command-palette ul { list-style:none; margin:0; padding:6px; max-height:50vh; overflow:auto; }
+.command-palette li.empty { padding:10px 12px; color:#6e7c75; font-size:12px; }
+.command-palette button { width:100%; border:none; background:transparent; text-align:left; padding:8px 10px; border-radius:8px; font-size:13px; cursor:pointer; }
+.command-palette button.active, .command-palette button:hover { background:#eef5f1; }
+
+.map-chrome-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.camera-mode-switch, .view-switch { display:inline-flex; gap:4px; }
+.camera-mode-switch button, .review-project-btn, .command-palette-btn { border:1px solid #d9e2dd; border-radius:8px; background:#fff; padding:5px 10px; font-size:11px; cursor:pointer; }
+.camera-mode-switch button.active, .view-switch button.active { background:#2d7556; border-color:#2d7556; color:#fff; }
+.review-project-btn { background:#fff5f5; border-color:#e8b4b4; color:#8a2f2f; }
+
+.hole-extra-label { fill:#4a3d8a; font-size:8.5px; font-weight:700; paint-order:stroke; stroke:#fbfcfb; stroke-width:2px; }
+.health-ring { stroke-width:2px; opacity:.95; }
+.hole-marker.health-issue .health-ring.code-unconnected { stroke:#d8455a; }
+.hole-marker.health-issue .health-ring.code-missing_charge { stroke:#c43a5c; }
+.hole-marker.health-issue .health-ring.code-missing_primer { stroke:#e07b2d; }
+.measure-line line { stroke:#173125; stroke-width:1.5; stroke-dasharray:4 3; }
+.measure-line text, .measure-point { fill:#173125; font-size:10px; font-weight:600; }
+.measure-point { fill:#c45a2c; stroke:#fff; stroke-width:1.5; }
+.throw-direction line { stroke:#c45a2c; stroke-width:2.2; opacity:.85; }
+.throw-direction text { fill:#8a3b1f; font-size:10px; font-weight:700; }
+.connector-line { opacity:.72; }
+.isoline-segment { opacity:.55; }
+.section-tie-label { fill:#4a3d8a; font-size:10px; font-weight:700; }
+.section-health-frame { fill:none; stroke-width:1.5; stroke-dasharray:4 3; opacity:.85; }
+
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas-wrap { height:420px; } .plan-toolbar { gap:6px; padding:8px; } }
 /* На узком экране подсказка перекрыла бы строку координат — оставляем «？». */
-@media (max-width:760px) { .plan-canvas-hint { display:none; } .plan-readout { bottom:10px; } }
+@media (max-width:760px) { .plan-canvas-hint { display:none; } }

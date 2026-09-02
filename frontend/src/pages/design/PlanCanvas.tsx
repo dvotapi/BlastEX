@@ -19,11 +19,21 @@ import {
   visibleBounds,
   worldToScreen,
   zoomAt,
+  angleAzimuth,
 } from "../../lib/geometry2d";
 import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
 import { HOLE_KIND_LABELS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
+import { healthColor, holeDepthM, type HoleHealthCode, type HoleHealthMap } from "./holeHealth";
 import { DEFAULT_MAP_LAYERS, type MapLayerVisibility } from "./MapLegend";
+import {
+  holeMarkerRadiusPx,
+  labelsVisibleAtScale,
+  visibleLabelIds,
+  type LabelBox,
+  type MapColorMode,
+  type MapLabelField,
+} from "./viewPresets";
 
 const HOLE_HIT_RADIUS_PX = 12;
 const VERTEX_HIT_RADIUS_PX = 10;
@@ -42,7 +52,21 @@ const GESTURE_ECHO_MS = 500;
 const DEFAULT_CAMERA: Camera = { x: 0, y: 0, scale: 6 };
 
 type Mode = "contour" | "holes" | "tie" | "timing";
-type PlanTool = "select" | "add" | "face" | "pan";
+type PlanTool = "select" | "add" | "face" | "pan" | "measure";
+
+export type MeasureResult = {
+  distanceM: number;
+  azimuthDeg: number;
+  deltaX: number;
+  deltaY: number;
+  label?: string;
+};
+
+export type PlanMeasureState = {
+  points: Vec2[];
+  holeIds: string[];
+  result: MeasureResult | null;
+};
 
 const SNAP_OPTIONS = [0, 0.25, 0.5, 1, 2.5, 5];
 
@@ -103,6 +127,23 @@ export function PlanCanvas({
   showMovementVectors,
   onHoleInspect,
   layers = DEFAULT_MAP_LAYERS,
+  labelField = "id" as MapLabelField,
+  colorMode = "kind" as MapColorMode,
+  healthById,
+  showHealthLayer = false,
+  showNetworkLayer = true,
+  showIsolineLayer = true,
+  showLabelsLayer = true,
+  showThrowDirection = false,
+  throwAzimuthDeg = 0,
+  measureState,
+  onMeasureChange,
+  onHoleContextMenu,
+  onCursorWorldChange,
+  zoomRequest,
+  onZoomRequestHandled,
+  toolRequest,
+  onToolRequestHandled,
   toePolylines,
   insertKind,
   onInsertKindChange,
@@ -152,6 +193,23 @@ export function PlanCanvas({
   showMovementVectors?: boolean;
   onHoleInspect?: (id: string) => void;
   layers?: MapLayerVisibility;
+  labelField?: MapLabelField;
+  colorMode?: MapColorMode;
+  healthById?: HoleHealthMap;
+  showHealthLayer?: boolean;
+  showNetworkLayer?: boolean;
+  showIsolineLayer?: boolean;
+  showLabelsLayer?: boolean;
+  showThrowDirection?: boolean;
+  throwAzimuthDeg?: number;
+  measureState?: PlanMeasureState;
+  onMeasureChange?: (next: PlanMeasureState) => void;
+  onHoleContextMenu?: (holeId: string, clientX: number, clientY: number) => void;
+  onCursorWorldChange?: (point: Vec2 | null) => void;
+  zoomRequest?: { kind: "fit" | "selection"; tick: number } | null;
+  onZoomRequestHandled?: () => void;
+  toolRequest?: { tool: PlanTool; tick: number } | null;
+  onToolRequestHandled?: () => void;
   toePolylines?: Point3[][];
   insertKind?: HoleKind;
   onInsertKindChange?: (kind: HoleKind) => void;
@@ -234,6 +292,31 @@ export function PlanCanvas({
     }
     onCameraChange(fitCamera(bounds, viewportRef.current, 0.12, camera.scale));
   }, [contentPoints, onCameraChange, camera.scale]);
+
+  const fitToSelection = useCallback(() => {
+    const points = holes
+      .filter((h) => selected.has(h.id))
+      .map((h) => ({ x: h.collar.x, y: h.collar.y }));
+    const bounds = boundsOf(points);
+    if (!bounds) {
+      fitToContent();
+      return;
+    }
+    onCameraChange(fitCamera(bounds, viewportRef.current, 0.25, camera.scale));
+  }, [holes, selected, fitToContent, onCameraChange, camera.scale]);
+
+  useEffect(() => {
+    if (!zoomRequest) return;
+    if (zoomRequest.kind === "fit") fitToContent();
+    else fitToSelection();
+    onZoomRequestHandled?.();
+  }, [zoomRequest, fitToContent, fitToSelection, onZoomRequestHandled]);
+
+  useEffect(() => {
+    if (!toolRequest) return;
+    setTool(toolRequest.tool);
+    onToolRequestHandled?.();
+  }, [toolRequest, onToolRequestHandled]);
 
   // Геометрию, пришедшую целым набором (открыли паспорт, разложили сетку,
   // начали новый паспорт), показываем целиком. Запрос приходит от страницы
@@ -530,7 +613,45 @@ export function PlanCanvas({
    * Действие текущего инструмента по одиночному клику/тапу. Вынесено отдельно,
    * потому что на тачскрине его приходится откладывать до отпускания пальца.
    */
+  function addMeasurePoint(screen: Vec2) {
+    if (!onMeasureChange) return;
+    const hole = hitHole(screen);
+    const world = hole ? { x: hole.collar.x, y: hole.collar.y } : applySnap(worldOf(screen));
+    const holeId = hole?.id ?? "";
+    const base = measureState ?? { points: [], holeIds: [], result: null };
+    if (base.points.length >= 2) {
+      onMeasureChange({ points: [world], holeIds: holeId ? [holeId] : [], result: null });
+      return;
+    }
+    const points = [...base.points, world];
+    const holeIds = [...base.holeIds, holeId];
+    if (points.length < 2) {
+      onMeasureChange({ points, holeIds, result: null });
+      return;
+    }
+    const [a, b] = points;
+    const deltaX = b.x - a.x;
+    const deltaY = b.y - a.y;
+    const distanceM = distance(a, b);
+    let azimuthDeg = (Math.atan2(deltaX, deltaY) * 180) / Math.PI;
+    if (azimuthDeg < 0) azimuthDeg += 360;
+    let label: string | undefined;
+    if (holeIds[0] && holeIds[1]) {
+      const h0 = holes.find((h) => h.id === holeIds[0]);
+      const h1 = holes.find((h) => h.id === holeIds[1]);
+      if (h0 && h1) {
+        const aligned = h0.row === h1.row || h0.col === h1.col;
+        label = aligned ? "шаг" : (h0.kind === "contour" || h1.kind === "contour" ? "ЛНС" : "расстояние");
+      }
+    }
+    onMeasureChange({ points, holeIds, result: { distanceM, azimuthDeg, deltaX, deltaY, label } });
+  }
+
   function runToolTap(screen: Vec2) {
+    if (tool === "measure") {
+      addMeasurePoint(screen);
+      return;
+    }
     if (mode === "contour") {
       const vertexIndex = hitVertex(screen);
       const edge = hitEdge(screen);
@@ -680,6 +801,10 @@ export function PlanCanvas({
     }
 
     // mode === "holes"
+    if (tool === "measure") {
+      addMeasurePoint(screen);
+      return;
+    }
     if (tool === "add") {
       runToolTap(screen);
       return;
@@ -732,6 +857,7 @@ export function PlanCanvas({
     pointerInsideRef.current = true;
     const screen = toScreenPoint(e);
     setCursorWorld(worldOf(screen));
+    onCursorWorldChange?.(worldOf(screen));
 
     const pinch = pinchRef.current;
     if (pinch && pinch.pointers.has(e.pointerId)) {
@@ -826,13 +952,14 @@ export function PlanCanvas({
         runToolTap(screen);
       }
       if (drag.kind === "pan" && !drag.moved && drag.button === 2) {
-        // Правый клик без перетаскивания — быстрое удаление объекта под курсором.
         if (mode === "contour") {
           const vertexIndex = hitVertex(screen);
           if (vertexIndex !== null) deleteVertexAt(vertexIndex);
         } else {
           const hole = hitHole(screen);
-          if (hole) {
+          if (hole && onHoleContextMenu) {
+            onHoleContextMenu(hole.id, e.clientX, e.clientY);
+          } else if (hole) {
             onDeleteHoles([hole.id]);
             const next = new Set(selected);
             next.delete(hole.id);
@@ -886,6 +1013,7 @@ export function PlanCanvas({
   function handlePointerLeave() {
     pointerInsideRef.current = false;
     setCursorWorld(null);
+    onCursorWorldChange?.(null);
     setHover({ kind: "none" });
   }
 
@@ -939,6 +1067,7 @@ export function PlanCanvas({
     else if (key === "a" || key === "2" || key === "ф") setTool("add");
     else if (mode === "contour" && (key === "f" || key === "3" || key === "а")) setTool("face");
     else if (key === "h" || key === "4" || key === "р") setTool("pan");
+    else if (key === "m" || key === "ь") setTool("measure");
     else if (key === "+" || key === "=") zoomBy(ZOOM_STEP);
     else if (key === "-" || key === "_") zoomBy(1 / ZOOM_STEP);
     else if (key === "0") fitToContent();
@@ -957,7 +1086,9 @@ export function PlanCanvas({
         ? "crosshair"
         : tool === "face"
           ? "face"
-          : hover.kind === "vertex" || hover.kind === "hole"
+          : tool === "measure"
+            ? "crosshair"
+            : hover.kind === "vertex" || hover.kind === "hole"
             ? "move"
             : "default";
 
@@ -987,11 +1118,40 @@ export function PlanCanvas({
   const maxChargeKg = loadsById
     ? Math.max(0, ...Object.values(loadsById).map((ld) => ld.total_charge_kg))
     : 0;
+  const maxDelayMs = timesMs ? Math.max(0, ...Object.values(timesMs)) : 0;
   const holesById = useMemo(() => {
     const map = new Map<string, Hole>();
     for (const h of holes) map.set(h.id, h);
     return map;
   }, [holes]);
+  const labelsAllowed = labelsVisibleAtScale(camera.scale) && showLabelsLayer;
+  const visibleHoleLabels = useMemo(() => {
+    if (!labelsAllowed || !layers.holes) return new Set<string>();
+    const boxes: LabelBox[] = [];
+    for (const h of holes) {
+      const p = worldToScreen(camera, viewport, { x: h.collar.x, y: h.collar.y });
+      const radius = holeMarkerRadiusPx(h.diameter_mm, camera.scale, selected.has(h.id));
+      const priority = selected.has(h.id) ? 100 : h.enabled ? 10 : 1;
+      boxes.push({ id: `${h.id}:id`, x: p.x - 18, y: p.y + radius + 2, w: 36, h: 12, priority: priority + 1 });
+      if (labelField !== "none" && labelField !== "id") {
+        const text = secondaryLabelText(h, loadsById?.[h.id], labelField, timesMs?.[h.id]);
+        if (text) boxes.push({ id: `${h.id}:extra`, x: p.x - 20, y: p.y - 16, w: 40, h: 12, priority });
+      }
+    }
+    return visibleLabelIds(boxes);
+  }, [labelsAllowed, showLabelsLayer, layers.holes, holes, camera, viewport, selected, labelField, loadsById, timesMs]);
+  const throwArrow = useMemo(() => {
+    if (!showThrowDirection || contentPoints.length === 0) return null;
+    const bounds = boundsOf(contentPoints);
+    if (!bounds) return null;
+    const center = { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
+    const len = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.22;
+    const rad = ((throwAzimuthDeg - 90) * Math.PI) / 180;
+    return {
+      from: center,
+      to: { x: center.x + Math.cos(rad) * len, y: center.y + Math.sin(rad) * len },
+    };
+  }, [showThrowDirection, contentPoints, throwAzimuthDeg]);
   const animating = timesMs != null && animationMs != null;
 
   const hoveredVertexScreen =
@@ -1015,6 +1175,7 @@ export function PlanCanvas({
       ? [{ id: "face" as PlanTool, label: "Откос", icon: "▤", title: "Отметить открытый откос (F)" }]
       : []),
     { id: "pan", label: "Панорама", icon: "✥", title: "Панорама — тянуть холст (H)" },
+    { id: "measure", label: "Линейка", icon: "📏", title: "Измерить расстояние и азимут (M)" },
   ];
 
   const toolbar = (
@@ -1037,6 +1198,7 @@ export function PlanCanvas({
         <button type="button" title="Приблизить (+)" disabled={camera.scale >= MAX_SCALE} onClick={() => zoomBy(ZOOM_STEP)}>＋</button>
         <button type="button" title="Отдалить (−)" disabled={camera.scale <= MIN_SCALE} onClick={() => zoomBy(1 / ZOOM_STEP)}>−</button>
         <button type="button" title="Показать всё (0)" onClick={fitToContent}>⤢ По размеру</button>
+        <button type="button" title="Зум к выбору" disabled={!selected.size} onClick={fitToSelection}>◎ Выбор</button>
       </div>
       <div className="plan-tool-group">
         <label className="plan-toggle" title="Показывать координатную сетку">
@@ -1139,6 +1301,9 @@ export function PlanCanvas({
           <marker id="arrow-connector" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="#7a6ee0" />
           </marker>
+          <marker id="arrow-throw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#c45a2c" />
+          </marker>
           <marker id="arrow-movement" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="#8a5a1a" />
           </marker>
@@ -1160,7 +1325,7 @@ export function PlanCanvas({
         <line x1={0} y1={origin.y} x2={viewport.width} y2={origin.y} className="axis-line" />
         <line x1={origin.x} y1={0} x2={origin.x} y2={viewport.height} className="axis-line" />
 
-        {isolines?.map((iso, i) => {
+        {showIsolineLayer && isolines?.map((iso, i) => {
           const passed = animating && iso.time_ms <= animationMs!;
           const nextIso = isolines[i + 1];
           const isFront = passed && (nextIso == null || nextIso.time_ms > animationMs!);
@@ -1263,7 +1428,19 @@ export function PlanCanvas({
           return <rect key={`dvertex-${i}`} x={p.x - 4} y={p.y - 4} width={8} height={8} className="domain-vertex" />;
         })}
 
-        {network?.detonating_cords?.map((cord) => {
+        {showThrowDirection && throwArrow && (() => {
+          const a = toScreen(throwArrow.from);
+          const b = toScreen(throwArrow.to);
+          const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          return (
+            <g className="throw-direction">
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} markerEnd="url(#arrow-throw)" />
+              <text x={mid.x + 8} y={mid.y - 4}>выброс</text>
+            </g>
+          );
+        })()}
+
+        {showNetworkLayer && network?.detonating_cords?.map((cord) => {
           const pts = cord.hole_ids.map((id) => holesById.get(id)).filter((h): h is Hole => Boolean(h));
           if (pts.length < 2) return null;
           const screen = pts.map((h) => worldToScreen(camera, viewport, { x: h.collar.x, y: h.collar.y }));
@@ -1276,7 +1453,7 @@ export function PlanCanvas({
             />
           );
         })}
-        {(network ? networkTies(network) : []).map((c, i) => {
+        {showNetworkLayer && (network ? networkTies(network) : []).map((c, i) => {
           const from = holesById.get(c.from_hole);
           const to = holesById.get(c.to_hole);
           if (!from || !to) return null;
@@ -1346,11 +1523,20 @@ export function PlanCanvas({
           const isSelected = selected.has(h.id);
           const isHovered = hover.kind === "hole" && hover.id === h.id;
           const load = loadsById?.[h.id];
-          const mapValue = mapValues?.[h.id];
-          const mapColor = mapValue !== undefined && mapRange ? mapMetricColor(mapValue, mapRange.min, mapRange.max) : null;
-          const chargeColor = load && maxChargeKg > 0 ? chargeMassColor(load.total_charge_kg, maxChargeKg) : null;
-          const fillColor = mapColor ?? chargeColor;
-          const radius = Math.max(isSelected ? 6.5 : 5, ((h.diameter_mm / 1000) * camera.scale) / 2);
+          const healthCode = healthById?.[h.id] ?? "ok";
+          const fillColor = resolveHoleFillColor({
+            hole: h,
+            load,
+            colorMode,
+            mapValues,
+            mapRange,
+            maxChargeKg,
+            maxDelayMs,
+            timesMs,
+            healthCode,
+            asDrilled,
+          });
+          const radius = holeMarkerRadiusPx(h.diameter_mm, camera.scale, isSelected);
           let animClass = "";
           if (animating) {
             const t = timesMs![h.id];
@@ -1363,21 +1549,48 @@ export function PlanCanvas({
           const t = timesMs?.[h.id];
           const charged = (asCharged ?? []).some((item) => item.design_hole_id === h.id);
           const fired = (asFired ?? []).some((item) => item.design_hole_id === h.id);
+          const extraLabel = labelField !== "none" && labelField !== "id"
+            ? secondaryLabelText(h, load, labelField, t)
+            : null;
           return (
             <g
               key={h.id}
-              className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}`}
+              className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}${showHealthLayer && healthCode !== "ok" ? " health-issue" : ""}`}
             >
+              {showHealthLayer && healthCode !== "ok" && (
+                <circle cx={p.x} cy={p.y} r={radius + 3} className={`health-ring code-${healthCode}`} fill="none" />
+              )}
               <circle cx={p.x} cy={p.y} r={pending ? Math.max(radius, 7) : radius} style={fillColor ? { fill: fillColor } : undefined} />
               {charged && <circle cx={p.x + 7} cy={p.y - 6} r={2.2} className="as-charged-dot" />}
               {fired && <circle cx={p.x + 7} cy={p.y + 6} r={2.2} className="as-fired-dot" />}
-              {mode === "timing" && t !== undefined && (
-                <text x={p.x + 8} y={p.y - 6} className="hole-time-label">{ruNumber(t, 0)}</text>
+              {labelsAllowed && visibleHoleLabels.has(`${h.id}:id`) && (
+                <text x={p.x} y={p.y + radius + 11} className="hole-id-label">{h.id}</text>
               )}
-              <text x={p.x} y={p.y + radius + 11} className="hole-id-label">{h.id}</text>
+              {extraLabel && visibleHoleLabels.has(`${h.id}:extra`) && (
+                <text x={p.x + 8} y={p.y - 6} className="hole-extra-label">{extraLabel}</text>
+              )}
             </g>
           );
         })}
+
+        {measureState && measureState.points.length > 0 && measureState.points.map((pt, i) => {
+          const p = toScreen(pt);
+          return <circle key={`measure-${i}`} cx={p.x} cy={p.y} r={4} className="measure-point" />;
+        })}
+        {measureState?.result && measureState.points.length === 2 && (() => {
+          const a = toScreen(measureState.points[0]);
+          const b = toScreen(measureState.points[1]);
+          const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          const label = measureState.result.label ? `${measureState.result.label}: ` : "";
+          return (
+            <g className="measure-line">
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+              <text x={mid.x} y={mid.y - 6}>
+                {label}{ruNumber(measureState.result.distanceM, 2)} м · {ruNumber(measureState.result.azimuthDeg, 1)}°
+              </text>
+            </g>
+          );
+        })()}
 
         {dimensionLines.map((line, i) => {
           const a = toScreen(line.from);
@@ -1401,7 +1614,7 @@ export function PlanCanvas({
           />
         )}
 
-        <g className="plan-scale-bar" transform={`translate(${viewport.width - scaleBarPx - 18}, ${viewport.height - 20})`}>
+        <g className="plan-scale-bar" transform={`translate(${viewport.width - scaleBarPx - 18}, ${viewport.height - 52})`}>
           <line x1={0} y1={0} x2={scaleBarPx} y2={0} />
           <line x1={0} y1={-4} x2={0} y2={4} />
           <line x1={scaleBarPx} y1={-4} x2={scaleBarPx} y2={4} />
@@ -1430,18 +1643,6 @@ export function PlanCanvas({
           <polygon points="14,2 18,16 14,13 10,16" />
           <text x="14" y="32">С</text>
         </svg>
-      </div>
-
-      <div className="plan-readout">
-        {cursorWorld ? (
-          <span>X {ruNumber(cursorWorld.x, 1)} · Y {ruNumber(cursorWorld.y, 1)} м</span>
-        ) : (
-          <span>Курсор вне плана</span>
-        )}
-        <span className="plan-readout-sep">|</span>
-        <span>сетка {formatMeters(gridStep)} м</span>
-        <span className="plan-readout-sep">|</span>
-        <span>{ruNumber(camera.scale, camera.scale >= 10 ? 0 : 2)} px/м</span>
       </div>
 
       {showHelp ? (
@@ -1530,4 +1731,75 @@ function buildDimensionLines(
     distance: d,
     warn: Number.isFinite(expected) && Math.abs(d - expected) > SPACING_TOLERANCE_M && d < expected * 1.8,
   }));
+}
+
+const KIND_FILL: Record<string, string> = {
+  production: "#2d7556",
+  contour: "#c9a227",
+  presplit: "#7a6ee0",
+  trim: "#7a6ee0",
+};
+
+function secondaryLabelText(
+  hole: Hole,
+  load: HoleLoad | undefined,
+  field: MapLabelField,
+  delayMs?: number,
+): string | null {
+  switch (field) {
+    case "delay_ms":
+      return delayMs !== undefined ? ruNumber(delayMs, 0) : null;
+    case "charge_kg":
+      return load && load.total_charge_kg > 0 ? ruNumber(load.total_charge_kg, 0) : null;
+    case "depth_m":
+      return ruNumber(holeDepthM(hole), 1);
+    case "diameter_mm":
+      return ruNumber(hole.diameter_mm, 0);
+    case "angle_deg": {
+      const { angleDeg } = angleAzimuth(hole.collar, hole.toe);
+      return `${ruNumber(angleDeg, 0)}°`;
+    }
+    default:
+      return null;
+  }
+}
+
+function resolveHoleFillColor(input: {
+  hole: Hole;
+  load?: HoleLoad;
+  colorMode: MapColorMode;
+  mapValues?: Record<string, number>;
+  mapRange?: { min: number; max: number } | null;
+  maxChargeKg: number;
+  maxDelayMs: number;
+  timesMs?: Record<string, number> | null;
+  healthCode: HoleHealthCode;
+  asDrilled?: AsDrilledHole[];
+}): string | null {
+  const {
+    hole,
+    load,
+    colorMode,
+    mapValues,
+    mapRange,
+    maxChargeKg,
+    maxDelayMs,
+    timesMs,
+    healthCode,
+    asDrilled,
+  } = input;
+  if (mapValues && mapRange && mapValues[hole.id] !== undefined) {
+    return mapMetricColor(mapValues[hole.id], mapRange.min, mapRange.max);
+  }
+  if (colorMode === "health" && healthCode !== "ok") return healthColor(healthCode);
+  if (colorMode === "charge_kg" && load && maxChargeKg > 0) return chargeMassColor(load.total_charge_kg, maxChargeKg);
+  if (colorMode === "delay_ms" && timesMs && timesMs[hole.id] !== undefined && maxDelayMs > 0) {
+    return mapMetricColor(timesMs[hole.id], 0, maxDelayMs);
+  }
+  if (colorMode === "as_drilled") {
+    const hasFact = (asDrilled ?? []).some((item) => item.design_hole_id === hole.id);
+    return hasFact ? "#d07a2d" : "#9aa8a1";
+  }
+  if (!hole.enabled) return "#c3cdc7";
+  return KIND_FILL[hole.kind] ?? "#2d7556";
 }

@@ -21,7 +21,8 @@ import {
 } from "../../lib/geometry2d";
 import { surfaceElevation } from "../../lib/surfaces";
 import type { BlockContour, Hole, HoleLoad, InitiationNetwork, SurfaceSet, ValidationWarning } from "../../types/design";
-import { isExplosiveDeckKind, primerDepths } from "../../types/design";
+import { isExplosiveDeckKind, networkTies, primerDepths } from "../../types/design";
+import { healthColor, type HoleHealthMap } from "./holeHealth";
 
 const DRAW_PREFIX = "sec";
 const VIEW_HEIGHT = 460;
@@ -46,6 +47,10 @@ export function SectionView({
   rowAzimuthDeg,
   selectedRow,
   onSelectedRowChange,
+  selectedHoleIds,
+  onHoleSelect,
+  onHoleInspect,
+  healthById,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -56,6 +61,10 @@ export function SectionView({
   rowAzimuthDeg: number;
   selectedRow: number | null;
   onSelectedRowChange: (row: number) => void;
+  selectedHoleIds?: Set<string>;
+  onHoleSelect?: (id: string) => void;
+  onHoleInspect?: (id: string) => void;
+  healthById?: HoleHealthMap;
 }) {
   // <svg> появляется только когда в ряду есть скважины, поэтому наблюдаем за
   // ним через callback-ref: обычный useRef с эффектом на [] не сработал бы,
@@ -378,11 +387,26 @@ export function SectionView({
               />
             )}
 
+            {rowHoles.length > 1 && network && networkTies(network).map((tie) => {
+              const left = rowHoles.find((r) => r.hole.id === tie.from_hole);
+              const right = rowHoles.find((r) => r.hole.id === tie.to_hole);
+              if (!left || !right) return null;
+              const ax = makeHoleAxis(left.hole);
+              const bx = makeHoleAxis(right.hole);
+              const midX = (ax.collar.x + bx.collar.x) / 2;
+              return (
+                <text key={`tie-${tie.id}`} className="section-tie-label" x={midX} y={yCrest - 38} textAnchor="middle">
+                  {ruNumber(tie.delay_ms, 0)} мс
+                </text>
+              );
+            })}
+
             {rowHoles.map(({ hole }, holeIndex) => {
               const load = loadById.get(hole.id);
               const axis = makeHoleAxis(hole);
-              const active = activeHole === hole.id;
+              const active = activeHole === hole.id || selectedHoleIds?.has(hole.id);
               const holeWarnings = warningsByHole.get(hole.id);
+              const healthCode = healthById?.[hole.id];
               const delayMs = network?.downhole_delay_ms?.[hole.id];
               const subdrillFromM = Math.max(0, axis.lengthM - (hole.subdrill_m || 0));
               const holePrimers = load ? primerDepths(load) : [];
@@ -390,9 +414,24 @@ export function SectionView({
               return (
                 <g
                   key={hole.id}
-                  className={`section-hole${active ? " active" : ""}${holeWarnings ? " flagged" : ""}`}
-                  onClick={() => { if (dragMoved.current) return; setActiveHole(active ? null : hole.id); }}
+                  className={`section-hole${active ? " active" : ""}${holeWarnings ? " flagged" : ""}${healthCode && healthCode !== "ok" ? " health-issue" : ""}`}
+                  onClick={() => {
+                    if (dragMoved.current) return;
+                    setActiveHole(active ? null : hole.id);
+                    onHoleSelect?.(hole.id);
+                  }}
+                  onDoubleClick={() => onHoleInspect?.(hole.id)}
                 >
+                  {healthCode && healthCode !== "ok" && (
+                    <rect
+                      x={axis.collar.x - axis.widthPx / 2 - 4}
+                      y={axis.collar.y - 8}
+                      width={axis.widthPx + 8}
+                      height={axis.toe.y - axis.collar.y + 16}
+                      className="section-health-frame"
+                      style={{ stroke: healthColor(healthCode) }}
+                    />
+                  )}
                   <HoleBarrel axis={axis} prefix={DRAW_PREFIX} subdrillFromM={subdrillFromM} highlighted={active} />
 
                   {load?.decks.map((deck, i) => (

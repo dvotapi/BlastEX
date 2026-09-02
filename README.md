@@ -88,13 +88,25 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Новый веб-интерфейс (React)
+### 2. База данных
+
+Хранилище одно — PostgreSQL. Без `BLASTEX_DATABASE_URL` приложение не
+стартует и говорит об этом одной строкой.
+
+```bash
+export BLASTEX_DATABASE_URL="postgresql+psycopg://USER:PASSWORD@HOST:5432/project1"
+alembic upgrade head
+python scripts/seed_cost_v2.py     # начальные справочники организации
+```
+
+### 3. Новый веб-интерфейс (React)
 
 В первом терминале запустите API:
 
 ```bash
 export BLASTEX_SESSION_SECRET="локальный-секрет"
 export BLASTEX_COOKIE_SECURE=false
+export BLASTEX_DATABASE_URL="postgresql+psycopg://USER:PASSWORD@HOST:5432/project1"
 uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -112,7 +124,7 @@ FastAPI. React-интерфейс реализует все четыре раз�
 справочники — с тем же рабочим пространством команды (объект работ, сценарий,
 сохранение/загрузка) и тем же ролевым разграничением редактирования.
 
-### 3. Резервный интерфейс (Streamlit)
+### 4. Резервный интерфейс (Streamlit)
 
 ```bash
 source .venv/bin/activate
@@ -142,56 +154,57 @@ python3 scripts/hash_password.py
 
 После смены пароля или создания `secrets.toml` перезапустите Streamlit.
 
-### 4. REST API (опционально)
+### 5. REST API
 
 ```bash
 source .venv/bin/activate
 pip install -r requirements-api.txt
 export BLASTEX_API_KEY="длинный-случайный-секрет"
+export BLASTEX_DATABASE_URL="postgresql+psycopg://USER:PASSWORD@HOST:5432/project1"
 uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 - Swagger UI: `http://localhost:8000/docs`
 - Health: `http://localhost:8000/health`
 
-#### Подключение Cost V2 к `project1`
+#### Перенос данных Cost V1 в PostgreSQL
 
-Cost V1 продолжает читать JSON-файлы. Новая модель хранит свои
-версионные справочники, сценарии, прогоны и аудит в отдельной схеме
-`blastex` базы `project1`:
-
-```bash
-export BLASTEX_DATABASE_URL="postgresql+psycopg://USER:PASSWORD@HOST:5432/project1"
-alembic upgrade head
-python scripts/seed_cost_v2.py
-```
-
-Для проверяемого переноса старых JSON-справочников сначала выполните
-сухой прогон. Публикация требует явного флага и создаёт новую ревизию, не удаляя
-исходные файлы:
+Справочники, настройки рабочего пространства и сценарии сметы из
+`data/teams/{team}/` переносятся одним скриптом. По умолчанию — сухой прогон
+с отчётом; запись выполняется явным флагом и создаёт новую ревизию
+справочников, не удаляя исходные файлы:
 
 ```bash
-python scripts/import_cost_v1_to_project1.py --team-id TEAM_ID
-python scripts/import_cost_v1_to_project1.py --team-id TEAM_ID --publish
+python scripts/import_cost_v1_to_project1.py --team TEAM_ID
+python scripts/import_cost_v1_to_project1.py --team TEAM_ID --publish
 ```
 
-При запуске в Docker миграции применяются до старта FastAPI. Если
-`BLASTEX_DATABASE_URL` не задан, Cost V1 и остальное приложение запускаются, а
-эндпоинты `/api/v1/economics/*` явно возвращают `503`.
+После проверки перенесённых данных каталог `data/teams/{team}/scenarios`
+и `references.json` можно удалить из тома. Паспорта проектирования
+(`data/teams/{team}/designs`) и артефакты ML пока остаются файлами — их
+перенос выполняется отдельной задачей.
 
-### 5. Единый запуск через Docker
+При запуске в Docker миграции применяются до старта FastAPI.
+
+### 6. Единый запуск через Docker
 
 Создайте хеш пароля и `.env`:
 
 ```bash
 python3 scripts/hash_password.py
 cp .env.example .env
-# замените секреты, email, название организации и password_hash
+# замените секреты, email, название организации, password_hash и пароль базы
 docker compose up --build
 ```
 
-Откроется `http://localhost`. FastAPI не публикуется отдельным портом, а данные
-`data/teams` сохраняются в Docker volume.
+`docker compose up` поднимает три сервиса: `postgres`, `api` и `web`. API
+ждёт готовности базы, применяет миграции и только потом стартует — без
+`BLASTEX_DATABASE_URL` и `POSTGRES_PASSWORD` запуск прерывается с понятным
+сообщением.
+
+Откроется `http://localhost`. FastAPI не публикуется отдельным портом; данные
+базы лежат в томе `blastex_pg`, файловые паспорта проектирования — в
+`blastex_data`.
 
 Для VDS с доменом задайте в `.env`:
 
@@ -223,7 +236,7 @@ docker compose build --build-arg LIBREDWG_VERSION=0.14
 конвертеру можно задать переменной `BLASTEX_DWG_CONVERTER` — подойдёт любая
 утилита с аргументами `-y -o out.dxf in.dwg`.
 
-### 6. Автоматический production-деплой
+### 7. Автоматический production-деплой
 
 Workflow `.github/workflows/deploy.yml` запускается после каждого push в
 `main`: выполняет Python-тесты, собирает React-фронтенд и по SSH обновляет

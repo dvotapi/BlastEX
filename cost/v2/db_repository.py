@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -672,6 +672,98 @@ class PostgresEconomicsRepository:
                 )
             )
         return self.get_calculation_run(organization_id, run_id)
+
+    def import_legacy_workspace(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        team_name: str,
+        active_scenario_id: str,
+        active_work_object_name: str,
+        reference_revision_id: str | None = None,
+    ) -> None:
+        """Настройки рабочего пространства Cost V1 → PostgreSQL.
+
+        Данные переносятся один раз при развёртывании: после этого каталог
+        `data/teams/` из тома больше не нужен.
+        """
+
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            row = session.get(LegacyWorkspaceSettingsRow, organization_id)
+            if row is None:
+                session.add(
+                    LegacyWorkspaceSettingsRow(
+                        organization_id=organization_id,
+                        team_name=team_name,
+                        active_scenario_id=active_scenario_id,
+                        active_work_object_name=active_work_object_name,
+                        reference_revision_id=reference_revision_id,
+                        created_at=now,
+                        created_by=user_id,
+                        updated_at=now,
+                        updated_by=user_id,
+                    )
+                )
+                return
+            row.team_name = team_name
+            row.active_scenario_id = active_scenario_id
+            row.active_work_object_name = active_work_object_name
+            row.reference_revision_id = reference_revision_id
+            row.updated_at = now
+            row.updated_by = user_id
+
+    def import_legacy_scenarios(
+        self,
+        organization_id: str,
+        user_id: str,
+        scenarios: Mapping[str, dict[str, Any]],
+        *,
+        reference_revision_id: str | None = None,
+    ) -> list[str]:
+        """Сценарии сметы Cost V1 → PostgreSQL; ключ сценария остаётся прежним."""
+
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        imported: list[str] = []
+        with self.session_factory() as session, session.begin():
+            existing = {
+                row.scenario_key: row
+                for row in session.scalars(
+                    select(LegacyCostScenarioRow).where(
+                        LegacyCostScenarioRow.organization_id == organization_id
+                    )
+                ).all()
+            }
+            for scenario_key, payload in scenarios.items():
+                row = existing.get(scenario_key)
+                values = {
+                    "labor_assignment_records": list(payload.get("labor_assignment_records") or []),
+                    "drilling_calculator_input": dict(payload.get("drilling_calculator_input") or {}),
+                    "scenario_phase_overrides": dict(payload.get("scenario_phase_overrides") or {}),
+                    "payload": dict(payload),
+                    "reference_revision_id": reference_revision_id,
+                }
+                if row is None:
+                    session.add(
+                        LegacyCostScenarioRow(
+                            id=str(uuid4()),
+                            organization_id=organization_id,
+                            scenario_key=scenario_key,
+                            created_at=now,
+                            created_by=user_id,
+                            updated_at=now,
+                            updated_by=user_id,
+                            **values,
+                        )
+                    )
+                else:
+                    for field, value in values.items():
+                        setattr(row, field, value)
+                    row.updated_at = now
+                    row.updated_by = user_id
+                imported.append(scenario_key)
+        return imported
 
     def _insert_reference_items(
         self,

@@ -159,6 +159,48 @@ class TestValidationThroughSchemas:
         issues = _errors(validate_reference_sections(sections))
         assert [issue for issue in issues if issue.section == "labor_rates"] == []
 
+    def test_reference_inside_a_list_is_checked(self):
+        """Ссылка в составе бригады лежит в элементе списка, а не на верхнем уровне."""
+
+        sections = dict(default_reference_sections())
+        sections["crew_templates"] = (
+            _item("CREW_X", {
+                "package_code": "DRILL_AND_BLAST",
+                "members": [
+                    {"position_code": "POSITION_GHOST", "headcount": 2},
+                    {"position_code": "POSITION_ALSO_MISSING", "headcount": 1},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        fields = {issue.field for issue in issues if issue.section == "crew_templates"}
+        # Индекс в адресе нужен, чтобы форма подсветила нужную строку состава.
+        assert fields == {"members.0.position_code", "members.1.position_code"}
+
+    def test_valid_reference_inside_a_list_passes(self):
+        sections = dict(default_reference_sections())
+        sections["positions"] = (_item("POSITION_HEAD", {"category": "INDIRECT"}),)
+        sections["crew_templates"] = (
+            _item("CREW_OK", {
+                "package_code": "DRILL_AND_BLAST",
+                "members": [{"position_code": "POSITION_HEAD", "headcount": 1}],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.section == "crew_templates"] == []
+
+    def test_a_negative_rate_is_reported_once(self):
+        """Схема и старая проверка не должны показывать одну ошибку дважды."""
+
+        sections = dict(default_reference_sections())
+        sections["cost_rules"] = (_item("RULE_X", {"rate_rub": -5}),)
+        issues = [
+            issue for issue in _errors(validate_reference_sections(sections))
+            if issue.section == "cost_rules" and issue.code == "RULE_X"
+        ]
+        assert len(issues) == 1
+        assert issues[0].field == "rate_rub"
+
     def test_drilling_condition_without_rock_is_a_valid_default(self):
         sections = dict(default_reference_sections())
         sections["equipment_types"] = (_item("TYPE_JK830", {"kind": "DRILL_RIG"}),)

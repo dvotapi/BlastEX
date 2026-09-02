@@ -11,22 +11,30 @@ from cost.v2.models import ReferenceItem, ReferenceSnapshot
 
 
 # Cost V1 хранил единицу измерения свободным текстом. Схемы Cost V2 требуют
-# ссылку на раздел «Единицы измерения», поэтому текст переводится в код; всё
-# неизвестное остаётся пустым и попадает в предупреждения отчёта.
+# ссылку на раздел «Единицы измерения», поэтому текст переводится в код.
+#
+# Сокращения, у которых есть второе прочтение, сюда не входят: «см» в
+# номенклатуре — это сантиметр, а не смена, и молча превратить длину во время
+# опаснее, чем оставить единицу незаполненной.
 _UNIT_CODES: dict[str, str] = {
     "шт": "PIECE", "шт.": "PIECE", "штука": "PIECE",
     "кг": "KG", "т": "T", "тонна": "T",
     "м": "M", "п.м": "M", "пм": "M", "м2": "M2", "м²": "M2", "м3": "M3", "м³": "M3",
-    "ч": "HOUR", "час": "HOUR", "смена": "SHIFT", "см": "SHIFT",
+    "ч": "HOUR", "час": "HOUR", "смена": "SHIFT",
     "рейс": "TRIP", "взрыв": "BLAST",
 }
 
 
-def _unit_code(raw: Any) -> str | None:
+def _unit_code(raw: Any, unknown: set[str]) -> str | None:
+    """Код единицы измерения; нераспознанный текст копится в `unknown`."""
+
     text = str(raw or "").strip().lower()
     if not text:
         return None
-    return _UNIT_CODES.get(text)
+    code = _UNIT_CODES.get(text)
+    if code is None:
+        unknown.add(text)
+    return code
 
 
 @dataclass
@@ -157,12 +165,21 @@ def build_import_sections(
             )
         )
     if equipment_types:
-        sections["equipment_types"] = _dedupe_items(equipment_types)
+        # Дополняем раздел, а не заменяем: у организации уже могут быть типы,
+        # заведённые руками, с нормами смен, ТОиР и расходом топлива — импорт
+        # сценария V1 не должен их стирать. При совпадении кода побеждает
+        # существующая запись как более полная.
+        existing = sections.get("equipment_types", ())
+        existing_codes = {item.code for item in existing}
+        sections["equipment_types"] = tuple(existing) + tuple(
+            item for item in _dedupe_items(equipment_types) if item.code not in existing_codes
+        )
     if equipment:
         sections["equipment_assets"] = _dedupe_items(equipment)
 
     materials: list[ReferenceItem] = []
     material_prices: list[ReferenceItem] = []
+    unknown_units: set[str] = set()
     for row in references.get("explosive_records", []):
         code = f"EXP_{_code(str(row.get('key') or row.get('name') or 'VM'))}"
         materials.append(
@@ -187,7 +204,7 @@ def build_import_sections(
                 source="Cost V1 scenario JSON",
                 payload={
                     "category": row.get("category", "OTHER"),
-                    "unit": _unit_code(row.get("unit")),
+                    "unit": _unit_code(row.get("unit"), unknown_units),
                     "mass_kg": row.get("mass_kg"),
                     "length_m": row.get("length_m"),
                     "legacy_ref": row.get("id"),
@@ -202,9 +219,15 @@ def build_import_sections(
                 payload={
                     "material_code": code,
                     "price_rub": row.get("price", 0),
-                    "unit": _unit_code(row.get("unit")),
+                    "unit": _unit_code(row.get("unit"), unknown_units),
                 },
             )
+        )
+    if unknown_units:
+        report.warnings.append(
+            "Единицы измерения Cost V1 не распознаны и оставлены пустыми: "
+            + ", ".join(sorted(unknown_units))
+            + ". Проставьте их вручную."
         )
     if materials:
         sections["materials"] = _dedupe_items(materials)

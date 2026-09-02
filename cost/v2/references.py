@@ -10,7 +10,7 @@ from typing import Any, Mapping, Sequence
 from pydantic import ValidationError as PydanticValidationError
 
 from cost.v2.models import CostBehavior, CostLayer, ReferenceItem, ReferenceSnapshot
-from cost.v2.schemas import SECTION_SCHEMAS, referenced_sections
+from cost.v2.schemas import SECTION_SCHEMAS, reference_paths
 from cost.v2.packages import (
     DEFAULT_OPERATIONS,
     DEFAULT_PACKAGES,
@@ -385,26 +385,11 @@ def validate_reference_sections(
             CostLayer(str(payload.get("cost_layer", CostLayer.PROJECT_DIRECT.value)))
         except ValueError as exc:
             issues.append(ValidationIssue("error", "cost_rules", item.code, str(exc)))
-        for numeric_key in ("rate_rub", "fixed_rub", "step_capacity", "step_cost_rub"):
-            value = payload.get(numeric_key)
-            if value in (None, ""):
-                continue
-            try:
-                if Decimal(str(value)) < 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                issues.append(ValidationIssue("error", "cost_rules", item.code, f"{numeric_key} должно быть неотрицательным числом."))
+        # Неотрицательность ставок и ёмкостей проверяет схема раздела
+        # (UnitField с ge=0) — дублировать её здесь значит показать сметчику
+        # одну и ту же ошибку дважды, причём вторую без имени поля.
 
     for item in sections["resource_pools"]:
-        for numeric_key in ("monthly_capacity", "fixed_cost_rub", "variable_rate_rub"):
-            value = item.payload.get(numeric_key)
-            if value in (None, ""):
-                continue
-            try:
-                if Decimal(str(value)) < 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                issues.append(ValidationIssue("error", "resource_pools", item.code, f"{numeric_key} должно быть неотрицательным числом."))
         if item.payload.get("monthly_capacity") in (None, ""):
             issues.append(ValidationIssue("warning", "resource_pools", item.code, "Месячная мощность не заполнена; перегрузка ресурса не контролируется."))
 
@@ -466,15 +451,14 @@ def _reference_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[V
     }
     issues: list[ValidationIssue] = []
     for section, items in sections.items():
-        refs = referenced_sections(section)
-        if not refs:
+        paths = reference_paths(section)
+        if not paths:
             continue
         for item in items:
-            for field, target in refs.items():
-                value = item.payload.get(field)
-                if value in (None, ""):
-                    continue
-                if str(value) not in known.get(target, set()):
+            for path, target in paths:
+                for field, value in _values_at(item.payload, path):
+                    if str(value) in known.get(target, set()):
+                        continue
                     label = REFERENCE_SECTION_DEFINITIONS.get(target, {}).get("label", target)
                     issues.append(
                         ValidationIssue(
@@ -486,6 +470,35 @@ def _reference_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[V
                         )
                     )
     return issues
+
+
+def _values_at(payload: Any, path: Sequence[str]) -> list[tuple[str, Any]]:
+    """Значения по пути внутри payload вместе с адресом поля для интерфейса.
+
+    Списки разворачиваются с индексом (`members.0.position_code`), чтобы форма
+    подсветила именно ту строку состава бригады, где ссылка не найдена.
+    """
+
+    found: list[tuple[str, Any]] = []
+
+    def walk(node: Any, rest: Sequence[str], label: str) -> None:
+        if isinstance(node, list):
+            for index, element in enumerate(node):
+                walk(element, rest, f"{label}.{index}" if label else str(index))
+            return
+        if not rest:
+            if node not in (None, ""):
+                found.append((label, node))
+            return
+        if not isinstance(node, Mapping):
+            return
+        key = rest[0]
+        if key not in node:
+            return
+        walk(node[key], rest[1:], f"{label}.{key}" if label else key)
+
+    walk(payload, list(path), "")
+    return found
 
 
 def has_validation_errors(issues: Sequence[ValidationIssue]) -> bool:

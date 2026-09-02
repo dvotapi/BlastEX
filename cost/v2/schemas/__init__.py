@@ -191,16 +191,65 @@ def section_fieldsets(section: str) -> list[dict[str, Any]]:
     return grouped
 
 
-def referenced_sections(section: str) -> dict[str, str]:
-    """Поля-ссылки раздела: {имя поля: раздел, на который ссылается}."""
+@lru_cache(maxsize=None)
+def reference_paths(section: str) -> tuple[tuple[tuple[str, ...], str], ...]:
+    """Все поля-ссылки раздела вместе с путём до них.
+
+    Путь нужен потому, что ссылки живут не только на верхнем уровне: состав
+    бригады — список объектов, у каждого своя ссылка на должность. Плоский
+    список свойств такие поля не видит, и битая ссылка проходила публикацию.
+    """
 
     schema = section_json_schema(section)
-    refs: dict[str, str] = {}
-    for name, field in (schema.get("properties") or {}).items():
+    definitions = schema.get("$defs") or {}
+    found: list[tuple[tuple[str, ...], str]] = []
+    _collect_refs(schema.get("properties") or {}, definitions, (), found, set())
+    return tuple(found)
+
+
+def referenced_sections(section: str) -> dict[str, str]:
+    """Поля-ссылки верхнего уровня: {имя поля: раздел, на который ссылается}."""
+
+    return {path[0]: target for path, target in reference_paths(section) if len(path) == 1}
+
+
+def _collect_refs(
+    properties: dict[str, Any],
+    definitions: dict[str, Any],
+    prefix: tuple[str, ...],
+    found: list[tuple[tuple[str, ...], str]],
+    visiting: set[str],
+) -> None:
+    for name, field in properties.items():
         target = _extract_ref(field)
         if target:
-            refs[name] = target
-    return refs
+            found.append((prefix + (name,), target))
+            continue
+        nested_name, nested = _nested_object(field, definitions)
+        if nested is None or nested_name in visiting:
+            # Схема может ссылаться сама на себя — по кругу не ходим.
+            continue
+        visiting.add(nested_name)
+        _collect_refs(nested.get("properties") or {}, definitions, prefix + (name,), found, visiting)
+        visiting.discard(nested_name)
+
+
+def _nested_object(field: dict[str, Any], definitions: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    """Вложенная модель поля: сам объект, элемент списка или вариант anyOf."""
+
+    candidates: list[Any] = [field, field.get("items")]
+    candidates.extend(field.get("anyOf", ()))
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        ref = candidate.get("$ref")
+        if not isinstance(ref, str) or not ref.startswith("#/$defs/"):
+            continue
+        name = ref.removeprefix("#/$defs/")
+        definition = definitions.get(name)
+        if isinstance(definition, dict):
+            return name, definition
+    return "", None
 
 
 def _extract_ref(field: dict[str, Any]) -> str | None:

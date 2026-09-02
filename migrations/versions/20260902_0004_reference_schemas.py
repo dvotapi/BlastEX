@@ -60,6 +60,11 @@ ORGANIZATION_RATES_PAYLOAD = {
 }
 ORGANIZATION_RATES_CODE = "ORG_RATES_DEFAULT"
 
+# Тип техники для основных средств, импортированных из Cost V1: вида техники
+# там не было вовсе, а схема требует ссылку. Настоящий вид указывает сметчик.
+LEGACY_EQUIPMENT_TYPE_CODE = "TYPE_V1_LEGACY"
+LEGACY_EQUIPMENT_TYPE_NAME = "Техника из Cost V1 (требует классификации)"
+
 
 def _load(payload) -> dict:
     if isinstance(payload, dict):
@@ -110,6 +115,9 @@ def upgrade() -> None:
     if moved:
         changed["drilling_conditions"] += moved
 
+    changed += _backfill_positions(bind)
+    changed += _backfill_equipment_assets(bind)
+
     # Ставки организации — по одной записи на ревизию, где их ещё нет.
     revisions = bind.execute(
         sa.text(f"SELECT id, organization_id FROM {SCHEMA}.reference_revisions")
@@ -129,7 +137,7 @@ def upgrade() -> None:
                 f"INSERT INTO {SCHEMA}.reference_items "
                 "(id, organization_id, revision_id, section, code, name, payload, is_active, "
                 " valid_from, valid_to, source, comment, item_revision) "
-                "VALUES (:id, :org, :revision, 'organization_rates', :code, :name, :payload, true, "
+                "VALUES (:id, :org, :revision, 'organization_rates', :code, :name, CAST(:payload AS jsonb), true, "
                 " NULL, NULL, :source, '', 1)"
             ),
             {
@@ -148,6 +156,100 @@ def upgrade() -> None:
         logger.info("reference_items: раздел %s — изменено записей: %s", section, count)
 
     _assert_payloads_match_schemas(bind)
+
+
+def _backfill_positions(bind) -> Counter:
+    """Проставляет категорию должностям, импортированным из Cost V1.
+
+    В V1 у должности была только ссылка на строку источника. Схема по
+    умолчанию считает должность прямой, а прямая обязана иметь операцию
+    пакета, — без категории такая запись не проходит проверку и блокирует
+    миграцию. Косвенная категория безопасна: она ничего не требует и не
+    попадает в себестоимость блока, пока сметчик не уточнит роль.
+    """
+
+    changed: Counter[str] = Counter()
+    rows = bind.execute(
+        sa.text(f"SELECT id, payload FROM {SCHEMA}.reference_items WHERE section = 'positions'")
+    ).fetchall()
+    for row in rows:
+        payload = _load(row.payload)
+        if payload.get("category"):
+            continue
+        payload["category"] = "INDIRECT"
+        payload.pop("operation_code", None)
+        bind.execute(
+            sa.text(f"UPDATE {SCHEMA}.reference_items SET payload = :payload WHERE id = :id"),
+            {"payload": json.dumps(payload, ensure_ascii=False), "id": row.id},
+        )
+        changed["positions"] += 1
+    return changed
+
+
+def _backfill_equipment_assets(bind) -> Counter:
+    """Привязывает основные средства Cost V1 к типу техники.
+
+    Ссылка на тип обязательна, а в V1 её не было: буровой станок и его
+    стоимость лежали одной записью. Заводим служебный тип в каждой ревизии,
+    где есть такие ОС, и указываем его — с пометкой, что вид нужно уточнить.
+    """
+
+    changed: Counter[str] = Counter()
+    rows = bind.execute(
+        sa.text(
+            f"SELECT id, organization_id, revision_id, payload FROM {SCHEMA}.reference_items "
+            "WHERE section = 'equipment_assets'"
+        )
+    ).fetchall()
+    revisions_needing_type: dict[str, str] = {}
+    for row in rows:
+        payload = _load(row.payload)
+        current = payload.get("equipment_type_code")
+        if current == LEGACY_EQUIPMENT_TYPE_CODE:
+            # Ссылка уже стоит — например, после отката и повторного наката.
+            # Тип всё равно должен существовать, иначе ссылка повиснет.
+            revisions_needing_type[row.revision_id] = row.organization_id
+            continue
+        if current:
+            continue
+        payload["equipment_type_code"] = LEGACY_EQUIPMENT_TYPE_CODE
+        revisions_needing_type[row.revision_id] = row.organization_id
+        bind.execute(
+            sa.text(f"UPDATE {SCHEMA}.reference_items SET payload = :payload WHERE id = :id"),
+            {"payload": json.dumps(payload, ensure_ascii=False), "id": row.id},
+        )
+        changed["equipment_assets"] += 1
+
+    for revision_id, organization_id in revisions_needing_type.items():
+        exists = bind.execute(
+            sa.text(
+                f"SELECT 1 FROM {SCHEMA}.reference_items WHERE revision_id = :revision "
+                "AND section = 'equipment_types' AND code = :code LIMIT 1"
+            ),
+            {"revision": revision_id, "code": LEGACY_EQUIPMENT_TYPE_CODE},
+        ).first()
+        if exists:
+            continue
+        bind.execute(
+            sa.text(
+                f"INSERT INTO {SCHEMA}.reference_items "
+                "(id, organization_id, revision_id, section, code, name, payload, is_active, "
+                " valid_from, valid_to, source, comment, item_revision) "
+                "VALUES (:id, :org, :revision, 'equipment_types', :code, :name, CAST(:payload AS jsonb), true, "
+                " NULL, NULL, :source, '', 1)"
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "org": organization_id,
+                "revision": revision_id,
+                "code": LEGACY_EQUIPMENT_TYPE_CODE,
+                "name": LEGACY_EQUIPMENT_TYPE_NAME,
+                "payload": json.dumps({"kind": "LIGHT_VEHICLE"}, ensure_ascii=False),
+                "source": "Миграция 20260902_0004",
+            },
+        )
+        changed["equipment_types"] += 1
+    return changed
 
 
 def _assert_payloads_match_schemas(bind) -> None:
@@ -188,6 +290,35 @@ def downgrade() -> None:
     bind.execute(
         sa.text(f"DELETE FROM {SCHEMA}.reference_items WHERE section = 'organization_rates'")
     )
+    # Служебный тип техники удаляем только там, где на него уже никто не
+    # ссылается: ссылку в основных средствах мы не снимаем (см. ниже), а
+    # удалить цель, оставив ссылку, значит получить битый справочник.
+    referencing = {
+        row.revision_id
+        for row in bind.execute(
+            sa.text(
+                f"SELECT DISTINCT revision_id, payload FROM {SCHEMA}.reference_items "
+                "WHERE section = 'equipment_assets'"
+            )
+        ).fetchall()
+        if _load(row.payload).get("equipment_type_code") == LEGACY_EQUIPMENT_TYPE_CODE
+    }
+    legacy_types = bind.execute(
+        sa.text(
+            f"SELECT id, revision_id FROM {SCHEMA}.reference_items "
+            "WHERE section = 'equipment_types' AND code = :code AND source = :source"
+        ),
+        {"code": LEGACY_EQUIPMENT_TYPE_CODE, "source": "Миграция 20260902_0004"},
+    ).fetchall()
+    for row in legacy_types:
+        if row.revision_id in referencing:
+            continue
+        bind.execute(
+            sa.text(f"DELETE FROM {SCHEMA}.reference_items WHERE id = :id"), {"id": row.id}
+        )
+    # Проставленные категорию и ссылку на тип техники не снимаем: отличить
+    # заполненное миграцией от заполненного человеком нельзя, а старый код
+    # лишние поля payload просто игнорирует.
     bind.execute(
         sa.text(
             f"UPDATE {SCHEMA}.reference_items SET section = 'drilling_productivity' "

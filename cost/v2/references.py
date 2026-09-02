@@ -222,8 +222,31 @@ def _system_items() -> dict[str, tuple[ReferenceItem, ...]]:
             ("UNIT_AHP", "АХП производственного юнита", "CONTRACT_LINE", "full", "revenue"),
         )
     )
+    # Ставки организации по ADR-001: без них модель экономики не стартует, а
+    # угадать их нельзя, поэтому запись заводится сразу со значениями по
+    # умолчанию и правится сметчиком.
+    organization_rates = (
+        _item(
+            "ORG_RATES_DEFAULT",
+            "Ставки и надбавки организации",
+            {
+                "income_tax_rate": "0.13",
+                "social_contribution_rate": "0.30",
+                "injury_insurance_rate": "0.0042",
+                "vacation_reserve_rate": "0.20",
+                "salary_basis": "GROSS",
+                "overhead_rate": "0.10",
+                "target_margin_rate": "0.10",
+                "vat_rate": "0.20",
+                "per_diem_rub": "0",
+                "lodging_rub": "0",
+                "shift_hours": "11",
+            },
+        ),
+    )
     return {
         "units": units,
+        "organization_rates": organization_rates,
         "operations": operation_reference_items(),
         "work_packages": package_reference_items(),
         "resource_pools": resource_pools,

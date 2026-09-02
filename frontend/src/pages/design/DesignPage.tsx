@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import { collarZFromSurfaces, surfaceElevation } from "../../lib/surfaces";
@@ -105,9 +105,25 @@ import { designReducer, initDesignState } from "./designReducer";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
+import { layersToMapLegend } from "./MapLegend";
 import { PatternPanel } from "./PatternPanel";
-import { PlanCanvas, type CanvasToolRequest } from "./PlanCanvas";
+import { PlanCanvas, type PlanMeasureState } from "./PlanCanvas";
 import { StageInspector } from "./StageInspector";
+import { VisibilityPanel } from "./VisibilityPanel";
+import { MapStatusBar } from "./MapStatusBar";
+import { HoleContextMenu, type HoleContextMenuState } from "./HoleContextMenu";
+import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCommand } from "./CommandPalette";
+import { computeAllHoleHealth, healthColor, summarizeHealth } from "./holeHealth";
+import {
+  applyPresetToState,
+  applyViewPreset,
+  defaultDesignViewState,
+  resetLayersToPreset,
+  stageDefaultPreset,
+  type DesignViewState,
+  type LayerId,
+  type ViewPresetId,
+} from "./viewPresets";
 import {
   holeSourceLabel,
   isCrsUnconfirmed,
@@ -139,23 +155,6 @@ import { SpatialPanel } from "./SpatialPanel";
 import { MovementPanel } from "./MovementPanel";
 import { PassportPanel } from "./PassportPanel";
 import { MassBlastPanel } from "./MassBlastPanel";
-import { VisibilityPanel } from "./VisibilityPanel";
-import { MapStatusBar } from "./MapStatusBar";
-import { HoleContextMenu, type HoleContextAction } from "./HoleContextMenu";
-import {
-  CommandPalette,
-  buildCameraCommands,
-  buildPresetCommands,
-  useCommandPaletteHotkey,
-} from "./CommandPalette";
-import { computeAllHoleHealth, summarizeHealth } from "./holeHealth";
-import {
-  applyViewPreset,
-  defaultDesignViewState,
-  patchDesignView,
-  stageDefaultPreset,
-  type DesignViewState,
-} from "./viewPresets";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -189,17 +188,14 @@ export function DesignPage({
   const [workflowStage, setWorkflowStage] = useState<WorkflowStageId>("survey");
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectHoleId, setInspectHoleId] = useState<string | null>(null);
-  const [designView, setDesignView] = useState<DesignViewState>(() => defaultDesignViewState("survey"));
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [toolRequest, setToolRequest] = useState<CanvasToolRequest>(null);
-  const [contextMenu, setContextMenu] = useState<{ holeId: string; x: number; y: number } | null>(null);
-  const [mapStatus, setMapStatus] = useState({
-    cursorWorld: null as Vec2 | null,
-    scalePxPerM: 6,
-    gridStepM: 1,
-    measureDistanceM: null as number | null,
-    measureActive: false,
-  });
+  const [designView, setDesignView] = useState<DesignViewState>(() => defaultDesignViewState());
+  const [visibilityCollapsed, setVisibilityCollapsed] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [holeMenu, setHoleMenu] = useState<HoleContextMenuState>(null);
+  const [measureState, setMeasureState] = useState<PlanMeasureState>({ points: [], holeIds: [], result: null });
+  const [mapCursor, setMapCursor] = useState<Vec2 | null>(null);
+  const [zoomRequest, setZoomRequest] = useState<{ kind: "fit" | "selection"; tick: number } | null>(null);
+  const [toolRequest, setToolRequest] = useState<{ tool: "measure"; tick: number } | null>(null);
   const [lifecycleConfirm, setLifecycleConfirm] = useState(false);
   const [lifecycleNote, setLifecycleNote] = useState("");
   const designedLocked = !canEditDesigned(document.lifecycle_status);
@@ -396,40 +392,6 @@ export function DesignPage({
     return map;
   }, [document.loads]);
 
-  const holeHealthById = useMemo(
-    () =>
-      computeAllHoleHealth(document.holes, {
-        loadsById,
-        warnings: analysis?.validation_warnings,
-        network: document.network,
-        timesMs: analysis?.times_ms,
-        requireCharge: workflowStage === "charge" || designView.preset === "charge" || designView.preset === "review",
-        requireNetwork: workflowStage === "timing" || designView.preset === "network" || designView.preset === "timing" || designView.preset === "review",
-      }),
-    [document.holes, loadsById, analysis, document.network, workflowStage, designView.preset],
-  );
-
-  const healthSummary = useMemo(() => summarizeHealth(holeHealthById), [holeHealthById]);
-
-  useEffect(() => {
-    setDesignView((prev) => applyViewPreset(stageDefaultPreset(workflowStage), prev));
-  }, [workflowStage]);
-
-  useCommandPaletteHotkey(useCallback(() => setCommandPaletteOpen(true), []));
-
-  const paletteCommands = useMemo(
-    () => [
-      ...buildPresetCommands((preset) => setDesignView((prev) => applyViewPreset(preset, prev))),
-      ...buildCameraCommands({
-        onFit: () => setToolRequest({ kind: "fitAll" }),
-        onZoomSelection: () => setToolRequest({ kind: "zoomSelection" }),
-        onToggleMeasure: () => setToolRequest({ kind: "toggleMeasure" }),
-        onCameraMode3d: (mode) => setDesignView((prev) => ({ ...prev, cameraMode3d: mode })),
-      }),
-    ],
-    [],
-  );
-
   const mapOverlay = useMemo(() => {
     if (!mapMetric) return { values: undefined as Record<string, number> | undefined, range: null as { min: number; max: number } | null };
     if (isFragmentationMapMetric(mapMetric)) {
@@ -518,6 +480,10 @@ export function DesignPage({
     }
     setWorkflowStage(next);
     setInspectorOpen(true);
+    if (!designView.presetLocked) {
+      const preset = stageDefaultPreset(next);
+      setDesignView((prev) => applyPresetToState(prev, preset, false));
+    }
     if (next === "survey" || next === "geology") setMode("contour");
     else if (next === "pattern") setMode("holes");
     else if (next === "charge") setMode("charge");
@@ -525,39 +491,47 @@ export function DesignPage({
     else setMode("holes");
   }
 
-  function handleContextMenuAction(action: HoleContextAction) {
-    if (!contextMenu) return;
-    const holeId = contextMenu.holeId;
-    const hole = document.holes.find((item) => item.id === holeId);
-    if (!hole) {
-      setContextMenu(null);
-      return;
-    }
-    if (action === "inspect") {
-      setInspectHoleId(holeId);
-      setSelected(new Set([holeId]));
-    } else if (action === "delete") {
-      deleteHoles([holeId]);
-      setSelected((prev) => {
-        const next = new Set(prev);
-        next.delete(holeId);
-        return next;
-      });
-    } else if (action === "toggleEnabled") {
-      setHolesEnabled([holeId], !hole.enabled);
-    } else if (action === "zoom") {
-      setSelected(new Set([holeId]));
-      setToolRequest({ kind: "zoomSelection" });
-    } else if (action === "startTie") {
-      setMode("tie");
-      setWorkflowStage("timing");
-      setPendingTieFromId(holeId);
-      setSelected(new Set([holeId]));
-    } else if (action === "measure") {
-      setDesignView((prev) => ({ ...prev, showMeasure: true }));
-      setToolRequest({ kind: "toggleMeasure" });
-    }
-    setContextMenu(null);
+  function setViewPreset(preset: ViewPresetId) {
+    setDesignView(applyViewPreset(preset, true));
+  }
+
+  function zoomToHole(holeId: string) {
+    setSelected(new Set([holeId]));
+    setZoomRequest({ kind: "selection", tick: Date.now() });
+    const hole = document.holes.find((h) => h.id === holeId);
+    if (hole && viewMode === "section") setSelectedRow(hole.row);
+  }
+
+  function copyHoleParams(holeId: string) {
+    const hole = document.holes.find((h) => h.id === holeId);
+    if (!hole) return;
+    const payload = JSON.stringify({
+      diameter_mm: hole.diameter_mm,
+      subdrill_m: hole.subdrill_m,
+      kind: hole.kind,
+      row: hole.row,
+      col: hole.col,
+    });
+    void navigator.clipboard?.writeText(payload);
+  }
+
+  function toggleStarterForHole(holeId: string) {
+    if (rejectLocked("designed")) return;
+    const network = normalizeNetwork(document.network);
+    const starterItems = network.starter_items.length
+      ? [...network.starter_items]
+      : network.starters.map((id) => ({ id: `st-${id}`, hole_id: id, delay_ms: 0, kind: "starter" }));
+    const index = starterItems.findIndex((item) => item.hole_id === holeId);
+    if (index >= 0) starterItems.splice(index, 1);
+    else starterItems.push({ id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" });
+    dispatch({
+      type: "SET_NETWORK",
+      network: {
+        ...network,
+        starter_items: starterItems,
+        starters: starterItems.map((item) => item.hole_id),
+      },
+    });
   }
 
   async function refreshPlans() {
@@ -2458,6 +2432,84 @@ export function DesignPage({
   const stageStatuses = statusesForDocument(document, { crsUnconfirmed });
   const inspectHole = document.holes.find((h) => h.id === inspectHoleId) ?? null;
   const stageTitle = WORKFLOW_STAGES.find((item) => item.id === workflowStage)?.label ?? "Параметры";
+  // Стрелка выброса на плане: если тайминг задан «по направлению», показываем
+  // именно его азимут (применённый, иначе настраиваемый); азимут рядов —
+  // только как запасной вариант для рядных схем.
+  const appliedDirectionDeg = Number(document.network.timing_params?.direction_azimuth_deg);
+  const throwAzimuthDeg = document.network.timing_mode === "direction" && Number.isFinite(appliedDirectionDeg)
+    ? appliedDirectionDeg
+    : tieParams.timing_mode === "direction"
+      ? tieParams.direction_azimuth_deg
+      : patternParams.row_azimuth_deg;
+  const mapContourLayers = useMemo(() => layersToMapLegend(designView.layers), [designView.layers]);
+  const holeHealthMap = useMemo(
+    () => computeAllHoleHealth({
+      holes: document.holes,
+      loadsById,
+      network: document.network,
+      analysis,
+      contour: document.contour,
+      asDrilled: document.as_drilled_holes,
+      designHoleIds: new Set(document.holes.map((h) => h.id)),
+    }),
+    [document.holes, document.network, document.contour, document.as_drilled_holes, loadsById, analysis],
+  );
+  const healthSummary = useMemo(
+    () => summarizeHealth(holeHealthMap, document.holes),
+    [holeHealthMap, document.holes],
+  );
+  const holeColors3d = useMemo(() => {
+    const colors: Record<string, number> = {};
+    for (const hole of document.holes) {
+      let hex = "#2d7556";
+      if (designView.colorMode === "health" && holeHealthMap[hole.id] && holeHealthMap[hole.id] !== "ok") {
+        hex = healthColor(holeHealthMap[hole.id]);
+      } else if (designView.colorMode === "charge_kg") {
+        const load = loadsById[hole.id];
+        hex = load && load.total_charge_kg > 0 ? "#c45a2c" : "#9aa8a1";
+      } else if (designView.colorMode === "delay_ms" && analysis?.times_ms?.[hole.id] !== undefined) {
+        hex = "#7a6ee0";
+      } else if (designView.colorMode === "as_drilled") {
+        hex = document.as_drilled_holes.some((item) => item.design_hole_id === hole.id) ? "#d07a2d" : "#9aa8a1";
+      } else {
+        const palette: Record<string, string> = { production: "#2d7556", contour: "#c9a227", presplit: "#7a6ee0", trim: "#7a6ee0" };
+        hex = palette[hole.kind] ?? "#2d7556";
+      }
+      colors[hole.id] = Number.parseInt(hex.replace("#", ""), 16);
+    }
+    return colors;
+  }, [document.holes, document.as_drilled_holes, designView.colorMode, holeHealthMap, loadsById, analysis]);
+  const designCommands = useMemo<DesignCommand[]>(() => [
+    ...buildPresetCommands(setViewPreset),
+    ...buildCameraCommands((mode) => {
+      setDesignView((prev) => ({ ...prev, cameraMode3d: mode }));
+      setViewMode("3d");
+    }),
+    { id: "measure", label: "Измерить расстояние", keywords: ["линейка", "измерить", "шаг"], run: () => {
+      setViewMode("plan");
+      setToolRequest({ tool: "measure", tick: Date.now() });
+    } },
+    { id: "fit", label: "Вписать блок", keywords: ["вписать", "размер"], run: () => setZoomRequest({ kind: "fit", tick: Date.now() }) },
+    { id: "zoom-selection", label: "Зум к выбору", keywords: ["выбор", "зум"], run: () => setZoomRequest({ kind: "selection", tick: Date.now() }) },
+    { id: "review", label: "Проверить проект", keywords: ["проверка", "замечания"], run: () => setViewPreset("review") },
+    { id: "isolines", label: "Показать изолинии", keywords: ["изолинии", "тайминг"], run: () => setDesignView((prev) => ({ ...prev, layers: { ...prev.layers, isolines: true } })) },
+    { id: "reset-view", label: "Сбросить вид к пресету", keywords: ["сброс", "вид"], run: () => setDesignView((prev) => resetLayersToPreset(prev)) },
+    { id: "open-inspector", label: "Открыть карточку скважины", keywords: ["карточка", "скважина"], run: () => {
+      const id = selected.size === 1 ? Array.from(selected)[0] : null;
+      if (id) setInspectHoleId(id);
+    } },
+  ], [selected]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <div className="design-workstation">
@@ -2481,6 +2533,7 @@ export function DesignPage({
         {crsUnconfirmed && (
           <span className="crs-warning" role="status">Система координат не подтверждена</span>
         )}
+        <WorkflowNav stage={workflowStage} statuses={stageStatuses} onStageChange={selectStage} />
         <div className="history-controls">
           <button onClick={savePlan} disabled={saveBusy || recordFrozen}>{saveBusy ? "Сохраняю…" : "Сохранить"}</button>
           <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length || designedLocked} title="Отменить (Ctrl+Z)">↶</button>
@@ -2495,15 +2548,6 @@ export function DesignPage({
             : "Слой DESIGNED заморожен. Исполнение и замер — отдельно, сценарии остаются оверлеями."}
         </div>
       )}
-      <WorkflowNav stage={workflowStage} statuses={stageStatuses} onStageChange={selectStage} />
-      <SummaryPanel
-        holes={document.holes}
-        blockVolumeM3={blockVolumeM3}
-        loads={document.loads.length ? document.loads : undefined}
-        holesSource={holeSourceLabel(document)}
-        volumeSource={volumeSourceLabel(document.surfaces, document.contour.vertices.length >= 3)}
-      />
-
       <div className="design-map-stage">
         <div className="map-chrome-row">
           <div className="view-switch">
@@ -2511,6 +2555,26 @@ export function DesignPage({
             <button type="button" className={viewMode === "3d" ? "active" : ""} onClick={() => setViewMode("3d")}>3D</button>
             <button type="button" className={viewMode === "section" ? "active" : ""} onClick={() => setViewMode("section")}>Разрез</button>
           </div>
+          {viewMode === "3d" && (
+            <div className="camera-mode-switch" role="group" aria-label="Режим 3D">
+              {(["collar", "shaft", "toe"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={designView.cameraMode3d === mode ? "active" : ""}
+                  onClick={() => setDesignView((prev) => ({ ...prev, cameraMode3d: mode }))}
+                >
+                  {mode === "collar" ? "Устье" : mode === "shaft" ? "Ствол" : "Подошва"}
+                </button>
+              ))}
+            </div>
+          )}
+          <button type="button" className="review-project-btn" onClick={() => setViewPreset("review")}>
+            Проверить проект
+          </button>
+          <button type="button" className="command-palette-btn" onClick={() => setCommandOpen(true)} title="Поиск команд (Ctrl+K)">
+            ⌘K
+          </button>
           {viewMode === "plan" && (
             <div className="map-toolbar">
               <label>
@@ -2518,9 +2582,6 @@ export function DesignPage({
                 <select value={mapMetric} onChange={(e) => {
                   const next = e.target.value as OverlayMetric | "";
                   setMapMetric(next);
-                  if (next) {
-                    setDesignView((prev) => patchDesignView(prev, { colorMode: "map" }));
-                  }
                   if (!next) return;
                   if (isFragmentationMapMetric(next)) {
                     if (!fragResult && !fragBusy) predictFragmentation();
@@ -2550,31 +2611,18 @@ export function DesignPage({
                   <small>{mapOverlay.range.max.toFixed(1)} {MAP_METRIC_UNITS[mapMetric]}</small>
                 </span>
               )}
-              <button
-                type="button"
-                className={`design-review-btn${designView.preset === "review" ? " active" : ""}`}
-                title="Режим проверки: диагностика, связи и замечания на карте"
-                onClick={() => setDesignView((prev) => applyViewPreset("review", prev))}
-              >
-                Проверка
-              </button>
               <RoleBadge role={showAsDrilled && document.as_drilled_holes.length > 0 && !mapMetric ? "executed" : overlayRole(mapMetric)} />
             </div>
           )}
-          {viewMode === "3d" && (
-            <div className="camera-mode-switch" aria-label="Режим камеры 3D">
-              {(["collar", "shaft", "toe"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={designView.cameraMode3d === mode ? "active" : ""}
-                  onClick={() => setDesignView((prev) => ({ ...prev, cameraMode3d: mode }))}
-                >
-                  {mode === "collar" ? "Устье" : mode === "shaft" ? "Ствол" : "Забой"}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="map-chrome-metrics">
+            <SummaryPanel
+              holes={document.holes}
+              blockVolumeM3={blockVolumeM3}
+              loads={document.loads.length ? document.loads : undefined}
+              holesSource={holeSourceLabel(document)}
+              volumeSource={volumeSourceLabel(document.surfaces, document.contour.vertices.length >= 3)}
+            />
+          </div>
         </div>
         <div className="design-map-body">
           {inspectorOpen && (
@@ -3044,7 +3092,8 @@ export function DesignPage({
                 selected={selected}
                 onSelectHole={onSelectHole3D}
                 cameraMode={designView.cameraMode3d}
-                holeColors={designView.showHealth ? holeHealthById : undefined}
+                colorMode={designView.colorMode}
+                holeColors={holeColors3d}
               />
             </Suspense>
           ) : viewMode === "section" ? (
@@ -3058,9 +3107,10 @@ export function DesignPage({
               rowAzimuthDeg={patternParams.row_azimuth_deg}
               selectedRow={selectedRow}
               onSelectedRowChange={setSelectedRow}
-              healthById={holeHealthById}
               selectedHoleIds={selected}
+              onHoleSelect={(id) => setSelected(new Set([id]))}
               onHoleInspect={setInspectHoleId}
+              healthById={holeHealthMap}
             />
           ) : (
             <PlanCanvas
@@ -3085,10 +3135,10 @@ export function DesignPage({
               pendingFit={pendingFit}
               onFitApplied={() => setPendingFit(false)}
               spacingHint={{ a: patternParams.spacing_a_m, b: patternParams.burden_b_m }}
-              loadsById={designView.colorMode === "charge" || designView.labelField === "charge" || mode === "charge" ? loadsById : undefined}
-              network={designView.layers.network || mode === "tie" || mode === "timing" ? document.network : undefined}
-              isolines={designView.layers.isolines && showIsolines ? analysis?.isolines : mode === "timing" && showIsolines ? analysis?.isolines : undefined}
-              timesMs={designView.labelField === "time" || mode === "timing" ? analysis?.times_ms : undefined}
+              loadsById={loadsById}
+              network={designView.layers.network ? document.network : undefined}
+              isolines={designView.layers.isolines && showIsolines ? analysis?.isolines : undefined}
+              timesMs={analysis?.times_ms ?? undefined}
               animationMs={mode === "timing" && analysis ? currentMs : undefined}
               pendingTieFromId={mode === "tie" ? pendingTieFromId : null}
               onTieHoles={addManualTie}
@@ -3108,54 +3158,69 @@ export function DesignPage({
               }}
               vibrationPredictions={vibResult?.predictions}
               asDrilled={document.as_drilled_holes}
-              showAsDrilled={showAsDrilled && document.as_drilled_holes.length > 0}
+              showAsDrilled={designView.layers.actual && showAsDrilled && document.as_drilled_holes.length > 0}
               asCharged={document.as_charged_holes}
               asFired={document.as_fired_holes}
               movementVectors={movementResult?.holes}
               showMovementVectors={showMovementVectors && Boolean(movementResult)}
               onHoleInspect={setInspectHoleId}
-              layers={designView.layers}
+              layers={mapContourLayers}
               labelField={designView.labelField}
               colorMode={designView.colorMode}
-              healthById={designView.showHealth ? holeHealthById : undefined}
+              healthById={holeHealthMap}
+              showHealthLayer={designView.layers.health}
+              showNetworkLayer={designView.layers.network}
+              showIsolineLayer={designView.layers.isolines}
+              showLabelsLayer={designView.layers.labels}
+              showThrowDirection={designView.layers.throw_direction}
+              throwAzimuthDeg={throwAzimuthDeg}
+              measureState={measureState}
+              onMeasureChange={setMeasureState}
+              onHoleContextMenu={(holeId, x, y) => setHoleMenu({ holeId, x, y })}
+              onCursorWorldChange={setMapCursor}
+              zoomRequest={zoomRequest}
+              onZoomRequestHandled={() => setZoomRequest(null)}
               toolRequest={toolRequest}
               onToolRequestHandled={() => setToolRequest(null)}
-              onHoleContextMenu={(holeId, screen) => setContextMenu({ holeId, x: screen.x, y: screen.y })}
-              onMapStatus={setMapStatus}
               toePolylines={document.surfaces.floor?.polylines}
               insertKind={insertKind}
               onInsertKindChange={setInsertKind}
             />
           )}
-          {viewMode === "plan" && (
-            <>
-              <VisibilityPanel view={designView} onChange={setDesignView} />
-              <MapStatusBar
-                cursorWorld={mapStatus.cursorWorld}
-                scalePxPerM={mapStatus.scalePxPerM}
-                gridStepM={mapStatus.gridStepM}
-                selectedCount={selected.size}
-                issueCount={healthSummary.warning + healthSummary.error}
-                measureDistanceM={mapStatus.measureDistanceM}
-                measureActive={mapStatus.measureActive || designView.showMeasure}
-              />
-            </>
-          )}
-          {contextMenu && (
-            <HoleContextMenu
-              x={contextMenu.x}
-              y={contextMenu.y}
-              holeId={contextMenu.holeId}
-              enabled={document.holes.find((h) => h.id === contextMenu.holeId)?.enabled ?? true}
-              onAction={handleContextMenuAction}
-              onClose={() => setContextMenu(null)}
-            />
-          )}
-          <CommandPalette
-            open={commandPaletteOpen}
-            commands={paletteCommands}
-            onClose={() => setCommandPaletteOpen(false)}
+          <VisibilityPanel
+            viewState={designView}
+            collapsed={visibilityCollapsed}
+            onToggleCollapsed={() => setVisibilityCollapsed((v) => !v)}
+            onPresetChange={setViewPreset}
+            onLayerChange={(id: LayerId, visible) => setDesignView((prev) => ({ ...prev, layers: { ...prev.layers, [id]: visible } }))}
+            onResetLayers={() => setDesignView((prev) => resetLayersToPreset(prev))}
           />
+          <MapStatusBar
+            cursorX={mapCursor?.x ?? null}
+            cursorY={mapCursor?.y ?? null}
+            scalePxPerM={camera.scale}
+            selectedCount={selected.size}
+            health={healthSummary}
+            measure={measureState.result}
+            onIssueClick={zoomToHole}
+          />
+          <HoleContextMenu
+            menu={holeMenu}
+            onClose={() => setHoleMenu(null)}
+            onOpenInspector={setInspectHoleId}
+            onToggleEnabled={(id, enabled) => setHolesEnabled([id], enabled)}
+            onToggleStarter={toggleStarterForHole}
+            onCopyParams={copyHoleParams}
+            onZoomToHole={zoomToHole}
+            isStarter={Boolean(
+              holeMenu && (
+                document.network.starter_items.some((item) => item.hole_id === holeMenu.holeId)
+                || document.network.starters.includes(holeMenu.holeId)
+              ),
+            )}
+            enabled={holeMenu ? (document.holes.find((h) => h.id === holeMenu.holeId)?.enabled ?? true) : true}
+          />
+          <CommandPalette open={commandOpen} commands={designCommands} onClose={() => setCommandOpen(false)} />
           {inspectHole && (
             <HoleInspector
               hole={inspectHole}

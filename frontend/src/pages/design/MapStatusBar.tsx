@@ -1,52 +1,71 @@
 import { ruNumber } from "../../lib/format";
-import type { Vec2 } from "../../lib/geometry2d";
+import type { HealthSummary } from "./holeHealth";
+import { HEALTH_LABELS, type HoleHealthCode } from "./holeHealth";
+
+export type MapStatusMeasure = {
+  distanceM: number;
+  azimuthDeg: number;
+  deltaX: number;
+  deltaY: number;
+  label?: string;
+} | null;
 
 export function MapStatusBar({
-  cursorWorld,
+  cursorX,
+  cursorY,
   scalePxPerM,
-  gridStepM,
   selectedCount,
-  issueCount,
-  measureDistanceM,
-  measureActive,
+  health,
+  measure,
+  onIssueClick,
 }: {
-  cursorWorld: Vec2 | null;
+  cursorX: number | null;
+  cursorY: number | null;
   scalePxPerM: number;
-  gridStepM: number;
   selectedCount: number;
-  issueCount: number;
-  measureDistanceM: number | null;
-  measureActive: boolean;
+  health: HealthSummary;
+  measure: MapStatusMeasure;
+  onIssueClick: (holeId: string) => void;
 }) {
+  const firstIssue = health.issues[0];
+
   return (
-    <div className="map-status-bar" aria-live="polite">
-      <span className="map-status-item">
-        {cursorWorld
-          ? `X ${ruNumber(cursorWorld.x, 1)} · Y ${ruNumber(cursorWorld.y, 1)} м`
+    <div className="map-status-bar" role="status" aria-live="polite">
+      <span>
+        {cursorX !== null && cursorY !== null
+          ? `X ${ruNumber(cursorX, 1)} · Y ${ruNumber(cursorY, 1)} м`
           : "Курсор вне карты"}
       </span>
       <span className="map-status-sep">|</span>
-      <span className="map-status-item">сетка {ruNumber(gridStepM, gridStepM >= 1 ? 1 : 2)} м</span>
+      <span>{ruNumber(scalePxPerM, scalePxPerM >= 10 ? 0 : 2)} px/м</span>
       <span className="map-status-sep">|</span>
-      <span className="map-status-item">{ruNumber(scalePxPerM, scalePxPerM >= 10 ? 0 : 2)} px/м</span>
-      <span className="map-status-sep">|</span>
-      <span className="map-status-item">
-        выделено {selectedCount}
-      </span>
-      <span className="map-status-sep">|</span>
-      <span className={`map-status-item${issueCount > 0 ? " has-issues" : ""}`}>
-        замечаний {issueCount}
-      </span>
-      {measureActive && (
+      <span>выбрано: {selectedCount}</span>
+      {measure && (
         <>
           <span className="map-status-sep">|</span>
-          <span className="map-status-item measure">
-            {measureDistanceM !== null
-              ? `измерение ${ruNumber(measureDistanceM, 2)} м`
-              : "измерение: укажите вторую точку"}
+          <span>
+            {measure.label ? `${measure.label}: ` : ""}
+            {ruNumber(measure.distanceM, 2)} м · азимут {ruNumber(measure.azimuthDeg, 1)}° · ΔX {ruNumber(measure.deltaX, 2)} · ΔY {ruNumber(measure.deltaY, 2)}
           </span>
         </>
       )}
+      <span className="map-status-sep">|</span>
+      {health.issueCount > 0 ? (
+        <button
+          type="button"
+          className="map-status-issues"
+          onClick={() => firstIssue && onIssueClick(firstIssue.holeId)}
+          title={health.issues.map((i) => `${i.holeId}: ${i.label}`).join("\n")}
+        >
+          замечаний: {health.issueCount}
+        </button>
+      ) : (
+        <span className="map-status-ok">замечаний: 0</span>
+      )}
     </div>
   );
+}
+
+export function healthIssueTitle(code: HoleHealthCode): string {
+  return HEALTH_LABELS[code];
 }

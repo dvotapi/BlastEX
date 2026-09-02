@@ -22,8 +22,7 @@ import {
 import { surfaceElevation } from "../../lib/surfaces";
 import type { BlockContour, Hole, HoleLoad, InitiationNetwork, SurfaceSet, ValidationWarning } from "../../types/design";
 import { isExplosiveDeckKind, networkTies, primerDepths } from "../../types/design";
-import type { HoleHealth } from "./holeHealth";
-import { healthColor } from "./holeHealth";
+import { healthColor, type HoleHealthMap } from "./holeHealth";
 
 const DRAW_PREFIX = "sec";
 const VIEW_HEIGHT = 460;
@@ -48,9 +47,10 @@ export function SectionView({
   rowAzimuthDeg,
   selectedRow,
   onSelectedRowChange,
-  healthById,
   selectedHoleIds,
+  onHoleSelect,
   onHoleInspect,
+  healthById,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -61,9 +61,10 @@ export function SectionView({
   rowAzimuthDeg: number;
   selectedRow: number | null;
   onSelectedRowChange: (row: number) => void;
-  healthById?: Record<string, HoleHealth>;
   selectedHoleIds?: Set<string>;
-  onHoleInspect?: (holeId: string) => void;
+  onHoleSelect?: (id: string) => void;
+  onHoleInspect?: (id: string) => void;
+  healthById?: HoleHealthMap;
 }) {
   // <svg> появляется только когда в ряду есть скважины, поэтому наблюдаем за
   // ним через callback-ref: обычный useRef с эффектом на [] не сработал бы,
@@ -126,12 +127,6 @@ export function SectionView({
       .map((h) => ({ hole: h, u: h.collar.x * rowDir.x + h.collar.y * rowDir.y }))
       .sort((a, b) => a.u - b.u);
   }, [holes, row, rowDir]);
-
-  const rowTies = useMemo(() => {
-    if (!network) return [];
-    const ids = new Set(rowHoles.map(({ hole }) => hole.id));
-    return networkTies(network).filter((tie) => ids.has(tie.from_hole) && ids.has(tie.to_hole));
-  }, [network, rowHoles]);
 
   /** Границы чертежа в мировых координатах (u вдоль ряда, z — отметка). */
   const bounds = useMemo(() => {
@@ -392,13 +387,26 @@ export function SectionView({
               />
             )}
 
+            {rowHoles.length > 1 && network && networkTies(network).map((tie) => {
+              const left = rowHoles.find((r) => r.hole.id === tie.from_hole);
+              const right = rowHoles.find((r) => r.hole.id === tie.to_hole);
+              if (!left || !right) return null;
+              const ax = makeHoleAxis(left.hole);
+              const bx = makeHoleAxis(right.hole);
+              const midX = (ax.collar.x + bx.collar.x) / 2;
+              return (
+                <text key={`tie-${tie.id}`} className="section-tie-label" x={midX} y={yCrest - 38} textAnchor="middle">
+                  {ruNumber(tie.delay_ms, 0)} мс
+                </text>
+              );
+            })}
+
             {rowHoles.map(({ hole }, holeIndex) => {
               const load = loadById.get(hole.id);
               const axis = makeHoleAxis(hole);
-              const active = activeHole === hole.id;
-              const selectedOnPlan = selectedHoleIds?.has(hole.id) ?? false;
+              const active = activeHole === hole.id || selectedHoleIds?.has(hole.id);
               const holeWarnings = warningsByHole.get(hole.id);
-              const holeHealth = healthById?.[hole.id];
+              const healthCode = healthById?.[hole.id];
               const delayMs = network?.downhole_delay_ms?.[hole.id];
               const subdrillFromM = Math.max(0, axis.lengthM - (hole.subdrill_m || 0));
               const holePrimers = load ? primerDepths(load) : [];
@@ -406,23 +414,25 @@ export function SectionView({
               return (
                 <g
                   key={hole.id}
-                  className={`section-hole${active || selectedOnPlan ? " active" : ""}${holeWarnings || (holeHealth && holeHealth.severity > 0) ? " flagged" : ""}`}
+                  className={`section-hole${active ? " active" : ""}${holeWarnings ? " flagged" : ""}${healthCode && healthCode !== "ok" ? " health-issue" : ""}`}
                   onClick={() => {
                     if (dragMoved.current) return;
                     setActiveHole(active ? null : hole.id);
-                    onHoleInspect?.(hole.id);
+                    onHoleSelect?.(hole.id);
                   }}
+                  onDoubleClick={() => onHoleInspect?.(hole.id)}
                 >
-                  {holeHealth && holeHealth.severity > 0 && (
-                    <circle
-                      cx={axis.collar.x}
-                      cy={axis.collar.y - axis.widthPx / 2 - 8}
-                      r={4}
-                      className="section-health-dot"
-                      fill={healthColor(holeHealth.code, holeHealth.severity)}
+                  {healthCode && healthCode !== "ok" && (
+                    <rect
+                      x={axis.collar.x - axis.widthPx / 2 - 4}
+                      y={axis.collar.y - 8}
+                      width={axis.widthPx + 8}
+                      height={axis.toe.y - axis.collar.y + 16}
+                      className="section-health-frame"
+                      style={{ stroke: healthColor(healthCode) }}
                     />
                   )}
-                  <HoleBarrel axis={axis} prefix={DRAW_PREFIX} subdrillFromM={subdrillFromM} highlighted={active || selectedOnPlan} />
+                  <HoleBarrel axis={axis} prefix={DRAW_PREFIX} subdrillFromM={subdrillFromM} highlighted={active} />
 
                   {load?.decks.map((deck, i) => (
                     <DeckShape
@@ -482,23 +492,6 @@ export function SectionView({
                       }
                     />
                   )}
-                </g>
-              );
-            })}
-
-            {rowTies.map((tie, tieIndex) => {
-              const from = rowHoles.find(({ hole }) => hole.id === tie.from_hole);
-              const to = rowHoles.find(({ hole }) => hole.id === tie.to_hole);
-              if (!from || !to) return null;
-              const y = yCrest - 10 - tieIndex * 12;
-              const x1 = makeHoleAxis(from.hole).collar.x;
-              const x2 = makeHoleAxis(to.hole).collar.x;
-              return (
-                <g key={tie.id || `tie-${tieIndex}`} className="section-network-tie">
-                  <line x1={x1} y1={y} x2={x2} y2={y} />
-                  <text x={(x1 + x2) / 2} y={y - 3} textAnchor="middle">
-                    {tie.delay_ms > 0 ? `${ruNumber(tie.delay_ms, 0)} мс` : "связь"}
-                  </text>
                 </g>
               );
             })}

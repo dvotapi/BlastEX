@@ -99,6 +99,10 @@ export function TimingPanel({
               в панели «Сейсмика».
             </small>
 
+            <small>
+              Направление выброса и изолинии — на плане (пресет «Тайминг»). Анимация ниже синхронизирована с картой.
+            </small>
+
             <div className="animation-controls">
               <button className="secondary-button" onClick={onPlayToggle} disabled={maxMs <= 0}>
                 {playing ? "⏸ Пауза" : "▶ Анимация взрыва"}
@@ -145,7 +149,6 @@ export function TimingPanel({
             )}
           </>
         )}
-        <small className="timing-map-note">На плане включите предустановку «Тайминг» или слои «Изолинии» и «Сеть инициирования», чтобы увидеть оверлеи карты.</small>
       </div>
     </section>
   );

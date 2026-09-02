@@ -1,70 +1,75 @@
 import { useEffect, useRef } from "react";
 
-export type HoleContextAction =
-  | "inspect"
-  | "delete"
-  | "toggleEnabled"
-  | "zoom"
-  | "startTie"
-  | "measure";
-
-export function HoleContextMenu({
-  x,
-  y,
-  holeId,
-  enabled,
-  onAction,
-  onClose,
-}: {
+export type HoleContextMenuState = {
+  holeId: string;
   x: number;
   y: number;
-  holeId: string;
-  enabled: boolean;
-  onAction: (action: HoleContextAction) => void;
+} | null;
+
+export function HoleContextMenu({
+  menu,
+  onClose,
+  onOpenInspector,
+  onToggleEnabled,
+  onToggleStarter,
+  onCopyParams,
+  onZoomToHole,
+  isStarter,
+  enabled,
+}: {
+  menu: HoleContextMenuState;
   onClose: () => void;
+  onOpenInspector: (id: string) => void;
+  onToggleEnabled: (id: string, enabled: boolean) => void;
+  onToggleStarter: (id: string) => void;
+  onCopyParams: (id: string) => void;
+  onZoomToHole: (id: string) => void;
+  isStarter: boolean;
+  enabled: boolean;
 }) {
-  const menuRef = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!menu) return undefined;
     function onPointerDown(e: PointerEvent) {
-      if (!menuRef.current?.contains(e.target as Node)) onClose();
+      if (ref.current?.contains(e.target as Node)) return;
+      onClose();
     }
-    function onKeyDown(e: KeyboardEvent) {
+    function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, [menu, onClose]);
+
+  if (!menu) return null;
 
   return (
     <div
-      ref={menuRef}
+      ref={ref}
       className="hole-context-menu"
-      style={{ left: x, top: y }}
+      style={{ left: menu.x, top: menu.y }}
       role="menu"
-      aria-label={`Меню скважины ${holeId}`}
+      aria-label={`Меню скважины ${menu.holeId}`}
     >
-      <button type="button" role="menuitem" onClick={() => onAction("inspect")}>
-        Карточка скважины
+      <button type="button" role="menuitem" onClick={() => { onOpenInspector(menu.holeId); onClose(); }}>
+        Открыть карточку
       </button>
-      <button type="button" role="menuitem" onClick={() => onAction("zoom")}>
-        Приблизить к скважине
+      <button type="button" role="menuitem" onClick={() => { onZoomToHole(menu.holeId); onClose(); }}>
+        Зум к скважине
       </button>
-      <button type="button" role="menuitem" onClick={() => onAction("startTie")}>
-        Начать связь
+      <button type="button" role="menuitem" onClick={() => { onToggleEnabled(menu.holeId, !enabled); onClose(); }}>
+        {enabled ? "Исключить из расчёта" : "Включить в расчёт"}
       </button>
-      <button type="button" role="menuitem" onClick={() => onAction("measure")}>
-        Измерить расстояние
+      <button type="button" role="menuitem" onClick={() => { onToggleStarter(menu.holeId); onClose(); }}>
+        {isStarter ? "Снять стартер" : "Назначить стартером"}
       </button>
-      <button type="button" role="menuitem" onClick={() => onAction("toggleEnabled")}>
-        {enabled ? "Исключить из расчёта" : "Вернуть в расчёт"}
-      </button>
-      <button type="button" role="menuitem" className="danger" onClick={() => onAction("delete")}>
-        Удалить
+      <button type="button" role="menuitem" onClick={() => { onCopyParams(menu.holeId); onClose(); }}>
+        Копировать параметры
       </button>
     </div>
   );

@@ -5,9 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { BlockContour, Hole, SurfaceModel, SurfaceSet } from "../../types/design";
-import type { HoleHealth } from "./holeHealth";
-import { healthColor } from "./holeHealth";
-import type { CameraMode3d } from "./viewPresets";
 
 const KIND_COLOR: Record<string, number> = {
   production: 0x2d7556,
@@ -40,6 +37,7 @@ export function Scene3D({
   selected,
   onSelectHole,
   cameraMode = "collar",
+  colorMode = "kind",
   holeColors,
 }: {
   contour: BlockContour;
@@ -47,8 +45,9 @@ export function Scene3D({
   surfaces?: SurfaceSet;
   selected: Set<string>;
   onSelectHole: (id: string, additive: boolean) => void;
-  cameraMode?: CameraMode3d;
-  holeColors?: Record<string, HoleHealth>;
+  cameraMode?: "collar" | "shaft" | "toe";
+  colorMode?: string;
+  holeColors?: Record<string, number>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<SceneState | null>(null);
@@ -185,21 +184,38 @@ export function Scene3D({
     clearGroup(holeGroup);
     for (const h of holes) {
       const isSelected = selected.has(h.id);
-      const health = holeColors?.[h.id];
-      let color = !h.enabled ? DISABLED_COLOR : isSelected ? SELECTED_COLOR : KIND_COLOR[h.kind] ?? 0x2d7556;
-      if (health && health.severity > 0 && !isSelected) {
-        color = parseInt(healthColor(health.code, health.severity).replace("#", ""), 16);
-      }
-      addLine(holeGroup, [h.collar, h.toe], toThree, color, isSelected ? 3 : 1.5);
+      const color = !h.enabled
+        ? DISABLED_COLOR
+        : isSelected
+          ? SELECTED_COLOR
+          : holeColors?.[h.id] ?? KIND_COLOR[h.kind] ?? 0x2d7556;
+      const lineWidth = isSelected ? 3.5 : cameraMode === "shaft" ? 2.5 : 1.8;
+      addLine(holeGroup, [h.collar, h.toe], toThree, color, lineWidth);
 
-      const collarPos = toThree(h.collar);
+      const markerPoint = cameraMode === "toe" ? h.toe : h.collar;
+      const markerPos = toThree(markerPoint);
       const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(isSelected ? 0.6 : 0.4, 12, 12),
-        new THREE.MeshStandardMaterial({ color, emissive: isSelected ? 0x552222 : 0x000000 }),
+        new THREE.SphereGeometry(isSelected ? 0.75 : cameraMode === "collar" ? 0.55 : 0.35, 14, 14),
+        new THREE.MeshStandardMaterial({
+          color,
+          emissive: isSelected ? 0x552222 : colorMode === "health" ? 0x221111 : 0x000000,
+          metalness: cameraMode === "shaft" ? 0.15 : 0,
+          roughness: 0.65,
+        }),
       );
-      sphere.position.copy(collarPos);
+      sphere.position.copy(markerPos);
       sphere.userData.holeId = h.id;
       holeGroup.add(sphere);
+
+      if (cameraMode === "collar" || cameraMode === "toe") {
+        const other = cameraMode === "collar" ? h.toe : h.collar;
+        const dot = new THREE.Mesh(
+          new THREE.SphereGeometry(0.22, 8, 8),
+          new THREE.MeshStandardMaterial({ color: 0x9aa8a1 }),
+        );
+        dot.position.copy(toThree(other));
+        holeGroup.add(dot);
+      }
     }
 
     if (!state.framed && points.length > 0) {
@@ -207,21 +223,13 @@ export function Scene3D({
       for (const p of points) box.expandByPoint(toThree(p));
       const size = box.getSize(new THREE.Vector3());
       const radius = Math.max(10, size.length() * 0.7);
-      if (cameraMode === "collar") {
-        camera.position.set(radius * 0.8, radius * 0.7, radius * 0.8);
-        controls.target.set(0, -size.y / 4, 0);
-      } else if (cameraMode === "shaft") {
-        camera.position.set(radius * 1.1, radius * 0.15, 0);
-        controls.target.set(0, -size.y / 3, 0);
-      } else {
-        camera.position.set(radius * 0.5, -radius * 0.35, radius * 0.9);
-        controls.target.set(0, -size.y / 2, 0);
-      }
+      camera.position.set(radius * 0.8, radius * 0.7, radius * 0.8);
+      controls.target.set(0, -size.y / 4, 0);
       controls.update();
       state.framed = true;
     }
 
-  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, holeColors]);
+  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, colorMode, holeColors]);
 
   return (
     <div className="scene3d-wrap">
@@ -236,9 +244,7 @@ export function Scene3D({
       >
         ⟲ Сбросить обзор
       </button>
-      <div className="scene3d-hint">
-        Вращение — перетаскивание · зум — колесо · клик по скважине — выделение · режим камеры: {cameraMode === "collar" ? "устье" : cameraMode === "shaft" ? "ствол" : "забой"}
-      </div>
+      <div className="scene3d-hint">Вращение — перетаскивание · зум — колесо · режим: устье / ствол / подошва</div>
     </div>
   );
 }

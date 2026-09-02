@@ -1,61 +1,61 @@
 import { describe, expect, it } from "vitest";
 import {
   applyViewPreset,
-  contourLayersFromView,
   defaultDesignViewState,
-  filterLayers,
-  resolveLabelCollisions,
+  layerGroups,
+  resetLayersToPreset,
   stageDefaultPreset,
+  holeMarkerRadiusPx,
+  visibleLabelIds,
 } from "./viewPresets";
 
 describe("viewPresets", () => {
-  it("maps workflow stages to sensible defaults", () => {
-    expect(stageDefaultPreset("pattern")).toBe("pattern");
-    expect(stageDefaultPreset("charge")).toBe("charge");
-    expect(stageDefaultPreset("execution")).toBe("actual");
-    expect(stageDefaultPreset("report")).toBe("review");
-  });
-
-  it("applies preset overrides", () => {
+  it("applies seven presets with distinct color modes", () => {
     const review = applyViewPreset("review");
-    expect(review.preset).toBe("review");
-    expect(review.layers.health).toBe(true);
+    const timing = applyViewPreset("timing");
     expect(review.colorMode).toBe("health");
-    expect(review.showHealth).toBe(true);
-
-    const survey = applyViewPreset("survey");
-    expect(survey.layers.labels).toBe(false);
-    expect(survey.labelField).toBe("none");
+    expect(timing.colorMode).toBe("delay_ms");
+    expect(timing.layers.isolines).toBe(true);
   });
 
-  it("derives contour layers for legacy legend", () => {
-    const view = applyViewPreset("pattern");
-    const contour = contourLayersFromView(view.layers);
-    expect(contour.holes).toBe(true);
-    expect(contour.face).toBe(true);
-    expect(Object.keys(contour)).toEqual(["fill", "crest", "toe", "face", "holes"]);
+  it("maps workflow stages to default presets", () => {
+    expect(stageDefaultPreset("pattern")).toBe("pattern");
+    expect(stageDefaultPreset("timing")).toBe("network");
+    expect(stageDefaultPreset("execution")).toBe("actual");
   });
 
-  it("filters layers by Russian label", () => {
-    expect(filterLayers("бров")).toContain("crest");
-    expect(filterLayers("бров")).toContain("toe");
-    expect(filterLayers("zzz")).toHaveLength(0);
+  it("resets manual layer overrides back to active preset", () => {
+    const state = defaultDesignViewState("charge");
+    const overridden = { ...state, layers: { ...state.layers, network: true } };
+    const reset = resetLayersToPreset(overridden);
+    expect(reset.layers.network).toBe(false);
   });
 
-  it("hides overlapping labels", () => {
-    const resolved = resolveLabelCollisions([
-      { id: "a", x: 10, y: 10, text: "A" },
-      { id: "b", x: 12, y: 11, text: "B" },
-      { id: "c", x: 40, y: 10, text: "C" },
-    ], 14);
-    const hidden = resolved.filter((item) => item.hidden).map((item) => item.id);
-    expect(hidden).toContain("b");
-    expect(resolved.find((item) => item.id === "c")?.hidden).toBeFalsy();
+  it("filters layer search by keyword", () => {
+    const groups = layerGroups("азимут");
+    const labels = groups.flatMap((g) => g.items.map((i) => i.label));
+    expect(labels.some((label) => /подпис/i.test(label))).toBe(true);
   });
 
-  it("builds default state from stage", () => {
-    const state = defaultDesignViewState("timing");
-    expect(state.preset).toBe("timing");
-    expect(state.layers.isolines).toBe(true);
+  it("keeps higher-priority labels in collision resolution", () => {
+    const visible = visibleLabelIds([
+      { id: "a", x: 0, y: 0, w: 30, h: 12, priority: 1 },
+      { id: "b", x: 5, y: 2, w: 30, h: 12, priority: 50 },
+      { id: "c", x: 100, y: 100, w: 20, h: 12, priority: 10 },
+    ]);
+    expect(visible.has("b")).toBe(true);
+    expect(visible.has("a")).toBe(false);
+    expect(visible.has("c")).toBe(true);
+  });
+
+  it("shrinks hole markers at small scale so a 5 m grid stays separable", () => {
+    // 1,9 px/м: соседние скважины в 9,5 px друг от друга — маркер должен быть меньше половины шага.
+    expect(holeMarkerRadiusPx(152, 1.9)).toBeLessThan(4.75);
+    expect(holeMarkerRadiusPx(152, 1.9)).toBeGreaterThanOrEqual(2.5);
+    // На рабочем масштабе — прежние 5 px, выбранная скважина крупнее.
+    expect(holeMarkerRadiusPx(152, 6.6)).toBe(5);
+    expect(holeMarkerRadiusPx(152, 6.6, true)).toBe(6.5);
+    // При сильном приближении маркер растёт вместе с физическим диаметром.
+    expect(holeMarkerRadiusPx(152, 200)).toBeCloseTo(15.2, 5);
   });
 });

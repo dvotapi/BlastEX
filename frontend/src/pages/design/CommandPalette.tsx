@@ -1,73 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CameraMode3d, ViewPresetId } from "./viewPresets";
-import { VIEW_PRESET_LABELS } from "./viewPresets";
+import {
+  CAMERA_MODE_LABELS,
+  VIEW_PRESET_LABELS,
+  type CameraMode3d,
+  type ViewPresetId,
+} from "./viewPresets";
 
-export type CommandItem = {
+export type DesignCommand = {
   id: string;
   label: string;
-  hint?: string;
-  group: string;
+  keywords: string[];
   run: () => void;
 };
-
-export function buildPresetCommands(onPreset: (preset: ViewPresetId) => void): CommandItem[] {
-  return (Object.keys(VIEW_PRESET_LABELS) as ViewPresetId[]).map((preset) => ({
-    id: `preset-${preset}`,
-    label: `Вид: ${VIEW_PRESET_LABELS[preset]}`,
-    hint: preset,
-    group: "Видимость",
-    run: () => onPreset(preset),
-  }));
-}
-
-export function buildCameraCommands(actions: {
-  onFit: () => void;
-  onZoomSelection: () => void;
-  onToggleMeasure: () => void;
-  onCameraMode3d: (mode: CameraMode3d) => void;
-}): CommandItem[] {
-  return [
-    {
-      id: "camera-fit",
-      label: "Камера: показать всё",
-      hint: "0",
-      group: "Камера",
-      run: actions.onFit,
-    },
-    {
-      id: "camera-zoom-selection",
-      label: "Камера: приблизить к выделению",
-      hint: "Z",
-      group: "Камера",
-      run: actions.onZoomSelection,
-    },
-    {
-      id: "camera-measure",
-      label: "Инструмент: измерение",
-      hint: "M",
-      group: "Камера",
-      run: actions.onToggleMeasure,
-    },
-    {
-      id: "camera-3d-collar",
-      label: "3D: вид с устья",
-      group: "3D",
-      run: () => actions.onCameraMode3d("collar"),
-    },
-    {
-      id: "camera-3d-shaft",
-      label: "3D: вид по стволу",
-      group: "3D",
-      run: () => actions.onCameraMode3d("shaft"),
-    },
-    {
-      id: "camera-3d-toe",
-      label: "3D: вид с забоя",
-      group: "3D",
-      run: () => actions.onCameraMode3d("toe"),
-    },
-  ];
-}
 
 export function CommandPalette({
   open,
@@ -75,128 +19,119 @@ export function CommandPalette({
   onClose,
 }: {
   open: boolean;
-  commands: CommandItem[];
+  commands: DesignCommand[];
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setActive(0);
+      return;
+    }
+    inputRef.current?.focus();
+  }, [open]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return commands;
-    return commands.filter(
-      (item) =>
-        item.label.toLowerCase().includes(q) ||
-        item.group.toLowerCase().includes(q) ||
-        item.hint?.toLowerCase().includes(q),
+    return commands.filter((cmd) =>
+      cmd.label.toLowerCase().includes(q)
+      || cmd.keywords.some((k) => k.includes(q)),
     );
   }, [commands, query]);
 
   useEffect(() => {
-    if (!open) return;
-    setQuery("");
-    setActiveIndex(0);
-    inputRef.current?.focus();
-  }, [open]);
+    setActive(0);
+  }, [query]);
 
   useEffect(() => {
-    setActiveIndex((index) => Math.min(index, Math.max(0, filtered.length - 1)));
-  }, [filtered.length]);
-
-  useEffect(() => {
-    if (!open) return;
-    function onKeyDown(e: KeyboardEvent) {
+    if (!open) return undefined;
+    function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
-        return;
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
-        return;
+        setActive((i) => Math.min(i + 1, Math.max(0, filtered.length - 1)));
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setActiveIndex((i) => Math.max(i - 1, 0));
-        return;
+        setActive((i) => Math.max(i - 1, 0));
       }
-      if (e.key === "Enter" && filtered[activeIndex]) {
+      if (e.key === "Enter" && filtered[active]) {
         e.preventDefault();
-        filtered[activeIndex].run();
+        filtered[active].run();
         onClose();
       }
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, filtered, activeIndex, onClose]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, filtered, active, onClose]);
 
   if (!open) return null;
 
-  const groups = new Map<string, CommandItem[]>();
-  for (const item of filtered) {
-    const list = groups.get(item.group) ?? [];
-    list.push(item);
-    groups.set(item.group, list);
-  }
-
-  let rowIndex = -1;
-
   return (
-    <div className="command-palette-backdrop" onClick={onClose}>
-      <div className="command-palette" role="dialog" aria-label="Командная палитра" onClick={(e) => e.stopPropagation()}>
+    <div className="command-palette-backdrop" onClick={onClose} role="presentation">
+      <div className="command-palette" role="dialog" aria-label="Поиск команд" onClick={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
-          className="command-palette-input"
-          placeholder="Команда… (Ctrl+K)"
+          type="search"
+          placeholder="Команда… (изолинии, линейка, устье)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Поиск команды"
         />
-        <div className="command-palette-list">
-          {filtered.length === 0 && <div className="command-palette-empty">Команды не найдены</div>}
-          {Array.from(groups.entries()).map(([group, items]) => (
-            <div key={group} className="command-palette-group">
-              <div className="command-palette-group-title">{group}</div>
-              {items.map((item) => {
-                rowIndex += 1;
-                const index = rowIndex;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={index === activeIndex ? "active" : ""}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => {
-                      item.run();
-                      onClose();
-                    }}
-                  >
-                    <span>{item.label}</span>
-                    {item.hint && <kbd>{item.hint}</kbd>}
-                  </button>
-                );
-              })}
-            </div>
+        <ul role="listbox">
+          {filtered.length === 0 && <li className="empty">Ничего не найдено</li>}
+          {filtered.map((cmd, index) => (
+            <li key={cmd.id}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === active}
+                className={index === active ? "active" : ""}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => {
+                  cmd.run();
+                  onClose();
+                }}
+              >
+                {cmd.label}
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
       </div>
     </div>
   );
 }
 
-export function useCommandPaletteHotkey(onOpen: () => void) {
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null;
-      if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        onOpen();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onOpen]);
+export function buildPresetCommands(onPreset: (preset: ViewPresetId) => void): DesignCommand[] {
+  return (Object.keys(VIEW_PRESET_LABELS) as ViewPresetId[]).map((preset) => ({
+    id: `preset-${preset}`,
+    label: `Пресет: ${VIEW_PRESET_LABELS[preset]}`,
+    keywords: [VIEW_PRESET_LABELS[preset].toLowerCase(), preset],
+    run: () => onPreset(preset),
+  }));
+}
+
+// Разговорные формы из привычки инженера: «только устья», «вид подошвы».
+const CAMERA_MODE_SYNONYMS: Record<CameraMode3d, string[]> = {
+  collar: ["только устья", "только устье", "устья", "оголовки"],
+  shaft: ["только стволы", "стволы", "весь ствол"],
+  toe: ["только подошва", "вид подошвы", "подошвы", "забой"],
+};
+
+export function buildCameraCommands(onCamera: (mode: CameraMode3d) => void): DesignCommand[] {
+  return (Object.keys(CAMERA_MODE_LABELS) as CameraMode3d[]).map((mode) => ({
+    id: `camera-${mode}`,
+    label: `3D: ${CAMERA_MODE_LABELS[mode]}`,
+    keywords: [CAMERA_MODE_LABELS[mode].toLowerCase(), "3d", mode, ...CAMERA_MODE_SYNONYMS[mode]],
+    run: () => onCamera(mode),
+  }));
 }

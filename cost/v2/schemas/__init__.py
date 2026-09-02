@@ -7,8 +7,9 @@
 """
 from __future__ import annotations
 
+import re
 from functools import lru_cache
-from typing import Any
+from typing import Any, Sequence
 
 from cost.v2.schemas.base import ReferencePayload
 from cost.v2.schemas.costs import (
@@ -55,6 +56,7 @@ from cost.v2.schemas.organization import (
 
 __all__ = [
     "SECTION_SCHEMAS",
+    "field_label",
     "section_schema",
     "section_json_schema",
     "section_fieldsets",
@@ -156,6 +158,32 @@ def section_schema(section: str) -> type[ReferencePayload] | None:
     return SECTION_SCHEMAS.get(section)
 
 
+def _auto_title(name: str) -> str:
+    """Заголовок, который pydantic делает из имени поля: «rock_code» → «Rock Code»."""
+
+    return " ".join(part[:1].upper() + part[1:] for part in name.split("_"))
+
+
+def _resolved_title(name: str, node: dict[str, Any]) -> str:
+    """Подпись поля для интерфейса и сообщений валидации.
+
+    Явный `title` схемы — главный источник. Где его нет, pydantic подставляет
+    английский заголовок из имени поля; показывать его сметчику нельзя, поэтому
+    берём начало русского описания до первого пояснения. Разрешаем подпись один
+    раз здесь, чтобы фронт и валидатор называли поле одинаково.
+    """
+
+    title = str(node.get("title") or "").strip()
+    if title and title != _auto_title(name) and title != name:
+        return title
+    description = str(node.get("description") or "").strip()
+    if description:
+        head = re.split(r"\s—\s|;|\(", description)[0].strip().rstrip(".,")
+        if head:
+            return head[:1].upper() + head[1:]
+    return _auto_title(name)
+
+
 @lru_cache(maxsize=None)
 def section_json_schema(section: str) -> dict[str, Any]:
     """JSON Schema раздела. Схема статична, поэтому считается один раз."""
@@ -163,7 +191,42 @@ def section_json_schema(section: str) -> dict[str, Any]:
     model = SECTION_SCHEMAS.get(section)
     if model is None:
         return {}
-    return model.model_json_schema()
+    schema = model.model_json_schema()
+    for container in (schema, *(schema.get("$defs") or {}).values()):
+        for name, node in (container.get("properties") or {}).items():
+            if isinstance(node, dict):
+                node["title"] = _resolved_title(name, node)
+    return schema
+
+
+def field_label(section: str, location: Sequence[str]) -> str:
+    """Подпись поля по пути ошибки валидации: «Плотность», а не `density_t_m3`.
+
+    Путь внутрь вложенной модели разворачивается целиком: «Состав бригады →
+    строка 2 → Численность». Имя остаётся как есть, только если такого поля в
+    схеме нет — например, лишний ключ payload.
+    """
+
+    if not location:
+        return ""
+
+    schema = section_json_schema(section)
+    definitions = schema.get("$defs") or {}
+    properties = schema.get("properties") or {}
+    labels: list[str] = []
+    for part in location:
+        if part.isdigit():
+            labels.append(f"строка {int(part) + 1}")
+            continue
+        node = properties.get(part)
+        if not isinstance(node, dict):
+            labels.append(part)
+            properties = {}
+            continue
+        labels.append(str(node.get("title") or part))
+        _, nested = _nested_object(node, definitions)
+        properties = (nested or {}).get("properties") or {}
+    return " → ".join(labels)
 
 
 def section_fieldsets(section: str) -> list[dict[str, Any]]:

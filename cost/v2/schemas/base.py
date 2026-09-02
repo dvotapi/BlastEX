@@ -8,15 +8,17 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, NoReturn
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 __all__ = [
     "ReferencePayload",
     "RefField",
     "UnitField",
     "RateField",
+    "field_error",
     "RUB",
     "SHARE",
 ]
@@ -90,6 +92,28 @@ def RateField(  # noqa: N802
 
     extra: dict[str, Any] = {"x-unit": SHARE}
     return Field(default, description=description, title=title, ge=0, le=1, json_schema_extra=extra)
+
+
+def field_error(model: type[BaseModel], field: str, message: str, value: Any = None) -> NoReturn:
+    """Ошибка перекрёстной проверки, привязанная к полю.
+
+    `raise ValueError` в `model_validator` даёт ошибку без имени поля, и
+    интерфейс показывает её общим списком над формой. Сметчику нужно видеть
+    ошибку под тем полем, которое он забыл заполнить, поэтому собираем ошибку
+    с явным `loc`.
+    """
+
+    raise ValidationError.from_exception_data(
+        model.__name__,
+        [
+            InitErrorDetails(
+                # Текст подставляется через контекст: шаблон должен быть литералом.
+                type=PydanticCustomError("value_error", "{message}", {"message": message}),
+                loc=(field,),
+                input=value,
+            )
+        ],
+    )
 
 
 Number = Decimal

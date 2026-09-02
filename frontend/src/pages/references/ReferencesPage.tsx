@@ -1,0 +1,460 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "../../api/endpoints";
+import type { User } from "../../types";
+import type {
+  EconomicsReferenceItem,
+  EconomicsReferenceSnapshot,
+  ReferenceRevision,
+  ReferenceValidationIssue,
+} from "../../types/economics";
+import type { ReferenceSchemaCatalog } from "../../types/referenceSchema";
+import { vatRate as vatRateOf, type DerivedContext } from "../../lib/referenceDerived";
+import { plural } from "../../lib/plural";
+import { DrillingConditionsMatrix, type MatrixMode } from "./DrillingConditionsMatrix";
+import { PublishBar } from "./PublishBar";
+import { RecordForm, type DraftItem } from "./RecordForm";
+import { SectionList } from "./SectionList";
+import { SectionNav, type SectionStat } from "./SectionNav";
+import { defaultPayload, sectionFields } from "./schemaFields";
+import type { RefOption } from "./fields/RefSelect";
+
+type DraftSections = Record<string, DraftItem[]>;
+
+function rowId(): string {
+  const token =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `reference-${token}`;
+}
+
+function stable(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, stable(item)]),
+    );
+  }
+  return value;
+}
+
+/** Отпечаток записи: сравнение с опубликованной версией без учёта порядка ключей. */
+function fingerprint(item: EconomicsReferenceItem): string {
+  return JSON.stringify(
+    stable({
+      code: item.code,
+      name: item.name,
+      payload: item.payload,
+      is_active: item.is_active,
+      valid_from: item.valid_from,
+      valid_to: item.valid_to,
+      source: item.source,
+      comment: item.comment,
+    }),
+  );
+}
+
+function toDraft(snapshot: EconomicsReferenceSnapshot): DraftSections {
+  const draft: DraftSections = {};
+  for (const [section, items] of Object.entries(snapshot.sections)) {
+    draft[section] = items.map((item) => ({ ...item, row_id: rowId() }));
+  }
+  return draft;
+}
+
+function toSections(draft: DraftSections): Record<string, EconomicsReferenceItem[]> {
+  const sections: Record<string, EconomicsReferenceItem[]> = {};
+  for (const [section, rows] of Object.entries(draft)) {
+    sections[section] = rows.map(({ row_id: _row, ...item }) => item);
+  }
+  return sections;
+}
+
+/**
+ * Справочники экономики: разделы — список — форма записи.
+ *
+ * Страница не знает ни одного поля payload: и форма, и колонки списка строятся
+ * по схеме с сервера. Разделоспецифично только одно представление — матрица
+ * условий бурения.
+ */
+export function ReferencesPage({ user }: { user: User }) {
+  const [catalog, setCatalog] = useState<ReferenceSchemaCatalog | null>(null);
+  const [snapshot, setSnapshot] = useState<EconomicsReferenceSnapshot | null>(null);
+  const [draft, setDraft] = useState<DraftSections>({});
+  const [activeSection, setActiveSection] = useState("");
+  const [selectedRow, setSelectedRow] = useState("");
+  const [newRows, setNewRows] = useState<Set<string>>(new Set());
+  const [issues, setIssues] = useState<ReferenceValidationIssue[]>([]);
+  const [matrixMode, setMatrixMode] = useState<MatrixMode>("rocks");
+  const [comment, setComment] = useState("");
+  const [revisions, setRevisions] = useState<ReferenceRevision[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const canEdit = user.role === "admin" || user.role === "reference_editor";
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    setError("");
+    try {
+      // Схема и снимок независимы — грузим параллельно, страница открывается
+      // за один круг вместо двух.
+      const [schema, loaded] = await Promise.all([
+        api.economics.referenceSchema(),
+        api.economics.referenceSnapshot(),
+      ]);
+      setCatalog(schema);
+      setSnapshot(loaded);
+      setDraft(toDraft(loaded));
+      setNewRows(new Set());
+      setIssues([]);
+      setSelectedRow("");
+      setActiveSection((current) => (current && schema.sections[current] ? current : Object.keys(schema.sections)[0] ?? ""));
+      try {
+        // Номер ревизии живёт в истории публикаций: в снимке лежит только его
+        // идентификатор, а «Опубликовать ревизию 15» читается понятнее UUID.
+        setRevisions(await api.economics.revisions());
+      } catch {
+        setRevisions([]);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось загрузить справочники.");
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const publishedByCode = useMemo(() => {
+    const map = new Map<string, EconomicsReferenceItem>();
+    for (const [section, items] of Object.entries(snapshot?.sections ?? {})) {
+      for (const item of items) map.set(`${section}::${item.code}`, item);
+    }
+    return map;
+  }, [snapshot]);
+
+  const changedRows = useMemo(() => {
+    const changed = new Set<string>();
+    for (const [section, rows] of Object.entries(draft)) {
+      for (const row of rows) {
+        const published = publishedByCode.get(`${section}::${row.code}`);
+        if (!published || fingerprint(published) !== fingerprint(row)) changed.add(row.row_id);
+      }
+    }
+    return changed;
+  }, [draft, publishedByCode]);
+
+  const changeCount = changedRows.size;
+  const dirty = changeCount > 0;
+
+  const stats = useMemo(() => {
+    const result: Record<string, SectionStat> = {};
+    for (const section of Object.keys(catalog?.sections ?? {})) {
+      const rows = draft[section] ?? [];
+      const sectionIssues = issues.filter((issue) => issue.section === section);
+      result[section] = {
+        count: rows.length,
+        errors: sectionIssues.filter((issue) => issue.level === "error").length,
+        warnings: sectionIssues.filter((issue) => issue.level === "warning").length,
+        changed: rows.filter((row) => changedRows.has(row.row_id)).length,
+      };
+    }
+    return result;
+  }, [catalog, draft, issues, changedRows]);
+
+  const derivedContext: DerivedContext = useMemo(
+    () => ({
+      sections: Object.fromEntries(
+        Object.entries(draft).map(([section, rows]) => [
+          section,
+          rows.map((row) => ({ code: row.code, name: row.name, payload: row.payload, is_active: row.is_active })),
+        ]),
+      ),
+    }),
+    [draft],
+  );
+
+  const sectionLabels = useMemo(
+    () =>
+      Object.fromEntries(Object.values(catalog?.sections ?? {}).map((section) => [section.code, section.label])),
+    [catalog],
+  );
+
+  const refOptions = useCallback(
+    (section: string): RefOption[] =>
+      (draft[section] ?? []).map((row) => ({ code: row.code, name: row.name, is_active: row.is_active })),
+    [draft],
+  );
+
+  const refName = useCallback(
+    (section: string, code: string) => (draft[section] ?? []).find((row) => row.code === code)?.name || code,
+    [draft],
+  );
+
+  const findRecord = useCallback(
+    (query: string) => {
+      const matches: Array<{ section: string; code: string; name: string }> = [];
+      for (const [section, rows] of Object.entries(draft)) {
+        for (const row of rows) {
+          if (`${row.name} ${row.code}`.toLowerCase().includes(query)) {
+            matches.push({ section, code: row.code, name: row.name });
+          }
+        }
+      }
+      return matches;
+    },
+    [draft],
+  );
+
+  function selectSection(section: string, code?: string) {
+    setActiveSection(section);
+    setSelectedRow(code ? (draft[section] ?? []).find((row) => row.code === code)?.row_id ?? "" : "");
+  }
+
+  function updateRows(section: string, update: (rows: DraftItem[]) => DraftItem[]) {
+    setDraft((current) => ({ ...current, [section]: update(current[section] ?? []) }));
+  }
+
+  function addRecord(prefill: Record<string, unknown> = {}) {
+    const schema = catalog?.sections[activeSection];
+    if (!schema) return;
+    const created: DraftItem = {
+      row_id: rowId(),
+      code: "",
+      name: "",
+      payload: { ...defaultPayload(sectionFields(schema.json_schema)), ...prefill },
+      is_active: true,
+      valid_from: null,
+      valid_to: null,
+      source: "",
+      comment: "",
+      revision: 1,
+    };
+    updateRows(activeSection, (rows) => [...rows, created]);
+    setNewRows((current) => new Set(current).add(created.row_id));
+    setSelectedRow(created.row_id);
+  }
+
+  function applyRecord(next: DraftItem) {
+    updateRows(activeSection, (rows) => rows.map((row) => (row.row_id === next.row_id ? next : row)));
+    setNewRows((current) => {
+      if (!current.has(next.row_id)) return current;
+      const rest = new Set(current);
+      rest.delete(next.row_id);
+      return rest;
+    });
+  }
+
+  function resetRecord(row: DraftItem) {
+    const published = publishedByCode.get(`${activeSection}::${row.code}`);
+    if (!published) {
+      updateRows(activeSection, (rows) => rows.filter((item) => item.row_id !== row.row_id));
+      setSelectedRow("");
+      return;
+    }
+    updateRows(activeSection, (rows) =>
+      rows.map((item) => (item.row_id === row.row_id ? { ...published, row_id: row.row_id } : item)),
+    );
+  }
+
+  /** Код копии: свободный `_COPY`, `_COPY2`… — иначе публикация падает на повторе кода. */
+  function copyCode(row: DraftItem): string {
+    const taken = new Set((draft[activeSection] ?? []).map((item) => item.code));
+    const base = row.code ? `${row.code}_COPY` : "COPY";
+    if (!taken.has(base)) return base;
+    for (let suffix = 2; suffix < 100; suffix += 1) {
+      const candidate = `${base}${suffix}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+    return `${base}_${Date.now()}`;
+  }
+
+  function duplicateRecord(row: DraftItem) {
+    const copy: DraftItem = { ...row, row_id: rowId(), code: copyCode(row), name: `${row.name} (копия)` };
+    updateRows(activeSection, (rows) => [...rows, copy]);
+    setNewRows((current) => new Set(current).add(copy.row_id));
+    setSelectedRow(copy.row_id);
+  }
+
+  function toggleActive(row: DraftItem) {
+    updateRows(activeSection, (rows) =>
+      rows.map((item) => (item.row_id === row.row_id ? { ...item, is_active: !item.is_active } : item)),
+    );
+  }
+
+  async function validate(): Promise<boolean> {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.economics.validateReferences(toSections(draft));
+      setIssues(result.issues);
+      return result.valid;
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось проверить справочники.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function discard() {
+    if (!snapshot) return;
+    setDraft(toDraft(snapshot));
+    setNewRows(new Set());
+    setIssues([]);
+    setSelectedRow("");
+  }
+
+  async function publish() {
+    if (!snapshot || !canEdit) return;
+    if (!(await validate())) return;
+    setBusy(true);
+    setError("");
+    try {
+      const published = await api.economics.publishReferences({
+        base_revision: snapshot.revision_id,
+        sections: toSections(draft),
+        comment,
+      });
+      setSnapshot(published);
+      setDraft(toDraft(published));
+      setNewRows(new Set());
+      setSelectedRow("");
+      setComment("");
+      setIssues([]);
+      setRevisions(await api.economics.revisions().catch(() => revisions));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось опубликовать справочники.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!catalog || !snapshot) {
+    return (
+      <div className="page-content">
+        <h2>Справочники</h2>
+        {error ? <div className="page-error">{error}</div> : <p className="page-caption">Загрузка…</p>}
+        <button className="ref-ghost-button" onClick={() => void load()} disabled={busy}>
+          Повторить
+        </button>
+      </div>
+    );
+  }
+
+  const section = catalog.sections[activeSection];
+  const rows = draft[activeSection] ?? [];
+  const selected = rows.find((row) => row.row_id === selectedRow);
+  const sectionIssues = issues.filter((issue) => issue.section === activeSection);
+  const errorCodes = new Set(sectionIssues.filter((issue) => issue.level === "error").map((issue) => issue.code));
+  const totalErrors = issues.filter((issue) => issue.level === "error").length;
+  const lastRevisionNo = revisions.reduce((max, item) => Math.max(max, item.sequence_no), 0);
+  const currentRevisionNo = revisions.find((item) => item.id === snapshot.revision_id)?.sequence_no;
+  const revisionLabel = currentRevisionNo ? String(currentRevisionNo) : snapshot.revision_id;
+
+  const list = section && (
+    <SectionList
+      section={section}
+      rows={rows}
+      selected={selectedRow}
+      changed={changedRows}
+      errorCodes={errorCodes}
+      canEdit={canEdit}
+      refName={refName}
+      onSelect={setSelectedRow}
+      onAdd={() => addRecord()}
+    />
+  );
+
+  return (
+    <div className="ref-workbench">
+      <header className="ref-workbench-head">
+        <div>
+          <h2>Справочники</h2>
+          <p>
+            {user.organization_name} · опубликована ревизия {revisionLabel}
+            {snapshot.published_at ? ` от ${new Date(snapshot.published_at).toLocaleDateString("ru-RU")}` : ""}
+          </p>
+        </div>
+        <span className={`ref-draft-status${dirty ? " dirty" : ""}`}>
+          {dirty
+            ? `Черновик · ${changeCount} ${plural(changeCount, ["изменение", "изменения", "изменений"])}`
+            : "Опубликовано"}
+        </span>
+      </header>
+
+      {error && <div className="page-error">{error}</div>}
+
+      <div className={`ref-grid${selected ? " with-form" : ""}`}>
+        <SectionNav
+          catalog={catalog}
+          stats={stats}
+          active={activeSection}
+          onSelect={selectSection}
+          findRecord={findRecord}
+        />
+
+        <div className="ref-main">
+          {section?.view === "matrix" ? (
+            <DrillingConditionsMatrix
+              section={section}
+              rows={rows}
+              rigs={(draft.equipment_types ?? []).filter((row) => row.is_active && row.payload.kind === "DRILL_RIG")}
+              rocks={(draft.rocks ?? []).filter((row) => row.is_active)}
+              sites={(draft.sites ?? []).filter((row) => row.is_active)}
+              mode={matrixMode}
+              onMode={setMatrixMode}
+              selected={selectedRow}
+              changed={changedRows}
+              canEdit={canEdit}
+              onSelect={setSelectedRow}
+              onCreate={(prefill) => addRecord(prefill)}
+              listView={list}
+            />
+          ) : (
+            list
+          )}
+
+          <PublishBar
+            comment={comment}
+            onComment={setComment}
+            onValidate={() => void validate()}
+            onDiscard={discard}
+            onPublish={() => void publish()}
+            canEdit={canEdit}
+            busy={busy}
+            dirty={dirty}
+            errors={totalErrors}
+            nextRevision={lastRevisionNo ? String(lastRevisionNo + 1) : ""}
+          />
+        </div>
+
+        {section && selected && (
+          <RecordForm
+            section={section}
+            record={selected}
+            published={publishedByCode.get(`${activeSection}::${selected.code}`)}
+            issues={sectionIssues.filter((issue) => issue.code === selected.code)}
+            canEdit={canEdit}
+            isNew={newRows.has(selected.row_id)}
+            changed={changedRows.has(selected.row_id)}
+            refOptions={refOptions}
+            sectionLabels={sectionLabels}
+            siblings={rows.filter((row) => row.row_id !== selected.row_id).map((row) => row.payload)}
+            context={derivedContext}
+            vatRate={vatRateOf(derivedContext)}
+            onApply={applyRecord}
+            onReset={() => resetRecord(selected)}
+            onDeactivate={() => toggleActive(selected)}
+            onDuplicate={() => duplicateRecord(selected)}
+            onClose={() => setSelectedRow("")}
+          />
+        )}
+      </div>
+    </div>
+  );
+}

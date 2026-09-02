@@ -6,11 +6,11 @@ import { CalcPage } from "../pages/CalcPage";
 import { DesignPage } from "../pages/design/DesignPage";
 import { DrillingPage } from "../pages/DrillingPage";
 import { LaborPage } from "../pages/LaborPage";
-import { ReferencesPage } from "../pages/ReferencesPage";
+import { ReferencesPage as CalcReferencesPage } from "../pages/ReferencesPage";
 import { EconomicsPage } from "../pages/EconomicsPage";
-import { EconomicsReferencesPage } from "../pages/EconomicsReferencesPage";
+import { ReferencesPage } from "../pages/references/ReferencesPage";
 
-const PAGES = ["Расчёт", "Проектирование", "Экономика юнита", "Бурение", "ФОТ", "Справочники", "Справочники project1"] as const;
+const PAGES = ["Расчёт", "Проектирование", "Экономика юнита", "Бурение", "ФОТ", "Справочники", "Справочники расчёта"] as const;
 type Page = (typeof PAGES)[number];
 const ICONS: Record<Page, string> = {
   "Расчёт": "◫",
@@ -18,8 +18,8 @@ const ICONS: Record<Page, string> = {
   "Экономика юнита": "₽",
   "Бурение": "⌁",
   "ФОТ": "◎",
-  "Справочники": "▤",
-  "Справочники project1": "▦",
+  "Справочники": "▦",
+  "Справочники расчёта": "▤",
 };
 const TITLES: Record<Page, string> = {
   "Расчёт": "Расчёт БВР",
@@ -28,7 +28,7 @@ const TITLES: Record<Page, string> = {
   "Бурение": "Бурение",
   "ФОТ": "ФОТ",
   "Справочники": "Справочники",
-  "Справочники project1": "Справочники project1",
+  "Справочники расчёта": "Справочники расчёта БВР",
 };
 
 export function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
@@ -97,7 +97,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
             <div><b>{TITLES[page]}</b><span>{user.organization_name}</span></div>
             <button className="logout-button" onClick={onLogout}>Выйти</button>
           </header>
-          {page !== "Проектирование" && page !== "Экономика юнита" && page !== "Справочники project1" && <WorkspaceBar />}
+          {page !== "Проектирование" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
           {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} />}
           {page === "Проектирование" && (
             <DesignPage
@@ -109,8 +109,8 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
           {page === "Экономика юнита" && <EconomicsPage />}
           {page === "Бурение" && <DrillingPage />}
           {page === "ФОТ" && <LaborPage />}
-          {page === "Справочники" && <ReferencesPage />}
-          {page === "Справочники project1" && <EconomicsReferencesPage user={user} />}
+          {page === "Справочники" && <ReferencesPage user={user} />}
+          {page === "Справочники расчёта" && <CalcReferencesPage />}
         </main>
         <nav className="mobile-nav">
           {PAGES.map((item) => (

@@ -32,9 +32,9 @@ __all__ = [
 
 class UnitPayload(ReferencePayload):
     symbol: str = Field(default="", description="Обозначение")
-    dimension: str = Field(default="", description="Размерность: mass, length, volume, time, count")
+    dimension: str = Field(default="", title="Размерность", description="Размерность: mass, length, volume, time, count")
     factor_to_base: Decimal | None = UnitField(
-        "", description="Коэффициент перевода в базовую единицу", default=None
+        "", title="Коэффициент к базовой", description="Коэффициент перевода в базовую единицу", default=None
     )
 
 
@@ -43,7 +43,7 @@ class OperationPayload(ReferencePayload):
     unit: str | None = RefField("units", description="Единица измерения операции", default=None)
     driver: str | None = Field(default=None, description="Драйвер объёма операции")
     resource_code: str | None = RefField(
-        "resource_pools", description="Ресурсный пул, чью мощность потребляет операция", default=None
+        "resource_pools", title="Ресурсный пул", description="Ресурсный пул, чью мощность потребляет операция", default=None
     )
     description: str | None = Field(default=None, description="Описание")
 
@@ -93,12 +93,14 @@ class BenchSurfaceConditionPayload(ReferencePayload):
 
 class StakeoutModePayload(ReferencePayload):
     contractor_share: Decimal = UnitField(
-        "доля", description="Доля скважин, выносимых подрядчиком", default=Decimal("1"), ge=0, le=1
+        "доля", title="Доля подрядчика", description="Доля скважин, выносимых подрядчиком", default=Decimal("1"), ge=0, le=1
     )
 
 
 class SiteInfrastructurePayload(ReferencePayload):
-    required_fields: list[str] = Field(default_factory=list, description="Поля, заполняемые по объекту")
+    required_fields: list[str] = Field(
+        default_factory=list, title="Заполняемые поля", description="Поля, заполняемые по объекту"
+    )
 
 
 class SubcontractRatePayload(ReferencePayload):

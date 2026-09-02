@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from cost.v2.schemas.base import RefField, ReferencePayload, UnitField
+from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_error
 
 __all__ = [
     "CostCenterPayload",
@@ -23,14 +23,16 @@ class CostCenterPayload(ReferencePayload):
 
 
 class CostItemPayload(ReferencePayload):
-    kind: str | None = Field(default=None, description="Служебный вид статьи: behavior_type / cost_layer")
+    kind: str | None = Field(
+        default=None, title="Вид статьи", description="Служебный вид статьи: behavior_type / cost_layer"
+    )
     cost_center_code: str | None = RefField("cost_centers", description="Центр затрат", default=None)
     # Статьи, перенесённые из постоянных затрат Cost V1: сумма сохранена, но
     # классификация по слою и поведению делается человеком после импорта.
-    legacy_section: str | None = Field(default=None, description="Раздел сметы Cost V1")
-    amount_rub: Decimal | None = UnitField("₽", description="Сумма из Cost V1", default=None)
+    legacy_section: str | None = Field(default=None, title="Раздел сметы (V1)", description="Раздел сметы Cost V1")
+    amount_rub: Decimal | None = UnitField("₽", title="Сумма (V1)", description="Сумма из Cost V1", default=None)
     requires_cost_v2_classification: bool = Field(
-        default=False, description="Требует классификации по слою и поведению"
+        default=False, title="Требует классификации", description="Требует классификации по слою и поведению"
     )
 
 
@@ -50,7 +52,7 @@ class CostRulePayload(ReferencePayload):
 class AllocationRulePayload(ReferencePayload):
     cost_item_code: str | None = RefField("cost_items", description="Распределяемая статья", default=None)
     driver: str = Field(default="rock_volume_m3", description="Драйвер распределения")
-    target_layer: str | None = Field(default=None, description="Слой, на который распределяется")
+    target_layer: str | None = Field(default=None, title="Целевой слой", description="Слой, на который распределяется")
 
 
 class UnitFixedCostPayload(ReferencePayload):
@@ -63,7 +65,7 @@ class UnitFixedCostPayload(ReferencePayload):
 
     production_unit_code: str | None = RefField("production_units", description="Юнит", default=None)
     scope: Literal["UNIT", "ORGANIZATION"] = Field(
-        default="UNIT", description="Затрата юнита или всей организации"
+        default="UNIT", title="Область", description="Затрата юнита или всей организации"
     )
     category: Literal["INDIRECT_LABOR", "FACILITY", "INSURANCE", "PPE", "OTHER"] = Field(
         default="OTHER", description="Категория затраты"
@@ -78,16 +80,16 @@ class UnitFixedCostPayload(ReferencePayload):
         "₽/мес", description="Сумма в месяц; для косвенного персонала считается из ставок", default=None
     )
     allocation_driver: str = Field(
-        default="rock_volume_m3", description="Драйвер распределения на блоки"
+        default="rock_volume_m3", title="Драйвер распределения", description="Драйвер распределения на блоки"
     )
 
     @model_validator(mode="after")
     def _labor_needs_position(self) -> "UnitFixedCostPayload":
         if self.category == "INDIRECT_LABOR":
             if not self.position_code:
-                raise ValueError("Для косвенного персонала нужно указать должность")
+                field_error(type(self), "position_code", "Для косвенного персонала нужно указать должность")
             if self.headcount is None:
-                raise ValueError("Для косвенного персонала нужно указать численность")
+                field_error(type(self), "headcount", "Для косвенного персонала нужно указать численность")
         elif self.monthly_rub is None:
-            raise ValueError("Для затраты, не связанной с персоналом, нужна сумма в месяц")
+            field_error(type(self), "monthly_rub", "Для затраты, не связанной с персоналом, нужна сумма в месяц")
         return self

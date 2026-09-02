@@ -10,7 +10,7 @@ from typing import Any, Mapping, Sequence
 from pydantic import ValidationError as PydanticValidationError
 
 from cost.v2.models import CostBehavior, CostLayer, ReferenceItem, ReferenceSnapshot
-from cost.v2.schemas import SECTION_SCHEMAS, reference_paths
+from cost.v2.schemas import SECTION_SCHEMAS, field_label, reference_paths
 from cost.v2.packages import (
     DEFAULT_OPERATIONS,
     DEFAULT_PACKAGES,
@@ -419,17 +419,33 @@ def _schema_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
                             "error",
                             section,
                             item.code,
-                            _humanize(error),
+                            _humanize(error, section),
                             field=".".join(str(part) for part in error.get("loc", ())),
                         )
                     )
     return issues
 
 
-def _humanize(error: Mapping[str, Any]) -> str:
+# Типы ошибок pydantic, которые видит сметчик при опечатке в значении. Текст
+# pydantic английский, поэтому подписываем их сами.
+_TYPE_MESSAGES: tuple[tuple[str, str], ...] = (
+    ("decimal", "ожидается число, например 12 или 4.2"),
+    ("float", "ожидается число, например 12 или 4.2"),
+    ("int", "ожидается целое число"),
+    ("bool", "ожидается «да» или «нет»"),
+    ("date", "ожидается дата"),
+    ("literal", "значение не из списка допустимых"),
+    ("enum", "значение не из списка допустимых"),
+    ("string", "ожидается текст"),
+    ("list", "ожидается список значений"),
+    ("dict", "ожидается набор полей"),
+)
+
+
+def _humanize(error: Mapping[str, Any], section: str = "") -> str:
     """Сообщение pydantic → фраза, понятная сметчику."""
 
-    field = ".".join(str(part) for part in error.get("loc", ())) or "запись"
+    field = field_label(section, tuple(str(part) for part in error.get("loc", ()))) or "запись"
     kind = str(error.get("type", ""))
     if kind == "extra_forbidden":
         return f"Поле «{field}» не входит в схему раздела."
@@ -440,7 +456,10 @@ def _humanize(error: Mapping[str, Any]) -> str:
     if kind == "value_error":
         # Сообщения наших model_validator уже написаны по-русски.
         return str(error.get("msg", "")).removeprefix("Value error, ")
-    return f"Поле «{field}»: {error.get('msg', 'неверное значение')}."
+    for marker, message in _TYPE_MESSAGES:
+        if marker in kind:
+            return f"Поле «{field}»: {message}."
+    return f"Поле «{field}»: значение не подходит."
 
 
 def _reference_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:

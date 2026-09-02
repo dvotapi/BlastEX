@@ -1,0 +1,53 @@
+{
+  "source": "Смета ТГ от 23.03.2026.xlsx, лист «Расчет стоимости БВР», столбец «БВР сухие»",
+  "object_name": "Карьер Ломовского месторождения, блок 30 000 м³",
+  "physical": {
+    "rock_volume_m3": "30000",
+    "drilling_m": "2115.179",
+    "explosive_kg": "27219.304",
+    "bulk_kg": "27219.304",
+    "cartridge_kg": "0",
+    "holes": "185.768",
+    "downhole_nsi": "185.768",
+    "intermediate_detonators": "18.577",
+    "surface_nsi": "167.191",
+    "start_nsi": "1",
+    "blasts": "1"
+  },
+  "parameters": {
+    "package_code": "DRILL_AND_BLAST",
+    "site_code": "SITE_LOMOV",
+    "reference_revision_id": "SMETA-2026-01",
+    "unit_plan_volume_m3": "150000",
+    "rig_code": "RIG_JK830",
+    "rig_plan_shifts": "40",
+    "szm_code": "SZM_TDR",
+    "crew": [
+      {"position_code": "POS_MASTER", "headcount": "1", "shifts_per_block": "4.2"},
+      {"position_code": "POS_BLASTER", "headcount": "2", "shifts_per_block": "4.2"},
+      {"position_code": "POS_SZM_DRIVER", "headcount": "1", "shifts_per_block": "4.2"},
+      {"position_code": "POS_DELIVERY_DRIVER", "headcount": "1", "shifts_per_block": "4.2"},
+      {"position_code": "POS_DRILLER", "headcount": "1"}
+    ]
+  },
+  "excel": {
+    "section_1_1_materials_rub": 1269224.638,
+    "section_1_2_drilling_rub": 2133523.826,
+    "section_2_1_storage_rub": 51000,
+    "section_2_2_per_diem_rub": 5000,
+    "section_2_3_labor_rub": 193018.376,
+    "section_2_4_fuel_rub": 24480,
+    "section_2_5_depreciation_rub": 59788.955,
+    "section_2_6_overheads_rub": 77700,
+    "drilling_direct_rub_per_m": 755.225,
+    "drilling_labor_rub_per_m": 250.588,
+    "drilling_tooling_rub_per_m": 73.833,
+    "drilling_fuel_rub_per_m": 283.333,
+    "drilling_spare_parts_rub_per_m": 40,
+    "drilling_depreciation_rub_per_shift": 11854.167,
+    "szm_depreciation_rub_per_shift": 9426.069,
+    "szm_shifts": 2,
+    "production_cost_rub": 3813735.796,
+    "price_rub_per_m3_without_vat": 153.821
+  }
+}

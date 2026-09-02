@@ -35,6 +35,7 @@ from cost.v2.repository import (
     ReferenceRevisionConflict,
     ReferenceRevisionInfo,
     StoredCalculationRun,
+    StoredEconomicsRun,
     StoredScenario,
     StoredTechnicalPassport,
 )
@@ -174,6 +175,35 @@ class TechnicalPassportRow(Base):
     block_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     physical: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     lineage: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
+class EconomicsRunRow(Base):
+    """Снимок прогона модели себестоимости блока (TASK-007)."""
+
+    __tablename__ = "economics_runs"
+    __table_args__ = (
+        Index("ix_economics_run_passport", "organization_id", "technical_passport_id", "created_at"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    technical_passport_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.technical_passports.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    package_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    reference_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(f"{SCHEMA}.reference_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    parameters: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[str] = mapped_column(String(320), nullable=False)
 
@@ -672,6 +702,78 @@ class PostgresEconomicsRepository:
                 )
             )
         return self.get_calculation_run(organization_id, run_id)
+
+    def save_economics_run(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        name: str,
+        technical_passport_id: str,
+        package_code: str,
+        reference_revision_id: str,
+        parameters: dict[str, Any],
+        result: dict[str, Any],
+    ) -> StoredEconomicsRun:
+        run_id = str(uuid4())
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            passport = session.get(TechnicalPassportRow, technical_passport_id)
+            if passport is None or passport.organization_id != organization_id:
+                raise EconomicsRecordNotFound(
+                    f"Технический паспорт {technical_passport_id} не найден."
+                )
+            session.add(
+                EconomicsRunRow(
+                    id=run_id,
+                    organization_id=organization_id,
+                    name=name,
+                    technical_passport_id=technical_passport_id,
+                    package_code=package_code,
+                    reference_revision_id=reference_revision_id,
+                    parameters=parameters,
+                    result=result,
+                    created_at=now,
+                    created_by=user_id,
+                )
+            )
+        return self.get_economics_run(organization_id, run_id)
+
+    def list_economics_runs(
+        self, organization_id: str, technical_passport_id: str | None = None
+    ) -> Sequence[StoredEconomicsRun]:
+        with self.session_factory() as session:
+            statement = select(EconomicsRunRow).where(
+                EconomicsRunRow.organization_id == organization_id
+            )
+            if technical_passport_id:
+                statement = statement.where(
+                    EconomicsRunRow.technical_passport_id == technical_passport_id
+                )
+            rows = session.scalars(statement.order_by(desc(EconomicsRunRow.created_at))).all()
+            return tuple(self._stored_economics_run(row) for row in rows)
+
+    def get_economics_run(self, organization_id: str, run_id: str) -> StoredEconomicsRun:
+        with self.session_factory() as session:
+            row = session.get(EconomicsRunRow, run_id)
+            if row is None or row.organization_id != organization_id:
+                raise EconomicsRecordNotFound(f"Прогон экономики {run_id} не найден.")
+            return self._stored_economics_run(row)
+
+    @staticmethod
+    def _stored_economics_run(row: EconomicsRunRow) -> StoredEconomicsRun:
+        return StoredEconomicsRun(
+            id=row.id,
+            organization_id=row.organization_id,
+            name=row.name,
+            technical_passport_id=row.technical_passport_id,
+            package_code=row.package_code,
+            reference_revision_id=row.reference_revision_id,
+            parameters=dict(row.parameters or {}),
+            result=dict(row.result or {}),
+            created_at=row.created_at,
+            created_by=row.created_by,
+        )
 
     def _insert_reference_items(
         self,

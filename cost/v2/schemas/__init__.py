@@ -100,6 +100,9 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("Область применения", ("equipment_type_code", "rock_code", "site_code")),
         ("Производительность", ("tech_speed_m_per_h", "unproductive_h_per_shift", "fuel_l_per_m")),
         ("Ресурс инструмента", ("bit_life_m", "hammer_life_m", "rods_life_m", "casing_m_per_m")),
+        ("Материалы инструмента", (
+            "bit_material_code", "hammer_material_code", "rods_material_code", "casing_material_code",
+        )),
     ),
     "sites": (
         ("Принадлежность", ("customer_code", "production_unit_code", "rock_code")),
@@ -107,7 +110,7 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
             "distance_from_base_km", "distance_from_warehouse_km", "mobilization_km",
             "mobilization_rate_rub_per_km", "blocks_per_mobilization",
         )),
-        ("Условия", ("diesel_price_ton_rub", "customer_provides_fuel", "is_watered")),
+        ("Условия", ("diesel_price_ton_rub", "customer_provides_fuel", "is_watered", "is_remote")),
     ),
     "unit_fixed_costs": (
         ("Отнесение", ("production_unit_code", "scope", "category", "allocation_driver")),

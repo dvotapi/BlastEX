@@ -143,6 +143,41 @@ class StoredTechnicalPassport:
         }
 
 
+@dataclass(frozen=True)
+class StoredEconomicsRun:
+    """Снимок прогона модели себестоимости блока.
+
+    Хранится целиком: паспорт, пакет, ревизия справочников, параметры модели
+    и результат. Сравнение сценариев идёт между снимками, поэтому пересчёт
+    старого прогона на новых справочниках невозможен по построению.
+    """
+
+    id: str
+    organization_id: str
+    name: str
+    technical_passport_id: str
+    package_code: str
+    reference_revision_id: str
+    parameters: dict[str, Any]
+    result: dict[str, Any]
+    created_at: datetime
+    created_by: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "organization_id": self.organization_id,
+            "name": self.name,
+            "technical_passport_id": self.technical_passport_id,
+            "package_code": self.package_code,
+            "reference_revision_id": self.reference_revision_id,
+            "parameters": self.parameters,
+            "result": self.result,
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by,
+        }
+
+
 class EconomicsRepository(Protocol):
     def get_reference_snapshot(
         self, organization_id: str, revision_id: str | None = None
@@ -227,6 +262,25 @@ class EconomicsRepository(Protocol):
         result: dict[str, Any],
     ) -> StoredCalculationRun: ...
 
+    def save_economics_run(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        name: str,
+        technical_passport_id: str,
+        package_code: str,
+        reference_revision_id: str,
+        parameters: dict[str, Any],
+        result: dict[str, Any],
+    ) -> StoredEconomicsRun: ...
+
+    def list_economics_runs(
+        self, organization_id: str, technical_passport_id: str | None = None
+    ) -> Sequence[StoredEconomicsRun]: ...
+
+    def get_economics_run(self, organization_id: str, run_id: str) -> StoredEconomicsRun: ...
+
 
 class InMemoryEconomicsRepository:
     """Потокобезопасное хранилище для unit/API-тестов."""
@@ -238,6 +292,7 @@ class InMemoryEconomicsRepository:
         self._scenarios: dict[tuple[str, str], StoredScenario] = {}
         self._runs: dict[tuple[str, str], StoredCalculationRun] = {}
         self._passports: dict[tuple[str, str], StoredTechnicalPassport] = {}
+        self._economics_runs: dict[tuple[str, str], StoredEconomicsRun] = {}
 
     def _ensure_org(self, organization_id: str) -> None:
         if organization_id in self._revisions:
@@ -504,3 +559,55 @@ class InMemoryEconomicsRepository:
             )
             self._runs[(organization_id, run_id)] = run
             return deepcopy(run)
+
+    def save_economics_run(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        name: str,
+        technical_passport_id: str,
+        package_code: str,
+        reference_revision_id: str,
+        parameters: dict[str, Any],
+        result: dict[str, Any],
+    ) -> StoredEconomicsRun:
+        with self._lock:
+            self.get_technical_passport(organization_id, technical_passport_id)
+            run_id = str(uuid4())
+            run = StoredEconomicsRun(
+                id=run_id,
+                organization_id=organization_id,
+                name=name,
+                technical_passport_id=technical_passport_id,
+                package_code=package_code,
+                reference_revision_id=reference_revision_id,
+                parameters=deepcopy(parameters),
+                result=deepcopy(result),
+                created_at=datetime.now(timezone.utc).replace(microsecond=0),
+                created_by=user_id,
+            )
+            self._economics_runs[(organization_id, run_id)] = run
+            return deepcopy(run)
+
+    def list_economics_runs(
+        self, organization_id: str, technical_passport_id: str | None = None
+    ) -> Sequence[StoredEconomicsRun]:
+        with self._lock:
+            rows = [
+                deepcopy(value)
+                for (org, _), value in self._economics_runs.items()
+                if org == organization_id
+                and (
+                    not technical_passport_id
+                    or value.technical_passport_id == technical_passport_id
+                )
+            ]
+            return tuple(sorted(rows, key=lambda row: row.created_at, reverse=True))
+
+    def get_economics_run(self, organization_id: str, run_id: str) -> StoredEconomicsRun:
+        with self._lock:
+            try:
+                return deepcopy(self._economics_runs[(organization_id, run_id)])
+            except KeyError as exc:
+                raise EconomicsRecordNotFound(f"Прогон экономики {run_id} не найден.") from exc

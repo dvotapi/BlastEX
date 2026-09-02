@@ -147,6 +147,26 @@ export type BenchDxfImport = {
   vertex_count: number;
 };
 
+/** Линия из загруженного чертежа — кандидат в бровку. */
+export type DrawingPolyline = {
+  id: string;
+  layer: string;
+  entity: string;
+  closed: boolean;
+  points: Point3[];
+  length_m: number;
+  area_m2: number;
+  z_min: number;
+  z_max: number;
+};
+
+export type DrawingScan = {
+  polylines: DrawingPolyline[];
+  source_name: string;
+  converted_from: string;
+  truncated: boolean;
+};
+
 export type SurfaceStats = {
   kind: SurfaceKind;
   name: string;

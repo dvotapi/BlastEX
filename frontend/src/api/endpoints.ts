@@ -1,4 +1,4 @@
-import { del, get, post, put, requestSvg } from "./client";
+import { del, get, post, postFile, put, requestSvg } from "./client";
 import type {
   AggregatedCostResult,
   BlastGeometryResponse,
@@ -109,6 +109,8 @@ import type {
   MassBlastRevision,
   MassBlastValidation,
   BenchDxfImport,
+  DrawingScan,
+  Point3,
 } from "../types/design";
 import type {
   CalculationRun,
@@ -320,6 +322,15 @@ export const api = {
       post<{ surface: SurfaceModel; stats: SurfaceStats }>(`${V1}/design/surfaces/import`, payload),
     importBenchDxf: (payload: { content: string; filename: string; coordinate_system?: CoordinateSystem }) =>
       post<BenchDxfImport>(`${V1}/design/contour/import-dxf`, payload),
+    scanDrawing: (file: File) => postFile<DrawingScan>(`${V1}/design/drawing/polylines`, file),
+    benchFromPolylines: (payload: {
+      crest: Point3[];
+      toe: Point3[];
+      crest_layer?: string;
+      toe_layer?: string;
+      filename?: string;
+      coordinate_system?: CoordinateSystem;
+    }) => post<BenchDxfImport>(`${V1}/design/contour/from-polylines`, payload),
     sampleSurface: (surface: SurfaceModel, points: Array<[number, number]>) =>
       post<{ elevations: Array<number | null> }>(`${V1}/design/surfaces/sample`, { surface, points }),
     assignDomain: (domain: BlastDomain, polygon: BlastDomain["polygon"]) =>

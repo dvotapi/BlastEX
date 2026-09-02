@@ -29,6 +29,25 @@ export async function requestSvg(path: string, init?: RequestInit): Promise<stri
   return response.text();
 }
 
+/** Загрузка файла. Content-Type не задаём: с FormData его ставит браузер вместе с boundary. */
+export async function postFile<T>(path: string, file: File, field = "file"): Promise<T> {
+  const form = new FormData();
+  form.append(field, file);
+  const response = await fetch(path, { method: "POST", credentials: "include", body: form });
+  if (!response.ok) {
+    let message = "Не удалось загрузить файл.";
+    try {
+      const payload = await response.json();
+      if (typeof payload.detail === "string") message = payload.detail;
+      else if (payload.detail && typeof payload.detail.message === "string") message = payload.detail.message;
+    } catch {
+      // Response has no JSON body.
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<T>;
+}
+
 export const get = <T,>(path: string) => request<T>(path);
 export const post = <T,>(path: string, body: unknown) =>
   request<T>(path, { method: "POST", body: JSON.stringify(body) });

@@ -49,6 +49,10 @@ from api.schemas.design import (
     SurfaceImportResponse,
     BenchDxfImportRequest,
     BenchDxfImportResponse,
+    BenchFromPolylinesRequest,
+    DrawingPolylineSchema,
+    DrawingScanResponse,
+    Point3Schema,
     SurfaceSampleRequest,
     SurfaceSampleResponse,
     SurfaceStatsSchema,
@@ -112,7 +116,13 @@ from design.models import (
 )
 from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
-from design.spatial.io import SurveyImportError, import_bench_dxf as import_bench_dxf_source, import_survey
+from design.spatial.drawing import DrawingError, read_drawing
+from design.spatial.io import (
+    SurveyImportError,
+    build_bench_from_polylines,
+    import_bench_dxf as import_bench_dxf_source,
+    import_survey,
+)
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
 
@@ -163,13 +173,56 @@ def import_surface(request: SurfaceImportRequest) -> SurfaceImportResponse:
     )
 
 
+def scan_drawing(content: bytes, filename: str) -> DrawingScanResponse:
+    """Разбирает загруженный чертёж на полилинии для ручного выбора бровок."""
+
+    try:
+        scan = read_drawing(content, filename)
+    except DrawingError as exc:
+        raise InvalidSurveyError(str(exc)) from exc
+    return DrawingScanResponse(
+        polylines=[
+            DrawingPolylineSchema(
+                id=item.id,
+                layer=item.layer,
+                entity=item.entity,
+                closed=item.closed,
+                points=[Point3Schema(x=p.x, y=p.y, z=p.z) for p in item.points],
+                length_m=item.length_m,
+                area_m2=item.area_m2,
+                z_min=item.z_min,
+                z_max=item.z_max,
+            )
+            for item in scan.polylines
+        ],
+        source_name=scan.source_name,
+        converted_from=scan.converted_from,
+        truncated=scan.truncated,
+    )
+
+
+def bench_from_polylines(request: BenchFromPolylinesRequest) -> BenchDxfImportResponse:
+    """Собирает уступ из двух выбранных вручную полилиний."""
+
+    crest = [Point3.from_dict(p.model_dump()) for p in request.crest]
+    toe = [Point3.from_dict(p.model_dump()) for p in request.toe]
+    try:
+        imported = build_bench_from_polylines(crest, toe, request.crest_layer, request.toe_layer)
+    except SurveyImportError as exc:
+        raise InvalidSurveyError(str(exc)) from exc
+    return _bench_response(imported, request.filename or "block.dxf", request.coordinate_system)
+
+
 def import_bench_dxf(request: BenchDxfImportRequest) -> BenchDxfImportResponse:
     try:
         imported = import_bench_dxf_source(request.content)
     except SurveyImportError as exc:
         raise InvalidSurveyError(str(exc)) from exc
-    coordinate_system = CoordinateSystem.from_dict(request.coordinate_system.model_dump())
-    source_name = request.filename or "block.dxf"
+    return _bench_response(imported, request.filename or "block.dxf", request.coordinate_system)
+
+
+def _bench_response(imported, source_name: str, coordinate_system_schema) -> BenchDxfImportResponse:
+    coordinate_system = CoordinateSystem.from_dict(coordinate_system_schema.model_dump())
     top = build_surface(
         "top", imported.crest, polylines=[imported.crest], name="Верхняя бровка",
         source_format="dxf", source_name=source_name, coordinate_system=coordinate_system,

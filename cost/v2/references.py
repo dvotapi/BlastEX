@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Sequence
 
+from pydantic import ValidationError as PydanticValidationError
+
 from cost.v2.models import CostBehavior, CostLayer, ReferenceItem, ReferenceSnapshot
+from cost.v2.schemas import SECTION_SCHEMAS, reference_paths
 from cost.v2.packages import (
     DEFAULT_OPERATIONS,
     DEFAULT_PACKAGES,
@@ -17,41 +20,122 @@ from cost.v2.packages import (
 )
 
 
-REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, str]] = {
-    "production_units": {"group": "organization", "label": "Производственные юниты"},
-    "counterparties": {"group": "organization", "label": "Контрагенты"},
-    "sites": {"group": "organization", "label": "Карьеры и объекты"},
-    "bases": {"group": "infrastructure", "label": "Производственные базы"},
-    "warehouses": {"group": "infrastructure", "label": "Склады"},
-    "routes": {"group": "infrastructure", "label": "Маршруты"},
-    "units": {"group": "operations", "label": "Единицы измерения"},
-    "operations": {"group": "operations", "label": "Элементарные операции"},
-    "work_packages": {"group": "operations", "label": "Пакеты работ"},
-    "materials": {"group": "materials", "label": "Материалы и ВМ"},
-    "material_prices": {"group": "materials", "label": "Стоимость материалов"},
-    "material_loss_norms": {"group": "materials", "label": "Нормативные потери"},
-    "positions": {"group": "labor", "label": "Должности"},
-    "labor_rates": {"group": "labor", "label": "Ставки персонала"},
-    "crew_templates": {"group": "labor", "label": "Составы бригад"},
-    "equipment_types": {"group": "equipment", "label": "Типы оборудования"},
-    "equipment_assets": {"group": "equipment", "label": "Основные средства"},
-    "resource_pools": {"group": "equipment", "label": "Ресурсные пулы и мощности"},
-    "resource_norms": {"group": "equipment", "label": "Нормы ресурсов по операциям"},
-    "rocks": {"group": "blast_design", "label": "Породы"},
+# Разделы справочника. `columns` — что показывать в списке записей, `view` —
+# как раздел рисуется (таблица либо матрица «станок × порода»), `deprecated` —
+# раздел ещё читается ради старых ревизий, но в интерфейсе не предлагается.
+REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "production_units": {
+        "group": "organization", "label": "Производственные юниты",
+        "columns": ["name", "plan_volume_m3", "region"],
+    },
+    "counterparties": {
+        "group": "organization", "label": "Контрагенты",
+        "columns": ["name", "role", "inn"],
+    },
+    "sites": {
+        "group": "organization", "label": "Карьеры и объекты",
+        "columns": ["name", "customer_code", "rock_code", "distance_from_base_km", "is_watered"],
+    },
+    "organization_rates": {
+        "group": "organization", "label": "Ставки и надбавки организации",
+        "columns": ["name", "social_contribution_rate", "overhead_rate", "target_margin_rate", "vat_rate"],
+    },
+    "bases": {
+        "group": "infrastructure", "label": "Производственные базы",
+        "columns": ["name", "production_unit_code", "monthly_rub"],
+    },
+    "warehouses": {
+        "group": "infrastructure", "label": "Склады",
+        "columns": ["name", "production_unit_code", "area_m2"],
+    },
+    "routes": {
+        "group": "infrastructure", "label": "Маршруты",
+        "columns": ["name", "from_code", "to_code", "distance_km"],
+    },
+    "units": {"group": "operations", "label": "Единицы измерения", "columns": ["name", "symbol", "dimension"]},
+    "operations": {"group": "operations", "label": "Элементарные операции", "columns": ["name", "stage", "unit"]},
+    "work_packages": {"group": "operations", "label": "Пакеты работ", "columns": ["name", "description"]},
+    "materials": {
+        "group": "materials", "label": "Материалы и ВМ",
+        "columns": ["name", "material_kind", "unit", "storage_class"],
+    },
+    "material_prices": {
+        "group": "materials", "label": "Стоимость материалов",
+        "columns": ["name", "material_code", "price_rub", "valid_from"],
+    },
+    "material_loss_norms": {
+        "group": "materials", "label": "Нормативные потери",
+        "columns": ["name", "material_code", "operation_code", "loss_rate"],
+    },
+    "positions": {
+        "group": "labor", "label": "Должности и ставки",
+        "columns": ["name", "category", "operation_code", "norm_shifts_per_month", "piece_driver"],
+    },
+    "labor_rates": {
+        "group": "labor", "label": "Ставки персонала",
+        "columns": ["name", "position_code", "fixed_monthly_rub", "piece_rate_rub", "condition_code"],
+    },
+    "crew_templates": {"group": "labor", "label": "Составы бригад", "columns": ["name", "package_code"]},
+    "equipment_types": {
+        "group": "equipment", "label": "Типы оборудования",
+        "columns": ["name", "kind", "norm_shifts_per_month", "maintenance_mode", "capacity"],
+    },
+    "equipment_assets": {
+        "group": "equipment", "label": "Основные средства",
+        "columns": ["name", "equipment_type_code", "initial_cost_rub", "useful_life_months"],
+    },
+    "resource_pools": {
+        "group": "equipment", "label": "Ресурсные пулы и мощности",
+        "columns": ["name", "unit", "monthly_capacity", "fixed_cost_rub"],
+    },
+    "resource_norms": {
+        "group": "equipment", "label": "Нормы ресурсов по операциям",
+        "columns": ["name", "operation_code", "resource_code", "norm_per_unit"],
+    },
+    "rocks": {"group": "blast_design", "label": "Породы", "columns": ["name", "density_t_m3", "hardness_f"]},
     "blast_design_parameters": {
         "group": "blast_design",
         "label": "Нормативы и коэффициенты БВР",
+        "columns": ["name", "value", "unit"],
     },
-    "drilling_productivity": {"group": "drilling", "label": "Производительность бурения"},
-    "bench_surface_conditions": {"group": "drilling", "label": "Качество поверхности блока"},
-    "stakeout_modes": {"group": "drilling", "label": "Вынос скважин в натуру"},
-    "site_infrastructure": {"group": "drilling", "label": "Инфраструктура объекта"},
-    "cost_centers": {"group": "costs", "label": "Центры затрат"},
-    "cost_items": {"group": "costs", "label": "Статьи затрат"},
-    "cost_rules": {"group": "costs", "label": "Правила расчёта затрат"},
-    "allocation_rules": {"group": "costs", "label": "Правила распределения"},
-    "subcontract_rates": {"group": "market", "label": "Ставки субподрядчиков"},
-    "market_prices": {"group": "market", "label": "Рыночные цены"},
+    "drilling_conditions": {
+        "group": "drilling", "label": "Условия бурения",
+        "view": "matrix",
+        "columns": ["name", "equipment_type_code", "rock_code", "site_code", "tech_speed_m_per_h", "bit_life_m"],
+    },
+    "drilling_productivity": {
+        "group": "drilling", "label": "Производительность бурения",
+        "deprecated": True,
+        "columns": ["name"],
+    },
+    "bench_surface_conditions": {
+        "group": "drilling", "label": "Качество поверхности блока",
+        "columns": ["name", "productivity_factor"],
+    },
+    "stakeout_modes": {
+        "group": "drilling", "label": "Вынос скважин в натуру",
+        "columns": ["name", "contractor_share"],
+    },
+    "site_infrastructure": {"group": "drilling", "label": "Инфраструктура объекта", "columns": ["name"]},
+    "cost_centers": {"group": "costs", "label": "Центры затрат", "columns": ["name", "production_unit_code", "kind"]},
+    "cost_items": {"group": "costs", "label": "Статьи затрат", "columns": ["name", "kind", "cost_center_code"]},
+    "cost_rules": {
+        "group": "costs", "label": "Правила расчёта затрат",
+        "columns": ["name", "operation_code", "behavior_type", "cost_layer", "rate_rub"],
+    },
+    "allocation_rules": {
+        "group": "costs", "label": "Правила распределения",
+        "columns": ["name", "cost_item_code", "driver", "target_layer"],
+    },
+    "unit_fixed_costs": {
+        "group": "costs", "label": "Постоянные затраты юнита",
+        "columns": ["name", "production_unit_code", "category", "monthly_rub", "headcount"],
+    },
+    "subcontract_rates": {
+        "group": "market", "label": "Ставки субподрядчиков",
+        "columns": ["name", "counterparty_code", "operation_code", "rate_rub"],
+    },
+    "market_prices": {"group": "market", "label": "Рыночные цены", "columns": ["name", "scope", "price_rub"]},
 }
 
 REFERENCE_GROUPS: tuple[tuple[str, str], ...] = (
@@ -83,6 +167,9 @@ class ValidationIssue:
     section: str
     code: str
     message: str
+    # Имя поля payload, если ошибка относится к конкретному полю: интерфейс
+    # показывает такую ошибку под самим полем, а не общим списком сверху.
+    field: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -90,6 +177,7 @@ class ValidationIssue:
             "section": self.section,
             "code": self.code,
             "message": self.message,
+            "field": self.field,
         }
 
 
@@ -111,6 +199,7 @@ def _system_items() -> dict[str, tuple[ReferenceItem, ...]]:
         _item("M3", "Кубический метр", {"symbol": "м³", "dimension": "volume", "factor_to_base": 1}),
         _item("HOUR", "Час", {"symbol": "ч", "dimension": "time", "factor_to_base": 1}),
         _item("SHIFT", "Смена", {"symbol": "смена", "dimension": "time"}),
+        _item("PIECE", "Штука", {"symbol": "шт", "dimension": "count", "factor_to_base": 1}),
         _item("TRIP", "Рейс", {"symbol": "рейс", "dimension": "count"}),
         _item("BLAST", "Взрыв", {"symbol": "взрыв", "dimension": "count"}),
         _item("CONTRACT_LINE", "Договорная позиция", {"symbol": "поз.", "dimension": "count"}),
@@ -133,8 +222,31 @@ def _system_items() -> dict[str, tuple[ReferenceItem, ...]]:
             ("UNIT_AHP", "АХП производственного юнита", "CONTRACT_LINE", "full", "revenue"),
         )
     )
+    # Ставки организации по ADR-001: без них модель экономики не стартует, а
+    # угадать их нельзя, поэтому запись заводится сразу со значениями по
+    # умолчанию и правится сметчиком.
+    organization_rates = (
+        _item(
+            "ORG_RATES_DEFAULT",
+            "Ставки и надбавки организации",
+            {
+                "income_tax_rate": "0.13",
+                "social_contribution_rate": "0.30",
+                "injury_insurance_rate": "0.0042",
+                "vacation_reserve_rate": "0.20",
+                "salary_basis": "GROSS",
+                "overhead_rate": "0.10",
+                "target_margin_rate": "0.10",
+                "vat_rate": "0.20",
+                "per_diem_rub": "0",
+                "lodging_rub": "0",
+                "shift_hours": "11",
+            },
+        ),
+    )
     return {
         "units": units,
+        "organization_rates": organization_rates,
         "operations": operation_reference_items(),
         "work_packages": package_reference_items(),
         "resource_pools": resource_pools,
@@ -163,7 +275,7 @@ def _system_items() -> dict[str, tuple[ReferenceItem, ...]]:
 
 
 def default_reference_sections() -> dict[str, tuple[ReferenceItem, ...]]:
-    sections = {key: tuple() for key in REFERENCE_SECTION_DEFINITIONS}
+    sections: dict[str, tuple[ReferenceItem, ...]] = {key: () for key in REFERENCE_SECTION_DEFINITIONS}
     sections.update(_system_items())
     return sections
 
@@ -223,6 +335,9 @@ def validate_reference_sections(
             if item.valid_from and item.valid_to and item.valid_to < item.valid_from:
                 issues.append(ValidationIssue("error", section, item.code, "valid_to раньше valid_from."))
 
+    issues.extend(_schema_issues(sections))
+    issues.extend(_reference_issues(sections))
+
     operations = {item.code for item in sections["operations"] if item.is_active}
     packages = {item.code: item for item in sections["work_packages"] if item.is_active}
     for required in package_codes():
@@ -270,26 +385,11 @@ def validate_reference_sections(
             CostLayer(str(payload.get("cost_layer", CostLayer.PROJECT_DIRECT.value)))
         except ValueError as exc:
             issues.append(ValidationIssue("error", "cost_rules", item.code, str(exc)))
-        for numeric_key in ("rate_rub", "fixed_rub", "step_capacity", "step_cost_rub"):
-            value = payload.get(numeric_key)
-            if value in (None, ""):
-                continue
-            try:
-                if Decimal(str(value)) < 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                issues.append(ValidationIssue("error", "cost_rules", item.code, f"{numeric_key} должно быть неотрицательным числом."))
+        # Неотрицательность ставок и ёмкостей проверяет схема раздела
+        # (UnitField с ge=0) — дублировать её здесь значит показать сметчику
+        # одну и ту же ошибку дважды, причём вторую без имени поля.
 
     for item in sections["resource_pools"]:
-        for numeric_key in ("monthly_capacity", "fixed_cost_rub", "variable_rate_rub"):
-            value = item.payload.get(numeric_key)
-            if value in (None, ""):
-                continue
-            try:
-                if Decimal(str(value)) < 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                issues.append(ValidationIssue("error", "resource_pools", item.code, f"{numeric_key} должно быть неотрицательным числом."))
         if item.payload.get("monthly_capacity") in (None, ""):
             issues.append(ValidationIssue("warning", "resource_pools", item.code, "Месячная мощность не заполнена; перегрузка ресурса не контролируется."))
 
@@ -299,6 +399,106 @@ def validate_reference_sections(
         issues.append(ValidationIssue("warning", "cost_rules", "", "Не добавлены правила затрат; расчёт себестоимости будет нулевым."))
 
     return issues
+
+
+def _schema_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
+    """Прогоняет payload каждой записи через схему её раздела."""
+
+    issues: list[ValidationIssue] = []
+    for section, items in sections.items():
+        model = SECTION_SCHEMAS.get(section)
+        if model is None:
+            continue
+        for item in items:
+            try:
+                model.model_validate(item.payload)
+            except PydanticValidationError as exc:
+                for error in exc.errors():
+                    issues.append(
+                        ValidationIssue(
+                            "error",
+                            section,
+                            item.code,
+                            _humanize(error),
+                            field=".".join(str(part) for part in error.get("loc", ())),
+                        )
+                    )
+    return issues
+
+
+def _humanize(error: Mapping[str, Any]) -> str:
+    """Сообщение pydantic → фраза, понятная сметчику."""
+
+    field = ".".join(str(part) for part in error.get("loc", ())) or "запись"
+    kind = str(error.get("type", ""))
+    if kind == "extra_forbidden":
+        return f"Поле «{field}» не входит в схему раздела."
+    if kind == "missing":
+        return f"Не заполнено обязательное поле «{field}»."
+    if kind.startswith("greater_than") or kind.startswith("less_than"):
+        return f"Поле «{field}»: значение вне допустимого диапазона."
+    if kind == "value_error":
+        # Сообщения наших model_validator уже написаны по-русски.
+        return str(error.get("msg", "")).removeprefix("Value error, ")
+    return f"Поле «{field}»: {error.get('msg', 'неверное значение')}."
+
+
+def _reference_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
+    """Проверяет поля `x-ref`: ссылка должна вести на существующую запись."""
+
+    known: dict[str, set[str]] = {
+        section: {item.code for item in items} for section, items in sections.items()
+    }
+    issues: list[ValidationIssue] = []
+    for section, items in sections.items():
+        paths = reference_paths(section)
+        if not paths:
+            continue
+        for item in items:
+            for path, target in paths:
+                for field, value in _values_at(item.payload, path):
+                    if str(value) in known.get(target, set()):
+                        continue
+                    label = REFERENCE_SECTION_DEFINITIONS.get(target, {}).get("label", target)
+                    issues.append(
+                        ValidationIssue(
+                            "error",
+                            section,
+                            item.code,
+                            f"Ссылка «{value}» не найдена в разделе «{label}».",
+                            field=field,
+                        )
+                    )
+    return issues
+
+
+def _values_at(payload: Any, path: Sequence[str]) -> list[tuple[str, Any]]:
+    """Значения по пути внутри payload вместе с адресом поля для интерфейса.
+
+    Списки разворачиваются с индексом (`members.0.position_code`), чтобы форма
+    подсветила именно ту строку состава бригады, где ссылка не найдена.
+    """
+
+    found: list[tuple[str, Any]] = []
+
+    def walk(node: Any, rest: Sequence[str], label: str) -> None:
+        if isinstance(node, list):
+            for index, element in enumerate(node):
+                walk(element, rest, f"{label}.{index}" if label else str(index))
+            return
+        if not rest:
+            if node not in (None, ""):
+                found.append((label, node))
+            return
+        if not isinstance(node, Mapping):
+            return
+        key = rest[0]
+        if key not in node:
+            return
+        walk(node[key], rest[1:], f"{label}.{key}" if label else key)
+
+    walk(payload, list(path), "")
+    return found
 
 
 def has_validation_errors(issues: Sequence[ValidationIssue]) -> bool:

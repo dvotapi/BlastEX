@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from api.schemas.reference_schema import ReferenceSchemaResponse
 from api.schemas.economics import (
     CalculationRunSchema,
     EconomicScenarioSchema,
@@ -24,6 +25,7 @@ from api.services.economics_service import (
     calculate_and_store,
     create_technical_passport,
     get_economics_repository,
+    reference_schema_payload,
     reference_snapshot_payload,
     repository_error,
     scenario_from_payload,
@@ -135,6 +137,15 @@ def get_reference_snapshot(
         return ReferenceSnapshotSchema.model_validate(reference_snapshot_payload(snapshot))
     except Exception as exc:
         raise repository_error(exc) from exc
+
+
+@router.get("/references/schema", response_model=ReferenceSchemaResponse)
+def get_reference_schema(
+    _session: dict[str, object] = Depends(require_internal_access),
+) -> ReferenceSchemaResponse:
+    """Схема полей каждого раздела: по ней фронт рисует списки и формы."""
+
+    return ReferenceSchemaResponse.model_validate(reference_schema_payload())
 
 
 @router.post("/references/validate", response_model=ReferenceValidationResponse)

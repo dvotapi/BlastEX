@@ -16,11 +16,13 @@ from api.schemas.economics import (
 from cost.v2.engine import FORMULA_VERSION, calculate_scenario
 from cost.v2.models import EconomicScenario
 from cost.v2.references import (
+    REFERENCE_SECTION_DEFINITIONS,
     group_catalog,
     has_validation_errors,
     section_catalog,
     validate_reference_sections,
 )
+from cost.v2.schemas import SECTION_SCHEMAS, section_fieldsets, section_json_schema
 from cost.v2.repository import (
     EconomicsRecordNotFound,
     EconomicsRepository,
@@ -53,6 +55,27 @@ def reference_snapshot_payload(snapshot: Any) -> dict[str, Any]:
     payload["section_catalog"] = section_catalog()
     payload["group_catalog"] = group_catalog()
     return payload
+
+
+@lru_cache(maxsize=1)
+def reference_schema_payload() -> dict[str, Any]:
+    """Каталог схем разделов. Схема статична — считается один раз на процесс."""
+
+    sections: dict[str, Any] = {}
+    for code, meta in REFERENCE_SECTION_DEFINITIONS.items():
+        if code not in SECTION_SCHEMAS:
+            continue
+        sections[code] = {
+            "code": code,
+            "label": meta["label"],
+            "group": meta["group"],
+            "view": meta.get("view", "table"),
+            "deprecated": bool(meta.get("deprecated", False)),
+            "list_columns": list(meta.get("columns", [])),
+            "fieldsets": section_fieldsets(code),
+            "json_schema": section_json_schema(code),
+        }
+    return {"groups": group_catalog(), "sections": sections}
 
 
 def validation_payload(sections: dict[str, list[ReferenceItemSchema]]) -> dict[str, Any]:

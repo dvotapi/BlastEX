@@ -53,7 +53,66 @@ from cost.v2.schemas.organization import (
     SitePayload,
 )
 
-__all__ = ["SECTION_SCHEMAS", "section_schema", "section_json_schema", "referenced_sections"]
+__all__ = [
+    "SECTION_SCHEMAS",
+    "section_schema",
+    "section_json_schema",
+    "section_fieldsets",
+    "referenced_sections",
+]
+
+
+# Группировка полей в форме записи. Заведена только там, где полей много и
+# порядок сам по себе ничего не объясняет; остальные разделы рисуются одним
+# набором в порядке объявления схемы.
+SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+    "positions": (
+        ("Роль", ("category", "operation_code")),
+        ("Нормативы", ("norm_shifts_per_month", "norm_operations_per_month")),
+        ("Сдельная часть", ("piece_driver", "piece_unit")),
+        ("Прочее", ("per_diem_applies",)),
+    ),
+    "labor_rates": (
+        ("Должность", ("position_code", "condition_code")),
+        ("Постоянная часть", ("fixed_monthly_rub",)),
+        ("Сдельная часть", ("piece_rate_rub",)),
+    ),
+    "organization_rates": (
+        ("Налоги и взносы", (
+            "income_tax_rate", "social_contribution_rate", "injury_insurance_rate",
+            "vacation_reserve_rate", "salary_basis",
+        )),
+        ("Надбавки", ("overhead_rate", "target_margin_rate", "vat_rate")),
+        ("Вахта и смена", ("per_diem_rub", "lodging_rub", "shift_hours")),
+    ),
+    "equipment_types": (
+        ("Вид и загрузка", ("kind", "operation_code", "norm_shifts_per_month")),
+        ("ТОиР и запчасти", (
+            "maintenance_mode", "maintenance_ratio", "maintenance_rub_per_shift",
+            "maintenance_monthly_rub", "spare_parts_rub_per_shift",
+        )),
+        ("Допуск к работе", ("inspection_rub_per_shift", "medical_rub_per_shift")),
+        ("Топливо и ёмкость", ("fuel_l_per_h", "fuel_l_per_km", "capacity", "capacity_unit")),
+    ),
+    "drilling_conditions": (
+        ("Область применения", ("equipment_type_code", "rock_code", "site_code")),
+        ("Производительность", ("tech_speed_m_per_h", "unproductive_h_per_shift", "fuel_l_per_m")),
+        ("Ресурс инструмента", ("bit_life_m", "hammer_life_m", "rods_life_m", "casing_m_per_m")),
+    ),
+    "sites": (
+        ("Принадлежность", ("customer_code", "production_unit_code", "rock_code")),
+        ("Логистика", (
+            "distance_from_base_km", "distance_from_warehouse_km", "mobilization_km",
+            "mobilization_rate_rub_per_km", "blocks_per_mobilization",
+        )),
+        ("Условия", ("diesel_price_ton_rub", "customer_provides_fuel", "is_watered")),
+    ),
+    "unit_fixed_costs": (
+        ("Отнесение", ("production_unit_code", "scope", "category", "allocation_driver")),
+        ("Персонал", ("position_code", "headcount")),
+        ("Сумма", ("monthly_rub",)),
+    ),
+}
 
 
 SECTION_SCHEMAS: dict[str, type[ReferencePayload]] = {
@@ -105,6 +164,31 @@ def section_json_schema(section: str) -> dict[str, Any]:
     if model is None:
         return {}
     return model.model_json_schema()
+
+
+def section_fieldsets(section: str) -> list[dict[str, Any]]:
+    """Группы полей формы. Поля, не попавшие в группы, идут последней «Прочее»."""
+
+    schema = section_json_schema(section)
+    properties = [
+        name for name, field in (schema.get("properties") or {}).items()
+        if not field.get("x-internal")
+    ]
+    declared = SECTION_FIELDSETS.get(section)
+    if not declared:
+        return [{"title": "", "fields": properties}]
+
+    grouped: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for title, fields in declared:
+        present = [name for name in fields if name in properties]
+        if present:
+            grouped.append({"title": title, "fields": present})
+            used.update(present)
+    rest = [name for name in properties if name not in used]
+    if rest:
+        grouped.append({"title": "Прочее", "fields": rest})
+    return grouped
 
 
 def referenced_sections(section: str) -> dict[str, str]:

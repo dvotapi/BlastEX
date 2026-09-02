@@ -56,6 +56,8 @@ class ReferenceValidationIssueSchema(BaseModel):
     section: str
     code: str
     message: str
+    # Пусто, если ошибка относится к записи целиком, а не к отдельному полю.
+    field: str = ""
 
 
 class ReferenceValidationResponse(BaseModel):

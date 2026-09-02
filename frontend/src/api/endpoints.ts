@@ -122,6 +122,7 @@ import type {
   StoredEconomicScenario,
   TechnicalDriverSnapshot,
 } from "../types/economics";
+import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
 
 const V1 = "/api/v1";
 
@@ -230,6 +231,7 @@ export const api = {
       existing_physical: existingPhysical,
       source_id: sourceId ?? null,
     }),
+    referenceSchema: () => get<ReferenceSchemaCatalog>(`${V1}/economics/references/schema`),
     referenceSnapshot: (revisionId?: string) =>
       get<EconomicsReferenceSnapshot>(
         `${V1}/economics/references/snapshot${revisionId ? `?revision_id=${encodeURIComponent(revisionId)}` : ""}`

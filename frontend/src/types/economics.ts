@@ -37,6 +37,8 @@ export type ReferenceValidationIssue = {
   section: string;
   code: string;
   message: string;
+  /** Поле payload, к которому относится ошибка: форма покажет её под полем. */
+  field?: string;
 };
 
 export type ReferenceValidation = {

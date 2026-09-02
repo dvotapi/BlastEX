@@ -15,14 +15,16 @@ class MaterialPayload(ReferencePayload):
     unit: str | None = RefField("units", description="Единица измерения", default=None)
     material_kind: str | None = Field(default=None, description="Вид: ВВ, СВ, СИ, ТМЦ")
     category: str | None = Field(default=None, description="Категория номенклатуры")
-    power_mj_kg: Decimal | None = UnitField("МДж/кг", description="Энергия взрывчатого вещества", default=None)
+    power_mj_kg: Decimal | None = UnitField(
+        "МДж/кг", title="Энергия ВВ", description="Энергия взрывчатого вещества", default=None
+    )
     mass_kg: Decimal | None = UnitField("кг", description="Масса единицы", default=None)
     length_m: Decimal | None = UnitField("м", description="Длина единицы", default=None)
     storage_class: Literal["BULK", "CARTRIDGE", "NSI", "NONE"] = Field(
         default="NONE", description="Класс хранения — определяет потребление ёмкости склада ВМ"
     )
     delivery_route_kind: Literal["FROM_WAREHOUSE", "DIRECT_TO_SITE"] = Field(
-        default="FROM_WAREHOUSE", description="Откуда доставляется на объект"
+        default="FROM_WAREHOUSE", title="Маршрут доставки", description="Откуда доставляется на объект"
     )
     density_t_m3: Decimal | None = UnitField("т/м³", description="Плотность", default=None)
 

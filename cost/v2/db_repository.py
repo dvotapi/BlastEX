@@ -386,6 +386,9 @@ class PostgresEconomicsRepository:
                     comment=comment,
                 )
             )
+            # Записи ссылаются на новую ревизию внешним ключом; порядок вставки
+            # задаём явно, как и при создании начальной ревизии.
+            session.flush()
             self._insert_reference_items(session, organization_id, revision_id, normalized)
             after = {
                 key: [item.to_dict() for item in values]

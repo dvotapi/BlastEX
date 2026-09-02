@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from cost.v2.schemas.base import RefField, ReferencePayload, UnitField
+from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_error
 
 __all__ = ["PositionPayload", "LaborRatePayload", "CrewTemplatePayload", "PIECE_DRIVERS"]
 
@@ -16,10 +16,13 @@ PIECE_DRIVERS: tuple[str, ...] = ("rock_volume_m3", "explosive_kg", "drilling_m"
 
 class PositionPayload(ReferencePayload):
     category: Literal["DIRECT", "INDIRECT"] = Field(
-        default="DIRECT", description="Прямой персонал блока или косвенный персонал юнита"
+        default="DIRECT", title="Категория", description="Прямой персонал блока или косвенный персонал юнита"
     )
     operation_code: str | None = RefField(
-        "operations", description="Операция пакета, к которой привязан норматив (только для прямого персонала)", default=None
+        "operations",
+        title="Операция пакета",
+        description="Операция пакета, к которой привязан норматив (только для прямого персонала)",
+        default=None,
     )
     norm_shifts_per_month: Decimal = UnitField(
         "см/мес", description="Нормативных смен в месяц", default=Decimal("21")
@@ -31,18 +34,23 @@ class PositionPayload(ReferencePayload):
         default=None, description="Драйвер сдельной оплаты"
     )
     piece_unit: Decimal = UnitField(
-        "ед.", description="Расценка задаётся за столько единиц драйвера", default=Decimal("1"), ge=0
+        "ед.", title="За единиц драйвера", description="Расценка задаётся за столько единиц драйвера", default=Decimal("1"), ge=0
     )
-    per_diem_applies: bool = Field(default=True, description="Начисляются суточные и проживание")
+    per_diem_applies: bool = Field(default=True, title="Суточные и проживание", description="Начисляются суточные и проживание")
 
     @model_validator(mode="after")
     def _direct_needs_operation(self) -> "PositionPayload":
         # Прямой персонал попадает в себестоимость блока через операцию пакета:
         # без неё модель не знает, к какому этапу отнести человеко-смены.
         if self.category == "DIRECT" and not self.operation_code:
-            raise ValueError("У прямого персонала должна быть указана операция пакета")
+            field_error(type(self), "operation_code", "У прямого персонала должна быть указана операция пакета")
         if self.category == "INDIRECT" and self.operation_code:
-            raise ValueError("Косвенный персонал не привязывается к операции — он распределяется по объёму юнита")
+            field_error(
+                type(self),
+                "operation_code",
+                "Косвенный персонал не привязывается к операции — он распределяется по объёму юнита",
+                self.operation_code,
+            )
         return self
 
 
@@ -52,10 +60,16 @@ class LaborRatePayload(ReferencePayload):
         "₽/мес", description="Постоянная часть оплаты", default=Decimal("0")
     )
     piece_rate_rub: Decimal = UnitField(
-        "₽", description="Сдельная расценка за piece_unit единиц драйвера должности", default=Decimal("0")
+        "₽",
+        title="Сдельная расценка",
+        description="Сдельная расценка за piece_unit единиц драйвера должности",
+        default=Decimal("0"),
     )
     condition_code: str | None = RefField(
-        "drilling_conditions", description="Условие бурения, если расценка зависит от породы", default=None
+        "drilling_conditions",
+        title="Условие бурения",
+        description="Условие бурения, если расценка зависит от породы",
+        default=None,
     )
 
 

@@ -143,6 +143,37 @@ class TestValidationThroughSchemas:
         issues = _errors(validate_reference_sections(sections))
         assert any(issue.section == "positions" and "операция" in issue.message.lower() for issue in issues)
 
+    def test_wrong_number_is_reported_in_russian_with_the_field_title(self):
+        # Сметчик набирает «2,7» с запятой: сообщение обязано назвать поле так,
+        # как оно подписано в форме, и объяснить ошибку по-русски.
+        sections = dict(default_reference_sections())
+        sections["rocks"] = (_item("ROCK_X", {"density_t_m3": "2,7"}),)
+        issues = _errors(validate_reference_sections(sections))
+        message = next(issue.message for issue in issues if issue.field == "density_t_m3")
+        assert "Плотность" in message
+        assert "ожидается число" in message
+
+    def test_nested_field_error_names_the_whole_path(self):
+        sections = dict(default_reference_sections())
+        sections["crew_templates"] = (
+            _item("CREW_X", {"package_code": "VM_IN_HOLE", "members": [{"position_code": "P", "headcount": "нет"}]}),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        message = next(issue.message for issue in issues if issue.field == "members.0.headcount")
+        assert "Состав бригады → строка 1 → Численность" in message
+
+    def test_every_field_has_a_russian_title(self):
+        latin = set("abcdefghijklmnopqrstuvwxyz")
+        for section in SECTION_SCHEMAS:
+            properties = section_json_schema(section).get("properties") or {}
+            for name, node in properties.items():
+                if node.get("x-internal"):
+                    continue
+                title = node.get("title", "")
+                assert title, f"{section}.{name}: нет подписи поля"
+                # Английский заголовок pydantic («Rock Code») в интерфейс не попадает.
+                assert not set(title.lower()) <= latin | set(" -/()0123456789"), f"{section}.{name}: подпись {title!r}"
+
     def test_dangling_reference_is_reported_under_its_field(self):
         sections = dict(default_reference_sections())
         sections["labor_rates"] = (_item("RATE_X", {"position_code": "POSITION_MISSING"}),)

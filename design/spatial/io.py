@@ -110,6 +110,34 @@ def import_survey(
     )
 
 
+def build_bench_from_polylines(
+    crest: list[Point3],
+    toe: list[Point3],
+    crest_layer: str = "",
+    toe_layer: str = "",
+) -> BenchDxfImport:
+    """Собирает уступ из двух явно указанных бровок.
+
+    Проверки те же, что и при автоматическом импорте: инженер выбирает линии
+    руками, но ошибиться местами верх/низ или взять незамкнутую мелочь может
+    так же легко, поэтому геометрия проверяется одинаково.
+    """
+
+    result = BenchDxfImport(
+        crest=_clean_polyline(crest), toe=_clean_polyline(toe),
+        crest_layer=crest_layer, toe_layer=toe_layer,
+    )
+    if len(result.crest) < 2 or len(result.toe) < 2:
+        raise SurveyImportError("Каждая бровка должна содержать минимум две разные точки.")
+    if len(result.contour) < 3 or abs(_polygon_area(result.contour)) < 0.01:
+        raise SurveyImportError("Выбранные бровки не образуют площадь блока в плане.")
+    if result.crest_z_m <= result.toe_z_m:
+        raise SurveyImportError(
+            "Отметка верхней бровки должна быть выше нижней — возможно, линии перепутаны местами."
+        )
+    return result
+
+
 def import_bench_dxf(content: str) -> BenchDxfImport:
     """Extract the crest and toe polylines of a surveyed block from ASCII DXF.
 

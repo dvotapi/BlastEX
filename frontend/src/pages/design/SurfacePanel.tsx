@@ -18,27 +18,41 @@ const KIND_HINT: Record<SurfaceKind, string> = {
   post_blast: "Хранится отдельно, не подменяет проект",
 };
 
+/** Форматы чертежа блока: DWG конвертируется на сервере, DXF читается напрямую. */
+const DRAWING_ACCEPT = ".dxf,.dwg";
+
 function Section({
   title,
+  summaryRight,
   defaultOpen,
   children,
 }: {
   title: string;
+  summaryRight?: ReactNode;
   defaultOpen: boolean;
   children: ReactNode;
 }) {
   return (
     <details className="survey-section" open={defaultOpen}>
-      <summary>{title}</summary>
+      <summary>
+        <span>{title}</span>
+        {summaryRight !== undefined && <em>{summaryRight}</em>}
+      </summary>
       <div className="survey-section-body">{children}</div>
     </details>
   );
+}
+
+function crsSummary(cs: CoordinateSystem): string {
+  if (cs.epsg != null) return `EPSG:${cs.epsg}`;
+  return cs.name.trim() || "локальная";
 }
 
 export function SurfacePanel({
   surfaces,
   bench,
   coordinateSystem,
+  holeCount,
   onBenchChange,
   onCoordinateSystemChange,
   onImport,
@@ -49,6 +63,7 @@ export function SurfacePanel({
   surfaces: SurfaceSet;
   bench: BenchSurface;
   coordinateSystem: CoordinateSystem;
+  holeCount: number;
   onBenchChange: (patch: Partial<BenchSurface>) => void;
   onCoordinateSystemChange: (patch: Partial<CoordinateSystem>) => void;
   onImport: (kind: SurfaceKind, file: File) => void;
@@ -61,6 +76,7 @@ export function SurfacePanel({
   const blockInputRef = useRef<HTMLInputElement>(null);
   const hasSurfaces = Boolean(surfaces.top || surfaces.floor || surfaces.face);
   const crsWarning = isCrsUnconfirmed(coordinateSystem, hasSurfaces);
+  const useEpsg = coordinateSystem.epsg != null;
 
   function onFile(file: File | undefined) {
     if (!file) return;
@@ -68,24 +84,36 @@ export function SurfacePanel({
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function pickDxf() {
-    blockInputRef.current?.click();
-  }
-
   return (
     <section className="panel">
       <header><b>Съёмка уступа</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
-        <div className="dxf-block-import primary-import">
-          <b>Импортировать 3D‑каркас DXF</b>
-          <small>Слои «верхняя бровка» и «нижняя бровка» создадут контур, кровлю, подошву и откос. Существующие скважины будут очищены.</small>
-          <button type="button" className="primary-button" disabled={busy} onClick={pickDxf}>
-            {busy ? "Импортирую…" : "Импортировать 3D‑каркас DXF"}
-          </button>
+        <div className="drawing-import">
+          <div className="drawing-import-row">
+            <span>
+              <b>Чертёж блока</b>
+              <small>DXF или DWG · бровки</small>
+            </span>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={busy}
+              onClick={() => blockInputRef.current?.click()}
+            >
+              {busy ? "Читаю…" : "Загрузить"}
+            </button>
+          </div>
+          {/* Предупреждение только когда есть что терять: на пустом паспорте
+              оно лишний шум, а именно с него и начинается работа. */}
+          {holeCount > 0 && (
+            <small className="drawing-import-warning">
+              Импорт заменит контур и очистит {holeCount} скв., заряды и сеть.
+            </small>
+          )}
           <input
             ref={blockInputRef}
             type="file"
-            accept=".dxf"
+            accept={DRAWING_ACCEPT}
             hidden
             disabled={busy}
             onChange={(e) => {
@@ -96,32 +124,56 @@ export function SurfacePanel({
           />
         </div>
 
-        <Section title="Координаты" defaultOpen={crsWarning || !hasSurfaces}>
+        <Section title="Координаты" summaryRight={crsSummary(coordinateSystem)} defaultOpen={crsWarning}>
           {crsWarning && (
             <div className="crs-banner" role="status">
               Система координат не подтверждена. Импортированы реальные координаты, но EPSG не задан.
             </div>
           )}
-          <label>
-            Система координат
-            <input
-              value={coordinateSystem.name}
-              onChange={(e) => onCoordinateSystemChange({ name: e.target.value })}
-              placeholder="local / mine grid"
-            />
-          </label>
-          <label>
-            EPSG
-            <input
-              type="number"
-              value={coordinateSystem.epsg ?? ""}
-              onChange={(e) => {
-                const epsg = e.target.value === "" ? null : Number(e.target.value);
-                onCoordinateSystemChange({ epsg, confirmed: epsg != null });
-              }}
-              placeholder="не задан"
-            />
-          </label>
+          <div className="crs-choice" role="radiogroup" aria-label="Система координат">
+            <label>
+              <input
+                type="radio"
+                name="crs-mode"
+                checked={!useEpsg}
+                onChange={() => onCoordinateSystemChange({ epsg: null, confirmed: false })}
+              />
+              <span>Локальная</span>
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="crs-mode"
+                checked={useEpsg}
+                onChange={() => onCoordinateSystemChange({ epsg: 0, confirmed: false })}
+              />
+              <span>По коду EPSG</span>
+            </label>
+          </div>
+          {useEpsg ? (
+            <label>
+              Код EPSG
+              <input
+                type="number"
+                value={coordinateSystem.epsg ?? ""}
+                autoFocus
+                onChange={(e) => {
+                  const epsg = e.target.value === "" ? 0 : Number(e.target.value);
+                  onCoordinateSystemChange({ epsg, confirmed: epsg > 0 });
+                }}
+                placeholder="например, 32637"
+              />
+            </label>
+          ) : (
+            <label>
+              Название сетки
+              <input
+                value={coordinateSystem.name}
+                onChange={(e) => onCoordinateSystemChange({ name: e.target.value })}
+                placeholder="local / mine grid"
+              />
+            </label>
+          )}
           {crsWarning && (
             <button
               type="button"
@@ -133,7 +185,7 @@ export function SurfacePanel({
           )}
         </Section>
 
-        <Section title="Бровки" defaultOpen={!hasSurfaces}>
+        <Section title="Бровки" summaryRight={`${ruNumber(bench.crest_z_m, 1)} / ${ruNumber(bench.toe_z_m, 1)} м`} defaultOpen={false}>
           <div className="field-pair">
             <label>
               Бровка (плоскость), м
@@ -147,7 +199,7 @@ export function SurfacePanel({
           <small>Плоскость используется, если съёмка не покрывает точку.</small>
         </Section>
 
-        <Section title="Импорт" defaultOpen={false}>
+        <Section title="Отдельная поверхность" defaultOpen={false}>
           <label>
             Тип поверхности
             <select value={kind} onChange={(e) => setKind(e.target.value as SurfaceKind)}>
@@ -165,7 +217,11 @@ export function SurfacePanel({
           <small>XYZ, CSV, DXF (точки и полилинии), GeoJSON</small>
         </Section>
 
-        <Section title="Поверхности" defaultOpen={hasSurfaces}>
+        <Section
+          title="Поверхности"
+          summaryRight={hasSurfaces ? undefined : "нет"}
+          defaultOpen={hasSurfaces}
+        >
           <div className="surface-list">
             {KIND_OPTIONS.map((opt) => (
               <SurfaceCard

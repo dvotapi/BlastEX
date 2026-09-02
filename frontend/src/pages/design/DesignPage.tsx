@@ -68,6 +68,8 @@ import {
   type ScenarioCompareResponse,
   type SchemeType,
   type SurfaceConnector,
+  type DrawingPolyline,
+  type DrawingScan,
   type SurfaceKind,
   type TieParams,
   type LearningModel,
@@ -113,6 +115,7 @@ import { VisibilityPanel } from "./VisibilityPanel";
 import { MapStatusBar } from "./MapStatusBar";
 import { HoleContextMenu, type HoleContextMenuState } from "./HoleContextMenu";
 import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCommand } from "./CommandPalette";
+import { DrawingImportDialog } from "./DrawingImportDialog";
 import { computeAllHoleHealth, healthColor, summarizeHealth } from "./holeHealth";
 import {
   applyPresetToState,
@@ -214,6 +217,9 @@ export function DesignPage({
   const [plans, setPlans] = useState<DesignSummary[]>([]);
   const [patternBusy, setPatternBusy] = useState(false);
   const [surfaceBusy, setSurfaceBusy] = useState(false);
+  const [drawingScan, setDrawingScan] = useState<DrawingScan | null>(null);
+  const [drawingBusy, setDrawingBusy] = useState(false);
+  const [drawingError, setDrawingError] = useState("");
   const [geologyBusy, setGeologyBusy] = useState(false);
   const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
   const [drawingDomain, setDrawingDomain] = useState(false);
@@ -610,14 +616,35 @@ export function DesignPage({
     }
   }
 
+  /** Шаг 1: читаем чертёж и показываем, что в нём нашлось. Ничего не меняем. */
   async function importBenchDxf(file: File) {
     if (rejectLocked("designed")) return;
     if (document.holes.length && !window.confirm("Импорт заменит контур и очистит скважины, заряды и сеть. Продолжить?")) return;
     setSurfaceBusy(true);
     setError("");
+    setDrawingError("");
     try {
-      const result = await api.design.importBenchDxf({
-        content: await readSurveyFile(file), filename: file.name, coordinate_system: document.coordinate_system,
+      const scan = await api.design.scanDrawing(file);
+      setDrawingScan(scan);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось прочитать чертёж.");
+    } finally {
+      setSurfaceBusy(false);
+    }
+  }
+
+  /** Шаг 2: инженер выбрал бровки — только теперь перестраиваем блок. */
+  async function applyBenchPolylines(choice: { crest: DrawingPolyline; toe: DrawingPolyline }) {
+    setDrawingBusy(true);
+    setDrawingError("");
+    try {
+      const result = await api.design.benchFromPolylines({
+        crest: choice.crest.points,
+        toe: choice.toe.points,
+        crest_layer: choice.crest.layer,
+        toe_layer: choice.toe.layer,
+        filename: drawingScan?.source_name || "block.dxf",
+        coordinate_system: document.coordinate_system,
       });
       dispatch({ type: "SET_BENCH", bench: result.contour.bench });
       if (result.surfaces.top) dispatch({ type: "SET_SURFACE", surface: result.surfaces.top });
@@ -627,10 +654,11 @@ export function DesignPage({
       dispatch({ type: "SET_HOLES", holes: [] });
       setSelected(new Set());
       setPendingFit(true);
+      setDrawingScan(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось импортировать DXF-каркас блока.");
+      setDrawingError(reason instanceof Error ? reason.message : "Не удалось построить блок по выбранным линиям.");
     } finally {
-      setSurfaceBusy(false);
+      setDrawingBusy(false);
     }
   }
 
@@ -2671,6 +2699,7 @@ export function DesignPage({
                 surfaces={document.surfaces}
                 bench={document.contour.bench}
                 coordinateSystem={document.coordinate_system}
+                holeCount={document.holes.length}
                 onBenchChange={(bench) => dispatch({ type: "SET_BENCH", bench })}
                 onCoordinateSystemChange={(patch) => dispatch({ type: "SET_COORDINATE_SYSTEM", patch })}
                 onImport={importSurface}
@@ -3221,6 +3250,15 @@ export function DesignPage({
             enabled={holeMenu ? (document.holes.find((h) => h.id === holeMenu.holeId)?.enabled ?? true) : true}
           />
           <CommandPalette open={commandOpen} commands={designCommands} onClose={() => setCommandOpen(false)} />
+          {drawingScan && (
+            <DrawingImportDialog
+              scan={drawingScan}
+              busy={drawingBusy}
+              error={drawingError}
+              onCancel={() => { setDrawingScan(null); setDrawingError(""); }}
+              onApply={applyBenchPolylines}
+            />
+          )}
           {inspectHole && (
             <HoleInspector
               hole={inspectHole}

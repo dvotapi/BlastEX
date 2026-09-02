@@ -1,4 +1,5 @@
 import { formatRoleChip, WORKFLOW_STAGES, type WorkflowStageId } from "../../lib/lifecycle";
+import { useFeatures } from "../../app/useFeatures";
 import { STAGE_ICONS, type StageStatus } from "./workflowStatus";
 
 const STATUS_LABEL: Record<StageStatus, string> = {
@@ -17,9 +18,13 @@ export function WorkflowNav({
   statuses: Record<WorkflowStageId, StageStatus>;
   onStageChange: (stage: WorkflowStageId) => void;
 }) {
+  // Этап «Интеллект» целиком построен на ML-слое: при выключенном флаге его
+  // маршруты отдают 501, поэтому и пункт маршрута не показывается.
+  const { intelligence } = useFeatures();
+  const stages = WORKFLOW_STAGES.filter((item) => intelligence || item.id !== "intelligence");
   return (
     <nav className="workflow-nav icons" aria-label="Инженерный маршрут">
-      {WORKFLOW_STAGES.map((item) => {
+      {stages.map((item) => {
         const status = statuses[item.id] ?? "empty";
         const active = item.id === stage;
         return (

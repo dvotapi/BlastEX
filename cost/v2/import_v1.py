@@ -10,6 +10,25 @@ from typing import Any
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
 
 
+# Cost V1 хранил единицу измерения свободным текстом. Схемы Cost V2 требуют
+# ссылку на раздел «Единицы измерения», поэтому текст переводится в код; всё
+# неизвестное остаётся пустым и попадает в предупреждения отчёта.
+_UNIT_CODES: dict[str, str] = {
+    "шт": "PIECE", "шт.": "PIECE", "штука": "PIECE",
+    "кг": "KG", "т": "T", "тонна": "T",
+    "м": "M", "п.м": "M", "пм": "M", "м2": "M2", "м²": "M2", "м3": "M3", "м³": "M3",
+    "ч": "HOUR", "час": "HOUR", "смена": "SHIFT", "см": "SHIFT",
+    "рейс": "TRIP", "взрыв": "BLAST",
+}
+
+
+def _unit_code(raw: Any) -> str | None:
+    text = str(raw or "").strip().lower()
+    if not text:
+        return None
+    return _UNIT_CODES.get(text)
+
+
 @dataclass
 class ImportReport:
     team_id: str
@@ -51,7 +70,7 @@ def build_import_sections(
             code=production_unit_code,
             name=str(settings.get("team_name") or team_id),
             source="Cost V1 JSON import",
-            payload={"legacy_team_id": team_id},
+            payload={"legacy_ref": team_id},
         ),
     )
 
@@ -73,22 +92,54 @@ def build_import_sections(
     if sites:
         sections["sites"] = _dedupe_items(sites)
 
+    # Cost V1 не разделял тип техники и единицу: буровой станок был одной
+    # записью. Cost V2 требует тип (нормы, ТОиР, расход) отдельно от основного
+    # средства (стоимость, срок), поэтому на каждый станок заводится пара.
+    equipment_types: list[ReferenceItem] = []
     equipment: list[ReferenceItem] = []
+    default_type_code = "TYPE_V1_LEGACY"
     for row in references.get("drill_rig_records", []):
         name = str(row.get("name", "Буровой станок"))
+        type_code = f"TYPE_{_code(name)}"
+        equipment_types.append(
+            ReferenceItem(
+                code=type_code,
+                name=name,
+                source="Cost V1 references.json",
+                payload={"kind": "DRILL_RIG", "fuel_l_per_h": row.get("fuel_l_per_h", 0)},
+            )
+        )
         equipment.append(
             ReferenceItem(
                 code=f"RIG_{_code(name)}",
                 name=name,
                 source="Cost V1 references.json",
                 payload={
-                    "equipment_type": "DRILL_RIG",
+                    "equipment_type_code": type_code,
+                    "production_unit_code": production_unit_code,
                     "depreciation_per_shift_rub": row.get("depreciation_per_shift_rub", 0),
-                    "fuel_l_per_h": row.get("fuel_l_per_h", 0),
+                    "legacy_ref": row.get("id"),
                 },
             )
         )
-    for row in references.get("depreciation_asset_records", []):
+
+    legacy_assets = list(references.get("depreciation_asset_records", []))
+    if legacy_assets:
+        # У амортизируемых ОС V1 вида техники не было вовсе — вешаем их на
+        # служебный тип, чтобы ссылка была валидной, и просим разобрать вручную.
+        equipment_types.append(
+            ReferenceItem(
+                code=default_type_code,
+                name="Техника из Cost V1 (требует классификации)",
+                source="Cost V1 references.json",
+                payload={"kind": "LIGHT_VEHICLE"},
+            )
+        )
+        report.warnings.append(
+            "Основные средства Cost V1 привязаны к служебному типу техники "
+            f"«{default_type_code}»: укажите настоящий вид и нормы смен."
+        )
+    for row in legacy_assets:
         name = str(row.get("name", "Основное средство"))
         equipment.append(
             ReferenceItem(
@@ -96,6 +147,8 @@ def build_import_sections(
                 name=name,
                 source="Cost V1 references.json",
                 payload={
+                    "equipment_type_code": default_type_code,
+                    "production_unit_code": production_unit_code,
                     "initial_cost_rub": row.get("initial_cost_rub", 0),
                     "useful_life_months": row.get("useful_life_months", 0),
                     "productive_shifts_per_month": row.get("productive_shifts_per_month", 0),
@@ -103,6 +156,8 @@ def build_import_sections(
                 },
             )
         )
+    if equipment_types:
+        sections["equipment_types"] = _dedupe_items(equipment_types)
     if equipment:
         sections["equipment_assets"] = _dedupe_items(equipment)
 
@@ -119,7 +174,7 @@ def build_import_sections(
                     "category": "EXPLOSIVE",
                     "density_t_m3": row.get("density_t_m3"),
                     "power_mj_kg": row.get("power_mj_kg"),
-                    "legacy_key": row.get("key"),
+                    "legacy_ref": row.get("key"),
                 },
             )
         )
@@ -132,10 +187,10 @@ def build_import_sections(
                 source="Cost V1 scenario JSON",
                 payload={
                     "category": row.get("category", "OTHER"),
-                    "unit": row.get("unit", ""),
+                    "unit": _unit_code(row.get("unit")),
                     "mass_kg": row.get("mass_kg"),
                     "length_m": row.get("length_m"),
-                    "legacy_id": row.get("id"),
+                    "legacy_ref": row.get("id"),
                 },
             )
         )
@@ -147,7 +202,7 @@ def build_import_sections(
                 payload={
                     "material_code": code,
                     "price_rub": row.get("price", 0),
-                    "unit": row.get("unit", ""),
+                    "unit": _unit_code(row.get("unit")),
                 },
             )
         )
@@ -165,7 +220,7 @@ def build_import_sections(
                 code=code,
                 name=str(row.get("name", code)),
                 source="Cost V1 scenario JSON",
-                payload={"legacy_id": row.get("id")},
+                payload={"legacy_ref": row.get("id"), "category": "INDIRECT"},
             )
         )
         labor_rates.append(
@@ -175,8 +230,8 @@ def build_import_sections(
                 source="Cost V1 scenario JSON",
                 payload={
                     "position_code": code,
-                    "fixed_salary_monthly": row.get("fixed_salary_monthly", 0),
-                    "piece_rate_per_m3": row.get("piece_rate_per_m3", 0),
+                    "fixed_monthly_rub": row.get("fixed_salary_monthly", 0),
+                    "piece_rate_rub": row.get("piece_rate_per_m3", 0),
                 },
             )
         )

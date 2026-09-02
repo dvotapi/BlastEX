@@ -1,42 +1,41 @@
-altair==6.0.0
-attrs==25.4.0
-blinker==1.9.0
-cachetools==7.0.5
-certifi==2026.2.25
-charset-normalizer==3.4.5
-click==8.3.1
-gitdb==4.0.12
-GitPython==3.1.46
-idna==3.19
-Jinja2==3.1.6
-jsonschema==4.26.0
-jsonschema-specifications==2025.9.1
-MarkupSafe==3.0.3
-matplotlib==3.10.9
-narwhals==2.18.0
+# Единый список зависимостей BlastEX: API, расчёты, проектирование и ML-слой.
+# Интерфейс — только React (frontend/), поэтому Streamlit и его зависимости
+# из списка удалены.
+
+# --- расчётное ядро ---
 numpy==2.4.3
-joblib==1.4.2
-scipy==1.17.1
-threadpoolctl==3.6.0
-scikit-learn==1.6.1
-packaging==26.0
 pandas==2.3.3
-pillow==12.1.1
-protobuf==6.33.5
-pyarrow==23.0.1
-pydeck==0.9.1
+matplotlib==3.10.9
 python-dateutil==2.9.0.post0
 pytz==2026.1.post1
-referencing==0.37.0
-requests==2.32.5
-rpds-py==0.30.0
-six==1.17.0
-smmap==5.0.3
-streamlit==1.55.0
-tenacity==9.1.4
-toml==0.10.2
-tornado==6.5.5
-typing_extensions==4.15.0
 tzdata==2025.3
+packaging==26.0
+six==1.17.0
+typing_extensions==4.15.0
+pillow==12.1.1
+
+# --- ML-слой (intelligence/) ---
+scikit-learn==1.6.1
+scipy==1.17.1
+joblib==1.4.2
+threadpoolctl==3.6.0
+
+# --- REST API и хранилище ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.20,<1
+SQLAlchemy>=2.0.36,<3
+alembic>=1.14.0,<2
+psycopg[binary]>=3.2.3,<4
+
+# --- документы и чертежи ---
+openpyxl>=3.1.5,<4
+reportlab>=4.2.0,<5
+ezdxf>=1.4.0,<2
+
+# --- бот MAX ---
+requests==2.32.5
+certifi==2026.2.25
+charset-normalizer==3.4.5
+idna==3.19
 urllib3==2.6.3
-watchdog==6.0.0

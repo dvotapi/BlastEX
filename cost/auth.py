@@ -1,4 +1,8 @@
-"""Внутренняя авторизация Streamlit без внешнего провайдера идентификации."""
+"""Внутренние учётные записи BlastEX без внешнего провайдера идентификации.
+
+Модуль только читает и проверяет учётные записи: интерфейс входа живёт в
+React, сессии — в `api/security.py`.
+"""
 from __future__ import annotations
 
 import base64
@@ -11,8 +15,6 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-import streamlit as st
 
 
 PBKDF2_ITERATIONS = 600_000
@@ -31,7 +33,7 @@ class AuthUser:
 
 
 def hash_password(password: str, *, salt: bytes | None = None) -> str:
-    """Создать переносимый PBKDF2-SHA256 хеш для secrets.toml."""
+    """Создать переносимый PBKDF2-SHA256 хеш для файла или BLASTEX_USERS_JSON."""
     if not password:
         raise ValueError("Пароль не может быть пустым.")
     salt = salt or secrets.token_bytes(16)
@@ -64,6 +66,20 @@ def verify_password(password: str, encoded: str) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
+def _users_file() -> Path:
+    """Файл с учётными записями.
+
+    Основной способ — переменная `BLASTEX_USERS_JSON`. Путь к файлу задаётся
+    `BLASTEX_USERS_FILE`; старый `.streamlit/secrets.toml` читается как
+    совместимость для уже развёрнутых установок.
+    """
+
+    configured = os.getenv("BLASTEX_USERS_FILE", "").strip()
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parent.parent / ".streamlit" / "secrets.toml"
+
+
 def _records_from_config() -> list[dict[str, Any]]:
     env_value = os.getenv("BLASTEX_USERS_JSON", "").strip()
     if env_value:
@@ -73,7 +89,7 @@ def _records_from_config() -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             return []
     try:
-        secrets_path = Path(__file__).resolve().parent.parent / ".streamlit" / "secrets.toml"
+        secrets_path = _users_file()
         if secrets_path.exists():
             config = tomllib.loads(secrets_path.read_text(encoding="utf-8")).get(
                 "blastex", {}
@@ -131,88 +147,3 @@ def configured_users() -> list[AuthUser]:
             )
         )
     return users
-
-
-def current_user() -> AuthUser | None:
-    payload = st.session_state.get("auth_user")
-    if not isinstance(payload, dict):
-        return None
-    try:
-        user = AuthUser(**payload)
-    except TypeError:
-        return None
-    return user if user.active else None
-
-
-def is_authenticated() -> bool:
-    return current_user() is not None
-
-
-def can_edit_references() -> bool:
-    user = current_user()
-    return bool(user and user.role in {"admin", "reference_editor"})
-
-
-def _login(email: str, password: str) -> bool:
-    normalized_email = email.strip().casefold()
-    user = next(
-        (item for item in configured_users() if item.email == normalized_email and item.active),
-        None,
-    )
-    if user is None or not verify_password(password, user.password_hash):
-        return False
-    st.session_state["auth_user"] = user.__dict__.copy()
-    st.session_state["admin_authenticated"] = user.role == "admin"
-    return True
-
-
-def render_login_gate() -> bool:
-    """Показать форму входа. Возвращает True только для вошедшего пользователя."""
-    if is_authenticated():
-        return True
-
-    st.title("💥 BlastEX")
-    st.caption("Внутренний сервис расчёта параметров буровзрывных работ")
-    users = configured_users()
-    if not users:
-        st.error(
-            "Доступ не настроен. Добавьте внутренние учётные записи в "
-            "`.streamlit/secrets.toml` или `BLASTEX_USERS_JSON`."
-        )
-    with st.form("internal_login_form"):
-        email = st.text_input("Email", disabled=not users)
-        password = st.text_input("Пароль", type="password", disabled=not users)
-        submitted = st.form_submit_button("Войти", disabled=not users)
-        if submitted:
-            if _login(email, password):
-                st.rerun()
-            st.error("Неверный email или пароль.")
-
-    st.divider()
-    st.subheader("Доступ для внешних организаций")
-    st.info(
-        "Подключение внешних организаций пока недоступно. "
-        "Сейчас BlastEX работает только для сотрудников компании."
-    )
-    st.button("Подать заявку на подключение", disabled=True)
-    return False
-
-
-def render_user_panel() -> None:
-    user = current_user()
-    if user is None:
-        return
-    role_labels = {
-        "admin": "Администратор",
-        "reference_editor": "Редактор справочников",
-        "user": "Пользователь",
-    }
-    with st.sidebar:
-        st.markdown("### Пользователь")
-        st.write(user.display_name or user.email)
-        st.caption(f"{role_labels[user.role]} · {user.organization_name}")
-        st.caption("Внешние организации: подключение закрыто")
-        if st.button("Выйти", key="auth_logout"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()

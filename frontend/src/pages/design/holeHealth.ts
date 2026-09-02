@@ -74,20 +74,40 @@ function pointInPolygon(point: { x: number; y: number }, vertices: Point3[]): bo
   return inside;
 }
 
-function connectedHoleIds(network: InitiationNetwork): Set<string> {
-  const connected = new Set<string>();
-  for (const tie of networkTies(network)) {
-    connected.add(tie.from_hole);
-    connected.add(tie.to_hole);
-  }
+function starterHoleIds(network: InitiationNetwork): Set<string> {
+  return new Set(network.starter_items.map((item) => item.hole_id).concat(network.starters));
+}
+
+/**
+ * Скважины, до которых инициирование реально доходит от стартеров.
+ *
+ * Членство в каком-нибудь коннекторе ничего не гарантирует: изолированный
+ * кусок сети без стартера тоже состоит из коннекторов. Поэтому идём по графу:
+ * поверхностные связи — направленные (от → к), ДШ объединяет все свои
+ * скважины, электронный канал считается подключённым к магистрали.
+ */
+function reachableHoleIds(network: InitiationNetwork): Set<string> {
+  const next = new Map<string, Set<string>>();
+  const link = (from: string, to: string) => {
+    if (!next.has(from)) next.set(from, new Set());
+    next.get(from)!.add(to);
+  };
+  for (const tie of networkTies(network)) link(tie.from_hole, tie.to_hole);
   for (const cord of network.detonating_cords) {
-    for (const id of cord.hole_ids) connected.add(id);
+    for (const a of cord.hole_ids) for (const b of cord.hole_ids) if (a !== b) link(a, b);
   }
-  for (const ch of network.electronic_channels) connected.add(ch.hole_id);
-  for (const id of Object.keys(network.electronic_times_ms ?? {})) connected.add(id);
-  for (const item of network.starter_items) connected.add(item.hole_id);
-  for (const id of network.starters) connected.add(id);
-  return connected;
+
+  const reachable = new Set<string>();
+  const queue = Array.from(starterHoleIds(network));
+  while (queue.length) {
+    const id = queue.pop()!;
+    if (reachable.has(id)) continue;
+    reachable.add(id);
+    for (const to of next.get(id) ?? []) if (!reachable.has(to)) queue.push(to);
+  }
+  for (const ch of network.electronic_channels) reachable.add(ch.hole_id);
+  for (const id of Object.keys(network.electronic_times_ms ?? {})) reachable.add(id);
+  return reachable;
 }
 
 function hasNetwork(network: InitiationNetwork): boolean {
@@ -160,14 +180,10 @@ export function computeHoleHealth(
     code = pickWorst(code, "missing_primer");
   }
 
-  if (hasNetwork(context.network)) {
-    const connected = connectedHoleIds(context.network);
-    const starters = new Set(
-      context.network.starter_items.map((item) => item.hole_id).concat(context.network.starters),
-    );
-    if (!connected.has(hole.id) && starters.size > 0 && !starters.has(hole.id)) {
-      code = pickWorst(code, "unconnected");
-    } else if (!connected.has(hole.id) && context.timesMs && hole.id in context.timesMs) {
+  // Без стартера недостижимо всё — это замечание уровня сети, не скважины,
+  // поэтому «не подключена» ставим только когда стартер уже назначен.
+  if (hasNetwork(context.network) && starterHoleIds(context.network).size > 0) {
+    if (!reachableHoleIds(context.network).has(hole.id)) {
       code = pickWorst(code, "unconnected");
     }
   }

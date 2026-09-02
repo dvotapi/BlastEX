@@ -744,6 +744,13 @@ export function PlanCanvas({
       return;
     }
 
+    // Линейка работает в любом режиме плана — иначе на этапах съёмки и тайминга
+    // клик уходил бы в правку контура или в связывание скважин.
+    if (tool === "measure") {
+      addMeasurePoint(screen);
+      return;
+    }
+
     if (mode === "contour") {
       const vertexIndex = hitVertex(screen);
       const edge = hitEdge(screen);
@@ -801,10 +808,6 @@ export function PlanCanvas({
     }
 
     // mode === "holes"
-    if (tool === "measure") {
-      addMeasurePoint(screen);
-      return;
-    }
     if (tool === "add") {
       runToolTap(screen);
       return;

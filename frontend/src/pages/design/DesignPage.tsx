@@ -516,6 +516,7 @@ export function DesignPage({
   }
 
   function toggleStarterForHole(holeId: string) {
+    if (rejectLocked("designed")) return;
     const network = normalizeNetwork(document.network);
     const starterItems = network.starter_items.length
       ? [...network.starter_items]
@@ -2431,6 +2432,15 @@ export function DesignPage({
   const stageStatuses = statusesForDocument(document, { crsUnconfirmed });
   const inspectHole = document.holes.find((h) => h.id === inspectHoleId) ?? null;
   const stageTitle = WORKFLOW_STAGES.find((item) => item.id === workflowStage)?.label ?? "Параметры";
+  // Стрелка выброса на плане: если тайминг задан «по направлению», показываем
+  // именно его азимут (применённый, иначе настраиваемый); азимут рядов —
+  // только как запасной вариант для рядных схем.
+  const appliedDirectionDeg = Number(document.network.timing_params?.direction_azimuth_deg);
+  const throwAzimuthDeg = document.network.timing_mode === "direction" && Number.isFinite(appliedDirectionDeg)
+    ? appliedDirectionDeg
+    : tieParams.timing_mode === "direction"
+      ? tieParams.direction_azimuth_deg
+      : patternParams.row_azimuth_deg;
   const mapContourLayers = useMemo(() => layersToMapLegend(designView.layers), [designView.layers]);
   const holeHealthMap = useMemo(
     () => computeAllHoleHealth({
@@ -3163,7 +3173,7 @@ export function DesignPage({
               showIsolineLayer={designView.layers.isolines}
               showLabelsLayer={designView.layers.labels}
               showThrowDirection={designView.layers.throw_direction}
-              throwAzimuthDeg={patternParams.row_azimuth_deg}
+              throwAzimuthDeg={throwAzimuthDeg}
               measureState={measureState}
               onMeasureChange={setMeasureState}
               onHoleContextMenu={(holeId, x, y) => setHoleMenu({ holeId, x, y })}

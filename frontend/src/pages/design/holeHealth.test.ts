@@ -44,6 +44,24 @@ describe("holeHealth", () => {
     expect(code).toBe("outside_contour");
   });
 
+  it("flags holes the initiation cannot reach from the starters", () => {
+    const network = emptyNetwork();
+    network.starter_items = [{ id: "st-A", hole_id: "A", delay_ms: 0, kind: "starter" }];
+    network.starters = ["A"];
+    network.surface_connectors = [
+      { id: "sc-A-B", from_hole: "A", to_hole: "B", delay_ms: 25, kind: "surface_nsi", product: "" },
+      // изолированный кусок сети: коннектор есть, стартера нет
+      { id: "sc-C-D", from_hole: "C", to_hole: "D", delay_ms: 25, kind: "surface_nsi", product: "" },
+    ];
+    const load = (id: string) => ({ hole_id: id, decks: [], total_charge_kg: 100, influence_volume_m3: 1, specific_q_kg_m3: 1, primers: [5] });
+    const contour = emptyDesign().contour;
+    const health = (id: string) => computeHoleHealth(sampleHole(id, 0, 0), { load: load(id), network, contour });
+    expect(health("A")).toBe("ok");
+    expect(health("B")).toBe("ok");
+    expect(health("C")).toBe("unconnected");
+    expect(health("D")).toBe("unconnected");
+  });
+
   it("summarizes issue count for review preset", () => {
     const holes = [sampleHole("H1", 0, 0), sampleHole("H2", 2, 0)];
     const map = computeAllHoleHealth({

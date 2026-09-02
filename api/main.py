@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
 
 import matplotlib
 
@@ -14,21 +15,35 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from api import config
 from api.exceptions import BlastExError
 from api.routers import auth, blast, block_economics, cost, calibration, datasets, design, drift, economics, learning, mass_blast, optimization, outcomes, recommendation, references, registry, scenarios, spatial, workspace
 from api.security import require_internal_access
 
 API_PREFIX = "/api/v1"
 
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Проверка окружения до первого запроса.
+
+    Хранилище одно — PostgreSQL. Без строки подключения приложение должно не
+    стартовать, а не отдавать 503 на половине маршрутов.
+    """
+
+    config.database_url()
+    yield
+
+
 app = FastAPI(
     title="BlastEX API",
     description=(
-        "REST API технологических расчётов БВР и сметных стратегий BlastEX. "
-        "Изолирует `BlastEngine` и `CostEngine` от Streamlit UI."
+        "REST API технологических расчётов БВР и экономики BlastEX. "
+        "Хранилище — PostgreSQL (схема blastex)."
     ),
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 _cors_origins = os.getenv("BLASTEX_CORS_ORIGINS", "*")

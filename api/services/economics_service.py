@@ -1,12 +1,12 @@
 """Сервисный слой Cost V2: БД, валидация и расчёт."""
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from typing import Any
 
 from fastapi import HTTPException, status
 
+from api import config
 from api.schemas.economics import (
     EconomicScenarioSchema,
     EventCalculationRequest,
@@ -39,13 +39,9 @@ def _postgres_repository(database_url: str) -> EconomicsRepository:
 
 
 def get_economics_repository() -> EconomicsRepository:
-    database_url = os.getenv("BLASTEX_DATABASE_URL", "").strip()
-    if not database_url:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Cost V2 не подключён: задайте BLASTEX_DATABASE_URL для базы project1.",
-        )
-    return _postgres_repository(database_url)
+    """Единственное хранилище — PostgreSQL; in-memory остаётся только тестам."""
+
+    return _postgres_repository(config.database_url())
 
 
 def reference_snapshot_payload(snapshot: Any) -> dict[str, Any]:

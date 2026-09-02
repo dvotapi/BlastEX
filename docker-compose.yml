@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: blastex-postgres
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-project1}"
+      POSTGRES_USER: "${POSTGRES_USER:-blastex}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before startup}"
+    volumes:
+      - blastex_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-blastex} -d ${POSTGRES_DB:-project1}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -12,8 +28,14 @@ services:
       BLASTEX_SESSION_SECRET: "${BLASTEX_SESSION_SECRET:?Set BLASTEX_SESSION_SECRET before startup}"
       BLASTEX_USERS_JSON: "${BLASTEX_USERS_JSON:?Set BLASTEX_USERS_JSON before startup}"
       BLASTEX_COOKIE_SECURE: "${BLASTEX_COOKIE_SECURE:-false}"
-      BLASTEX_DATABASE_URL: "${BLASTEX_DATABASE_URL:-}"
+      # Хранилище одно: без строки подключения API не стартует.
+      BLASTEX_DATABASE_URL: "${BLASTEX_DATABASE_URL:?Set BLASTEX_DATABASE_URL before startup}"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
+      # Каталог остаётся для паспортов проектирования и артефактов ML: они ещё
+      # файловые. Данные Cost V1 из data/teams переносит скрипт импорта.
       - blastex_data:/app/data
     restart: unless-stopped
 
@@ -35,6 +57,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  blastex_pg:
   blastex_data:
   caddy_data:
   caddy_config:

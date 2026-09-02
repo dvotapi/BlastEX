@@ -75,6 +75,29 @@ def _snapshot_parts(
     )
 
 
+# Драйверы, которых у блока может законно не быть: патронов нет — нет и
+# тонно-километров со склада. Правило с таким драйвером даёт ноль без
+# предупреждения; предупреждение остаётся для опечатки в имени драйвера.
+OPTIONAL_DRIVERS = frozenset(
+    {
+        "vm_tkm",
+        "component_tkm",
+        "cartridge_kg",
+        "bulk_kg",
+        "szm_shifts",
+        "szm_trips",
+        "delivery_shifts",
+        "delivery_trips",
+        "rig_shifts",
+        "rig_maintenance_shifts",
+        "mobilization_trip_km",
+        "contour_drilling_m",
+        "excavator_hours",
+        "stakeout_holes",
+    }
+)
+
+
 def _cost_rule_lines(context: ModelContext) -> None:
     """Статьи вида «цена × драйвер» — правила затрат, а не код.
 
@@ -115,7 +138,7 @@ def _rule_amount(context: ModelContext, rule: ReferenceItem) -> tuple[Decimal, s
     amount = Decimal("0")
     parts: list[str] = []
     if driver_name and rate != 0:
-        if driver_name not in context.values:
+        if driver_name not in context.values and driver_name not in OPTIONAL_DRIVERS:
             context.warn(
                 f"Правило затрат {rule.code}: драйвер «{driver_name}» "
                 "отсутствует в натуральных величинах блока."

@@ -122,6 +122,16 @@ import type {
   StoredEconomicScenario,
   TechnicalDriverSnapshot,
 } from "../types/economics";
+import type {
+  BlockEconomics,
+  EconomicsRun,
+  EconomicsRunSummary,
+  ModelDefaults,
+  ModelParameters,
+  RunCompare,
+  SensitivityRow,
+  TechnicalPassport,
+} from "../types/blockEconomics";
 import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
 
 const V1 = "/api/v1";
@@ -256,6 +266,55 @@ export const api = {
       post<CalculationRun>(`${V1}/economics/scenarios/${id}/calculate`, {}),
     calculationRun: (id: string) =>
       get<CalculationRun>(`${V1}/economics/calculation-runs/${id}`),
+    technicalPassports: (siteCode?: string) =>
+      get<TechnicalPassport[]>(
+        `${V1}/economics/technical-passports${siteCode ? `?site_code=${encodeURIComponent(siteCode)}` : ""}`
+      ),
+    technicalPassport: (id: string) =>
+      get<TechnicalPassport>(`${V1}/economics/technical-passports/${id}`),
+    createTechnicalPassport: (payload: {
+      site_code: string;
+      object_name: string;
+      reference_revision_id?: string | null;
+      previous_passport_id?: string | null;
+      formula_version?: string;
+      block: Record<string, unknown>;
+      input_snapshot?: Record<string, unknown>;
+      selected_variant?: Record<string, unknown>;
+      existing_physical?: Record<string, number | string>;
+    }) => post<TechnicalPassport>(`${V1}/economics/technical-passports`, payload),
+  },
+
+  // --- Cost V2: экономика блока (модель себестоимости) ---
+  blockEconomics: {
+    modelDefaults: (passportId: string, packageCode: string) =>
+      get<ModelDefaults>(
+        `${V1}/economics/model-defaults?technical_passport_id=${encodeURIComponent(passportId)}` +
+          `&package_code=${encodeURIComponent(packageCode)}`
+      ),
+    compute: (technicalPassportId: string, parameters: ModelParameters) =>
+      post<BlockEconomics>(`${V1}/economics/block-economics`, {
+        technical_passport_id: technicalPassportId,
+        parameters,
+      }),
+    sensitivity: (technicalPassportId: string, parameters: ModelParameters) =>
+      post<{ rows: SensitivityRow[] }>(`${V1}/economics/block-economics/sensitivity`, {
+        technical_passport_id: technicalPassportId,
+        parameters,
+      }),
+    saveRun: (technicalPassportId: string, parameters: ModelParameters, name: string) =>
+      post<EconomicsRun>(`${V1}/economics/runs`, {
+        technical_passport_id: technicalPassportId,
+        parameters,
+        name,
+      }),
+    runs: (passportId?: string) =>
+      get<EconomicsRunSummary[]>(
+        `${V1}/economics/runs${passportId ? `?technical_passport_id=${encodeURIComponent(passportId)}` : ""}`
+      ),
+    run: (id: string) => get<EconomicsRun>(`${V1}/economics/runs/${id}`),
+    compare: (runIds: string[]) => post<RunCompare>(`${V1}/economics/runs/compare`, { run_ids: runIds }),
+    exportUrl: (id: string) => `${V1}/economics/runs/${id}/export.xlsx`,
   },
 
   // --- проектирование БВР ---

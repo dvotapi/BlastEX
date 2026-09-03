@@ -40,6 +40,11 @@ def main() -> None:
     parser.add_argument("--organization", default="default")
     parser.add_argument("--publish", action="store_true", help="записать данные в базу")
     parser.add_argument("--comment", default="Импорт справочников Cost V1")
+    parser.add_argument(
+        "--sections",
+        default="",
+        help="публиковать только перечисленные разделы через запятую, например sites,rocks",
+    )
     args = parser.parse_args()
 
     database_url = os.getenv("BLASTEX_DATABASE_URL", "").strip()
@@ -51,6 +56,18 @@ def main() -> None:
     repository = PostgresEconomicsRepository(database_url)
     current = repository.get_reference_snapshot(args.organization)
     sections, report = build_import_sections(root, args.team, current)
+    only = {name.strip() for name in args.sections.split(",") if name.strip()}
+    if only:
+        unknown = only - set(sections)
+        if unknown:
+            raise SystemExit(f"Неизвестные разделы: {', '.join(sorted(unknown))}")
+        sections = {
+            key: (values if key in only else tuple(current.sections.get(key, ())))
+            for key, values in sections.items()
+        }
+        output_sections = sorted(only)
+    else:
+        output_sections = sorted(sections)
     issues = validate_reference_sections(sections)
 
     settings = _read_json(team_dir / "settings.json")
@@ -65,6 +82,7 @@ def main() -> None:
         "workspace_settings": bool(settings),
         "scenarios": sorted(scenarios),
         "published": False,
+        "sections_published": output_sections,
     }
 
     if args.publish:

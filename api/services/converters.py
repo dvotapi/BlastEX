@@ -19,22 +19,13 @@ from api.schemas.cost import (
     ManualScenarioInputSchema,
     MaterialsSelectionSchema,
 )
-from cost.catalog import DEFAULT_CATALOG, catalog_from_records, catalog_to_records
+from cost.catalog import catalog_from_records
 from cost.drilling import DrillingUnitCostInput
-from cost.drilling_data import (
-    DEFAULT_DRILL_RIGS,
-    DEFAULT_OBJECT_NAME,
-    DEFAULT_WORK_OBJECTS,
-    drill_rigs_from_records,
-    find_object,
-    work_objects_from_records,
-)
-from cost.persistence import DEFAULT_TEAM_ID, load_team_references
-from cost.fixed_costs import DEFAULT_FIXED_COSTS, fixed_costs_from_records
+from cost.drilling_data import DEFAULT_OBJECT_NAME, find_object
+from cost.fixed_costs import fixed_costs_from_records
 from cost.geometry import build_manual_block_input
 from cost.labor import (
     DEFAULT_LABOR_ASSIGNMENTS,
-    DEFAULT_LABOR_CATALOG,
     LaborFOTSettings,
     labor_assignments_from_records,
     labor_catalog_from_records,
@@ -49,6 +40,7 @@ from cost.models import (
     InitiationConfig,
 )
 from cost.scenarios import get_scenario_calc_profile, get_scenario_template
+from cost.v2.legacy_adapter import LegacyReferences
 
 
 def rock_from_schema(schema: RockPropertiesSchema) -> RockProperties:
@@ -113,52 +105,48 @@ def resolve_work_object_name(name: str | None) -> str:
 
 def build_calculation_context(
     request: CostCalculateRequest,
+    legacy: LegacyReferences,
 ) -> CalculationContext:
+    """Контекст сметы: справочники — из опубликованной ревизии, переопределения — из запроса."""
+
     from api.exceptions import WorkObjectNotFoundError
 
     ctx_input = request.context or CalculationContextInputSchema()
     work_object_name = resolve_work_object_name(request.work_object_name)
-    refs = load_team_references(DEFAULT_TEAM_ID)
-    work_objects = work_objects_from_records(refs.work_object_records) or list(DEFAULT_WORK_OBJECTS)
-    drill_rigs = drill_rigs_from_records(refs.drill_rig_records) or list(DEFAULT_DRILL_RIGS)
+    work_objects = list(legacy.work_objects)
+    drill_rigs = list(legacy.drill_rigs)
     work_object = find_object(work_object_name, work_objects)
     if work_object is None:
         raise WorkObjectNotFoundError(work_object_name)
 
-    catalog_records = (
-        catalog_to_records(list(DEFAULT_CATALOG))
+    catalog = (
+        list(legacy.catalog)
         if ctx_input.catalog is None
-        else [item.model_dump() for item in ctx_input.catalog]
+        else catalog_from_records([item.model_dump() for item in ctx_input.catalog])
     )
-    labor_catalog_records = (
-        [asdict(p) for p in DEFAULT_LABOR_CATALOG]
+    labor_catalog = (
+        list(legacy.labor_catalog)
         if ctx_input.labor_catalog is None
-        else [item.model_dump() for item in ctx_input.labor_catalog]
+        else labor_catalog_from_records([item.model_dump() for item in ctx_input.labor_catalog])
     )
-
-    labor_assignment_records = (
-        [asdict(a) for a in DEFAULT_LABOR_ASSIGNMENTS]
+    labor_assignments = (
+        list(DEFAULT_LABOR_ASSIGNMENTS)
         if ctx_input.labor_assignments is None
-        else [item.model_dump() for item in ctx_input.labor_assignments]
+        else labor_assignments_from_records([item.model_dump() for item in ctx_input.labor_assignments])
     )
-
-    fixed_records = (
-        [asdict(item) for item in DEFAULT_FIXED_COSTS]
+    fixed_costs = (
+        list(legacy.fixed_costs)
         if ctx_input.fixed_costs_items is None
-        else [item.model_dump() for item in ctx_input.fixed_costs_items]
+        else fixed_costs_from_records([item.model_dump() for item in ctx_input.fixed_costs_items])
     )
 
     drilling_defaults = DrillingUnitCostInput(object_name=work_object_name)
     if ctx_input.drilling_input is not None:
-        drilling_dict = drilling_defaults.__dict__ | ctx_input.drilling_input.model_dump(
-            exclude_unset=True
-        )
+        drilling_dict = drilling_defaults.__dict__ | ctx_input.drilling_input.model_dump(exclude_unset=True)
         drilling_dict["object_name"] = work_object_name
         drilling_input = DrillingUnitCostInput(**drilling_dict)
     else:
-        drilling_input = DrillingUnitCostInput(
-            **(drilling_defaults.__dict__ | {"object_name": work_object_name})
-        )
+        drilling_input = DrillingUnitCostInput(**(drilling_defaults.__dict__ | {"object_name": work_object_name}))
 
     labor_settings = (
         LaborFOTSettings()
@@ -170,10 +158,10 @@ def build_calculation_context(
         work_object=work_object,
         work_objects=work_objects,
         drill_rigs=drill_rigs,
-        catalog=catalog_from_records(catalog_records),
-        labor_catalog=labor_catalog_from_records(labor_catalog_records),
-        labor_assignments=labor_assignments_from_records(labor_assignment_records),
-        fixed_costs_items=fixed_costs_from_records(fixed_records),
+        catalog=catalog,
+        labor_catalog=labor_catalog,
+        labor_assignments=labor_assignments,
+        fixed_costs_items=fixed_costs,
         drilling_input_base=drilling_input,
         labor_settings=labor_settings,
         scenario_phase_overrides=dict(ctx_input.scenario_phase_overrides),

@@ -1,83 +1,16 @@
-"""Фасад расчёта сметы — единая точка входа для UI."""
+"""Фасад расчёта сметы Cost V1: готовый контекст → стратегия сценария."""
 from __future__ import annotations
 
 from typing import Any
 
-from cost.catalog import catalog_from_records
-from cost.drilling import DrillingUnitCostInput
-from cost.drilling_data import DEFAULT_OBJECT_NAME, DEFAULT_WORK_OBJECTS
-from cost.references_store import find_work_object, get_drill_rigs, get_work_objects
-from cost.fixed_costs import fixed_costs_from_records
-from cost.labor import (
-    LaborFOTSettings,
-    labor_assignments_from_records,
-    labor_catalog_from_records,
-)
 from cost.models import AggregatedCostResult, BlockCalculationInput, CalculationContext
-from cost.scenarios import get_scenario_template, normalize_scenario_id
+from cost.scenarios import normalize_scenario_id
 from cost.strategies.factory import ScenarioStrategyFactory
 
 
 class CostEngine:
-    """Собирает CalculationContext из session_state и делегирует расчёт стратегии."""
-
-    def build_context(self, session_state: Any) -> CalculationContext:
-        work_object_name = str(
-            session_state.get("active_work_object_name", DEFAULT_OBJECT_NAME)
-        )
-        work_object = find_work_object(session_state, work_object_name)
-        if work_object is None:
-            work_object = find_work_object(session_state, DEFAULT_OBJECT_NAME)
-        if work_object is None:
-            objects = get_work_objects(session_state)
-            work_object = objects[0] if objects else DEFAULT_WORK_OBJECTS[0]
-
-        drilling_dict = dict(session_state.get("drilling_calculator_input", {}))
-        if not drilling_dict:
-            drilling_dict = DrillingUnitCostInput().__dict__
-        drilling_input = DrillingUnitCostInput(**drilling_dict)
-
-        labor_settings = LaborFOTSettings(
-            shifts_per_month=float(session_state.get("labor_shifts_per_month", 5.0)),
-        )
-
-        return CalculationContext(
-            work_object=work_object,
-            work_objects=get_work_objects(session_state),
-            drill_rigs=get_drill_rigs(session_state),
-            catalog=catalog_from_records(session_state.get("cost_catalog_records", [])),
-            labor_catalog=labor_catalog_from_records(
-                session_state.get("labor_catalog_records", [])
-            ),
-            labor_assignments=labor_assignments_from_records(
-                session_state.get("labor_assignment_records", [])
-            ),
-            fixed_costs_items=fixed_costs_from_records(
-                session_state.get("fixed_cost_records", [])
-            ),
-            drilling_input_base=drilling_input,
-            labor_settings=labor_settings,
-            scenario_phase_overrides=dict(session_state.get("scenario_phase_overrides", {})),
-        )
-
-    def calculate(
-        self,
-        *,
-        session_state: Any,
-        block_data: BlockCalculationInput | None = None,
-        scenario_id: str | None = None,
-        **kwargs: Any,
-    ) -> AggregatedCostResult:
-        scenario_id = normalize_scenario_id(
-            scenario_id or str(session_state.get("active_scenario_id", "drill_blast"))
-        )
-        ctx = self.build_context(session_state)
-        return self.calculate_with_context(
-            context=ctx,
-            block_data=block_data,
-            scenario_id=scenario_id,
-            **kwargs,
-        )
+    """Делегирует расчёт стратегии сценария. Контекст собирает
+    `api.services.converters.build_calculation_context`."""
 
     def calculate_with_context(
         self,
@@ -87,37 +20,6 @@ class CostEngine:
         scenario_id: str,
         **kwargs: Any,
     ) -> AggregatedCostResult:
-        """Расчёт сметы по готовому контексту (REST API и тесты)."""
         scenario_id = normalize_scenario_id(scenario_id)
         strategy = ScenarioStrategyFactory.create(scenario_id)
         return strategy.calculate(block_data, context, **kwargs)
-
-    def scenario_supports_module(
-        self,
-        session_state: Any,
-        module: str,
-        scenario_id: str | None = None,
-    ) -> bool:
-        scenario_id = normalize_scenario_id(
-            scenario_id or str(session_state.get("active_scenario_id", "drill_blast"))
-        )
-        template = get_scenario_template(scenario_id)
-        if template is None:
-            return True
-        overrides = dict(session_state.get("scenario_phase_overrides", {}))
-        return template.is_module_enabled(module, overrides)
-
-    def get_drilling_price_per_m(self, session_state: Any) -> float:
-        ctx = self.build_context(session_state)
-        from cost.strategies.common import apply_work_object_to_drilling_input
-        from cost.drilling import calculate_drilling_unit_cost
-
-        params = apply_work_object_to_drilling_input(
-            ctx.drilling_input_base,
-            ctx.work_object.name,
-        )
-        return calculate_drilling_unit_cost(
-            params,
-            work_objects=ctx.work_objects or None,
-            drill_rigs=ctx.drill_rigs or None,
-        ).price_per_m

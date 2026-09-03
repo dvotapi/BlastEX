@@ -72,6 +72,8 @@ from api.schemas.movement import MovementModelsResponse, MovementPredictRequest,
 from api.schemas.reporting import PassportBuildRequest, PassportDocumentSchema, PassportRolesResponse
 from api.security import require_internal_access
 from api.services import design_service, reporting_service
+from api.services.legacy_references import current_legacy_references
+from cost.v2.legacy_adapter import LegacyReferences
 
 router = APIRouter(prefix="/design", tags=["design"])
 
@@ -250,8 +252,11 @@ def post_blast_result_compare(request: BlastResultCompareRequest) -> BlastResult
 
 
 @router.post("/cost", response_model=AggregatedCostResultSchema)
-def post_design_cost(request: DesignCostRequest) -> AggregatedCostResultSchema:
-    return design_service.estimate_design_cost(request)
+def post_design_cost(
+    request: DesignCostRequest,
+    legacy: LegacyReferences = Depends(current_legacy_references),
+) -> AggregatedCostResultSchema:
+    return design_service.estimate_design_cost(request, legacy)
 
 
 @router.get("/plans", response_model=DesignListResponse)

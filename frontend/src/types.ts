@@ -154,6 +154,7 @@ export type WorkspaceSnapshot = {
   scenario_phase_overrides: Record<string, boolean>;
 };
 
+/** Справочники Cost V1, собранные сервером из опубликованной ревизии. Только чтение. */
 export type TeamReferences = {
   work_object_records: WorkObject[];
   drill_rig_records: DrillRig[];
@@ -167,6 +168,8 @@ export type WorkspaceState = {
   snapshot: WorkspaceSnapshot;
   references: TeamReferences;
   drilling_price_per_m: number;
+  /** Чего не хватило в опубликованной ревизии и что взято взамен. */
+  warnings: string[];
 };
 
 export type DefaultReferences = {

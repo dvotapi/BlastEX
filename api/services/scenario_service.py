@@ -20,6 +20,7 @@ from api.schemas.scenarios import (
     ScenarioSummarySchema,
 )
 from api.services.design_service import estimate_design_cost
+from cost.v2.legacy_adapter import default_legacy_references
 from design.models import BlastDesign
 from design.persistence import DesignNotFoundError as StoreDesignNotFound
 from design.persistence import load_design
@@ -73,12 +74,17 @@ def _scenario_schema(item: DesignScenario) -> DesignScenarioSchema:
 
 
 def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes) -> None:
+    # Справочники — фиксированные значения Cost V1 по умолчанию. Per-org данные
+    # этот сервис не читал никогда: до переезда справочников он так же брал
+    # команду по умолчанию. Чтобы включить ревизию организации, роутеру сервиса
+    # нужен `Depends(current_legacy_references)`.
     try:
         result = estimate_design_cost(
             DesignCostRequest(
                 design=BlastDesignSchema(**overlay.to_dict()),
                 scenario_id=params.cost_scenario_id or "drill_blast",
-            )
+            ),
+            default_legacy_references(),
         )
     except Exception as exc:
         outcomes.warnings.append(f"Смета недоступна: {exc}")

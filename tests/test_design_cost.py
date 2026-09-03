@@ -7,6 +7,7 @@ from design.models import BenchSurface, BlastDesign, BlockContour, Point3
 from design.pattern import generate_pattern
 from design.timing import build_template_network
 from Blast import ExplosiveProperties
+from cost.v2.legacy_adapter import default_legacy_references
 
 EXPLOSIVE = ExplosiveProperties("Гранулит-РП", 0.85, 3.76)
 
@@ -42,7 +43,7 @@ class DesignCostConversionTests(unittest.TestCase):
             design=BlastDesignSchema(**design.to_dict()),
             scenario_id="drill_blast",
         )
-        result = estimate_design_cost(request)
+        result = estimate_design_cost(request, default_legacy_references())
 
         self.assertIsNotNone(result.block_geometry)
         # Реальные суммы, а не формульная оценка объём/выход.
@@ -67,7 +68,7 @@ class DesignCostConversionTests(unittest.TestCase):
             scenario_id="drill_blast",
         )
         with self.assertRaises(Exception):
-            estimate_design_cost(request)
+            estimate_design_cost(request, default_legacy_references())
 
 
 if __name__ == "__main__":

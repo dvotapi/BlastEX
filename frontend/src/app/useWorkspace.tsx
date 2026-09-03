@@ -9,14 +9,12 @@ import type {
   LaborAssignment,
   Rock,
   ScenarioListItem,
-  TeamReferences,
   User,
   WorkObject,
   WorkspaceSnapshot,
   WorkspaceState,
 } from "../types";
 import {
-  normalizeReferencePatch,
   normalizeReferenceRows,
   normalizeSnapshotPatch,
   normalizeSnapshotRows,
@@ -43,7 +41,6 @@ type WorkspaceContextValue = {
   blastContext: BlastCalcContext | null;
   setBlastContext: (ctx: BlastCalcContext | null) => void;
   updateSnapshot: (patch: Partial<WorkspaceSnapshot>) => void;
-  updateReferences: (patch: Partial<TeamReferences>) => void;
   setActiveWorkObjectName: (name: string) => void;
   save: () => Promise<void>;
   switchScenario: (scenarioId: string) => Promise<void>;
@@ -73,7 +70,7 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
         references: normalizeReferenceRows(ws.references),
       };
       setState(normalized);
-      setSavedKey(JSON.stringify([normalized.snapshot, normalized.references, normalized.settings.active_work_object_name]));
+      setSavedKey(JSON.stringify([normalized.snapshot, normalized.settings.active_work_object_name]));
       setScenarios(sc);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить рабочее пространство.");
@@ -86,15 +83,11 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
 
   const dirty = useMemo(() => {
     if (!state) return false;
-    return JSON.stringify([state.snapshot, state.references, state.settings.active_work_object_name]) !== savedKey;
+    return JSON.stringify([state.snapshot, state.settings.active_work_object_name]) !== savedKey;
   }, [state, savedKey]);
 
   const updateSnapshot = useCallback((patch: Partial<WorkspaceSnapshot>) => {
     setState((prev) => (prev ? { ...prev, snapshot: { ...prev.snapshot, ...normalizeSnapshotPatch(patch) } } : prev));
-  }, []);
-
-  const updateReferences = useCallback((patch: Partial<TeamReferences>) => {
-    setState((prev) => (prev ? { ...prev, references: { ...prev.references, ...normalizeReferencePatch(patch) } } : prev));
   }, []);
 
   const setActiveWorkObjectName = useCallback((name: string) => {
@@ -108,7 +101,6 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
     try {
       const next = await api.saveWorkspace({
         snapshot: state.snapshot,
-        references: state.references,
         active_work_object_name: state.settings.active_work_object_name,
       });
       const normalized = {
@@ -117,7 +109,7 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
         references: normalizeReferenceRows(next.references),
       };
       setState(normalized);
-      setSavedKey(JSON.stringify([normalized.snapshot, normalized.references, normalized.settings.active_work_object_name]));
+      setSavedKey(JSON.stringify([normalized.snapshot, normalized.settings.active_work_object_name]));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сохранить рабочее пространство.");
       throw reason;
@@ -136,7 +128,7 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
         references: normalizeReferenceRows(next.references),
       };
       setState(normalized);
-      setSavedKey(JSON.stringify([normalized.snapshot, normalized.references, normalized.settings.active_work_object_name]));
+      setSavedKey(JSON.stringify([normalized.snapshot, normalized.settings.active_work_object_name]));
       setBlastContext(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось переключить сценарий.");
@@ -162,7 +154,6 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
     blastContext,
     setBlastContext,
     updateSnapshot,
-    updateReferences,
     setActiveWorkObjectName,
     save,
     switchScenario,

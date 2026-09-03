@@ -114,6 +114,46 @@ def test_event_runs_require_own_passport(repository) -> None:
         )
 
 
+def test_legacy_workspace_and_scenarios_are_organization_scoped(repository) -> None:
+    repository.import_legacy_workspace(
+        ORG_A,
+        "a@example.ru",
+        team_name="Команда А",
+        active_scenario_id="drilling",
+        active_work_object_name="Карьер А",
+    )
+    repository.import_legacy_scenarios(
+        ORG_A,
+        "a@example.ru",
+        {"drilling": {"labor_shifts_per_month": 7, "labor_assignment_records": [{"id": "la_1"}]}},
+    )
+
+    settings = repository.get_legacy_workspace(ORG_A)
+    assert settings is not None
+    assert settings.team_name == "Команда А"
+    assert settings.active_scenario_id == "drilling"
+    assert settings.active_work_object_name == "Карьер А"
+    assert repository.get_legacy_workspace(ORG_B) is None
+
+    scenario = repository.get_legacy_scenario(ORG_A, "drilling")
+    assert scenario is not None
+    assert scenario["labor_shifts_per_month"] == 7
+    assert scenario["labor_assignment_records"] == [{"id": "la_1"}]
+    assert repository.get_legacy_scenario(ORG_A, "blasting") is None
+    assert repository.get_legacy_scenario(ORG_B, "drilling") is None
+
+
+def test_legacy_workspace_is_overwritten_not_duplicated(repository) -> None:
+    for name in ("Первое", "Второе"):
+        repository.import_legacy_workspace(
+            ORG_A, "a@example.ru", team_name=name, active_scenario_id="drill_blast", active_work_object_name="X"
+        )
+    assert repository.get_legacy_workspace(ORG_A).team_name == "Второе"
+    repository.import_legacy_scenarios(ORG_A, "a", {"drill_blast": {"labor_shifts_per_month": 1}})
+    repository.import_legacy_scenarios(ORG_A, "a", {"drill_blast": {"labor_shifts_per_month": 2}})
+    assert repository.get_legacy_scenario(ORG_A, "drill_blast")["labor_shifts_per_month"] == 2
+
+
 def test_every_repository_method_takes_organization_first() -> None:
     """Новый метод обязан принять организацию — иначе фильтр забудут."""
 

@@ -5,7 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import RLock
-from typing import Any, Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from cost.v2.models import EconomicScenario, ReferenceSnapshot
@@ -178,6 +178,16 @@ class StoredEconomicsRun:
         }
 
 
+@dataclass(frozen=True)
+class LegacyWorkspaceSettings:
+    """Настройки рабочего пространства Cost V1: команда, сценарий, объект."""
+
+    team_name: str
+    active_scenario_id: str
+    active_work_object_name: str
+    reference_revision_id: str | None = None
+
+
 class EconomicsRepository(Protocol):
     def get_reference_snapshot(
         self, organization_id: str, revision_id: str | None = None
@@ -281,6 +291,30 @@ class EconomicsRepository(Protocol):
 
     def get_economics_run(self, organization_id: str, run_id: str) -> StoredEconomicsRun: ...
 
+    def get_legacy_workspace(self, organization_id: str) -> LegacyWorkspaceSettings | None: ...
+
+    def import_legacy_workspace(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        team_name: str,
+        active_scenario_id: str,
+        active_work_object_name: str,
+        reference_revision_id: str | None = None,
+    ) -> None: ...
+
+    def get_legacy_scenario(self, organization_id: str, scenario_key: str) -> dict[str, Any] | None: ...
+
+    def import_legacy_scenarios(
+        self,
+        organization_id: str,
+        user_id: str,
+        scenarios: Mapping[str, dict[str, Any]],
+        *,
+        reference_revision_id: str | None = None,
+    ) -> list[str]: ...
+
 
 class InMemoryEconomicsRepository:
     """Потокобезопасное хранилище для unit/API-тестов."""
@@ -293,6 +327,8 @@ class InMemoryEconomicsRepository:
         self._runs: dict[tuple[str, str], StoredCalculationRun] = {}
         self._passports: dict[tuple[str, str], StoredTechnicalPassport] = {}
         self._economics_runs: dict[tuple[str, str], StoredEconomicsRun] = {}
+        self._legacy_workspace: dict[str, LegacyWorkspaceSettings] = {}
+        self._legacy_scenarios: dict[tuple[str, str], dict[str, Any]] = {}
 
     def _ensure_org(self, organization_id: str) -> None:
         if organization_id in self._revisions:
@@ -611,3 +647,53 @@ class InMemoryEconomicsRepository:
                 return deepcopy(self._economics_runs[(organization_id, run_id)])
             except KeyError as exc:
                 raise EconomicsRecordNotFound(f"Прогон экономики {run_id} не найден.") from exc
+
+    def get_legacy_workspace(self, organization_id: str) -> LegacyWorkspaceSettings | None:
+        with self._lock:
+            return self._legacy_workspace.get(organization_id)
+
+    def import_legacy_workspace(
+        self,
+        organization_id: str,
+        user_id: str,
+        *,
+        team_name: str,
+        active_scenario_id: str,
+        active_work_object_name: str,
+        reference_revision_id: str | None = None,
+    ) -> None:
+        with self._lock:
+            self._legacy_workspace[organization_id] = LegacyWorkspaceSettings(
+                team_name=team_name,
+                active_scenario_id=active_scenario_id,
+                active_work_object_name=active_work_object_name,
+                reference_revision_id=reference_revision_id,
+            )
+
+    def get_legacy_scenario(self, organization_id: str, scenario_key: str) -> dict[str, Any] | None:
+        with self._lock:
+            stored = self._legacy_scenarios.get((organization_id, scenario_key))
+            return deepcopy(stored) if stored is not None else None
+
+    def import_legacy_scenarios(
+        self,
+        organization_id: str,
+        user_id: str,
+        scenarios: Mapping[str, dict[str, Any]],
+        *,
+        reference_revision_id: str | None = None,
+    ) -> list[str]:
+        with self._lock:
+            imported: list[str] = []
+            for scenario_key, payload in scenarios.items():
+                # Форма записи повторяет PostgreSQL (`db_repository.get_legacy_scenario`):
+                # правимые фронтом поля всегда присутствуют, остальное — из payload.
+                self._legacy_scenarios[(organization_id, scenario_key)] = {
+                    **deepcopy(dict(payload)),
+                    "labor_assignment_records": deepcopy(list(payload.get("labor_assignment_records") or [])),
+                    "drilling_calculator_input": deepcopy(dict(payload.get("drilling_calculator_input") or {})),
+                    "scenario_phase_overrides": deepcopy(dict(payload.get("scenario_phase_overrides") or {})),
+                    "reference_revision_id": reference_revision_id,
+                }
+                imported.append(scenario_key)
+            return imported

@@ -54,8 +54,12 @@ class ExplosiveCatalogSchema(BaseModel):
 
     key: str
     name: str
-    density_t_m3: float = Field(..., gt=0)
-    power_mj_kg: float = Field(..., gt=0)
+    # ge=0, а не gt=0: адаптер (`cost/v2/legacy_adapter.py::_explosive`) для ВВ без
+    # плотности/энергии подставляет 0.0 и добавляет предупреждение, а не исключение —
+    # схема ответа должна пропускать такие нулевые значения, иначе список ВВ падает
+    # целиком из-за одной неполной записи справочника.
+    density_t_m3: float = Field(..., ge=0)
+    power_mj_kg: float = Field(..., ge=0)
     chart_label: str = ""
 
 

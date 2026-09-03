@@ -12,8 +12,8 @@ from api.schemas.blast import (
     BlastOptimizeRequest,
     BlastOptimizeResponse,
 )
-from api.security import current_team_id
 from api.services.blast_service import compute_geometry, optimize_blast
+from api.services.legacy_references import current_legacy_references
 from Blast import CROWNS_MM
 from cost.geometry import (
     DETONATOR_DELAY_MS_OPTIONS,
@@ -24,6 +24,7 @@ from cost.geometry import (
     drilling_hole_table_rows,
     hole_geometry_table_rows,
 )
+from cost.v2.legacy_adapter import LegacyReferences
 
 router = APIRouter(prefix="/blast", tags=["blast"])
 
@@ -45,9 +46,9 @@ def post_blast_optimize(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
 @router.post("/geometry", response_model=BlastGeometryResponse)
 def post_blast_geometry(
     payload: BlastGeometryRequest,
-    team_id: str = Depends(current_team_id),
+    legacy: LegacyReferences = Depends(current_legacy_references),
 ) -> BlastGeometryResponse:
-    hole, block, initiation, label = compute_geometry(payload, team_id)
+    hole, block, initiation, label = compute_geometry(payload, legacy)
 
     if payload.view == "contour":
         hole_rows = contour_hole_table_rows(hole, initiation=initiation)
@@ -72,13 +73,13 @@ def post_blast_geometry(
 @router.post("/hole-scheme")
 def post_hole_scheme(
     payload: BlastGeometryRequest,
-    team_id: str = Depends(current_team_id),
+    legacy: LegacyReferences = Depends(current_legacy_references),
 ) -> Response:
     import matplotlib.pyplot as plt
 
     from blast_hole_viz import draw_hole_section
 
-    hole, _block, initiation, label = compute_geometry(payload, team_id)
+    hole, _block, initiation, label = compute_geometry(payload, legacy)
     fig = draw_hole_section(hole, title=label, initiation=initiation)
     buf = io.BytesIO()
     try:

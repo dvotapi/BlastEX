@@ -32,6 +32,7 @@ from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
 from cost.v2.references import default_reference_snapshot, normalize_sections
 from cost.v2.repository import (
     EconomicsRecordNotFound,
+    LegacyWorkspaceSettings,
     ReferenceRevisionConflict,
     ReferenceRevisionInfo,
     StoredCalculationRun,
@@ -774,6 +775,38 @@ class PostgresEconomicsRepository:
             created_at=row.created_at,
             created_by=row.created_by,
         )
+
+    def get_legacy_workspace(self, organization_id: str) -> LegacyWorkspaceSettings | None:
+        with self.session_factory() as session:
+            row = session.get(LegacyWorkspaceSettingsRow, organization_id)
+            if row is None:
+                return None
+            return LegacyWorkspaceSettings(
+                team_name=row.team_name,
+                active_scenario_id=row.active_scenario_id,
+                active_work_object_name=row.active_work_object_name,
+                reference_revision_id=row.reference_revision_id,
+            )
+
+    def get_legacy_scenario(self, organization_id: str, scenario_key: str) -> dict[str, Any] | None:
+        with self.session_factory() as session:
+            row = session.scalar(
+                select(LegacyCostScenarioRow).where(
+                    LegacyCostScenarioRow.organization_id == organization_id,
+                    LegacyCostScenarioRow.scenario_key == scenario_key,
+                )
+            )
+            if row is None:
+                return None
+            # Отдельные колонки — источник правды для того, что фронт правит;
+            # payload хранит остальное (смены в месяц и т.п.).
+            return {
+                **dict(row.payload or {}),
+                "labor_assignment_records": list(row.labor_assignment_records or []),
+                "drilling_calculator_input": dict(row.drilling_calculator_input or {}),
+                "scenario_phase_overrides": dict(row.scenario_phase_overrides or {}),
+                "reference_revision_id": row.reference_revision_id,
+            }
 
     def import_legacy_workspace(
         self,

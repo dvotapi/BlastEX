@@ -44,3 +44,20 @@ def test_requirements_do_not_pull_streamlit() -> None:
 def test_streamlit_entrypoints_are_gone() -> None:
     for path in ("app.py", "Streamlit", "cost/references_ui.py", "cost/admin_auth.py"):
         assert not (ROOT / path).exists(), f"{path} должен быть удалён"
+
+
+def test_reference_files_are_not_read_anywhere() -> None:
+    """Справочники живут только в PostgreSQL: `references.json` и
+    `session_state` больше нигде не читаются (TASK-008, спецификация §7)."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    offenders: list[str] = []
+    pattern = re.compile(r"references\.json|references_store|load_team_references|load_team_settings|load_scenario_snapshot")
+    for path in list((root / "api").rglob("*.py")) + list((root / "cost").rglob("*.py")):
+        if "import_v1" in path.name:
+            continue
+        if pattern.search(path.read_text(encoding="utf-8")):
+            offenders.append(str(path.relative_to(root)))
+    assert offenders == []

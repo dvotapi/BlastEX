@@ -20,7 +20,6 @@ import type {
   ScenarioListItem,
   User,
   WorkObject,
-  TeamReferences,
   WorkspaceSnapshot,
   WorkspaceState,
 } from "../types";
@@ -147,29 +146,17 @@ export const api = {
 
   // --- справочники (для расчёта) ---
   rocks: () => get<{ items: Rock[]; default_name: string }>(`${V1}/references/rocks`),
-  putRocks: (items: Rock[]) => put<{ items: Rock[] }>(`${V1}/references/rocks`, items),
   explosives: () => get<{ items: Explosive[]; default_key: string }>(`${V1}/references/explosives`),
-  putExplosives: (items: Explosive[]) =>
-    put<{ items: Explosive[] }>(`${V1}/references/explosives`, items),
   workObjects: () => get<{ items: WorkObject[]; default_name: string }>(`${V1}/references/work-objects`),
-  putWorkObjects: (items: WorkObject[]) =>
-    put<{ items: WorkObject[] }>(`${V1}/references/work-objects`, items),
   drillRigs: () => get<{ items: DrillRig[]; default_name: string }>(`${V1}/references/drill-rigs`),
-  putDrillRigs: (items: DrillRig[]) =>
-    put<{ items: DrillRig[] }>(`${V1}/references/drill-rigs`, items),
   depreciationAssets: () =>
     get<{ items: FixedAssetDepreciation[] }>(`${V1}/references/depreciation-assets`),
-  putDepreciationAssets: (items: FixedAssetDepreciation[]) =>
-    put<{ items: FixedAssetDepreciation[] }>(`${V1}/references/depreciation-assets`, items),
   catalog: () => get<{ items: CatalogItem[] }>(`${V1}/references/catalog`),
 
   // --- рабочее пространство ---
   workspace: () => get<WorkspaceState>(`${V1}/workspace`),
-  saveWorkspace: (payload: {
-    snapshot: WorkspaceSnapshot;
-    references: TeamReferences;
-    active_work_object_name: string;
-  }) => put<WorkspaceState>(`${V1}/workspace/snapshot`, payload),
+  saveWorkspace: (payload: { snapshot: WorkspaceSnapshot; active_work_object_name: string }) =>
+    put<WorkspaceState>(`${V1}/workspace/snapshot`, payload),
   switchScenario: (scenario_id: string) =>
     put<WorkspaceState>(`${V1}/workspace/active-scenario`, { scenario_id }),
   workspaceDefaults: () => get<DefaultReferences>(`${V1}/workspace/defaults`),

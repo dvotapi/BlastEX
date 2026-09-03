@@ -125,6 +125,7 @@ from design.spatial.io import (
 )
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
+from cost.v2.legacy_adapter import LegacyReferences
 
 
 def _surfaces_from_request(payload) -> SurfaceSet | None:
@@ -988,7 +989,7 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
     return hole, block, initiation
 
 
-def estimate_design_cost(request: DesignCostRequest) -> AggregatedCostResultSchema:
+def estimate_design_cost(request: DesignCostRequest, legacy: LegacyReferences) -> AggregatedCostResultSchema:
     from api.schemas.cost import BlockCalculationInputSchema
 
     design = BlastDesign.from_dict(request.design.model_dump())
@@ -1013,7 +1014,7 @@ def estimate_design_cost(request: DesignCostRequest) -> AggregatedCostResultSche
         materials_selection=request.materials_selection,
         production_volume_tons=0.0,
     )
-    return calculate_cost(cost_request)
+    return calculate_cost(cost_request, legacy)
 
 
 def export_plan_passport(team_id: str, design_id: str) -> str:

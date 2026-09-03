@@ -58,8 +58,10 @@ class WorkspaceStateSchema(BaseModel):
 
 
 class SaveWorkspaceRequest(BaseModel):
+    """Сохранение сценария сметы. Справочные записи в `snapshot` игнорируются:
+    их источник — опубликованная ревизия."""
+
     snapshot: WorkspaceSnapshotSchema
-    references: TeamReferencesSchema
     active_work_object_name: str = ""
 
 

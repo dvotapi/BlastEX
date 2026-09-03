@@ -54,3 +54,47 @@ def test_v1_import_is_read_only_idempotent_and_requires_fixed_cost_review(tmp_pa
     assert any(item.payload.get("requires_cost_v2_classification") for item in first["cost_items"])
     assert any("Постоянные затраты V1" in warning for warning in report.warnings)
     assert not has_validation_errors(validate_reference_sections(first))
+
+
+def test_import_merges_with_existing_records_and_keeps_rocks(tmp_path) -> None:
+    from cost.v2.models import ReferenceItem, ReferenceSnapshot
+
+    team_dir = tmp_path / "data" / "teams" / "north"
+    (team_dir / "scenarios").mkdir(parents=True)
+    (team_dir / "references.json").write_text(
+        json.dumps(
+            {
+                "rock_records": [{"name": "Гранит", "density_t_m3": 2.65, "ucs_mpa": 150, "fissuring_ff": 2.0}],
+                "work_object_records": [{"name": "Карьер 1", "mobilization_km": 12}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (team_dir / "settings.json").write_text(json.dumps({"active_scenario_id": "drill_blast"}), encoding="utf-8")
+    (team_dir / "scenarios" / "drill_blast.json").write_text(
+        json.dumps(
+            {
+                "fixed_cost_records": [{"id": "fc_21_storage", "section": "2.1", "name": "Хранение", "amount_rub": 10}],
+                "labor_catalog_records": [{"id": "labor_master", "name": "Мастер", "fixed_salary_monthly": 1}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    current = default_reference_snapshot()
+    sections = dict(current.sections)
+    sections["positions"] = (ReferenceItem("POS_DRILLER", "Машинист БУ", {"category": "DIRECT", "operation_code": None}),)
+    sections["production_units"] = (ReferenceItem("UNIT_1", "Юнит 1"),)
+    sections["materials"] = (ReferenceItem("MAT_BIT", "Коронка", {"category": "TOOL"}),)
+    current = ReferenceSnapshot(revision_id="R", sections=sections)
+
+    result, _ = build_import_sections(tmp_path, "north", current)
+
+    assert {item.code for item in result["positions"]} >= {"POS_DRILLER", "POSITION_LABOR_MASTER"}
+    assert {item.code for item in result["production_units"]} == {"UNIT_1", "UNIT_NORTH"}
+    assert {item.code for item in result["materials"]} >= {"MAT_BIT"}
+    assert [item.name for item in result["rocks"]] == ["Гранит"]
+    assert result["rocks"][0].payload["ucs_mpa"] == 150
+    fixed = next(item for item in result["cost_items"] if item.payload.get("legacy_section") == "2.1")
+    assert fixed.payload["legacy_ref"] == "fc_21_storage"

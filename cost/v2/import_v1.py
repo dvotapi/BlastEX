@@ -73,13 +73,17 @@ def build_import_sections(
         return sections, report
 
     production_unit_code = f"UNIT_{_code(team_id)}"
-    sections["production_units"] = (
-        ReferenceItem(
-            code=production_unit_code,
-            name=str(settings.get("team_name") or team_id),
-            source="Cost V1 JSON import",
-            payload={"legacy_ref": team_id},
-        ),
+    _merge_section(
+        sections,
+        "production_units",
+        [
+            ReferenceItem(
+                code=production_unit_code,
+                name=str(settings.get("team_name") or team_id),
+                source="Cost V1 JSON import",
+                payload={"legacy_ref": team_id},
+            )
+        ],
     )
 
     sites: list[ReferenceItem] = []
@@ -97,8 +101,24 @@ def build_import_sections(
                 },
             )
         )
-    if sites:
-        sections["sites"] = _dedupe_items(sites)
+    _merge_section(sections, "sites", sites)
+
+    rocks: list[ReferenceItem] = []
+    for row in references.get("rock_records", []):
+        name = str(row.get("name", "Порода"))
+        rocks.append(
+            ReferenceItem(
+                code=f"ROCK_{_code(name)}",
+                name=name,
+                source="Cost V1 references.json",
+                payload={
+                    "density_t_m3": row.get("density_t_m3"),
+                    "ucs_mpa": row.get("ucs_mpa"),
+                    "fissuring_ff": row.get("fissuring_ff"),
+                },
+            )
+        )
+    _merge_section(sections, "rocks", rocks)
 
     # Cost V1 не разделял тип техники и единицу: буровой станок был одной
     # записью. Cost V2 требует тип (нормы, ТОиР, расход) отдельно от основного
@@ -164,18 +184,12 @@ def build_import_sections(
                 },
             )
         )
-    if equipment_types:
-        # Дополняем раздел, а не заменяем: у организации уже могут быть типы,
-        # заведённые руками, с нормами смен, ТОиР и расходом топлива — импорт
-        # сценария V1 не должен их стирать. При совпадении кода побеждает
-        # существующая запись как более полная.
-        existing = sections.get("equipment_types", ())
-        existing_codes = {item.code for item in existing}
-        sections["equipment_types"] = tuple(existing) + tuple(
-            item for item in _dedupe_items(equipment_types) if item.code not in existing_codes
-        )
-    if equipment:
-        sections["equipment_assets"] = _dedupe_items(equipment)
+    # Дополняем раздел, а не заменяем: у организации уже могут быть типы,
+    # заведённые руками, с нормами смен, ТОиР и расходом топлива — импорт
+    # сценария V1 не должен их стирать. При совпадении кода побеждает
+    # существующая запись как более полная.
+    _merge_section(sections, "equipment_types", equipment_types)
+    _merge_section(sections, "equipment_assets", equipment)
 
     materials: list[ReferenceItem] = []
     material_prices: list[ReferenceItem] = []
@@ -192,6 +206,8 @@ def build_import_sections(
                     "density_t_m3": row.get("density_t_m3"),
                     "power_mj_kg": row.get("power_mj_kg"),
                     "legacy_ref": row.get("key"),
+                    "chart_label": row.get("chart_label") or None,
+                    "material_kind": "ВВ",
                 },
             )
         )
@@ -229,10 +245,8 @@ def build_import_sections(
             + ", ".join(sorted(unknown_units))
             + ". Проставьте их вручную."
         )
-    if materials:
-        sections["materials"] = _dedupe_items(materials)
-    if material_prices:
-        sections["material_prices"] = _dedupe_items(material_prices)
+    _merge_section(sections, "materials", materials)
+    _merge_section(sections, "material_prices", material_prices)
 
     positions: list[ReferenceItem] = []
     labor_rates: list[ReferenceItem] = []
@@ -258,10 +272,8 @@ def build_import_sections(
                 },
             )
         )
-    if positions:
-        sections["positions"] = _dedupe_items(positions)
-    if labor_rates:
-        sections["labor_rates"] = _dedupe_items(labor_rates)
+    _merge_section(sections, "positions", positions)
+    _merge_section(sections, "labor_rates", labor_rates)
 
     fixed_items: list[ReferenceItem] = []
     for row in snapshot.get("fixed_cost_records", []):
@@ -277,14 +289,12 @@ def build_import_sections(
                     "legacy_section": row.get("section", ""),
                     "amount_rub": row.get("amount_rub", 0),
                     "requires_cost_v2_classification": True,
+                    "legacy_ref": row.get("id"),
                 },
             )
         )
     if fixed_items:
-        existing_system = tuple(
-            item for item in sections.get("cost_items", ()) if item.source == "BlastEX Cost V2"
-        )
-        sections["cost_items"] = existing_system + _dedupe_items(fixed_items)
+        _merge_section(sections, "cost_items", fixed_items)
         report.warnings.append(
             "Постоянные затраты V1 импортированы как статьи без правил: "
             "перед публикацией задайте слой, поведение и драйвер Cost V2."
@@ -307,8 +317,15 @@ def _read_json(path: Path, report: ImportReport) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+_TRANSLIT = str.maketrans(
+    "абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+    "abvgdeejziyklmnoprstufhccss_y_eua",
+)
+
+
 def _code(value: str) -> str:
-    normalized = re.sub(r"[^A-Z0-9]+", "_", value.upper()).strip("_")
+    latin = value.lower().translate(_TRANSLIT).upper()
+    normalized = re.sub(r"[^A-Z0-9]+", "_", latin).strip("_")
     return (normalized or "ITEM")[:64]
 
 
@@ -332,3 +349,18 @@ def _dedupe_items(items: list[ReferenceItem]) -> tuple[ReferenceItem, ...]:
             revision=item.revision,
         )
     return tuple(result.values())
+
+
+def _merge_section(
+    sections: dict[str, tuple[ReferenceItem, ...]],
+    section: str,
+    imported: list[ReferenceItem],
+) -> None:
+    """Дополнить раздел, не стирая записи организации: при совпадении кода
+    побеждает существующая запись как более полная."""
+
+    existing = sections.get(section, ())
+    existing_codes = {item.code for item in existing}
+    sections[section] = tuple(existing) + tuple(
+        item for item in _dedupe_items(imported) if item.code not in existing_codes
+    )

@@ -62,6 +62,16 @@ def test_export_rejects_unknown_format(monkeypatch) -> None:
     assert client.get("/api/v1/economics/references/export?format=csv").status_code == 422
 
 
+def test_export_does_not_reach_another_organization(monkeypatch) -> None:
+    client, repository = _client(monkeypatch)
+    other = repository.get_reference_snapshot("other")
+    foreign = repository.publish_references(
+        "other", "tester", other.revision_id, dict(other.sections), "чужая ревизия"
+    ).revision_id
+    response = client.get(f"/api/v1/economics/references/export?format=json&revision_id={foreign}")
+    assert response.status_code == 404, response.text
+
+
 def test_import_xlsx_returns_sections_without_writing(monkeypatch) -> None:
     client, repository = _client(monkeypatch)
     exported = client.get("/api/v1/economics/references/export?format=xlsx").content
@@ -74,7 +84,8 @@ def test_import_xlsx_returns_sections_without_writing(monkeypatch) -> None:
     body = response.json()
     assert body["file_name"] == "refs.xlsx"
     assert body["counts"]["units"] > 0
-    assert body["sections"]["units"][0]["source"] == "Импорт xlsx"
+    # Источник — колонка файла: круг «выгрузили — загрузили» его не меняет.
+    assert body["sections"]["units"][0]["source"] == "BlastEX Cost V2"
     assert repository.get_reference_snapshot("default").revision_id == before
 
 
@@ -92,6 +103,17 @@ def test_import_json_and_bad_file(monkeypatch) -> None:
     )
     assert bad.status_code == 422
     assert "JSON" in bad.json()["detail"]["message"]
+
+
+def test_import_rejects_a_file_over_the_limit(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    oversized = b"x" * (economics.MAX_REFERENCE_FILE_BYTES + 1)
+    response = client.post(
+        "/api/v1/economics/references/import",
+        files={"file": ("refs.xlsx", oversized, "application/octet-stream")},
+    )
+    assert response.status_code == 413, response.status_code
+    assert response.json()["detail"] == "Файл больше 20 МБ."
 
 
 def test_user_cannot_import(monkeypatch) -> None:

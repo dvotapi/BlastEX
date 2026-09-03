@@ -42,6 +42,10 @@ from cost.v2.technical_adapter import adapt_blast_block
 
 router = APIRouter(prefix="/economics", tags=["economics-v2"])
 
+# Полный каталог справочников в xlsx весит сотни килобайт; десятки мегабайт —
+# это уже не справочники, читать такой файл в память незачем.
+MAX_REFERENCE_FILE_BYTES = 20 * 1024 * 1024
+
 
 def _identity(session: dict[str, object]) -> tuple[str, str]:
     return str(session.get("org") or "default"), str(session.get("sub") or "unknown")
@@ -256,22 +260,34 @@ async def import_references(
 ) -> ReferenceImportResponse:
     """Файл → разделы черновика. В базу ничего не пишется: дальше проверка и публикация."""
 
-    data = await file.read()
-    try:
-        sections = import_file(file.filename or "", data)
-    except ReferenceFileError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"message": str(exc)},
-        ) from exc
-    return ReferenceImportResponse(
-        file_name=file.filename or "",
-        counts={section: len(items) for section, items in sections.items()},
-        sections={
-            section: [ReferenceItemSchema.model_validate(item.to_dict()) for item in items]
-            for section, items in sections.items()
-        },
+    too_big = HTTPException(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        detail=f"Файл больше {MAX_REFERENCE_FILE_BYTES // (1024 * 1024)} МБ.",
     )
+    try:
+        # Размер известен до чтения не всегда, поэтому проверяем дважды.
+        if file.size is not None and file.size > MAX_REFERENCE_FILE_BYTES:
+            raise too_big
+        data = await file.read()
+        if len(data) > MAX_REFERENCE_FILE_BYTES:
+            raise too_big
+        try:
+            sections = import_file(file.filename or "", data)
+        except ReferenceFileError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"message": str(exc)},
+            ) from exc
+        return ReferenceImportResponse(
+            file_name=file.filename or "",
+            counts={section: len(items) for section, items in sections.items()},
+            sections={
+                section: [ReferenceItemSchema.model_validate(item.to_dict()) for item in items]
+                for section, items in sections.items()
+            },
+        )
+    finally:
+        await file.close()
 
 
 @router.get("/scenarios", response_model=list[StoredScenarioSchema])

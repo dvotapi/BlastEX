@@ -105,21 +105,37 @@
 
 Поля, участвующие в обмене (далее «общие поля»):
 
-`sites`: `name ↔ full_name`, `short_name ↔ short_name`, заказчик
-`customer_code ↔ client_legal_name` (через контрагента), порода `rock_code ↔
-mineral_type` (по имени породы), `is_active ↔ is_active`.
+`sites`: `name ↔ full_name`, `short_name ↔ short_name`, `mineral_type ↔
+mineral_type` (свободный текст вида «нерудные материалы», к породам blastex
+не привязан), `is_active ↔ is_active`. Заказчик: в `public` это текст
+`client_legal_name` (например `АО "Теплогорский карьер"`), а не ссылка. При
+получении текст сравнивается с `short_name` и `full_name` контрагентов после
+нормализации (регистр, пробелы, вид кавычек); совпадение даёт
+`customer_code`, иначе текст сохраняется в поле `customer_legal_name`
+объекта. При выгрузке `client_legal_name` = краткое имя контрагента по
+`customer_code`, иначе `customer_legal_name`; если пусто — ошибка валидации.
+В `public.sites` есть и склады (например «Центральный склад ТМЦ»); они
+переносятся как объекты, пользователь при необходимости деактивирует.
 
-`counterparties`: `name ↔ full_name`, `inn ↔ inn`, роль: `CUSTOMER ↔
-is_client`, `SUPPLIER`/`SUBCONTRACTOR ↔ is_supplier`, `is_active ↔
-is_active`. Если в `public` контрагент одновременно клиент и поставщик, в
-blastex он получает роль `CUSTOMER`, при выгрузке обратно флаг `is_supplier`
-не сбрасывается.
+`counterparties`: `name ↔ full_name`, `short_name ↔ short_name`, `inn ↔
+inn`, роль: `CUSTOMER ↔ is_client`, `SUPPLIER`/`SUBCONTRACTOR ↔
+is_supplier`, `is_active ↔ is_active`. Если в `public` контрагент
+одновременно клиент и поставщик (в данных такие есть), в blastex он получает
+роль `CUSTOMER`; при выгрузке флаги `is_client`/`is_supplier` только
+поднимаются и никогда не сбрасываются. Остальные реквизиты `public` (КПП,
+ОГРН, адреса, банк, контакты) в BlastEX не переносятся.
 
-`equipment_types`: `name ↔ model_name`, `brand ↔ brand`, вид техники `kind ↔
-machine_types.name` по словарю в коде (`Буровой станок → DRILL_RIG`, `СЗМ →
-SZM`, `Спецавтомобиль → HAZMAT_TRUCK`, `Легковой → LIGHT_VEHICLE`, `Трактор →
-TRACTOR`); неизвестный тип машины из `public` не переносится и попадает в
-предупреждения. Мощность двигателя и масса из `public` не переносятся.
+`equipment_types`: `name ↔ model_name`, `brand ↔ brand`, `machine_type_name
+↔ machine_types.name` (текст типа машины хранится как есть, при выгрузке
+недостающая запись `machine_types` создаётся). Вид `kind` при получении
+выводится по словарю в коде из реальных названий журнала: «Буровая
+установка» → `DRILL_RIG`, «Машина смесительно-зарядная» → `SZM`, «Автомобиль
+для перевозки взрывчатых веществ» → `HAZMAT_TRUCK`, «Вахтовый автобус» →
+`LIGHT_VEHICLE`, «Бульдозер», «Экскаватор», «Погрузчик» → `TRACTOR`,
+остальное («Самосвал», «Топливозаправщик», неизвестные) → новое значение
+`OTHER`. Словарь применяется только при создании записи; заданный
+пользователем `kind` при получении не меняется. Мощность двигателя, масса и
+габариты из `public` не переносятся.
 
 `equipment_assets`: `inventory_number ↔ internal_id`, `serial_number ↔
 serial_number`, тип `equipment_type_code ↔ model_id` через связь типа,
@@ -127,17 +143,29 @@ serial_number`, тип `equipment_type_code ↔ model_id` через связь 
 им управляет журнал.
 
 `materials` (СИ): `name ↔ name`, `comment ↔ description`; `material_kind =
-СИ`, `storage_class = NSI` при создании из `public`.
+СИ`, `storage_class = NSI` при создании из `public`. Только из `public`:
+`delay_ms` — стандартный интервал замедления из `delay_series`
+(`is_standard = true`), нужен проектированию.
 
 `materials` (буровой инструмент): `name ↔ name`, `comment ↔ description`,
-`lifetime_m ↔ expected_lifetime_meters`, `diameter_mm ↔ diameter`;
-`material_kind = Буровой инструмент` при создании из `public`.
+`lifetime_m ↔ expected_lifetime_meters`, `diameter_mm ↔ diameter`,
+`thread_type ↔ thread_type`; `material_kind = Буровой инструмент` при
+создании из `public`. Экземпляры инструмента (`tools_inventory`) в BlastEX не
+переносятся — это учёт, а не справочник.
 
-`material_prices` (только из public): для каждой активной строки
-`explosive_material_prices` создаётся или обновляется цена с `material_code`
-по связи типа СИ, `supplier_code` по контрагенту договора, `price_rub =
-price_per_unit_base / unit_conversion_factor`, `valid_from`, `valid_to`. Код
-цены: `PRICE_PUB_<id>`.
+`material_prices` (только из public), код цены `PRICE_PUB_<источник>_<id>`:
+
+- `explosive_material_prices` (в текущих данных пусто): `price_rub =
+  price_per_unit_base / unit_conversion_factor`, `supplier_code` по
+  контрагенту договора, `valid_from`, `valid_to`;
+- `explosive_spec_items` со спецификацией `explosive_purchase_specs`:
+  `price_rub = price_per_unit_no_vat / conversion_factor`, `delivery_rub` —
+  доля доставки спецификации пропорционально сумме позиции (та же формула,
+  что в представлении `v_explosive_unit_costs`), `supplier_code` по договору
+  спецификации, если он указан, `valid_from = spec_date`;
+- `tools_inventory`: последняя по `purchase_date` цена покупки по типу
+  инструмента и поставщику — цена материала «буровой инструмент»,
+  `supplier_code` по `supplier_id`, `valid_from = purchase_date`.
 
 ### 4.2. Новые поля схем
 
@@ -145,11 +173,19 @@ price_per_unit_base / unit_conversion_factor`, `valid_from`, `valid_to`. Код
 
 - `SitePayload.short_name: str | None`, до 5 символов (длина колонки
   `public.sites.short_name`), подпись «Краткое имя»;
-- `EquipmentTypePayload.brand: str | None`, подпись «Марка»;
-- `EquipmentAssetPayload.serial_number: str | None`, подпись «Заводской
-  номер»;
-- `MaterialPayload.lifetime_m: Decimal | None` («Ресурс», `x-unit: м`) и
-  `MaterialPayload.diameter_mm: Decimal | None` («Диаметр», `x-unit: мм`).
+  `SitePayload.mineral_type: str | None` («Полезное ископаемое»);
+  `SitePayload.customer_legal_name: str | None` («Заказчик текстом», для
+  объектов без контрагента в справочнике);
+- `CounterpartyPayload.short_name: str | None` («Краткое наименование», как
+  `АО "Теплогорский карьер"`);
+- `EquipmentTypePayload.brand: str | None` («Марка»),
+  `EquipmentTypePayload.machine_type_name: str | None` («Тип машины по
+  журналу»), значение `OTHER` в `kind`;
+- `EquipmentAssetPayload.serial_number: str | None` («Заводской номер»);
+- `MaterialPayload.lifetime_m: Decimal | None` («Ресурс», `x-unit: м`),
+  `MaterialPayload.diameter_mm: Decimal | None` («Диаметр», `x-unit: мм`),
+  `MaterialPayload.thread_type: str | None` («Хвостовик / резьба»),
+  `MaterialPayload.delay_ms: Decimal | None` («Замедление», `x-unit: мс`).
 
 Поля, нужные адаптеру Cost V1 (§6): `MaterialPayload.density_t_m3`
 («Плотность ВВ», `т/м³`), `RockPayload.ucs_mpa` («Прочность на сжатие»,
@@ -189,9 +225,15 @@ price_per_unit_base / unit_conversion_factor`, `valid_from`, `valid_to`. Код
 Страница «Справочники» запрашивает разницу при загрузке и по кнопке
 «Проверить project1». Если разница непустая, показывается плашка «Из
 project1: N новых, M изменённых, K деактивированных» с кнопкой «Применить в
-черновик». Применение меняет только черновик; строки видны в различиях и
-публикуются обычной кнопкой. Ошибка доступа к `public` показывается в
-плашке, остальная страница работает.
+черновик» и списком предложений. У предложения «новая» пользователь может
+выбрать «Связать с существующей записью» из активных записей раздела вместо
+создания новой: имена в журнале и в BlastEX различаются (например «Ломовское
+месторождение габбро-диабазов» и «карьер Ломовского месторождения»), и без
+этого первое получение создало бы дубли. Связывание записывает
+`public_links` и при следующем сравнении показывает разницу общих полей.
+Применение меняет только черновик; строки видны в различиях и публикуются
+обычной кнопкой. Ошибка доступа к `public` показывается в плашке, остальная
+страница работает.
 
 ### 4.5. Выгрузка в public
 
@@ -377,7 +419,24 @@ API:
 3. Обмен с `public`: связи, разница, выгрузка, зеркала, скрипт прав (§4, §5,
    §10).
 
-## 13. Риски
+## 13. Данные journal на 2026-09-03
+
+Выгрузка CSV из `public` (в репозиторий не попадает: реальные данные
+организации) показала:
+
+- `alembic_version` в базе — `20260903_0005`: схема `blastex` уже живёт в
+  той же базе `project1`, что и `public`; одна транзакция на обе схемы
+  возможна.
+- 11 объектов, 29 контрагентов, 9 типов машин, 3 модели и 3 единицы техники,
+  7 типов инструмента, 6 типов СИ, одна спецификация закупки с 6 позициями;
+  `explosive_material_prices` и `contract_specifications` пусты.
+- `client_legal_name` у объектов совпадает с `short_name` контрагента в 5
+  случаях из 11, с разными кавычками — отсюда нормализация и поле
+  `customer_legal_name`.
+- `mineral_type` — вид сырья с опечатками («неруудные материалы»), не порода.
+- Типы машин шире пяти видов blastex — отсюда `machine_type_name` и `OTHER`.
+
+## 14. Риски
 
 - Структура `public` принадлежит другой системе: изменение её колонок ломает
   обмен. Сопоставление полей собрано в одном модуле и покрыто тестами на

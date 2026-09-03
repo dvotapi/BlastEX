@@ -7,8 +7,13 @@ from dataclasses import asdict
 
 import pytest
 
-from api.schemas.cost import CostCalculateRequest, ManualScenarioInputSchema
-from api.services.cost_service import calculate_cost
+from api.schemas.cost import (
+    CostCalculateRequest,
+    InitiationConfigSchema,
+    ManualScenarioInputSchema,
+    MaterialsAutoRequest,
+)
+from api.services.cost_service import calculate_cost, resolve_materials_auto
 from cost.catalog import DEFAULT_CATALOG, catalog_to_records
 from cost.depreciation_data import DEFAULT_DEPRECIATION_ASSETS, depreciation_assets_to_records
 from cost.drilling_data import DEFAULT_DRILL_RIGS, DEFAULT_WORK_OBJECTS, drill_rigs_to_records, work_objects_to_records
@@ -78,18 +83,39 @@ def test_structures_survive_import_and_adapter(imported_snapshot) -> None:
 
 
 def test_estimate_matches_to_the_kopeck(imported_snapshot) -> None:
-    request = CostCalculateRequest(
+    # Номенклатура материалов подбирается тем же сервисом, что и в реальном
+    # запросе — иначе `run_materials_module` не запускается (нет
+    # `materials_selection` ни в запросе, ни в `block_data`), и сценарий
+    # «БВР» сверяет только бурение, ФОТ и постоянные затраты, минуя ветку
+    # каталога `legacy.catalog`.
+    selection = resolve_materials_auto(
+        MaterialsAutoRequest(
+            explosive_key=DEFAULT_EXPLOSIVES[0].key,
+            initiation=InitiationConfigSchema(),
+        ),
+        default_legacy_references(),
+    ).selection
+
+    manual_input = ManualScenarioInputSchema(
+        block_volume_m3=30_000,
+        total_holes=150,
+        drilling_footage_m=1_800,
+        total_charge_mass_kg=24_000,
+        production_volume_tons=0,
+        explosive_key=DEFAULT_EXPLOSIVES[0].key,
+    )
+    request_without_selection = CostCalculateRequest(
         scenario_id="drill_blast",
         work_object_name=DEFAULT_WORK_OBJECTS[0].name,
-        manual_input=ManualScenarioInputSchema(
-            block_volume_m3=30_000,
-            total_holes=150,
-            drilling_footage_m=1_800,
-            total_charge_mass_kg=24_000,
-            production_volume_tons=0,
-            explosive_key=DEFAULT_EXPLOSIVES[0].key,
-        ),
+        manual_input=manual_input,
     )
+    request = request_without_selection.model_copy(update={"materials_selection": selection})
+
+    without = calculate_cost(request_without_selection, default_legacy_references()).model_dump()
     before = calculate_cost(request, default_legacy_references()).model_dump()
     after = calculate_cost(request, legacy_references_from_snapshot(imported_snapshot)).model_dump()
+
+    # Материалы действительно учтены: с подбором номенклатуры переменные
+    # затраты (материалы + бурение) больше, чем без него.
+    assert after["variable_total_rub"] > without["variable_total_rub"]
     assert after == before

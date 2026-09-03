@@ -85,3 +85,19 @@ def test_drilling_absent_from_package_produces_nothing() -> None:
     assert drilling.compute(context) is None
     assert context.lines == []
     assert context.warnings == []
+
+
+def test_cost_per_metre_matches_the_drilling_lines() -> None:
+    """Цена метра на вкладке должна совпадать со структурой затрат."""
+
+    context = _context()
+    norms = drilling.compute(context)
+
+    assert norms is not None
+    lines = sum(
+        (line.amount_rub for line in context.lines if line.cost_item_code.startswith("DRILL_")),
+        Decimal("0"),
+    )
+    per_metre = lines / context.value("drilling_m")
+    assert round(context.value("drilling_rub_per_m"), 6) == round(per_metre, 6)
+    assert norms.cost_rub_per_m == context.value("drilling_rub_per_m")

@@ -69,6 +69,9 @@ def test_subcontracted_drilling_shows_unallocated_rig_fixed_costs() -> None:
     codes = {line.cost_item_code for line in result.lines}
     assert "DRILL_SUBCONTRACT" in codes
     assert "DRILL_UNALLOCATED_FIXED" in codes
+    # Бригада подрядчика уже в ставке за метр: свой ФОТ бурения не начисляется.
+    assert "LABOR_POS_DRILLER" not in codes
+    assert _compute().price_per_m3["marginal"] != result.price_per_m3["marginal"]
 
 
 def test_missing_references_produce_warnings_not_exceptions() -> None:

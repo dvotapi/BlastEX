@@ -122,3 +122,19 @@ def test_per_diem_only_on_remote_site() -> None:
     )
     labor.compute(city)
     assert not [line for line in city.lines if line.cost_item_code == "LABOR_PER_DIEM"]
+
+
+def test_subcontracted_drilling_removes_own_driller() -> None:
+    """Ставка субподряда уже включает бригаду: свой бурильщик не начисляется."""
+
+    own = _context()
+    labor.compute(own)
+    assert any(line.cost_item_code == "LABOR_POS_DRILLER" for line in own.lines)
+
+    subcontract = _context(drilling_executor="SUBCONTRACTOR")
+    labor.compute(subcontract)
+
+    codes = {line.cost_item_code for line in subcontract.lines}
+    assert "LABOR_POS_DRILLER" not in codes
+    assert "LABOR_POS_BLASTER" in codes
+    assert not [w for w in subcontract.warnings if "POS_DRILLER" in w]

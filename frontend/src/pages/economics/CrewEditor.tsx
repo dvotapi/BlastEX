@@ -1,3 +1,4 @@
+import { NumericInput } from "./NumericInput";
 import type { CodeName, CrewMemberInput } from "../../types/blockEconomics";
 
 /**
@@ -46,24 +47,21 @@ export function CrewEditor({
               <option key={item.code} value={item.code}>{item.name}</option>
             ))}
           </select>
-          <input
-            type="number"
+          <NumericInput
+            value={member.headcount}
             min={0}
             step={1}
-            value={String(member.headcount)}
-            onChange={(event) => update(index, { headcount: event.target.value })}
-            aria-label="Численность, чел."
+            ariaLabel="Численность, чел."
+            onChange={(value) => update(index, { headcount: value ?? "0" })}
           />
-          <input
-            type="number"
+          <NumericInput
+            value={member.shifts_per_block}
+            allowEmpty
             min={0}
             step={0.1}
             placeholder="норматив"
-            value={member.shifts_per_block === null ? "" : String(member.shifts_per_block)}
-            onChange={(event) =>
-              update(index, { shifts_per_block: event.target.value === "" ? null : event.target.value })
-            }
-            aria-label="Смен на блок"
+            ariaLabel="Смен на блок"
+            onChange={(value) => update(index, { shifts_per_block: value })}
           />
           <button
             type="button"

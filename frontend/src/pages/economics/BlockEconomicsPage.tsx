@@ -46,6 +46,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const requestId = useRef(0);
+  const defaultsRequestId = useRef(0);
 
   useEffect(() => {
     api.economics
@@ -65,20 +66,26 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
 
   const loadDefaults = useCallback(async () => {
     if (!selectedPassport) return;
+    // Пользователь может переключить паспорт до ответа: результат устаревшего
+    // запроса не должен подменить параметры уже выбранного паспорта.
+    const id = ++defaultsRequestId.current;
     setBusy(true);
     setError("");
     try {
       const loaded = await api.blockEconomics.modelDefaults(selectedPassport, packageCode);
+      const saved = await api.blockEconomics.runs(selectedPassport);
+      if (id !== defaultsRequestId.current) return;
       setDefaults(loaded);
       setParams(loaded.parameters);
-      setRuns(await api.blockEconomics.runs(selectedPassport));
+      setRuns(saved);
       setCompare(null);
       setSelectedRuns([]);
       setSensitivity([]);
     } catch (reason) {
+      if (id !== defaultsRequestId.current) return;
       setError(reason instanceof Error ? reason.message : "Не удалось открыть модель.");
     } finally {
-      setBusy(false);
+      if (id === defaultsRequestId.current) setBusy(false);
     }
   }, [selectedPassport, packageCode]);
 

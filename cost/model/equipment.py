@@ -69,6 +69,11 @@ def _machine_lines(
             f"Для техники {equipment.code} не заведено основное средство: "
             "амортизация и страховка не начислены."
         )
+    if asset is not None and plan_shifts <= 0:
+        context.warn(
+            f"Для техники {equipment.code} не заданы плановые смены в месяц: "
+            "амортизация и страховка не начислены."
+        )
 
     _maintenance(context, equipment, shifts, plan_shifts, operation_code, prefix)
 

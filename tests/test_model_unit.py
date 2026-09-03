@@ -60,3 +60,46 @@ def test_missing_unit_plan_warns_and_allocates_nothing() -> None:
 
     assert context.lines == []
     assert any("плановый объём юнита" in warning for warning in context.warnings)
+
+
+def test_other_units_costs_never_reach_the_block() -> None:
+    """Затрата чужого юнита к блоку не относится, даже если юнит объекта пуст."""
+
+    other = fx.item(
+        "UFC_OTHER",
+        "База юнита UNIT_2",
+        {
+            "production_unit_code": "UNIT_2",
+            "scope": "UNIT",
+            "category": "FACILITY",
+            "monthly_rub": "1000000",
+        },
+    )
+    context = ModelContext(
+        fx.references(unit_fixed_costs=(*fx.UNIT_FIXED_COSTS, other)),
+        fx.parameters(),
+        fx.physical(),
+    )
+    unit.compute(context)
+    assert "UNIT_UFC_OTHER" not in {line.cost_item_code for line in context.lines}
+
+
+def test_site_without_unit_takes_only_unbound_costs_and_warns() -> None:
+    sites = tuple(
+        fx.item(site.code, site.name, {k: v for k, v in site.payload.items() if k != "production_unit_code"})
+        for site in fx.SITES
+    )
+    organization_cost = fx.item(
+        "UFC_ORG", "Лицензии организации", {"scope": "ORGANIZATION", "category": "OTHER", "monthly_rub": "100000"}
+    )
+    context = ModelContext(
+        fx.references(sites=sites, unit_fixed_costs=(*fx.UNIT_FIXED_COSTS, organization_cost)),
+        fx.parameters(),
+        fx.physical(),
+    )
+    unit.compute(context)
+
+    codes = {line.cost_item_code for line in context.lines}
+    assert "UNIT_UFC_ORG" in codes
+    assert "UNIT_UFC_BASE" not in codes
+    assert any("не указан производственный юнит" in warning for warning in context.warnings)

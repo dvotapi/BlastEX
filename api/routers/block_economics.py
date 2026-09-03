@@ -137,8 +137,13 @@ def create_run(
             payload.technical_passport_id,
             payload.parameters.reference_revision_id,
         )
-        params = _params_with_site(payload.parameters, passport)
-        result = _compute(passport, params, references)
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    # Расчёт вне обработчика ошибок хранилища: ошибка в данных справочника не
+    # должна выглядеть как «сервис временно недоступен».
+    params = _params_with_site(payload.parameters, passport)
+    result = _compute(passport, params, references)
+    try:
         stored = repository.save_economics_run(
             organization_id,
             user_id,
@@ -149,9 +154,9 @@ def create_run(
             parameters={**params.to_dict(), "reference_revision_id": references.revision_id},
             result=result.to_dict(),
         )
-        return EconomicsRunSchema.model_validate(stored.to_dict())
     except Exception as exc:
         raise repository_error(exc) from exc
+    return EconomicsRunSchema.model_validate(stored.to_dict())
 
 
 @router.get("/runs", response_model=list[EconomicsRunSummarySchema])

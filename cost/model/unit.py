@@ -49,10 +49,18 @@ def compute(context: ModelContext) -> None:
     if share <= 0:
         return
     unit_code = payload_text(context.site, "production_unit_code")
+    if not unit_code:
+        context.warn(
+            "У объекта работ не указан производственный юнит: на блок отнесены "
+            "только затраты организации и записи без привязки к юниту."
+        )
     for item in context.items("unit_fixed_costs"):
         scope = payload_text(item, "scope", "UNIT")
         item_unit = payload_text(item, "production_unit_code")
-        if scope == "UNIT" and unit_code and item_unit and item_unit != unit_code:
+        # Затрата чужого юнита к блоку не относится. Когда юнит объекта
+        # неизвестен, берём только записи без привязки: иначе один незаполненный
+        # код карьера повесил бы на блок постоянные затраты всей организации.
+        if scope == "UNIT" and item_unit and item_unit != unit_code:
             continue
         monthly = _monthly_amount(context, item)
         if monthly <= 0:

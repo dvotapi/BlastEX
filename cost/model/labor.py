@@ -22,6 +22,10 @@ DERIVED_SHIFT_DRIVERS: dict[str, str] = {
     "COMPONENT_DELIVERY": "delivery_shifts",
 }
 
+# Операции бурения: при субподряде их персонал считает подрядчик, поэтому
+# собственный экипаж на блок не начисляется.
+DRILLING_OPERATIONS = frozenset({"PRODUCTION_DRILLING", "CONTOUR_DRILLING"})
+
 # Техника, чья месячная загрузка задаёт численность экипажа должности.
 CREW_EQUIPMENT_PARAM: dict[str, str] = {
     "PRODUCTION_DRILLING": "rig_code",
@@ -95,6 +99,13 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             continue
         operation_code = payload_text(position, "operation_code")
         if not context.has_operation(operation_code):
+            continue
+        if (
+            context.params.drilling_executor == "SUBCONTRACTOR"
+            and operation_code in DRILLING_OPERATIONS
+        ):
+            # Бурение на субподряде оплачивается ставкой за метр: свой
+            # бурильщик на блоке не работает, иначе смены считаются дважды.
             continue
 
         shifts = _shifts_per_block(context, position, operation_code, manual_shifts)

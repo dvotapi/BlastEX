@@ -1,5 +1,13 @@
 import { CrewEditor } from "./CrewEditor";
+import { NumericInput } from "./NumericInput";
 import type { ModelDefaults, ModelParameters } from "../../types/blockEconomics";
+
+/** Доля ↔ проценты: округление убирает двоичный хвост вида 7.000000000000001. */
+const toPercent = (value: ModelParameters["overhead_rate"]) =>
+  value === null || value === "" ? null : Number((Number(value) * 100).toFixed(4));
+
+const toShare = (percent: string | null) =>
+  percent === null ? null : Number((Number(percent) / 100).toFixed(6));
 
 /** Параметры модели: всё, чего нет в техническом паспорте. */
 export function ParametersPanel({
@@ -11,11 +19,8 @@ export function ParametersPanel({
   defaults: ModelDefaults;
   onChange: (patch: Partial<ModelParameters>) => void;
 }) {
-  const percent = (value: ModelParameters["overhead_rate"]) =>
-    value === null || value === "" ? "" : String(Number(value) * 100);
-
-  function setPercent(key: keyof ModelParameters, raw: string) {
-    onChange({ [key]: raw === "" ? null : Number(raw) / 100 } as Partial<ModelParameters>);
+  function setPercent(key: keyof ModelParameters, raw: string | null) {
+    onChange({ [key]: toShare(raw) } as Partial<ModelParameters>);
   }
 
   return (
@@ -36,12 +41,11 @@ export function ParametersPanel({
         </label>
         <label>
           Плановый объём юнита, м³/мес
-          <input
-            type="number"
+          <NumericInput
+            value={params.unit_plan_volume_m3}
             min={0}
             step={1000}
-            value={String(params.unit_plan_volume_m3)}
-            onChange={(event) => onChange({ unit_plan_volume_m3: event.target.value })}
+            onChange={(value) => onChange({ unit_plan_volume_m3: value ?? "0" })}
           />
         </label>
 
@@ -60,14 +64,13 @@ export function ParametersPanel({
           </label>
           <label>
             Плановые смены станка, см/мес
-            <input
-              type="number"
+            <NumericInput
+              value={params.rig_plan_shifts}
+              allowEmpty
               min={0}
               step={1}
-              value={params.rig_plan_shifts === null ? "" : String(params.rig_plan_shifts)}
-              onChange={(event) =>
-                onChange({ rig_plan_shifts: event.target.value === "" ? null : event.target.value })
-              }
+              placeholder="норматив станка"
+              onChange={(value) => onChange({ rig_plan_shifts: value })}
             />
           </label>
         </div>
@@ -124,26 +127,38 @@ export function ParametersPanel({
         <div className="field-triple">
           <label>
             ОХР, %
-            <input
-              type="number" min={0} max={100} step={0.5}
-              value={percent(params.overhead_rate)}
-              onChange={(event) => setPercent("overhead_rate", event.target.value)}
+            <NumericInput
+              value={toPercent(params.overhead_rate)}
+              allowEmpty
+              min={0}
+              max={100}
+              step={0.5}
+              placeholder="из справочника"
+              onChange={(value) => setPercent("overhead_rate", value)}
             />
           </label>
           <label>
             Рентабельность, %
-            <input
-              type="number" min={0} max={100} step={0.5}
-              value={percent(params.target_margin_rate)}
-              onChange={(event) => setPercent("target_margin_rate", event.target.value)}
+            <NumericInput
+              value={toPercent(params.target_margin_rate)}
+              allowEmpty
+              min={0}
+              max={100}
+              step={0.5}
+              placeholder="из справочника"
+              onChange={(value) => setPercent("target_margin_rate", value)}
             />
           </label>
           <label>
             НДС, %
-            <input
-              type="number" min={0} max={100} step={1}
-              value={percent(params.vat_rate)}
-              onChange={(event) => setPercent("vat_rate", event.target.value)}
+            <NumericInput
+              value={toPercent(params.vat_rate)}
+              allowEmpty
+              min={0}
+              max={100}
+              step={1}
+              placeholder="из справочника"
+              onChange={(value) => setPercent("vat_rate", value)}
             />
           </label>
         </div>

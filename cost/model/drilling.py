@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from cost.model.inputs import ModelContext, payload_number, payload_text
-from cost.v2.models import CostLayer, ReferenceItem
+from cost.v2.models import CostLayer, CostLine, ReferenceItem
 
 
 DRILLING_OPERATION = "PRODUCTION_DRILLING"
@@ -166,16 +166,20 @@ def compute(context: ModelContext) -> DrillingNorms | None:
     context.set_value("rig_plan_shifts", plan_shifts, "параметр модели")
     context.set_value("rig_plan_metres", plan_metres, f"{plan_shifts} см × {v_commercial} м/см")
 
-    variable_per_m = _tooling_lines(context, condition, drilling_m)
-    variable_per_m += _fuel_line(context, condition, drilling_m)
-    variable_per_m += _spare_parts_line(context, rig_type, rig_shifts, drilling_m)
-    fixed_per_m = _fixed_lines(
-        context, rig_type, rig_shifts, maintenance_shifts, plan_shifts, plan_metres
-    )
-    variable_per_m += _inspection_line(context, rig_type, rig_shifts + maintenance_shifts, drilling_m)
+    line_start = len(context.lines)
+    _tooling_lines(context, condition, drilling_m)
+    _fuel_line(context, condition, drilling_m)
+    _spare_parts_line(context, rig_type, rig_shifts)
+    _fixed_lines(context, rig_type, rig_shifts, maintenance_shifts, plan_shifts)
+    _inspection_line(context, rig_type, rig_shifts + maintenance_shifts)
+    # Цена метра считается по добавленным строкам, а не отдельной формулой:
+    # иначе показатель на вкладке расходится со структурой затрат.
+    variable_per_m, fixed_per_m = _cost_per_metre(context.lines[line_start:], drilling_m)
 
     context.set_value("drilling_variable_rub_per_m", variable_per_m, "сумма переменных строк / м")
-    context.set_value("drilling_fixed_rub_per_m", fixed_per_m, "постоянные станка / плановый погонаж")
+    context.set_value(
+        "drilling_fixed_rub_per_m", fixed_per_m, "амортизация и страховка станка / погонаж блока"
+    )
     context.set_value("drilling_rub_per_m", variable_per_m + fixed_per_m, "переменная + постоянная")
 
     return DrillingNorms(
@@ -190,11 +194,25 @@ def compute(context: ModelContext) -> DrillingNorms | None:
     )
 
 
+# Постоянные затраты станка: их доля в метре падает с ростом плановых смен.
+FIXED_COST_ITEMS = frozenset({"DRILL_DEPRECIATION", "DRILL_INSURANCE"})
+
+
+def _cost_per_metre(lines: list[CostLine], drilling_m: Decimal) -> tuple[Decimal, Decimal]:
+    if drilling_m <= 0:
+        return Decimal("0"), Decimal("0")
+    fixed = sum(
+        (line.amount_rub for line in lines if line.cost_item_code in FIXED_COST_ITEMS),
+        Decimal("0"),
+    )
+    total = sum((line.amount_rub for line in lines), Decimal("0"))
+    return (total - fixed) / drilling_m, fixed / drilling_m
+
+
 def _tooling_lines(
     context: ModelContext, condition: ReferenceItem, drilling_m: Decimal
-) -> Decimal:
+) -> None:
     total = Decimal("0")
-    per_m = Decimal("0")
     parts: list[str] = []
     for code_field, life_field, label in TOOLING_PARTS:
         material_code = payload_text(condition, code_field)
@@ -211,7 +229,6 @@ def _tooling_lines(
             quantity,
             f"{drilling_m} м / {life} м",
         )
-        per_m += price / life
         total += quantity * price
         parts.append(f"{label}: {drilling_m} / {life} × {price} ₽")
 
@@ -221,7 +238,6 @@ def _tooling_lines(
         price = material_price(context, casing_code)
         casing_m = drilling_m * casing_per_m
         context.set_value("drilling_casing_m", casing_m, f"{drilling_m} м × {casing_per_m} м/м")
-        per_m += casing_per_m * price
         total += casing_m * price
         parts.append(f"обсадка: {casing_m} м × {price} ₽")
 
@@ -234,22 +250,21 @@ def _tooling_lines(
             amount_rub=total,
             formula="; ".join(parts),
         )
-    return per_m
 
 
-def _fuel_line(context: ModelContext, condition: ReferenceItem, drilling_m: Decimal) -> Decimal:
+def _fuel_line(context: ModelContext, condition: ReferenceItem, drilling_m: Decimal) -> None:
     fuel_l_per_m = payload_number(condition, "fuel_l_per_m")
     if fuel_l_per_m <= 0:
-        return Decimal("0")
+        return
     litres = drilling_m * fuel_l_per_m
     context.set_value("drilling_fuel_l", litres, f"{drilling_m} м × {fuel_l_per_m} л/м")
     if context.site is not None and bool(context.site.payload.get("customer_provides_fuel")):
         context.warn("Топливо на объекте предоставляет заказчик: ДТ бурения не начислено.")
-        return Decimal("0")
+        return
     price = context.diesel_price_l()
     if price <= 0:
         context.warn("Не задана цена ДТ на объекте: топливо бурения не начислено.")
-        return Decimal("0")
+        return
     context.add_line(
         operation_code=DRILLING_OPERATION,
         cost_item_code="DRILL_FUEL",
@@ -258,15 +273,14 @@ def _fuel_line(context: ModelContext, condition: ReferenceItem, drilling_m: Deci
         amount_rub=litres * price,
         formula=f"{drilling_m} м × {fuel_l_per_m} л/м × {price} ₽/л",
     )
-    return fuel_l_per_m * price
 
 
 def _spare_parts_line(
-    context: ModelContext, rig_type: ReferenceItem, rig_shifts: Decimal, drilling_m: Decimal
-) -> Decimal:
+    context: ModelContext, rig_type: ReferenceItem, rig_shifts: Decimal
+) -> None:
     rate = payload_number(rig_type, "spare_parts_rub_per_shift")
     if rate <= 0:
-        return Decimal("0")
+        return
     amount = rig_shifts * rate
     context.add_line(
         operation_code=DRILLING_OPERATION,
@@ -276,7 +290,6 @@ def _spare_parts_line(
         amount_rub=amount,
         formula=f"{rig_shifts} см × {rate} ₽/см",
     )
-    return amount / drilling_m if drilling_m > 0 else Decimal("0")
 
 
 def _fixed_lines(
@@ -285,18 +298,16 @@ def _fixed_lines(
     rig_shifts: Decimal,
     maintenance_shifts: Decimal,
     plan_shifts: Decimal,
-    plan_metres: Decimal,
-) -> Decimal:
+) -> None:
     if plan_shifts <= 0:
         context.warn(
             "Не заданы плановые смены станка: постоянная часть бурения не распределена."
         )
-        return Decimal("0")
+        return
 
     asset = _rig_asset(context, rig_type.code)
     # Станок амортизируется и в сменах ТОиР: они входят в наработку блока.
     charged_shifts = rig_shifts + maintenance_shifts
-    monthly = Decimal("0")
     if asset is not None:
         life = payload_number(asset, "useful_life_months")
         initial = payload_number(asset, "initial_cost_rub")
@@ -307,7 +318,6 @@ def _fixed_lines(
         insurance_month = payload_number(asset, "insurance_monthly_rub")
         if depreciation_month > 0:
             amount = depreciation_month / plan_shifts * charged_shifts
-            monthly += depreciation_month
             context.add_line(
                 operation_code=DRILLING_OPERATION,
                 cost_item_code="DRILL_DEPRECIATION",
@@ -317,7 +327,6 @@ def _fixed_lines(
                 formula=f"{depreciation_month} ₽/мес / {plan_shifts} см × {charged_shifts} см",
             )
         if insurance_month > 0:
-            monthly += insurance_month
             context.add_line(
                 operation_code=DRILLING_OPERATION,
                 cost_item_code="DRILL_INSURANCE",
@@ -332,21 +341,17 @@ def _fixed_lines(
             "амортизация и страховка не начислены."
         )
 
-    maintenance_monthly = _maintenance_lines(
-        context, rig_type, rig_shifts, maintenance_shifts, plan_shifts
-    )
-    monthly += maintenance_monthly
-    return monthly / plan_metres if plan_metres > 0 else Decimal("0")
+    _maintenance_lines(context, rig_type, rig_shifts, maintenance_shifts, plan_shifts)
 
 
 def _inspection_line(
-    context: ModelContext, rig_type: ReferenceItem, shifts: Decimal, drilling_m: Decimal
-) -> Decimal:
+    context: ModelContext, rig_type: ReferenceItem, shifts: Decimal
+) -> None:
     per_shift = payload_number(rig_type, "inspection_rub_per_shift") + payload_number(
         rig_type, "medical_rub_per_shift"
     )
     if per_shift <= 0:
-        return Decimal("0")
+        return
     amount = shifts * per_shift
     context.add_line(
         operation_code=DRILLING_OPERATION,
@@ -356,7 +361,6 @@ def _inspection_line(
         amount_rub=amount,
         formula=f"{shifts} см × {per_shift} ₽/см",
     )
-    return amount / drilling_m if drilling_m > 0 else Decimal("0")
 
 
 def _maintenance_lines(
@@ -365,12 +369,12 @@ def _maintenance_lines(
     rig_shifts: Decimal,
     maintenance_shifts: Decimal,
     plan_shifts: Decimal,
-) -> Decimal:
+) -> None:
     mode = payload_text(rig_type, "maintenance_mode", "PER_SHIFT")
     if mode == "MONTHLY_BUDGET":
         budget = payload_number(rig_type, "maintenance_monthly_rub")
         if budget <= 0:
-            return Decimal("0")
+            return
         context.add_line(
             operation_code=DRILLING_OPERATION,
             cost_item_code="DRILL_MAINTENANCE",
@@ -379,10 +383,10 @@ def _maintenance_lines(
             amount_rub=budget / plan_shifts * rig_shifts,
             formula=f"{budget} ₽/мес / {plan_shifts} см × {rig_shifts} см",
         )
-        return budget
+        return
     rate = payload_number(rig_type, "maintenance_rub_per_shift")
     if rate <= 0:
-        return Decimal("0")
+        return
     shifts = rig_shifts + maintenance_shifts
     context.add_line(
         operation_code=DRILLING_OPERATION,
@@ -392,7 +396,6 @@ def _maintenance_lines(
         amount_rub=shifts * rate,
         formula=f"({rig_shifts} + {maintenance_shifts}) см × {rate} ₽/см",
     )
-    return Decimal("0")
 
 
 def _rig_asset(context: ModelContext, rig_code: str) -> ReferenceItem | None:

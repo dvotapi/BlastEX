@@ -198,6 +198,22 @@ class TestImport:
         with pytest.raises(ReferenceFileError, match="JSON"):
             import_json(b"not json")
 
+    def test_json_import_reports_malformed_rows_by_section_and_record(self):
+        from cost.v2.reference_files import ReferenceFileError, export_json, import_json
+
+        with pytest.raises(ReferenceFileError, match="запись 1"):
+            import_json(json.dumps({"sections": {"sites": ["not an object"]}}).encode("utf-8"))
+
+        payload = export_json(_snapshot(sites=[_site()]))
+        payload["sections"]["sites"][0]["valid_from"] = "not-a-date"
+        with pytest.raises(ReferenceFileError, match="SITE_A"):
+            import_json(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+        payload = export_json(_snapshot(sites=[_site()]))
+        del payload["sections"]["sites"][0]["code"]
+        with pytest.raises(ReferenceFileError, match="код"):
+            import_json(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
     def test_import_file_dispatches_by_extension(self):
         from cost.v2.reference_files import ReferenceFileError, export_json, export_xlsx, import_file
 

@@ -181,7 +181,21 @@ def import_json(data: bytes) -> dict[str, list[ReferenceItem]]:
             raise ReferenceFileError(f"Неизвестный раздел «{section}».")
         if not isinstance(rows, list):
             raise ReferenceFileError(f"Раздел «{section}» должен быть списком записей.")
-        sections[section] = [ReferenceItem.from_dict(row) for row in rows]
+        items: list[ReferenceItem] = []
+        for index, row in enumerate(rows, start=1):
+            if not isinstance(row, dict):
+                raise ReferenceFileError(f"Раздел «{section}», запись {index}: ожидается объект записи.")
+            code = row.get("code", "?")
+            try:
+                item = ReferenceItem.from_dict(row)
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise ReferenceFileError(f"Раздел «{section}», запись {index} ({code}): {exc}") from exc
+            if not item.code or not item.name:
+                raise ReferenceFileError(
+                    f"Раздел «{section}», запись {index}: нет кода или наименования записи."
+                )
+            items.append(item)
+        sections[section] = items
     return sections
 
 

@@ -244,3 +244,26 @@ class TestValidationThroughSchemas:
 
 def _errors(issues: list[ValidationIssue]) -> list[ValidationIssue]:
     return [issue for issue in issues if issue.level == "error"]
+
+
+class TestLegacyEngineFields:
+    """Поля, которые движок Cost V1 читает через адаптер (спецификация §4.2, §6)."""
+
+    def test_rock_keeps_strength_and_fissuring(self):
+        from cost.v2.schemas.misc import RockPayload
+
+        payload = RockPayload(density_t_m3=Decimal("2.9"), ucs_mpa=Decimal("168"), fissuring_ff=Decimal("2.2"))
+        assert payload.ucs_mpa == Decimal("168")
+        assert payload.fissuring_ff == Decimal("2.2")
+        schema = section_json_schema("rocks")
+        assert schema["properties"]["ucs_mpa"]["x-unit"] == "МПа"
+        assert schema["properties"]["fissuring_ff"]["x-unit"] == "трещин/м"
+
+    def test_material_keeps_explosive_density_and_chart_label(self):
+        from cost.v2.schemas.materials import MaterialPayload
+
+        payload = MaterialPayload(density_t_m3=Decimal("0.85"), chart_label="ГРАНУЛИТ-РП")
+        assert payload.density_t_m3 == Decimal("0.85")
+        assert payload.chart_label == "ГРАНУЛИТ-РП"
+        schema = section_json_schema("materials")
+        assert schema["properties"]["density_t_m3"]["x-unit"] == "т/м³"

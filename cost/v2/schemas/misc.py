@@ -77,6 +77,12 @@ class RockPayload(ReferencePayload):
     density_t_m3: Decimal | None = UnitField("т/м³", description="Плотность", default=None)
     hardness_f: Decimal | None = UnitField("f", description="Крепость по Протодьяконову", default=None)
     fracture_class: str | None = Field(default=None, description="Класс трещиноватости")
+    ucs_mpa: Decimal | None = UnitField(
+        "МПа", title="Прочность на сжатие", description="Предел прочности на одноосное сжатие", default=None, ge=0
+    )
+    fissuring_ff: Decimal | None = UnitField(
+        "трещин/м", title="Трещиноватость", description="Число трещин на метр массива", default=None, ge=0
+    )
 
 
 class BlastDesignParameterPayload(ReferencePayload):

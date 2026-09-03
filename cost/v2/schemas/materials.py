@@ -27,6 +27,9 @@ class MaterialPayload(ReferencePayload):
         default="FROM_WAREHOUSE", title="Маршрут доставки", description="Откуда доставляется на объект"
     )
     density_t_m3: Decimal | None = UnitField("т/м³", description="Плотность", default=None)
+    chart_label: str | None = Field(
+        default=None, title="Подпись на схеме", description="Короткая подпись ВВ на схеме заряда"
+    )
 
 
 class MaterialPricePayload(ReferencePayload):

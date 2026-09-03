@@ -84,6 +84,7 @@ def build_import_sections(
                 payload={"legacy_ref": team_id},
             )
         ],
+        report,
     )
 
     sites: list[ReferenceItem] = []
@@ -101,7 +102,7 @@ def build_import_sections(
                 },
             )
         )
-    _merge_section(sections, "sites", sites)
+    _merge_section(sections, "sites", sites, report)
 
     rocks: list[ReferenceItem] = []
     for row in references.get("rock_records", []):
@@ -118,7 +119,7 @@ def build_import_sections(
                 },
             )
         )
-    _merge_section(sections, "rocks", rocks)
+    _merge_section(sections, "rocks", rocks, report)
 
     # Cost V1 не разделял тип техники и единицу: буровой станок был одной
     # записью. Cost V2 требует тип (нормы, ТОиР, расход) отдельно от основного
@@ -188,8 +189,8 @@ def build_import_sections(
     # заведённые руками, с нормами смен, ТОиР и расходом топлива — импорт
     # сценария V1 не должен их стирать. При совпадении кода побеждает
     # существующая запись как более полная.
-    _merge_section(sections, "equipment_types", equipment_types)
-    _merge_section(sections, "equipment_assets", equipment)
+    _merge_section(sections, "equipment_types", equipment_types, report)
+    _merge_section(sections, "equipment_assets", equipment, report)
 
     materials: list[ReferenceItem] = []
     material_prices: list[ReferenceItem] = []
@@ -245,8 +246,8 @@ def build_import_sections(
             + ", ".join(sorted(unknown_units))
             + ". Проставьте их вручную."
         )
-    _merge_section(sections, "materials", materials)
-    _merge_section(sections, "material_prices", material_prices)
+    _merge_section(sections, "materials", materials, report)
+    _merge_section(sections, "material_prices", material_prices, report)
 
     positions: list[ReferenceItem] = []
     labor_rates: list[ReferenceItem] = []
@@ -272,8 +273,8 @@ def build_import_sections(
                 },
             )
         )
-    _merge_section(sections, "positions", positions)
-    _merge_section(sections, "labor_rates", labor_rates)
+    _merge_section(sections, "positions", positions, report)
+    _merge_section(sections, "labor_rates", labor_rates, report)
 
     fixed_items: list[ReferenceItem] = []
     for row in snapshot.get("fixed_cost_records", []):
@@ -294,7 +295,7 @@ def build_import_sections(
             )
         )
     if fixed_items:
-        _merge_section(sections, "cost_items", fixed_items)
+        _merge_section(sections, "cost_items", fixed_items, report)
         report.warnings.append(
             "Постоянные затраты V1 импортированы как статьи без правил: "
             "перед публикацией задайте слой, поведение и драйвер Cost V2."
@@ -329,14 +330,24 @@ def _code(value: str) -> str:
     return (normalized or "ITEM")[:64]
 
 
-def _dedupe_items(items: list[ReferenceItem]) -> tuple[ReferenceItem, ...]:
+def _dedupe_items(items: list[ReferenceItem]) -> tuple[tuple[ReferenceItem, ...], list[str]]:
+    """Развести записи V1, у которых совпал код, и назвать такие пары.
+
+    Совпадение кода у одинаковых записей — обычное дублирование строк V1, о нём
+    говорить нечего. Совпадение у разных записей означает, что транслитерация
+    названий склеила две сущности: код меняется, а пара попадает в отчёт.
+    """
+
     result: dict[str, ReferenceItem] = {}
+    renamed: list[str] = []
     for item in items:
         candidate = item.code
         suffix = 2
         while candidate in result and result[candidate].to_dict() != item.to_dict():
             candidate = f"{item.code}_{suffix}"
             suffix += 1
+        if candidate != item.code:
+            renamed.append(f"{item.code} → {candidate}")
         result[candidate] = item if candidate == item.code else ReferenceItem(
             code=candidate,
             name=item.name,
@@ -348,19 +359,26 @@ def _dedupe_items(items: list[ReferenceItem]) -> tuple[ReferenceItem, ...]:
             comment=item.comment,
             revision=item.revision,
         )
-    return tuple(result.values())
+    return tuple(result.values()), renamed
 
 
 def _merge_section(
     sections: dict[str, tuple[ReferenceItem, ...]],
     section: str,
     imported: list[ReferenceItem],
+    report: ImportReport | None = None,
 ) -> None:
     """Дополнить раздел, не стирая записи организации: при совпадении кода
     побеждает существующая запись как более полная."""
 
     existing = sections.get(section, ())
     existing_codes = {item.code for item in existing}
+    deduped, renamed = _dedupe_items(imported)
+    if renamed and report is not None:
+        report.warnings.append(
+            f"В разделе «{section}» разные записи Cost V1 дали один код, "
+            f"переименованы: {', '.join(renamed)}. Проверьте, что это разные сущности."
+        )
     sections[section] = tuple(existing) + tuple(
-        item for item in _dedupe_items(imported) if item.code not in existing_codes
+        item for item in deduped if item.code not in existing_codes
     )

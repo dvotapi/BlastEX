@@ -1,5 +1,10 @@
 # BlastEX Design, Simulation & Intelligence Roadmap
 
+> **Статус модулей ML (BDX-011…BDX-023): отключены флагом.** Код остаётся в
+> репозитории, маршруты включаются переменной окружения
+> `BLASTEX_INTELLIGENCE_ENABLED=true`; при выключенном флаге они отвечают
+> `501`, а интерфейс скрывает соответствующие разделы.
+
 ---
 
 # ENGLISH VERSION

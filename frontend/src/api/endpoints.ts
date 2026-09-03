@@ -137,6 +137,8 @@ import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
 const V1 = "/api/v1";
 
 export const api = {
+  /** Какие модули включены в этой установке (ML-слой за фича-флагом). */
+  features: () => get<{ intelligence: boolean }>(`${V1}/features`),
   // --- auth ---
   me: () => get<User>(`${V1}/auth/me`),
   login: (email: string, password: string) =>

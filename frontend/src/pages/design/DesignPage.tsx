@@ -102,6 +102,7 @@ import {
 import { RoleBadge } from "./RoleBadge";
 import { LifecyclePanel } from "./LifecyclePanel";
 import { WorkflowNav } from "./WorkflowNav";
+import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { designReducer, initDesignState } from "./designReducer";
 import { FragmentationPanel } from "./FragmentationPanel";
@@ -185,6 +186,9 @@ export function DesignPage({
 }) {
   const [state, dispatch] = useReducer(designReducer, emptyDesign(), initDesignState);
   const document = state.present;
+  // ML-слой (BDX-011…BDX-023) выключается флагом на сервере: пока он выключен,
+  // его панели не показываются, а маршруты отдают 501.
+  const { intelligence: intelligenceEnabled } = useFeatures();
 
   const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing">("contour");
   const [viewMode, setViewMode] = useState<"plan" | "3d" | "section">("plan");
@@ -2929,7 +2933,7 @@ export function DesignPage({
             locked={measuredLocked}
           />
           </>}
-          {workflowStage === "intelligence" && <>
+          {workflowStage === "intelligence" && intelligenceEnabled && <>
           <DatasetPanel
             siteId={datasetSiteId}
             onSiteIdChange={setDatasetSiteId}
@@ -3007,6 +3011,7 @@ export function DesignPage({
             onCreate={createDesignScenario}
             onCompare={compareDesignScenarios}
           />
+          {intelligenceEnabled && <>
           <OptimizationPanel
             targetX50Mm={optTargetX50Mm}
             onTargetX50Change={setOptTargetX50Mm}
@@ -3039,7 +3044,8 @@ export function DesignPage({
             onPromote={promoteRecommendation}
           />
           </>}
-          {workflowStage === "intelligence" && <>
+          </>}
+          {workflowStage === "intelligence" && intelligenceEnabled && <>
           <LearningPanel
             siteId={datasetSiteId || datasetSelected?.site_id || ""}
             datasetLabel={datasetSelected ? (datasetSelected.name || `Снимок v${datasetSelected.dataset_version}`) : ""}

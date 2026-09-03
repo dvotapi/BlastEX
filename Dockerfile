@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-api.txt ./
+COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements-api.txt
+    && pip install --no-cache-dir -r requirements.txt
 
 # Чтение DWG: GNU LibreDWG даёт утилиту dwg2dxf. В репозиториях Debian её нет,
 # поэтому собираем из релизного архива. Лицензия GPL-3: утилита вызывается
@@ -54,7 +54,7 @@ COPY --from=dwg-builder /opt/libredwg/bin/dwg2dxf /usr/local/bin/dwg2dxf
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-COPY Blast.py app.py blast_hole_viz.py ./
+COPY Blast.py blast_hole.py blast_hole_viz.py ./
 COPY cost/ ./cost/
 COPY design/ ./design/
 COPY simulation/ ./simulation/

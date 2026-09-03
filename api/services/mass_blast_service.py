@@ -14,6 +14,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+from api import config
 from api.schemas.mass_blast import MassBlastProjectInputSchema
 from api.services.economics_service import get_economics_repository
 from cost.v2.repository import EconomicsRepository
@@ -45,13 +46,7 @@ def _postgres_repository(database_url: str) -> PostgresMassBlastRepository:
 
 
 def get_mass_blast_repository() -> PostgresMassBlastRepository:
-    database_url = os.getenv("BLASTEX_DATABASE_URL", "").strip()
-    if not database_url:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Проекты массового взрыва не подключены: задайте BLASTEX_DATABASE_URL для базы project1.",
-        )
-    return _postgres_repository(database_url)
+    return _postgres_repository(config.database_url())
 
 
 def _blocks_from_payload(organization_id: str, payload: dict[str, Any]) -> list[ProjectBlock]:

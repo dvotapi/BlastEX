@@ -101,6 +101,10 @@ def _scenario_snapshot(
     snapshot = build_default_snapshot(scenario_id)
     stored = repository.get_legacy_scenario(organization_id, scenario_id)
     if stored:
+        # Запись сценария означает, что пользователь его сохранял: его правимые
+        # поля побеждают, даже если пусты (снятые назначения персонала — это
+        # решение, а не отсутствие данных). Значения по умолчанию остаются
+        # только у сценария, который ни разу не сохраняли.
         editable = {key: stored[key] for key in _EDITABLE_SNAPSHOT_FIELDS if key in stored}
         snapshot = WorkspaceSnapshot.from_dict({**snapshot.to_dict(), **editable, "scenario_id": scenario_id})
     return replace(
@@ -121,28 +125,49 @@ def _references_schema(legacy: LegacyReferences) -> TeamReferencesSchema:
     )
 
 
+def _resolve_work_object_name(legacy: LegacyReferences, stored_name: str) -> str:
+    """Сохранённое имя объекта могло исчезнуть из ревизии — берём существующее.
+
+    Разрешаем один раз на загрузку состояния, чтобы список объектов, выбранное
+    значение и цена бурения говорили об одном и том же объекте.
+    """
+
+    work_objects = list(legacy.work_objects)
+    if not work_objects:
+        return stored_name
+    if find_object(stored_name, work_objects) is not None:
+        return stored_name
+    default = find_object(DEFAULT_OBJECT_NAME, work_objects)
+    return (default or work_objects[0]).name
+
+
 def _drilling_price_per_m(snapshot: WorkspaceSnapshot, legacy: LegacyReferences, work_object_name: str) -> float:
     from cost.strategies.common import apply_work_object_to_drilling_input
 
     drilling_dict = dict(snapshot.drilling_calculator_input) or DrillingUnitCostInput().__dict__
     drilling_input = DrillingUnitCostInput(**drilling_dict)
-    work_objects = list(legacy.work_objects)
-    work_object = find_object(work_object_name, work_objects) or work_objects[0]
-    drilling_input = apply_work_object_to_drilling_input(drilling_input, work_object.name)
+    drilling_input = apply_work_object_to_drilling_input(drilling_input, work_object_name)
     return calculate_drilling_unit_cost(
-        drilling_input, work_objects=work_objects, drill_rigs=list(legacy.drill_rigs)
+        drilling_input, work_objects=list(legacy.work_objects), drill_rigs=list(legacy.drill_rigs)
     ).price_per_m
 
 
 def _load_state(repository: EconomicsRepository, organization_id: str) -> WorkspaceStateSchema:
     legacy = load_legacy_references(repository, organization_id)
-    settings = _settings(repository, organization_id)
+    stored_settings = _settings(repository, organization_id)
+    settings = replace(
+        stored_settings,
+        active_work_object_name=_resolve_work_object_name(
+            legacy, stored_settings.active_work_object_name
+        ),
+    )
     snapshot = _scenario_snapshot(repository, organization_id, settings.active_scenario_id, legacy)
     return WorkspaceStateSchema(
         settings=_settings_schema(organization_id, settings),
         snapshot=WorkspaceSnapshotSchema(**asdict(snapshot)),
         references=_references_schema(legacy),
         drilling_price_per_m=_drilling_price_per_m(snapshot, legacy, settings.active_work_object_name),
+        warnings=list(legacy.warnings),
     )
 
 
@@ -167,6 +192,8 @@ def put_workspace_snapshot(
 ) -> WorkspaceStateSchema:
     scenario_id = normalize_scenario_id(payload.snapshot.scenario_id)
     user_id = _user_id(session)
+    settings = _settings(repository, organization_id)
+    # Сохранение делает сценарий из payload активным.
     repository.import_legacy_scenarios(
         organization_id,
         user_id,
@@ -179,8 +206,8 @@ def put_workspace_snapshot(
                 "scenario_phase_overrides": payload.snapshot.scenario_phase_overrides,
             }
         },
+        reference_revision_id=settings.reference_revision_id,
     )
-    settings = _settings(repository, organization_id)
     repository.import_legacy_workspace(
         organization_id,
         user_id,

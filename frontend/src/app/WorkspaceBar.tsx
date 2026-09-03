@@ -29,6 +29,7 @@ export function WorkspaceBar() {
   }
 
   const phaseOverrides = state.snapshot.scenario_phase_overrides ?? {};
+  const warnings = state.warnings ?? [];
 
   return (
     <div className="workspace-bar">
@@ -65,6 +66,18 @@ export function WorkspaceBar() {
         </div>
       </div>
       {error && <div className="page-error">{error}</div>}
+      {warnings.length > 0 && (
+        <div className="workspace-bar-caption">
+          <details>
+            <summary>Предупреждения справочников ({warnings.length})</summary>
+            <ul>
+              {warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      )}
       {activeScenario && (
         <div className="workspace-bar-caption">
           <span>{activeScenario.calc_profile.ui_caption}</span>

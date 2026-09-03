@@ -686,8 +686,13 @@ class InMemoryEconomicsRepository:
         with self._lock:
             imported: list[str] = []
             for scenario_key, payload in scenarios.items():
+                # Форма записи повторяет PostgreSQL (`db_repository.get_legacy_scenario`):
+                # правимые фронтом поля всегда присутствуют, остальное — из payload.
                 self._legacy_scenarios[(organization_id, scenario_key)] = {
                     **deepcopy(dict(payload)),
+                    "labor_assignment_records": deepcopy(list(payload.get("labor_assignment_records") or [])),
+                    "drilling_calculator_input": deepcopy(dict(payload.get("drilling_calculator_input") or {})),
+                    "scenario_phase_overrides": deepcopy(dict(payload.get("scenario_phase_overrides") or {})),
                     "reference_revision_id": reference_revision_id,
                 }
                 imported.append(scenario_key)

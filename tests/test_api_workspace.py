@@ -90,3 +90,68 @@ def test_published_sites_feed_the_workspace(monkeypatch) -> None:
 
     state = client.get("/api/v1/workspace").json()
     assert [o["name"] for o in state["references"]["work_object_records"]] == ["Новый карьер"]
+
+
+def test_stale_active_object_falls_back_to_an_existing_one(monkeypatch) -> None:
+    """Объект работ мог быть удалён из ревизии — состояние всё равно связное."""
+
+    client, repository = _client(monkeypatch)
+    client.put(
+        "/api/v1/workspace/snapshot",
+        json={
+            "snapshot": client.get("/api/v1/workspace").json()["snapshot"],
+            "active_work_object_name": DEFAULT_WORK_OBJECTS[1].name,
+        },
+    )
+    current = repository.get_reference_snapshot("default")
+    sections = dict(current.sections)
+    sections["sites"] = (ReferenceItem("SITE_ONLY", "Единственный карьер", {"mobilization_km": "15"}),)
+    repository.publish_references("default", "tester", current.revision_id, sections, "test")
+
+    state = client.get("/api/v1/workspace").json()
+    names = [o["name"] for o in state["references"]["work_object_records"]]
+    assert state["settings"]["active_work_object_name"] in names
+    assert state["drilling_price_per_m"] > 0
+
+
+def test_warnings_of_the_adapter_reach_the_client(monkeypatch) -> None:
+    client, repository = _client(monkeypatch)
+    current = repository.get_reference_snapshot("default")
+    sections = {key: () for key in current.sections}
+    repository.publish_references("default", "tester", current.revision_id, sections, "test")
+
+    state = client.get("/api/v1/workspace").json()
+    assert any("Карьеры и объекты" in warning for warning in state["warnings"])
+
+
+def test_empty_labor_assignments_are_saved_as_empty(monkeypatch) -> None:
+    """Сохранённый сценарий — воля пользователя: пустой список не подменяется."""
+
+    client, _ = _client(monkeypatch)
+    snapshot = client.get("/api/v1/workspace").json()["snapshot"]
+    assert snapshot["labor_assignment_records"]
+    snapshot["labor_assignment_records"] = []
+    saved = client.put(
+        "/api/v1/workspace/snapshot", json={"snapshot": snapshot, "active_work_object_name": ""}
+    )
+    assert saved.json()["snapshot"]["labor_assignment_records"] == []
+    assert client.get("/api/v1/workspace").json()["snapshot"]["labor_assignment_records"] == []
+
+
+def test_saved_scenario_keeps_the_reference_revision(monkeypatch) -> None:
+    """Происхождение сценария не теряется при сохранении из интерфейса."""
+
+    client, repository = _client(monkeypatch)
+    repository.import_legacy_workspace(
+        "default",
+        "importer",
+        team_name="Команда по умолчанию",
+        active_scenario_id="drill_blast",
+        active_work_object_name=DEFAULT_OBJECT_NAME,
+        reference_revision_id="REV-IMPORT",
+    )
+    snapshot = client.get("/api/v1/workspace").json()["snapshot"]
+    client.put("/api/v1/workspace/snapshot", json={"snapshot": snapshot, "active_work_object_name": ""})
+
+    stored = repository.get_legacy_scenario("default", "drill_blast")
+    assert stored["reference_revision_id"] == "REV-IMPORT"

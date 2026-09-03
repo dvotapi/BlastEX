@@ -168,6 +168,8 @@ export type WorkspaceState = {
   snapshot: WorkspaceSnapshot;
   references: TeamReferences;
   drilling_price_per_m: number;
+  /** Чего не хватило в опубликованной ревизии и что взято взамен. */
+  warnings: string[];
 };
 
 export type DefaultReferences = {

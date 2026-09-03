@@ -39,3 +39,19 @@ def test_scenario_and_calculation_run_are_organization_scoped() -> None:
         "org-a", "user", scenario, "R1", "v1", {"ok": True}
     )
     assert repository.get_calculation_run("org-a", run.id).result == {"ok": True}
+
+
+def test_in_memory_legacy_scenario_has_the_same_shape_as_postgresql() -> None:
+    """Форма записи сценария не должна зависеть от того, где он хранится."""
+
+    repository = InMemoryEconomicsRepository()
+    repository.import_legacy_scenarios(
+        "org", "user", {"drill_blast": {"scenario_id": "drill_blast", "labor_shifts_per_month": 7}}
+    )
+    stored = repository.get_legacy_scenario("org", "drill_blast")
+    assert stored is not None
+    assert stored["labor_assignment_records"] == []
+    assert stored["drilling_calculator_input"] == {}
+    assert stored["scenario_phase_overrides"] == {}
+    assert stored["labor_shifts_per_month"] == 7
+    assert stored["reference_revision_id"] is None

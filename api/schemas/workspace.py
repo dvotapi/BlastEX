@@ -39,7 +39,8 @@ class WorkspaceSnapshotSchema(BaseModel):
 
 
 class TeamReferencesSchema(BaseModel):
-    """Зеркало cost.persistence.TeamReferences."""
+    """Справочники Cost V1, собранные сервером из опубликованной ревизии
+    (только чтение)."""
 
     work_object_records: list[dict[str, Any]] = Field(default_factory=list)
     drill_rig_records: list[dict[str, Any]] = Field(default_factory=list)
@@ -55,6 +56,9 @@ class WorkspaceStateSchema(BaseModel):
     snapshot: WorkspaceSnapshotSchema
     references: TeamReferencesSchema
     drilling_price_per_m: float = 0.0
+    # Чего не хватило в ревизии и что взято взамен: пользователь должен видеть,
+    # что смета частично считается на значениях по умолчанию.
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SaveWorkspaceRequest(BaseModel):

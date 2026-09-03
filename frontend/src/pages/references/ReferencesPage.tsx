@@ -10,6 +10,7 @@ import type {
 import type { ReferenceSchemaCatalog } from "../../types/referenceSchema";
 import { vatRate as vatRateOf, type DerivedContext } from "../../lib/referenceDerived";
 import { plural } from "../../lib/plural";
+import { countDraftChanges } from "./draftDiff";
 import { DrillingConditionsMatrix, type MatrixMode } from "./DrillingConditionsMatrix";
 import { mergeImportedSections, type DraftSections } from "./importDraft";
 import { PublishBar } from "./PublishBar";
@@ -25,34 +26,6 @@ function rowId(): string {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `reference-${token}`;
-}
-
-function stable(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stable);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, stable(item)]),
-    );
-  }
-  return value;
-}
-
-/** Отпечаток записи: сравнение с опубликованной версией без учёта порядка ключей. */
-function fingerprint(item: EconomicsReferenceItem): string {
-  return JSON.stringify(
-    stable({
-      code: item.code,
-      name: item.name,
-      payload: item.payload,
-      is_active: item.is_active,
-      valid_from: item.valid_from,
-      valid_to: item.valid_to,
-      source: item.source,
-      comment: item.comment,
-    }),
-  );
 }
 
 function toDraft(snapshot: EconomicsReferenceSnapshot): DraftSections {
@@ -136,19 +109,14 @@ export function ReferencesPage({ user }: { user: User }) {
     return map;
   }, [snapshot]);
 
-  const changedRows = useMemo(() => {
-    const changed = new Set<string>();
-    for (const [section, rows] of Object.entries(draft)) {
-      for (const row of rows) {
-        const published = publishedByCode.get(`${section}::${row.code}`);
-        if (!published || fingerprint(published) !== fingerprint(row)) changed.add(row.row_id);
-      }
-    }
-    return changed;
-  }, [draft, publishedByCode]);
+  const diff = useMemo(() => countDraftChanges(draft, publishedByCode), [draft, publishedByCode]);
 
+  const changedRows = diff.changed;
   const changeCount = changedRows.size;
-  const dirty = changeCount > 0;
+  const removedCount = diff.removed.length;
+  // Удаление записи видно только по опубликованной ревизии: без него кнопка
+  // публикации оставалась выключенной, а шапка говорила «Опубликовано».
+  const dirty = changeCount > 0 || removedCount > 0;
 
   const stats = useMemo(() => {
     const result: Record<string, SectionStat> = {};
@@ -309,6 +277,11 @@ export function ReferencesPage({ user }: { user: User }) {
   }
 
   async function exportReferences(format: "xlsx" | "json") {
+    // Выгружается ревизия с сервера, а не то, что на экране: без предупреждения
+    // файл молча расходился бы с черновиком.
+    if (dirty && !window.confirm("Черновик не опубликован: будет выгружена опубликованная ревизия. Продолжить?")) {
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -331,7 +304,9 @@ export function ReferencesPage({ user }: { user: User }) {
       // Новые для опубликованной ревизии записи помечаем как новые: список и
       // форма показывают их так же, как добавленные вручную.
       setNewRows((current) => {
-        const next = new Set(current);
+        // Разделы из файла заменены целиком: их прежние `row_id` исчезли.
+        const alive = new Set(Object.values(merged.draft).flatMap((rows) => rows.map((row) => row.row_id)));
+        const next = new Set([...current].filter((id) => alive.has(id)));
         for (const section of merged.replaced) {
           for (const row of merged.draft[section] ?? []) {
             if (!publishedByCode.has(`${section}::${row.code}`)) next.add(row.row_id);
@@ -398,6 +373,10 @@ export function ReferencesPage({ user }: { user: User }) {
   const currentRevisionNo = revisions.find((item) => item.id === snapshot.revision_id)?.sequence_no;
   const revisionLabel = currentRevisionNo ? String(currentRevisionNo) : snapshot.revision_id;
 
+  const draftSummary = removedCount
+    ? `изменено: ${changeCount}, удалено: ${removedCount}`
+    : `${changeCount} ${plural(changeCount, ["изменение", "изменения", "изменений"])}`;
+
   const list = section && (
     <SectionList
       section={section}
@@ -423,9 +402,7 @@ export function ReferencesPage({ user }: { user: User }) {
           </p>
         </div>
         <span className={`ref-draft-status${dirty ? " dirty" : ""}`}>
-          {dirty
-            ? `Черновик · ${changeCount} ${plural(changeCount, ["изменение", "изменения", "изменений"])}`
-            : "Опубликовано"}
+          {dirty ? `Черновик · ${draftSummary}` : "Опубликовано"}
         </span>
       </header>
 

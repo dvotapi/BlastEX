@@ -1,4 +1,4 @@
-import { del, get, post, postFile, put, requestSvg } from "./client";
+import { del, errorMessage, get, post, postFile, put, requestSvg } from "./client";
 import type {
   AggregatedCostResult,
   BlastGeometryResponse,
@@ -248,7 +248,7 @@ export const api = {
       const query = new URLSearchParams({ format });
       if (revisionId) query.set("revision_id", revisionId);
       const response = await fetch(`${V1}/economics/references/export?${query}`, { credentials: "include" });
-      if (!response.ok) throw new Error("Не удалось экспортировать справочники.");
+      if (!response.ok) throw new Error(await errorMessage(response, "Не удалось экспортировать справочники."));
       const disposition = response.headers.get("content-disposition") ?? "";
       const match = /filename="([^"]+)"/.exec(disposition);
       const blob = await response.blob();

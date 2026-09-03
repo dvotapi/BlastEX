@@ -116,6 +116,7 @@ import type {
   EconomicScenario,
   EconomicsReferenceItem,
   EconomicsReferenceSnapshot,
+  ReferenceImportResult,
   ReferenceRevision,
   ReferenceValidation,
   StoredEconomicScenario,
@@ -243,6 +244,25 @@ export const api = {
       comment: string;
     }) => post<EconomicsReferenceSnapshot>(`${V1}/economics/references/publish`, payload),
     revisions: () => get<ReferenceRevision[]>(`${V1}/economics/references/revisions`),
+    exportReferences: async (format: "xlsx" | "json", revisionId?: string) => {
+      const query = new URLSearchParams({ format });
+      if (revisionId) query.set("revision_id", revisionId);
+      const response = await fetch(`${V1}/economics/references/export?${query}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Не удалось экспортировать справочники.");
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = match?.[1] ?? `references.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    },
+    importReferences: (file: File) =>
+      postFile<ReferenceImportResult>(`${V1}/economics/references/import`, file),
     scenarios: () => get<StoredEconomicScenario[]>(`${V1}/economics/scenarios`),
     scenario: (id: string) => get<StoredEconomicScenario>(`${V1}/economics/scenarios/${id}`),
     createScenario: (scenario: EconomicScenario) =>

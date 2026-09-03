@@ -46,6 +46,12 @@ export type ReferenceValidation = {
   issues: ReferenceValidationIssue[];
 };
 
+export type ReferenceImportResult = {
+  file_name: string;
+  counts: Record<string, number>;
+  sections: Record<string, EconomicsReferenceItem[]>;
+};
+
 export type ReferenceRevision = {
   id: string;
   organization_id: string;

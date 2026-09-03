@@ -11,14 +11,13 @@ import type { ReferenceSchemaCatalog } from "../../types/referenceSchema";
 import { vatRate as vatRateOf, type DerivedContext } from "../../lib/referenceDerived";
 import { plural } from "../../lib/plural";
 import { DrillingConditionsMatrix, type MatrixMode } from "./DrillingConditionsMatrix";
+import { mergeImportedSections, type DraftSections } from "./importDraft";
 import { PublishBar } from "./PublishBar";
 import { RecordForm, type DraftItem } from "./RecordForm";
 import { SectionList } from "./SectionList";
 import { SectionNav, type SectionStat } from "./SectionNav";
 import { defaultPayload, sectionFields } from "./schemaFields";
 import type { RefOption } from "./fields/RefSelect";
-
-type DraftSections = Record<string, DraftItem[]>;
 
 function rowId(): string {
   const token =
@@ -309,6 +308,49 @@ export function ReferencesPage({ user }: { user: User }) {
     setSelectedRow("");
   }
 
+  async function exportReferences(format: "xlsx" | "json") {
+    setBusy(true);
+    setError("");
+    try {
+      await api.economics.exportReferences(format, snapshot?.revision_id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось экспортировать справочники.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importReferences(file: File) {
+    if (!canEdit) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.economics.importReferences(file);
+      const merged = mergeImportedSections(draft, result.sections, rowId);
+      setDraft(merged.draft);
+      // Новые для опубликованной ревизии записи помечаем как новые: список и
+      // форма показывают их так же, как добавленные вручную.
+      setNewRows((current) => {
+        const next = new Set(current);
+        for (const section of merged.replaced) {
+          for (const row of merged.draft[section] ?? []) {
+            if (!publishedByCode.has(`${section}::${row.code}`)) next.add(row.row_id);
+          }
+        }
+        return next;
+      });
+      setSelectedRow("");
+      setIssues([]);
+      if (merged.replaced.length && !merged.replaced.includes(activeSection)) setActiveSection(merged.replaced[0]);
+      const validation = await api.economics.validateReferences(toSections(merged.draft));
+      setIssues(validation.issues);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось загрузить файл.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function publish() {
     if (!snapshot || !canEdit) return;
     if (!(await validate())) return;
@@ -425,6 +467,9 @@ export function ReferencesPage({ user }: { user: User }) {
             onValidate={() => void validate()}
             onDiscard={discard}
             onPublish={() => void publish()}
+            onExportXlsx={() => void exportReferences("xlsx")}
+            onExportJson={() => void exportReferences("json")}
+            onImport={(file) => void importReferences(file)}
             canEdit={canEdit}
             busy={busy}
             dirty={dirty}

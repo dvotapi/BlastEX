@@ -163,12 +163,31 @@ uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```bash
 python scripts/import_cost_v1_to_project1.py --team TEAM_ID
 python scripts/import_cost_v1_to_project1.py --team TEAM_ID --publish
+python scripts/import_cost_v1_to_project1.py --team TEAM_ID --publish --sections sites,rocks
 ```
 
-После проверки перенесённых данных каталог `data/teams/{team}/scenarios`
-и `references.json` можно удалить из тома. Паспорта проектирования
-(`data/teams/{team}/designs`) и артефакты ML пока остаются файлами — их
-перенос выполняется отдельной задачей.
+Флаг `--sections a,b,c` публикует только перечисленные разделы; остальные
+берутся из текущей ревизии без изменений. Незнакомое имя раздела прерывает
+запуск. Полезно, когда часть справочников уже заведена руками.
+
+Порядок переноса:
+
+1. Резервная копия каталога `data/teams`.
+2. Сухой прогон (без `--publish`). Если в отчёте `valid` равно `false`
+   из-за уже имеющихся битых ссылок в текущей ревизии (например, тестовые
+   `cost_rules` ссылаются на удалённые статьи затрат), сначала опубликуйте
+   чистую ревизию через интерфейс справочников или репозиторий — править
+   базу напрямую SQL нельзя.
+3. Публикация (`--publish`), затем проверка расчёта сметы на знакомом блоке.
+4. Уборка тома.
+
+Убирать после проверки можно только файлы Cost V1 верхнего уровня:
+`data/teams/{team}/scenarios/*.json`, `data/teams/{team}/references.json` и
+`data/teams/{team}/settings.json`. Всё остальное остаётся: подкаталоги
+`scenarios/<design_id>/` — это сценарии паспортов проектирования, `designs/` —
+сами паспорта, а `calibration/`, `datasets/`, `drift/`, `learning/`,
+`outcomes/`, `spatial/` — артефакты ML. Их перенос в базу выполняется
+отдельной задачей.
 
 При запуске в Docker миграции применяются до старта FastAPI.
 

@@ -65,6 +65,14 @@ class ReferenceValidationResponse(BaseModel):
     issues: list[ReferenceValidationIssueSchema]
 
 
+class ReferenceImportResponse(BaseModel):
+    """Разделы, разобранные из файла: ничего не записано, черновик заменяет их у себя."""
+
+    file_name: str
+    counts: dict[str, int] = Field(default_factory=dict)
+    sections: dict[str, list[ReferenceItemSchema]]
+
+
 class TechnicalDriverRequest(BaseModel):
     block: BlockGeometrySchema
     existing_physical: dict[str, Decimal] = Field(default_factory=dict)

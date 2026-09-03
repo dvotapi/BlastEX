@@ -1,13 +1,16 @@
 """REST API справочников и сценарной экономики производственного юнита."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse, Response
 
 from api.schemas.reference_schema import ReferenceSchemaResponse
 from api.schemas.economics import (
     CalculationRunSchema,
     EconomicScenarioSchema,
     EventCalculationRequest,
+    ReferenceImportResponse,
+    ReferenceItemSchema,
     ReferencePublishRequest,
     ReferenceRevisionSchema,
     ReferenceSnapshotSchema,
@@ -31,6 +34,7 @@ from api.services.economics_service import (
     scenario_from_payload,
     validation_payload,
 )
+from cost.v2.reference_files import XLSX_MEDIA_TYPE, ReferenceFileError, export_json, export_xlsx, import_file
 from cost.v2.references import has_validation_errors, validate_reference_sections
 from cost.v2.repository import EconomicsRepository
 from cost.v2.technical_adapter import adapt_blast_block
@@ -213,6 +217,61 @@ def get_reference_revision(
         return ReferenceSnapshotSchema.model_validate(reference_snapshot_payload(snapshot))
     except Exception as exc:
         raise repository_error(exc) from exc
+
+
+@router.get("/references/export")
+def export_references(
+    format: str = "xlsx",
+    revision_id: str | None = None,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> Response:
+    """Опубликованная ревизия файлом: книга xlsx (лист на раздел) или JSON-снимок."""
+
+    if format not in {"xlsx", "json"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Формат экспорта: xlsx или json.",
+        )
+    organization_id, _ = _identity(session)
+    try:
+        snapshot = repository.get_reference_snapshot(organization_id, revision_id)
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    file_name = f"references-{snapshot.revision_id[:8]}.{format}"
+    disposition = f'attachment; filename="{file_name}"'
+    if format == "json":
+        return JSONResponse(export_json(snapshot), headers={"Content-Disposition": disposition})
+    return Response(
+        export_xlsx(snapshot),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": disposition},
+    )
+
+
+@router.post("/references/import", response_model=ReferenceImportResponse)
+async def import_references(
+    file: UploadFile = File(...),
+    _session: dict[str, object] = Depends(require_reference_editor),
+) -> ReferenceImportResponse:
+    """Файл → разделы черновика. В базу ничего не пишется: дальше проверка и публикация."""
+
+    data = await file.read()
+    try:
+        sections = import_file(file.filename or "", data)
+    except ReferenceFileError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": str(exc)},
+        ) from exc
+    return ReferenceImportResponse(
+        file_name=file.filename or "",
+        counts={section: len(items) for section, items in sections.items()},
+        sections={
+            section: [ReferenceItemSchema.model_validate(item.to_dict()) for item in items]
+            for section, items in sections.items()
+        },
+    )
 
 
 @router.get("/scenarios", response_model=list[StoredScenarioSchema])

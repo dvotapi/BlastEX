@@ -87,11 +87,17 @@ jobs:
           status=0
           for attempt in $(seq 1 "$DEPLOY_ATTEMPTS"); do
             status=0
+            # Сборка образов на сервере идёт минутами и молчит, пока pip качает
+            # колёса. Без keepalive соединение рвётся на этом молчании, и деплой
+            # падает с `client_loop: send disconnect: Broken pipe` (код 255).
             ssh \
               -i "$HOME/.ssh/blastex_deploy" \
               -o BatchMode=yes \
               -o IdentitiesOnly=yes \
               -o StrictHostKeyChecking=yes \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=20 \
+              -o TCPKeepAlive=yes \
               "$DEPLOY_USER@$DEPLOY_HOST" || status=$?
             if [ "$status" -eq 0 ]; then
               exit 0

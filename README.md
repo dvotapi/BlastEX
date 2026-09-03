@@ -259,6 +259,11 @@ production VPS. Ручной запуск доступен через `workflow_
 быть ограничен forced command `/usr/local/sbin/deploy-blastex` и опцией
 `restrict`, чтобы его нельзя было использовать для произвольного SSH-доступа.
 
+Сборка образов на сервере занимает минуты и не выводит ничего, пока pip
+качает колёса, поэтому SSH-вызов деплоя идёт с keepalive
+(`ServerAliveInterval=30`): без него соединение рвётся на молчании и
+развёртывание падает с `client_loop: send disconnect: Broken pipe`.
+
 **Обновление кода на сервере должно быть аутентифицированным.** GitHub
 периодически ограничивает анонимные скачивания, и тогда `git fetch` внутри
 forced command падает с сообщением «GitHub is temporarily limiting some

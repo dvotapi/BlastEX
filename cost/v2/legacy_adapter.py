@@ -7,8 +7,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable, Iterable, TypeVar
+from typing import Any, Iterable, TypeVar
 
 from Blast import RockProperties
 from cost.catalog import DEFAULT_CATALOG, CatalogItem
@@ -23,7 +24,6 @@ from cost.fixed_costs import DEFAULT_FIXED_COSTS, SECTION_TITLES, FixedCostItem
 from cost.labor import DEFAULT_LABOR_CATALOG, JobPosition
 from cost.rock_data import DEFAULT_ROCKS
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
-from cost.v2.references import REFERENCE_SECTION_DEFINITIONS
 
 # Категории номенклатуры Cost V1; «nsi» — старое имя «downhole_nsi».
 _CATALOG_CATEGORIES: dict[str, str] = {
@@ -82,40 +82,51 @@ def legacy_references_from_snapshot(snapshot: ReferenceSnapshot) -> LegacyRefere
         for item in snapshot.active_items("labor_rates")
     }
 
-    work_objects = _fallback("sites", [_work_object(item, warnings) for item in sites], DEFAULT_WORK_OBJECTS, warnings)
+    work_objects = _fallback(
+        "Раздел «Карьеры и объекты» пуст",
+        [_work_object(item, warnings) for item in sites],
+        DEFAULT_WORK_OBJECTS,
+        warnings,
+    )
     drill_rigs = _fallback(
-        "equipment_assets",
+        "В разделе «Основные средства» нет техники вида «Буровой станок»",
         [_drill_rig(item, types) for item in assets if _kind(item, types) == "DRILL_RIG"],
         DEFAULT_DRILL_RIGS,
         warnings,
     )
     depreciation = _fallback(
-        "equipment_assets",
+        "В разделе «Основные средства» нет записей со сроком службы и сменами",
         [_depreciation(item) for item in assets if _has_depreciation_inputs(item)],
         DEFAULT_DEPRECIATION_ASSETS,
         warnings,
     )
-    rocks = _fallback("rocks", [_rock(item, warnings) for item in snapshot.active_items("rocks")], DEFAULT_ROCKS, warnings)
+    rocks = _fallback(
+        "Раздел «Породы» пуст",
+        [_rock(item, warnings) for item in snapshot.active_items("rocks")],
+        DEFAULT_ROCKS,
+        warnings,
+    )
     explosives = _fallback(
-        "materials",
+        "В разделе «Материалы и ВМ» нет ВВ",
         [_explosive(item, warnings) for item in materials if _is_explosive(item)],
         DEFAULT_EXPLOSIVES,
         warnings,
     )
     catalog = _fallback(
-        "materials",
+        "В разделе «Материалы и ВМ» нет номенклатуры "
+        "(категории explosive/detonator/downhole_nsi/surface_nsi/start_nsi)",
         [_catalog_item(item, prices, units, warnings) for item in materials if _catalog_category(item)],
         DEFAULT_CATALOG,
         warnings,
     )
     fixed_costs = _fallback(
-        "cost_items",
+        "В разделе «Статьи затрат» нет статей с разделом сметы V1",
         [_fixed_cost(item) for item in snapshot.sections.get("cost_items", ()) if _is_legacy_fixed_cost(item)],
         DEFAULT_FIXED_COSTS,
         warnings,
     )
     labor = _fallback(
-        "positions",
+        "Раздел «Должности и ставки» пуст",
         [_position(item, rates, warnings) for item in snapshot.active_items("positions")],
         DEFAULT_LABOR_CATALOG,
         warnings,
@@ -240,23 +251,52 @@ def _catalog_item(
     units: dict[str, str],
     warnings: list[str],
 ) -> CatalogItem:
-    price = next(
-        (p for p in prices if str(p.payload.get("material_code") or "") == item.code),
-        None,
-    )
-    if price is None:
-        warnings.append(f"Материал «{item.name}»: в разделе «Стоимость материалов» не задана цена, принят 0.")
     unit_code = str(item.payload.get("unit") or "")
     return CatalogItem(
         id=_legacy_id(item),
         name=item.name,
         category=_catalog_category(item),  # type: ignore[arg-type]
         unit=units.get(unit_code, unit_code),
-        price=_number(price.payload.get("price_rub")) if price else 0.0,
+        price=_material_price(item, prices, warnings),
         mass_kg=_optional_number(item.payload.get("mass_kg")),
         length_m=_optional_number(item.payload.get("length_m")),
         note=item.comment,
     )
+
+
+def _material_price(item: ReferenceItem, prices: Iterable[ReferenceItem], warnings: list[str]) -> float:
+    """Цена материала в смете V1 — действующая сегодня, вместе с доставкой.
+
+    Раздел «Стоимость материалов» хранит историю: у записи есть срок действия.
+    Берём ту, что действует на сегодня, а среди них — с самой поздней датой
+    начала (пустая дата считается самой старой). Просроченные и будущие цены
+    в смету не попадают.
+    """
+
+    today = date.today()
+    own = [p for p in prices if str(p.payload.get("material_code") or "") == item.code]
+    if not own:
+        warnings.append(f"Материал «{item.name}»: в разделе «Стоимость материалов» не задана цена, принят 0.")
+        return 0.0
+    valid = [
+        p
+        for p in own
+        if (p.valid_from is None or p.valid_from <= today) and (p.valid_to is None or p.valid_to >= today)
+    ]
+    if not valid:
+        warnings.append(
+            f"Материал «{item.name}»: срок действия всех цен истек или ещё не наступил, принят 0."
+        )
+        return 0.0
+    latest = max((p.valid_from or date.min) for p in valid)
+    candidates = [p for p in valid if (p.valid_from or date.min) == latest]
+    if len(candidates) > 1:
+        warnings.append(
+            f"Материал «{item.name}»: на одну дату задано несколько цен "
+            f"({', '.join(p.code for p in candidates)}), взята первая."
+        )
+    chosen = candidates[0]
+    return _number(chosen.payload.get("price_rub")) + _number(chosen.payload.get("delivery_rub"))
 
 
 def _is_legacy_fixed_cost(item: ReferenceItem) -> bool:
@@ -293,11 +333,16 @@ def _legacy_id(item: ReferenceItem) -> str:
     return str(item.payload.get("legacy_ref") or item.code)
 
 
-def _fallback(section: str, items: list[T], defaults: Iterable[T], warnings: list[str]) -> tuple[T, ...]:
+def _fallback(reason: str, items: list[T], defaults: Iterable[T], warnings: list[str]) -> tuple[T, ...]:
+    """Пустой результат — не ошибка: предупреждение говорит, чего не хватило.
+
+    `reason` описывает нехватку словами интерфейса («нет техники вида …»), а не
+    ключом раздела: пустой раздел и раздел без нужных записей — разные случаи.
+    """
+
     if items:
         return tuple(items)
-    label = REFERENCE_SECTION_DEFINITIONS.get(section, {}).get("label", section)
-    warnings.append(f"Раздел «{label}» пуст: используются значения Cost V1 по умолчанию.")
+    warnings.append(f"{reason}: используются значения Cost V1 по умолчанию.")
     return tuple(defaults)
 
 

@@ -1,7 +1,7 @@
 """Опубликованная ревизия Cost V2 → структуры движка Cost V1 (спецификация §6)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -45,6 +45,20 @@ class TestFallbacks:
         assert legacy.labor_catalog == tuple(DEFAULT_LABOR_CATALOG)
         assert any("Карьеры и объекты" in warning for warning in legacy.warnings)
         assert any("Породы" in warning for warning in legacy.warnings)
+
+    def test_fallback_warnings_name_what_is_missing(self):
+        legacy = legacy_references_from_snapshot(default_reference_snapshot())
+        joined = "\n".join(legacy.warnings)
+
+        assert "Раздел «Карьеры и объекты» пуст" in joined
+        assert "нет техники вида «Буровой станок»" in joined
+        assert "нет записей со сроком службы и сменами" in joined
+        assert "нет ВВ" in joined
+        assert "нет номенклатуры" in joined
+        assert "нет статей с разделом сметы V1" in joined
+        assert "Раздел «Должности и ставки» пуст" in joined
+        # Каждое предупреждение говорит и о том, что взято взамен.
+        assert all("по умолчанию" in warning for warning in legacy.warnings)
 
     def test_inactive_items_are_ignored(self):
         legacy = legacy_references_from_snapshot(
@@ -164,3 +178,68 @@ class TestMapping:
         assert positions["labor_master"].piece_rate_per_m3 == 0.25
         assert positions["POS_DRILLER"].fixed_salary_monthly == 0.0
         assert any("Машинист" in warning and "ставк" in warning.lower() for warning in legacy.warnings)
+
+
+class TestMaterialPrices:
+    """Цена материала — действующая на сегодня, с доставкой (пункт D ревью)."""
+
+    def _materials(self):
+        return [_item("MAT_NSI", "НСИ 6 м", {"category": "downhole_nsi", "unit": "PIECE"})]
+
+    def _price(self, code: str, value: str, **kwargs) -> ReferenceItem:
+        return _item(code, "Цена", {"material_code": "MAT_NSI", "price_rub": value}, **kwargs)
+
+    def test_expired_price_is_ignored_with_warning(self):
+        yesterday = date.today() - timedelta(days=1)
+        legacy = legacy_references_from_snapshot(
+            _snapshot(
+                materials=self._materials(),
+                material_prices=[self._price("P_OLD", "100", valid_to=yesterday)],
+            )
+        )
+        assert legacy.catalog[0].price == 0.0
+        assert any("НСИ 6 м" in w and "истек" in w.lower() for w in legacy.warnings)
+
+    def test_future_price_is_not_used_yet(self):
+        tomorrow = date.today() + timedelta(days=1)
+        legacy = legacy_references_from_snapshot(
+            _snapshot(
+                materials=self._materials(),
+                material_prices=[
+                    self._price("P_NOW", "100"),
+                    self._price("P_LATER", "200", valid_from=tomorrow),
+                ],
+            )
+        )
+        assert legacy.catalog[0].price == 100.0
+
+    def test_latest_valid_price_wins_and_delivery_is_added(self):
+        legacy = legacy_references_from_snapshot(
+            _snapshot(
+                materials=self._materials(),
+                material_prices=[
+                    _item("P_OLD", "Цена", {"material_code": "MAT_NSI", "price_rub": "100"}),
+                    _item(
+                        "P_NEW",
+                        "Цена",
+                        {"material_code": "MAT_NSI", "price_rub": "150", "delivery_rub": "20"},
+                        valid_from=date.today() - timedelta(days=10),
+                    ),
+                ],
+            )
+        )
+        assert legacy.catalog[0].price == pytest.approx(170.0)
+
+    def test_ambiguous_prices_take_the_first_and_warn(self):
+        start = date.today() - timedelta(days=5)
+        legacy = legacy_references_from_snapshot(
+            _snapshot(
+                materials=self._materials(),
+                material_prices=[
+                    _item("P_A", "Цена", {"material_code": "MAT_NSI", "price_rub": "10"}, valid_from=start),
+                    _item("P_B", "Цена", {"material_code": "MAT_NSI", "price_rub": "20"}, valid_from=start),
+                ],
+            )
+        )
+        assert legacy.catalog[0].price == 10.0
+        assert any("НСИ 6 м" in w and "несколько" in w.lower() for w in legacy.warnings)

@@ -57,18 +57,13 @@ export function normalizeSnapshotRows(snapshot: WorkspaceSnapshot): WorkspaceSna
   };
 }
 
+/**
+ * Справочные записи снапшота сервер собирает из опубликованной ревизии, и
+ * интерфейс их не правит: патчем приходят только назначения персонала.
+ */
 export function normalizeSnapshotPatch(patch: Partial<WorkspaceSnapshot>): Partial<WorkspaceSnapshot> {
   return {
     ...patch,
-    ...(patch.cost_catalog_records
-      ? { cost_catalog_records: withStableRowIds(patch.cost_catalog_records, "catalog") }
-      : {}),
-    ...(patch.fixed_cost_records
-      ? { fixed_cost_records: withStableRowIds(patch.fixed_cost_records, "fixed-cost") }
-      : {}),
-    ...(patch.labor_catalog_records
-      ? { labor_catalog_records: withStableRowIds(patch.labor_catalog_records, "labor-position") }
-      : {}),
     ...(patch.labor_assignment_records
       ? { labor_assignment_records: withStableRowIds(patch.labor_assignment_records, "labor-assignment") }
       : {}),

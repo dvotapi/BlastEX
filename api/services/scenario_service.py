@@ -74,8 +74,10 @@ def _scenario_schema(item: DesignScenario) -> DesignScenarioSchema:
 
 
 def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes) -> None:
-    # Справочники — фиксированные значения Cost V1 по умолчанию, а не опубликованная
-    # ревизия организации: этот ML-сервис читает per-org справочники не через это поле.
+    # Справочники — фиксированные значения Cost V1 по умолчанию. Per-org данные
+    # этот сервис не читал никогда: до переезда справочников он так же брал
+    # команду по умолчанию. Чтобы включить ревизию организации, роутеру сервиса
+    # нужен `Depends(current_legacy_references)`.
     try:
         result = estimate_design_cost(
             DesignCostRequest(

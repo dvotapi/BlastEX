@@ -6,12 +6,11 @@ import { CalcPage } from "../pages/CalcPage";
 import { DesignPage } from "../pages/design/DesignPage";
 import { DrillingPage } from "../pages/DrillingPage";
 import { LaborPage } from "../pages/LaborPage";
-import { ReferencesPage as CalcReferencesPage } from "../pages/ReferencesPage";
 import { EconomicsPage } from "../pages/EconomicsPage";
 import { BlockEconomicsPage } from "../pages/economics/BlockEconomicsPage";
 import { ReferencesPage } from "../pages/references/ReferencesPage";
 
-const PAGES = ["Расчёт", "Проектирование", "Экономика", "Экономика юнита", "Бурение", "ФОТ", "Справочники", "Справочники расчёта"] as const;
+const PAGES = ["Расчёт", "Проектирование", "Экономика", "Экономика юнита", "Бурение", "ФОТ", "Справочники"] as const;
 type Page = (typeof PAGES)[number];
 const ICONS: Record<Page, string> = {
   "Расчёт": "◫",
@@ -21,7 +20,6 @@ const ICONS: Record<Page, string> = {
   "Бурение": "⌁",
   "ФОТ": "◎",
   "Справочники": "▦",
-  "Справочники расчёта": "▤",
 };
 const TITLES: Record<Page, string> = {
   "Расчёт": "Расчёт БВР",
@@ -31,7 +29,6 @@ const TITLES: Record<Page, string> = {
   "Бурение": "Бурение",
   "ФОТ": "ФОТ",
   "Справочники": "Справочники",
-  "Справочники расчёта": "Справочники расчёта БВР",
 };
 
 export function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
@@ -120,7 +117,6 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
           {page === "Бурение" && <DrillingPage />}
           {page === "ФОТ" && <LaborPage />}
           {page === "Справочники" && <ReferencesPage user={user} />}
-          {page === "Справочники расчёта" && <CalcReferencesPage />}
         </main>
         <nav className="mobile-nav">
           {PAGES.map((item) => (

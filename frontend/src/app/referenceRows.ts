@@ -47,27 +47,6 @@ export function normalizeReferenceRows(references: TeamReferences): TeamReferenc
   };
 }
 
-export function normalizeReferencePatch(patch: Partial<TeamReferences>): Partial<TeamReferences> {
-  return {
-    ...patch,
-    ...(patch.work_object_records
-      ? { work_object_records: withStableIds(patch.work_object_records, "work-object") }
-      : {}),
-    ...(patch.drill_rig_records
-      ? { drill_rig_records: withStableIds(patch.drill_rig_records, "drill-rig") }
-      : {}),
-    ...(patch.rock_records
-      ? { rock_records: withStableIds(patch.rock_records, "rock") }
-      : {}),
-    ...(patch.explosive_records
-      ? { explosive_records: withStableIds(patch.explosive_records, "explosive") }
-      : {}),
-    ...(patch.depreciation_asset_records
-      ? { depreciation_asset_records: withStableIds(patch.depreciation_asset_records, "asset") }
-      : {}),
-  };
-}
-
 export function normalizeSnapshotRows(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
   return {
     ...snapshot,

@@ -2,17 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api/endpoints";
 import { useWorkspace } from "../app/useWorkspace";
 import { EditableTable } from "../components/EditableTable";
-import type { JobPosition, LaborAssignment, LaborFOTResult } from "../types";
+import type { LaborAssignment, LaborFOTResult } from "../types";
 
-const DEFAULT_LABOR_CATALOG: JobPosition[] = [
-  { id: "labor_master", name: "Руководитель взрывных работ (мастер БВР)", fixed_salary_monthly: 80_000, piece_rate_per_m3: 0.25 },
-  { id: "labor_blasters", name: "Взрывники", fixed_salary_monthly: 55_000, piece_rate_per_m3: 0.25 },
-  { id: "labor_driller", name: "Бурильщик", fixed_salary_monthly: 55_000, piece_rate_per_m3: 0.20 },
-  { id: "labor_assistant", name: "Помощник бурильщика", fixed_salary_monthly: 35_000, piece_rate_per_m3: 0.15 },
-  { id: "labor_miner", name: "Горнорабочий", fixed_salary_monthly: 35_000, piece_rate_per_m3: 0.15 },
-  { id: "labor_driver_szm", name: "Водитель СЗМ", fixed_salary_monthly: 60_000, piece_rate_per_m3: 0.30 },
-  { id: "labor_driver_del", name: "Водитель доставщика", fixed_salary_monthly: 80_000, piece_rate_per_m3: 0.30 },
-];
 const DEFAULT_LABOR_ASSIGNMENTS: LaborAssignment[] = [
   { id: "la_1", position_id: "labor_master", headcount: 1, volume_m3: 30_000, employee_shifts: 1 },
   { id: "la_2", position_id: "labor_blasters", headcount: 2, volume_m3: 30_000, employee_shifts: 1 },
@@ -47,7 +38,6 @@ export function LaborPage() {
 
   function resetToDefaults() {
     updateSnapshot({
-      labor_catalog_records: DEFAULT_LABOR_CATALOG,
       labor_assignment_records: DEFAULT_LABOR_ASSIGNMENTS,
       labor_shifts_per_month: 5,
     });
@@ -85,18 +75,20 @@ export function LaborPage() {
       </label>
 
       <h4>Справочник должностей</h4>
-      <EditableTable<JobPosition>
-        columns={[
-          { key: "id", label: "Код", type: "text" },
-          { key: "name", label: "Должность", type: "text" },
-          { key: "fixed_salary_monthly", label: "Оклад, руб/мес", type: "number", step: 1000 },
-          { key: "piece_rate_per_m3", label: "Сдельная, руб/м³", type: "number", step: 0.01 },
-        ]}
-        rows={catalog}
-        onChange={(rows) => updateSnapshot({ labor_catalog_records: rows })}
-        newRow={() => ({ id: "", name: "", fixed_salary_monthly: 0, piece_rate_per_m3: 0 })}
-        rowKey={(r, i) => r.row_id || `labor-position-${i}`}
-      />
+      <p className="page-caption">Должности и ставки редактируются на странице «Справочники» (разделы «Должности и ставки», «Ставки персонала»).</p>
+      <table className="hole-metrics-table">
+        <thead><tr><th>Код</th><th>Должность</th><th>Оклад, руб/мес</th><th>Сдельная, руб/м³</th></tr></thead>
+        <tbody>
+          {catalog.map((position) => (
+            <tr key={position.row_id || position.id}>
+              <td>{position.id}</td>
+              <td>{position.name}</td>
+              <td>{money(position.fixed_salary_monthly)}</td>
+              <td>{position.piece_rate_per_m3}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
       <h4>Штатное расписание на блок</h4>
       <EditableTable<LaborAssignment>

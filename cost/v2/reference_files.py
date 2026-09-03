@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 from openpyxl import Workbook, load_workbook
 
@@ -20,7 +20,6 @@ from cost.v2.references import REFERENCE_SECTION_DEFINITIONS
 from cost.v2.schemas import SECTION_SCHEMAS, section_json_schema
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-JSON_MEDIA_TYPE = "application/json"
 
 TRUE_WORDS = frozenset({"да", "true", "1", "yes", "истина"})
 FALSE_WORDS = frozenset({"нет", "false", "0", "no", "ложь"})
@@ -44,6 +43,7 @@ FIXED_COLUMNS: tuple[Column, ...] = (
     Column("valid_from", "Действует с", "date"),
     Column("valid_to", "Действует по", "date"),
     Column("comment", "Комментарий", "text"),
+    Column("source", "Источник", "text"),
 )
 _FIXED_KEYS = {column.key for column in FIXED_COLUMNS}
 
@@ -116,6 +116,10 @@ def export_xlsx(snapshot: ReferenceSnapshot) -> bytes:
         sheet.append([column.title for column in columns])
         for item in snapshot.sections.get(section, ()):
             sheet.append([_cell(column, _item_value(item, column.key)) for column in columns])
+            # Без текстового формата Excel съедает ведущие нули кодов «0021».
+            for index, column in enumerate(columns, start=1):
+                if column.kind == "text":
+                    sheet.cell(row=sheet.max_row, column=index).number_format = "@"
     buffer = io.BytesIO()
     book.save(buffer)
     return buffer.getvalue()
@@ -138,6 +142,14 @@ def _cell(column: Column, value: Any) -> Any:
     if value is None or value == "":
         return None
     if column.kind == "bool":
+        if isinstance(value, str):
+            word = value.strip().lower()
+            if word in TRUE_WORDS:
+                return "да"
+            if word in FALSE_WORDS:
+                return "нет"
+            # Незнакомое слово не гадаем: непустая строка иначе стала бы «да».
+            return str(value)
         return "да" if bool(value) else "нет"
     if column.kind == "date":
         return value if isinstance(value, date) else date.fromisoformat(str(value))
@@ -220,7 +232,17 @@ def import_xlsx(data: bytes) -> dict[str, list[ReferenceItem]]:
         for key in keys:
             if key is not None and key not in columns:
                 raise ReferenceFileError(f"Неизвестная колонка «{key}» (лист «{section}»).")
-        next(rows, None)  # строка подписей
+        labels = next(rows, None)
+        if labels is not None:
+            expected = columns[keys[0]].title if keys and keys[0] else FIXED_COLUMNS[0].title
+            first = "" if labels[0] is None else str(labels[0]).strip()
+            # Без этой проверки удалённая строка подписей молча съедала бы
+            # первую запись листа.
+            if first not in ("", expected):
+                raise ReferenceFileError(
+                    f"Лист «{section}», строка 2: ожидается строка подписей полей "
+                    f"(первая ячейка «{expected}»)."
+                )
         items: list[ReferenceItem] = []
         for row_no, values in enumerate(rows, start=3):
             cells = {key: value for key, value in zip(keys, values) if key is not None}
@@ -247,6 +269,9 @@ def _item_from_cells(
     if not name:
         raise ReferenceFileError(f"Лист «{section}», строка {row_no}: нет наименования записи.")
     is_active = parse("is_active") if "is_active" in cells else None
+    # Источник — свойство записи, а не файла: затираем его только там, где
+    # ячейка пуста, иначе повторный импорт выгрузки менял бы все записи.
+    source = str(parse("source") or "") if "source" in cells else ""
     payload: dict[str, Any] = {}
     for key in cells:
         if key in _FIXED_KEYS:
@@ -261,7 +286,7 @@ def _item_from_cells(
         is_active=True if is_active is None else bool(is_active),
         valid_from=parse("valid_from") if "valid_from" in cells else None,
         valid_to=parse("valid_to") if "valid_to" in cells else None,
-        source="Импорт xlsx",
+        source=source or "Импорт xlsx",
         comment=str(parse("comment") or "") if "comment" in cells else "",
     )
 
@@ -293,7 +318,11 @@ def _parse(section: str, row_no: int, column: Column, value: Any) -> Any:
             number = Decimal(str(value).strip().replace(",", "."))
         except InvalidOperation as exc:
             raise ReferenceFileError(f"{where}: ожидается число, получено «{value}».") from exc
-        return format(number.normalize(), "f")
+        # `normalize()` рубит значащие нули («12.50» → «12.5»), поэтому
+        # цифры оставляем как есть; целое пишем без хвоста «.0».
+        if number == number.to_integral_value() and isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(int(number))
+        return format(number, "f")
     if column.kind == "json":
         if isinstance(value, (list, dict)):
             return value

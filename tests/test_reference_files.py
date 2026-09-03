@@ -25,6 +25,7 @@ def _site() -> ReferenceItem:
         name="Карьер А",
         payload={"mobilization_km": "220", "is_watered": True, "customer_code": "CP_1"},
         valid_from=date(2026, 1, 1),
+        source="Смета 2026",
         comment="тест",
     )
 
@@ -43,7 +44,7 @@ class TestColumns:
 
         columns = section_columns("sites")
         assert [c.key for c in columns[: len(FIXED_COLUMNS)]] == [
-            "code", "name", "is_active", "valid_from", "valid_to", "comment",
+            "code", "name", "is_active", "valid_from", "valid_to", "comment", "source",
         ]
         keys = [c.key for c in columns]
         assert "legacy_ref" not in keys
@@ -85,7 +86,7 @@ class TestExport:
         sheet = book["sites"]
         keys = [cell.value for cell in sheet[1]]
         titles = [cell.value for cell in sheet[2]]
-        assert keys[:6] == ["code", "name", "is_active", "valid_from", "valid_to", "comment"]
+        assert keys[:7] == ["code", "name", "is_active", "valid_from", "valid_to", "comment", "source"]
         assert titles[:2] == ["Код", "Наименование"]
         row = {key: cell.value for key, cell in zip(keys, sheet[3])}
         assert row["code"] == "SITE_A"
@@ -96,6 +97,7 @@ class TestExport:
         assert row["mobilization_km"] == 220
         assert row["customer_code"] == "CP_1"
         assert row["comment"] == "тест"
+        assert row["source"] == "Смета 2026"
         crew = book["crew_templates"]
         crew_keys = [cell.value for cell in crew[1]]
         crew_row = {key: cell.value for key, cell in zip(crew_keys, crew[3])}
@@ -108,6 +110,32 @@ class TestExport:
         sheet = book["sites"]
         assert sheet.max_row == 2
         assert sheet["A1"].value == "code"
+
+    def test_text_cells_keep_the_text_format(self):
+        from cost.v2.reference_files import export_xlsx
+
+        book = load_workbook(io.BytesIO(export_xlsx(_snapshot(sites=[_site()]))))
+        sheet = book["sites"]
+        keys = [cell.value for cell in sheet[1]]
+        # Иначе Excel съедает ведущие нули кодов вроде «0021».
+        assert sheet.cell(row=3, column=keys.index("code") + 1).number_format == "@"
+        assert sheet.cell(row=3, column=keys.index("mobilization_km") + 1).number_format != "@"
+
+    def test_boolean_words_from_payload_are_not_flipped(self):
+        from cost.v2.reference_files import export_xlsx
+
+        site = ReferenceItem(code="SITE_B", name="Карьер Б", payload={"is_watered": "нет"})
+        book = load_workbook(io.BytesIO(export_xlsx(_snapshot(sites=[site]))))
+        sheet = book["sites"]
+        keys = [cell.value for cell in sheet[1]]
+        row = {key: cell.value for key, cell in zip(keys, sheet[3])}
+        assert row["is_watered"] == "нет"
+
+    def test_json_export_keeps_only_sections_with_a_schema(self):
+        from cost.v2.reference_files import export_json, exportable_sections
+
+        payload = export_json(_snapshot(sites=[_site()]))
+        assert set(payload["sections"]) == set(exportable_sections())
 
     def test_json_export_is_the_snapshot_object(self):
         from cost.v2.reference_files import export_json
@@ -130,7 +158,7 @@ class TestImport:
         assert site.is_active is True
         assert site.valid_from == date(2026, 1, 1) and site.valid_to is None
         assert site.comment == "тест"
-        assert site.source == "Импорт xlsx"
+        assert site.source == "Смета 2026"
         assert site.payload["mobilization_km"] == "220"
         assert site.payload["is_watered"] is True
         assert site.payload["customer_code"] == "CP_1"
@@ -182,6 +210,52 @@ class TestImport:
         assert len(import_xlsx(_bytes(book))["sites"]) == 1
         sheet.append([None, "Без кода"])
         with pytest.raises(ReferenceFileError, match="строка 5.*нет кода"):
+            import_xlsx(_bytes(book))
+
+    def test_empty_source_cell_gets_the_import_mark(self):
+        from cost.v2.reference_files import export_xlsx, import_xlsx
+
+        book = load_workbook(io.BytesIO(export_xlsx(_snapshot(sites=[_site()]))))
+        sheet = book["sites"]
+        keys = [cell.value for cell in sheet[1]]
+        sheet.cell(row=3, column=keys.index("source") + 1).value = None
+        assert import_xlsx(_bytes(book))["sites"][0].source == "Импорт xlsx"
+
+    def test_decimals_keep_their_digits(self):
+        from cost.v2.reference_files import export_xlsx, import_xlsx
+
+        book = load_workbook(io.BytesIO(export_xlsx(_snapshot(sites=[_site()]))))
+        sheet = book["sites"]
+        column = [cell.value for cell in sheet[1]].index("mobilization_km") + 1
+
+        def parsed(value):
+            sheet.cell(row=3, column=column, value=value)
+            return import_xlsx(_bytes(book))["sites"][0].payload["mobilization_km"]
+
+        # Текстовая ячейка переносится посимвольно: нули после запятой на месте.
+        assert parsed("12.50") == "12.50"
+        assert parsed("0.85") == "0.85"
+        assert parsed("0,85") == "0.85"
+        # Число Excel приходит как float; целое пишем без хвоста «.0», дробное
+        # — ровно теми цифрами, что уцелели во float.
+        assert parsed(220.0) == "220"
+        assert parsed(12.5) == "12.5"
+        assert parsed(0.85) == "0.85"
+        assert parsed(1200000) == "1200000"
+
+    def test_fractional_values_survive_the_round_trip(self):
+        from cost.v2.reference_files import export_xlsx, import_xlsx
+
+        site = ReferenceItem(code="SITE_C", name="Карьер В", payload={"mobilization_km": "0.85"})
+        sections = import_xlsx(export_xlsx(_snapshot(sites=[site])))
+        assert sections["sites"][0].payload["mobilization_km"] == "0.85"
+
+    def test_missing_label_row_is_reported(self):
+        from cost.v2.reference_files import ReferenceFileError, export_xlsx, import_xlsx
+
+        book = load_workbook(io.BytesIO(export_xlsx(_snapshot(sites=[_site()]))))
+        book["sites"].delete_rows(2)
+        with pytest.raises(ReferenceFileError, match="Лист «sites», строка 2"):
             import_xlsx(_bytes(book))
 
     def test_json_import_reads_snapshot_object(self):

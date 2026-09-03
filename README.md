@@ -260,6 +260,20 @@ production VPS. Ручной запуск доступен через `workflow_
 быть ограничен forced command `/usr/local/sbin/deploy-blastex` и опцией
 `restrict`, чтобы его нельзя было использовать для произвольного SSH-доступа.
 
+**Обновление кода на сервере должно быть аутентифицированным.** GitHub
+периодически ограничивает анонимные скачивания, и тогда `git fetch` внутри
+forced command падает с сообщением «GitHub is temporarily limiting some
+unauthenticated downloads» и кодом 128 — деплой останавливается до сборки
+образов. Workflow повторяет попытку трижды с паузой, но постоянное решение —
+привязать remote к ключу или токену:
+
+```bash
+# на сервере, в /root/complex-services-web/blastex
+git remote set-url origin git@github.com:dvotapi/BlastEX.git   # + deploy-ключ в ~/.ssh
+# либо через токен:
+git remote set-url origin https://x-access-token:ТОКЕН@github.com/dvotapi/BlastEX.git
+```
+
 ---
 
 ## Веб-интерфейс

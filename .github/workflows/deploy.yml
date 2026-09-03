@@ -75,12 +75,31 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.VPS_HOST }}
           DEPLOY_USER: ${{ secrets.VPS_USER }}
+          DEPLOY_ATTEMPTS: "3"
+          DEPLOY_RETRY_DELAY_SECONDS: "60"
         run: |
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
-          ssh \
-            -i "$HOME/.ssh/blastex_deploy" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST"
+          # Сервер обновляет код `git fetch`-ем. GitHub временами ограничивает
+          # неаутентифицированные скачивания, и тогда обновление падает с кодом
+          # 128 ещё до сборки образов. Ограничение временное, поэтому повторяем;
+          # постоянное решение — аутентифицировать remote на сервере (см. README).
+          status=0
+          for attempt in $(seq 1 "$DEPLOY_ATTEMPTS"); do
+            status=0
+            ssh \
+              -i "$HOME/.ssh/blastex_deploy" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$DEPLOY_USER@$DEPLOY_HOST" || status=$?
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            echo "::warning::Попытка $attempt не удалась (код $status)"
+            if [ "$attempt" -lt "$DEPLOY_ATTEMPTS" ]; then
+              sleep "$DEPLOY_RETRY_DELAY_SECONDS"
+            fi
+          done
+          echo "::error::Развёртывание не удалось после $DEPLOY_ATTEMPTS попыток (код $status)"
+          exit "$status"

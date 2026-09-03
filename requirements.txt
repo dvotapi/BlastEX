@@ -28,6 +28,9 @@ SQLAlchemy>=2.0.36,<3
 alembic>=1.14.0,<2
 psycopg[binary]>=3.2.3,<4
 
+# starlette.testclient (тесты API) требует httpx2 — без него падает сбор тестов
+httpx2>=2.12.0,<3
+
 # --- документы и чертежи ---
 openpyxl>=3.1.5,<4
 reportlab>=4.2.0,<5

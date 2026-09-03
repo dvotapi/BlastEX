@@ -122,7 +122,10 @@ def export_xlsx(snapshot: ReferenceSnapshot) -> bytes:
 
 
 def export_json(snapshot: ReferenceSnapshot) -> dict[str, Any]:
-    return snapshot.to_dict()
+    data = snapshot.to_dict()
+    known = set(exportable_sections())
+    data["sections"] = {key: value for key, value in data["sections"].items() if key in known}
+    return data
 
 
 def _item_value(item: ReferenceItem, key: str) -> Any:
@@ -149,3 +152,139 @@ def _cell(column: Column, value: Any) -> Any:
             return None
         return json.dumps(value, ensure_ascii=False)
     return str(value)
+
+
+# --- Импорт -----------------------------------------------------------------
+
+
+def import_file(name: str, data: bytes) -> dict[str, list[ReferenceItem]]:
+    lowered = name.lower()
+    if lowered.endswith(".xlsx"):
+        return import_xlsx(data)
+    if lowered.endswith(".json"):
+        return import_json(data)
+    raise ReferenceFileError("Поддерживаются файлы xlsx или JSON.")
+
+
+def import_json(data: bytes) -> dict[str, list[ReferenceItem]]:
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReferenceFileError(f"Файл не является корректным JSON: {exc}") from exc
+    raw_sections = payload.get("sections") if isinstance(payload, dict) else None
+    if not isinstance(raw_sections, dict):
+        raise ReferenceFileError("В JSON нет объекта «sections» с разделами.")
+    known = set(exportable_sections())
+    sections: dict[str, list[ReferenceItem]] = {}
+    for section, rows in raw_sections.items():
+        if section not in known:
+            raise ReferenceFileError(f"Неизвестный раздел «{section}».")
+        if not isinstance(rows, list):
+            raise ReferenceFileError(f"Раздел «{section}» должен быть списком записей.")
+        sections[section] = [ReferenceItem.from_dict(row) for row in rows]
+    return sections
+
+
+def import_xlsx(data: bytes) -> dict[str, list[ReferenceItem]]:
+    try:
+        book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    except Exception as exc:  # openpyxl бросает разные классы для битых файлов
+        raise ReferenceFileError(f"Файл не открывается как книга xlsx: {exc}") from exc
+    known = set(exportable_sections())
+    sections: dict[str, list[ReferenceItem]] = {}
+    for sheet in book.worksheets:
+        section = sheet.title
+        if section not in known:
+            raise ReferenceFileError(f"Неизвестный лист «{section}»: такого раздела нет.")
+        columns = {column.key: column for column in section_columns(section)}
+        rows = sheet.iter_rows(values_only=True)
+        header = next(rows, None)
+        if header is None:
+            sections[section] = []
+            continue
+        keys: list[str | None] = [str(key).strip() if key not in (None, "") else None for key in header]
+        for key in keys:
+            if key is not None and key not in columns:
+                raise ReferenceFileError(f"Неизвестная колонка «{key}» (лист «{section}»).")
+        next(rows, None)  # строка подписей
+        items: list[ReferenceItem] = []
+        for row_no, values in enumerate(rows, start=3):
+            cells = {key: value for key, value in zip(keys, values) if key is not None}
+            if all(value in (None, "") for value in cells.values()):
+                continue
+            items.append(_item_from_cells(section, row_no, cells, columns))
+        sections[section] = items
+    return sections
+
+
+def _item_from_cells(
+    section: str,
+    row_no: int,
+    cells: Mapping[str, Any],
+    columns: Mapping[str, Column],
+) -> ReferenceItem:
+    def parse(key: str) -> Any:
+        return _parse(section, row_no, columns[key], cells.get(key))
+
+    code = parse("code") if "code" in cells else None
+    if not code:
+        raise ReferenceFileError(f"Лист «{section}», строка {row_no}: нет кода записи.")
+    name = parse("name") if "name" in cells else None
+    if not name:
+        raise ReferenceFileError(f"Лист «{section}», строка {row_no}: нет наименования записи.")
+    is_active = parse("is_active") if "is_active" in cells else None
+    payload: dict[str, Any] = {}
+    for key in cells:
+        if key in _FIXED_KEYS:
+            continue
+        value = parse(key)
+        if value is not None:
+            payload[key] = value
+    return ReferenceItem(
+        code=str(code),
+        name=str(name),
+        payload=payload,
+        is_active=True if is_active is None else bool(is_active),
+        valid_from=parse("valid_from") if "valid_from" in cells else None,
+        valid_to=parse("valid_to") if "valid_to" in cells else None,
+        source="Импорт xlsx",
+        comment=str(parse("comment") or "") if "comment" in cells else "",
+    )
+
+
+def _parse(section: str, row_no: int, column: Column, value: Any) -> Any:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    where = f"лист «{section}», строка {row_no}, колонка «{column.key}»"
+    if column.kind == "bool":
+        if isinstance(value, bool):
+            return value
+        word = str(value).strip().lower()
+        if word in TRUE_WORDS:
+            return True
+        if word in FALSE_WORDS:
+            return False
+        raise ReferenceFileError(f"{where}: ожидается «да» или «нет», получено «{value}».")
+    if column.kind == "date":
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        try:
+            return date.fromisoformat(str(value).strip())
+        except ValueError as exc:
+            raise ReferenceFileError(f"{where}: ожидается дата, получено «{value}».") from exc
+    if column.kind == "decimal":
+        try:
+            number = Decimal(str(value).strip().replace(",", "."))
+        except InvalidOperation as exc:
+            raise ReferenceFileError(f"{where}: ожидается число, получено «{value}».") from exc
+        return format(number.normalize(), "f")
+    if column.kind == "json":
+        if isinstance(value, (list, dict)):
+            return value
+        try:
+            return json.loads(str(value))
+        except json.JSONDecodeError as exc:
+            raise ReferenceFileError(f"{where}: ожидается JSON, получено «{value}».") from exc
+    return str(value).strip()

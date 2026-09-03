@@ -1,11 +1,7 @@
 """api.routers.cost: калькуляторы бурения и ФОТ дают те же цифры, что и
 прежние Streamlit-калькуляторы (cost/drilling_ui.py, cost/labor_ui.py)."""
-import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
-import cost.persistence as persistence
 from api.schemas.cost import (
     DrillingUnitCalculateRequest,
     DrillingUnitCostInputSchema,
@@ -16,19 +12,13 @@ from api.schemas.cost import (
 from api.services.cost_service import calculate_drilling_unit, calculate_labor
 from cost.drilling import DEFAULT_DRILLING_PRICE_PER_M
 from cost.labor import LaborFOTSettings, calculate_labor_fot, labor_assignments_from_records, labor_catalog_from_records
+from cost.v2.legacy_adapter import default_legacy_references
 
 
 class DrillingUnitCalculatorTests(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        patcher = patch.object(persistence, "data_root", return_value=Path(self._tmp.name))
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
     def test_default_input_matches_excel_reference_price(self):
         request = DrillingUnitCalculateRequest(input=DrillingUnitCostInputSchema())
-        response = calculate_drilling_unit(request, team_id="default")
+        response = calculate_drilling_unit(request, default_legacy_references())
         self.assertAlmostEqual(response.result.price_per_m, DEFAULT_DRILLING_PRICE_PER_M)
         self.assertTrue(response.summary_rows)
 

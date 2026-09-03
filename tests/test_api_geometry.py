@@ -1,11 +1,7 @@
 """api.routers.blast: геометрия скважины/блока и SVG-схема заряда совпадают
 с прямым вызовом cost.geometry, как это делал Streamlit-интерфейс."""
-import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
-import cost.persistence as persistence
 from api.routers.blast import post_blast_geometry, post_hole_scheme
 from api.schemas.blast import BlastGeometryRequest
 from cost.explosive_data import DEFAULT_EXPLOSIVE_KEY, DEFAULT_EXPLOSIVES
@@ -15,16 +11,10 @@ from cost.geometry import (
     hole_geometry_table_rows,
     normalize_initiation_config,
 )
+from cost.v2.legacy_adapter import default_legacy_references
 
 
 class BlastGeometryEndpointTests(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        patcher = patch.object(persistence, "data_root", return_value=Path(self._tmp.name))
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
     def _payload(self, **overrides) -> BlastGeometryRequest:
         base = dict(
             grid_a_m=6.0,
@@ -43,7 +33,7 @@ class BlastGeometryEndpointTests(unittest.TestCase):
 
     def test_geometry_matches_direct_calculation(self):
         payload = self._payload()
-        response = post_blast_geometry(payload, team_id="default")
+        response = post_blast_geometry(payload, legacy=default_legacy_references())
 
         explosive_item = next(i for i in DEFAULT_EXPLOSIVES if i.key == DEFAULT_EXPLOSIVE_KEY)
         initiation = normalize_initiation_config(
@@ -80,12 +70,12 @@ class BlastGeometryEndpointTests(unittest.TestCase):
         )
 
     def test_contour_view_uses_per_meter_rows(self):
-        response = post_blast_geometry(self._payload(view="contour"), team_id="default")
+        response = post_blast_geometry(self._payload(view="contour"), legacy=default_legacy_references())
         labels = [row[0] for row in response.hole_rows]
         self.assertIn("Удельный расход, кг/п.м.", labels)
 
     def test_hole_scheme_returns_svg(self):
-        response = post_hole_scheme(self._payload(), team_id="default")
+        response = post_hole_scheme(self._payload(), legacy=default_legacy_references())
         self.assertEqual(response.media_type, "image/svg+xml")
         self.assertGreater(len(response.body), 1000)
         self.assertIn(b"<svg", response.body)

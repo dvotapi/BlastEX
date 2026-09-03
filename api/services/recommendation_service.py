@@ -20,6 +20,7 @@ from api.schemas.recommendation import (
 from api.schemas.scenarios import ScenarioCreateRequest, ScenarioCreateResponse, ScenarioParamsSchema
 from api.services.design_service import estimate_design_cost
 from api.services.scenario_service import create_scenario
+from cost.v2.legacy_adapter import default_legacy_references
 from design.models import BlastDesign
 from design.optimization.types import VariableBound
 from design.persistence import DesignNotFoundError as StoreDesignNotFound
@@ -51,12 +52,15 @@ def _assert_unchanged(before: dict[str, Any], design: BlastDesign, action: str) 
 
 
 def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes) -> None:
+    # Справочники — фиксированные значения Cost V1 по умолчанию, а не опубликованная
+    # ревизия организации: этот ML-сервис читает per-org справочники не через это поле.
     try:
         result = estimate_design_cost(
             DesignCostRequest(
                 design=BlastDesignSchema(**overlay.to_dict()),
                 scenario_id=params.cost_scenario_id or "drill_blast",
-            )
+            ),
+            default_legacy_references(),
         )
     except Exception as exc:
         outcomes.warnings.append(f"Смета недоступна: {exc}")

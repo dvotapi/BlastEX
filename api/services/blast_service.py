@@ -9,6 +9,7 @@ from api.schemas.blast import (
     BlastOptimizeVariant,
 )
 from api.services.converters import blast_request_to_engine_inputs
+from cost.v2.legacy_adapter import LegacyReferences
 
 
 def optimize_blast(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
@@ -56,17 +57,13 @@ def optimize_blast(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
     )
 
 
-def resolve_explosive_item(team_id: str, explosive_key: str):
-    """ВВ команды по ключу UI, с откатом на первый элемент (как selectbox в Streamlit)."""
-    from cost.explosive_data import DEFAULT_EXPLOSIVES, explosives_from_records
-    from cost.persistence import load_team_references
-
-    refs = load_team_references(team_id)
-    items = explosives_from_records(refs.explosive_records) or list(DEFAULT_EXPLOSIVES)
+def resolve_explosive_item(legacy: LegacyReferences, explosive_key: str):
+    """ВВ по ключу UI, с откатом на первый элемент справочника."""
+    items = list(legacy.explosives)
     return next((item for item in items if item.key == explosive_key), items[0])
 
 
-def compute_geometry(payload, team_id: str):
+def compute_geometry(payload, legacy: LegacyReferences):
     """Геометрия скважины и блока для панели схемы заряда (api/schemas/blast.BlastGeometryRequest)."""
     from cost.geometry import (
         calculate_block_geometry,
@@ -74,7 +71,7 @@ def compute_geometry(payload, team_id: str):
         normalize_initiation_config,
     )
 
-    explosive_item = resolve_explosive_item(team_id, payload.explosive_key)
+    explosive_item = resolve_explosive_item(legacy, payload.explosive_key)
     initiation = normalize_initiation_config(
         intermediate_detonators_per_hole=payload.intermediate_detonators_per_hole,
         nsi_per_hole=payload.nsi_per_hole,

@@ -11,11 +11,12 @@ from api.services.converters import (
 )
 from cost.engine import CostEngine
 from cost.scenarios import get_scenario_calc_profile
+from cost.v2.legacy_adapter import LegacyReferences
 
 
-def calculate_cost(request: CostCalculateRequest) -> AggregatedCostResultSchema:
+def calculate_cost(request: CostCalculateRequest, legacy: LegacyReferences) -> AggregatedCostResultSchema:
     validate_scenario_exists(request.scenario_id)
-    context = build_calculation_context(request)
+    context = build_calculation_context(request, legacy)
     block_data = resolve_block_data(request)
     profile = get_scenario_calc_profile(request.scenario_id)
 
@@ -58,7 +59,7 @@ def calculate_cost(request: CostCalculateRequest) -> AggregatedCostResultSchema:
 
 
 def calculate_drilling_unit(
-    request: "DrillingUnitCalculateRequest", team_id: str
+    request: "DrillingUnitCalculateRequest", legacy: LegacyReferences
 ) -> "DrillingUnitCalculateResponse":
     from dataclasses import asdict
 
@@ -68,15 +69,11 @@ def calculate_drilling_unit(
         DrillingUnitCostResultSchema,
     )
     from cost.drilling import DrillingUnitCostInput, calculate_drilling_unit_cost, unit_cost_summary_rows
-    from cost.drilling_data import DEFAULT_DRILL_RIGS, DEFAULT_WORK_OBJECTS, drill_rigs_from_records, work_objects_from_records
-    from cost.persistence import load_team_references
-
-    refs = load_team_references(team_id)
-    work_objects = work_objects_from_records(refs.work_object_records) or list(DEFAULT_WORK_OBJECTS)
-    drill_rigs = drill_rigs_from_records(refs.drill_rig_records) or list(DEFAULT_DRILL_RIGS)
 
     params = DrillingUnitCostInput(**request.input.model_dump())
-    result = calculate_drilling_unit_cost(params, work_objects=work_objects, drill_rigs=drill_rigs)
+    result = calculate_drilling_unit_cost(
+        params, work_objects=list(legacy.work_objects), drill_rigs=list(legacy.drill_rigs)
+    )
 
     result_schema = DrillingUnitCostResultSchema(
         commercial_speed_m_per_shift=result.commercial_speed_m_per_shift,
@@ -129,17 +126,12 @@ def calculate_labor(request: "LaborCalculateRequest") -> "LaborCalculateResponse
     )
 
 
-def resolve_materials_auto(request: "MaterialsAutoRequest", team_id: str) -> "MaterialsAutoResponse":
+def resolve_materials_auto(request: "MaterialsAutoRequest", legacy: LegacyReferences) -> "MaterialsAutoResponse":
     from api.schemas.cost import MaterialsAutoResponse, MaterialsSelectionSchema
     from cost.materials import auto_materials_selection
     from cost.models import InitiationConfig
-    from cost.persistence import load_scenario_snapshot, load_team_settings
 
-    from cost.catalog import DEFAULT_CATALOG, catalog_from_records
-
-    settings = load_team_settings(team_id)
-    snapshot = load_scenario_snapshot(team_id, settings.active_scenario_id)
-    catalog = catalog_from_records(snapshot.cost_catalog_records) or list(DEFAULT_CATALOG)
+    catalog = list(legacy.catalog)
 
     selection = auto_materials_selection(
         catalog=catalog,

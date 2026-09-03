@@ -13,28 +13,32 @@ from api.schemas.cost import (
     MaterialsAutoRequest,
     MaterialsAutoResponse,
 )
-from api.security import current_team_id
 from api.services.cost_service import (
     calculate_cost,
     calculate_drilling_unit,
     calculate_labor,
     resolve_materials_auto,
 )
+from api.services.legacy_references import current_legacy_references
+from cost.v2.legacy_adapter import LegacyReferences
 
 router = APIRouter(prefix="/cost", tags=["cost"])
 
 
 @router.post("/calculate", response_model=AggregatedCostResultSchema)
-def post_cost_calculate(request: CostCalculateRequest) -> AggregatedCostResultSchema:
-    return calculate_cost(request)
+def post_cost_calculate(
+    request: CostCalculateRequest,
+    legacy: LegacyReferences = Depends(current_legacy_references),
+) -> AggregatedCostResultSchema:
+    return calculate_cost(request, legacy)
 
 
 @router.post("/drilling-unit", response_model=DrillingUnitCalculateResponse)
 def post_drilling_unit(
     request: DrillingUnitCalculateRequest,
-    team_id: str = Depends(current_team_id),
+    legacy: LegacyReferences = Depends(current_legacy_references),
 ) -> DrillingUnitCalculateResponse:
-    return calculate_drilling_unit(request, team_id)
+    return calculate_drilling_unit(request, legacy)
 
 
 @router.post("/labor", response_model=LaborCalculateResponse)
@@ -45,6 +49,6 @@ def post_labor(request: LaborCalculateRequest) -> LaborCalculateResponse:
 @router.post("/materials-auto", response_model=MaterialsAutoResponse)
 def post_materials_auto(
     request: MaterialsAutoRequest,
-    team_id: str = Depends(current_team_id),
+    legacy: LegacyReferences = Depends(current_legacy_references),
 ) -> MaterialsAutoResponse:
-    return resolve_materials_auto(request, team_id)
+    return resolve_materials_auto(request, legacy)

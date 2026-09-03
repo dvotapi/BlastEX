@@ -5,7 +5,8 @@ import { DataTable } from "../components/DataTable";
 import { DrillingGeometryPage } from "./calc/DrillingGeometryPage";
 import { HolePanel } from "./calc/HolePanel";
 import { ManualScenarioPage } from "./calc/ManualScenarioPage";
-import type { BlastVariant, Explosive, Rock } from "../types";
+import type { BlastGeometryResponse, BlastVariant, Explosive, Rock } from "../types";
+import type { TechnicalPassport } from "../types/blockEconomics";
 
 const DEFAULT_EXPLOSIVE_1 = "ПВВ Гранулит-РП";
 const DEFAULT_EXPLOSIVE_2 = "ПЭВВ ЭВЕРСИН Э-100";
@@ -41,12 +42,127 @@ function ResultsChart({ variants }: { variants: BlastVariant[] }) {
   );
 }
 
+/**
+ * Технические паспорта блока: вход во вкладку «Экономика».
+ *
+ * Паспорт фиксирует рассчитанный блок и ревизию справочников, поэтому
+ * экономика считается по нему, а не по текущему состоянию формы.
+ */
+function PassportBar({
+  geometry,
+  onOpenEconomics,
+}: {
+  geometry: BlastGeometryResponse | null;
+  onOpenEconomics?: (passportId: string) => void;
+}) {
+  const [passports, setPassports] = useState<TechnicalPassport[]>([]);
+  const [sites, setSites] = useState<{ code: string; name: string }[]>([]);
+  const [siteCode, setSiteCode] = useState("");
+  const [objectName, setObjectName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    Promise.all([api.economics.technicalPassports(), api.economics.referenceSnapshot()])
+      .then(([saved, snapshot]) => {
+        setPassports(saved);
+        const siteItems = (snapshot.sections.sites ?? []).map((item) => ({
+          code: item.code,
+          name: item.name,
+        }));
+        setSites(siteItems);
+        setSiteCode((current) => current || siteItems[0]?.code || "");
+      })
+      .catch((reason) =>
+        setError(reason instanceof Error ? reason.message : "Не удалось загрузить паспорта."),
+      );
+  }, []);
+
+  async function savePassport() {
+    if (!geometry || !siteCode) return;
+    setBusy(true);
+    setError("");
+    try {
+      const created = await api.economics.createTechnicalPassport({
+        site_code: siteCode,
+        object_name: objectName.trim() || `Блок ${Math.round(geometry.block.block_volume_m3)} м³`,
+        block: geometry.block as unknown as Record<string, unknown>,
+        selected_variant: { label: geometry.label },
+      });
+      setPassports((rows) => [created, ...rows]);
+      setObjectName("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сохранить паспорт.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel passport-bar">
+      <header><b>Технические паспорта</b><span>Экономика блока</span></header>
+      <div className="panel-body">
+        {error && <div className="page-error" role="alert">{error}</div>}
+        <div className="economic-fields-grid">
+          <label>
+            Объект работ
+            <select value={siteCode} onChange={(event) => setSiteCode(event.target.value)}>
+              {sites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Название паспорта
+            <input
+              value={objectName}
+              placeholder="Блок, м³"
+              onChange={(event) => setObjectName(event.target.value)}
+            />
+          </label>
+          <div className="button-row">
+            <button type="button" onClick={() => void savePassport()} disabled={busy || !geometry || !siteCode}>
+              Сохранить паспорт
+            </button>
+          </div>
+        </div>
+        {passports.length === 0 ? (
+          <p className="page-caption">Сохранённых паспортов нет.</p>
+        ) : (
+          <div className="passport-list">
+            {passports.slice(0, 8).map((passport) => (
+              <div className="passport-list-row" key={passport.id}>
+                <span>
+                  <b>{passport.object_name}</b>
+                  <small>
+                    {passport.site_code} · вер. {passport.version_no} ·{" "}
+                    {new Date(passport.created_at).toLocaleDateString("ru-RU")}
+                  </small>
+                </span>
+                <em>{Number(passport.physical.rock_volume_m3 ?? 0).toLocaleString("ru-RU")} м³</em>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => onOpenEconomics?.(passport.id)}
+                  disabled={!onOpenEconomics}
+                >
+                  Экономика
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function FullBvrCalc({
   explosiveBasis,
   onSendToDesign,
+  onOpenEconomics,
 }: {
   explosiveBasis: "per_m3" | "per_m";
   onSendToDesign?: (variant: BlastVariant) => void;
+  onOpenEconomics?: (passportId: string) => void;
 }) {
   const [rocks, setRocks] = useState<Rock[]>([]);
   const [explosives, setExplosives] = useState<Explosive[]>([]);
@@ -68,6 +184,7 @@ function FullBvrCalc({
   const [additionalHolesPct, setAdditionalHolesPct] = useState(3.0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [geometry, setGeometry] = useState<BlastGeometryResponse | null>(null);
 
   useEffect(() => {
     Promise.all([api.rocks(), api.explosives(), api.blastOptions()]).then(([rockData, explosiveData, opts]) => {
@@ -184,6 +301,7 @@ function FullBvrCalc({
               explosiveBasis={explosiveBasis}
               nsiLengthOptions={nsiLengthOptions}
               detonatorDelayOptions={detonatorDelayOptions}
+              onGeometry={setGeometry}
             />
             <HolePanel
               panelKey="right"
@@ -205,13 +323,20 @@ function FullBvrCalc({
               detonatorDelayOptions={detonatorDelayOptions}
             />
           </div>
+          <PassportBar geometry={geometry} onOpenEconomics={onOpenEconomics} />
         </div>
       )}
     </div>
   );
 }
 
-export function CalcPage({ onSendToDesign }: { onSendToDesign?: (variant: BlastVariant) => void }) {
+export function CalcPage({
+  onSendToDesign,
+  onOpenEconomics,
+}: {
+  onSendToDesign?: (variant: BlastVariant) => void;
+  onOpenEconomics?: (passportId: string) => void;
+}) {
   const { activeScenario, loading } = useWorkspace();
   if (loading) return <div className="page-content">Загрузка…</div>;
   if (!activeScenario) return <div className="page-content">Выберите сценарий.</div>;
@@ -228,6 +353,7 @@ export function CalcPage({ onSendToDesign }: { onSendToDesign?: (variant: BlastV
         <FullBvrCalc
           explosiveBasis={profile.explosive_basis === "per_m" ? "per_m" : "per_m3"}
           onSendToDesign={onSendToDesign}
+          onOpenEconomics={onOpenEconomics}
         />
       )}
     </div>

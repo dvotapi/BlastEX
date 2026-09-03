@@ -8,14 +8,16 @@ import { DrillingPage } from "../pages/DrillingPage";
 import { LaborPage } from "../pages/LaborPage";
 import { ReferencesPage as CalcReferencesPage } from "../pages/ReferencesPage";
 import { EconomicsPage } from "../pages/EconomicsPage";
+import { BlockEconomicsPage } from "../pages/economics/BlockEconomicsPage";
 import { ReferencesPage } from "../pages/references/ReferencesPage";
 
-const PAGES = ["Расчёт", "Проектирование", "Экономика юнита", "Бурение", "ФОТ", "Справочники", "Справочники расчёта"] as const;
+const PAGES = ["Расчёт", "Проектирование", "Экономика", "Экономика юнита", "Бурение", "ФОТ", "Справочники", "Справочники расчёта"] as const;
 type Page = (typeof PAGES)[number];
 const ICONS: Record<Page, string> = {
   "Расчёт": "◫",
   "Проектирование": "⛏",
-  "Экономика юнита": "₽",
+  "Экономика": "₽",
+  "Экономика юнита": "◱",
   "Бурение": "⌁",
   "ФОТ": "◎",
   "Справочники": "▦",
@@ -24,6 +26,7 @@ const ICONS: Record<Page, string> = {
 const TITLES: Record<Page, string> = {
   "Расчёт": "Расчёт БВР",
   "Проектирование": "Проектирование БВР",
+  "Экономика": "Экономика блока",
   "Экономика юнита": "Экономика производственного юнита",
   "Бурение": "Бурение",
   "ФОТ": "ФОТ",
@@ -34,6 +37,7 @@ const TITLES: Record<Page, string> = {
 export function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [page, setPage] = useState<Page>("Расчёт");
   const [pendingVariant, setPendingVariant] = useState<BlastVariant | null>(null);
+  const [economicsPassportId, setEconomicsPassportId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     const saved = window.localStorage.getItem("blastex.sidebar.collapsed");
@@ -44,6 +48,11 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
   function sendToDesign(variant: BlastVariant) {
     setPendingVariant(variant);
     setPage("Проектирование");
+  }
+
+  function openEconomics(passportId: string) {
+    setEconomicsPassportId(passportId);
+    setPage("Экономика");
   }
 
   function toggleSidebar() {
@@ -97,8 +106,8 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
             <div><b>{TITLES[page]}</b><span>{user.organization_name}</span></div>
             <button className="logout-button" onClick={onLogout}>Выйти</button>
           </header>
-          {page !== "Проектирование" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
-          {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} />}
+          {page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
+          {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
           {page === "Проектирование" && (
             <DesignPage
               user={user}
@@ -106,6 +115,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
               onVariantConsumed={() => setPendingVariant(null)}
             />
           )}
+          {page === "Экономика" && <BlockEconomicsPage passportId={economicsPassportId} />}
           {page === "Экономика юнита" && <EconomicsPage />}
           {page === "Бурение" && <DrillingPage />}
           {page === "ФОТ" && <LaborPage />}

@@ -68,6 +68,11 @@ class SitePayload(ReferencePayload):
         "км", title="Плечо мобилизации", description="Плечо мобилизации техники на объект", default=None
     )
     is_watered: bool = Field(default=False, title="Обводнённость", description="Обводнённость блока по умолчанию")
+    # Суточные и проживание начисляются только на вахтовом объекте: на
+    # городском карьере бригада ночует дома, и норматив к ней не применяется.
+    is_remote: bool = Field(
+        default=False, title="Вахтовый объект", description="Начисляются суточные и проживание"
+    )
 
 
 class OrganizationRatesPayload(ReferencePayload):

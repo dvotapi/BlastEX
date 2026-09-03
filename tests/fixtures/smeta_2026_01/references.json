@@ -1,0 +1,179 @@
+{
+  "source": "Смета ТГ от 23.03.2026.xlsx, столбец «БВР сухие» (ANFO), карьер Ломовского месторождения",
+  "sections": {
+    "organization_rates": [
+      {"code": "ORG_RATES_TG", "name": "Ставки организации (смета)", "payload": {
+        "income_tax_rate": "0.15",
+        "social_contribution_rate": "0.30",
+        "injury_insurance_rate": "0.0042",
+        "vacation_reserve_rate": "0.20",
+        "salary_basis": "NET",
+        "overhead_rate": "0.10",
+        "target_margin_rate": "0.10",
+        "vat_rate": "0.22",
+        "per_diem_rub": "0",
+        "lodging_rub": "0",
+        "shift_hours": "11"
+      }}
+    ],
+    "production_units": [
+      {"code": "UNIT_TG", "name": "Юнит Теплогорский", "payload": {"plan_volume_m3": "150000"}}
+    ],
+    "rocks": [
+      {"code": "ROCK_TG", "name": "Порода карьера Ломовского", "payload": {"hardness_f": "12"}}
+    ],
+    "sites": [
+      {"code": "SITE_LOMOV", "name": "Карьер Ломовского месторождения", "payload": {
+        "production_unit_code": "UNIT_TG",
+        "rock_code": "ROCK_TG",
+        "distance_from_base_km": "300",
+        "distance_from_warehouse_km": "300",
+        "diesel_price_ton_rub": "80000",
+        "blocks_per_mobilization": "6",
+        "mobilization_km": "300",
+        "mobilization_rate_rub_per_km": "450",
+        "is_remote": false
+      }}
+    ],
+    "materials": [
+      {"code": "MAT_ANFO", "name": "ГВВ Гранулит РП", "payload": {"unit": "KG", "material_kind": "ВВ", "storage_class": "BULK"}},
+      {"code": "MAT_ISKRA_S12", "name": "Устройство Искра-С-*-12", "payload": {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI"}},
+      {"code": "MAT_ISKRA_P5", "name": "Устройство Искра-П-*-5", "payload": {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI"}},
+      {"code": "MAT_ISKRA_START", "name": "Устройство ИСКРА-СТАРТ-В-500", "payload": {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI"}},
+      {"code": "MAT_BIT", "name": "Буровая коронка", "payload": {"unit": "PIECE", "material_kind": "ТМЦ", "storage_class": "NONE"}},
+      {"code": "MAT_HAMMER", "name": "ППУ", "payload": {"unit": "PIECE", "material_kind": "ТМЦ", "storage_class": "NONE"}},
+      {"code": "MAT_RODS", "name": "Буровая оснастка (штанги, переводники)", "payload": {"unit": "PIECE", "material_kind": "ТМЦ", "storage_class": "NONE"}},
+      {"code": "MAT_CASING", "name": "Обсадная труба", "payload": {"unit": "M", "material_kind": "ТМЦ", "storage_class": "NONE"}}
+    ],
+    "material_prices": [
+      {"code": "PR_ANFO", "name": "ГВВ Гранулит РП", "payload": {"material_code": "MAT_ANFO", "price_rub": "46"}},
+      {"code": "PR_ISKRA_S12", "name": "Искра-С-12", "payload": {"material_code": "MAT_ISKRA_S12", "price_rub": "46"}},
+      {"code": "PR_ISKRA_P5", "name": "Искра-П-5", "payload": {"material_code": "MAT_ISKRA_P5", "price_rub": "46"}},
+      {"code": "PR_ISKRA_START", "name": "Искра-Старт-В-500", "payload": {"material_code": "MAT_ISKRA_START", "price_rub": "46"}},
+      {"code": "PR_BIT", "name": "Буровая коронка", "payload": {"material_code": "MAT_BIT", "price_rub": "25000"}},
+      {"code": "PR_HAMMER", "name": "ППУ", "payload": {"material_code": "MAT_HAMMER", "price_rub": "100000"}},
+      {"code": "PR_RODS", "name": "Буровая оснастка", "payload": {"material_code": "MAT_RODS", "price_rub": "155000"}},
+      {"code": "PR_CASING", "name": "Обсадная труба", "payload": {"material_code": "MAT_CASING", "price_rub": "450"}}
+    ],
+    "equipment_types": [
+      {"code": "RIG_JK830", "name": "Буровая установка JK 830-3", "payload": {
+        "kind": "DRILL_RIG",
+        "operation_code": "PRODUCTION_DRILLING",
+        "norm_shifts_per_month": "40",
+        "maintenance_mode": "PER_SHIFT",
+        "maintenance_ratio": "0.170210",
+        "maintenance_rub_per_shift": "0",
+        "spare_parts_rub_per_shift": "4800",
+        "inspection_rub_per_shift": "100",
+        "medical_rub_per_shift": "100",
+        "fuel_l_per_h": "50"
+      }},
+      {"code": "SZM_TDR", "name": "СЗМ TDR.PR-12 на шасси КАМАЗ", "payload": {
+        "kind": "SZM",
+        "operation_code": "BULK_CHARGING_SZM",
+        "norm_shifts_per_month": "20",
+        "maintenance_mode": "PER_SHIFT",
+        "maintenance_rub_per_shift": "0",
+        "capacity": "15000",
+        "capacity_unit": "KG",
+        "fuel_l_per_h": "0"
+      }}
+    ],
+    "equipment_assets": [
+      {"code": "ASSET_RIG", "name": "JK 830-3", "payload": {
+        "equipment_type_code": "RIG_JK830",
+        "production_unit_code": "UNIT_TG",
+        "initial_cost_rub": "28450000",
+        "useful_life_months": "60",
+        "insurance_monthly_rub": "0"
+      }},
+      {"code": "ASSET_SZM", "name": "СЗМ TDR.PR-12", "payload": {
+        "equipment_type_code": "SZM_TDR",
+        "production_unit_code": "UNIT_TG",
+        "initial_cost_rub": "0",
+        "useful_life_months": "0",
+        "insurance_monthly_rub": "0",
+        "depreciation_per_shift_rub": "9426.069",
+        "productive_shifts_per_month": "20"
+      }}
+    ],
+    "drilling_conditions": [
+      {"code": "COND_TG", "name": "JK 830-3 на карьере Ломовского", "payload": {
+        "equipment_type_code": "RIG_JK830",
+        "rock_code": "ROCK_TG",
+        "tech_speed_m_per_h": "12",
+        "unproductive_h_per_shift": "1",
+        "fuel_l_per_m": "4.1666667",
+        "bit_life_m": "700",
+        "hammer_life_m": "7000",
+        "rods_life_m": "15000",
+        "casing_m_per_m": "0.03",
+        "bit_material_code": "MAT_BIT",
+        "hammer_material_code": "MAT_HAMMER",
+        "rods_material_code": "MAT_RODS",
+        "casing_material_code": "MAT_CASING"
+      }}
+    ],
+    "positions": [
+      {"code": "POS_MASTER", "name": "Руководитель взрывных работ (мастер БВР)", "payload": {
+        "category": "DIRECT", "operation_code": "BLAST_EXECUTION",
+        "norm_shifts_per_month": "21", "norm_operations_per_month": "5",
+        "piece_driver": "rock_volume_m3", "piece_unit": "1", "per_diem_applies": true
+      }},
+      {"code": "POS_BLASTER", "name": "Взрывник", "payload": {
+        "category": "DIRECT", "operation_code": "BLAST_EXECUTION",
+        "norm_shifts_per_month": "21", "norm_operations_per_month": "5",
+        "piece_driver": "rock_volume_m3", "piece_unit": "1", "per_diem_applies": true
+      }},
+      {"code": "POS_SZM_DRIVER", "name": "Водитель СЗМ", "payload": {
+        "category": "DIRECT", "operation_code": "BULK_CHARGING_SZM",
+        "norm_shifts_per_month": "21", "norm_operations_per_month": "5",
+        "piece_driver": "explosive_kg", "piece_unit": "1", "per_diem_applies": true
+      }},
+      {"code": "POS_DELIVERY_DRIVER", "name": "Водитель доставщика", "payload": {
+        "category": "DIRECT", "operation_code": "VM_DELIVERY_SITE",
+        "norm_shifts_per_month": "21", "norm_operations_per_month": "5",
+        "piece_driver": "explosive_kg", "piece_unit": "1", "per_diem_applies": true
+      }},
+      {"code": "POS_DRILLER", "name": "Бурильщик", "payload": {
+        "category": "DIRECT", "operation_code": "PRODUCTION_DRILLING",
+        "norm_shifts_per_month": "21",
+        "piece_driver": "drilling_m", "piece_unit": "1", "per_diem_applies": true
+      }}
+    ],
+    "labor_rates": [
+      {"code": "LR_MASTER", "name": "Мастер БВР", "payload": {"position_code": "POS_MASTER", "fixed_monthly_rub": "80000", "piece_rate_rub": "0.25"}},
+      {"code": "LR_BLASTER", "name": "Взрывник", "payload": {"position_code": "POS_BLASTER", "fixed_monthly_rub": "55000", "piece_rate_rub": "0.25"}},
+      {"code": "LR_SZM", "name": "Водитель СЗМ", "payload": {"position_code": "POS_SZM_DRIVER", "fixed_monthly_rub": "60000", "piece_rate_rub": "0.3"}},
+      {"code": "LR_DELIVERY", "name": "Водитель доставщика", "payload": {"position_code": "POS_DELIVERY_DRIVER", "fixed_monthly_rub": "80000", "piece_rate_rub": "0.3"}},
+      {"code": "LR_DRILLER", "name": "Бурильщик", "payload": {"position_code": "POS_DRILLER", "fixed_monthly_rub": "0", "piece_rate_rub": "150"}}
+    ],
+    "unit_fixed_costs": [
+      {"code": "UFC_OPR", "name": "Общепроизводственные затраты юнита (раздел 2.6 сметы)", "payload": {
+        "production_unit_code": "UNIT_TG", "scope": "UNIT", "category": "OTHER", "monthly_rub": "388500"
+      }}
+    ],
+    "cost_rules": [
+      {"code": "RULE_ANFO", "name": "ГВВ Гранулит РП", "payload": {
+        "operation_code": "EVV_MANUFACTURE_ON_SITE", "cost_item_code": "MATERIAL_EXPLOSIVE",
+        "behavior_type": "VARIABLE", "cost_layer": "variable", "driver": "explosive_kg", "rate_rub": "46"
+      }},
+      {"code": "RULE_ISKRA_S12", "name": "Устройство Искра-С-*-12", "payload": {
+        "operation_code": "PRIMER_ASSEMBLY", "cost_item_code": "MATERIAL_NSI_DOWNHOLE",
+        "behavior_type": "VARIABLE", "cost_layer": "variable", "driver": "downhole_nsi", "rate_rub": "46"
+      }},
+      {"code": "RULE_ISKRA_P5_DUP", "name": "Устройство Искра-П-*-5 (дублирование)", "payload": {
+        "operation_code": "INITIATION_NETWORK", "cost_item_code": "MATERIAL_NSI_DUPLICATE",
+        "behavior_type": "VARIABLE", "cost_layer": "variable", "driver": "intermediate_detonators", "rate_rub": "46"
+      }},
+      {"code": "RULE_ISKRA_P5_SURFACE", "name": "Устройство Искра-П-*-5 (поверхность)", "payload": {
+        "operation_code": "INITIATION_NETWORK", "cost_item_code": "MATERIAL_NSI_SURFACE",
+        "behavior_type": "VARIABLE", "cost_layer": "variable", "driver": "surface_nsi", "rate_rub": "46"
+      }},
+      {"code": "RULE_ISKRA_START", "name": "Устройство ИСКРА-СТАРТ-В-500", "payload": {
+        "operation_code": "BLAST_EXECUTION", "cost_item_code": "MATERIAL_NSI_START",
+        "behavior_type": "VARIABLE", "cost_layer": "variable", "driver": "start_nsi", "rate_rub": "46"
+      }}
+    ]
+  }
+}

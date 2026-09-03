@@ -279,3 +279,72 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
   .mobile-nav { justify-content:flex-start; overflow-x:auto; }
   .mobile-nav button { min-width:70px; }
 }
+
+/* --- Экономика блока: параметры слева, две цены и структура в центре --- */
+.block-economics-page { display:grid; gap:16px; }
+.block-economics-passport .economic-fields-grid { padding-bottom:4px; }
+.block-economics-passport .button-row { align-self:end; }
+.geometry-readonly { margin-top:12px; }
+.geometry-readonly table { min-width:640px; }
+.geometry-readonly small { color:#78857f; }
+.block-economics-grid { display:grid; grid-template-columns:340px minmax(0,1fr); gap:16px; align-items:start; }
+.block-economics-parameters { position:sticky; top:14px; }
+.block-economics-parameters .panel-body { display:grid; gap:11px; }
+.block-economics-parameters label { display:grid; gap:6px; color:#425149; font-size:11px; font-weight:700; }
+.block-economics-parameters input, .block-economics-parameters select { width:100%; padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; }
+.block-economics-parameters .field-pair, .block-economics-parameters .field-triple { display:grid; gap:9px; }
+.block-economics-parameters .field-pair { grid-template-columns:1fr 1fr; }
+.block-economics-parameters .field-triple { grid-template-columns:repeat(3,1fr); }
+.crew-fieldset { padding:10px; border:1px solid #dde5e1; border-radius:10px; }
+.crew-fieldset legend { padding:0 5px; color:#425149; font-size:11px; font-weight:800; }
+.crew-editor { display:grid; gap:6px; }
+.crew-editor-head, .crew-editor-row { display:grid; grid-template-columns:minmax(0,1fr) 58px 74px 26px; gap:6px; align-items:center; }
+.crew-editor-head span { color:#78857f; font-size:10px; font-weight:700; }
+.crew-editor-row .row-remove { padding:4px; border:1px solid #e0c9c5; border-radius:6px; color:#8b2c23; background:#fdf2f0; }
+.block-economics-results { display:grid; gap:14px; min-width:0; }
+.price-panel-main { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:16px; }
+.price-panel-main > div { padding:16px; border:1px solid #cfe0d6; border-radius:14px; background:#f5faf7; }
+.price-panel-main span { display:block; margin-bottom:6px; color:#5f7168; font-size:11px; font-weight:700; }
+.price-panel-main strong { font-size:34px; letter-spacing:-1px; }
+.price-panel-main small { display:block; margin-top:5px; color:#6e7b75; font-size:10px; }
+.price-panel-secondary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; padding:0 16px 16px; }
+.price-panel-secondary > div { padding:11px; border:1px solid #dde5e1; border-radius:10px; background:#fff; }
+.price-panel-secondary span { display:block; margin-bottom:4px; color:#78857f; font-size:10px; }
+.cost-structure .panel-body { display:grid; gap:12px; }
+.cost-structure-group { border:1px solid #dde5e1; border-radius:12px; overflow:hidden; }
+.cost-structure-head { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) 120px 92px; gap:8px; align-items:baseline; padding:10px 12px; background:#f5f8f6; }
+.cost-structure-head span { color:#78857f; font-size:10px; }
+.cost-structure-head strong { text-align:right; font-size:13px; }
+.cost-structure-head em { text-align:right; color:#5f7168; font-size:11px; font-style:normal; }
+.cost-structure-row button { display:grid; grid-template-columns:minmax(0,1fr) 120px 92px; gap:8px; width:100%; padding:8px 12px; border:0; border-top:1px solid #eef2f0; background:#fff; text-align:left; font-size:12px; cursor:pointer; }
+.cost-structure-row button b { text-align:right; }
+.cost-structure-row button em { text-align:right; color:#6e7b75; font-size:11px; font-style:normal; }
+.cost-structure-row.open button { background:#f7faf8; }
+.cost-structure-formula { margin:0; padding:8px 12px 12px; color:#4a5a51; background:#f7faf8; font-size:11px; }
+.sensitivity-panel table { min-width:620px; }
+.sensitivity-panel header button { margin:0; }
+.runs-list { display:grid; gap:7px; }
+.run-row { display:grid; grid-template-columns:20px minmax(0,1fr) 110px 48px; gap:9px; align-items:center; padding:8px 10px; border:1px solid #dde5e1; border-radius:10px; background:#fff; font-size:12px; }
+.run-row.selected { border-color:#9ec8b0; background:#f4faf6; }
+.run-row small { display:block; color:#78857f; font-size:10px; }
+.run-row em { text-align:right; font-style:normal; font-weight:700; }
+.compare-table { margin-top:12px; }
+.compare-table table { min-width:720px; }
+.compare-total td { font-weight:800; background:#f5f8f6; }
+.passport-bar .panel-body { display:grid; gap:12px; }
+.passport-list { display:grid; gap:7px; }
+.passport-list-row { display:grid; grid-template-columns:minmax(0,1fr) 120px 110px; gap:9px; align-items:center; padding:8px 10px; border:1px solid #dde5e1; border-radius:10px; background:#fff; font-size:12px; }
+.passport-list-row small { display:block; color:#78857f; font-size:10px; }
+.passport-list-row em { text-align:right; font-style:normal; }
+
+@media (max-width:1050px) {
+  .block-economics-grid { grid-template-columns:1fr; }
+  .block-economics-parameters { position:static; }
+  .price-panel-secondary { grid-template-columns:1fr 1fr; }
+}
+@media (max-width:760px) {
+  .price-panel-main { grid-template-columns:1fr; }
+  .price-panel-main strong { font-size:28px; }
+  .cost-structure-head { grid-template-columns:minmax(0,1fr) 100px; }
+  .cost-structure-head span { display:none; }
+}

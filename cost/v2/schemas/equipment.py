@@ -134,3 +134,18 @@ class DrillingConditionPayload(ReferencePayload):
     casing_m_per_m: Decimal = UnitField(
         "м/м", description="Обсадка на метр бурения", default=Decimal("0")
     )
+    # Ресурс задаёт норму износа, материал — цену. Без явной ссылки модель не
+    # знает, чью цену делить на ресурс, поэтому пара «ресурс + материал»
+    # заполняется вместе.
+    bit_material_code: str | None = RefField(
+        "materials", title="Коронка", description="Материал коронки — источник цены", default=None
+    )
+    hammer_material_code: str | None = RefField(
+        "materials", title="ППУ", description="Материал ППУ — источник цены", default=None
+    )
+    rods_material_code: str | None = RefField(
+        "materials", title="Штанги", description="Материал штанг и переводников — источник цены", default=None
+    )
+    casing_material_code: str | None = RefField(
+        "materials", title="Обсадная труба", description="Материал обсадки — источник цены", default=None
+    )

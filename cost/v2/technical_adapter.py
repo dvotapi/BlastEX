@@ -27,7 +27,9 @@ BLOCK_DRIVER_MAP: dict[str, str] = {
 }
 
 TECHNICAL_FORMULA_VERSION = "blast-geometry-v1"
-SCALABLE_BLOCK_DRIVERS = frozenset((*BLOCK_DRIVER_MAP.keys(), "blasts"))
+SCALABLE_BLOCK_DRIVERS = frozenset(
+    (*BLOCK_DRIVER_MAP.keys(), "blasts", "cartridge_kg", "bulk_kg")
+)
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,15 @@ def adapt_blast_block(
             raise ValueError(f"Поле BlockGeometry.{source_field} не может быть отрицательным.")
         physical[driver] = value
         lineage[driver] = f"BlastGeometry.block.{source_field}"
+
+    # Склад ВМ и маршруты доставки считаются раздельно для патронов и насыпных
+    # компонентов, а геометрия блока массу не разделяет: патроны приходят из
+    # ручных драйверов, остальное — насыпное.
+    cartridge_kg = physical.get("cartridge_kg", Decimal("0"))
+    physical["cartridge_kg"] = cartridge_kg
+    lineage.setdefault("cartridge_kg", "не задано: патронированное ВВ отсутствует")
+    physical["bulk_kg"] = max(physical["explosive_kg"] - cartridge_kg, Decimal("0"))
+    lineage["bulk_kg"] = "explosive_kg − cartridge_kg"
 
     # One BlockGeometry response represents one blastable block. Do not infer
     # blasts for an empty technical draft.

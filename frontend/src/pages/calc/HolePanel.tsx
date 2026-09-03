@@ -30,6 +30,7 @@ export function HolePanel({
   isBlastContextSource = true,
   nsiLengthOptions,
   detonatorDelayOptions,
+  onGeometry,
 }: {
   panelKey: string;
   variantLabel: string;
@@ -49,6 +50,8 @@ export function HolePanel({
   isBlastContextSource?: boolean;
   nsiLengthOptions: number[];
   detonatorDelayOptions: number[];
+  /** Рассчитанный блок наружу: по нему сохраняется технический паспорт. */
+  onGeometry?: (geometry: BlastGeometryResponse) => void;
 }) {
   const { state } = useWorkspace();
   const explosiveList = state?.references.explosive_records ?? [];
@@ -87,7 +90,7 @@ export function HolePanel({
 
   useEffect(() => {
     let cancelled = false;
-    api.geometry(payload).then((res) => { if (!cancelled) { setGeometry(res); setError(""); } })
+    api.geometry(payload).then((res) => { if (!cancelled) { setGeometry(res); setError(""); onGeometry?.(res); } })
       .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Ошибка расчёта геометрии."); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -11,7 +11,9 @@
 
 Сравнение значений намеренно мягкое: ``"220"``, ``"220.0"`` и ``220`` — одно
 число, пустая строка равна отсутствию ключа. Иначе черновик, прошедший через
-JSON и формы интерфейса, каждый раз показывал бы ложные изменения.
+JSON и формы интерфейса, каждый раз показывал бы ложные изменения. Эта же
+нормализация (``comparable``) нужна выгрузке в журнал, поэтому она открыта
+наружу и живёт одним местом.
 """
 from __future__ import annotations
 
@@ -29,6 +31,7 @@ __all__ = [
     "DeltaEntry",
     "FieldChange",
     "PublicDelta",
+    "comparable",
     "compute_delta",
 ]
 
@@ -234,7 +237,7 @@ def _changes(proposal: Proposal, record: ReferenceItem) -> Iterator[FieldChange]
         else:
             key = f"{_PAYLOAD_PREFIX}{name}"
             old, new = record.payload.get(name), proposal.payload.get(name)
-        if _comparable(old) == _comparable(new):
+        if comparable(old) == comparable(new):
             continue
         yield FieldChange(key=key, old=_display(old), new=_display(new))
 
@@ -270,7 +273,7 @@ def _applied(record: ReferenceItem, changes: tuple[FieldChange, ...]) -> dict[st
 # --- Сравнение значений -----------------------------------------------------
 
 
-def _comparable(value: Any) -> Any:
+def comparable(value: Any) -> Any:
     """Значение в виде, пригодном для сравнения черновика с журналом.
 
     Пустая строка и отсутствующий ключ — одно и то же (``None``); число в

@@ -1,9 +1,10 @@
 """Обмен справочников blastex со схемой ``public`` (журнал project1).
 
 Пакет знает только о данных: чтение таблиц журнала (``reader``),
-сопоставление их с разделами справочников (``mapping``) и разница с
-черновиком (``delta``). Об интерфейсе и HTTP здесь ничего нет; применение
-разницы к черновику — за пользователем, уровнем выше.
+сопоставление их с разделами справочников (``mapping``), разница с
+черновиком (``delta``) и обратный план записи в журнал (``push``). Об
+интерфейсе и HTTP здесь ничего нет; применение разницы к черновику — за
+пользователем, уровнем выше.
 """
 from __future__ import annotations
 
@@ -24,6 +25,13 @@ from cost.v2.public_sync.mapping import (
     normalize_legal_name,
     public_code,
 )
+from cost.v2.public_sync.push import (
+    PublicInsert,
+    PublicUpdate,
+    PublicWritePlan,
+    plan_public_writes,
+    public_constraint_issues,
+)
 from cost.v2.public_sync.reader import (
     PublicReader,
     PublicUnavailable,
@@ -37,10 +45,13 @@ __all__ = [
     "FieldChange",
     "Proposal",
     "PublicDelta",
+    "PublicInsert",
     "PublicReader",
     "PublicRow",
     "PublicSnapshot",
     "PublicUnavailable",
+    "PublicUpdate",
+    "PublicWritePlan",
     "SqlPublicReader",
     "StaticPublicReader",
     "TABLES",
@@ -48,5 +59,7 @@ __all__ = [
     "compute_delta",
     "kind_for_machine_type",
     "normalize_legal_name",
+    "plan_public_writes",
     "public_code",
+    "public_constraint_issues",
 ]

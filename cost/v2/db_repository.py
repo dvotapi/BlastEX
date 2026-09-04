@@ -45,7 +45,7 @@ from cost.v2.repository import (
     links_for_sections,
 )
 from cost.v2.public_sync.mirror import ensure_mirror, sync_mirror
-from cost.v2.public_sync.push import plan_public_writes
+from cost.v2.public_sync.push import implicit_links, plan_public_writes
 from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader, reason
 from cost.v2.public_sync.settings import (
     EXCHANGE_KEY,
@@ -525,14 +525,27 @@ class PostgresEconomicsRepository:
             snapshot = SqlPublicReader.from_connection(session.connection()).read()
         except PublicUnavailable as exc:
             raise PublicWriteError(exc) from exc
+        # Связь, которую видно по коду записи, при публикации становится
+        # явной: иначе следующая публикация угадывала бы её заново, а до
+        # выгрузки пользователь видел бы конфликт уникального ключа без
+        # способа его снять.
+        guessed = implicit_links(normalized, links, snapshot)
+        for link in guessed:
+            self._upsert_public_link(session, organization_id, user_id, link, now)
+        links = [*links, *guessed]
         plan = plan_public_writes(normalized, links, snapshot)
         for link in SqlPublicWriter(session, links).apply(plan):
             self._upsert_public_link(session, organization_id, user_id, link, now)
-        return {
+        summary: dict[str, Any] = {
             "inserted": len(plan.inserts),
             "updated": len(plan.updates),
             "warnings": list(plan.warnings),
         }
+        if guessed:
+            # Ключ появляется только когда связи достраивались: в обычной
+            # публикации сводке нечего о них сказать.
+            summary["linked"] = len(guessed)
+        return summary
 
     @staticmethod
     def _sync_mirrors(

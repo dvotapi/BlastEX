@@ -21,6 +21,12 @@
 ``PublicUpdate`` ссылок не меняет: тип машины у модели ставится один раз при
 вставке и дальше остаётся за журналом.
 
+Связь записи со строкой журнала бывает не только сохранённой: код вида
+``PUB_COUNTERPARTY_1`` сам называет строку, из которой запись создана плашкой
+«Из project1». Такие связи достраивает ``implicit_links`` — по тому же
+правилу, что и ``compute_delta``, иначе плашка считала бы запись связанной, а
+выгрузка заводила бы ей дубль.
+
 Порядок вставок топологический, а не по таблицам: родитель всегда стоит
 раньше своего потребителя, поэтому строка ``machine_types`` идёт
 непосредственно перед моделью, которой она понадобилась, и вставки двух
@@ -45,7 +51,12 @@ from typing import Any, Mapping, Sequence
 
 from cost.v2.models import ReferenceItem, decimal_value
 from cost.v2.public_sync.delta import comparable
-from cost.v2.public_sync.mapping import MACHINE_KINDS, PublicRow, PublicSnapshot
+from cost.v2.public_sync.mapping import (
+    MACHINE_KINDS,
+    PublicRow,
+    PublicSnapshot,
+    public_code,
+)
 from cost.v2.references import ValidationIssue
 from cost.v2.repository import PublicLink
 
@@ -53,6 +64,7 @@ __all__ = [
     "PublicInsert",
     "PublicUpdate",
     "PublicWritePlan",
+    "implicit_links",
     "plan_public_writes",
     "public_constraint_issues",
 ]
@@ -83,6 +95,17 @@ _MATERIAL_TABLES: dict[str, str] = {
     "СИ": "initiating_device_types",
     "Буровой инструмент": "tool_types",
 }
+
+# Разделы и таблицы журнала, сопоставленные напрямую. Материалы стоят
+# особняком: их таблицу выбирает вид записи (`_MATERIAL_TABLES`).
+_SECTION_TABLES: dict[str, str] = {
+    "counterparties": "counterparties",
+    "sites": "sites",
+    "equipment_types": "equipment_models",
+    "equipment_assets": "equipment_units",
+}
+
+_MATERIALS_SECTION = "materials"
 
 # ИНН журнала: 10 цифр у организации, 12 у предпринимателя (CHECK таблицы).
 _INN_RE = re.compile(r"^[0-9]{10}([0-9]{2})?$")
@@ -209,12 +232,15 @@ def plan_public_writes(
 
     Запись со связью сравнивается со строкой журнала, и в план попадают
     только изменившиеся колонки; запись без связи вставляется, если она
-    активна (неактивную незачем заводить в журнале). Порядок вставок — от
-    родителей к детям, чтобы ``writer`` всегда знал id родителя.
+    активна (неактивную незачем заводить в журнале). Связью считается и
+    сохранённая, и видная по коду записи (``implicit_links``). Порядок
+    вставок — от родителей к детям, чтобы ``writer`` всегда знал id родителя.
     """
 
     plan = _Plan()
-    index = _Index(sections, links, snapshot)
+    # Связи по коду достраиваются здесь, а не у вызывающего: план, валидация
+    # и плашка обязаны считать связи одинаково.
+    index = _Index(sections, [*links, *implicit_links(sections, links, snapshot)], snapshot)
 
     _plan_counterparties(plan, index)
     _plan_sites(plan, index)
@@ -248,6 +274,70 @@ class _Index:
 
     def link(self, section: str, code: str) -> PublicLink | None:
         return self.links.get((section, code))
+
+
+# --- Неявные связи ----------------------------------------------------------
+
+
+def implicit_links(
+    sections: Mapping[str, Sequence[ReferenceItem]],
+    links: Sequence[PublicLink],
+    snapshot: PublicSnapshot,
+) -> list[PublicLink]:
+    """Связи, которые видно по коду записи, но которых нет в ``public_links``.
+
+    Плашка «Из project1» даёт новой записи код ``public_code`` — имя строки
+    журнала (``PUB_COUNTERPARTY_1``). Пользователь мог применить предложение
+    задолго до того, как связь стала сохраняться, и такая запись выглядит
+    несвязанной, хотя строка журнала у неё своя. То же правило записано в
+    docstring ``compute_delta``: код черновика, совпавший с кодом строки,
+    делает запись связанной. Здесь оно повторено намеренно — общий помощник
+    не выделен, потому что разница считает связи по уже собранным
+    предложениям, а выгрузке нужны сами ``PublicLink``.
+
+    Строка журнала, занятая явной связью, не угадывается: у неё уже есть
+    хозяин, а конфликт уникального ключа должен остаться ошибкой валидации.
+    Активность записи роли не играет — связанную запись план обновляет и
+    выключенной. Материал связывается только с таблицей своего вида: код
+    ``PUB_TOOL_3`` у записи вида «СИ» ведёт в чужую таблицу.
+    """
+
+    explicit = {(link.section, link.code) for link in links}
+    taken = {(link.public_table, int(link.public_id)) for link in links}
+    codes = {
+        table: {public_code(table, row.id): row.id for row in snapshot.table(table)}
+        for table in (*_SECTION_TABLES.values(), *_MATERIAL_TABLES.values())
+    }
+
+    found: list[PublicLink] = []
+    for section in (*_SECTION_TABLES, _MATERIALS_SECTION):
+        for item in sections.get(section) or ():
+            if (section, item.code) in explicit:
+                continue
+            table = _implicit_table(section, item)
+            if table is None:
+                continue
+            public_id = codes[table].get(item.code)
+            if public_id is None or (table, public_id) in taken:
+                continue
+            taken.add((table, public_id))
+            found.append(
+                PublicLink(
+                    section=section,
+                    code=item.code,
+                    public_table=table,
+                    public_id=public_id,
+                )
+            )
+    return found
+
+
+def _implicit_table(section: str, item: ReferenceItem) -> str | None:
+    """Таблица журнала, с которой запись раздела может быть связана."""
+
+    if section == _MATERIALS_SECTION:
+        return _MATERIAL_TABLES.get(str(item.payload.get("material_kind") or ""))
+    return _SECTION_TABLES.get(section)
 
 
 # --- Разделы ---------------------------------------------------------------
@@ -618,10 +708,14 @@ def public_constraint_issues(
     транзакцию так же, как у активной. Неактивная запись без связи в журнал не
     попадает и не проверяется. Со снимком журнала дополнительно ищутся
     конфликты уникальных ключей с записями без связи: такую запись нужно не
-    вставлять, а связать с существующей строкой.
+    вставлять, а связать с существующей строкой. Связи, видные по коду записи
+    (``implicit_links``), учитываются наравне с сохранёнными — иначе запись,
+    созданную плашкой «Из project1», нельзя было бы ни выгрузить, ни связать.
     """
 
     issues: list[ValidationIssue] = []
+    if snapshot is not None:
+        links = [*links, *implicit_links(sections, links, snapshot)]
     linked = {(item.section, item.code) for item in links}
 
     issues.extend(_counterparty_issues(sections, linked, snapshot))

@@ -17,6 +17,7 @@ from cost.v2.public_sync.push import (
     PublicInsert,
     PublicUpdate,
     PublicWritePlan,
+    implicit_links,
     plan_public_writes,
     public_constraint_issues,
 )
@@ -959,3 +960,159 @@ def test_length_is_checked_for_linked_inactive_records() -> None:
     issues = public_constraint_issues({"equipment_assets": [asset]}, links)
 
     assert fields_of(issues) == [("equipment_assets", "RIG_01", "serial_number")]
+
+
+# --- Неявные связи по коду PUB_* --------------------------------------------
+
+PUB_JOURNAL = snapshot(
+    counterparties=[
+        {
+            "id": 1,
+            "full_name": 'АО "Теплогорский карьер"',
+            "short_name": "ТГК",
+            "inn": "6608002092",
+            "is_client": True,
+            "is_supplier": False,
+            "is_active": True,
+        }
+    ],
+    sites=[
+        {
+            "id": 4,
+            "full_name": "Ломоватский карьер",
+            "short_name": "ЛОМ",
+            "client_legal_name": 'АО "Теплогорский карьер"',
+            "is_active": True,
+        }
+    ],
+    equipment_models=[{"id": 5, "brand": "Jinke", "model_name": "JK830-2"}],
+    equipment_units=[{"id": 9, "model_id": 5, "internal_id": "БУ-01", "status": "В работе"}],
+    initiating_device_types=[{"id": 7, "name": "ЭД-1-Н", "description": ""}],
+    tool_types=[{"id": 3, "name": "Долото шарошечное 152"}],
+)
+
+PUB_CUSTOMER = item(
+    "PUB_COUNTERPARTY_1",
+    'АО "Теплогорский карьер"',
+    {"short_name": "ТГК", "inn": "6608002092", "role": "CUSTOMER"},
+)
+
+
+def test_code_of_journal_row_is_an_implicit_link_for_validation() -> None:
+    # Пользователь применил предложение плашки, но связь ещё не сохранена:
+    # код записи сам называет строку журнала, дубля не будет.
+    assert public_constraint_issues({"counterparties": [PUB_CUSTOMER]}, [], PUB_JOURNAL) == []
+
+
+def test_code_of_journal_row_updates_instead_of_inserting() -> None:
+    renamed = item(
+        PUB_CUSTOMER.code,
+        PUB_CUSTOMER.name,
+        {**PUB_CUSTOMER.payload, "short_name": "ТГК-1"},
+    )
+
+    plan = plan_public_writes({"counterparties": [renamed]}, [], PUB_JOURNAL)
+
+    assert plan.inserts == ()
+    assert only_update(plan) == PublicUpdate(
+        table="counterparties", public_id=1, values={"short_name": "ТГК-1"}
+    )
+
+
+def test_unchanged_record_with_journal_code_gives_empty_plan() -> None:
+    plan = plan_public_writes({"counterparties": [PUB_CUSTOMER]}, [], PUB_JOURNAL)
+
+    assert plan.is_empty()
+
+
+def test_inactive_record_with_journal_code_deactivates_the_row() -> None:
+    inactive = item(
+        PUB_CUSTOMER.code, PUB_CUSTOMER.name, dict(PUB_CUSTOMER.payload), is_active=False
+    )
+
+    plan = plan_public_writes({"counterparties": [inactive]}, [], PUB_JOURNAL)
+
+    assert plan.inserts == ()
+    assert only_update(plan) == PublicUpdate(
+        table="counterparties", public_id=1, values={"is_active": False}
+    )
+
+
+def test_row_linked_to_another_record_gives_no_implicit_link() -> None:
+    # Строка журнала занята явной связью: угадывать вторую нельзя, и конфликт
+    # уникального ключа остаётся ошибкой валидации.
+    other = item("OTHER", "Другой контрагент", {"inn": "7203270545", "role": "CUSTOMER"})
+    sections = {"counterparties": [PUB_CUSTOMER, other]}
+    links = [link("counterparties", "OTHER", "counterparties", 1)]
+
+    issues = public_constraint_issues(sections, links, PUB_JOURNAL)
+
+    assert fields_of(issues) == [("counterparties", "PUB_COUNTERPARTY_1", "inn")]
+    plan = plan_public_writes(sections, links, PUB_JOURNAL)
+    assert only_insert(plan, "counterparties").code == "PUB_COUNTERPARTY_1"
+
+
+def test_explicit_link_wins_over_the_code() -> None:
+    # Код записи говорит про строку 1, а сохранённая связь — про строку 2:
+    # неявная связь не должна появиться и увести выгрузку на чужую строку.
+    journal = snapshot(
+        counterparties=[
+            {"id": 1, "full_name": "Первый", "inn": "6608002092", "is_active": True},
+            {"id": 2, "full_name": "Второй", "inn": "7203270545", "is_active": True},
+        ]
+    )
+    links = [link("counterparties", "PUB_COUNTERPARTY_1", "counterparties", 2)]
+
+    plan = plan_public_writes({"counterparties": [PUB_CUSTOMER]}, links, journal)
+
+    assert plan.inserts == ()
+    assert {update.public_id for update in plan.updates} == {2}
+
+
+def test_implicit_links_cover_every_mapped_section() -> None:
+    sections = {
+        "counterparties": [PUB_CUSTOMER],
+        "sites": [item("PUB_SITE_4", "Ломоватский карьер", {"customer_legal_name": "Заказчик"})],
+        "equipment_types": [item("PUB_MODEL_5", "JK830-2", {"kind": "DRILL_RIG"})],
+        "equipment_assets": [
+            item("PUB_UNIT_9", "Станок №1", {"equipment_type_code": "PUB_MODEL_5"})
+        ],
+        "materials": [
+            item("PUB_IDT_7", "ЭД-1-Н", {"material_kind": "СИ"}),
+            item("PUB_TOOL_3", "Долото шарошечное 152", {"material_kind": "Буровой инструмент"}),
+        ],
+    }
+
+    found = implicit_links(sections, [], PUB_JOURNAL)
+
+    assert [
+        (found_.section, found_.code, found_.public_table, found_.public_id)
+        for found_ in found
+    ] == [
+        ("counterparties", "PUB_COUNTERPARTY_1", "counterparties", 1),
+        ("sites", "PUB_SITE_4", "sites", 4),
+        ("equipment_types", "PUB_MODEL_5", "equipment_models", 5),
+        ("equipment_assets", "PUB_UNIT_9", "equipment_units", 9),
+        ("materials", "PUB_IDT_7", "initiating_device_types", 7),
+        ("materials", "PUB_TOOL_3", "tool_types", 3),
+    ]
+
+
+def test_material_of_another_kind_gets_no_implicit_link() -> None:
+    # Код называет строку `tool_types`, а вид материала уводит запись в
+    # `initiating_device_types`: связывать записи разных таблиц нельзя.
+    sections = {
+        "materials": [item("PUB_TOOL_3", "Долото шарошечное 152", {"material_kind": "СИ"})]
+    }
+
+    assert implicit_links(sections, [], PUB_JOURNAL) == []
+    plan = plan_public_writes(sections, [], PUB_JOURNAL)
+    assert only_insert(plan, "initiating_device_types").code == "PUB_TOOL_3"
+
+
+def test_code_without_journal_row_stays_an_insert() -> None:
+    stranger = item("PUB_COUNTERPARTY_42", "Нет такой строки", {"inn": "6608002093"})
+
+    plan = plan_public_writes({"counterparties": [stranger]}, [], PUB_JOURNAL)
+
+    assert only_insert(plan, "counterparties").code == "PUB_COUNTERPARTY_42"

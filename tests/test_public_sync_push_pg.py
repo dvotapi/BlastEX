@@ -333,3 +333,40 @@ def test_enabled_exchange_is_probed_only_when_it_is_switched_on(
     enable_exchange(repository)
 
     assert calls == []
+
+
+@requires_pg
+def test_record_with_journal_code_is_linked_instead_of_inserted(repository, public_db) -> None:
+    """Запись с кодом ``PUB_*`` без связи обновляет свою строку и связывается.
+
+    Так пользователь применил предложение плашки «Из project1» до того, как
+    связи стали сохраняться: строка журнала уже названа кодом записи, и
+    выгрузка обязана узнать её, а не завести дубль.
+    """
+
+    seeded = seed_public(public_db)
+    enable_exchange(repository)
+    before_counts = counts(public_db)
+    applied = ReferenceItem(
+        code=f"PUB_COUNTERPARTY_{seeded['counterparty_client']}",
+        name='АО "Теплогорский карьер"',
+        payload={"short_name": "ТГК-1", "inn": "6608002092", "role": "CUSTOMER"},
+    )
+
+    published = publish(repository, counterparties=(applied,))
+
+    assert counts(public_db) == before_counts
+    links = {
+        (link.section, link.code): (link.public_table, link.public_id)
+        for link in repository.list_public_links(ORG)
+    }
+    assert links == {
+        ("counterparties", applied.code): (
+            "counterparties",
+            seeded["counterparty_client"],
+        )
+    }
+    row = only_row(public_db, "counterparties", "id", seeded["counterparty_client"])
+    assert row["short_name"] == "ТГК-1"
+    summary = audit_payload(public_db, published.revision_id)["public_writes"]
+    assert summary == {"inserted": 0, "updated": 1, "linked": 1, "warnings": []}

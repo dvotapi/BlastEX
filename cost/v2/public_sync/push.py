@@ -14,12 +14,14 @@
 журнал: ``equipment_units.status`` ставится только при вставке.
 
 Ссылки между таблицами план не разрешает — их разрешает ``writer``:
-``PublicInsert.depends_on`` перечисляет родителей ``(таблица, код)``, а
-``PublicInsert.foreign_keys`` говорит, в какую колонку положить полученный
-``id`` — из ``RETURNING`` вставки этого же плана или из сохранённой связи.
-Поэтому внешних ключей (``machine_type_id``, ``model_id``) в ``values`` нет.
-``PublicUpdate`` ссылок не меняет: тип машины у модели ставится один раз при
-вставке и дальше остаётся за журналом.
+``depends_on`` перечисляет родителей ``(таблица, код)``, а ``foreign_keys``
+говорит, в какую колонку положить полученный ``id`` — из ``RETURNING``
+вставки этого же плана или из сохранённой связи. Поэтому внешних ключей
+(``machine_type_id``, ``model_id``) в ``values`` нет. Обновление устроено так
+же, как вставка: тип машины у модели и модель у единицы техники — общие поля,
+и если запись переехала на другой тип, ссылка строки журнала должна переехать
+вместе с ней, иначе читатель показывал бы ту же разницу после каждой
+публикации.
 
 Связь записи со строкой журнала бывает не только сохранённой: код вида
 ``PUB_COUNTERPARTY_1`` сам называет строку, из которой запись создана плашкой
@@ -32,6 +34,11 @@
 непосредственно перед моделью, которой она понадобилась, и вставки двух
 разделов могут чередоваться. Единственная гарантия для ``writer`` — читать
 план подряд.
+
+Связь, потерявшая свою строку журнала (строку удалили), считается отсутствующей:
+запись выгружается заново, а новая связь заменяет устаревшую. Так же её видит
+``public_constraint_issues`` — иначе уникальный ключ проверялся бы у записи,
+которой в журнале уже нет.
 
 Неактивная запись без связи в журнал не заводится, поэтому вставленная строка
 ``equipment_units`` всегда получает статус «В работе»: «Списано» при вставке
@@ -64,9 +71,11 @@ __all__ = [
     "PublicInsert",
     "PublicUpdate",
     "PublicWritePlan",
+    "WRITTEN_TABLES",
     "implicit_links",
     "plan_public_writes",
     "public_constraint_issues",
+    "split_stale_links",
 ]
 
 # Статус новой единицы техники: дальше им распоряжается журнал.
@@ -106,6 +115,13 @@ _SECTION_TABLES: dict[str, str] = {
 }
 
 _MATERIALS_SECTION = "materials"
+
+# Таблицы журнала, строки которых план заводит и меняет: разделы, материалы и
+# вспомогательные `machine_types`. Остальные таблицы `mapping.TABLES` только
+# читаются, поэтому права на запись проверяются ровно по этому списку.
+WRITTEN_TABLES: tuple[str, ...] = tuple(
+    dict.fromkeys((*_SECTION_TABLES.values(), "machine_types", *_MATERIAL_TABLES.values()))
+)
 
 # ИНН журнала: 10 цифр у организации, 12 у предпринимателя (CHECK таблицы).
 _INN_RE = re.compile(r"^[0-9]{10}([0-9]{2})?$")
@@ -188,11 +204,19 @@ class PublicInsert:
 
 @dataclass(frozen=True)
 class PublicUpdate:
-    """Изменившиеся колонки строки журнала."""
+    """Изменившиеся колонки строки журнала.
+
+    Ссылки описаны так же, как у ``PublicInsert``: ``values`` их не содержит,
+    а ``foreign_keys`` говорит писателю, в какую колонку положить id родителя.
+    Обновление без ``values``, но со ссылкой — обычное дело: у записи мог
+    измениться только тип техники.
+    """
 
     table: str
     public_id: int
     values: dict[str, Any]
+    depends_on: tuple[tuple[str, str], ...] = ()
+    foreign_keys: tuple[tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -253,7 +277,11 @@ def plan_public_writes(
 
 
 class _Index:
-    """Разделы, связи и снимок журнала в удобном для плана виде."""
+    """Разделы, связи и снимок журнала в удобном для плана виде.
+
+    Связи разложены на живые и устаревшие: строку журнала могли удалить, и
+    такая связь не должна выдавать себя за место записи в журнале.
+    """
 
     def __init__(
         self,
@@ -263,17 +291,45 @@ class _Index:
     ) -> None:
         self.sections = sections
         self.snapshot = snapshot
-        self.links = {(item.section, item.code): item for item in links}
         self.rows = {table: snapshot.by_id(table) for table in snapshot.rows}
+        live, stale = split_stale_links(links, snapshot)
+        self.links = {(link.section, link.code): link for link in live}
+        self.stale = stale
 
     def items(self, section: str) -> tuple[ReferenceItem, ...]:
         return tuple(self.sections.get(section) or ())
 
-    def row(self, table: str, public_id: int) -> PublicRow | None:
+    def row(self, table: str, public_id: int | None) -> PublicRow | None:
+        if public_id is None:
+            return None
         return self.rows.get(table, {}).get(public_id)
 
     def link(self, section: str, code: str) -> PublicLink | None:
         return self.links.get((section, code))
+
+    def stale_link(self, section: str, code: str) -> PublicLink | None:
+        return self.stale.get((section, code))
+
+
+def split_stale_links(
+    links: Sequence[PublicLink], snapshot: PublicSnapshot
+) -> tuple[list[PublicLink], dict[tuple[str, str], PublicLink]]:
+    """Делит связи на живые и потерявшие строку журнала.
+
+    Строку журнала могли удалить: обновлять по такому id нечего, а считать
+    запись связанной — значит навсегда оставить её вне журнала. Поэтому и
+    план, и проверка ограничений смотрят на неё как на несвязанную.
+    """
+
+    rows = {table: snapshot.by_id(table) for table in snapshot.rows}
+    live: list[PublicLink] = []
+    stale: dict[tuple[str, str], PublicLink] = {}
+    for link in links:
+        if int(link.public_id) in rows.get(link.public_table, {}):
+            live.append(link)
+        else:
+            stale[(link.section, link.code)] = link
+    return live, stale
 
 
 # --- Неявные связи ----------------------------------------------------------
@@ -352,11 +408,9 @@ def _plan_counterparties(plan: _Plan, index: _Index) -> None:
             "inn": _text(item.payload.get("inn")),
             "is_active": item.is_active,
         }
-        link = index.link("counterparties", item.code)
-        if link is not None:
-            row = _journal_row(plan, index, item, link, "counterparties")
-            if row is None:
-                continue
+        target = _target(plan, index, item, "counterparties", "counterparties")
+        if target.row is not None:
+            row = target.row
             changed = _changed(values, row)
             # Роли журнала только поднимаются: контрагент мог быть и клиентом,
             # и поставщиком, а в blastex роль одна — чужой флаг не сбрасываем.
@@ -365,7 +419,7 @@ def _plan_counterparties(plan: _Plan, index: _Index) -> None:
                     changed[column] = True
             _add_update(plan, "counterparties", row, changed, "counterparties", item.code)
             continue
-        if item.is_active:
+        if not target.skipped and item.is_active:
             plan.inserts.append(
                 _insert(
                     "counterparties",
@@ -386,13 +440,13 @@ def _plan_sites(plan: _Plan, index: _Index) -> None:
             "client_legal_name": _client_legal_name(item, customers),
             "is_active": item.is_active,
         }
-        link = index.link("sites", item.code)
-        if link is not None:
-            row = _journal_row(plan, index, item, link, "sites")
-            if row is not None:
-                _add_update(plan, "sites", row, _changed(values, row), "sites", item.code)
+        target = _target(plan, index, item, "sites", "sites")
+        if target.row is not None:
+            _add_update(
+                plan, "sites", target.row, _changed(values, target.row), "sites", item.code
+            )
             continue
-        if item.is_active:
+        if not target.skipped and item.is_active:
             plan.inserts.append(_insert("sites", "sites", values, item))
 
 
@@ -427,37 +481,23 @@ def _plan_equipment_types(plan: _Plan, index: _Index) -> set[str]:
             # Колонка `brand` — NOT NULL, а марка в blastex необязательна.
             "brand": _text(item.payload.get("brand")) or "",
         }
-        link = index.link("equipment_types", item.code)
-        if link is not None:
-            row = _journal_row(plan, index, item, link, "equipment_models")
-            if row is not None:
-                model_codes.add(item.code)
-                _add_update(
-                    plan,
-                    "equipment_models",
-                    row,
-                    _changed(values, row),
-                    "equipment_types",
-                    item.code,
-                )
+        target = _target(plan, index, item, "equipment_types", "equipment_models")
+        if target.row is not None:
+            model_codes.add(item.code)
+            _add_update(
+                plan,
+                "equipment_models",
+                target.row,
+                _changed(values, target.row),
+                "equipment_types",
+                item.code,
+                foreign_keys=_machine_type_change(plan, index, machine_types, item, target.row),
+            )
             continue
-        if not item.is_active:
+        if target.skipped or not item.is_active:
             continue
 
-        machine_type = _machine_type_name(item)
-        known = machine_types.get(_machine_type_key(machine_type))
-        if known is not None:
-            machine_type = known
-        else:
-            machine_types[_machine_type_key(machine_type)] = machine_type
-            plan.inserts.append(
-                PublicInsert(
-                    table="machine_types",
-                    values={"name": machine_type},
-                    section="",
-                    code=machine_type,
-                )
-            )
+        machine_type = _machine_type(plan, machine_types, item)
         model_codes.add(item.code)
         plan.inserts.append(
             _insert(
@@ -469,6 +509,48 @@ def _plan_equipment_types(plan: _Plan, index: _Index) -> set[str]:
             )
         )
     return model_codes
+
+
+def _machine_type(plan: _Plan, machine_types: dict[str, str], item: ReferenceItem) -> str:
+    """Название типа машины, на которое сошлётся модель.
+
+    Написание принадлежит журналу: если такой тип там уже есть, возвращается
+    его написание — по нему писатель и найдёт строку. Незнакомый тип
+    заводится вставкой этого же плана и запоминается, чтобы вторая модель с
+    тем же типом не завела его повторно.
+    """
+
+    name = _machine_type_name(item)
+    known = machine_types.get(_machine_type_key(name))
+    if known is not None:
+        return known
+    machine_types[_machine_type_key(name)] = name
+    plan.inserts.append(
+        PublicInsert(table="machine_types", values={"name": name}, section="", code=name)
+    )
+    return name
+
+
+def _machine_type_change(
+    plan: _Plan,
+    index: _Index,
+    machine_types: dict[str, str],
+    item: ReferenceItem,
+    row: PublicRow,
+) -> tuple[tuple[str, str, str], ...]:
+    """Ссылка на тип машины, если у связанной модели он сменился.
+
+    ``machine_type_name`` — общее поле (``mapping``), поэтому пока строка
+    журнала ссылается на прежний тип, читатель показывает ту же разницу после
+    каждой публикации. Сравниваются названия, а не id: id типа в записи
+    blastex нет, а название журнал пишет руками.
+    """
+
+    current = index.row("machine_types", _int(row.get("machine_type_id")))
+    wanted = _machine_type_name(item)
+    if _machine_type_key(current.get("name") if current else None) == _machine_type_key(wanted):
+        return ()
+    return (("machine_type_id", "machine_types", _machine_type(plan, machine_types, item)),)
 
 
 def _machine_type_name(item: ReferenceItem) -> str:
@@ -499,16 +581,15 @@ _KIND_MACHINE_TYPES: dict[str, str] = _unambiguous_kind_labels()
 
 
 def _plan_equipment_assets(plan: _Plan, index: _Index, model_codes: set[str]) -> None:
+    draft_types = {type_item.code for type_item in index.items("equipment_types")}
     for item in index.items("equipment_assets"):
         values = {
             "internal_id": _text(item.payload.get("inventory_number")) or item.code,
             "serial_number": _text(item.payload.get("serial_number")),
         }
-        link = index.link("equipment_assets", item.code)
-        if link is not None:
-            row = _journal_row(plan, index, item, link, "equipment_units")
-            if row is None:
-                continue
+        target = _target(plan, index, item, "equipment_assets", "equipment_units")
+        if target.row is not None:
+            row = target.row
             # Статус — за журналом: списывать технику приложение не вправе.
             # Расхождение видно сметчику, пока журнал не спишет единицу сам.
             if not item.is_active and _text(row.get("status")) != _WRITTEN_OFF:
@@ -523,9 +604,10 @@ def _plan_equipment_assets(plan: _Plan, index: _Index, model_codes: set[str]) ->
                 _changed(values, row),
                 "equipment_assets",
                 item.code,
+                foreign_keys=_model_change(plan, index, item, row, model_codes, draft_types),
             )
             continue
-        if not item.is_active:
+        if target.skipped or not item.is_active:
             continue
 
         type_code = str(item.payload.get("equipment_type_code") or "")
@@ -548,6 +630,40 @@ def _plan_equipment_assets(plan: _Plan, index: _Index, model_codes: set[str]) ->
         )
 
 
+def _model_change(
+    plan: _Plan,
+    index: _Index,
+    item: ReferenceItem,
+    row: PublicRow,
+    model_codes: set[str],
+    draft_types: set[str],
+) -> tuple[tuple[str, str, str], ...]:
+    """Ссылка на модель, если у связанной единицы сменился тип техники.
+
+    ``equipment_type_code`` — общее поле (``mapping``), поэтому строка журнала
+    обязана переехать вслед за записью. Тип, которого в разделе нет, — забота
+    журнала и валидации, а не плана: судить о его модели не по чему. Тип,
+    который в разделе есть, но в журнал не поедет (отключён и не связан), —
+    предупреждение: ссылку переставить некуда.
+    """
+
+    type_code = str(item.payload.get("equipment_type_code") or "")
+    if not type_code or type_code not in draft_types:
+        return ()
+    if type_code not in model_codes:
+        plan.warnings.append(
+            f"Единица {item.code}: тип техники не выгружается в журнал, "
+            "модель в журнале не изменена."
+        )
+        return ()
+    link = index.link("equipment_types", type_code)
+    # Тип, который заводится этой же публикацией, связи ещё не имеет: id
+    # модели знает только писатель, и ссылку он поставит по коду.
+    if link is not None and link.public_id == _int(row.get("model_id")):
+        return ()
+    return (("model_id", "equipment_models", type_code),)
+
+
 def _plan_materials(plan: _Plan, index: _Index) -> None:
     items = index.items("materials")
     _warn_about_unexported_materials(plan, index, items)
@@ -556,15 +672,18 @@ def _plan_materials(plan: _Plan, index: _Index) -> None:
             if _MATERIAL_TABLES.get(str(item.payload.get("material_kind") or "")) != table:
                 continue
             values = _material_values(table, item)
-            link = index.link("materials", item.code)
-            if link is not None:
-                row = _journal_row(plan, index, item, link, table)
-                if row is not None:
-                    _add_update(
-                        plan, table, row, _changed(values, row), "materials", item.code
-                    )
+            target = _target(plan, index, item, "materials", table)
+            if target.row is not None:
+                _add_update(
+                    plan,
+                    table,
+                    target.row,
+                    _changed(values, target.row),
+                    "materials",
+                    item.code,
+                )
                 continue
-            if item.is_active:
+            if not target.skipped and item.is_active:
                 plan.inserts.append(_insert(table, "materials", values, item))
 
 
@@ -628,30 +747,52 @@ def _insert(
     )
 
 
-def _journal_row(
-    plan: _Plan, index: _Index, item: ReferenceItem, link: PublicLink, table: str
-) -> PublicRow | None:
-    """Строка журнала по связи записи; ``None`` — писать некуда.
+@dataclass(frozen=True)
+class _Target:
+    """Куда идёт запись: в свою строку журнала, во вставку или никуда.
 
-    Связь без строки в снимке (строку удалили в журнале) — предупреждение:
-    писать по такому id нечего, а вставка создала бы дубль. Связь на другую
-    таблицу остаётся у материала, которому сменили вид: выгружать его нужно
-    уже в другую таблицу, и запись пропускается до перепривязки.
+    ``row`` — строка для обновления; пустой ``row`` при ``skipped = False``
+    означает вставку (связи нет или она устарела).
     """
 
-    if link.public_table != table:
+    row: PublicRow | None = None
+    skipped: bool = False
+
+
+def _target(
+    plan: _Plan, index: _Index, item: ReferenceItem, section: str, table: str
+) -> _Target:
+    """Строка журнала записи с учётом устаревших связей и смены таблицы.
+
+    Связь на другую таблицу остаётся у материала, которому сменили вид:
+    выгружать его нужно уже в другую таблицу, и запись пропускается до
+    перепривязки. Связь, потерявшая строку журнала, равна её отсутствию:
+    активная запись заводится заново (новая связь заменит устаревшую),
+    неактивная в журнал не попадает — и о том, и о другом сметчик узнаёт из
+    предупреждения.
+    """
+
+    link = index.link(section, item.code)
+    if link is not None and link.public_table != table:
         plan.warnings.append(
-            f"Запись {link.section}/{item.code}: связь ведёт на {link.public_table}, "
+            f"Запись {section}/{item.code}: связь ведёт на {link.public_table}, "
             f"а выгрузка идёт в {table}; запись пропущена."
         )
-        return None
-    row = index.row(table, link.public_id)
-    if row is None:
-        plan.warnings.append(
-            f"Запись {link.section}/{item.code}: строка журнала "
-            f"{link.public_table}#{link.public_id} не найдена, выгрузка пропущена."
+        return _Target(skipped=True)
+    if link is not None:
+        return _Target(row=index.row(table, link.public_id))
+    stale = index.stale_link(section, item.code)
+    if stale is not None:
+        outcome = (
+            "запись создана заново."
+            if item.is_active
+            else "неактивная запись в журнал не заводится."
         )
-    return row
+        plan.warnings.append(
+            f"Запись {section}/{item.code}: связь на строку "
+            f"{stale.public_table}#{stale.public_id} устарела, {outcome}"
+        )
+    return _Target()
 
 
 def _add_update(
@@ -661,12 +802,17 @@ def _add_update(
     values: Mapping[str, Any],
     section: str,
     code: str,
+    *,
+    foreign_keys: tuple[tuple[str, str, str], ...] = (),
 ) -> None:
     """Кладёт в план обновление, отбросив пустые значения обязательных колонок.
 
     Поле в blastex необязательно, а колонка журнала — ``NOT NULL``: очищенный
     ИНН уронил бы всю транзакцию. Такую колонку план не трогает и говорит об
     этом сметчику; ошибку он увидит и в ``public_constraint_issues``.
+
+    Обновление попадает в план и без изменившихся колонок, если у записи
+    переехала ссылка: значение внешнего ключа подставит писатель.
     """
 
     required = _REQUIRED_COLUMNS.get(table, frozenset())
@@ -679,8 +825,19 @@ def _add_update(
             )
             continue
         allowed[column] = value
-    if allowed:
-        plan.updates.append(PublicUpdate(table=table, public_id=row.id, values=allowed))
+    if allowed or foreign_keys:
+        plan.updates.append(
+            PublicUpdate(
+                table=table,
+                public_id=row.id,
+                values=allowed,
+                depends_on=tuple(
+                    (parent_table, parent_code)
+                    for _column, parent_table, parent_code in foreign_keys
+                ),
+                foreign_keys=foreign_keys,
+            )
+        )
 
 
 def _changed(values: Mapping[str, Any], row: PublicRow) -> dict[str, Any]:
@@ -718,7 +875,11 @@ def public_constraint_issues(
 
     issues: list[ValidationIssue] = []
     if snapshot is not None:
-        links = [*links, *implicit_links(sections, links, snapshot)]
+        # Устаревшая связь равна её отсутствию: запись будет заведена заново,
+        # и уникальные ключи проверяются у неё как у новой (см. `_target`).
+        links, _stale = split_stale_links(
+            [*links, *implicit_links(sections, links, snapshot)], snapshot
+        )
     linked = {(item.section, item.code) for item in links}
 
     issues.extend(
@@ -1042,6 +1203,15 @@ def _decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
     return decimal_value(value)
+
+
+def _int(value: Any) -> int | None:
+    """Ссылка журнала числом; ``None`` — ссылки нет или она не число."""
+
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _key(value: Any) -> str:

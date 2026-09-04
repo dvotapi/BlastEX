@@ -14,20 +14,36 @@
 превращается в ``PublicWriteError``. Он вылетает из транзакции публикации и
 откатывает её целиком: ревизия, связи и строки журнала либо появляются
 вместе, либо не появляются вовсе.
+
+Здесь же живёт ``check_public_access``: права роли на схему ``public``
+проверяются при включении обмена, до первой публикации. Проверяются именно
+права, а не удачный ``SELECT``: роль с одним лишь чтением прошла бы пробу и
+уронила бы первую же публикацию.
 """
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from sqlalchemy import Result, TextClause, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from cost.v2.public_sync.push import PublicInsert, PublicUpdate, PublicWritePlan
+from cost.v2.public_sync.mapping import TABLES
+from cost.v2.public_sync.push import (
+    WRITTEN_TABLES,
+    PublicInsert,
+    PublicUpdate,
+    PublicWritePlan,
+)
 from cost.v2.public_sync.reader import reason
 from cost.v2.repository import PublicLink
 
-__all__ = ["PublicWriteError", "SqlPublicWriter"]
+__all__ = [
+    "PublicAccessError",
+    "PublicWriteError",
+    "SqlPublicWriter",
+    "check_public_access",
+]
 
 # Таблицы, строку которых план переиспользует без связи: у `machine_types`
 # записи blastex нет, поэтому id уже существующего типа машины ищется по
@@ -42,8 +58,26 @@ class PublicWriteError(RuntimeError):
     что не приняла именно чужая схема, а не справочники BlastEX.
     """
 
+    _PREFIX = "Не удалось записать в project1.public: "
+
     def __init__(self, cause: object) -> None:
-        super().__init__(f"Не удалось записать в project1.public: {cause}")
+        super().__init__(f"{self._PREFIX}{cause}")
+
+
+class PublicAccessError(PublicWriteError):
+    """Роли не хватает прав на схему ``public``: обмен включать нельзя.
+
+    Наследуется от ``PublicWriteError``, чтобы API отвечал на нехватку прав
+    тем же кодом, что и на отказ записи: для пользователя это одна и та же
+    беда с чужой схемой.
+    """
+
+    _PREFIX = "Нет доступа к project1.public: "
+
+    def __init__(self, table: str, missing: str) -> None:
+        super().__init__(
+            f"таблица {table} — {missing}; выполните scripts/grant_public_access.sql"
+        )
 
 
 class SqlPublicWriter:
@@ -71,7 +105,9 @@ class SqlPublicWriter:
         for insert in plan.inserts:
             values = dict(insert.values)
             for column, table, code in insert.foreign_keys:
-                values[column] = self._parent_id(insert, table, code, inserted)
+                values[column] = self._parent_id(
+                    f"{insert.section or insert.table}/{insert.code}", table, code, inserted
+                )
             public_id = self._insert(insert.table, values)
             inserted[(insert.table, insert.code)] = public_id
             if insert.section:
@@ -84,14 +120,22 @@ class SqlPublicWriter:
                     )
                 )
         for update in plan.updates:
-            self._update(update)
+            values = dict(update.values)
+            # Ссылки в обновлении разрешаются так же, как во вставке: у
+            # записи мог смениться тип техники, и строка журнала переезжает
+            # на другого родителя.
+            for column, table, code in update.foreign_keys:
+                values[column] = self._parent_id(
+                    f"{update.table}#{update.public_id}", table, code, inserted
+                )
+            self._update(update, values)
         return links
 
     # --- Разрешение ссылок --------------------------------------------------
 
     def _parent_id(
         self,
-        insert: PublicInsert,
+        owner: str,
         table: str,
         code: str,
         inserted: dict[tuple[str, str], int],
@@ -103,8 +147,8 @@ class SqlPublicWriter:
             public_id = self._existing_id(table, code)
         if public_id is None:
             raise PublicWriteError(
-                f"запись {insert.section or insert.table}/{insert.code} "
-                f"ссылается на {table}/{code}, а такой строки в журнале нет."
+                f"запись {owner} ссылается на {table}/{code}, "
+                "а такой строки в журнале нет."
             )
         return public_id
 
@@ -136,16 +180,14 @@ class SqlPublicWriter:
         # None — приводить их к JSON или тексту не нужно.
         return int(self._execute(statement, values).scalar_one())
 
-    def _update(self, update: PublicUpdate) -> None:
-        assignments = ", ".join(f'"{column}" = :{column}' for column in update.values)
+    def _update(self, update: PublicUpdate, values: dict[str, Any]) -> None:
+        assignments = ", ".join(f'"{column}" = :{column}' for column in values)
         # Колонки `public_id` в выгружаемых таблицах нет, поэтому имя
         # параметра не столкнётся с именем колонки.
         statement = text(
             f'UPDATE public."{update.table}" SET {assignments} WHERE id = :public_id'
         )
-        result = self._execute(
-            statement, {**update.values, "public_id": update.public_id}
-        )
+        result = self._execute(statement, {**values, "public_id": update.public_id})
         if result.rowcount == 0:
             raise PublicWriteError(
                 f"строка {update.table}#{update.public_id} исчезла из журнала."
@@ -159,3 +201,84 @@ class SqlPublicWriter:
             # значит однажды пропустить незнакомый и уронить публикацию
             # чужой ошибкой вместо понятного отказа журнала.
             raise PublicWriteError(reason(exc)) from exc
+
+
+# --- Права на схему public --------------------------------------------------
+
+# Имена таблиц в запросах — параметры, а не части SQL, и приходят они из
+# `mapping.TABLES` и `push.WRITTEN_TABLES`, а не от пользователя.
+_READ_ACCESS = text(
+    "SELECT t.table_name AS table_name, "
+    "has_table_privilege(current_user, format('public.%I', t.table_name), 'SELECT') "
+    "AS select_allowed "
+    "FROM unnest(CAST(:tables AS text[])) WITH ORDINALITY AS t(table_name, ordinal) "
+    "ORDER BY t.ordinal"
+)
+
+# Право на запись, право на последовательность колонки `id` (без неё INSERT не
+# получит следующий номер) и политика RLS. Таблица без последовательности
+# (`pg_get_serial_sequence` вернёт NULL) проверку последовательности проходит;
+# владельцу таблицы политика не нужна — RLS его не ограничивает.
+_WRITE_ACCESS = text(
+    "SELECT t.table_name AS table_name, "
+    "has_table_privilege(current_user, format('public.%I', t.table_name), 'INSERT') "
+    "AS insert_allowed, "
+    "has_table_privilege(current_user, format('public.%I', t.table_name), 'UPDATE') "
+    "AS update_allowed, "
+    "COALESCE(has_sequence_privilege(current_user, "
+    "pg_get_serial_sequence(format('public.%I', t.table_name), 'id'), 'USAGE'), true) "
+    "AS sequence_allowed, "
+    "COALESCE(NOT c.relrowsecurity "
+    "OR pg_get_userbyid(c.relowner) = current_user "
+    "OR EXISTS (SELECT 1 FROM pg_policies p "
+    "WHERE p.schemaname = 'public' AND p.tablename = t.table_name "
+    "AND (p.roles @> ARRAY[current_user]::name[] "
+    "OR p.roles @> ARRAY['public']::name[])), true) AS policy_allowed "
+    "FROM unnest(CAST(:tables AS text[])) WITH ORDINALITY AS t(table_name, ordinal) "
+    "LEFT JOIN pg_class c "
+    "ON c.relname = t.table_name AND c.relnamespace = 'public'::regnamespace "
+    "ORDER BY t.ordinal"
+)
+
+# Колонка ответа → чего не хватает роли. Порядок задаёт порядок жалоб: сначала
+# сами права, потом последовательность и политика.
+_WRITE_CHECKS: tuple[tuple[str, str], ...] = (
+    ("insert_allowed", "нет права INSERT"),
+    ("update_allowed", "нет права UPDATE"),
+    ("sequence_allowed", "нет права USAGE на последовательность колонки id"),
+    ("policy_allowed", "нет политики RLS для этой роли"),
+)
+
+
+def check_public_access(session: Session) -> None:
+    """Проверяет права роли на схему ``public`` перед включением обмена.
+
+    Проверяются права, а не удачное чтение: роль с одним лишь ``SELECT`` или
+    без политики RLS прошла бы пробу чтением и уронила бы первую публикацию
+    ответом 502. Читаются все таблицы ``mapping.TABLES``, пишутся только
+    ``push.WRITTEN_TABLES`` — с них и спрашивается больше.
+
+    Первая же нехватка — ``PublicAccessError`` с именем таблицы и права:
+    администратору нужно знать, что именно не выдал скрипт, а не список из
+    тринадцати строк.
+    """
+
+    for row in _access_rows(session, _READ_ACCESS, TABLES):
+        if not row["select_allowed"]:
+            raise PublicAccessError(str(row["table_name"]), "нет права SELECT")
+    for row in _access_rows(session, _WRITE_ACCESS, WRITTEN_TABLES):
+        for column, missing in _WRITE_CHECKS:
+            if not row[column]:
+                raise PublicAccessError(str(row["table_name"]), missing)
+
+
+def _access_rows(
+    session: Session, statement: TextClause, tables: Sequence[str]
+) -> Sequence[Mapping[str, Any]]:
+    try:
+        result = session.execute(statement, {"tables": list(tables)})
+    except SQLAlchemyError as exc:
+        # Нет таблицы, нет схемы, нет соединения — тот же отказ, что и при
+        # записи: обмен не включается, флаги откатываются.
+        raise PublicWriteError(reason(exc)) from exc
+    return result.mappings().all()

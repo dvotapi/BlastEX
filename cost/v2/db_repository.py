@@ -53,7 +53,11 @@ from cost.v2.public_sync.settings import (
     flags_from_settings,
     settings_from_flags,
 )
-from cost.v2.public_sync.writer import PublicWriteError, SqlPublicWriter
+from cost.v2.public_sync.writer import (
+    PublicWriteError,
+    SqlPublicWriter,
+    check_public_access,
+)
 
 
 SCHEMA = "blastex"
@@ -567,12 +571,16 @@ class PostgresEconomicsRepository:
         for section in sorted(sections):
             try:
                 ensure_mirror(session, section)
-                upserted, deactivated = sync_mirror(
+                upserted, deactivated, warnings = sync_mirror(
                     session, section, revision_id, normalized.get(section, ()), now
                 )
             except SQLAlchemyError as exc:
                 raise PublicWriteError(reason(exc)) from exc
             summary[section] = {"upserted": upserted, "deactivated": deactivated}
+            if warnings:
+                # Ключ появляется только когда есть о чём предупредить: в
+                # обычной публикации сводке зеркала сказать нечего.
+                summary[section]["warnings"] = list(warnings)
         return summary
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
@@ -1220,19 +1228,17 @@ class PostgresEconomicsRepository:
 
     @staticmethod
     def _probe_public_access(session: Session) -> None:
-        """Читает журнал при включении обмена: есть ли на него права.
+        """Проверяет права на журнал при включении обмена.
 
         Без пробы включённый обмен выглядел бы сохранённым, а отказ прав
-        вылезал бы при первой же публикации — и ронял бы её целиком. Проба
-        идёт в той же транзакции, что и флаги: отказ откатывает и их.
+        вылезал бы при первой же публикации — и ронял бы её целиком. Спрашиваем
+        именно права (``check_public_access``), а не удачное чтение: роли,
+        которой выдали только ``SELECT`` или забыли политику RLS, чтение
+        удаётся, а запись нет. Проба идёт в той же транзакции, что и флаги:
+        отказ откатывает и их.
         """
 
-        try:
-            SqlPublicReader.from_connection(session.connection()).read()
-        except PublicUnavailable as exc:
-            raise PublicWriteError(exc) from exc
-        except SQLAlchemyError as exc:
-            raise PublicWriteError(reason(exc)) from exc
+        check_public_access(session)
 
     @staticmethod
     def _public_link(row: PublicLinkRow) -> PublicLink:

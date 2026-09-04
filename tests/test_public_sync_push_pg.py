@@ -14,11 +14,11 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 
+import cost.v2.db_repository as db_repository
 from cost.v2.db_repository import PostgresEconomicsRepository
 from cost.v2.models import ReferenceItem
-from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader
 from cost.v2.public_sync.settings import PublicSyncSettings
-from cost.v2.public_sync.writer import PublicWriteError
+from cost.v2.public_sync.writer import PublicAccessError, PublicWriteError
 from tests.pg_public import TEST_DATABASE_URL, public_db, requires_pg, seed_public
 
 ORG = "org-public-push"
@@ -296,20 +296,34 @@ def test_disabled_exchange_writes_nothing_to_the_journal(repository, public_db) 
 
 
 @requires_pg
+def test_exchange_is_enabled_when_the_role_may_write_to_the_journal(
+    repository, public_db
+) -> None:
+    """Проба прав проходит: роль владеет таблицами журнала тестовой базы."""
+
+    seed_public(public_db)
+
+    enable_exchange(repository)
+
+    assert repository.get_public_sync_settings(ORG).exchange_enabled is True
+
+
+@requires_pg
 def test_exchange_is_not_enabled_without_access_to_the_journal(
     repository, public_db, monkeypatch
 ) -> None:
-    """Включение обмена пробует журнал: без доступа настройка не сохраняется."""
+    """Без прав на журнал настройка не сохраняется: транзакция откатывается."""
 
-    def unavailable(self) -> None:
-        raise PublicUnavailable("Схема public недоступна: нет прав на public.counterparties")
+    def refused(session) -> None:
+        raise PublicAccessError("counterparties", "нет права INSERT")
 
-    monkeypatch.setattr(SqlPublicReader, "read", unavailable)
+    monkeypatch.setattr(db_repository, "check_public_access", refused)
 
     with pytest.raises(PublicWriteError) as failure:
         enable_exchange(repository)
 
     assert "project1.public" in str(failure.value)
+    assert "grant_public_access.sql" in str(failure.value)
     # Транзакция откатилась целиком: обмен остался выключенным.
     assert repository.get_public_sync_settings(ORG).exchange_enabled is False
 
@@ -323,13 +337,8 @@ def test_enabled_exchange_is_probed_only_when_it_is_switched_on(
     seed_public(public_db)
     enable_exchange(repository)
     calls: list[int] = []
-    original = SqlPublicReader.read
 
-    def counting(self):
-        calls.append(1)
-        return original(self)
-
-    monkeypatch.setattr(SqlPublicReader, "read", counting)
+    monkeypatch.setattr(db_repository, "check_public_access", lambda session: calls.append(1))
     enable_exchange(repository)
 
     assert calls == []
@@ -370,3 +379,85 @@ def test_record_with_journal_code_is_linked_instead_of_inserted(repository, publ
     assert row["short_name"] == "ТГК-1"
     summary = audit_payload(public_db, published.revision_id)["public_writes"]
     assert summary == {"inserted": 0, "updated": 1, "linked": 1, "warnings": []}
+
+
+@requires_pg
+def test_stale_link_brings_the_record_back_to_the_journal(repository, public_db) -> None:
+    """Строку журнала удалили: запись выгружается заново, связь переезжает.
+
+    Молча пропустить такую запись значит навсегда оставить её вне журнала:
+    связь есть, строки нет, и следующая публикация вела бы себя так же.
+    """
+
+    seed_public(public_db)
+    enable_exchange(repository)
+    publish(repository, counterparties=(CUSTOMER,))
+    before = only_row(public_db, "counterparties", "inn", "6685101311")
+    with public_db.begin() as connection:
+        connection.execute(
+            text("DELETE FROM public.counterparties WHERE id = :id"), {"id": before["id"]}
+        )
+
+    published = publish(repository, counterparties=(CUSTOMER,))
+
+    after = only_row(public_db, "counterparties", "inn", "6685101311")
+    assert after["id"] != before["id"]
+    links = {
+        (link.section, link.code): (link.public_table, link.public_id)
+        for link in repository.list_public_links(ORG)
+    }
+    assert links == {("counterparties", "KARIER"): ("counterparties", after["id"])}
+    summary = audit_payload(public_db, published.revision_id)["public_writes"]
+    assert summary["inserted"] == 1
+    assert summary["warnings"] == [
+        f"Запись counterparties/KARIER: связь на строку "
+        f"counterparties#{before['id']} устарела, запись создана заново."
+    ]
+
+
+@requires_pg
+def test_changed_machine_type_moves_the_model_in_the_journal(repository, public_db) -> None:
+    """Тип машины сменился: модель журнала переезжает на другую строку."""
+
+    seed_public(public_db)
+    enable_exchange(repository)
+    publish(repository, equipment_types=(EQUIPMENT_TYPE,))
+    before = only_row(public_db, "equipment_models", "model_name", "DM45")
+
+    retyped = ReferenceItem(
+        code=EQUIPMENT_TYPE.code,
+        name=EQUIPMENT_TYPE.name,
+        payload={**EQUIPMENT_TYPE.payload, "machine_type_name": "Экскаватор"},
+    )
+    publish(repository, equipment_types=(retyped,))
+
+    after = only_row(public_db, "equipment_models", "model_name", "DM45")
+    assert after["id"] == before["id"]
+    assert after["machine_type_id"] != before["machine_type_id"]
+    excavator = only_row(public_db, "machine_types", "name", "Экскаватор")
+    assert after["machine_type_id"] == excavator["id"]
+
+
+@requires_pg
+def test_changed_equipment_type_moves_the_unit_in_the_journal(repository, public_db) -> None:
+    """Единице сменили тип техники: ссылка строки журнала едет следом."""
+
+    seed_public(public_db)
+    enable_exchange(repository)
+    other_type = ReferenceItem(
+        code="SKF13",
+        name="SKF-13",
+        payload={"kind": "DRILL_RIG", "brand": "Sandvik", "machine_type_name": "Буровая установка"},
+    )
+    publish_all(repository)
+    publish(repository, equipment_types=(EQUIPMENT_TYPE, other_type))
+    moved = ReferenceItem(
+        code=EQUIPMENT_ASSET.code,
+        name=EQUIPMENT_ASSET.name,
+        payload={**EQUIPMENT_ASSET.payload, "equipment_type_code": "SKF13"},
+    )
+
+    publish(repository, equipment_types=(EQUIPMENT_TYPE, other_type), equipment_assets=(moved,))
+
+    unit = only_row(public_db, "equipment_units", "internal_id", "Б-02")
+    assert unit["model_id"] == only_row(public_db, "equipment_models", "model_name", "SKF-13")["id"]

@@ -1,8 +1,9 @@
 """Исполнение плана выгрузки в журнал — без базы.
 
 Здесь проверяется то, что писатель решает сам: каким SQL он ищет строку
-родителя, которой нет ни во вставках плана, ни в связях. Поведение на живой
-базе — в ``test_public_sync_push_pg.py``.
+родителя, которой нет ни во вставках плана, ни в связях, и как он проверяет
+права роли перед включением обмена. Поведение на живой базе — в
+``test_public_sync_push_pg.py``.
 """
 from __future__ import annotations
 
@@ -12,8 +13,19 @@ from typing import Any
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from cost.v2.public_sync.push import PublicInsert, PublicWritePlan
-from cost.v2.public_sync.writer import PublicWriteError, SqlPublicWriter
+from cost.v2.public_sync.mapping import TABLES
+from cost.v2.public_sync.push import (
+    PublicInsert,
+    PublicUpdate,
+    PublicWritePlan,
+    WRITTEN_TABLES,
+)
+from cost.v2.public_sync.writer import (
+    PublicAccessError,
+    PublicWriteError,
+    SqlPublicWriter,
+    check_public_access,
+)
 
 
 class RecordingSession:
@@ -94,3 +106,142 @@ def test_any_database_failure_becomes_a_write_error() -> None:
                 )
             )
         )
+
+
+# --- Ссылки в обновлениях ----------------------------------------------------
+
+RETYPED_MODEL = PublicUpdate(
+    table="equipment_models",
+    public_id=5,
+    values={"brand": "Epiroc"},
+    depends_on=(("machine_types", "Экскаватор"),),
+    foreign_keys=(("machine_type_id", "machine_types", "Экскаватор"),),
+)
+
+
+def test_update_resolves_its_foreign_key_like_an_insert() -> None:
+    session = RecordingSession(scalar=7)
+
+    SqlPublicWriter(session).apply(PublicWritePlan(updates=(RETYPED_MODEL,)))
+
+    select_sql, select_parameters = session.calls[0]
+    assert 'WHERE btrim("name") = :value' in select_sql
+    assert select_parameters == {"value": "Экскаватор"}
+    update_sql, update_parameters = session.calls[1]
+    assert '"machine_type_id" = :machine_type_id' in update_sql
+    assert update_parameters["machine_type_id"] == 7
+    assert update_parameters["public_id"] == 5
+
+
+def test_update_takes_the_id_of_a_row_inserted_by_the_same_plan() -> None:
+    # Тип машины заводится этой же публикацией: id известен только из
+    # `RETURNING`, и обновление модели должно взять его оттуда.
+    session = RecordingSession(scalar=None, insert_id=42)
+    machine_type = PublicInsert(
+        table="machine_types", values={"name": "Погрузчик"}, section="", code="Погрузчик"
+    )
+    update = PublicUpdate(
+        table="equipment_models",
+        public_id=5,
+        values={},
+        depends_on=(("machine_types", "Погрузчик"),),
+        foreign_keys=(("machine_type_id", "machine_types", "Погрузчик"),),
+    )
+
+    SqlPublicWriter(session).apply(
+        PublicWritePlan(inserts=(machine_type,), updates=(update,))
+    )
+
+    update_sql, update_parameters = session.calls[-1]
+    assert 'SET "machine_type_id" = :machine_type_id WHERE id = :public_id' in update_sql
+    assert update_parameters == {"machine_type_id": 42, "public_id": 5}
+
+
+def test_update_without_a_parent_stops_the_publication() -> None:
+    session = RecordingSession(scalar=None)
+
+    with pytest.raises(PublicWriteError):
+        SqlPublicWriter(session).apply(PublicWritePlan(updates=(RETYPED_MODEL,)))
+
+
+# --- Права на схему public ---------------------------------------------------
+
+
+class AccessSession:
+    """Сессия, отвечающая на проверку прав заготовленными строками."""
+
+    def __init__(self, **overrides: dict[str, Any]) -> None:
+        self.calls: list[tuple[str, Any]] = []
+        self._overrides = overrides
+
+    def execute(self, statement: Any, parameters: Any = None) -> Any:
+        self.calls.append((str(statement), parameters))
+        rows = [self._row(table) for table in parameters["tables"]]
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
+
+    def _row(self, table: str) -> dict[str, Any]:
+        allowed = {
+            "table_name": table,
+            "select_allowed": True,
+            "insert_allowed": True,
+            "update_allowed": True,
+            "sequence_allowed": True,
+            "policy_allowed": True,
+        }
+        allowed.update(self._overrides.get(table, {}))
+        return allowed
+
+
+def test_access_check_asks_about_every_table_it_touches() -> None:
+    session = AccessSession()
+
+    check_public_access(session)
+
+    read_sql, read_parameters = session.calls[0]
+    assert "has_table_privilege(current_user" in read_sql
+    assert read_parameters["tables"] == list(TABLES)
+    write_sql, write_parameters = session.calls[1]
+    assert "pg_get_serial_sequence" in write_sql
+    assert "pg_policies" in write_sql
+    assert write_parameters["tables"] == list(WRITTEN_TABLES)
+
+
+def test_missing_select_names_the_table_and_the_grant_script() -> None:
+    session = AccessSession(contracts={"select_allowed": False})
+
+    with pytest.raises(PublicAccessError) as failure:
+        check_public_access(session)
+
+    assert str(failure.value) == (
+        "Нет доступа к project1.public: таблица contracts — нет права SELECT; "
+        "выполните scripts/grant_public_access.sql"
+    )
+
+
+@pytest.mark.parametrize(
+    ("column", "missing"),
+    [
+        ("insert_allowed", "нет права INSERT"),
+        ("update_allowed", "нет права UPDATE"),
+        ("sequence_allowed", "нет права USAGE на последовательность колонки id"),
+        ("policy_allowed", "нет политики RLS для этой роли"),
+    ],
+)
+def test_every_write_privilege_is_required(column: str, missing: str) -> None:
+    session = AccessSession(counterparties={column: False})
+
+    with pytest.raises(PublicAccessError) as failure:
+        check_public_access(session)
+
+    assert f"таблица counterparties — {missing}" in str(failure.value)
+
+
+def test_access_check_is_a_write_error_for_the_publication() -> None:
+    # Отказ прав должен ловиться там же, где и отказ записи: включение обмена
+    # и публикация показывают его одним текстом.
+    assert issubclass(PublicAccessError, PublicWriteError)
+
+
+def test_database_failure_of_the_access_check_becomes_a_write_error() -> None:
+    with pytest.raises(PublicWriteError):
+        check_public_access(FailingSession())

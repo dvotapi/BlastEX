@@ -11,6 +11,12 @@
 (``cost/v2/schemas``). Новое поле в схеме доезжает до уже созданной таблицы
 само — весь DDL идемпотентный и выполняется перед каждой выгрузкой.
 
+Значения строк тоже берутся из схемы, а не угадываются по JSON: payload
+записи разбирается pydantic-моделью раздела, поэтому в колонку приезжает
+``bool``, ``Decimal`` или ``date``, а не строка «off», о написаниях которой
+зеркалу пришлось бы догадываться. Запись, которую схема не приняла
+(публикация валидацию не требует), выгружается как есть, с предупреждением.
+
 Своей транзакции модуль не открывает и ничего не коммитит: и DDL, и строки
 идут в переданной сессии — той же, в которой публикуется ревизия. Иначе
 журнал получил бы таблицу с данными ревизии, которой в blastex нет.
@@ -23,8 +29,9 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from types import UnionType
-from typing import Any, Literal, Sequence, Union, get_args, get_origin
+from typing import Any, Literal, Mapping, Sequence, Union, get_args, get_origin
 
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -249,8 +256,13 @@ def sync_mirror(
     revision_id: str,
     items: Sequence[ReferenceItem],
     now: datetime,
-) -> tuple[int, int]:
-    """Приводит зеркало к ревизии, возвращая ``(записано, деактивировано)``.
+) -> tuple[int, int, tuple[str, ...]]:
+    """Приводит зеркало к ревизии: ``(записано, деактивировано, предупреждения)``.
+
+    Payload каждой записи разбирается схемой раздела, поэтому значения
+    приезжают типами, а не строками JSON. Запись, которую схема не приняла,
+    выгружается как есть — зеркало не должно ронять публикацию, — а
+    предупреждение о ней уходит в журнал аудита.
 
     Выгружаются все записи ревизии, включая неактивные: зеркало показывает
     справочник целиком, а не только то, чем сейчас пользуются. Строка,
@@ -263,7 +275,11 @@ def sync_mirror(
 
     table = mirror_table_name(section)
     columns = mirror_columns(section)
-    rows = [_mirror_row(columns, item, revision_id, now) for item in items]
+    warnings: list[str] = []
+    rows = [
+        _mirror_row(columns, item, _payload(section, item, warnings), revision_id, now)
+        for item in items
+    ]
     if rows:
         session.execute(text(_insert_sql(table, columns)), rows)
     result = session.execute(
@@ -280,7 +296,32 @@ def sync_mirror(
             "codes": [item.code for item in items],
         },
     )
-    return len(rows), int(result.rowcount or 0)
+    return len(rows), int(result.rowcount or 0), tuple(warnings)
+
+
+def _payload(section: str, item: ReferenceItem, warnings: list[str]) -> Mapping[str, Any]:
+    """Payload записи, разобранный схемой раздела.
+
+    Схема — единственный источник знаний о типах полей: после неё в колонку
+    приезжает ``bool``, ``Decimal`` или ``date``, и зеркалу не нужно гадать по
+    строкам JSON. Публикация валидацию не требует, поэтому запись со
+    сломанным payload возможна: такая выгружается как есть, а сметчик узнаёт
+    об этом из предупреждения.
+    """
+
+    model = SECTION_SCHEMAS.get(section)
+    if model is None:
+        return item.payload
+    try:
+        return model.model_validate(item.payload).model_dump()
+    except ValidationError as exc:
+        error = exc.errors()[0]
+        field = ".".join(str(part) for part in error.get("loc", ())) or "payload"
+        warnings.append(
+            f"Запись {item.code}: поле {field} не прошло схему раздела "
+            "(значения выгружены как есть)."
+        )
+        return item.payload
 
 
 def _insert_sql(table: str, columns: Sequence[MirrorColumn]) -> str:
@@ -308,6 +349,7 @@ def _placeholder(column: MirrorColumn) -> str:
 def _mirror_row(
     columns: Sequence[MirrorColumn],
     item: ReferenceItem,
+    payload: Mapping[str, Any],
     revision_id: str,
     now: datetime,
 ) -> dict[str, Any]:
@@ -326,7 +368,7 @@ def _mirror_row(
     }
     return {
         column.name: mirror_value(
-            column, record[column.name] if column.name in record else item.payload.get(column.name)
+            column, record[column.name] if column.name in record else payload.get(column.name)
         )
         for column in columns
     }
@@ -335,10 +377,12 @@ def _mirror_row(
 def mirror_value(column: MirrorColumn, value: Any) -> Any:
     """Значение payload в виде, который примет колонка зеркала.
 
-    Payload прошёл валидацию схемой, но хранится как JSON: число там бывает
-    строкой, дата — строкой ISO, а незаполненное поле — пустой строкой.
-    Значение, которое не удаётся привести к типу колонки, становится
-    ``NULL``: зеркало показывает то, что разобрано, и не роняет публикацию.
+    Обычно значение приходит уже разобранным схемой раздела (``_payload``), и
+    приводить нечего. Строки остаются у записи, чей payload схема не приняла:
+    число там бывает строкой, дата — строкой ISO, а незаполненное поле —
+    пустой строкой. Значение, которое не удаётся привести к типу колонки,
+    становится ``NULL``: зеркало показывает то, что разобрано, и не роняет
+    публикацию.
     """
 
     if value is None:
@@ -348,11 +392,7 @@ def mirror_value(column: MirrorColumn, value: Any) -> Any:
     if column.sql_type == "numeric":
         return _numeric(value)
     if column.sql_type == "boolean":
-        if isinstance(value, bool):
-            return value
-        # Признак из импорта приходит строкой: «false» — это ложь, а не
-        # просто непустая строка.
-        return str(value).strip().lower() not in {"false", "0", "нет", "no"}
+        return _boolean(value)
     if column.sql_type == "date":
         return _date(value)
     if column.sql_type == "jsonb":
@@ -360,6 +400,24 @@ def mirror_value(column: MirrorColumn, value: Any) -> Any:
     if column.sql_type == "text" or column.sql_type.startswith("varchar"):
         return value if isinstance(value, str) else str(value)
     return value
+
+
+# Написания булева значения — ровно те, что принимает pydantic: список общий
+# со схемой, поэтому «off» и «n» здесь значат то же самое, что и в ней, а
+# чужое написание не превращается в истину по факту непустой строки.
+_TRUE_STRINGS = frozenset({"1", "on", "t", "true", "y", "yes"})
+_FALSE_STRINGS = frozenset({"0", "off", "f", "false", "n", "no"})
+
+
+def _boolean(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    written = str(value).strip().lower()
+    if written in _TRUE_STRINGS:
+        return True
+    if written in _FALSE_STRINGS:
+        return False
+    return None
 
 
 def _numeric(value: Any) -> Decimal | None:

@@ -158,6 +158,18 @@ def test_ensure_mirror_runs_the_whole_ddl_in_the_given_session() -> None:
         ("text", None, None),
         ("text", "III", "III"),
         ("boolean", True, True),
+        ("boolean", False, False),
+        # Написания pydantic: значение из импорта могло не пройти схему и
+        # приехать сюда строкой.
+        ("boolean", "off", False),
+        ("boolean", "n", False),
+        ("boolean", "f", False),
+        ("boolean", "on", True),
+        ("boolean", "y", True),
+        ("boolean", "t", True),
+        # Чужое написание — не «истина по факту непустой строки», а NULL: так
+        # же, как с числом и датой.
+        ("boolean", "да", None),
         ("date", "2026-09-04", date(2026, 9, 4)),
         ("date", date(2026, 9, 4), date(2026, 9, 4)),
         ("date", "", None),
@@ -182,7 +194,7 @@ def test_sync_upserts_every_record_of_the_revision() -> None:
         ReferenceItem("SAND", "Песок", {"density_t_m3": "1.60"}, is_active=False),
     )
 
-    upserted, _deactivated = sync_mirror(session, "rocks", "rev-2", items, NOW)
+    upserted, _deactivated, _warnings = sync_mirror(session, "rocks", "rev-2", items, NOW)
 
     insert_sql, insert_params = session.calls[0]
     assert upserted == 2
@@ -200,7 +212,7 @@ def test_sync_deactivates_the_records_that_left_the_revision() -> None:
     session = RecordingSession(rowcount=3)
     items = (ReferenceItem("GRANITE", "Гранит"),)
 
-    _upserted, deactivated = sync_mirror(session, "rocks", "rev-2", items, NOW)
+    _upserted, deactivated, _warnings = sync_mirror(session, "rocks", "rev-2", items, NOW)
 
     update_sql, update_params = session.calls[-1]
     assert deactivated == 3
@@ -216,9 +228,50 @@ def test_sync_deactivates_the_records_that_left_the_revision() -> None:
 def test_empty_revision_deactivates_the_whole_mirror() -> None:
     session = RecordingSession(rowcount=5)
 
-    upserted, deactivated = sync_mirror(session, "rocks", "rev-2", (), NOW)
+    upserted, deactivated, _warnings = sync_mirror(session, "rocks", "rev-2", (), NOW)
 
     assert (upserted, deactivated) == (0, 5)
     # Вставлять нечего — остаётся один оператор.
     assert len(session.calls) == 1
     assert session.calls[0][1]["codes"] == []
+
+
+def test_payload_is_typed_by_the_schema_of_the_section() -> None:
+    # Схема раздела разбирает payload до выгрузки: «off» — это ложь, а не
+    # просто непустая строка, и гадать по строкам зеркалу не приходится.
+    session = RecordingSession()
+    items = (
+        ReferenceItem(
+            "MASTER",
+            "Мастер участка",
+            {"category": "INDIRECT", "per_diem_applies": "off", "piece_unit": "1"},
+        ),
+    )
+
+    _upserted, _deactivated, warnings = sync_mirror(
+        session, "positions", "rev-2", items, NOW
+    )
+
+    row = session.calls[0][1][0]
+    assert row["per_diem_applies"] is False
+    assert row["piece_unit"] == Decimal("1")
+    assert warnings == ()
+
+
+def test_payload_that_the_schema_rejects_is_written_as_it_is() -> None:
+    session = RecordingSession()
+    items = (
+        ReferenceItem(
+            "MASTER", "Мастер участка", {"category": "INDIRECT", "per_diem_applies": "да"}
+        ),
+    )
+
+    _upserted, _deactivated, warnings = sync_mirror(
+        session, "positions", "rev-2", items, NOW
+    )
+
+    row = session.calls[0][1][0]
+    assert row["per_diem_applies"] is None
+    assert len(warnings) == 1
+    assert "MASTER" in warnings[0]
+    assert "per_diem_applies" in warnings[0]

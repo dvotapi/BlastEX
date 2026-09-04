@@ -579,13 +579,221 @@ def test_unit_written_off_in_journal_does_not_warn() -> None:
     assert plan.warnings == ()
 
 
-def test_link_without_journal_row_warns_and_skips_record() -> None:
+def test_stale_link_creates_the_record_anew() -> None:
+    # Строку журнала удалили: обновлять нечего, а запись должна вернуться в
+    # журнал — иначе она осталась бы вне его навсегда.
     plan = plan_public_writes({"sites": [SITE]}, [link("sites", "LOM", "sites", 3)], EMPTY)
+
+    insert = only_insert(plan, "sites")
+    assert insert.code == "LOM"
+    assert plan.updates == ()
+    assert plan.warnings == (
+        "Запись sites/LOM: связь на строку sites#3 устарела, запись создана заново.",
+    )
+
+
+def test_stale_link_of_inactive_record_writes_nothing() -> None:
+    site = item("LOM", "Ломоватский карьер", {"short_name": "ЛОМ"}, is_active=False)
+
+    plan = plan_public_writes({"sites": [site]}, [link("sites", "LOM", "sites", 3)], EMPTY)
 
     assert plan.is_empty()
     assert plan.warnings == (
-        "Запись sites/LOM: строка журнала sites#3 не найдена, выгрузка пропущена.",
+        "Запись sites/LOM: связь на строку sites#3 устарела, "
+        "неактивная запись в журнал не заводится.",
     )
+
+
+# --- Ссылки связанных записей ------------------------------------------------
+
+MACHINE_TYPES = [
+    {"id": 1, "name": "Буровая установка"},
+    {"id": 2, "name": "Экскаватор"},
+]
+MODEL_ROW = {"id": 5, "machine_type_id": 1, "brand": "Jinke", "model_name": "JK830-2"}
+TYPE_LINK = [link("equipment_types", "JK830", "equipment_models", 5)]
+
+
+def retyped_equipment(machine_type: str) -> ReferenceItem:
+    return item(
+        "JK830",
+        "JK830-2",
+        {"kind": "DRILL_RIG", "brand": "Jinke", "machine_type_name": machine_type},
+    )
+
+
+def test_changed_machine_type_repoints_the_linked_model() -> None:
+    # Тип машины — общее поле: читатель считает его изменившимся, пока модель
+    # журнала ссылается на прежнюю строку, и разница возвращалась бы после
+    # каждой публикации.
+    journal = snapshot(machine_types=MACHINE_TYPES, equipment_models=[MODEL_ROW])
+
+    plan = plan_public_writes(
+        {"equipment_types": [retyped_equipment("Экскаватор")]}, TYPE_LINK, journal
+    )
+
+    update = only_update(plan)
+    assert plan.inserts == ()
+    assert (update.table, update.public_id) == ("equipment_models", 5)
+    # Сам id ставит писатель: в плане ссылок нет, есть только их источник.
+    assert update.values == {}
+    assert update.depends_on == (("machine_types", "Экскаватор"),)
+    assert update.foreign_keys == (("machine_type_id", "machine_types", "Экскаватор"),)
+
+
+def test_unchanged_machine_type_leaves_the_model_alone() -> None:
+    journal = snapshot(machine_types=MACHINE_TYPES, equipment_models=[MODEL_ROW])
+
+    plan = plan_public_writes(
+        {"equipment_types": [retyped_equipment("Буровая установка")]}, TYPE_LINK, journal
+    )
+
+    assert plan.is_empty()
+
+
+def test_machine_type_of_the_journal_is_matched_ignoring_case_for_updates() -> None:
+    journal = snapshot(machine_types=MACHINE_TYPES, equipment_models=[MODEL_ROW])
+
+    plan = plan_public_writes(
+        {"equipment_types": [retyped_equipment("  буровая  установка ")]}, TYPE_LINK, journal
+    )
+
+    assert plan.is_empty()
+
+
+def test_new_machine_type_of_a_linked_model_is_inserted_too() -> None:
+    journal = snapshot(machine_types=MACHINE_TYPES, equipment_models=[MODEL_ROW])
+
+    plan = plan_public_writes(
+        {"equipment_types": [retyped_equipment("Погрузчик")]}, TYPE_LINK, journal
+    )
+
+    assert only_insert(plan, "machine_types").values == {"name": "Погрузчик"}
+    assert only_update(plan).foreign_keys == (
+        ("machine_type_id", "machine_types", "Погрузчик"),
+    )
+
+
+UNIT_JOURNAL = snapshot(
+    machine_types=MACHINE_TYPES,
+    equipment_models=[
+        MODEL_ROW,
+        {"id": 6, "machine_type_id": 1, "brand": "Epiroc", "model_name": "DM45"},
+    ],
+    equipment_units=[
+        {
+            "id": 9,
+            "model_id": 5,
+            "internal_id": "БУ-01",
+            "serial_number": "SN-JK830-0001",
+            "status": "В работе",
+        }
+    ],
+)
+OTHER_TYPE = item(
+    "DM45",
+    "DM45",
+    {"kind": "DRILL_RIG", "brand": "Epiroc", "machine_type_name": "Буровая установка"},
+)
+UNIT_LINKS = [
+    link("equipment_types", "JK830", "equipment_models", 5),
+    link("equipment_types", "DM45", "equipment_models", 6),
+    link("equipment_assets", "RIG_01", "equipment_units", 9),
+]
+
+
+def moved_asset(type_code: str) -> ReferenceItem:
+    return item(
+        "RIG_01",
+        "Станок №1",
+        {
+            "equipment_type_code": type_code,
+            "inventory_number": "БУ-01",
+            "serial_number": "SN-JK830-0001",
+        },
+    )
+
+
+def test_changed_type_repoints_the_linked_unit() -> None:
+    plan = plan_public_writes(
+        {
+            "equipment_types": [EQUIPMENT_TYPE, OTHER_TYPE],
+            "equipment_assets": [moved_asset("DM45")],
+        },
+        UNIT_LINKS,
+        UNIT_JOURNAL,
+    )
+
+    update = only_update(plan)
+    assert (update.table, update.public_id) == ("equipment_units", 9)
+    assert update.values == {}
+    assert update.depends_on == (("equipment_models", "DM45"),)
+    assert update.foreign_keys == (("model_id", "equipment_models", "DM45"),)
+
+
+def test_unit_of_the_same_type_keeps_its_model() -> None:
+    plan = plan_public_writes(
+        {
+            "equipment_types": [EQUIPMENT_TYPE, OTHER_TYPE],
+            "equipment_assets": [moved_asset("JK830")],
+        },
+        UNIT_LINKS,
+        UNIT_JOURNAL,
+    )
+
+    assert plan.is_empty()
+
+
+def test_unit_moved_to_a_new_type_waits_for_its_insert() -> None:
+    # Тип заводится этой же публикацией: id модели знает только писатель, но
+    # ссылка единицы всё равно должна переехать.
+    new_type = item("SKF", "SKF-13", {"kind": "DRILL_RIG", "brand": "Sandvik"})
+
+    plan = plan_public_writes(
+        {
+            "equipment_types": [EQUIPMENT_TYPE, new_type],
+            "equipment_assets": [moved_asset("SKF")],
+        },
+        UNIT_LINKS,
+        UNIT_JOURNAL,
+    )
+
+    assert only_update(plan).foreign_keys == (("model_id", "equipment_models", "SKF"),)
+
+
+def test_unit_of_a_type_that_is_not_exported_keeps_its_model_and_warns() -> None:
+    # Тип отключён и в журнале своей строки не имеет: переставить model_id
+    # некуда, но и молчать об этом нельзя.
+    inactive_type = item("DM45", "DM45", {"kind": "DRILL_RIG"}, is_active=False)
+    links = [
+        link("equipment_types", "JK830", "equipment_models", 5),
+        link("equipment_assets", "RIG_01", "equipment_units", 9),
+    ]
+
+    plan = plan_public_writes(
+        {
+            "equipment_types": [EQUIPMENT_TYPE, inactive_type],
+            "equipment_assets": [moved_asset("DM45")],
+        },
+        links,
+        UNIT_JOURNAL,
+    )
+
+    assert plan.updates == ()
+    assert plan.warnings == (
+        "Единица RIG_01: тип техники не выгружается в журнал, "
+        "модель в журнале не изменена.",
+    )
+
+
+def test_unit_without_a_type_in_the_draft_is_left_to_the_journal() -> None:
+    # Раздела типов в ревизии нет: судить о модели журнала не по чему, и
+    # трогать её план не должен.
+    plan = plan_public_writes(
+        {"equipment_assets": [moved_asset("DM45")]}, UNIT_LINKS, UNIT_JOURNAL
+    )
+
+    assert plan.is_empty()
 
 
 def test_link_to_another_table_is_skipped_with_warning() -> None:
@@ -817,6 +1025,19 @@ CONFLICT_JOURNAL = snapshot(
     equipment_models=[{"id": 5, "brand": "Jinke", "model_name": "JK830-2"}],
     equipment_units=[{"id": 9, "model_id": 5, "internal_id": "БУ-01", "status": "В работе"}],
 )
+
+
+def test_stale_link_is_validated_as_an_unlinked_record() -> None:
+    # Строки журнала, на которую вела связь, больше нет: запись будет заведена
+    # заново, поэтому ИНН соседней строки для неё занят.
+    links = [link("counterparties", "TEPLOGORSK", "counterparties", 77)]
+
+    issues = public_constraint_issues(
+        {"counterparties": [CUSTOMER]}, links, CONFLICT_JOURNAL
+    )
+
+    assert fields_of(issues) == [("counterparties", "TEPLOGORSK", "inn")]
+    assert "Из project1" in issues[0].message
 
 
 def test_journal_conflicts_are_reported_with_snapshot() -> None:

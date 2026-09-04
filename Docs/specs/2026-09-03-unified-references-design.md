@@ -280,7 +280,8 @@ project1: N новых, M изменённых, K деактивированны
 
 - фиксированные колонки: `code text primary key`, `name text not null`,
   `is_active boolean not null`, `valid_from date`, `valid_to date`,
-  `revision_id varchar(36) not null`, `synced_at timestamptz not null`;
+  `revision_id varchar(36) not null`, `synced_at timestamptz not null`, а
+  дополнительно `source text` и `comment text` записи;
 - по одной колонке на поле схемы: `Decimal → numeric`, `bool → boolean`,
   `str`/`Literal` → `text`, `date → date`, ссылка (`x-ref`) → `text` с кодом,
   списки и вложенные модели → `jsonb`; поля с `x-internal` не выгружаются;
@@ -297,6 +298,11 @@ project1: N новых, M изменённых, K деактивированны
 той же транзакции: строки вставляются или обновляются по `code`, отсутствующие
 в ревизии получают `is_active = false`. Зеркало однонаправленное: записи,
 внесённые в `blastex_<section>` другими системами, BlastEX не читает.
+
+Зеркала и таблицы журнала общие для базы: BlastEX исходит из того, что с одной
+базой project1 работает одна организация. При нескольких организациях в одной
+базе зеркала перетирали бы строки друг друга по `code`; тогда потребуется ключ
+(`organization_id`, `code`).
 
 ## 6. Адаптеры для движка Cost V1
 

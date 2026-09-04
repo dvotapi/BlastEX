@@ -119,6 +119,7 @@ import type {
   PublicDelta,
   PublicLink,
   PublicLinkRequest,
+  PublicSyncSettings,
   ReferenceImportResult,
   ReferenceRevision,
   ReferenceValidation,
@@ -282,6 +283,11 @@ export const api = {
         pending_links: pendingLinks,
       }),
     publicLinks: () => get<PublicLink[]>(`${V1}/economics/references/public-links`),
+    publicSettings: () =>
+      get<PublicSyncSettings>(`${V1}/economics/references/public-settings`),
+    /** Сохранение настроек обмена: тело — состояние целиком; доступно администратору. */
+    savePublicSettings: (payload: { exchange_enabled: boolean; mirror_sections: Record<string, boolean> }) =>
+      put<PublicSyncSettings>(`${V1}/economics/references/public-settings`, payload),
     savePublicLink: (link: PublicLinkRequest) =>
       post<PublicLink>(`${V1}/economics/references/public-links`, link),
     scenarios: () => get<StoredEconomicScenario[]>(`${V1}/economics/scenarios`),

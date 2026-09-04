@@ -6,6 +6,7 @@ import type {
   EconomicsReferenceSnapshot,
   PublicDelta,
   PublicDeltaEntry,
+  PublicSyncSettings,
   ReferenceRevision,
   ReferenceValidationIssue,
 } from "../../types/economics";
@@ -22,6 +23,7 @@ import {
   type PendingLink,
 } from "./publicDelta";
 import { PublicDeltaBanner } from "./PublicDeltaBanner";
+import { PublicSyncSettingsPanel } from "./PublicSyncSettings";
 import { PublishBar } from "./PublishBar";
 import { RecordForm, type DraftItem } from "./RecordForm";
 import { SectionList } from "./SectionList";
@@ -89,7 +91,10 @@ export function ReferencesPage({ user }: { user: User }) {
   // публикации, одной транзакцией с ревизией. Ключ связи — `row_id` записи, а
   // не код: код правится в форме, и связь должна идти за записью.
   const [pendingLinks, setPendingLinks] = useState<PendingLink[]>([]);
+  // Настройки обмена меняет только администратор — остальным они и не грузятся.
+  const [publicSettings, setPublicSettings] = useState<PublicSyncSettings | null>(null);
   const canEdit = user.role === "admin" || user.role === "reference_editor";
+  const isAdmin = user.role === "admin";
 
   // Номер последнего запроса разницы: ответы более ранних запросов
   // игнорируются, иначе медленный первый ответ затёр бы свежий второй.
@@ -155,13 +160,22 @@ export function ReferencesPage({ user }: { user: User }) {
       } catch {
         setRevisions([]);
       }
+      if (isAdmin) {
+        try {
+          setPublicSettings(await api.economics.publicSettings());
+        } catch {
+          // Настройки обмена — не условие работы со справочниками: без них
+          // просто нет панели.
+          setPublicSettings(null);
+        }
+      }
       await refreshPublicDelta(loadedDraft, []);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить справочники.");
     } finally {
       setBusy(false);
     }
-  }, [refreshPublicDelta]);
+  }, [isAdmin, refreshPublicDelta]);
 
   useEffect(() => {
     void load();
@@ -622,6 +636,17 @@ export function ReferencesPage({ user }: { user: User }) {
         onApplyAll={() => void applyPublicDelta()}
         onLink={(entry, code) => void linkPublicEntry(entry, code)}
       />
+
+      {isAdmin && (
+        <PublicSyncSettingsPanel
+          settings={publicSettings}
+          sectionLabel={(code) => sectionLabels[code] ?? code}
+          onChange={setPublicSettings}
+          // Включённый обмен и новые зеркала меняют состав разницы с журналом:
+          // после сохранения плашку нужно пересчитать.
+          onSaved={() => void refreshPublicDelta(draft, pendingLinks)}
+        />
+      )}
 
       {error && <div className="page-error">{error}</div>}
 

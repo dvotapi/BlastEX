@@ -461,3 +461,36 @@ def test_changed_equipment_type_moves_the_unit_in_the_journal(repository, public
 
     unit = only_row(public_db, "equipment_units", "internal_id", "Б-02")
     assert unit["model_id"] == only_row(public_db, "equipment_models", "model_name", "SKF-13")["id"]
+
+
+@requires_pg
+def test_record_gone_from_the_revision_deactivates_its_journal_row(
+    repository, public_db
+) -> None:
+    """Импорт заменил раздел без прежней записи: строка журнала гаснет.
+
+    Связь остаётся: строку журнала ведёт другая система, наше дело — снять
+    признак активности, а не удалить её.
+    """
+
+    seed_public(public_db)
+    enable_exchange(repository)
+    publish(repository, counterparties=(CUSTOMER,))
+    before = only_row(public_db, "counterparties", "inn", "6685101311")
+
+    published = publish(repository, counterparties=())
+
+    after = only_row(public_db, "counterparties", "id", before["id"])
+    assert after["is_active"] is False
+    links = {
+        (link.section, link.code): (link.public_table, link.public_id)
+        for link in repository.list_public_links(ORG)
+    }
+    assert links == {("counterparties", "KARIER"): ("counterparties", before["id"])}
+    summary = audit_payload(public_db, published.revision_id)["public_writes"]
+    assert summary["inserted"] == 0
+    assert summary["updated"] == 1
+    assert summary["warnings"] == [
+        "Запись counterparties/KARIER исчезла из справочника, "
+        f"строка журнала counterparties#{before['id']} деактивирована."
+    ]

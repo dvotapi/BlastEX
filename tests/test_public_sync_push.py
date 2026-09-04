@@ -604,6 +604,88 @@ def test_stale_link_of_inactive_record_writes_nothing() -> None:
     )
 
 
+# --- Записи, исчезнувшие из справочника --------------------------------------
+
+
+def test_vanished_linked_record_deactivates_its_journal_row() -> None:
+    # Импорт заменил раздел и не принёс связанную запись: планирование идёт
+    # по записям ревизии, и строка журнала осталась бы активной навсегда.
+    plan = plan_public_writes(
+        {"counterparties": []},
+        [link("counterparties", "TEPLOGORSK", "counterparties", 1)],
+        snapshot(counterparties=[CUSTOMER_ROW]),
+    )
+
+    update = only_update(plan)
+    assert (update.table, update.public_id) == ("counterparties", 1)
+    assert update.values == {"is_active": False}
+    assert plan.inserts == ()
+    assert plan.warnings == (
+        "Запись counterparties/TEPLOGORSK исчезла из справочника, "
+        "строка журнала counterparties#1 деактивирована.",
+    )
+
+
+def test_vanished_record_with_inactive_row_writes_nothing() -> None:
+    plan = plan_public_writes(
+        {"counterparties": []},
+        [link("counterparties", "TEPLOGORSK", "counterparties", 1)],
+        snapshot(counterparties=[{**CUSTOMER_ROW, "is_active": False}]),
+    )
+
+    assert plan.is_empty()
+    assert plan.warnings == ()
+
+
+def test_vanished_record_of_a_table_without_activity_only_warns() -> None:
+    # У моделей журнала признака активности нет, а статусом единиц техники
+    # распоряжается журнал: погасить строку нечем, молчать нельзя.
+    plan = plan_public_writes(
+        {"equipment_types": []},
+        [link("equipment_types", "JK830", "equipment_models", 5)],
+        snapshot(equipment_models=[{"id": 5, "model_name": "JK830-2", "brand": "Jinke"}]),
+    )
+
+    assert plan.is_empty()
+    assert plan.warnings == (
+        "Запись equipment_types/JK830 исчезла из справочника, строка журнала "
+        "equipment_models#5 не деактивирована: у таблицы нет признака активности.",
+    )
+
+
+def test_vanished_record_without_its_journal_row_writes_nothing() -> None:
+    # Строку журнала уже удалили: гасить нечего, связь остаётся как есть.
+    plan = plan_public_writes(
+        {"counterparties": []},
+        [link("counterparties", "TEPLOGORSK", "counterparties", 1)],
+        EMPTY,
+    )
+
+    assert plan.is_empty()
+    assert plan.warnings == ()
+
+
+def test_section_missing_from_the_revision_is_not_a_vanished_record() -> None:
+    # Раздела нет в переданной ревизии вовсе: о его записях ничего не
+    # известно, и гасить строки журнала не по чему.
+    plan = plan_public_writes(
+        {"sites": [SITE]}, SITE_LINK, linked_site_journal(client_legal_name="")
+    )
+
+    assert plan.is_empty()
+    assert plan.warnings == ()
+
+
+def test_vanished_record_does_not_affect_constraint_issues() -> None:
+    issues = public_constraint_issues(
+        {"counterparties": []},
+        [link("counterparties", "TEPLOGORSK", "counterparties", 1)],
+        snapshot(counterparties=[CUSTOMER_ROW]),
+    )
+
+    assert issues == []
+
+
 # --- Ссылки связанных записей ------------------------------------------------
 
 MACHINE_TYPES = [

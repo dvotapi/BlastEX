@@ -207,20 +207,75 @@ class SqlPublicWriter:
 
 # Имена таблиц в запросах — параметры, а не части SQL, и приходят они из
 # `mapping.TABLES` и `push.WRITTEN_TABLES`, а не от пользователя.
-_READ_ACCESS = text(
-    "SELECT t.table_name AS table_name, "
-    "has_table_privilege(current_user, format('public.%I', t.table_name), 'SELECT') "
-    "AS select_allowed "
+_TABLES_SOURCE = (
     "FROM unnest(CAST(:tables AS text[])) WITH ORDINALITY AS t(table_name, ordinal) "
+    "LEFT JOIN pg_class c "
+    "ON c.relname = t.table_name AND c.relnamespace = 'public'::regnamespace "
     "ORDER BY t.ordinal"
 )
 
+
+# Команда политики в `pg_policies.cmd`: `FOR ALL` PostgreSQL показывает как
+# `ALL`, старые версии — как `*`; такая политика разрешает и чтение, и запись.
+_ANY_COMMAND = "'ALL', '*'"
+_SELECT_COMMANDS = "'SELECT', " + _ANY_COMMAND
+_INSERT_COMMAND = "'INSERT'"
+_UPDATE_COMMAND = "'UPDATE'"
+
+
+def _has_policy(commands: str) -> str:
+    """Есть ли у таблицы политика RLS, применимая к роли и этим командам.
+
+    Политика может быть выдана самой роли или ``public``. ``FOR ALL``
+    PostgreSQL показывает в ``pg_policies.cmd`` как ``ALL`` (в старых
+    версиях — ``*``), поэтому оба написания перечисляются вызывающим.
+    """
+
+    return (
+        "EXISTS (SELECT 1 FROM pg_policies p "
+        "WHERE p.schemaname = 'public' AND p.tablename = t.table_name "
+        "AND (p.roles @> ARRAY[current_user]::name[] "
+        "OR p.roles @> ARRAY['public']::name[]) "
+        f"AND p.cmd IN ({commands}))"
+    )
+
+
+def _policy_allowed(policies: str) -> str:
+    """Условие «RLS этой таблицы роли не помешает».
+
+    Таблица без RLS и таблица своего владельца проверку проходят: политика
+    им не нужна. Таблицы в ответе может не быть вовсе (``LEFT JOIN`` даст
+    NULL) — тогда о правах судит ``has_table_privilege``, а не эта колонка.
+    """
+
+    return (
+        "COALESCE(NOT c.relrowsecurity "
+        "OR pg_get_userbyid(c.relowner) = current_user "
+        f"OR {policies}, true) AS policy_allowed"
+    )
+
+
+# Право на чтение и политика RLS, разрешающая чтение. Политика проверяется у
+# каждой таблицы снимка, а не только у тех, в которые план пишет: с одним
+# лишь GRANT SELECT PostgreSQL молча вернёт ноль строк, снимок окажется
+# неполным (у прочих таблиц строки есть, и пустым он не выглядит), а разница
+# по ценам или замедлениям пропадёт незаметно.
+_READ_ACCESS = text(
+    "SELECT t.table_name AS table_name, current_user AS role_name, "
+    "has_table_privilege(current_user, format('public.%I', t.table_name), 'SELECT') "
+    "AS select_allowed, "
+    + _policy_allowed(_has_policy(_SELECT_COMMANDS))
+    + " "
+    + _TABLES_SOURCE
+)
+
 # Право на запись, право на последовательность колонки `id` (без неё INSERT не
-# получит следующий номер) и политика RLS. Таблица без последовательности
-# (`pg_get_serial_sequence` вернёт NULL) проверку последовательности проходит;
-# владельцу таблицы политика не нужна — RLS его не ограничивает.
+# получит следующий номер) и политика RLS, разрешающая запись. Таблица без
+# последовательности (`pg_get_serial_sequence` вернёт NULL) проверку
+# последовательности проходит; политика на одно чтение записи не спасёт —
+# нужна `FOR ALL` либо обе, `FOR INSERT` и `FOR UPDATE`.
 _WRITE_ACCESS = text(
-    "SELECT t.table_name AS table_name, "
+    "SELECT t.table_name AS table_name, current_user AS role_name, "
     "has_table_privilege(current_user, format('public.%I', t.table_name), 'INSERT') "
     "AS insert_allowed, "
     "has_table_privilege(current_user, format('public.%I', t.table_name), 'UPDATE') "
@@ -228,25 +283,31 @@ _WRITE_ACCESS = text(
     "COALESCE(has_sequence_privilege(current_user, "
     "pg_get_serial_sequence(format('public.%I', t.table_name), 'id'), 'USAGE'), true) "
     "AS sequence_allowed, "
-    "COALESCE(NOT c.relrowsecurity "
-    "OR pg_get_userbyid(c.relowner) = current_user "
-    "OR EXISTS (SELECT 1 FROM pg_policies p "
-    "WHERE p.schemaname = 'public' AND p.tablename = t.table_name "
-    "AND (p.roles @> ARRAY[current_user]::name[] "
-    "OR p.roles @> ARRAY['public']::name[])), true) AS policy_allowed "
-    "FROM unnest(CAST(:tables AS text[])) WITH ORDINALITY AS t(table_name, ordinal) "
-    "LEFT JOIN pg_class c "
-    "ON c.relname = t.table_name AND c.relnamespace = 'public'::regnamespace "
-    "ORDER BY t.ordinal"
+    + _policy_allowed(
+        f"({_has_policy(_ANY_COMMAND)} "
+        f"OR ({_has_policy(_INSERT_COMMAND)} AND {_has_policy(_UPDATE_COMMAND)}))"
+    )
+    + " "
+    + _TABLES_SOURCE
 )
+
+# Жалоба, которой нужно имя роли, несёт `{role}`: подставляется `current_user`
+# из ответа базы — администратор должен видеть, какой именно роли не хватило
+# политики, а не искать её в конфигурации приложения.
+_MISSING_POLICY = "нет политики RLS для роли {role}"
 
 # Колонка ответа → чего не хватает роли. Порядок задаёт порядок жалоб: сначала
 # сами права, потом последовательность и политика.
+_READ_CHECKS: tuple[tuple[str, str], ...] = (
+    ("select_allowed", "нет права SELECT"),
+    ("policy_allowed", _MISSING_POLICY),
+)
+
 _WRITE_CHECKS: tuple[tuple[str, str], ...] = (
     ("insert_allowed", "нет права INSERT"),
     ("update_allowed", "нет права UPDATE"),
     ("sequence_allowed", "нет права USAGE на последовательность колонки id"),
-    ("policy_allowed", "нет политики RLS для этой роли"),
+    ("policy_allowed", _MISSING_POLICY),
 )
 
 
@@ -256,20 +317,35 @@ def check_public_access(session: Session) -> None:
     Проверяются права, а не удачное чтение: роль с одним лишь ``SELECT`` или
     без политики RLS прошла бы пробу чтением и уронила бы первую публикацию
     ответом 502. Читаются все таблицы ``mapping.TABLES``, пишутся только
-    ``push.WRITTEN_TABLES`` — с них и спрашивается больше.
+    ``push.WRITTEN_TABLES`` — с них и спрашивается больше. Политика RLS нужна
+    и читаемым таблицам: без неё PostgreSQL не откажет, а вернёт ноль строк,
+    и обмен молча разошёлся бы с журналом.
 
     Первая же нехватка — ``PublicAccessError`` с именем таблицы и права:
     администратору нужно знать, что именно не выдал скрипт, а не список из
     тринадцати строк.
     """
 
-    for row in _access_rows(session, _READ_ACCESS, TABLES):
-        if not row["select_allowed"]:
-            raise PublicAccessError(str(row["table_name"]), "нет права SELECT")
-    for row in _access_rows(session, _WRITE_ACCESS, WRITTEN_TABLES):
-        for column, missing in _WRITE_CHECKS:
+    _require(_access_rows(session, _READ_ACCESS, TABLES), _READ_CHECKS)
+    _require(_access_rows(session, _WRITE_ACCESS, WRITTEN_TABLES), _WRITE_CHECKS)
+
+
+def _require(
+    rows: Sequence[Mapping[str, Any]], checks: tuple[tuple[str, str], ...]
+) -> None:
+    """Отказывает на первой же нехватке: таблица за таблицей, право за правом.
+
+    Текст жалобы проходит через ``format``: имя роли нужно только политике
+    (``_MISSING_POLICY``), а остальные жалобы фигурных скобок не содержат и
+    от подстановки не меняются.
+    """
+
+    for row in rows:
+        for column, missing in checks:
             if not row[column]:
-                raise PublicAccessError(str(row["table_name"]), missing)
+                raise PublicAccessError(
+                    str(row["table_name"]), missing.format(role=row["role_name"])
+                )
 
 
 def _access_rows(

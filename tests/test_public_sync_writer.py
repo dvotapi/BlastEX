@@ -182,6 +182,7 @@ class AccessSession:
     def _row(self, table: str) -> dict[str, Any]:
         allowed = {
             "table_name": table,
+            "role_name": "blastex",
             "select_allowed": True,
             "insert_allowed": True,
             "update_allowed": True,
@@ -200,9 +201,16 @@ def test_access_check_asks_about_every_table_it_touches() -> None:
     read_sql, read_parameters = session.calls[0]
     assert "has_table_privilege(current_user" in read_sql
     assert read_parameters["tables"] == list(TABLES)
+    # Политика RLS спрашивается у каждой таблицы, а не только у тех, в
+    # которые план пишет: без политики PostgreSQL молча вернёт ноль строк.
+    # Читающей таблице довольно политики на чтение, пишущей нужна на запись.
+    assert "pg_policies" in read_sql
+    assert "'SELECT', 'ALL', '*'" in read_sql
     write_sql, write_parameters = session.calls[1]
     assert "pg_get_serial_sequence" in write_sql
     assert "pg_policies" in write_sql
+    assert "'SELECT'" not in write_sql
+    assert "'INSERT'" in write_sql and "'UPDATE'" in write_sql
     assert write_parameters["tables"] == list(WRITTEN_TABLES)
 
 
@@ -224,7 +232,7 @@ def test_missing_select_names_the_table_and_the_grant_script() -> None:
         ("insert_allowed", "нет права INSERT"),
         ("update_allowed", "нет права UPDATE"),
         ("sequence_allowed", "нет права USAGE на последовательность колонки id"),
-        ("policy_allowed", "нет политики RLS для этой роли"),
+        ("policy_allowed", "нет политики RLS для роли blastex"),
     ],
 )
 def test_every_write_privilege_is_required(column: str, missing: str) -> None:
@@ -234,6 +242,22 @@ def test_every_write_privilege_is_required(column: str, missing: str) -> None:
         check_public_access(session)
 
     assert f"таблица counterparties — {missing}" in str(failure.value)
+
+
+def test_read_only_table_without_policy_is_refused() -> None:
+    # Права SELECT выданы, а политики RLS нет: PostgreSQL молча вернёт ноль
+    # строк, снимок журнала окажется неполным, и разница по ценам или
+    # замедлениям пропала бы незаметно — обмен включать нельзя.
+    session = AccessSession(delay_series={"policy_allowed": False})
+
+    with pytest.raises(PublicAccessError) as failure:
+        check_public_access(session)
+
+    assert str(failure.value) == (
+        "Нет доступа к project1.public: таблица delay_series — "
+        "нет политики RLS для роли blastex; "
+        "выполните scripts/grant_public_access.sql"
+    )
 
 
 def test_access_check_is_a_write_error_for_the_publication() -> None:

@@ -2,7 +2,8 @@
 
 Пакет знает только о данных: чтение таблиц журнала (``reader``),
 сопоставление их с разделами справочников (``mapping``), разница с
-черновиком (``delta``) и обратный план записи в журнал (``push``). Об
+черновиком (``delta``), обратный план записи в журнал (``push``) и
+зеркала разделов, у которых аналога в журнале нет (``mirror``). Об
 интерфейсе и HTTP здесь ничего нет; применение разницы к черновику — за
 пользователем, уровнем выше.
 """
@@ -25,6 +26,15 @@ from cost.v2.public_sync.mapping import (
     normalize_legal_name,
     public_code,
 )
+from cost.v2.public_sync.mirror import (
+    MirrorColumn,
+    create_table_sql,
+    ensure_mirror,
+    mirror_columns,
+    mirror_table_name,
+    mirror_value,
+    sync_mirror,
+)
 from cost.v2.public_sync.push import (
     PublicInsert,
     PublicUpdate,
@@ -44,6 +54,7 @@ __all__ = [
     "MACHINE_KINDS",
     "DeltaEntry",
     "FieldChange",
+    "MirrorColumn",
     "Proposal",
     "PublicDelta",
     "PublicInsert",
@@ -60,9 +71,15 @@ __all__ = [
     "TABLES",
     "build_proposals",
     "compute_delta",
+    "create_table_sql",
+    "ensure_mirror",
     "kind_for_machine_type",
+    "mirror_columns",
+    "mirror_table_name",
+    "mirror_value",
     "normalize_legal_name",
     "plan_public_writes",
     "public_code",
     "public_constraint_issues",
+    "sync_mirror",
 ]

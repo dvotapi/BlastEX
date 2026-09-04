@@ -26,7 +26,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
@@ -44,9 +44,15 @@ from cost.v2.repository import (
     StoredTechnicalPassport,
     links_for_sections,
 )
+from cost.v2.public_sync.mirror import ensure_mirror, sync_mirror
 from cost.v2.public_sync.push import plan_public_writes
-from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader
-from cost.v2.public_sync.settings import PublicSyncSettings, flags_from_settings, settings_from_flags
+from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader, reason
+from cost.v2.public_sync.settings import (
+    EXCHANGE_KEY,
+    PublicSyncSettings,
+    flags_from_settings,
+    settings_from_flags,
+)
 from cost.v2.public_sync.writer import PublicWriteError, SqlPublicWriter
 
 
@@ -471,11 +477,18 @@ class PostgresEconomicsRepository:
             # наравне с прежними, иначе связанная запись поехала бы в журнал
             # второй строкой. Флаги обмена читаются этой же сессией — второе
             # соединение под advisory-lock ждало бы саму эту транзакцию.
-            flags = self._mirror_flags(session, organization_id)
-            if settings_from_flags(flags).exchange_enabled:
+            settings = settings_from_flags(self._mirror_flags(session, organization_id))
+            if settings.exchange_enabled:
                 after["public_writes"] = self._push_to_public(
                     session, organization_id, user_id, normalized, now
                 )
+            mirrors = self._sync_mirrors(
+                session, settings.mirror_sections, revision_id, normalized, now
+            )
+            if mirrors:
+                # Зеркала не зависят от прямого сопоставления таблиц: сводка
+                # ложится рядом с ним, а без обмена — вместо него.
+                after.setdefault("public_writes", {})["mirrors"] = mirrors
             session.add(
                 AuditLogRow(
                     id=str(uuid4()),
@@ -520,6 +533,34 @@ class PostgresEconomicsRepository:
             "updated": len(plan.updates),
             "warnings": list(plan.warnings),
         }
+
+    @staticmethod
+    def _sync_mirrors(
+        session: Session,
+        sections: frozenset[str],
+        revision_id: str,
+        normalized: Mapping[str, Sequence[ReferenceItem]],
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Приводит зеркала включённых разделов к опубликованной ревизии.
+
+        DDL и строки идут той же транзакцией, что и сама ревизия: откат
+        публикации не должен оставить в чужой схеме таблицу с данными
+        ревизии, которой в blastex нет. Отказ базы — отказ публикации, как и
+        при прямой выгрузке в журнал.
+        """
+
+        summary: dict[str, Any] = {}
+        for section in sorted(sections):
+            try:
+                ensure_mirror(session, section)
+                upserted, deactivated = sync_mirror(
+                    session, section, revision_id, normalized.get(section, ()), now
+                )
+            except SQLAlchemyError as exc:
+                raise PublicWriteError(reason(exc)) from exc
+            summary[section] = {"upserted": upserted, "deactivated": deactivated}
+        return summary
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
         with self.session_factory() as session:
@@ -1096,26 +1137,39 @@ class PostgresEconomicsRepository:
     ) -> None:
         now = datetime.now(timezone.utc).replace(microsecond=0)
         with self.session_factory() as session, session.begin():
-            row = session.scalar(
-                select(PublicMirrorSectionRow).where(
-                    PublicMirrorSectionRow.organization_id == organization_id,
-                    PublicMirrorSectionRow.section == section,
+            self._set_mirror_flag(session, organization_id, user_id, section, enabled, now)
+
+    @staticmethod
+    def _set_mirror_flag(
+        session: Session,
+        organization_id: str,
+        user_id: str,
+        section: str,
+        enabled: bool,
+        now: datetime,
+    ) -> None:
+        """Один флаг обмена в уже открытой транзакции."""
+
+        row = session.scalar(
+            select(PublicMirrorSectionRow).where(
+                PublicMirrorSectionRow.organization_id == organization_id,
+                PublicMirrorSectionRow.section == section,
+            )
+        )
+        if row is None:
+            session.add(
+                PublicMirrorSectionRow(
+                    organization_id=organization_id,
+                    section=section,
+                    enabled=enabled,
+                    updated_at=now,
+                    updated_by=user_id,
                 )
             )
-            if row is None:
-                session.add(
-                    PublicMirrorSectionRow(
-                        organization_id=organization_id,
-                        section=section,
-                        enabled=enabled,
-                        updated_at=now,
-                        updated_by=user_id,
-                    )
-                )
-            else:
-                row.enabled = enabled
-                row.updated_at = now
-                row.updated_by = user_id
+        else:
+            row.enabled = enabled
+            row.updated_at = now
+            row.updated_by = user_id
 
     def get_public_sync_settings(self, organization_id: str) -> PublicSyncSettings:
         return settings_from_flags(self.list_mirror_sections(organization_id))
@@ -1123,11 +1177,29 @@ class PostgresEconomicsRepository:
     def set_public_sync_settings(
         self, organization_id: str, user_id: str, settings: PublicSyncSettings
     ) -> PublicSyncSettings:
-        # Пока просто делегирует `set_mirror_section` построчно; создание
-        # самого зеркала (выгрузка раздела) — уровнем выше, в следующей
-        # задаче.
-        for section, enabled in flags_from_settings(settings).items():
-            self.set_mirror_section(organization_id, user_id, section, enabled)
+        """Сохраняет настройки обмена и заводит таблицы включённых зеркал.
+
+        Флаги и таблицы появляются одной транзакцией: если на схему ``public``
+        не хватает прав, администратор узнаёт об этом здесь, а не через сутки
+        при публикации, и зеркало остаётся выключенным.
+        """
+
+        flags = flags_from_settings(settings)
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            before = self._mirror_flags(session, organization_id)
+            for section, enabled in flags.items():
+                self._set_mirror_flag(session, organization_id, user_id, section, enabled, now)
+            switched_on = sorted(
+                section
+                for section, enabled in flags.items()
+                if enabled and section != EXCHANGE_KEY and not before.get(section, False)
+            )
+            for section in switched_on:
+                try:
+                    ensure_mirror(session, section)
+                except SQLAlchemyError as exc:
+                    raise PublicWriteError(reason(exc)) from exc
         return self.get_public_sync_settings(organization_id)
 
     @staticmethod

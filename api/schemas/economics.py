@@ -241,6 +241,51 @@ class TechnicalPassportSchema(BaseModel):
     created_by: str
 
 
+class PublicDeltaRequest(BaseModel):
+    """Черновик для сравнения с журналом public — как ``ReferenceValidateRequest``."""
+
+    sections: dict[str, list[ReferenceItemSchema]]
+
+
+class PublicFieldChangeSchema(BaseModel):
+    key: str
+    old: Any = None
+    new: Any = None
+
+
+class PublicDeltaEntrySchema(BaseModel):
+    kind: Literal["new", "changed", "deactivated"]
+    section: str
+    public_table: str
+    public_id: int
+    code: str
+    name: str
+    item: ReferenceItemSchema
+    changes: list[PublicFieldChangeSchema] = Field(default_factory=list)
+
+
+class PublicDeltaResponse(BaseModel):
+    available: bool
+    error: str = ""
+    counts: dict[str, int] = Field(default_factory=dict)
+    entries: list[PublicDeltaEntrySchema] = Field(default_factory=list)
+
+
+class PublicLinkRequest(BaseModel):
+    section: str = Field(..., min_length=1, max_length=80)
+    code: str = Field(..., min_length=1, max_length=80)
+    public_table: str = Field(..., min_length=1, max_length=80)
+    public_id: int
+
+
+class PublicLinkSchema(BaseModel):
+    section: str
+    code: str
+    public_table: str
+    public_id: int
+    synced_at: str | None = None
+
+
 class EventCalculationRequest(BaseModel):
     technical_passport_id: str
     name: str = Field("Один взрыв", min_length=1, max_length=300)

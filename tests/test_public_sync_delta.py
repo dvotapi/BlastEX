@@ -354,6 +354,34 @@ def test_linked_type_code_reaches_equipment_asset() -> None:
     assert unit.item["payload"]["equipment_type_code"] == "TYPE_JK"
 
 
+def test_linked_equipment_asset_with_different_name_gives_no_entry() -> None:
+    # internal_id — инвентарный номер, а не имя единицы техники: связанная
+    # запись с тем же inventory_number, но другим именем не должна попадать в
+    # разницу — иначе применение предложения переименовало бы технику в её
+    # инвентарный номер (см. §4.1 «equipment_assets»).
+    asset = ReferenceItem(
+        code="ASSET_JK_65115",
+        name="КамАЗ бортовой №3",  # Отличается от internal_id "С-01"
+        payload={
+            "inventory_number": "С-01",
+            "serial_number": "SN-65115-0001",
+            "equipment_type_code": "PUB_MODEL_1",
+        },
+        # Единица #1 в снимке уже списана (status = "Списано") — без этого
+        # совпадёт только имя, а is_active даст лишнюю запись "deactivated".
+        is_active=False,
+    )
+
+    delta = compute_delta(
+        make_snapshot(),
+        [link("equipment_assets", "ASSET_JK_65115", "equipment_units", 1)],
+        {"equipment_assets": [asset]},
+    )
+
+    assert "ASSET_JK_65115" not in by_code(delta)
+    assert delta.counts["changed"] == 0
+
+
 # --- Ссылки на переименованные записи ---------------------------------------
 
 

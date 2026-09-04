@@ -323,6 +323,16 @@ def test_equipment_asset_follows_linked_type_code() -> None:
     assert by_code(linked)["PUB_UNIT_1"].payload["equipment_type_code"] == "KAMAZ_65115"
 
 
+def test_equipment_asset_name_is_not_a_shared_field(proposals) -> None:
+    # internal_id — инвентарный номер, а не имя: он задаёт name только при
+    # создании записи из журнала, но не должен перетирать имя, выбранное
+    # пользователем для уже связанной единицы техники (иначе пуш имени в
+    # public и обратный маппинг зациклились бы).
+    unit = by_code(proposals)["PUB_UNIT_1"]
+
+    assert "name" not in unit.shared_fields
+
+
 # --- Материалы --------------------------------------------------------------
 
 

@@ -342,13 +342,18 @@ def _equipment_asset_proposals(
                 public_table=row.table,
                 public_id=row.id,
                 code=public_code(row.table, row.id),
+                # name — только при создании записи (новая единица техники из
+                # журнала должна называться хоть как-то). Дальше это не общее
+                # поле: в журнале нет колонки с именем, internal_id — это
+                # инвентарный номер, а не название, и перетирать выбранное
+                # пользователем имя нельзя (иначе пуш имени в push.py и этот
+                # обратный маппинг зациклились бы друг на друге).
                 name=internal_id or public_code(row.table, row.id),
                 payload=payload,
                 # Статусом единицы управляет журнал: списанная техника
                 # деактивируется в blastex, обратно приложение не пишет.
                 is_active=_text(row.get("status")) != _WRITTEN_OFF,
                 shared_fields=(
-                    "name",
                     "inventory_number",
                     "serial_number",
                     "equipment_type_code",

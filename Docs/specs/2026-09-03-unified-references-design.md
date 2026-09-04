@@ -140,7 +140,10 @@ is_supplier`, `is_active ↔ is_active`. Если в `public` контраген
 `equipment_assets`: `inventory_number ↔ internal_id`, `serial_number ↔
 serial_number`, тип `equipment_type_code ↔ model_id` через связь типа,
 `is_active ← status <> 'Списано'`. Статус в `public` приложение не меняет:
-им управляет журнал.
+им управляет журнал. Имя единицы (`name`) в `public.equipment_units` колонки
+не имеет: при создании записи из журнала оно берётся из `internal_id`
+(инвентарного номера), но не общее поле — далее пользователь переименовывает
+единицу свободно, и `internal_id` её не перетирает.
 
 `materials` (СИ): `name ↔ name`, `comment ↔ description`; `material_kind =
 СИ`, `storage_class = NSI` при создании из `public`. Только из `public`:

@@ -77,6 +77,19 @@
 .ref-ghost-button:disabled { color:#9aa8a1; cursor:not-allowed; }
 .ref-ghost-button.danger { border-color:#e6c4bf; color:#8b2c23; }
 
+/* --- плашка «Из project1» --- */
+.ref-public-banner { display:grid; gap:8px; margin:12px 0; padding:12px; border:1px solid #cfdcd6; border-radius:12px; background:#f6faf8; }
+.ref-public-banner.unavailable { display:flex; align-items:center; gap:12px; border-color:#e6d7bf; background:#fdf7ec; }
+.ref-public-banner .page-caption { margin:0; flex:1 1 auto; }
+.ref-public-banner-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.ref-public-banner-head .primary-button { padding:9px 13px; font-size:12px; }
+.ref-public-entries summary { color:#3b4b43; font-size:12px; font-weight:700; cursor:pointer; }
+.ref-public-entries ul { display:grid; gap:6px; margin:8px 0 0; padding:0; list-style:none; }
+.ref-public-entries li p { margin:0; font-size:12px; }
+.ref-public-changes { margin:4px 0 0 12px; color:#6e7c75; font-size:11px; }
+.ref-public-link { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+.ref-public-link select { flex:1 1 220px; padding:7px 8px; border:1px solid #d7e1dc; border-radius:8px; font-size:12px; }
+
 /* --- форма записи --- */
 .ref-form { position:sticky; top:12px; display:flex; flex-direction:column; max-height:calc(100vh - 140px); border:1px solid #dce4e0; border-radius:12px; background:#fff; }
 .ref-form-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; padding:14px 14px 10px; border-bottom:1px solid #eef2f0; }

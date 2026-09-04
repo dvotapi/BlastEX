@@ -4,6 +4,8 @@ import type { User } from "../../types";
 import type {
   EconomicsReferenceItem,
   EconomicsReferenceSnapshot,
+  PublicDelta,
+  PublicDeltaEntry,
   ReferenceRevision,
   ReferenceValidationIssue,
 } from "../../types/economics";
@@ -13,6 +15,8 @@ import { plural } from "../../lib/plural";
 import { countDraftChanges } from "./draftDiff";
 import { DrillingConditionsMatrix, type MatrixMode } from "./DrillingConditionsMatrix";
 import { mergeImportedSections, type DraftSections } from "./importDraft";
+import { applyDeltaEntries } from "./publicDelta";
+import { PublicDeltaBanner } from "./PublicDeltaBanner";
 import { PublishBar } from "./PublishBar";
 import { RecordForm, type DraftItem } from "./RecordForm";
 import { SectionList } from "./SectionList";
@@ -64,7 +68,26 @@ export function ReferencesPage({ user }: { user: User }) {
   const [revisions, setRevisions] = useState<ReferenceRevision[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [publicDelta, setPublicDelta] = useState<PublicDelta | null>(null);
   const canEdit = user.role === "admin" || user.role === "reference_editor";
+
+  /**
+   * Разница черновика с журналом project1. Ошибка запроса не ломает страницу:
+   * плашка показывает причину и кнопку «Повторить», справочники остаются
+   * рабочими и без журнала.
+   */
+  const refreshPublicDelta = useCallback(async (currentDraft: DraftSections) => {
+    try {
+      setPublicDelta(await api.economics.publicDelta(toSections(currentDraft)));
+    } catch (reason) {
+      setPublicDelta({
+        available: false,
+        error: reason instanceof Error ? reason.message : "неизвестная ошибка",
+        counts: { new: 0, changed: 0, deactivated: 0 },
+        entries: [],
+      });
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -76,9 +99,10 @@ export function ReferencesPage({ user }: { user: User }) {
         api.economics.referenceSchema(),
         api.economics.referenceSnapshot(),
       ]);
+      const loadedDraft = toDraft(loaded);
       setCatalog(schema);
       setSnapshot(loaded);
-      setDraft(toDraft(loaded));
+      setDraft(loadedDraft);
       setNewRows(new Set());
       setIssues([]);
       setSelectedRow("");
@@ -90,12 +114,13 @@ export function ReferencesPage({ user }: { user: User }) {
       } catch {
         setRevisions([]);
       }
+      await refreshPublicDelta(loadedDraft);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить справочники.");
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [refreshPublicDelta]);
 
   useEffect(() => {
     void load();
@@ -339,6 +364,57 @@ export function ReferencesPage({ user }: { user: User }) {
     }
   }
 
+  /** Применить всю разницу с журналом в черновик и пересчитать её заново. */
+  async function applyPublicDelta() {
+    if (!publicDelta || !publicDelta.available || !canEdit) return;
+    const merged = applyDeltaEntries(draft, publicDelta.entries, rowId);
+    if (!merged.applied) return;
+    setDraft(merged.draft);
+    // Записи, которых нет в опубликованной ревизии, помечаем как новые — так же,
+    // как добавленные вручную или пришедшие файлом.
+    setNewRows((current) => {
+      const next = new Set(current);
+      for (const entry of publicDelta.entries) {
+        if (publishedByCode.has(`${entry.section}::${entry.code}`)) continue;
+        const row = (merged.draft[entry.section] ?? []).find((item) => item.code === entry.code);
+        if (row) next.add(row.row_id);
+      }
+      return next;
+    });
+    setSelectedRow("");
+    setBusy(true);
+    setError("");
+    try {
+      const validation = await api.economics.validateReferences(toSections(merged.draft));
+      setIssues(validation.issues);
+      await refreshPublicDelta(merged.draft);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось проверить справочники.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Связать строку журнала с уже существующей записью: она перестанет быть «новой». */
+  async function linkPublicEntry(entry: PublicDeltaEntry, code: string) {
+    if (!canEdit || !code) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.economics.savePublicLink({
+        section: entry.section,
+        code,
+        public_table: entry.public_table,
+        public_id: entry.public_id,
+      });
+      await refreshPublicDelta(draft);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось связать запись с project1.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function publish() {
     if (!snapshot || !canEdit) return;
     if (!(await validate())) return;
@@ -350,13 +426,17 @@ export function ReferencesPage({ user }: { user: User }) {
         sections: toSections(draft),
         comment,
       });
+      const publishedDraft = toDraft(published);
       setSnapshot(published);
-      setDraft(toDraft(published));
+      setDraft(publishedDraft);
       setNewRows(new Set());
       setSelectedRow("");
       setComment("");
       setIssues([]);
       setRevisions(await api.economics.revisions().catch(() => revisions));
+      // Черновик после публикации — это уже новая ревизия: плашка должна
+      // считать разницу от неё, а не показывать расхождения, которых нет.
+      await refreshPublicDelta(publishedDraft);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось опубликовать справочники.");
     } finally {
@@ -418,6 +498,21 @@ export function ReferencesPage({ user }: { user: User }) {
           {dirty ? `Черновик · ${draftSummary}` : "Опубликовано"}
         </span>
       </header>
+
+      <PublicDeltaBanner
+        delta={publicDelta}
+        busy={busy}
+        canEdit={canEdit}
+        sectionLabel={(code) => sectionLabels[code] ?? code}
+        recordsOf={(code) =>
+          (draft[code] ?? [])
+            .filter((row) => row.is_active && row.code)
+            .map((row) => ({ code: row.code, name: row.name }))
+        }
+        onRefresh={() => void refreshPublicDelta(draft)}
+        onApplyAll={() => void applyPublicDelta()}
+        onLink={(entry, code) => void linkPublicEntry(entry, code)}
+      />
 
       {error && <div className="page-error">{error}</div>}
 

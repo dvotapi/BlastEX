@@ -116,6 +116,8 @@ import type {
   EconomicScenario,
   EconomicsReferenceItem,
   EconomicsReferenceSnapshot,
+  PublicDelta,
+  PublicLink,
   ReferenceImportResult,
   ReferenceRevision,
   ReferenceValidation,
@@ -263,6 +265,12 @@ export const api = {
     },
     importReferences: (file: File) =>
       postFile<ReferenceImportResult>(`${V1}/economics/references/import`, file),
+    /** Разница черновика с журналом project1: недоступность журнала — тоже 200. */
+    publicDelta: (sections: Record<string, EconomicsReferenceItem[]>) =>
+      post<PublicDelta>(`${V1}/economics/references/public-delta`, { sections }),
+    publicLinks: () => get<PublicLink[]>(`${V1}/economics/references/public-links`),
+    savePublicLink: (link: { section: string; code: string; public_table: string; public_id: number }) =>
+      post<PublicLink>(`${V1}/economics/references/public-links`, link),
     scenarios: () => get<StoredEconomicScenario[]>(`${V1}/economics/scenarios`),
     scenario: (id: string) => get<StoredEconomicScenario>(`${V1}/economics/scenarios/${id}`),
     createScenario: (scenario: EconomicScenario) =>

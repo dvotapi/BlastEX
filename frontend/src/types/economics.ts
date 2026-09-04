@@ -52,6 +52,43 @@ export type ReferenceImportResult = {
   sections: Record<string, EconomicsReferenceItem[]>;
 };
 
+/** Одно расхождение записи журнала с черновиком: ключ поля и два значения. */
+export type PublicFieldChange = {
+  key: string;
+  old: unknown;
+  new: unknown;
+};
+
+export type PublicDeltaEntry = {
+  /** `new` — записи нет в черновике, `changed`/`deactivated` — есть и расходится. */
+  kind: "new" | "changed" | "deactivated";
+  section: string;
+  public_table: string;
+  public_id: number;
+  code: string;
+  name: string;
+  /** Готовая запись справочника: страница подставляет её в черновик как есть. */
+  item: EconomicsReferenceItem;
+  changes: PublicFieldChange[];
+};
+
+export type PublicDelta = {
+  /** `false` — журнал project1 недоступен, текст причины в `error`. */
+  available: boolean;
+  error: string;
+  counts: { new: number; changed: number; deactivated: number };
+  entries: PublicDeltaEntry[];
+};
+
+/** Связь записи справочника со строкой журнала project1. */
+export type PublicLink = {
+  section: string;
+  code: string;
+  public_table: string;
+  public_id: number;
+  synced_at: string | null;
+};
+
 export type ReferenceRevision = {
   id: string;
   organization_id: string;

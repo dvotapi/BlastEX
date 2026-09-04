@@ -25,6 +25,11 @@ done
 rollback() {
   trap - ERR
   echo "ERROR: deployment failed; restoring previous images" >&2
+  # Контейнер, упавший на старте, не доживает до цикла проверки здоровья —
+  # без этих строк причина остаётся только на сервере.
+  echo "--- blastex-api logs (last 100 lines) ---" >&2
+  docker logs blastex-api --tail 100 >&2 || true
+  df -h / >&2 || true
   for image in blastex-api blastex-web; do
     if docker image inspect "${image}:rollback" >/dev/null 2>&1; then
       docker tag "${image}:rollback" "${image}:latest"
@@ -33,6 +38,14 @@ rollback() {
   docker compose -f "$COMPOSE_FILE" up -d --no-build --force-recreate || true
 }
 trap rollback ERR
+
+# Каждая сборка оставляет старые слои; без уборки диск VPS заполняется, и
+# сборка падает на «No space left on device». Убираем до сборки, иначе на
+# полном диске до этой строки не дойти. Образ с тегом rollback остаётся:
+# prune трогает только слои без тегов и старый кеш сборки.
+docker image prune -f >/dev/null || true
+docker builder prune -f --filter "until=168h" >/dev/null 2>&1 || true
+df -h / | tail -1
 
 docker compose -f "$COMPOSE_FILE" build
 docker compose -f "$COMPOSE_FILE" up -d

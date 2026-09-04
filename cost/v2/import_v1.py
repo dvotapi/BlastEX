@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -126,25 +126,28 @@ def build_import_sections(
     # средства (стоимость, срок), поэтому на каждый станок заводится пара.
     equipment_types: list[ReferenceItem] = []
     equipment: list[ReferenceItem] = []
+    # Код типа техники присваивается до того, как на него сошлётся основное
+    # средство: иначе разведённые суффиксом типы получали бы чужие ссылки.
+    type_codes = _CodeMint()
     default_type_code = "TYPE_V1_LEGACY"
     for row in references.get("drill_rig_records", []):
         name = str(row.get("name", "Буровой станок"))
-        type_code = f"TYPE_{_code(name)}"
-        equipment_types.append(
+        equipment_type = type_codes.assign(
             ReferenceItem(
-                code=type_code,
+                code=f"TYPE_{_code(name)}",
                 name=name,
                 source="Cost V1 references.json",
                 payload={"kind": "DRILL_RIG", "fuel_l_per_h": row.get("fuel_l_per_h", 0)},
             )
         )
+        equipment_types.append(equipment_type)
         equipment.append(
             ReferenceItem(
                 code=f"RIG_{_code(name)}",
                 name=name,
                 source="Cost V1 references.json",
                 payload={
-                    "equipment_type_code": type_code,
+                    "equipment_type_code": equipment_type.code,
                     "production_unit_code": production_unit_code,
                     "depreciation_per_shift_rub": row.get("depreciation_per_shift_rub", 0),
                     "legacy_ref": row.get("id"),
@@ -156,7 +159,7 @@ def build_import_sections(
     if legacy_assets:
         # У амортизируемых ОС V1 вида техники не было вовсе — вешаем их на
         # служебный тип, чтобы ссылка была валидной, и просим разобрать вручную.
-        equipment_types.append(
+        legacy_type = type_codes.assign(
             ReferenceItem(
                 code=default_type_code,
                 name="Техника из Cost V1 (требует классификации)",
@@ -164,6 +167,8 @@ def build_import_sections(
                 payload={"kind": "LIGHT_VEHICLE"},
             )
         )
+        default_type_code = legacy_type.code
+        equipment_types.append(legacy_type)
         report.warnings.append(
             "Основные средства Cost V1 привязаны к служебному типу техники "
             f"«{default_type_code}»: укажите настоящий вид и нормы смен."
@@ -189,32 +194,35 @@ def build_import_sections(
     # заведённые руками, с нормами смен, ТОиР и расходом топлива — импорт
     # сценария V1 не должен их стирать. При совпадении кода побеждает
     # существующая запись как более полная.
-    _merge_section(sections, "equipment_types", equipment_types, report)
+    _merge_section(sections, "equipment_types", equipment_types, report, type_codes.renamed)
     _merge_section(sections, "equipment_assets", equipment, report)
 
     materials: list[ReferenceItem] = []
     material_prices: list[ReferenceItem] = []
     unknown_units: set[str] = set()
+    material_codes = _CodeMint()
     for row in references.get("explosive_records", []):
         code = f"EXP_{_code(str(row.get('key') or row.get('name') or 'VM'))}"
         materials.append(
-            ReferenceItem(
-                code=code,
-                name=str(row.get("name", code)),
-                source="Cost V1 references.json",
-                payload={
-                    "category": "EXPLOSIVE",
-                    "density_t_m3": row.get("density_t_m3"),
-                    "power_mj_kg": row.get("power_mj_kg"),
-                    "legacy_ref": row.get("key"),
-                    "chart_label": row.get("chart_label") or None,
-                    "material_kind": "ВВ",
-                },
+            material_codes.assign(
+                ReferenceItem(
+                    code=code,
+                    name=str(row.get("name", code)),
+                    source="Cost V1 references.json",
+                    payload={
+                        "category": "EXPLOSIVE",
+                        "density_t_m3": row.get("density_t_m3"),
+                        "power_mj_kg": row.get("power_mj_kg"),
+                        "legacy_ref": row.get("key"),
+                        "chart_label": row.get("chart_label") or None,
+                        "material_kind": "ВВ",
+                    },
+                )
             )
         )
     for row in snapshot.get("cost_catalog_records", []):
         code = f"MAT_{_code(str(row.get('id') or row.get('name') or 'ITEM'))}"
-        materials.append(
+        material = material_codes.assign(
             ReferenceItem(
                 code=code,
                 name=str(row.get("name", code)),
@@ -228,13 +236,14 @@ def build_import_sections(
                 },
             )
         )
+        materials.append(material)
         material_prices.append(
             ReferenceItem(
-                code=f"PRICE_{code}",
-                name=f"Стоимость: {row.get('name', code)}",
+                code=f"PRICE_{material.code}",
+                name=f"Стоимость: {material.name}",
                 source="Cost V1 scenario JSON",
                 payload={
-                    "material_code": code,
+                    "material_code": material.code,
                     "price_rub": row.get("price", 0),
                     "unit": _unit_code(row.get("unit"), unknown_units),
                 },
@@ -246,14 +255,15 @@ def build_import_sections(
             + ", ".join(sorted(unknown_units))
             + ". Проставьте их вручную."
         )
-    _merge_section(sections, "materials", materials, report)
+    _merge_section(sections, "materials", materials, report, material_codes.renamed)
     _merge_section(sections, "material_prices", material_prices, report)
 
     positions: list[ReferenceItem] = []
     labor_rates: list[ReferenceItem] = []
+    position_codes = _CodeMint()
     for row in snapshot.get("labor_catalog_records", []):
         code = f"POSITION_{_code(str(row.get('id') or row.get('name') or 'ROLE'))}"
-        positions.append(
+        position = position_codes.assign(
             ReferenceItem(
                 code=code,
                 name=str(row.get("name", code)),
@@ -261,19 +271,20 @@ def build_import_sections(
                 payload={"legacy_ref": row.get("id"), "category": "INDIRECT"},
             )
         )
+        positions.append(position)
         labor_rates.append(
             ReferenceItem(
-                code=f"RATE_{code}",
-                name=f"Ставка: {row.get('name', code)}",
+                code=f"RATE_{position.code}",
+                name=f"Ставка: {position.name}",
                 source="Cost V1 scenario JSON",
                 payload={
-                    "position_code": code,
+                    "position_code": position.code,
                     "fixed_monthly_rub": row.get("fixed_salary_monthly", 0),
                     "piece_rate_rub": row.get("piece_rate_per_m3", 0),
                 },
             )
         )
-    _merge_section(sections, "positions", positions, report)
+    _merge_section(sections, "positions", positions, report, position_codes.renamed)
     _merge_section(sections, "labor_rates", labor_rates, report)
 
     fixed_items: list[ReferenceItem] = []
@@ -330,6 +341,37 @@ def _code(value: str) -> str:
     return (normalized or "ITEM")[:64]
 
 
+class _CodeMint:
+    """Коды раздела, присвоенные до того, как на них сошлются зависимые записи.
+
+    Транслитерация названий V1 склеивает разные сущности («Соль» и «Соль!»),
+    и развести их суффиксом мало: цена материала, ставка должности и основное
+    средство создаются рядом и должны получить уже окончательный код. Иначе
+    обе зависимые записи ссылались бы на первую сущность, а вторая приходила
+    бы в Cost V2 без цены.
+
+    Повтор одной и той же записи V1 — обычное дублирование строк: он получает
+    тот же код и схлопывается при слиянии раздела.
+    """
+
+    def __init__(self) -> None:
+        self._taken: dict[str, dict[str, Any]] = {}
+        self.renamed: list[str] = []
+
+    def assign(self, item: ReferenceItem) -> ReferenceItem:
+        identity = {key: value for key, value in item.to_dict().items() if key != "code"}
+        candidate = item.code
+        suffix = 2
+        while candidate in self._taken and self._taken[candidate] != identity:
+            candidate = f"{item.code}_{suffix}"
+            suffix += 1
+        self._taken[candidate] = identity
+        if candidate == item.code:
+            return item
+        self.renamed.append(f"{item.code} → {candidate}")
+        return replace(item, code=candidate)
+
+
 def _dedupe_items(items: list[ReferenceItem]) -> tuple[tuple[ReferenceItem, ...], list[str]]:
     """Развести записи V1, у которых совпал код, и назвать такие пары.
 
@@ -367,13 +409,18 @@ def _merge_section(
     section: str,
     imported: list[ReferenceItem],
     report: ImportReport | None = None,
+    renamed_before: list[str] | None = None,
 ) -> None:
     """Дополнить раздел, не стирая записи организации: при совпадении кода
-    побеждает существующая запись как более полная."""
+    побеждает существующая запись как более полная.
+
+    `renamed_before` — переименования, сделанные `_CodeMint` до сборки
+    зависимых записей: в отчёт они попадают так же, как найденные здесь."""
 
     existing = sections.get(section, ())
     existing_codes = {item.code for item in existing}
-    deduped, renamed = _dedupe_items(imported)
+    deduped, found = _dedupe_items(imported)
+    renamed = list(renamed_before or []) + found
     if renamed and report is not None:
         report.warnings.append(
             f"В разделе «{section}» разные записи Cost V1 дали один код, "

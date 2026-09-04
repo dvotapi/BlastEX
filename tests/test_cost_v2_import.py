@@ -140,3 +140,73 @@ def test_code_collision_between_different_records_is_reported(tmp_path) -> None:
     codes = [item.code for item in sections["materials"]]
     assert codes == ["MAT_SOL", "MAT_SOL_2"]
     assert any("MAT_SOL" in warning and "код" in warning.lower() for warning in report.warnings)
+    # Цена заводится после того, как код материала окончателен: иначе обе
+    # цены ссылались бы на первый материал, а второй импортировался бы нулём.
+    prices = {item.payload["material_code"]: item.payload["price_rub"] for item in sections["material_prices"]}
+    assert prices == {"MAT_SOL": 10, "MAT_SOL_2": 20}
+
+
+def test_colliding_positions_keep_their_own_rates(tmp_path) -> None:
+    """Ставка остаётся при своей должности, даже если коды столкнулись."""
+
+    team_dir = tmp_path / "data" / "teams" / "north"
+    scenario_dir = team_dir / "scenarios"
+    scenario_dir.mkdir(parents=True)
+    (team_dir / "settings.json").write_text(
+        json.dumps({"team_name": "Северный юнит", "active_scenario_id": "drill_blast"}),
+        encoding="utf-8",
+    )
+    (scenario_dir / "drill_blast.json").write_text(
+        json.dumps(
+            {
+                "labor_catalog_records": [
+                    {"id": "Мастер", "name": "Мастер участка", "fixed_salary_monthly": 100},
+                    {"id": "Мастер!", "name": "Мастер смены", "fixed_salary_monthly": 200},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    sections, report = build_import_sections(tmp_path, "north", default_reference_snapshot())
+
+    assert [item.code for item in sections["positions"]] == ["POSITION_MASTER", "POSITION_MASTER_2"]
+    rates = {
+        item.payload["position_code"]: item.payload["fixed_monthly_rub"]
+        for item in sections["labor_rates"]
+    }
+    assert rates == {"POSITION_MASTER": 100, "POSITION_MASTER_2": 200}
+    assert any("POSITION_MASTER" in warning and "код" in warning.lower() for warning in report.warnings)
+
+
+def test_colliding_equipment_types_keep_their_own_assets(tmp_path) -> None:
+    """Основное средство ссылается на свой тип техники, а не на однофамильца."""
+
+    team_dir = tmp_path / "data" / "teams" / "north"
+    (team_dir / "scenarios").mkdir(parents=True)
+    (team_dir / "settings.json").write_text(
+        json.dumps({"team_name": "Северный юнит", "active_scenario_id": "drill_blast"}),
+        encoding="utf-8",
+    )
+    (team_dir / "references.json").write_text(
+        json.dumps(
+            {
+                "drill_rig_records": [
+                    {"id": "r1", "name": "DML", "fuel_l_per_h": 60, "depreciation_per_shift_rub": 1},
+                    {"id": "r2", "name": "DML!", "fuel_l_per_h": 70, "depreciation_per_shift_rub": 2},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    sections, _ = build_import_sections(tmp_path, "north", default_reference_snapshot())
+
+    assert [item.code for item in sections["equipment_types"]] == ["TYPE_DML", "TYPE_DML_2"]
+    assets = {
+        item.payload["equipment_type_code"]: item.payload["depreciation_per_shift_rub"]
+        for item in sections["equipment_assets"]
+    }
+    assert assets == {"TYPE_DML": 1, "TYPE_DML_2": 2}

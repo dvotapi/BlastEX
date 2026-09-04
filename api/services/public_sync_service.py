@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Sequence
 
 from fastapi import Depends
 from pydantic import ValidationError
@@ -28,6 +28,7 @@ from cost.v2.public_sync import (
 )
 from cost.v2.public_sync.mapping import TABLES
 from cost.v2.repository import EconomicsRepository, PublicLink
+from cost.v2.schemas import SECTION_SCHEMAS
 
 __all__ = ["get_public_reader", "public_delta_payload", "public_link_payload"]
 
@@ -68,6 +69,7 @@ def public_delta_payload(
     repository: EconomicsRepository,
     organization_id: str,
     sections: dict[str, list[ReferenceItemSchema]],
+    pending_links: Sequence[PublicLink] = (),
 ) -> dict[str, Any]:
     """Разница журнала с переданным черновиком в виде JSON-совместимого словаря.
 
@@ -78,6 +80,9 @@ def public_delta_payload(
 
     Отдельные записи журнала с недопустимыми значениями пропускаются: разница
     остаётся доступной, а их число попадает в ``error``.
+
+    ``pending_links`` — связи, выбранные в черновике и ещё не опубликованные:
+    они считаются наравне с сохранёнными и перекрывают их (§4.3).
     """
 
     draft = {
@@ -99,7 +104,8 @@ def public_delta_payload(
             "counts": dict(_EMPTY_COUNTS),
             "entries": [],
         }
-    delta = compute_delta(snapshot, repository.list_public_links(organization_id), draft)
+    links = _merged_links(repository.list_public_links(organization_id), pending_links)
+    delta = compute_delta(snapshot, links, draft)
 
     entries: list[dict[str, Any]] = []
     counts = dict(_EMPTY_COUNTS)
@@ -126,6 +132,29 @@ def public_delta_payload(
     }
 
 
+def _merged_links(
+    stored: Sequence[PublicLink], pending: Sequence[PublicLink]
+) -> list[PublicLink]:
+    """Сохранённые связи плюс связи черновика; черновик главнее.
+
+    Сохранённая связь уступает связи черновика по любому из двух ключей:
+    пользователь мог перенести строку журнала на другую запись справочника
+    или, наоборот, связать запись с другой строкой. Обе связи сразу дали бы
+    два предложения по одной и той же строке.
+    """
+
+    codes = {(link.section, link.code) for link in pending}
+    rows = {(link.public_table, link.public_id) for link in pending}
+    merged = [
+        link
+        for link in stored
+        if (link.section, link.code) not in codes
+        and (link.public_table, link.public_id) not in rows
+    ]
+    merged.extend(pending)
+    return merged
+
+
 def _is_empty(snapshot: PublicSnapshot) -> bool:
     """Ни одной строки ни в одной таблице журнала."""
 
@@ -143,12 +172,24 @@ def public_link_payload(link: PublicLink) -> dict[str, Any]:
 
 
 def _entry_payload(entry: DeltaEntry) -> dict[str, Any] | None:
-    """Предложение в виде словаря; ``None`` — запись не прошла проверку схемы."""
+    """Предложение в виде словаря; ``None`` — запись не прошла проверку схемы.
+
+    Проверяются оба слоя: общая обёртка записи справочника и payload по схеме
+    раздела. Без второй проверки отрицательное замедление или лишний ключ из
+    журнала доходили бы до черновика и падали бы только при публикации —
+    ошибкой, которую пользователь не вносил и не может исправить.
+    """
 
     try:
         item = ReferenceItemSchema.model_validate(entry.item)
     except ValidationError:
         return None
+    schema = SECTION_SCHEMAS.get(entry.section)
+    if schema is not None:
+        try:
+            schema.model_validate(item.payload)
+        except ValidationError:
+            return None
     return {
         "kind": entry.kind,
         "section": entry.section,

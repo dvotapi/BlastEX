@@ -13,7 +13,8 @@ from __future__ import annotations
 import pytest
 
 from cost.v2.db_repository import PostgresEconomicsRepository
-from cost.v2.repository import EconomicsRepositoryError, PublicLink
+from cost.v2.models import ReferenceItem
+from cost.v2.repository import EconomicsRepositoryError, PublicLink, PublicLinkConflict
 from tests.pg_public import TEST_DATABASE_URL, public_db, requires_pg
 
 ORG = "org-public-links"
@@ -80,3 +81,62 @@ def test_mirror_sections_round_trip(repository) -> None:
     repository.set_mirror_section(ORG, USER, "sites", True)
     assert repository.list_mirror_sections(ORG) == {"rocks": False, "sites": True}
     assert repository.list_mirror_sections("другая-организация") == {}
+
+
+@requires_pg
+def test_publish_writes_links_of_the_revision_and_skips_missing_codes(repository) -> None:
+    """Связи публикуются вместе с ревизией; связь без записи отбрасывается."""
+
+    base = repository.get_reference_snapshot(ORG)
+    sections = {
+        **base.sections,
+        "sites": (ReferenceItem(code="SITE_LOM", name="Ломоватский карьер"),),
+    }
+
+    published = repository.publish_references(
+        ORG,
+        USER,
+        base.revision_id,
+        sections,
+        public_links=[
+            PublicLink(section="sites", code="SITE_LOM", public_table="sites", public_id=3),
+            # Запись удалили из черновика до публикации — связывать не с чем.
+            PublicLink(section="sites", code="SITE_GONE", public_table="sites", public_id=4),
+        ],
+    )
+
+    assert published.revision_id != base.revision_id
+    assert [(link.code, link.public_id) for link in repository.list_public_links(ORG)] == [
+        ("SITE_LOM", 3)
+    ]
+
+
+@requires_pg
+def test_conflicting_link_rolls_back_the_whole_publication(repository) -> None:
+    base = repository.get_reference_snapshot(ORG)
+    repository.save_public_link(
+        ORG, USER, PublicLink(section="sites", code="SITE_LOM", public_table="sites", public_id=3)
+    )
+    sections = {
+        **base.sections,
+        "sites": (ReferenceItem(code="SITE_OTHER", name="Другой карьер"),),
+    }
+
+    with pytest.raises(PublicLinkConflict):
+        repository.publish_references(
+            ORG,
+            USER,
+            base.revision_id,
+            sections,
+            public_links=[
+                PublicLink(
+                    section="sites", code="SITE_OTHER", public_table="sites", public_id=3
+                )
+            ],
+        )
+
+    # Ни ревизии, ни новой связи: справочники и связи пишутся одной транзакцией.
+    assert repository.get_reference_snapshot(ORG).revision_id == base.revision_id
+    assert [(link.code, link.public_id) for link in repository.list_public_links(ORG)] == [
+        ("SITE_LOM", 3)
+    ]

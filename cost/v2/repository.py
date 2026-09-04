@@ -8,7 +8,7 @@ from threading import RLock
 from typing import Any, Mapping, Protocol, Sequence
 from uuid import uuid4
 
-from cost.v2.models import EconomicScenario, ReferenceSnapshot
+from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
 from cost.v2.references import default_reference_snapshot, normalize_sections
 
 
@@ -27,6 +27,22 @@ class ReferenceRevisionConflict(EconomicsRepositoryError):
 
 class EconomicsRecordNotFound(EconomicsRepositoryError):
     pass
+
+
+class PublicLinkConflict(EconomicsRepositoryError):
+    """Строка журнала ``public`` уже связана с другой записью справочника.
+
+    Отдельный класс, потому что это выбор пользователя, а не отказ хранилища:
+    маршруты отвечают на него 409, а на прочие ошибки репозитория — 503.
+    """
+
+    def __init__(self, public_table: str, public_id: int) -> None:
+        # Чужие раздел и код в текст не попадают: связь может принадлежать
+        # другой организации, и её справочник — не дело получателя ошибки.
+        super().__init__(
+            f"Запись public {public_table}#{public_id} "
+            "уже связана с другой записью справочника."
+        )
 
 
 @dataclass(frozen=True)
@@ -199,6 +215,22 @@ class PublicLink:
     synced_at: datetime | None = None
 
 
+def links_for_sections(
+    links: Sequence[PublicLink], sections: Mapping[str, Sequence[ReferenceItem]]
+) -> list[PublicLink]:
+    """Связи, у которых есть запись в публикуемой ревизии.
+
+    Связь выбирается в черновике, а запись до публикации могли удалить или
+    переименовать её код. Такая связь осталась бы сиротой: ``compute_delta``
+    пропускает строки журнала, связанные с исчезнувшей записью, и предложение
+    из журнала больше никогда бы не показалось. Поэтому лишние связи молча
+    отбрасываются, а не записываются.
+    """
+
+    codes = {(section, item.code) for section, items in sections.items() for item in items}
+    return [link for link in links if (link.section, link.code) in codes]
+
+
 class EconomicsRepository(Protocol):
     def get_reference_snapshot(
         self, organization_id: str, revision_id: str | None = None
@@ -215,6 +247,7 @@ class EconomicsRepository(Protocol):
         base_revision: str,
         sections: dict[str, Any],
         comment: str = "",
+        public_links: Sequence[PublicLink] = (),
     ) -> ReferenceSnapshot: ...
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]: ...
@@ -406,6 +439,7 @@ class InMemoryEconomicsRepository:
         base_revision: str,
         sections: dict[str, Any],
         comment: str = "",
+        public_links: Sequence[PublicLink] = (),
     ) -> ReferenceSnapshot:
         with self._lock:
             self._ensure_org(organization_id)
@@ -413,10 +447,16 @@ class InMemoryEconomicsRepository:
             if current.id != base_revision:
                 raise ReferenceRevisionConflict(base_revision, current.id)
             now = datetime.now(timezone.utc).replace(microsecond=0)
+            normalized = normalize_sections(sections)
+            # Связи проверяются до записи ревизии: конфликт не должен оставить
+            # опубликованную ревизию без связей, которые её сопровождали.
+            saved_links = links_for_sections(public_links, normalized)
+            for link in saved_links:
+                self._check_public_link_conflict(organization_id, link)
             revision_id = str(uuid4())
             snapshot = ReferenceSnapshot(
                 revision_id=revision_id,
-                sections=normalize_sections(sections),
+                sections=normalized,
                 published_at=now,
                 published_by=user_id,
             )
@@ -431,6 +471,14 @@ class InMemoryEconomicsRepository:
                     comment=comment,
                 )
             )
+            for link in saved_links:
+                self._public_links[(organization_id, link.section, link.code)] = PublicLink(
+                    section=link.section,
+                    code=link.code,
+                    public_table=link.public_table,
+                    public_id=link.public_id,
+                    synced_at=now,
+                )
             return deepcopy(snapshot)
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
@@ -729,18 +777,17 @@ class InMemoryEconomicsRepository:
                 link for (org, _s, _c), link in sorted(self._public_links.items()) if org == organization_id
             )
 
+    def _check_public_link_conflict(self, organization_id: str, link: PublicLink) -> None:
+        """Строка журнала занята другой записью справочника — связывать нельзя."""
+
+        for (org, section, code), existing in self._public_links.items():
+            same_row = existing.public_table == link.public_table and existing.public_id == link.public_id
+            if same_row and (org, section, code) != (organization_id, link.section, link.code):
+                raise PublicLinkConflict(link.public_table, link.public_id)
+
     def save_public_link(self, organization_id: str, user_id: str, link: PublicLink) -> PublicLink:
         with self._lock:
-            for (org, section, code), existing in self._public_links.items():
-                same_row = existing.public_table == link.public_table and existing.public_id == link.public_id
-                if same_row and (org, section, code) != (organization_id, link.section, link.code):
-                    # Чужие раздел и код в тексте не называются: связь может
-                    # принадлежать другой организации, и её справочник — не
-                    # дело того, кто получил конфликт.
-                    raise EconomicsRepositoryError(
-                        f"Запись public {link.public_table}#{link.public_id} "
-                        "уже связана с другой записью справочника."
-                    )
+            self._check_public_link_conflict(organization_id, link)
             saved = PublicLink(
                 section=link.section,
                 code=link.code,

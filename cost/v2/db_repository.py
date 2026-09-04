@@ -33,15 +33,16 @@ from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
 from cost.v2.references import default_reference_snapshot, normalize_sections
 from cost.v2.repository import (
     EconomicsRecordNotFound,
-    EconomicsRepositoryError,
     LegacyWorkspaceSettings,
     PublicLink,
+    PublicLinkConflict,
     ReferenceRevisionConflict,
     ReferenceRevisionInfo,
     StoredCalculationRun,
     StoredEconomicsRun,
     StoredScenario,
     StoredTechnicalPassport,
+    links_for_sections,
 )
 
 
@@ -413,9 +414,14 @@ class PostgresEconomicsRepository:
         base_revision: str,
         sections: dict[str, Any],
         comment: str = "",
+        public_links: Sequence[PublicLink] = (),
     ) -> ReferenceSnapshot:
         self._ensure_defaults(organization_id)
         normalized = normalize_sections(sections)
+        # Связи черновика записываются той же транзакцией и под той же
+        # блокировкой, что и ревизия: иначе между записью ревизии и записью
+        # связи есть окно, в котором строка журнала снова выглядит несвязанной.
+        saved_links = links_for_sections(public_links, normalized)
         now = datetime.now(timezone.utc).replace(microsecond=0)
         revision_id = str(uuid4())
         with self.session_factory() as session, session.begin():
@@ -468,6 +474,8 @@ class PostgresEconomicsRepository:
                     created_at=now,
                 )
             )
+            for link in saved_links:
+                self._upsert_public_link(session, organization_id, user_id, link, now)
         return self.get_reference_snapshot(organization_id, revision_id)
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
@@ -939,66 +947,71 @@ class PostgresEconomicsRepository:
             ).all()
             return tuple(self._public_link(row) for row in rows)
 
-    def save_public_link(self, organization_id: str, user_id: str, link: PublicLink) -> PublicLink:
-        """Upsert связи по (organization_id, section, code).
+    @staticmethod
+    def _upsert_public_link(
+        session: Session,
+        organization_id: str,
+        user_id: str,
+        link: PublicLink,
+        now: datetime,
+    ) -> None:
+        """Upsert связи по (organization_id, section, code) внутри транзакции.
 
         Уникальность (public_table, public_id) проверяется и записывается в
         одной транзакции; `uq_public_links_public_row` в БД — подстраховка на
         случай гонки, поэтому её нарушение тоже превращается в понятную
-        доменную ошибку, а не в необработанный IntegrityError.
+        доменную ошибку, а не в необработанный IntegrityError. Ради этого
+        строка сбрасывается в базу сразу: при публикации откатить нужно и
+        ревизию, а не только связь.
         """
 
-        now = datetime.now(timezone.utc).replace(microsecond=0)
+        conflict = session.scalar(
+            select(PublicLinkRow).where(
+                PublicLinkRow.public_table == link.public_table,
+                PublicLinkRow.public_id == link.public_id,
+            )
+        )
+        if conflict is not None and (
+            conflict.organization_id != organization_id
+            or conflict.section != link.section
+            or conflict.code != link.code
+        ):
+            raise PublicLinkConflict(link.public_table, link.public_id)
+        row = session.scalar(
+            select(PublicLinkRow).where(
+                PublicLinkRow.organization_id == organization_id,
+                PublicLinkRow.section == link.section,
+                PublicLinkRow.code == link.code,
+            )
+        )
+        if row is None:
+            session.add(
+                PublicLinkRow(
+                    organization_id=organization_id,
+                    section=link.section,
+                    code=link.code,
+                    public_table=link.public_table,
+                    public_id=link.public_id,
+                    synced_at=now,
+                    updated_by=user_id,
+                )
+            )
+        else:
+            row.public_table = link.public_table
+            row.public_id = link.public_id
+            row.synced_at = now
+            row.updated_by = user_id
         try:
-            with self.session_factory() as session, session.begin():
-                conflict = session.scalar(
-                    select(PublicLinkRow).where(
-                        PublicLinkRow.public_table == link.public_table,
-                        PublicLinkRow.public_id == link.public_id,
-                    )
-                )
-                if conflict is not None and (
-                    conflict.organization_id != organization_id
-                    or conflict.section != link.section
-                    or conflict.code != link.code
-                ):
-                    # Раздел и код чужой связи в сообщение не попадают: она
-                    # может принадлежать другой организации.
-                    raise EconomicsRepositoryError(
-                        f"Запись public {link.public_table}#{link.public_id} "
-                        "уже связана с другой записью справочника."
-                    )
-                row = session.scalar(
-                    select(PublicLinkRow).where(
-                        PublicLinkRow.organization_id == organization_id,
-                        PublicLinkRow.section == link.section,
-                        PublicLinkRow.code == link.code,
-                    )
-                )
-                if row is None:
-                    session.add(
-                        PublicLinkRow(
-                            organization_id=organization_id,
-                            section=link.section,
-                            code=link.code,
-                            public_table=link.public_table,
-                            public_id=link.public_id,
-                            synced_at=now,
-                            updated_by=user_id,
-                        )
-                    )
-                else:
-                    row.public_table = link.public_table
-                    row.public_id = link.public_id
-                    row.synced_at = now
-                    row.updated_by = user_id
+            session.flush()
         except IntegrityError as exc:
             if "uq_public_links_public_row" in str(getattr(exc, "orig", exc)):
-                raise EconomicsRepositoryError(
-                    f"Запись public {link.public_table}#{link.public_id} "
-                    "уже связана с другой записью справочника."
-                ) from exc
+                raise PublicLinkConflict(link.public_table, link.public_id) from exc
             raise
+
+    def save_public_link(self, organization_id: str, user_id: str, link: PublicLink) -> PublicLink:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            self._upsert_public_link(session, organization_id, user_id, link, now)
         return PublicLink(
             section=link.section,
             code=link.code,

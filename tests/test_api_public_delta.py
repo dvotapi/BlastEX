@@ -259,3 +259,167 @@ def test_public_link_rejects_unknown_section_and_table(monkeypatch) -> None:
     assert "Неизвестный раздел справочников" in unknown_section.text
     assert unknown_table.status_code == 422, unknown_table.text
     assert "Неизвестная таблица журнала" in unknown_table.text
+
+
+# --- Ожидающие связи черновика ----------------------------------------------
+
+
+def _site_item(code: str, name: str = "Ломоватский карьер") -> dict:
+    return {
+        "code": code,
+        "name": name,
+        "payload": {"mineral_type": "иной тип полезного ископаемого"},
+        "is_active": True,
+        "valid_from": None,
+        "valid_to": None,
+        "source": "",
+        "comment": "",
+        "revision": 1,
+    }
+
+
+def _publish(client, sections: dict, links: list[dict]):
+    """Публикация текущей ревизии с заменёнными разделами и связями."""
+
+    snapshot = client.get("/api/v1/economics/references/snapshot").json()
+    return client.post(
+        "/api/v1/economics/references/publish",
+        json={
+            "base_revision": snapshot["revision_id"],
+            "sections": {**snapshot["sections"], **sections},
+            "comment": "",
+            "public_links": links,
+        },
+    )
+
+
+def test_pending_link_makes_row_linked_without_saving_it(monkeypatch) -> None:
+    """Связь из черновика учитывается в разнице, но в базу не пишется."""
+
+    client, repository = _client(monkeypatch)
+    client.app.dependency_overrides[get_public_reader] = lambda: StaticPublicReader(make_snapshot())
+
+    response = client.post(
+        "/api/v1/economics/references/public-delta",
+        json={
+            "sections": {"sites": [_site_item("SITE_LOM")]},
+            "pending_links": [
+                {"section": "sites", "code": "SITE_LOM", "public_table": "sites", "public_id": 1}
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    linked = [
+        entry
+        for entry in body["entries"]
+        if entry["public_table"] == "sites" and entry["public_id"] == 1
+    ]
+    assert [(entry["kind"], entry["code"]) for entry in linked] == [("changed", "SITE_LOM")]
+    # Ожидающая связь остаётся в черновике: публикации не было.
+    assert repository.list_public_links("default") == ()
+
+
+def test_pending_link_overrides_saved_link_of_the_same_public_row(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    client.app.dependency_overrides[get_public_reader] = lambda: StaticPublicReader(make_snapshot())
+    saved = client.post(
+        "/api/v1/economics/references/public-links",
+        json={"section": "sites", "code": "SITE_OLD", "public_table": "sites", "public_id": 1},
+    )
+    assert saved.status_code == 201, saved.text
+
+    body = client.post(
+        "/api/v1/economics/references/public-delta",
+        json={
+            "sections": {"sites": [_site_item("SITE_NEW")]},
+            "pending_links": [
+                {"section": "sites", "code": "SITE_NEW", "public_table": "sites", "public_id": 1}
+            ],
+        },
+    ).json()
+
+    linked = [
+        entry
+        for entry in body["entries"]
+        if entry["public_table"] == "sites" and entry["public_id"] == 1
+    ]
+    assert [(entry["kind"], entry["code"]) for entry in linked] == [("changed", "SITE_NEW")]
+
+
+def test_public_delta_skips_entry_with_invalid_payload_value(monkeypatch) -> None:
+    """Отрицательное замедление не проходит схему раздела — предложение пропущено."""
+
+    client, _ = _client(monkeypatch)
+    broken_delays = [
+        {"id": 1, "device_type_id": 1, "delay_ms": 500, "is_standard": False},
+        {"id": 2, "device_type_id": 2, "delay_ms": -5, "is_standard": True},
+    ]
+    client.app.dependency_overrides[get_public_reader] = lambda: StaticPublicReader(
+        make_snapshot(delay_series=broken_delays)
+    )
+
+    body = client.post("/api/v1/economics/references/public-delta", json={"sections": {}}).json()
+
+    assert body["available"] is True
+    assert "Пропущено записей с недопустимыми значениями: 1" in body["error"]
+    codes = [entry["code"] for entry in body["entries"]]
+    assert "PUB_IDT_2" not in codes
+    assert "PUB_IDT_1" in codes
+
+
+def test_publish_saves_pending_links(monkeypatch) -> None:
+    client, repository = _client(monkeypatch)
+
+    response = _publish(
+        client,
+        {"sites": [_site_item("SITE_LOM")]},
+        [{"section": "sites", "code": "SITE_LOM", "public_table": "sites", "public_id": 1}],
+    )
+
+    assert response.status_code == 200, response.text
+    links = repository.list_public_links("default")
+    assert [(link.section, link.code, link.public_table, link.public_id) for link in links] == [
+        ("sites", "SITE_LOM", "sites", 1)
+    ]
+    assert links[0].synced_at is not None
+
+
+def test_publish_ignores_link_to_code_missing_from_revision(monkeypatch) -> None:
+    """Запись, удалённую из черновика перед публикацией, связывать не с чем."""
+
+    client, repository = _client(monkeypatch)
+
+    response = _publish(
+        client,
+        {"sites": [_site_item("SITE_LOM")]},
+        [{"section": "sites", "code": "SITE_GONE", "public_table": "sites", "public_id": 1}],
+    )
+
+    assert response.status_code == 200, response.text
+    assert repository.list_public_links("default") == ()
+
+
+def test_publish_with_conflicting_link_changes_nothing(monkeypatch) -> None:
+    client, repository = _client(monkeypatch)
+    saved = client.post(
+        "/api/v1/economics/references/public-links",
+        json={"section": "sites", "code": "SITE_OLD", "public_table": "sites", "public_id": 1},
+    )
+    assert saved.status_code == 201, saved.text
+    before = client.get("/api/v1/economics/references/snapshot").json()["revision_id"]
+
+    response = _publish(
+        client,
+        {"sites": [_site_item("SITE_LOM")]},
+        [{"section": "sites", "code": "SITE_LOM", "public_table": "sites", "public_id": 1}],
+    )
+
+    assert response.status_code == 409, response.text
+    message = response.json()["detail"]["message"]
+    assert "уже связана с другой записью справочника" in message
+    assert "SITE_OLD" not in message
+    # Ревизия не создана: связь и справочники пишутся одной транзакцией.
+    assert client.get("/api/v1/economics/references/snapshot").json()["revision_id"] == before
+    assert [link.code for link in repository.list_public_links("default")] == ["SITE_OLD"]

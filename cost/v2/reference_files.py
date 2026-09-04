@@ -223,34 +223,48 @@ def import_xlsx(data: bytes) -> dict[str, list[ReferenceItem]]:
         if section not in known:
             raise ReferenceFileError(f"Неизвестный лист «{section}»: такого раздела нет.")
         columns = {column.key: column for column in section_columns(section)}
-        rows = sheet.iter_rows(values_only=True)
-        header = next(rows, None)
-        if header is None:
-            sections[section] = []
-            continue
-        keys: list[str | None] = [str(key).strip() if key not in (None, "") else None for key in header]
-        for key in keys:
-            if key is not None and key not in columns:
-                raise ReferenceFileError(f"Неизвестная колонка «{key}» (лист «{section}»).")
-        labels = next(rows, None)
-        if labels is not None:
-            expected = columns[keys[0]].title if keys and keys[0] else FIXED_COLUMNS[0].title
-            first = "" if labels[0] is None else str(labels[0]).strip()
-            # Без этой проверки удалённая строка подписей молча съедала бы
-            # первую запись листа.
-            if first not in ("", expected):
-                raise ReferenceFileError(
-                    f"Лист «{section}», строка 2: ожидается строка подписей полей "
-                    f"(первая ячейка «{expected}»)."
-                )
-        items: list[ReferenceItem] = []
-        for row_no, values in enumerate(rows, start=3):
-            cells = {key: value for key, value in zip(keys, values) if key is not None}
-            if all(value in (None, "") for value in cells.values()):
-                continue
-            items.append(_item_from_cells(section, row_no, cells, columns))
+        # Битую разметку листа openpyxl в режиме чтения замечает не при
+        # открытии книги, а при обходе строк: без обёртки такой файл давал бы
+        # ошибку сервера вместо разбора «файл не читается».
+        try:
+            items = _sheet_items(sheet, section, columns)
+        except ReferenceFileError:
+            raise
+        except Exception as exc:
+            raise ReferenceFileError(
+                f"Лист «{section}»: не удалось прочитать данные листа: {exc}"
+            ) from exc
         sections[section] = items
     return sections
+
+
+def _sheet_items(sheet: Any, section: str, columns: Mapping[str, Column]) -> list[ReferenceItem]:
+    rows = sheet.iter_rows(values_only=True)
+    header = next(rows, None)
+    if header is None:
+        return []
+    keys: list[str | None] = [str(key).strip() if key not in (None, "") else None for key in header]
+    for key in keys:
+        if key is not None and key not in columns:
+            raise ReferenceFileError(f"Неизвестная колонка «{key}» (лист «{section}»).")
+    labels = next(rows, None)
+    if labels is not None:
+        expected = columns[keys[0]].title if keys and keys[0] else FIXED_COLUMNS[0].title
+        first = "" if labels[0] is None else str(labels[0]).strip()
+        # Без этой проверки удалённая строка подписей молча съедала бы
+        # первую запись листа.
+        if first not in ("", expected):
+            raise ReferenceFileError(
+                f"Лист «{section}», строка 2: ожидается строка подписей полей "
+                f"(первая ячейка «{expected}»)."
+            )
+    items: list[ReferenceItem] = []
+    for row_no, values in enumerate(rows, start=3):
+        cells = {key: value for key, value in zip(keys, values) if key is not None}
+        if all(value in (None, "") for value in cells.values()):
+            continue
+        items.append(_item_from_cells(section, row_no, cells, columns))
+    return items
 
 
 def _item_from_cells(

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import zipfile
 from datetime import date
 
 import pytest
@@ -250,6 +251,20 @@ class TestImport:
         sections = import_xlsx(export_xlsx(_snapshot(sites=[site])))
         assert sections["sites"][0].payload["mobilization_km"] == "0.85"
 
+    def test_broken_sheet_xml_is_reported_by_sheet(self):
+        from cost.v2.reference_files import (
+            ReferenceFileError,
+            exportable_sections,
+            export_xlsx,
+            import_xlsx,
+        )
+
+        # Битую разметку листа openpyxl в режиме чтения замечает не при
+        # открытии книги, а при обходе строк: без обёртки это был бы 500.
+        data = _with_broken_sheet(export_xlsx(_snapshot(sites=[_site()])))
+        with pytest.raises(ReferenceFileError, match=f"Лист «{exportable_sections()[0]}»"):
+            import_xlsx(data)
+
     def test_missing_label_row_is_reported(self):
         from cost.v2.reference_files import ReferenceFileError, export_xlsx, import_xlsx
 
@@ -300,4 +315,23 @@ class TestImport:
 def _bytes(book) -> bytes:
     buffer = io.BytesIO()
     book.save(buffer)
+    return buffer.getvalue()
+
+
+def _with_broken_sheet(data: bytes, arcname: str = "xl/worksheets/sheet1.xml") -> bytes:
+    """Книга, у которой разметка первого листа обрывается на первой строке.
+
+    Заголовок листа целый, поэтому книга открывается: ошибка ждёт обхода
+    строк — ровно тот случай, ради которого обёрнут цикл по листу.
+    """
+
+    source = zipfile.ZipFile(io.BytesIO(data))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+        for info in source.infolist():
+            payload = source.read(info.filename)
+            if info.filename == arcname:
+                marker = b"<sheetData>"
+                payload = payload[: payload.index(marker) + len(marker)] + b'<row r="1"><c r="A1"'
+            target.writestr(info.filename, payload)
     return buffer.getvalue()

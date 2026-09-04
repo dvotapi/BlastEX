@@ -1,6 +1,7 @@
 """`GET /economics/references/export` и `POST /economics/references/import`."""
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import time
@@ -103,6 +104,41 @@ def test_import_json_and_bad_file(monkeypatch) -> None:
     )
     assert bad.status_code == 422
     assert "JSON" in bad.json()["detail"]["message"]
+
+
+def test_import_parses_the_file_outside_the_event_loop(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    exported = client.get("/api/v1/economics/references/export?format=json").content
+    original = economics.import_file
+    seen: dict[str, bool] = {}
+
+    def spy(name: str, data: bytes):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            seen["on_loop"] = False
+        else:
+            seen["on_loop"] = True
+        return original(name, data)
+
+    monkeypatch.setattr(economics, "import_file", spy)
+    response = client.post(
+        "/api/v1/economics/references/import",
+        files={"file": ("refs.json", exported, "application/json")},
+    )
+    assert response.status_code == 200, response.text
+    # Разбор книги синхронный: в цикле событий он останавливает весь сервер.
+    assert seen == {"on_loop": False}
+
+
+def test_import_reports_a_broken_workbook_as_unprocessable(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.post(
+        "/api/v1/economics/references/import",
+        files={"file": ("refs.xlsx", b"PK\x03\x04 not a zip", "application/octet-stream")},
+    )
+    assert response.status_code == 422, response.text
+    assert "xlsx" in response.json()["detail"]["message"]
 
 
 def test_import_rejects_a_file_over_the_limit(monkeypatch) -> None:

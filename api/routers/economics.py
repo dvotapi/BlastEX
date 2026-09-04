@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
 from api.schemas.reference_schema import ReferenceSchemaResponse
@@ -272,7 +273,9 @@ async def import_references(
         if len(data) > MAX_REFERENCE_FILE_BYTES:
             raise too_big
         try:
-            sections = import_file(file.filename or "", data)
+            # Разбор книги синхронный и небыстрый: в цикле событий он
+            # остановил бы все остальные запросы, поэтому уходит в поток.
+            sections = await run_in_threadpool(import_file, file.filename or "", data)
         except ReferenceFileError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

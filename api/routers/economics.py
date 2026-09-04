@@ -43,7 +43,13 @@ from api.services.public_sync_service import get_public_reader, public_delta_pay
 from cost.v2.public_sync import PublicReader
 from cost.v2.reference_files import XLSX_MEDIA_TYPE, ReferenceFileError, export_json, export_xlsx, import_file
 from cost.v2.references import has_validation_errors, validate_reference_sections
-from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError, PublicLink
+from cost.v2.repository import (
+    EconomicsRecordNotFound,
+    EconomicsRepository,
+    EconomicsRepositoryError,
+    PublicLink,
+    ReferenceRevisionConflict,
+)
 from cost.v2.technical_adapter import adapt_blast_block
 
 
@@ -244,9 +250,14 @@ def get_public_delta(
     """
 
     organization_id, _ = _identity(session)
-    return PublicDeltaResponse.model_validate(
-        public_delta_payload(reader, repository, organization_id, payload.sections)
-    )
+    try:
+        return PublicDeltaResponse.model_validate(
+            public_delta_payload(reader, repository, organization_id, payload.sections)
+        )
+    except Exception as exc:
+        # Недоступность журнала уже обработана внутри сервиса; сюда доходит
+        # только отказ хранилища связей — это 503, а не пустая разница.
+        raise repository_error(exc) from exc
 
 
 @router.post(
@@ -268,6 +279,11 @@ def create_public_link(
     )
     try:
         saved = repository.save_public_link(organization_id, user_id, link)
+    except (ReferenceRevisionConflict, EconomicsRecordNotFound) as exc:
+        # Подклассы `EconomicsRepositoryError` со своими кодами (409 с
+        # заголовком ревизии и 404) разбирает `repository_error`, поэтому они
+        # ловятся раньше базового класса.
+        raise repository_error(exc) from exc
     except EconomicsRepositoryError as exc:
         # Строка public уже связана с другой записью раздела — это конфликт
         # выбора пользователя, а не поломка хранилища (503 из repository_error).
@@ -275,6 +291,8 @@ def create_public_link(
             status_code=status.HTTP_409_CONFLICT,
             detail={"message": str(exc)},
         ) from exc
+    except Exception as exc:
+        raise repository_error(exc) from exc
     return PublicLinkSchema.model_validate(public_link_payload(saved))
 
 

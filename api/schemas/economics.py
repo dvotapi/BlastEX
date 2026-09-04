@@ -4,9 +4,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.schemas.cost import BlockGeometrySchema
+from cost.v2.public_sync.mapping import TABLES as PUBLIC_TABLES
+from cost.v2.references import REFERENCE_SECTION_DEFINITIONS
 from cost.v2.models import (
     CapacityChoice,
     EconomicScenario,
@@ -272,10 +274,31 @@ class PublicDeltaResponse(BaseModel):
 
 
 class PublicLinkRequest(BaseModel):
-    section: str = Field(..., min_length=1, max_length=80)
+    """Связь записи справочника со строкой журнала public.
+
+    Раздел и таблица проверяются по каталогам, а не принимаются любым текстом:
+    связь с несуществующим разделом никогда не даст разницы, а молча лежать в
+    базе она будет долго. Длины совпадают с колонками ``public_links``.
+    """
+
+    section: str = Field(..., min_length=1, max_length=64)
     code: str = Field(..., min_length=1, max_length=80)
-    public_table: str = Field(..., min_length=1, max_length=80)
+    public_table: str = Field(..., min_length=1, max_length=64)
     public_id: int
+
+    @field_validator("section")
+    @classmethod
+    def _known_section(cls, value: str) -> str:
+        if value not in REFERENCE_SECTION_DEFINITIONS:
+            raise ValueError(f"Неизвестный раздел справочников: {value}")
+        return value
+
+    @field_validator("public_table")
+    @classmethod
+    def _known_table(cls, value: str) -> str:
+        if value not in PUBLIC_TABLES:
+            raise ValueError(f"Неизвестная таблица журнала public: {value}")
+        return value
 
 
 class PublicLinkSchema(BaseModel):

@@ -47,6 +47,17 @@ RESET_STATEMENTS: tuple[str, ...] = (
     "CREATE SCHEMA public",
 )
 
+# Ревизия, до которой фикстура прогоняет миграции Alembic. Указана явно, а не
+# как ``head``: ``head`` определяется сканированием ВСЕХ ``*.py`` в
+# ``migrations/versions``, включая файлы, не отслеживаемые git (например,
+# конфликт-копии редактора/облачной синхронизации вида «... 2.py»). Если в
+# рабочей копии оказалось два файла с одинаковым ``revision`` (ревизия
+# зарегистрирована дважды), Alembic видит несколько «голов» и падает с
+# «Multiple head revisions are present for given argument 'head'», хотя
+# отслеживаемая история миграций линейна и однозначна. Явная ревизия не
+# зависит от посторонних файлов в директории.
+_MIGRATION_HEAD = "20260904_0006"
+
 
 def _strip_line_comment(line: str) -> str:
     """Убирает однострочный SQL-комментарий ``-- ...`` из конца строки.
@@ -136,7 +147,7 @@ def public_db() -> Iterator[Engine]:
     subprocess_env = dict(os.environ)
     subprocess_env["BLASTEX_DATABASE_URL"] = TEST_DATABASE_URL
     subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", _MIGRATION_HEAD],
         cwd=_REPO_ROOT,
         env=subprocess_env,
         check=True,

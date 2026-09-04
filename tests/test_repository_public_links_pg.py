@@ -14,7 +14,7 @@ import pytest
 
 from cost.v2.db_repository import PostgresEconomicsRepository
 from cost.v2.repository import EconomicsRepositoryError, PublicLink
-from tests.pg_public import TEST_DATABASE_URL, requires_pg
+from tests.pg_public import TEST_DATABASE_URL, public_db, requires_pg
 
 ORG = "org-public-links"
 USER = "editor@example.ru"

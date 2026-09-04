@@ -18,6 +18,7 @@ from tests.pg_public import (
     _PUBLIC_SCHEMA_SQL,
     RESET_STATEMENTS,
     _statements,
+    public_db,
     requires_pg,
     seed_public,
 )

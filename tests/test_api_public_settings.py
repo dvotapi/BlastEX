@@ -171,6 +171,45 @@ def test_validate_finds_inn_taken_in_journal(monkeypatch) -> None:
     assert "уже есть в журнале" in _issues(response, "counterparties", "inn")[0]["message"]
 
 
+def test_validate_accepts_pending_link_for_taken_inn(monkeypatch) -> None:
+    """Несохранённая связь учитывается проверкой так же, как публикацией.
+
+    Связь живёт в черновике до публикации: без неё связанная запись выглядит
+    новой и получает «уже есть в журнале», хотя публикация с теми же связями
+    проходит успешно.
+    """
+
+    client, _ = _client(monkeypatch)
+    client.app.dependency_overrides[get_public_reader] = lambda: StaticPublicReader(make_snapshot())
+    client.put(
+        "/api/v1/economics/references/public-settings",
+        json={"exchange_enabled": True, "mirror_sections": {}},
+    )
+    sections = _draft_with_counterparty(client, {"role": "CUSTOMER", "inn": "6608002092"})
+
+    without_link = client.post("/api/v1/economics/references/validate", json={"sections": sections})
+    with_link = client.post(
+        "/api/v1/economics/references/validate",
+        json={
+            "sections": sections,
+            "public_links": [
+                {
+                    "section": "counterparties",
+                    "code": "CP_NEW",
+                    "public_table": "counterparties",
+                    "public_id": 1,
+                }
+            ],
+        },
+    )
+
+    assert without_link.status_code == 200, without_link.text
+    assert _issues(without_link, "counterparties", "inn") != []
+    assert with_link.status_code == 200, with_link.text
+    assert _issues(with_link, "counterparties", "inn") == []
+    assert with_link.json()["valid"] is True
+
+
 def test_validate_without_journal_still_checks_own_constraints(monkeypatch) -> None:
     """Журнал недоступен — проверка идёт без снимка, а не пропускается."""
 

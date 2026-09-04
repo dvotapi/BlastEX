@@ -367,7 +367,13 @@ export function ReferencesPage({ user }: { user: User }) {
     setBusy(true);
     setError("");
     try {
-      const result = await api.economics.validateReferences(toSections(draft));
+      // Ожидающие связи уходят вместе с черновиком: без них связанная запись
+      // проверяется как новая и получает ошибку «уже есть в журнале», хотя
+      // публикация с теми же связями прошла бы успешно.
+      const result = await api.economics.validateReferences(
+        toSections(draft),
+        resolvePendingLinks(draft, pendingLinks),
+      );
       setIssues(result.issues);
       return result.valid;
     } catch (reason) {
@@ -428,7 +434,10 @@ export function ReferencesPage({ user }: { user: User }) {
       setSelectedRow("");
       setIssues([]);
       if (merged.replaced.length && !merged.replaced.includes(activeSection)) setActiveSection(merged.replaced[0]);
-      const validation = await api.economics.validateReferences(toSections(merged.draft));
+      const validation = await api.economics.validateReferences(
+        toSections(merged.draft),
+        resolvePendingLinks(merged.draft, pendingLinks),
+      );
       setIssues(validation.issues);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить файл.");
@@ -488,7 +497,10 @@ export function ReferencesPage({ user }: { user: User }) {
         return next;
       });
       setSelectedRow("");
-      const validation = await api.economics.validateReferences(toSections(merged.draft));
+      const validation = await api.economics.validateReferences(
+        toSections(merged.draft),
+        resolvePendingLinks(merged.draft, links),
+      );
       setIssues(validation.issues);
       await refreshPublicDelta(merged.draft, links);
     } catch (reason) {

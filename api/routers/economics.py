@@ -251,7 +251,11 @@ def validate_references(
     organization_id, _ = _identity(session)
     try:
         issues = reference_issues(
-            reader, repository, organization_id, domain_sections(payload.sections)
+            reader,
+            repository,
+            organization_id,
+            domain_sections(payload.sections),
+            [_public_link(link) for link in payload.public_links],
         )
     except Exception as exc:
         raise repository_error(exc) from exc

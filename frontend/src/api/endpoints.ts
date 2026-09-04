@@ -240,8 +240,16 @@ export const api = {
       get<EconomicsReferenceSnapshot>(
         `${V1}/economics/references/snapshot${revisionId ? `?revision_id=${encodeURIComponent(revisionId)}` : ""}`
       ),
-    validateReferences: (sections: Record<string, EconomicsReferenceItem[]>) =>
-      post<ReferenceValidation>(`${V1}/economics/references/validate`, { sections }),
+    validateReferences: (
+      sections: Record<string, EconomicsReferenceItem[]>,
+      /** Связи черновика, ещё не записанные: без них связанная запись
+       *  проверяется как новая и получает ошибку «уже есть в журнале». */
+      pendingLinks: PublicLinkRequest[] = [],
+    ) =>
+      post<ReferenceValidation>(`${V1}/economics/references/validate`, {
+        sections,
+        public_links: pendingLinks,
+      }),
     publishReferences: (payload: {
       base_revision: string;
       sections: Record<string, EconomicsReferenceItem[]>;

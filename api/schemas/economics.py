@@ -77,15 +77,17 @@ class PublicLinkRequest(BaseModel):
 
 class ReferenceValidateRequest(BaseModel):
     sections: dict[str, list[ReferenceItemSchema]]
+    # Связи, накопленные в черновике: записываются в одной транзакции с
+    # ревизией (§4.3), поэтому приходят вместе с разделами, а не отдельным
+    # запросом до публикации. Проверке они нужны не меньше, чем публикации:
+    # без них связанная запись выглядит как новая и получает ошибку
+    # «уже есть в журнале» там, где публикация прошла бы успешно.
+    public_links: list[PublicLinkRequest] = Field(default_factory=list)
 
 
 class ReferencePublishRequest(ReferenceValidateRequest):
     base_revision: str
     comment: str = ""
-    # Связи, накопленные в черновике: записываются в одной транзакции с
-    # ревизией (§4.3), поэтому приходят вместе с разделами, а не отдельным
-    # запросом до публикации.
-    public_links: list[PublicLinkRequest] = Field(default_factory=list)
 
 
 class ReferenceValidationIssueSchema(BaseModel):

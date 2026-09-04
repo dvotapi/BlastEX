@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import type { User } from "../../types";
 import type {
@@ -23,6 +23,17 @@ import { SectionList } from "./SectionList";
 import { SectionNav, type SectionStat } from "./SectionNav";
 import { defaultPayload, numericPayloadKeys, sectionFields } from "./schemaFields";
 import type { RefOption } from "./fields/RefSelect";
+
+// Поля самой записи справочника (не payload): их подписи одинаковы во всех
+// разделах, схема раздела о них ничего не знает.
+const PAYLOAD_PREFIX = "payload.";
+const TOP_LEVEL_FIELD_LABELS: Record<string, string> = {
+  name: "Наименование",
+  is_active: "Активна",
+  comment: "Комментарий",
+  valid_from: "Действует с",
+  valid_to: "Действует по",
+};
 
 function rowId(): string {
   const token =
@@ -71,23 +82,38 @@ export function ReferencesPage({ user }: { user: User }) {
   const [publicDelta, setPublicDelta] = useState<PublicDelta | null>(null);
   const canEdit = user.role === "admin" || user.role === "reference_editor";
 
+  // Номер последнего запроса разницы: ответы более ранних запросов
+  // игнорируются, иначе медленный первый ответ затёр бы свежий второй.
+  const deltaRequest = useRef(0);
+
   /**
    * Разница черновика с журналом project1. Ошибка запроса не ломает страницу:
    * плашка показывает причину и кнопку «Повторить», справочники остаются
    * рабочими и без журнала.
+   *
+   * Возвращает полученную разницу или `null`, если ответ устарел — пока он
+   * шёл, начался следующий запрос, и показывать нужно уже его результат.
    */
-  const refreshPublicDelta = useCallback(async (currentDraft: DraftSections) => {
-    try {
-      setPublicDelta(await api.economics.publicDelta(toSections(currentDraft)));
-    } catch (reason) {
-      setPublicDelta({
-        available: false,
-        error: reason instanceof Error ? reason.message : "неизвестная ошибка",
-        counts: { new: 0, changed: 0, deactivated: 0 },
-        entries: [],
-      });
-    }
-  }, []);
+  const refreshPublicDelta = useCallback(
+    async (currentDraft: DraftSections): Promise<PublicDelta | null> => {
+      const request = (deltaRequest.current += 1);
+      let result: PublicDelta;
+      try {
+        result = await api.economics.publicDelta(toSections(currentDraft));
+      } catch (reason) {
+        result = {
+          available: false,
+          error: reason instanceof Error ? reason.message : "неизвестная ошибка",
+          counts: { new: 0, changed: 0, deactivated: 0 },
+          entries: [],
+        };
+      }
+      if (request !== deltaRequest.current) return null;
+      setPublicDelta(result);
+      return result;
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -186,6 +212,21 @@ export function ReferencesPage({ user }: { user: User }) {
   const sectionLabels = useMemo(
     () =>
       Object.fromEntries(Object.values(catalog?.sections ?? {}).map((section) => [section.code, section.label])),
+    [catalog],
+  );
+
+  /**
+   * Подпись поля в тексте изменения. Страница не знает полей payload: имя
+   * берётся из схемы раздела (`title`, затем `description`), а у полей самой
+   * записи справочника подписи одинаковы во всех разделах.
+   */
+  const fieldLabel = useCallback(
+    (section: string, key: string) => {
+      if (!key.startsWith(PAYLOAD_PREFIX)) return TOP_LEVEL_FIELD_LABELS[key] ?? key;
+      const name = key.slice(PAYLOAD_PREFIX.length);
+      const property = catalog?.sections[section]?.json_schema.properties?.[name];
+      return property?.title ?? property?.description ?? name;
+    },
     [catalog],
   );
 
@@ -364,27 +405,41 @@ export function ReferencesPage({ user }: { user: User }) {
     }
   }
 
-  /** Применить всю разницу с журналом в черновик и пересчитать её заново. */
+  /**
+   * Применить всю разницу с журналом в черновик и пересчитать её заново.
+   *
+   * Показанная разница считалась по черновику на момент последней проверки:
+   * с тех пор пользователь мог править записи, и применение старых `entries`
+   * затёрло бы эти правки. Поэтому разница сначала перечитывается по текущему
+   * черновику, и применяется уже свежий ответ.
+   */
   async function applyPublicDelta() {
     if (!publicDelta || !publicDelta.available || !canEdit) return;
-    const merged = applyDeltaEntries(draft, publicDelta.entries, rowId);
-    if (!merged.applied) return;
-    setDraft(merged.draft);
-    // Записи, которых нет в опубликованной ревизии, помечаем как новые — так же,
-    // как добавленные вручную или пришедшие файлом.
-    setNewRows((current) => {
-      const next = new Set(current);
-      for (const entry of publicDelta.entries) {
-        if (publishedByCode.has(`${entry.section}::${entry.code}`)) continue;
-        const row = (merged.draft[entry.section] ?? []).find((item) => item.code === entry.code);
-        if (row) next.add(row.row_id);
-      }
-      return next;
-    });
-    setSelectedRow("");
     setBusy(true);
     setError("");
     try {
+      const fresh = await refreshPublicDelta(draft);
+      // Ответ устарел — идёт более свежая проверка, она и обновит плашку.
+      if (!fresh) return;
+      if (!fresh.available) {
+        setError(`project1 недоступен: ${fresh.error}`);
+        return;
+      }
+      const merged = applyDeltaEntries(draft, fresh.entries, rowId);
+      if (!merged.applied) return;
+      setDraft(merged.draft);
+      // Записи, которых нет в опубликованной ревизии, помечаем как новые — так
+      // же, как добавленные вручную или пришедшие файлом.
+      setNewRows((current) => {
+        const next = new Set(current);
+        for (const entry of fresh.entries) {
+          if (publishedByCode.has(`${entry.section}::${entry.code}`)) continue;
+          const row = (merged.draft[entry.section] ?? []).find((item) => item.code === entry.code);
+          if (row) next.add(row.row_id);
+        }
+        return next;
+      });
+      setSelectedRow("");
       const validation = await api.economics.validateReferences(toSections(merged.draft));
       setIssues(validation.issues);
       await refreshPublicDelta(merged.draft);
@@ -504,6 +559,7 @@ export function ReferencesPage({ user }: { user: User }) {
         busy={busy}
         canEdit={canEdit}
         sectionLabel={(code) => sectionLabels[code] ?? code}
+        fieldLabel={fieldLabel}
         recordsOf={(code) =>
           (draft[code] ?? [])
             .filter((row) => row.is_active && row.code)

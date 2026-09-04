@@ -86,6 +86,7 @@
 .ref-public-entries summary { color:#3b4b43; font-size:12px; font-weight:700; cursor:pointer; }
 .ref-public-entries ul { display:grid; gap:6px; margin:8px 0 0; padding:0; list-style:none; }
 .ref-public-entries li p { margin:0; font-size:12px; }
+.ref-public-note { color:#a07c1d; }
 .ref-public-changes { margin:4px 0 0 12px; color:#6e7c75; font-size:11px; }
 .ref-public-link { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
 .ref-public-link select { flex:1 1 220px; padding:7px 8px; border:1px solid #d7e1dc; border-radius:8px; font-size:12px; }

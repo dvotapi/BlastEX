@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { PublicDelta, PublicDeltaEntry } from "../../types/economics";
-import { deltaSummary } from "./publicDelta";
+import { deltaSummary, fieldValueText } from "./publicDelta";
 
 const KIND_LABELS: Record<PublicDeltaEntry["kind"], string> = {
   new: "новая",
@@ -12,25 +12,20 @@ function entryKey(entry: PublicDeltaEntry): string {
   return `${entry.section}::${entry.public_table}#${entry.public_id}`;
 }
 
-/** Значение поля в тексте изменения: пустое и `null` читаются как прочерк. */
-function displayValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
-}
-
 /**
  * Плашка «Из project1»: сколько записей журнала расходится с черновиком, что
  * именно расходится и две операции — применить всё в черновик или связать
  * новую строку журнала с уже существующей записью справочника.
  *
- * Компонент ничего не знает о полях разделов: и подписи разделов, и списки
- * записей для связывания приходят от страницы.
+ * Компонент ничего не знает о полях разделов: подписи разделов, подписи полей
+ * и списки записей для связывания приходят от страницы.
  */
 export function PublicDeltaBanner({
   delta,
   busy,
   canEdit,
   sectionLabel,
+  fieldLabel,
   recordsOf,
   onRefresh,
   onApplyAll,
@@ -40,6 +35,7 @@ export function PublicDeltaBanner({
   busy: boolean;
   canEdit: boolean;
   sectionLabel: (section: string) => string;
+  fieldLabel: (section: string, key: string) => string;
   recordsOf: (section: string) => Array<{ code: string; name: string }>;
   onRefresh: () => void;
   onApplyAll: () => void;
@@ -61,13 +57,20 @@ export function PublicDeltaBanner({
   }
 
   const total = delta.counts.new + delta.counts.changed + delta.counts.deactivated;
-  // Совпадающий с журналом черновик — обычное состояние, плашке нечего сказать.
-  if (total === 0) return null;
+  // Совпадающий с журналом черновик — обычное состояние, плашке нечего
+  // сказать. Исключение — предупреждение о пропущенных записях: о нём
+  // пользователь должен узнать и при нулевой разнице.
+  if (total === 0 && !delta.error) return null;
 
   return (
     <section className="ref-public-banner">
       <div className="ref-public-banner-head">
-        <p className="page-caption">{deltaSummary(delta.counts)}</p>
+        <p className="page-caption">
+          {deltaSummary(delta.counts)}
+          {/* Пропущенные журналом записи — это предупреждение при доступной
+              разнице, а не отказ: показываем рядом с подписью. */}
+          {delta.error && <span className="ref-public-note"> · {delta.error}</span>}
+        </p>
         <button type="button" className="ref-ghost-button" onClick={onRefresh} disabled={busy}>
           Проверить project1
         </button>
@@ -91,7 +94,8 @@ export function PublicDeltaBanner({
                   <ul className="ref-public-changes">
                     {entry.changes.map((change) => (
                       <li key={change.key}>
-                        {change.key}: {displayValue(change.old)} → {displayValue(change.new)}
+                        {fieldLabel(entry.section, change.key)}: {fieldValueText(change.old)} →{" "}
+                        {fieldValueText(change.new)}
                       </li>
                     ))}
                   </ul>

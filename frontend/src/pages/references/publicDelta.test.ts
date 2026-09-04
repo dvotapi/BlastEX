@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDeltaEntries, deltaSummary } from "./publicDelta";
+import { applyDeltaEntries, deltaSummary, fieldValueText } from "./publicDelta";
 import type { EconomicsReferenceItem, PublicDeltaEntry } from "../../types/economics";
 
 function item(code: string, name = code): EconomicsReferenceItem {
@@ -125,9 +125,38 @@ describe("deltaSummary", () => {
     );
   });
 
-  it("нули тоже показывает — плашку прячет страница, а не текст", () => {
-    expect(deltaSummary({ new: 0, changed: 0, deactivated: 0 })).toBe(
-      "Из project1: 0 новых, 0 изменённых, 0 деактивированных",
+  it("нулевые счётчики опускает", () => {
+    expect(deltaSummary({ new: 3, changed: 0, deactivated: 0 })).toBe("Из project1: 3 новые");
+    expect(deltaSummary({ new: 0, changed: 0, deactivated: 2 })).toBe(
+      "Из project1: 2 деактивированные",
     );
+  });
+
+  it("без расхождений подписи нет", () => {
+    expect(deltaSummary({ new: 0, changed: 0, deactivated: 0 })).toBe("");
+  });
+});
+
+describe("fieldValueText", () => {
+  it("пустое значение читается прочерком", () => {
+    expect(fieldValueText(null)).toBe("—");
+    expect(fieldValueText(undefined)).toBe("—");
+    expect(fieldValueText("")).toBe("—");
+  });
+
+  it("логическое значение — да или нет", () => {
+    expect(fieldValueText(true)).toBe("да");
+    expect(fieldValueText(false)).toBe("нет");
+  });
+
+  it("список и объект называются по-русски, а не JSON-ом", () => {
+    expect(fieldValueText([1, 2, 3])).toBe("список (3)");
+    expect(fieldValueText([])).toBe("список (0)");
+    expect(fieldValueText({ a: 1 })).toBe("объект");
+  });
+
+  it("числа и строки показываются как есть", () => {
+    expect(fieldValueText(220)).toBe("220");
+    expect(fieldValueText("ЛОМ")).toBe("ЛОМ");
   });
 });

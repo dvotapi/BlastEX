@@ -36,12 +36,33 @@ export function applyDeltaEntries(
   return { draft: next, applied };
 }
 
-/** Подпись плашки: «Из project1: 3 новые, 1 изменённая, 0 деактивированных». */
+/**
+ * Подпись плашки: «Из project1: 3 новые, 1 изменённая». Нулевые счётчики
+ * опускаются — «0 деактивированных» ничего не сообщает, а читать мешает.
+ * Если ноль везде, подписи нет вовсе: расхождений с журналом не осталось.
+ */
 export function deltaSummary(counts: PublicDelta["counts"]): string {
-  const parts = [
-    `${counts.new} ${plural(counts.new, ["новая", "новые", "новых"])}`,
-    `${counts.changed} ${plural(counts.changed, ["изменённая", "изменённые", "изменённых"])}`,
-    `${counts.deactivated} ${plural(counts.deactivated, ["деактивированная", "деактивированные", "деактивированных"])}`,
-  ];
+  const parts: string[] = [];
+  if (counts.new) parts.push(`${counts.new} ${plural(counts.new, ["новая", "новые", "новых"])}`);
+  if (counts.changed)
+    parts.push(`${counts.changed} ${plural(counts.changed, ["изменённая", "изменённые", "изменённых"])}`);
+  if (counts.deactivated)
+    parts.push(
+      `${counts.deactivated} ${plural(counts.deactivated, ["деактивированная", "деактивированные", "деактивированных"])}`,
+    );
+  if (!parts.length) return "";
   return `Из project1: ${parts.join(", ")}`;
+}
+
+/**
+ * Значение поля в тексте изменения. JSON пользователю не показывается:
+ * список и объект называются по-русски с числом элементов, логическое —
+ * «да»/«нет», пустое — прочерком.
+ */
+export function fieldValueText(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "да" : "нет";
+  if (Array.isArray(value)) return `список (${value.length})`;
+  if (typeof value === "object") return "объект";
+  return String(value);
 }

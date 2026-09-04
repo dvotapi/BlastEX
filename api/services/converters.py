@@ -40,7 +40,10 @@ from cost.models import (
     InitiationConfig,
 )
 from cost.scenarios import get_scenario_calc_profile, get_scenario_template
-from cost.v2.legacy_adapter import LegacyReferences
+from cost.v2.legacy_adapter import (
+    LegacyReferences,
+    resolve_work_object_name as resolve_existing_work_object_name,
+)
 
 
 def rock_from_schema(schema: RockPropertiesSchema) -> RockProperties:
@@ -97,10 +100,18 @@ def manual_input_to_block(schema: ManualScenarioInputSchema) -> BlockCalculation
     )
 
 
-def resolve_work_object_name(name: str | None) -> str:
+def resolve_work_object_name(name: str | None, legacy: LegacyReferences) -> str:
+    """Имя объекта для сметы.
+
+    Расчёт из «Проектирования» имени не присылает, а объекта Cost V1 по
+    умолчанию в справочнике организации может не быть — тогда берём объект из
+    самой ревизии. Явно названный объект не подменяем: если его нет, об этом
+    нужно сказать, а не считать чужую смету.
+    """
+
     if name:
         return name
-    return DEFAULT_OBJECT_NAME
+    return resolve_existing_work_object_name(legacy, DEFAULT_OBJECT_NAME)
 
 
 def build_calculation_context(
@@ -112,7 +123,7 @@ def build_calculation_context(
     from api.exceptions import WorkObjectNotFoundError
 
     ctx_input = request.context or CalculationContextInputSchema()
-    work_object_name = resolve_work_object_name(request.work_object_name)
+    work_object_name = resolve_work_object_name(request.work_object_name, legacy)
     work_objects = list(legacy.work_objects)
     drill_rigs = list(legacy.drill_rigs)
     work_object = find_object(work_object_name, work_objects)

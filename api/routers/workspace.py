@@ -37,7 +37,6 @@ from cost.drilling_data import (
     DEFAULT_OBJECT_NAME,
     DEFAULT_WORK_OBJECTS,
     drill_rigs_to_records,
-    find_object,
     work_objects_to_records,
 )
 from cost.explosive_data import DEFAULT_EXPLOSIVES, explosives_to_records
@@ -51,7 +50,7 @@ from cost.scenarios import (
     list_scenario_templates,
     normalize_scenario_id,
 )
-from cost.v2.legacy_adapter import LegacyReferences
+from cost.v2.legacy_adapter import LegacyReferences, resolve_work_object_name
 from cost.v2.repository import EconomicsRepository, LegacyWorkspaceSettings
 
 router = APIRouter(tags=["workspace"])
@@ -125,22 +124,6 @@ def _references_schema(legacy: LegacyReferences) -> TeamReferencesSchema:
     )
 
 
-def _resolve_work_object_name(legacy: LegacyReferences, stored_name: str) -> str:
-    """Сохранённое имя объекта могло исчезнуть из ревизии — берём существующее.
-
-    Разрешаем один раз на загрузку состояния, чтобы список объектов, выбранное
-    значение и цена бурения говорили об одном и том же объекте.
-    """
-
-    work_objects = list(legacy.work_objects)
-    if not work_objects:
-        return stored_name
-    if find_object(stored_name, work_objects) is not None:
-        return stored_name
-    default = find_object(DEFAULT_OBJECT_NAME, work_objects)
-    return (default or work_objects[0]).name
-
-
 def _drilling_price_per_m(snapshot: WorkspaceSnapshot, legacy: LegacyReferences, work_object_name: str) -> float:
     from cost.strategies.common import apply_work_object_to_drilling_input
 
@@ -157,7 +140,9 @@ def _load_state(repository: EconomicsRepository, organization_id: str) -> Worksp
     stored_settings = _settings(repository, organization_id)
     settings = replace(
         stored_settings,
-        active_work_object_name=_resolve_work_object_name(
+        # Разрешаем один раз на загрузку состояния, чтобы список объектов,
+        # выбранное значение и цена бурения говорили об одном объекте.
+        active_work_object_name=resolve_work_object_name(
             legacy, stored_settings.active_work_object_name
         ),
     )

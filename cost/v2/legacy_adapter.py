@@ -18,7 +18,14 @@ from cost.depreciation_data import (
     FixedAssetDepreciation,
     calculate_depreciation_per_shift_rub,
 )
-from cost.drilling_data import DEFAULT_DRILL_RIGS, DEFAULT_WORK_OBJECTS, DrillRig, WorkObject
+from cost.drilling_data import (
+    DEFAULT_DRILL_RIGS,
+    DEFAULT_OBJECT_NAME,
+    DEFAULT_WORK_OBJECTS,
+    DrillRig,
+    WorkObject,
+    find_object,
+)
 from cost.explosive_data import DEFAULT_EXPLOSIVES, ExplosiveCatalogItem
 from cost.fixed_costs import DEFAULT_FIXED_COSTS, SECTION_TITLES, FixedCostItem
 from cost.labor import DEFAULT_LABOR_CATALOG, JobPosition
@@ -67,6 +74,24 @@ def default_legacy_references() -> LegacyReferences:
         fixed_costs=tuple(DEFAULT_FIXED_COSTS),
         labor_catalog=tuple(DEFAULT_LABOR_CATALOG),
     )
+
+
+def resolve_work_object_name(legacy: LegacyReferences, stored_name: str) -> str:
+    """Имя объекта работ, который действительно есть в ревизии.
+
+    Сохранённое имя могло исчезнуть из справочника, а объект Cost V1 по
+    умолчанию мог в него и не попасть: тогда берём объект по умолчанию, если
+    он есть, иначе первый. Пустая ревизия оставляет имя как есть — там уже
+    работают значения Cost V1 по умолчанию.
+    """
+
+    work_objects = list(legacy.work_objects)
+    if not work_objects:
+        return stored_name
+    if find_object(stored_name, work_objects) is not None:
+        return stored_name
+    default = find_object(DEFAULT_OBJECT_NAME, work_objects)
+    return (default or work_objects[0]).name
 
 
 def legacy_references_from_snapshot(snapshot: ReferenceSnapshot) -> LegacyReferences:

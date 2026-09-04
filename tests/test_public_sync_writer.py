@@ -168,14 +168,24 @@ def test_update_without_a_parent_stops_the_publication() -> None:
 
 
 class AccessSession:
-    """Сессия, отвечающая на проверку прав заготовленными строками."""
+    """Сессия, отвечающая на проверку прав заготовленными строками.
+
+    Первый запрос ``check_public_access`` — проба схемы, без параметров:
+    у него нет ``tables``, поэтому отвечаем на него отдельно, заготовкой
+    из ключа ``schema`` (``usage`` и ``create_``, по умолчанию — есть оба
+    права).
+    """
 
     def __init__(self, **overrides: dict[str, Any]) -> None:
         self.calls: list[tuple[str, Any]] = []
+        self._schema = overrides.pop("schema", {})
         self._overrides = overrides
 
     def execute(self, statement: Any, parameters: Any = None) -> Any:
         self.calls.append((str(statement), parameters))
+        if parameters is None:
+            row = {"usage": True, "create_": True, **self._schema}
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(one=lambda: row))
         rows = [self._row(table) for table in parameters["tables"]]
         return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
 
@@ -198,7 +208,12 @@ def test_access_check_asks_about_every_table_it_touches() -> None:
 
     check_public_access(session)
 
-    read_sql, read_parameters = session.calls[0]
+    # Первой идёт проба самой схемы — без неё пробы таблиц ничего не значат.
+    schema_sql, schema_parameters = session.calls[0]
+    assert "has_schema_privilege(current_user, 'public', 'USAGE')" in schema_sql
+    assert "has_schema_privilege(current_user, 'public', 'CREATE')" in schema_sql
+    assert schema_parameters is None
+    read_sql, read_parameters = session.calls[1]
     assert "has_table_privilege(current_user" in read_sql
     assert read_parameters["tables"] == list(TABLES)
     # Политика RLS спрашивается у каждой таблицы, а не только у тех, в
@@ -206,12 +221,45 @@ def test_access_check_asks_about_every_table_it_touches() -> None:
     # Читающей таблице довольно политики на чтение, пишущей нужна на запись.
     assert "pg_policies" in read_sql
     assert "'SELECT', 'ALL', '*'" in read_sql
-    write_sql, write_parameters = session.calls[1]
+    write_sql, write_parameters = session.calls[2]
     assert "pg_get_serial_sequence" in write_sql
     assert "pg_policies" in write_sql
     assert "'SELECT'" not in write_sql
     assert "'INSERT'" in write_sql and "'UPDATE'" in write_sql
     assert write_parameters["tables"] == list(WRITTEN_TABLES)
+
+
+def test_missing_schema_usage_stops_before_table_checks() -> None:
+    # Развёртывание настроено частично: права на таблицы и политики RLS уже
+    # выданы, а USAGE на саму схему отозван. Обе пробы таблиц спрашивают
+    # только has_table_privilege и политики — без этой пробы включение
+    # прошло бы, а первая же публикация упала бы отказом SELECT.
+    session = AccessSession(schema={"usage": False})
+
+    with pytest.raises(PublicAccessError) as failure:
+        check_public_access(session)
+
+    assert str(failure.value) == (
+        "Нет доступа к project1.public: схема public — нет права USAGE; "
+        "выполните scripts/grant_public_access.sql"
+    )
+    assert len(session.calls) == 1
+
+
+def test_missing_schema_create_mentions_mirrors() -> None:
+    # CREATE журналу не нужен, но нужен будущим зеркалам разделов: без него
+    # обмен включить можно, а зеркало — нет, и жалоба должна это объяснять.
+    session = AccessSession(schema={"create_": False})
+
+    with pytest.raises(PublicAccessError) as failure:
+        check_public_access(session)
+
+    assert str(failure.value) == (
+        "Нет доступа к project1.public: схема public — "
+        "нет права CREATE (нужно для зеркал разделов); "
+        "выполните scripts/grant_public_access.sql"
+    )
+    assert len(session.calls) == 1
 
 
 def test_missing_select_names_the_table_and_the_grant_script() -> None:

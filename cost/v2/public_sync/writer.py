@@ -74,9 +74,12 @@ class PublicAccessError(PublicWriteError):
 
     _PREFIX = "Нет доступа к project1.public: "
 
-    def __init__(self, table: str, missing: str) -> None:
+    def __init__(self, subject: str, missing: str) -> None:
+        # `subject` — уже готовая часть фразы («таблица contracts» или
+        # «схема public»): у ошибки уровня схемы нет таблицы, которую можно
+        # было бы подставить в общий шаблон.
         super().__init__(
-            f"таблица {table} — {missing}; выполните scripts/grant_public_access.sql"
+            f"{subject} — {missing}; выполните scripts/grant_public_access.sql"
         )
 
 
@@ -205,6 +208,17 @@ class SqlPublicWriter:
 
 # --- Права на схему public --------------------------------------------------
 
+# `USAGE` нужен для любого обращения к объектам схемы: без него запросы прав
+# отдельных таблиц ниже либо откажут непонятной ошибкой, либо (если роль
+# добирается до public через search_path) само подключение к базе не даст
+# столько прочитать. `CREATE` для журнала не нужен, но нужен будущим зеркалам
+# разделов — без него включать обмен формально можно, а включать зеркало
+# нельзя, и отказ пришёл бы из DDL, а не из понятной пробы прав.
+_SCHEMA_ACCESS = text(
+    "SELECT has_schema_privilege(current_user, 'public', 'USAGE') AS usage, "
+    "has_schema_privilege(current_user, 'public', 'CREATE') AS create_"
+)
+
 # Имена таблиц в запросах — параметры, а не части SQL, и приходят они из
 # `mapping.TABLES` и `push.WRITTEN_TABLES`, а не от пользователя.
 _TABLES_SOURCE = (
@@ -323,11 +337,37 @@ def check_public_access(session: Session) -> None:
 
     Первая же нехватка — ``PublicAccessError`` с именем таблицы и права:
     администратору нужно знать, что именно не выдал скрипт, а не список из
-    тринадцати строк.
+    тринадцати строк. Перед таблицами проверяется сама схема: без ``USAGE``
+    последующие пробы либо ничего не значат, либо ничего не увидят, а без
+    ``CREATE`` пройдёт эта проба, но зеркало раздела включить не удастся.
     """
 
+    _check_schema_access(session)
     _require(_access_rows(session, _READ_ACCESS, TABLES), _READ_CHECKS)
     _require(_access_rows(session, _WRITE_ACCESS, WRITTEN_TABLES), _WRITE_CHECKS)
+
+
+def _check_schema_access(session: Session) -> None:
+    """Проверяет ``USAGE`` и ``CREATE`` роли на саму схему ``public``.
+
+    Ставится перед пробами отдельных таблиц: развёртывание бывает
+    настроено частично — права на таблицы и политики RLS уже выданы, а
+    ``USAGE`` на схему отозван или не выдавался. Обе пробы таблиц тогда
+    молча проходят (они спрашивают только ``has_table_privilege`` и
+    политики), обмен включается, а первая же публикация падает отказом
+    ``SELECT`` с 502 вместо понятного отказа на включении.
+    """
+
+    try:
+        row = session.execute(_SCHEMA_ACCESS).mappings().one()
+    except SQLAlchemyError as exc:
+        raise PublicWriteError(reason(exc)) from exc
+    if not row["usage"]:
+        raise PublicAccessError("схема public", "нет права USAGE")
+    if not row["create_"]:
+        raise PublicAccessError(
+            "схема public", "нет права CREATE (нужно для зеркал разделов)"
+        )
 
 
 def _require(
@@ -344,7 +384,8 @@ def _require(
         for column, missing in checks:
             if not row[column]:
                 raise PublicAccessError(
-                    str(row["table_name"]), missing.format(role=row["role_name"])
+                    f"таблица {row['table_name']}",
+                    missing.format(role=row["role_name"]),
                 )
 
 

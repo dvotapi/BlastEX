@@ -39,6 +39,14 @@ rollback() {
 }
 trap rollback ERR
 
+# Каждая сборка оставляет старые слои; без уборки диск VPS заполняется, и
+# сборка падает на «No space left on device». Убираем до сборки, иначе на
+# полном диске до этой строки не дойти. Образ с тегом rollback остаётся:
+# prune трогает только слои без тегов и старый кеш сборки.
+docker image prune -f >/dev/null || true
+docker builder prune -f --filter "until=168h" >/dev/null 2>&1 || true
+df -h / | tail -1
+
 docker compose -f "$COMPOSE_FILE" build
 docker compose -f "$COMPOSE_FILE" up -d
 
@@ -60,11 +68,4 @@ curl -fsS --retry 5 --retry-delay 3 --max-time 20 "$PUBLIC_HEALTH_URL" >/dev/nul
 
 trap - ERR
 docker compose -f "$COMPOSE_FILE" ps
-
-# Каждая сборка оставляет старые слои; без уборки диск VPS заполняется, и
-# следующий деплой падает на «No space left on device». Образ с тегом
-# rollback остаётся: prune убирает только слои без тегов.
-docker image prune -f >/dev/null || true
-docker builder prune -f --filter "until=168h" >/dev/null 2>&1 || true
-df -h / | tail -1
 echo "BlastEX deployment completed successfully"

@@ -102,13 +102,13 @@ def legacy_references_from_snapshot(snapshot: ReferenceSnapshot) -> LegacyRefere
     )
     rocks = _fallback(
         "Раздел «Породы» пуст",
-        [_rock(item, warnings) for item in snapshot.active_items("rocks")],
+        _defined(_rock(item, warnings) for item in snapshot.active_items("rocks")),
         DEFAULT_ROCKS,
         warnings,
     )
     explosives = _fallback(
         "В разделе «Материалы и ВМ» нет ВВ",
-        [_explosive(item, warnings) for item in materials if _is_explosive(item)],
+        _defined(_explosive(item, warnings) for item in materials if _is_explosive(item)),
         DEFAULT_EXPLOSIVES,
         warnings,
     )
@@ -207,14 +207,26 @@ def _depreciation(asset: ReferenceItem) -> FixedAssetDepreciation:
     )
 
 
-def _rock(item: ReferenceItem, warnings: list[str]) -> RockProperties:
+def _rock(item: ReferenceItem, warnings: list[str]) -> RockProperties | None:
+    """Порода Cost V1; без плотности запись пропускается.
+
+    Плотность в схеме породы необязательна, но и движок, и `RockSchema` ждут
+    положительное число: нулём такая запись роняла бы весь список пород, а с
+    ней и страницу расчёта. Прочность и трещиноватость на это не влияют — их
+    нули движок переживает, поэтому там достаточно предупреждения.
+    """
+
+    density = _optional_number(item.payload.get("density_t_m3"))
+    if density is None or density <= 0:
+        warnings.append(f"Порода «{item.name}»: не задана плотность, запись пропущена.")
+        return None
     ucs = _optional_number(item.payload.get("ucs_mpa"))
     fissuring = _optional_number(item.payload.get("fissuring_ff"))
     if ucs is None or fissuring is None:
         warnings.append(f"Порода «{item.name}»: не заданы прочность или трещиноватость, приняты нули.")
     return RockProperties(
         name=item.name,
-        density_t_m3=_number(item.payload.get("density_t_m3")),
+        density_t_m3=density,
         ucs_mpa=ucs or 0.0,
         fissuring_ff=fissuring or 0.0,
     )
@@ -227,16 +239,24 @@ def _is_explosive(item: ReferenceItem) -> bool:
     )
 
 
-def _explosive(item: ReferenceItem, warnings: list[str]) -> ExplosiveCatalogItem:
+def _explosive(item: ReferenceItem, warnings: list[str]) -> ExplosiveCatalogItem | None:
+    """ВВ Cost V1; без плотности или энергии запись пропускается.
+
+    Такое ВВ фронт отправляет в `/blast/optimize`, где нулевые свойства не
+    проходят проверку схемы: пустой список и предупреждение понятнее, чем 422
+    на расчёте.
+    """
+
     density = _optional_number(item.payload.get("density_t_m3"))
     power = _optional_number(item.payload.get("power_mj_kg"))
-    if density is None or power is None:
-        warnings.append(f"ВВ «{item.name}»: не заданы плотность или энергия, приняты нули.")
+    if density is None or power is None or density <= 0 or power <= 0:
+        warnings.append(f"ВВ «{item.name}»: не заданы плотность или энергия, запись пропущена.")
+        return None
     return ExplosiveCatalogItem(
         key=_legacy_id(item),
         name=item.name,
-        density_t_m3=density or 0.0,
-        power_mj_kg=power or 0.0,
+        density_t_m3=density,
+        power_mj_kg=power,
         chart_label=str(item.payload.get("chart_label") or item.name.upper()),
     )
 
@@ -331,6 +351,12 @@ def _position(item: ReferenceItem, rates: dict[str, ReferenceItem], warnings: li
 
 def _legacy_id(item: ReferenceItem) -> str:
     return str(item.payload.get("legacy_ref") or item.code)
+
+
+def _defined(items: Iterable[T | None]) -> list[T]:
+    """Пропущенные адаптером записи в Cost V1 не идут."""
+
+    return [item for item in items if item is not None]
 
 
 def _fallback(reason: str, items: list[T], defaults: Iterable[T], warnings: list[str]) -> tuple[T, ...]:

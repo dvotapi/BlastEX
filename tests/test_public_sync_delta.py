@@ -495,6 +495,28 @@ def test_matching_price_gives_no_entry() -> None:
     assert "PRICE_PUB_EMP_1" not in by_code(delta)
 
 
+def test_price_with_different_name_gives_no_entry() -> None:
+    # Цена с переименованным именем, но идентичными price_rub/delivery_rub/
+    # valid_from/valid_to/supplier_code не должна создавать запись в разнице:
+    # имя не входит в shared_fields и не перетирает выбор пользователя (§4.4).
+    price = ReferenceItem(
+        code="PRICE_PUB_SPEC_1",
+        name="Пользовательское имя цены",  # Отличается от "ЭД-1-Н — спецификация..."
+        payload={
+            "material_code": "PUB_IDT_1",
+            "supplier_code": "PUB_COUNTERPARTY_2",
+            "price_rub": "335.16",
+            "delivery_rub": "33.21",
+        },
+        valid_from=date(2026, 1, 20),
+    )
+
+    delta = compute_delta(make_snapshot(), [], {"material_prices": [price]})
+
+    assert "PRICE_PUB_SPEC_1" not in by_code(delta)
+    assert delta.counts["changed"] == 0
+
+
 # --- Сравнение значений -----------------------------------------------------
 
 

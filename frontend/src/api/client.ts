@@ -1,20 +1,22 @@
+/** Текст ошибки из ответа: FastAPI кладёт его в `detail` строкой или объектом с `message`. */
+export async function errorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const payload = await response.json();
+    if (typeof payload.detail === "string") return payload.detail;
+    if (payload.detail && typeof payload.detail.message === "string") return payload.detail.message;
+  } catch {
+    // В ответе нет тела JSON.
+  }
+  return fallback;
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
   });
-  if (!response.ok) {
-    let message = "Не удалось выполнить запрос.";
-    try {
-      const payload = await response.json();
-      if (typeof payload.detail === "string") message = payload.detail;
-      else if (payload.detail && typeof payload.detail.message === "string") message = payload.detail.message;
-    } catch {
-      // Response has no JSON body.
-    }
-    throw new Error(message);
-  }
+  if (!response.ok) throw new Error(await errorMessage(response, "Не удалось выполнить запрос."));
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
@@ -34,17 +36,7 @@ export async function postFile<T>(path: string, file: File, field = "file"): Pro
   const form = new FormData();
   form.append(field, file);
   const response = await fetch(path, { method: "POST", credentials: "include", body: form });
-  if (!response.ok) {
-    let message = "Не удалось загрузить файл.";
-    try {
-      const payload = await response.json();
-      if (typeof payload.detail === "string") message = payload.detail;
-      else if (payload.detail && typeof payload.detail.message === "string") message = payload.detail.message;
-    } catch {
-      // Response has no JSON body.
-    }
-    throw new Error(message);
-  }
+  if (!response.ok) throw new Error(await errorMessage(response, "Не удалось загрузить файл."));
   return response.json() as Promise<T>;
 }
 

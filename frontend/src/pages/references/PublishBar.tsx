@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 /**
  * Нижняя панель черновика: проверка, отмена и атомарная публикация ревизии.
  * Публикация заблокирована, пока валидация возвращает ошибки.
@@ -8,6 +10,9 @@ export function PublishBar({
   onValidate,
   onDiscard,
   onPublish,
+  onExportXlsx,
+  onExportJson,
+  onImport,
   canEdit,
   busy,
   dirty,
@@ -19,14 +24,43 @@ export function PublishBar({
   onValidate: () => void;
   onDiscard: () => void;
   onPublish: () => void;
+  onExportXlsx: () => void;
+  onExportJson: () => void;
+  onImport: (file: File) => void;
   canEdit: boolean;
   busy: boolean;
   dirty: boolean;
   errors: number;
   nextRevision: string;
 }) {
+  const fileInput = useRef<HTMLInputElement>(null);
   return (
     <footer className="ref-publish-bar">
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".xlsx,.json"
+        hidden
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) onImport(file);
+          event.target.value = "";
+        }}
+      />
+      <button type="button" className="ref-ghost-button" onClick={onExportXlsx} disabled={busy}>
+        Экспорт xlsx
+      </button>
+      <button type="button" className="ref-ghost-button" onClick={onExportJson} disabled={busy}>
+        Экспорт JSON
+      </button>
+      <button
+        type="button"
+        className="ref-ghost-button"
+        onClick={() => fileInput.current?.click()}
+        disabled={!canEdit || busy}
+      >
+        Импорт файла
+      </button>
       <input
         value={comment}
         placeholder="Комментарий к публикации"

@@ -873,6 +873,125 @@ def test_unit_conflict_uses_code_without_inventory_number() -> None:
     assert ("equipment_assets", "БУ-01", "inventory_number") in fields_of(issues)
 
 
+# Журнал с двумя строками в каждой таблице: чужая строка проверяется отдельно
+# от своей, иначе связанная запись могла бы забрать чужой уникальный ключ.
+TWO_ROW_JOURNAL = snapshot(
+    counterparties=[
+        {"id": 1, "full_name": "Первый", "inn": "6608002092", "is_active": True},
+        {"id": 2, "full_name": "Второй", "inn": "7203270545", "is_active": True},
+    ],
+    equipment_models=[
+        {"id": 5, "brand": "Jinke", "model_name": "JK830-2"},
+        {"id": 6, "brand": "Atlas Copco", "model_name": "ROC L8"},
+    ],
+    equipment_units=[
+        {"id": 9, "model_id": 5, "internal_id": "БУ-01", "status": "В работе"},
+        {"id": 10, "model_id": 6, "internal_id": "БУ-02", "status": "В работе"},
+    ],
+)
+
+LINKED_SECTIONS = {
+    "counterparties": [item("FIRST", "Первый", {"inn": "6608002092", "role": "CUSTOMER"})],
+    "equipment_types": [item("MODEL_A", "JK830-2", {"kind": "DRILL_RIG"})],
+    "equipment_assets": [
+        item(
+            "RIG_01",
+            "Станок №1",
+            {"equipment_type_code": "MODEL_A", "inventory_number": "БУ-01"},
+        )
+    ],
+}
+
+OWN_ROW_LINKS = [
+    link("counterparties", "FIRST", "counterparties", 1),
+    link("equipment_types", "MODEL_A", "equipment_models", 5),
+    link("equipment_assets", "RIG_01", "equipment_units", 9),
+]
+
+
+def with_values(inn: str, model_name: str, internal_id: str) -> dict[str, list[ReferenceItem]]:
+    """Те же связанные записи с другими значениями уникальных ключей."""
+
+    return {
+        "counterparties": [item("FIRST", "Первый", {"inn": inn, "role": "CUSTOMER"})],
+        "equipment_types": [item("MODEL_A", model_name, {"kind": "DRILL_RIG"})],
+        "equipment_assets": [
+            item(
+                "RIG_01",
+                "Станок №1",
+                {"equipment_type_code": "MODEL_A", "inventory_number": internal_id},
+            )
+        ],
+    }
+
+
+def test_duplicate_unique_keys_inside_draft_are_errors() -> None:
+    # Журнал пуст, но план вставит обе записи разом — уникальный ключ журнала
+    # не примет их и без конфликта с существующей строкой.
+    sections = {
+        "counterparties": [
+            CUSTOMER,
+            item("TWIN", "Двойник", {"inn": "6608002092", "role": "SUPPLIER"}),
+        ],
+        "equipment_types": [EQUIPMENT_TYPE, item("JK830B", "JK830-2", {"kind": "DRILL_RIG"})],
+        "equipment_assets": [
+            EQUIPMENT_ASSET,
+            item(
+                "RIG_02",
+                "Станок №2",
+                {"equipment_type_code": "JK830", "inventory_number": "БУ-01"},
+            ),
+        ],
+    }
+
+    issues = public_constraint_issues(sections, [], EMPTY)
+
+    assert fields_of(issues) == [
+        ("counterparties", "TWIN", "inn"),
+        ("equipment_types", "JK830B", "name"),
+        ("equipment_assets", "RIG_02", "inventory_number"),
+    ]
+    assert all("черновике" in issue.message for issue in issues)
+
+
+def test_linked_record_cannot_take_the_key_of_another_journal_row() -> None:
+    # У каждой записи своя строка журнала, но значение она взяла у соседней:
+    # обновление упало бы на UNIQUE журнала уже внутри транзакции.
+    sections = with_values("7203270545", "ROC L8", "БУ-02")
+
+    issues = public_constraint_issues(sections, OWN_ROW_LINKS, TWO_ROW_JOURNAL)
+
+    assert fields_of(issues) == [
+        ("counterparties", "FIRST", "inn"),
+        ("equipment_types", "MODEL_A", "name"),
+        ("equipment_assets", "RIG_01", "inventory_number"),
+    ]
+    assert all("другой записью журнала" in issue.message for issue in issues)
+
+
+def test_linked_record_keeps_its_own_unique_keys() -> None:
+    assert public_constraint_issues(LINKED_SECTIONS, OWN_ROW_LINKS, TWO_ROW_JOURNAL) == []
+
+
+def test_implicit_link_row_is_not_a_conflict_for_any_key() -> None:
+    # Связь видна по коду записи: значения взяты у своей же строки журнала.
+    sections = {
+        "counterparties": [
+            item("PUB_COUNTERPARTY_1", "Первый", {"inn": "6608002092", "role": "CUSTOMER"})
+        ],
+        "equipment_types": [item("PUB_MODEL_5", "JK830-2", {"kind": "DRILL_RIG"})],
+        "equipment_assets": [
+            item(
+                "PUB_UNIT_9",
+                "Станок №1",
+                {"equipment_type_code": "PUB_MODEL_5", "inventory_number": "БУ-01"},
+            )
+        ],
+    }
+
+    assert public_constraint_issues(sections, [], TWO_ROW_JOURNAL) == []
+
+
 @pytest.mark.parametrize("section", ["counterparties", "sites", "equipment_assets"])
 def test_missing_sections_are_not_required(section: str) -> None:
     assert public_constraint_issues({section: []}, []) == []

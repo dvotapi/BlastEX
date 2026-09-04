@@ -706,11 +706,14 @@ def public_constraint_issues(
     Проверяются записи, которые план пишет: активные и связанные — связанную
     запись план обновляет независимо от активности, и очищенное поле уронит
     транзакцию так же, как у активной. Неактивная запись без связи в журнал не
-    попадает и не проверяется. Со снимком журнала дополнительно ищутся
-    конфликты уникальных ключей с записями без связи: такую запись нужно не
-    вставлять, а связать с существующей строкой. Связи, видные по коду записи
-    (``implicit_links``), учитываются наравне с сохранёнными — иначе запись,
-    созданную плашкой «Из project1», нельзя было бы ни выгрузить, ни связать.
+    попадает и не проверяется. Уникальные ключи журнала (ИНН контрагента,
+    наименование типа техники, инвентарный номер единицы) проверяются трижды:
+    значение не должно повторяться внутри черновика, запись без связи не может
+    занять значение существующей строки (её нужно не вставлять, а связать), а
+    связанная — значение чужой строки; своя строка конфликтом не считается.
+    Связи, видные по коду записи (``implicit_links``), учитываются наравне с
+    сохранёнными — иначе запись, созданную плашкой «Из project1», нельзя было
+    бы ни выгрузить, ни связать.
     """
 
     issues: list[ValidationIssue] = []
@@ -718,10 +721,16 @@ def public_constraint_issues(
         links = [*links, *implicit_links(sections, links, snapshot)]
     linked = {(item.section, item.code) for item in links}
 
-    issues.extend(_counterparty_issues(sections, linked, snapshot))
+    issues.extend(
+        _counterparty_issues(sections, linked, _link_ids(links, "counterparties"), snapshot)
+    )
     issues.extend(_site_issues(sections, linked))
-    issues.extend(_equipment_type_issues(sections, linked, snapshot))
-    issues.extend(_equipment_asset_issues(sections, linked, snapshot))
+    issues.extend(
+        _equipment_type_issues(sections, linked, _link_ids(links, "equipment_models"), snapshot)
+    )
+    issues.extend(
+        _equipment_asset_issues(sections, linked, _link_ids(links, "equipment_units"), snapshot)
+    )
     issues.extend(_length_issues(sections, linked))
     return issues
 
@@ -763,20 +772,91 @@ def _length_value(check: _LengthCheck, item: ReferenceItem) -> str:
     return value or ""
 
 
-def _taken(snapshot: PublicSnapshot | None, table: str, column: str) -> set[str]:
-    """Занятые в журнале значения уникального ключа; без снимка — пусто."""
+def _owners(snapshot: PublicSnapshot | None, table: str, column: str) -> dict[str, int]:
+    """Значение уникального ключа → строка журнала, которая его занимает."""
 
     if snapshot is None:
-        return set()
-    return {_key(row.get(column)) for row in snapshot.table(table)}
+        return {}
+    owners: dict[str, int] = {}
+    for row in snapshot.table(table):
+        value = _key(row.get(column))
+        if value:
+            owners.setdefault(value, row.id)
+    return owners
+
+
+class _UniqueKey:
+    """Сторож уникального ключа журнала: и чужие строки, и сам черновик.
+
+    Значение занимает либо строка журнала, либо другая запись черновика: план
+    запишет обе, и журнал откатит публикацию на своём ``UNIQUE`` — сметчик
+    увидит ошибку транзакции вместо понятного замечания. Своя строка
+    конфликтом не считается: связанная запись (явно или по коду ``PUB_*``)
+    пишет значение туда, откуда оно и взято, а вот значение соседней строки
+    журнала ей брать нельзя.
+    """
+
+    def __init__(
+        self,
+        snapshot: PublicSnapshot | None,
+        table: str,
+        column: str,
+        *,
+        duplicate: str,
+        taken: str,
+        occupied: str,
+    ) -> None:
+        self._owners = _owners(snapshot, table, column)
+        self._drafted: set[str] = set()
+        self._duplicate = duplicate
+        self._taken = taken
+        self._occupied = occupied
+
+    def issues(
+        self, section: str, item: ReferenceItem, field_name: str, value: Any, public_id: int | None
+    ) -> list[ValidationIssue]:
+        """Замечания по значению записи; ``public_id`` — её строка журнала."""
+
+        key = _key(value)
+        if not key:
+            return []
+        found: list[ValidationIssue] = []
+        # Повтор в черновике не отменяет конфликта с журналом: сметчику нужны
+        # обе ошибки сразу, а не по одной за проход.
+        if key in self._drafted:
+            found.append(_error(section, item.code, field_name, self._duplicate))
+        self._drafted.add(key)
+        owner = self._owners.get(key)
+        if owner is not None and owner != public_id:
+            message = self._occupied if public_id is not None else self._taken
+            found.append(_error(section, item.code, field_name, message))
+        return found
+
+
+def _link_ids(links: Sequence[PublicLink], table: str) -> dict[tuple[str, str], int]:
+    """Строка журнала записи по её связи: только связи нужной таблицы."""
+
+    return {
+        (link.section, link.code): int(link.public_id)
+        for link in links
+        if link.public_table == table
+    }
 
 
 def _counterparty_issues(
     sections: Mapping[str, Sequence[ReferenceItem]],
     linked: set[tuple[str, str]],
+    link_ids: dict[tuple[str, str], int],
     snapshot: PublicSnapshot | None,
 ) -> list[ValidationIssue]:
-    taken = _taken(snapshot, "counterparties", "inn")
+    unique = _UniqueKey(
+        snapshot,
+        "counterparties",
+        "inn",
+        duplicate="ИНН повторяется в черновике: в журнале он должен быть уникальным.",
+        taken=f"Контрагент с таким ИНН уже есть в журнале, {_LINK_HINT}.",
+        occupied="ИНН занят другой записью журнала: журнал не примет два одинаковых.",
+    )
     issues: list[ValidationIssue] = []
     for item in _planned(sections, "counterparties", linked):
         inn = _text(item.payload.get("inn")) or ""
@@ -800,15 +880,15 @@ def _counterparty_issues(
                 )
             )
             continue
-        if inn in taken and ("counterparties", item.code) not in linked:
-            issues.append(
-                _error(
-                    "counterparties",
-                    item.code,
-                    "inn",
-                    f"Контрагент с таким ИНН уже есть в журнале, {_LINK_HINT}.",
-                )
+        issues.extend(
+            unique.issues(
+                "counterparties",
+                item,
+                "inn",
+                inn,
+                link_ids.get(("counterparties", item.code)),
             )
+        )
     return issues
 
 
@@ -834,84 +914,91 @@ def _site_issues(
 def _equipment_type_issues(
     sections: Mapping[str, Sequence[ReferenceItem]],
     linked: set[tuple[str, str]],
+    link_ids: dict[tuple[str, str], int],
     snapshot: PublicSnapshot | None,
 ) -> list[ValidationIssue]:
-    taken = _taken(snapshot, "equipment_models", "model_name")
+    unique = _UniqueKey(
+        snapshot,
+        "equipment_models",
+        "model_name",
+        duplicate=(
+            "Наименование типа техники повторяется в черновике: "
+            "в журнале оно должно быть уникальным."
+        ),
+        taken=f"Тип техники с таким наименованием уже есть в журнале, {_LINK_HINT}.",
+        occupied=(
+            "Наименование типа техники занято другой записью журнала: "
+            "журнал не примет два одинаковых."
+        ),
+    )
     issues: list[ValidationIssue] = []
-    seen: set[str] = set()
-    for item in _active(sections, "equipment_types"):
-        name = _key(item.name)
-        if name in seen:
-            # Повтор внутри раздела не отменяет конфликта с журналом: сметчику
-            # нужны обе ошибки сразу, а не по одной за проход.
-            issues.append(
-                _error(
-                    "equipment_types",
-                    item.code,
-                    "name",
-                    "Наименование типа техники повторяется: "
-                    "в журнале оно должно быть уникальным.",
-                )
+    for item in _planned(sections, "equipment_types", linked):
+        issues.extend(
+            unique.issues(
+                "equipment_types",
+                item,
+                "name",
+                item.name,
+                link_ids.get(("equipment_types", item.code)),
             )
-        seen.add(name)
-        if name in taken and ("equipment_types", item.code) not in linked:
-            issues.append(
-                _error(
-                    "equipment_types",
-                    item.code,
-                    "name",
-                    f"Тип техники с таким наименованием уже есть в журнале, {_LINK_HINT}.",
-                )
-            )
+        )
     return issues
 
 
 def _equipment_asset_issues(
     sections: Mapping[str, Sequence[ReferenceItem]],
     linked: set[tuple[str, str]],
+    link_ids: dict[tuple[str, str], int],
     snapshot: PublicSnapshot | None,
 ) -> list[ValidationIssue]:
     types = {item.code for item in sections.get("equipment_types") or ()}
-    taken = _taken(snapshot, "equipment_units", "internal_id")
+    unique = _UniqueKey(
+        snapshot,
+        "equipment_units",
+        "internal_id",
+        duplicate=(
+            "Инвентарный номер повторяется в черновике: "
+            "в журнале он должен быть уникальным."
+        ),
+        taken=(
+            "Единица техники с таким инвентарным номером уже есть "
+            f"в журнале, {_LINK_HINT}."
+        ),
+        occupied=(
+            "Инвентарный номер занят другой записью журнала: "
+            "журнал не примет два одинаковых."
+        ),
+    )
     issues: list[ValidationIssue] = []
-    for item in _active(sections, "equipment_assets"):
-        type_code = str(item.payload.get("equipment_type_code") or "")
-        if not type_code:
-            issues.append(
-                _error(
-                    "equipment_assets",
-                    item.code,
-                    "equipment_type_code",
-                    "Не указан тип техники: в журнале единица не существует без модели.",
-                )
-            )
-        elif type_code not in types:
-            issues.append(
-                _error(
-                    "equipment_assets",
-                    item.code,
-                    "equipment_type_code",
-                    f"Тип техники {type_code} отсутствует в разделе.",
-                )
-            )
+    for item in _planned(sections, "equipment_assets", linked):
+        # Модель нужна вставке, а вставляется только активная запись: у
+        # связанной ссылками распоряжается журнал, план их не меняет.
+        if item.is_active:
+            issues.extend(_asset_model_issues(item, types))
         internal_id = _text(item.payload.get("inventory_number")) or item.code
-        if internal_id in taken and ("equipment_assets", item.code) not in linked:
-            issues.append(
-                _error(
-                    "equipment_assets",
-                    item.code,
-                    "inventory_number",
-                    "Единица техники с таким инвентарным номером уже есть "
-                    f"в журнале, {_LINK_HINT}.",
-                )
+        issues.extend(
+            unique.issues(
+                "equipment_assets",
+                item,
+                "inventory_number",
+                internal_id,
+                link_ids.get(("equipment_assets", item.code)),
             )
+        )
     return issues
 
 
-def _active(
-    sections: Mapping[str, Sequence[ReferenceItem]], section: str
-) -> list[ReferenceItem]:
-    return [item for item in (sections.get(section) or ()) if item.is_active]
+def _asset_model_issues(item: ReferenceItem, types: set[str]) -> list[ValidationIssue]:
+    """Модель единицы техники: без неё журнал строку не заведёт."""
+
+    type_code = str(item.payload.get("equipment_type_code") or "")
+    if not type_code:
+        message = "Не указан тип техники: в журнале единица не существует без модели."
+    elif type_code not in types:
+        message = f"Тип техники {type_code} отсутствует в разделе."
+    else:
+        return []
+    return [_error("equipment_assets", item.code, "equipment_type_code", message)]
 
 
 def _planned(

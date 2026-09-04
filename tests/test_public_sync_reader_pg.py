@@ -8,12 +8,17 @@
 """
 from __future__ import annotations
 
+import re
+import subprocess
+from pathlib import Path
+
 import pytest
 from sqlalchemy import text
 
 from sqlalchemy import create_engine
 
 from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader
+from tests import pg_public
 from tests.pg_public import (
     _PUBLIC_SCHEMA_SQL,
     RESET_STATEMENTS,
@@ -21,6 +26,7 @@ from tests.pg_public import (
     public_db,
     requires_pg,
     seed_public,
+    tracked_migration_head,
 )
 
 # BLASTEX_TEST_DATABASE_URL требуют только тесты с фикстурой public_db;
@@ -152,6 +158,77 @@ def test_statements_from_real_ddl_have_no_standalone_sequences() -> None:
     statements = _statements(ddl)
 
     assert not any(statement.startswith("CREATE SEQUENCE") for statement in statements)
+
+
+def test_tracked_migration_head_matches_git_tracked_chain() -> None:
+    """DB-free: голова определяется по файлам git, а не по каталогу целиком.
+
+    Независимо от ``tracked_migration_head`` разбирает список отслеживаемых
+    git файлов и убеждается, что найденная голова — ``20260904_0006`` и что
+    ни один отслеживаемый файл не ссылается на неё как на ``down_revision``.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        ["git", "ls-files", "migrations/versions"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    tracked_paths = [
+        repo_root / line
+        for line in result.stdout.splitlines()
+        if line.strip().endswith(".py")
+    ]
+    assert tracked_paths, "git ls-files не нашёл ни одной миграции"
+
+    down_revisions = set()
+    for path in tracked_paths:
+        content = path.read_text(encoding="utf-8")
+        match = re.search(r'^down_revision\s*=\s*"([^"]+)"', content, re.MULTILINE)
+        if match:
+            down_revisions.add(match.group(1))
+
+    head = tracked_migration_head()
+
+    assert head == "20260904_0006"
+    assert head not in down_revisions
+
+
+def test_tracked_migration_head_fallback_ignores_duplicate_suffix(tmp_path, monkeypatch) -> None:
+    """Без git сканируется каталог, а файлы вида «... N.py» игнорируются.
+
+    Воспроизводит ситуацию с untracked конфликт-копиями редактора/облачной
+    синхронизации: та же ревизия зарегистрирована повторно в файле с
+    суффиксом « 2.py» — фолбэк должен вернуть голову линейной цепочки,
+    построенной только по «настоящим» файлам.
+    """
+    (tmp_path / "20260101_0001_first.py").write_text(
+        'revision = "20260101_0001"\ndown_revision = None\n', encoding="utf-8"
+    )
+    (tmp_path / "20260102_0002_second.py").write_text(
+        'revision = "20260102_0002"\ndown_revision = "20260101_0001"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "20260103_0003_third.py").write_text(
+        'revision = "20260103_0003"\ndown_revision = "20260102_0002"\n',
+        encoding="utf-8",
+    )
+    # Untracked-дубликат: та же ревизия "20260102_0002", что и второй файл —
+    # если фолбэк его не отфильтрует, цепочка перестанет быть однозначной.
+    (tmp_path / "20260102_0002_second 2.py").write_text(
+        'revision = "20260102_0002"\ndown_revision = "20260101_0001"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(pg_public, "_MIGRATIONS_DIR", tmp_path)
+
+    def _raise_git_missing(*args, **kwargs):
+        raise FileNotFoundError("git отсутствует")
+
+    monkeypatch.setattr(pg_public.subprocess, "run", _raise_git_missing)
+
+    assert pg_public.tracked_migration_head() == "20260103_0003"
 
 
 @requires_pg

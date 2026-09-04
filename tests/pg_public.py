@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -47,16 +48,89 @@ RESET_STATEMENTS: tuple[str, ...] = (
     "CREATE SCHEMA public",
 )
 
-# Ревизия, до которой фикстура прогоняет миграции Alembic. Указана явно, а не
-# как ``head``: ``head`` определяется сканированием ВСЕХ ``*.py`` в
-# ``migrations/versions``, включая файлы, не отслеживаемые git (например,
-# конфликт-копии редактора/облачной синхронизации вида «... 2.py»). Если в
-# рабочей копии оказалось два файла с одинаковым ``revision`` (ревизия
-# зарегистрирована дважды), Alembic видит несколько «голов» и падает с
-# «Multiple head revisions are present for given argument 'head'», хотя
-# отслеживаемая история миграций линейна и однозначна. Явная ревизия не
-# зависит от посторонних файлов в директории.
-_MIGRATION_HEAD = "20260904_0006"
+_MIGRATIONS_DIR = _REPO_ROOT / "migrations" / "versions"
+_REVISION_RE = re.compile(r'^revision\s*=\s*"([^"]+)"', re.MULTILINE)
+_DOWN_REVISION_RE = re.compile(
+    r'^down_revision\s*=\s*(?:"([^"]+)"|None)', re.MULTILINE
+)
+# Рабочая копия может содержать untracked-конфликт-копии редактора/облачной
+# синхронизации вида «...20260902_0004_reference_schemas 2.py» — их имена
+# всегда несут суффикс « <число>.py».
+_DUPLICATE_SUFFIX_RE = re.compile(r" \d+\.py$")
+
+
+def _parse_migration_file(path: Path) -> tuple[str, str | None]:
+    """Возвращает ``(revision, down_revision)`` из файла миграции Alembic."""
+    text_content = path.read_text(encoding="utf-8")
+    revision_match = _REVISION_RE.search(text_content)
+    down_revision_match = _DOWN_REVISION_RE.search(text_content)
+    if not revision_match or not down_revision_match:
+        raise RuntimeError(
+            f"Не удалось разобрать revision/down_revision в файле {path}"
+        )
+    return revision_match.group(1), down_revision_match.group(1)
+
+
+def _head_from_chain(revisions: dict[str, str | None]) -> str:
+    """Находит единственную ревизию, на которую никто не ссылается как на down_revision."""
+    referenced = {down for down in revisions.values() if down is not None}
+    heads = [revision for revision in revisions if revision not in referenced]
+    if len(heads) == 0:
+        raise RuntimeError(
+            "Не найдена голова миграций: среди отслеживаемых файлов "
+            "migrations/versions нет ревизии, на которую не ссылается ни один "
+            "down_revision (возможен цикл или пустой набор файлов)"
+        )
+    if len(heads) > 1:
+        raise RuntimeError(
+            "Найдено несколько голов миграций среди отслеживаемых файлов "
+            f"migrations/versions: {sorted(heads)}. Отслеживаемая история "
+            "миграций должна быть линейной."
+        )
+    return heads[0]
+
+
+def tracked_migration_head() -> str:
+    """Определяет голову миграций по файлам, известным git.
+
+    ``alembic upgrade head`` сканирует ВСЕ ``*.py`` в
+    ``migrations/versions``, включая файлы, не отслеживаемые git (например,
+    конфликт-копии редактора/облачной синхронизации вида «... 2.py»). Если в
+    рабочей копии оказалось два файла с одинаковым ``revision``, Alembic
+    видит несколько «голов» и падает с «Multiple head revisions are present
+    for given argument 'head'», хотя отслеживаемая история миграций линейна и
+    однозначна. Эта функция строит цепочку revision/down_revision только по
+    файлам из ``git ls-files`` — результат не зависит от посторонних файлов
+    в директории.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "migrations/versions"],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        # git недоступен — сканируем директорию сами, отбрасывая файлы с
+        # суффиксом « <число>.py» (untracked дубликаты).
+        paths = [
+            path
+            for path in _MIGRATIONS_DIR.glob("*.py")
+            if not _DUPLICATE_SUFFIX_RE.search(path.name)
+        ]
+    else:
+        paths = [
+            _REPO_ROOT / line
+            for line in result.stdout.splitlines()
+            if line.strip().endswith(".py")
+        ]
+
+    revisions: dict[str, str | None] = {}
+    for path in paths:
+        revision, down_revision = _parse_migration_file(path)
+        revisions[revision] = down_revision
+    return _head_from_chain(revisions)
 
 
 def _strip_line_comment(line: str) -> str:
@@ -147,7 +221,7 @@ def public_db() -> Iterator[Engine]:
     subprocess_env = dict(os.environ)
     subprocess_env["BLASTEX_DATABASE_URL"] = TEST_DATABASE_URL
     subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", _MIGRATION_HEAD],
+        [sys.executable, "-m", "alembic", "upgrade", tracked_migration_head()],
         cwd=_REPO_ROOT,
         env=subprocess_env,
         check=True,

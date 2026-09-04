@@ -76,7 +76,7 @@ _CODE_PREFIXES: dict[str, str] = {
     "tool_types": "PUB_TOOL",
     "explosive_material_prices": "PRICE_PUB_EMP",
     "explosive_spec_items": "PRICE_PUB_SPEC",
-    "tools_inventory": "PRICE_PUB_TOOLBUY",
+    "tools_inventory": "PRICE_PUB_TOOL",
 }
 
 # Кавычки всех начертаний, встречающиеся в наименованиях журнала.

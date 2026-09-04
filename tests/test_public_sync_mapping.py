@@ -395,8 +395,8 @@ def test_material_price_uses_unit_conversion_factor(proposals) -> None:
 def test_tools_inventory_price_takes_latest_purchase(proposals) -> None:
     codes = by_code(proposals)
 
-    assert "PRICE_PUB_TOOLBUY_1" not in codes
-    price = codes["PRICE_PUB_TOOLBUY_2"]
+    assert "PRICE_PUB_TOOL_1" not in codes
+    price = codes["PRICE_PUB_TOOL_2"]
     assert price.payload["material_code"] == "PUB_TOOL_1"
     assert price.payload["price_rub"] == "41000.00"
     assert price.payload["supplier_code"] == "PUB_COUNTERPARTY_2"
@@ -407,7 +407,7 @@ def test_tools_inventory_ignores_purchases_without_price_or_date() -> None:
     rows = [dict(TOOLS_INVENTORY[0], purchase_price=None, purchase_date=None)]
     built = build_proposals(make_snapshot(tools_inventory=rows), {}, {})
 
-    assert not [p for p in built if p.code.startswith("PRICE_PUB_TOOLBUY")]
+    assert not [p for p in built if p.code.startswith("PRICE_PUB_TOOL")]
 
 
 # --- Порядок и устойчивость -------------------------------------------------

@@ -5,11 +5,17 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import RLock
-from typing import Any, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
 from cost.v2.references import default_reference_snapshot, normalize_sections
+
+if TYPE_CHECKING:
+    # Импорт только для проверки типов: на уровне модуля `cost.v2.public_sync`
+    # тянет за собой `PublicLink` из этого же файла (через `delta.py`), и
+    # обычный импорт здесь замкнул бы цикл при загрузке модуля.
+    from cost.v2.public_sync.settings import PublicSyncSettings
 
 
 class EconomicsRepositoryError(RuntimeError):
@@ -370,6 +376,12 @@ class EconomicsRepository(Protocol):
     def set_mirror_section(
         self, organization_id: str, user_id: str, section: str, enabled: bool
     ) -> None: ...
+
+    def get_public_sync_settings(self, organization_id: str) -> "PublicSyncSettings": ...
+
+    def set_public_sync_settings(
+        self, organization_id: str, user_id: str, settings: "PublicSyncSettings"
+    ) -> "PublicSyncSettings": ...
 
 
 class InMemoryEconomicsRepository:
@@ -805,3 +817,17 @@ class InMemoryEconomicsRepository:
     def set_mirror_section(self, organization_id: str, user_id: str, section: str, enabled: bool) -> None:
         with self._lock:
             self._mirror_sections[(organization_id, section)] = enabled
+
+    def get_public_sync_settings(self, organization_id: str) -> "PublicSyncSettings":
+        from cost.v2.public_sync.settings import settings_from_flags
+
+        return settings_from_flags(self.list_mirror_sections(organization_id))
+
+    def set_public_sync_settings(
+        self, organization_id: str, user_id: str, settings: "PublicSyncSettings"
+    ) -> "PublicSyncSettings":
+        from cost.v2.public_sync.settings import flags_from_settings
+
+        for section, enabled in flags_from_settings(settings).items():
+            self.set_mirror_section(organization_id, user_id, section, enabled)
+        return self.get_public_sync_settings(organization_id)

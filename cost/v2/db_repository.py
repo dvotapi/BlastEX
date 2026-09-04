@@ -44,6 +44,7 @@ from cost.v2.repository import (
     StoredTechnicalPassport,
     links_for_sections,
 )
+from cost.v2.public_sync.settings import PublicSyncSettings, flags_from_settings, settings_from_flags
 
 
 SCHEMA = "blastex"
@@ -1054,6 +1055,19 @@ class PostgresEconomicsRepository:
                 row.enabled = enabled
                 row.updated_at = now
                 row.updated_by = user_id
+
+    def get_public_sync_settings(self, organization_id: str) -> PublicSyncSettings:
+        return settings_from_flags(self.list_mirror_sections(organization_id))
+
+    def set_public_sync_settings(
+        self, organization_id: str, user_id: str, settings: PublicSyncSettings
+    ) -> PublicSyncSettings:
+        # Пока просто делегирует `set_mirror_section` построчно; создание
+        # самого зеркала (выгрузка раздела) — уровнем выше, в следующей
+        # задаче.
+        for section, enabled in flags_from_settings(settings).items():
+            self.set_mirror_section(organization_id, user_id, section, enabled)
+        return self.get_public_sync_settings(organization_id)
 
     @staticmethod
     def _public_link(row: PublicLinkRow) -> PublicLink:

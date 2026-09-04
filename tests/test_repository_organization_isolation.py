@@ -181,6 +181,41 @@ def test_mirror_sections_are_organization_scoped(repository) -> None:
     assert repository.list_mirror_sections(ORG_A) == {"rocks": False}
 
 
+def test_public_sync_settings_default_to_disabled(repository) -> None:
+    from cost.v2.public_sync.settings import PublicSyncSettings
+
+    assert repository.get_public_sync_settings(ORG_A) == PublicSyncSettings(
+        exchange_enabled=False, mirror_sections=frozenset()
+    )
+
+
+def test_public_sync_settings_round_trip_and_are_organization_scoped(repository) -> None:
+    from cost.v2.public_sync.settings import PublicSyncSettings
+
+    settings = PublicSyncSettings(exchange_enabled=True, mirror_sections=frozenset({"rocks", "units"}))
+    result = repository.set_public_sync_settings(ORG_A, "a@example.ru", settings)
+    assert result == settings
+
+    assert repository.get_public_sync_settings(ORG_A) == settings
+    assert repository.get_public_sync_settings(ORG_B) == PublicSyncSettings(
+        exchange_enabled=False, mirror_sections=frozenset()
+    )
+
+    # Повторная запись снимает раздел, которого больше нет в настройках.
+    narrowed = PublicSyncSettings(exchange_enabled=True, mirror_sections=frozenset({"rocks"}))
+    repository.set_public_sync_settings(ORG_A, "a@example.ru", narrowed)
+    assert repository.get_public_sync_settings(ORG_A) == narrowed
+
+
+def test_public_sync_settings_reject_mapped_section(repository) -> None:
+    from cost.v2.public_sync.settings import PublicSyncSettings
+    from cost.v2.repository import EconomicsRepositoryError
+
+    settings = PublicSyncSettings(exchange_enabled=True, mirror_sections=frozenset({"sites"}))
+    with pytest.raises(EconomicsRepositoryError):
+        repository.set_public_sync_settings(ORG_A, "a@example.ru", settings)
+
+
 def test_every_repository_method_takes_organization_first() -> None:
     """Новый метод обязан принять организацию — иначе фильтр забудут."""
 

@@ -1,4 +1,4 @@
-import type { PublicDelta, PublicDeltaEntry } from "../../types/economics";
+import type { PublicDelta, PublicDeltaEntry, PublicLinkRequest } from "../../types/economics";
 import type { DraftSections } from "./importDraft";
 import { plural } from "../../lib/plural";
 
@@ -65,4 +65,57 @@ export function fieldValueText(value: unknown): string {
   if (Array.isArray(value)) return `список (${value.length})`;
   if (typeof value === "object") return "объект";
   return String(value);
+}
+
+/**
+ * Связь, выбранная в черновике и ещё не опубликованная. Хранится по `row_id`
+ * записи, а не по коду: код правится в форме, и связь должна идти за записью,
+ * а не оставаться на прежнем коде.
+ */
+export type PendingLink = {
+  row_id: string;
+  section: string;
+  public_table: string;
+  public_id: number;
+};
+
+/**
+ * Ожидающие связи в виде запроса к серверу: код берётся из черновика на момент
+ * отправки. Связь без записи в черновике (запись удалили или раздел заменили
+ * файлом) отбрасывается — связывать нечего; запись без кода тоже: пустой код
+ * сервер не примет, а пользователь ещё её заполняет.
+ */
+export function resolvePendingLinks(
+  draft: DraftSections,
+  pending: PendingLink[],
+): PublicLinkRequest[] {
+  const resolved: PublicLinkRequest[] = [];
+  for (const link of pending) {
+    const row = (draft[link.section] ?? []).find((item) => item.row_id === link.row_id);
+    if (!row || !row.code) continue;
+    resolved.push({
+      section: link.section,
+      code: row.code,
+      public_table: link.public_table,
+      public_id: link.public_id,
+    });
+  }
+  return resolved;
+}
+
+/**
+ * Добавляет связи к уже выбранным, снимая прежние по обоим ключам: у строки
+ * журнала и у записи справочника связь ровно одна, иначе публикация упёрлась
+ * бы в уникальность `public_links`.
+ */
+export function mergePendingLinks(current: PendingLink[], added: PendingLink[]): PendingLink[] {
+  if (!added.length) return current;
+  const rows = new Set(added.map((link) => `${link.public_table}#${link.public_id}`));
+  const records = new Set(added.map((link) => `${link.section}::${link.row_id}`));
+  const kept = current.filter(
+    (link) =>
+      !rows.has(`${link.public_table}#${link.public_id}`) &&
+      !records.has(`${link.section}::${link.row_id}`),
+  );
+  return [...kept, ...added];
 }

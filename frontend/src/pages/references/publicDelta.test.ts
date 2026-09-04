@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyDeltaEntries, deltaSummary, fieldValueText } from "./publicDelta";
+import {
+  applyDeltaEntries,
+  deltaSummary,
+  fieldValueText,
+  mergePendingLinks,
+  resolvePendingLinks,
+} from "./publicDelta";
 import type { EconomicsReferenceItem, PublicDeltaEntry } from "../../types/economics";
 
 function item(code: string, name = code): EconomicsReferenceItem {
@@ -158,5 +164,61 @@ describe("fieldValueText", () => {
   it("числа и строки показываются как есть", () => {
     expect(fieldValueText(220)).toBe("220");
     expect(fieldValueText("ЛОМ")).toBe("ЛОМ");
+  });
+});
+
+describe("resolvePendingLinks", () => {
+  const link = { row_id: "r1", section: "sites", public_table: "sites", public_id: 7 };
+
+  it("берёт код из черновика — переименование записи уводит связь за собой", () => {
+    const draft = { sites: [{ ...item("SITE_ЛОМ"), row_id: "r1" }] };
+    expect(resolvePendingLinks(draft, [link])).toEqual([
+      { section: "sites", code: "SITE_ЛОМ", public_table: "sites", public_id: 7 },
+    ]);
+
+    const renamed = { sites: [{ ...item("SITE_НОВЫЙ"), row_id: "r1" }] };
+    expect(resolvePendingLinks(renamed, [link])[0].code).toBe("SITE_НОВЫЙ");
+  });
+
+  it("связь удалённой записи отбрасывается", () => {
+    expect(resolvePendingLinks({ sites: [] }, [link])).toEqual([]);
+    expect(resolvePendingLinks({}, [link])).toEqual([]);
+  });
+
+  it("запись с пустым кодом ещё не связывается", () => {
+    const draft = { sites: [{ ...item(""), row_id: "r1" }] };
+    expect(resolvePendingLinks(draft, [link])).toEqual([]);
+  });
+
+  it("несколько связей сохраняют порядок", () => {
+    const draft = {
+      sites: [{ ...item("SITE_A"), row_id: "r1" }],
+      rocks: [{ ...item("ROCK_B"), row_id: "r2" }],
+    };
+    const resolved = resolvePendingLinks(draft, [
+      link,
+      { row_id: "r2", section: "rocks", public_table: "rock_types", public_id: 3 },
+    ]);
+    expect(resolved.map((entry) => entry.code)).toEqual(["SITE_A", "ROCK_B"]);
+  });
+});
+
+describe("mergePendingLinks", () => {
+  const first = { row_id: "r1", section: "sites", public_table: "sites", public_id: 7 };
+
+  it("одна строка журнала не может быть связана дважды", () => {
+    const moved = { row_id: "r2", section: "sites", public_table: "sites", public_id: 7 };
+    expect(mergePendingLinks([first], [moved])).toEqual([moved]);
+  });
+
+  it("у записи справочника остаётся одна связь", () => {
+    const other = { row_id: "r1", section: "sites", public_table: "sites", public_id: 9 };
+    expect(mergePendingLinks([first], [other])).toEqual([other]);
+  });
+
+  it("связи разных записей копятся", () => {
+    const second = { row_id: "r2", section: "rocks", public_table: "rock_types", public_id: 1 };
+    expect(mergePendingLinks([first], [second])).toEqual([first, second]);
+    expect(mergePendingLinks([first], [])).toEqual([first]);
   });
 });

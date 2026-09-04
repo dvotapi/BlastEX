@@ -80,6 +80,17 @@ export type PublicDelta = {
   entries: PublicDeltaEntry[];
 };
 
+/**
+ * Связь, отправляемая на сервер: в запросе разницы — как ожидающая, в запросе
+ * публикации — как сохраняемая вместе с ревизией.
+ */
+export type PublicLinkRequest = {
+  section: string;
+  code: string;
+  public_table: string;
+  public_id: number;
+};
+
 /** Связь записи справочника со строкой журнала project1. */
 export type PublicLink = {
   section: string;

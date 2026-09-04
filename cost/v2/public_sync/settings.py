@@ -32,8 +32,17 @@ EXCHANGE_KEY = "_exchange"
 # Разделы, обмен которых со схемой `public` устроен прямым сопоставлением
 # таблиц (`cost/v2/public_sync/mapping.py`), а не зеркалированием раздела
 # целиком. Отдельного флага-зеркала у них нет: они не входят в
-# `mirrorable_sections()`.
-MAPPED_SECTIONS = ("counterparties", "sites", "equipment_types", "equipment_assets", "materials")
+# `mirrorable_sections()`. Цены материалов приходят из журнала
+# (`explosive_material_prices`) и обратно не выгружаются — зеркалить их
+# незачем и вредно: в журнале появилась бы вторая копия своих же цен.
+MAPPED_SECTIONS = (
+    "counterparties",
+    "sites",
+    "equipment_types",
+    "equipment_assets",
+    "materials",
+    "material_prices",
+)
 
 
 @dataclass(frozen=True)

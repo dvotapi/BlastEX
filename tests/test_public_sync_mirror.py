@@ -106,13 +106,26 @@ def test_ddl_is_idempotent() -> None:
     joined = "\n".join(statements)
 
     assert 'CREATE TABLE IF NOT EXISTS public."blastex_rocks"' in joined
-    # Колонка, добавленная в схему позже, доезжает до существующей таблицы.
-    for name in ("density_t_m3", "fracture_class"):
+    # Колонка, добавленная в схему позже, доезжает до существующей таблицы —
+    # и служебная тоже: зеркало могло быть создано прежней версией BlastEX.
+    for name in ("density_t_m3", "fracture_class", "source", "revision_id", "synced_at"):
         assert (
             f'ALTER TABLE public."blastex_rocks" ADD COLUMN IF NOT EXISTS "{name}"'
             in joined
         )
     assert 'COMMENT ON COLUMN public."blastex_rocks"."density_t_m3" IS' in joined
+
+
+def test_service_columns_follow_the_specification() -> None:
+    assert column("rocks", "revision_id").sql_type == "varchar(36)"
+    assert column("rocks", "synced_at").sql_type == "timestamptz"
+    joined = "\n".join(create_table_sql("rocks"))
+
+    # Ревизия и момент выгрузки есть у каждой строки зеркала (§5). Умолчание
+    # нужно, чтобы колонка доехала до уже заполненной таблицы: `ADD COLUMN`
+    # с `NOT NULL` без него отвергается.
+    assert '"revision_id" varchar(36) NOT NULL' in joined
+    assert '"synced_at" timestamptz NOT NULL' in joined
 
 
 def test_ddl_closes_the_table_from_other_roles() -> None:
@@ -193,6 +206,9 @@ def test_sync_deactivates_the_records_that_left_the_revision() -> None:
     assert deactivated == 3
     assert 'UPDATE public."blastex_rocks"' in update_sql
     assert '"is_active" = false' in update_sql
+    # Гасятся только действующие строки: давно погашенную незачем метить
+    # новой ревизией, да и счётчик тогда честный.
+    assert 'AND "is_active"' in update_sql
     assert update_params["codes"] == ["GRANITE"]
     assert update_params["revision_id"] == "rev-2"
 

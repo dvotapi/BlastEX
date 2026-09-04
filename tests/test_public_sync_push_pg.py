@@ -16,6 +16,7 @@ from sqlalchemy import text
 
 from cost.v2.db_repository import PostgresEconomicsRepository
 from cost.v2.models import ReferenceItem
+from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader
 from cost.v2.public_sync.settings import PublicSyncSettings
 from cost.v2.public_sync.writer import PublicWriteError
 from tests.pg_public import TEST_DATABASE_URL, public_db, requires_pg, seed_public
@@ -292,3 +293,43 @@ def test_disabled_exchange_writes_nothing_to_the_journal(repository, public_db) 
     assert repository.list_public_links(ORG) == ()
     # Выгрузки не было — и сводки о ней в журнале аудита тоже нет.
     assert "public_writes" not in audit_payload(public_db, published.revision_id)
+
+
+@requires_pg
+def test_exchange_is_not_enabled_without_access_to_the_journal(
+    repository, public_db, monkeypatch
+) -> None:
+    """Включение обмена пробует журнал: без доступа настройка не сохраняется."""
+
+    def unavailable(self) -> None:
+        raise PublicUnavailable("Схема public недоступна: нет прав на public.counterparties")
+
+    monkeypatch.setattr(SqlPublicReader, "read", unavailable)
+
+    with pytest.raises(PublicWriteError) as failure:
+        enable_exchange(repository)
+
+    assert "project1.public" in str(failure.value)
+    # Транзакция откатилась целиком: обмен остался выключенным.
+    assert repository.get_public_sync_settings(ORG).exchange_enabled is False
+
+
+@requires_pg
+def test_enabled_exchange_is_probed_only_when_it_is_switched_on(
+    repository, public_db, monkeypatch
+) -> None:
+    """Проба идёт на переходе «выключено → включено», а не при каждом сохранении."""
+
+    seed_public(public_db)
+    enable_exchange(repository)
+    calls: list[int] = []
+    original = SqlPublicReader.read
+
+    def counting(self):
+        calls.append(1)
+        return original(self)
+
+    monkeypatch.setattr(SqlPublicReader, "read", counting)
+    enable_exchange(repository)
+
+    assert calls == []

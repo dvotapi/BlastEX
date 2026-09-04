@@ -226,3 +226,22 @@ def test_every_repository_method_takes_organization_first() -> None:
         assert parameters[:2] == ["self", "organization_id"], (
             f"{name}: первым аргументом должен быть organization_id"
         )
+
+
+def test_price_section_is_not_mirrored(repository) -> None:
+    """Цены материалов приходят из журнала (§4) — зеркалом они не выгружаются."""
+
+    from cost.v2.public_sync.settings import (
+        MAPPED_SECTIONS,
+        PublicSyncSettings,
+        mirrorable_sections,
+    )
+    from cost.v2.repository import EconomicsRepositoryError
+
+    assert "material_prices" in MAPPED_SECTIONS
+    assert "material_prices" not in mirrorable_sections()
+    settings = PublicSyncSettings(
+        exchange_enabled=True, mirror_sections=frozenset({"material_prices"})
+    )
+    with pytest.raises(EconomicsRepositoryError):
+        repository.set_public_sync_settings(ORG_A, "a@example.ru", settings)

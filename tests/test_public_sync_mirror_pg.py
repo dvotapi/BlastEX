@@ -160,6 +160,15 @@ def test_record_that_left_the_revision_stays_but_stops_acting(
         "rocks": {"upserted": 1, "deactivated": 1}
     }
 
+    # Следующая публикация давно погашенную строку уже не трогает: ревизия и
+    # момент выгрузки у неё остаются от той публикации, которая её погасила.
+    again = publish(repository, rocks=(GRANITE,))
+    sand = {row["code"]: row for row in mirror_rows(public_db)}["SAND"]
+    assert sand["revision_id"] == published.revision_id
+    assert audit_payload(public_db, again.revision_id)["public_writes"]["mirrors"] == {
+        "rocks": {"upserted": 1, "deactivated": 0}
+    }
+
 
 @requires_pg
 def test_new_column_of_the_schema_reaches_an_existing_table(

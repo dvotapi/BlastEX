@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from sqlalchemy import Result, TextClause, text
-from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError, ProgrammingError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from cost.v2.public_sync.push import PublicInsert, PublicUpdate, PublicWritePlan
@@ -109,12 +109,17 @@ class SqlPublicWriter:
         return public_id
 
     def _existing_id(self, table: str, code: str) -> int | None:
-        """Строка журнала по естественному ключу — только для `machine_types`."""
+        """Строка журнала по естественному ключу — только для `machine_types`.
+
+        Сравнение идёт через ``btrim``: в плане лежит написание журнала без
+        крайних пробелов (``push._key``), а в самой строке пробелы могли
+        остаться — тип машины журнал заводит руками.
+        """
 
         column = _NATURAL_KEYS.get(table)
         if column is None:
             return None
-        statement = text(f'SELECT id FROM public."{table}" WHERE "{column}" = :value')
+        statement = text(f'SELECT id FROM public."{table}" WHERE btrim("{column}") = :value')
         public_id = self._execute(statement, {"value": code}).scalar()
         return None if public_id is None else int(public_id)
 
@@ -149,5 +154,8 @@ class SqlPublicWriter:
     def _execute(self, statement: TextClause, parameters: dict[str, Any]) -> Result[Any]:
         try:
             return self._session.execute(statement, parameters)
-        except (IntegrityError, ProgrammingError, OperationalError, DBAPIError) as exc:
+        except SQLAlchemyError as exc:
+            # Ловится вся ветка ошибок SQLAlchemy: перечислять подклассы
+            # значит однажды пропустить незнакомый и уронить публикацию
+            # чужой ошибкой вместо понятного отказа журнала.
             raise PublicWriteError(reason(exc)) from exc

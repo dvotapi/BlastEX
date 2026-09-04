@@ -875,3 +875,87 @@ def test_unit_conflict_uses_code_without_inventory_number() -> None:
 @pytest.mark.parametrize("section", ["counterparties", "sites", "equipment_assets"])
 def test_missing_sections_are_not_required(section: str) -> None:
     assert public_constraint_issues({section: []}, []) == []
+
+
+# --- Длины колонок журнала --------------------------------------------------
+
+
+def test_long_model_name_and_brand_are_errors() -> None:
+    sections = {
+        "equipment_types": [
+            item("LONG", "Д" * 129, {"kind": "DRILL_RIG"}),
+            item("BRAND", "DM45", {"kind": "DRILL_RIG", "brand": "E" * 129}),
+        ]
+    }
+
+    issues = public_constraint_issues(sections, [])
+
+    assert fields_of(issues) == [
+        ("equipment_types", "LONG", "name"),
+        ("equipment_types", "BRAND", "brand"),
+    ]
+    assert "128" in issues[0].message
+
+
+def test_names_at_the_limit_are_accepted() -> None:
+    sections = {
+        "equipment_types": [item("LONG", "Д" * 128, {"kind": "DRILL_RIG", "brand": "E" * 128})]
+    }
+
+    assert public_constraint_issues(sections, []) == []
+
+
+def test_long_inventory_and_serial_numbers_are_errors() -> None:
+    sections = {
+        "equipment_types": [EQUIPMENT_TYPE],
+        "equipment_assets": [
+            item(
+                "RIG_LONG",
+                "Станок",
+                {
+                    "equipment_type_code": "JK830",
+                    "inventory_number": "Б" * 65,
+                    "serial_number": "S" * 129,
+                },
+            )
+        ],
+    }
+
+    issues = public_constraint_issues(sections, [])
+
+    assert fields_of(issues) == [
+        ("equipment_assets", "RIG_LONG", "inventory_number"),
+        ("equipment_assets", "RIG_LONG", "serial_number"),
+    ]
+    assert "64" in issues[0].message
+    assert "128" in issues[1].message
+
+
+def test_long_code_without_inventory_number_is_an_error() -> None:
+    # Без инвентарного номера в журнал уходит код записи: он бывает длиннее
+    # колонки, и сметчику надо объяснить, почему виноват код.
+    sections = {
+        "equipment_types": [EQUIPMENT_TYPE],
+        "equipment_assets": [item("Б" * 65, "Станок", {"equipment_type_code": "JK830"})],
+    }
+
+    issues = public_constraint_issues(sections, [])
+
+    assert fields_of(issues) == [("equipment_assets", "Б" * 65, "inventory_number")]
+    assert "код" in issues[0].message
+
+
+def test_length_is_checked_for_linked_inactive_records() -> None:
+    # Связанную запись план обновляет независимо от активности: слишком
+    # длинное значение уронит транзакцию так же, как у активной.
+    asset = item(
+        "RIG_01",
+        "Станок",
+        {"equipment_type_code": "JK830", "serial_number": "S" * 129},
+        is_active=False,
+    )
+    links = [link("equipment_assets", "RIG_01", "equipment_units", 9)]
+
+    issues = public_constraint_issues({"equipment_assets": [asset]}, links)
+
+    assert fields_of(issues) == [("equipment_assets", "RIG_01", "serial_number")]

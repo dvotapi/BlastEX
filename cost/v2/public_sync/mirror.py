@@ -58,7 +58,7 @@ class MirrorColumn:
 
     Типы колонок по схеме раздела — ``numeric``, ``boolean``, ``text``,
     ``date`` и ``jsonb``; у служебных колонок записи (``RECORD_COLUMNS``)
-    добавляется ``timestamptz``.
+    добавляются ``varchar(36)`` (ревизия) и ``timestamptz``.
     """
 
     name: str
@@ -76,18 +76,23 @@ RECORD_COLUMNS: tuple[MirrorColumn, ...] = (
     MirrorColumn("valid_to", "date", "Действует по"),
     MirrorColumn("source", "text", "Источник записи"),
     MirrorColumn("comment", "text", "Комментарий"),
-    MirrorColumn("revision_id", "text", "Ревизия справочников, которой выгружена строка"),
+    MirrorColumn(
+        "revision_id", "varchar(36)", "Ревизия справочников, которой выгружена строка"
+    ),
     MirrorColumn("synced_at", "timestamptz", "Момент выгрузки"),
 )
 
-_RECORD_NAMES = frozenset(column.name for column in RECORD_COLUMNS)
-
 # Ограничения служебных колонок. Код записи — ключ зеркала: по нему идёт
-# обновление строки при повторной выгрузке.
+# обновление строки при повторной выгрузке. Умолчания стоят не ради вставки
+# (приложение всегда пишет все колонки), а ради `ADD COLUMN`: колонку
+# `NOT NULL` без умолчания уже заполненная таблица не примет, а служебные
+# колонки должны доезжать до зеркал, созданных прежней версией BlastEX.
 _RECORD_CONSTRAINTS: dict[str, str] = {
     "code": "PRIMARY KEY",
     "name": "NOT NULL DEFAULT ''",
     "is_active": "NOT NULL DEFAULT true",
+    "revision_id": "NOT NULL DEFAULT ''",
+    "synced_at": "NOT NULL DEFAULT now()",
 }
 
 # Аннотация поля схемы → тип колонки. Ключи сравниваются точно, поэтому
@@ -190,19 +195,13 @@ def create_table_sql(section: str) -> list[str]:
 
     table = mirror_table_name(section)
     columns = mirror_columns(section)
-    definitions = ", ".join(
-        " ".join(
-            part
-            for part in (f'"{column.name}"', column.sql_type, _RECORD_CONSTRAINTS.get(column.name, ""))
-            if part
-        )
-        for column in RECORD_COLUMNS
-    )
+    definitions = ", ".join(_definition(column) for column in RECORD_COLUMNS)
     statements = [f'CREATE TABLE IF NOT EXISTS public."{table}" ({definitions})']
+    # Служебные колонки перечислены наравне с полями схемы: зеркало могло быть
+    # создано прежней версией BlastEX, у которой их ещё не было.
     statements.extend(
-        f'ALTER TABLE public."{table}" ADD COLUMN IF NOT EXISTS "{column.name}" {column.sql_type}'
+        f'ALTER TABLE public."{table}" ADD COLUMN IF NOT EXISTS {_definition(column)}'
         for column in columns
-        if column.name not in _RECORD_NAMES
     )
     statements.extend(
         f'COMMENT ON COLUMN public."{table}"."{column.name}" IS \'{_quoted(column.comment)}\''
@@ -222,6 +221,13 @@ def create_table_sql(section: str) -> list[str]:
         "END $$;"
     )
     return statements
+
+
+def _definition(column: MirrorColumn) -> str:
+    """Колонка в DDL: имя, тип и ограничение, если оно у неё есть."""
+
+    parts = (f'"{column.name}"', column.sql_type, _RECORD_CONSTRAINTS.get(column.name, ""))
+    return " ".join(part for part in parts if part)
 
 
 def _quoted(value: str) -> str:
@@ -249,7 +255,10 @@ def sync_mirror(
     Выгружаются все записи ревизии, включая неактивные: зеркало показывает
     справочник целиком, а не только то, чем сейчас пользуются. Строка,
     которой в ревизии больше нет, из таблицы не удаляется — журнал мог
-    сослаться на неё раньше, — а помечается недействующей.
+    сослаться на неё раньше, — а помечается недействующей. Гасятся только
+    действующие строки: погашенной прежней публикацией незачем каждый раз
+    переписывать ревизию и момент выгрузки, а счётчик так считает то, что
+    в этой публикации действительно изменилось.
     """
 
     table = mirror_table_name(section)
@@ -260,7 +269,8 @@ def sync_mirror(
     result = session.execute(
         text(
             f'UPDATE public."{table}" SET "is_active" = false, "revision_id" = :revision_id, '
-            f'"synced_at" = :synced_at WHERE "code" <> ALL(CAST(:codes AS text[]))'
+            f'"synced_at" = :synced_at WHERE "code" <> ALL(CAST(:codes AS text[])) '
+            f'AND "is_active"'
         ),
         {
             "revision_id": revision_id,
@@ -347,7 +357,7 @@ def mirror_value(column: MirrorColumn, value: Any) -> Any:
         return _date(value)
     if column.sql_type == "jsonb":
         return json.dumps(value, ensure_ascii=False, default=str)
-    if column.sql_type == "text":
+    if column.sql_type == "text" or column.sql_type.startswith("varchar"):
         return value if isinstance(value, str) else str(value)
     return value
 

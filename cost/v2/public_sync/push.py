@@ -33,7 +33,8 @@
 пропускается с предупреждением (``_REQUIRED_COLUMNS``) — иначе на ``NOT NULL``
 упала бы вся транзакция; вставку от того же прикрывает
 ``public_constraint_issues``, которая проверяет и связанные записи, ведь их
-план обновляет независимо от активности.
+план обновляет независимо от активности. Там же проверяются длины колонок
+``varchar`` журнала (``_COLUMN_LIMITS``): в blastex эти поля не ограничены.
 """
 from __future__ import annotations
 
@@ -86,8 +87,57 @@ _MATERIAL_TABLES: dict[str, str] = {
 # ИНН журнала: 10 цифр у организации, 12 у предпринимателя (CHECK таблицы).
 _INN_RE = re.compile(r"^[0-9]{10}([0-9]{2})?$")
 
-# `sites.short_name` — varchar(5): более длинное значение журнал не примет.
-_SITE_SHORT_NAME_LIMIT = 5
+# Длины колонок `varchar` журнала (Docs/public_schema.sql): значение длиннее
+# журнал не примет, а в blastex такие поля не ограничены. Проверяется до
+# транзакции — иначе публикация упала бы целиком на чужом ограничении.
+_COLUMN_LIMITS: dict[str, dict[str, int]] = {
+    "sites": {"short_name": 5},
+    "equipment_models": {"model_name": 128, "brand": 128},
+    "equipment_units": {"internal_id": 64, "serial_number": 128},
+}
+
+
+@dataclass(frozen=True)
+class _LengthCheck:
+    """Колонка журнала с ограниченной длиной и поле BlastEX за ней.
+
+    ``field`` — имя поля записи blastex (его показывает форма), ``label`` —
+    начало сообщения. ``fallback_to_code`` стоит там, где в журнал уходит код
+    записи, если поле не заполнено (``equipment_units.internal_id``).
+    """
+
+    section: str
+    table: str
+    column: str
+    field: str
+    label: str
+    fallback_to_code: bool = False
+
+
+# Что и куда пишет план (см. `_plan_*`): длину проверяем ровно у тех значений,
+# которые уйдут в колонки из `_COLUMN_LIMITS`.
+_LENGTH_CHECKS: tuple[_LengthCheck, ...] = (
+    _LengthCheck("sites", "sites", "short_name", "short_name", "Краткое имя объекта"),
+    _LengthCheck(
+        "equipment_types",
+        "equipment_models",
+        "model_name",
+        "name",
+        "Наименование типа техники",
+    ),
+    _LengthCheck("equipment_types", "equipment_models", "brand", "brand", "Марка техники"),
+    _LengthCheck(
+        "equipment_assets",
+        "equipment_units",
+        "internal_id",
+        "inventory_number",
+        "Инвентарный номер",
+        fallback_to_code=True,
+    ),
+    _LengthCheck(
+        "equipment_assets", "equipment_units", "serial_number", "serial_number", "Заводской номер"
+    ),
+)
 
 _LINK_HINT = "свяжите записи через плашку «Из project1»"
 
@@ -578,7 +628,45 @@ def public_constraint_issues(
     issues.extend(_site_issues(sections, linked))
     issues.extend(_equipment_type_issues(sections, linked, snapshot))
     issues.extend(_equipment_asset_issues(sections, linked, snapshot))
+    issues.extend(_length_issues(sections, linked))
     return issues
+
+
+def _length_issues(
+    sections: Mapping[str, Sequence[ReferenceItem]], linked: set[tuple[str, str]]
+) -> list[ValidationIssue]:
+    """Значения, которые не влезут в колонку журнала (``_COLUMN_LIMITS``)."""
+
+    issues: list[ValidationIssue] = []
+    for check in _LENGTH_CHECKS:
+        limit = _COLUMN_LIMITS[check.table][check.column]
+        for item in _planned(sections, check.section, linked):
+            value = _length_value(check, item)
+            if len(value) <= limit:
+                continue
+            if check.fallback_to_code and value == item.code:
+                message = (
+                    f"{check.label} не заполнен, в журнал уходит код записи, "
+                    f"а он длиннее {limit} символов — журнал его не примет."
+                )
+            else:
+                message = f"{check.label} длиннее {limit} символов — журнал его не примет."
+            issues.append(_error(check.section, item.code, check.field, message))
+    return issues
+
+
+def _length_value(check: _LengthCheck, item: ReferenceItem) -> str:
+    """Значение, которое план положит в колонку журнала.
+
+    Наименование записи (``name``) живёт не в payload, а в самой записи; для
+    ``internal_id`` пустое поле заменяется кодом записи — как в
+    ``_plan_equipment_assets``.
+    """
+
+    value = item.name.strip() if check.field == "name" else _text(item.payload.get(check.field))
+    if not value and check.fallback_to_code:
+        return item.code
+    return value or ""
 
 
 def _taken(snapshot: PublicSnapshot | None, table: str, column: str) -> set[str]:
@@ -644,17 +732,6 @@ def _site_issues(
                     item.code,
                     "customer_code",
                     "Не указан заказчик: журнал требует наименование заказчика объекта.",
-                )
-            )
-        short_name = _text(item.payload.get("short_name")) or ""
-        if len(short_name) > _SITE_SHORT_NAME_LIMIT:
-            issues.append(
-                _error(
-                    "sites",
-                    item.code,
-                    "short_name",
-                    f"Краткое имя объекта длиннее {_SITE_SHORT_NAME_LIMIT} символов "
-                    "— журнал его не примет.",
                 )
             )
     return issues

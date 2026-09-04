@@ -219,3 +219,24 @@ def test_publish_returns_502_when_journal_rejects_write(monkeypatch) -> None:
     assert response.status_code == 502, response.text
     message = response.json()["detail"]["message"]
     assert message.startswith("Не удалось записать в project1.public:")
+
+
+def test_enabling_exchange_without_access_returns_502(monkeypatch) -> None:
+    """Обмен включают пробой журнала: без доступа это отказ чужой схемы."""
+
+    client, repository = _client(monkeypatch)
+
+    def _failing_settings(*_args, **_kwargs):
+        raise PublicWriteError("нет прав на public.counterparties")
+
+    monkeypatch.setattr(repository, "set_public_sync_settings", _failing_settings)
+
+    response = client.put(
+        "/api/v1/economics/references/public-settings",
+        json={"exchange_enabled": True, "mirror_sections": {}},
+    )
+
+    assert response.status_code == 502, response.text
+    assert response.json()["detail"]["message"].startswith(
+        "Не удалось записать в project1.public:"
+    )

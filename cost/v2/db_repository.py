@@ -1179,9 +1179,10 @@ class PostgresEconomicsRepository:
     ) -> PublicSyncSettings:
         """Сохраняет настройки обмена и заводит таблицы включённых зеркал.
 
-        Флаги и таблицы появляются одной транзакцией: если на схему ``public``
-        не хватает прав, администратор узнаёт об этом здесь, а не через сутки
-        при публикации, и зеркало остаётся выключенным.
+        Флаги, проба доступа к журналу и таблицы зеркал идут одной
+        транзакцией: если на схему ``public`` не хватает прав, администратор
+        узнаёт об этом здесь, а не через сутки при публикации, и обмен с
+        зеркалами остаётся выключенным.
         """
 
         flags = flags_from_settings(settings)
@@ -1190,6 +1191,8 @@ class PostgresEconomicsRepository:
             before = self._mirror_flags(session, organization_id)
             for section, enabled in flags.items():
                 self._set_mirror_flag(session, organization_id, user_id, section, enabled, now)
+            if settings.exchange_enabled and not before.get(EXCHANGE_KEY, False):
+                self._probe_public_access(session)
             switched_on = sorted(
                 section
                 for section, enabled in flags.items()
@@ -1201,6 +1204,22 @@ class PostgresEconomicsRepository:
                 except SQLAlchemyError as exc:
                     raise PublicWriteError(reason(exc)) from exc
         return self.get_public_sync_settings(organization_id)
+
+    @staticmethod
+    def _probe_public_access(session: Session) -> None:
+        """Читает журнал при включении обмена: есть ли на него права.
+
+        Без пробы включённый обмен выглядел бы сохранённым, а отказ прав
+        вылезал бы при первой же публикации — и ронял бы её целиком. Проба
+        идёт в той же транзакции, что и флаги: отказ откатывает и их.
+        """
+
+        try:
+            SqlPublicReader.from_connection(session.connection()).read()
+        except PublicUnavailable as exc:
+            raise PublicWriteError(exc) from exc
+        except SQLAlchemyError as exc:
+            raise PublicWriteError(reason(exc)) from exc
 
     @staticmethod
     def _public_link(row: PublicLinkRow) -> PublicLink:

@@ -154,6 +154,29 @@ def test_legacy_workspace_is_overwritten_not_duplicated(repository) -> None:
     assert repository.get_legacy_scenario(ORG_A, "drill_blast")["labor_shifts_per_month"] == 2
 
 
+def test_public_links_are_organization_scoped_and_unique(repository) -> None:
+    from cost.v2.repository import EconomicsRepositoryError, PublicLink
+
+    link = PublicLink(section="sites", code="SITE_LOM", public_table="sites", public_id=1)
+    saved = repository.save_public_link(ORG_A, "a@example.ru", link)
+    assert saved.synced_at is not None
+    assert [l.code for l in repository.list_public_links(ORG_A)] == ["SITE_LOM"]
+    assert repository.list_public_links(ORG_B) == ()
+
+    repository.save_public_link(ORG_A, "a@example.ru", PublicLink("sites", "SITE_LOM", "sites", 2))
+    assert [l.public_id for l in repository.list_public_links(ORG_A)] == [2]
+    with pytest.raises(EconomicsRepositoryError):
+        repository.save_public_link(ORG_A, "a@example.ru", PublicLink("sites", "SITE_OTHER", "sites", 2))
+
+
+def test_mirror_sections_are_organization_scoped(repository) -> None:
+    repository.set_mirror_section(ORG_A, "a@example.ru", "rocks", True)
+    assert repository.list_mirror_sections(ORG_A) == {"rocks": True}
+    assert repository.list_mirror_sections(ORG_B) == {}
+    repository.set_mirror_section(ORG_A, "a@example.ru", "rocks", False)
+    assert repository.list_mirror_sections(ORG_A) == {"rocks": False}
+
+
 def test_every_repository_method_takes_organization_first() -> None:
     """Новый метод обязан принять организацию — иначе фильтр забудут."""
 

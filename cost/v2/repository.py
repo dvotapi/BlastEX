@@ -188,6 +188,17 @@ class LegacyWorkspaceSettings:
     reference_revision_id: str | None = None
 
 
+@dataclass(frozen=True)
+class PublicLink:
+    """Связь записи справочника blastex с записью зеркала схемы public."""
+
+    section: str
+    code: str
+    public_table: str
+    public_id: int
+    synced_at: datetime | None = None
+
+
 class EconomicsRepository(Protocol):
     def get_reference_snapshot(
         self, organization_id: str, revision_id: str | None = None
@@ -315,6 +326,18 @@ class EconomicsRepository(Protocol):
         reference_revision_id: str | None = None,
     ) -> list[str]: ...
 
+    def list_public_links(self, organization_id: str) -> Sequence[PublicLink]: ...
+
+    def save_public_link(
+        self, organization_id: str, user_id: str, link: PublicLink
+    ) -> PublicLink: ...
+
+    def list_mirror_sections(self, organization_id: str) -> dict[str, bool]: ...
+
+    def set_mirror_section(
+        self, organization_id: str, user_id: str, section: str, enabled: bool
+    ) -> None: ...
+
 
 class InMemoryEconomicsRepository:
     """Потокобезопасное хранилище для unit/API-тестов."""
@@ -329,6 +352,8 @@ class InMemoryEconomicsRepository:
         self._economics_runs: dict[tuple[str, str], StoredEconomicsRun] = {}
         self._legacy_workspace: dict[str, LegacyWorkspaceSettings] = {}
         self._legacy_scenarios: dict[tuple[str, str], dict[str, Any]] = {}
+        self._public_links: dict[tuple[str, str, str], PublicLink] = {}
+        self._mirror_sections: dict[tuple[str, str], bool] = {}
 
     def _ensure_org(self, organization_id: str) -> None:
         if organization_id in self._revisions:
@@ -697,3 +722,35 @@ class InMemoryEconomicsRepository:
                 }
                 imported.append(scenario_key)
             return imported
+
+    def list_public_links(self, organization_id: str) -> Sequence[PublicLink]:
+        with self._lock:
+            return tuple(
+                link for (org, _s, _c), link in sorted(self._public_links.items()) if org == organization_id
+            )
+
+    def save_public_link(self, organization_id: str, user_id: str, link: PublicLink) -> PublicLink:
+        with self._lock:
+            for (org, section, code), existing in self._public_links.items():
+                same_row = existing.public_table == link.public_table and existing.public_id == link.public_id
+                if same_row and (org, section, code) != (organization_id, link.section, link.code):
+                    raise EconomicsRepositoryError(
+                        f"Запись public {link.public_table}#{link.public_id} уже связана с {section}/{code}."
+                    )
+            saved = PublicLink(
+                section=link.section,
+                code=link.code,
+                public_table=link.public_table,
+                public_id=link.public_id,
+                synced_at=datetime.now(timezone.utc).replace(microsecond=0),
+            )
+            self._public_links[(organization_id, link.section, link.code)] = saved
+            return saved
+
+    def list_mirror_sections(self, organization_id: str) -> dict[str, bool]:
+        with self._lock:
+            return {section: enabled for (org, section), enabled in self._mirror_sections.items() if org == organization_id}
+
+    def set_mirror_section(self, organization_id: str, user_id: str, section: str, enabled: bool) -> None:
+        with self._lock:
+            self._mirror_sections[(organization_id, section)] = enabled

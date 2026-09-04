@@ -137,6 +137,23 @@ export function sectionFields(schema: JsonSchemaObject | undefined): FieldDescri
     .filter((field) => !field.internal);
 }
 
+/**
+ * Поля payload, значение которых схема допускает числом.
+ *
+ * Decimal приходит как «число или строка с числовым шаблоном», поэтому
+ * смотрим и на `anyOf`. Текстовое поле из одних цифр (ИНН, инвентарный
+ * номер) сюда не попадает: сравнивать его как число нельзя — «0021» и «21»
+ * разные значения.
+ */
+export function numericPayloadKeys(schema: JsonSchemaObject | undefined): Set<string> {
+  const keys = new Set<string>();
+  for (const [name, node] of Object.entries(schema?.properties ?? {})) {
+    const types = [node.type, ...(node.anyOf ?? []).map((variant) => variant.type)];
+    if (types.some((type) => type === "number" || type === "integer")) keys.add(name);
+  }
+  return keys;
+}
+
 export function fieldIndex(schema: JsonSchemaObject | undefined): Map<string, FieldDescriptor> {
   return new Map(sectionFields(schema).map((field) => [field.name, field]));
 }

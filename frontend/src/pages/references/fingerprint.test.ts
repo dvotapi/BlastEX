@@ -16,14 +16,35 @@ function item(payload: Record<string, unknown>): EconomicsReferenceItem {
   };
 }
 
-const same = (left: Record<string, unknown>, right: Record<string, unknown>) =>
-  fingerprint(item(left)) === fingerprint(item(right));
+const numeric = new Set(["a"]);
+const text = new Set<string>();
+
+const same = (
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+  keys: ReadonlySet<string> = numeric,
+) => fingerprint(item(left), keys) === fingerprint(item(right), keys);
 
 describe("fingerprint", () => {
-  it("не различает число и его текстовую запись", () => {
+  it("не различает число и его текстовую запись в числовом поле", () => {
     expect(same({ a: "1" }, { a: 1 })).toBe(true);
     expect(same({ a: "0.10" }, { a: 0.1 })).toBe(true);
     expect(same({ a: "-2.5" }, { a: -2.5 })).toBe(true);
+  });
+
+  it("не трогает текстовые поля из цифр", () => {
+    // ИНН «0021» и «21» — разные контрагенты, а не одно число.
+    expect(same({ a: "0021" }, { a: "21" }, text)).toBe(false);
+    expect(same({ a: "00000000000000000001" }, { a: "00000000000000000002" }, text)).toBe(false);
+    expect(fingerprint(item({ a: "0021" }), text)).toContain("0021");
+  });
+
+  it("не приводит числа внутри списков и объектов", () => {
+    // Состав вложенных структур схема здесь не описывает: молчаливое
+    // приведение съело бы инвентарный номер «007» в строке списка.
+    expect(same({ a: [{ b: "007" }] }, { a: [{ b: 7 }] })).toBe(false);
+    expect(same({ a: [{ b: "2", c: "" }] }, { a: [{ b: "2" }] })).toBe(true);
+    expect(same({ a: { b: { c: "3" } } }, { a: { b: { c: "3" } } })).toBe(true);
   });
 
   it("не считает пустое значение отличием от отсутствующего", () => {
@@ -31,11 +52,6 @@ describe("fingerprint", () => {
     expect(same({ a: null }, {})).toBe(true);
     expect(same({ a: [] }, {})).toBe(true);
     expect(same({ a: {} }, {})).toBe(true);
-  });
-
-  it("нормализует вложенные списки и объекты", () => {
-    expect(same({ a: [{ b: "2", c: "" }] }, { a: [{ b: 2 }] })).toBe(true);
-    expect(same({ a: { b: { c: "3" } } }, { a: { b: { c: 3 } } })).toBe(true);
   });
 
   it("не зависит от порядка ключей", () => {
@@ -49,7 +65,7 @@ describe("fingerprint", () => {
   });
 
   it("учитывает поля записи помимо payload", () => {
-    expect(fingerprint(item({}))).not.toBe(fingerprint({ ...item({}), comment: "правка" }));
-    expect(fingerprint(item({}))).not.toBe(fingerprint({ ...item({}), is_active: false }));
+    expect(fingerprint(item({}), text)).not.toBe(fingerprint({ ...item({}), comment: "правка" }, text));
+    expect(fingerprint(item({}), text)).not.toBe(fingerprint({ ...item({}), is_active: false }, text));
   });
 });

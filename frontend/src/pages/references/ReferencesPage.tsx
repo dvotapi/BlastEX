@@ -17,7 +17,7 @@ import { PublishBar } from "./PublishBar";
 import { RecordForm, type DraftItem } from "./RecordForm";
 import { SectionList } from "./SectionList";
 import { SectionNav, type SectionStat } from "./SectionNav";
-import { defaultPayload, sectionFields } from "./schemaFields";
+import { defaultPayload, numericPayloadKeys, sectionFields } from "./schemaFields";
 import type { RefOption } from "./fields/RefSelect";
 
 function rowId(): string {
@@ -109,7 +109,20 @@ export function ReferencesPage({ user }: { user: User }) {
     return map;
   }, [snapshot]);
 
-  const diff = useMemo(() => countDraftChanges(draft, publishedByCode), [draft, publishedByCode]);
+  // Что считать числом, знает только схема раздела: без неё текстовые коды
+  // из цифр («0021») сравнивались бы как числа и правка терялась.
+  const numericKeys = useMemo(() => {
+    const bySection = new Map<string, ReadonlySet<string>>();
+    for (const [code, section] of Object.entries(catalog?.sections ?? {})) {
+      bySection.set(code, numericPayloadKeys(section.json_schema));
+    }
+    return (section: string): ReadonlySet<string> => bySection.get(section) ?? new Set<string>();
+  }, [catalog]);
+
+  const diff = useMemo(
+    () => countDraftChanges(draft, publishedByCode, numericKeys),
+    [draft, publishedByCode, numericKeys],
+  );
 
   const changedRows = diff.changed;
   const changeCount = changedRows.size;

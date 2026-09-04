@@ -5,6 +5,7 @@ import {
   describeField,
   formatFieldValue,
   formFieldsets,
+  numericPayloadKeys,
   sectionFields,
   toFormValues,
   toPayload,
@@ -189,5 +190,26 @@ describe("НДС и форматирование", () => {
     const field = describeField("norm_shifts_per_month", POSITIONS_SCHEMA.properties!.norm_shifts_per_month);
     expect(formatFieldValue("21", field).replace(/\s/g, " ")).toBe("21 см/мес");
     expect(formatFieldValue(null, field)).toBe("—");
+  });
+});
+
+describe("числовые поля раздела", () => {
+  it("собирает ключи, у которых схема допускает число", () => {
+    expect(numericPayloadKeys(POSITIONS_SCHEMA)).toEqual(new Set(["norm_shifts_per_month"]));
+  });
+
+  it("не считает числовым текстовое поле из цифр", () => {
+    const schema: JsonSchemaObject = {
+      type: "object",
+      properties: {
+        inn: { anyOf: [{ type: "string" }, { type: "null" }], title: "ИНН" },
+        role: { enum: ["CUSTOMER"], type: "string", title: "Роль" },
+      },
+    };
+    expect(numericPayloadKeys(schema)).toEqual(new Set());
+  });
+
+  it("принимает раздел без схемы", () => {
+    expect(numericPayloadKeys(undefined)).toEqual(new Set());
   });
 });

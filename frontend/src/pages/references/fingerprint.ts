@@ -12,10 +12,9 @@ function isEmpty(value: unknown): boolean {
 /**
  * Приведение значения к сравнимому виду — без знания полей раздела.
  *
- * Сервер возвращает числа справочников строками, форма отдаёт их числами, а
- * незаполненные поля приходят то пустой строкой, то отсутствуют вовсе. Без
- * такой нормализации круг «выгрузили — загрузили» помечал бы правкой каждую
- * запись.
+ * Незаполненные поля приходят то пустой строкой, то отсутствуют вовсе, а
+ * порядок ключей объекта ничего не значит. Числовую запись здесь не трогаем:
+ * «0021» и «21» — разные значения, пока схема не сказала обратного.
  */
 function normalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalize);
@@ -29,21 +28,48 @@ function normalize(value: unknown): unknown {
     }
     return result;
   }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (NUMERIC.test(trimmed)) return Number(trimmed);
-    return trimmed;
-  }
+  if (typeof value === "string") return value.trim();
   return value;
 }
 
-/** Отпечаток записи: сравнение с опубликованной версией без учёта формы записи значений. */
-export function fingerprint(item: EconomicsReferenceItem): string {
+/**
+ * Числовое поле: сервер возвращает его строкой, форма — числом.
+ *
+ * Без такого приведения круг «выгрузили — загрузили» помечал бы правкой
+ * каждую запись.
+ */
+function normalizeNumber(value: unknown): unknown {
+  if (typeof value !== "string") return normalize(value);
+  const trimmed = value.trim();
+  return NUMERIC.test(trimmed) ? Number(trimmed) : trimmed;
+}
+
+function normalizePayload(
+  payload: Record<string, unknown> | undefined,
+  numericKeys: ReadonlySet<string>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload ?? {})) {
+    result[key] = numericKeys.has(key) ? normalizeNumber(value) : normalize(value);
+  }
+  return result;
+}
+
+/**
+ * Отпечаток записи: сравнение с опубликованной версией без учёта формы
+ * записи значений.
+ *
+ * `numericKeys` — числовые поля payload раздела по каталогу схем. Только их
+ * текстовая запись считается равной числу; остальные поля (ИНН, инвентарный
+ * номер) сравниваются посимвольно, иначе «0021» молча становилось бы «21» и
+ * настоящая правка выглядела бы чистой.
+ */
+export function fingerprint(item: EconomicsReferenceItem, numericKeys: ReadonlySet<string>): string {
   return JSON.stringify(
     normalize({
       code: item.code,
       name: item.name,
-      payload: item.payload,
+      payload: normalizePayload(item.payload, numericKeys),
       is_active: item.is_active,
       valid_from: item.valid_from,
       valid_to: item.valid_to,

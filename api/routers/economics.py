@@ -14,6 +14,8 @@ from api.schemas.economics import (
     PublicDeltaResponse,
     PublicLinkRequest,
     PublicLinkSchema,
+    PublicSyncSettingsRequest,
+    PublicSyncSettingsSchema,
     ReferenceImportResponse,
     ReferenceItemSchema,
     ReferencePublishRequest,
@@ -27,11 +29,12 @@ from api.schemas.economics import (
     TechnicalPassportCreateSchema,
     TechnicalPassportSchema,
 )
-from api.security import require_internal_access, require_reference_editor
+from api.security import require_admin, require_internal_access, require_reference_editor
 from api.services.economics_service import (
     calculate_event_and_store,
     calculate_and_store,
     create_technical_passport,
+    domain_sections,
     get_economics_repository,
     reference_schema_payload,
     reference_snapshot_payload,
@@ -39,10 +42,17 @@ from api.services.economics_service import (
     scenario_from_payload,
     validation_payload,
 )
-from api.services.public_sync_service import get_public_reader, public_delta_payload, public_link_payload
-from cost.v2.public_sync import PublicReader
+from api.services.public_sync_service import (
+    get_public_reader,
+    public_delta_payload,
+    public_link_payload,
+    public_settings_payload,
+    reference_issues,
+    settings_from_request,
+)
+from cost.v2.public_sync import PublicReader, PublicWriteError
 from cost.v2.reference_files import XLSX_MEDIA_TYPE, ReferenceFileError, export_json, export_xlsx, import_file
-from cost.v2.references import has_validation_errors, validate_reference_sections
+from cost.v2.references import has_validation_errors
 from cost.v2.repository import (
     EconomicsRecordNotFound,
     EconomicsRepository,
@@ -181,12 +191,71 @@ def get_reference_schema(
     return ReferenceSchemaResponse.model_validate(reference_schema_payload())
 
 
+@router.get("/references/public-settings", response_model=PublicSyncSettingsSchema)
+def get_public_settings(
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> PublicSyncSettingsSchema:
+    """Настройки обмена организации со схемой public (§4.5, §5).
+
+    Читать их может любой сотрудник: без них страница «Справочники» не знает,
+    показывать ли плашку журнала и переключатели зеркал.
+    """
+
+    organization_id, _ = _identity(session)
+    try:
+        settings = repository.get_public_sync_settings(organization_id)
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    return PublicSyncSettingsSchema.model_validate(public_settings_payload(settings))
+
+
+@router.put("/references/public-settings", response_model=PublicSyncSettingsSchema)
+def put_public_settings(
+    payload: PublicSyncSettingsRequest,
+    session: dict[str, object] = Depends(require_admin),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> PublicSyncSettingsSchema:
+    """Новое состояние настроек целиком; включение зеркала создаёт его таблицу."""
+
+    organization_id, user_id = _identity(session)
+    try:
+        saved = repository.set_public_sync_settings(
+            organization_id, user_id, settings_from_request(payload)
+        )
+    except PublicWriteError as exc:
+        # Таблицу зеркала создать не вышло — отказала чужая схема, а не BlastEX.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": str(exc)},
+        ) from exc
+    except EconomicsRepositoryError as exc:
+        # Раздел, которого нет среди зеркал (например, сопоставленный): это
+        # неверный запрос, а не отказ хранилища.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": str(exc)},
+        ) from exc
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    return PublicSyncSettingsSchema.model_validate(public_settings_payload(saved))
+
+
 @router.post("/references/validate", response_model=ReferenceValidationResponse)
 def validate_references(
     payload: ReferenceValidateRequest,
-    _session: dict[str, object] = Depends(require_internal_access),
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+    reader: PublicReader = Depends(get_public_reader),
 ) -> ReferenceValidationResponse:
-    return ReferenceValidationResponse.model_validate(validation_payload(payload.sections))
+    organization_id, _ = _identity(session)
+    try:
+        issues = reference_issues(
+            reader, repository, organization_id, domain_sections(payload.sections)
+        )
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    return ReferenceValidationResponse.model_validate(validation_payload(issues))
 
 
 @router.post("/references/publish", response_model=ReferenceSnapshotSchema)
@@ -194,13 +263,15 @@ def publish_references(
     payload: ReferencePublishRequest,
     session: dict[str, object] = Depends(require_reference_editor),
     repository: EconomicsRepository = Depends(get_economics_repository),
+    reader: PublicReader = Depends(get_public_reader),
 ) -> ReferenceSnapshotSchema:
     organization_id, user_id = _identity(session)
-    sections = {
-        section: [item.to_domain() for item in items]
-        for section, items in payload.sections.items()
-    }
-    issues = validate_reference_sections(sections)
+    sections = domain_sections(payload.sections)
+    links = [_public_link(link) for link in payload.public_links]
+    try:
+        issues = reference_issues(reader, repository, organization_id, sections, links)
+    except Exception as exc:
+        raise repository_error(exc) from exc
     if has_validation_errors(issues):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -213,7 +284,7 @@ def publish_references(
             base_revision=payload.base_revision,
             sections=sections,
             comment=payload.comment,
-            public_links=[_public_link(link) for link in payload.public_links],
+            public_links=links,
         )
         return ReferenceSnapshotSchema.model_validate(reference_snapshot_payload(snapshot))
     except PublicLinkConflict as exc:
@@ -221,6 +292,13 @@ def publish_references(
         # связи не записаны — это выбор пользователя, а не отказ хранилища.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc)},
+        ) from exc
+    except PublicWriteError as exc:
+        # Журнал не принял выгрузку: ревизии нет, транзакция откачена целиком
+        # (§4.5). Отказала чужая система — 502, а не 503 «Cost V2 недоступен».
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"message": str(exc)},
         ) from exc
     except Exception as exc:

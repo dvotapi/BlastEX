@@ -7,7 +7,10 @@ from fastapi.testclient import TestClient
 from api.routers import economics
 from api.security import SESSION_COOKIE, create_session_token
 from api.services.economics_service import get_economics_repository
+from api.services.public_sync_service import get_public_reader
+from cost.v2.public_sync import StaticPublicReader
 from cost.v2.repository import InMemoryEconomicsRepository
+from tests.test_public_sync_mapping import make_snapshot
 
 
 def _client(monkeypatch) -> tuple[TestClient, InMemoryEconomicsRepository]:
@@ -76,6 +79,50 @@ def test_user_cannot_publish_references(monkeypatch) -> None:
         },
     )
     assert response.status_code == 403
+
+
+def test_publish_with_exchange_enabled_links_new_counterparty(monkeypatch) -> None:
+    """Обмен включён, данные проходят ограничения журнала — публикация штатная.
+
+    In-memory репозиторий журнал не пишет, но связи вставок создаёт: по ним
+    видно, что план выгрузки построен и валидация его не остановила.
+    """
+
+    client, repository = _client(monkeypatch)
+    repository.public_snapshot = make_snapshot()
+    client.app.dependency_overrides[get_public_reader] = lambda: StaticPublicReader(make_snapshot())
+    settings = client.put(
+        "/api/v1/economics/references/public-settings",
+        json={"exchange_enabled": True, "mirror_sections": {}},
+    )
+    assert settings.status_code == 200, settings.text
+
+    snapshot = client.get("/api/v1/economics/references/snapshot").json()
+    sections = snapshot["sections"]
+    sections["counterparties"] = [
+        {
+            "code": "CP_NEW",
+            "name": 'Общество с ограниченной ответственностью "Новый"',
+            "payload": {"role": "SUPPLIER", "inn": "7708123456", "short_name": 'ООО "Новый"'},
+            "is_active": True,
+        }
+    ]
+
+    published = client.post(
+        "/api/v1/economics/references/publish",
+        json={
+            "base_revision": snapshot["revision_id"],
+            "sections": sections,
+            "comment": "выгрузка",
+        },
+    )
+
+    assert published.status_code == 200, published.text
+    links = client.get("/api/v1/economics/references/public-links").json()
+    created = [link for link in links if link["code"] == "CP_NEW"]
+    assert len(created) == 1
+    assert created[0]["section"] == "counterparties"
+    assert created[0]["public_table"] == "counterparties"
 
 
 def test_scenario_crud_and_calculation_run(monkeypatch) -> None:

@@ -322,6 +322,31 @@ class PublicLinkSchema(BaseModel):
     synced_at: str | None = None
 
 
+class PublicSyncSettingsRequest(BaseModel):
+    """Новое состояние настроек обмена целиком, а не правка отдельного флага.
+
+    Раздела нет в ``mirror_sections`` — его зеркало выключено: клиент присылает
+    то, что видит на странице, и не должен помнить прежнее состояние.
+    """
+
+    exchange_enabled: bool
+    mirror_sections: dict[str, bool] = Field(default_factory=dict)
+
+
+class PublicSyncSettingsSchema(BaseModel):
+    """Настройки обмена и справочные списки разделов для страницы «Справочники».
+
+    ``mirror_sections`` перечисляет все разделы, которые можно зеркалировать,
+    с их состоянием; ``mapped_sections`` — разделы, которые выгружаются
+    сопоставлением таблиц и своего переключателя не имеют.
+    """
+
+    exchange_enabled: bool
+    mirror_sections: dict[str, bool] = Field(default_factory=dict)
+    mirrorable_sections: list[str] = Field(default_factory=list)
+    mapped_sections: list[str] = Field(default_factory=list)
+
+
 class EventCalculationRequest(BaseModel):
     technical_passport_id: str
     name: str = Field("Один взрыв", min_length=1, max_length=300)

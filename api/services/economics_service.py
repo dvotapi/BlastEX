@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 from fastapi import HTTPException, status
 
@@ -14,13 +14,13 @@ from api.schemas.economics import (
     TechnicalPassportCreateSchema,
 )
 from cost.v2.engine import FORMULA_VERSION, calculate_scenario
-from cost.v2.models import EconomicScenario
+from cost.v2.models import EconomicScenario, ReferenceItem
 from cost.v2.references import (
     REFERENCE_SECTION_DEFINITIONS,
+    ValidationIssue,
     group_catalog,
     has_validation_errors,
     section_catalog,
-    validate_reference_sections,
 )
 from cost.v2.schemas import SECTION_SCHEMAS, section_fieldsets, section_json_schema
 from cost.v2.repository import (
@@ -74,11 +74,24 @@ def reference_schema_payload() -> dict[str, Any]:
     return {"groups": group_catalog(), "sections": sections}
 
 
-def validation_payload(sections: dict[str, list[ReferenceItemSchema]]) -> dict[str, Any]:
-    domain_sections = {
+def domain_sections(
+    sections: Mapping[str, Sequence[ReferenceItemSchema]],
+) -> dict[str, list[ReferenceItem]]:
+    """Разделы запроса в доменный вид — одинаково для валидации и публикации."""
+
+    return {
         section: [item.to_domain() for item in items] for section, items in sections.items()
     }
-    issues = validate_reference_sections(domain_sections)
+
+
+def validation_payload(issues: Sequence[ValidationIssue]) -> dict[str, Any]:
+    """Ответ валидации по готовому списку замечаний.
+
+    Замечания собирает вызывающий: при включённом обмене к общим проверкам
+    добавляются ограничения журнала (``public_sync_service``), и решать, что
+    ответ невалиден, нужно уже по полному списку.
+    """
+
     return {
         "valid": not has_validation_errors(issues),
         "issues": [issue.to_dict() for issue in issues],

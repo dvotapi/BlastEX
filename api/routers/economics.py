@@ -10,6 +10,10 @@ from api.schemas.economics import (
     CalculationRunSchema,
     EconomicScenarioSchema,
     EventCalculationRequest,
+    PublicDeltaRequest,
+    PublicDeltaResponse,
+    PublicLinkRequest,
+    PublicLinkSchema,
     ReferenceImportResponse,
     ReferenceItemSchema,
     ReferencePublishRequest,
@@ -35,9 +39,18 @@ from api.services.economics_service import (
     scenario_from_payload,
     validation_payload,
 )
+from api.services.public_sync_service import get_public_reader, public_delta_payload, public_link_payload
+from cost.v2.public_sync import PublicReader
 from cost.v2.reference_files import XLSX_MEDIA_TYPE, ReferenceFileError, export_json, export_xlsx, import_file
 from cost.v2.references import has_validation_errors, validate_reference_sections
-from cost.v2.repository import EconomicsRepository
+from cost.v2.repository import (
+    EconomicsRecordNotFound,
+    EconomicsRepository,
+    EconomicsRepositoryError,
+    PublicLink,
+    PublicLinkConflict,
+    ReferenceRevisionConflict,
+)
 from cost.v2.technical_adapter import adapt_blast_block
 
 
@@ -50,6 +63,17 @@ MAX_REFERENCE_FILE_BYTES = 20 * 1024 * 1024
 
 def _identity(session: dict[str, object]) -> tuple[str, str]:
     return str(session.get("org") or "default"), str(session.get("sub") or "unknown")
+
+
+def _public_link(request: PublicLinkRequest) -> PublicLink:
+    """Связь из запроса в доменный вид: раздел и таблицу схема уже проверила."""
+
+    return PublicLink(
+        section=request.section,
+        code=request.code,
+        public_table=request.public_table,
+        public_id=request.public_id,
+    )
 
 
 @router.post("/technical-drivers", response_model=TechnicalDriverResponse)
@@ -189,8 +213,16 @@ def publish_references(
             base_revision=payload.base_revision,
             sections=sections,
             comment=payload.comment,
+            public_links=[_public_link(link) for link in payload.public_links],
         )
         return ReferenceSnapshotSchema.model_validate(reference_snapshot_payload(snapshot))
+    except PublicLinkConflict as exc:
+        # Строка журнала занята другой записью справочника: ни ревизия, ни
+        # связи не записаны — это выбор пользователя, а не отказ хранилища.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc)},
+        ) from exc
     except Exception as exc:
         raise repository_error(exc) from exc
 
@@ -220,6 +252,81 @@ def get_reference_revision(
     try:
         snapshot = repository.get_reference_snapshot(organization_id, revision_id)
         return ReferenceSnapshotSchema.model_validate(reference_snapshot_payload(snapshot))
+    except Exception as exc:
+        raise repository_error(exc) from exc
+
+
+@router.post("/references/public-delta", response_model=PublicDeltaResponse)
+def get_public_delta(
+    payload: PublicDeltaRequest,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+    reader: PublicReader = Depends(get_public_reader),
+) -> PublicDeltaResponse:
+    """Разница журнала public с переданным черновиком (§4.4).
+
+    Недоступность public — не ошибка запроса: ответ 200 с ``available: false``
+    и текстом причины, страница «Справочники» продолжает работать без журнала.
+    """
+
+    organization_id, _ = _identity(session)
+    try:
+        return PublicDeltaResponse.model_validate(
+            public_delta_payload(
+                reader,
+                repository,
+                organization_id,
+                payload.sections,
+                [_public_link(link) for link in payload.pending_links],
+            )
+        )
+    except Exception as exc:
+        # Недоступность журнала уже обработана внутри сервиса; сюда доходит
+        # только отказ хранилища связей — это 503, а не пустая разница.
+        raise repository_error(exc) from exc
+
+
+@router.post(
+    "/references/public-links",
+    response_model=PublicLinkSchema,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_public_link(
+    payload: PublicLinkRequest,
+    session: dict[str, object] = Depends(require_reference_editor),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> PublicLinkSchema:
+    organization_id, user_id = _identity(session)
+    try:
+        saved = repository.save_public_link(organization_id, user_id, _public_link(payload))
+    except (ReferenceRevisionConflict, EconomicsRecordNotFound) as exc:
+        # Подклассы `EconomicsRepositoryError` со своими кодами (409 с
+        # заголовком ревизии и 404) разбирает `repository_error`, поэтому они
+        # ловятся раньше базового класса.
+        raise repository_error(exc) from exc
+    except EconomicsRepositoryError as exc:
+        # Строка public уже связана с другой записью раздела — это конфликт
+        # выбора пользователя, а не поломка хранилища (503 из repository_error).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc)},
+        ) from exc
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    return PublicLinkSchema.model_validate(public_link_payload(saved))
+
+
+@router.get("/references/public-links", response_model=list[PublicLinkSchema])
+def list_public_links(
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> list[PublicLinkSchema]:
+    organization_id, _ = _identity(session)
+    try:
+        return [
+            PublicLinkSchema.model_validate(public_link_payload(link))
+            for link in repository.list_public_links(organization_id)
+        ]
     except Exception as exc:
         raise repository_error(exc) from exc
 

@@ -26,6 +26,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
@@ -33,12 +34,15 @@ from cost.v2.references import default_reference_snapshot, normalize_sections
 from cost.v2.repository import (
     EconomicsRecordNotFound,
     LegacyWorkspaceSettings,
+    PublicLink,
+    PublicLinkConflict,
     ReferenceRevisionConflict,
     ReferenceRevisionInfo,
     StoredCalculationRun,
     StoredEconomicsRun,
     StoredScenario,
     StoredTechnicalPassport,
+    links_for_sections,
 )
 
 
@@ -280,6 +284,33 @@ class AuditLogRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class PublicLinkRow(Base):
+    __tablename__ = "public_links"
+    __table_args__ = (
+        UniqueConstraint("public_table", "public_id", name="uq_public_links_public_row"),
+        {"schema": SCHEMA},
+    )
+
+    organization_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    section: Mapped[str] = mapped_column(String(64), primary_key=True)
+    code: Mapped[str] = mapped_column(String(120), primary_key=True)
+    public_table: Mapped[str] = mapped_column(String(64), nullable=False)
+    public_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
+class PublicMirrorSectionRow(Base):
+    __tablename__ = "public_mirror_sections"
+    __table_args__ = ({"schema": SCHEMA},)
+
+    organization_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    section: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
 class PostgresEconomicsRepository:
     def __init__(self, database_url: str) -> None:
         self.engine = create_engine(database_url, pool_pre_ping=True, future=True)
@@ -383,9 +414,14 @@ class PostgresEconomicsRepository:
         base_revision: str,
         sections: dict[str, Any],
         comment: str = "",
+        public_links: Sequence[PublicLink] = (),
     ) -> ReferenceSnapshot:
         self._ensure_defaults(organization_id)
         normalized = normalize_sections(sections)
+        # Связи черновика записываются той же транзакцией и под той же
+        # блокировкой, что и ревизия: иначе между записью ревизии и записью
+        # связи есть окно, в котором строка журнала снова выглядит несвязанной.
+        saved_links = links_for_sections(public_links, normalized)
         now = datetime.now(timezone.utc).replace(microsecond=0)
         revision_id = str(uuid4())
         with self.session_factory() as session, session.begin():
@@ -438,6 +474,8 @@ class PostgresEconomicsRepository:
                     created_at=now,
                 )
             )
+            for link in saved_links:
+                self._upsert_public_link(session, organization_id, user_id, link, now)
         return self.get_reference_snapshot(organization_id, revision_id)
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
@@ -899,6 +937,133 @@ class PostgresEconomicsRepository:
                     row.updated_by = user_id
                 imported.append(scenario_key)
         return imported
+
+    def list_public_links(self, organization_id: str) -> Sequence[PublicLink]:
+        with self.session_factory() as session:
+            rows = session.scalars(
+                select(PublicLinkRow)
+                .where(PublicLinkRow.organization_id == organization_id)
+                .order_by(PublicLinkRow.section, PublicLinkRow.code)
+            ).all()
+            return tuple(self._public_link(row) for row in rows)
+
+    @staticmethod
+    def _upsert_public_link(
+        session: Session,
+        organization_id: str,
+        user_id: str,
+        link: PublicLink,
+        now: datetime,
+    ) -> None:
+        """Upsert связи по (organization_id, section, code) внутри транзакции.
+
+        Уникальность (public_table, public_id) проверяется и записывается в
+        одной транзакции; `uq_public_links_public_row` в БД — подстраховка на
+        случай гонки, поэтому её нарушение тоже превращается в понятную
+        доменную ошибку, а не в необработанный IntegrityError. Ради этого
+        строка сбрасывается в базу сразу: при публикации откатить нужно и
+        ревизию, а не только связь.
+        """
+
+        conflict = session.scalar(
+            select(PublicLinkRow).where(
+                PublicLinkRow.public_table == link.public_table,
+                PublicLinkRow.public_id == link.public_id,
+            )
+        )
+        if conflict is not None and (
+            conflict.organization_id != organization_id
+            or conflict.section != link.section
+            or conflict.code != link.code
+        ):
+            raise PublicLinkConflict(link.public_table, link.public_id)
+        row = session.scalar(
+            select(PublicLinkRow).where(
+                PublicLinkRow.organization_id == organization_id,
+                PublicLinkRow.section == link.section,
+                PublicLinkRow.code == link.code,
+            )
+        )
+        if row is None:
+            session.add(
+                PublicLinkRow(
+                    organization_id=organization_id,
+                    section=link.section,
+                    code=link.code,
+                    public_table=link.public_table,
+                    public_id=link.public_id,
+                    synced_at=now,
+                    updated_by=user_id,
+                )
+            )
+        else:
+            row.public_table = link.public_table
+            row.public_id = link.public_id
+            row.synced_at = now
+            row.updated_by = user_id
+        try:
+            session.flush()
+        except IntegrityError as exc:
+            if "uq_public_links_public_row" in str(getattr(exc, "orig", exc)):
+                raise PublicLinkConflict(link.public_table, link.public_id) from exc
+            raise
+
+    def save_public_link(self, organization_id: str, user_id: str, link: PublicLink) -> PublicLink:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            self._upsert_public_link(session, organization_id, user_id, link, now)
+        return PublicLink(
+            section=link.section,
+            code=link.code,
+            public_table=link.public_table,
+            public_id=link.public_id,
+            synced_at=now,
+        )
+
+    def list_mirror_sections(self, organization_id: str) -> dict[str, bool]:
+        with self.session_factory() as session:
+            rows = session.scalars(
+                select(PublicMirrorSectionRow).where(
+                    PublicMirrorSectionRow.organization_id == organization_id
+                )
+            ).all()
+            return {row.section: row.enabled for row in rows}
+
+    def set_mirror_section(
+        self, organization_id: str, user_id: str, section: str, enabled: bool
+    ) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            row = session.scalar(
+                select(PublicMirrorSectionRow).where(
+                    PublicMirrorSectionRow.organization_id == organization_id,
+                    PublicMirrorSectionRow.section == section,
+                )
+            )
+            if row is None:
+                session.add(
+                    PublicMirrorSectionRow(
+                        organization_id=organization_id,
+                        section=section,
+                        enabled=enabled,
+                        updated_at=now,
+                        updated_by=user_id,
+                    )
+                )
+            else:
+                row.enabled = enabled
+                row.updated_at = now
+                row.updated_by = user_id
+
+    @staticmethod
+    def _public_link(row: PublicLinkRow) -> PublicLink:
+        return PublicLink(
+            section=row.section,
+            code=row.code,
+            public_table=row.public_table,
+            public_id=row.public_id,
+            synced_at=row.synced_at,
+        )
 
     def _insert_reference_items(
         self,

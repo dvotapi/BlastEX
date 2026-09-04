@@ -18,8 +18,16 @@ __all__ = [
 
 
 class EquipmentTypePayload(ReferencePayload):
-    kind: Literal["DRILL_RIG", "SZM", "HAZMAT_TRUCK", "LIGHT_VEHICLE", "TRACTOR"] = Field(
-        default="DRILL_RIG", description="Вид техники"
+    kind: Literal["DRILL_RIG", "SZM", "HAZMAT_TRUCK", "LIGHT_VEHICLE", "TRACTOR", "OTHER"] = Field(
+        default="DRILL_RIG", description="Вид техники; OTHER — прочая техника без норм модели"
+    )
+    brand: str | None = Field(
+        default=None, title="Марка", description="Производитель или марка по журналу"
+    )
+    machine_type_name: str | None = Field(
+        default=None,
+        title="Тип машины по журналу",
+        description="Название типа машины в журнале буровых работ",
     )
     operation_code: str | None = RefField(
         "operations", title="Операция", description="Операция, чьи смены потребляет техника", default=None
@@ -68,6 +76,7 @@ class EquipmentAssetPayload(ReferencePayload):
     )
     insurance_monthly_rub: Decimal = UnitField("₽/мес", description="Страхование (ОСАГО)", default=Decimal("0"))
     inventory_number: str | None = Field(default=None, description="Инвентарный номер")
+    serial_number: str | None = Field(default=None, title="Заводской номер", description="Серийный номер по журналу")
     # Cost V1 хранил амортизацию уже посчитанной за смену; поле сохраняется при
     # импорте, пока запись не переведут на первоначальную стоимость и срок.
     productive_shifts_per_month: Decimal | None = UnitField(

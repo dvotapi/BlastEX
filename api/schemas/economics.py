@@ -4,9 +4,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.schemas.cost import BlockGeometrySchema
+from cost.v2.public_sync.mapping import TABLES as PUBLIC_TABLES
+from cost.v2.references import REFERENCE_SECTION_DEFINITIONS
 from cost.v2.models import (
     CapacityChoice,
     EconomicScenario,
@@ -42,6 +44,37 @@ class ReferenceSnapshotSchema(BaseModel):
     group_catalog: list[dict[str, str]] = Field(default_factory=list)
 
 
+class PublicLinkRequest(BaseModel):
+    """Связь записи справочника со строкой журнала public.
+
+    Раздел и таблица проверяются по каталогам, а не принимаются любым текстом:
+    связь с несуществующим разделом никогда не даст разницы, а молча лежать в
+    базе она будет долго. Длины совпадают с колонками ``public_links``.
+
+    Объявлена раньше запросов справочников: связи ходят вместе с черновиком —
+    в запросе разницы как ожидающие и в запросе публикации как сохраняемые.
+    """
+
+    section: str = Field(..., min_length=1, max_length=64)
+    code: str = Field(..., min_length=1, max_length=80)
+    public_table: str = Field(..., min_length=1, max_length=64)
+    public_id: int
+
+    @field_validator("section")
+    @classmethod
+    def _known_section(cls, value: str) -> str:
+        if value not in REFERENCE_SECTION_DEFINITIONS:
+            raise ValueError(f"Неизвестный раздел справочников: {value}")
+        return value
+
+    @field_validator("public_table")
+    @classmethod
+    def _known_table(cls, value: str) -> str:
+        if value not in PUBLIC_TABLES:
+            raise ValueError(f"Неизвестная таблица журнала public: {value}")
+        return value
+
+
 class ReferenceValidateRequest(BaseModel):
     sections: dict[str, list[ReferenceItemSchema]]
 
@@ -49,6 +82,10 @@ class ReferenceValidateRequest(BaseModel):
 class ReferencePublishRequest(ReferenceValidateRequest):
     base_revision: str
     comment: str = ""
+    # Связи, накопленные в черновике: записываются в одной транзакции с
+    # ревизией (§4.3), поэтому приходят вместе с разделами, а не отдельным
+    # запросом до публикации.
+    public_links: list[PublicLinkRequest] = Field(default_factory=list)
 
 
 class ReferenceValidationIssueSchema(BaseModel):
@@ -239,6 +276,50 @@ class TechnicalPassportSchema(BaseModel):
     lineage: dict[str, str]
     created_at: str
     created_by: str
+
+
+class PublicDeltaRequest(BaseModel):
+    """Черновик для сравнения с журналом public — как ``ReferenceValidateRequest``.
+
+    ``pending_links`` — связи, выбранные в черновике и ещё не опубликованные:
+    сервер считает такие строки журнала связанными, иначе применённая, но не
+    опубликованная запись каждый раз возвращалась бы как «новая».
+    """
+
+    sections: dict[str, list[ReferenceItemSchema]]
+    pending_links: list[PublicLinkRequest] = Field(default_factory=list)
+
+
+class PublicFieldChangeSchema(BaseModel):
+    key: str
+    old: Any = None
+    new: Any = None
+
+
+class PublicDeltaEntrySchema(BaseModel):
+    kind: Literal["new", "changed", "deactivated"]
+    section: str
+    public_table: str
+    public_id: int
+    code: str
+    name: str
+    item: ReferenceItemSchema
+    changes: list[PublicFieldChangeSchema] = Field(default_factory=list)
+
+
+class PublicDeltaResponse(BaseModel):
+    available: bool
+    error: str = ""
+    counts: dict[str, int] = Field(default_factory=dict)
+    entries: list[PublicDeltaEntrySchema] = Field(default_factory=list)
+
+
+class PublicLinkSchema(BaseModel):
+    section: str
+    code: str
+    public_table: str
+    public_id: int
+    synced_at: str | None = None
 
 
 class EventCalculationRequest(BaseModel):

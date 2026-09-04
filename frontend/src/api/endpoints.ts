@@ -116,6 +116,9 @@ import type {
   EconomicScenario,
   EconomicsReferenceItem,
   EconomicsReferenceSnapshot,
+  PublicDelta,
+  PublicLink,
+  PublicLinkRequest,
   ReferenceImportResult,
   ReferenceRevision,
   ReferenceValidation,
@@ -242,6 +245,8 @@ export const api = {
       base_revision: string;
       sections: Record<string, EconomicsReferenceItem[]>;
       comment: string;
+      /** Связи черновика: записываются в одной транзакции с ревизией. */
+      public_links: PublicLinkRequest[];
     }) => post<EconomicsReferenceSnapshot>(`${V1}/economics/references/publish`, payload),
     revisions: () => get<ReferenceRevision[]>(`${V1}/economics/references/revisions`),
     exportReferences: async (format: "xlsx" | "json", revisionId?: string) => {
@@ -263,6 +268,22 @@ export const api = {
     },
     importReferences: (file: File) =>
       postFile<ReferenceImportResult>(`${V1}/economics/references/import`, file),
+    /**
+     * Разница черновика с журналом project1: недоступность журнала — тоже 200.
+     * `pendingLinks` — связи, выбранные в черновике и ещё не опубликованные:
+     * сервер считает такие строки журнала связанными.
+     */
+    publicDelta: (
+      sections: Record<string, EconomicsReferenceItem[]>,
+      pendingLinks: PublicLinkRequest[] = [],
+    ) =>
+      post<PublicDelta>(`${V1}/economics/references/public-delta`, {
+        sections,
+        pending_links: pendingLinks,
+      }),
+    publicLinks: () => get<PublicLink[]>(`${V1}/economics/references/public-links`),
+    savePublicLink: (link: PublicLinkRequest) =>
+      post<PublicLink>(`${V1}/economics/references/public-links`, link),
     scenarios: () => get<StoredEconomicScenario[]>(`${V1}/economics/scenarios`),
     scenario: (id: string) => get<StoredEconomicScenario>(`${V1}/economics/scenarios/${id}`),
     createScenario: (scenario: EconomicScenario) =>

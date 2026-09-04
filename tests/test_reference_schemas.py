@@ -267,3 +267,43 @@ class TestLegacyEngineFields:
         assert payload.chart_label == "ГРАНУЛИТ-РП"
         schema = section_json_schema("materials")
         assert schema["properties"]["density_t_m3"]["x-unit"] == "т/м³"
+
+
+class TestPublicExchangeFields:
+    """Поля, без которых обмен со схемой public теряет данные (спецификация §4.2)."""
+
+    def test_site_fields(self):
+        from cost.v2.schemas.organization import SitePayload
+
+        payload = SitePayload(short_name="ЛОМ", mineral_type="нерудные материалы", customer_legal_name='АО "ТК"')
+        assert payload.short_name == "ЛОМ"
+        with pytest.raises(ValidationError):
+            SitePayload(short_name="СЛИШКОМ")
+        schema = section_json_schema("sites")
+        assert schema["properties"]["short_name"]["title"] == "Краткое имя"
+        assert schema["properties"]["customer_legal_name"]["title"] == "Заказчик текстом"
+
+    def test_counterparty_short_name(self):
+        from cost.v2.schemas.organization import CounterpartyPayload
+
+        assert CounterpartyPayload(short_name='ООО "ПОМБУР"').short_name == 'ООО "ПОМБУР"'
+
+    def test_equipment_fields_and_other_kind(self):
+        from cost.v2.schemas.equipment import EquipmentAssetPayload, EquipmentTypePayload
+
+        item = EquipmentTypePayload(kind="OTHER", brand="INTEO", machine_type_name="Самосвал")
+        assert item.kind == "OTHER" and item.brand == "INTEO"
+        asset = EquipmentAssetPayload(equipment_type_code="T", serial_number="JK2526063L")
+        assert asset.serial_number == "JK2526063L"
+        assert "OTHER" in section_json_schema("equipment_types")["properties"]["kind"]["enum"]
+
+    def test_material_tool_and_delay_fields(self):
+        from cost.v2.schemas.materials import MaterialPayload
+
+        tool = MaterialPayload(lifetime_m=Decimal("600"), diameter_mm=Decimal("152"), thread_type="DHD350")
+        assert tool.lifetime_m == Decimal("600")
+        schema = section_json_schema("materials")["properties"]
+        assert schema["lifetime_m"]["x-unit"] == "м"
+        assert schema["diameter_mm"]["x-unit"] == "мм"
+        assert schema["delay_ms"]["x-unit"] == "мс"
+        assert MaterialPayload(delay_ms=Decimal("42")).delay_ms == Decimal("42")

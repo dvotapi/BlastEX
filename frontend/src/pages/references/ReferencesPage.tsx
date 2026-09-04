@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import type { User } from "../../types";
 import type {
   EconomicsReferenceItem,
   EconomicsReferenceSnapshot,
+  PublicDelta,
+  PublicDeltaEntry,
   ReferenceRevision,
   ReferenceValidationIssue,
 } from "../../types/economics";
@@ -13,12 +15,30 @@ import { plural } from "../../lib/plural";
 import { countDraftChanges } from "./draftDiff";
 import { DrillingConditionsMatrix, type MatrixMode } from "./DrillingConditionsMatrix";
 import { mergeImportedSections, type DraftSections } from "./importDraft";
+import {
+  applyDeltaEntries,
+  mergePendingLinks,
+  resolvePendingLinks,
+  type PendingLink,
+} from "./publicDelta";
+import { PublicDeltaBanner } from "./PublicDeltaBanner";
 import { PublishBar } from "./PublishBar";
 import { RecordForm, type DraftItem } from "./RecordForm";
 import { SectionList } from "./SectionList";
 import { SectionNav, type SectionStat } from "./SectionNav";
 import { defaultPayload, numericPayloadKeys, sectionFields } from "./schemaFields";
 import type { RefOption } from "./fields/RefSelect";
+
+// Поля самой записи справочника (не payload): их подписи одинаковы во всех
+// разделах, схема раздела о них ничего не знает.
+const PAYLOAD_PREFIX = "payload.";
+const TOP_LEVEL_FIELD_LABELS: Record<string, string> = {
+  name: "Наименование",
+  is_active: "Активна",
+  comment: "Комментарий",
+  valid_from: "Действует с",
+  valid_to: "Действует по",
+};
 
 function rowId(): string {
   const token =
@@ -64,7 +84,50 @@ export function ReferencesPage({ user }: { user: User }) {
   const [revisions, setRevisions] = useState<ReferenceRevision[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [publicDelta, setPublicDelta] = useState<PublicDelta | null>(null);
+  // Связи со строками журнала копятся в черновике и записываются при
+  // публикации, одной транзакцией с ревизией. Ключ связи — `row_id` записи, а
+  // не код: код правится в форме, и связь должна идти за записью.
+  const [pendingLinks, setPendingLinks] = useState<PendingLink[]>([]);
   const canEdit = user.role === "admin" || user.role === "reference_editor";
+
+  // Номер последнего запроса разницы: ответы более ранних запросов
+  // игнорируются, иначе медленный первый ответ затёр бы свежий второй.
+  const deltaRequest = useRef(0);
+
+  /**
+   * Разница черновика с журналом project1. Ошибка запроса не ломает страницу:
+   * плашка показывает причину и кнопку «Повторить», справочники остаются
+   * рабочими и без журнала.
+   *
+   * Возвращает полученную разницу или `null`, если ответ устарел — пока он
+   * шёл, начался следующий запрос, и показывать нужно уже его результат.
+   */
+  const refreshPublicDelta = useCallback(
+    async (currentDraft: DraftSections, links: PendingLink[]): Promise<PublicDelta | null> => {
+      const request = (deltaRequest.current += 1);
+      let result: PublicDelta;
+      try {
+        // Ожидающие связи уходят вместе с черновиком: без них применённая, но
+        // ещё не опубликованная запись каждый раз возвращалась бы «новой».
+        result = await api.economics.publicDelta(
+          toSections(currentDraft),
+          resolvePendingLinks(currentDraft, links),
+        );
+      } catch (reason) {
+        result = {
+          available: false,
+          error: reason instanceof Error ? reason.message : "неизвестная ошибка",
+          counts: { new: 0, changed: 0, deactivated: 0 },
+          entries: [],
+        };
+      }
+      if (request !== deltaRequest.current) return null;
+      setPublicDelta(result);
+      return result;
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -76,10 +139,12 @@ export function ReferencesPage({ user }: { user: User }) {
         api.economics.referenceSchema(),
         api.economics.referenceSnapshot(),
       ]);
+      const loadedDraft = toDraft(loaded);
       setCatalog(schema);
       setSnapshot(loaded);
-      setDraft(toDraft(loaded));
+      setDraft(loadedDraft);
       setNewRows(new Set());
+      setPendingLinks([]);
       setIssues([]);
       setSelectedRow("");
       setActiveSection((current) => (current && schema.sections[current] ? current : Object.keys(schema.sections)[0] ?? ""));
@@ -90,12 +155,13 @@ export function ReferencesPage({ user }: { user: User }) {
       } catch {
         setRevisions([]);
       }
+      await refreshPublicDelta(loadedDraft, []);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить справочники.");
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [refreshPublicDelta]);
 
   useEffect(() => {
     void load();
@@ -129,7 +195,9 @@ export function ReferencesPage({ user }: { user: User }) {
   const removedCount = diff.removed.length;
   // Удаление записи видно только по опубликованной ревизии: без него кнопка
   // публикации оставалась выключенной, а шапка говорила «Опубликовано».
-  const dirty = changeCount > 0 || removedCount > 0;
+  // Связь, выбранная в черновике, — тоже неопубликованное изменение: без неё
+  // кнопка публикации осталась бы выключенной и связь некуда было бы записать.
+  const dirty = changeCount > 0 || removedCount > 0 || pendingLinks.length > 0;
 
   const stats = useMemo(() => {
     const result: Record<string, SectionStat> = {};
@@ -161,6 +229,21 @@ export function ReferencesPage({ user }: { user: User }) {
   const sectionLabels = useMemo(
     () =>
       Object.fromEntries(Object.values(catalog?.sections ?? {}).map((section) => [section.code, section.label])),
+    [catalog],
+  );
+
+  /**
+   * Подпись поля в тексте изменения. Страница не знает полей payload: имя
+   * берётся из схемы раздела (`title`, затем `description`), а у полей самой
+   * записи справочника подписи одинаковы во всех разделах.
+   */
+  const fieldLabel = useCallback(
+    (section: string, key: string) => {
+      if (!key.startsWith(PAYLOAD_PREFIX)) return TOP_LEVEL_FIELD_LABELS[key] ?? key;
+      const name = key.slice(PAYLOAD_PREFIX.length);
+      const property = catalog?.sections[section]?.json_schema.properties?.[name];
+      return property?.title ?? property?.description ?? name;
+    },
     [catalog],
   );
 
@@ -285,6 +368,7 @@ export function ReferencesPage({ user }: { user: User }) {
     if (!snapshot) return;
     setDraft(toDraft(snapshot));
     setNewRows(new Set());
+    setPendingLinks([]);
     setIssues([]);
     setSelectedRow("");
   }
@@ -339,6 +423,94 @@ export function ReferencesPage({ user }: { user: User }) {
     }
   }
 
+  /**
+   * Применить всю разницу с журналом в черновик и пересчитать её заново.
+   *
+   * Показанная разница считалась по черновику на момент последней проверки:
+   * с тех пор пользователь мог править записи, и применение старых `entries`
+   * затёрло бы эти правки. Поэтому разница сначала перечитывается по текущему
+   * черновику, и применяется уже свежий ответ.
+   */
+  async function applyPublicDelta() {
+    if (!publicDelta || !publicDelta.available || !canEdit) return;
+    setBusy(true);
+    setError("");
+    try {
+      const fresh = await refreshPublicDelta(draft, pendingLinks);
+      // Ответ устарел — идёт более свежая проверка, она и обновит плашку.
+      if (!fresh) return;
+      if (!fresh.available) {
+        setError(`project1 недоступен: ${fresh.error}`);
+        return;
+      }
+      const merged = applyDeltaEntries(draft, fresh.entries, rowId);
+      if (!merged.applied) return;
+      setDraft(merged.draft);
+      // Применённая запись — это связь со строкой журнала: без неё та же
+      // строка вернулась бы как «новая» и завела бы дубль под кодом `PUB_*`.
+      // Связь ждёт публикации и записывается вместе с ревизией.
+      const applied: PendingLink[] = [];
+      for (const entry of fresh.entries) {
+        const row = (merged.draft[entry.section] ?? []).find((item) => item.code === entry.code);
+        if (!row) continue;
+        applied.push({
+          row_id: row.row_id,
+          section: entry.section,
+          public_table: entry.public_table,
+          public_id: entry.public_id,
+        });
+      }
+      const links = mergePendingLinks(pendingLinks, applied);
+      setPendingLinks(links);
+      // Записи, которых нет в опубликованной ревизии, помечаем как новые — так
+      // же, как добавленные вручную или пришедшие файлом.
+      setNewRows((current) => {
+        const next = new Set(current);
+        for (const entry of fresh.entries) {
+          if (publishedByCode.has(`${entry.section}::${entry.code}`)) continue;
+          const row = (merged.draft[entry.section] ?? []).find((item) => item.code === entry.code);
+          if (row) next.add(row.row_id);
+        }
+        return next;
+      });
+      setSelectedRow("");
+      const validation = await api.economics.validateReferences(toSections(merged.draft));
+      setIssues(validation.issues);
+      await refreshPublicDelta(merged.draft, links);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось проверить справочники.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Связать строку журнала с уже существующей записью: она перестанет быть
+   * «новой». Связь только выбирается — в базу она уходит при публикации
+   * ревизии, в которую вошла запись, поэтому отменённый черновик не оставляет
+   * связей на исчезнувшие коды.
+   */
+  async function linkPublicEntry(entry: PublicDeltaEntry, code: string) {
+    if (!canEdit || !code) return;
+    const row = (draft[entry.section] ?? []).find((item) => item.code === code);
+    if (!row) return;
+    const links = mergePendingLinks(pendingLinks, [
+      {
+        row_id: row.row_id,
+        section: entry.section,
+        public_table: entry.public_table,
+        public_id: entry.public_id,
+      },
+    ]);
+    setPendingLinks(links);
+    setBusy(true);
+    try {
+      await refreshPublicDelta(draft, links);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function publish() {
     if (!snapshot || !canEdit) return;
     if (!(await validate())) return;
@@ -349,14 +521,20 @@ export function ReferencesPage({ user }: { user: User }) {
         base_revision: snapshot.revision_id,
         sections: toSections(draft),
         comment,
+        public_links: resolvePendingLinks(draft, pendingLinks),
       });
+      const publishedDraft = toDraft(published);
       setSnapshot(published);
-      setDraft(toDraft(published));
+      setDraft(publishedDraft);
       setNewRows(new Set());
+      setPendingLinks([]);
       setSelectedRow("");
       setComment("");
       setIssues([]);
       setRevisions(await api.economics.revisions().catch(() => revisions));
+      // Черновик после публикации — это уже новая ревизия: плашка должна
+      // считать разницу от неё, а не показывать расхождения, которых нет.
+      await refreshPublicDelta(publishedDraft, []);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось опубликовать справочники.");
     } finally {
@@ -386,9 +564,16 @@ export function ReferencesPage({ user }: { user: User }) {
   const currentRevisionNo = revisions.find((item) => item.id === snapshot.revision_id)?.sequence_no;
   const revisionLabel = currentRevisionNo ? String(currentRevisionNo) : snapshot.revision_id;
 
-  const draftSummary = removedCount
-    ? `изменено: ${changeCount}, удалено: ${removedCount}`
-    : `${changeCount} ${plural(changeCount, ["изменение", "изменения", "изменений"])}`;
+  const draftSummary = [
+    removedCount
+      ? `изменено: ${changeCount}, удалено: ${removedCount}`
+      : `${changeCount} ${plural(changeCount, ["изменение", "изменения", "изменений"])}`,
+    // Связи записываются публикацией, поэтому их число видно там же, где
+    // остальное неопубликованное.
+    pendingLinks.length ? `связей к публикации: ${pendingLinks.length}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   const list = section && (
     <SectionList
@@ -418,6 +603,25 @@ export function ReferencesPage({ user }: { user: User }) {
           {dirty ? `Черновик · ${draftSummary}` : "Опубликовано"}
         </span>
       </header>
+
+      <PublicDeltaBanner
+        delta={publicDelta}
+        busy={busy}
+        canEdit={canEdit}
+        sectionLabel={(code) => sectionLabels[code] ?? code}
+        fieldLabel={fieldLabel}
+        // Связывать можно только с записью опубликованной ревизии: код записи,
+        // заведённой в этом черновике, ещё может исчезнуть или измениться, и
+        // связь осталась бы указывать в пустоту.
+        recordsOf={(code) =>
+          (draft[code] ?? [])
+            .filter((row) => row.is_active && row.code && publishedByCode.has(`${code}::${row.code}`))
+            .map((row) => ({ code: row.code, name: row.name }))
+        }
+        onRefresh={() => void refreshPublicDelta(draft, pendingLinks)}
+        onApplyAll={() => void applyPublicDelta()}
+        onLink={(entry, code) => void linkPublicEntry(entry, code)}
+      />
 
       {error && <div className="page-error">{error}</div>}
 

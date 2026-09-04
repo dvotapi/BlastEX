@@ -1,20 +1,25 @@
-"""Тесты тестовой базы со схемой ``public`` (наполняются в Task 4).
+"""Тесты чтения схемы ``public`` на реальном PostgreSQL.
 
-``test_public_schema_loads_and_seeds`` — дымовой тест на реальном
-PostgreSQL, пропускается без ``BLASTEX_TEST_DATABASE_URL``.
+Тесты с фикстурой ``public_db`` (дымовой и чтение журнала через
+``SqlPublicReader``) пропускаются без ``BLASTEX_TEST_DATABASE_URL``.
 
 Остальные тесты проверяют разбор DDL (``_statements``) без обращения к базе
 данных — обычная зависимость от ``Docs/public_schema.sql`` как эталона.
 """
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import text
 
+from sqlalchemy import create_engine
+
+from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader
 from tests.pg_public import _PUBLIC_SCHEMA_SQL, _statements, requires_pg, seed_public
 
-# Только дымовой тест на реальной базе требует BLASTEX_TEST_DATABASE_URL;
-# тесты разбора DDL (_statements) работают без базы данных, поэтому маркер
-# skipif навешан на конкретный тест, а не на весь модуль через pytestmark.
+# BLASTEX_TEST_DATABASE_URL требуют только тесты с фикстурой public_db;
+# разбор DDL (_statements) и обработка ошибки драйвера работают без
+# PostgreSQL, поэтому маркер skipif навешан на конкретные тесты, а не на
+# весь модуль через pytestmark.
 
 
 @requires_pg
@@ -126,3 +131,33 @@ def test_statements_from_real_ddl_have_no_standalone_sequences() -> None:
     statements = _statements(ddl)
 
     assert not any(statement.startswith("CREATE SEQUENCE") for statement in statements)
+
+
+@requires_pg
+def test_sql_reader_reads_seeded_tables(public_db) -> None:
+    seed_public(public_db)
+    snapshot = SqlPublicReader(public_db).read()
+
+    assert len(snapshot.table("sites")) == 2
+    assert snapshot.table("sites")[0].values["full_name"]
+
+
+@requires_pg
+def test_sql_reader_reports_missing_schema(public_db) -> None:
+    with public_db.begin() as conn:
+        conn.execute(text("DROP TABLE public.sites CASCADE"))
+
+    with pytest.raises(PublicUnavailable, match="public"):
+        SqlPublicReader(public_db).read()
+
+
+def test_sql_reader_wraps_driver_error_into_public_unavailable() -> None:
+    # SQLite здесь — просто источник ошибки драйвера: схемы public в ней нет.
+    # Проверяется не база, а то, что ошибка превращается в PublicUnavailable
+    # с русским текстом и причиной от драйвера.
+    engine = create_engine("sqlite://", future=True)
+
+    with pytest.raises(PublicUnavailable, match="Схема public недоступна") as error:
+        SqlPublicReader(engine).read()
+
+    assert "\n" not in str(error.value)

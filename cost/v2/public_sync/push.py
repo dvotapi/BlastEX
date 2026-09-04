@@ -20,6 +20,20 @@
 Поэтому внешних ключей (``machine_type_id``, ``model_id``) в ``values`` нет.
 ``PublicUpdate`` ссылок не меняет: тип машины у модели ставится один раз при
 вставке и дальше остаётся за журналом.
+
+Порядок вставок топологический, а не по таблицам: родитель всегда стоит
+раньше своего потребителя, поэтому строка ``machine_types`` идёт
+непосредственно перед моделью, которой она понадобилась, и вставки двух
+разделов могут чередоваться. Единственная гарантия для ``writer`` — читать
+план подряд.
+
+Неактивная запись без связи в журнал не заводится, поэтому вставленная строка
+``equipment_units`` всегда получает статус «В работе»: «Списано» при вставке
+недостижимо. Обновление обязательной колонки журнала пустым значением
+пропускается с предупреждением (``_REQUIRED_COLUMNS``) — иначе на ``NOT NULL``
+упала бы вся транзакция; вставку от того же прикрывает
+``public_constraint_issues``, которая проверяет и связанные записи, ведь их
+план обновляет независимо от активности.
 """
 from __future__ import annotations
 
@@ -47,9 +61,20 @@ _IN_WORK = "В работе"
 _WRITTEN_OFF = "Списано"
 
 # Вид техники без названия типа машины в журнале: подпись берётся обратным
-# ходом по словарю `MACHINE_KINDS` (первое название вида), а `OTHER` в нём не
-# встречается — для него подпись задана здесь.
+# ходом по словарю `MACHINE_KINDS`, а `OTHER` в нём не встречается — для него
+# подпись задана здесь.
 _OTHER_MACHINE_TYPE = "Прочая техника"
+
+# Обязательные (`NOT NULL`) колонки журнала: пустое значение в них не пишется.
+_REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
+    "counterparties": frozenset({"full_name", "inn"}),
+    "sites": frozenset({"full_name", "client_legal_name"}),
+    "machine_types": frozenset({"name"}),
+    "equipment_models": frozenset({"brand", "model_name"}),
+    "equipment_units": frozenset({"model_id", "internal_id"}),
+    "initiating_device_types": frozenset({"name"}),
+    "tool_types": frozenset({"name"}),
+}
 
 # Материалы, у которых есть таблица в журнале: остальные виды (ВВ, СВ, ТМЦ) в
 # журнале не хранятся и не выгружаются.
@@ -198,7 +223,7 @@ def _plan_counterparties(plan: _Plan, index: _Index) -> None:
             for column, wanted in (("is_client", is_client), ("is_supplier", is_supplier)):
                 if wanted and not row.get(column):
                     changed[column] = True
-            _add_update(plan, "counterparties", row, changed)
+            _add_update(plan, "counterparties", row, changed, "counterparties", item.code)
             continue
         if item.is_active:
             plan.inserts.append(
@@ -225,7 +250,7 @@ def _plan_sites(plan: _Plan, index: _Index) -> None:
         if link is not None:
             row = _journal_row(plan, index, item, link, "sites")
             if row is not None:
-                _add_update(plan, "sites", row, _changed(values, row))
+                _add_update(plan, "sites", row, _changed(values, row), "sites", item.code)
             continue
         if item.is_active:
             plan.inserts.append(_insert("sites", "sites", values, item))
@@ -247,10 +272,13 @@ def _client_legal_name(item: ReferenceItem, customers: Mapping[str, ReferenceIte
 def _plan_equipment_types(plan: _Plan, index: _Index) -> set[str]:
     """Планирует модели журнала и возвращает коды типов, которые в нём будут."""
 
-    known_machine_types = {
-        _key(row.get("name")) for row in index.snapshot.table("machine_types")
+    # Написание типа машины журналу принадлежит: сравниваем без регистра и
+    # лишних пробелов, а в план кладём то написание, которое в журнале уже
+    # есть, — по нему писатель и найдёт строку.
+    machine_types = {
+        _machine_type_key(row.get("name")): _key(row.get("name"))
+        for row in index.snapshot.table("machine_types")
     }
-    planned_machine_types: set[str] = set()
     model_codes: set[str] = set()
 
     for item in index.items("equipment_types"):
@@ -264,14 +292,24 @@ def _plan_equipment_types(plan: _Plan, index: _Index) -> set[str]:
             row = _journal_row(plan, index, item, link, "equipment_models")
             if row is not None:
                 model_codes.add(item.code)
-                _add_update(plan, "equipment_models", row, _changed(values, row))
+                _add_update(
+                    plan,
+                    "equipment_models",
+                    row,
+                    _changed(values, row),
+                    "equipment_types",
+                    item.code,
+                )
             continue
         if not item.is_active:
             continue
 
         machine_type = _machine_type_name(item)
-        if _key(machine_type) not in known_machine_types | planned_machine_types:
-            planned_machine_types.add(_key(machine_type))
+        known = machine_types.get(_machine_type_key(machine_type))
+        if known is not None:
+            machine_type = known
+        else:
+            machine_types[_machine_type_key(machine_type)] = machine_type
             plan.inserts.append(
                 PublicInsert(
                     table="machine_types",
@@ -300,10 +338,24 @@ def _machine_type_name(item: ReferenceItem) -> str:
     if name:
         return name
     kind = str(item.payload.get("kind") or "OTHER")
-    for machine_type, machine_kind in MACHINE_KINDS.items():
-        if machine_kind == kind:
-            return machine_type
-    return _OTHER_MACHINE_TYPE
+    return _KIND_MACHINE_TYPES.get(kind, _OTHER_MACHINE_TYPE)
+
+
+def _unambiguous_kind_labels() -> dict[str, str]:
+    """Вид техники → подпись типа машины, когда подпись у вида одна.
+
+    У `TRACTOR` в журнале три подписи (бульдозер, экскаватор, погрузчик):
+    угадывать нечего, такой вид уходит в «Прочую технику», а точное название
+    сметчик задаёт полем ``machine_type_name``.
+    """
+
+    labels: dict[str, str | None] = {}
+    for machine_type, kind in MACHINE_KINDS.items():
+        labels[kind] = machine_type if kind not in labels else None
+    return {kind: name for kind, name in labels.items() if name is not None}
+
+
+_KIND_MACHINE_TYPES: dict[str, str] = _unambiguous_kind_labels()
 
 
 def _plan_equipment_assets(plan: _Plan, index: _Index, model_codes: set[str]) -> None:
@@ -324,7 +376,14 @@ def _plan_equipment_assets(plan: _Plan, index: _Index, model_codes: set[str]) ->
                     f"Единица {item.code} неактивна в BlastEX, "
                     "статус в журнале не изменён."
                 )
-            _add_update(plan, "equipment_units", row, _changed(values, row))
+            _add_update(
+                plan,
+                "equipment_units",
+                row,
+                _changed(values, row),
+                "equipment_assets",
+                item.code,
+            )
             continue
         if not item.is_active:
             continue
@@ -351,6 +410,7 @@ def _plan_equipment_assets(plan: _Plan, index: _Index, model_codes: set[str]) ->
 
 def _plan_materials(plan: _Plan, index: _Index) -> None:
     items = index.items("materials")
+    _warn_about_unexported_materials(plan, index, items)
     for table in ("initiating_device_types", "tool_types"):
         for item in items:
             if _MATERIAL_TABLES.get(str(item.payload.get("material_kind") or "")) != table:
@@ -360,10 +420,35 @@ def _plan_materials(plan: _Plan, index: _Index) -> None:
             if link is not None:
                 row = _journal_row(plan, index, item, link, table)
                 if row is not None:
-                    _add_update(plan, table, row, _changed(values, row))
+                    _add_update(
+                        plan, table, row, _changed(values, row), "materials", item.code
+                    )
                 continue
             if item.is_active:
                 plan.inserts.append(_insert(table, "materials", values, item))
+
+
+def _warn_about_unexported_materials(
+    plan: _Plan, index: _Index, items: Sequence[ReferenceItem]
+) -> None:
+    """Связанный материал, которому сменили вид на невыгружаемый.
+
+    ВВ, СВ и ТМЦ своей таблицы в журнале не имеют, но строка, с которой
+    материал был связан, никуда не делась и обновляться перестала — молчать
+    об этом нельзя, как и о смене таблицы.
+    """
+
+    for item in items:
+        kind = str(item.payload.get("material_kind") or "")
+        if kind in _MATERIAL_TABLES:
+            continue
+        link = index.link("materials", item.code)
+        if link is None:
+            continue
+        plan.warnings.append(
+            f"Запись materials/{item.code}: вид «{kind}» в журнал не выгружается, "
+            f"строка {link.public_table}#{link.public_id} не обновляется."
+        )
 
 
 def _material_values(table: str, item: ReferenceItem) -> dict[str, Any]:
@@ -429,9 +514,33 @@ def _journal_row(
     return row
 
 
-def _add_update(plan: _Plan, table: str, row: PublicRow, values: Mapping[str, Any]) -> None:
-    if values:
-        plan.updates.append(PublicUpdate(table=table, public_id=row.id, values=dict(values)))
+def _add_update(
+    plan: _Plan,
+    table: str,
+    row: PublicRow,
+    values: Mapping[str, Any],
+    section: str,
+    code: str,
+) -> None:
+    """Кладёт в план обновление, отбросив пустые значения обязательных колонок.
+
+    Поле в blastex необязательно, а колонка журнала — ``NOT NULL``: очищенный
+    ИНН уронил бы всю транзакцию. Такую колонку план не трогает и говорит об
+    этом сметчику; ошибку он увидит и в ``public_constraint_issues``.
+    """
+
+    required = _REQUIRED_COLUMNS.get(table, frozenset())
+    allowed: dict[str, Any] = {}
+    for column, value in values.items():
+        if value is None and column in required:
+            plan.warnings.append(
+                f"Запись {section}/{code}: колонка {column} в журнале обязательна, "
+                "пустое значение не записано."
+            )
+            continue
+        allowed[column] = value
+    if allowed:
+        plan.updates.append(PublicUpdate(table=table, public_id=row.id, values=allowed))
 
 
 def _changed(values: Mapping[str, Any], row: PublicRow) -> dict[str, Any]:
@@ -454,17 +563,19 @@ def public_constraint_issues(
 ) -> list[ValidationIssue]:
     """Ошибки, из-за которых журнал не примет выгрузку (проверка до записи).
 
-    Проверяются только активные записи: неактивные без связи в журнал не
-    выгружаются, а связанным ограничения журнала уже не нарушить. Со снимком
-    журнала дополнительно ищутся конфликты уникальных ключей с записями без
-    связи: такую запись нужно не вставлять, а связать с существующей строкой.
+    Проверяются записи, которые план пишет: активные и связанные — связанную
+    запись план обновляет независимо от активности, и очищенное поле уронит
+    транзакцию так же, как у активной. Неактивная запись без связи в журнал не
+    попадает и не проверяется. Со снимком журнала дополнительно ищутся
+    конфликты уникальных ключей с записями без связи: такую запись нужно не
+    вставлять, а связать с существующей строкой.
     """
 
     issues: list[ValidationIssue] = []
     linked = {(item.section, item.code) for item in links}
 
     issues.extend(_counterparty_issues(sections, linked, snapshot))
-    issues.extend(_site_issues(sections))
+    issues.extend(_site_issues(sections, linked))
     issues.extend(_equipment_type_issues(sections, linked, snapshot))
     issues.extend(_equipment_asset_issues(sections, linked, snapshot))
     return issues
@@ -485,7 +596,7 @@ def _counterparty_issues(
 ) -> list[ValidationIssue]:
     taken = _taken(snapshot, "counterparties", "inn")
     issues: list[ValidationIssue] = []
-    for item in _active(sections, "counterparties"):
+    for item in _planned(sections, "counterparties", linked):
         inn = _text(item.payload.get("inn")) or ""
         if not inn:
             issues.append(
@@ -519,9 +630,11 @@ def _counterparty_issues(
     return issues
 
 
-def _site_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
+def _site_issues(
+    sections: Mapping[str, Sequence[ReferenceItem]], linked: set[tuple[str, str]]
+) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    for item in _active(sections, "sites"):
+    for item in _planned(sections, "sites", linked):
         if not item.payload.get("customer_code") and not _text(
             item.payload.get("customer_legal_name")
         ):
@@ -558,6 +671,8 @@ def _equipment_type_issues(
     for item in _active(sections, "equipment_types"):
         name = _key(item.name)
         if name in seen:
+            # Повтор внутри раздела не отменяет конфликта с журналом: сметчику
+            # нужны обе ошибки сразу, а не по одной за проход.
             issues.append(
                 _error(
                     "equipment_types",
@@ -567,7 +682,6 @@ def _equipment_type_issues(
                     "в журнале оно должно быть уникальным.",
                 )
             )
-            continue
         seen.add(name)
         if name in taken and ("equipment_types", item.code) not in linked:
             issues.append(
@@ -629,6 +743,20 @@ def _active(
     return [item for item in (sections.get(section) or ()) if item.is_active]
 
 
+def _planned(
+    sections: Mapping[str, Sequence[ReferenceItem]],
+    section: str,
+    linked: set[tuple[str, str]],
+) -> list[ReferenceItem]:
+    """Записи, которые план пишет в журнал: активные и связанные."""
+
+    return [
+        item
+        for item in (sections.get(section) or ())
+        if item.is_active or (section, item.code) in linked
+    ]
+
+
 def _error(section: str, code: str, field_name: str, message: str) -> ValidationIssue:
     return ValidationIssue("error", section, code, message, field_name)
 
@@ -662,3 +790,13 @@ def _key(value: Any) -> str:
     """Значение уникального ключа журнала для сравнения: без крайних пробелов."""
 
     return _text(value) or ""
+
+
+def _machine_type_key(value: Any) -> str:
+    """Название типа машины для сравнения: без регистра и лишних пробелов.
+
+    Тип машины журнал заводит руками, поэтому «Буровая установка» и «буровая
+    установка» — одна и та же строка; сравнение как у ``normalize_legal_name``.
+    """
+
+    return " ".join(_key(value).casefold().split())

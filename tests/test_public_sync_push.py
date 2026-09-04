@@ -233,6 +233,33 @@ def test_machine_type_is_created_once_for_several_models() -> None:
     assert len(inserts_for(plan, "machine_types")) == 1
 
 
+def test_machine_type_of_journal_is_reused_ignoring_case() -> None:
+    # Журнал пишет тип машины как хочет: сравнение без регистра и крайних
+    # пробелов, а в план идёт написание журнала — по нему писатель ищет строку.
+    journal = snapshot(machine_types=[{"id": 7, "name": "буровая  установка"}])
+    equipment_type = item(
+        "JK830", "JK830-2", {"kind": "DRILL_RIG", "machine_type_name": " Буровая установка "}
+    )
+
+    plan = plan_public_writes({"equipment_types": [equipment_type]}, [], journal)
+
+    assert inserts_for(plan, "machine_types") == []
+    assert only_insert(plan, "equipment_models").depends_on == (
+        ("machine_types", "буровая  установка"),
+    )
+
+
+def test_each_machine_type_is_inserted_before_its_model() -> None:
+    # Порядок вставок топологический, а не «все типы, потом все модели».
+    excavator = item("EX200", "EX-200", {"kind": "TRACTOR", "machine_type_name": "Экскаватор"})
+
+    plan = plan_public_writes({"equipment_types": [EQUIPMENT_TYPE, excavator]}, [], EMPTY)
+
+    order = {(insert.table, insert.code): number for number, insert in enumerate(plan.inserts)}
+    assert order[("machine_types", "Буровая установка")] < order[("equipment_models", "JK830")]
+    assert order[("machine_types", "Экскаватор")] < order[("equipment_models", "EX200")]
+
+
 def test_machine_type_name_falls_back_to_kind_label() -> None:
     szm = item("SZM_1", "СЗМ-10", {"kind": "SZM"})
     other = item("MISC", "Прочее", {"kind": "OTHER"})
@@ -241,6 +268,16 @@ def test_machine_type_name_falls_back_to_kind_label() -> None:
 
     names = [insert.values["name"] for insert in inserts_for(plan, "machine_types")]
     assert names == ["Машина смесительно-зарядная", "Прочая техника"]
+
+
+def test_kind_with_several_labels_gives_other_machine_type() -> None:
+    # `TRACTOR` — это и бульдозер, и экскаватор, и погрузчик: угадывать
+    # подпись нельзя, в журнал идёт «Прочая техника».
+    tractor = item("D9", "Бульдозер D9", {"kind": "TRACTOR"})
+
+    plan = plan_public_writes({"equipment_types": [tractor]}, [], EMPTY)
+
+    assert only_insert(plan, "machine_types").values == {"name": "Прочая техника"}
 
 
 def test_equipment_type_without_brand_gets_empty_string() -> None:
@@ -354,6 +391,19 @@ def test_inserts_follow_dependency_order() -> None:
         "initiating_device_types",
         "tool_types",
     ]
+
+
+def test_inactive_unit_without_link_is_not_inserted() -> None:
+    # Поэтому новая строка журнала всегда «В работе»: списанную единицу без
+    # связи план не заводит вовсе.
+    asset = item("RIG_09", "Станок №9", {"equipment_type_code": "JK830"}, is_active=False)
+
+    plan = plan_public_writes(
+        {"equipment_types": [EQUIPMENT_TYPE], "equipment_assets": [asset]}, [], EMPTY
+    )
+
+    assert inserts_for(plan, "equipment_units") == []
+    assert plan.warnings == ()
 
 
 def test_inactive_record_without_link_is_not_exported() -> None:
@@ -553,6 +603,63 @@ def test_link_to_another_table_is_skipped_with_warning() -> None:
     )
 
 
+def test_material_kind_without_journal_table_warns_when_linked() -> None:
+    # Материал перевели в ВВ: своей таблицы в журнале у него нет, но связь со
+    # строкой осталась — молча бросать её нельзя.
+    explosive = item("BIT_152", "Гранулит", {"material_kind": "ВВ"})
+    journal = snapshot(tool_types=[{"id": 4, "name": "Долото шарошечное 152"}])
+    links = [link("materials", "BIT_152", "tool_types", 4)]
+
+    plan = plan_public_writes({"materials": [explosive]}, links, journal)
+
+    assert plan.is_empty()
+    assert plan.warnings == (
+        "Запись materials/BIT_152: вид «ВВ» в журнал не выгружается, "
+        "строка tool_types#4 не обновляется.",
+    )
+
+
+def test_unlinked_material_of_other_kind_does_not_warn() -> None:
+    explosive = item("VV", "Гранулит", {"material_kind": "ВВ"})
+
+    plan = plan_public_writes({"materials": [explosive]}, [], EMPTY)
+
+    assert plan.warnings == ()
+
+
+def test_empty_value_is_not_written_to_not_null_column() -> None:
+    # ИНН очистили: колонка журнала NOT NULL, поэтому она не обновляется —
+    # иначе транзакция упала бы целиком.
+    customer = item(
+        "TEPLOGORSK",
+        'Акционерное общество "Теплогорский карьер"',
+        {"short_name": 'АО "Теплогорский карьер"', "role": "CUSTOMER"},
+        is_active=False,
+    )
+    links = [link("counterparties", "TEPLOGORSK", "counterparties", 1)]
+
+    plan = plan_public_writes(
+        {"counterparties": [customer]}, links, snapshot(counterparties=[CUSTOMER_ROW])
+    )
+
+    assert only_update(plan).values == {"is_active": False}
+    assert plan.warnings == (
+        "Запись counterparties/TEPLOGORSK: колонка inn в журнале обязательна, "
+        "пустое значение не записано.",
+    )
+
+
+def test_nullable_column_is_cleared_as_usual() -> None:
+    site = item("LOM", "Ломоватский карьер", {"customer_code": "TEPLOGORSK"})
+
+    plan = plan_public_writes(
+        {"counterparties": [CUSTOMER], "sites": [site]}, SITE_LINK, linked_site_journal()
+    )
+
+    assert only_update(plan).values == {"short_name": None, "mineral_type": None}
+    assert plan.warnings == ()
+
+
 def test_tool_numbers_are_compared_as_numbers() -> None:
     journal = snapshot(
         tool_types=[
@@ -657,6 +764,29 @@ def test_duplicate_equipment_type_name_is_an_error() -> None:
     assert fields_of(issues) == [("equipment_types", "JK830B", "name")]
 
 
+def test_linked_counterparty_is_checked_even_when_inactive() -> None:
+    # Связанную запись план обновляет независимо от активности, значит и
+    # ограничения журнала по её колонкам нужно проверить.
+    customer = item("TEPLOGORSK", "Заказчик", {"role": "CUSTOMER"}, is_active=False)
+    links = [link("counterparties", "TEPLOGORSK", "counterparties", 1)]
+
+    issues = public_constraint_issues({"counterparties": [customer]}, links)
+
+    assert fields_of(issues) == [("counterparties", "TEPLOGORSK", "inn")]
+
+
+def test_linked_site_is_checked_by_written_columns() -> None:
+    site = item("LOM", "Ломоватский карьер", {"short_name": "ЛОМБУР"}, is_active=False)
+    links = [link("sites", "LOM", "sites", 3)]
+
+    issues = public_constraint_issues({"sites": [site]}, links)
+
+    assert fields_of(issues) == [
+        ("sites", "LOM", "customer_code"),
+        ("sites", "LOM", "short_name"),
+    ]
+
+
 def test_inactive_records_are_not_checked() -> None:
     sections = {
         "counterparties": [item("NO_INN", "Без ИНН", {"role": "CUSTOMER"}, is_active=False)],
@@ -711,6 +841,24 @@ def test_linked_records_do_not_conflict_with_their_own_rows() -> None:
     ]
 
     assert public_constraint_issues(CONFLICT_SECTIONS, links, CONFLICT_JOURNAL) == []
+
+
+def test_duplicate_name_does_not_hide_journal_conflict() -> None:
+    # Повтор внутри раздела — не повод пропустить конфликт с журналом: сметчику
+    # нужны обе ошибки, иначе он починит одну и снова упрётся во вторую.
+    sections = {
+        "equipment_types": [EQUIPMENT_TYPE, item("JK830B", "JK830-2", {"kind": "DRILL_RIG"})]
+    }
+
+    issues = public_constraint_issues(sections, [], CONFLICT_JOURNAL)
+
+    assert fields_of(issues) == [
+        ("equipment_types", "JK830", "name"),
+        ("equipment_types", "JK830B", "name"),
+        ("equipment_types", "JK830B", "name"),
+    ]
+    assert "повторяется" in issues[1].message
+    assert "Из project1" in issues[2].message
 
 
 def test_unit_conflict_uses_code_without_inventory_number() -> None:

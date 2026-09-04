@@ -20,6 +20,12 @@ class MaterialPayload(ReferencePayload):
     )
     mass_kg: Decimal | None = UnitField("кг", description="Масса единицы", default=None)
     length_m: Decimal | None = UnitField("м", description="Длина единицы", default=None)
+    lifetime_m: Decimal | None = UnitField("м", title="Ресурс", description="Ресурс бурового инструмента", default=None)
+    diameter_mm: Decimal | None = UnitField("мм", title="Диаметр", description="Диаметр инструмента", default=None)
+    thread_type: str | None = Field(
+        default=None, title="Хвостовик / резьба", description="Тип хвостовика или резьбы"
+    )
+    delay_ms: Decimal | None = UnitField("мс", title="Замедление", description="Стандартный интервал замедления СИ", default=None)
     storage_class: Literal["BULK", "CARTRIDGE", "NSI", "NONE"] = Field(
         default="NONE", description="Класс хранения — определяет потребление ёмкости склада ВМ"
     )

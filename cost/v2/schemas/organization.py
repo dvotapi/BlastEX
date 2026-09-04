@@ -34,10 +34,31 @@ class CounterpartyPayload(ReferencePayload):
         default="CUSTOMER", description="Роль контрагента"
     )
     inn: str | None = Field(default=None, description="ИНН")
+    short_name: str | None = Field(
+        default=None,
+        title="Краткое наименование",
+        description='Как в журнале буровых работ, например АО "Теплогорский карьер"',
+    )
 
 
 class SitePayload(ReferencePayload):
     customer_code: str | None = RefField("counterparties", description="Заказчик объекта", default=None)
+    customer_legal_name: str | None = Field(
+        default=None,
+        title="Заказчик текстом",
+        description="Наименование заказчика из журнала, если контрагента нет в справочнике",
+    )
+    short_name: str | None = Field(
+        default=None,
+        max_length=5,
+        title="Краткое имя",
+        description="Код объекта в журнале буровых работ (до 5 символов)",
+    )
+    mineral_type: str | None = Field(
+        default=None,
+        title="Полезное ископаемое",
+        description="Вид сырья по журналу, например «нерудные материалы»",
+    )
     production_unit_code: str | None = RefField(
         "production_units", description="Юнит, обслуживающий объект", default=None
     )

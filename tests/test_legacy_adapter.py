@@ -127,6 +127,41 @@ class TestMapping:
         assert legacy.explosives[0].chart_label == "ГРАНУЛИТ-РП"
         assert legacy.explosives[1].chart_label == "НОВОЕ ВВ"
 
+    def test_rock_without_density_is_skipped_with_a_warning(self):
+        # Плотность в схеме породы необязательна, а движок и `RockSchema`
+        # требуют положительную: нулём такая запись ломала бы всю страницу
+        # расчёта, поэтому в Cost V1 она не переносится.
+        legacy = legacy_references_from_snapshot(
+            _snapshot(
+                rocks=[
+                    _item("ROCK_NO_DENSITY", "Порода без плотности", {"ucs_mpa": "100", "fissuring_ff": "2"}),
+                    _item("ROCK_ZERO", "Порода с нулём", {"density_t_m3": "0"}),
+                    _item("ROCK_OK", "Габбро", {"density_t_m3": "2.9", "ucs_mpa": "168", "fissuring_ff": "2.2"}),
+                ]
+            )
+        )
+        assert [rock.name for rock in legacy.rocks] == ["Габбро"]
+        joined = "\n".join(legacy.warnings)
+        assert "Порода «Порода без плотности»: не задана плотность, запись пропущена" in joined
+        assert "Порода «Порода с нулём»: не задана плотность, запись пропущена" in joined
+
+    def test_explosive_without_density_or_energy_is_skipped_with_a_warning(self):
+        # Такое ВВ фронт отправляет в `/blast/optimize`, где нули не проходят
+        # проверку схемы: лучше предупреждение, чем 422 на расчёте.
+        legacy = legacy_references_from_snapshot(
+            _snapshot(
+                materials=[
+                    _item("EXP_EMPTY", "ВВ без свойств", {"category": "EXPLOSIVE"}),
+                    _item("EXP_ZERO", "ВВ с нулями", {"category": "EXPLOSIVE", "density_t_m3": "0.9", "power_mj_kg": "0"}),
+                    _item("EXP_OK", "Гранулит", {"category": "EXPLOSIVE", "density_t_m3": "0.85", "power_mj_kg": "3.76"}),
+                ]
+            )
+        )
+        assert [item.name for item in legacy.explosives] == ["Гранулит"]
+        joined = "\n".join(legacy.warnings)
+        assert "ВВ «ВВ без свойств»: не заданы плотность или энергия, запись пропущена" in joined
+        assert "ВВ «ВВ с нулями»: не заданы плотность или энергия, запись пропущена" in joined
+
     def test_catalog_uses_prices_and_unit_symbols(self):
         legacy = legacy_references_from_snapshot(
             _snapshot(

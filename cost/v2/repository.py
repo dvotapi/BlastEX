@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     # Импорт только для проверки типов: на уровне модуля `cost.v2.public_sync`
     # тянет за собой `PublicLink` из этого же файла (через `delta.py`), и
     # обычный импорт здесь замкнул бы цикл при загрузке модуля.
+    from cost.v2.public_sync.mapping import PublicSnapshot
+    from cost.v2.public_sync.push import PublicWritePlan
     from cost.v2.public_sync.settings import PublicSyncSettings
 
 
@@ -399,6 +401,11 @@ class InMemoryEconomicsRepository:
         self._legacy_scenarios: dict[tuple[str, str], dict[str, Any]] = {}
         self._public_links: dict[tuple[str, str, str], PublicLink] = {}
         self._mirror_sections: dict[tuple[str, str], bool] = {}
+        # Журнала в памяти нет: снимок задают тесты, если хотят проверить, что
+        # публикация при включённом обмене строит план выгрузки. Планы
+        # копятся в `_public_writes` — исполнять их некому и незачем.
+        self.public_snapshot: "PublicSnapshot | None" = None
+        self._public_writes: dict[str, list["PublicWritePlan"]] = {}
 
     def _ensure_org(self, organization_id: str) -> None:
         if organization_id in self._revisions:
@@ -491,7 +498,51 @@ class InMemoryEconomicsRepository:
                     public_id=link.public_id,
                     synced_at=now,
                 )
+            self._plan_public_writes(organization_id, normalized, now)
             return deepcopy(snapshot)
+
+    def _plan_public_writes(
+        self,
+        organization_id: str,
+        normalized: Mapping[str, Sequence[ReferenceItem]],
+        now: datetime,
+    ) -> None:
+        """Строит план выгрузки, если обмен включён и снимок журнала задан.
+
+        План только запоминается: базы здесь нет, исполнять его нечем. Связи
+        вставок всё же создаются — с придуманными id (следующими за
+        максимальным в снимке), чтобы поведение API после публикации можно
+        было проверить без PostgreSQL. Без снимка метод не делает ничего.
+        """
+
+        # Импорт локальный: `cost.v2.public_sync` тянет `PublicLink` из этого
+        # же модуля, и импорт на уровне файла замкнул бы цикл.
+        from cost.v2.public_sync.push import plan_public_writes
+
+        snapshot = self.public_snapshot
+        if snapshot is None:
+            return
+        if not self.get_public_sync_settings(organization_id).exchange_enabled:
+            return
+        links = list(self.list_public_links(organization_id))
+        plan = plan_public_writes(normalized, links, snapshot)
+        self._public_writes.setdefault(organization_id, []).append(plan)
+        last_ids: dict[str, int] = {}
+        for insert in plan.inserts:
+            last_id = last_ids.get(insert.table)
+            if last_id is None:
+                last_id = max((row.id for row in snapshot.table(insert.table)), default=0)
+            last_id += 1
+            last_ids[insert.table] = last_id
+            if not insert.section:
+                continue
+            self._public_links[(organization_id, insert.section, insert.code)] = PublicLink(
+                section=insert.section,
+                code=insert.code,
+                public_table=insert.table,
+                public_id=last_id,
+                synced_at=now,
+            )
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
         with self._lock:

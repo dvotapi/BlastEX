@@ -38,6 +38,7 @@ from cost.v2.public_sync.reader import (
     SqlPublicReader,
     StaticPublicReader,
 )
+from cost.v2.public_sync.writer import PublicWriteError, SqlPublicWriter
 
 __all__ = [
     "MACHINE_KINDS",
@@ -51,8 +52,10 @@ __all__ = [
     "PublicSnapshot",
     "PublicUnavailable",
     "PublicUpdate",
+    "PublicWriteError",
     "PublicWritePlan",
     "SqlPublicReader",
+    "SqlPublicWriter",
     "StaticPublicReader",
     "TABLES",
     "build_proposals",

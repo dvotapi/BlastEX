@@ -44,7 +44,10 @@ from cost.v2.repository import (
     StoredTechnicalPassport,
     links_for_sections,
 )
+from cost.v2.public_sync.push import plan_public_writes
+from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader
 from cost.v2.public_sync.settings import PublicSyncSettings, flags_from_settings, settings_from_flags
+from cost.v2.public_sync.writer import PublicWriteError, SqlPublicWriter
 
 
 SCHEMA = "blastex"
@@ -462,6 +465,17 @@ class PostgresEconomicsRepository:
                 key: [item.to_dict() for item in values]
                 for key, values in normalized.items()
             }
+            for link in saved_links:
+                self._upsert_public_link(session, organization_id, user_id, link, now)
+            # Выгрузка идёт после связей черновика: план должен видеть их
+            # наравне с прежними, иначе связанная запись поехала бы в журнал
+            # второй строкой. Флаги обмена читаются этой же сессией — второе
+            # соединение под advisory-lock ждало бы саму эту транзакцию.
+            flags = self._mirror_flags(session, organization_id)
+            if settings_from_flags(flags).exchange_enabled:
+                after["public_writes"] = self._push_to_public(
+                    session, organization_id, user_id, normalized, now
+                )
             session.add(
                 AuditLogRow(
                     id=str(uuid4()),
@@ -475,9 +489,37 @@ class PostgresEconomicsRepository:
                     created_at=now,
                 )
             )
-            for link in saved_links:
-                self._upsert_public_link(session, organization_id, user_id, link, now)
         return self.get_reference_snapshot(organization_id, revision_id)
+
+    def _push_to_public(
+        self,
+        session: Session,
+        organization_id: str,
+        user_id: str,
+        normalized: Mapping[str, Sequence[ReferenceItem]],
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Выгружает опубликованные разделы в журнал той же транзакцией.
+
+        Возвращает сводку для журнала аудита. Недоступность схемы ``public``
+        здесь — не повод показать справочники без журнала (так это работает
+        при чтении), а отказ публикации: молча разойтись с журналом хуже, чем
+        не опубликовать.
+        """
+
+        links = self._public_links(session, organization_id)
+        try:
+            snapshot = SqlPublicReader.from_connection(session.connection()).read()
+        except PublicUnavailable as exc:
+            raise PublicWriteError(exc) from exc
+        plan = plan_public_writes(normalized, links, snapshot)
+        for link in SqlPublicWriter(session, links).apply(plan):
+            self._upsert_public_link(session, organization_id, user_id, link, now)
+        return {
+            "inserted": len(plan.inserts),
+            "updated": len(plan.updates),
+            "warnings": list(plan.warnings),
+        }
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
         with self.session_factory() as session:
@@ -941,12 +983,25 @@ class PostgresEconomicsRepository:
 
     def list_public_links(self, organization_id: str) -> Sequence[PublicLink]:
         with self.session_factory() as session:
-            rows = session.scalars(
-                select(PublicLinkRow)
-                .where(PublicLinkRow.organization_id == organization_id)
-                .order_by(PublicLinkRow.section, PublicLinkRow.code)
-            ).all()
-            return tuple(self._public_link(row) for row in rows)
+            return tuple(self._public_links(session, organization_id))
+
+    @classmethod
+    def _public_links(
+        cls, session: Session, organization_id: str
+    ) -> list[PublicLink]:
+        """Связи организации в уже открытой сессии.
+
+        Отдельный метод нужен выгрузке: она читает связи внутри транзакции
+        публикации, где только что записанные связи черновика ещё не видны
+        никому снаружи.
+        """
+
+        rows = session.scalars(
+            select(PublicLinkRow)
+            .where(PublicLinkRow.organization_id == organization_id)
+            .order_by(PublicLinkRow.section, PublicLinkRow.code)
+        ).all()
+        return [cls._public_link(row) for row in rows]
 
     @staticmethod
     def _upsert_public_link(
@@ -1023,12 +1078,18 @@ class PostgresEconomicsRepository:
 
     def list_mirror_sections(self, organization_id: str) -> dict[str, bool]:
         with self.session_factory() as session:
-            rows = session.scalars(
-                select(PublicMirrorSectionRow).where(
-                    PublicMirrorSectionRow.organization_id == organization_id
-                )
-            ).all()
-            return {row.section: row.enabled for row in rows}
+            return self._mirror_flags(session, organization_id)
+
+    @staticmethod
+    def _mirror_flags(session: Session, organization_id: str) -> dict[str, bool]:
+        """Флаги обмена и зеркал в уже открытой сессии."""
+
+        rows = session.scalars(
+            select(PublicMirrorSectionRow).where(
+                PublicMirrorSectionRow.organization_id == organization_id
+            )
+        ).all()
+        return {row.section: row.enabled for row in rows}
 
     def set_mirror_section(
         self, organization_id: str, user_id: str, section: str, enabled: bool

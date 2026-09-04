@@ -11,12 +11,18 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from sqlalchemy import Engine, text
+from sqlalchemy import Connection, Engine, text
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 
 from cost.v2.public_sync.mapping import TABLES, PublicRow, PublicSnapshot
 
-__all__ = ["PublicReader", "PublicUnavailable", "SqlPublicReader", "StaticPublicReader"]
+__all__ = [
+    "PublicReader",
+    "PublicUnavailable",
+    "SqlPublicReader",
+    "StaticPublicReader",
+    "reason",
+]
 
 
 class PublicUnavailable(RuntimeError):
@@ -28,37 +34,58 @@ class PublicReader(Protocol):
 
 
 class SqlPublicReader:
-    """Читает таблицы ``public`` из той же базы, где живёт схема blastex."""
+    """Читает таблицы ``public`` из той же базы, где живёт схема blastex.
 
-    def __init__(self, engine: Engine) -> None:
+    Обычно читатель получает ``Engine`` и открывает соединение сам. Выгрузке
+    при публикации нужно другое: она читает и пишет журнал внутри транзакции
+    ревизии, поэтому получает уже открытое соединение
+    (``SqlPublicReader.from_connection``). Со вторым соединением снимок не
+    увидел бы изменений этой транзакции, а RLS-контекст был бы чужим.
+    """
+
+    def __init__(
+        self, engine: Engine | None = None, connection: Connection | None = None
+    ) -> None:
+        if (engine is None) == (connection is None):
+            raise ValueError("Читателю нужен ровно один источник: engine или connection.")
         self._engine = engine
+        self._connection = connection
+
+    @classmethod
+    def from_connection(cls, connection: Connection) -> "SqlPublicReader":
+        return cls(connection=connection)
 
     def read(self) -> PublicSnapshot:
-        rows: dict[str, tuple[PublicRow, ...]] = {}
         try:
+            if self._connection is not None:
+                return self._read(self._connection)
+            assert self._engine is not None
             with self._engine.connect() as connection:
-                for table in TABLES:
-                    # Имя таблицы берётся из константы TABLES, а не от
-                    # пользователя, поэтому подстановка в SQL безопасна.
-                    result = connection.execute(
-                        text(f'SELECT * FROM public."{table}"')
-                    )
-                    # Порядок строк задаётся здесь, а не ORDER BY: снимок
-                    # должен быть одинаковым от запроса к запросу, иначе
-                    # разница с черновиком «прыгает» между вызовами.
-                    rows[table] = tuple(
-                        sorted(
-                            (
-                                PublicRow(table, int(mapping["id"]), dict(mapping))
-                                for mapping in result.mappings()
-                            ),
-                            key=lambda row: row.id,
-                        )
-                    )
+                return self._read(connection)
         except (ProgrammingError, OperationalError, DBAPIError) as exc:
             raise PublicUnavailable(
-                f"Схема public недоступна: {_reason(exc)}"
+                f"Схема public недоступна: {reason(exc)}"
             ) from exc
+
+    @staticmethod
+    def _read(connection: Connection) -> PublicSnapshot:
+        rows: dict[str, tuple[PublicRow, ...]] = {}
+        for table in TABLES:
+            # Имя таблицы берётся из константы TABLES, а не от
+            # пользователя, поэтому подстановка в SQL безопасна.
+            result = connection.execute(text(f'SELECT * FROM public."{table}"'))
+            # Порядок строк задаётся здесь, а не ORDER BY: снимок
+            # должен быть одинаковым от запроса к запросу, иначе
+            # разница с черновиком «прыгает» между вызовами.
+            rows[table] = tuple(
+                sorted(
+                    (
+                        PublicRow(table, int(mapping["id"]), dict(mapping))
+                        for mapping in result.mappings()
+                    ),
+                    key=lambda row: row.id,
+                )
+            )
         return PublicSnapshot(rows=rows)
 
 
@@ -72,8 +99,12 @@ class StaticPublicReader:
         return self._snapshot
 
 
-def _reason(exc: Exception) -> str:
-    """Первая строка сообщения драйвера: остальное — SQL и трассировка."""
+def reason(exc: Exception) -> str:
+    """Первая строка сообщения драйвера: остальное — SQL и трассировка.
+
+    Общая для чтения и записи журнала: ``writer`` объясняет отказ теми же
+    словами драйвера.
+    """
 
     original = getattr(exc, "orig", None) or exc
     text_value = str(original).strip()

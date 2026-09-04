@@ -14,7 +14,13 @@ from sqlalchemy import text
 from sqlalchemy import create_engine
 
 from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader
-from tests.pg_public import _PUBLIC_SCHEMA_SQL, _statements, requires_pg, seed_public
+from tests.pg_public import (
+    _PUBLIC_SCHEMA_SQL,
+    RESET_STATEMENTS,
+    _statements,
+    requires_pg,
+    seed_public,
+)
 
 # BLASTEX_TEST_DATABASE_URL требуют только тесты с фикстурой public_db;
 # разбор DDL (_statements) и обработка ошибки драйвера работают без
@@ -33,6 +39,20 @@ def test_public_schema_loads_and_seeds(public_db) -> None:
             == 0
         )
     assert ids["site_lom"] > 0
+
+
+def test_reset_statements_drop_both_schemas() -> None:
+    """Сброс базы сносит и ``blastex``: Alembic хранит версию в ``public``.
+
+    Без удаления ``blastex`` второй тест с фикстурой начинал бы с пустой
+    ``alembic_version`` и уже существующих таблиц — ``upgrade head`` падал бы
+    на миграции 0001.
+    """
+    joined = " | ".join(RESET_STATEMENTS)
+
+    assert "DROP SCHEMA IF EXISTS blastex CASCADE" in RESET_STATEMENTS
+    assert "DROP SCHEMA IF EXISTS public CASCADE" in RESET_STATEMENTS
+    assert joined.index("DROP SCHEMA IF EXISTS public") < joined.index("CREATE SCHEMA public")
 
 
 def test_statements_drops_authorization_line() -> None:

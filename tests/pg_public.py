@@ -1,17 +1,17 @@
 """Фикстуры тестовой базы PostgreSQL со схемой ``public`` (проект ``project1``).
 
 Модуль содержит только фикстуры и помощники для тестов: разбор DDL из
-``Docs/public_schema.sql``, фикстуру ``public_db`` (пересоздаёт схему
-``public`` и применяет миграции Alembic для схемы ``blastex``) и
-``seed_public`` — минимальный набор данных по §13 спецификации.
+``Docs/public_schema.sql``, фикстуру ``public_db`` (пересоздаёт схемы
+``public`` и ``blastex`` и применяет миграции Alembic) и ``seed_public`` —
+минимальный набор данных по §13 спецификации.
 
 Тесты, использующие ``public_db``, пропускаются (``SKIPPED``), если не задана
 переменная окружения ``BLASTEX_TEST_DATABASE_URL``.
 
 ВАЖНО: никогда не указывайте в ``BLASTEX_TEST_DATABASE_URL`` боевую базу
-``project1`` — фикстура выполняет ``DROP SCHEMA public CASCADE`` и уничтожит
-все данные организации. Используйте отдельную тестовую базу (например,
-``project1_test``).
+``project1`` — фикстура выполняет ``DROP SCHEMA public CASCADE`` и
+``DROP SCHEMA blastex CASCADE`` и уничтожит все данные организации.
+Используйте отдельную тестовую базу (например, ``project1_test``).
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 from sqlalchemy import Engine, create_engine, text
@@ -35,6 +35,17 @@ _PUBLIC_SCHEMA_SQL = _REPO_ROOT / "Docs" / "public_schema.sql"
 _RLS_FUNCTION_MARKER = "CREATE OR REPLACE FUNCTION public.rls_auto_enable"
 _DOLLAR_QUOTE = "$function$"
 _STANDALONE_SEQUENCE_MARKER = "CREATE SEQUENCE public."
+
+# Операторы, которыми фикстура возвращает тестовую базу в исходное состояние.
+# Схема ``blastex`` сносится вместе с ``public``: Alembic держит свою таблицу
+# ``alembic_version`` в ``public``, и без удаления ``blastex`` повторный
+# ``upgrade head`` во втором тесте падает на миграции 0001 с «relation already
+# exists» — версия забыта, а таблицы остались.
+RESET_STATEMENTS: tuple[str, ...] = (
+    "DROP SCHEMA IF EXISTS blastex CASCADE",
+    "DROP SCHEMA IF EXISTS public CASCADE",
+    "CREATE SCHEMA public",
+)
 
 
 def _strip_line_comment(line: str) -> str:
@@ -101,11 +112,12 @@ def _statements(ddl: str) -> list[str]:
 
 
 @pytest.fixture()
-def public_db() -> Engine:
-    """Пересоздаёт схему ``public`` из DDL и применяет миграции ``blastex``.
+def public_db() -> Iterator[Engine]:
+    """Пересоздаёт схемы ``public`` и ``blastex`` и применяет миграции.
 
-    После теста ничего не чистит: следующий тест, использующий эту фикстуру,
-    сам пересоздаёт схему ``public`` с нуля.
+    После теста схемы не чистятся (следующий тест пересоздаёт их сам), но
+    соединения закрываются: без ``dispose`` пул фикстуры держал бы их до конца
+    прогона, а следующий тест не смог бы снести схему ``blastex``.
     """
     engine = create_engine(TEST_DATABASE_URL, future=True)
 
@@ -113,8 +125,8 @@ def public_db() -> Engine:
     statements = _statements(ddl_text)
 
     with engine.begin() as connection:
-        connection.exec_driver_sql("DROP SCHEMA public CASCADE")
-        connection.exec_driver_sql("CREATE SCHEMA public")
+        for statement in RESET_STATEMENTS:
+            connection.exec_driver_sql(statement)
         for statement in statements:
             # exec_driver_sql, а не text(): вьюхи содержат `::`-приведения
             # типов, которые SQLAlchemy иначе пытается разобрать как
@@ -130,7 +142,10 @@ def public_db() -> Engine:
         check=True,
     )
 
-    return engine
+    try:
+        yield engine
+    finally:
+        engine.dispose()
 
 
 def seed_public(engine: Engine) -> dict[str, Any]:

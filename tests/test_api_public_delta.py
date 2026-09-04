@@ -94,7 +94,10 @@ def test_linking_same_public_row_twice_with_different_code_conflicts(monkeypatch
         json={"section": "sites", "code": "SITE_LOM_2", "public_table": "sites", "public_id": 1},
     )
     assert second.status_code == 409, second.text
-    assert "уже связана" in second.json()["detail"]["message"]
+    message = second.json()["detail"]["message"]
+    assert "уже связана с другой записью справочника" in message
+    # Код записи, которой строка журнала уже принадлежит, наружу не уходит.
+    assert "SITE_LOM" not in message
 
 
 def test_user_role_cannot_link_but_can_read_delta(monkeypatch) -> None:

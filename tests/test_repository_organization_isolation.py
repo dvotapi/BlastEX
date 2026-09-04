@@ -165,8 +165,12 @@ def test_public_links_are_organization_scoped_and_unique(repository) -> None:
 
     repository.save_public_link(ORG_A, "a@example.ru", PublicLink("sites", "SITE_LOM", "sites", 2))
     assert [l.public_id for l in repository.list_public_links(ORG_A)] == [2]
-    with pytest.raises(EconomicsRepositoryError):
+    with pytest.raises(EconomicsRepositoryError) as failure:
         repository.save_public_link(ORG_A, "a@example.ru", PublicLink("sites", "SITE_OTHER", "sites", 2))
+    # Чужой код в тексте конфликта не называется: связь бывает и у другой
+    # организации, показывать её справочник незачем.
+    assert "sites#2" in str(failure.value)
+    assert "SITE_LOM" not in str(failure.value)
 
 
 def test_mirror_sections_are_organization_scoped(repository) -> None:

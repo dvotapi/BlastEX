@@ -962,9 +962,11 @@ class PostgresEconomicsRepository:
                     or conflict.section != link.section
                     or conflict.code != link.code
                 ):
+                    # Раздел и код чужой связи в сообщение не попадают: она
+                    # может принадлежать другой организации.
                     raise EconomicsRepositoryError(
-                        f"Запись public {link.public_table}#{link.public_id} уже связана с "
-                        f"{conflict.section}/{conflict.code}."
+                        f"Запись public {link.public_table}#{link.public_id} "
+                        "уже связана с другой записью справочника."
                     )
                 row = session.scalar(
                     select(PublicLinkRow).where(
@@ -993,7 +995,8 @@ class PostgresEconomicsRepository:
         except IntegrityError as exc:
             if "uq_public_links_public_row" in str(getattr(exc, "orig", exc)):
                 raise EconomicsRepositoryError(
-                    f"Запись public {link.public_table}#{link.public_id} уже связана с другой записью."
+                    f"Запись public {link.public_table}#{link.public_id} "
+                    "уже связана с другой записью справочника."
                 ) from exc
             raise
         return PublicLink(

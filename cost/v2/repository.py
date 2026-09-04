@@ -734,8 +734,12 @@ class InMemoryEconomicsRepository:
             for (org, section, code), existing in self._public_links.items():
                 same_row = existing.public_table == link.public_table and existing.public_id == link.public_id
                 if same_row and (org, section, code) != (organization_id, link.section, link.code):
+                    # Чужие раздел и код в тексте не называются: связь может
+                    # принадлежать другой организации, и её справочник — не
+                    # дело того, кто получил конфликт.
                     raise EconomicsRepositoryError(
-                        f"Запись public {link.public_table}#{link.public_id} уже связана с {section}/{code}."
+                        f"Запись public {link.public_table}#{link.public_id} "
+                        "уже связана с другой записью справочника."
                     )
             saved = PublicLink(
                 section=link.section,

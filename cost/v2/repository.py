@@ -5,7 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Collection, Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
@@ -252,6 +252,31 @@ def links_for_sections(
     ]
 
 
+def published_codes(sections: Mapping[str, Sequence[ReferenceItem]]) -> dict[str, set[str]]:
+    """Коды записей публикуемой ревизии по разделам."""
+
+    return {section: {item.code for item in items} for section, items in sections.items()}
+
+
+def link_is_rekeyed(
+    existing: PublicLink, link: PublicLink, codes: Mapping[str, Collection[str]]
+) -> bool:
+    """Прежняя связь той же строки журнала — это та же запись под новым кодом?
+
+    Связь хранится по коду, а код записи правится в форме. Если строка журнала
+    уже связана с записью того же раздела, а её прежнего кода в публикуемой
+    ревизии не осталось, то запись не исчезла — её переименовали, и связь
+    переезжает на новый код. Остался прежний код — записи две, и делить между
+    ними одну строку журнала нельзя: это конфликт.
+    """
+
+    return (
+        existing.section == link.section
+        and existing.code != link.code
+        and existing.code not in codes.get(link.section, ())
+    )
+
+
 class EconomicsRepository(Protocol):
     def get_reference_snapshot(
         self, organization_id: str, revision_id: str | None = None
@@ -483,8 +508,9 @@ class InMemoryEconomicsRepository:
             # Связи проверяются до записи ревизии: конфликт не должен оставить
             # опубликованную ревизию без связей, которые её сопровождали.
             saved_links = links_for_sections(public_links, normalized)
+            codes = published_codes(normalized)
             for link in saved_links:
-                self._check_public_link_conflict(organization_id, link)
+                self._check_public_link_conflict(organization_id, link, codes)
             revision_id = str(uuid4())
             snapshot = ReferenceSnapshot(
                 revision_id=revision_id,
@@ -504,6 +530,7 @@ class InMemoryEconomicsRepository:
                 )
             )
             for link in saved_links:
+                self._drop_rekeyed_link(organization_id, link)
                 self._public_links[(organization_id, link.section, link.code)] = PublicLink(
                     section=link.section,
                     code=link.code,
@@ -853,13 +880,46 @@ class InMemoryEconomicsRepository:
                 link for (org, _s, _c), link in sorted(self._public_links.items()) if org == organization_id
             )
 
-    def _check_public_link_conflict(self, organization_id: str, link: PublicLink) -> None:
-        """Строка журнала занята другой записью справочника — связывать нельзя."""
+    def _check_public_link_conflict(
+        self,
+        organization_id: str,
+        link: PublicLink,
+        codes: Mapping[str, Collection[str]] | None = None,
+    ) -> None:
+        """Строка журнала занята другой записью справочника — связывать нельзя.
+
+        При публикации передаются коды публикуемой ревизии: связь записи,
+        которую переименовали, не конфликт, а перенос (`link_is_rekeyed`).
+        Вне публикации (`save_public_link`) кодов нет, и любая занятая строка
+        журнала — конфликт.
+        """
 
         for (org, section, code), existing in self._public_links.items():
             same_row = existing.public_table == link.public_table and existing.public_id == link.public_id
-            if same_row and (org, section, code) != (organization_id, link.section, link.code):
-                raise PublicLinkConflict(link.public_table, link.public_id)
+            if not same_row or (org, section, code) == (organization_id, link.section, link.code):
+                continue
+            if org == organization_id and codes is not None and link_is_rekeyed(existing, link, codes):
+                continue
+            raise PublicLinkConflict(link.public_table, link.public_id)
+
+    def _drop_rekeyed_link(self, organization_id: str, link: PublicLink) -> None:
+        """Убирает связь той же строки журнала под прежним кодом записи.
+
+        Вызывается после `_check_public_link_conflict`: там уже решено, что
+        прежняя связь — это переименованная запись, а не вторая.
+        """
+
+        for key, existing in list(self._public_links.items()):
+            same_row = (existing.public_table, existing.public_id) == (
+                link.public_table,
+                link.public_id,
+            )
+            if same_row and key[0] == organization_id and key != (
+                organization_id,
+                link.section,
+                link.code,
+            ):
+                del self._public_links[key]
 
     def save_public_link(self, organization_id: str, user_id: str, link: PublicLink) -> PublicLink:
         with self._lock:

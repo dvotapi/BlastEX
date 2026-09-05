@@ -19,6 +19,7 @@ from cost.v2.db_repository import PostgresEconomicsRepository
 from cost.v2.models import ReferenceItem
 from cost.v2.public_sync.settings import PublicSyncSettings
 from cost.v2.public_sync.writer import PublicAccessError, PublicWriteError
+from cost.v2.repository import PublicLink
 from tests.pg_public import TEST_DATABASE_URL, public_db, requires_pg, seed_public
 
 ORG = "org-public-push"
@@ -461,6 +462,51 @@ def test_changed_equipment_type_moves_the_unit_in_the_journal(repository, public
 
     unit = only_row(public_db, "equipment_units", "internal_id", "Б-02")
     assert unit["model_id"] == only_row(public_db, "equipment_models", "model_name", "SKF-13")["id"]
+
+
+@requires_pg
+def test_renamed_record_keeps_its_journal_row(repository, public_db) -> None:
+    """Код связанной записи поправили: строка журнала та же, дубля нет.
+
+    Связь хранится по коду, поэтому фронт присылает её под новым кодом
+    (§4.3). Без переноса запись выглядела бы исчезнувшей: строку журнала
+    погасили бы, а рядом завели вторую.
+    """
+
+    seed_public(public_db)
+    enable_exchange(repository)
+    publish(repository, counterparties=(CUSTOMER,))
+    before = only_row(public_db, "counterparties", "inn", "6685101311")
+    before_count = len(rows(public_db, "counterparties"))
+
+    renamed = ReferenceItem(code="KARIER_2", name=CUSTOMER.name, payload=dict(CUSTOMER.payload))
+    base = repository.get_reference_snapshot(ORG)
+    published = repository.publish_references(
+        ORG,
+        USER,
+        base.revision_id,
+        {**base.sections, "counterparties": (renamed,)},
+        public_links=[
+            PublicLink(
+                section="counterparties",
+                code="KARIER_2",
+                public_table="counterparties",
+                public_id=before["id"],
+            )
+        ],
+    )
+
+    # Строк в журнале не прибавилось, и прежняя активна: дубль не заведён.
+    assert len(rows(public_db, "counterparties")) == before_count
+    assert only_row(public_db, "counterparties", "id", before["id"])["is_active"] is True
+    links = {
+        (link.section, link.code): (link.public_table, link.public_id)
+        for link in repository.list_public_links(ORG)
+    }
+    assert links == {("counterparties", "KARIER_2"): ("counterparties", before["id"])}
+    summary = audit_payload(public_db, published.revision_id)["public_writes"]
+    assert summary["inserted"] == 0
+    assert summary["warnings"] == []
 
 
 @requires_pg

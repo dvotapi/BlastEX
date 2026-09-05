@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any, Collection, Mapping, Sequence
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -42,7 +42,9 @@ from cost.v2.repository import (
     StoredEconomicsRun,
     StoredScenario,
     StoredTechnicalPassport,
+    link_is_rekeyed,
     links_for_sections,
+    published_codes,
 )
 from cost.v2.public_sync.mirror import ensure_mirror, sync_mirror
 from cost.v2.public_sync.push import implicit_links, plan_public_writes
@@ -436,6 +438,7 @@ class PostgresEconomicsRepository:
         # блокировкой, что и ревизия: иначе между записью ревизии и записью
         # связи есть окно, в котором строка журнала снова выглядит несвязанной.
         saved_links = links_for_sections(public_links, normalized)
+        codes = published_codes(normalized)
         now = datetime.now(timezone.utc).replace(microsecond=0)
         revision_id = str(uuid4())
         with self.session_factory() as session, session.begin():
@@ -476,7 +479,7 @@ class PostgresEconomicsRepository:
                 for key, values in normalized.items()
             }
             for link in saved_links:
-                self._upsert_public_link(session, organization_id, user_id, link, now)
+                self._upsert_public_link(session, organization_id, user_id, link, now, codes)
             # Выгрузка идёт после связей черновика: план должен видеть их
             # наравне с прежними, иначе связанная запись поехала бы в журнал
             # второй строкой. Флаги обмена читаются этой же сессией — второе
@@ -533,13 +536,14 @@ class PostgresEconomicsRepository:
         # явной: иначе следующая публикация угадывала бы её заново, а до
         # выгрузки пользователь видел бы конфликт уникального ключа без
         # способа его снять.
+        codes = published_codes(normalized)
         guessed = implicit_links(normalized, links, snapshot)
         for link in guessed:
-            self._upsert_public_link(session, organization_id, user_id, link, now)
+            self._upsert_public_link(session, organization_id, user_id, link, now, codes)
         links = [*links, *guessed]
         plan = plan_public_writes(normalized, links, snapshot)
         for link in SqlPublicWriter(session, links).apply(plan):
-            self._upsert_public_link(session, organization_id, user_id, link, now)
+            self._upsert_public_link(session, organization_id, user_id, link, now, codes)
         summary: dict[str, Any] = {
             "inserted": len(plan.inserts),
             "updated": len(plan.updates),
@@ -1065,13 +1069,15 @@ class PostgresEconomicsRepository:
         ).all()
         return [cls._public_link(row) for row in rows]
 
-    @staticmethod
+    @classmethod
     def _upsert_public_link(
+        cls,
         session: Session,
         organization_id: str,
         user_id: str,
         link: PublicLink,
         now: datetime,
+        codes: Mapping[str, Collection[str]] | None = None,
     ) -> None:
         """Upsert связи по (organization_id, section, code) внутри транзакции.
 
@@ -1081,6 +1087,16 @@ class PostgresEconomicsRepository:
         доменную ошибку, а не в необработанный IntegrityError. Ради этого
         строка сбрасывается в базу сразу: при публикации откатить нужно и
         ревизию, а не только связь.
+
+        `codes` — коды публикуемой ревизии по разделам; их передаёт только
+        публикация. Если строка журнала уже связана с записью того же раздела
+        и той же организации, а прежнего кода в ревизии не осталось, запись
+        не исчезла, а переименована: связь переносится на новый код
+        (`link_is_rekeyed`) — прежняя строка удаляется, новая пишется ниже
+        обычным путём. Вне публикации (`POST /references/public-links`) кодов
+        нет, и занятая строка журнала остаётся конфликтом. Конфликтом она
+        остаётся и когда новый код уже связан со своей строкой журнала:
+        двум записям одну строку не поделить.
         """
 
         conflict = session.scalar(
@@ -1089,12 +1105,6 @@ class PostgresEconomicsRepository:
                 PublicLinkRow.public_id == link.public_id,
             )
         )
-        if conflict is not None and (
-            conflict.organization_id != organization_id
-            or conflict.section != link.section
-            or conflict.code != link.code
-        ):
-            raise PublicLinkConflict(link.public_table, link.public_id)
         row = session.scalar(
             select(PublicLinkRow).where(
                 PublicLinkRow.organization_id == organization_id,
@@ -1102,6 +1112,21 @@ class PostgresEconomicsRepository:
                 PublicLinkRow.code == link.code,
             )
         )
+        if conflict is not None and (
+            conflict.organization_id != organization_id
+            or conflict.section != link.section
+            or conflict.code != link.code
+        ):
+            rekeyed = (
+                row is None
+                and codes is not None
+                and conflict.organization_id == organization_id
+                and link_is_rekeyed(cls._public_link(conflict), link, codes)
+            )
+            if not rekeyed:
+                raise PublicLinkConflict(link.public_table, link.public_id)
+            session.delete(conflict)
+            session.flush()
         if row is None:
             session.add(
                 PublicLinkRow(

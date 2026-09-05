@@ -12,6 +12,7 @@ from api.services.economics_service import get_economics_repository
 from api.services.public_sync_service import get_public_reader
 from cost.v2.public_sync import PublicSnapshot, PublicUnavailable, StaticPublicReader
 from cost.v2.public_sync.mapping import TABLES
+from cost.v2.public_sync.settings import PublicSyncSettings
 from cost.v2.repository import EconomicsRepositoryError, InMemoryEconomicsRepository
 from tests.test_public_sync_mapping import COUNTERPARTIES, make_snapshot
 
@@ -455,9 +456,12 @@ def test_publish_with_conflicting_link_changes_nothing(monkeypatch) -> None:
     assert saved.status_code == 201, saved.text
     before = client.get("/api/v1/economics/references/snapshot").json()["revision_id"]
 
+    # Запись со старым кодом остаётся в ревизии: значит, записи две и строку
+    # журнала делить между ними нельзя. Пропади старый код — это было бы
+    # переименование, и связь просто переехала бы (см. тест ниже).
     response = _publish(
         client,
-        {"sites": [_site_item("SITE_LOM")]},
+        {"sites": [_site_item("SITE_OLD", "Прежний карьер"), _site_item("SITE_LOM")]},
         [{"section": "sites", "code": "SITE_LOM", "public_table": "sites", "public_id": 1}],
     )
 
@@ -468,3 +472,81 @@ def test_publish_with_conflicting_link_changes_nothing(monkeypatch) -> None:
     # Ревизия не создана: связь и справочники пишутся одной транзакцией.
     assert client.get("/api/v1/economics/references/snapshot").json()["revision_id"] == before
     assert [link.code for link in repository.list_public_links("default")] == ["SITE_OLD"]
+
+
+# --- Переименование связанной записи ----------------------------------------
+
+
+def _counterparty_item(code: str) -> dict:
+    """Контрагент, совпадающий со строкой журнала `counterparties#1` по ИНН."""
+
+    return {
+        "code": code,
+        "name": 'Акционерное общество "Теплогорский карьер"',
+        "payload": {
+            "role": "CUSTOMER",
+            "inn": "6608002092",
+            "short_name": 'АО "Теплогорский карьер"',
+        },
+        "is_active": True,
+        "valid_from": None,
+        "valid_to": None,
+        "source": "",
+        "comment": "",
+        "revision": 1,
+    }
+
+
+def _enable_exchange(client, repository) -> None:
+    """Обмен включён, а журнал — снимок `make_snapshot` и для чтения, и для плана."""
+
+    repository.public_snapshot = make_snapshot()
+    repository.set_public_sync_settings(
+        "default",
+        "editor@example.ru",
+        PublicSyncSettings(exchange_enabled=True, mirror_sections=frozenset()),
+    )
+    client.app.dependency_overrides[get_public_reader] = lambda: StaticPublicReader(make_snapshot())
+
+
+def _counterparty_issues(client, code: str, links: list[dict]) -> list[dict]:
+    """Замечания проверки по разделу контрагентов (остальные разделы не переданы)."""
+
+    response = client.post(
+        "/api/v1/economics/references/validate",
+        json={"sections": {"counterparties": [_counterparty_item(code)]}, "public_links": links},
+    )
+    assert response.status_code == 200, response.text
+    return [issue for issue in response.json()["issues"] if issue["section"] == "counterparties"]
+
+
+def test_renamed_record_keeps_its_link_on_validate_and_publish(monkeypatch) -> None:
+    """Код связанной записи поправили: связь переезжает, дубля в журнале нет."""
+
+    client, repository = _client(monkeypatch)
+    _enable_exchange(client, repository)
+    link = {
+        "section": "counterparties",
+        "code": "KARIER",
+        "public_table": "counterparties",
+        "public_id": 1,
+    }
+    first = _publish(client, {"counterparties": [_counterparty_item("KARIER")]}, [link])
+    assert first.status_code == 200, first.text
+
+    # Фронт присылает связь, перенесённую на новый код записи.
+    renamed = {**link, "code": "KARIER_2"}
+    assert _counterparty_issues(client, "KARIER_2", [renamed]) == []
+    # Без переноса та же запись выглядит несвязанной: её ИНН «уже есть в журнале».
+    assert _counterparty_issues(client, "KARIER_2", []) != []
+
+    response = _publish(client, {"counterparties": [_counterparty_item("KARIER_2")]}, [renamed])
+
+    assert response.status_code == 200, response.text
+    links = repository.list_public_links("default")
+    assert [(link.section, link.code, link.public_id) for link in links] == [
+        ("counterparties", "KARIER_2", 1)
+    ]
+    # Строка журнала осталась связанной: второй записи под новым кодом нет.
+    plan = repository._public_writes["default"][-1]
+    assert [insert.code for insert in plan.inserts] == []

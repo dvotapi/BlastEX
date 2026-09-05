@@ -6,6 +6,7 @@ import type {
   EconomicsReferenceSnapshot,
   PublicDelta,
   PublicDeltaEntry,
+  PublicLinkRequest,
   PublicSyncSettings,
   ReferenceRevision,
   ReferenceValidationIssue,
@@ -19,8 +20,11 @@ import { mergeImportedSections, type DraftSections } from "./importDraft";
 import {
   applyDeltaEntries,
   mergePendingLinks,
+  publishedRows,
+  renamedLinks,
   resolvePendingLinks,
   type PendingLink,
+  type PublishedRow,
 } from "./publicDelta";
 import { PublicDeltaBanner } from "./PublicDeltaBanner";
 import { PublicSyncSettingsPanel } from "./PublicSyncSettings";
@@ -91,6 +95,12 @@ export function ReferencesPage({ user }: { user: User }) {
   // публикации, одной транзакцией с ревизией. Ключ связи — `row_id` записи, а
   // не код: код правится в форме, и связь должна идти за записью.
   const [pendingLinks, setPendingLinks] = useState<PendingLink[]>([]);
+  // Сохранённые связи и строки загруженной ревизии: по ним связь переносится
+  // на новый код переименованной записи (`renamedLinks`). Держатся в ref, а не
+  // в состоянии: на отрисовку они не влияют, зато `load` остаётся стабильным и
+  // не перезапускает сам себя.
+  const storedLinks = useRef<PublicLinkRequest[]>([]);
+  const loadedRows = useRef<PublishedRow[]>([]);
   // Настройки обмена меняет только администратор — остальным они и не грузятся.
   const [publicSettings, setPublicSettings] = useState<PublicSyncSettings | null>(null);
   const canEdit = user.role === "admin" || user.role === "reference_editor";
@@ -99,6 +109,23 @@ export function ReferencesPage({ user }: { user: User }) {
   // Номер последнего запроса разницы: ответы более ранних запросов
   // игнорируются, иначе медленный первый ответ затёр бы свежий второй.
   const deltaRequest = useRef(0);
+
+  /**
+   * Связи черновика для сервера: выбранные пользователем плюс перенесённые на
+   * новый код переименованных записей. Связь черновика главнее перенесённой —
+   * пользователь мог увести ту же запись на другую строку журнала.
+   */
+  const linkRequests = useCallback(
+    (currentDraft: DraftSections, links: PendingLink[]): PublicLinkRequest[] =>
+      resolvePendingLinks(
+        currentDraft,
+        mergePendingLinks(
+          renamedLinks(storedLinks.current, loadedRows.current, currentDraft),
+          links,
+        ),
+      ),
+    [],
+  );
 
   /**
    * Разница черновика с журналом project1. Ошибка запроса не ломает страницу:
@@ -117,7 +144,7 @@ export function ReferencesPage({ user }: { user: User }) {
         // ещё не опубликованная запись каждый раз возвращалась бы «новой».
         result = await api.economics.publicDelta(
           toSections(currentDraft),
-          resolvePendingLinks(currentDraft, links),
+          linkRequests(currentDraft, links),
         );
       } catch (reason) {
         result = {
@@ -131,20 +158,25 @@ export function ReferencesPage({ user }: { user: User }) {
       setPublicDelta(result);
       return result;
     },
-    [],
+    [linkRequests],
   );
 
   const load = useCallback(async () => {
     setBusy(true);
     setError("");
     try {
-      // Схема и снимок независимы — грузим параллельно, страница открывается
-      // за один круг вместо двух.
-      const [schema, loaded] = await Promise.all([
+      // Схема, снимок и связи независимы — грузим параллельно, страница
+      // открывается за один круг вместо трёх. Связи необязательны: без них
+      // переименованная запись просто потеряет связь и вернётся предложением
+      // из журнала — падать из-за этого незачем.
+      const [schema, loaded, links] = await Promise.all([
         api.economics.referenceSchema(),
         api.economics.referenceSnapshot(),
+        api.economics.publicLinks().catch(() => [] as PublicLinkRequest[]),
       ]);
       const loadedDraft = toDraft(loaded);
+      storedLinks.current = links;
+      loadedRows.current = publishedRows(loadedDraft);
       setCatalog(schema);
       setSnapshot(loaded);
       setDraft(loadedDraft);
@@ -372,7 +404,7 @@ export function ReferencesPage({ user }: { user: User }) {
       // публикация с теми же связями прошла бы успешно.
       const result = await api.economics.validateReferences(
         toSections(draft),
-        resolvePendingLinks(draft, pendingLinks),
+        linkRequests(draft, pendingLinks),
       );
       setIssues(result.issues);
       return result.valid;
@@ -386,7 +418,9 @@ export function ReferencesPage({ user }: { user: User }) {
 
   function discard() {
     if (!snapshot) return;
-    setDraft(toDraft(snapshot));
+    const restored = toDraft(snapshot);
+    loadedRows.current = publishedRows(restored);
+    setDraft(restored);
     setNewRows(new Set());
     setPendingLinks([]);
     setIssues([]);
@@ -436,7 +470,7 @@ export function ReferencesPage({ user }: { user: User }) {
       if (merged.replaced.length && !merged.replaced.includes(activeSection)) setActiveSection(merged.replaced[0]);
       const validation = await api.economics.validateReferences(
         toSections(merged.draft),
-        resolvePendingLinks(merged.draft, pendingLinks),
+        linkRequests(merged.draft, pendingLinks),
       );
       setIssues(validation.issues);
     } catch (reason) {
@@ -499,7 +533,7 @@ export function ReferencesPage({ user }: { user: User }) {
       setSelectedRow("");
       const validation = await api.economics.validateReferences(
         toSections(merged.draft),
-        resolvePendingLinks(merged.draft, links),
+        linkRequests(merged.draft, links),
       );
       setIssues(validation.issues);
       await refreshPublicDelta(merged.draft, links);
@@ -547,9 +581,13 @@ export function ReferencesPage({ user }: { user: User }) {
         base_revision: snapshot.revision_id,
         sections: toSections(draft),
         comment,
-        public_links: resolvePendingLinks(draft, pendingLinks),
+        public_links: linkRequests(draft, pendingLinks),
       });
       const publishedDraft = toDraft(published);
+      // Ревизия опубликована: связи в базе уже под новыми кодами, а строки
+      // черновика — это строки новой ревизии.
+      storedLinks.current = await api.economics.publicLinks().catch(() => storedLinks.current);
+      loadedRows.current = publishedRows(publishedDraft);
       setSnapshot(published);
       setDraft(publishedDraft);
       setNewRows(new Set());

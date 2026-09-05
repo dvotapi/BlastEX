@@ -112,14 +112,48 @@ def test_publish_writes_links_of_the_revision_and_skips_missing_codes(repository
 
 
 @requires_pg
-def test_conflicting_link_rolls_back_the_whole_publication(repository) -> None:
+def test_renamed_record_moves_its_link_to_the_new_code(repository) -> None:
+    """Код связанной записи поправили: связь переезжает, а не конфликтует."""
+
     base = repository.get_reference_snapshot(ORG)
     repository.save_public_link(
         ORG, USER, PublicLink(section="sites", code="SITE_LOM", public_table="sites", public_id=3)
     )
     sections = {
         **base.sections,
-        "sites": (ReferenceItem(code="SITE_OTHER", name="Другой карьер"),),
+        "sites": (ReferenceItem(code="SITE_NEW", name="Ломоватский карьер"),),
+    }
+
+    repository.publish_references(
+        ORG,
+        USER,
+        base.revision_id,
+        sections,
+        public_links=[
+            PublicLink(section="sites", code="SITE_NEW", public_table="sites", public_id=3)
+        ],
+    )
+
+    # Связь одна и под новым кодом: прежняя не осталась сиротой.
+    assert [(link.code, link.public_id) for link in repository.list_public_links(ORG)] == [
+        ("SITE_NEW", 3)
+    ]
+
+
+@requires_pg
+def test_conflicting_link_rolls_back_the_whole_publication(repository) -> None:
+    base = repository.get_reference_snapshot(ORG)
+    repository.save_public_link(
+        ORG, USER, PublicLink(section="sites", code="SITE_LOM", public_table="sites", public_id=3)
+    )
+    # Запись со старым кодом остаётся в ревизии: значит, записи две, и одну
+    # строку журнала им не поделить. Исчезни она — это было бы переименование.
+    sections = {
+        **base.sections,
+        "sites": (
+            ReferenceItem(code="SITE_LOM", name="Ломоватский карьер"),
+            ReferenceItem(code="SITE_OTHER", name="Другой карьер"),
+        ),
     }
 
     with pytest.raises(PublicLinkConflict):

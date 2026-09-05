@@ -119,3 +119,56 @@ export function mergePendingLinks(current: PendingLink[], added: PendingLink[]):
   );
   return [...kept, ...added];
 }
+
+/**
+ * Строка опубликованной ревизии: код, под которым она загружена в черновик.
+ * Нужна, чтобы отличить переименование записи от её исчезновения — `row_id`
+ * у строки ревизии стабилен, а код правится в форме.
+ */
+export type PublishedRow = {
+  row_id: string;
+  section: string;
+  code: string;
+};
+
+/** Строки черновика, каким он загружен из опубликованной ревизии. */
+export function publishedRows(draft: DraftSections): PublishedRow[] {
+  return Object.entries(draft).flatMap(([section, rows]) =>
+    rows.map((row) => ({ row_id: row.row_id, section, code: row.code })),
+  );
+}
+
+/**
+ * Связи, которые надо перенести на новый код переименованных записей.
+ *
+ * Сохранённая связь хранится по коду, а код правится в форме. Без переноса
+ * публикация считала бы запись со старым кодом исчезнувшей: у разделов с
+ * уникальным ключом переименованная запись выглядела бы несвязанной и не
+ * прошла бы проверку, а у объектов её строку в журнале погасили бы и завели
+ * дубль под новым кодом.
+ *
+ * Строка ревизии, которой в черновике уже нет (запись удалили или раздел
+ * заменили файлом), связь не переносит — она действительно исчезла.
+ */
+export function renamedLinks(
+  stored: PublicLinkRequest[],
+  published: PublishedRow[],
+  draft: DraftSections,
+): PendingLink[] {
+  if (!stored.length) return [];
+  const byCode = new Map(stored.map((link) => [`${link.section}::${link.code}`, link]));
+  const renamed: PendingLink[] = [];
+  for (const row of published) {
+    const link = byCode.get(`${row.section}::${row.code}`);
+    if (!link) continue;
+    const current = (draft[row.section] ?? []).find((item) => item.row_id === row.row_id);
+    if (!current || !current.code || current.code === row.code) continue;
+    renamed.push({
+      row_id: row.row_id,
+      section: row.section,
+      public_table: link.public_table,
+      public_id: link.public_id,
+    });
+  }
+  return renamed;
+}

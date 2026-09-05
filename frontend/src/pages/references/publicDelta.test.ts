@@ -4,6 +4,8 @@ import {
   deltaSummary,
   fieldValueText,
   mergePendingLinks,
+  publishedRows,
+  renamedLinks,
   resolvePendingLinks,
 } from "./publicDelta";
 import type { EconomicsReferenceItem, PublicDeltaEntry } from "../../types/economics";
@@ -220,5 +222,46 @@ describe("mergePendingLinks", () => {
     const second = { row_id: "r2", section: "rocks", public_table: "rock_types", public_id: 1 };
     expect(mergePendingLinks([first], [second])).toEqual([first, second]);
     expect(mergePendingLinks([first], [])).toEqual([first]);
+  });
+});
+
+describe("renamedLinks", () => {
+  const stored = [{ section: "sites", code: "SITE_ЛОМ", public_table: "sites", public_id: 7 }];
+  const published = [{ row_id: "r1", section: "sites", code: "SITE_ЛОМ" }];
+
+  it("переименованная запись уводит сохранённую связь на новый код", () => {
+    const draft = { sites: [{ ...item("SITE_НОВЫЙ"), row_id: "r1" }] };
+    expect(renamedLinks(stored, published, draft)).toEqual([
+      { row_id: "r1", section: "sites", public_table: "sites", public_id: 7 },
+    ]);
+  });
+
+  it("код не менялся — переносить нечего", () => {
+    const draft = { sites: [{ ...item("SITE_ЛОМ"), row_id: "r1" }] };
+    expect(renamedLinks(stored, published, draft)).toEqual([]);
+  });
+
+  it("запись без сохранённой связи не даёт связи", () => {
+    const draft = { sites: [{ ...item("SITE_ДРУГОЙ"), row_id: "r2" }] };
+    const rows = [{ row_id: "r2", section: "sites", code: "SITE_ИНОЙ" }];
+    expect(renamedLinks(stored, rows, draft)).toEqual([]);
+  });
+
+  it("исчезнувшая или обнулённая запись связь не переносит", () => {
+    expect(renamedLinks(stored, published, { sites: [] })).toEqual([]);
+    expect(renamedLinks(stored, published, { sites: [{ ...item(""), row_id: "r1" }] })).toEqual([]);
+  });
+});
+
+describe("publishedRows", () => {
+  it("перечисляет строки ревизии разделами и кодами", () => {
+    const draft = {
+      sites: [{ ...item("SITE_A"), row_id: "r1" }],
+      rocks: [{ ...item("ROCK_B"), row_id: "r2" }],
+    };
+    expect(publishedRows(draft)).toEqual([
+      { row_id: "r1", section: "sites", code: "SITE_A" },
+      { row_id: "r2", section: "rocks", code: "ROCK_B" },
+    ]);
   });
 });

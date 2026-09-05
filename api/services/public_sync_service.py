@@ -14,8 +14,9 @@ from typing import Any, Sequence
 from fastapi import Depends
 from pydantic import ValidationError
 
-from api.schemas.economics import ReferenceItemSchema
+from api.schemas.economics import PublicSyncSettingsRequest, ReferenceItemSchema
 from api.services.economics_service import get_economics_repository
+from cost.v2.models import ReferenceItem
 from cost.v2.public_sync import (
     DeltaEntry,
     FieldChange,
@@ -25,12 +26,22 @@ from cost.v2.public_sync import (
     SqlPublicReader,
     StaticPublicReader,
     compute_delta,
+    public_constraint_issues,
 )
 from cost.v2.public_sync.mapping import TABLES
+from cost.v2.public_sync.settings import MAPPED_SECTIONS, PublicSyncSettings, mirrorable_sections
+from cost.v2.references import ValidationIssue, validate_reference_sections
 from cost.v2.repository import EconomicsRepository, PublicLink
 from cost.v2.schemas import SECTION_SCHEMAS
 
-__all__ = ["get_public_reader", "public_delta_payload", "public_link_payload"]
+__all__ = [
+    "get_public_reader",
+    "public_delta_payload",
+    "public_link_payload",
+    "public_settings_payload",
+    "reference_issues",
+    "settings_from_request",
+]
 
 # Разница без записей журнала: используется, когда падать некуда (реальную
 # ошибку недоступности отдаёт сам ``reader.read()``).
@@ -62,6 +73,63 @@ def get_public_reader(
     if engine is not None:
         return SqlPublicReader(engine)
     return StaticPublicReader(PublicSnapshot(rows={}))
+
+
+def public_settings_payload(settings: PublicSyncSettings) -> dict[str, Any]:
+    """Настройки обмена для страницы «Справочники»: состояние и списки разделов.
+
+    ``mirror_sections`` перечисляет все разделы, которые можно зеркалировать,
+    — включённые и выключенные: фронт рисует переключатели по этому словарю и
+    сам о разделах ничего не знает.
+    """
+
+    sections = mirrorable_sections()
+    return {
+        "exchange_enabled": settings.exchange_enabled,
+        "mirror_sections": {section: section in settings.mirror_sections for section in sections},
+        "mirrorable_sections": list(sections),
+        "mapped_sections": list(MAPPED_SECTIONS),
+    }
+
+
+def settings_from_request(request: PublicSyncSettingsRequest) -> PublicSyncSettings:
+    """Запрос настроек в доменный вид: раздела нет или он `false` — зеркало выключено."""
+
+    return PublicSyncSettings(
+        exchange_enabled=request.exchange_enabled,
+        mirror_sections=frozenset(
+            section for section, enabled in request.mirror_sections.items() if enabled
+        ),
+    )
+
+
+def reference_issues(
+    reader: PublicReader,
+    repository: EconomicsRepository,
+    organization_id: str,
+    sections: dict[str, list[ReferenceItem]],
+    pending_links: Sequence[PublicLink] = (),
+) -> list[ValidationIssue]:
+    """Замечания справочников: общие проверки, а при включённом обмене — и журнала.
+
+    Ограничения ``public`` проверяются до записи, иначе публикация упала бы
+    ошибкой чужой схемы (502) уже в транзакции. Недоступность журнала проверку
+    не отменяет: без снимка не найти только конфликты уникальных ключей, а
+    пустой ИНН или объект без заказчика видно и так. Саму публикацию
+    недоступный журнал не блокирует — если писать всё же понадобится и не
+    выйдет, ответ будет 502.
+    """
+
+    issues = validate_reference_sections(sections)
+    if not repository.get_public_sync_settings(organization_id).exchange_enabled:
+        return issues
+    links = _merged_links(repository.list_public_links(organization_id), pending_links)
+    try:
+        snapshot: PublicSnapshot | None = reader.read()
+    except PublicUnavailable:
+        snapshot = None
+    issues.extend(public_constraint_issues(sections, links, snapshot))
+    return issues
 
 
 def public_delta_payload(
@@ -141,6 +209,11 @@ def _merged_links(
     пользователь мог перенести строку журнала на другую запись справочника
     или, наоборот, связать запись с другой строкой. Обе связи сразу дали бы
     два предложения по одной и той же строке.
+
+    Этим же правилом связь идёт за изменённым кодом записи (§4.3): фронт
+    присылает её под новым кодом, сохранённая связь со старым кодом уходит по
+    ключу строки журнала, и переименованная запись проверяется как связанная,
+    а не как несвязанный дубль записи журнала.
     """
 
     codes = {(link.section, link.code) for link in pending}

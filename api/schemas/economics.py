@@ -50,6 +50,8 @@ class PublicLinkRequest(BaseModel):
     Раздел и таблица проверяются по каталогам, а не принимаются любым текстом:
     связь с несуществующим разделом никогда не даст разницы, а молча лежать в
     базе она будет долго. Длины совпадают с колонками ``public_links``.
+    Сама пара «раздел — таблица» проверяется маршрутом (``_public_link``): она
+    зависит от каталога ``SECTION_TABLES``, а не от отдельного поля.
 
     Объявлена раньше запросов справочников: связи ходят вместе с черновиком —
     в запросе разницы как ожидающие и в запросе публикации как сохраняемые.
@@ -77,15 +79,17 @@ class PublicLinkRequest(BaseModel):
 
 class ReferenceValidateRequest(BaseModel):
     sections: dict[str, list[ReferenceItemSchema]]
+    # Связи, накопленные в черновике: записываются в одной транзакции с
+    # ревизией (§4.3), поэтому приходят вместе с разделами, а не отдельным
+    # запросом до публикации. Проверке они нужны не меньше, чем публикации:
+    # без них связанная запись выглядит как новая и получает ошибку
+    # «уже есть в журнале» там, где публикация прошла бы успешно.
+    public_links: list[PublicLinkRequest] = Field(default_factory=list)
 
 
 class ReferencePublishRequest(ReferenceValidateRequest):
     base_revision: str
     comment: str = ""
-    # Связи, накопленные в черновике: записываются в одной транзакции с
-    # ревизией (§4.3), поэтому приходят вместе с разделами, а не отдельным
-    # запросом до публикации.
-    public_links: list[PublicLinkRequest] = Field(default_factory=list)
 
 
 class ReferenceValidationIssueSchema(BaseModel):
@@ -320,6 +324,31 @@ class PublicLinkSchema(BaseModel):
     public_table: str
     public_id: int
     synced_at: str | None = None
+
+
+class PublicSyncSettingsRequest(BaseModel):
+    """Новое состояние настроек обмена целиком, а не правка отдельного флага.
+
+    Раздела нет в ``mirror_sections`` — его зеркало выключено: клиент присылает
+    то, что видит на странице, и не должен помнить прежнее состояние.
+    """
+
+    exchange_enabled: bool
+    mirror_sections: dict[str, bool] = Field(default_factory=dict)
+
+
+class PublicSyncSettingsSchema(BaseModel):
+    """Настройки обмена и справочные списки разделов для страницы «Справочники».
+
+    ``mirror_sections`` перечисляет все разделы, которые можно зеркалировать,
+    с их состоянием; ``mapped_sections`` — разделы, которые выгружаются
+    сопоставлением таблиц и своего переключателя не имеют.
+    """
+
+    exchange_enabled: bool
+    mirror_sections: dict[str, bool] = Field(default_factory=dict)
+    mirrorable_sections: list[str] = Field(default_factory=list)
+    mapped_sections: list[str] = Field(default_factory=list)
 
 
 class EventCalculationRequest(BaseModel):

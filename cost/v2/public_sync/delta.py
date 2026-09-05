@@ -11,7 +11,15 @@
 
 Сравнение значений намеренно мягкое: ``"220"``, ``"220.0"`` и ``220`` — одно
 число, пустая строка равна отсутствию ключа. Иначе черновик, прошедший через
-JSON и формы интерфейса, каждый раз показывал бы ложные изменения.
+JSON и формы интерфейса, каждый раз показывал бы ложные изменения. Эта же
+нормализация (``comparable``) нужна выгрузке в журнал, поэтому она открыта
+наружу и живёт одним местом.
+
+Кое-где журнал знает меньше, чем BlastEX, и одно его значение покрывает
+несколько наших (``_EQUIVALENT_VALUES``): субподрядчик хранится в журнале
+как обычный поставщик. Без этого разница после каждой публикации предлагала
+бы заменить ``SUBCONTRACTOR`` на ``SUPPLIER`` и стирала бы различие, которым
+BlastEX пользуется.
 """
 from __future__ import annotations
 
@@ -29,6 +37,7 @@ __all__ = [
     "DeltaEntry",
     "FieldChange",
     "PublicDelta",
+    "comparable",
     "compute_delta",
 ]
 
@@ -52,6 +61,15 @@ _REFERENCE_FIELDS: dict[str, str] = {
     "supplier_code": "counterparties",
     "equipment_type_code": "equipment_types",
     "material_code": "materials",
+}
+
+# Значения журнала, покрывающие несколько значений blastex: ключ — раздел и
+# общее поле, дальше значение журнала и равные ему значения черновика (§4.1).
+# Ролей у журнала две, `is_client` и `is_supplier`, поэтому субподрядчик
+# хранится в нём поставщиком: журнальный `SUPPLIER` равен и `SUPPLIER`, и
+# `SUBCONTRACTOR` черновика, а вот `CUSTOMER` от них по-прежнему отличается.
+_EQUIVALENT_VALUES: dict[tuple[str, str], dict[Any, frozenset[str]]] = {
+    ("counterparties", "role"): {"SUPPLIER": frozenset({"SUPPLIER", "SUBCONTRACTOR"})},
 }
 
 # Таблицы public, коды которых нужны ``build_proposals`` до сборки ссылок.
@@ -234,9 +252,22 @@ def _changes(proposal: Proposal, record: ReferenceItem) -> Iterator[FieldChange]
         else:
             key = f"{_PAYLOAD_PREFIX}{name}"
             old, new = record.payload.get(name), proposal.payload.get(name)
-        if _comparable(old) == _comparable(new):
+        if comparable(old) == comparable(new):
+            continue
+        if _equivalent(proposal.section, name, old, new):
             continue
         yield FieldChange(key=key, old=_display(old), new=_display(new))
+
+
+def _equivalent(section: str, name: str, old: Any, new: Any) -> bool:
+    """Покрывает ли значение журнала ``new`` значение черновика ``old``.
+
+    Журнал грубее BlastEX в отдельных полях (``_EQUIVALENT_VALUES``): менять
+    черновик из-за такой «разницы» нельзя, она мнимая.
+    """
+
+    drafts = _EQUIVALENT_VALUES.get((section, name), {}).get(comparable(new))
+    return drafts is not None and comparable(old) in drafts
 
 
 def _is_deactivation(changes: tuple[FieldChange, ...]) -> bool:
@@ -270,7 +301,7 @@ def _applied(record: ReferenceItem, changes: tuple[FieldChange, ...]) -> dict[st
 # --- Сравнение значений -----------------------------------------------------
 
 
-def _comparable(value: Any) -> Any:
+def comparable(value: Any) -> Any:
     """Значение в виде, пригодном для сравнения черновика с журналом.
 
     Пустая строка и отсутствующий ключ — одно и то же (``None``); число в

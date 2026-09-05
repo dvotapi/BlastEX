@@ -103,6 +103,11 @@
 | `materials` с видом `Буровой инструмент` | `tool_types` | обе |
 | `material_prices` | `explosive_material_prices`, `explosive_spec_items`, `explosive_purchase_specs` | только из public |
 
+Эта таблица — единственный источник правды о связях `public_links`: она
+записана в коде как `SECTION_TABLES` (`cost/v2/public_sync/mapping.py`), и
+связь раздела с таблицей, которой в его строке нет, API не принимает, а
+выгрузка пропускает с предупреждением.
+
 Поля, участвующие в обмене (далее «общие поля»):
 
 `sites`: `name ↔ full_name`, `short_name ↔ short_name`, `mineral_type ↔
@@ -122,8 +127,10 @@ inn`, роль: `CUSTOMER ↔ is_client`, `SUPPLIER`/`SUBCONTRACTOR ↔
 is_supplier`, `is_active ↔ is_active`. Если в `public` контрагент
 одновременно клиент и поставщик (в данных такие есть), в blastex он получает
 роль `CUSTOMER`; при выгрузке флаги `is_client`/`is_supplier` только
-поднимаются и никогда не сбрасываются. Остальные реквизиты `public` (КПП,
-ОГРН, адреса, банк, контакты) в BlastEX не переносятся.
+поднимаются и никогда не сбрасываются. Субподрядчик в журнале хранится как
+поставщик, поэтому при сравнении роли `SUPPLIER` и `SUBCONTRACTOR` считаются
+равными: разница не предлагает заменить одну другой. Остальные реквизиты
+`public` (КПП, ОГРН, адреса, банк, контакты) в BlastEX не переносятся.
 
 `equipment_types`: `name ↔ model_name`, `brand ↔ brand`, `machine_type_name
 ↔ machine_types.name` (текст типа машины хранится как есть, при выгрузке
@@ -140,7 +147,10 @@ is_supplier`, `is_active ↔ is_active`. Если в `public` контраген
 `equipment_assets`: `inventory_number ↔ internal_id`, `serial_number ↔
 serial_number`, тип `equipment_type_code ↔ model_id` через связь типа,
 `is_active ← status <> 'Списано'`. Статус в `public` приложение не меняет:
-им управляет журнал.
+им управляет журнал. Имя единицы (`name`) в `public.equipment_units` колонки
+не имеет: при создании записи из журнала оно берётся из `internal_id`
+(инвентарного номера), но не общее поле — далее пользователь переименовывает
+единицу свободно, и `internal_id` её не перетирает.
 
 `materials` (СИ): `name ↔ name`, `comment ↔ description`; `material_kind =
 СИ`, `storage_class = NSI` при создании из `public`. Только из `public`:
@@ -208,7 +218,9 @@ serial_number`, тип `equipment_type_code ↔ model_id` через связь 
 `public_id`). Связь записывается при публикации ревизии, в которую вошла
 запись. Для записей `public`, у которых ещё нет связи, код blastex
 образуется как `PUB_<TABLE>_<id>` (например `PUB_SITE_12`); имя пользователь может менять,
-код остаётся.
+код остаётся. При смене кода связанной записи связь переносится на новый код
+при публикации: пока прежнего кода в ревизии нет, запись считается
+переименованной, а не исчезнувшей.
 
 ### 4.4. Получение из public
 
@@ -238,6 +250,12 @@ project1: N новых, M изменённых, K деактивированны
 страница работает.
 
 ### 4.5. Выгрузка в public
+
+Выгрузка выполняется, если администратор включил обмен для организации
+(переключатель «Обмен с журналом project1.public» на странице «Справочники»,
+состояние хранится в `blastex.public_mirror_sections` под ключом `_exchange`);
+до выдачи прав роли `blastex` обмен выключен, и публикация работает как
+раньше.
 
 Внутри `publish_references`, после записи ревизии и до фиксации транзакции:
 
@@ -274,7 +292,8 @@ project1: N новых, M изменённых, K деактивированны
 
 - фиксированные колонки: `code text primary key`, `name text not null`,
   `is_active boolean not null`, `valid_from date`, `valid_to date`,
-  `revision_id varchar(36) not null`, `synced_at timestamptz not null`;
+  `revision_id varchar(36) not null`, `synced_at timestamptz not null`, а
+  дополнительно `source text` и `comment text` записи;
 - по одной колонке на поле схемы: `Decimal → numeric`, `bool → boolean`,
   `str`/`Literal` → `text`, `date → date`, ссылка (`x-ref`) → `text` с кодом,
   списки и вложенные модели → `jsonb`; поля с `x-internal` не выгружаются;
@@ -291,6 +310,11 @@ project1: N новых, M изменённых, K деактивированны
 той же транзакции: строки вставляются или обновляются по `code`, отсутствующие
 в ревизии получают `is_active = false`. Зеркало однонаправленное: записи,
 внесённые в `blastex_<section>` другими системами, BlastEX не читает.
+
+Зеркала и таблицы журнала общие для базы: BlastEX исходит из того, что с одной
+базой project1 работает одна организация. При нескольких организациях в одной
+базе зеркала перетирали бы строки друг друга по `code`; тогда потребуется ключ
+(`organization_id`, `code`).
 
 ## 6. Адаптеры для движка Cost V1
 
@@ -394,10 +418,16 @@ API:
 ## 10. Права и эксплуатация
 
 Скрипт `scripts/grant_public_access.sql` для администратора базы:
-`GRANT USAGE, CREATE ON SCHEMA public`, `GRANT SELECT, INSERT, UPDATE` на
-таблицы §4.1 и `USAGE` на их последовательности, политики RLS полного доступа
-для роли `blastex` на этих таблицах. Приложение прав не меняет и при их
-отсутствии сообщает об этом текстом ошибки.
+`GRANT USAGE, CREATE ON SCHEMA public`, `GRANT SELECT, INSERT, UPDATE` на все
+таблицы `cost.v2.public_sync.mapping.TABLES` (включая вспомогательные
+`machine_types`, `delay_series`, `contracts`, `tools_inventory`,
+`explosive_*`) и `USAGE` на их последовательности, политики RLS полного
+доступа для роли `blastex` на этих таблицах. Приложение прав не меняет и при
+их отсутствии сообщает об этом текстом ошибки.
+Пока скрипт не выполнен, обмен и зеркала остаются выключенными; при попытке
+включить их без прав интерфейс показывает текст ошибки базы. Порядок
+включения обмена и описание панели — раздел «Обмен со схемой public» в
+`README.md`.
 
 Локальная разработка: `Docs/public_schema.sql` загружается в контейнер
 `blastex-pg-dev` вручную; тесты обмена используют переменную

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any, Collection, Mapping, Sequence
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -26,7 +26,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
@@ -42,7 +42,23 @@ from cost.v2.repository import (
     StoredEconomicsRun,
     StoredScenario,
     StoredTechnicalPassport,
+    link_is_rekeyed,
     links_for_sections,
+    published_codes,
+)
+from cost.v2.public_sync.mirror import ensure_mirror, sync_mirror
+from cost.v2.public_sync.push import implicit_links, plan_public_writes
+from cost.v2.public_sync.reader import PublicUnavailable, SqlPublicReader, reason
+from cost.v2.public_sync.settings import (
+    EXCHANGE_KEY,
+    PublicSyncSettings,
+    flags_from_settings,
+    settings_from_flags,
+)
+from cost.v2.public_sync.writer import (
+    PublicWriteError,
+    SqlPublicWriter,
+    check_public_access,
 )
 
 
@@ -422,6 +438,7 @@ class PostgresEconomicsRepository:
         # блокировкой, что и ревизия: иначе между записью ревизии и записью
         # связи есть окно, в котором строка журнала снова выглядит несвязанной.
         saved_links = links_for_sections(public_links, normalized)
+        codes = published_codes(normalized)
         now = datetime.now(timezone.utc).replace(microsecond=0)
         revision_id = str(uuid4())
         with self.session_factory() as session, session.begin():
@@ -461,6 +478,24 @@ class PostgresEconomicsRepository:
                 key: [item.to_dict() for item in values]
                 for key, values in normalized.items()
             }
+            for link in saved_links:
+                self._upsert_public_link(session, organization_id, user_id, link, now, codes)
+            # Выгрузка идёт после связей черновика: план должен видеть их
+            # наравне с прежними, иначе связанная запись поехала бы в журнал
+            # второй строкой. Флаги обмена читаются этой же сессией — второе
+            # соединение под advisory-lock ждало бы саму эту транзакцию.
+            settings = settings_from_flags(self._mirror_flags(session, organization_id))
+            if settings.exchange_enabled:
+                after["public_writes"] = self._push_to_public(
+                    session, organization_id, user_id, normalized, now
+                )
+            mirrors = self._sync_mirrors(
+                session, settings.mirror_sections, revision_id, normalized, now
+            )
+            if mirrors:
+                # Зеркала не зависят от прямого сопоставления таблиц: сводка
+                # ложится рядом с ним, а без обмена — вместо него.
+                after.setdefault("public_writes", {})["mirrors"] = mirrors
             session.add(
                 AuditLogRow(
                     id=str(uuid4()),
@@ -474,9 +509,83 @@ class PostgresEconomicsRepository:
                     created_at=now,
                 )
             )
-            for link in saved_links:
-                self._upsert_public_link(session, organization_id, user_id, link, now)
         return self.get_reference_snapshot(organization_id, revision_id)
+
+    def _push_to_public(
+        self,
+        session: Session,
+        organization_id: str,
+        user_id: str,
+        normalized: Mapping[str, Sequence[ReferenceItem]],
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Выгружает опубликованные разделы в журнал той же транзакцией.
+
+        Возвращает сводку для журнала аудита. Недоступность схемы ``public``
+        здесь — не повод показать справочники без журнала (так это работает
+        при чтении), а отказ публикации: молча разойтись с журналом хуже, чем
+        не опубликовать.
+        """
+
+        links = self._public_links(session, organization_id)
+        try:
+            snapshot = SqlPublicReader.from_connection(session.connection()).read()
+        except PublicUnavailable as exc:
+            raise PublicWriteError(exc) from exc
+        # Связь, которую видно по коду записи, при публикации становится
+        # явной: иначе следующая публикация угадывала бы её заново, а до
+        # выгрузки пользователь видел бы конфликт уникального ключа без
+        # способа его снять.
+        codes = published_codes(normalized)
+        guessed = implicit_links(normalized, links, snapshot)
+        for link in guessed:
+            self._upsert_public_link(session, organization_id, user_id, link, now, codes)
+        links = [*links, *guessed]
+        plan = plan_public_writes(normalized, links, snapshot)
+        for link in SqlPublicWriter(session, links).apply(plan):
+            self._upsert_public_link(session, organization_id, user_id, link, now, codes)
+        summary: dict[str, Any] = {
+            "inserted": len(plan.inserts),
+            "updated": len(plan.updates),
+            "warnings": list(plan.warnings),
+        }
+        if guessed:
+            # Ключ появляется только когда связи достраивались: в обычной
+            # публикации сводке нечего о них сказать.
+            summary["linked"] = len(guessed)
+        return summary
+
+    @staticmethod
+    def _sync_mirrors(
+        session: Session,
+        sections: frozenset[str],
+        revision_id: str,
+        normalized: Mapping[str, Sequence[ReferenceItem]],
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Приводит зеркала включённых разделов к опубликованной ревизии.
+
+        DDL и строки идут той же транзакцией, что и сама ревизия: откат
+        публикации не должен оставить в чужой схеме таблицу с данными
+        ревизии, которой в blastex нет. Отказ базы — отказ публикации, как и
+        при прямой выгрузке в журнал.
+        """
+
+        summary: dict[str, Any] = {}
+        for section in sorted(sections):
+            try:
+                ensure_mirror(session, section)
+                upserted, deactivated, warnings = sync_mirror(
+                    session, section, revision_id, normalized.get(section, ()), now
+                )
+            except SQLAlchemyError as exc:
+                raise PublicWriteError(reason(exc)) from exc
+            summary[section] = {"upserted": upserted, "deactivated": deactivated}
+            if warnings:
+                # Ключ появляется только когда есть о чём предупредить: в
+                # обычной публикации сводке зеркала сказать нечего.
+                summary[section]["warnings"] = list(warnings)
+        return summary
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
         with self.session_factory() as session:
@@ -940,20 +1049,35 @@ class PostgresEconomicsRepository:
 
     def list_public_links(self, organization_id: str) -> Sequence[PublicLink]:
         with self.session_factory() as session:
-            rows = session.scalars(
-                select(PublicLinkRow)
-                .where(PublicLinkRow.organization_id == organization_id)
-                .order_by(PublicLinkRow.section, PublicLinkRow.code)
-            ).all()
-            return tuple(self._public_link(row) for row in rows)
+            return tuple(self._public_links(session, organization_id))
 
-    @staticmethod
+    @classmethod
+    def _public_links(
+        cls, session: Session, organization_id: str
+    ) -> list[PublicLink]:
+        """Связи организации в уже открытой сессии.
+
+        Отдельный метод нужен выгрузке: она читает связи внутри транзакции
+        публикации, где только что записанные связи черновика ещё не видны
+        никому снаружи.
+        """
+
+        rows = session.scalars(
+            select(PublicLinkRow)
+            .where(PublicLinkRow.organization_id == organization_id)
+            .order_by(PublicLinkRow.section, PublicLinkRow.code)
+        ).all()
+        return [cls._public_link(row) for row in rows]
+
+    @classmethod
     def _upsert_public_link(
+        cls,
         session: Session,
         organization_id: str,
         user_id: str,
         link: PublicLink,
         now: datetime,
+        codes: Mapping[str, Collection[str]] | None = None,
     ) -> None:
         """Upsert связи по (organization_id, section, code) внутри транзакции.
 
@@ -963,6 +1087,16 @@ class PostgresEconomicsRepository:
         доменную ошибку, а не в необработанный IntegrityError. Ради этого
         строка сбрасывается в базу сразу: при публикации откатить нужно и
         ревизию, а не только связь.
+
+        `codes` — коды публикуемой ревизии по разделам; их передаёт только
+        публикация. Если строка журнала уже связана с записью того же раздела
+        и той же организации, а прежнего кода в ревизии не осталось, запись
+        не исчезла, а переименована: связь переносится на новый код
+        (`link_is_rekeyed`) — прежняя строка удаляется, новая пишется ниже
+        обычным путём. Вне публикации (`POST /references/public-links`) кодов
+        нет, и занятая строка журнала остаётся конфликтом. Конфликтом она
+        остаётся и когда новый код уже связан со своей строкой журнала:
+        двум записям одну строку не поделить.
         """
 
         conflict = session.scalar(
@@ -971,12 +1105,6 @@ class PostgresEconomicsRepository:
                 PublicLinkRow.public_id == link.public_id,
             )
         )
-        if conflict is not None and (
-            conflict.organization_id != organization_id
-            or conflict.section != link.section
-            or conflict.code != link.code
-        ):
-            raise PublicLinkConflict(link.public_table, link.public_id)
         row = session.scalar(
             select(PublicLinkRow).where(
                 PublicLinkRow.organization_id == organization_id,
@@ -984,6 +1112,21 @@ class PostgresEconomicsRepository:
                 PublicLinkRow.code == link.code,
             )
         )
+        if conflict is not None and (
+            conflict.organization_id != organization_id
+            or conflict.section != link.section
+            or conflict.code != link.code
+        ):
+            rekeyed = (
+                row is None
+                and codes is not None
+                and conflict.organization_id == organization_id
+                and link_is_rekeyed(cls._public_link(conflict), link, codes)
+            )
+            if not rekeyed:
+                raise PublicLinkConflict(link.public_table, link.public_id)
+            session.delete(conflict)
+            session.flush()
         if row is None:
             session.add(
                 PublicLinkRow(
@@ -1022,38 +1165,105 @@ class PostgresEconomicsRepository:
 
     def list_mirror_sections(self, organization_id: str) -> dict[str, bool]:
         with self.session_factory() as session:
-            rows = session.scalars(
-                select(PublicMirrorSectionRow).where(
-                    PublicMirrorSectionRow.organization_id == organization_id
-                )
-            ).all()
-            return {row.section: row.enabled for row in rows}
+            return self._mirror_flags(session, organization_id)
+
+    @staticmethod
+    def _mirror_flags(session: Session, organization_id: str) -> dict[str, bool]:
+        """Флаги обмена и зеркал в уже открытой сессии."""
+
+        rows = session.scalars(
+            select(PublicMirrorSectionRow).where(
+                PublicMirrorSectionRow.organization_id == organization_id
+            )
+        ).all()
+        return {row.section: row.enabled for row in rows}
 
     def set_mirror_section(
         self, organization_id: str, user_id: str, section: str, enabled: bool
     ) -> None:
         now = datetime.now(timezone.utc).replace(microsecond=0)
         with self.session_factory() as session, session.begin():
-            row = session.scalar(
-                select(PublicMirrorSectionRow).where(
-                    PublicMirrorSectionRow.organization_id == organization_id,
-                    PublicMirrorSectionRow.section == section,
+            self._set_mirror_flag(session, organization_id, user_id, section, enabled, now)
+
+    @staticmethod
+    def _set_mirror_flag(
+        session: Session,
+        organization_id: str,
+        user_id: str,
+        section: str,
+        enabled: bool,
+        now: datetime,
+    ) -> None:
+        """Один флаг обмена в уже открытой транзакции."""
+
+        row = session.scalar(
+            select(PublicMirrorSectionRow).where(
+                PublicMirrorSectionRow.organization_id == organization_id,
+                PublicMirrorSectionRow.section == section,
+            )
+        )
+        if row is None:
+            session.add(
+                PublicMirrorSectionRow(
+                    organization_id=organization_id,
+                    section=section,
+                    enabled=enabled,
+                    updated_at=now,
+                    updated_by=user_id,
                 )
             )
-            if row is None:
-                session.add(
-                    PublicMirrorSectionRow(
-                        organization_id=organization_id,
-                        section=section,
-                        enabled=enabled,
-                        updated_at=now,
-                        updated_by=user_id,
-                    )
-                )
-            else:
-                row.enabled = enabled
-                row.updated_at = now
-                row.updated_by = user_id
+        else:
+            row.enabled = enabled
+            row.updated_at = now
+            row.updated_by = user_id
+
+    def get_public_sync_settings(self, organization_id: str) -> PublicSyncSettings:
+        return settings_from_flags(self.list_mirror_sections(organization_id))
+
+    def set_public_sync_settings(
+        self, organization_id: str, user_id: str, settings: PublicSyncSettings
+    ) -> PublicSyncSettings:
+        """Сохраняет настройки обмена и заводит таблицы включённых зеркал.
+
+        Флаги, проба доступа к журналу и таблицы зеркал идут одной
+        транзакцией: если на схему ``public`` не хватает прав, администратор
+        узнаёт об этом здесь, а не через сутки при публикации, и обмен с
+        зеркалами остаётся выключенным.
+        """
+
+        flags = flags_from_settings(settings)
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            before = self._mirror_flags(session, organization_id)
+            for section, enabled in flags.items():
+                self._set_mirror_flag(session, organization_id, user_id, section, enabled, now)
+            if settings.exchange_enabled and not before.get(EXCHANGE_KEY, False):
+                self._probe_public_access(session)
+            switched_on = sorted(
+                section
+                for section, enabled in flags.items()
+                if enabled and section != EXCHANGE_KEY and not before.get(section, False)
+            )
+            for section in switched_on:
+                try:
+                    ensure_mirror(session, section)
+                except SQLAlchemyError as exc:
+                    raise PublicWriteError(reason(exc)) from exc
+        return self.get_public_sync_settings(organization_id)
+
+    @staticmethod
+    def _probe_public_access(session: Session) -> None:
+        """Проверяет права на журнал при включении обмена.
+
+        Без пробы включённый обмен выглядел бы сохранённым, а отказ прав
+        вылезал бы при первой же публикации — и ронял бы её целиком. Спрашиваем
+        именно права (``check_public_access``), а не удачное чтение: роли,
+        которой выдали только ``SELECT`` или забыли политику RLS, чтение
+        удаётся, а запись нет. Проба идёт в той же транзакции, что и флаги:
+        отказ откатывает и их.
+        """
+
+        check_public_access(session)
 
     @staticmethod
     def _public_link(row: PublicLinkRow) -> PublicLink:

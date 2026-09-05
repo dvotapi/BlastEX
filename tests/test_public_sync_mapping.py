@@ -13,11 +13,14 @@ from decimal import Decimal
 import pytest
 
 from cost.v2.public_sync.mapping import (
+    SECTION_TABLES,
+    TABLES,
     Proposal,
     PublicRow,
     PublicSnapshot,
     build_proposals,
     kind_for_machine_type,
+    link_table_allowed,
     normalize_legal_name,
     public_code,
 )
@@ -225,6 +228,23 @@ def test_public_code_uses_table_prefix() -> None:
     assert public_code("tool_types", 4) == "PUB_TOOL_4"
 
 
+def test_link_table_allowed_follows_the_section_catalogue() -> None:
+    assert link_table_allowed("sites", "sites")
+    assert link_table_allowed("equipment_types", "equipment_models")
+    assert link_table_allowed("materials", "initiating_device_types")
+    assert link_table_allowed("materials", "tool_types")
+    assert link_table_allowed("material_prices", "tools_inventory")
+    # Таблица другого раздела и раздел без таблиц журнала.
+    assert not link_table_allowed("equipment_types", "sites")
+    assert not link_table_allowed("rocks", "sites")
+
+
+def test_every_section_table_is_read_from_the_journal() -> None:
+    for tables in SECTION_TABLES.values():
+        for table in tables:
+            assert table in TABLES
+
+
 def test_kind_for_machine_type_falls_back_to_other() -> None:
     assert kind_for_machine_type("Буровая установка") == "DRILL_RIG"
     assert kind_for_machine_type("Машина смесительно-зарядная") == "SZM"
@@ -321,6 +341,16 @@ def test_equipment_asset_follows_linked_type_code() -> None:
     linked = build_proposals(make_snapshot(), {}, {1: "KAMAZ_65115"})
 
     assert by_code(linked)["PUB_UNIT_1"].payload["equipment_type_code"] == "KAMAZ_65115"
+
+
+def test_equipment_asset_name_is_not_a_shared_field(proposals) -> None:
+    # internal_id — инвентарный номер, а не имя: он задаёт name только при
+    # создании записи из журнала, но не должен перетирать имя, выбранное
+    # пользователем для уже связанной единицы техники (иначе пуш имени в
+    # public и обратный маппинг зациклились бы).
+    unit = by_code(proposals)["PUB_UNIT_1"]
+
+    assert "name" not in unit.shared_fields
 
 
 # --- Материалы --------------------------------------------------------------

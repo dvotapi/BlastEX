@@ -100,6 +100,18 @@ export type PublicLink = {
   synced_at: string | null;
 };
 
+/** Настройки обмена организации с журналом project1.public. */
+export type PublicSyncSettings = {
+  /** Обмен выключен — журнал не читается при проверке и не пишется при публикации. */
+  exchange_enabled: boolean;
+  /** Состояние зеркала каждого раздела из `mirrorable_sections`. */
+  mirror_sections: Record<string, boolean>;
+  /** Разделы, которые можно выгружать в журнал; задаёт и порядок переключателей. */
+  mirrorable_sections: string[];
+  /** Разделы, которые выгружаются сопоставлением таблиц и переключателя не имеют. */
+  mapped_sections: string[];
+};
+
 export type ReferenceRevision = {
   id: string;
   organization_id: string;

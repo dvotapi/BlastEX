@@ -88,6 +88,7 @@ def current_team_id(session: dict[str, object] = Depends(require_internal_access
     return str(org) if org else "default"
 
 
+ADMIN_ROLES = {"admin", "service"}
 REFERENCE_EDITOR_ROLES = {"admin", "reference_editor", "service"}
 
 
@@ -104,4 +105,20 @@ def require_reference_editor(
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Редактирование справочников доступно администратору или редактору.",
+    )
+
+
+def require_admin(
+    session: dict[str, object] = Depends(require_internal_access),
+) -> dict[str, object]:
+    """Настройки организации меняет только администратор (или service-ключ).
+
+    Редактор справочников сюда не входит: обмен со схемой ``public`` — это
+    доступ к чужой системе, а не правка данных.
+    """
+    if str(session.get("role", "")) in ADMIN_ROLES:
+        return session
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Настройки обмена с project1 доступны только администратору.",
     )

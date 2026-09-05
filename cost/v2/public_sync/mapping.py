@@ -11,6 +11,17 @@
 этом строка сохраняет копейки без float-артефактов. Даты цен живут не в
 payload, а в полях ``valid_from``/``valid_to`` — так же, как в
 ``ReferenceItem``.
+
+Роль контрагента журнал знает грубее, чем BlastEX: субподрядчик хранится в
+нём как поставщик (``is_supplier``). Поэтому ``role`` остаётся общим полем,
+но при сравнении ``SUPPLIER`` журнала считается равным и ``SUPPLIER``, и
+``SUBCONTRACTOR`` черновика — иначе первая же разница после публикации
+предлагала бы заменить субподрядчика поставщиком. Само равенство живёт в
+``delta._EQUIVALENT_VALUES``: сопоставление не видит черновика.
+
+``SECTION_TABLES`` — единственный источник правды о том, с какой таблицей
+журнала может быть связана запись раздела: по нему проверяются связи
+``public_links`` и в API, и в выгрузке.
 """
 from __future__ import annotations
 
@@ -26,9 +37,11 @@ __all__ = [
     "Proposal",
     "PublicRow",
     "PublicSnapshot",
+    "SECTION_TABLES",
     "TABLES",
     "build_proposals",
     "kind_for_machine_type",
+    "link_table_allowed",
     "normalize_legal_name",
     "public_code",
 ]
@@ -77,6 +90,26 @@ _CODE_PREFIXES: dict[str, str] = {
     "explosive_material_prices": "PRICE_PUB_EMP",
     "explosive_spec_items": "PRICE_PUB_SPEC",
     "tools_inventory": "PRICE_PUB_TOOL",
+}
+
+# Таблицы журнала, с которыми может быть связана запись раздела (§4.1).
+# Раздел и таблица известны каждый сам по себе, а связь между ними бывает
+# только такая: без этого списка связь `equipment_types` со строкой `sites`
+# сохранилась бы и погасила бы при выгрузке ни в чём не повинную строку.
+# Материал связан с таблицей своего вида, цена — с той таблицей журнала, из
+# которой она посчитана (см. `_CODE_PREFIXES`). Раздела, которого здесь нет
+# (породы, должности, постоянные расходы), в журнале нет вовсе.
+SECTION_TABLES: dict[str, tuple[str, ...]] = {
+    "counterparties": ("counterparties",),
+    "sites": ("sites",),
+    "equipment_types": ("equipment_models",),
+    "equipment_assets": ("equipment_units",),
+    "materials": ("initiating_device_types", "tool_types"),
+    "material_prices": (
+        "explosive_material_prices",
+        "explosive_spec_items",
+        "tools_inventory",
+    ),
 }
 
 # Кавычки всех начертаний, встречающиеся в наименованиях журнала.
@@ -157,6 +190,12 @@ def public_code(table: str, public_id: int) -> str:
 
     prefix = _CODE_PREFIXES.get(table, f"PUB_{table.upper()}")
     return f"{prefix}_{public_id}"
+
+
+def link_table_allowed(section: str, table: str) -> bool:
+    """Можно ли связать запись раздела со строкой этой таблицы журнала (§4.1)."""
+
+    return table in SECTION_TABLES.get(section, ())
 
 
 def kind_for_machine_type(name: str | None) -> str:
@@ -342,13 +381,18 @@ def _equipment_asset_proposals(
                 public_table=row.table,
                 public_id=row.id,
                 code=public_code(row.table, row.id),
+                # name — только при создании записи (новая единица техники из
+                # журнала должна называться хоть как-то). Дальше это не общее
+                # поле: в журнале нет колонки с именем, internal_id — это
+                # инвентарный номер, а не название, и перетирать выбранное
+                # пользователем имя нельзя (иначе пуш имени в push.py и этот
+                # обратный маппинг зациклились бы друг на друге).
                 name=internal_id or public_code(row.table, row.id),
                 payload=payload,
                 # Статусом единицы управляет журнал: списанная техника
                 # деактивируется в blastex, обратно приложение не пишет.
                 is_active=_text(row.get("status")) != _WRITTEN_OFF,
                 shared_fields=(
-                    "name",
                     "inventory_number",
                     "serial_number",
                     "equipment_type_code",

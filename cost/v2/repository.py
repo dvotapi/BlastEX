@@ -5,11 +5,19 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import RLock
-from typing import Any, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Collection, Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
 from cost.v2.references import default_reference_snapshot, normalize_sections
+
+if TYPE_CHECKING:
+    # Импорт только для проверки типов: на уровне модуля `cost.v2.public_sync`
+    # тянет за собой `PublicLink` из этого же файла (через `delta.py`), и
+    # обычный импорт здесь замкнул бы цикл при загрузке модуля.
+    from cost.v2.public_sync.mapping import PublicSnapshot
+    from cost.v2.public_sync.push import PublicWritePlan
+    from cost.v2.public_sync.settings import PublicSyncSettings
 
 
 class EconomicsRepositoryError(RuntimeError):
@@ -225,10 +233,48 @@ def links_for_sections(
     пропускает строки журнала, связанные с исчезнувшей записью, и предложение
     из журнала больше никогда бы не показалось. Поэтому лишние связи молча
     отбрасываются, а не записываются.
+
+    Заодно отбрасывается связь на таблицу, не сопоставленную с её разделом
+    (``SECTION_TABLES``): такую пару не пропускает API, и в базе ей делать
+    нечего — выгрузка по ней погасила бы строку чужого раздела.
     """
 
+    # Импорт внутри функции: на уровне модуля `cost.v2.public_sync` замкнул бы
+    # цикл — пакет тянет `PublicLink` из этого же файла (см. TYPE_CHECKING).
+    from cost.v2.public_sync.mapping import link_table_allowed
+
     codes = {(section, item.code) for section, items in sections.items() for item in items}
-    return [link for link in links if (link.section, link.code) in codes]
+    return [
+        link
+        for link in links
+        if (link.section, link.code) in codes
+        and link_table_allowed(link.section, link.public_table)
+    ]
+
+
+def published_codes(sections: Mapping[str, Sequence[ReferenceItem]]) -> dict[str, set[str]]:
+    """Коды записей публикуемой ревизии по разделам."""
+
+    return {section: {item.code for item in items} for section, items in sections.items()}
+
+
+def link_is_rekeyed(
+    existing: PublicLink, link: PublicLink, codes: Mapping[str, Collection[str]]
+) -> bool:
+    """Прежняя связь той же строки журнала — это та же запись под новым кодом?
+
+    Связь хранится по коду, а код записи правится в форме. Если строка журнала
+    уже связана с записью того же раздела, а её прежнего кода в публикуемой
+    ревизии не осталось, то запись не исчезла — её переименовали, и связь
+    переезжает на новый код. Остался прежний код — записи две, и делить между
+    ними одну строку журнала нельзя: это конфликт.
+    """
+
+    return (
+        existing.section == link.section
+        and existing.code != link.code
+        and existing.code not in codes.get(link.section, ())
+    )
 
 
 class EconomicsRepository(Protocol):
@@ -371,6 +417,12 @@ class EconomicsRepository(Protocol):
         self, organization_id: str, user_id: str, section: str, enabled: bool
     ) -> None: ...
 
+    def get_public_sync_settings(self, organization_id: str) -> "PublicSyncSettings": ...
+
+    def set_public_sync_settings(
+        self, organization_id: str, user_id: str, settings: "PublicSyncSettings"
+    ) -> "PublicSyncSettings": ...
+
 
 class InMemoryEconomicsRepository:
     """Потокобезопасное хранилище для unit/API-тестов."""
@@ -387,6 +439,11 @@ class InMemoryEconomicsRepository:
         self._legacy_scenarios: dict[tuple[str, str], dict[str, Any]] = {}
         self._public_links: dict[tuple[str, str, str], PublicLink] = {}
         self._mirror_sections: dict[tuple[str, str], bool] = {}
+        # Журнала в памяти нет: снимок задают тесты, если хотят проверить, что
+        # публикация при включённом обмене строит план выгрузки. Планы
+        # копятся в `_public_writes` — исполнять их некому и незачем.
+        self.public_snapshot: "PublicSnapshot | None" = None
+        self._public_writes: dict[str, list["PublicWritePlan"]] = {}
 
     def _ensure_org(self, organization_id: str) -> None:
         if organization_id in self._revisions:
@@ -451,8 +508,9 @@ class InMemoryEconomicsRepository:
             # Связи проверяются до записи ревизии: конфликт не должен оставить
             # опубликованную ревизию без связей, которые её сопровождали.
             saved_links = links_for_sections(public_links, normalized)
+            codes = published_codes(normalized)
             for link in saved_links:
-                self._check_public_link_conflict(organization_id, link)
+                self._check_public_link_conflict(organization_id, link, codes)
             revision_id = str(uuid4())
             snapshot = ReferenceSnapshot(
                 revision_id=revision_id,
@@ -472,6 +530,7 @@ class InMemoryEconomicsRepository:
                 )
             )
             for link in saved_links:
+                self._drop_rekeyed_link(organization_id, link)
                 self._public_links[(organization_id, link.section, link.code)] = PublicLink(
                     section=link.section,
                     code=link.code,
@@ -479,7 +538,51 @@ class InMemoryEconomicsRepository:
                     public_id=link.public_id,
                     synced_at=now,
                 )
+            self._plan_public_writes(organization_id, normalized, now)
             return deepcopy(snapshot)
+
+    def _plan_public_writes(
+        self,
+        organization_id: str,
+        normalized: Mapping[str, Sequence[ReferenceItem]],
+        now: datetime,
+    ) -> None:
+        """Строит план выгрузки, если обмен включён и снимок журнала задан.
+
+        План только запоминается: базы здесь нет, исполнять его нечем. Связи
+        вставок всё же создаются — с придуманными id (следующими за
+        максимальным в снимке), чтобы поведение API после публикации можно
+        было проверить без PostgreSQL. Без снимка метод не делает ничего.
+        """
+
+        # Импорт локальный: `cost.v2.public_sync` тянет `PublicLink` из этого
+        # же модуля, и импорт на уровне файла замкнул бы цикл.
+        from cost.v2.public_sync.push import plan_public_writes
+
+        snapshot = self.public_snapshot
+        if snapshot is None:
+            return
+        if not self.get_public_sync_settings(organization_id).exchange_enabled:
+            return
+        links = list(self.list_public_links(organization_id))
+        plan = plan_public_writes(normalized, links, snapshot)
+        self._public_writes.setdefault(organization_id, []).append(plan)
+        last_ids: dict[str, int] = {}
+        for insert in plan.inserts:
+            last_id = last_ids.get(insert.table)
+            if last_id is None:
+                last_id = max((row.id for row in snapshot.table(insert.table)), default=0)
+            last_id += 1
+            last_ids[insert.table] = last_id
+            if not insert.section:
+                continue
+            self._public_links[(organization_id, insert.section, insert.code)] = PublicLink(
+                section=insert.section,
+                code=insert.code,
+                public_table=insert.table,
+                public_id=last_id,
+                synced_at=now,
+            )
 
     def list_scenarios(self, organization_id: str) -> Sequence[StoredScenario]:
         with self._lock:
@@ -777,13 +880,46 @@ class InMemoryEconomicsRepository:
                 link for (org, _s, _c), link in sorted(self._public_links.items()) if org == organization_id
             )
 
-    def _check_public_link_conflict(self, organization_id: str, link: PublicLink) -> None:
-        """Строка журнала занята другой записью справочника — связывать нельзя."""
+    def _check_public_link_conflict(
+        self,
+        organization_id: str,
+        link: PublicLink,
+        codes: Mapping[str, Collection[str]] | None = None,
+    ) -> None:
+        """Строка журнала занята другой записью справочника — связывать нельзя.
+
+        При публикации передаются коды публикуемой ревизии: связь записи,
+        которую переименовали, не конфликт, а перенос (`link_is_rekeyed`).
+        Вне публикации (`save_public_link`) кодов нет, и любая занятая строка
+        журнала — конфликт.
+        """
 
         for (org, section, code), existing in self._public_links.items():
             same_row = existing.public_table == link.public_table and existing.public_id == link.public_id
-            if same_row and (org, section, code) != (organization_id, link.section, link.code):
-                raise PublicLinkConflict(link.public_table, link.public_id)
+            if not same_row or (org, section, code) == (organization_id, link.section, link.code):
+                continue
+            if org == organization_id and codes is not None and link_is_rekeyed(existing, link, codes):
+                continue
+            raise PublicLinkConflict(link.public_table, link.public_id)
+
+    def _drop_rekeyed_link(self, organization_id: str, link: PublicLink) -> None:
+        """Убирает связь той же строки журнала под прежним кодом записи.
+
+        Вызывается после `_check_public_link_conflict`: там уже решено, что
+        прежняя связь — это переименованная запись, а не вторая.
+        """
+
+        for key, existing in list(self._public_links.items()):
+            same_row = (existing.public_table, existing.public_id) == (
+                link.public_table,
+                link.public_id,
+            )
+            if same_row and key[0] == organization_id and key != (
+                organization_id,
+                link.section,
+                link.code,
+            ):
+                del self._public_links[key]
 
     def save_public_link(self, organization_id: str, user_id: str, link: PublicLink) -> PublicLink:
         with self._lock:
@@ -805,3 +941,17 @@ class InMemoryEconomicsRepository:
     def set_mirror_section(self, organization_id: str, user_id: str, section: str, enabled: bool) -> None:
         with self._lock:
             self._mirror_sections[(organization_id, section)] = enabled
+
+    def get_public_sync_settings(self, organization_id: str) -> "PublicSyncSettings":
+        from cost.v2.public_sync.settings import settings_from_flags
+
+        return settings_from_flags(self.list_mirror_sections(organization_id))
+
+    def set_public_sync_settings(
+        self, organization_id: str, user_id: str, settings: "PublicSyncSettings"
+    ) -> "PublicSyncSettings":
+        from cost.v2.public_sync.settings import flags_from_settings
+
+        for section, enabled in flags_from_settings(settings).items():
+            self.set_mirror_section(organization_id, user_id, section, enabled)
+        return self.get_public_sync_settings(organization_id)

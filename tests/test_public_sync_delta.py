@@ -17,6 +17,7 @@ from cost.v2.public_sync import compute_delta
 from cost.v2.public_sync.delta import DeltaEntry, FieldChange, PublicDelta
 from cost.v2.repository import PublicLink
 from tests.test_public_sync_mapping import (
+    COUNTERPARTIES,
     EQUIPMENT_MODELS,
     SITES,
     TOOL_TYPES,
@@ -126,6 +127,43 @@ def test_new_price_keeps_dates_as_iso_strings() -> None:
 
 
 # --- Связанная запись -------------------------------------------------------
+
+
+def supplier_record(role: str = "SUPPLIER") -> ReferenceItem:
+    """Черновик поставщика, совпадающий с ``counterparties#2`` по общим полям."""
+
+    return ReferenceItem(
+        code="POMBUR",
+        name='Общество с ограниченной ответственностью "ПОМБУР"',
+        payload={"short_name": 'ООО "ПОМБУР"', "inn": "7203270545", "role": role},
+    )
+
+
+def test_linked_subcontractor_is_equal_to_a_journal_supplier() -> None:
+    # Журнал не умеет выразить субподрядчика: там он такой же поставщик,
+    # и разница не должна предлагать заменить роль после каждой публикации.
+    delta = compute_delta(
+        make_snapshot(),
+        [link("counterparties", "POMBUR", "counterparties", 2)],
+        {"counterparties": [supplier_record("SUBCONTRACTOR")]},
+    )
+
+    assert "POMBUR" not in by_code(delta)
+
+
+def test_linked_subcontractor_differs_from_a_journal_client() -> None:
+    counterparties = [COUNTERPARTIES[0], dict(COUNTERPARTIES[1], is_client=True)]
+
+    delta = compute_delta(
+        make_snapshot(counterparties=counterparties),
+        [link("counterparties", "POMBUR", "counterparties", 2)],
+        {"counterparties": [supplier_record("SUBCONTRACTOR")]},
+    )
+
+    entry = by_code(delta)["POMBUR"]
+    assert [(change.key, change.old, change.new) for change in entry.changes] == [
+        ("payload.role", "SUBCONTRACTOR", "CUSTOMER")
+    ]
 
 
 def test_linked_site_reports_changed_shared_field() -> None:
@@ -352,6 +390,34 @@ def test_linked_type_code_reaches_equipment_asset() -> None:
 
     unit = by_code(delta)["PUB_UNIT_1"]
     assert unit.item["payload"]["equipment_type_code"] == "TYPE_JK"
+
+
+def test_linked_equipment_asset_with_different_name_gives_no_entry() -> None:
+    # internal_id — инвентарный номер, а не имя единицы техники: связанная
+    # запись с тем же inventory_number, но другим именем не должна попадать в
+    # разницу — иначе применение предложения переименовало бы технику в её
+    # инвентарный номер (см. §4.1 «equipment_assets»).
+    asset = ReferenceItem(
+        code="ASSET_JK_65115",
+        name="КамАЗ бортовой №3",  # Отличается от internal_id "С-01"
+        payload={
+            "inventory_number": "С-01",
+            "serial_number": "SN-65115-0001",
+            "equipment_type_code": "PUB_MODEL_1",
+        },
+        # Единица #1 в снимке уже списана (status = "Списано") — без этого
+        # совпадёт только имя, а is_active даст лишнюю запись "deactivated".
+        is_active=False,
+    )
+
+    delta = compute_delta(
+        make_snapshot(),
+        [link("equipment_assets", "ASSET_JK_65115", "equipment_units", 1)],
+        {"equipment_assets": [asset]},
+    )
+
+    assert "ASSET_JK_65115" not in by_code(delta)
+    assert delta.counts["changed"] == 0
 
 
 # --- Ссылки на переименованные записи ---------------------------------------

@@ -261,6 +261,28 @@ def test_public_link_rejects_unknown_section_and_table(monkeypatch) -> None:
     assert "Неизвестная таблица журнала" in unknown_table.text
 
 
+def test_public_link_rejects_table_of_another_section(monkeypatch) -> None:
+    """Раздел и таблица порознь известны, а вместе не сопоставлены (§4.1)."""
+
+    client, repository = _client(monkeypatch)
+
+    response = client.post(
+        "/api/v1/economics/references/public-links",
+        json={
+            "section": "equipment_types",
+            "code": "JK830",
+            "public_table": "sites",
+            "public_id": 1,
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == (
+        "Раздел equipment_types не сопоставлен с таблицей sites."
+    )
+    assert repository.list_public_links("default") == ()
+
+
 # --- Ожидающие связи черновика ----------------------------------------------
 
 
@@ -384,6 +406,29 @@ def test_publish_saves_pending_links(monkeypatch) -> None:
         ("sites", "SITE_LOM", "sites", 1)
     ]
     assert links[0].synced_at is not None
+
+
+def test_publish_rejects_link_to_table_of_another_section(monkeypatch) -> None:
+    client, repository = _client(monkeypatch)
+
+    response = _publish(
+        client,
+        {"sites": [_site_item("SITE_LOM")]},
+        [
+            {
+                "section": "equipment_types",
+                "code": "SITE_LOM",
+                "public_table": "sites",
+                "public_id": 1,
+            }
+        ],
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == (
+        "Раздел equipment_types не сопоставлен с таблицей sites."
+    )
+    assert repository.list_public_links("default") == ()
 
 
 def test_publish_ignores_link_to_code_missing_from_revision(monkeypatch) -> None:

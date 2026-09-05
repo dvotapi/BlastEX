@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+from cost.v2.public_sync.mapping import SECTION_TABLES
 from cost.v2.references import REFERENCE_SECTION_DEFINITIONS
 from cost.v2.schemas import SECTION_SCHEMAS
 
@@ -30,19 +31,13 @@ __all__ = [
 EXCHANGE_KEY = "_exchange"
 
 # Разделы, обмен которых со схемой `public` устроен прямым сопоставлением
-# таблиц (`cost/v2/public_sync/mapping.py`), а не зеркалированием раздела
-# целиком. Отдельного флага-зеркала у них нет: они не входят в
+# таблиц, а не зеркалированием раздела целиком: ровно те, у которых есть
+# таблица журнала (`SECTION_TABLES` — единственный источник правды об этом).
+# Отдельного флага-зеркала у них нет: они не входят в
 # `mirrorable_sections()`. Цены материалов приходят из журнала
 # (`explosive_material_prices`) и обратно не выгружаются — зеркалить их
 # незачем и вредно: в журнале появилась бы вторая копия своих же цен.
-MAPPED_SECTIONS = (
-    "counterparties",
-    "sites",
-    "equipment_types",
-    "equipment_assets",
-    "materials",
-    "material_prices",
-)
+MAPPED_SECTIONS: tuple[str, ...] = tuple(SECTION_TABLES)
 
 
 @dataclass(frozen=True)

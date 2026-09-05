@@ -676,6 +676,45 @@ def test_section_missing_from_the_revision_is_not_a_vanished_record() -> None:
     assert plan.warnings == ()
 
 
+def test_link_to_a_table_of_another_section_is_ignored() -> None:
+    # Раздел и таблица порознь существуют, а вместе не сопоставлены (§4.1):
+    # довериться такой связи — значит погасить чужую строку журнала.
+    plan = plan_public_writes(
+        {"equipment_types": []},
+        [link("equipment_types", "JK830", "sites", 3)],
+        linked_site_journal(),
+    )
+
+    assert plan.is_empty()
+    assert plan.warnings == (
+        "Связь equipment_types/JK830 указывает на таблицу sites, "
+        "не сопоставленную с разделом; пропущена.",
+    )
+
+
+def test_record_with_a_link_to_another_table_is_planned_as_unlinked() -> None:
+    plan = plan_public_writes(
+        {"equipment_types": [EQUIPMENT_TYPE]},
+        [link("equipment_types", "JK830", "sites", 3)],
+        linked_site_journal(),
+    )
+
+    assert only_insert(plan, "equipment_models").code == "JK830"
+    assert plan.updates == ()
+
+
+def test_link_to_another_table_does_not_hide_a_journal_conflict() -> None:
+    # Связь на чужую таблицу не делает запись связанной: уникальный ключ
+    # проверяется у неё как у новой.
+    issues = public_constraint_issues(
+        {"counterparties": [item("NEW", "Двойник", {"inn": "6608002092", "role": "CUSTOMER"})]},
+        [link("counterparties", "NEW", "equipment_units", 3)],
+        snapshot(counterparties=[CUSTOMER_ROW], equipment_units=[{"id": 3}]),
+    )
+
+    assert [issue.field for issue in issues] == ["inn"]
+
+
 def test_vanished_record_does_not_affect_constraint_issues() -> None:
     issues = public_constraint_issues(
         {"counterparties": []},

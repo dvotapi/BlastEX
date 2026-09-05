@@ -51,6 +51,7 @@ from api.services.public_sync_service import (
     settings_from_request,
 )
 from cost.v2.public_sync import PublicReader, PublicWriteError
+from cost.v2.public_sync.mapping import link_table_allowed
 from cost.v2.reference_files import XLSX_MEDIA_TYPE, ReferenceFileError, export_json, export_xlsx, import_file
 from cost.v2.references import has_validation_errors
 from cost.v2.repository import (
@@ -76,8 +77,25 @@ def _identity(session: dict[str, object]) -> tuple[str, str]:
 
 
 def _public_link(request: PublicLinkRequest) -> PublicLink:
-    """Связь из запроса в доменный вид: раздел и таблицу схема уже проверила."""
+    """Связь из запроса в доменный вид с проверкой пары «раздел — таблица».
 
+    Схема проверяет раздел и таблицу поодиночке, а сопоставлены они не как
+    попало (``SECTION_TABLES``, §4.1): связь раздела с чужой таблицей журнала
+    ничего бы не дала в разнице, зато при выгрузке погасила бы ни в чём не
+    повинную строку. Поэтому пара проверяется здесь — одним местом и для
+    сохранения связи, и для черновика в запросах проверки и публикации.
+    """
+
+    if not link_table_allowed(request.section, request.public_table):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": (
+                    f"Раздел {request.section} не сопоставлен "
+                    f"с таблицей {request.public_table}."
+                )
+            },
+        )
     return PublicLink(
         section=request.section,
         code=request.code,
@@ -249,13 +267,16 @@ def validate_references(
     reader: PublicReader = Depends(get_public_reader),
 ) -> ReferenceValidationResponse:
     organization_id, _ = _identity(session)
+    # Связи разбираются до `try`: непригодная пара «раздел — таблица» — это
+    # 422 запроса, а не отказ хранилища (503 из `repository_error`).
+    links = [_public_link(link) for link in payload.public_links]
     try:
         issues = reference_issues(
             reader,
             repository,
             organization_id,
             domain_sections(payload.sections),
-            [_public_link(link) for link in payload.public_links],
+            links,
         )
     except Exception as exc:
         raise repository_error(exc) from exc
@@ -352,6 +373,7 @@ def get_public_delta(
     """
 
     organization_id, _ = _identity(session)
+    pending = [_public_link(link) for link in payload.pending_links]
     try:
         return PublicDeltaResponse.model_validate(
             public_delta_payload(
@@ -359,7 +381,7 @@ def get_public_delta(
                 repository,
                 organization_id,
                 payload.sections,
-                [_public_link(link) for link in payload.pending_links],
+                pending,
             )
         )
     except Exception as exc:
@@ -379,8 +401,9 @@ def create_public_link(
     repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> PublicLinkSchema:
     organization_id, user_id = _identity(session)
+    link = _public_link(payload)
     try:
-        saved = repository.save_public_link(organization_id, user_id, _public_link(payload))
+        saved = repository.save_public_link(organization_id, user_id, link)
     except (ReferenceRevisionConflict, EconomicsRecordNotFound) as exc:
         # Подклассы `EconomicsRepositoryError` со своими кодами (409 с
         # заголовком ревизии и 404) разбирает `repository_error`, поэтому они

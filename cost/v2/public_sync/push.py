@@ -42,6 +42,12 @@
 распоряжается журнал. Строк журнала выгрузка не удаляет никогда, и связь
 остаётся на месте: запись может вернуться следующей ревизией под тем же кодом.
 
+Связь на таблицу, не сопоставленную с её разделом (``SECTION_TABLES``), не
+считается связью вовсе: раздел и таблица проверяются в API поодиночке, и
+пара вроде «``equipment_types`` — ``sites``» могла осесть в базе раньше, чем
+проверка пары появилась. Довериться ей — значит погасить чужую строку
+журнала, поэтому она пропускается с предупреждением.
+
 Связь, потерявшая свою строку журнала (строку удалили), считается отсутствующей:
 запись выгружается заново, а новая связь заменяет устаревшую. Так же её видит
 ``public_constraint_issues`` — иначе уникальный ключ проверялся бы у записи,
@@ -69,6 +75,7 @@ from cost.v2.public_sync.mapping import (
     MACHINE_KINDS,
     PublicRow,
     PublicSnapshot,
+    link_table_allowed,
     public_code,
 )
 from cost.v2.references import ValidationIssue
@@ -279,10 +286,15 @@ def plan_public_writes(
 
     Последними просматриваются связи записей, которых в разделах уже нет:
     их строки журнала гасятся или дают предупреждение
-    (``_plan_vanished_records``).
+    (``_plan_vanished_records``). Связь на таблицу чужого раздела до плана не
+    доходит — о ней остаётся одно предупреждение.
     """
 
     plan = _Plan()
+    # Связь на чужую таблицу не должна дойти ни до плана, ни до гашения
+    # исчезнувших записей: она указывает на строку другого раздела.
+    plan.warnings.extend(_mismatched_link_warnings(links))
+    links = [link for link in links if link_table_allowed(link.section, link.public_table)]
     # Связи по коду достраиваются здесь, а не у вызывающего: план, валидация
     # и плашка обязаны считать связи одинаково.
     index = _Index(sections, [*links, *implicit_links(sections, links, snapshot)], snapshot)
@@ -343,17 +355,33 @@ def split_stale_links(
     Строку журнала могли удалить: обновлять по такому id нечего, а считать
     запись связанной — значит навсегда оставить её вне журнала. Поэтому и
     план, и проверка ограничений смотрят на неё как на несвязанную.
+
+    Связь на таблицу, не сопоставленную с её разделом, отбрасывается совсем:
+    она не живая и не устаревшая, а недействительная (``SECTION_TABLES``).
     """
 
     rows = {table: snapshot.by_id(table) for table in snapshot.rows}
     live: list[PublicLink] = []
     stale: dict[tuple[str, str], PublicLink] = {}
     for link in links:
+        if not link_table_allowed(link.section, link.public_table):
+            continue
         if int(link.public_id) in rows.get(link.public_table, {}):
             live.append(link)
         else:
             stale[(link.section, link.code)] = link
     return live, stale
+
+
+def _mismatched_link_warnings(links: Sequence[PublicLink]) -> list[str]:
+    """Предупреждения о связях, ведущих в таблицу чужого раздела (§4.1)."""
+
+    return [
+        f"Связь {link.section}/{link.code} указывает на таблицу "
+        f"{link.public_table}, не сопоставленную с разделом; пропущена."
+        for link in links
+        if not link_table_allowed(link.section, link.public_table)
+    ]
 
 
 # --- Неявные связи ----------------------------------------------------------
@@ -943,10 +971,14 @@ def public_constraint_issues(
     связанная — значение чужой строки; своя строка конфликтом не считается.
     Связи, видные по коду записи (``implicit_links``), учитываются наравне с
     сохранёнными — иначе запись, созданную плашкой «Из project1», нельзя было
-    бы ни выгрузить, ни связать.
+    бы ни выгрузить, ни связать. Связь на таблицу чужого раздела не
+    учитывается вовсе, как и в плане.
     """
 
     issues: list[ValidationIssue] = []
+    # Связь на таблицу чужого раздела не делает запись связанной: её
+    # уникальные ключи проверяются как у новой (см. `split_stale_links`).
+    links = [link for link in links if link_table_allowed(link.section, link.public_table)]
     if snapshot is not None:
         # Устаревшая связь равна её отсутствию: запись будет заведена заново,
         # и уникальные ключи проверяются у неё как у новой (см. `_target`).

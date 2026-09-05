@@ -13,11 +13,14 @@ from decimal import Decimal
 import pytest
 
 from cost.v2.public_sync.mapping import (
+    SECTION_TABLES,
+    TABLES,
     Proposal,
     PublicRow,
     PublicSnapshot,
     build_proposals,
     kind_for_machine_type,
+    link_table_allowed,
     normalize_legal_name,
     public_code,
 )
@@ -223,6 +226,23 @@ def test_public_code_uses_table_prefix() -> None:
     assert public_code("equipment_units", 1) == "PUB_UNIT_1"
     assert public_code("initiating_device_types", 3) == "PUB_IDT_3"
     assert public_code("tool_types", 4) == "PUB_TOOL_4"
+
+
+def test_link_table_allowed_follows_the_section_catalogue() -> None:
+    assert link_table_allowed("sites", "sites")
+    assert link_table_allowed("equipment_types", "equipment_models")
+    assert link_table_allowed("materials", "initiating_device_types")
+    assert link_table_allowed("materials", "tool_types")
+    assert link_table_allowed("material_prices", "tools_inventory")
+    # Таблица другого раздела и раздел без таблиц журнала.
+    assert not link_table_allowed("equipment_types", "sites")
+    assert not link_table_allowed("rocks", "sites")
+
+
+def test_every_section_table_is_read_from_the_journal() -> None:
+    for tables in SECTION_TABLES.values():
+        for table in tables:
+            assert table in TABLES
 
 
 def test_kind_for_machine_type_falls_back_to_other() -> None:

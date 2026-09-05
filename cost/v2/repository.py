@@ -233,10 +233,23 @@ def links_for_sections(
     пропускает строки журнала, связанные с исчезнувшей записью, и предложение
     из журнала больше никогда бы не показалось. Поэтому лишние связи молча
     отбрасываются, а не записываются.
+
+    Заодно отбрасывается связь на таблицу, не сопоставленную с её разделом
+    (``SECTION_TABLES``): такую пару не пропускает API, и в базе ей делать
+    нечего — выгрузка по ней погасила бы строку чужого раздела.
     """
 
+    # Импорт внутри функции: на уровне модуля `cost.v2.public_sync` замкнул бы
+    # цикл — пакет тянет `PublicLink` из этого же файла (см. TYPE_CHECKING).
+    from cost.v2.public_sync.mapping import link_table_allowed
+
     codes = {(section, item.code) for section, items in sections.items() for item in items}
-    return [link for link in links if (link.section, link.code) in codes]
+    return [
+        link
+        for link in links
+        if (link.section, link.code) in codes
+        and link_table_allowed(link.section, link.public_table)
+    ]
 
 
 class EconomicsRepository(Protocol):

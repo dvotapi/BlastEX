@@ -103,6 +103,11 @@
 | `materials` с видом `Буровой инструмент` | `tool_types` | обе |
 | `material_prices` | `explosive_material_prices`, `explosive_spec_items`, `explosive_purchase_specs` | только из public |
 
+Эта таблица — единственный источник правды о связях `public_links`: она
+записана в коде как `SECTION_TABLES` (`cost/v2/public_sync/mapping.py`), и
+связь раздела с таблицей, которой в его строке нет, API не принимает, а
+выгрузка пропускает с предупреждением.
+
 Поля, участвующие в обмене (далее «общие поля»):
 
 `sites`: `name ↔ full_name`, `short_name ↔ short_name`, `mineral_type ↔
@@ -122,8 +127,10 @@ inn`, роль: `CUSTOMER ↔ is_client`, `SUPPLIER`/`SUBCONTRACTOR ↔
 is_supplier`, `is_active ↔ is_active`. Если в `public` контрагент
 одновременно клиент и поставщик (в данных такие есть), в blastex он получает
 роль `CUSTOMER`; при выгрузке флаги `is_client`/`is_supplier` только
-поднимаются и никогда не сбрасываются. Остальные реквизиты `public` (КПП,
-ОГРН, адреса, банк, контакты) в BlastEX не переносятся.
+поднимаются и никогда не сбрасываются. Субподрядчик в журнале хранится как
+поставщик, поэтому при сравнении роли `SUPPLIER` и `SUBCONTRACTOR` считаются
+равными: разница не предлагает заменить одну другой. Остальные реквизиты
+`public` (КПП, ОГРН, адреса, банк, контакты) в BlastEX не переносятся.
 
 `equipment_types`: `name ↔ model_name`, `brand ↔ brand`, `machine_type_name
 ↔ machine_types.name` (текст типа машины хранится как есть, при выгрузке

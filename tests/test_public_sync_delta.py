@@ -17,6 +17,7 @@ from cost.v2.public_sync import compute_delta
 from cost.v2.public_sync.delta import DeltaEntry, FieldChange, PublicDelta
 from cost.v2.repository import PublicLink
 from tests.test_public_sync_mapping import (
+    COUNTERPARTIES,
     EQUIPMENT_MODELS,
     SITES,
     TOOL_TYPES,
@@ -126,6 +127,43 @@ def test_new_price_keeps_dates_as_iso_strings() -> None:
 
 
 # --- Связанная запись -------------------------------------------------------
+
+
+def supplier_record(role: str = "SUPPLIER") -> ReferenceItem:
+    """Черновик поставщика, совпадающий с ``counterparties#2`` по общим полям."""
+
+    return ReferenceItem(
+        code="POMBUR",
+        name='Общество с ограниченной ответственностью "ПОМБУР"',
+        payload={"short_name": 'ООО "ПОМБУР"', "inn": "7203270545", "role": role},
+    )
+
+
+def test_linked_subcontractor_is_equal_to_a_journal_supplier() -> None:
+    # Журнал не умеет выразить субподрядчика: там он такой же поставщик,
+    # и разница не должна предлагать заменить роль после каждой публикации.
+    delta = compute_delta(
+        make_snapshot(),
+        [link("counterparties", "POMBUR", "counterparties", 2)],
+        {"counterparties": [supplier_record("SUBCONTRACTOR")]},
+    )
+
+    assert "POMBUR" not in by_code(delta)
+
+
+def test_linked_subcontractor_differs_from_a_journal_client() -> None:
+    counterparties = [COUNTERPARTIES[0], dict(COUNTERPARTIES[1], is_client=True)]
+
+    delta = compute_delta(
+        make_snapshot(counterparties=counterparties),
+        [link("counterparties", "POMBUR", "counterparties", 2)],
+        {"counterparties": [supplier_record("SUBCONTRACTOR")]},
+    )
+
+    entry = by_code(delta)["POMBUR"]
+    assert [(change.key, change.old, change.new) for change in entry.changes] == [
+        ("payload.role", "SUBCONTRACTOR", "CUSTOMER")
+    ]
 
 
 def test_linked_site_reports_changed_shared_field() -> None:

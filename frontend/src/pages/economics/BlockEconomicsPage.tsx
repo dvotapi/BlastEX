@@ -15,6 +15,7 @@ import type {
   SensitivityRow,
   TechnicalPassport,
 } from "../../types/blockEconomics";
+import type { ReferenceRevision } from "../../types/economics";
 
 const DEFAULT_PACKAGE = "DRILL_AND_BLAST";
 const RECALC_DELAY_MS = 300;
@@ -45,6 +46,9 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   const [sensitivityBusy, setSensitivityBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  // Подписи вместо кодов: имена объектов по ревизии паспорта и номера ревизий.
+  const [siteNames, setSiteNames] = useState<Record<string, Record<string, string>>>({});
+  const [revisions, setRevisions] = useState<ReferenceRevision[]>([]);
   const requestId = useRef(0);
   const defaultsRequestId = useRef(0);
 
@@ -58,6 +62,8 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
       .catch((reason) =>
         setError(reason instanceof Error ? reason.message : "Не удалось загрузить паспорта."),
       );
+    // Список ревизий нужен только для подписи; его отсутствие страницу не ломает.
+    api.economics.revisions().then(setRevisions).catch(() => setRevisions([]));
   }, []);
 
   useEffect(() => {
@@ -119,6 +125,32 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     () => defaults?.passport ?? passports.find((item) => item.id === selectedPassport) ?? null,
     [defaults, passports, selectedPassport],
   );
+
+  // Имя объекта берётся из той ревизии, на которой создан паспорт: объект
+  // могли переименовать позже, а паспорт фиксирует состояние на момент выпуска.
+  const revisionId = passport?.reference_revision_id ?? "";
+  useEffect(() => {
+    if (!revisionId || siteNames[revisionId]) return;
+    api.economics
+      .referenceSnapshot(revisionId)
+      .then((snapshot) => {
+        const names: Record<string, string> = {};
+        for (const item of snapshot.sections.sites ?? []) names[item.code] = item.name;
+        setSiteNames((current) => ({ ...current, [revisionId]: names }));
+      })
+      .catch(() => setSiteNames((current) => ({ ...current, [revisionId]: {} })));
+  }, [revisionId, siteNames]);
+
+  const siteLabel = passport
+    ? siteNames[revisionId]?.[passport.site_code] ?? passport.site_code
+    : "";
+  const revisionLabel = useMemo(() => {
+    if (!revisionId) return "";
+    const found = revisions.find((item) => item.id === revisionId);
+    if (!found) return revisionId;
+    const date = new Date(found.published_at).toLocaleDateString("ru-RU");
+    return `Ревизия ${found.sequence_no} от ${date}`;
+  }, [revisionId, revisions]);
 
   function patchParams(patch: Partial<ModelParameters>) {
     setParams((current) => {
@@ -211,11 +243,11 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
           </label>
           <label>
             Объект работ
-            <input value={passport?.site_code ?? ""} disabled />
+            <input value={siteLabel} title={passport?.site_code ?? ""} disabled />
           </label>
           <label>
             Ревизия справочников паспорта
-            <input value={passport?.reference_revision_id ?? ""} disabled />
+            <input value={revisionLabel} title={revisionId} disabled />
           </label>
           <label>
             Имя сценария

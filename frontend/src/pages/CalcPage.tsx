@@ -124,6 +124,16 @@ function PassportBar({
             </button>
           </div>
         </div>
+        {geometry && (
+          // В паспорт уходит блок «Варианта 1» с его зарядом и недозарядом —
+          // показываем это до сохранения, чтобы масса не была сюрпризом.
+          <p className="page-caption">
+            В паспорт пойдёт «{geometry.label}»: {Math.round(geometry.block.total_charge_mass_kg).toLocaleString("ru-RU")} кг ВВ,{" "}
+            {geometry.block.total_holes} скважин, {Math.round(geometry.block.drilling_footage_m).toLocaleString("ru-RU")} п.м.,{" "}
+            {geometry.block.specific_q_kg_m3.toFixed(2)} кг/м³ с доп. скважинами. Кнопка «Экономика» открывает сохранённый
+            паспорт: чтобы передать текущий расчёт, сначала сохраните новый.
+          </p>
+        )}
         {passports.length === 0 ? (
           <p className="page-caption">Сохранённых паспортов нет.</p>
         ) : (
@@ -133,8 +143,9 @@ function PassportBar({
                 <span>
                   <b>{passport.object_name}</b>
                   <small>
-                    {passport.site_code} · вер. {passport.version_no} ·{" "}
-                    {new Date(passport.created_at).toLocaleDateString("ru-RU")}
+                    {sites.find((site) => site.code === passport.site_code)?.name ?? passport.site_code} · вер.{" "}
+                    {passport.version_no} · {new Date(passport.created_at).toLocaleDateString("ru-RU")} ·{" "}
+                    {Math.round(Number(passport.physical.explosive_kg ?? 0)).toLocaleString("ru-RU")} кг ВВ
                   </small>
                 </span>
                 <em>{Number(passport.physical.rock_volume_m3 ?? 0).toLocaleString("ru-RU")} м³</em>

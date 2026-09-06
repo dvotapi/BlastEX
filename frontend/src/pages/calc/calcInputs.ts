@@ -56,6 +56,10 @@ export type CalcInputsCatalogs = {
   rocks: string[];
   explosiveKeys: string[];
   crowns: number[];
+  /** Допустимые длины шпура НСИ, м (панель, поля 1 и 2). */
+  nsiLengthOptions: number[];
+  /** Допустимые замедления детонатора, мс (панель). */
+  detonatorDelayOptions: number[];
 };
 
 /** Задержка автосохранения: пишем через 800 мс после последнего изменения. */
@@ -160,8 +164,10 @@ function fromCatalog(value: unknown, options: string[], fallback: string): strin
   return options[0] ?? fallback;
 }
 
-function positive(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+/** Как `fromCatalog`, но для числовых опций (длина НСИ, замедление ДШ). */
+function fromNumberCatalog(value: unknown, options: number[], fallback: number): number {
+  if (typeof value === "number" && options.includes(value)) return value;
+  return options[0] ?? fallback;
 }
 
 function oneOrTwo(value: unknown, fallback: number): number {
@@ -187,9 +193,13 @@ function applyPanelInputs(
       fallback.intermediate_detonators_per_hole,
     ),
     nsi_per_hole: oneOrTwo(source.nsi_per_hole, fallback.nsi_per_hole),
-    nsi_length_1_m: positive(source.nsi_length_1_m, fallback.nsi_length_1_m),
-    nsi_length_2_m: positive(source.nsi_length_2_m, fallback.nsi_length_2_m),
-    detonator_delay_ms: positive(source.detonator_delay_ms, fallback.detonator_delay_ms),
+    nsi_length_1_m: fromNumberCatalog(source.nsi_length_1_m, catalogs.nsiLengthOptions, fallback.nsi_length_1_m),
+    nsi_length_2_m: fromNumberCatalog(source.nsi_length_2_m, catalogs.nsiLengthOptions, fallback.nsi_length_2_m),
+    detonator_delay_ms: fromNumberCatalog(
+      source.detonator_delay_ms,
+      catalogs.detonatorDelayOptions,
+      fallback.detonator_delay_ms,
+    ),
   };
 }
 
@@ -214,7 +224,8 @@ export function applyCalcInputs(raw: unknown, catalogs: CalcInputsCatalogs): She
     (value, index): value is number =>
       typeof value === "number" && catalogs.crowns.includes(value) && savedCrowns.indexOf(value) === index,
   );
-  const selectedCrownsMm = known.length ? known : catalogs.crowns.slice(0, 1);
+  // По возрастанию — как их складывает `toggleCrown` на листе.
+  const selectedCrownsMm = (known.length ? known : catalogs.crowns.slice(0, 1)).sort((a, b) => a - b);
   const savedCrown = raw.selected_crown_mm;
   const selectedCrownMm =
     typeof savedCrown === "number" && selectedCrownsMm.includes(savedCrown) ? savedCrown : null;

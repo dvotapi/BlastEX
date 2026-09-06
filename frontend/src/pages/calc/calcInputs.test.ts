@@ -16,6 +16,8 @@ const CATALOGS: CalcInputsCatalogs = {
   rocks: ["Гранит", "Известняк"],
   explosiveKeys: ["ПВВ Гранулит-РП", "ПЭВВ ЭВЕРСИН Э-100"],
   crowns: [110, 127, 152],
+  nsiLengthOptions: [6, 8, 10, 12],
+  detonatorDelayOptions: [250, 500, 1000],
 };
 
 function panel(overrides: Partial<PanelInputs> = {}): PanelInputs {
@@ -130,8 +132,30 @@ describe("collectCalcInputs / applyCalcInputs", () => {
     const restored = applyCalcInputs(raw, CATALOGS);
     expect(restored?.panels.left.intermediate_detonators_per_hole).toBe(1);
     expect(restored?.panels.left.nsi_per_hole).toBe(1);
-    expect(restored?.panels.left.nsi_length_1_m).toBe(12);
-    expect(restored?.panels.left.detonator_delay_ms).toBe(500);
+    // -1 и null — не числа из списка опций, а не просто "неположительные":
+    // подменяются первым доступным вариантом, как порода/ВВ/диаметр.
+    expect(restored?.panels.left.nsi_length_1_m).toBe(CATALOGS.nsiLengthOptions[0]);
+    expect(restored?.panels.left.detonator_delay_ms).toBe(CATALOGS.detonatorDelayOptions[0]);
+  });
+
+  it("подменяет длину НСИ и замедление ДШ, которых нет в списке опций, первым доступным", () => {
+    const raw = {
+      ...collectCalcInputs(sheet()),
+      panels: {
+        left: panel({ nsi_length_1_m: 99, nsi_length_2_m: 77, detonator_delay_ms: 999 }),
+        right: panel(),
+      },
+    };
+    const restored = applyCalcInputs(raw, CATALOGS);
+    expect(restored?.panels.left.nsi_length_1_m).toBe(CATALOGS.nsiLengthOptions[0]);
+    expect(restored?.panels.left.nsi_length_2_m).toBe(CATALOGS.nsiLengthOptions[0]);
+    expect(restored?.panels.left.detonator_delay_ms).toBe(CATALOGS.detonatorDelayOptions[0]);
+  });
+
+  it("сортирует выбранные диаметры по возрастанию, как toggleCrown", () => {
+    const raw = collectCalcInputs(sheet({ selectedCrownsMm: [152, 110], selectedCrownMm: 110 }));
+    const restored = applyCalcInputs(raw, CATALOGS);
+    expect(restored?.selectedCrownsMm).toEqual([110, 152]);
   });
 
   it.each([

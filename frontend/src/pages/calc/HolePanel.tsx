@@ -138,7 +138,7 @@ export function HolePanel({
           </label>
           <label className="range-label">
             <span>Недозаряд (верх скважины), м <b>{underchargeM.toFixed(1)}</b></span>
-            <input type="range" min={0} max={Math.max(0, depthM - 0.5)} step={0.1} value={underchargeM}
+            <input type="range" min={0} max={maxUnderchargeM(depthM)} step={0.1} value={underchargeM}
               onChange={(e) => setUnderchargeM(Number(e.target.value))} />
           </label>
           <div className="field-pair">

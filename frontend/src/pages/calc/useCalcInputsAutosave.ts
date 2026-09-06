@@ -4,6 +4,20 @@ import { AUTOSAVE_DELAY_MS, nextAutosaveAction, type CalcInputs } from "./calcIn
 
 export type AutosaveStatus = "idle" | "saving" | "saved" | "error";
 
+type PendingSave = { objectName: string; inputs: CalcInputs };
+
+/**
+ * Что остаётся в очереди записи после неудачной попытки сохранить `failed`.
+ * Пока запрос летел, форма могла успеть измениться ещё раз — тогда `current`
+ * уже содержит более новую очередь (полный снимок листа, а не дельту), и она
+ * сама покрывает то, что не сохранилось; трогать её нельзя, иначе новая правка
+ * потеряется. Если очереди нет — возвращаем упавшую запись, чтобы её дописал
+ * `flush()` при смене объекта или следующая правка через тот же автосейв.
+ */
+export function pendingAfterSaveError(current: PendingSave | null, failed: PendingSave): PendingSave | null {
+  return current ?? failed;
+}
+
 /**
  * Автосохранение настроек листа за объектом работ.
  *
@@ -29,7 +43,7 @@ export function useCalcInputsAutosave({
   /** Последнее сохранённое значение вместе с объектом, к которому оно относится. */
   const savedRef = useRef<{ objectName: string; inputs: CalcInputs | null } | null>(null);
   /** Изменение, ожидающее записи: его дописывает `flush()` перед сменой объекта. */
-  const pendingRef = useRef<{ objectName: string; inputs: CalcInputs } | null>(null);
+  const pendingRef = useRef<PendingSave | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const save = useCallback(async (name: string, value: CalcInputs) => {
@@ -40,6 +54,9 @@ export function useCalcInputsAutosave({
       setStatus("saved");
     } catch {
       setStatus("error");
+      // Запись не удалась — правка не должна пропасть: её допишет flush()
+      // (например, при смене объекта) или следующая правка через автосейв.
+      pendingRef.current = pendingAfterSaveError(pendingRef.current, { objectName: name, inputs: value });
     }
   }, []);
 
@@ -86,6 +103,14 @@ export function useCalcInputsAutosave({
     if (!pending) return;
     await save(pending.objectName, pending.inputs);
   }, [save]);
+
+  // Уход со страницы (размонтирование) не должен терять до 800 мс
+  // несохранённых правок — дописываем отложенное сразу же.
+  useEffect(() => {
+    return () => {
+      void flush();
+    };
+  }, [flush]);
 
   return { status, flush };
 }

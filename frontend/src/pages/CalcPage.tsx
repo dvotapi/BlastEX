@@ -264,9 +264,15 @@ function FullBvrCalc({
   const catalogs: CalcInputsCatalogs | null = useMemo(
     () =>
       rocks.length && explosives.length && allCrowns.length
-        ? { rocks: rocks.map((r) => r.name), explosiveKeys: explosives.map((e) => e.key), crowns: allCrowns }
+        ? {
+            rocks: rocks.map((r) => r.name),
+            explosiveKeys: explosives.map((e) => e.key),
+            crowns: allCrowns,
+            nsiLengthOptions,
+            detonatorDelayOptions,
+          }
         : null,
-    [rocks, explosives, allCrowns]
+    [rocks, explosives, allCrowns, nsiLengthOptions, detonatorDelayOptions]
   );
 
   const sheet: SheetState = useMemo(

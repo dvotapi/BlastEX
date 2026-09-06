@@ -19,6 +19,7 @@ import {
 import { CalcTopStrip } from "./calc/CalcTopStrip";
 import { HolePanel } from "./calc/HolePanel";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
+import { distinctRevisionIds, siteNameFor, type SiteNamesByRevision } from "./calc/passportSiteNames";
 import type { BlastGeometryResponse, BlastVariant, Explosive, Rock } from "../types";
 import type { TechnicalPassport } from "../types/blockEconomics";
 
@@ -71,6 +72,11 @@ function PassportBar({
 }) {
   const [passports, setPassports] = useState<TechnicalPassport[]>([]);
   const [sites, setSites] = useState<{ code: string; name: string }[]>([]);
+  const [currentRevisionId, setCurrentRevisionId] = useState("");
+  // Имена объектов по ревизии справочников, на которой выпущен паспорт: объект
+  // могли переименовать (или удалить) позже — список не должен показать новое
+  // имя у старой записи. Так же считает вкладка «Экономика» для того же паспорта.
+  const [namesByRevision, setNamesByRevision] = useState<SiteNamesByRevision>({});
   const [siteCode, setSiteCode] = useState("");
   const [objectName, setObjectName] = useState("");
   const [variantKey, setVariantKey] = useState(variants[0]?.key ?? "");
@@ -78,6 +84,10 @@ function PassportBar({
   const [error, setError] = useState("");
   const variant = variants.find((item) => item.key === variantKey) ?? variants[0];
   const geometry = variant?.geometry ?? null;
+  const currentNames = useMemo(
+    () => Object.fromEntries(sites.map((site) => [site.code, site.name])),
+    [sites],
+  );
 
   useEffect(() => {
     Promise.all([api.economics.technicalPassports(), api.economics.referenceSnapshot()])
@@ -89,11 +99,32 @@ function PassportBar({
         }));
         setSites(siteItems);
         setSiteCode((current) => current || siteItems[0]?.code || "");
+        setCurrentRevisionId(snapshot.revision_id);
       })
       .catch((reason) =>
         setError(reason instanceof Error ? reason.message : "Не удалось загрузить паспорта."),
       );
   }, []);
+
+  // Для видимых паспортов (первые 8) подгружаем снимок каждой их ревизии —
+  // кроме текущей, она уже загружена выше. Ошибка одной ревизии не должна
+  // ломать список: паспорт просто откатится к текущему имени или коду.
+  useEffect(() => {
+    const revisionIds = distinctRevisionIds(passports.slice(0, 8)).filter(
+      (id) => id !== currentRevisionId && !(id in namesByRevision),
+    );
+    if (revisionIds.length === 0) return;
+    revisionIds.forEach((revisionId) => {
+      api.economics
+        .referenceSnapshot(revisionId)
+        .then((snapshot) => {
+          const names: Record<string, string> = {};
+          for (const item of snapshot.sections.sites ?? []) names[item.code] = item.name;
+          setNamesByRevision((current) => ({ ...current, [revisionId]: names }));
+        })
+        .catch(() => setNamesByRevision((current) => ({ ...current, [revisionId]: {} })));
+    });
+  }, [passports, currentRevisionId, namesByRevision]);
 
   async function savePassport() {
     if (!geometry || !siteCode) return;
@@ -170,7 +201,7 @@ function PassportBar({
                 <span>
                   <b>{passport.object_name}</b>
                   <small>
-                    {sites.find((site) => site.code === passport.site_code)?.name ?? passport.site_code} · вер.{" "}
+                    {siteNameFor(passport, namesByRevision, currentNames)} · вер.{" "}
                     {passport.version_no} · {new Date(passport.created_at).toLocaleDateString("ru-RU")} ·{" "}
                     {Math.round(Number(passport.physical.explosive_kg ?? 0)).toLocaleString("ru-RU")} кг ВВ
                   </small>

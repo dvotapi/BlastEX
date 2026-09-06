@@ -19,7 +19,11 @@ import {
   normalizeSnapshotPatch,
   normalizeSnapshotRows,
 } from "./referenceRows";
-import { isLatestObjectRequest, shouldRollbackOnError } from "./workspaceObjectSwitch";
+import {
+  isLatestObjectRequest,
+  mergeWorkspaceAfterObjectSwitch,
+  shouldRollbackOnError,
+} from "./workspaceObjectSwitch";
 
 /** Контекст последнего расчёта на вкладке «Расчёт» — для кнопок
  * «Подставить объём/объёмы из расчёта БВР» на вкладках «Бурение» и «ФОТ». */
@@ -95,6 +99,10 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
 
   /** Смена объекта работ сохраняется сразу: снимок сценария не участвует,
    * поэтому «несохранённых изменений» после переключения не возникает.
+   * Из ответа берём только настройки, справочники, предупреждения и цену
+   * бурения — снимок остаётся локальным, иначе несохранённые правки
+   * «Бурения» и «ФОТ» пропали бы при переключении (и `savedKey` не трогаем,
+   * иначе они же стали бы выглядеть сохранёнными).
    * Если пользователь быстро переключает объекты, ответы могут прийти не
    * в том порядке, в котором ушли запросы — применяем только ответ на
    * последний из них; ответ на устаревший запрос молча игнорируем. При
@@ -111,13 +119,13 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
     try {
       const next = await api.setActiveWorkObject(name);
       if (!isLatestObjectRequest(requestId, activeObjectRequestRef.current)) return;
-      const normalized = {
-        ...next,
-        snapshot: normalizeSnapshotRows(next.snapshot),
-        references: normalizeReferenceRows(next.references),
-      };
-      setState(normalized);
-      setSavedKey(JSON.stringify(normalized.snapshot));
+      const normalized = { ...next, references: normalizeReferenceRows(next.references) };
+      setState((prev) => {
+        // Состояния ещё нет — применять ответ некуда: его снимок мы всё равно
+        // не берём, а полное состояние поднимет `load()`.
+        if (!prev) return prev;
+        return mergeWorkspaceAfterObjectSwitch(prev, normalized);
+      });
     } catch (reason) {
       if (shouldRollbackOnError(requestId, activeObjectRequestRef.current, previousName)) {
         const restoredName: string = previousName;

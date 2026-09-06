@@ -231,12 +231,21 @@ function FullBvrCalc({
   // Объект, настройки которого уже загружены. Пока он не совпал с активным,
   // лист «не готов»: автосохранение молчит, иначе умолчания затрут сохранённое.
   const [loadedObjectName, setLoadedObjectName] = useState<string | null>(null);
+  // Диаметр из загруженных настроек: пока вариантов нет (расчёт не запускался
+  // или автозапуск упал), сохраняем его, а не `null` — иначе выбор диаметра
+  // потерялся бы при первой же записи автосохранения.
+  const [loadedCrownMm, setLoadedCrownMm] = useState<number | null>(null);
   // Блоки обеих панелей: в паспорт уходит та, что выбрана под расчётом.
   const [geometries, setGeometries] = useState<Record<string, BlastGeometryResponse | null>>({});
   const geometryFor = (key: string) => (geometry: BlastGeometryResponse) =>
     setGeometries((current) => ({ ...current, [key]: geometry }));
 
-  const { state, setActiveWorkObjectName } = useWorkspace();
+  const {
+    state,
+    setActiveWorkObjectName,
+    error: workspaceError,
+    loading: workspaceLoading,
+  } = useWorkspace();
   const objectName = state?.settings.active_work_object_name ?? "";
   const ready = loadedObjectName !== null && loadedObjectName === objectName;
 
@@ -287,13 +296,13 @@ function FullBvrCalc({
       spacingCoeff: spacing,
       oversizeThresholdPct: threshold,
       selectedCrownsMm: selectedCrowns,
-      selectedCrownMm: selected?.crown_mm ?? null,
+      selectedCrownMm: selected?.crown_mm ?? loadedCrownMm,
       blockVolumeM3,
       additionalHolesPct,
       panels: panelInputs,
     }),
     [rockName, explosiveKey, lumpSize, benchHeight, overdrill, oversizeCoeff, spacing, threshold,
-      selectedCrowns, selected, blockVolumeM3, additionalHolesPct, panelInputs]
+      selectedCrowns, selected, loadedCrownMm, blockVolumeM3, additionalHolesPct, panelInputs]
   );
   const sheetInputs = useMemo(() => collectCalcInputs(sheet), [sheet]);
 
@@ -310,6 +319,7 @@ function FullBvrCalc({
     setSpacing(next.spacingCoeff);
     setThreshold(next.oversizeThresholdPct);
     setSelectedCrowns(next.selectedCrownsMm);
+    setLoadedCrownMm(next.selectedCrownMm);
     setBlockVolumeM3(next.blockVolumeM3);
     setAdditionalHolesPct(next.additionalHolesPct);
     setPanelInputs(next.panels);
@@ -376,12 +386,15 @@ function FullBvrCalc({
    * читаем настройки нового. Есть сохранённые — применяем их и сразу считаем
    * варианты; нет — умолчания и без автозапуска. Лист считается готовым только
    * после ответа (и после автозапуска), поэтому автосохранение не пишет ни
-   * умолчания, ни восстановленный выбор диаметра.
+   * умолчания, ни восстановленный выбор диаметра. Запрос упал — показываем
+   * ошибку и умолчания, но лист остаётся «не готовым»: писать поверх
+   * непрочитанного нельзя.
    */
   useEffect(() => {
     if (!catalogs || !referenceDefaults || !objectName) return;
     let cancelled = false;
     setLoadedObjectName(null);
+    setLoadedCrownMm(null);
     setVariants([]);
     setGeometries({});
     void (async () => {
@@ -398,8 +411,17 @@ function FullBvrCalc({
         }
         if (cancelled) return;
         setLoadedObjectName(objectName);
-      } catch (reason) {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : "Не удалось загрузить настройки листа.");
+      } catch {
+        if (cancelled) return;
+        // Настройки не прочитались: значения прошлого объекта на листе были бы
+        // чужими, поэтому открываем умолчания. `loadedObjectName` не ставим —
+        // лист остаётся «не готовым», и автосохранение не затрёт умолчаниями
+        // то, что мы не смогли прочитать.
+        applySheet(defaultCalcSheet(catalogs, referenceDefaults));
+        setError(
+          "Не удалось загрузить настройки листа — открыты значения по умолчанию, " +
+            "автосохранение выключено до перезагрузки страницы.",
+        );
       }
     })();
     return () => { cancelled = true; };
@@ -422,6 +444,8 @@ function FullBvrCalc({
           oversize: selected ? selected.oversize_pct : null,
         }}
         warnings={state?.warnings ?? []}
+        workspaceError={workspaceError}
+        workspaceLoading={workspaceLoading}
       />
       <div className="calculator-grid">
         <section className="panel input-panel">

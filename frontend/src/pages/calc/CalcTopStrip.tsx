@@ -29,6 +29,10 @@ export type CalcTopStripMetrics = {
  * Компактная полоса листа «Расчёт»: команда и объект работ вместо шапки
  * рабочего пространства (её на этой странице не показываем), статус
  * автосохранения и плашки с результатом выбранного варианта.
+ *
+ * Шапки на этой странице нет, поэтому ошибки и загрузку рабочего пространства
+ * показывает полоса — иначе упавшая смена объекта молча откатывала бы список,
+ * а упавшая загрузка оставляла бы его пустым без объяснения.
  */
 export function CalcTopStrip({
   teamName,
@@ -38,6 +42,8 @@ export function CalcTopStrip({
   autosaveStatus,
   metrics,
   warnings,
+  workspaceError,
+  workspaceLoading,
 }: {
   teamName: string;
   objectName: string;
@@ -46,21 +52,31 @@ export function CalcTopStrip({
   autosaveStatus: AutosaveStatus;
   metrics: CalcTopStripMetrics;
   warnings: string[];
+  /** Ошибка рабочего пространства: неудачная загрузка или смена объекта. */
+  workspaceError: string;
+  /** Рабочее пространство ещё загружается — список объектов неполон. */
+  workspaceLoading: boolean;
 }) {
   const statusText = autosaveStatusText(autosaveStatus);
 
   return (
     <>
+      {workspaceError && <div className="page-error" role="alert">{workspaceError}</div>}
       <div className="calc-top-strip">
         <div className="wb-field"><label>Команда</label><b>{teamName}</b></div>
         <div className="wb-field calc-top-strip-object">
           <label>Объект работ</label>
-          <select value={objectName} onChange={(e) => onObjectChange(e.target.value)}>
+          <select
+            value={objectName}
+            onChange={(e) => onObjectChange(e.target.value)}
+            disabled={workspaceLoading || !objects.length}
+          >
             {objects.map((o) => (
               <option key={o.id || o.name} value={o.name}>{o.name}</option>
             ))}
           </select>
         </div>
+        {workspaceLoading && <span className="calc-autosave-status">рабочее пространство загружается…</span>}
         {statusText && (
           <span className="calc-autosave-status" data-status={autosaveStatus}>{statusText}</span>
         )}
@@ -72,7 +88,9 @@ export function CalcTopStrip({
         </div>
       </div>
       {warnings.length > 0 && (
-        <div className="workspace-bar-caption">
+        // Собственный класс, а не `workspace-bar-caption`: тот рисует
+        // разделительную черту внутри шапки, а здесь блок стоит отдельно.
+        <div className="calc-warnings">
           <details>
             <summary>Предупреждения справочников ({warnings.length})</summary>
             <ul>

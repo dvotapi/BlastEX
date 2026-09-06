@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pendingAfterSaveError } from "./useCalcInputsAutosave";
+import { pendingAfterSaveError, shouldReportSaveStatus } from "./useCalcInputsAutosave";
 import { collectCalcInputs } from "./calcInputs";
 import type { PanelInputs, SheetState } from "./calcInputs";
 
@@ -45,5 +45,17 @@ describe("pendingAfterSaveError", () => {
   it("не трогает более новую запись, поставленную в очередь, пока шло сохранение", () => {
     const newer = { objectName: "Карьер-1", inputs: collectCalcInputs(sheet({ benchHeightM: 13 })) };
     expect(pendingAfterSaveError(newer, failed)).toBe(newer);
+  });
+});
+
+describe("shouldReportSaveStatus", () => {
+  it("показывает статус записи текущего объекта", () => {
+    expect(shouldReportSaveStatus("Карьер-1", "Карьер-1")).toBe(true);
+  });
+
+  it("молчит про дозапись прошлого объекта: полоса уже показывает новый", () => {
+    // `flush()` при смене объекта дописывает настройки прошлого объекта —
+    // «сохранение…»/«сохранено» рядом с новым объектом ввели бы в заблуждение.
+    expect(shouldReportSaveStatus("Карьер-1", "Карьер-2")).toBe(false);
   });
 });

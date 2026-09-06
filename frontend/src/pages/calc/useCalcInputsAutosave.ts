@@ -19,6 +19,17 @@ export function pendingAfterSaveError(current: PendingSave | null, failed: Pendi
 }
 
 /**
+ * Относится ли результат записи к объекту, который сейчас открыт на листе.
+ *
+ * `flush()` при смене объекта дописывает настройки прошлого объекта уже после
+ * того, как полоса показывает новый: статус «сохранение…»/«сохранено» от той
+ * записи относился бы к чужому листу, поэтому его не показываем.
+ */
+export function shouldReportSaveStatus(savedObjectName: string, currentObjectName: string): boolean {
+  return savedObjectName === currentObjectName;
+}
+
+/**
  * Автосохранение настроек листа за объектом работ.
  *
  * Пишем через `AUTOSAVE_DELAY_MS` после последнего изменения и только если
@@ -45,15 +56,22 @@ export function useCalcInputsAutosave({
   /** Изменение, ожидающее записи: его дописывает `flush()` перед сменой объекта. */
   const pendingRef = useRef<PendingSave | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Объект, открытый на листе сейчас: с ним сверяется статус записи. */
+  const currentObjectRef = useRef(objectName);
+  currentObjectRef.current = objectName;
 
   const save = useCallback(async (name: string, value: CalcInputs) => {
-    setStatus("saving");
+    /** Статус — про лист, который открыт сейчас: см. `shouldReportSaveStatus`. */
+    const report = (next: AutosaveStatus) => {
+      if (shouldReportSaveStatus(name, currentObjectRef.current)) setStatus(next);
+    };
+    report("saving");
     try {
       await api.saveCalcInputs(name, value);
       if (savedRef.current?.objectName === name) savedRef.current = { objectName: name, inputs: value };
-      setStatus("saved");
+      report("saved");
     } catch {
-      setStatus("error");
+      report("error");
       // Запись не удалась — правка не должна пропасть: её допишет flush()
       // (например, при смене объекта) или следующая правка через автосейв.
       pendingRef.current = pendingAfterSaveError(pendingRef.current, { objectName: name, inputs: value });

@@ -19,3 +19,25 @@ export function shouldRollbackOnError(
 ): previousName is string {
   return isLatestObjectRequest(requestId, latestRequestId) && previousName !== undefined;
 }
+
+/**
+ * Что применить к состоянию из ответа `PUT /workspace/active-object`.
+ *
+ * Ответ возвращает всё рабочее пространство целиком, но снимок сценария в нём —
+ * сохранённый на сервере. Если применить его как есть, несохранённые правки
+ * «Бурения» (`drilling_calculator_input`) и «ФОТ» (`labor_*`) молча пропадут
+ * при смене объекта. Поэтому снимок остаётся локальным, а из ответа берём
+ * только то, что смена объекта действительно меняет: настройки, справочники,
+ * предупреждения и цену бурения.
+ */
+export function mergeWorkspaceAfterObjectSwitch<
+  T extends {
+    settings: unknown;
+    snapshot: unknown;
+    references: unknown;
+    drilling_price_per_m: number;
+    warnings: string[];
+  },
+>(prev: T, next: T): T {
+  return { ...next, snapshot: prev.snapshot };
+}

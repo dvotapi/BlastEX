@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api/endpoints";
 import { useWorkspace } from "../app/useWorkspace";
@@ -21,7 +21,7 @@ import {
 import { CalcTopStrip, CalcWorkspaceNotices } from "./calc/CalcTopStrip";
 import { HolePanel } from "./calc/HolePanel";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
-import { distinctRevisionIds, siteNameFor, type SiteNamesByRevision } from "./calc/passportSiteNames";
+import { revisionsToFetch, siteNameFor, type SiteNamesByRevision } from "./calc/passportSiteNames";
 import type { BlastGeometryResponse, BlastVariant, Explosive, Rock } from "../types";
 import type { TechnicalPassport } from "../types/blockEconomics";
 
@@ -79,6 +79,13 @@ function PassportBar({
   // могли переименовать (или удалить) позже — список не должен показать новое
   // имя у старой записи. Так же считает вкладка «Экономика» для того же паспорта.
   const [namesByRevision, setNamesByRevision] = useState<SiteNamesByRevision>({});
+  // Зеркало namesByRevision для эффекта ниже: он не должен зависеть от
+  // namesByRevision (иначе каждый пришедший снимок его перезапускает и
+  // дублирует запросы для ещё не ответивших ревизий), но обязан видеть
+  // актуальные данные, а не устаревшее замыкание.
+  const namesByRevisionRef = useRef<SiteNamesByRevision>(namesByRevision);
+  // Ревизии, запрос которых уже отправлен и ещё не завершился.
+  const pendingRevisionsRef = useRef<Set<string>>(new Set());
   const [siteCode, setSiteCode] = useState("");
   const [objectName, setObjectName] = useState("");
   const [variantKey, setVariantKey] = useState(variants[0]?.key ?? "");
@@ -110,23 +117,39 @@ function PassportBar({
 
   // Для видимых паспортов (первые 8) подгружаем снимок каждой их ревизии —
   // кроме текущей, она уже загружена выше. Ошибка одной ревизии не должна
-  // ломать список: паспорт просто откатится к текущему имени или коду.
+  // ломать список: паспорт просто откатится к текущему имени или коду, а
+  // сама ревизия запоминается как «недоступна» и не запрашивается повторно.
+  // Эффект намеренно не зависит от namesByRevision: иначе каждый пришедший
+  // снимок перезапускал бы его и дублировал запросы для ревизий, чьи ответы
+  // ещё не пришли (pendingRevisionsRef защищает от этого же в рамках одного
+  // прохода эффекта).
   useEffect(() => {
-    const revisionIds = distinctRevisionIds(passports.slice(0, 8)).filter(
-      (id) => id !== currentRevisionId && !(id in namesByRevision),
+    const revisionIds = revisionsToFetch(
+      passports.slice(0, 8),
+      namesByRevisionRef.current,
+      pendingRevisionsRef.current,
+      currentRevisionId,
     );
     if (revisionIds.length === 0) return;
     revisionIds.forEach((revisionId) => {
+      pendingRevisionsRef.current.add(revisionId);
       api.economics
         .referenceSnapshot(revisionId)
         .then((snapshot) => {
           const names: Record<string, string> = {};
           for (const item of snapshot.sections.sites ?? []) names[item.code] = item.name;
-          setNamesByRevision((current) => ({ ...current, [revisionId]: names }));
+          namesByRevisionRef.current = { ...namesByRevisionRef.current, [revisionId]: names };
+          setNamesByRevision(namesByRevisionRef.current);
         })
-        .catch(() => setNamesByRevision((current) => ({ ...current, [revisionId]: {} })));
+        .catch(() => {
+          namesByRevisionRef.current = { ...namesByRevisionRef.current, [revisionId]: {} };
+          setNamesByRevision(namesByRevisionRef.current);
+        })
+        .finally(() => {
+          pendingRevisionsRef.current.delete(revisionId);
+        });
     });
-  }, [passports, currentRevisionId, namesByRevision]);
+  }, [passports, currentRevisionId]);
 
   async function savePassport() {
     if (!geometry || !siteCode) return;

@@ -26,6 +26,31 @@ export function distinctRevisionIds(passports: TechnicalPassport[]): string[] {
 }
 
 /**
+ * Ревизии, которые действительно нужно запросить: без текущей (она уже
+ * загружена отдельно), без уже известных (успешно или неудачно — неудачный
+ * снимок запоминается как «недоступен», чтобы не запрашивать его снова) и
+ * без тех, что уже в процессе запроса — иначе каждый успевший снимок
+ * перезапускает эффект и дублирует HTTP-запросы для ещё не ответивших ревизий.
+ */
+export function revisionsToFetch(
+  passports: TechnicalPassport[],
+  known: SiteNamesByRevision,
+  pending: ReadonlySet<string>,
+  currentRevisionId: string,
+): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const passport of passports) {
+    const id = passport.reference_revision_id;
+    if (!id || id === currentRevisionId) continue;
+    if (id in known || pending.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
+/**
  * Имя объекта для паспорта: сперва — по его собственной ревизии справочников,
  * затем — по текущему снимку (ревизия неизвестна или не загрузилась), и
  * только в последнюю очередь — код объекта, если имя не нашлось нигде.

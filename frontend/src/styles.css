@@ -49,10 +49,17 @@ button { cursor:pointer; }
 .workspace { min-width:0; overflow-x:clip; }
 .app-shell.design-mode { height:100vh; overflow:hidden; }
 .app-shell.design-mode .workspace { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
-.app-shell.design-mode .topbar { height:36px; padding:0 16px; flex:0 0 36px; }
+.app-shell.design-mode .topbar { height:36px; min-height:36px; padding:0 16px; flex:0 0 36px; }
 .app-shell.design-mode .topbar > div { display:none; }
-.topbar { height:72px; padding:0 28px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #dce4e0; background:#fff; }
+.topbar { height:auto; min-height:72px; padding:10px 28px; display:flex; align-items:center; justify-content:space-between; gap:18px; border-bottom:1px solid #dce4e0; background:#fff; }
 .topbar > div { display:grid; gap:4px; }.topbar b { font-size:17px; }.topbar span { color:#69776f; font-size:11px; }
+/* Слот для полосы листа «Расчёт» (см. topbarSlot.tsx): занимает пустующее
+   место между заголовком и кнопкой «Выйти», плашки переносятся сюда же
+   (flex-wrap на самой полосе — `.calc-top-strip`), а не в общий ряд шапки.
+   Селектор с двумя классами, а не просто `.topbar-slot` — иначе более
+   специфичный `.topbar > div` (для блока заголовка, строкой выше) выигрывал
+   бы у `display:flex` за счёт равной специфичности и порядка объявления. */
+.topbar > .topbar-slot { flex:1 1 auto; min-width:0; display:flex; justify-content:flex-end; }
 .logout-button { padding:8px 12px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }
 .page-content { padding:25px 28px 40px; }
 .page-heading { margin-bottom:20px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
@@ -114,6 +121,13 @@ button { cursor:pointer; }
 
 /* --- Компактная полоса листа «Расчёт»: команда, объект, статус и плашки --- */
 .calc-top-strip { display:flex; flex-wrap:wrap; align-items:center; gap:14px; margin:0 0 14px; padding:10px 14px; border:1px solid #d9e2dd; border-radius:12px; background:#fff; }
+/* В шапке приложения (см. topbar-slot выше) — без своей рамки и фона,
+   заполняет слот целиком; перенос плашек на вторую строку остаётся за счёт
+   flex-wrap, но заголовок и «Выйти» в `.topbar` от этого не переносятся. */
+.calc-top-strip.in-topbar { flex:1 1 auto; min-width:0; margin:0; padding:0; border:0; background:transparent; }
+.calc-top-strip-object { max-width:420px; }
+/* У <select> текст не обрезается ellipsis-ом — просто разрешаем сжатие. */
+.calc-top-strip-object select { min-width:0; }
 .calc-autosave-status { font-size:11px; font-weight:700; color:#6e7c75; }
 .calc-autosave-status[data-status="saved"] { color:#247752; }
 .calc-autosave-status[data-status="error"] { color:#9e3025; }

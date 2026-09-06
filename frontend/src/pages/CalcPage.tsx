@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api/endpoints";
 import { useWorkspace } from "../app/useWorkspace";
+import { useTopbarSlot } from "../app/topbarSlot";
 import { DataTable } from "../components/DataTable";
 import {
   applyCalcInputs,
@@ -16,7 +18,7 @@ import {
   type PanelInputs,
   type SheetState,
 } from "./calc/calcInputs";
-import { CalcTopStrip } from "./calc/CalcTopStrip";
+import { CalcTopStrip, CalcWorkspaceNotices } from "./calc/CalcTopStrip";
 import { HolePanel } from "./calc/HolePanel";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
 import { distinctRevisionIds, siteNameFor, type SiteNamesByRevision } from "./calc/passportSiteNames";
@@ -279,6 +281,10 @@ function FullBvrCalc({
   } = useWorkspace();
   const objectName = state?.settings.active_work_object_name ?? "";
   const ready = loadedObjectName !== null && loadedObjectName === objectName;
+  // Узел в шапке приложения: если он есть, полоса переезжает туда через
+  // createPortal (см. topbarSlot.tsx); иначе рисуется на своём обычном
+  // месте на странице (например, вне AppShell).
+  const topbarSlot = useTopbarSlot();
 
   // Умолчания справочников: нужны листу без сохранённых настроек.
   const [referenceDefaults, setReferenceDefaults] = useState<{ rockName: string; explosiveKey: string } | null>(null);
@@ -459,25 +465,29 @@ function FullBvrCalc({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalogs, referenceDefaults, objectName]);
 
+  const topStrip = (
+    <CalcTopStrip
+      variant={topbarSlot ? "topbar" : "page"}
+      teamName={state?.settings.team_name ?? ""}
+      objectName={objectName}
+      objects={state?.references.work_object_records ?? []}
+      onObjectChange={(name) => void setActiveWorkObjectName(name)}
+      autosaveStatus={autosaveStatus}
+      metrics={{
+        q: selected ? selected.specific_q_kg_m3 : null,
+        w: selected ? selected.line_of_least_resistance_m : null,
+        x50: selected ? selected.x50_mm : null,
+        oversize: selected ? selected.oversize_pct : null,
+      }}
+      workspaceLoading={workspaceLoading}
+    />
+  );
+
   return (
     <div className="page-content">
       {error && <div className="page-error" role="alert">{error}</div>}
-      <CalcTopStrip
-        teamName={state?.settings.team_name ?? ""}
-        objectName={objectName}
-        objects={state?.references.work_object_records ?? []}
-        onObjectChange={(name) => void setActiveWorkObjectName(name)}
-        autosaveStatus={autosaveStatus}
-        metrics={{
-          q: selected ? selected.specific_q_kg_m3 : null,
-          w: selected ? selected.line_of_least_resistance_m : null,
-          x50: selected ? selected.x50_mm : null,
-          oversize: selected ? selected.oversize_pct : null,
-        }}
-        warnings={state?.warnings ?? []}
-        workspaceError={workspaceError}
-        workspaceLoading={workspaceLoading}
-      />
+      <CalcWorkspaceNotices workspaceError={workspaceError} warnings={state?.warnings ?? []} />
+      {topbarSlot ? createPortal(topStrip, topbarSlot) : topStrip}
       <div className="calculator-grid">
         <section className="panel input-panel">
           <header><b>Исходные данные</b><span>01</span></header>

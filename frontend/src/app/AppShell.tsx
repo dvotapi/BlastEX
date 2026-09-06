@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { BlastVariant, User } from "../types";
 import { WorkspaceProvider } from "./useWorkspace";
 import { WorkspaceBar } from "./WorkspaceBar";
+import { TopbarSlotProvider } from "./topbarSlot";
 import { CalcPage } from "../pages/CalcPage";
 import { DesignPage } from "../pages/design/DesignPage";
 import { DrillingPage } from "../pages/DrillingPage";
@@ -35,6 +36,10 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
   const [page, setPage] = useState<Page>("Расчёт");
   const [pendingVariant, setPendingVariant] = useState<BlastVariant | null>(null);
   const [economicsPassportId, setEconomicsPassportId] = useState<string | null>(null);
+  // Узел в шапке, куда лист «Расчёт» переносит свою полосу инструментов
+  // через createPortal (см. topbarSlot.tsx); callback-ref, чтобы страницы
+  // узнали об узле сразу после его монтирования.
+  const [topbarSlot, setTopbarSlot] = useState<HTMLDivElement | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     const saved = window.localStorage.getItem("blastex.sidebar.collapsed");
@@ -101,22 +106,25 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
         <main className="workspace">
           <header className="topbar">
             <div><b>{TITLES[page]}</b><span>{user.organization_name}</span></div>
+            <div className="topbar-slot" ref={setTopbarSlot} />
             <button className="logout-button" onClick={onLogout}>Выйти</button>
           </header>
-          {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
-          {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
-          {page === "Проектирование" && (
-            <DesignPage
-              user={user}
-              incomingVariant={pendingVariant}
-              onVariantConsumed={() => setPendingVariant(null)}
-            />
-          )}
-          {page === "Экономика" && <BlockEconomicsPage passportId={economicsPassportId} />}
-          {page === "Экономика юнита" && <EconomicsPage />}
-          {page === "Бурение" && <DrillingPage />}
-          {page === "ФОТ" && <LaborPage />}
-          {page === "Справочники" && <ReferencesPage user={user} />}
+          <TopbarSlotProvider slot={topbarSlot}>
+            {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
+            {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
+            {page === "Проектирование" && (
+              <DesignPage
+                user={user}
+                incomingVariant={pendingVariant}
+                onVariantConsumed={() => setPendingVariant(null)}
+              />
+            )}
+            {page === "Экономика" && <BlockEconomicsPage passportId={economicsPassportId} />}
+            {page === "Экономика юнита" && <EconomicsPage />}
+            {page === "Бурение" && <DrillingPage />}
+            {page === "ФОТ" && <LaborPage />}
+            {page === "Справочники" && <ReferencesPage user={user} />}
+          </TopbarSlotProvider>
         </main>
         <nav className="mobile-nav">
           {PAGES.map((item) => (

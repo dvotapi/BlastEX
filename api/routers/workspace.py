@@ -2,9 +2,10 @@
 справочники — из опубликованной ревизии."""
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, replace
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.schemas.cost import DrillingUnitCostInputSchema, FixedCostItemSchema, JobPositionSchema, LaborAssignmentSchema
 from api.schemas.references import (
@@ -16,10 +17,13 @@ from api.schemas.references import (
     WorkObjectSchema,
 )
 from api.schemas.workspace import (
+    CalcObjectInputsSchema,
     DefaultReferencesResponse,
+    SaveCalcObjectInputsRequest,
     SaveWorkspaceRequest,
     ScenarioCalcProfileSchema,
     ScenarioListItemSchema,
+    SwitchActiveObjectRequest,
     SwitchScenarioRequest,
     TeamReferencesSchema,
     TeamSettingsSchema,
@@ -27,7 +31,7 @@ from api.schemas.workspace import (
     WorkspaceStateSchema,
 )
 from api.security import current_team_id, require_internal_access
-from api.services.economics_service import get_economics_repository
+from api.services.economics_service import get_economics_repository, repository_error
 from api.services.legacy_references import load_legacy_references
 from cost.catalog import DEFAULT_CATALOG, catalog_to_records
 from cost.depreciation_data import DEFAULT_DEPRECIATION_ASSETS, depreciation_assets_to_records
@@ -51,11 +55,15 @@ from cost.scenarios import (
     normalize_scenario_id,
 )
 from cost.v2.legacy_adapter import LegacyReferences, resolve_work_object_name
-from cost.v2.repository import EconomicsRepository, LegacyWorkspaceSettings
+from cost.v2.repository import CalcObjectInputs, EconomicsRepository, EconomicsRepositoryError, LegacyWorkspaceSettings
 
 router = APIRouter(tags=["workspace"])
 
 DEFAULT_TEAM_NAME = "Команда по умолчанию"
+
+# Предел размера черновика листа расчёта — защита от неограниченного роста
+# записи в БД (см. TASK-007/2: «API настроек листа и смены объекта»).
+MAX_CALC_INPUTS_BYTES = 32_768
 
 # Поля сценария, которые правит пользователь; справочные записи снапшота
 # сервер каждый раз собирает заново из ревизии и не хранит.
@@ -221,6 +229,98 @@ def put_active_scenario(
         reference_revision_id=settings.reference_revision_id,
     )
     return _load_state(repository, organization_id)
+
+
+WORK_OBJECT_NAME_MAX_LENGTH = 300
+
+
+def _require_work_object_name(work_object_name: str) -> str:
+    name = work_object_name.strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": "Имя объекта работ не может быть пустым."},
+        )
+    if len(name) > WORK_OBJECT_NAME_MAX_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": "Имя объекта работ длиннее 300 символов."},
+        )
+    return name
+
+
+@router.put("/workspace/active-object", response_model=WorkspaceStateSchema)
+def put_active_object(
+    payload: SwitchActiveObjectRequest,
+    organization_id: str = Depends(current_team_id),
+    session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> WorkspaceStateSchema:
+    """Меняет только активный объект работ, снимок сценария не трогает.
+
+    Неизвестное имя объекта допускается: при загрузке состояния его подменит
+    `resolve_work_object_name`.
+    """
+    name = _require_work_object_name(payload.work_object_name)
+    settings = _settings(repository, organization_id)
+    try:
+        repository.import_legacy_workspace(
+            organization_id,
+            _user_id(session),
+            team_name=settings.team_name,
+            active_scenario_id=settings.active_scenario_id,
+            active_work_object_name=name,
+            reference_revision_id=settings.reference_revision_id,
+        )
+    except EconomicsRepositoryError as exc:
+        raise repository_error(exc) from exc
+    return _load_state(repository, organization_id)
+
+
+def _calc_inputs_schema(work_object_name: str, stored: CalcObjectInputs | None) -> CalcObjectInputsSchema:
+    if stored is None:
+        return CalcObjectInputsSchema(work_object_name=work_object_name, inputs=None, updated_at=None)
+    return CalcObjectInputsSchema(
+        work_object_name=stored.work_object_name,
+        inputs=stored.inputs,
+        updated_at=stored.updated_at.isoformat() if stored.updated_at is not None else None,
+    )
+
+
+@router.get("/workspace/calc-inputs", response_model=CalcObjectInputsSchema)
+def get_calc_inputs(
+    work_object_name: str,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> CalcObjectInputsSchema:
+    """Черновик листа расчёта по объекту — последний ввод пользователя."""
+    name = _require_work_object_name(work_object_name)
+    try:
+        stored = repository.get_calc_inputs(organization_id, name)
+    except EconomicsRepositoryError as exc:
+        raise repository_error(exc) from exc
+    return _calc_inputs_schema(name, stored)
+
+
+@router.put("/workspace/calc-inputs", response_model=CalcObjectInputsSchema)
+def put_calc_inputs(
+    payload: SaveCalcObjectInputsRequest,
+    organization_id: str = Depends(current_team_id),
+    session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> CalcObjectInputsSchema:
+    name = _require_work_object_name(payload.work_object_name)
+    serialized_size = len(json.dumps(payload.inputs, ensure_ascii=False).encode("utf-8"))
+    if serialized_size > MAX_CALC_INPUTS_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": "Настройки листа слишком большие."},
+        )
+    try:
+        saved = repository.save_calc_inputs(organization_id, _user_id(session), name, payload.inputs)
+    except EconomicsRepositoryError as exc:
+        raise repository_error(exc) from exc
+    return _calc_inputs_schema(name, saved)
 
 
 @router.get("/workspace/defaults", response_model=DefaultReferencesResponse)

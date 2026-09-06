@@ -3,12 +3,9 @@ import { api } from "../../api/endpoints";
 import { useWorkspace } from "../../app/useWorkspace";
 import { MetricsTable } from "../../components/MetricsTable";
 import type { BlastGeometryResponse } from "../../types";
+import { defaultPanelInputs, maxUnderchargeM, type PanelInputs } from "./calcInputs";
 import { CostPanel } from "./CostPanel";
 import { HoleSchemeView } from "./HoleSchemeView";
-
-const NSI_LENGTH_DEFAULT_1 = 12.0;
-const NSI_LENGTH_DEFAULT_2 = 6.0;
-const DETONATOR_DELAY_DEFAULT = 500;
 
 export function HolePanel({
   panelKey,
@@ -30,6 +27,8 @@ export function HolePanel({
   isBlastContextSource = true,
   nsiLengthOptions,
   detonatorDelayOptions,
+  initialInputs,
+  onInputsChange,
   onGeometry,
 }: {
   panelKey: string;
@@ -50,19 +49,27 @@ export function HolePanel({
   isBlastContextSource?: boolean;
   nsiLengthOptions: number[];
   detonatorDelayOptions: number[];
+  /** Значения полей при появлении панели: настройки листа за объектом работ.
+   * Читаются один раз — чтобы панель приняла новые, её пересоздают через `key`. */
+  initialInputs?: PanelInputs;
+  /** Любое изменение полей наружу: лист собирает из этого свои настройки. */
+  onInputsChange?: (inputs: PanelInputs) => void;
   /** Рассчитанный блок наружу: по нему сохраняется технический паспорт. */
   onGeometry?: (geometry: BlastGeometryResponse) => void;
 }) {
   const { state } = useWorkspace();
   const explosiveList = state?.references.explosive_records ?? [];
 
-  const [explosiveKey, setExplosiveKey] = useState(defaultExplosiveKey);
-  const [underchargeM, setUnderchargeM] = useState(Math.min(defaultUnderchargeM, Math.max(0, depthM - 0.5)));
-  const [intermediateDetonatorsPerHole, setIntermediateDetonatorsPerHole] = useState(1);
-  const [nsiPerHole, setNsiPerHole] = useState(1);
-  const [nsiLength1M, setNsiLength1M] = useState(NSI_LENGTH_DEFAULT_1);
-  const [nsiLength2M, setNsiLength2M] = useState(NSI_LENGTH_DEFAULT_2);
-  const [detonatorDelayMs, setDetonatorDelayMs] = useState(DETONATOR_DELAY_DEFAULT);
+  // Начальные значения панели: сохранённые настройки листа, иначе умолчания
+  // варианта. Дальше поля живут своим состоянием, а наверх уходит `onInputsChange`.
+  const seed = initialInputs ?? defaultPanelInputs(defaultExplosiveKey, defaultUnderchargeM);
+  const [explosiveKey, setExplosiveKey] = useState(seed.explosive_key);
+  const [underchargeM, setUnderchargeM] = useState(Math.min(seed.undercharge_m, maxUnderchargeM(depthM)));
+  const [intermediateDetonatorsPerHole, setIntermediateDetonatorsPerHole] = useState(seed.intermediate_detonators_per_hole);
+  const [nsiPerHole, setNsiPerHole] = useState(seed.nsi_per_hole);
+  const [nsiLength1M, setNsiLength1M] = useState(seed.nsi_length_1_m);
+  const [nsiLength2M, setNsiLength2M] = useState(seed.nsi_length_2_m);
+  const [detonatorDelayMs, setDetonatorDelayMs] = useState(seed.detonator_delay_ms);
   const [geometry, setGeometry] = useState<BlastGeometryResponse | null>(null);
   const [error, setError] = useState("");
 
@@ -88,6 +95,25 @@ export function HolePanel({
     view: view as "charge" | "contour" | "drilling",
   };
 
+  // Поля панели наверх: лист складывает из них свои настройки и сохраняет их
+  // за объектом работ. Первый вызов на монтировании отдаёт начальные значения —
+  // так у листа и панели одна правда о том, что сейчас в полях.
+  useEffect(() => {
+    onInputsChange?.({
+      explosive_key: explosiveKey,
+      undercharge_m: underchargeM,
+      intermediate_detonators_per_hole: intermediateDetonatorsPerHole,
+      nsi_per_hole: nsiPerHole,
+      nsi_length_1_m: nsiLength1M,
+      nsi_length_2_m: nsiLength2M,
+      detonator_delay_ms: detonatorDelayMs,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    explosiveKey, underchargeM, intermediateDetonatorsPerHole, nsiPerHole,
+    nsiLength1M, nsiLength2M, detonatorDelayMs,
+  ]);
+
   useEffect(() => {
     let cancelled = false;
     api.geometry(payload).then((res) => { if (!cancelled) { setGeometry(res); setError(""); onGeometry?.(res); } })
@@ -112,7 +138,7 @@ export function HolePanel({
           </label>
           <label className="range-label">
             <span>Недозаряд (верх скважины), м <b>{underchargeM.toFixed(1)}</b></span>
-            <input type="range" min={0} max={Math.max(0, depthM - 0.5)} step={0.1} value={underchargeM}
+            <input type="range" min={0} max={maxUnderchargeM(depthM)} step={0.1} value={underchargeM}
               onChange={(e) => setUnderchargeM(Number(e.target.value))} />
           </label>
           <div className="field-pair">

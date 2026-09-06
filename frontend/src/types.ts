@@ -172,6 +172,14 @@ export type WorkspaceState = {
   warnings: string[];
 };
 
+/** Настройки листа «Расчёт», сохранённые за объектом работ. Сервер их не
+ * разбирает: содержимое описывает `frontend/src/pages/calc/calcInputs.ts`. */
+export type CalcObjectInputs = {
+  work_object_name: string;
+  inputs: Record<string, unknown> | null;
+  updated_at: string | null;
+};
+
 export type DefaultReferences = {
   rocks: Rock[];
   explosives: Explosive[];

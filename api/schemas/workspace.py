@@ -73,6 +73,25 @@ class SwitchScenarioRequest(BaseModel):
     scenario_id: str
 
 
+class SwitchActiveObjectRequest(BaseModel):
+    """Смена активного объекта работ без сохранения снимка сценария."""
+
+    work_object_name: str
+
+
+class CalcObjectInputsSchema(BaseModel):
+    """Черновик параметров листа расчёта по объекту работ (последний ввод пользователя)."""
+
+    work_object_name: str
+    inputs: dict[str, Any] | None = None
+    updated_at: str | None = None
+
+
+class SaveCalcObjectInputsRequest(BaseModel):
+    work_object_name: str
+    inputs: dict[str, Any]
+
+
 class ScenarioPhaseSchema(BaseModel):
     id: str
     name: str

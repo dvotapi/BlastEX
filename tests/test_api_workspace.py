@@ -2,15 +2,27 @@
 справочники приходят из опубликованной ревизии, а не из файлов."""
 from __future__ import annotations
 
+import time
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routers import workspace
+from api.security import SESSION_COOKIE, create_session_token
 from api.services.economics_service import get_economics_repository
 from cost.drilling_data import DEFAULT_OBJECT_NAME, DEFAULT_WORK_OBJECTS
 from cost.labor import DEFAULT_LABOR_CATALOG
 from cost.v2.models import ReferenceItem
 from cost.v2.repository import InMemoryEconomicsRepository
+
+
+def _client_as(app: FastAPI, organization_id: str) -> TestClient:
+    """Клиент с сессией указанной организации — без внутреннего ключа."""
+
+    token = create_session_token("tester@example.ru", "service", organization_id, int(time.time()) + 3600)
+    client = TestClient(app)
+    client.cookies.set(SESSION_COOKIE, token)
+    return client
 
 
 def _client(monkeypatch) -> tuple[TestClient, InMemoryEconomicsRepository]:
@@ -155,3 +167,156 @@ def test_saved_scenario_keeps_the_reference_revision(monkeypatch) -> None:
 
     stored = repository.get_legacy_scenario("default", "drill_blast")
     assert stored["reference_revision_id"] == "REV-IMPORT"
+
+
+def test_calc_inputs_without_a_saved_record_return_null(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.get(
+        "/api/v1/workspace/calc-inputs", params={"work_object_name": DEFAULT_OBJECT_NAME}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["work_object_name"] == DEFAULT_OBJECT_NAME
+    assert body["inputs"] is None
+    assert body["updated_at"] is None
+
+
+def test_calc_inputs_put_then_get_returns_the_saved_value(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    saved = client.put(
+        "/api/v1/workspace/calc-inputs",
+        json={"work_object_name": DEFAULT_OBJECT_NAME, "inputs": {"volume_m3": 1000}},
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["work_object_name"] == DEFAULT_OBJECT_NAME
+    assert body["inputs"] == {"volume_m3": 1000}
+    assert body["updated_at"]
+
+    again = client.get(
+        "/api/v1/workspace/calc-inputs", params={"work_object_name": DEFAULT_OBJECT_NAME}
+    ).json()
+    assert again["inputs"] == {"volume_m3": 1000}
+    assert again["updated_at"] == body["updated_at"]
+
+
+def test_calc_inputs_reject_a_list_instead_of_an_object(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/calc-inputs",
+        json={"work_object_name": DEFAULT_OBJECT_NAME, "inputs": [1, 2, 3]},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_calc_inputs_reject_a_payload_over_the_byte_limit(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/calc-inputs",
+        json={"work_object_name": DEFAULT_OBJECT_NAME, "inputs": {"padding": "x" * 40_000}},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == "Настройки листа слишком большие."
+
+
+def test_calc_inputs_reject_an_empty_object_name(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/calc-inputs",
+        json={"work_object_name": "   ", "inputs": {"volume_m3": 1}},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_calc_inputs_are_isolated_between_organizations(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    team_a = _client_as(client.app, "team_a")
+    team_b = _client_as(client.app, "team_b")
+
+    team_a.put(
+        "/api/v1/workspace/calc-inputs",
+        json={"work_object_name": DEFAULT_OBJECT_NAME, "inputs": {"volume_m3": 111}},
+    )
+
+    isolated = team_b.get(
+        "/api/v1/workspace/calc-inputs", params={"work_object_name": DEFAULT_OBJECT_NAME}
+    ).json()
+    assert isolated["inputs"] is None
+
+    own = team_a.get(
+        "/api/v1/workspace/calc-inputs", params={"work_object_name": DEFAULT_OBJECT_NAME}
+    ).json()
+    assert own["inputs"] == {"volume_m3": 111}
+
+
+def test_active_object_switches_settings_without_touching_the_snapshot(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    state = client.get("/api/v1/workspace").json()
+    snapshot = {**state["snapshot"], "labor_shifts_per_month": 7}
+    client.put("/api/v1/workspace/snapshot", json={"snapshot": snapshot, "active_work_object_name": ""})
+
+    switched = client.put(
+        "/api/v1/workspace/active-object",
+        json={"work_object_name": DEFAULT_WORK_OBJECTS[1].name},
+    )
+    assert switched.status_code == 200, switched.text
+    body = switched.json()
+    assert body["settings"]["active_work_object_name"] == DEFAULT_WORK_OBJECTS[1].name
+    assert body["snapshot"]["labor_shifts_per_month"] == 7
+
+    again = client.get("/api/v1/workspace").json()
+    assert again["settings"]["active_work_object_name"] == DEFAULT_WORK_OBJECTS[1].name
+    assert again["snapshot"]["labor_shifts_per_month"] == 7
+
+
+def test_active_object_accepts_an_unknown_name(monkeypatch) -> None:
+    """Сервер и так подменит его через resolve_work_object_name при загрузке."""
+
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/active-object", json={"work_object_name": "Несуществующий карьер"}
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_active_object_trims_the_name(monkeypatch) -> None:
+    """Имя из списка приходит с пробелами по краям — храним обрезанное."""
+
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/active-object",
+        json={"work_object_name": f"  {DEFAULT_WORK_OBJECTS[1].name}  "},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["settings"]["active_work_object_name"] == DEFAULT_WORK_OBJECTS[1].name
+
+    again = client.get("/api/v1/workspace").json()
+    assert again["settings"]["active_work_object_name"] == DEFAULT_WORK_OBJECTS[1].name
+
+
+def test_active_object_rejects_an_empty_name(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.put("/api/v1/workspace/active-object", json={"work_object_name": "   "})
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == "Имя объекта работ не может быть пустым."
+
+
+def test_active_object_rejects_a_name_over_300_characters(monkeypatch) -> None:
+    """Поле varchar(300) в БД иначе упало бы 500-й ошибкой на DataError."""
+
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/active-object", json={"work_object_name": "А" * 301}
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == "Имя объекта работ длиннее 300 символов."
+
+
+def test_calc_inputs_reject_a_name_over_300_characters(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/calc-inputs",
+        json={"work_object_name": "А" * 301, "inputs": {"volume_m3": 1}},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == "Имя объекта работ длиннее 300 символов."

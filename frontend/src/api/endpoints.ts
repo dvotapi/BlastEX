@@ -3,6 +3,7 @@ import type {
   AggregatedCostResult,
   BlastGeometryResponse,
   BlastVariant,
+  CalcObjectInputs,
   CatalogItem,
   DefaultReferences,
   DrillingUnitCostInput,
@@ -164,6 +165,15 @@ export const api = {
     put<WorkspaceState>(`${V1}/workspace/snapshot`, payload),
   switchScenario: (scenario_id: string) =>
     put<WorkspaceState>(`${V1}/workspace/active-scenario`, { scenario_id }),
+  setActiveWorkObject: (work_object_name: string) =>
+    put<WorkspaceState>(`${V1}/workspace/active-object`, { work_object_name }),
+  /** Настройки листа «Расчёт» за объектом работ (последний ввод сметчика). */
+  calcInputs: (work_object_name: string) =>
+    get<CalcObjectInputs>(
+      `${V1}/workspace/calc-inputs?work_object_name=${encodeURIComponent(work_object_name)}`
+    ),
+  saveCalcInputs: (work_object_name: string, inputs: object) =>
+    put<CalcObjectInputs>(`${V1}/workspace/calc-inputs`, { work_object_name, inputs }),
   workspaceDefaults: () => get<DefaultReferences>(`${V1}/workspace/defaults`),
   scenarios: () => get<ScenarioListItem[]>(`${V1}/scenarios`),
 

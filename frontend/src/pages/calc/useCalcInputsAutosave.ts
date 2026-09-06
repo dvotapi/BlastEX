@@ -9,14 +9,31 @@ type PendingSave = { objectName: string; inputs: CalcInputs };
 
 /**
  * Что остаётся в очереди записи после неудачной попытки сохранить `failed`.
+ *
  * Пока запрос летел, форма могла успеть измениться ещё раз — тогда `current`
  * уже содержит более новую очередь (полный снимок листа, а не дельту), и она
  * сама покрывает то, что не сохранилось; трогать её нельзя, иначе новая правка
- * потеряется. Если очереди нет — возвращаем упавшую запись, чтобы её дописал
- * `flush()` при смене объекта или следующая правка через тот же автосейв.
+ * потеряется.
+ *
+ * Но `current` может быть пуст и по другой причине: пока `failed` (seq
+ * `failedSeq`) ещё летел, отложенный таймер уже успел забрать более новую
+ * правку из `pendingRef` (обнулив его) и поставить её в очередь своим
+ * `save()` — эта более новая запись (с большим seq) сама либо уже сохранена,
+ * либо ждёт своей очереди следом. В этом случае `failedSeq` — уже не
+ * последний из выданных (`latestSeq`), и восстанавливать в `pendingRef`
+ * СТАРЫЙ снимок `failed` нельзя: более поздний `flush()` дописал бы им
+ * поверх уже сохранённых свежих данных. Возвращаем упавшую запись, только
+ * если после неё никто новее в очередь не вставал.
  */
-export function pendingAfterSaveError(current: PendingSave | null, failed: PendingSave): PendingSave | null {
-  return current ?? failed;
+export function pendingAfterSaveError(
+  current: PendingSave | null,
+  failed: PendingSave,
+  failedSeq: number,
+  latestSeq: number,
+): PendingSave | null {
+  if (current) return current;
+  if (!isLatestObjectRequest(failedSeq, latestSeq)) return null;
+  return failed;
 }
 
 /**
@@ -120,7 +137,12 @@ export function useCalcInputsAutosave({
         report("error");
         // Запись не удалась — правка не должна пропасть: её допишет flush()
         // (например, при смене объекта) или следующая правка через автосейв.
-        pendingRef.current = pendingAfterSaveError(pendingRef.current, { objectName: name, inputs: value });
+        pendingRef.current = pendingAfterSaveError(
+          pendingRef.current,
+          { objectName: name, inputs: value },
+          seq,
+          writeSeqRef.current,
+        );
       }
     };
     const task = queueRef.current.then(run, run);

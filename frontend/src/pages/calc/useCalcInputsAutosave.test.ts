@@ -38,13 +38,21 @@ function sheet(overrides: Partial<SheetState> = {}): SheetState {
 describe("pendingAfterSaveError", () => {
   const failed = { objectName: "Карьер-1", inputs: collectCalcInputs(sheet()) };
 
-  it("возвращает упавшую запись, если очередь пуста", () => {
-    expect(pendingAfterSaveError(null, failed)).toBe(failed);
+  it("возвращает упавшую запись, если очередь пуста и новее ничего не выдавалось", () => {
+    expect(pendingAfterSaveError(null, failed, 1, 1)).toBe(failed);
   });
 
   it("не трогает более новую запись, поставленную в очередь, пока шло сохранение", () => {
     const newer = { objectName: "Карьер-1", inputs: collectCalcInputs(sheet({ benchHeightM: 13 })) };
-    expect(pendingAfterSaveError(newer, failed)).toBe(newer);
+    expect(pendingAfterSaveError(newer, failed, 1, 2)).toBe(newer);
+  });
+
+  it("не восстанавливает старый снимок, если таймер уже забрал более новую правку в очередь", () => {
+    // seq=1 (failed) ещё летел, когда отложенный таймер обнулил pendingRef и
+    // поставил в очередь seq=2 — она сама покрывает несохранённое. Если бы
+    // здесь вернулась `failed`, следующий flush() дописал бы её поверх уже
+    // сохранённых (или ожидающих своей очереди) свежих данных.
+    expect(pendingAfterSaveError(null, failed, 1, 2)).toBeNull();
   });
 });
 

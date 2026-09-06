@@ -304,6 +304,11 @@ function FullBvrCalc({
   } = useWorkspace();
   const objectName = state?.settings.active_work_object_name ?? "";
   const ready = loadedObjectName !== null && loadedObjectName === objectName;
+  // Актуальное имя объекта для проверок «не устарел ли расчёт» в замыканиях,
+  // которые не перевызываются при каждом рендере (например, `calculate()`,
+  // запущенный до смены объекта).
+  const objectNameRef = useRef(objectName);
+  objectNameRef.current = objectName;
   // Узел в шапке приложения: если он есть, полоса переезжает туда через
   // createPortal (см. topbarSlot.tsx); иначе рисуется на своём обычном
   // месте на странице (например, вне AppShell).
@@ -436,19 +441,24 @@ function FullBvrCalc({
     }
   }
 
+  /** Ручной запуск расчёта: если пользователь успел сменить объект, пока
+   * ответ ещё летел, результат — уже про чужой лист, и его нужно отбросить
+   * (как и автозапуск после загрузки настроек — `isStale` в `runOptimize`). */
   async function calculate() {
-    await runOptimize(sheet, null);
+    const requestedObjectName = objectName;
+    await runOptimize(sheet, null, () => objectNameRef.current !== requestedObjectName);
   }
 
   /**
    * Настройки активного объекта: при появлении справочников и при каждой смене
    * объекта. Сначала дописываем отложенные изменения прошлого объекта, потом
    * читаем настройки нового. Есть сохранённые — применяем их и сразу считаем
-   * варианты; нет — умолчания и без автозапуска. Лист считается готовым только
-   * после ответа (и после автозапуска), поэтому автосохранение не пишет ни
-   * умолчания, ни восстановленный выбор диаметра. Запрос упал — показываем
-   * ошибку и умолчания, но лист остаётся «не готовым»: писать поверх
-   * непрочитанного нельзя.
+   * варианты; нет — умолчания и без автозапуска. Лист считается готовым сразу
+   * после применения загруженных (или умолчальных) значений — не дожидаясь
+   * автозапуска варианта, который может идти долго; правка, сделанная за это
+   * время, не потеряется, а результат автозапуска ляжет поверх неё как
+   * обычная последующая правка. Запрос упал — показываем ошибку и умолчания,
+   * но лист остаётся «не готовым»: писать поверх непрочитанного нельзя.
    */
   useEffect(() => {
     if (!catalogs || !referenceDefaults || !objectName) return;
@@ -465,12 +475,22 @@ function FullBvrCalc({
         const applied = applyCalcInputs(saved.inputs, catalogs);
         if (applied) {
           applySheet(applied);
+          if (cancelled) return;
+          // Отсечка «уже сохранено» — сразу после применения загруженного
+          // листа, а не после (возможно долгого) автозапуска ниже: иначе
+          // лист был бы редактируемым, но `ready` ещё false, и правка,
+          // сделанная за это время, не попала бы в автосохранение — а когда
+          // `ready` наконец станет true, эта правка уже стала бы «текущим
+          // значением», неотличимым от только что загруженного, и потерялась
+          // бы. Результат автозапуска — обычная последующая правка поверх
+          // этой отсечки, автосохранение её подхватит само.
+          setLoadedObjectName(objectName);
           await runOptimize(applied, applied.selectedCrownMm, () => cancelled);
         } else {
           applySheet(defaultCalcSheet(catalogs, referenceDefaults));
+          if (cancelled) return;
+          setLoadedObjectName(objectName);
         }
-        if (cancelled) return;
-        setLoadedObjectName(objectName);
       } catch {
         if (cancelled) return;
         // Настройки не прочитались: значения прошлого объекта на листе были бы

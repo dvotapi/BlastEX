@@ -598,27 +598,34 @@ function FullBvrCalc({
         <section className="panel input-panel">
           <header><b>Исходные данные</b><span>01</span></header>
           <div className="panel-body">
-            <label>Порода<select value={rockName} onChange={(e) => setRockName(e.target.value)}>{rocks.map((r) => <option key={r.id || r.name}>{r.name}</option>)}</select></label>
-            <label>Взрывчатое вещество<select value={explosiveKey} onChange={(e) => setExplosiveKey(e.target.value)}>{explosives.map((ex) => <option key={ex.id || ex.key} value={ex.key}>{ex.name}</option>)}</select></label>
-            <div className="field-pair">
-              <label>Высота уступа, м<input type="number" min={5} max={25} step={0.5} value={benchHeight} onChange={(e) => setBenchHeight(Number(e.target.value))} /></label>
-              <label>Перебур, м<input type="number" min={0} max={3} step={0.1} value={overdrill} onChange={(e) => setOverdrill(Number(e.target.value))} /></label>
-            </div>
-            <label>Кондиционный кусок, мм<input type="number" min={100} max={1200} step={50} value={lumpSize} onChange={(e) => setLumpSize(Number(e.target.value))} /></label>
-            <label className="range-label"><span>Допустимый негабарит <b>{threshold}%</b></span><input type="range" min={1} max={15} step={0.5} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} /></label>
-            <label className="range-label"><span>Коэффициент сетки a/W <b>{spacing.toFixed(2)}</b></span><input type="range" min={1} max={2} step={0.05} value={spacing} onChange={(e) => setSpacing(Number(e.target.value))} /></label>
-            <label className="range-label"><span>Коэфф. разбуривания <b>{oversizeCoeff.toFixed(2)}</b></span><input type="range" min={1} max={1.15} step={0.01} value={oversizeCoeff} onChange={(e) => setOversizeCoeff(Number(e.target.value))} /></label>
-            <fieldset className="crown-select">
-              <legend>Диаметры коронок, мм</legend>
-              {allCrowns.map((c) => (
-                <label key={c} className="crown-checkbox">
-                  <input type="checkbox" checked={selectedCrowns.includes(c)} onChange={() => toggleCrown(c)} /> {c}
-                </label>
-              ))}
+            {/* Пока настройки объекта не загружены (`!ready`), правка любого
+                поля пропала бы: `applySheet` при ответе перезапишет её своими
+                значениями. Отключаем весь ввод на этот момент — `fieldset`
+                выключает вложенные поля браузерными средствами, `display:
+                contents` не мешает сетке `.panel-body`. */}
+            <fieldset className="input-panel-fieldset" disabled={!ready}>
+              <label>Порода<select value={rockName} onChange={(e) => setRockName(e.target.value)}>{rocks.map((r) => <option key={r.id || r.name}>{r.name}</option>)}</select></label>
+              <label>Взрывчатое вещество<select value={explosiveKey} onChange={(e) => setExplosiveKey(e.target.value)}>{explosives.map((ex) => <option key={ex.id || ex.key} value={ex.key}>{ex.name}</option>)}</select></label>
+              <div className="field-pair">
+                <label>Высота уступа, м<input type="number" min={5} max={25} step={0.5} value={benchHeight} onChange={(e) => setBenchHeight(Number(e.target.value))} /></label>
+                <label>Перебур, м<input type="number" min={0} max={3} step={0.1} value={overdrill} onChange={(e) => setOverdrill(Number(e.target.value))} /></label>
+              </div>
+              <label>Кондиционный кусок, мм<input type="number" min={100} max={1200} step={50} value={lumpSize} onChange={(e) => setLumpSize(Number(e.target.value))} /></label>
+              <label className="range-label"><span>Допустимый негабарит <b>{threshold}%</b></span><input type="range" min={1} max={15} step={0.5} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} /></label>
+              <label className="range-label"><span>Коэффициент сетки a/W <b>{spacing.toFixed(2)}</b></span><input type="range" min={1} max={2} step={0.05} value={spacing} onChange={(e) => setSpacing(Number(e.target.value))} /></label>
+              <label className="range-label"><span>Коэфф. разбуривания <b>{oversizeCoeff.toFixed(2)}</b></span><input type="range" min={1} max={1.15} step={0.01} value={oversizeCoeff} onChange={(e) => setOversizeCoeff(Number(e.target.value))} /></label>
+              <fieldset className="crown-select">
+                <legend>Диаметры коронок, мм</legend>
+                {allCrowns.map((c) => (
+                  <label key={c} className="crown-checkbox">
+                    <input type="checkbox" checked={selectedCrowns.includes(c)} onChange={() => toggleCrown(c)} /> {c}
+                  </label>
+                ))}
+              </fieldset>
+              <button className="calculate-button" onClick={calculate} disabled={busy || !ready || !rock || !explosive || !selectedCrowns.length}>
+                {!ready ? "Загрузка настроек объекта…" : busy ? "Выполняется расчёт…" : "Рассчитать варианты"}
+              </button>
             </fieldset>
-            <button className="calculate-button" onClick={calculate} disabled={busy || !rock || !explosive || !selectedCrowns.length}>
-              {busy ? "Выполняется расчёт…" : "Рассчитать варианты"}
-            </button>
           </div>
         </section>
         <div className="results-column">

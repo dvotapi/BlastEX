@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/endpoints";
-import { useWorkspace } from "../app/useWorkspace";
 import { DataTable } from "../components/DataTable";
-import { DrillingGeometryPage } from "./calc/DrillingGeometryPage";
 import { HolePanel } from "./calc/HolePanel";
-import { ManualScenarioPage } from "./calc/ManualScenarioPage";
 import type { BlastGeometryResponse, BlastVariant, Explosive, Rock } from "../types";
 import type { TechnicalPassport } from "../types/blockEconomics";
 
@@ -374,25 +371,14 @@ export function CalcPage({
   onSendToDesign?: (variant: BlastVariant) => void;
   onOpenEconomics?: (passportId: string) => void;
 }) {
-  const { activeScenario, loading } = useWorkspace();
-  if (loading) return <div className="page-content">Загрузка…</div>;
-  if (!activeScenario) return <div className="page-content">Выберите сценарий.</div>;
-
-  const profile = activeScenario.calc_profile;
   return (
     <div className="page-content-wrap">
-      <p className="page-caption">{profile.ui_caption}</p>
-      {profile.is_manual_input ? (
-        <ManualScenarioPage profile={profile} />
-      ) : profile.mode === "drilling_geometry" ? (
-        <DrillingGeometryPage />
-      ) : (
-        <FullBvrCalc
-          explosiveBasis={profile.explosive_basis === "per_m" ? "per_m" : "per_m3"}
-          onSendToDesign={onSendToDesign}
-          onOpenEconomics={onOpenEconomics}
-        />
-      )}
+      <p className="page-caption">Комплекс БВР: оптимизация q, сетка, схема заряда</p>
+      <FullBvrCalc
+        explosiveBasis="per_m3"
+        onSendToDesign={onSendToDesign}
+        onOpenEconomics={onOpenEconomics}
+      />
     </div>
   );
 }

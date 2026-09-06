@@ -41,9 +41,8 @@ type WorkspaceContextValue = {
   blastContext: BlastCalcContext | null;
   setBlastContext: (ctx: BlastCalcContext | null) => void;
   updateSnapshot: (patch: Partial<WorkspaceSnapshot>) => void;
-  setActiveWorkObjectName: (name: string) => void;
+  setActiveWorkObjectName: (name: string) => Promise<void>;
   save: () => Promise<void>;
-  switchScenario: (scenarioId: string) => Promise<void>;
   reload: () => Promise<void>;
   canEdit: boolean;
 };
@@ -70,7 +69,7 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
         references: normalizeReferenceRows(ws.references),
       };
       setState(normalized);
-      setSavedKey(JSON.stringify([normalized.snapshot, normalized.settings.active_work_object_name]));
+      setSavedKey(JSON.stringify(normalized.snapshot));
       setScenarios(sc);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить рабочее пространство.");
@@ -83,15 +82,30 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
 
   const dirty = useMemo(() => {
     if (!state) return false;
-    return JSON.stringify([state.snapshot, state.settings.active_work_object_name]) !== savedKey;
+    return JSON.stringify(state.snapshot) !== savedKey;
   }, [state, savedKey]);
 
   const updateSnapshot = useCallback((patch: Partial<WorkspaceSnapshot>) => {
     setState((prev) => (prev ? { ...prev, snapshot: { ...prev.snapshot, ...normalizeSnapshotPatch(patch) } } : prev));
   }, []);
 
-  const setActiveWorkObjectName = useCallback((name: string) => {
+  /** Смена объекта работ сохраняется сразу: снимок сценария не участвует,
+   * поэтому «несохранённых изменений» после переключения не возникает. */
+  const setActiveWorkObjectName = useCallback(async (name: string) => {
     setState((prev) => (prev ? { ...prev, settings: { ...prev.settings, active_work_object_name: name } } : prev));
+    setError("");
+    try {
+      const next = await api.setActiveWorkObject(name);
+      const normalized = {
+        ...next,
+        snapshot: normalizeSnapshotRows(next.snapshot),
+        references: normalizeReferenceRows(next.references),
+      };
+      setState(normalized);
+      setSavedKey(JSON.stringify(normalized.snapshot));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось сменить объект работ.");
+    }
   }, []);
 
   const save = useCallback(async () => {
@@ -109,7 +123,7 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
         references: normalizeReferenceRows(next.references),
       };
       setState(normalized);
-      setSavedKey(JSON.stringify([normalized.snapshot, normalized.settings.active_work_object_name]));
+      setSavedKey(JSON.stringify(normalized.snapshot));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сохранить рабочее пространство.");
       throw reason;
@@ -117,23 +131,6 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
       setSaving(false);
     }
   }, [state]);
-
-  const switchScenario = useCallback(async (scenarioId: string) => {
-    setError("");
-    try {
-      const next = await api.switchScenario(scenarioId);
-      const normalized = {
-        ...next,
-        snapshot: normalizeSnapshotRows(next.snapshot),
-        references: normalizeReferenceRows(next.references),
-      };
-      setState(normalized);
-      setSavedKey(JSON.stringify([normalized.snapshot, normalized.settings.active_work_object_name]));
-      setBlastContext(null);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось переключить сценарий.");
-    }
-  }, []);
 
   const activeScenario = useMemo(
     () => scenarios.find((s) => s.id === state?.settings.active_scenario_id) ?? null,
@@ -156,7 +153,6 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
     updateSnapshot,
     setActiveWorkObjectName,
     save,
-    switchScenario,
     reload: load,
   };
 

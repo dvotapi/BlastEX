@@ -164,6 +164,8 @@ export const api = {
     put<WorkspaceState>(`${V1}/workspace/snapshot`, payload),
   switchScenario: (scenario_id: string) =>
     put<WorkspaceState>(`${V1}/workspace/active-scenario`, { scenario_id }),
+  setActiveWorkObject: (work_object_name: string) =>
+    put<WorkspaceState>(`${V1}/workspace/active-object`, { work_object_name }),
   workspaceDefaults: () => get<DefaultReferences>(`${V1}/workspace/defaults`),
   scenarios: () => get<ScenarioListItem[]>(`${V1}/scenarios`),
 

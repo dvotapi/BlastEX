@@ -1,12 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/endpoints";
+import { useWorkspace } from "../app/useWorkspace";
 import { DataTable } from "../components/DataTable";
+import {
+  applyCalcInputs,
+  collectCalcInputs,
+  defaultCalcSheet,
+  defaultPanelInputs,
+  panelInputsEqual,
+  DEFAULT_EXPLOSIVE_1,
+  DEFAULT_EXPLOSIVE_2,
+  DEFAULT_UNDERCHARGE_1_M,
+  DEFAULT_UNDERCHARGE_2_M,
+  type CalcInputsCatalogs,
+  type PanelInputs,
+  type SheetState,
+} from "./calc/calcInputs";
 import { HolePanel } from "./calc/HolePanel";
+import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
 import type { BlastGeometryResponse, BlastVariant, Explosive, Rock } from "../types";
 import type { TechnicalPassport } from "../types/blockEconomics";
-
-const DEFAULT_EXPLOSIVE_1 = "ПВВ Гранулит-РП";
-const DEFAULT_EXPLOSIVE_2 = "ПЭВВ ЭВЕРСИН Э-100";
 
 function ResultsChart({ variants }: { variants: BlastVariant[] }) {
   if (!variants.length) return <div className="chart-empty">После расчёта здесь появится сравнение вариантов.</div>;
@@ -208,10 +221,26 @@ function FullBvrCalc({
   const [additionalHolesPct, setAdditionalHolesPct] = useState(3.0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Поля панелей «Вариант 1/2»: панели ведут их у себя, а сюда сообщают об
+  // изменениях — из них собираются настройки листа.
+  const [panelInputs, setPanelInputs] = useState<{ left: PanelInputs; right: PanelInputs }>(() => ({
+    left: defaultPanelInputs(DEFAULT_EXPLOSIVE_1, DEFAULT_UNDERCHARGE_1_M),
+    right: defaultPanelInputs(DEFAULT_EXPLOSIVE_2, DEFAULT_UNDERCHARGE_2_M),
+  }));
+  // Объект, настройки которого уже загружены. Пока он не совпал с активным,
+  // лист «не готов»: автосохранение молчит, иначе умолчания затрут сохранённое.
+  const [loadedObjectName, setLoadedObjectName] = useState<string | null>(null);
   // Блоки обеих панелей: в паспорт уходит та, что выбрана под расчётом.
   const [geometries, setGeometries] = useState<Record<string, BlastGeometryResponse | null>>({});
   const geometryFor = (key: string) => (geometry: BlastGeometryResponse) =>
     setGeometries((current) => ({ ...current, [key]: geometry }));
+
+  const { state } = useWorkspace();
+  const objectName = state?.settings.active_work_object_name ?? "";
+  const ready = loadedObjectName !== null && loadedObjectName === objectName;
+
+  // Умолчания справочников: нужны листу без сохранённых настроек.
+  const [referenceDefaults, setReferenceDefaults] = useState<{ rockName: string; explosiveKey: string } | null>(null);
 
   useEffect(() => {
     Promise.all([api.rocks(), api.explosives(), api.blastOptions()]).then(([rockData, explosiveData, opts]) => {
@@ -219,6 +248,7 @@ function FullBvrCalc({
       setExplosives(explosiveData.items);
       setRockName(rockData.default_name);
       setExplosiveKey(explosiveData.default_key);
+      setReferenceDefaults({ rockName: rockData.default_name, explosiveKey: explosiveData.default_key });
       setAllCrowns(opts.crown_diameters_mm);
       setSelectedCrowns(opts.crown_diameters_mm);
       setNsiLengthOptions(opts.nsi_length_options_m);
@@ -230,27 +260,144 @@ function FullBvrCalc({
   const explosive = useMemo(() => explosives.find((e) => e.key === explosiveKey), [explosives, explosiveKey]);
   const selected = variants[selectedIndex];
 
+  /** Чем проверяются сохранённые настройки: пока справочники не пришли — нечем. */
+  const catalogs: CalcInputsCatalogs | null = useMemo(
+    () =>
+      rocks.length && explosives.length && allCrowns.length
+        ? { rocks: rocks.map((r) => r.name), explosiveKeys: explosives.map((e) => e.key), crowns: allCrowns }
+        : null,
+    [rocks, explosives, allCrowns]
+  );
+
+  const sheet: SheetState = useMemo(
+    () => ({
+      rockName,
+      explosiveKey,
+      lumpSizeMm: lumpSize,
+      benchHeightM: benchHeight,
+      overdrillM: overdrill,
+      oversizeCoeff,
+      spacingCoeff: spacing,
+      oversizeThresholdPct: threshold,
+      selectedCrownsMm: selectedCrowns,
+      selectedCrownMm: selected?.crown_mm ?? null,
+      blockVolumeM3,
+      additionalHolesPct,
+      panels: panelInputs,
+    }),
+    [rockName, explosiveKey, lumpSize, benchHeight, overdrill, oversizeCoeff, spacing, threshold,
+      selectedCrowns, selected, blockVolumeM3, additionalHolesPct, panelInputs]
+  );
+  const sheetInputs = useMemo(() => collectCalcInputs(sheet), [sheet]);
+
+  // Статус автосохранения показывает верхняя полоса листа (задача 5).
+  const { status: autosaveStatus, flush } = useCalcInputsAutosave({ objectName, inputs: sheetInputs, ready });
+
+  const applySheet = useCallback((next: SheetState) => {
+    setRockName(next.rockName);
+    setExplosiveKey(next.explosiveKey);
+    setLumpSize(next.lumpSizeMm);
+    setBenchHeight(next.benchHeightM);
+    setOverdrill(next.overdrillM);
+    setOversizeCoeff(next.oversizeCoeff);
+    setSpacing(next.spacingCoeff);
+    setThreshold(next.oversizeThresholdPct);
+    setSelectedCrowns(next.selectedCrownsMm);
+    setBlockVolumeM3(next.blockVolumeM3);
+    setAdditionalHolesPct(next.additionalHolesPct);
+    setPanelInputs(next.panels);
+  }, []);
+
+  const handleLeftInputs = useCallback((next: PanelInputs) => {
+    setPanelInputs((current) => (panelInputsEqual(current.left, next) ? current : { ...current, left: next }));
+  }, []);
+  const handleRightInputs = useCallback((next: PanelInputs) => {
+    setPanelInputs((current) => (panelInputsEqual(current.right, next) ? current : { ...current, right: next }));
+  }, []);
+
   function toggleCrown(value: number) {
     setSelectedCrowns((prev) => (prev.includes(value) ? prev.filter((c) => c !== value) : [...prev, value].sort((a, b) => a - b)));
   }
 
-  async function calculate() {
-    if (!rock || !explosive || !selectedCrowns.length) return;
+  /** Расчёт вариантов по переданному листу: он же считает при автозапуске,
+   * когда состояние формы ещё не успело обновиться после загрузки настроек.
+   * `preferredCrownMm` — сохранённый диаметр, если такой вариант найдётся.
+   * `isStale` — автозапуск для объекта, который успели сменить: его результат
+   * выбрасываем, иначе он затрёт варианты нового объекта. */
+  async function runOptimize(
+    source: SheetState,
+    preferredCrownMm: number | null,
+    isStale: () => boolean = () => false,
+  ) {
+    const sheetRock = rocks.find((r) => r.name === source.rockName);
+    const sheetExplosive = explosives.find((e) => e.key === source.explosiveKey);
+    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return;
     setBusy(true);
     setError("");
     try {
       const result = await api.optimize({
-        rock, explosive, lumpSize, benchHeight, overdrill, oversizeCoeff, spacing, threshold, crownDiametersMm: selectedCrowns,
+        rock: sheetRock,
+        explosive: sheetExplosive,
+        lumpSize: source.lumpSizeMm,
+        benchHeight: source.benchHeightM,
+        overdrill: source.overdrillM,
+        oversizeCoeff: source.oversizeCoeff,
+        spacing: source.spacingCoeff,
+        threshold: source.oversizeThresholdPct,
+        crownDiametersMm: source.selectedCrownsMm,
       });
+      if (isStale()) return;
       setVariants(result.variants);
+      const restored = preferredCrownMm === null ? -1 : result.variants.findIndex((v) => v.crown_mm === preferredCrownMm);
       const preferred = result.variants.findIndex((v) => v.crown_mm === 152);
-      setSelectedIndex(preferred >= 0 ? preferred : 0);
+      setSelectedIndex(restored >= 0 ? restored : preferred >= 0 ? preferred : 0);
     } catch (reason) {
+      if (isStale()) return;
       setError(reason instanceof Error ? reason.message : "Ошибка расчёта.");
     } finally {
       setBusy(false);
     }
   }
+
+  async function calculate() {
+    await runOptimize(sheet, null);
+  }
+
+  /**
+   * Настройки активного объекта: при появлении справочников и при каждой смене
+   * объекта. Сначала дописываем отложенные изменения прошлого объекта, потом
+   * читаем настройки нового. Есть сохранённые — применяем их и сразу считаем
+   * варианты; нет — умолчания и без автозапуска. Лист считается готовым только
+   * после ответа (и после автозапуска), поэтому автосохранение не пишет ни
+   * умолчания, ни восстановленный выбор диаметра.
+   */
+  useEffect(() => {
+    if (!catalogs || !referenceDefaults || !objectName) return;
+    let cancelled = false;
+    setLoadedObjectName(null);
+    setVariants([]);
+    setGeometries({});
+    void (async () => {
+      await flush();
+      try {
+        const saved = await api.calcInputs(objectName);
+        if (cancelled) return;
+        const applied = applyCalcInputs(saved.inputs, catalogs);
+        if (applied) {
+          applySheet(applied);
+          await runOptimize(applied, applied.selectedCrownMm, () => cancelled);
+        } else {
+          applySheet(defaultCalcSheet(catalogs, referenceDefaults));
+        }
+        if (cancelled) return;
+        setLoadedObjectName(objectName);
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "Не удалось загрузить настройки листа.");
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogs, referenceDefaults, objectName]);
 
   return (
     <div className="page-content">
@@ -312,6 +459,7 @@ function FullBvrCalc({
           </div>
           <div className="hole-panels-row">
             <HolePanel
+              key={`${objectName}-left`}
               panelKey="left"
               variantLabel="Вариант 1"
               gridAM={selected.grid_a_m}
@@ -323,14 +471,17 @@ function FullBvrCalc({
               blockVolumeM3={blockVolumeM3}
               additionalHolesPct={additionalHolesPct / 100}
               defaultExplosiveKey={DEFAULT_EXPLOSIVE_1}
-              defaultUnderchargeM={3.1}
+              defaultUnderchargeM={DEFAULT_UNDERCHARGE_1_M}
               showChargeDesign={true}
               explosiveBasis={explosiveBasis}
               nsiLengthOptions={nsiLengthOptions}
               detonatorDelayOptions={detonatorDelayOptions}
+              initialInputs={panelInputs.left}
+              onInputsChange={handleLeftInputs}
               onGeometry={geometryFor("left")}
             />
             <HolePanel
+              key={`${objectName}-right`}
               panelKey="right"
               variantLabel="Вариант 2"
               gridAM={selected.grid_a_m}
@@ -342,12 +493,14 @@ function FullBvrCalc({
               blockVolumeM3={blockVolumeM3}
               additionalHolesPct={additionalHolesPct / 100}
               defaultExplosiveKey={DEFAULT_EXPLOSIVE_2}
-              defaultUnderchargeM={2.0}
+              defaultUnderchargeM={DEFAULT_UNDERCHARGE_2_M}
               showChargeDesign={true}
               explosiveBasis={explosiveBasis}
               isBlastContextSource={false}
               nsiLengthOptions={nsiLengthOptions}
               detonatorDelayOptions={detonatorDelayOptions}
+              initialInputs={panelInputs.right}
+              onInputsChange={handleRightInputs}
               onGeometry={geometryFor("right")}
             />
           </div>

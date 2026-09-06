@@ -14,6 +14,7 @@ from cost.v2.db_repository import PostgresEconomicsRepository
 from cost.v2.models import EconomicScenario
 from cost.v2.repository import (
     EconomicsRecordNotFound,
+    EconomicsRepositoryError,
     InMemoryEconomicsRepository,
 )
 
@@ -226,6 +227,39 @@ def test_every_repository_method_takes_organization_first() -> None:
         assert parameters[:2] == ["self", "organization_id"], (
             f"{name}: первым аргументом должен быть organization_id"
         )
+
+
+def test_calc_object_inputs_round_trip_overwrite_and_scoped(repository) -> None:
+    """Настройки листа расчёта по объекту: round-trip, перезапись, изоляция."""
+
+    assert repository.get_calc_inputs(ORG_A, "Карьер А") is None
+
+    saved = repository.save_calc_inputs(
+        ORG_A, "a@example.ru", "Карьер А", {"bench_height_m": 12}
+    )
+    assert saved.work_object_name == "Карьер А"
+    assert saved.inputs == {"bench_height_m": 12}
+    assert saved.updated_at is not None
+
+    fetched = repository.get_calc_inputs(ORG_A, "Карьер А")
+    assert fetched == saved
+
+    # Другая организация ту же по имени запись не видит.
+    assert repository.get_calc_inputs(ORG_B, "Карьер А") is None
+
+    # Перезапись по тому же ключу — обновление, а не вторая запись.
+    overwritten = repository.save_calc_inputs(
+        ORG_A, "a@example.ru", "Карьер А", {"bench_height_m": 15}
+    )
+    assert overwritten.inputs == {"bench_height_m": 15}
+    assert repository.get_calc_inputs(ORG_A, "Карьер А").inputs == {"bench_height_m": 15}
+
+
+def test_calc_object_inputs_reject_empty_object_name(repository) -> None:
+    with pytest.raises(EconomicsRepositoryError):
+        repository.save_calc_inputs(ORG_A, "a@example.ru", "", {"bench_height_m": 12})
+    with pytest.raises(EconomicsRepositoryError):
+        repository.save_calc_inputs(ORG_A, "a@example.ru", "   ", {"bench_height_m": 12})
 
 
 def test_price_section_is_not_mirrored(repository) -> None:

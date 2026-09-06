@@ -164,7 +164,7 @@ def test_tracked_migration_head_matches_git_tracked_chain() -> None:
     """DB-free: голова определяется по файлам git, а не по каталогу целиком.
 
     Независимо от ``tracked_migration_head`` разбирает список отслеживаемых
-    git файлов и убеждается, что найденная голова — ``20260904_0006`` и что
+    git файлов и убеждается, что найденная голова — ``20260906_0007`` и что
     ни один отслеживаемый файл не ссылается на неё как на ``down_revision``.
     """
     repo_root = Path(__file__).resolve().parent.parent
@@ -191,7 +191,7 @@ def test_tracked_migration_head_matches_git_tracked_chain() -> None:
 
     head = tracked_migration_head()
 
-    assert head == "20260904_0006"
+    assert head == "20260906_0007"
     assert head not in down_revisions
 
 

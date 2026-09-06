@@ -32,7 +32,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sess
 from cost.v2.models import EconomicScenario, ReferenceItem, ReferenceSnapshot
 from cost.v2.references import default_reference_snapshot, normalize_sections
 from cost.v2.repository import (
+    CalcObjectInputs,
     EconomicsRecordNotFound,
+    EconomicsRepositoryError,
     LegacyWorkspaceSettings,
     PublicLink,
     PublicLinkConflict,
@@ -313,6 +315,17 @@ class PublicLinkRow(Base):
     public_table: Mapped[str] = mapped_column(String(64), nullable=False)
     public_id: Mapped[int] = mapped_column(Integer, nullable=False)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
+class CalcObjectInputsRow(Base):
+    __tablename__ = "calc_object_inputs"
+    __table_args__ = ({"schema": SCHEMA},)
+
+    organization_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    work_object_name: Mapped[str] = mapped_column(String(300), primary_key=True)
+    inputs: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
 
 
@@ -1046,6 +1059,56 @@ class PostgresEconomicsRepository:
                     row.updated_by = user_id
                 imported.append(scenario_key)
         return imported
+
+    def get_calc_inputs(
+        self, organization_id: str, work_object_name: str
+    ) -> CalcObjectInputs | None:
+        with self.session_factory() as session:
+            row = session.get(
+                CalcObjectInputsRow, (organization_id, work_object_name)
+            )
+            if row is None:
+                return None
+            return CalcObjectInputs(
+                work_object_name=row.work_object_name,
+                inputs=dict(row.inputs or {}),
+                updated_at=row.updated_at,
+            )
+
+    def save_calc_inputs(
+        self,
+        organization_id: str,
+        user_id: str,
+        work_object_name: str,
+        inputs: Mapping[str, Any],
+    ) -> CalcObjectInputs:
+        """Upsert настроек листа расчёта по (organization_id, work_object_name)."""
+
+        if not work_object_name.strip():
+            raise EconomicsRepositoryError("Имя объекта работ не может быть пустым.")
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        payload = dict(inputs)
+        with self.session_factory() as session, session.begin():
+            row = session.get(
+                CalcObjectInputsRow, (organization_id, work_object_name)
+            )
+            if row is None:
+                session.add(
+                    CalcObjectInputsRow(
+                        organization_id=organization_id,
+                        work_object_name=work_object_name,
+                        inputs=payload,
+                        updated_at=now,
+                        updated_by=user_id,
+                    )
+                )
+            else:
+                row.inputs = payload
+                row.updated_at = now
+                row.updated_by = user_id
+        return CalcObjectInputs(
+            work_object_name=work_object_name, inputs=payload, updated_at=now
+        )
 
     def list_public_links(self, organization_id: str) -> Sequence[PublicLink]:
         with self.session_factory() as session:

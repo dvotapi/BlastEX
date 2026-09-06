@@ -213,6 +213,19 @@ class LegacyWorkspaceSettings:
 
 
 @dataclass(frozen=True)
+class CalcObjectInputs:
+    """Последние введённые параметры листа расчёта по объекту работ.
+
+    Черновик формы, а не результат расчёта: подставляется при повторном
+    открытии того же объекта, чтобы не вводить те же значения заново.
+    """
+
+    work_object_name: str
+    inputs: dict[str, Any]
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class PublicLink:
     """Связь записи справочника blastex с записью зеркала схемы public."""
 
@@ -405,6 +418,18 @@ class EconomicsRepository(Protocol):
         reference_revision_id: str | None = None,
     ) -> list[str]: ...
 
+    def get_calc_inputs(
+        self, organization_id: str, work_object_name: str
+    ) -> CalcObjectInputs | None: ...
+
+    def save_calc_inputs(
+        self,
+        organization_id: str,
+        user_id: str,
+        work_object_name: str,
+        inputs: Mapping[str, Any],
+    ) -> CalcObjectInputs: ...
+
     def list_public_links(self, organization_id: str) -> Sequence[PublicLink]: ...
 
     def save_public_link(
@@ -437,6 +462,7 @@ class InMemoryEconomicsRepository:
         self._economics_runs: dict[tuple[str, str], StoredEconomicsRun] = {}
         self._legacy_workspace: dict[str, LegacyWorkspaceSettings] = {}
         self._legacy_scenarios: dict[tuple[str, str], dict[str, Any]] = {}
+        self._calc_inputs: dict[tuple[str, str], CalcObjectInputs] = {}
         self._public_links: dict[tuple[str, str, str], PublicLink] = {}
         self._mirror_sections: dict[tuple[str, str], bool] = {}
         # Журнала в памяти нет: снимок задают тесты, если хотят проверить, что
@@ -873,6 +899,30 @@ class InMemoryEconomicsRepository:
                 }
                 imported.append(scenario_key)
             return imported
+
+    def get_calc_inputs(
+        self, organization_id: str, work_object_name: str
+    ) -> CalcObjectInputs | None:
+        with self._lock:
+            return self._calc_inputs.get((organization_id, work_object_name))
+
+    def save_calc_inputs(
+        self,
+        organization_id: str,
+        user_id: str,
+        work_object_name: str,
+        inputs: Mapping[str, Any],
+    ) -> CalcObjectInputs:
+        if not work_object_name.strip():
+            raise EconomicsRepositoryError("Имя объекта работ не может быть пустым.")
+        with self._lock:
+            saved = CalcObjectInputs(
+                work_object_name=work_object_name,
+                inputs=deepcopy(dict(inputs)),
+                updated_at=datetime.now(timezone.utc).replace(microsecond=0),
+            )
+            self._calc_inputs[(organization_id, work_object_name)] = saved
+            return saved
 
     def list_public_links(self, organization_id: str) -> Sequence[PublicLink]:
         with self._lock:

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/endpoints";
 import type {
   CatalogItem,
@@ -19,6 +19,7 @@ import {
   normalizeSnapshotPatch,
   normalizeSnapshotRows,
 } from "./referenceRows";
+import { isLatestObjectRequest, shouldRollbackOnError } from "./workspaceObjectSwitch";
 
 /** Контекст последнего расчёта на вкладке «Расчёт» — для кнопок
  * «Подставить объём/объёмы из расчёта БВР» на вкладках «Бурение» и «ФОТ». */
@@ -57,6 +58,9 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [blastContext, setBlastContext] = useState<BlastCalcContext | null>(null);
+  // Номер последнего запроса на смену объекта работ: ответ применяется,
+  // только если запрос всё ещё последний (см. workspaceObjectSwitch.ts).
+  const activeObjectRequestRef = useRef(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,12 +94,23 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
   }, []);
 
   /** Смена объекта работ сохраняется сразу: снимок сценария не участвует,
-   * поэтому «несохранённых изменений» после переключения не возникает. */
+   * поэтому «несохранённых изменений» после переключения не возникает.
+   * Если пользователь быстро переключает объекты, ответы могут прийти не
+   * в том порядке, в котором ушли запросы — применяем только ответ на
+   * последний из них; ответ на устаревший запрос молча игнорируем. При
+   * ошибке последнего запроса возвращаем предыдущее имя объекта. */
   const setActiveWorkObjectName = useCallback(async (name: string) => {
-    setState((prev) => (prev ? { ...prev, settings: { ...prev.settings, active_work_object_name: name } } : prev));
+    const requestId = ++activeObjectRequestRef.current;
+    let previousName: string | undefined;
+    setState((prev) => {
+      if (!prev) return prev;
+      previousName = prev.settings.active_work_object_name;
+      return { ...prev, settings: { ...prev.settings, active_work_object_name: name } };
+    });
     setError("");
     try {
       const next = await api.setActiveWorkObject(name);
+      if (!isLatestObjectRequest(requestId, activeObjectRequestRef.current)) return;
       const normalized = {
         ...next,
         snapshot: normalizeSnapshotRows(next.snapshot),
@@ -104,7 +119,15 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
       setState(normalized);
       setSavedKey(JSON.stringify(normalized.snapshot));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось сменить объект работ.");
+      if (shouldRollbackOnError(requestId, activeObjectRequestRef.current, previousName)) {
+        const restoredName: string = previousName;
+        setState((prev) =>
+          prev ? { ...prev, settings: { ...prev.settings, active_work_object_name: restoredName } } : prev
+        );
+      }
+      if (isLatestObjectRequest(requestId, activeObjectRequestRef.current)) {
+        setError(reason instanceof Error ? reason.message : "Не удалось сменить объект работ.");
+      }
     }
   }, []);
 

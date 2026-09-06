@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
+import { isLatestObjectRequest } from "../../app/workspaceObjectSwitch";
 import { AUTOSAVE_DELAY_MS, nextAutosaveAction, type CalcInputs } from "./calcInputs";
 
 export type AutosaveStatus = "idle" | "saving" | "saved" | "error";
@@ -29,6 +30,31 @@ export function shouldReportSaveStatus(savedObjectName: string, currentObjectNam
   return savedObjectName === currentObjectName;
 }
 
+type SavedValue = { objectName: string; inputs: CalcInputs | null } | null;
+type WrittenValue = { objectName: string; inputs: CalcInputs; seq: number };
+
+/**
+ * Что оставить в `savedRef` после того, как запись с номером `written.seq`
+ * завершилась (успешно долетела до сервера).
+ *
+ * PUT-запросы теперь идут по очереди (см. docstring хука ниже), поэтому на
+ * сервер они приходят в порядке отправки — но завершиться дольше может и та
+ * запись, что была отправлена раньше (например, если очередь успела принять
+ * ещё одну правку, пока предыдущий PUT ещё не ответил). Применяем результат,
+ * только если `written.seq` — самый свежий из выданных (`isLatestObjectRequest`
+ * из `workspaceObjectSwitch.ts`, переиспользуем ту же проверку гонки, что и
+ * для смены объекта): иначе более старый ответ откатил бы `savedRef` назад,
+ * и следующая правка не понадобилась бы для его исправления.
+ *
+ * Также не трогаем `savedRef`, если он уже относится к другому объекту —
+ * лист успел переключиться, и текущая запись хвостом дописывает прошлый.
+ */
+export function nextSavedAfterWrite(current: SavedValue, written: WrittenValue, latestSeq: number): SavedValue {
+  if (!isLatestObjectRequest(written.seq, latestSeq)) return current;
+  if (current?.objectName !== written.objectName) return current;
+  return { objectName: written.objectName, inputs: written.inputs };
+}
+
 /**
  * Автосохранение настроек листа за объектом работ.
  *
@@ -40,6 +66,17 @@ export function shouldReportSaveStatus(savedObjectName: string, currentObjectNam
  *
  * Ошибка не блокирует лист: статус становится `error`, а следующая правка
  * пользователя снова поставит запись в очередь.
+ *
+ * Записи идут по очереди: каждый `save()` кладёт свой PUT в промис-цепочку
+ * `queueRef` (`queueRef.current = queueRef.current.then(run, run)`), поэтому
+ * на сервер они уходят строго в порядке вызова, а не параллельно — раньше
+ * два PUT могли лететь одновременно, и более старый, ответивший последним,
+ * откатывал `savedRef` к устаревшему значению. У каждой записи есть
+ * монотонный номер `writeSeqRef`; какой из завершившихся ответов применять к
+ * `savedRef`/статусу, решает чистая `nextSavedAfterWrite` (статус — `shouldReportSaveStatus`
+ * вместе с той же проверкой номера). `flush()` ждёт очередь целиком, а не
+ * только свою дозапись, — если к моменту вызова в очереди уже есть
+ * незавершённый PUT, уйти со страницы/сменить объект можно только после него.
  */
 export function useCalcInputsAutosave({
   objectName,
@@ -59,23 +96,36 @@ export function useCalcInputsAutosave({
   /** Объект, открытый на листе сейчас: с ним сверяется статус записи. */
   const currentObjectRef = useRef(objectName);
   currentObjectRef.current = objectName;
+  /** Хвост очереди записи: следующий `save()` встаёт после уже идущих. */
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  /** Монотонный номер записи — какая из них последняя, см. `nextSavedAfterWrite`. */
+  const writeSeqRef = useRef(0);
 
-  const save = useCallback(async (name: string, value: CalcInputs) => {
-    /** Статус — про лист, который открыт сейчас: см. `shouldReportSaveStatus`. */
+  const save = useCallback((name: string, value: CalcInputs) => {
+    const seq = ++writeSeqRef.current;
+    /** Статус — про лист, который открыт сейчас, и только если это ещё
+     * последняя выданная запись: см. `shouldReportSaveStatus`. */
     const report = (next: AutosaveStatus) => {
-      if (shouldReportSaveStatus(name, currentObjectRef.current)) setStatus(next);
+      if (shouldReportSaveStatus(name, currentObjectRef.current) && isLatestObjectRequest(seq, writeSeqRef.current)) {
+        setStatus(next);
+      }
     };
     report("saving");
-    try {
-      await api.saveCalcInputs(name, value);
-      if (savedRef.current?.objectName === name) savedRef.current = { objectName: name, inputs: value };
-      report("saved");
-    } catch {
-      report("error");
-      // Запись не удалась — правка не должна пропасть: её допишет flush()
-      // (например, при смене объекта) или следующая правка через автосейв.
-      pendingRef.current = pendingAfterSaveError(pendingRef.current, { objectName: name, inputs: value });
-    }
+    const run = async () => {
+      try {
+        await api.saveCalcInputs(name, value);
+        savedRef.current = nextSavedAfterWrite(savedRef.current, { objectName: name, inputs: value, seq }, writeSeqRef.current);
+        report("saved");
+      } catch {
+        report("error");
+        // Запись не удалась — правка не должна пропасть: её допишет flush()
+        // (например, при смене объекта) или следующая правка через автосейв.
+        pendingRef.current = pendingAfterSaveError(pendingRef.current, { objectName: name, inputs: value });
+      }
+    };
+    const task = queueRef.current.then(run, run);
+    queueRef.current = task;
+    return task;
   }, []);
 
   // Отсечка «уже сохранено» для объекта, настройки которого только что загружены.
@@ -110,7 +160,10 @@ export function useCalcInputsAutosave({
     };
   }, [ready, objectName, inputs, save]);
 
-  /** Немедленная запись отложенного изменения — перед сменой объекта. */
+  /** Немедленная запись отложенного изменения — перед сменой объекта.
+   * Ждёт очередь целиком, а не только свою дозапись: если в ней уже есть
+   * незавершённый PUT (например, только что запущенный отложенным таймером),
+   * дальше (смена объекта, уход со страницы) можно идти лишь после него. */
   const flush = useCallback(async () => {
     if (timerRef.current !== null) {
       clearTimeout(timerRef.current);
@@ -118,8 +171,8 @@ export function useCalcInputsAutosave({
     }
     const pending = pendingRef.current;
     pendingRef.current = null;
-    if (!pending) return;
-    await save(pending.objectName, pending.inputs);
+    if (pending) save(pending.objectName, pending.inputs);
+    await queueRef.current;
   }, [save]);
 
   // Уход со страницы (размонтирование) не должен терять до 800 мс

@@ -16,6 +16,7 @@ import {
   type PanelInputs,
   type SheetState,
 } from "./calc/calcInputs";
+import { CalcTopStrip } from "./calc/CalcTopStrip";
 import { HolePanel } from "./calc/HolePanel";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
 import type { BlastGeometryResponse, BlastVariant, Explosive, Rock } from "../types";
@@ -235,7 +236,7 @@ function FullBvrCalc({
   const geometryFor = (key: string) => (geometry: BlastGeometryResponse) =>
     setGeometries((current) => ({ ...current, [key]: geometry }));
 
-  const { state } = useWorkspace();
+  const { state, setActiveWorkObjectName } = useWorkspace();
   const objectName = state?.settings.active_work_object_name ?? "";
   const ready = loadedObjectName !== null && loadedObjectName === objectName;
 
@@ -408,6 +409,20 @@ function FullBvrCalc({
   return (
     <div className="page-content">
       {error && <div className="page-error" role="alert">{error}</div>}
+      <CalcTopStrip
+        teamName={state?.settings.team_name ?? ""}
+        objectName={objectName}
+        objects={state?.references.work_object_records ?? []}
+        onObjectChange={(name) => void setActiveWorkObjectName(name)}
+        autosaveStatus={autosaveStatus}
+        metrics={{
+          q: selected ? selected.specific_q_kg_m3 : null,
+          w: selected ? selected.line_of_least_resistance_m : null,
+          x50: selected ? selected.x50_mm : null,
+          oversize: selected ? selected.oversize_pct : null,
+        }}
+        warnings={state?.warnings ?? []}
+      />
       <div className="calculator-grid">
         <section className="panel input-panel">
           <header><b>Исходные данные</b><span>01</span></header>
@@ -436,12 +451,6 @@ function FullBvrCalc({
           </div>
         </section>
         <div className="results-column">
-          <div className="metrics-grid">
-            <div><span>Удельный расход</span><strong>{selected ? selected.specific_q_kg_m3.toFixed(2) : "—"}</strong><small>{explosiveBasis === "per_m" ? "кг/п.м." : "кг/м³"}</small></div>
-            <div><span>ЛНС W</span><strong>{selected ? selected.line_of_least_resistance_m.toFixed(2) : "—"}</strong><small>м</small></div>
-            <div><span>Средний кусок x50</span><strong>{selected ? selected.x50_mm.toFixed(1) : "—"}</strong><small>мм</small></div>
-            <div><span>Негабарит</span><strong>{selected ? selected.oversize_pct.toFixed(1) : "—"}</strong><small>%</small></div>
-          </div>
           <section className="panel"><header><b>Зависимость расхода от диаметра</b><span>Куз–Рам</span></header><ResultsChart variants={variants} /></section>
           <section className="panel variants-panel"><header><b>Варианты сетки</b><span>{variants.length ? `${variants.length} вариантов` : "Нет расчёта"}</span></header>
             <div className="table-scroll"><table><thead><tr><th></th><th>Коронка</th><th>Сетка a × b</th><th>q</th><th>Негабарит</th></tr></thead><tbody>

@@ -103,7 +103,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
             <div><b>{TITLES[page]}</b><span>{user.organization_name}</span></div>
             <button className="logout-button" onClick={onLogout}>Выйти</button>
           </header>
-          {page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
+          {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
           {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
           {page === "Проектирование" && (
             <DesignPage

@@ -65,10 +65,26 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
   // Номер последнего запроса на смену объекта работ: ответ применяется,
   // только если запрос всё ещё последний (см. workspaceObjectSwitch.ts).
   const activeObjectRequestRef = useRef(0);
-  // Хвост очереди PUT-запросов смены объекта: следующий встаёт после уже
-  // отправленных, чтобы сервер получал их в порядке кликов (см. docstring
-  // `setActiveWorkObjectName`), а не в порядке ответа сети.
-  const activeObjectQueueRef = useRef<Promise<void>>(Promise.resolve());
+  // Последнее имя объекта, которое сервер подтвердил ответом (успешным
+  // `PUT /workspace/active-object` или `PUT /workspace/snapshot`) — а не то,
+  // что сейчас оптимистично показано на экране. Именно на него откатываемся
+  // при ошибке: локально показанное имя могло быть ещё не подтверждённым
+  // предположением от предыдущего, тоже неудавшегося переключения (тогда
+  // откат к нему оставил бы клиента с именем, которого сервер никогда не
+  // видел). Обновляется на `load()` и на каждый успешный ответ обоих
+  // мутирующих запросов ниже — независимо от того, «последний» ли это
+  // запрос: пока очередь общая (`workspaceQueueRef`), сервер обрабатывает их
+  // строго по порядку, и любой успешный ответ отражает состояние сервера на
+  // момент до следующего запроса в очереди.
+  const confirmedObjectNameRef = useRef<string | null>(null);
+  // Общая очередь мутирующих запросов рабочего пространства — смены объекта
+  // (`setActiveWorkObjectName`) и сохранения снимка (`save`): следующий
+  // уходит на сервер только после ответа на предыдущий, независимо от того,
+  // какой из двух это был. Без общей очереди сохранение и переключение
+  // объекта могли уйти параллельно двумя PUT, и сервер иногда обрабатывал их
+  // не в порядке кликов — тогда более ранний запрос обгонял более поздний, и
+  // рабочее пространство оставалось не с тем объектом, что показывал клиент.
+  const workspaceQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +98,7 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
       };
       setState(normalized);
       setSavedKey(JSON.stringify(normalized.snapshot));
+      confirmedObjectNameRef.current = normalized.settings.active_work_object_name;
       setScenarios(sc);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить рабочее пространство.");
@@ -110,30 +127,33 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
    * Если пользователь быстро переключает объекты, ответы могут прийти не
    * в том порядке, в котором ушли запросы — применяем только ответ на
    * последний из них; ответ на устаревший запрос молча игнорируем. При
-   * ошибке последнего запроса возвращаем предыдущее имя объекта.
+   * ошибке последнего запроса возвращаем последнее подтверждённое сервером
+   * имя (`confirmedObjectNameRef`), а не то, что было оптимистично показано
+   * перед этим запросом: если и оно тоже было лишь неудавшимся
+   * предположением (пользователь успел кликнуть дважды подряд, и оба запроса
+   * упали), откат к нему оставил бы клиента с именем, которого сервер
+   * никогда не подтверждал.
    *
-   * Сами PUT-запросы идут через промис-очередь `activeObjectQueueRef`
+   * Сами PUT-запросы идут через общую промис-очередь `workspaceQueueRef`
    * (`queueRef.current = queueRef.current.then(run, run)`, как в
-   * `useCalcInputsAutosave`): следующий отправляется на сервер только после
-   * ответа на предыдущий. Без очереди быстрое A→B могло уйти на сервер
-   * двумя параллельными PUT, и сервер иногда обрабатывал их не в порядке
-   * кликов — тогда запись A, отправленная первой, но обработанная сервером
-   * последней, обгоняла B, и рабочее пространство оставалось на объекте A,
-   * хотя клиент (и пользователь) уже видел B. Игнорирование устаревших
-   * ответов и откат при ошибке остаются как есть — очередь только
-   * упорядочивает сами запросы. */
+   * `useCalcInputsAutosave`) вместе с `save()`: следующий мутирующий запрос
+   * отправляется на сервер только после ответа на предыдущий, кем бы из
+   * двух он ни был. Без общей очереди быстрое переключение объекта могло
+   * уйти на сервер параллельно с сохранением снимка, и сервер иногда
+   * обрабатывал их не в порядке кликов — тогда более ранний запрос обгонял
+   * более поздний, и рабочее пространство оставалось не с тем объектом,
+   * что показывал клиент. Игнорирование устаревших ответов и откат при
+   * ошибке остаются как есть — очередь только упорядочивает сами запросы. */
   const setActiveWorkObjectName = useCallback((name: string) => {
     const requestId = ++activeObjectRequestRef.current;
-    let previousName: string | undefined;
-    setState((prev) => {
-      if (!prev) return prev;
-      previousName = prev.settings.active_work_object_name;
-      return { ...prev, settings: { ...prev.settings, active_work_object_name: name } };
-    });
+    setState((prev) =>
+      prev ? { ...prev, settings: { ...prev.settings, active_work_object_name: name } } : prev
+    );
     setError("");
     const run = async () => {
       try {
         const next = await api.setActiveWorkObject(name);
+        confirmedObjectNameRef.current = next.settings.active_work_object_name;
         if (!isLatestObjectRequest(requestId, activeObjectRequestRef.current)) return;
         const normalized = { ...next, references: normalizeReferenceRows(next.references) };
         setState((prev) => {
@@ -143,8 +163,9 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
           return mergeWorkspaceAfterObjectSwitch(prev, normalized);
         });
       } catch (reason) {
-        if (shouldRollbackOnError(requestId, activeObjectRequestRef.current, previousName)) {
-          const restoredName: string = previousName;
+        const confirmedName = confirmedObjectNameRef.current ?? undefined;
+        if (shouldRollbackOnError(requestId, activeObjectRequestRef.current, confirmedName)) {
+          const restoredName: string = confirmedName;
           setState((prev) =>
             prev ? { ...prev, settings: { ...prev.settings, active_work_object_name: restoredName } } : prev
           );
@@ -154,33 +175,47 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
         }
       }
     };
-    const task = activeObjectQueueRef.current.then(run, run);
-    activeObjectQueueRef.current = task;
+    const task = workspaceQueueRef.current.then(run, run);
+    workspaceQueueRef.current = task;
     return task;
   }, []);
 
-  const save = useCallback(async () => {
-    if (!state) return;
+  /** Сохранение снимка идёт через ту же общую очередь `workspaceQueueRef`,
+   * что и смена активного объекта (см. docstring `setActiveWorkObjectName`):
+   * запрос сохраняет `active_work_object_name`, который сервер считает
+   * активным, поэтому сохранение и переключение объекта, случившиеся почти
+   * одновременно, должны обрабатываться сервером в порядке кликов, а не
+   * параллельно — иначе более ранний из двух запросов мог обработаться
+   * позже и вернуть активный объект на сервере к прежнему значению. */
+  const save = useCallback(() => {
+    if (!state) return Promise.resolve();
     setSaving(true);
     setError("");
-    try {
-      const next = await api.saveWorkspace({
-        snapshot: state.snapshot,
-        active_work_object_name: state.settings.active_work_object_name,
-      });
-      const normalized = {
-        ...next,
-        snapshot: normalizeSnapshotRows(next.snapshot),
-        references: normalizeReferenceRows(next.references),
-      };
-      setState(normalized);
-      setSavedKey(JSON.stringify(normalized.snapshot));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось сохранить рабочее пространство.");
-      throw reason;
-    } finally {
-      setSaving(false);
-    }
+    const { snapshot, settings } = state;
+    const run = async () => {
+      try {
+        const next = await api.saveWorkspace({
+          snapshot,
+          active_work_object_name: settings.active_work_object_name,
+        });
+        confirmedObjectNameRef.current = next.settings.active_work_object_name;
+        const normalized = {
+          ...next,
+          snapshot: normalizeSnapshotRows(next.snapshot),
+          references: normalizeReferenceRows(next.references),
+        };
+        setState(normalized);
+        setSavedKey(JSON.stringify(normalized.snapshot));
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Не удалось сохранить рабочее пространство.");
+        throw reason;
+      } finally {
+        setSaving(false);
+      }
+    };
+    const task = workspaceQueueRef.current.then(run, run);
+    workspaceQueueRef.current = task;
+    return task;
   }, [state]);
 
   const activeScenario = useMemo(

@@ -48,19 +48,25 @@ function ResultsChart({ variants }: { variants: BlastVariant[] }) {
  * Паспорт фиксирует рассчитанный блок и ревизию справочников, поэтому
  * экономика считается по нему, а не по текущему состоянию формы.
  */
+type PassportVariant = { key: string; label: string; geometry: BlastGeometryResponse | null };
+
 function PassportBar({
-  geometry,
+  variants,
   onOpenEconomics,
 }: {
-  geometry: BlastGeometryResponse | null;
+  /** Панели расчёта с их блоками: в паспорт уходит выбранная пользователем. */
+  variants: PassportVariant[];
   onOpenEconomics?: (passportId: string) => void;
 }) {
   const [passports, setPassports] = useState<TechnicalPassport[]>([]);
   const [sites, setSites] = useState<{ code: string; name: string }[]>([]);
   const [siteCode, setSiteCode] = useState("");
   const [objectName, setObjectName] = useState("");
+  const [variantKey, setVariantKey] = useState(variants[0]?.key ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const variant = variants.find((item) => item.key === variantKey) ?? variants[0];
+  const geometry = variant?.geometry ?? null;
 
   useEffect(() => {
     Promise.all([api.economics.technicalPassports(), api.economics.referenceSnapshot()])
@@ -118,17 +124,27 @@ function PassportBar({
               onChange={(event) => setObjectName(event.target.value)}
             />
           </label>
+          <label>
+            Вариант расчёта
+            <select value={variant?.key ?? ""} onChange={(event) => setVariantKey(event.target.value)}>
+              {variants.map((item) => (
+                <option key={item.key} value={item.key} disabled={!item.geometry}>
+                  {item.label}{item.geometry ? "" : " (нет расчёта)"}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="button-row">
             <button type="button" onClick={() => void savePassport()} disabled={busy || !geometry || !siteCode}>
               Сохранить паспорт
             </button>
           </div>
         </div>
-        {geometry && (
-          // В паспорт уходит блок «Варианта 1» с его зарядом и недозарядом —
+        {geometry && variant && (
+          // В паспорт уходит блок выбранной панели с её зарядом и недозарядом —
           // показываем это до сохранения, чтобы масса не была сюрпризом.
           <p className="page-caption">
-            В паспорт пойдёт «{geometry.label}»: {Math.round(geometry.block.total_charge_mass_kg).toLocaleString("ru-RU")} кг ВВ,{" "}
+            В паспорт пойдёт «{variant.label}»: {Math.round(geometry.block.total_charge_mass_kg).toLocaleString("ru-RU")} кг ВВ,{" "}
             {geometry.block.total_holes} скважин, {Math.round(geometry.block.drilling_footage_m).toLocaleString("ru-RU")} п.м.,{" "}
             {geometry.block.specific_q_kg_m3.toFixed(2)} кг/м³ с доп. скважинами. Кнопка «Экономика» открывает сохранённый
             паспорт: чтобы передать текущий расчёт, сначала сохраните новый.
@@ -195,7 +211,10 @@ function FullBvrCalc({
   const [additionalHolesPct, setAdditionalHolesPct] = useState(3.0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [geometry, setGeometry] = useState<BlastGeometryResponse | null>(null);
+  // Блоки обеих панелей: в паспорт уходит та, что выбрана под расчётом.
+  const [geometries, setGeometries] = useState<Record<string, BlastGeometryResponse | null>>({});
+  const geometryFor = (key: string) => (geometry: BlastGeometryResponse) =>
+    setGeometries((current) => ({ ...current, [key]: geometry }));
 
   useEffect(() => {
     Promise.all([api.rocks(), api.explosives(), api.blastOptions()]).then(([rockData, explosiveData, opts]) => {
@@ -312,7 +331,7 @@ function FullBvrCalc({
               explosiveBasis={explosiveBasis}
               nsiLengthOptions={nsiLengthOptions}
               detonatorDelayOptions={detonatorDelayOptions}
-              onGeometry={setGeometry}
+              onGeometry={geometryFor("left")}
             />
             <HolePanel
               panelKey="right"
@@ -332,9 +351,16 @@ function FullBvrCalc({
               isBlastContextSource={false}
               nsiLengthOptions={nsiLengthOptions}
               detonatorDelayOptions={detonatorDelayOptions}
+              onGeometry={geometryFor("right")}
             />
           </div>
-          <PassportBar geometry={geometry} onOpenEconomics={onOpenEconomics} />
+          <PassportBar
+            variants={[
+              { key: "left", label: "Вариант 1", geometry: geometries.left ?? null },
+              { key: "right", label: "Вариант 2", geometry: geometries.right ?? null },
+            ]}
+            onOpenEconomics={onOpenEconomics}
+          />
         </div>
       )}
     </div>

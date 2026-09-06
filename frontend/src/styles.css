@@ -100,6 +100,9 @@ button { cursor:pointer; }
 }
 @media (max-width:760px) {
   .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { height:64px; padding:0 16px; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
+  /* Четыре плашки с min-width:96px не помещаются в узкий слот шапки —
+     переносим их на вторую строку вместо горизонтального обрезания. */
+  .metric-chips { flex-wrap:wrap; }
   .mobile-nav { position:fixed; z-index:10; left:0; right:0; bottom:0; display:flex; justify-content:space-around; padding:7px 2px max(7px,env(safe-area-inset-bottom)); border-top:1px solid #dce4e0; background:#fff; }.mobile-nav button { display:grid; gap:2px; place-items:center; border:0; background:transparent; color:#78857f; font-size:8px; padding:2px; }.mobile-nav button b { color:#6d7a73; font-size:15px; }.mobile-nav button.active, .mobile-nav button.active b { color:#247752; }
 }
 

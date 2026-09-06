@@ -285,3 +285,21 @@ export function nextAutosaveAction(
   if (calcInputsEqual(prevSaved, current)) return "none";
   return elapsedMs >= AUTOSAVE_DELAY_MS ? "save" : "wait";
 }
+
+/**
+ * Устарел ли ответ `api.optimize`, пришедший после того, как расчёт запустили:
+ * либо активный объект успел смениться, либо пользователь успел поправить
+ * поле, влияющее на расчёт (порода, ВВ, кондиционный кусок, высота уступа,
+ * перебур, коэффициенты, порог негабарита, выбранные коронки), пока ответ ещё
+ * летел. В обоих случаях метрики в ответе — уже про чужой лист, подставлять
+ * их к текущим панелям нельзя. `*Generation` — значения счётчика поколений
+ * входных данных расчёта: «начатое» (на момент запроса) и «текущее».
+ */
+export function isOptimizationResultStale(
+  startedGeneration: number,
+  currentGeneration: number,
+  startedObjectName: string,
+  currentObjectName: string,
+): boolean {
+  return startedGeneration !== currentGeneration || startedObjectName !== currentObjectName;
+}

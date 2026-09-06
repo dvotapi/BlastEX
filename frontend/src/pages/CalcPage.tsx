@@ -9,6 +9,7 @@ import {
   collectCalcInputs,
   defaultCalcSheet,
   defaultPanelInputs,
+  isOptimizationResultStale,
   panelInputsEqual,
   DEFAULT_EXPLOSIVE_1,
   DEFAULT_EXPLOSIVE_2,
@@ -260,16 +261,65 @@ function FullBvrCalc({
 }) {
   const [rocks, setRocks] = useState<Rock[]>([]);
   const [explosives, setExplosives] = useState<Explosive[]>([]);
-  const [rockName, setRockName] = useState("");
-  const [explosiveKey, setExplosiveKey] = useState("");
-  const [lumpSize, setLumpSize] = useState(400);
-  const [benchHeight, setBenchHeight] = useState(10);
-  const [overdrill, setOverdrill] = useState(1);
-  const [oversizeCoeff, setOversizeCoeff] = useState(1.05);
-  const [spacing, setSpacing] = useState(1.25);
-  const [threshold, setThreshold] = useState(5);
+  const [rockName, setRockNameRaw] = useState("");
+  const [explosiveKey, setExplosiveKeyRaw] = useState("");
+  const [lumpSize, setLumpSizeRaw] = useState(400);
+  const [benchHeight, setBenchHeightRaw] = useState(10);
+  const [overdrill, setOverdrillRaw] = useState(1);
+  const [oversizeCoeff, setOversizeCoeffRaw] = useState(1.05);
+  const [spacing, setSpacingRaw] = useState(1.25);
+  const [threshold, setThresholdRaw] = useState(5);
   const [allCrowns, setAllCrowns] = useState<number[]>([]);
-  const [selectedCrowns, setSelectedCrowns] = useState<number[]>([]);
+  const [selectedCrowns, setSelectedCrownsRaw] = useState<number[]>([]);
+  // Растёт при каждой правке поля, влияющего на `api.optimize` (порода, ВВ,
+  // кондиционный кусок, высота уступа, перебур, коэффициенты, порог
+  // негабарита, выбранные коронки) — включая применение загруженного листа.
+  // Ответ расчёта, запущенного на одном значении счётчика, отбрасывается,
+  // если к моменту ответа счётчик уже другой: лист успели поправить, пока
+  // ответ летел, и метрики в ответе — уже про прежние значения полей.
+  const optimizeGenerationRef = useRef(0);
+  const bumpOptimizeGeneration = useCallback(() => {
+    optimizeGenerationRef.current += 1;
+  }, []);
+  const setRockName = useCallback(
+    (value: string) => { setRockNameRaw(value); bumpOptimizeGeneration(); },
+    [bumpOptimizeGeneration],
+  );
+  const setExplosiveKey = useCallback(
+    (value: string) => { setExplosiveKeyRaw(value); bumpOptimizeGeneration(); },
+    [bumpOptimizeGeneration],
+  );
+  const setLumpSize = useCallback(
+    (value: number) => { setLumpSizeRaw(value); bumpOptimizeGeneration(); },
+    [bumpOptimizeGeneration],
+  );
+  const setBenchHeight = useCallback(
+    (value: number) => { setBenchHeightRaw(value); bumpOptimizeGeneration(); },
+    [bumpOptimizeGeneration],
+  );
+  const setOverdrill = useCallback(
+    (value: number) => { setOverdrillRaw(value); bumpOptimizeGeneration(); },
+    [bumpOptimizeGeneration],
+  );
+  const setOversizeCoeff = useCallback(
+    (value: number) => { setOversizeCoeffRaw(value); bumpOptimizeGeneration(); },
+    [bumpOptimizeGeneration],
+  );
+  const setSpacing = useCallback(
+    (value: number) => { setSpacingRaw(value); bumpOptimizeGeneration(); },
+    [bumpOptimizeGeneration],
+  );
+  const setThreshold = useCallback(
+    (value: number) => { setThresholdRaw(value); bumpOptimizeGeneration(); },
+    [bumpOptimizeGeneration],
+  );
+  const setSelectedCrowns = useCallback(
+    (value: number[] | ((prev: number[]) => number[])) => {
+      setSelectedCrownsRaw(value);
+      bumpOptimizeGeneration();
+    },
+    [bumpOptimizeGeneration],
+  );
   const [nsiLengthOptions, setNsiLengthOptions] = useState<number[]>([12]);
   const [detonatorDelayOptions, setDetonatorDelayOptions] = useState<number[]>([500]);
   const [variants, setVariants] = useState<BlastVariant[]>([]);
@@ -441,12 +491,21 @@ function FullBvrCalc({
     }
   }
 
-  /** Ручной запуск расчёта: если пользователь успел сменить объект, пока
-   * ответ ещё летел, результат — уже про чужой лист, и его нужно отбросить
-   * (как и автозапуск после загрузки настроек — `isStale` в `runOptimize`). */
+  /** Ручной запуск расчёта: если пользователь успел сменить объект или
+   * поправить влияющее на расчёт поле, пока ответ ещё летел, результат —
+   * уже не про текущий лист, и его нужно отбросить (как и автозапуск после
+   * загрузки настроек — `isStale` в `runOptimize`). */
   async function calculate() {
     const requestedObjectName = objectName;
-    await runOptimize(sheet, null, () => objectNameRef.current !== requestedObjectName);
+    const startedGeneration = optimizeGenerationRef.current;
+    await runOptimize(sheet, null, () =>
+      isOptimizationResultStale(
+        startedGeneration,
+        optimizeGenerationRef.current,
+        requestedObjectName,
+        objectNameRef.current,
+      ),
+    );
   }
 
   /**
@@ -485,7 +544,11 @@ function FullBvrCalc({
           // бы. Результат автозапуска — обычная последующая правка поверх
           // этой отсечки, автосохранение её подхватит само.
           setLoadedObjectName(objectName);
-          await runOptimize(applied, applied.selectedCrownMm, () => cancelled);
+          const startedGeneration = optimizeGenerationRef.current;
+          await runOptimize(applied, applied.selectedCrownMm, () =>
+            cancelled ||
+            isOptimizationResultStale(startedGeneration, optimizeGenerationRef.current, objectName, objectNameRef.current),
+          );
         } else {
           applySheet(defaultCalcSheet(catalogs, referenceDefaults));
           if (cancelled) return;

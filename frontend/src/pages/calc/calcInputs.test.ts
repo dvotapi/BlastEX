@@ -5,6 +5,7 @@ import {
   calcInputsEqual,
   collectCalcInputs,
   defaultCalcSheet,
+  isOptimizationResultStale,
   nextAutosaveAction,
   panelInputsEqual,
   type CalcInputsCatalogs,
@@ -240,5 +241,23 @@ describe("nextAutosaveAction", () => {
 
   it("держит задержку в 800 мс", () => {
     expect(AUTOSAVE_DELAY_MS).toBe(800);
+  });
+});
+
+describe("isOptimizationResultStale", () => {
+  it("не устарел, если поколение и объект не менялись", () => {
+    expect(isOptimizationResultStale(1, 1, "Карьер №1", "Карьер №1")).toBe(false);
+  });
+
+  it("устарел, если поколение выросло — пользователь поправил лист, пока шёл запрос", () => {
+    expect(isOptimizationResultStale(1, 2, "Карьер №1", "Карьер №1")).toBe(true);
+  });
+
+  it("устарел, если сменился активный объект работ", () => {
+    expect(isOptimizationResultStale(1, 1, "Карьер №1", "Карьер №2")).toBe(true);
+  });
+
+  it("устарел при обоих расхождениях сразу", () => {
+    expect(isOptimizationResultStale(1, 3, "Карьер №1", "Карьер №2")).toBe(true);
   });
 });

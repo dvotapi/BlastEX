@@ -25,7 +25,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -1088,24 +1088,28 @@ class PostgresEconomicsRepository:
             raise EconomicsRepositoryError("Имя объекта работ не может быть пустым.")
         now = datetime.now(timezone.utc).replace(microsecond=0)
         payload = dict(inputs)
+        # Один запрос вместо «прочитать и записать»: две параллельные вкладки
+        # одной команды не спорят за строку и не роняют друг друга по PK.
+        statement = pg_insert(CalcObjectInputsRow).values(
+            organization_id=organization_id,
+            work_object_name=work_object_name,
+            inputs=payload,
+            updated_at=now,
+            updated_by=user_id,
+        )
+        statement = statement.on_conflict_do_update(
+            index_elements=[
+                CalcObjectInputsRow.organization_id,
+                CalcObjectInputsRow.work_object_name,
+            ],
+            set_={
+                "inputs": statement.excluded.inputs,
+                "updated_at": statement.excluded.updated_at,
+                "updated_by": statement.excluded.updated_by,
+            },
+        )
         with self.session_factory() as session, session.begin():
-            row = session.get(
-                CalcObjectInputsRow, (organization_id, work_object_name)
-            )
-            if row is None:
-                session.add(
-                    CalcObjectInputsRow(
-                        organization_id=organization_id,
-                        work_object_name=work_object_name,
-                        inputs=payload,
-                        updated_at=now,
-                        updated_by=user_id,
-                    )
-                )
-            else:
-                row.inputs = payload
-                row.updated_at = now
-                row.updated_by = user_id
+            session.execute(statement)
         return CalcObjectInputs(
             work_object_name=work_object_name, inputs=payload, updated_at=now
         )

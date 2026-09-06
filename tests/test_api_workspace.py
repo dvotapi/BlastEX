@@ -277,3 +277,25 @@ def test_active_object_accepts_an_unknown_name(monkeypatch) -> None:
         "/api/v1/workspace/active-object", json={"work_object_name": "Несуществующий карьер"}
     )
     assert response.status_code == 200, response.text
+
+
+def test_active_object_trims_the_name(monkeypatch) -> None:
+    """Имя из списка приходит с пробелами по краям — храним обрезанное."""
+
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/active-object",
+        json={"work_object_name": f"  {DEFAULT_WORK_OBJECTS[1].name}  "},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["settings"]["active_work_object_name"] == DEFAULT_WORK_OBJECTS[1].name
+
+    again = client.get("/api/v1/workspace").json()
+    assert again["settings"]["active_work_object_name"] == DEFAULT_WORK_OBJECTS[1].name
+
+
+def test_active_object_rejects_an_empty_name(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.put("/api/v1/workspace/active-object", json={"work_object_name": "   "})
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == "Имя объекта работ не может быть пустым."

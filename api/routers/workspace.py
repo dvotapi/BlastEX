@@ -231,6 +231,16 @@ def put_active_scenario(
     return _load_state(repository, organization_id)
 
 
+def _require_work_object_name(work_object_name: str) -> str:
+    name = work_object_name.strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": "Имя объекта работ не может быть пустым."},
+        )
+    return name
+
+
 @router.put("/workspace/active-object", response_model=WorkspaceStateSchema)
 def put_active_object(
     payload: SwitchActiveObjectRequest,
@@ -243,6 +253,7 @@ def put_active_object(
     Неизвестное имя объекта допускается: при загрузке состояния его подменит
     `resolve_work_object_name`.
     """
+    name = _require_work_object_name(payload.work_object_name)
     settings = _settings(repository, organization_id)
     try:
         repository.import_legacy_workspace(
@@ -250,7 +261,7 @@ def put_active_object(
             _user_id(session),
             team_name=settings.team_name,
             active_scenario_id=settings.active_scenario_id,
-            active_work_object_name=payload.work_object_name,
+            active_work_object_name=name,
             reference_revision_id=settings.reference_revision_id,
         )
     except EconomicsRepositoryError as exc:
@@ -266,16 +277,6 @@ def _calc_inputs_schema(work_object_name: str, stored: CalcObjectInputs | None) 
         inputs=stored.inputs,
         updated_at=stored.updated_at.isoformat() if stored.updated_at is not None else None,
     )
-
-
-def _require_work_object_name(work_object_name: str) -> str:
-    name = work_object_name.strip()
-    if not name:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"message": "Имя объекта работ не может быть пустым."},
-        )
-    return name
 
 
 @router.get("/workspace/calc-inputs", response_model=CalcObjectInputsSchema)

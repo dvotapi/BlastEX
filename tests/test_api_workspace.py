@@ -299,3 +299,24 @@ def test_active_object_rejects_an_empty_name(monkeypatch) -> None:
     response = client.put("/api/v1/workspace/active-object", json={"work_object_name": "   "})
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["message"] == "Имя объекта работ не может быть пустым."
+
+
+def test_active_object_rejects_a_name_over_300_characters(monkeypatch) -> None:
+    """Поле varchar(300) в БД иначе упало бы 500-й ошибкой на DataError."""
+
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/active-object", json={"work_object_name": "А" * 301}
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == "Имя объекта работ длиннее 300 символов."
+
+
+def test_calc_inputs_reject_a_name_over_300_characters(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.put(
+        "/api/v1/workspace/calc-inputs",
+        json={"work_object_name": "А" * 301, "inputs": {"volume_m3": 1}},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["message"] == "Имя объекта работ длиннее 300 символов."

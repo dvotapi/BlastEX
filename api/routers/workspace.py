@@ -231,12 +231,20 @@ def put_active_scenario(
     return _load_state(repository, organization_id)
 
 
+WORK_OBJECT_NAME_MAX_LENGTH = 300
+
+
 def _require_work_object_name(work_object_name: str) -> str:
     name = work_object_name.strip()
     if not name:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": "Имя объекта работ не может быть пустым."},
+        )
+    if len(name) > WORK_OBJECT_NAME_MAX_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": "Имя объекта работ длиннее 300 символов."},
         )
     return name
 

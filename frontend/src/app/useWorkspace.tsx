@@ -65,6 +65,10 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
   // Номер последнего запроса на смену объекта работ: ответ применяется,
   // только если запрос всё ещё последний (см. workspaceObjectSwitch.ts).
   const activeObjectRequestRef = useRef(0);
+  // Хвост очереди PUT-запросов смены объекта: следующий встаёт после уже
+  // отправленных, чтобы сервер получал их в порядке кликов (см. docstring
+  // `setActiveWorkObjectName`), а не в порядке ответа сети.
+  const activeObjectQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,8 +110,19 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
    * Если пользователь быстро переключает объекты, ответы могут прийти не
    * в том порядке, в котором ушли запросы — применяем только ответ на
    * последний из них; ответ на устаревший запрос молча игнорируем. При
-   * ошибке последнего запроса возвращаем предыдущее имя объекта. */
-  const setActiveWorkObjectName = useCallback(async (name: string) => {
+   * ошибке последнего запроса возвращаем предыдущее имя объекта.
+   *
+   * Сами PUT-запросы идут через промис-очередь `activeObjectQueueRef`
+   * (`queueRef.current = queueRef.current.then(run, run)`, как в
+   * `useCalcInputsAutosave`): следующий отправляется на сервер только после
+   * ответа на предыдущий. Без очереди быстрое A→B могло уйти на сервер
+   * двумя параллельными PUT, и сервер иногда обрабатывал их не в порядке
+   * кликов — тогда запись A, отправленная первой, но обработанная сервером
+   * последней, обгоняла B, и рабочее пространство оставалось на объекте A,
+   * хотя клиент (и пользователь) уже видел B. Игнорирование устаревших
+   * ответов и откат при ошибке остаются как есть — очередь только
+   * упорядочивает сами запросы. */
+  const setActiveWorkObjectName = useCallback((name: string) => {
     const requestId = ++activeObjectRequestRef.current;
     let previousName: string | undefined;
     setState((prev) => {
@@ -116,27 +131,32 @@ export function WorkspaceProvider({ user, children }: { user: User; children: Re
       return { ...prev, settings: { ...prev.settings, active_work_object_name: name } };
     });
     setError("");
-    try {
-      const next = await api.setActiveWorkObject(name);
-      if (!isLatestObjectRequest(requestId, activeObjectRequestRef.current)) return;
-      const normalized = { ...next, references: normalizeReferenceRows(next.references) };
-      setState((prev) => {
-        // Состояния ещё нет — применять ответ некуда: его снимок мы всё равно
-        // не берём, а полное состояние поднимет `load()`.
-        if (!prev) return prev;
-        return mergeWorkspaceAfterObjectSwitch(prev, normalized);
-      });
-    } catch (reason) {
-      if (shouldRollbackOnError(requestId, activeObjectRequestRef.current, previousName)) {
-        const restoredName: string = previousName;
-        setState((prev) =>
-          prev ? { ...prev, settings: { ...prev.settings, active_work_object_name: restoredName } } : prev
-        );
+    const run = async () => {
+      try {
+        const next = await api.setActiveWorkObject(name);
+        if (!isLatestObjectRequest(requestId, activeObjectRequestRef.current)) return;
+        const normalized = { ...next, references: normalizeReferenceRows(next.references) };
+        setState((prev) => {
+          // Состояния ещё нет — применять ответ некуда: его снимок мы всё равно
+          // не берём, а полное состояние поднимет `load()`.
+          if (!prev) return prev;
+          return mergeWorkspaceAfterObjectSwitch(prev, normalized);
+        });
+      } catch (reason) {
+        if (shouldRollbackOnError(requestId, activeObjectRequestRef.current, previousName)) {
+          const restoredName: string = previousName;
+          setState((prev) =>
+            prev ? { ...prev, settings: { ...prev.settings, active_work_object_name: restoredName } } : prev
+          );
+        }
+        if (isLatestObjectRequest(requestId, activeObjectRequestRef.current)) {
+          setError(reason instanceof Error ? reason.message : "Не удалось сменить объект работ.");
+        }
       }
-      if (isLatestObjectRequest(requestId, activeObjectRequestRef.current)) {
-        setError(reason instanceof Error ? reason.message : "Не удалось сменить объект работ.");
-      }
-    }
+    };
+    const task = activeObjectQueueRef.current.then(run, run);
+    activeObjectQueueRef.current = task;
+    return task;
   }, []);
 
   const save = useCallback(async () => {

@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal, ROUND_CEILING
 from typing import Any, Mapping
 
@@ -28,6 +29,7 @@ def compute_block_economics(
     references: ReferenceSnapshot,
     *,
     passport_name: str = "Блок",
+    as_of: date | None = None,
 ) -> BlockEconomics:
     physical, lineage = _snapshot_parts(snapshot)
     context = ModelContext(
@@ -36,16 +38,20 @@ def compute_block_economics(
         physical,
         passport_lineage=lineage,
         passport_name=passport_name,
+        as_of=as_of,
     )
 
     # Порядок важен: смены станка и СЗМ нужны ФОТ и затратам техники, а
     # разделение массы ВВ на насыпную и патронированную — статьям ВМ.
     drilling.compute(context)
     logistics.compute(context)
-    materials.compute(context)
+    nomenclature = materials.compute(context)
     labor.compute(context)
     equipment.compute(context)
-    _cost_rule_lines(context)
+    rule_drivers = _cost_rule_lines(context, blocked_drivers=nomenclature.charged_drivers)
+    # Роль без наименования или цены — не ошибка, пока статью закрывает
+    # правило затрат; говорить об этом можно только после прохода правил.
+    materials.report_gaps(context, nomenclature, rule_drivers)
     unit.compute(context)
 
     lines = tuple(context.lines)
@@ -100,19 +106,17 @@ OPTIONAL_DRIVERS = frozenset(
 )
 
 
-# Статьи, которые начисляет выбранная на вкладке номенклатура. Правило затрат
-# с той же статьёй посчитало бы ВМ второй раз, поэтому уступает выбору.
-NOMENCLATURE_COST_ITEMS = frozenset(role.cost_item_code for role in materials.ROLES)
-
-
-def _cost_rule_lines(context: ModelContext) -> None:
+def _cost_rule_lines(context: ModelContext, *, blocked_drivers: set[str]) -> set[str]:
     """Статьи вида «цена × драйвер» — правила затрат, а не код.
 
     Материалы, ВМ и прочие линейные статьи задаются в справочнике `cost_rules`
-    и попадают сюда без изменения модели.
+    и попадают сюда без изменения модели. Правило по драйверу, который уже
+    закрыла выбранная номенклатура, пропускается: иначе ВМ посчитаются дважды.
+    Возвращает драйверы правил, давших строку, — по ним модуль материалов
+    решает, о чём предупреждать.
     """
 
-    charged_items = {line.cost_item_code for line in context.lines}
+    charged: set[str] = set()
     for rule in context.items("cost_rules"):
         operation_code = payload_text(rule, "operation_code")
         if not operation_code:
@@ -121,27 +125,30 @@ def _cost_rule_lines(context: ModelContext) -> None:
             continue
         if not context.has_operation(operation_code):
             continue
-        cost_item_code = payload_text(rule, "cost_item_code") or rule.code
-        if cost_item_code in NOMENCLATURE_COST_ITEMS and cost_item_code in charged_items:
+        driver_name = payload_text(rule, "driver")
+        if driver_name in blocked_drivers:
             # Молча пропустить нельзя: сметчик должен понимать, почему правило
             # справочника не видно в смете.
             context.warn(
-                f"Правило затрат {rule.code} начисляет ту же статью, что и выбранная "
+                f"Правило затрат {rule.code} начисляет то же, что и выбранная "
                 "номенклатура блока: в смете осталась строка по выбранному наименованию."
             )
             continue
         amount, formula = _rule_amount(context, rule)
         if amount == 0:
             continue
+        if driver_name:
+            charged.add(driver_name)
         context.add_line(
             operation_code=operation_code,
-            cost_item_code=cost_item_code,
+            cost_item_code=payload_text(rule, "cost_item_code") or rule.code,
             cost_item_name=rule.name,
             layer=_layer(payload_text(rule, "cost_layer", CostLayer.VARIABLE.value)),
             amount_rub=amount,
             formula=formula,
             resource_code=payload_text(rule, "resource_code"),
         )
+    return charged
 
 
 def _rule_amount(context: ModelContext, rule: ReferenceItem) -> tuple[Decimal, str]:

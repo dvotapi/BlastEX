@@ -70,6 +70,11 @@ MATERIALS = (
         {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI", "nomenclature_role": "NSI_DOWNHOLE", "length_m": "9"},
     ),
     item(
+        "MAT_NSI_12",
+        "НСИ Rionel MS-20-12 м",
+        {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI", "nomenclature_role": "NSI_DOWNHOLE", "length_m": "12"},
+    ),
+    item(
         "MAT_NSI_SURFACE",
         "Устройство Искра-П-5",
         {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI", "nomenclature_role": "NSI_SURFACE"},
@@ -99,6 +104,7 @@ MATERIAL_PRICES = (
     item("PR_ANFO", "Гранулит", {"material_code": "MAT_ANFO", "price_rub": "45"}),
     item("PR_EVERSIN", "ЭВВ Эверсин-100", {"material_code": "MAT_EVERSIN", "price_rub": "48.9"}),
     item("PR_NSI", "НСИ скважинное", {"material_code": "MAT_NSI", "price_rub": "900"}),
+    item("PR_NSI_12", "НСИ 12 м", {"material_code": "MAT_NSI_12", "price_rub": "1100"}),
     item("PR_NSI_SURFACE", "Искра-П-5", {"material_code": "MAT_NSI_SURFACE", "price_rub": "240"}),
     item("PR_NSI_START", "ИСКРА-СТАРТ-В-200", {"material_code": "MAT_NSI_START", "price_rub": "3210"}),
     item("PR_BOOSTER", "Сферит ДП", {"material_code": "MAT_BOOSTER", "price_rub": "150"}),

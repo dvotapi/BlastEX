@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { CostStructure } from "./CostStructure";
 import { ModelWarnings } from "./ModelWarnings";
+import { NomenclaturePanel } from "./NomenclaturePanel";
 import { ParametersPanel } from "./ParametersPanel";
 import { PricePanel } from "./PricePanel";
 import { RunsCompare } from "./RunsCompare";
@@ -288,7 +289,10 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
 
       <div className="block-economics-grid">
         {defaults && params && (
-          <ParametersPanel params={params} defaults={defaults} onChange={patchParams} />
+          <div className="block-economics-inputs">
+            <NomenclaturePanel params={params} defaults={defaults} onChange={patchParams} />
+            <ParametersPanel params={params} defaults={defaults} onChange={patchParams} />
+          </div>
         )}
         <div className="block-economics-results">
           {economics ? (

@@ -188,3 +188,62 @@ def test_another_organization_does_not_see_runs(client) -> None:
     )
 
     assert repository.list_economics_runs("other-org") == ()
+
+
+def test_defaults_offer_nomenclature_with_prices(client) -> None:
+    test_client, _, passport_id = client
+    response = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    )
+
+    body = response.json()
+    explosives = body["nomenclature"]["EXPLOSIVE"]
+    assert {"code", "name", "unit", "price_rub"} <= set(explosives[0])
+    # Буровой инструмент и прочее в выбор номенклатуры блока не попадают.
+    assert "DRILL_TOOL" not in body["nomenclature"]
+    assert "OTHER" not in body["nomenclature"]
+    eversin = next(row for row in explosives if row["code"] == "MAT_EVERSIN")
+    assert eversin["price_rub"] == pytest.approx(48.9)
+
+
+def test_defaults_preselect_nomenclature_with_a_price(client) -> None:
+    """Позиция без цены не годится в умолчание: сметчик получил бы нулевую строку."""
+
+    test_client, _, passport_id = client
+    response = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    )
+
+    chosen = response.json()["parameters"]["nomenclature"]
+    assert chosen["EXPLOSIVE"] != "MAT_PROTOLIT"
+    assert chosen["NSI_SURFACE"] == "MAT_NSI_SURFACE"
+    assert chosen["BOOSTER"] == "MAT_BOOSTER"
+
+
+def test_downhole_nsi_default_is_closest_by_length(client) -> None:
+    """В паспорте 1224 скважины и 14 688 м НСИ — 12 м на скважину."""
+
+    test_client, _, passport_id = client
+    response = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    )
+
+    assert response.json()["parameters"]["nomenclature"]["NSI_DOWNHOLE"] == "MAT_NSI_12"
+
+
+def test_selected_nomenclature_reaches_the_cost_lines(client) -> None:
+    test_client, _, passport_id = client
+    response = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id,
+            nomenclature={"EXPLOSIVE": "MAT_EVERSIN", "NSI_DOWNHOLE": "MAT_NSI"},
+        ),
+    )
+
+    lines = {line["cost_item_code"]: line for line in response.json()["lines"]}
+    assert lines["MATERIAL_EXPLOSIVE"]["cost_item_name"] == "ЭВВ Эверсин-100"
+    assert lines["MATERIAL_EXPLOSIVE"]["amount_rub"] == pytest.approx(42000 * 48.9)

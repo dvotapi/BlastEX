@@ -25,7 +25,8 @@ from cost.model import sensitivity
 from cost.model.engine import compute_block_economics
 from cost.model.export_xlsx import export_bytes
 from cost.model.inputs import BlockEconomics, ModelParameters, payload_number, payload_text
-from cost.v2.models import ReferenceSnapshot
+from cost.model.materials import ROLES
+from cost.v2.models import ReferenceSnapshot, decimal_value
 from cost.v2.packages import package_map
 from cost.v2.repository import EconomicsRepository, StoredTechnicalPassport
 
@@ -272,6 +273,7 @@ def model_defaults(
     rates = references.active_items("organization_rates")
     rate = rates[0] if rates else None
 
+    nomenclature = _nomenclature(references)
     rigs = _equipment(references, "DRILL_RIG")
     szm = _equipment(references, "SZM")
     trucks = _equipment(references, "HAZMAT_TRUCK")
@@ -303,6 +305,7 @@ def model_defaults(
             "delivery_truck_code": trucks[0]["code"] if trucks else None,
             "crew": crew,
             "drilling_executor": "OWN",
+            "nomenclature": _default_nomenclature(nomenclature, passport),
             "overhead_rate": payload_number(rate, "overhead_rate", Decimal("0.1")),
             "target_margin_rate": payload_number(rate, "target_margin_rate", Decimal("0.1")),
             "vat_rate": payload_number(rate, "vat_rate", Decimal("0.2")),
@@ -315,6 +318,7 @@ def model_defaults(
             "package_operations": [
                 item.operation_code for item in (package.operations if package else ())
             ],
+            "nomenclature": nomenclature,
             "rigs": rigs,
             "szm": szm,
             "delivery_trucks": trucks,
@@ -327,6 +331,79 @@ def model_defaults(
             "reference_revision_id": references.revision_id,
         }
     )
+
+
+def _nomenclature(references: ReferenceSnapshot) -> dict[str, list[dict[str, Any]]]:
+    """Номенклатура блока по ролям с ценой на дату расчёта.
+
+    Буровой инструмент и позиции без роли в выбор не попадают: они приходят
+    в расчёт через условия бурения и правила затрат, а не со вкладки.
+    """
+
+    roles = {role.code for role in ROLES}
+    catalog: dict[str, list[dict[str, Any]]] = {}
+    for item in references.active_items("materials"):
+        role = payload_text(item, "nomenclature_role", "OTHER")
+        if role not in roles:
+            continue
+        catalog.setdefault(role, []).append(
+            {
+                "code": item.code,
+                "name": item.name,
+                "unit": payload_text(item, "unit"),
+                "price_rub": float(_material_price(references, item.code)),
+                "length_m": float(payload_number(item, "length_m")),
+            }
+        )
+    for options in catalog.values():
+        options.sort(key=lambda row: row["name"])
+    return catalog
+
+
+def _material_price(references: ReferenceSnapshot, material_code: str) -> Decimal:
+    """Цена материала: та же запись, что возьмёт модель при расчёте."""
+
+    prices = [
+        item
+        for item in references.active_items("material_prices")
+        if payload_text(item, "material_code") == material_code
+    ]
+    if not prices:
+        return Decimal("0")
+    prices.sort(key=lambda item: (item.valid_from is not None, item.valid_from), reverse=True)
+    return payload_number(prices[0], "price_rub") + payload_number(prices[0], "delivery_rub")
+
+
+def _default_nomenclature(
+    catalog: dict[str, list[dict[str, Any]]], passport: StoredTechnicalPassport
+) -> dict[str, str]:
+    """Что подставить сметчику сразу после переноса паспорта.
+
+    Позиция без цены в умолчание не годится: она дала бы нулевую строку и
+    предупреждение вместо готовой сметы.
+    """
+
+    chosen: dict[str, str] = {}
+    for role, options in catalog.items():
+        priced = [row for row in options if row["price_rub"] > 0]
+        if priced:
+            chosen[role] = priced[0]["code"]
+
+    downhole = [
+        row
+        for row in catalog.get("NSI_DOWNHOLE", ())
+        if row["price_rub"] > 0 and row["length_m"] > 0
+    ]
+    holes = decimal_value(passport.physical.get("holes"))
+    nsi_length = decimal_value(passport.physical.get("nsi_length_m"))
+    if downhole and holes > 0 and nsi_length > 0:
+        # Скважинное НСИ подбирается по длине из паспорта: короче скважины
+        # сеть не смонтировать, длиннее — переплата.
+        target = float(nsi_length / holes)
+        chosen["NSI_DOWNHOLE"] = min(
+            downhole, key=lambda row: (abs(row["length_m"] - target), row["name"])
+        )["code"]
+    return chosen
 
 
 def _equipment(references: ReferenceSnapshot, kind: str) -> list[dict[str, str]]:

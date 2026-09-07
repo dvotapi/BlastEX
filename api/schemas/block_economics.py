@@ -160,6 +160,8 @@ class ModelDefaultsResponse(BaseModel):
     parameters: ModelParametersSchema
     passport: dict[str, Any]
     package_operations: list[str]
+    # Роль номенклатуры → позиции с ценой на дату расчёта.
+    nomenclature: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     rigs: list[dict[str, str]]
     szm: list[dict[str, str]]
     delivery_trucks: list[dict[str, str]]

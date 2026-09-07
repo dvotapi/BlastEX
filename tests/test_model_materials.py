@@ -146,3 +146,32 @@ def test_every_role_is_allowed_by_the_reference_schema() -> None:
 
     allowed = set(section_json_schema("materials")["properties"]["nomenclature_role"]["enum"])
     assert {role.code for role in materials.ROLES} <= allowed
+
+
+def test_cost_rule_yields_to_the_selected_nomenclature() -> None:
+    """Правило затрат на ВВ и выбранное наименование — это одна статья, не две."""
+
+    from cost.model.engine import compute_block_economics
+
+    result = compute_block_economics(
+        {"physical": physical(), "lineage": {}},
+        parameters(nomenclature={"EXPLOSIVE": "MAT_EVERSIN"}),
+        references(),
+    )
+
+    explosive = [row for row in result.lines if row.cost_item_code == "MATERIAL_EXPLOSIVE"]
+    assert len(explosive) == 1
+    assert explosive[0].cost_item_name == "ЭВВ Эверсин-100"
+    assert any("выбранная номенклатура" in text for text in result.warnings)
+
+
+def test_cost_rule_still_works_without_a_selection() -> None:
+    from cost.model.engine import compute_block_economics
+
+    result = compute_block_economics(
+        {"physical": physical(), "lineage": {}}, parameters(), references()
+    )
+
+    explosive = [row for row in result.lines if row.cost_item_code == "MATERIAL_EXPLOSIVE"]
+    assert len(explosive) == 1
+    assert explosive[0].cost_item_name == "Гранулит на блок"

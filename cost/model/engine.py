@@ -100,6 +100,11 @@ OPTIONAL_DRIVERS = frozenset(
 )
 
 
+# Статьи, которые начисляет выбранная на вкладке номенклатура. Правило затрат
+# с той же статьёй посчитало бы ВМ второй раз, поэтому уступает выбору.
+NOMENCLATURE_COST_ITEMS = frozenset(role.cost_item_code for role in materials.ROLES)
+
+
 def _cost_rule_lines(context: ModelContext) -> None:
     """Статьи вида «цена × драйвер» — правила затрат, а не код.
 
@@ -107,6 +112,7 @@ def _cost_rule_lines(context: ModelContext) -> None:
     и попадают сюда без изменения модели.
     """
 
+    charged_items = {line.cost_item_code for line in context.lines}
     for rule in context.items("cost_rules"):
         operation_code = payload_text(rule, "operation_code")
         if not operation_code:
@@ -115,12 +121,21 @@ def _cost_rule_lines(context: ModelContext) -> None:
             continue
         if not context.has_operation(operation_code):
             continue
+        cost_item_code = payload_text(rule, "cost_item_code") or rule.code
+        if cost_item_code in NOMENCLATURE_COST_ITEMS and cost_item_code in charged_items:
+            # Молча пропустить нельзя: сметчик должен понимать, почему правило
+            # справочника не видно в смете.
+            context.warn(
+                f"Правило затрат {rule.code} начисляет ту же статью, что и выбранная "
+                "номенклатура блока: в смете осталась строка по выбранному наименованию."
+            )
+            continue
         amount, formula = _rule_amount(context, rule)
         if amount == 0:
             continue
         context.add_line(
             operation_code=operation_code,
-            cost_item_code=payload_text(rule, "cost_item_code") or rule.code,
+            cost_item_code=cost_item_code,
             cost_item_name=rule.name,
             layer=_layer(payload_text(rule, "cost_layer", CostLayer.VARIABLE.value)),
             amount_rub=amount,

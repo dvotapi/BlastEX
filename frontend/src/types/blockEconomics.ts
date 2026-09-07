@@ -20,6 +20,9 @@ export type ModelParameters = {
   delivery_truck_code: string | null;
   crew: CrewMemberInput[];
   drilling_executor: "OWN" | "SUBCONTRACTOR";
+  /** Роль номенклатуры → код материала; количество приходит из паспорта. */
+  nomenclature: Record<string, string>;
+  electric_detonators_qty: Numeric;
   overhead_rate: Numeric | null;
   target_margin_rate: Numeric | null;
   vat_rate: Numeric | null;
@@ -135,10 +138,20 @@ export type TechnicalPassport = {
   created_by: string;
 };
 
+export type MaterialOption = {
+  code: string;
+  name: string;
+  unit: string;
+  price_rub: number;
+  length_m: number;
+};
+
 export type ModelDefaults = {
   parameters: ModelParameters;
   passport: TechnicalPassport;
   package_operations: string[];
+  /** Номенклатура блока по ролям: списки для выбора с ценами. */
+  nomenclature: Record<string, MaterialOption[]>;
   rigs: CodeName[];
   szm: CodeName[];
   delivery_trucks: CodeName[];

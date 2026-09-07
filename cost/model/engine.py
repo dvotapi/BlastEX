@@ -10,7 +10,7 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_CEILING
 from typing import Any, Mapping
 
-from cost.model import drilling, equipment, labor, logistics, markup, unit
+from cost.model import drilling, equipment, labor, logistics, markup, materials, unit
 from cost.model.inputs import (
     BlockEconomics,
     ModelContext,
@@ -38,9 +38,11 @@ def compute_block_economics(
         passport_name=passport_name,
     )
 
-    # Порядок важен: смены станка и СЗМ нужны ФОТ и затратам техники.
+    # Порядок важен: смены станка и СЗМ нужны ФОТ и затратам техники, а
+    # разделение массы ВВ на насыпную и патронированную — статьям ВМ.
     drilling.compute(context)
     logistics.compute(context)
+    materials.compute(context)
     labor.compute(context)
     equipment.compute(context)
     _cost_rule_lines(context)

@@ -41,13 +41,54 @@ SITES = (
     ),
 )
 
+_TOOL = {"material_kind": "ТМЦ", "storage_class": "NONE", "nomenclature_role": "DRILL_TOOL"}
+
 MATERIALS = (
-    item("MAT_BIT", "Коронка", {"unit": "PIECE", "material_kind": "ТМЦ", "storage_class": "NONE"}),
-    item("MAT_HAMMER", "ППУ", {"unit": "PIECE", "material_kind": "ТМЦ", "storage_class": "NONE"}),
-    item("MAT_RODS", "Штанги", {"unit": "PIECE", "material_kind": "ТМЦ", "storage_class": "NONE"}),
-    item("MAT_CASING", "Обсадная труба", {"unit": "M", "material_kind": "ТМЦ", "storage_class": "NONE"}),
-    item("MAT_ANFO", "Гранулит", {"unit": "KG", "material_kind": "ВВ", "storage_class": "BULK"}),
-    item("MAT_NSI", "НСИ скважинное", {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI"}),
+    item("MAT_BIT", "Коронка", {"unit": "PIECE", **_TOOL}),
+    item("MAT_HAMMER", "ППУ", {"unit": "PIECE", **_TOOL}),
+    item("MAT_RODS", "Штанги", {"unit": "PIECE", **_TOOL}),
+    item("MAT_CASING", "Обсадная труба", {"unit": "M", **_TOOL}),
+    item(
+        "MAT_ANFO",
+        "Гранулит",
+        {"unit": "KG", "material_kind": "ВВ", "storage_class": "BULK", "nomenclature_role": "EXPLOSIVE"},
+    ),
+    item(
+        "MAT_EVERSIN",
+        "ЭВВ Эверсин-100",
+        {"unit": "KG", "material_kind": "ВВ", "storage_class": "BULK", "nomenclature_role": "EXPLOSIVE"},
+    ),
+    # Номенклатура заведена, цену ещё не внесли: модель должна предупредить.
+    item(
+        "MAT_PROTOLIT",
+        "ЭВВ Протолит-100",
+        {"unit": "KG", "material_kind": "ВВ", "storage_class": "BULK", "nomenclature_role": "EXPLOSIVE"},
+    ),
+    item(
+        "MAT_NSI",
+        "НСИ скважинное",
+        {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI", "nomenclature_role": "NSI_DOWNHOLE", "length_m": "9"},
+    ),
+    item(
+        "MAT_NSI_SURFACE",
+        "Устройство Искра-П-5",
+        {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI", "nomenclature_role": "NSI_SURFACE"},
+    ),
+    item(
+        "MAT_NSI_START",
+        "Устройство ИСКРА-СТАРТ-В-200",
+        {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI", "nomenclature_role": "NSI_START"},
+    ),
+    item(
+        "MAT_BOOSTER",
+        "Детонатор промежуточный «Сферит ДП» 60/0,8",
+        {"unit": "KG", "material_kind": "СВ", "storage_class": "CARTRIDGE", "nomenclature_role": "BOOSTER", "mass_kg": "0.8"},
+    ),
+    item(
+        "MAT_DETONATOR_EL",
+        "Электродетонатор ЭД-1-Н",
+        {"unit": "PIECE", "material_kind": "СИ", "storage_class": "NSI", "nomenclature_role": "DETONATOR_ELECTRIC"},
+    ),
 )
 
 MATERIAL_PRICES = (
@@ -56,7 +97,12 @@ MATERIAL_PRICES = (
     item("PR_RODS", "Штанги", {"material_code": "MAT_RODS", "price_rub": "150000"}),
     item("PR_CASING", "Обсадная труба", {"material_code": "MAT_CASING", "price_rub": "1200"}),
     item("PR_ANFO", "Гранулит", {"material_code": "MAT_ANFO", "price_rub": "45"}),
+    item("PR_EVERSIN", "ЭВВ Эверсин-100", {"material_code": "MAT_EVERSIN", "price_rub": "48.9"}),
     item("PR_NSI", "НСИ скважинное", {"material_code": "MAT_NSI", "price_rub": "900"}),
+    item("PR_NSI_SURFACE", "Искра-П-5", {"material_code": "MAT_NSI_SURFACE", "price_rub": "240"}),
+    item("PR_NSI_START", "ИСКРА-СТАРТ-В-200", {"material_code": "MAT_NSI_START", "price_rub": "3210"}),
+    item("PR_BOOSTER", "Сферит ДП", {"material_code": "MAT_BOOSTER", "price_rub": "150"}),
+    item("PR_DETONATOR_EL", "ЭД-1-Н", {"material_code": "MAT_DETONATOR_EL", "price_rub": "45"}),
 )
 
 EQUIPMENT_TYPES = (

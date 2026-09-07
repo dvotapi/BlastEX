@@ -8,12 +8,43 @@ from pydantic import Field
 
 from cost.v2.schemas.base import RefField, ReferencePayload, UnitField
 
-__all__ = ["MaterialPayload", "MaterialPricePayload", "MaterialLossNormPayload"]
+__all__ = [
+    "NomenclatureRole",
+    "MaterialPayload",
+    "MaterialPricePayload",
+    "MaterialLossNormPayload",
+]
+
+
+# Роль позиции в смете блока. `material_kind` остаётся свободным текстом из
+# Cost V1 («ВВ», «СИ», «ТМЦ», у части записей пусто) и машинному разбору не
+# поддаётся, поэтому связь номенклатуры с расчётом задаёт отдельное поле:
+# по нему вкладка «Экономика блока» наполняет списки выбора, а модель
+# сопоставляет позицию с драйвером технического паспорта.
+NomenclatureRole = Literal[
+    "EXPLOSIVE",
+    "BOOSTER",
+    "NSI_DOWNHOLE",
+    "NSI_SURFACE",
+    "NSI_START",
+    "DETONATOR_ELECTRIC",
+    "DRILL_TOOL",
+    "OTHER",
+]
 
 
 class MaterialPayload(ReferencePayload):
     unit: str | None = RefField("units", description="Единица измерения", default=None)
     material_kind: str | None = Field(default=None, description="Вид: ВВ, СВ, СИ, ТМЦ")
+    nomenclature_role: NomenclatureRole = Field(
+        default="OTHER",
+        title="Роль в смете",
+        description=(
+            "Чем позиция становится в расчёте блока: основное ВВ, промежуточный "
+            "детонатор, скважинное, поверхностное или стартовое НСИ, "
+            "электродетонатор, буровой инструмент"
+        ),
+    )
     category: str | None = Field(default=None, description="Категория номенклатуры")
     power_mj_kg: Decimal | None = UnitField(
         "МДж/кг", title="Энергия ВВ", description="Энергия взрывчатого вещества", default=None

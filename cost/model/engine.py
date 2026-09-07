@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal, ROUND_CEILING
 from typing import Any, Mapping
 
-from cost.model import drilling, equipment, labor, logistics, markup, materials, unit
+from cost.model import drilling, equipment, labor, logistics, markup, materials, services, unit
 from cost.model.inputs import (
     BlockEconomics,
     ModelContext,
@@ -48,6 +48,7 @@ def compute_block_economics(
     nomenclature = materials.compute(context)
     labor.compute(context)
     equipment.compute(context)
+    services.compute(context)
     rule_drivers = _cost_rule_lines(context, blocked_drivers=nomenclature.charged_drivers)
     # Роль без наименования или цены — не ошибка, пока статью закрывает
     # правило затрат; говорить об этом можно только после прохода правил.

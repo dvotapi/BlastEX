@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
@@ -18,16 +18,21 @@ from api.schemas.block_economics import (
     RunCompareRequest,
     RunCompareResponse,
     SensitivityResponse,
+    ServiceToReferenceRequest,
+    ServiceToReferenceResponse,
 )
-from api.security import require_internal_access
+from api.security import require_internal_access, require_reference_editor
 from api.services.economics_service import get_economics_repository, repository_error
+from api.services.public_sync_service import PublicReader, get_public_reader, reference_issues
 from cost.model import sensitivity
 from cost.model.engine import compute_block_economics
 from cost.model.export_xlsx import export_bytes
 from cost.model.inputs import BlockEconomics, ModelParameters, payload_number, payload_text
 from cost.model.materials import ROLES, quantity_in_price_units
+from cost.model.services import SHIFT_DRIVERS, service_code
 from cost.v2.prices import effective_price, effective_price_lookup
-from cost.v2.models import ReferenceSnapshot, decimal_value
+from cost.v2.models import ReferenceItem, ReferenceSnapshot, decimal_value
+from cost.v2.references import has_validation_errors
 from cost.v2.packages import package_map
 from cost.v2.repository import EconomicsRepository, StoredTechnicalPassport
 
@@ -327,6 +332,7 @@ def model_defaults(
             "package_operations": [
                 item.operation_code for item in (package.operations if package else ())
             ],
+            "operations": _package_operations(references, package),
             "nomenclature": nomenclature,
             "rigs": rigs,
             "szm": szm,
@@ -417,6 +423,113 @@ def _default_nomenclature(
             downhole, key=lambda row: (abs(row["length_m"] - target), row["name"])
         )["code"]
     return chosen
+
+
+def _package_operations(references: ReferenceSnapshot, package) -> list[dict[str, str]]:
+    names = {item.code: item.name for item in references.active_items("operations")}
+    return [
+        {"code": op.operation_code, "name": names.get(op.operation_code, op.operation_code)}
+        for op in (package.operations if package else ())
+    ]
+
+
+@router.post(
+    "/services/to-reference",
+    response_model=ServiceToReferenceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def service_to_reference(
+    payload: ServiceToReferenceRequest,
+    session: dict[str, object] = Depends(require_reference_editor),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+    reader: PublicReader = Depends(get_public_reader),
+) -> ServiceToReferenceResponse:
+    """Перенести услугу со вкладки в «Правила расчёта затрат» новой ревизией.
+
+    Серверного черновика справочников нет — страница «Справочники» держит его
+    у себя и публикует целиком. Поэтому кнопка на вкладке публикует ревизию
+    сама: одна запись, комментарий называет источник. Повторный перенос
+    обновляет запись с тем же кодом, а не плодит дубли.
+    """
+
+    organization_id, user_id = _identity(session)
+    service = payload.service
+    code = service_code(service.name)
+    rule_payload: dict[str, Any] = {
+        "operation_code": service.operation_code,
+        "cost_item_code": code,
+        "behavior_type": "VARIABLE" if service.per_shift else "FIXED",
+        "cost_layer": service.layer,
+    }
+    if service.per_shift:
+        driver = SHIFT_DRIVERS.get(service.operation_code)
+        if not driver:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"У операции {service.operation_code} нет смен: ставку за смену не привязать.",
+            )
+        rule_payload.update({"driver": driver, "rate_rub": str(service.amount_rub)})
+    else:
+        rule_payload["fixed_rub"] = str(service.amount_rub)
+
+    try:
+        current = repository.get_reference_snapshot(organization_id)
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    sections = {name: list(items) for name, items in current.sections.items()}
+    existing = next((item for item in sections.get("cost_rules", ()) if item.code == code), None)
+    sections["cost_rules"] = _upsert(
+        sections.get("cost_rules", ()), code, service.name, rule_payload
+    )
+    # Правило ссылается на статью затрат: без записи в «Статьях затрат»
+    # ревизия не пройдёт проверку ссылок.
+    sections["cost_items"] = _upsert(
+        sections.get("cost_items", ()), code, service.name, {"kind": "service"}
+    )
+
+    try:
+        issues = reference_issues(reader, repository, organization_id, sections)
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    if has_validation_errors(issues):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": "Справочники содержат ошибки.", "issues": [i.to_dict() for i in issues]},
+        )
+    try:
+        published = repository.publish_references(
+            organization_id,
+            user_id,
+            current.revision_id,
+            sections,
+            f"Услуга со вкладки «Экономика блока»: {service.name}",
+        )
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    return ServiceToReferenceResponse(
+        section="cost_rules",
+        code=code,
+        created=existing is None,
+        reference_revision_id=published.revision_id,
+    )
+
+
+def _upsert(
+    items: Sequence[ReferenceItem], code: str, name: str, payload: dict[str, Any]
+) -> list[ReferenceItem]:
+    """Запись с таким кодом обновляется на месте, новая — добавляется в конец."""
+
+    existing = next((item for item in items if item.code == code), None)
+    item = ReferenceItem(
+        code=code,
+        name=name,
+        payload=payload,
+        source="вкладка «Экономика блока»",
+        revision=(existing.revision + 1) if existing is not None else 1,
+    )
+    if existing is None:
+        return [*items, item]
+    return [item if row.code == code else row for row in items]
 
 
 def _equipment(references: ReferenceSnapshot, kind: str) -> list[dict[str, str]]:

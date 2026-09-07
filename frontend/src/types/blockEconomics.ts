@@ -9,6 +9,25 @@ export type CrewMemberInput = {
   shifts_per_block: Numeric | null;
 };
 
+export type ServiceLayer = "variable" | "project_direct" | "production";
+
+/** Услуга, введённая на вкладке: сумма живёт в параметрах прогона. */
+export type ServiceChargeInput = {
+  name: string;
+  amount_rub: Numeric;
+  layer: ServiceLayer;
+  operation_code: string;
+  /** Сумма за смену операции, а не на блок целиком. */
+  per_shift: boolean;
+};
+
+export type ServiceToReference = {
+  section: "cost_rules";
+  code: string;
+  created: boolean;
+  reference_revision_id: string;
+};
+
 export type ModelParameters = {
   package_code: string;
   site_code: string;
@@ -22,6 +41,7 @@ export type ModelParameters = {
   /** Код типа техники → плановые смены в месяц; нет ключа — норматив справочника. */
   machine_plan_shifts: Record<string, Numeric>;
   crew: CrewMemberInput[];
+  services: ServiceChargeInput[];
   drilling_executor: "OWN" | "SUBCONTRACTOR";
   /** Роль номенклатуры → код материала; количество приходит из паспорта. */
   nomenclature: Record<string, string>;
@@ -160,6 +180,8 @@ export type ModelDefaults = {
   parameters: ModelParameters;
   passport: TechnicalPassport;
   package_operations: string[];
+  /** Операции пакета с подписями — селект услуги показывает название, не код. */
+  operations: CodeName[];
   /** Номенклатура блока по ролям: списки для выбора с ценами. */
   nomenclature: Record<string, MaterialOption[]>;
   rigs: CodeName[];

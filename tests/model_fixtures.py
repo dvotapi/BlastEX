@@ -356,6 +356,13 @@ WAREHOUSE_POOL = item(
     },
 )
 
+# Статьи, на которые ссылаются правила: без них ревизия не проходит проверку ссылок.
+COST_ITEMS = (
+    item("MATERIAL_EXPLOSIVE", "ВВ на блок", {"kind": "material"}),
+    item("MATERIAL_NSI", "НСИ скважинное", {"kind": "material"}),
+    item("VM_DELIVERY", "Доставка ВМ", {"kind": "logistics"}),
+)
+
 COST_RULES = (
     item(
         "RULE_ANFO",
@@ -423,6 +430,7 @@ def references(**overrides: Any) -> ReferenceSnapshot:
             "labor_rates": LABOR_RATES,
             "crew_templates": CREW_TEMPLATES,
             "unit_fixed_costs": UNIT_FIXED_COSTS,
+            "cost_items": (*base.sections["cost_items"], *COST_ITEMS),
             "cost_rules": COST_RULES,
             "subcontract_rates": SUBCONTRACT_RATES,
             "resource_pools": (*base.sections["resource_pools"], WAREHOUSE_POOL),

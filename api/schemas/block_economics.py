@@ -18,6 +18,31 @@ class CrewMemberSchema(BaseModel):
     shifts_per_block: Decimal | None = Field(None, ge=0)
 
 
+class ServiceChargeSchema(BaseModel):
+    """Услуга, введённая на вкладке: сумма живёт в параметрах прогона."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=300)
+    amount_rub: Decimal = Field(Decimal("0"), ge=0)
+    layer: Literal["variable", "project_direct", "production"] = "project_direct"
+    operation_code: str = Field(..., min_length=1, max_length=80)
+    per_shift: bool = False
+
+
+class ServiceToReferenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service: ServiceChargeSchema
+
+
+class ServiceToReferenceResponse(BaseModel):
+    section: Literal["cost_rules"]
+    code: str
+    created: bool
+    reference_revision_id: str
+
+
 class ModelParametersSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -33,6 +58,7 @@ class ModelParametersSchema(BaseModel):
     # Код типа техники → плановые смены в месяц; пусто — норматив справочника.
     machine_plan_shifts: dict[str, Decimal] = Field(default_factory=dict)
     crew: list[CrewMemberSchema] = Field(default_factory=list)
+    services: list[ServiceChargeSchema] = Field(default_factory=list)
     drilling_executor: Literal["OWN", "SUBCONTRACTOR"] = "OWN"
     # Роль номенклатуры → код материала; пустое значение означает «не выбрано».
     nomenclature: dict[str, str] = Field(default_factory=dict)
@@ -167,6 +193,8 @@ class ModelDefaultsResponse(BaseModel):
     parameters: ModelParametersSchema
     passport: dict[str, Any]
     package_operations: list[str]
+    # Операции пакета с подписями: селект услуги показывает название, не код.
+    operations: list[dict[str, str]] = Field(default_factory=list)
     # Роль номенклатуры → позиции с ценой на дату расчёта.
     nomenclature: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     rigs: list[dict[str, str]]

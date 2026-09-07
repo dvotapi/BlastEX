@@ -57,7 +57,7 @@ export function NomenclaturePanel({
                 ))}
               </select>
               <small>
-                {optionCaption(selected, role)}
+                {optionCaption(selected, role, options.length)}
                 {quantity !== null && selected
                   ? ` · ${quantity.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${unitLabel(selected.unit)} на блок`
                   : ""}

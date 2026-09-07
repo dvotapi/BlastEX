@@ -47,11 +47,11 @@ def _load(
     revision_id: str,
 ) -> tuple[StoredTechnicalPassport, ReferenceSnapshot]:
     passport = repository.get_technical_passport(organization_id, passport_id)
-    # Пустая ревизия означает «считать на актуальных справочниках»; снимок
-    # прогона всегда хранит ту, на которой посчитали.
-    references = repository.get_reference_snapshot(
-        organization_id, revision_id or passport.reference_revision_id
-    )
+    # Пустая ревизия означает «считать на актуальных справочниках»: паспорт
+    # фиксирует геометрию блока, а не прайс-лист, и сметчику нужна цена на
+    # сегодня. Снимок прогона всегда хранит ту ревизию, на которой посчитали,
+    # поэтому старый расчёт остаётся воспроизводимым.
+    references = repository.get_reference_snapshot(organization_id, revision_id or None)
     return passport, references
 
 
@@ -296,7 +296,9 @@ def model_defaults(
         {
             "package_code": package_code,
             "site_code": passport.site_code,
-            "reference_revision_id": references.revision_id,
+            # Пусто — считать на актуальной ревизии; фактическую сметчик видит
+            # в поле «Ревизия справочников».
+            "reference_revision_id": "",
             "unit_plan_volume_m3": payload_number(unit, "plan_volume_m3", Decimal("0")),
             "rig_code": rig_code,
             "rig_plan_shifts": payload_number(rig_type, "norm_shifts_per_month", Decimal("0"))

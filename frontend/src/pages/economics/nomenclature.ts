@@ -48,8 +48,12 @@ export function isRoleVisible(role: NomenclatureRole, passport: TechnicalPasspor
 const RUBLES = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** Подпись под выбором: цена за единицу либо подсказка, откуда возьмётся количество. */
-export function optionCaption(option: MaterialOption | undefined, role: NomenclatureRole): string {
-  if (!option) return role.hint;
+export function optionCaption(
+  option: MaterialOption | undefined,
+  role: NomenclatureRole,
+  optionCount = 1,
+): string {
+  if (!option) return optionCount === 0 ? "в справочнике нет таких позиций" : role.hint;
   if (option.price_rub <= 0) return "нет цены в справочнике";
   return `${RUBLES.format(option.price_rub)} ₽${option.unit ? ` за ${unitLabel(option.unit)}` : ""}`;
 }

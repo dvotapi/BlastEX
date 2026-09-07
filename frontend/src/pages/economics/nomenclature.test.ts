@@ -56,6 +56,12 @@ describe("подпись под выбором", () => {
     expect(optionCaption(undefined, role("EXPLOSIVE"))).toBe("масса заряда из паспорта");
   });
 
+  it("объясняет пустой список: в справочнике нет позиций этой роли", () => {
+    expect(optionCaption(undefined, role("EXPLOSIVE"), 0)).toBe(
+      "в справочнике нет таких позиций",
+    );
+  });
+
   it("переводит код единицы в подпись", () => {
     expect(unitLabel("PIECE")).toBe("шт");
     expect(unitLabel("KG")).toBe("кг");

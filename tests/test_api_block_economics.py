@@ -247,3 +247,73 @@ def test_selected_nomenclature_reaches_the_cost_lines(client) -> None:
     lines = {line["cost_item_code"]: line for line in response.json()["lines"]}
     assert lines["MATERIAL_EXPLOSIVE"]["cost_item_name"] == "ЭВВ Эверсин-100"
     assert lines["MATERIAL_EXPLOSIVE"]["amount_rub"] == pytest.approx(42000 * 48.9)
+
+
+def test_defaults_compute_on_the_current_revision(client) -> None:
+    """Цена берётся на сегодня: паспорт фиксирует геометрию, а не прайс-лист."""
+
+    test_client, repository, passport_id = client
+    head = repository.list_reference_revisions("default")[0]
+    sections = {
+        section: [item.to_dict() for item in items]
+        for section, items in repository.get_reference_snapshot("default", head.id).sections.items()
+    }
+    for row in sections["material_prices"]:
+        if row["payload"].get("material_code") == "MAT_EVERSIN":
+            row["payload"]["price_rub"] = "60"
+    published = repository.publish_references(
+        "default", "tester", head.id, sections, "подорожание ВВ"
+    )
+
+    defaults = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    assert defaults["reference_revision_id"] == published.revision_id
+    # Параметры не прибивают ревизию: расчёт идёт на актуальной, пока сметчик
+    # сам не выберет другую.
+    assert defaults["parameters"]["reference_revision_id"] == ""
+    eversin = next(
+        row for row in defaults["nomenclature"]["EXPLOSIVE"] if row["code"] == "MAT_EVERSIN"
+    )
+    assert eversin["price_rub"] == pytest.approx(60.0)
+
+    computed = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id, reference_revision_id="", nomenclature={"EXPLOSIVE": "MAT_EVERSIN"}
+        ),
+    ).json()
+    explosive = next(
+        line for line in computed["lines"] if line["cost_item_code"] == "MATERIAL_EXPLOSIVE"
+    )
+    assert explosive["amount_rub"] == pytest.approx(42000 * 60)
+
+
+def test_explicit_revision_still_wins(client) -> None:
+    """Старый прогон воспроизводим: явная ревизия считает по ценам своего времени."""
+
+    test_client, repository, passport_id = client
+    old_revision = repository.list_reference_revisions("default")[0].id
+    sections = {
+        section: [item.to_dict() for item in items]
+        for section, items in repository.get_reference_snapshot("default", old_revision).sections.items()
+    }
+    for row in sections["material_prices"]:
+        if row["payload"].get("material_code") == "MAT_EVERSIN":
+            row["payload"]["price_rub"] = "60"
+    repository.publish_references("default", "tester", old_revision, sections, "подорожание ВВ")
+
+    computed = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id,
+            reference_revision_id=old_revision,
+            nomenclature={"EXPLOSIVE": "MAT_EVERSIN"},
+        ),
+    ).json()
+    explosive = next(
+        line for line in computed["lines"] if line["cost_item_code"] == "MATERIAL_EXPLOSIVE"
+    )
+    assert explosive["amount_rub"] == pytest.approx(42000 * 48.9)

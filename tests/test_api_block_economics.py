@@ -317,3 +317,43 @@ def test_explicit_revision_still_wins(client) -> None:
         line for line in computed["lines"] if line["cost_item_code"] == "MATERIAL_EXPLOSIVE"
     )
     assert explosive["amount_rub"] == pytest.approx(42000 * 48.9)
+
+
+def test_options_carry_the_quantity_in_price_units(client) -> None:
+    """Подпись под выбором должна называть то же число, что и строка сметы."""
+
+    test_client, _, passport_id = client
+    body = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    booster = next(row for row in body["nomenclature"]["BOOSTER"] if row["code"] == "MAT_BOOSTER")
+    # 1224 боевика × 0,8 кг — справочник хранит цену килограмма.
+    assert booster["quantity"] == pytest.approx(1224 * 0.8)
+    assert booster["quantity_label"] == "1224 шт × 0.8 кг"
+    assert booster["unit"] == "кг"
+
+    eversin = next(row for row in body["nomenclature"]["EXPLOSIVE"] if row["code"] == "MAT_EVERSIN")
+    assert eversin["quantity"] == pytest.approx(42000)
+    assert eversin["unit"] == "кг"
+
+    # Электродетонаторы паспорт не считает — количество задаёт сметчик.
+    detonator = body["nomenclature"]["DETONATOR_ELECTRIC"][0]
+    assert detonator["quantity"] is None
+
+
+def test_block_economics_reports_the_revision_it_computed_on(client) -> None:
+    test_client, repository, passport_id = client
+    head = repository.list_reference_revisions("default")[0].id
+
+    computed = test_client.post(
+        "/api/v1/economics/block-economics", json=_parameters(passport_id, reference_revision_id="")
+    ).json()
+    sensitivity = test_client.post(
+        "/api/v1/economics/block-economics/sensitivity",
+        json=_parameters(passport_id, reference_revision_id=""),
+    ).json()
+
+    assert computed["reference_revision_id"] == head
+    assert sensitivity["reference_revision_id"] == head

@@ -68,6 +68,8 @@ export type BlockEconomics = {
   natural: NaturalDrivers;
   capacity: CapacityWarning[];
   warnings: string[];
+  /** Ревизия справочников, на которой посчитано. */
+  reference_revision_id: string;
 };
 
 export type EconomicsRun = {
@@ -141,9 +143,14 @@ export type TechnicalPassport = {
 export type MaterialOption = {
   code: string;
   name: string;
+  /** Единица цены: «кг», «шт». */
   unit: string;
   price_rub: number;
   length_m: number;
+  /** Количество на блок в единицах цены; null — задаётся вручную. */
+  quantity: number | null;
+  /** Происхождение количества: «1224 шт × 0.8 кг». Пусто для простых ролей. */
+  quantity_label: string;
 };
 
 export type ModelDefaults = {

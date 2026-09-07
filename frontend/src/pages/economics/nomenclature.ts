@@ -47,7 +47,14 @@ export function isRoleVisible(role: NomenclatureRole, passport: TechnicalPasspor
 
 const RUBLES = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** Подпись под выбором: цена за единицу либо подсказка, откуда возьмётся количество. */
+const QUANTITY = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
+
+/**
+ * Подпись под выбором: цена за единицу и количество на блок в единицах цены,
+ * либо подсказка, откуда возьмётся количество. Количество приходит с сервера
+ * тем же правилом, что и в строке сметы — иначе боевики показались бы
+ * штуками при цене за килограмм.
+ */
 export function optionCaption(
   option: MaterialOption | undefined,
   role: NomenclatureRole,
@@ -55,11 +62,8 @@ export function optionCaption(
 ): string {
   if (!option) return optionCount === 0 ? "в справочнике нет таких позиций" : role.hint;
   if (option.price_rub <= 0) return "нет цены в справочнике";
-  return `${RUBLES.format(option.price_rub)} ₽${option.unit ? ` за ${unitLabel(option.unit)}` : ""}`;
-}
-
-const UNIT_LABELS: Record<string, string> = { KG: "кг", PIECE: "шт", M: "м", T: "т", L: "л" };
-
-export function unitLabel(unit: string): string {
-  return UNIT_LABELS[unit] ?? unit.toLowerCase();
+  const price = `${RUBLES.format(option.price_rub)} ₽ за ${option.unit}`;
+  if (option.quantity === null) return price;
+  const quantity = `${QUANTITY.format(option.quantity)} ${option.unit} на блок`;
+  return option.quantity_label ? `${price} · ${quantity} (${option.quantity_label})` : `${price} · ${quantity}`;
 }

@@ -25,7 +25,8 @@ from cost.model import sensitivity
 from cost.model.engine import compute_block_economics
 from cost.model.export_xlsx import export_bytes
 from cost.model.inputs import BlockEconomics, ModelParameters, payload_number, payload_text
-from cost.model.materials import ROLES
+from cost.model.materials import ROLES, quantity_in_price_units
+from cost.v2.prices import effective_price, effective_price_lookup
 from cost.v2.models import ReferenceSnapshot, decimal_value
 from cost.v2.packages import package_map
 from cost.v2.repository import EconomicsRepository, StoredTechnicalPassport
@@ -96,7 +97,9 @@ def block_economics(
         raise repository_error(exc) from exc
     params = _params_with_site(payload.parameters, passport)
     result = _compute(passport, params, references)
-    return BlockEconomicsSchema.model_validate(result.to_dict())
+    return BlockEconomicsSchema.model_validate(
+        {**result.to_dict(), "reference_revision_id": references.revision_id}
+    )
 
 
 @router.post("/block-economics/sensitivity", response_model=SensitivityResponse)
@@ -121,7 +124,9 @@ def block_economics_sensitivity(
         references,
         passport_name=passport.object_name,
     )
-    return SensitivityResponse.model_validate({"rows": [row.to_dict() for row in rows]})
+    return SensitivityResponse.model_validate(
+        {"rows": [row.to_dict() for row in rows], "reference_revision_id": references.revision_id}
+    )
 
 
 @router.post("/runs", response_model=EconomicsRunSchema, status_code=status.HTTP_201_CREATED)
@@ -273,7 +278,7 @@ def model_defaults(
     rates = references.active_items("organization_rates")
     rate = rates[0] if rates else None
 
-    nomenclature = _nomenclature(references)
+    nomenclature = _nomenclature(references, passport)
     rigs = _equipment(references, "DRILL_RIG")
     szm = _equipment(references, "SZM")
     trucks = _equipment(references, "HAZMAT_TRUCK")
@@ -335,45 +340,48 @@ def model_defaults(
     )
 
 
-def _nomenclature(references: ReferenceSnapshot) -> dict[str, list[dict[str, Any]]]:
-    """Номенклатура блока по ролям с ценой на дату расчёта.
+def _nomenclature(
+    references: ReferenceSnapshot, passport: StoredTechnicalPassport
+) -> dict[str, list[dict[str, Any]]]:
+    """Номенклатура блока по ролям: цена на дату расчёта и количество из паспорта.
 
     Буровой инструмент и позиции без роли в выбор не попадают: они приходят
     в расчёт через условия бурения и правила затрат, а не со вкладки.
+    Количество отдаётся в единицах цены тем же правилом, что и модель:
+    подпись под выбором и строка сметы должны называть одно число.
     """
 
-    roles = {role.code for role in ROLES}
+    roles = {role.code: role for role in ROLES}
+    prices = references.active_items("material_prices")
     catalog: dict[str, list[dict[str, Any]]] = {}
     for item in references.active_items("materials"):
-        role = payload_text(item, "nomenclature_role", "OTHER")
-        if role not in roles:
+        role = roles.get(payload_text(item, "nomenclature_role", "OTHER"))
+        if role is None:
             continue
-        catalog.setdefault(role, []).append(
+        driver_value = decimal_value(passport.physical.get(role.driver))
+        # Ручной драйвер (электродетонаторы) в паспорте не бывает: количество
+        # сметчик задаёт сам, подсказать его нечем.
+        quantity, quantity_label = (
+            (None, "")
+            if role.driver not in passport.physical
+            else quantity_in_price_units(role, item, driver_value)
+        )
+        catalog.setdefault(role.code, []).append(
             {
                 "code": item.code,
                 "name": item.name,
-                "unit": payload_text(item, "unit"),
-                "price_rub": float(_material_price(references, item.code)),
+                "unit": role.unit,
+                "price_rub": float(effective_price(effective_price_lookup(prices, item.code))),
                 "length_m": float(payload_number(item, "length_m")),
+                "quantity": float(quantity) if quantity is not None else None,
+                # Происхождение нужно только там, где штуки переведены в
+                # килограммы; для простых ролей оно повторяло бы само число.
+                "quantity_label": quantity_label if role.priced_per_kg else "",
             }
         )
     for options in catalog.values():
         options.sort(key=lambda row: row["name"])
     return catalog
-
-
-def _material_price(references: ReferenceSnapshot, material_code: str) -> Decimal:
-    """Цена материала: та же запись, что возьмёт модель при расчёте."""
-
-    prices = [
-        item
-        for item in references.active_items("material_prices")
-        if payload_text(item, "material_code") == material_code
-    ]
-    if not prices:
-        return Decimal("0")
-    prices.sort(key=lambda item: (item.valid_from is not None, item.valid_from), reverse=True)
-    return payload_number(prices[0], "price_rub") + payload_number(prices[0], "delivery_rub")
 
 
 def _default_nomenclature(

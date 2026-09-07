@@ -291,7 +291,12 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
         {defaults && params && (
           <div className="block-economics-inputs">
             <NomenclaturePanel params={params} defaults={defaults} onChange={patchParams} />
-            <ParametersPanel params={params} defaults={defaults} onChange={patchParams} />
+            <ParametersPanel
+              params={params}
+              defaults={defaults}
+              computedRevisionId={economics?.reference_revision_id}
+              onChange={patchParams}
+            />
           </div>
         )}
         <div className="block-economics-results">

@@ -91,6 +91,9 @@ class BlockEconomicsSchema(BaseModel):
     natural: NaturalDriversSchema
     capacity: list[CapacityWarningSchema] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Ревизия справочников, на которой посчитано: при пустой ревизии в
+    # параметрах это актуальная, и сметчик должен видеть какая.
+    reference_revision_id: str = ""
 
 
 class EconomicsRunSchema(BaseModel):
@@ -154,6 +157,7 @@ class SensitivityRowSchema(BaseModel):
 
 class SensitivityResponse(BaseModel):
     rows: list[SensitivityRowSchema]
+    reference_revision_id: str = ""
 
 
 class ModelDefaultsResponse(BaseModel):

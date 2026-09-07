@@ -1,11 +1,5 @@
 import { NumericInput } from "./NumericInput";
-import {
-  NOMENCLATURE_ROLES,
-  isRoleVisible,
-  optionCaption,
-  roleQuantity,
-  unitLabel,
-} from "./nomenclature";
+import { NOMENCLATURE_ROLES, isRoleVisible, optionCaption } from "./nomenclature";
 import type { ModelDefaults, ModelParameters } from "../../types/blockEconomics";
 
 /**
@@ -37,7 +31,6 @@ export function NomenclaturePanel({
           const options = defaults.nomenclature[role.role] ?? [];
           const selectedCode = params.nomenclature[role.role] ?? "";
           const selected = options.find((option) => option.code === selectedCode);
-          const quantity = roleQuantity(role, passport);
           return (
             <label key={role.role}>
               {role.label}
@@ -56,12 +49,7 @@ export function NomenclaturePanel({
                   </option>
                 ))}
               </select>
-              <small>
-                {optionCaption(selected, role, options.length)}
-                {quantity !== null && selected
-                  ? ` · ${quantity.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${unitLabel(selected.unit)} на блок`
-                  : ""}
-              </small>
+              <small>{optionCaption(selected, role, options.length)}</small>
             </label>
           );
         })}

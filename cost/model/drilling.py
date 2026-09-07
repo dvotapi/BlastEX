@@ -57,7 +57,10 @@ def pick_condition(
         if payload_text(item, "equipment_type_code") == rig_code
     ]
     if not rows:
-        return None, f"нет условий бурения для станка {rig_code}"
+        return None, (
+            f"нет условий бурения для станка {rig_code} — заведите запись "
+            "в разделе «Условия бурения»"
+        )
 
     def by(site: bool, rock: bool) -> ReferenceItem | None:
         for item in rows:
@@ -85,7 +88,10 @@ def pick_condition(
     default = by(site=False, rock=False)
     if default is not None:
         return default, f"drilling_conditions.{default.code} (норма станка по умолчанию)"
-    return None, f"нет нормы по умолчанию для станка {rig_code}"
+    return None, (
+        f"нет нормы по умолчанию для станка {rig_code} — заведите запись "
+        "в разделе «Условия бурения» без породы и карьера"
+    )
 
 
 def compute(context: ModelContext) -> DrillingNorms | None:
@@ -139,6 +145,9 @@ def compute(context: ModelContext) -> DrillingNorms | None:
     )
     plan_metres = plan_shifts * v_commercial
 
+    context.set_value(
+        "drilling_tech_speed_m_per_h", tech_speed, f"drilling_conditions.{condition.code}"
+    )
     context.set_value(
         "v_commercial_m_per_shift",
         v_commercial,

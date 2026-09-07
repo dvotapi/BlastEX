@@ -101,3 +101,28 @@ def test_cost_per_metre_matches_the_drilling_lines() -> None:
     per_metre = lines / context.value("drilling_m")
     assert round(context.value("drilling_rub_per_m"), 6) == round(per_metre, 6)
     assert norms.cost_rub_per_m == context.value("drilling_rub_per_m")
+
+
+def test_missing_condition_names_the_rig_and_the_reference_section() -> None:
+    """Сметчик должен понять, какую запись завести, а не только что бурение нулевое."""
+
+    context = ModelContext(fx.references(drilling_conditions=()), fx.parameters(), fx.physical())
+    drilling.compute(context)
+
+    warning = next(text for text in context.warnings if "Бурение не рассчитано" in text)
+    assert "RIG_JK830" in warning
+    assert "«Условия бурения»" in warning
+
+
+def test_breakdown_values_are_exposed_as_natural_drivers() -> None:
+    """Разложение метра на вкладке собирается из натуральных величин — без второго расчёта."""
+
+    context = _context()
+    drilling.compute(context)
+
+    assert context.value("drilling_tech_speed_m_per_h") == Decimal("12")
+    assert context.value("v_commercial_m_per_shift") == Decimal("120")
+    assert context.value("drilling_rub_per_m") == (
+        context.value("drilling_variable_rub_per_m") + context.value("drilling_fixed_rub_per_m")
+    )
+    assert context.lineage["drilling_condition"].startswith("drilling_conditions.")

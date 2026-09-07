@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { CostStructure } from "./CostStructure";
+import { DrillingBreakdown } from "./DrillingBreakdown";
 import { ModelWarnings } from "./ModelWarnings";
 import { NomenclaturePanel } from "./NomenclaturePanel";
 import { ParametersPanel } from "./ParametersPanel";
@@ -304,6 +305,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
             <>
               <PricePanel economics={economics} />
               <ModelWarnings economics={economics} />
+              <DrillingBreakdown economics={economics} />
               <CostStructure economics={economics} />
             </>
           ) : (

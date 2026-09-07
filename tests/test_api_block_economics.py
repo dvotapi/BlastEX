@@ -357,3 +357,27 @@ def test_block_economics_reports_the_revision_it_computed_on(client) -> None:
 
     assert computed["reference_revision_id"] == head
     assert sensitivity["reference_revision_id"] == head
+
+
+def test_defaults_offer_an_emulsion_truck_and_manual_plan_shifts_reach_the_model(client) -> None:
+    test_client, _, passport_id = client
+    defaults = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    assert [row["code"] for row in defaults["emulsion_trucks"]] == ["TRUCK_EMULSION_20T"]
+    assert defaults["parameters"]["emulsion_truck_code"] == "TRUCK_EMULSION_20T"
+
+    computed = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id,
+            emulsion_truck_code="TRUCK_EMULSION_20T",
+            machine_plan_shifts={"TRUCK_EMULSION_20T": "12"},
+        ),
+    ).json()
+    depreciation = next(
+        line for line in computed["lines"] if line["cost_item_code"] == "EMULSION_TRUCK_DEPRECIATION"
+    )
+    assert depreciation["amount_rub"] == pytest.approx(9_000_000 / 60 / 12 * 3)

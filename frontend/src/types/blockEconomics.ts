@@ -18,6 +18,9 @@ export type ModelParameters = {
   rig_plan_shifts: Numeric | null;
   szm_code: string | null;
   delivery_truck_code: string | null;
+  emulsion_truck_code: string | null;
+  /** Код типа техники → плановые смены в месяц; нет ключа — норматив справочника. */
+  machine_plan_shifts: Record<string, Numeric>;
   crew: CrewMemberInput[];
   drilling_executor: "OWN" | "SUBCONTRACTOR";
   /** Роль номенклатуры → код материала; количество приходит из паспорта. */
@@ -162,6 +165,7 @@ export type ModelDefaults = {
   rigs: CodeName[];
   szm: CodeName[];
   delivery_trucks: CodeName[];
+  emulsion_trucks: CodeName[];
   positions: CodeName[];
   packages: CodeName[];
   sites: CodeName[];

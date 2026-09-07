@@ -77,6 +77,11 @@ class ModelParameters:
     rig_plan_shifts: Decimal | None = None
     szm_code: str | None = None
     delivery_truck_code: str | None = None
+    # Тягач с полуприцепом везёт компоненты эмульсии с базы на объект.
+    emulsion_truck_code: str | None = None
+    # Плановые смены техники в месяц по коду типа: ручная поправка к нормативу
+    # справочника — от неё зависит доля амортизации и страховки на смену.
+    machine_plan_shifts: Mapping[str, Decimal] = field(default_factory=dict)
     crew: tuple[CrewMember, ...] = ()
     drilling_executor: DrillingExecutor = "OWN"
     # Роль номенклатуры («EXPLOSIVE», «NSI_DOWNHOLE», …) → код материала.
@@ -100,6 +105,12 @@ class ModelParameters:
             rig_plan_shifts=_optional_number(data.get("rig_plan_shifts")),
             szm_code=_optional_code(data.get("szm_code")),
             delivery_truck_code=_optional_code(data.get("delivery_truck_code")),
+            emulsion_truck_code=_optional_code(data.get("emulsion_truck_code")),
+            machine_plan_shifts={
+                str(code): decimal_value(value)
+                for code, value in dict(data.get("machine_plan_shifts") or {}).items()
+                if value not in (None, "")
+            },
             crew=tuple(CrewMember.from_dict(item) for item in data.get("crew", ())),
             drilling_executor=(
                 "SUBCONTRACTOR"
@@ -129,6 +140,8 @@ class ModelParameters:
             "rig_plan_shifts": str(self.rig_plan_shifts) if self.rig_plan_shifts is not None else None,
             "szm_code": self.szm_code,
             "delivery_truck_code": self.delivery_truck_code,
+            "emulsion_truck_code": self.emulsion_truck_code,
+            "machine_plan_shifts": {code: str(value) for code, value in self.machine_plan_shifts.items()},
             "crew": [member.to_dict() for member in self.crew],
             "drilling_executor": self.drilling_executor,
             "nomenclature": dict(self.nomenclature),
@@ -388,6 +401,14 @@ class ModelContext:
         if self.site is None:
             return default
         return payload_number(self.site, key, default)
+
+    def machine_plan_shifts(self, equipment: ReferenceItem) -> Decimal:
+        """Плановые смены техники в месяц: ручная поправка вкладки, иначе норматив типа."""
+
+        manual = self.params.machine_plan_shifts.get(equipment.code)
+        if manual is not None and manual > 0:
+            return manual
+        return payload_number(equipment, "norm_shifts_per_month")
 
     def diesel_price_l(self) -> Decimal:
         """Цена литра ДТ: справочник объекта хранит цену тонны."""

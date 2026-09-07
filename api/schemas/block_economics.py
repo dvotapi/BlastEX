@@ -29,6 +29,9 @@ class ModelParametersSchema(BaseModel):
     rig_plan_shifts: Decimal | None = Field(None, ge=0)
     szm_code: str | None = None
     delivery_truck_code: str | None = None
+    emulsion_truck_code: str | None = None
+    # Код типа техники → плановые смены в месяц; пусто — норматив справочника.
+    machine_plan_shifts: dict[str, Decimal] = Field(default_factory=dict)
     crew: list[CrewMemberSchema] = Field(default_factory=list)
     drilling_executor: Literal["OWN", "SUBCONTRACTOR"] = "OWN"
     # Роль номенклатуры → код материала; пустое значение означает «не выбрано».
@@ -169,6 +172,7 @@ class ModelDefaultsResponse(BaseModel):
     rigs: list[dict[str, str]]
     szm: list[dict[str, str]]
     delivery_trucks: list[dict[str, str]]
+    emulsion_trucks: list[dict[str, str]] = Field(default_factory=list)
     positions: list[dict[str, str]]
     packages: list[dict[str, str]]
     sites: list[dict[str, str]]

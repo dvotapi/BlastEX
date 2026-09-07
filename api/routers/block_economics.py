@@ -282,6 +282,7 @@ def model_defaults(
     rigs = _equipment(references, "DRILL_RIG")
     szm = _equipment(references, "SZM")
     trucks = _equipment(references, "HAZMAT_TRUCK")
+    emulsion_trucks = _equipment(references, "EMULSION_TRUCK")
     rig_code = rigs[0]["code"] if rigs else None
     rig_type = references.item("equipment_types", rig_code) if rig_code else None
     package = package_map(references).get(package_code)
@@ -310,6 +311,7 @@ def model_defaults(
             or None,
             "szm_code": szm[0]["code"] if szm else None,
             "delivery_truck_code": trucks[0]["code"] if trucks else None,
+            "emulsion_truck_code": emulsion_trucks[0]["code"] if emulsion_trucks else None,
             "crew": crew,
             "drilling_executor": "OWN",
             "nomenclature": _default_nomenclature(nomenclature, passport),
@@ -329,6 +331,7 @@ def model_defaults(
             "rigs": rigs,
             "szm": szm,
             "delivery_trucks": trucks,
+            "emulsion_trucks": emulsion_trucks,
             "positions": _catalog(references, "positions"),
             "packages": [
                 {"code": code, "name": item.name}

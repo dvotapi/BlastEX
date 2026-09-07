@@ -96,6 +96,8 @@ OPTIONAL_DRIVERS = frozenset(
         "szm_trips",
         "delivery_shifts",
         "delivery_trips",
+        "emulsion_shifts",
+        "emulsion_trips",
         "rig_shifts",
         "rig_maintenance_shifts",
         "mobilization_trip_km",

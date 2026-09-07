@@ -63,6 +63,8 @@ class ReclassifyReport:
     already_direct: list[str]
     missing: list[str]
     crew_members: list[str]
+    # Код шаблона, который оставлен как есть: состав уже заполнен человеком.
+    crew_kept: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -70,6 +72,7 @@ class ReclassifyReport:
             "already_direct": list(self.already_direct),
             "missing": list(self.missing),
             "crew_members": list(self.crew_members),
+            "crew_kept": self.crew_kept,
         }
 
 
@@ -117,17 +120,29 @@ def reclassify_positions(
         for spec in DIRECT_POSITIONS
         if spec.default_headcount > 0 and spec.code in by_code
     ]
-    report.crew_members = [f"{m['position_code']} × {m['headcount']}" for m in members]
-    sections["crew_templates"] = _with_default_crew(sections["crew_templates"], members)
+    sections["crew_templates"], kept = _with_default_crew(sections["crew_templates"], members)
+    report.crew_kept = kept
+    report.crew_members = (
+        [] if kept else [f"{m['position_code']} × {m['headcount']}" for m in members]
+    )
     return sections, report
 
 
 def _with_default_crew(
     templates: Sequence[ReferenceItem], members: list[Mapping[str, str]]
-) -> list[ReferenceItem]:
+) -> tuple[list[ReferenceItem], str]:
+    """Шаблон бригады по умолчанию и код шаблона, оставленного без изменений.
+
+    Заполненный состав — данные организации: человек мог убрать должность или
+    поставить трёх взрывников, и повторный прогон скрипта не вправе это
+    затирать. Дозаполняется только пустой или отсутствующий шаблон.
+    """
+
     if not members:
-        return list(templates)
+        return list(templates), ""
     template = next((item for item in templates if item.code == DEFAULT_CREW_CODE), None)
+    if template is not None and template.payload.get("members"):
+        return list(templates), template.code
     if template is None:
         template = ReferenceItem(
             code=DEFAULT_CREW_CODE,
@@ -135,10 +150,13 @@ def _with_default_crew(
             payload={"package_code": DEFAULT_PACKAGE},
             source="crew_defaults",
         )
-    updated = replace(template, payload={**template.payload, "package_code": DEFAULT_PACKAGE, "members": members})
-    return [updated if item.code == DEFAULT_CREW_CODE else item for item in templates] + (
-        [updated] if all(item.code != DEFAULT_CREW_CODE for item in templates) else []
+    updated = replace(
+        template,
+        payload={**template.payload, "package_code": DEFAULT_PACKAGE, "members": members},
     )
+    if any(item.code == DEFAULT_CREW_CODE for item in templates):
+        return [updated if item.code == DEFAULT_CREW_CODE else item for item in templates], ""
+    return [*templates, updated], ""
 
 
 __all__ = [

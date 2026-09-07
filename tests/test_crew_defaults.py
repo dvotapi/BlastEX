@@ -35,9 +35,11 @@ def imported_snapshot():
         )
         for code, name in IMPORTED.items()
     )
+    # Импорт V1 шаблонов бригад не приносит: состав собирает этот модуль.
     return fx.references(
         positions=(*fx.POSITIONS, *positions),
         labor_rates=(*fx.LABOR_RATES, *rates),
+        crew_templates=(),
     )
 
 
@@ -107,3 +109,48 @@ def test_reclassified_crew_produces_labor_lines() -> None:
     # 60 000 ₽/мес / 21 см × 2,1 см на блок (21 / 10 взрывов) × 1 чел + сдельная 0,25 × 60 000 м³.
     assert master.amount_rub == Decimal("60000") / 21 * (Decimal("21") / 10) + Decimal("0.25") * 60000
     assert not any("норматив операций" in text for text in result.warnings)
+
+
+def test_hand_edited_crew_is_not_overwritten() -> None:
+    """Состав, поправленный человеком, — данные организации, а не шаблон скрипта."""
+
+    sections, _ = reclassify_positions(imported_snapshot())
+    edited = [
+        replace(item, payload={**item.payload, "members": [
+            {"position_code": "POSITION_LABOR_BLASTERS", "headcount": "3"},
+        ]})
+        if item.code == DEFAULT_CREW_CODE
+        else item
+        for item in sections["crew_templates"]
+    ]
+    snapshot = replace(
+        imported_snapshot(),
+        sections={**{k: tuple(v) for k, v in sections.items()}, "crew_templates": tuple(edited)},
+    )
+
+    again, report = reclassify_positions(snapshot)
+
+    template = next(item for item in again["crew_templates"] if item.code == DEFAULT_CREW_CODE)
+    assert template.payload["members"] == [{"position_code": "POSITION_LABOR_BLASTERS", "headcount": "3"}]
+    assert report.crew_members == []
+    assert report.crew_kept == DEFAULT_CREW_CODE
+
+
+def test_empty_existing_template_is_filled_in() -> None:
+    """Шаблон без состава — незаполненное место, его дозаполняем."""
+
+    empty = ReferenceItem(
+        code=DEFAULT_CREW_CODE,
+        name="Бригада полного комплекса",
+        payload={"package_code": "DRILL_AND_BLAST", "members": []},
+    )
+    snapshot = replace(
+        imported_snapshot(),
+        sections={**imported_snapshot().sections, "crew_templates": (empty,)},
+    )
+
+    sections, report = reclassify_positions(snapshot)
+
+    template = next(item for item in sections["crew_templates"] if item.code == DEFAULT_CREW_CODE)
+    assert len(template.payload["members"]) == 5
+    assert report.crew_kept == ""

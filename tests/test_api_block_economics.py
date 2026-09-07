@@ -1,6 +1,7 @@
 """API вкладки «Экономика» на in-memory репозитории."""
 from __future__ import annotations
 
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -357,3 +358,101 @@ def test_block_economics_reports_the_revision_it_computed_on(client) -> None:
 
     assert computed["reference_revision_id"] == head
     assert sensitivity["reference_revision_id"] == head
+
+
+def test_downhole_nsi_default_accounts_for_two_devices_per_hole(client) -> None:
+    """Длина одного устройства — общая длина на число устройств, а не на число скважин."""
+
+    test_client, repository, _ = client
+    passport = repository.save_technical_passport(
+        "default",
+        "tester",
+        site_code="SITE_MAIN",
+        object_name="Блок с двумя НСИ в скважине",
+        previous_passport_id=None,
+        reference_revision_id=repository.list_reference_revisions("default")[0].id,
+        formula_version="blast-geometry-v1",
+        input_snapshot={},
+        selected_variant={},
+        block_snapshot={},
+        # 1224 скважины × 2 устройства по 9 м: суммарная длина вдвое больше.
+        physical={
+            **{key: str(value) for key, value in fx.physical().items()},
+            "downhole_nsi": "2448",
+            "nsi_length_m": "22032",
+        },
+        lineage={},
+    )
+
+    body = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport.id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    # 22032 / 2448 = 9 м на устройство — берём девятиметровое, а не 18-метровое.
+    assert body["parameters"]["nomenclature"]["NSI_DOWNHOLE"] == "MAT_NSI"
+
+
+def test_downhole_nsi_default_is_never_shorter_than_required(client) -> None:
+    """Короче скважины сеть не смонтировать: ближайшее по модулю разности не годится."""
+
+    test_client, repository, _ = client
+    passport = repository.save_technical_passport(
+        "default",
+        "tester",
+        site_code="SITE_MAIN",
+        object_name="Блок под 10 м НСИ",
+        previous_passport_id=None,
+        reference_revision_id=repository.list_reference_revisions("default")[0].id,
+        formula_version="blast-geometry-v1",
+        input_snapshot={},
+        selected_variant={},
+        block_snapshot={},
+        # 10 м на устройство: 9 м ближе по модулю, но короче требуемого.
+        physical={
+            **{key: str(value) for key, value in fx.physical().items()},
+            "downhole_nsi": "1224",
+            "nsi_length_m": "12240",
+        },
+        lineage={},
+    )
+
+    body = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport.id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    assert body["parameters"]["nomenclature"]["NSI_DOWNHOLE"] == "MAT_NSI_12"
+
+
+def test_export_prices_the_run_on_its_own_date(client) -> None:
+    """Экспорт повторяет сохранённый прогон, а не пересчитывает его по ценам на сегодня."""
+
+    test_client, repository, passport_id = client
+    run = test_client.post(
+        "/api/v1/economics/runs",
+        json={
+            **_parameters(passport_id, nomenclature={"EXPLOSIVE": "MAT_EVERSIN"}),
+            "name": "Экспорт по дате прогона",
+        },
+    ).json()
+    saved = next(
+        line for line in run["result"]["lines"] if line["cost_item_code"] == "MATERIAL_EXPLOSIVE"
+    )
+
+    # Цена ВВ истекла вчера: сегодняшний расчёт на той же ревизии дал бы ноль.
+    head = repository.list_reference_revisions("default")[0].id
+    sections = {
+        section: [item.to_dict() for item in items]
+        for section, items in repository.get_reference_snapshot("default", head).sections.items()
+    }
+    for row in sections["material_prices"]:
+        if row["payload"].get("material_code") == "MAT_EVERSIN":
+            row["payload"]["valid_to"] = (date.today() - timedelta(days=1)).isoformat()
+            row["valid_to"] = (date.today() - timedelta(days=1)).isoformat()
+    repository.publish_references("default", "tester", head, sections, "цена истекла")
+
+    response = test_client.get(f"/api/v1/economics/runs/{run['id']}/export.xlsx")
+
+    assert response.status_code == 200
+    assert saved["amount_rub"] == pytest.approx(42000 * 48.9)

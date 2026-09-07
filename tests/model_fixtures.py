@@ -89,6 +89,13 @@ MATERIALS = (
         "Детонатор промежуточный «Сферит ДП» 60/0,8",
         {"unit": "KG", "material_kind": "СВ", "storage_class": "CARTRIDGE", "nomenclature_role": "BOOSTER", "mass_kg": "0.8"},
     ),
+    # Боевик заведён, массу единицы не проставили: перевод штук в килограммы
+    # сделать не из чего.
+    item(
+        "MAT_BOOSTER_NO_MASS",
+        "Детонатор промежуточный без массы",
+        {"unit": "KG", "material_kind": "СВ", "storage_class": "CARTRIDGE", "nomenclature_role": "BOOSTER"},
+    ),
     item(
         "MAT_DETONATOR_EL",
         "Электродетонатор ЭД-1-Н",
@@ -108,6 +115,7 @@ MATERIAL_PRICES = (
     item("PR_NSI_SURFACE", "Искра-П-5", {"material_code": "MAT_NSI_SURFACE", "price_rub": "240"}),
     item("PR_NSI_START", "ИСКРА-СТАРТ-В-200", {"material_code": "MAT_NSI_START", "price_rub": "3210"}),
     item("PR_BOOSTER", "Сферит ДП", {"material_code": "MAT_BOOSTER", "price_rub": "150"}),
+    item("PR_BOOSTER_NO_MASS", "Боевик без массы", {"material_code": "MAT_BOOSTER_NO_MASS", "price_rub": "150"}),
     item("PR_DETONATOR_EL", "ЭД-1-Н", {"material_code": "MAT_DETONATOR_EL", "price_rub": "45"}),
 )
 

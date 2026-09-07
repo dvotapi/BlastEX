@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from cost.model.inputs import ModelContext, payload_number
+from cost.model.inputs import ModelContext, payload_number, payload_text
 from cost.model.prices import price_lookup
 from cost.v2.models import CostLayer, ReferenceItem
 from cost.v2.prices import effective_price
@@ -106,6 +106,14 @@ ROLES: tuple[Role, ...] = (
 
 ROLE_BY_CODE: dict[str, Role] = {role.code: role for role in ROLES}
 
+# Подписи для сообщения о чужой роли: сметчик читает «скважинное НСИ», а не
+# NSI_DOWNHOLE. `OTHER` и буровой инструмент ролями выбора не являются.
+_ROLE_LABELS: dict[str, str] = {
+    **{role.code: role.label for role in ROLES},
+    "DRILL_TOOL": "буровой инструмент",
+    "OTHER": "роль не задана",
+}
+
 
 @dataclass(frozen=True)
 class Gap:
@@ -187,6 +195,23 @@ def _role_line(context: ModelContext, role: Role, outcome: MaterialsOutcome) -> 
                 f"{role.label} не оценено в деньгах.",
                 f"Номенклатура {code} не найдена в справочнике материалов: "
                 f"{role.label} посчитано по правилу затрат.",
+            )
+        )
+        return
+    # Роль позиции в справочнике задаёт единицу цены: НСИ, выбранное как
+    # основное ВВ, умножило бы массу заряда на цену за штуку. Выбор мог
+    # устареть после правки справочника или прийти запросом мимо вкладки.
+    material_role = payload_text(material, "nomenclature_role", "OTHER")
+    if material_role != role.code:
+        outcome.gaps.append(
+            Gap(
+                role,
+                f"У номенклатуры «{material.name}» роль в смете — "
+                f"{_ROLE_LABELS.get(material_role, material_role)}, а выбрана она как "
+                f"{role.label}: строка не начислена.",
+                f"У номенклатуры «{material.name}» роль в смете — "
+                f"{_ROLE_LABELS.get(material_role, material_role)}, а выбрана она как "
+                f"{role.label}: {role.label} посчитано по правилу затрат.",
             )
         )
         return

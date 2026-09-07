@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from typing import Any, Iterable, Literal, Mapping
 
@@ -267,10 +268,13 @@ class ModelContext:
         *,
         passport_lineage: Mapping[str, str] | None = None,
         passport_name: str = "Блок",
+        as_of: date | None = None,
     ) -> None:
         self.references = references
         self.params = params
         self.passport_name = passport_name
+        # Дата расчёта: по ней выбирается действующая цена материала.
+        self.as_of = as_of or date.today()
         self.values: dict[str, Decimal] = {
             str(key): decimal_value(value) for key, value in physical.items()
         }

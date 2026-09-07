@@ -1,47 +1,35 @@
-"""Цены материалов: единственное место, где модель читает «Стоимость материалов».
+"""Цены материалов в модели блока: обёртка над правилом действующей цены.
 
-Цена «на дату расчёта» — последняя по `valid_from` запись раздела. Доставка,
-включённая в цену поставщика, прибавляется к ней: в смете блока это одна
-величина, разделять их незачем.
+Само правило («какая запись действует на дату расчёта») живёт в
+`cost/v2/prices.py` и общее для модели, вкладки и Cost V1; здесь оно лишь
+привязано к контексту прогона и его дате.
 """
 from __future__ import annotations
 
 from decimal import Decimal
 
-from cost.model.inputs import ModelContext, payload_number, payload_text
-from cost.v2.models import ReferenceItem
+from cost.model.inputs import ModelContext
+from cost.v2.prices import PriceLookup, effective_price, effective_price_lookup
 
 
-def latest_price_item(context: ModelContext, material_code: str) -> ReferenceItem | None:
+def price_lookup(context: ModelContext, material_code: str) -> PriceLookup:
     if not material_code:
-        return None
-    prices = [
-        item
-        for item in context.items("material_prices")
-        if payload_text(item, "material_code") == material_code
-    ]
-    if not prices:
-        return None
-    # Датированная запись всегда свежее недатированной: запись без даты —
-    # старая загрузка, а не «цена на сегодня».
-    prices.sort(key=lambda item: (item.valid_from is not None, item.valid_from), reverse=True)
-    return prices[0]
+        return PriceLookup(material_code, found=False, chosen=None)
+    return effective_price_lookup(
+        context.items("material_prices"), material_code, as_of=context.as_of
+    )
 
 
 def material_price(context: ModelContext, material_code: str) -> Decimal:
-    """Цена материала: цена поставщика плюс доставка, включённая в цену."""
+    """Цена материала на дату расчёта с доставкой; ноль, если цены нет."""
 
-    row = latest_price_item(context, material_code)
-    if row is None:
-        return Decimal("0")
-    return payload_number(row, "price_rub") + payload_number(row, "delivery_rub")
+    return effective_price(price_lookup(context, material_code))
 
 
 def price_source(context: ModelContext, material_code: str) -> str:
     """Происхождение цены для колонки «формула» строки затрат."""
 
-    row = latest_price_item(context, material_code)
-    return f"material_prices.{row.code}" if row is not None else ""
+    return price_lookup(context, material_code).source
 
 
-__all__ = ["latest_price_item", "material_price", "price_source"]
+__all__ = ["material_price", "price_lookup", "price_source"]

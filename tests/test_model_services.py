@@ -108,3 +108,51 @@ def test_services_survive_the_parameters_round_trip() -> None:
     restored = type(params).from_dict(params.to_dict())
 
     assert restored.services == params.services
+
+
+def test_rule_outside_the_package_does_not_suppress_the_tab_line() -> None:
+    """Правило на операции, которой нет в пакете, ничего не начисляет.
+
+    Уступать ему значит потерять услугу совсем: в справочнике она есть, в
+    смете её нет ни одной строкой.
+    """
+
+    rule = fx.item(
+        service_code("Медосмотр"),
+        "Медосмотр",
+        {
+            "operation_code": "BLAST_EXECUTION",
+            "cost_item_code": service_code("Медосмотр"),
+            "behavior_type": "FIXED",
+            "cost_layer": "project_direct",
+            "fixed_rub": "5000",
+        },
+    )
+    result = compute_block_economics(
+        fx.snapshot(),
+        fx.parameters(
+            package_code="DRILLING",
+            services=(ServiceCharge("Медосмотр", Decimal("5000"), "project_direct", "PRODUCTION_DRILLING"),),
+        ),
+        fx.references(cost_rules=(*fx.COST_RULES, rule)),
+    )
+
+    lines = [row for row in result.lines if row.cost_item_name == "Медосмотр"]
+    assert [row.amount_rub for row in lines] == [Decimal("5000")]
+    assert not any("уже есть в правилах затрат" in text for text in result.warnings)
+
+
+def test_long_service_names_do_not_share_a_code() -> None:
+    """Обрезка до 80 символов схлопывала разные названия в один код."""
+
+    first = service_code("Услуги сторонней организации по перевозке персонала на объект Северный участок 1")
+    second = service_code("Услуги сторонней организации по перевозке персонала на объект Северный участок 2")
+
+    assert first != second
+    assert len(first) <= 80 and len(second) <= 80
+    # Код детерминирован: повторный перенос той же услуги обновляет ту же запись.
+    assert first == service_code("Услуги сторонней организации по перевозке персонала на объект Северный участок 1")
+
+
+def test_short_names_keep_a_readable_code() -> None:
+    assert service_code("Проживание и питание") == "SERVICE_PROZHIVANIE_I_PITANIE"

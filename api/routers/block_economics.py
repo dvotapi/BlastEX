@@ -478,6 +478,19 @@ def service_to_reference(
         raise repository_error(exc) from exc
     sections = {name: list(items) for name, items in current.sections.items()}
     existing = next((item for item in sections.get("cost_rules", ()) if item.code == code), None)
+    if existing is not None and existing.name.strip() != service.name.strip():
+        # Разные названия дали один код (транслит и регистр): перезаписать
+        # чужое правило значит потерять его сумму, а ответ сказал бы
+        # «обновлена» — сметчик решил бы, что так и было.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    f"Код {code} уже занят правилом «{existing.name}»: "
+                    "переименуйте услугу или правьте существующее правило в справочнике."
+                )
+            },
+        )
     sections["cost_rules"] = _upsert(
         sections.get("cost_rules", ()), code, service.name, rule_payload
     )

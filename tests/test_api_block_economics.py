@@ -458,3 +458,40 @@ def test_defaults_name_the_package_operations(client) -> None:
     operations = {row["code"]: row["name"] for row in body["operations"]}
     assert operations["BLAST_EXECUTION"] == "Производство взрыва"
     assert set(operations) == set(body["package_operations"])
+
+
+def test_service_transfer_refuses_a_code_taken_by_another_name(client) -> None:
+    """Короткие названия могут дать один код после транслита: молча перезаписать чужое правило нельзя."""
+
+    test_client, repository, _ = client
+    first = test_client.post(
+        "/api/v1/economics/services/to-reference",
+        json={
+            "service": {
+                "name": "Проживание и питание",
+                "amount_rub": "120000",
+                "layer": "project_direct",
+                "operation_code": "BLAST_EXECUTION",
+                "per_shift": False,
+            }
+        },
+    ).json()
+
+    clash = test_client.post(
+        "/api/v1/economics/services/to-reference",
+        json={
+            "service": {
+                "name": "проживание и питание!",
+                "amount_rub": "9000",
+                "layer": "project_direct",
+                "operation_code": "BLAST_EXECUTION",
+                "per_shift": False,
+            }
+        },
+    )
+
+    assert clash.status_code == 409, clash.text
+    assert first["code"] in clash.json()["detail"]["message"]
+    rule = repository.get_reference_snapshot("default").item("cost_rules", first["code"])
+    assert rule.name == "Проживание и питание"
+    assert rule.payload["fixed_rub"] == "120000"

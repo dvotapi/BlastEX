@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from decimal import Decimal
 
@@ -31,17 +32,36 @@ _TRANSLIT = {
 }
 
 
+# Длина кода записи справочника (`_CODE_RE` в cost/v2/references.py).
+_CODE_LIMIT = 80
+# Хвост из хеша полного названия: без него два длинных названия, совпадающих
+# в начале, схлопывались в один код, и перенос второй услуги переписывал
+# правило первой.
+_HASH_LENGTH = 7
+
+
 def service_code(name: str) -> str:
     """Код записи справочника из названия: латиница, стабилен при повторном переносе."""
 
-    latin = "".join(_TRANSLIT.get(ch, ch) for ch in name.strip().lower()).upper()
-    slug = re.sub(r"[^A-Z0-9]+", "_", latin).strip("_")
-    return f"SERVICE_{slug or 'X'}"[:80].rstrip("_")
+    normalized = name.strip().lower()
+    latin = "".join(_TRANSLIT.get(ch, ch) for ch in normalized).upper()
+    slug = re.sub(r"[^A-Z0-9]+", "_", latin).strip("_") or "X"
+    code = f"SERVICE_{slug}"
+    if len(code) <= _CODE_LIMIT:
+        return code
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:_HASH_LENGTH].upper()
+    head = code[: _CODE_LIMIT - _HASH_LENGTH - 1].rstrip("_")
+    return f"{head}_{digest}"
 
 
 def compute(context: ModelContext) -> None:
+    # Уступать можно только правилу, которое в этом пакете действительно
+    # считает: правило на операции вне пакета молчит, и услуга пропала бы
+    # из сметы совсем.
     known_rules = {
-        payload_text(rule, "cost_item_code") or rule.code for rule in context.items("cost_rules")
+        payload_text(rule, "cost_item_code") or rule.code
+        for rule in context.items("cost_rules")
+        if context.has_operation(payload_text(rule, "operation_code"))
     }
     for charge in context.params.services:
         if not charge.name or charge.amount_rub == 0:

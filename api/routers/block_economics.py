@@ -1,6 +1,7 @@
 """REST API вкладки «Экономика»: расчёт блока, снимки, сравнение, чувствительность."""
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Any, Sequence
 
@@ -65,12 +66,15 @@ def _compute(
     passport: StoredTechnicalPassport,
     params: ModelParameters,
     references: ReferenceSnapshot,
+    *,
+    as_of: date | None = None,
 ) -> BlockEconomics:
     return compute_block_economics(
         {"physical": passport.physical, "lineage": passport.lineage},
         params,
         references,
         passport_name=passport.object_name,
+        as_of=as_of,
     )
 
 
@@ -234,9 +238,11 @@ def export_run(
     except Exception as exc:
         raise repository_error(exc) from exc
     # Пересчёт на сохранённой ревизии повторяет снимок и даёт доменный объект
-    # с Decimal, из которого собирается книга.
+    # с Decimal, из которого собирается книга. Дата — та, на которую прогон
+    # считали: иначе истёкшая с тех пор цена материала выпала бы из выгрузки,
+    # и книга разошлась бы с сохранённым сценарием.
     params = ModelParameters.from_dict(stored.parameters)
-    economics = _compute(passport, params, references)
+    economics = _compute(passport, params, references, as_of=stored.created_at.date())
     content = export_bytes(
         economics,
         passport_name=f"{stored.name} — {passport.object_name}",
@@ -413,14 +419,21 @@ def _default_nomenclature(
         for row in catalog.get("NSI_DOWNHOLE", ())
         if row["price_rub"] > 0 and row["length_m"] > 0
     ]
-    holes = decimal_value(passport.physical.get("holes"))
+    # Делитель — число устройств, а не скважин: при двух НСИ в скважине их
+    # суммарная длина вдвое больше длины одного устройства.
+    devices = decimal_value(passport.physical.get("downhole_nsi")) or decimal_value(
+        passport.physical.get("holes")
+    )
     nsi_length = decimal_value(passport.physical.get("nsi_length_m"))
-    if downhole and holes > 0 and nsi_length > 0:
-        # Скважинное НСИ подбирается по длине из паспорта: короче скважины
-        # сеть не смонтировать, длиннее — переплата.
-        target = float(nsi_length / holes)
+    if downhole and devices > 0 and nsi_length > 0:
+        target = float(nsi_length / devices)
+        # Короче требуемого сеть не смонтировать, поэтому сначала подходящие
+        # по длине, и среди них самое короткое; если таких нет — ближайшее.
+        long_enough = [row for row in downhole if row["length_m"] >= target]
+        candidates = long_enough or downhole
         chosen["NSI_DOWNHOLE"] = min(
-            downhole, key=lambda row: (abs(row["length_m"] - target), row["name"])
+            candidates,
+            key=lambda row: (abs(row["length_m"] - target), row["name"]),
         )["code"]
     return chosen
 

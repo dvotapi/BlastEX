@@ -159,7 +159,7 @@ def test_unknown_code_warns_and_adds_no_line() -> None:
 
 
 def test_booster_without_unit_mass_warns() -> None:
-    ctx = context(nomenclature={"BOOSTER": "MAT_NSI"}, intermediate_detonators="10")
+    ctx = context(nomenclature={"BOOSTER": "MAT_BOOSTER_NO_MASS"}, intermediate_detonators="10")
     run(ctx)
 
     assert ctx.lines == []
@@ -270,3 +270,23 @@ def test_a_rule_with_the_same_driver_but_a_different_operation_is_not_blocked() 
     assert len(picking_lines) == 1
     assert picking_lines[0].amount_rub == Decimal("42000") * Decimal("0.5")
     assert not any("WAREHOUSE_PICKING" in text for text in result.warnings)
+def test_material_of_a_foreign_role_is_refused() -> None:
+    """Код НСИ, выбранный как основное ВВ, умножил бы массу на цену за штуку."""
+
+    ctx = context(nomenclature={"EXPLOSIVE": "MAT_NSI"}, explosive_kg="100")
+    run(ctx)
+
+    assert ctx.lines == []
+    assert any(
+        "НСИ скважинное" in text and "основное ВВ" in text for text in ctx.warnings
+    ), ctx.warnings
+
+
+def test_material_without_a_role_is_refused() -> None:
+    """Роль появилась позже импорта: у старой позиции её нет, цена за единицу неизвестна."""
+
+    ctx = context(nomenclature={"EXPLOSIVE": "MAT_BIT"}, explosive_kg="100")
+    run(ctx)
+
+    assert ctx.lines == []
+    assert any("роль" in text.lower() for text in ctx.warnings), ctx.warnings

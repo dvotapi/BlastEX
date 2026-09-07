@@ -45,7 +45,8 @@ _ROLE_BY_CODE_PREFIX: tuple[tuple[str, str], ...] = (
 )
 
 _LENGTH_IN_NAME = re.compile(r"(\d+(?:[,.]\d+)?)\s*м\b")
-_LENGTH_IN_CODE = re.compile(r"MAT_NSI_(\d+)$")
+# Хвост кода в дециметрах: MAT_NSI_90 — 9 м, MAT_NSI_ISKRA_S_85 — 8,5 м.
+_LENGTH_IN_CODE = re.compile(r"_(\d+)$")
 _MASS_IN_NAME = re.compile(r"(\d+[,.]\d+)")
 _MASS_GRAMS_IN_NAME = re.compile(r"ПТ\s*(\d{3})", re.IGNORECASE)
 
@@ -83,12 +84,19 @@ def seed_reference(snapshot: ReferenceSnapshot) -> tuple[dict[str, list[Referenc
 
 
 def guess_role(item: ReferenceItem) -> str | None:
-    for prefix, role in _ROLE_BY_CODE_PREFIX:
-        if item.code.startswith(prefix):
-            return role
+    """Роль позиции: сначала по названию, затем по префиксу кода.
+
+    Название точнее кода: «НСИ Искра-П-*-5» — поверхностное устройство, хотя
+    код начинается с `MAT_NSI`, под которым в справочнике заводили скважинные.
+    Префикс остаётся запасным путём для позиций с невнятным названием.
+    """
+
     name = item.name.lower()
     for role, needles in _ROLE_RULES:
         if any(needle in name for needle in needles):
+            return role
+    for prefix, role in _ROLE_BY_CODE_PREFIX:
+        if item.code.startswith(prefix):
             return role
     return None
 

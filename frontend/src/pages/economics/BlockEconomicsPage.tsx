@@ -166,7 +166,13 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     setError("");
     try {
       const moved = await api.blockEconomics.serviceToReference(service);
-      patchParams({ services: params!.services.filter((_, i) => i !== index) });
+      // Из текущего состояния, а не из params на момент клика: пока шла
+      // публикация ревизии, сметчик мог править соседнюю услугу.
+      setParams((current) =>
+        current
+          ? { ...current, services: current.services.filter((item) => item !== service) }
+          : current,
+      );
       setStatus(
         `«${service.name}» ${moved.created ? "добавлена" : "обновлена"} в правилах затрат как ${moved.code}.`,
       );

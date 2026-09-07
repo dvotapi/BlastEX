@@ -310,6 +310,13 @@ def _fixed_lines(
             # Записи, перенесённые из Cost V1, хранят амортизацию за смену.
             depreciation_month = payload_number(asset, "depreciation_per_shift_rub") * plan_shifts
         insurance_month = payload_number(asset, "insurance_monthly_rub")
+        if depreciation_month <= 0 and insurance_month <= 0:
+            # Запись есть, но амортизировать нечего: молчать нельзя, иначе
+            # постоянная часть метра нулевая и сметчик об этом не знает.
+            context.warn(
+                f"У основного средства {asset.code} не заполнена стоимость "
+                "и амортизация за смену: постоянная часть метра нулевая."
+            )
         if depreciation_month > 0:
             amount = depreciation_month / plan_shifts * charged_shifts
             context.add_line(

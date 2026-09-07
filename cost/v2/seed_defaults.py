@@ -170,6 +170,8 @@ MACHINE_DEFAULTS: dict[str, tuple[str, str, dict[str, str]]] = {
 
 # Первоначальная стоимость и срок службы по виду техники, если основное
 # средство не заведено: без него амортизация не начисляется вовсе.
+_ASSET_COMMENT = "Демонстрационная стоимость: уточните по бухгалтерии."
+
 ASSET_DEFAULTS: dict[str, tuple[str, str]] = {
     "DRILL_RIG": ("20000000", "84"),
     "SZM": ("12000000", "60"),
@@ -222,8 +224,42 @@ def _machines(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> N
         report.machines.append(code)
 
 
+def _depreciable(payload: dict[str, Any]) -> bool:
+    """Есть ли у записи, из чего считать амортизацию.
+
+    Модель берёт либо первоначальную стоимость со сроком службы, либо
+    амортизацию за смену (так хранит Cost V1). Пустая запись — та, где нет
+    ни того, ни другого: она выглядит заведённой, но даёт нулевую
+    амортизацию без предупреждения.
+    """
+
+    has_initial = not _blank(payload, "initial_cost_rub") and not _blank(payload, "useful_life_months")
+    return has_initial or not _blank(payload, "depreciation_per_shift_rub")
+
+
 def _assets(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> None:
-    covered = {str(item.payload.get("equipment_type_code")) for item in sections["equipment_assets"]}
+    updated: list[ReferenceItem] = []
+    covered: set[str] = set()
+    # Единица из журнала приходит с инвентарным и заводским номером, но без
+    # стоимости: дозаполняем её, а не пропускаем как «уже заведённую».
+    for item in sections["equipment_assets"]:
+        machine_code = str(item.payload.get("equipment_type_code") or "")
+        machine = next((m for m in sections["equipment_types"] if m.code == machine_code), None)
+        kind = _kind(machine) if machine is not None else ""
+        if _depreciable(item.payload) or kind not in ASSET_DEFAULTS:
+            covered.add(machine_code)
+            updated.append(item)
+            continue
+        cost, life = ASSET_DEFAULTS[kind]
+        payload = {**item.payload, "initial_cost_rub": cost, "useful_life_months": life}
+        payload.setdefault("insurance_monthly_rub", "500")
+        covered.add(machine_code)
+        updated.append(
+            replace(item, payload=payload, comment=_ASSET_COMMENT)
+        )
+        report.assets.append(item.code)
+    sections["equipment_assets"] = updated
+
     for machine in sections["equipment_types"]:
         kind = _kind(machine)
         if kind not in ASSET_DEFAULTS or machine.code in covered or not machine.is_active:
@@ -241,7 +277,7 @@ def _assets(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> Non
                     "insurance_monthly_rub": "500",
                 },
                 source=SOURCE,
-                comment="Демонстрационная стоимость: уточните по бухгалтерии.",
+                comment=_ASSET_COMMENT,
             )
         )
         report.assets.append(code)

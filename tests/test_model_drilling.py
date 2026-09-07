@@ -126,3 +126,18 @@ def test_breakdown_values_are_exposed_as_natural_drivers() -> None:
         context.value("drilling_variable_rub_per_m") + context.value("drilling_fixed_rub_per_m")
     )
     assert context.lineage["drilling_condition"].startswith("drilling_conditions.")
+
+
+def test_asset_without_depreciable_value_warns_instead_of_silent_zero() -> None:
+    """Единица есть, но стоимости в ней нет: постоянная часть метра молча нулевая."""
+
+    assets = (
+        fx.item("ASSET_EMPTY", "JK830 Б-01", {"equipment_type_code": "RIG_JK830", "inventory_number": "Б-01"}),
+    )
+    context = ModelContext(fx.references(equipment_assets=assets), fx.parameters(), fx.physical())
+    drilling.compute(context)
+
+    assert not [line for line in context.lines if line.cost_item_code == "DRILL_DEPRECIATION"]
+    assert any(
+        "ASSET_EMPTY" in warning and "стоимость" in warning.lower() for warning in context.warnings
+    ), context.warnings

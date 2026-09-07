@@ -158,3 +158,86 @@ def test_seeded_revision_is_valid_and_the_model_computes_without_reference_gaps(
     gaps = [w for w in result.warnings if "нет условий бурения" in w or "не заведено основное средство" in w or "не задан" in w.lower()]
     assert gaps == [], gaps
     assert result.price_per_m3["full"] > Decimal("0")
+
+
+def test_asset_without_cost_is_filled_in_not_skipped() -> None:
+    """Единица из журнала приходит с инвентарным номером, но без стоимости.
+
+    Пропустить её значит оставить амортизацию нулевой навсегда: запись есть,
+    и модель считает технику обеспеченной.
+    """
+
+    snapshot = replace(
+        imported_snapshot(),
+        sections={
+            **imported_snapshot().sections,
+            "equipment_assets": (
+                ReferenceItem(
+                    code="PUB_UNIT_1",
+                    name="JK830-2 Б-01",
+                    payload={"equipment_type_code": "TYPE_JK_830_3", "inventory_number": "Б-01"},
+                ),
+            ),
+        },
+    )
+    sections, report = seed_reference(snapshot)
+
+    asset = next(item for item in sections["equipment_assets"] if item.code == "PUB_UNIT_1")
+    assert asset.payload["initial_cost_rub"] == "20000000"
+    assert asset.payload["useful_life_months"] == "84"
+    assert asset.payload["inventory_number"] == "Б-01"
+    assert "уточните" in asset.comment.lower()
+    assert "PUB_UNIT_1" in report.assets
+    # Второй прогон ничего не меняет.
+    again, second = seed_reference(replace(snapshot, sections={k: tuple(v) for k, v in sections.items()}))
+    assert second.assets == []
+
+
+def test_asset_with_its_own_cost_is_left_alone() -> None:
+    snapshot = replace(
+        imported_snapshot(),
+        sections={
+            **imported_snapshot().sections,
+            "equipment_assets": (
+                ReferenceItem(
+                    code="RIG_OWN",
+                    name="Свой станок",
+                    payload={
+                        "equipment_type_code": "TYPE_JK_830_3",
+                        "initial_cost_rub": "21906500",
+                        "useful_life_months": "84",
+                    },
+                ),
+            ),
+        },
+    )
+    sections, report = seed_reference(snapshot)
+
+    asset = next(item for item in sections["equipment_assets"] if item.code == "RIG_OWN")
+    assert asset.payload["initial_cost_rub"] == "21906500"
+    assert report.assets == ["ASSET_TYPE_ZEGA_D480A", "ASSET_SZM_12T", "ASSET_TRUCK_3T", "ASSET_TRUCK_EMULSION_20T"]
+
+
+def test_asset_with_per_shift_depreciation_only_is_left_alone() -> None:
+    """Записи Cost V1 хранят амортизацию за смену — этого модели достаточно."""
+
+    snapshot = replace(
+        imported_snapshot(),
+        sections={
+            **imported_snapshot().sections,
+            "equipment_assets": (
+                ReferenceItem(
+                    code="RIG_V1",
+                    name="Станок из V1",
+                    payload={
+                        "equipment_type_code": "TYPE_JK_830_3",
+                        "depreciation_per_shift_rub": "11854",
+                    },
+                ),
+            ),
+        },
+    )
+    sections, _ = seed_reference(snapshot)
+
+    asset = next(item for item in sections["equipment_assets"] if item.code == "RIG_V1")
+    assert "initial_cost_rub" not in asset.payload

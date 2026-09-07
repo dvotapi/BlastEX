@@ -241,3 +241,82 @@ def test_asset_with_per_shift_depreciation_only_is_left_alone() -> None:
 
     asset = next(item for item in sections["equipment_assets"] if item.code == "RIG_V1")
     assert "initial_cost_rub" not in asset.payload
+
+
+def test_inactive_condition_does_not_count_as_coverage() -> None:
+    """Модель ищет условия среди активных: деактивированное — то же, что никакого."""
+
+    retired = ReferenceItem(
+        code="COND_OLD",
+        name="Старая норма",
+        payload={"equipment_type_code": "TYPE_JK_830_3", "tech_speed_m_per_h": "9"},
+        is_active=False,
+    )
+    snapshot = replace(
+        imported_snapshot(),
+        sections={**imported_snapshot().sections, "drilling_conditions": (retired,)},
+    )
+
+    sections, report = seed_reference(snapshot)
+
+    rigs = {
+        item.payload["equipment_type_code"]
+        for item in sections["drilling_conditions"]
+        if item.is_active
+    }
+    assert rigs == {"TYPE_JK_830_3", "TYPE_ZEGA_D480A"}
+    assert "COND_TYPE_JK_830_3_DEFAULT" in report.conditions
+
+
+def test_inactive_asset_does_not_count_as_coverage() -> None:
+    """Списанная единица не даёт амортизации: нужна активная замена."""
+
+    retired = ReferenceItem(
+        code="ASSET_OLD",
+        name="Списанный станок",
+        payload={
+            "equipment_type_code": "TYPE_JK_830_3",
+            "initial_cost_rub": "21906500",
+            "useful_life_months": "84",
+        },
+        is_active=False,
+    )
+    snapshot = replace(
+        imported_snapshot(),
+        sections={**imported_snapshot().sections, "equipment_assets": (retired,)},
+    )
+
+    sections, report = seed_reference(snapshot)
+
+    active = {
+        item.payload["equipment_type_code"] for item in sections["equipment_assets"] if item.is_active
+    }
+    assert "TYPE_JK_830_3" in active
+    assert "ASSET_TYPE_JK_830_3" in report.assets
+    # Списанную запись не трогаем: её стоимость — история, а не пустое место.
+    old = next(item for item in sections["equipment_assets"] if item.code == "ASSET_OLD")
+    assert not old.is_active and old.payload["initial_cost_rub"] == "21906500"
+
+
+def test_partially_configured_rig_gets_the_missing_rates() -> None:
+    """У станка есть норма смен, но нет ставок ТОиР: их и надо дозаполнить."""
+
+    partial = ReferenceItem(
+        code="TYPE_PARTIAL",
+        name="Станок с частью норм",
+        payload={"kind": "DRILL_RIG", "norm_shifts_per_month": "30", "maintenance_rub_per_shift": "900"},
+    )
+    snapshot = replace(
+        imported_snapshot(),
+        sections={**imported_snapshot().sections, "equipment_types": (partial,)},
+    )
+
+    sections, report = seed_reference(snapshot)
+
+    payload = next(item for item in sections["equipment_types"] if item.code == "TYPE_PARTIAL").payload
+    assert payload["norm_shifts_per_month"] == "30"  # своё не трогаем
+    assert payload["maintenance_rub_per_shift"] == "900"  # и заполненную ставку тоже
+    assert payload["spare_parts_rub_per_shift"] == "2750"
+    assert payload["inspection_rub_per_shift"] == "200"
+    assert payload["maintenance_ratio"] == "0.14"
+    assert "TYPE_PARTIAL" in report.rigs_normed

@@ -203,11 +203,14 @@ def _rig_norms(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> 
             updated.append(item)
             continue
         payload = dict(item.payload)
-        if _blank(payload, "norm_shifts_per_month"):
-            for key, value in RIG_DEFAULTS.items():
-                if _blank(payload, key) if key != "maintenance_mode" else not payload.get(key):
-                    payload[key] = value
-            payload.setdefault("operation_code", "PRODUCTION_DRILLING")
+        # Каждое поле — само по себе: у станка может быть норма смен, но не быть
+        # ставки ТОиР или запчастей, и такой станок молча занижал бы бурение.
+        for key, value in RIG_DEFAULTS.items():
+            blank = not payload.get(key) if key == "maintenance_mode" else _blank(payload, key)
+            if blank:
+                payload[key] = value
+        payload.setdefault("operation_code", "PRODUCTION_DRILLING")
+        if payload != item.payload:
             report.rigs_normed.append(item.code)
         updated.append(replace(item, payload=payload) if payload != item.payload else item)
     sections["equipment_types"] = updated
@@ -246,6 +249,12 @@ def _assets(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> Non
         machine_code = str(item.payload.get("equipment_type_code") or "")
         machine = next((m for m in sections["equipment_types"] if m.code == machine_code), None)
         kind = _kind(machine) if machine is not None else ""
+        # Списанная единица амортизации не даёт: модель читает только активные
+        # записи, поэтому покрытием она не считается и дозаполнять её нечем —
+        # её стоимость это история, а не пустое место.
+        if not item.is_active:
+            updated.append(item)
+            continue
         if _depreciable(item.payload) or kind not in ASSET_DEFAULTS:
             covered.add(machine_code)
             updated.append(item)
@@ -296,8 +305,11 @@ def _tool(sections: dict[str, list[ReferenceItem]], *needles: str) -> str | None
 
 
 def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> None:
+    # Деактивированное условие модель не видит — станок остался бы без нормы.
     with_condition = {
-        str(item.payload.get("equipment_type_code")) for item in sections["drilling_conditions"]
+        str(item.payload.get("equipment_type_code"))
+        for item in sections["drilling_conditions"]
+        if item.is_active
     }
     bit = _tool(sections, "коронк", "долот")
     hammer = _tool(sections, "ппу", "пневмоудар")

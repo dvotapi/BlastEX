@@ -140,7 +140,17 @@ def _with_default_crew(
 
     if not members:
         return list(templates), ""
-    template = next((item for item in templates if item.code == DEFAULT_CREW_CODE), None)
+    # Шаблон ищется по пакету и активности, а не по коду: организация могла
+    # завести свой код, а умолчания вкладки складывают состав всех активных
+    # шаблонов пакета — второй шаблон удвоил бы бригаду.
+    template = next(
+        (
+            item
+            for item in templates
+            if item.is_active and str(item.payload.get("package_code") or "") == DEFAULT_PACKAGE
+        ),
+        None,
+    )
     if template is not None and template.payload.get("members"):
         return list(templates), template.code
     if template is None:
@@ -154,8 +164,8 @@ def _with_default_crew(
         template,
         payload={**template.payload, "package_code": DEFAULT_PACKAGE, "members": members},
     )
-    if any(item.code == DEFAULT_CREW_CODE for item in templates):
-        return [updated if item.code == DEFAULT_CREW_CODE else item for item in templates], ""
+    if any(item.code == updated.code for item in templates):
+        return [updated if item.code == updated.code else item for item in templates], ""
     return [*templates, updated], ""
 
 

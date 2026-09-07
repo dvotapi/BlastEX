@@ -154,3 +154,48 @@ def test_empty_existing_template_is_filled_in() -> None:
     template = next(item for item in sections["crew_templates"] if item.code == DEFAULT_CREW_CODE)
     assert len(template.payload["members"]) == 5
     assert report.crew_kept == ""
+
+
+def test_existing_template_for_the_package_is_found_by_package_not_by_code() -> None:
+    """Шаблон пакета под своим кодом — тот же шаблон.
+
+    Умолчания вкладки складывают состав всех шаблонов пакета, поэтому второй
+    шаблон удвоил бы бригаду и завысил ФОТ.
+    """
+
+    own = ReferenceItem(
+        code="CREW_BVR_OWN",
+        name="Бригада участка",
+        payload={
+            "package_code": "DRILL_AND_BLAST",
+            "members": [{"position_code": "POSITION_LABOR_BLASTERS", "headcount": "3"}],
+        },
+    )
+    snapshot = replace(
+        imported_snapshot(), sections={**imported_snapshot().sections, "crew_templates": (own,)}
+    )
+
+    sections, report = reclassify_positions(snapshot)
+
+    assert [item.code for item in sections["crew_templates"]] == ["CREW_BVR_OWN"]
+    assert report.crew_kept == "CREW_BVR_OWN"
+
+
+def test_inactive_template_does_not_block_the_default() -> None:
+    """Деактивированный шаблон вкладка не видит: нужен активный."""
+
+    retired = ReferenceItem(
+        code="CREW_OLD",
+        name="Старая бригада",
+        payload={"package_code": "DRILL_AND_BLAST", "members": [{"position_code": "POSITION_LABOR_MINER", "headcount": "9"}]},
+        is_active=False,
+    )
+    snapshot = replace(
+        imported_snapshot(), sections={**imported_snapshot().sections, "crew_templates": (retired,)}
+    )
+
+    sections, report = reclassify_positions(snapshot)
+
+    codes = [item.code for item in sections["crew_templates"]]
+    assert codes == ["CREW_OLD", DEFAULT_CREW_CODE]
+    assert report.crew_kept == ""

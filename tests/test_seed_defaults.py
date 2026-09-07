@@ -1,0 +1,160 @@
+"""Эталонная ревизия: модель считает с первого дня, ничего не дублируя."""
+from __future__ import annotations
+
+from dataclasses import replace
+from decimal import Decimal
+
+from cost.model.engine import compute_block_economics
+from cost.v2.models import ReferenceItem
+from cost.v2.references import default_reference_snapshot, has_validation_errors, validate_reference_sections
+from cost.v2.seed_defaults import guess_length_m, guess_mass_kg, guess_role, seed_reference
+from tests import model_fixtures as fx
+
+
+def material(code: str, name: str, **payload) -> ReferenceItem:
+    return ReferenceItem(code=code, name=name, payload={"unit": "KG", **payload})
+
+
+IMPORTED_MATERIALS = (
+    material("MAT_VV_EVERSIN", "ЭВВ Эверсин-100"),
+    material("EXP_PVV_GRANULIT_RP", "Гранулит-РП"),
+    material("MAT_NSI_90", 'НСИ "Rionel" MS-20-9 м', unit="PIECE"),
+    material("MAT_NSI_120", "Устройство Искра-С-*-12", unit="PIECE"),
+    material("PUB_IDT_2", "СИНВ-Ш", unit="PIECE"),
+    material("MAT_SURFACE_NSI_4", "Устройство Искра-П-*-4", unit="PIECE"),
+    material("MAT_START_NSI_200", "Устройство ИСКРА-СТАРТ-В-200", unit="PIECE"),
+    material("MAT_SV_SFERIT_08", 'Детонатор промежуточный "Сферит ДП" - 60 / 0,8'),
+    material("MAT_SV_DPU_PT600", "Детонатор промежуточный ДПУ-ПТ600"),
+    material("PUB_IDT_1", "ЭД-1-Н", unit="PIECE"),
+    material("PUB_TOOL_1", "Долото шарошечное 152", unit="PIECE"),
+    material("MAT_MISC", "Ветошь", unit="KG"),
+)
+
+
+def imported_snapshot():
+    """Как после импорта V1: станки без норм, машин нет, правил затрат нет."""
+
+    base = default_reference_snapshot()
+    rigs = (
+        ReferenceItem(code="TYPE_JK_830_3", name="JK 830-3", payload={"kind": "DRILL_RIG", "fuel_l_per_h": "50"}),
+        ReferenceItem(code="TYPE_ZEGA_D480A", name="ZEGA D480A", payload={"kind": "DRILL_RIG", "fuel_l_per_h": "55"}),
+    )
+    sections = dict(base.sections)
+    sections.update(
+        {
+            "materials": IMPORTED_MATERIALS,
+            "equipment_types": rigs,
+            "equipment_assets": (
+                ReferenceItem(code="RIG_JK_830_3", name="JK 830-3 инв.", payload={
+                    "equipment_type_code": "TYPE_JK_830_3", "depreciation_per_shift_rub": "11854",
+                }),
+            ),
+            "sites": fx.SITES,
+            "rocks": fx.ROCKS,
+            "production_units": fx.PRODUCTION_UNITS,
+            "material_prices": (
+                ReferenceItem(code="PR_EVERSIN", name="Цена", payload={"material_code": "MAT_VV_EVERSIN", "price_rub": "48.9"}),
+                ReferenceItem(code="PR_SFERIT", name="Цена", payload={"material_code": "MAT_SV_SFERIT_08", "price_rub": "150"}),
+                ReferenceItem(code="PR_NSI_120", name="Цена", payload={"material_code": "MAT_NSI_120", "price_rub": "1100"}),
+                ReferenceItem(code="PR_SURFACE_4", name="Цена", payload={"material_code": "MAT_SURFACE_NSI_4", "price_rub": "214"}),
+                ReferenceItem(code="PR_START_200", name="Цена", payload={"material_code": "MAT_START_NSI_200", "price_rub": "3210"}),
+                ReferenceItem(code="PR_TOOL", name="Цена", payload={"material_code": "PUB_TOOL_1", "price_rub": "38500"}),
+            ),
+            "organization_rates": (
+                ReferenceItem(code="RATES", name="Ставки", payload={"salary_basis": "GROSS", "per_diem_rub": "0", "lodging_rub": "0"}),
+            ),
+        }
+    )
+    return replace(base, revision_id="REV-IMPORTED", sections=sections)
+
+
+def test_roles_lengths_and_masses_are_guessed_from_names() -> None:
+    sections, report = seed_reference(imported_snapshot())
+    roles = {item.code: item.payload.get("nomenclature_role") for item in sections["materials"]}
+
+    assert roles["MAT_VV_EVERSIN"] == "EXPLOSIVE"
+    assert roles["EXP_PVV_GRANULIT_RP"] == "EXPLOSIVE"
+    assert roles["MAT_NSI_90"] == "NSI_DOWNHOLE"
+    assert roles["MAT_NSI_120"] == "NSI_DOWNHOLE"
+    assert roles["PUB_IDT_2"] == "NSI_DOWNHOLE"
+    assert roles["MAT_SURFACE_NSI_4"] == "NSI_SURFACE"
+    assert roles["MAT_START_NSI_200"] == "NSI_START"
+    assert roles["MAT_SV_SFERIT_08"] == "BOOSTER"
+    assert roles["PUB_IDT_1"] == "DETONATOR_ELECTRIC"
+    assert roles["PUB_TOOL_1"] == "DRILL_TOOL"
+    assert roles.get("MAT_MISC") in (None, "OTHER")
+
+    payloads = {item.code: item.payload for item in sections["materials"]}
+    assert payloads["MAT_NSI_90"]["length_m"] == "9"
+    assert payloads["MAT_NSI_120"]["length_m"] == "12"
+    assert payloads["MAT_SV_SFERIT_08"]["mass_kg"] == "0.8"
+    assert payloads["MAT_SV_DPU_PT600"]["mass_kg"] == "0.6"
+    assert len(report.roles) == 11
+
+
+def test_guessers_do_not_invent_values() -> None:
+    assert guess_role(material("X", "Ветошь")) is None
+    assert guess_length_m(material("X", "НСИ без длины")) is None
+    assert guess_mass_kg(material("X", "Детонатор промежуточный")) is None
+
+
+def test_every_rig_gets_norms_a_condition_and_an_asset() -> None:
+    sections, report = seed_reference(imported_snapshot())
+
+    rigs = {item.code: item.payload for item in sections["equipment_types"] if item.payload.get("kind") == "DRILL_RIG"}
+    assert rigs["TYPE_ZEGA_D480A"]["norm_shifts_per_month"] == "40"
+    assert rigs["TYPE_ZEGA_D480A"]["fuel_l_per_h"] == "55"  # своё значение не перезаписано
+    conditions = {item.payload["equipment_type_code"]: item.payload for item in sections["drilling_conditions"]}
+    assert set(conditions) == {"TYPE_JK_830_3", "TYPE_ZEGA_D480A"}
+    assert conditions["TYPE_ZEGA_D480A"]["bit_material_code"] == "PUB_TOOL_1"
+    assets = {item.payload["equipment_type_code"] for item in sections["equipment_assets"]}
+    # У JK 830-3 основное средство уже было — второе не создаётся.
+    assert assets == {"TYPE_JK_830_3", "TYPE_ZEGA_D480A", "SZM_12T", "TRUCK_3T", "TRUCK_EMULSION_20T"}
+    assert set(report.machines) == {"SZM_12T", "TRUCK_3T", "TRUCK_EMULSION_20T"}
+
+
+def test_logistics_rules_ppe_and_per_diem_are_added_once() -> None:
+    first, _ = seed_reference(imported_snapshot())
+    again = replace(imported_snapshot(), sections={k: tuple(v) for k, v in first.items()})
+    second, report = seed_reference(again)
+
+    assert {item.code for item in first["cost_rules"]} >= {"RULE_VM_DELIVERY", "RULE_STEMMING"}
+    assert all(item.payload["cost_item_code"] in {i.code for i in first["cost_items"]} for item in first["cost_rules"])
+    assert [item.code for item in first["unit_fixed_costs"]].count("UNIT_PPE") == 1
+    assert first["organization_rates"][0].payload["per_diem_rub"] == "700"
+    assert first["organization_rates"][0].payload["salary_basis"] == "GROSS"
+    assert report.to_dict() == {key: [] for key in report.to_dict()}
+    assert [i.code for i in second["cost_rules"]] == [i.code for i in first["cost_rules"]]
+
+
+def test_seeded_revision_is_valid_and_the_model_computes_without_reference_gaps() -> None:
+    sections, _ = seed_reference(imported_snapshot())
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+    references = replace(imported_snapshot(), sections={k: tuple(v) for k, v in sections.items()})
+    result = compute_block_economics(
+        fx.snapshot(),
+        fx.parameters(
+            rig_code="TYPE_ZEGA_D480A",
+            rig_plan_shifts=None,
+            szm_code="SZM_12T",
+            delivery_truck_code="TRUCK_3T",
+            emulsion_truck_code="TRUCK_EMULSION_20T",
+            crew=(),
+            nomenclature={
+                "EXPLOSIVE": "MAT_VV_EVERSIN",
+                "BOOSTER": "MAT_SV_SFERIT_08",
+                "NSI_DOWNHOLE": "MAT_NSI_120",
+                "NSI_SURFACE": "MAT_SURFACE_NSI_4",
+                "NSI_START": "MAT_START_NSI_200",
+            },
+        ),
+        references,
+    )
+
+    codes = {line.cost_item_code for line in result.lines}
+    assert {"DRILL_TOOLING", "DRILL_FUEL", "DRILL_DEPRECIATION", "SZM_DEPRECIATION", "EMULSION_TRUCK_DEPRECIATION"} <= codes
+    assert {"VM_DELIVERY", "STEMMING", "UNIT_UNIT_PPE"} & codes
+    gaps = [w for w in result.warnings if "нет условий бурения" in w or "не заведено основное средство" in w or "не задан" in w.lower()]
+    assert gaps == [], gaps
+    assert result.price_per_m3["full"] > Decimal("0")

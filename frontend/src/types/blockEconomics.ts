@@ -20,6 +20,9 @@ export type ModelParameters = {
   delivery_truck_code: string | null;
   crew: CrewMemberInput[];
   drilling_executor: "OWN" | "SUBCONTRACTOR";
+  /** Роль номенклатуры → код материала; количество приходит из паспорта. */
+  nomenclature: Record<string, string>;
+  electric_detonators_qty: Numeric;
   overhead_rate: Numeric | null;
   target_margin_rate: Numeric | null;
   vat_rate: Numeric | null;
@@ -65,6 +68,8 @@ export type BlockEconomics = {
   natural: NaturalDrivers;
   capacity: CapacityWarning[];
   warnings: string[];
+  /** Ревизия справочников, на которой посчитано. */
+  reference_revision_id: string;
 };
 
 export type EconomicsRun = {
@@ -135,10 +140,25 @@ export type TechnicalPassport = {
   created_by: string;
 };
 
+export type MaterialOption = {
+  code: string;
+  name: string;
+  /** Единица цены: «кг», «шт». */
+  unit: string;
+  price_rub: number;
+  length_m: number;
+  /** Количество на блок в единицах цены; null — задаётся вручную. */
+  quantity: number | null;
+  /** Происхождение количества: «1224 шт × 0.8 кг». Пусто для простых ролей. */
+  quantity_label: string;
+};
+
 export type ModelDefaults = {
   parameters: ModelParameters;
   passport: TechnicalPassport;
   package_operations: string[];
+  /** Номенклатура блока по ролям: списки для выбора с ценами. */
+  nomenclature: Record<string, MaterialOption[]>;
   rigs: CodeName[];
   szm: CodeName[];
   delivery_trucks: CodeName[];

@@ -1,6 +1,7 @@
 """API вкладки «Экономика» на in-memory репозитории."""
 from __future__ import annotations
 
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -188,3 +189,270 @@ def test_another_organization_does_not_see_runs(client) -> None:
     )
 
     assert repository.list_economics_runs("other-org") == ()
+
+
+def test_defaults_offer_nomenclature_with_prices(client) -> None:
+    test_client, _, passport_id = client
+    response = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    )
+
+    body = response.json()
+    explosives = body["nomenclature"]["EXPLOSIVE"]
+    assert {"code", "name", "unit", "price_rub"} <= set(explosives[0])
+    # Буровой инструмент и прочее в выбор номенклатуры блока не попадают.
+    assert "DRILL_TOOL" not in body["nomenclature"]
+    assert "OTHER" not in body["nomenclature"]
+    eversin = next(row for row in explosives if row["code"] == "MAT_EVERSIN")
+    assert eversin["price_rub"] == pytest.approx(48.9)
+
+
+def test_defaults_preselect_nomenclature_with_a_price(client) -> None:
+    """Позиция без цены не годится в умолчание: сметчик получил бы нулевую строку."""
+
+    test_client, _, passport_id = client
+    response = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    )
+
+    chosen = response.json()["parameters"]["nomenclature"]
+    assert chosen["EXPLOSIVE"] != "MAT_PROTOLIT"
+    assert chosen["NSI_SURFACE"] == "MAT_NSI_SURFACE"
+    assert chosen["BOOSTER"] == "MAT_BOOSTER"
+
+
+def test_downhole_nsi_default_is_closest_by_length(client) -> None:
+    """В паспорте 1224 скважины и 14 688 м НСИ — 12 м на скважину."""
+
+    test_client, _, passport_id = client
+    response = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    )
+
+    assert response.json()["parameters"]["nomenclature"]["NSI_DOWNHOLE"] == "MAT_NSI_12"
+
+
+def test_selected_nomenclature_reaches_the_cost_lines(client) -> None:
+    test_client, _, passport_id = client
+    response = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id,
+            nomenclature={"EXPLOSIVE": "MAT_EVERSIN", "NSI_DOWNHOLE": "MAT_NSI"},
+        ),
+    )
+
+    lines = {line["cost_item_code"]: line for line in response.json()["lines"]}
+    assert lines["MATERIAL_EXPLOSIVE"]["cost_item_name"] == "ЭВВ Эверсин-100"
+    assert lines["MATERIAL_EXPLOSIVE"]["amount_rub"] == pytest.approx(42000 * 48.9)
+
+
+def test_defaults_compute_on_the_current_revision(client) -> None:
+    """Цена берётся на сегодня: паспорт фиксирует геометрию, а не прайс-лист."""
+
+    test_client, repository, passport_id = client
+    head = repository.list_reference_revisions("default")[0]
+    sections = {
+        section: [item.to_dict() for item in items]
+        for section, items in repository.get_reference_snapshot("default", head.id).sections.items()
+    }
+    for row in sections["material_prices"]:
+        if row["payload"].get("material_code") == "MAT_EVERSIN":
+            row["payload"]["price_rub"] = "60"
+    published = repository.publish_references(
+        "default", "tester", head.id, sections, "подорожание ВВ"
+    )
+
+    defaults = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    assert defaults["reference_revision_id"] == published.revision_id
+    # Параметры не прибивают ревизию: расчёт идёт на актуальной, пока сметчик
+    # сам не выберет другую.
+    assert defaults["parameters"]["reference_revision_id"] == ""
+    eversin = next(
+        row for row in defaults["nomenclature"]["EXPLOSIVE"] if row["code"] == "MAT_EVERSIN"
+    )
+    assert eversin["price_rub"] == pytest.approx(60.0)
+
+    computed = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id, reference_revision_id="", nomenclature={"EXPLOSIVE": "MAT_EVERSIN"}
+        ),
+    ).json()
+    explosive = next(
+        line for line in computed["lines"] if line["cost_item_code"] == "MATERIAL_EXPLOSIVE"
+    )
+    assert explosive["amount_rub"] == pytest.approx(42000 * 60)
+
+
+def test_explicit_revision_still_wins(client) -> None:
+    """Старый прогон воспроизводим: явная ревизия считает по ценам своего времени."""
+
+    test_client, repository, passport_id = client
+    old_revision = repository.list_reference_revisions("default")[0].id
+    sections = {
+        section: [item.to_dict() for item in items]
+        for section, items in repository.get_reference_snapshot("default", old_revision).sections.items()
+    }
+    for row in sections["material_prices"]:
+        if row["payload"].get("material_code") == "MAT_EVERSIN":
+            row["payload"]["price_rub"] = "60"
+    repository.publish_references("default", "tester", old_revision, sections, "подорожание ВВ")
+
+    computed = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id,
+            reference_revision_id=old_revision,
+            nomenclature={"EXPLOSIVE": "MAT_EVERSIN"},
+        ),
+    ).json()
+    explosive = next(
+        line for line in computed["lines"] if line["cost_item_code"] == "MATERIAL_EXPLOSIVE"
+    )
+    assert explosive["amount_rub"] == pytest.approx(42000 * 48.9)
+
+
+def test_options_carry_the_quantity_in_price_units(client) -> None:
+    """Подпись под выбором должна называть то же число, что и строка сметы."""
+
+    test_client, _, passport_id = client
+    body = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    booster = next(row for row in body["nomenclature"]["BOOSTER"] if row["code"] == "MAT_BOOSTER")
+    # 1224 боевика × 0,8 кг — справочник хранит цену килограмма.
+    assert booster["quantity"] == pytest.approx(1224 * 0.8)
+    assert booster["quantity_label"] == "1224 шт × 0.8 кг"
+    assert booster["unit"] == "кг"
+
+    eversin = next(row for row in body["nomenclature"]["EXPLOSIVE"] if row["code"] == "MAT_EVERSIN")
+    assert eversin["quantity"] == pytest.approx(42000)
+    assert eversin["unit"] == "кг"
+
+    # Электродетонаторы паспорт не считает — количество задаёт сметчик.
+    detonator = body["nomenclature"]["DETONATOR_ELECTRIC"][0]
+    assert detonator["quantity"] is None
+
+
+def test_block_economics_reports_the_revision_it_computed_on(client) -> None:
+    test_client, repository, passport_id = client
+    head = repository.list_reference_revisions("default")[0].id
+
+    computed = test_client.post(
+        "/api/v1/economics/block-economics", json=_parameters(passport_id, reference_revision_id="")
+    ).json()
+    sensitivity = test_client.post(
+        "/api/v1/economics/block-economics/sensitivity",
+        json=_parameters(passport_id, reference_revision_id=""),
+    ).json()
+
+    assert computed["reference_revision_id"] == head
+    assert sensitivity["reference_revision_id"] == head
+
+
+def test_downhole_nsi_default_accounts_for_two_devices_per_hole(client) -> None:
+    """Длина одного устройства — общая длина на число устройств, а не на число скважин."""
+
+    test_client, repository, _ = client
+    passport = repository.save_technical_passport(
+        "default",
+        "tester",
+        site_code="SITE_MAIN",
+        object_name="Блок с двумя НСИ в скважине",
+        previous_passport_id=None,
+        reference_revision_id=repository.list_reference_revisions("default")[0].id,
+        formula_version="blast-geometry-v1",
+        input_snapshot={},
+        selected_variant={},
+        block_snapshot={},
+        # 1224 скважины × 2 устройства по 9 м: суммарная длина вдвое больше.
+        physical={
+            **{key: str(value) for key, value in fx.physical().items()},
+            "downhole_nsi": "2448",
+            "nsi_length_m": "22032",
+        },
+        lineage={},
+    )
+
+    body = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport.id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    # 22032 / 2448 = 9 м на устройство — берём девятиметровое, а не 18-метровое.
+    assert body["parameters"]["nomenclature"]["NSI_DOWNHOLE"] == "MAT_NSI"
+
+
+def test_downhole_nsi_default_is_never_shorter_than_required(client) -> None:
+    """Короче скважины сеть не смонтировать: ближайшее по модулю разности не годится."""
+
+    test_client, repository, _ = client
+    passport = repository.save_technical_passport(
+        "default",
+        "tester",
+        site_code="SITE_MAIN",
+        object_name="Блок под 10 м НСИ",
+        previous_passport_id=None,
+        reference_revision_id=repository.list_reference_revisions("default")[0].id,
+        formula_version="blast-geometry-v1",
+        input_snapshot={},
+        selected_variant={},
+        block_snapshot={},
+        # 10 м на устройство: 9 м ближе по модулю, но короче требуемого.
+        physical={
+            **{key: str(value) for key, value in fx.physical().items()},
+            "downhole_nsi": "1224",
+            "nsi_length_m": "12240",
+        },
+        lineage={},
+    )
+
+    body = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport.id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    assert body["parameters"]["nomenclature"]["NSI_DOWNHOLE"] == "MAT_NSI_12"
+
+
+def test_export_prices_the_run_on_its_own_date(client) -> None:
+    """Экспорт повторяет сохранённый прогон, а не пересчитывает его по ценам на сегодня."""
+
+    test_client, repository, passport_id = client
+    run = test_client.post(
+        "/api/v1/economics/runs",
+        json={
+            **_parameters(passport_id, nomenclature={"EXPLOSIVE": "MAT_EVERSIN"}),
+            "name": "Экспорт по дате прогона",
+        },
+    ).json()
+    saved = next(
+        line for line in run["result"]["lines"] if line["cost_item_code"] == "MATERIAL_EXPLOSIVE"
+    )
+
+    # Цена ВВ истекла вчера: сегодняшний расчёт на той же ревизии дал бы ноль.
+    head = repository.list_reference_revisions("default")[0].id
+    sections = {
+        section: [item.to_dict() for item in items]
+        for section, items in repository.get_reference_snapshot("default", head).sections.items()
+    }
+    for row in sections["material_prices"]:
+        if row["payload"].get("material_code") == "MAT_EVERSIN":
+            row["payload"]["valid_to"] = (date.today() - timedelta(days=1)).isoformat()
+            row["valid_to"] = (date.today() - timedelta(days=1)).isoformat()
+    repository.publish_references("default", "tester", head, sections, "цена истекла")
+
+    response = test_client.get(f"/api/v1/economics/runs/{run['id']}/export.xlsx")
+
+    assert response.status_code == 200
+    assert saved["amount_rub"] == pytest.approx(42000 * 48.9)

@@ -28,6 +28,13 @@ const ENUM_LABELS: Record<string, string> = {
   SUPPLIER: "Поставщик",
   SUBCONTRACTOR: "Субподрядчик",
   // Материалы
+  EXPLOSIVE: "Основное ВВ",
+  BOOSTER: "Промежуточный детонатор",
+  NSI_DOWNHOLE: "Скважинное НСИ",
+  NSI_SURFACE: "Поверхностное НСИ",
+  NSI_START: "Стартовое устройство",
+  DETONATOR_ELECTRIC: "Электродетонатор",
+  DRILL_TOOL: "Буровой инструмент",
   BULK: "Бестарное ВВ",
   CARTRIDGE: "Патронированное ВВ",
   NSI: "Средства инициирования",

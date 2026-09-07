@@ -1,6 +1,7 @@
 """REST API вкладки «Экономика»: расчёт блока, снимки, сравнение, чувствительность."""
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -25,7 +26,9 @@ from cost.model import sensitivity
 from cost.model.engine import compute_block_economics
 from cost.model.export_xlsx import export_bytes
 from cost.model.inputs import BlockEconomics, ModelParameters, payload_number, payload_text
-from cost.v2.models import ReferenceSnapshot
+from cost.model.materials import ROLES, quantity_in_price_units
+from cost.v2.prices import effective_price, effective_price_lookup
+from cost.v2.models import ReferenceSnapshot, decimal_value
 from cost.v2.packages import package_map
 from cost.v2.repository import EconomicsRepository, StoredTechnicalPassport
 
@@ -46,11 +49,11 @@ def _load(
     revision_id: str,
 ) -> tuple[StoredTechnicalPassport, ReferenceSnapshot]:
     passport = repository.get_technical_passport(organization_id, passport_id)
-    # Пустая ревизия означает «считать на актуальных справочниках»; снимок
-    # прогона всегда хранит ту, на которой посчитали.
-    references = repository.get_reference_snapshot(
-        organization_id, revision_id or passport.reference_revision_id
-    )
+    # Пустая ревизия означает «считать на актуальных справочниках»: паспорт
+    # фиксирует геометрию блока, а не прайс-лист, и сметчику нужна цена на
+    # сегодня. Снимок прогона всегда хранит ту ревизию, на которой посчитали,
+    # поэтому старый расчёт остаётся воспроизводимым.
+    references = repository.get_reference_snapshot(organization_id, revision_id or None)
     return passport, references
 
 
@@ -58,12 +61,15 @@ def _compute(
     passport: StoredTechnicalPassport,
     params: ModelParameters,
     references: ReferenceSnapshot,
+    *,
+    as_of: date | None = None,
 ) -> BlockEconomics:
     return compute_block_economics(
         {"physical": passport.physical, "lineage": passport.lineage},
         params,
         references,
         passport_name=passport.object_name,
+        as_of=as_of,
     )
 
 
@@ -95,7 +101,9 @@ def block_economics(
         raise repository_error(exc) from exc
     params = _params_with_site(payload.parameters, passport)
     result = _compute(passport, params, references)
-    return BlockEconomicsSchema.model_validate(result.to_dict())
+    return BlockEconomicsSchema.model_validate(
+        {**result.to_dict(), "reference_revision_id": references.revision_id}
+    )
 
 
 @router.post("/block-economics/sensitivity", response_model=SensitivityResponse)
@@ -120,7 +128,9 @@ def block_economics_sensitivity(
         references,
         passport_name=passport.object_name,
     )
-    return SensitivityResponse.model_validate({"rows": [row.to_dict() for row in rows]})
+    return SensitivityResponse.model_validate(
+        {"rows": [row.to_dict() for row in rows], "reference_revision_id": references.revision_id}
+    )
 
 
 @router.post("/runs", response_model=EconomicsRunSchema, status_code=status.HTTP_201_CREATED)
@@ -223,9 +233,11 @@ def export_run(
     except Exception as exc:
         raise repository_error(exc) from exc
     # Пересчёт на сохранённой ревизии повторяет снимок и даёт доменный объект
-    # с Decimal, из которого собирается книга.
+    # с Decimal, из которого собирается книга. Дата — та, на которую прогон
+    # считали: иначе истёкшая с тех пор цена материала выпала бы из выгрузки,
+    # и книга разошлась бы с сохранённым сценарием.
     params = ModelParameters.from_dict(stored.parameters)
-    economics = _compute(passport, params, references)
+    economics = _compute(passport, params, references, as_of=stored.created_at.date())
     content = export_bytes(
         economics,
         passport_name=f"{stored.name} — {passport.object_name}",
@@ -272,6 +284,7 @@ def model_defaults(
     rates = references.active_items("organization_rates")
     rate = rates[0] if rates else None
 
+    nomenclature = _nomenclature(references, passport)
     rigs = _equipment(references, "DRILL_RIG")
     szm = _equipment(references, "SZM")
     trucks = _equipment(references, "HAZMAT_TRUCK")
@@ -294,7 +307,9 @@ def model_defaults(
         {
             "package_code": package_code,
             "site_code": passport.site_code,
-            "reference_revision_id": references.revision_id,
+            # Пусто — считать на актуальной ревизии; фактическую сметчик видит
+            # в поле «Ревизия справочников».
+            "reference_revision_id": "",
             "unit_plan_volume_m3": payload_number(unit, "plan_volume_m3", Decimal("0")),
             "rig_code": rig_code,
             "rig_plan_shifts": payload_number(rig_type, "norm_shifts_per_month", Decimal("0"))
@@ -303,6 +318,7 @@ def model_defaults(
             "delivery_truck_code": trucks[0]["code"] if trucks else None,
             "crew": crew,
             "drilling_executor": "OWN",
+            "nomenclature": _default_nomenclature(nomenclature, passport),
             "overhead_rate": payload_number(rate, "overhead_rate", Decimal("0.1")),
             "target_margin_rate": payload_number(rate, "target_margin_rate", Decimal("0.1")),
             "vat_rate": payload_number(rate, "vat_rate", Decimal("0.2")),
@@ -315,6 +331,7 @@ def model_defaults(
             "package_operations": [
                 item.operation_code for item in (package.operations if package else ())
             ],
+            "nomenclature": nomenclature,
             "rigs": rigs,
             "szm": szm,
             "delivery_trucks": trucks,
@@ -327,6 +344,89 @@ def model_defaults(
             "reference_revision_id": references.revision_id,
         }
     )
+
+
+def _nomenclature(
+    references: ReferenceSnapshot, passport: StoredTechnicalPassport
+) -> dict[str, list[dict[str, Any]]]:
+    """Номенклатура блока по ролям: цена на дату расчёта и количество из паспорта.
+
+    Буровой инструмент и позиции без роли в выбор не попадают: они приходят
+    в расчёт через условия бурения и правила затрат, а не со вкладки.
+    Количество отдаётся в единицах цены тем же правилом, что и модель:
+    подпись под выбором и строка сметы должны называть одно число.
+    """
+
+    roles = {role.code: role for role in ROLES}
+    prices = references.active_items("material_prices")
+    catalog: dict[str, list[dict[str, Any]]] = {}
+    for item in references.active_items("materials"):
+        role = roles.get(payload_text(item, "nomenclature_role", "OTHER"))
+        if role is None:
+            continue
+        driver_value = decimal_value(passport.physical.get(role.driver))
+        # Ручной драйвер (электродетонаторы) в паспорте не бывает: количество
+        # сметчик задаёт сам, подсказать его нечем.
+        quantity, quantity_label = (
+            (None, "")
+            if role.driver not in passport.physical
+            else quantity_in_price_units(role, item, driver_value)
+        )
+        catalog.setdefault(role.code, []).append(
+            {
+                "code": item.code,
+                "name": item.name,
+                "unit": role.unit,
+                "price_rub": float(effective_price(effective_price_lookup(prices, item.code))),
+                "length_m": float(payload_number(item, "length_m")),
+                "quantity": float(quantity) if quantity is not None else None,
+                # Происхождение нужно только там, где штуки переведены в
+                # килограммы; для простых ролей оно повторяло бы само число.
+                "quantity_label": quantity_label if role.priced_per_kg else "",
+            }
+        )
+    for options in catalog.values():
+        options.sort(key=lambda row: row["name"])
+    return catalog
+
+
+def _default_nomenclature(
+    catalog: dict[str, list[dict[str, Any]]], passport: StoredTechnicalPassport
+) -> dict[str, str]:
+    """Что подставить сметчику сразу после переноса паспорта.
+
+    Позиция без цены в умолчание не годится: она дала бы нулевую строку и
+    предупреждение вместо готовой сметы.
+    """
+
+    chosen: dict[str, str] = {}
+    for role, options in catalog.items():
+        priced = [row for row in options if row["price_rub"] > 0]
+        if priced:
+            chosen[role] = priced[0]["code"]
+
+    downhole = [
+        row
+        for row in catalog.get("NSI_DOWNHOLE", ())
+        if row["price_rub"] > 0 and row["length_m"] > 0
+    ]
+    # Делитель — число устройств, а не скважин: при двух НСИ в скважине их
+    # суммарная длина вдвое больше длины одного устройства.
+    devices = decimal_value(passport.physical.get("downhole_nsi")) or decimal_value(
+        passport.physical.get("holes")
+    )
+    nsi_length = decimal_value(passport.physical.get("nsi_length_m"))
+    if downhole and devices > 0 and nsi_length > 0:
+        target = float(nsi_length / devices)
+        # Короче требуемого сеть не смонтировать, поэтому сначала подходящие
+        # по длине, и среди них самое короткое; если таких нет — ближайшее.
+        long_enough = [row for row in downhole if row["length_m"] >= target]
+        candidates = long_enough or downhole
+        chosen["NSI_DOWNHOLE"] = min(
+            candidates,
+            key=lambda row: (abs(row["length_m"] - target), row["name"]),
+        )["code"]
+    return chosen
 
 
 def _equipment(references: ReferenceSnapshot, kind: str) -> list[dict[str, str]]:

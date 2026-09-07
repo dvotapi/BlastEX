@@ -31,6 +31,9 @@ class ModelParametersSchema(BaseModel):
     delivery_truck_code: str | None = None
     crew: list[CrewMemberSchema] = Field(default_factory=list)
     drilling_executor: Literal["OWN", "SUBCONTRACTOR"] = "OWN"
+    # Роль номенклатуры → код материала; пустое значение означает «не выбрано».
+    nomenclature: dict[str, str] = Field(default_factory=dict)
+    electric_detonators_qty: Decimal = Field(Decimal("0"), ge=0)
     overhead_rate: Decimal | None = Field(None, ge=0, le=1)
     target_margin_rate: Decimal | None = Field(None, ge=0, le=1)
     vat_rate: Decimal | None = Field(None, ge=0, le=1)
@@ -88,6 +91,9 @@ class BlockEconomicsSchema(BaseModel):
     natural: NaturalDriversSchema
     capacity: list[CapacityWarningSchema] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Ревизия справочников, на которой посчитано: при пустой ревизии в
+    # параметрах это актуальная, и сметчик должен видеть какая.
+    reference_revision_id: str = ""
 
 
 class EconomicsRunSchema(BaseModel):
@@ -151,12 +157,15 @@ class SensitivityRowSchema(BaseModel):
 
 class SensitivityResponse(BaseModel):
     rows: list[SensitivityRowSchema]
+    reference_revision_id: str = ""
 
 
 class ModelDefaultsResponse(BaseModel):
     parameters: ModelParametersSchema
     passport: dict[str, Any]
     package_operations: list[str]
+    # Роль номенклатуры → позиции с ценой на дату расчёта.
+    nomenclature: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     rigs: list[dict[str, str]]
     szm: list[dict[str, str]]
     delivery_trucks: list[dict[str, str]]

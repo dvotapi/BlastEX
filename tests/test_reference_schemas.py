@@ -307,3 +307,27 @@ class TestPublicExchangeFields:
         assert schema["diameter_mm"]["x-unit"] == "мм"
         assert schema["delay_ms"]["x-unit"] == "мс"
         assert MaterialPayload(delay_ms=Decimal("42")).delay_ms == Decimal("42")
+
+
+class TestNomenclatureRole:
+    """Роль номенклатуры в смете: по ней вкладка «Экономика» наполняет списки."""
+
+    def test_role_is_machine_readable(self):
+        from cost.v2.schemas.materials import MaterialPayload
+
+        payload = MaterialPayload.model_validate({"nomenclature_role": "EXPLOSIVE"})
+        assert payload.nomenclature_role == "EXPLOSIVE"
+        assert section_json_schema("materials")["properties"]["nomenclature_role"]["title"] == (
+            "Роль в смете"
+        )
+
+    def test_role_defaults_to_other(self):
+        from cost.v2.schemas.materials import MaterialPayload
+
+        assert MaterialPayload.model_validate({}).nomenclature_role == "OTHER"
+
+    def test_unknown_role_is_rejected(self):
+        from cost.v2.schemas.materials import MaterialPayload
+
+        with pytest.raises(ValidationError):
+            MaterialPayload.model_validate({"nomenclature_role": "DYNAMITE"})

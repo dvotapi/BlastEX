@@ -30,6 +30,7 @@ from cost.explosive_data import DEFAULT_EXPLOSIVES, ExplosiveCatalogItem
 from cost.fixed_costs import DEFAULT_FIXED_COSTS, SECTION_TITLES, FixedCostItem
 from cost.labor import DEFAULT_LABOR_CATALOG, JobPosition
 from cost.rock_data import DEFAULT_ROCKS
+from cost.v2.prices import effective_price, effective_price_lookup
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
 
 # Категории номенклатуры Cost V1; «nsi» — старое имя «downhole_nsi».
@@ -312,36 +313,25 @@ def _catalog_item(
 def _material_price(item: ReferenceItem, prices: Iterable[ReferenceItem], warnings: list[str]) -> float:
     """Цена материала в смете V1 — действующая сегодня, вместе с доставкой.
 
-    Раздел «Стоимость материалов» хранит историю: у записи есть срок действия.
-    Берём ту, что действует на сегодня, а среди них — с самой поздней датой
-    начала (пустая дата считается самой старой). Просроченные и будущие цены
-    в смету не попадают.
+    Правило выбора общее с моделью блока (`cost/v2/prices.py`); здесь лишь
+    предупреждения в формулировках V1.
     """
 
-    today = date.today()
-    own = [p for p in prices if str(p.payload.get("material_code") or "") == item.code]
-    if not own:
+    lookup = effective_price_lookup(prices, item.code)
+    if not lookup.found:
         warnings.append(f"Материал «{item.name}»: в разделе «Стоимость материалов» не задана цена, принят 0.")
         return 0.0
-    valid = [
-        p
-        for p in own
-        if (p.valid_from is None or p.valid_from <= today) and (p.valid_to is None or p.valid_to >= today)
-    ]
-    if not valid:
+    if lookup.chosen is None:
         warnings.append(
             f"Материал «{item.name}»: срок действия всех цен истек или ещё не наступил, принят 0."
         )
         return 0.0
-    latest = max((p.valid_from or date.min) for p in valid)
-    candidates = [p for p in valid if (p.valid_from or date.min) == latest]
-    if len(candidates) > 1:
+    if len(lookup.duplicates) > 1:
         warnings.append(
             f"Материал «{item.name}»: на одну дату задано несколько цен "
-            f"({', '.join(p.code for p in candidates)}), взята первая."
+            f"({', '.join(p.code for p in lookup.duplicates)}), взята первая."
         )
-    chosen = candidates[0]
-    return _number(chosen.payload.get("price_rub")) + _number(chosen.payload.get("delivery_rub"))
+    return float(effective_price(lookup))
 
 
 def _is_legacy_fixed_cost(item: ReferenceItem) -> bool:

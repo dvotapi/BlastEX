@@ -13,10 +13,13 @@ const toShare = (percent: string | null) =>
 export function ParametersPanel({
   params,
   defaults,
+  computedRevisionId,
   onChange,
 }: {
   params: ModelParameters;
   defaults: ModelDefaults;
+  /** Ревизия, на которой посчитан текущий результат: справочники могли обновиться после загрузки. */
+  computedRevisionId?: string;
   onChange: (patch: Partial<ModelParameters>) => void;
 }) {
   function setPercent(key: keyof ModelParameters, raw: string | null) {
@@ -165,7 +168,10 @@ export function ParametersPanel({
 
         <label>
           Ревизия справочников
-          <input value={params.reference_revision_id || defaults.reference_revision_id} disabled />
+          <input
+            value={params.reference_revision_id || computedRevisionId || defaults.reference_revision_id}
+            disabled
+          />
         </label>
       </div>
     </section>

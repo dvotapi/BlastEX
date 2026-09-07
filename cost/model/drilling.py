@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from cost.model.inputs import ModelContext, payload_number, payload_text
+from cost.model.prices import material_price
 from cost.v2.models import CostLayer, CostLine, ReferenceItem
 
 
@@ -85,22 +86,6 @@ def pick_condition(
     if default is not None:
         return default, f"drilling_conditions.{default.code} (норма станка по умолчанию)"
     return None, f"нет нормы по умолчанию для станка {rig_code}"
-
-
-def material_price(context: ModelContext, material_code: str) -> Decimal:
-    """Цена материала из `material_prices`: цена плюс доставка в цене."""
-
-    prices = [
-        item
-        for item in context.items("material_prices")
-        if payload_text(item, "material_code") == material_code
-    ]
-    if not prices:
-        return Decimal("0")
-    # Последняя по valid_from запись — цена «на дату расчёта».
-    prices.sort(key=lambda item: (item.valid_from is not None, item.valid_from or ""), reverse=True)
-    row = prices[0]
-    return payload_number(row, "price_rub") + payload_number(row, "delivery_rub")
 
 
 def compute(context: ModelContext) -> DrillingNorms | None:

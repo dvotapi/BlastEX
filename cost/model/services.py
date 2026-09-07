@@ -54,15 +54,15 @@ def service_code(name: str) -> str:
     return f"{head}_{digest}"
 
 
-def compute(context: ModelContext) -> None:
-    # Уступать можно только правилу, которое в этом пакете действительно
-    # считает: правило на операции вне пакета молчит, и услуга пропала бы
-    # из сметы совсем.
-    known_rules = {
-        payload_text(rule, "cost_item_code") or rule.code
-        for rule in context.items("cost_rules")
-        if context.has_operation(payload_text(rule, "operation_code"))
-    }
+def compute(context: ModelContext, *, charged_items: set[str] | None = None) -> None:
+    """Строки услуг; `charged_items` — статьи, которые уже начислили правила затрат.
+
+    Уступать можно только правилу, давшему строку: правило на операции вне
+    пакета молчит, а заготовка с нулевой ставкой не начисляет ничего — в обоих
+    случаях услуга пропала бы из сметы совсем.
+    """
+
+    known_rules = charged_items or set()
     for charge in context.params.services:
         if not charge.name or charge.amount_rub == 0:
             continue

@@ -111,3 +111,18 @@ def test_engine_reports_emulsion_truck_lines_and_keeps_the_round_trip() -> None:
     assert {"EMULSION_TRUCK_DEPRECIATION", "EMULSION_TRUCK_MAINTENANCE", "EMULSION_TRUCK_FUEL"} <= codes
     restored = result.natural.to_dict()
     assert restored["values"]["emulsion_trips"] == "3"
+
+
+def test_explicit_zero_plan_shifts_is_respected() -> None:
+    """Ноль в поле «Смен в месяц» — осознанный ввод, а не пустое значение.
+
+    Пустое поле фронт убирает из machine_plan_shifts; ноль означает «плановой
+    загрузки нет», и распределять по ней амортизацию нельзя.
+    """
+
+    context = _context(machine_plan_shifts={"SZM_12T": Decimal("0")})
+    logistics.compute(context)
+    equipment.compute(context)
+
+    assert not [row for row in context.lines if row.cost_item_code == "SZM_DEPRECIATION"]
+    assert any("плановые смены" in text.lower() for text in context.warnings), context.warnings

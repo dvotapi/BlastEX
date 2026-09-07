@@ -156,3 +156,55 @@ def test_long_service_names_do_not_share_a_code() -> None:
 
 def test_short_names_keep_a_readable_code() -> None:
     assert service_code("Проживание и питание") == "SERVICE_PROZHIVANIE_I_PITANIE"
+
+
+def test_rule_without_a_charge_does_not_suppress_the_service() -> None:
+    """Правило-заготовка с нулевой ставкой строки не даёт — услуга должна остаться."""
+
+    placeholder = fx.item(
+        service_code("Проживание и питание"),
+        "Проживание и питание",
+        {
+            "operation_code": "BLAST_EXECUTION",
+            "cost_item_code": service_code("Проживание и питание"),
+            "behavior_type": "FIXED",
+            "cost_layer": "project_direct",
+            "fixed_rub": "0",
+        },
+    )
+    result = compute_block_economics(
+        fx.snapshot(),
+        fx.parameters(
+            services=(ServiceCharge("Проживание и питание", Decimal("120000"), "project_direct", "BLAST_EXECUTION"),)
+        ),
+        fx.references(cost_rules=(*fx.COST_RULES, placeholder)),
+    )
+
+    lodging = [row for row in result.lines if row.cost_item_name == "Проживание и питание"]
+    assert [row.amount_rub for row in lodging] == [Decimal("120000")]
+    assert not any("уже есть в правилах затрат" in text for text in result.warnings)
+
+
+def test_service_still_yields_to_a_rule_that_charges() -> None:
+    rule = fx.item(
+        service_code("Проживание и питание"),
+        "Проживание и питание",
+        {
+            "operation_code": "BLAST_EXECUTION",
+            "cost_item_code": service_code("Проживание и питание"),
+            "behavior_type": "FIXED",
+            "cost_layer": "project_direct",
+            "fixed_rub": "130000",
+        },
+    )
+    result = compute_block_economics(
+        fx.snapshot(),
+        fx.parameters(
+            services=(ServiceCharge("Проживание и питание", Decimal("120000"), "project_direct", "BLAST_EXECUTION"),)
+        ),
+        fx.references(cost_rules=(*fx.COST_RULES, rule)),
+    )
+
+    lodging = [row for row in result.lines if row.cost_item_name == "Проживание и питание"]
+    assert [row.amount_rub for row in lodging] == [Decimal("130000")]
+    assert any("уже есть в правилах затрат" in text for text in result.warnings)

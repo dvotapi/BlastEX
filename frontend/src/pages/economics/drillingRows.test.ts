@@ -38,6 +38,27 @@ describe("разложение бурения", () => {
     expect(result!.lines.map((line) => line.cost_item_code)).toEqual(["DRILL_TOOLING"]);
   });
 
+  it("берёт только статьи бурения: ФОТ и услуги на той же операции — не метр", () => {
+    const result = drillingBreakdown(
+      economics(
+        {
+          drilling_m: "100", v_commercial_m_per_shift: "100",
+          drilling_variable_rub_per_m: "10", drilling_fixed_rub_per_m: "0", drilling_rub_per_m: "10",
+        },
+        [
+          drillingLine("DRILL_TOOLING", 600),
+          drillingLine("DRILL_FUEL", 400),
+          drillingLine("LABOR_POS_DRILLER", 50000),
+          drillingLine("SERVICE_MEDOSMOTR", 3000),
+        ],
+      ),
+    );
+    expect(result!.lines.map((line) => line.cost_item_code)).toEqual(["DRILL_TOOLING", "DRILL_FUEL"]);
+    // Итог панели сходится с ценой метра: 1000 ₽ на 100 м — те самые 10 ₽/м.
+    const total = result!.lines.reduce((sum, line) => sum + line.amount_rub, 0);
+    expect(total / result!.drillingM).toBe(result!.perMetre.total);
+  });
+
   it("возвращает null, когда бурение не посчитано", () => {
     expect(drillingBreakdown(economics({ drilling_m: "2420" }))).toBeNull();
     expect(drillingBreakdown(economics({ drilling_m: "0", v_commercial_m_per_shift: "120" }))).toBeNull();

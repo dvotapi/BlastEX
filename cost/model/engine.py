@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, ROUND_CEILING
 from typing import Any, Mapping
@@ -48,13 +49,18 @@ def compute_block_economics(
     nomenclature = materials.compute(context)
     labor.compute(context)
     equipment.compute(context)
-    services.compute(context)
-    rule_drivers = _cost_rule_lines(
-        context, blocked_pairs=nomenclature.charged_operation_drivers
+    rules = _cost_rule_lines(
+        context,
+        blocked_pairs=nomenclature.charged_operation_drivers,
+        blocked_items=nomenclature.charged_cost_items,
     )
+    # Услуги — после правил: уступать нужно только правилу, которое
+    # действительно дало строку, иначе заготовка с нулевой ставкой молча
+    # убрала бы услугу из сметы.
+    services.compute(context, charged_items=rules.cost_items)
     # Роль без наименования или цены — не ошибка, пока статью закрывает
     # правило затрат; говорить об этом можно только после прохода правил.
-    materials.report_gaps(context, nomenclature, rule_drivers)
+    materials.report_gaps(context, nomenclature, rules.drivers)
     unit.compute(context)
 
     lines = tuple(context.lines)
@@ -111,22 +117,34 @@ OPTIONAL_DRIVERS = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class RuleOutcome:
+    """Что начислили правила затрат: драйверы и статьи давших строку правил."""
+
+    drivers: set[str]
+    cost_items: set[str]
+
+
 def _cost_rule_lines(
-    context: ModelContext, *, blocked_pairs: set[tuple[str, str]]
-) -> set[str]:
+    context: ModelContext,
+    *,
+    blocked_pairs: set[tuple[str, str]],
+    blocked_items: set[str],
+) -> RuleOutcome:
     """Статьи вида «цена × драйвер» — правила затрат, а не код.
 
     Материалы, ВМ и прочие линейные статьи задаются в справочнике `cost_rules`
-    и попадают сюда без изменения модели. Правило пропускается, только если
-    его операция и драйвер совпадают с уже начисленной ролью номенклатуры:
-    масса ВВ — общий драйвер и для самой стоимости ВВ, и для, например,
-    комплектации склада, но это разные статьи на разных операциях, и
-    блокировать надо только ту, что действительно совпала.
-    Возвращает драйверы правил, давших строку, — по ним модуль материалов
-    решает, о чём предупреждать.
+    и попадают сюда без изменения модели. Правило уступает выбранной
+    номенклатуре, если считает ту же статью или ту же пару «операция +
+    драйвер»: масса ВВ — общий драйвер и для самой стоимости ВВ, и для,
+    например, комплектации склада, поэтому одного драйвера мало, а статья
+    ловит правило, стоящее на другой операции заряжания.
+    Возвращает драйверы и статьи правил, давших строку: по ним модули
+    материалов и услуг решают, о чём предупреждать и чему уступать.
     """
 
     charged: set[str] = set()
+    charged_items: set[str] = set()
     for rule in context.items("cost_rules"):
         operation_code = payload_text(rule, "operation_code")
         if not operation_code:
@@ -136,7 +154,8 @@ def _cost_rule_lines(
         if not context.has_operation(operation_code):
             continue
         driver_name = payload_text(rule, "driver")
-        if (operation_code, driver_name) in blocked_pairs:
+        cost_item_code = payload_text(rule, "cost_item_code") or rule.code
+        if cost_item_code in blocked_items or (operation_code, driver_name) in blocked_pairs:
             # Молча пропустить нельзя: сметчик должен понимать, почему правило
             # справочника не видно в смете.
             context.warn(
@@ -149,16 +168,17 @@ def _cost_rule_lines(
             continue
         if driver_name:
             charged.add(driver_name)
+        charged_items.add(cost_item_code)
         context.add_line(
             operation_code=operation_code,
-            cost_item_code=payload_text(rule, "cost_item_code") or rule.code,
+            cost_item_code=cost_item_code,
             cost_item_name=rule.name,
             layer=_layer(payload_text(rule, "cost_layer", CostLayer.VARIABLE.value)),
             amount_rub=amount,
             formula=formula,
             resource_code=payload_text(rule, "resource_code"),
         )
-    return charged
+    return RuleOutcome(drivers=charged, cost_items=charged_items)
 
 
 def _rule_amount(context: ModelContext, rule: ReferenceItem) -> tuple[Decimal, str]:

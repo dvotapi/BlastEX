@@ -9,6 +9,13 @@ import type { BlockCostLine, BlockEconomics } from "../../types/blockEconomics";
 
 export const DRILLING_OPERATION = "PRODUCTION_DRILLING";
 
+/**
+ * Статьи, из которых модель выводит цену метра (`cost/model/drilling.py`).
+ * На операции бурения висят и ФОТ бурильщика, и ручные услуги: включи их в
+ * список — итог панели разойдётся с ₽/м, посчитанными без них.
+ */
+const DRILLING_ITEM_PREFIX = "DRILL_";
+
 export type BreakdownRow = { label: string; value: number; unit: string; source: string };
 
 export type DrillingBreakdown = {
@@ -63,7 +70,11 @@ export function drillingBreakdown(economics: BlockEconomics): DrillingBreakdown 
       fixed: number(values.drilling_fixed_rub_per_m),
       total: number(values.drilling_rub_per_m),
     },
-    lines: economics.lines.filter((line) => line.operation_code === DRILLING_OPERATION),
+    lines: economics.lines.filter(
+      (line) =>
+        line.operation_code === DRILLING_OPERATION &&
+        line.cost_item_code.startsWith(DRILLING_ITEM_PREFIX),
+    ),
     drillingM,
   };
 }

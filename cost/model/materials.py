@@ -143,6 +143,9 @@ class MaterialsOutcome:
     # же драйвером, но другой операцией — отдельная статья, его блокировать
     # нельзя.
     charged_operation_drivers: set[tuple[str, str]] = field(default_factory=set)
+    # Статьи начисленных ролей: правило, считающее ту же статью на другой
+    # операции пакета, — это та же позиция, посчитанная второй раз.
+    charged_cost_items: set[str] = field(default_factory=set)
     gaps: list[Gap] = field(default_factory=list)
 
 
@@ -266,6 +269,7 @@ def _role_line(context: ModelContext, role: Role, outcome: MaterialsOutcome) -> 
     outcome.charged_operation_drivers |= {
         (operation_code, driver) for driver in role.covered_drivers
     }
+    outcome.charged_cost_items.add(role.cost_item_code)
     context.add_line(
         operation_code=operation_code,
         cost_item_code=role.cost_item_code,

@@ -290,3 +290,33 @@ def test_material_without_a_role_is_refused() -> None:
 
     assert ctx.lines == []
     assert any("роль" in text.lower() for text in ctx.warnings), ctx.warnings
+
+
+def test_rule_pricing_the_same_item_on_another_operation_still_yields() -> None:
+    """Правило на MATERIAL_EXPLOSIVE, но на операции заряжания СЗМ.
+
+    Пара «операция + драйвер» не совпадает с ролью, а статья та же — без
+    проверки по статье масса ВВ была бы посчитана дважды.
+    """
+
+    rule = fx.item(
+        "RULE_EXPLOSIVE_SZM",
+        "ВВ при заряжании СЗМ",
+        {
+            "operation_code": "BULK_CHARGING_SZM",
+            "cost_item_code": "MATERIAL_EXPLOSIVE",
+            "behavior_type": "VARIABLE",
+            "cost_layer": "variable",
+            "driver": "explosive_kg",
+            "rate_rub": "45",
+        },
+    )
+    result = compute_block_economics(
+        {"physical": physical(), "lineage": {}},
+        parameters(nomenclature={"EXPLOSIVE": "MAT_EVERSIN"}),
+        references(cost_rules=(*fx.COST_RULES, rule)),
+    )
+
+    explosive = [row for row in result.lines if row.cost_item_code == "MATERIAL_EXPLOSIVE"]
+    assert [row.cost_item_name for row in explosive] == ["ЭВВ Эверсин-100"]
+    assert any("RULE_EXPLOSIVE_SZM" in text for text in result.warnings)

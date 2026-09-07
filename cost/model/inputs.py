@@ -444,8 +444,10 @@ class ModelContext:
     def machine_plan_shifts(self, equipment: ReferenceItem) -> Decimal:
         """Плановые смены техники в месяц: ручная поправка вкладки, иначе норматив типа."""
 
+        # Ноль — осознанный ввод «плановой загрузки нет»: пустое поле вкладка
+        # убирает из словаря, поэтому подменять ноль нормативом нельзя.
         manual = self.params.machine_plan_shifts.get(equipment.code)
-        if manual is not None and manual > 0:
+        if manual is not None:
             return manual
         return payload_number(equipment, "norm_shifts_per_month")
 

@@ -99,3 +99,25 @@ def test_sensitivity_of_unit_plan_lowers_price_when_plan_grows() -> None:
 
     plan = rows["UNIT_PLAN_VOLUME"]
     assert plan.price_plus < plan.base_price < plan.price_minus
+
+
+def test_sensitivity_of_explosive_price_follows_the_selected_nomenclature() -> None:
+    """Выбранное ВВ считается по прайс-листу, и перебор цены должен двигать именно его."""
+
+    rows = {
+        row.code: row
+        for row in sensitivity.compute(
+            fx.snapshot(), fx.parameters(nomenclature={"EXPLOSIVE": "MAT_EVERSIN"}), fx.references()
+        )
+    }
+
+    explosive = rows["EXPLOSIVE_PRICE"]
+    assert explosive.price_minus < explosive.base_price < explosive.price_plus
+    # ±10 % к 42 000 кг × 48,9 ₽ на блок 60 000 м³ — 3,42 ₽/м³ разницы между плечами.
+    assert explosive.delta == Decimal("42000") * Decimal("48.9") * Decimal("0.2") / Decimal("60000")
+
+
+def test_sensitivity_of_explosive_price_still_scales_cost_rules_without_a_selection() -> None:
+    rows = {row.code: row for row in sensitivity.compute(fx.snapshot(), fx.parameters(), fx.references())}
+
+    assert rows["EXPLOSIVE_PRICE"].delta != 0

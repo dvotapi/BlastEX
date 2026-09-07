@@ -111,8 +111,43 @@ def _is_explosive_driver(item: ReferenceItem) -> bool:
     return str(item.payload.get("driver", "")) in {"explosive_kg", "bulk_kg", "cartridge_kg"}
 
 
+def _scale_selected_price(role: str) -> Transform:
+    """Цена выбранной на вкладке номенклатуры: записи прайс-листа по её коду."""
+
+    def transform(inputs: Inputs, factor: Decimal) -> Inputs:
+        _, params, _ = inputs
+        code = params.nomenclature.get(role, "")
+        if not code:
+            return inputs
+        return _scale_reference(
+            "material_prices",
+            "price_rub",
+            lambda item: str(item.payload.get("material_code", "")) == code,
+        )(inputs, factor)
+
+    return transform
+
+
+def _chain(*transforms: Transform) -> Transform:
+    def transform(inputs: Inputs, factor: Decimal) -> Inputs:
+        for step in transforms:
+            inputs = step(inputs, factor)
+        return inputs
+
+    return transform
+
+
+# Цена ВВ живёт в двух местах: в ставке правила затрат (прежний путь) и в
+# прайс-листе выбранного наименования; двигать нужно оба, иначе при выбранной
+# номенклатуре строка чувствительности молча даёт ноль.
+_scale_explosive_price = _chain(
+    _scale_reference("cost_rules", "rate_rub", _is_explosive_driver),
+    _scale_selected_price("EXPLOSIVE"),
+)
+
+
 PARAMETERS: tuple[tuple[str, str, Transform], ...] = (
-    ("EXPLOSIVE_PRICE", "Цена ВВ (ставки правил по массе ВВ)", _scale_reference("cost_rules", "rate_rub", _is_explosive_driver)),
+    ("EXPLOSIVE_PRICE", "Цена ВВ", _scale_explosive_price),
     ("EXPLOSIVE_KG", "Масса ВВ на блок", _scale_physical("explosive_kg", "bulk_kg", "cartridge_kg")),
     ("DRILLING_M", "Погонаж бурения", _scale_physical("drilling_m")),
     ("UNIT_PLAN_VOLUME", "Плановый объём юнита", _scale_param("unit_plan_volume_m3")),

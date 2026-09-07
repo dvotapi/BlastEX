@@ -31,6 +31,9 @@ class ModelParametersSchema(BaseModel):
     delivery_truck_code: str | None = None
     crew: list[CrewMemberSchema] = Field(default_factory=list)
     drilling_executor: Literal["OWN", "SUBCONTRACTOR"] = "OWN"
+    # Роль номенклатуры → код материала; пустое значение означает «не выбрано».
+    nomenclature: dict[str, str] = Field(default_factory=dict)
+    electric_detonators_qty: Decimal = Field(Decimal("0"), ge=0)
     overhead_rate: Decimal | None = Field(None, ge=0, le=1)
     target_margin_rate: Decimal | None = Field(None, ge=0, le=1)
     vat_rate: Decimal | None = Field(None, ge=0, le=1)

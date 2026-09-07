@@ -78,6 +78,12 @@ class ModelParameters:
     delivery_truck_code: str | None = None
     crew: tuple[CrewMember, ...] = ()
     drilling_executor: DrillingExecutor = "OWN"
+    # Роль номенклатуры («EXPLOSIVE», «NSI_DOWNHOLE», …) → код материала.
+    # Количество берётся из технического паспорта, вкладка выбирает только
+    # наименование, а цену модель читает из справочника.
+    nomenclature: Mapping[str, str] = field(default_factory=dict)
+    # Электродетонаторов в паспорте нет: их число задаёт сметчик.
+    electric_detonators_qty: Decimal = Decimal("0")
     overhead_rate: Decimal | None = None
     target_margin_rate: Decimal | None = None
     vat_rate: Decimal | None = None
@@ -99,6 +105,14 @@ class ModelParameters:
                 if str(data.get("drilling_executor", "OWN")).upper() == "SUBCONTRACTOR"
                 else "OWN"
             ),
+            nomenclature={
+                str(role): str(code)
+                for role, code in dict(data.get("nomenclature") or {}).items()
+                # Пустая строка приходит из селекта «не выбрано»: это отсутствие
+                # выбора, а не номенклатура с пустым кодом.
+                if code not in (None, "")
+            },
+            electric_detonators_qty=decimal_value(data.get("electric_detonators_qty")),
             overhead_rate=_optional_number(data.get("overhead_rate")),
             target_margin_rate=_optional_number(data.get("target_margin_rate")),
             vat_rate=_optional_number(data.get("vat_rate")),
@@ -116,6 +130,8 @@ class ModelParameters:
             "delivery_truck_code": self.delivery_truck_code,
             "crew": [member.to_dict() for member in self.crew],
             "drilling_executor": self.drilling_executor,
+            "nomenclature": dict(self.nomenclature),
+            "electric_detonators_qty": str(self.electric_detonators_qty),
             "overhead_rate": str(self.overhead_rate) if self.overhead_rate is not None else None,
             "target_margin_rate": (
                 str(self.target_margin_rate) if self.target_margin_rate is not None else None

@@ -26,6 +26,14 @@ export function ParametersPanel({
     onChange({ [key]: toShare(raw) } as Partial<ModelParameters>);
   }
 
+  /** Пустое поле возвращает технику к нормативу справочника — ключ убирается, а не обнуляется. */
+  function setPlanShifts(code: string, value: string | null) {
+    const next = { ...params.machine_plan_shifts };
+    if (value === null || value === "") delete next[code];
+    else next[code] = value;
+    onChange({ machine_plan_shifts: next });
+  }
+
   return (
     <section className="panel block-economics-parameters">
       <header><b>Параметры модели</b><span>Экономика</span></header>
@@ -78,32 +86,36 @@ export function ParametersPanel({
           </label>
         </div>
 
-        <div className="field-pair">
-          <label>
-            СЗМ
-            <select
-              value={params.szm_code ?? ""}
-              onChange={(event) => onChange({ szm_code: event.target.value || null })}
-            >
-              <option value="">не выбрана</option>
-              {defaults.szm.map((item) => (
-                <option key={item.code} value={item.code}>{item.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Доставщик ВМ
-            <select
-              value={params.delivery_truck_code ?? ""}
-              onChange={(event) => onChange({ delivery_truck_code: event.target.value || null })}
-            >
-              <option value="">не выбран</option>
-              {defaults.delivery_trucks.map((item) => (
-                <option key={item.code} value={item.code}>{item.name}</option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <fieldset className="crew-fieldset machines-fieldset">
+          <legend>Техника блока</legend>
+          <MachineRow
+            label="СЗМ"
+            emptyLabel="не выбрана"
+            options={defaults.szm}
+            code={params.szm_code}
+            planShifts={params.machine_plan_shifts}
+            onCode={(value) => onChange({ szm_code: value })}
+            onPlanShifts={setPlanShifts}
+          />
+          <MachineRow
+            label="Доставщик ВМ"
+            emptyLabel="не выбран"
+            options={defaults.delivery_trucks}
+            code={params.delivery_truck_code}
+            planShifts={params.machine_plan_shifts}
+            onCode={(value) => onChange({ delivery_truck_code: value })}
+            onPlanShifts={setPlanShifts}
+          />
+          <MachineRow
+            label="Тягач эмульсии"
+            emptyLabel="не выбран"
+            options={defaults.emulsion_trucks}
+            code={params.emulsion_truck_code}
+            planShifts={params.machine_plan_shifts}
+            onCode={(value) => onChange({ emulsion_truck_code: value })}
+            onPlanShifts={setPlanShifts}
+          />
+        </fieldset>
 
         <label>
           Исполнитель бурения
@@ -175,5 +187,50 @@ export function ParametersPanel({
         </label>
       </div>
     </section>
+  );
+}
+
+/** Машина блока: выбор типа и плановые смены, от которых зависит доля амортизации на смену. */
+function MachineRow({
+  label,
+  emptyLabel,
+  options,
+  code,
+  planShifts,
+  onCode,
+  onPlanShifts,
+}: {
+  label: string;
+  emptyLabel: string;
+  options: ModelDefaults["szm"];
+  code: string | null;
+  planShifts: ModelParameters["machine_plan_shifts"];
+  onCode: (value: string | null) => void;
+  onPlanShifts: (code: string, value: string | null) => void;
+}) {
+  return (
+    <div className="field-pair">
+      <label>
+        {label}
+        <select value={code ?? ""} onChange={(event) => onCode(event.target.value || null)}>
+          <option value="">{emptyLabel}</option>
+          {options.map((item) => (
+            <option key={item.code} value={item.code}>{item.name}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Смен в месяц
+        <NumericInput
+          value={code ? (planShifts[code] ?? null) : null}
+          allowEmpty
+          min={0}
+          step={1}
+          placeholder="норматив техники"
+          ariaLabel={`Плановые смены: ${label}`}
+          onChange={(value) => code && onPlanShifts(code, value)}
+        />
+      </label>
+    </div>
   );
 }

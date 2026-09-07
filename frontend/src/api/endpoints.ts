@@ -135,6 +135,8 @@ import type {
   ModelParameters,
   RunCompare,
   SensitivityRow,
+  ServiceChargeInput,
+  ServiceToReference,
   TechnicalPassport,
 } from "../types/blockEconomics";
 import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
@@ -368,6 +370,9 @@ export const api = {
       ),
     run: (id: string) => get<EconomicsRun>(`${V1}/economics/runs/${id}`),
     compare: (runIds: string[]) => post<RunCompare>(`${V1}/economics/runs/compare`, { run_ids: runIds }),
+    /** Перенести услугу со вкладки в «Правила расчёта затрат» новой ревизией. */
+    serviceToReference: (service: ServiceChargeInput) =>
+      post<ServiceToReference>(`${V1}/economics/services/to-reference`, { service }),
     exportUrl: (id: string) => `${V1}/economics/runs/${id}/export.xlsx`,
   },
 

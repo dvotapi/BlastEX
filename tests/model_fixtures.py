@@ -166,6 +166,20 @@ EQUIPMENT_TYPES = (
             "capacity_unit": "KG",
         },
     ),
+    item(
+        "TRUCK_EMULSION_20T",
+        "Тягач с полуприцепом 20 т",
+        {
+            "kind": "EMULSION_TRUCK",
+            "operation_code": "COMPONENT_DELIVERY",
+            "norm_shifts_per_month": "18",
+            "maintenance_mode": "PER_SHIFT",
+            "maintenance_rub_per_shift": "400",
+            "fuel_l_per_km": "0.5",
+            "capacity": "20000",
+            "capacity_unit": "KG",
+        },
+    ),
 )
 
 EQUIPMENT_ASSETS = (
@@ -198,6 +212,16 @@ EQUIPMENT_ASSETS = (
             "initial_cost_rub": "6000000",
             "useful_life_months": "60",
             "insurance_monthly_rub": "500",
+        },
+    ),
+    item(
+        "ASSET_EMULSION",
+        "Тягач инв. 004",
+        {
+            "equipment_type_code": "TRUCK_EMULSION_20T",
+            "initial_cost_rub": "9000000",
+            "useful_life_months": "60",
+            "insurance_monthly_rub": "700",
         },
     ),
 )
@@ -340,6 +364,13 @@ WAREHOUSE_POOL = item(
     },
 )
 
+# Статьи, на которые ссылаются правила: без них ревизия не проходит проверку ссылок.
+COST_ITEMS = (
+    item("MATERIAL_EXPLOSIVE", "ВВ на блок", {"kind": "material"}),
+    item("MATERIAL_NSI", "НСИ скважинное", {"kind": "material"}),
+    item("VM_DELIVERY", "Доставка ВМ", {"kind": "logistics"}),
+)
+
 COST_RULES = (
     item(
         "RULE_ANFO",
@@ -407,6 +438,7 @@ def references(**overrides: Any) -> ReferenceSnapshot:
             "labor_rates": LABOR_RATES,
             "crew_templates": CREW_TEMPLATES,
             "unit_fixed_costs": UNIT_FIXED_COSTS,
+            "cost_items": (*base.sections["cost_items"], *COST_ITEMS),
             "cost_rules": COST_RULES,
             "subcontract_rates": SUBCONTRACT_RATES,
             "resource_pools": (*base.sections["resource_pools"], WAREHOUSE_POOL),

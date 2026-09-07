@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { CostStructure } from "./CostStructure";
+import { DrillingBreakdown } from "./DrillingBreakdown";
 import { ModelWarnings } from "./ModelWarnings";
 import { NomenclaturePanel } from "./NomenclaturePanel";
 import { ParametersPanel } from "./ParametersPanel";
+import { ServicesPanel } from "./ServicesPanel";
+import { useWorkspace } from "../../app/useWorkspace";
 import { PricePanel } from "./PricePanel";
 import { RunsCompare } from "./RunsCompare";
 import { SensitivityTable } from "./SensitivityTable";
@@ -47,6 +50,8 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   const [sensitivityBusy, setSensitivityBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [movingService, setMovingService] = useState("");
+  const { canEdit } = useWorkspace();
   // Подписи вместо кодов: имена объектов по ревизии паспорта и номера ревизий.
   const [siteNames, setSiteNames] = useState<Record<string, Record<string, string>>>({});
   const [revisions, setRevisions] = useState<ReferenceRevision[]>([]);
@@ -152,6 +157,31 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     const date = new Date(found.published_at).toLocaleDateString("ru-RU");
     return `Ревизия ${found.sequence_no} от ${date}`;
   }, [revisionId, revisions]);
+
+  /** Услуга уходит в правила затрат новой ревизией и исчезает из параметров: иначе двойной счёт. */
+  async function moveServiceToReference(index: number) {
+    const service = params?.services[index];
+    if (!service) return;
+    setMovingService(service.name);
+    setError("");
+    try {
+      const moved = await api.blockEconomics.serviceToReference(service);
+      // Из текущего состояния, а не из params на момент клика: пока шла
+      // публикация ревизии, сметчик мог править соседнюю услугу.
+      setParams((current) =>
+        current
+          ? { ...current, services: current.services.filter((item) => item !== service) }
+          : current,
+      );
+      setStatus(
+        `«${service.name}» ${moved.created ? "добавлена" : "обновлена"} в правилах затрат как ${moved.code}.`,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось перенести услугу в справочник.");
+    } finally {
+      setMovingService("");
+    }
+  }
 
   function patchParams(patch: Partial<ModelParameters>) {
     setParams((current) => {
@@ -297,6 +327,14 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
               computedRevisionId={economics?.reference_revision_id}
               onChange={patchParams}
             />
+            <ServicesPanel
+              services={params.services}
+              operations={defaults.operations}
+              canEdit={canEdit}
+              busyCode={movingService}
+              onChange={(services) => patchParams({ services })}
+              onMove={(index) => void moveServiceToReference(index)}
+            />
           </div>
         )}
         <div className="block-economics-results">
@@ -304,6 +342,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
             <>
               <PricePanel economics={economics} />
               <ModelWarnings economics={economics} />
+              <DrillingBreakdown economics={economics} />
               <CostStructure economics={economics} />
             </>
           ) : (

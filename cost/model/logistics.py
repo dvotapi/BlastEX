@@ -22,6 +22,7 @@ def compute(context: ModelContext) -> None:
     _split_explosive_mass(context)
     _szm(context)
     _delivery(context)
+    _emulsion(context)
     _mobilization(context)
 
 
@@ -104,6 +105,39 @@ def _delivery(context: ModelContext) -> None:
             bulk_kg / Decimal("1000") * distance,
             f"{bulk_kg} кг / 1000 × {distance} км (компоненты напрямую на объект)",
         )
+
+
+def _emulsion(context: ModelContext) -> None:
+    """Тягач с полуприцепом: компоненты эмульсии с базы на объект рейсами."""
+
+    if not context.has_operation(COMPONENT_DELIVERY_OPERATION):
+        return
+    bulk_kg = context.value("bulk_kg")
+    if bulk_kg <= 0:
+        return
+    truck = context.item("equipment_types", context.params.emulsion_truck_code)
+    capacity = payload_number(truck, "capacity")
+    if truck is None or capacity <= 0:
+        context.warn(
+            "Не задан тягач эмульсии с грузоподъёмностью: рейсы и ДТ доставки "
+            "компонентов не посчитаны."
+        )
+        return
+    trips = _ceil(bulk_kg / capacity)
+    context.set_value("emulsion_trips", trips, f"⌈{bulk_kg} кг / {capacity} кг⌉")
+    context.set_value("emulsion_shifts", trips, "1 рейс = 1 смена тягача")
+    distance = context.site_number("distance_from_base_km") or context.site_number(
+        "distance_from_warehouse_km"
+    )
+    _vehicle_fuel(
+        context,
+        truck,
+        trips,
+        COMPONENT_DELIVERY_OPERATION,
+        "EMULSION_TRUCK_FUEL",
+        "ДТ тягача эмульсии",
+        distance_km=distance,
+    )
 
 
 def _vehicle_fuel(

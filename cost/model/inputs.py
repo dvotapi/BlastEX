@@ -62,6 +62,42 @@ class CrewMember:
         }
 
 
+@dataclass(frozen=True)
+class ServiceCharge:
+    """Услуга, введённая на вкладке: сторонняя организация, проживание, медосмотр.
+
+    Живёт в параметрах прогона, чтобы смета была воспроизводима без
+    справочника; в справочник переносится отдельной кнопкой. Операция
+    обязательна — по ней услуга попадает в пакет и в слой сметы.
+    """
+
+    name: str
+    amount_rub: Decimal
+    layer: str = "project_direct"
+    operation_code: str = "BLAST_EXECUTION"
+    # Сумма задана за смену операции, а не на блок целиком.
+    per_shift: bool = False
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "ServiceCharge":
+        return cls(
+            name=str(data.get("name", "")).strip(),
+            amount_rub=decimal_value(data.get("amount_rub")),
+            layer=str(data.get("layer") or "project_direct"),
+            operation_code=str(data.get("operation_code") or ""),
+            per_shift=bool(data.get("per_shift", False)),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "amount_rub": str(self.amount_rub),
+            "layer": self.layer,
+            "operation_code": self.operation_code,
+            "per_shift": self.per_shift,
+        }
+
+
 DrillingExecutor = Literal["OWN", "SUBCONTRACTOR"]
 
 
@@ -77,7 +113,13 @@ class ModelParameters:
     rig_plan_shifts: Decimal | None = None
     szm_code: str | None = None
     delivery_truck_code: str | None = None
+    # Тягач с полуприцепом везёт компоненты эмульсии с базы на объект.
+    emulsion_truck_code: str | None = None
+    # Плановые смены техники в месяц по коду типа: ручная поправка к нормативу
+    # справочника — от неё зависит доля амортизации и страховки на смену.
+    machine_plan_shifts: Mapping[str, Decimal] = field(default_factory=dict)
     crew: tuple[CrewMember, ...] = ()
+    services: tuple[ServiceCharge, ...] = ()
     drilling_executor: DrillingExecutor = "OWN"
     # Роль номенклатуры («EXPLOSIVE», «NSI_DOWNHOLE», …) → код материала.
     # Количество берётся из технического паспорта, вкладка выбирает только
@@ -100,7 +142,14 @@ class ModelParameters:
             rig_plan_shifts=_optional_number(data.get("rig_plan_shifts")),
             szm_code=_optional_code(data.get("szm_code")),
             delivery_truck_code=_optional_code(data.get("delivery_truck_code")),
+            emulsion_truck_code=_optional_code(data.get("emulsion_truck_code")),
+            machine_plan_shifts={
+                str(code): decimal_value(value)
+                for code, value in dict(data.get("machine_plan_shifts") or {}).items()
+                if value not in (None, "")
+            },
             crew=tuple(CrewMember.from_dict(item) for item in data.get("crew", ())),
+            services=tuple(ServiceCharge.from_dict(item) for item in data.get("services", ())),
             drilling_executor=(
                 "SUBCONTRACTOR"
                 if str(data.get("drilling_executor", "OWN")).upper() == "SUBCONTRACTOR"
@@ -129,7 +178,10 @@ class ModelParameters:
             "rig_plan_shifts": str(self.rig_plan_shifts) if self.rig_plan_shifts is not None else None,
             "szm_code": self.szm_code,
             "delivery_truck_code": self.delivery_truck_code,
+            "emulsion_truck_code": self.emulsion_truck_code,
+            "machine_plan_shifts": {code: str(value) for code, value in self.machine_plan_shifts.items()},
             "crew": [member.to_dict() for member in self.crew],
+            "services": [charge.to_dict() for charge in self.services],
             "drilling_executor": self.drilling_executor,
             "nomenclature": dict(self.nomenclature),
             "electric_detonators_qty": str(self.electric_detonators_qty),
@@ -389,6 +441,16 @@ class ModelContext:
             return default
         return payload_number(self.site, key, default)
 
+    def machine_plan_shifts(self, equipment: ReferenceItem) -> Decimal:
+        """Плановые смены техники в месяц: ручная поправка вкладки, иначе норматив типа."""
+
+        # Ноль — осознанный ввод «плановой загрузки нет»: пустое поле вкладка
+        # убирает из словаря, поэтому подменять ноль нормативом нельзя.
+        manual = self.params.machine_plan_shifts.get(equipment.code)
+        if manual is not None:
+            return manual
+        return payload_number(equipment, "norm_shifts_per_month")
+
     def diesel_price_l(self) -> Decimal:
         """Цена литра ДТ: справочник объекта хранит цену тонны."""
 
@@ -445,6 +507,7 @@ __all__ = [
     "NaturalDrivers",
     "OrganizationRates",
     "PackageDefinition",
+    "ServiceCharge",
     "find_items",
     "payload_number",
     "payload_text",

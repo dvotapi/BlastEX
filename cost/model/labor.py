@@ -19,7 +19,7 @@ DERIVED_SHIFT_DRIVERS: dict[str, str] = {
     "CONTOUR_DRILLING": "rig_shifts",
     "BULK_CHARGING_SZM": "szm_shifts",
     "VM_DELIVERY_SITE": "delivery_shifts",
-    "COMPONENT_DELIVERY": "delivery_shifts",
+    "COMPONENT_DELIVERY": "emulsion_shifts",
 }
 
 # Операции бурения: при субподряде их персонал считает подрядчик, поэтому
@@ -32,7 +32,7 @@ CREW_EQUIPMENT_PARAM: dict[str, str] = {
     "CONTOUR_DRILLING": "rig_code",
     "BULK_CHARGING_SZM": "szm_code",
     "VM_DELIVERY_SITE": "delivery_truck_code",
-    "COMPONENT_DELIVERY": "delivery_truck_code",
+    "COMPONENT_DELIVERY": "emulsion_truck_code",
 }
 
 
@@ -236,7 +236,7 @@ def _headcount(
         return Decimal("1")
     # Численность экипажа выводится из плановой загрузки техники: при плане в
     # 25 смен вместо 40 экипажу хватает двух человек вместо трёх.
-    equipment_shifts = payload_number(equipment, "norm_shifts_per_month")
+    equipment_shifts = context.machine_plan_shifts(equipment)
     if param_name == "rig_code" and context.params.rig_plan_shifts is not None:
         equipment_shifts = context.params.rig_plan_shifts
     person_shifts = payload_number(position, "norm_shifts_per_month", Decimal("21"))

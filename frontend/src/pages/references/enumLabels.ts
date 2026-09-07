@@ -19,6 +19,7 @@ const ENUM_LABELS: Record<string, string> = {
   DRILL_RIG: "Буровой станок",
   SZM: "СЗМ",
   HAZMAT_TRUCK: "Транспорт ВМ",
+  EMULSION_TRUCK: "Тягач с полуприцепом (эмульсия)",
   LIGHT_VEHICLE: "Лёгкий транспорт",
   TRACTOR: "Трактор",
   PER_SHIFT: "По сменам",

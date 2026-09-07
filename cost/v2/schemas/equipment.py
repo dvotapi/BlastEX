@@ -18,8 +18,14 @@ __all__ = [
 
 
 class EquipmentTypePayload(ReferencePayload):
-    kind: Literal["DRILL_RIG", "SZM", "HAZMAT_TRUCK", "LIGHT_VEHICLE", "TRACTOR", "OTHER"] = Field(
-        default="DRILL_RIG", description="Вид техники; OTHER — прочая техника без норм модели"
+    kind: Literal[
+        "DRILL_RIG", "SZM", "HAZMAT_TRUCK", "EMULSION_TRUCK", "LIGHT_VEHICLE", "TRACTOR", "OTHER"
+    ] = Field(
+        default="DRILL_RIG",
+        description=(
+            "Вид техники: буровой станок, СЗМ, доставщик ВМ, тягач с полуприцепом "
+            "под эмульсию, лёгкий транспорт, трактор; OTHER — прочая техника без норм модели"
+        ),
     )
     brand: str | None = Field(
         default=None, title="Марка", description="Производитель или марка по журналу"

@@ -360,6 +360,142 @@ def test_block_economics_reports_the_revision_it_computed_on(client) -> None:
     assert sensitivity["reference_revision_id"] == head
 
 
+def test_defaults_offer_an_emulsion_truck_and_manual_plan_shifts_reach_the_model(client) -> None:
+    test_client, _, passport_id = client
+    defaults = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    assert [row["code"] for row in defaults["emulsion_trucks"]] == ["TRUCK_EMULSION_20T"]
+    assert defaults["parameters"]["emulsion_truck_code"] == "TRUCK_EMULSION_20T"
+
+    computed = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id,
+            emulsion_truck_code="TRUCK_EMULSION_20T",
+            machine_plan_shifts={"TRUCK_EMULSION_20T": "12"},
+        ),
+    ).json()
+    depreciation = next(
+        line for line in computed["lines"] if line["cost_item_code"] == "EMULSION_TRUCK_DEPRECIATION"
+    )
+    assert depreciation["amount_rub"] == pytest.approx(9_000_000 / 60 / 12 * 3)
+
+
+def test_service_is_moved_to_cost_rules_and_then_yields_to_the_rule(client) -> None:
+    test_client, repository, passport_id = client
+    service = {
+        "name": "Проживание и питание",
+        "amount_rub": "120000",
+        "layer": "project_direct",
+        "operation_code": "BLAST_EXECUTION",
+        "per_shift": False,
+    }
+
+    first = test_client.post("/api/v1/economics/services/to-reference", json={"service": service})
+    assert first.status_code == 201, first.text
+    body = first.json()
+    assert body["section"] == "cost_rules"
+    assert body["code"] == "SERVICE_PROZHIVANIE_I_PITANIE"
+    assert body["created"] is True
+    head = repository.list_reference_revisions("default")[0].id
+    assert body["reference_revision_id"] == head
+
+    rule = repository.get_reference_snapshot("default", head).item("cost_rules", body["code"])
+    assert rule is not None
+    assert rule.payload["fixed_rub"] == "120000"
+    assert rule.payload["operation_code"] == "BLAST_EXECUTION"
+    assert rule.payload["cost_layer"] == "project_direct"
+
+    # Повторный перенос обновляет ту же запись, а не плодит дубли.
+    again = test_client.post(
+        "/api/v1/economics/services/to-reference", json={"service": {**service, "amount_rub": "130000"}}
+    ).json()
+    assert again["created"] is False
+    latest = repository.get_reference_snapshot("default")
+    assert [item.code for item in latest.active_items("cost_rules")].count(body["code"]) == 1
+    assert latest.item("cost_rules", body["code"]).payload["fixed_rub"] == "130000"
+
+    # Услуга, оставшаяся в параметрах, уступает правилу.
+    computed = test_client.post(
+        "/api/v1/economics/block-economics", json=_parameters(passport_id, services=[service])
+    ).json()
+    lodging = [line for line in computed["lines"] if line["cost_item_name"] == "Проживание и питание"]
+    assert len(lodging) == 1
+    assert lodging[0]["amount_rub"] == pytest.approx(130000)
+    assert any("уже есть в правилах затрат" in text for text in computed["warnings"])
+
+
+def test_per_shift_service_is_moved_as_a_rate_per_operation_shift(client) -> None:
+    test_client, repository, _ = client
+    body = test_client.post(
+        "/api/v1/economics/services/to-reference",
+        json={
+            "service": {
+                "name": "Предрейсовый медосмотр",
+                "amount_rub": "350",
+                "layer": "project_direct",
+                "operation_code": "BULK_CHARGING_SZM",
+                "per_shift": True,
+            }
+        },
+    ).json()
+
+    rule = repository.get_reference_snapshot("default").item("cost_rules", body["code"])
+    assert rule.payload["driver"] == "szm_shifts"
+    assert rule.payload["rate_rub"] == "350"
+    assert "fixed_rub" not in rule.payload
+
+
+def test_defaults_name_the_package_operations(client) -> None:
+    test_client, _, passport_id = client
+    body = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+
+    operations = {row["code"]: row["name"] for row in body["operations"]}
+    assert operations["BLAST_EXECUTION"] == "Производство взрыва"
+    assert set(operations) == set(body["package_operations"])
+
+
+def test_service_transfer_refuses_a_code_taken_by_another_name(client) -> None:
+    """Короткие названия могут дать один код после транслита: молча перезаписать чужое правило нельзя."""
+
+    test_client, repository, _ = client
+    first = test_client.post(
+        "/api/v1/economics/services/to-reference",
+        json={
+            "service": {
+                "name": "Проживание и питание",
+                "amount_rub": "120000",
+                "layer": "project_direct",
+                "operation_code": "BLAST_EXECUTION",
+                "per_shift": False,
+            }
+        },
+    ).json()
+
+    clash = test_client.post(
+        "/api/v1/economics/services/to-reference",
+        json={
+            "service": {
+                "name": "проживание и питание!",
+                "amount_rub": "9000",
+                "layer": "project_direct",
+                "operation_code": "BLAST_EXECUTION",
+                "per_shift": False,
+            }
+        },
+    )
+
+    assert clash.status_code == 409, clash.text
+    assert first["code"] in clash.json()["detail"]["message"]
+    rule = repository.get_reference_snapshot("default").item("cost_rules", first["code"])
+    assert rule.name == "Проживание и питание"
+    assert rule.payload["fixed_rub"] == "120000"
 def test_downhole_nsi_default_accounts_for_two_devices_per_hole(client) -> None:
     """Длина одного устройства — общая длина на число устройств, а не на число скважин."""
 

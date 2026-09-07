@@ -1,4 +1,4 @@
-"""Затраты техники блока, кроме бурового станка: СЗМ и доставщик ВМ.
+"""Затраты техники блока, кроме бурового станка: СЗМ, доставщик ВМ, тягач эмульсии.
 
 Амортизация и страховка приходят на блок через смены: месячная сумма делится
 на плановые смены типа техники. Буровой станок считается в `drilling.py` —
@@ -16,6 +16,7 @@ from cost.v2.models import CostLayer, ReferenceItem
 MACHINES: tuple[tuple[str, str, str, str], ...] = (
     ("szm_code", "szm_shifts", "BULK_CHARGING_SZM", "SZM"),
     ("delivery_truck_code", "delivery_shifts", "VM_DELIVERY_SITE", "VM_TRUCK"),
+    ("emulsion_truck_code", "emulsion_shifts", "COMPONENT_DELIVERY", "EMULSION_TRUCK"),
 )
 
 
@@ -36,7 +37,7 @@ def _machine_lines(
     operation_code: str,
     prefix: str,
 ) -> None:
-    plan_shifts = payload_number(equipment, "norm_shifts_per_month")
+    plan_shifts = context.machine_plan_shifts(equipment)
     asset = _asset(context, equipment.code)
 
     if asset is not None and plan_shifts > 0:

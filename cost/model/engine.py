@@ -49,7 +49,9 @@ def compute_block_economics(
     labor.compute(context)
     equipment.compute(context)
     services.compute(context)
-    rule_drivers = _cost_rule_lines(context, blocked_drivers=nomenclature.charged_drivers)
+    rule_drivers = _cost_rule_lines(
+        context, blocked_pairs=nomenclature.charged_operation_drivers
+    )
     # Роль без наименования или цены — не ошибка, пока статью закрывает
     # правило затрат; говорить об этом можно только после прохода правил.
     materials.report_gaps(context, nomenclature, rule_drivers)
@@ -109,12 +111,17 @@ OPTIONAL_DRIVERS = frozenset(
 )
 
 
-def _cost_rule_lines(context: ModelContext, *, blocked_drivers: set[str]) -> set[str]:
+def _cost_rule_lines(
+    context: ModelContext, *, blocked_pairs: set[tuple[str, str]]
+) -> set[str]:
     """Статьи вида «цена × драйвер» — правила затрат, а не код.
 
     Материалы, ВМ и прочие линейные статьи задаются в справочнике `cost_rules`
-    и попадают сюда без изменения модели. Правило по драйверу, который уже
-    закрыла выбранная номенклатура, пропускается: иначе ВМ посчитаются дважды.
+    и попадают сюда без изменения модели. Правило пропускается, только если
+    его операция и драйвер совпадают с уже начисленной ролью номенклатуры:
+    масса ВВ — общий драйвер и для самой стоимости ВВ, и для, например,
+    комплектации склада, но это разные статьи на разных операциях, и
+    блокировать надо только ту, что действительно совпала.
     Возвращает драйверы правил, давших строку, — по ним модуль материалов
     решает, о чём предупреждать.
     """
@@ -129,7 +136,7 @@ def _cost_rule_lines(context: ModelContext, *, blocked_drivers: set[str]) -> set
         if not context.has_operation(operation_code):
             continue
         driver_name = payload_text(rule, "driver")
-        if driver_name in blocked_drivers:
+        if (operation_code, driver_name) in blocked_pairs:
             # Молча пропустить нельзя: сметчик должен понимать, почему правило
             # справочника не видно в смете.
             context.warn(

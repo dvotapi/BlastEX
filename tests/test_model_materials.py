@@ -12,6 +12,7 @@ from cost.model import materials
 from cost.model.engine import compute_block_economics
 from cost.model.inputs import ModelContext
 from cost.v2.models import CostLayer
+from tests import model_fixtures as fx
 from tests.model_fixtures import parameters, physical, references
 
 
@@ -235,3 +236,37 @@ def test_selection_without_a_price_falls_back_to_the_rule_and_says_so() -> None:
     assert [row.cost_item_name for row in lines(result, "MATERIAL_EXPLOSIVE")] == ["Гранулит на блок"]
     assert any("Протолит" in text and "посчитано по правилу затрат" in text for text in result.warnings)
     assert not any("не оценено в деньгах" in text for text in result.warnings)
+
+
+def test_a_rule_with_the_same_driver_but_a_different_operation_is_not_blocked() -> None:
+    """Комплектация ВМ на складе — отдельная услуга с тем же драйвером, что и роль ВВ.
+
+    Один и тот же драйвер (масса ВВ) может масштабировать разные статьи на
+    разных операциях; блокировать можно только ту, что совпадает и по
+    операции, и по драйверу — иначе такая услуга молча пропадает из сметы.
+    """
+
+    picking = fx.item(
+        "RULE_WAREHOUSE_PICKING",
+        "Комплектация ВМ на складе",
+        {
+            "operation_code": "WAREHOUSE_PICKING",
+            "cost_item_code": "WAREHOUSE_PICKING",
+            "behavior_type": "VARIABLE",
+            "cost_layer": "variable",
+            "driver": "explosive_kg",
+            "rate_rub": "0.5",
+        },
+    )
+    result = compute_block_economics(
+        {"physical": physical(), "lineage": {}},
+        parameters(nomenclature={"EXPLOSIVE": "MAT_EVERSIN"}),
+        references(cost_rules=(*fx.COST_RULES, picking)),
+    )
+
+    explosive = [row for row in result.lines if row.cost_item_code == "MATERIAL_EXPLOSIVE"]
+    picking_lines = [row for row in result.lines if row.cost_item_code == "WAREHOUSE_PICKING"]
+    assert len(explosive) == 1
+    assert len(picking_lines) == 1
+    assert picking_lines[0].amount_rub == Decimal("42000") * Decimal("0.5")
+    assert not any("WAREHOUSE_PICKING" in text for text in result.warnings)

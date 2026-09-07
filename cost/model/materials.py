@@ -123,9 +123,18 @@ class Gap:
 
 @dataclass
 class MaterialsOutcome:
-    # Драйверы, замещённые начисленными ролями: правила затрат по ним
-    # пропускаются, иначе ВМ посчитаются дважды.
+    # Драйвер, замещённый начисленной ролью хоть на какой-то операции: нужен
+    # только для текста предупреждения («посчитано по правилу» вместо «не
+    # оценено»), а не для блокировки — один и тот же драйвер (масса ВВ)
+    # может относиться к разным статьям на разных операциях (сама стоимость
+    # ВВ и, например, комплектация склада), и блокировать нужно только ту
+    # статью, что действительно совпадает.
     charged_drivers: set[str] = field(default_factory=set)
+    # (операция, драйвер) начисленной роли: правило затрат с той же парой
+    # пропускается — это и есть повторный счёт той же статьи. Правило с тем
+    # же драйвером, но другой операцией — отдельная статья, его блокировать
+    # нельзя.
+    charged_operation_drivers: set[tuple[str, str]] = field(default_factory=set)
     gaps: list[Gap] = field(default_factory=list)
 
 
@@ -229,6 +238,9 @@ def _role_line(context: ModelContext, role: Role, outcome: MaterialsOutcome) -> 
 
     price = effective_price(lookup)
     outcome.charged_drivers |= role.covered_drivers
+    outcome.charged_operation_drivers |= {
+        (operation_code, driver) for driver in role.covered_drivers
+    }
     context.add_line(
         operation_code=operation_code,
         cost_item_code=role.cost_item_code,

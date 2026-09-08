@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { CostStructure } from "./CostStructure";
 import { DrillingBreakdown } from "./DrillingBreakdown";
+import { EconomicsHelp } from "./EconomicsHelp";
 import { ModelWarnings } from "./ModelWarnings";
 import { NomenclaturePanel } from "./NomenclaturePanel";
 import { ParametersPanel } from "./ParametersPanel";
@@ -249,13 +250,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   return (
     <div className="page-content block-economics-page">
       <div className="page-heading">
-        <div>
-          <h2>Экономика блока</h2>
-          <p>
-            Две цены м³ по техническому паспорту и пакету работ: маржинальная и полная.
-            Геометрия только для чтения.
-          </p>
-        </div>
+        <EconomicsHelp />
         {status && <span className="save-status">{status}</span>}
       </div>
       {error && <div className="page-error" role="alert">{error}</div>}

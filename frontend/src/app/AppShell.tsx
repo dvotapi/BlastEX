@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { BlastVariant, User } from "../types";
+import { BRAND } from "./brand";
 import { WorkspaceProvider } from "./useWorkspace";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { TopbarSlotProvider } from "./topbarSlot";
@@ -40,6 +41,9 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
   // через createPortal (см. topbarSlot.tsx); callback-ref, чтобы страницы
   // узнали об узле сразу после его монтирования.
   const [topbarSlot, setTopbarSlot] = useState<HTMLDivElement | null>(null);
+  // Узел рядом с заголовком страницы: сюда вкладка «Экономика блока» кладёт
+  // кнопку «Справка» через тот же портальный механизм (см. topbarSlot.tsx).
+  const [titleSlot, setTitleSlot] = useState<HTMLDivElement | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     const saved = window.localStorage.getItem("blastex.sidebar.collapsed");
@@ -105,11 +109,26 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
         </aside>
         <main className="workspace">
           <header className="topbar">
-            <div><b>{TITLES[page]}</b><span>{user.organization_name}</span></div>
+            <div>
+              <div className="topbar-title-row">
+                <b>{TITLES[page]}</b>
+                <div className="topbar-title-slot" ref={setTitleSlot} />
+              </div>
+              {/* Бренд поставщика сервиса — не орг-данные пользователя: та же
+                  строка раньше показывала `user.organization_name`, это поле
+                  осталось (см. ReferencesPage.tsx), здесь только вид сменился. */}
+              <div className="topbar-brand">
+                <span className="topbar-brand-mark" aria-hidden="true">{BRAND.mark}</span>
+                <span className="topbar-brand-text">
+                  <b>{BRAND.name}</b>
+                  <i>{BRAND.tagline}</i>
+                </span>
+              </div>
+            </div>
             <div className="topbar-slot" ref={setTopbarSlot} />
             <button className="logout-button" onClick={onLogout}>Выйти</button>
           </header>
-          <TopbarSlotProvider slot={topbarSlot}>
+          <TopbarSlotProvider slot={topbarSlot} titleSlot={titleSlot}>
             {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
             {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
             {page === "Проектирование" && (

@@ -1,4 +1,6 @@
 import { useRef, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
+import { useTopbarTitleSlot } from "../../app/topbarSlot";
 
 /**
  * Справка вкладки «Экономика блока»: что здесь считается и как этим пользоваться.
@@ -15,6 +17,10 @@ import { useRef, type MouseEvent } from "react";
  */
 export function EconomicsHelp() {
   const ref = useRef<HTMLDialogElement>(null);
+  // Рядом с заголовком «Экономика блока» в шапке — если слот ещё не
+  // смонтирован (тесты компонента без AppShell), кнопка рисуется на своём
+  // обычном месте на странице, тем же приёмом, что и полоса листа «Расчёт».
+  const titleSlot = useTopbarTitleSlot();
 
   // Нативный `dialog` закрывается по Esc сам — обработчик не нужен. По
   // клику на подложку — нет, это здесь единственное, что приходится делать
@@ -25,12 +31,16 @@ export function EconomicsHelp() {
     if (event.target === ref.current) ref.current?.close();
   }
 
+  const openButton = (
+    <button type="button" className="secondary-button" onClick={() => ref.current?.showModal()}>
+      Справка
+    </button>
+  );
+
   return (
     <>
       <h2 className="sr-only">Экономика блока</h2>
-      <button type="button" className="secondary-button" onClick={() => ref.current?.showModal()}>
-        Справка
-      </button>
+      {titleSlot ? createPortal(openButton, titleSlot) : openButton}
       <dialog ref={ref} className="economics-help" onClick={onBackdropClick}>
         <header>
           <b>Экономика блока</b>

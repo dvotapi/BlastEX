@@ -10,9 +10,23 @@ import { createContext, useContext, type ReactNode } from "react";
  * приложение и живёт в шапке независимо от того, какая страница открыта.
  */
 const TopbarSlotContext = createContext<HTMLDivElement | null>(null);
+const TopbarTitleSlotContext = createContext<HTMLDivElement | null>(null);
 
-export function TopbarSlotProvider({ slot, children }: { slot: HTMLDivElement | null; children: ReactNode }) {
-  return <TopbarSlotContext.Provider value={slot}>{children}</TopbarSlotContext.Provider>;
+export function TopbarSlotProvider({
+  slot,
+  titleSlot,
+  children,
+}: {
+  slot: HTMLDivElement | null;
+  /** Узел рядом с заголовком страницы — см. `useTopbarTitleSlot`. */
+  titleSlot: HTMLDivElement | null;
+  children: ReactNode;
+}) {
+  return (
+    <TopbarSlotContext.Provider value={slot}>
+      <TopbarTitleSlotContext.Provider value={titleSlot}>{children}</TopbarTitleSlotContext.Provider>
+    </TopbarSlotContext.Provider>
+  );
 }
 
 /**
@@ -22,4 +36,13 @@ export function TopbarSlotProvider({ slot, children }: { slot: HTMLDivElement | 
  */
 export function useTopbarSlot(): HTMLDivElement | null {
   return useContext(TopbarSlotContext);
+}
+
+/**
+ * Узел сразу справа от заголовка страницы (в той же строке, что `TITLES[page]`
+ * в `AppShell.tsx`) — для кнопок, которые относятся к заголовку, а не к
+ * панели инструментов справа (для неё есть `useTopbarSlot`).
+ */
+export function useTopbarTitleSlot(): HTMLDivElement | null {
+  return useContext(TopbarTitleSlotContext);
 }

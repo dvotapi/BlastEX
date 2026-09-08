@@ -320,3 +320,53 @@ def test_partially_configured_rig_gets_the_missing_rates() -> None:
     assert payload["inspection_rub_per_shift"] == "200"
     assert payload["maintenance_ratio"] == "0.14"
     assert "TYPE_PARTIAL" in report.rigs_normed
+
+
+def test_role_is_guessed_by_name_before_code() -> None:
+    """Название точнее кода: «НСИ Искра-П» — поверхностное, хотя код как у скважинных.
+
+    Данные прода: позиция заведена под кодом MAT_NSI_ISKRA_P_50, а по смыслу
+    это то же устройство, что MAT_SURFACE_NSI_5.
+    """
+
+    surface = ReferenceItem(code="MAT_NSI_ISKRA_P_50", name="НСИ Искра-П-*-5", payload={})
+    downhole = ReferenceItem(code="MAT_NSI_ISKRA_S_120", name="НСИ Искра-С-*-12", payload={})
+
+    assert guess_role(surface) == "NSI_SURFACE"
+    assert guess_role(downhole) == "NSI_DOWNHOLE"
+
+
+def test_length_is_read_from_the_code_tail_in_decimetres() -> None:
+    """У «Искра-С» длины в названии нет, а хвост кода её несёт."""
+
+    assert guess_length_m(ReferenceItem(code="MAT_NSI_ISKRA_S_85", name="НСИ Искра-С-*-8,5", payload={})) == Decimal("8.5")
+    assert guess_length_m(ReferenceItem(code="MAT_NSI_ISKRA_S_120", name="НСИ Искра-С-*-12", payload={})) == Decimal("12")
+    # Название важнее кода: у этой позиции они расходятся (код 80, имя 18 м).
+    assert guess_length_m(ReferenceItem(code="MAT_NSI_RIONEL_S_80", name='НСИ "Rionel" MS-20-18 м', payload={})) == Decimal("18")
+
+
+def test_explicit_placement_words_beat_the_generic_nsi_rule() -> None:
+    """«Поверхностное» и «скважинное» в названии сильнее общего слова «НСИ»."""
+
+    surface = ReferenceItem(code="MAT_X1", name="НСИ поверхностное 5", payload={})
+    downhole = ReferenceItem(code="MAT_X2", name="Скважинное НСИ 9 м", payload={})
+
+    assert guess_role(surface) == "NSI_SURFACE"
+    assert guess_role(downhole) == "NSI_DOWNHOLE"
+
+
+def test_delay_marking_in_the_code_is_not_taken_for_a_length() -> None:
+    """Хвост кода бывает интервалом замедления, а не дециметрами длины.
+
+    «СИНВ-Ш 500» — 500 мс; принять это за 50 м значит подсунуть автоподбору
+    самое «длинное» изделие в справочнике.
+    """
+
+    delay = ReferenceItem(code="MAT_NSI_SINV_SH_500", name="СИНВ-Ш 500", payload={})
+    short_delay = ReferenceItem(code="MAT_NSI_RIONEL_MS_20", name="НСИ Rionel MS-20", payload={})
+
+    assert guess_length_m(delay) is None
+    assert guess_length_m(short_delay) is None
+    # Правдоподобные длины по-прежнему читаются.
+    assert guess_length_m(ReferenceItem(code="MAT_NSI_ISKRA_S_85", name="НСИ Искра-С", payload={})) == Decimal("8.5")
+    assert guess_length_m(ReferenceItem(code="MAT_NSI_180", name="НСИ 18", payload={})) == Decimal("18")

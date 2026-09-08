@@ -491,6 +491,12 @@ def service_to_reference(
         raise repository_error(exc) from exc
     sections = {name: list(items) for name, items in current.sections.items()}
     existing = next((item for item in sections.get("cost_rules", ()) if item.code == code), None)
+    if not payload_text(existing, "estimate_section"):
+        # Новое правило заводит вкладка, а не старая ревизия: раздел ему нужен
+        # сразу, иначе модель будет предупреждать о незаполненном поле на
+        # каждом расчёте. Раздел, проставленный в справочнике, переживает
+        # перенос — его нет в `RULE_FIELDS`.
+        rule_payload["estimate_section"] = "OVERHEAD"
     if existing is not None and existing.name.strip() != service.name.strip():
         # Разные названия дали один код (транслит и регистр): перезаписать
         # чужое правило значит потерять его сумму, а ответ сказал бы

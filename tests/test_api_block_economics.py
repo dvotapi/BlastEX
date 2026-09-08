@@ -600,6 +600,27 @@ def test_export_prices_the_run_on_its_own_date(client) -> None:
     assert saved["amount_rub"] == pytest.approx(42000 * 48.9)
 
 
+def test_a_new_service_rule_names_its_section(client) -> None:
+    """Правило заводит вкладка, а не старая ревизия: модель не должна о нём предупреждать."""
+
+    test_client, repository, _ = client
+    body = test_client.post(
+        "/api/v1/economics/services/to-reference",
+        json={
+            "service": {
+                "name": "Услуга сторонней организации",
+                "amount_rub": "12000",
+                "layer": "production",
+                "operation_code": "BLAST_EXECUTION",
+                "per_shift": False,
+            }
+        },
+    ).json()
+
+    rule = repository.get_reference_snapshot("default").item("cost_rules", body["code"])
+    assert rule.payload["estimate_section"] == "OVERHEAD"
+
+
 def test_service_transfer_keeps_every_field_edited_in_the_reference(client) -> None:
     """Вкладка владеет суммой и операцией; ресурсный пул и ступени правят в справочнике."""
 

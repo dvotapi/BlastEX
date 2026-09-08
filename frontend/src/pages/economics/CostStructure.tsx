@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { groupByLayerAndSection } from "./estimateSections";
-import { amount, money, perM3 } from "./format";
+import { amount, money, perM3, reconcilingColumns } from "./format";
 import type { BlockCostLine, BlockEconomics } from "../../types/blockEconomics";
 
 /**
@@ -80,16 +80,23 @@ function CostRow({
   open: boolean;
   onToggle: () => void;
 }) {
+  // Норма и цена печатаются вместе: их произведение должно давать сумму
+  // строки, а для этого знаки подбираются по обоим числам сразу.
+  const columns =
+    line.quantity === null || line.unit_price_rub === null
+      ? null
+      : reconcilingColumns(line.quantity, line.unit_price_rub, line.amount_rub);
+
   return (
     <div className={`cost-structure-row${open ? " open" : ""}`}>
       <button type="button" onClick={onToggle} aria-expanded={open}>
         <span className="cost-row-name">{line.cost_item_name}</span>
         {/* Прочерк, а не ноль: в смете пустая ячейка значит «здесь этого нет». */}
         <span className="cost-row-unit">{line.unit || "—"}</span>
-        <span className="cost-row-quantity">{line.quantity === null ? "—" : amount(line.quantity)}</span>
-        <span className="cost-row-price">
-          {line.unit_price_rub === null ? "—" : money(line.unit_price_rub)}
+        <span className="cost-row-quantity">
+          {columns?.quantity ?? (line.quantity === null ? "—" : amount(line.quantity))}
         </span>
+        <span className="cost-row-price">{columns?.price ?? "—"}</span>
         <b>{money(line.amount_rub, 0)} ₽</b>
         <em>{perM3(line.amount_rub, volume)}</em>
       </button>

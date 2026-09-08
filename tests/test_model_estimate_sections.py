@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from cost.model.engine import compute_block_economics
 from tests import model_fixtures as fx
 
@@ -117,3 +119,104 @@ def test_section_survives_serialisation() -> None:
 
     row = next(item for item in result.to_dict()["lines"] if item["cost_item_code"] == "MATERIAL_EXPLOSIVE")
     assert row["section"] == "EXPLOSIVES"
+
+
+# --- количество, единица и цена -------------------------------------------
+
+
+def line_by_code(result, code: str):
+    return next(row for row in result.lines if row.cost_item_code == code)
+
+
+def test_material_line_carries_quantity_unit_and_price() -> None:
+    result = compute()
+
+    line = line_by_code(result, "MATERIAL_EXPLOSIVE")
+    assert line.unit == "кг"
+    assert line.unit_price_rub == Decimal("48.9")
+    assert line.quantity * line.unit_price_rub == line.amount_rub
+
+
+def test_booster_quantity_is_in_the_units_of_its_price() -> None:
+    """Паспорт считает боевики штуками, справочник хранит цену килограмма."""
+
+    result = compute()
+
+    line = line_by_code(result, "MATERIAL_BOOSTER")
+    assert line.unit == "кг"
+    assert line.quantity == Decimal("1224") * Decimal("0.8")
+    assert line.quantity * line.unit_price_rub == line.amount_rub
+
+
+def test_drilling_line_counts_metres_and_fuel_counts_litres() -> None:
+    result = compute()
+
+    fuel = line_by_code(result, "DRILL_FUEL")
+    assert fuel.unit == "л"
+    assert fuel.quantity == result.natural.get("drilling_fuel_l")
+    assert fuel.quantity * fuel.unit_price_rub == fuel.amount_rub
+
+
+def test_depreciation_counts_shifts_with_a_rate_per_shift() -> None:
+    result = compute()
+
+    line = line_by_code(result, "SZM_DEPRECIATION")
+    assert line.unit == "см"
+    assert line.quantity == result.natural.get("szm_shifts")
+    assert line.quantity * line.unit_price_rub == line.amount_rub
+
+
+def test_labor_counts_person_shifts_without_a_unit_price() -> None:
+    """У ФОТ цена за единицу теряет смысл: оклад, сделка и НДФЛ дают разную ставку."""
+
+    result = compute()
+
+    line = line_by_code(result, "LABOR_POS_BLASTER")
+    assert line.unit == "чел·см"
+    assert line.quantity > 0
+    assert line.unit_price_rub is None
+
+
+def test_lines_without_a_countable_quantity_leave_it_empty() -> None:
+    """Доля постоянных затрат юнита — не количество: единицы у неё нет."""
+
+    result = compute()
+
+    line = next(row for row in result.lines if row.cost_item_code.startswith("UNIT_"))
+    assert line.quantity is None
+    assert line.unit == ""
+    assert line.unit_price_rub is None
+
+
+def test_quantity_and_price_survive_serialisation() -> None:
+    result = compute()
+
+    row = next(item for item in result.to_dict()["lines"] if item["cost_item_code"] == "MATERIAL_EXPLOSIVE")
+    assert row["unit"] == "кг"
+    # Роль ВВ считает всю массу заряда, а не только насыпную часть.
+    assert row["quantity"] == pytest.approx(42000.0)
+    assert row["unit_price_rub"] == pytest.approx(48.9)
+
+
+def test_cost_rule_line_shows_its_driver_and_rate() -> None:
+    """Правило «цена × драйвер» — ровно та строка, где норма и цена очевидны."""
+
+    result = compute()
+
+    delivery = line_by_code(result, "VM_DELIVERY")
+    assert delivery.unit == "vm_tkm"
+    assert delivery.quantity == result.natural.get("vm_tkm")
+    assert delivery.unit_price_rub == Decimal("25")
+    assert delivery.quantity * delivery.unit_price_rub == delivery.amount_rub
+
+
+def test_maintenance_counts_shifts_with_its_rate() -> None:
+    result = compute()
+
+    drilling_toir = line_by_code(result, "DRILL_MAINTENANCE")
+    assert drilling_toir.unit == "см"
+    assert drilling_toir.quantity > 0
+    assert drilling_toir.unit_price_rub == Decimal("750")
+
+    szm_toir = line_by_code(result, "SZM_MAINTENANCE")
+    assert szm_toir.unit_price_rub == Decimal("500")

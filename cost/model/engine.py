@@ -167,6 +167,15 @@ def _cost_rule_lines(
         amount, formula = _rule_amount(context, rule)
         if amount == 0:
             continue
+        # Простое «ставка × драйвер» — как раз колонки нормы и цены в смете;
+        # правило со ступенями или постоянной суммой одним числом не описать.
+        rate = payload_number(rule, "rate_rub")
+        simple = (
+            driver_name
+            and rate != 0
+            and payload_number(rule, "fixed_rub") == 0
+            and payload_number(rule, "step_capacity") == 0
+        )
         if driver_name:
             charged.add(driver_name)
         charged_items.add(cost_item_code)
@@ -179,6 +188,9 @@ def _cost_rule_lines(
             formula=formula,
             resource_code=payload_text(rule, "resource_code"),
             section=_section(payload_text(rule, "estimate_section")),
+            quantity=context.value(driver_name) if simple else None,
+            unit=driver_name if simple else "",
+            unit_price_rub=rate if simple else None,
         )
     return RuleOutcome(drivers=charged, cost_items=charged_items)
 

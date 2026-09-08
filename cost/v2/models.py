@@ -463,6 +463,13 @@ class CostLine:
     # Раздел бумажной сметы: слой говорит, как затрата ведёт себя с объёмом,
     # а раздел — где сметчик ищет строку глазами.
     section: EstimateSection = "OVERHEAD"
+    # Количество в единицах цены и сама цена: в смете это отдельные колонки,
+    # и разбирать ради них текст формулы интерфейс не должен. Пусто там, где
+    # считать нечего: доля постоянных затрат юнита — не количество.
+    quantity: Decimal | None = None
+    unit: str = ""
+    # Пусто у ФОТ: оклад, сдельная часть и НДФЛ дают разную ставку за смену.
+    unit_price_rub: Decimal | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -477,6 +484,11 @@ class CostLine:
             "formula": self.formula,
             "resource_code": self.resource_code,
             "section": self.section,
+            "quantity": float(self.quantity) if self.quantity is not None else None,
+            "unit": self.unit,
+            "unit_price_rub": (
+                float(money(self.unit_price_rub)) if self.unit_price_rub is not None else None
+            ),
         }
 
 

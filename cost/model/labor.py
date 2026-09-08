@@ -145,6 +145,10 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
                 + (" ÷ (1 − НДФЛ)" if rates.salary_basis == "NET" else "")
             ),
             section="LABOR",
+            # Цены за единицу нет: оклад, сдельная часть и НДФЛ дают разную
+            # ставку за смену, одним числом её не назвать.
+            quantity=shifts * crew_size,
+            unit="чел·см",
         )
         accrued_total += accrued
         per_diem_total += _per_diem(context, position, shifts, crew_size)

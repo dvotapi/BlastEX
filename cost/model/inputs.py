@@ -395,6 +395,9 @@ class ModelContext:
         formula: str,
         section: EstimateSection,
         resource_code: str = "",
+        quantity: Decimal | None = None,
+        unit: str = "",
+        unit_price_rub: Decimal | None = None,
     ) -> None:
         self.lines.append(
             CostLine(
@@ -409,6 +412,9 @@ class ModelContext:
                 formula=formula,
                 resource_code=resource_code,
                 section=section,
+                quantity=quantity,
+                unit=unit,
+                unit_price_rub=unit_price_rub,
             )
         )
 

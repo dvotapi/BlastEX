@@ -172,3 +172,29 @@ describe("сводка вариантов по разделам", () => {
     expect(drilling?.number).toBe("1.2");
   });
 });
+
+describe("сводка вариантов: расходящееся наименование под общим кодом", () => {
+  it("называет оба материала, если код статьи общий, а выбор в справочнике разный", () => {
+    const dry = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100)];
+    const wet = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120)];
+    dry[0].cost_item_name = "Гранулит РП";
+    wet[0].cost_item_name = "Эверсин-100";
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+    const row = groups[0].sections[0].rows[0];
+
+    expect(row.label).toBe("Гранулит РП / Эверсин-100");
+    expect(row.amounts).toEqual([100, 120]);
+  });
+
+  it("не повторяет название, если оно совпало у всех вариантов", () => {
+    const dry = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100)];
+    const wet = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120)];
+    dry[0].cost_item_name = "Гранулит РП";
+    wet[0].cost_item_name = "Гранулит РП";
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+
+    expect(groups[0].sections[0].rows[0].label).toBe("Гранулит РП");
+  });
+});

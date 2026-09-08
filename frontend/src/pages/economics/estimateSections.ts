@@ -165,25 +165,32 @@ export function groupVariantsByLayerAndSection(
       const linesPerVariant = ownPerVariant.map(
         (sections) => sections?.find((group) => group.section === section)?.lines ?? [],
       );
-      const rowOrder: Array<{ key: string; label: string; unit: string }> = [];
+      const rowOrder: string[] = [];
       const seen = new Set<string>();
       for (const lines of linesPerVariant) {
         for (const line of lines) {
           const key = `${line.cost_item_code}:${line.operation_code}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          rowOrder.push({ key, label: line.cost_item_name, unit: line.unit });
+          rowOrder.push(key);
         }
       }
-      const rows: VariantSectionRow[] = rowOrder.map(({ key, label, unit }) => ({
-        key,
-        label,
-        unit,
-        amounts: linesPerVariant.map(
-          (lines) => lines.find((line) => `${line.cost_item_code}:${line.operation_code}` === key)
-            ?.amount_rub ?? null,
-        ),
-      }));
+      const rows: VariantSectionRow[] = rowOrder.map((key) => {
+        const matches = linesPerVariant.map(
+          (lines) => lines.find((line) => `${line.cost_item_code}:${line.operation_code}` === key) ?? null,
+        );
+        // Один код статьи — разное наименование в разных вариантах: у
+        // материала, выбранного номенклатурой (ВВ, детонатор, НСИ), код
+        // роли общий, а название — то, что выбрали в справочнике для этого
+        // варианта. Подпись строки называет оба, а не молчит о расхождении.
+        const labels = [...new Set(matches.filter((line) => line !== null).map((line) => line.cost_item_name))];
+        return {
+          key,
+          label: labels.join(" / "),
+          unit: matches.find((line) => line !== null)?.unit ?? "",
+          amounts: matches.map((line) => line?.amount_rub ?? null),
+        };
+      });
       return {
         section,
         number: `${layerNumber}.${SECTION_NUMBERS[section]}`,

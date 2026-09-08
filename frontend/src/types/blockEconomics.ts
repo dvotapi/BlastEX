@@ -53,6 +53,17 @@ export type ModelParameters = {
 
 export type CostLayer = "variable" | "project_direct" | "production" | "full";
 
+/** Разделы бумажной сметы в порядке чтения. */
+export type EstimateSection =
+  | "EXPLOSIVES"
+  | "DRILLING"
+  | "VM_LOGISTICS"
+  | "PER_DIEM"
+  | "LABOR"
+  | "FUEL"
+  | "DEPRECIATION"
+  | "OVERHEAD";
+
 export type BlockCostLine = {
   month: string;
   service_line_id: string;
@@ -64,6 +75,12 @@ export type BlockCostLine = {
   amount_rub: number;
   formula: string;
   resource_code: string;
+  section: EstimateSection;
+  /** Количество в единицах цены; null — считать нечего. */
+  quantity: number | null;
+  unit: string;
+  /** null у ФОТ: одной ставки за смену не существует. */
+  unit_price_rub: number | null;
 };
 
 export type NaturalDrivers = {

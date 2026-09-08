@@ -93,6 +93,12 @@ class CostLineSchema(BaseModel):
     amount_rub: float
     formula: str = ""
     resource_code: str = ""
+    # Раздел бумажной сметы и колонки нормы: интерфейс группирует и считает
+    # по ним, а не разбирает формулу.
+    section: str = "OVERHEAD"
+    quantity: float | None = None
+    unit: str = ""
+    unit_price_rub: float | None = None
 
 
 class NaturalDriversSchema(BaseModel):

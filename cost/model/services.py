@@ -83,6 +83,9 @@ def compute(context: ModelContext, *, charged_items: set[str] | None = None) -> 
             layer=_layer(charge.layer),
             amount_rub=amount,
             formula=formula,
+            # Ручная услуга — общепроизводственная затрата, пока сметчик не
+            # перенёс её в правила затрат со своим разделом.
+            section="OVERHEAD",
         )
 
 

@@ -15,6 +15,7 @@ from typing import Any, Iterable, Literal, Mapping
 from cost.v2.models import (
     CostLayer,
     CostLine,
+    EstimateSection,
     ReferenceItem,
     ReferenceSnapshot,
     decimal_value,
@@ -392,6 +393,7 @@ class ModelContext:
         layer: CostLayer,
         amount_rub: Decimal,
         formula: str,
+        section: EstimateSection,
         resource_code: str = "",
     ) -> None:
         self.lines.append(
@@ -406,6 +408,7 @@ class ModelContext:
                 amount_rub=amount_rub,
                 formula=formula,
                 resource_code=resource_code,
+                section=section,
             )
         )
 

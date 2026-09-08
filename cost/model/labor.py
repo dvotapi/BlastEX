@@ -144,6 +144,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
                 + (f" + {piece_formula}" if piece_formula else "")
                 + (" ÷ (1 − НДФЛ)" if rates.salary_basis == "NET" else "")
             ),
+            section="LABOR",
         )
         accrued_total += accrued
         per_diem_total += _per_diem(context, position, shifts, crew_size)
@@ -170,6 +171,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=contributions,
             formula=f"{accrued_total} ₽ × {contribution_rate}",
+            section="LABOR"
         )
         reserve = (accrued_total + contributions) * rates.vacation_reserve_rate
         if reserve > 0:
@@ -180,6 +182,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=reserve,
                 formula=f"({accrued_total} + {contributions}) ₽ × {rates.vacation_reserve_rate}",
+                section="LABOR"
             )
 
     if per_diem_total > 0:
@@ -192,6 +195,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             formula=(
                 f"чел-смены × ({context.rates.per_diem_rub} + {context.rates.lodging_rub}) ₽"
             ),
+            section="PER_DIEM",
         )
 
     return tuple(results)

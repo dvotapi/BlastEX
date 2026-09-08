@@ -54,6 +54,7 @@ def _machine_lines(
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=monthly / plan_shifts * shifts,
                 formula=f"{monthly} ₽/мес / {plan_shifts} см × {shifts} см",
+                section="DEPRECIATION"
             )
         insurance = payload_number(asset, "insurance_monthly_rub")
         if insurance > 0:
@@ -64,6 +65,7 @@ def _machine_lines(
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=insurance / plan_shifts * shifts,
                 formula=f"{insurance} ₽/мес / {plan_shifts} см × {shifts} см",
+                section="DEPRECIATION"
             )
     elif asset is None:
         context.warn(
@@ -89,6 +91,7 @@ def _machine_lines(
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=shifts * per_shift,
             formula=f"{shifts} см × {per_shift} ₽/см",
+            section="OVERHEAD"
         )
 
     spare_parts = payload_number(equipment, "spare_parts_rub_per_shift")
@@ -100,6 +103,7 @@ def _machine_lines(
             layer=CostLayer.VARIABLE,
             amount_rub=shifts * spare_parts,
             formula=f"{shifts} см × {spare_parts} ₽/см",
+            section="OVERHEAD"
         )
 
 
@@ -134,6 +138,7 @@ def _maintenance(
         layer=CostLayer.PROJECT_DIRECT,
         amount_rub=amount,
         formula=formula,
+        section="OVERHEAD"
     )
 
 

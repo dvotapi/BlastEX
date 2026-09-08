@@ -243,6 +243,7 @@ def _tooling_lines(
             layer=CostLayer.VARIABLE,
             amount_rub=total,
             formula="; ".join(parts),
+            section="DRILLING"
         )
 
 
@@ -266,6 +267,7 @@ def _fuel_line(context: ModelContext, condition: ReferenceItem, drilling_m: Deci
         layer=CostLayer.VARIABLE,
         amount_rub=litres * price,
         formula=f"{drilling_m} м × {fuel_l_per_m} л/м × {price} ₽/л",
+        section="DRILLING"
     )
 
 
@@ -283,6 +285,7 @@ def _spare_parts_line(
         layer=CostLayer.VARIABLE,
         amount_rub=amount,
         formula=f"{rig_shifts} см × {rate} ₽/см",
+        section="DRILLING"
     )
 
 
@@ -326,6 +329,7 @@ def _fixed_lines(
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=amount,
                 formula=f"{depreciation_month} ₽/мес / {plan_shifts} см × {charged_shifts} см",
+                section="DRILLING"
             )
         if insurance_month > 0:
             context.add_line(
@@ -335,6 +339,7 @@ def _fixed_lines(
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=insurance_month / plan_shifts * charged_shifts,
                 formula=f"{insurance_month} ₽/мес / {plan_shifts} см × {charged_shifts} см",
+                section="DRILLING"
             )
     else:
         context.warn(
@@ -361,6 +366,7 @@ def _inspection_line(
         layer=CostLayer.VARIABLE,
         amount_rub=amount,
         formula=f"{shifts} см × {per_shift} ₽/см",
+        section="DRILLING"
     )
 
 
@@ -383,6 +389,7 @@ def _maintenance_lines(
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=budget / plan_shifts * rig_shifts,
             formula=f"{budget} ₽/мес / {plan_shifts} см × {rig_shifts} см",
+            section="DRILLING"
         )
         return
     rate = payload_number(rig_type, "maintenance_rub_per_shift")
@@ -396,6 +403,7 @@ def _maintenance_lines(
         layer=CostLayer.PROJECT_DIRECT,
         amount_rub=shifts * rate,
         formula=f"({rig_shifts} + {maintenance_shifts}) см × {rate} ₽/см",
+        section="DRILLING"
     )
 
 
@@ -428,6 +436,7 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         layer=CostLayer.VARIABLE,
         amount_rub=drilling_m * rate,
         formula=f"{drilling_m} м × {rate} ₽/м",
+        section="DRILLING"
     )
 
     params = context.params
@@ -451,6 +460,7 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         layer=CostLayer.FULL,
         amount_rub=amount,
         formula=f"{monthly} ₽/мес × доля блока {share}",
+        section="DRILLING"
     )
     context.warn(
         "Бурение на субподряде: постоянные затраты собственного станка "

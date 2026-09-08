@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -419,6 +419,35 @@ class EconomicScenario:
         }
 
 
+# Разделы бумажной сметы БВР в порядке, в котором их читают: сначала
+# переменные материалы и бурение, затем постоянные — логистика, вахта, ФОТ,
+# ГСМ, амортизация и общепроизводственные.
+EstimateSection = Literal[
+    "EXPLOSIVES",
+    "DRILLING",
+    "VM_LOGISTICS",
+    "PER_DIEM",
+    "LABOR",
+    "FUEL",
+    "DEPRECIATION",
+    "OVERHEAD",
+]
+
+
+ESTIMATE_SECTIONS: frozenset[str] = frozenset(
+    (
+        "EXPLOSIVES",
+        "DRILLING",
+        "VM_LOGISTICS",
+        "PER_DIEM",
+        "LABOR",
+        "FUEL",
+        "DEPRECIATION",
+        "OVERHEAD",
+    )
+)
+
+
 @dataclass(frozen=True)
 class CostLine:
     month: str
@@ -431,6 +460,9 @@ class CostLine:
     amount_rub: Decimal
     formula: str
     resource_code: str = ""
+    # Раздел бумажной сметы: слой говорит, как затрата ведёт себя с объёмом,
+    # а раздел — где сметчик ищет строку глазами.
+    section: EstimateSection = "OVERHEAD"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -444,6 +476,7 @@ class CostLine:
             "amount_rub": float(money(self.amount_rub)),
             "formula": self.formula,
             "resource_code": self.resource_code,
+            "section": self.section,
         }
 
 

@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from cost.v2.models import EstimateSection
 from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_error
 
 __all__ = [
@@ -42,6 +43,14 @@ class CostRulePayload(ReferencePayload):
     cost_item_code: str | None = RefField("cost_items", description="Статья затрат", default=None)
     behavior_type: str = Field(default="variable", description="Тип поведения затраты")
     cost_layer: str = Field(default="project_direct", description="Слой себестоимости")
+    estimate_section: EstimateSection = Field(
+        default="OVERHEAD",
+        title="Раздел сметы",
+        description=(
+            "Где строка стоит в смете: расходы на ВМ, бурение, доставка ВМ, "
+            "суточные и вахта, ФОТ, ГСМ, амортизация, общепроизводственные"
+        ),
+    )
     driver: str | None = Field(default=None, description="Драйвер начисления")
     rate_rub: Decimal | None = UnitField("₽/ед.", description="Ставка за единицу драйвера", default=None)
     fixed_rub: Decimal | None = UnitField("₽", description="Постоянная сумма", default=None)

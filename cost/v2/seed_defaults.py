@@ -365,19 +365,19 @@ def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedR
 
 # --- затраты --------------------------------------------------------------
 
-LOGISTICS_RULES: tuple[tuple[str, str, str, str, str], ...] = (
-    # код, название, операция, драйвер, ставка ₽ за единицу
-    ("RULE_VM_DELIVERY", "Доставка ВМ со склада на объект", "VM_DELIVERY_SITE", "vm_tkm", "25"),
-    ("RULE_COMPONENT_DELIVERY", "Доставка компонентов эмульсии", "COMPONENT_DELIVERY", "component_tkm", "18"),
-    ("RULE_STEMMING", "Забойка скважин", "STEMMING", "holes", "60"),
-    ("RULE_WAREHOUSE_PICKING", "Комплектация ВМ на складе", "WAREHOUSE_PICKING", "explosive_kg", "0.5"),
+LOGISTICS_RULES: tuple[tuple[str, str, str, str, str, str], ...] = (
+    # код, название, операция, драйвер, ставка ₽ за единицу, раздел сметы
+    ("RULE_VM_DELIVERY", "Доставка ВМ со склада на объект", "VM_DELIVERY_SITE", "vm_tkm", "25", "VM_LOGISTICS"),
+    ("RULE_COMPONENT_DELIVERY", "Доставка компонентов эмульсии", "COMPONENT_DELIVERY", "component_tkm", "18", "VM_LOGISTICS"),
+    ("RULE_STEMMING", "Забойка скважин", "STEMMING", "holes", "60", "EXPLOSIVES"),
+    ("RULE_WAREHOUSE_PICKING", "Комплектация ВМ на складе", "WAREHOUSE_PICKING", "explosive_kg", "0.5", "VM_LOGISTICS"),
 )
 
 
 def _logistics_rules(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> None:
     rules = {item.code for item in sections["cost_rules"]}
     items = {item.code for item in sections["cost_items"]}
-    for code, name, operation, driver, rate in LOGISTICS_RULES:
+    for code, name, operation, driver, rate, section in LOGISTICS_RULES:
         if code in rules:
             continue
         item_code = code.replace("RULE_", "", 1)
@@ -397,6 +397,7 @@ def _logistics_rules(sections: dict[str, list[ReferenceItem]], report: SeedRepor
                     "cost_layer": "variable",
                     "driver": driver,
                     "rate_rub": rate,
+                    "estimate_section": section,
                 },
                 source=SOURCE,
                 comment="Демонстрационная ставка: уточните по договорам.",

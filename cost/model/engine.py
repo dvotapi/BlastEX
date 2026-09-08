@@ -21,6 +21,7 @@ from cost.model.inputs import (
     payload_text,
 )
 from cost.v2.models import CostLayer, ReferenceItem, ReferenceSnapshot, decimal_value
+from cost.v2.models import ESTIMATE_SECTIONS, EstimateSection
 from cost.v2.technical_adapter import TechnicalDriverSnapshot
 
 
@@ -177,6 +178,7 @@ def _cost_rule_lines(
             amount_rub=amount,
             formula=formula,
             resource_code=payload_text(rule, "resource_code"),
+            section=_section(payload_text(rule, "estimate_section")),
         )
     return RuleOutcome(drivers=charged, cost_items=charged_items)
 
@@ -207,6 +209,12 @@ def _rule_amount(context: ModelContext, rule: ReferenceItem) -> tuple[Decimal, s
         amount += steps * step_cost
         parts.append(f"{steps} ступ. × {step_cost} ₽")
     return amount, "; ".join(parts)
+
+
+def _section(value: str) -> EstimateSection:
+    """Раздел сметы правила; незнакомое значение — «Общепроизводственные»."""
+
+    return value if value in ESTIMATE_SECTIONS else "OVERHEAD"
 
 
 def _layer(value: str) -> CostLayer:

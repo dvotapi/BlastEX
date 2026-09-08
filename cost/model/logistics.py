@@ -175,6 +175,7 @@ def _vehicle_fuel(
         layer=CostLayer.VARIABLE,
         amount_rub=litres * price,
         formula=formula,
+        section="FUEL"
     )
 
 
@@ -199,6 +200,7 @@ def _mobilization(context: ModelContext) -> None:
         layer=CostLayer.PROJECT_DIRECT,
         amount_rub=trip_km * rate,
         formula=f"{trip_km} км × {rate} ₽/км",
+        section="VM_LOGISTICS"
     )
 
 

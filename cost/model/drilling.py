@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from cost.model.inputs import ModelContext, payload_number, payload_text
+from cost.model.inputs import ModelContext, asset_label, payload_number, payload_text
 from cost.model.prices import material_price
 from cost.v2.models import CostLayer, CostLine, ReferenceItem
 
@@ -336,7 +336,7 @@ def _fixed_lines(
             context.add_line(
                 operation_code=DRILLING_OPERATION,
                 cost_item_code="DRILL_DEPRECIATION",
-                cost_item_name="Амортизация бурового станка",
+                cost_item_name=f"Амортизация: {asset_label(rig_type.name, asset)}",
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=amount,
                 formula=f"{depreciation_month} ₽/мес / {plan_shifts} см × {charged_shifts} см",

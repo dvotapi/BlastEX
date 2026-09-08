@@ -126,3 +126,45 @@ def test_explicit_zero_plan_shifts_is_respected() -> None:
 
     assert not [row for row in context.lines if row.cost_item_code == "SZM_DEPRECIATION"]
     assert any("плановые смены" in text.lower() for text in context.warnings), context.warnings
+
+
+def test_depreciation_names_the_unit_and_its_shifts() -> None:
+    """Строка называет единицу техники, а не только тип: несколько СЗМ отличают по инвентарному номеру."""
+
+    assets = (
+        fx.item(
+            "ASSET_SZM",
+            "СЗМ инв. 002",
+            {
+                "equipment_type_code": "SZM_12T",
+                "inventory_number": "002",
+                "initial_cost_rub": "12000000",
+                "useful_life_months": "60",
+            },
+        ),
+    )
+    context = ModelContext(fx.references(equipment_assets=assets), fx.parameters(), fx.physical())
+    logistics.compute(context)
+    equipment.compute(context)
+
+    line = _line(context, "SZM_DEPRECIATION")
+    assert "инв. 002" in line.cost_item_name
+    assert line.quantity == Decimal("4")
+    assert line.unit == "см"
+
+
+def test_depreciation_falls_back_to_the_type_name_without_an_asset_number() -> None:
+    """Ни инвентарного, ни заводского номера — строка называет тип, а не пустоту."""
+
+    assets = (
+        fx.item(
+            "ASSET_SZM",
+            "СЗМ",
+            {"equipment_type_code": "SZM_12T", "initial_cost_rub": "12000000", "useful_life_months": "60"},
+        ),
+    )
+    context = ModelContext(fx.references(equipment_assets=assets), fx.parameters(), fx.physical())
+    logistics.compute(context)
+    equipment.compute(context)
+
+    assert _line(context, "SZM_DEPRECIATION").cost_item_name == "Амортизация: СЗМ 12 т"

@@ -181,6 +181,33 @@ class RunCompareResponse(BaseModel):
     delta_price_per_m3: dict[str, float]
 
 
+class VariantRequest(BaseModel):
+    """Один столбец сметы: имя и свой набор параметров."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=120)
+    parameters: ModelParametersSchema
+
+
+class VariantsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    technical_passport_id: str = Field(..., min_length=1)
+    # Четыре колонки — предел читаемой таблицы и предел бумажной сметы.
+    variants: list[VariantRequest] = Field(..., min_length=1, max_length=4)
+
+
+class VariantResultSchema(BaseModel):
+    name: str
+    economics: BlockEconomicsSchema
+
+
+class VariantsResponse(BaseModel):
+    reference_revision_id: str
+    variants: list[VariantResultSchema]
+
+
 class SensitivityRowSchema(BaseModel):
     code: str
     label: str

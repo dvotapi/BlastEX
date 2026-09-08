@@ -27,10 +27,12 @@ SOURCE = "seed"
 # а «Детонатор промежуточный» не должен уйти в электродетонаторы.
 _ROLE_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("NSI_START", ("старт",)),
-    ("NSI_SURFACE", ("искра-п",)),
+    ("NSI_SURFACE", ("искра-п", "поверхностн")),
     ("BOOSTER", ("детонатор промежуточный", "сферит", "дпу", "промежуточн")),
     ("DETONATOR_ELECTRIC", ("электродетонатор", "эд-")),
-    ("NSI_DOWNHOLE", ("нси", "искра-с", "rionel", "синв")),
+    # «скважинн» стоит первым не случайно: общее слово «нси» ловит и
+    # поверхностные устройства, если их место в сети названо словами.
+    ("NSI_DOWNHOLE", ("скважинн", "нси", "искра-с", "rionel", "синв")),
     ("EXPLOSIVE", ("эвв", "гвв", "гранулит", "эверсин", "березит", "нитронит", "протолит", "порэмит", "эмульс")),
     ("DRILL_TOOL", ("долото", "коронк", "ппу", "пневмоудар", "штанг", "обсадн", "переводник")),
 )
@@ -101,14 +103,25 @@ def guess_role(item: ReferenceItem) -> str | None:
     return None
 
 
+# Правдоподобная длина скважинного НСИ: короче трёх метров устройств не
+# делают, длиннее тридцати не бывает скважин. Число за этими границами в
+# хвосте кода — не длина, а маркировка: «СИНВ-Ш 500» это 500 мс замедления,
+# а «MS-20» — двадцать миллисекунд.
+_MIN_NSI_LENGTH_M = Decimal("3")
+_MAX_NSI_LENGTH_M = Decimal("30")
+
+
 def guess_length_m(item: ReferenceItem) -> Decimal | None:
     match = _LENGTH_IN_NAME.search(item.name)
     if match:
+        # Длина, названная словами и единицей, — надёжный источник как есть.
         return Decimal(match.group(1).replace(",", "."))
     match = _LENGTH_IN_CODE.search(item.code)
     if match:
         # Код хранит дециметры: MAT_NSI_90 — 9 м, MAT_NSI_120 — 12 м.
-        return Decimal(match.group(1)) / 10
+        length = Decimal(match.group(1)) / 10
+        if _MIN_NSI_LENGTH_M <= length <= _MAX_NSI_LENGTH_M:
+            return length
     return None
 
 

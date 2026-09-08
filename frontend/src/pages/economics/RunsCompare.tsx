@@ -1,8 +1,6 @@
 import { api } from "../../api/endpoints";
 import type { EconomicsRunSummary, RunCompare } from "../../types/blockEconomics";
-
-const money = (value: number) =>
-  value.toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+import { money } from "./format";
 
 /** Сохранённые сценарии блока и сравнение до трёх снимков рядом. */
 export function RunsCompare({
@@ -71,9 +69,9 @@ export function RunsCompare({
                 {compare.rows.map((row) => (
                   <tr key={row.cost_item_code}>
                     <td>{row.cost_item_name}</td>
-                    {row.amounts.map((cell) => <td key={cell.run_id}>{money(cell.amount_rub)}</td>)}
+                    {row.amounts.map((cell) => <td key={cell.run_id}>{money(cell.amount_rub, 0)}</td>)}
                     <td className={row.delta_rub < 0 ? "metric-negative" : ""}>
-                      {row.delta_rub > 0 ? "+" : ""}{money(row.delta_rub)}
+                      {row.delta_rub > 0 ? "+" : ""}{money(row.delta_rub, 0)}
                     </td>
                   </tr>
                 ))}

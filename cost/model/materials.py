@@ -278,6 +278,10 @@ def _role_line(context: ModelContext, role: Role, outcome: MaterialsOutcome) -> 
         amount_rub=quantity * price,
         formula=f"{quantity_formula} × {price} ₽/{role.unit} ({lookup.source})",
         resource_code=code,
+        section="EXPLOSIVES",
+        quantity=quantity,
+        unit=role.unit,
+        unit_price_rub=price,
     )
 
 

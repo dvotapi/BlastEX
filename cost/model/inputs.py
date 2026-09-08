@@ -15,6 +15,7 @@ from typing import Any, Iterable, Literal, Mapping
 from cost.v2.models import (
     CostLayer,
     CostLine,
+    EstimateSection,
     ReferenceItem,
     ReferenceSnapshot,
     decimal_value,
@@ -29,6 +30,83 @@ MODEL_VERSION = "cost-model-v1"
 DIESEL_LITRES_PER_TON = Decimal("1176.47")
 
 BLOCK_SERVICE_LINE_ID = "BLOCK"
+
+# Единица измерения натуральной величины для колонки сметы. Показывать имя
+# драйвера нельзя: сметчик читает «ткм», а не `vm_tkm`. Незнакомая величина
+# остаётся без единицы — пусто честнее кода.
+#
+# Имена драйверов заканчиваются на единицу измерения, и часть из них модель
+# составляет на ходу (`szm_fuel_l`, `emulsion_truck_fuel_km`), поэтому
+# словарь перечисляет исключения, а хвост имени разбирается правилом ниже:
+# иначе новая величина в модели снова осталась бы без подписи.
+DRIVER_UNITS: dict[str, str] = {
+    "rock_volume_m3": "м³",
+    "drilling_m": "п.м.",
+    "contour_drilling_m": "п.м.",
+    "explosive_kg": "кг",
+    "bulk_kg": "кг",
+    "cartridge_kg": "кг",
+    "holes": "шт",
+    "downhole_nsi": "шт",
+    "surface_nsi": "шт",
+    "start_nsi": "шт",
+    "boosters": "шт",
+    "intermediate_detonators": "шт",
+    "electric_detonators": "шт",
+    "blasts": "взрыв",
+    "vm_tkm": "ткм",
+    "component_tkm": "ткм",
+    "rig_shifts": "см",
+    "rig_maintenance_shifts": "см",
+    "szm_shifts": "см",
+    "szm_trips": "рейс",
+    "delivery_shifts": "см",
+    "delivery_trips": "рейс",
+    "emulsion_shifts": "см",
+    "emulsion_trips": "рейс",
+    "mobilization_trip_km": "км",
+    "excavator_hours": "ч",
+    "stakeout_holes": "шт",
+    "nsi_length_m": "м",
+    "warehouse_area_m2": "м²",
+    "unit_allocation_share": "доля",
+    "drilling_rub_per_m": "₽/м",
+    "drilling_variable_rub_per_m": "₽/м",
+    "drilling_fixed_rub_per_m": "₽/м",
+    "v_commercial_m_per_shift": "м/см",
+    "drilling_tech_speed_m_per_h": "м/ч",
+}
+
+# Хвост имени → единица. Порядок значим: `_tkm` разбирается раньше `_km`,
+# метры кубические и квадратные — раньше погонных.
+DRIVER_UNIT_SUFFIXES: tuple[tuple[str, str], ...] = (
+    ("_tkm", "ткм"),
+    ("_km", "км"),
+    ("_m3", "м³"),
+    ("_m2", "м²"),
+    ("_kg", "кг"),
+    ("_l", "л"),
+    ("_h", "ч"),
+    ("_shifts", "см"),
+    ("_trips", "рейс"),
+    ("_holes", "шт"),
+    ("_m", "п.м."),
+)
+
+
+def driver_unit(driver: str) -> str:
+    """Подпись единицы драйвера для колонки сметы; пусто, если величина незнакома."""
+
+    known = DRIVER_UNITS.get(driver)
+    if known is not None:
+        return known
+    if "_per_" in driver:
+        # Ставка, а не количество: «₽ за метр» из хвоста имени не выводится.
+        return ""
+    for suffix, unit in DRIVER_UNIT_SUFFIXES:
+        if driver.endswith(suffix):
+            return unit
+    return ""
 
 
 @dataclass(frozen=True)
@@ -392,7 +470,11 @@ class ModelContext:
         layer: CostLayer,
         amount_rub: Decimal,
         formula: str,
+        section: EstimateSection,
         resource_code: str = "",
+        quantity: Decimal | None = None,
+        unit: str = "",
+        unit_price_rub: Decimal | None = None,
     ) -> None:
         self.lines.append(
             CostLine(
@@ -406,6 +488,10 @@ class ModelContext:
                 amount_rub=amount_rub,
                 formula=formula,
                 resource_code=resource_code,
+                section=section,
+                quantity=quantity,
+                unit=unit,
+                unit_price_rub=unit_price_rub,
             )
         )
 
@@ -506,8 +592,10 @@ __all__ = [
     "ModelParameters",
     "NaturalDrivers",
     "OrganizationRates",
+    "DRIVER_UNITS",
     "PackageDefinition",
     "ServiceCharge",
+    "driver_unit",
     "find_items",
     "payload_number",
     "payload_text",

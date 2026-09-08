@@ -55,11 +55,15 @@ def apply(
     volume = context.block_volume_m3
     if volume <= 0:
         context.warn("Объём блока равен нулю: цены за м³ не рассчитаны.")
-        prices = {key: Decimal("0") for key in ("marginal", "full", "with_margin", "with_vat")}
+        prices = {
+            key: Decimal("0")
+            for key in ("marginal", "full", "with_overhead", "with_margin", "with_vat")
+        }
     else:
         prices = {
             "marginal": marginal_cost / volume,
             "full": full_cost / volume,
+            "with_overhead": cost_with_overhead / volume,
             "with_margin": price / volume,
             "with_vat": (price + vat) / volume,
         }
@@ -70,6 +74,10 @@ def apply(
         "marginal_cost_rub": marginal_cost,
         "full_cost_rub": full_cost,
         "overhead_rub": overhead,
+        # Себестоимость с ОХР считает модель, а не интерфейс: иначе лестница
+        # итогов на вкладке и выгрузка расходились бы при первой же смене
+        # базы начисления.
+        "cost_with_overhead_rub": cost_with_overhead,
         "margin_rub": margin,
         "price_rub": price,
         "vat_rub": vat,

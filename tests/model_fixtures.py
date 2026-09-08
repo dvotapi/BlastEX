@@ -382,6 +382,7 @@ COST_RULES = (
             "cost_layer": "variable",
             "driver": "explosive_kg",
             "rate_rub": "45",
+            "estimate_section": "EXPLOSIVES",
         },
     ),
     item(
@@ -394,6 +395,7 @@ COST_RULES = (
             "cost_layer": "variable",
             "driver": "downhole_nsi",
             "rate_rub": "900",
+            "estimate_section": "EXPLOSIVES",
         },
     ),
     item(
@@ -406,6 +408,7 @@ COST_RULES = (
             "cost_layer": "variable",
             "driver": "vm_tkm",
             "rate_rub": "25",
+            "estimate_section": "VM_LOGISTICS",
         },
     ),
 )

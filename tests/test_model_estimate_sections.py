@@ -1,0 +1,359 @@
+"""Раздел бумажной сметы у строки затрат: сметчик ищет строку глазами по нему."""
+from __future__ import annotations
+
+from decimal import Decimal
+
+import pytest
+
+from cost.model.engine import compute_block_economics
+from tests import model_fixtures as fx
+
+NOMENCLATURE = {
+    "EXPLOSIVE": "MAT_EVERSIN",
+    "BOOSTER": "MAT_BOOSTER",
+    "NSI_DOWNHOLE": "MAT_NSI",
+    "NSI_SURFACE": "MAT_NSI_SURFACE",
+    "NSI_START": "MAT_NSI_START",
+}
+
+
+def compute(**params):
+    """Блок со всеми разделами сметы: патроны едут со склада, объект вахтовый."""
+
+    rates = fx.item(
+        "RATES_REMOTE",
+        "Ставки с вахтой",
+        {"per_diem_rub": "700", "lodging_rub": "1500", "shift_hours": "11"},
+    )
+    return compute_block_economics(
+        {"physical": fx.physical(cartridge_kg=2200, bulk_kg=39800), "lineage": {}},
+        fx.parameters(nomenclature=NOMENCLATURE, emulsion_truck_code="TRUCK_EMULSION_20T", **params),
+        fx.references(organization_rates=(rates,)),
+    )
+
+
+def sections_by_code(result) -> dict[str, str]:
+    return {line.cost_item_code: line.section for line in result.lines}
+
+
+def test_every_line_names_its_estimate_section() -> None:
+    result = compute()
+    sections = sections_by_code(result)
+
+    assert sections["MATERIAL_EXPLOSIVE"] == "EXPLOSIVES"
+    assert sections["MATERIAL_NSI_DOWNHOLE"] == "EXPLOSIVES"
+    assert sections["DRILL_TOOLING"] == "DRILLING"
+    assert sections["DRILL_FUEL"] == "DRILLING"
+    assert sections["DRILL_DEPRECIATION"] == "DRILLING"
+    assert sections["VM_DELIVERY"] == "VM_LOGISTICS"
+    assert sections["MOBILIZATION"] == "VM_LOGISTICS"
+    assert sections["LABOR_POS_BLASTER"] == "LABOR"
+    assert sections["LABOR_CONTRIBUTIONS"] == "LABOR"
+    assert sections["SZM_FUEL"] == "FUEL"
+    assert sections["EMULSION_TRUCK_FUEL"] == "FUEL"
+    assert sections["SZM_DEPRECIATION"] == "DEPRECIATION"
+    assert sections["SZM_MAINTENANCE"] == "OVERHEAD"
+    assert all(line.section for line in result.lines)
+
+
+def test_per_diem_is_its_own_section() -> None:
+    """Суточные и проживание — отдельный раздел сметы, а не часть ФОТ."""
+
+    result = compute()
+
+    per_diem = next(line for line in result.lines if line.cost_item_code == "LABOR_PER_DIEM")
+    assert per_diem.section == "PER_DIEM"
+
+
+def test_unit_fixed_costs_go_to_overhead_except_the_vm_warehouse() -> None:
+    """Постоянные затраты юнита — общепроизводственные, склад ВМ — свой раздел."""
+
+    result = compute()
+    unit_lines = [line for line in result.lines if line.cost_item_code.startswith("UNIT_")]
+
+    assert unit_lines
+    sections = sections_by_code(result)
+    assert sections["UNIT_WAREHOUSE_RENT"] == "VM_LOGISTICS"
+    assert {
+        line.section for line in unit_lines if line.cost_item_code != "UNIT_WAREHOUSE_RENT"
+    } == {"OVERHEAD"}
+
+
+def test_cost_rule_names_its_section_and_falls_back_to_overhead() -> None:
+    plain = fx.item(
+        "RULE_PLAIN",
+        "Прочее по скважинам",
+        {"operation_code": "STEMMING", "cost_item_code": "RULE_PLAIN", "driver": "holes", "rate_rub": "60"},
+    )
+    stemming = fx.item(
+        "RULE_STEMMING",
+        "Забойка скважин",
+        {
+            "operation_code": "STEMMING",
+            "cost_item_code": "RULE_STEMMING",
+            "driver": "holes",
+            "rate_rub": "60",
+            "estimate_section": "EXPLOSIVES",
+        },
+    )
+    result = compute_block_economics(
+        fx.snapshot(), fx.parameters(), fx.references(cost_rules=(plain, stemming))
+    )
+
+    sections = sections_by_code(result)
+    assert sections["RULE_PLAIN"] == "OVERHEAD"
+    assert sections["RULE_STEMMING"] == "EXPLOSIVES"
+
+
+def test_service_line_carries_the_section_of_its_layer() -> None:
+    from cost.model.inputs import ServiceCharge
+
+    result = compute_block_economics(
+        fx.snapshot(),
+        fx.parameters(
+            services=(ServiceCharge("Проживание бригады", Decimal("120000"), "project_direct", "BLAST_EXECUTION"),)
+        ),
+        fx.references(),
+    )
+
+    service = next(line for line in result.lines if line.cost_item_name == "Проживание бригады")
+    assert service.section == "OVERHEAD"
+
+
+def test_section_survives_serialisation() -> None:
+    result = compute()
+
+    row = next(item for item in result.to_dict()["lines"] if item["cost_item_code"] == "MATERIAL_EXPLOSIVE")
+    assert row["section"] == "EXPLOSIVES"
+
+
+# --- количество, единица и цена -------------------------------------------
+
+
+def line_by_code(result, code: str):
+    return next(row for row in result.lines if row.cost_item_code == code)
+
+
+def test_material_line_carries_quantity_unit_and_price() -> None:
+    result = compute()
+
+    line = line_by_code(result, "MATERIAL_EXPLOSIVE")
+    assert line.unit == "кг"
+    assert line.unit_price_rub == Decimal("48.9")
+    assert line.quantity * line.unit_price_rub == line.amount_rub
+
+
+def test_booster_quantity_is_in_the_units_of_its_price() -> None:
+    """Паспорт считает боевики штуками, справочник хранит цену килограмма."""
+
+    result = compute()
+
+    line = line_by_code(result, "MATERIAL_BOOSTER")
+    assert line.unit == "кг"
+    assert line.quantity == Decimal("1224") * Decimal("0.8")
+    assert line.quantity * line.unit_price_rub == line.amount_rub
+
+
+def test_drilling_line_counts_metres_and_fuel_counts_litres() -> None:
+    result = compute()
+
+    fuel = line_by_code(result, "DRILL_FUEL")
+    assert fuel.unit == "л"
+    assert fuel.quantity == result.natural.get("drilling_fuel_l")
+    assert fuel.quantity * fuel.unit_price_rub == fuel.amount_rub
+
+
+def test_depreciation_counts_shifts_with_a_rate_per_shift() -> None:
+    result = compute()
+
+    line = line_by_code(result, "SZM_DEPRECIATION")
+    assert line.unit == "см"
+    assert line.quantity == result.natural.get("szm_shifts")
+    assert line.quantity * line.unit_price_rub == line.amount_rub
+
+
+def test_labor_counts_person_shifts_without_a_unit_price() -> None:
+    """У ФОТ цена за единицу теряет смысл: оклад, сделка и НДФЛ дают разную ставку."""
+
+    result = compute()
+
+    line = line_by_code(result, "LABOR_POS_BLASTER")
+    assert line.unit == "чел·см"
+    assert line.quantity > 0
+    assert line.unit_price_rub is None
+
+
+def test_lines_without_a_countable_quantity_leave_it_empty() -> None:
+    """Доля постоянных затрат юнита — не количество: единицы у неё нет."""
+
+    result = compute()
+
+    line = next(row for row in result.lines if row.cost_item_code.startswith("UNIT_"))
+    assert line.quantity is None
+    assert line.unit == ""
+    assert line.unit_price_rub is None
+
+
+def test_quantity_and_price_survive_serialisation() -> None:
+    result = compute()
+
+    row = next(item for item in result.to_dict()["lines"] if item["cost_item_code"] == "MATERIAL_EXPLOSIVE")
+    assert row["unit"] == "кг"
+    # Роль ВВ считает всю массу заряда, а не только насыпную часть.
+    assert row["quantity"] == pytest.approx(42000.0)
+    assert row["unit_price_rub"] == pytest.approx(48.9)
+
+
+def test_cost_rule_line_shows_its_driver_and_rate() -> None:
+    """Правило «цена × драйвер» — ровно та строка, где норма и цена очевидны."""
+
+    result = compute()
+
+    delivery = line_by_code(result, "VM_DELIVERY")
+    assert delivery.unit == "ткм"
+    assert delivery.quantity == result.natural.get("vm_tkm")
+    assert delivery.unit_price_rub == Decimal("25")
+    assert delivery.quantity * delivery.unit_price_rub == delivery.amount_rub
+
+
+def test_maintenance_counts_shifts_with_its_rate() -> None:
+    result = compute()
+
+    drilling_toir = line_by_code(result, "DRILL_MAINTENANCE")
+    assert drilling_toir.unit == "см"
+    assert drilling_toir.quantity > 0
+    assert drilling_toir.unit_price_rub == Decimal("750")
+
+    szm_toir = line_by_code(result, "SZM_MAINTENANCE")
+    assert szm_toir.unit_price_rub == Decimal("500")
+
+
+# --- находки ревью --------------------------------------------------------
+
+
+def test_unit_of_a_cost_rule_is_a_human_unit_not_a_driver_code() -> None:
+    """В колонке единиц не должно быть машинных кодов: сметчик читает «ткм», не vm_tkm."""
+
+    result = compute()
+
+    delivery = line_by_code(result, "VM_DELIVERY")
+    assert delivery.unit == "ткм"
+    assert delivery.quantity == result.natural.get("vm_tkm")
+
+
+def test_unknown_driver_leaves_the_unit_empty_instead_of_showing_its_code() -> None:
+    """Незнакомая величина остаётся без единицы: код в колонке хуже пустоты."""
+
+    rule = fx.item(
+        "RULE_ODD",
+        "Странная статья",
+        {
+            "operation_code": "STEMMING",
+            "cost_item_code": "RULE_ODD",
+            "driver": "moon_phases",
+            "rate_rub": "10",
+            "estimate_section": "OVERHEAD",
+        },
+    )
+    result = compute_block_economics(
+        {"physical": {**fx.physical(), "moon_phases": Decimal("3")}, "lineage": {}},
+        fx.parameters(),
+        fx.references(cost_rules=(rule,)),
+    )
+
+    line = line_by_code(result, "RULE_ODD")
+    assert line.unit == ""
+    assert line.quantity == Decimal("3")
+
+
+def test_a_driver_named_after_its_unit_is_labelled_without_a_table_entry() -> None:
+    """Модель заводит величины на ходу (`szm_fuel_l`): единица берётся из хвоста имени."""
+
+    from cost.model.inputs import driver_unit
+
+    assert driver_unit("szm_fuel_l") == "л"
+    assert driver_unit("emulsion_truck_fuel_km") == "км"
+    assert driver_unit("drilling_casing_m") == "п.м."
+    # Ставка — не количество: «₽ за метр» из хвоста имени не выводится.
+    assert driver_unit("drilling_rub_per_m") == "₽/м"
+    assert driver_unit("some_rate_per_shift") == ""
+
+
+def test_per_diem_counts_person_shifts_at_its_rate() -> None:
+    """Ставка суточных одна на всех, значит норма и цена у строки есть."""
+
+    result = compute()
+
+    line = line_by_code(result, "LABOR_PER_DIEM")
+    assert line.unit == "чел·см"
+    assert line.unit_price_rub == Decimal("2200")
+    assert line.quantity * line.unit_price_rub == line.amount_rub
+
+
+@pytest.mark.parametrize("code", ["DRILL_FUEL", "DRILL_TOOLING", "VM_DELIVERY"])
+def test_unit_price_is_not_rounded_to_kopecks_in_json(code: str) -> None:
+    """Округление цены рвало бы колонки: норма × цена перестала бы давать сумму.
+
+    Сумма строки округлена до копеек, поэтому произведение сходится с ней в
+    пределах этого округления — но не на рубли, как было бы с округлённой
+    ценой литра ДТ или амортизации за смену.
+    """
+
+    lines = compute().to_dict()["lines"]
+
+    row = next(item for item in lines if item["cost_item_code"] == code)
+    assert row["quantity"] * row["unit_price_rub"] == pytest.approx(row["amount_rub"], abs=0.01)
+
+
+def test_insurance_is_an_overhead_not_a_depreciation() -> None:
+    """ОСАГО в смете стоит в общепроизводственных, рядом с ТОиР, а не в амортизации."""
+
+    result = compute()
+
+    assert line_by_code(result, "SZM_INSURANCE").section == "OVERHEAD"
+    assert line_by_code(result, "SZM_DEPRECIATION").section == "DEPRECIATION"
+
+
+def test_a_rule_without_a_section_warns_instead_of_hiding_in_overhead() -> None:
+    """Правило старой ревизии поля не знает: молча увести строку в ОПР нельзя."""
+
+    rule = fx.item(
+        "RULE_OLD",
+        "Правило без раздела",
+        {
+            "operation_code": "STEMMING",
+            "cost_item_code": "RULE_OLD",
+            "driver": "holes",
+            "rate_rub": "10",
+        },
+    )
+    result = compute_block_economics(
+        fx.snapshot(), fx.parameters(), fx.references(cost_rules=(rule,))
+    )
+
+    assert line_by_code(result, "RULE_OLD").section == "OVERHEAD"
+    assert any("RULE_OLD" in warning and "раздел сметы" in warning for warning in result.warnings)
+
+
+def test_a_rule_with_steps_but_no_step_price_still_shows_its_norm() -> None:
+    """Признак «норма × цена» считается там же, где сумма, иначе отстанет от неё."""
+
+    rule = fx.item(
+        "RULE_STEPPED",
+        "Ставка со ступенью без цены",
+        {
+            "operation_code": "STEMMING",
+            "cost_item_code": "RULE_STEPPED",
+            "driver": "holes",
+            "rate_rub": "60",
+            "step_capacity": "50",
+            "estimate_section": "EXPLOSIVES",
+        },
+    )
+    result = compute_block_economics(
+        fx.snapshot(), fx.parameters(), fx.references(cost_rules=(rule,))
+    )
+
+    line = line_by_code(result, "RULE_STEPPED")
+    assert line.unit_price_rub == Decimal("60")
+    assert line.quantity * line.unit_price_rub == line.amount_rub

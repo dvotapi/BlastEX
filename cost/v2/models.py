@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping, get_args
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -419,6 +419,27 @@ class EconomicScenario:
         }
 
 
+# Разделы бумажной сметы БВР в порядке, в котором их читают: сначала
+# переменные материалы и бурение, затем постоянные — логистика, вахта, ФОТ,
+# ГСМ, амортизация и общепроизводственные.
+EstimateSection = Literal[
+    "EXPLOSIVES",
+    "DRILLING",
+    "VM_LOGISTICS",
+    "PER_DIEM",
+    "LABOR",
+    "FUEL",
+    "DEPRECIATION",
+    "OVERHEAD",
+]
+
+
+# Единственный источник списка: перечислять разделы дважды значит однажды
+# добавить раздел в тип и забыть во множестве, после чего `engine._section`
+# молча свернёт его в «Общепроизводственные».
+ESTIMATE_SECTIONS: frozenset[str] = frozenset(get_args(EstimateSection))
+
+
 @dataclass(frozen=True)
 class CostLine:
     month: str
@@ -431,6 +452,16 @@ class CostLine:
     amount_rub: Decimal
     formula: str
     resource_code: str = ""
+    # Раздел бумажной сметы: слой говорит, как затрата ведёт себя с объёмом,
+    # а раздел — где сметчик ищет строку глазами.
+    section: EstimateSection = "OVERHEAD"
+    # Количество в единицах цены и сама цена: в смете это отдельные колонки,
+    # и разбирать ради них текст формулы интерфейс не должен. Пусто там, где
+    # считать нечего: доля постоянных затрат юнита — не количество.
+    quantity: Decimal | None = None
+    unit: str = ""
+    # Пусто у ФОТ: оклад, сдельная часть и НДФЛ дают разную ставку за смену.
+    unit_price_rub: Decimal | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -444,6 +475,17 @@ class CostLine:
             "amount_rub": float(money(self.amount_rub)),
             "formula": self.formula,
             "resource_code": self.resource_code,
+            "section": self.section,
+            "quantity": float(self.quantity) if self.quantity is not None else None,
+            "unit": self.unit,
+            # Без округления до копеек: цена литра ДТ или амортизация за смену
+            # выходят длинной дробью, и квантование рвало бы колонки — норма,
+            # умноженная на цену, разошлась бы с суммой строки на рубли.
+            # Сама сумма округлена до копеек, поэтому произведение сходится с
+            # ней с точностью до этого округления, а не побитно.
+            "unit_price_rub": (
+                float(self.unit_price_rub) if self.unit_price_rub is not None else None
+            ),
         }
 
 

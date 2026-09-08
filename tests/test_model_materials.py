@@ -256,6 +256,7 @@ def test_a_rule_with_the_same_driver_but_a_different_operation_is_not_blocked() 
             "cost_layer": "variable",
             "driver": "explosive_kg",
             "rate_rub": "0.5",
+            "estimate_section": "VM_LOGISTICS",
         },
     )
     result = compute_block_economics(

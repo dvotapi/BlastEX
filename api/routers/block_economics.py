@@ -491,6 +491,12 @@ def service_to_reference(
         raise repository_error(exc) from exc
     sections = {name: list(items) for name, items in current.sections.items()}
     existing = next((item for item in sections.get("cost_rules", ()) if item.code == code), None)
+    if not payload_text(existing, "estimate_section"):
+        # Новое правило заводит вкладка, а не старая ревизия: раздел ему нужен
+        # сразу, иначе модель будет предупреждать о незаполненном поле на
+        # каждом расчёте. Раздел, проставленный в справочнике, переживает
+        # перенос — его нет в `RULE_FIELDS`.
+        rule_payload["estimate_section"] = "OVERHEAD"
     if existing is not None and existing.name.strip() != service.name.strip():
         # Разные названия дали один код (транслит и регистр): перезаписать
         # чужое правило значит потерять его сумму, а ответ сказал бы
@@ -505,12 +511,12 @@ def service_to_reference(
             },
         )
     sections["cost_rules"] = _upsert(
-        sections.get("cost_rules", ()), code, service.name, rule_payload
+        sections.get("cost_rules", ()), code, service.name, rule_payload, owned=RULE_FIELDS
     )
     # Правило ссылается на статью затрат: без записи в «Статьях затрат»
     # ревизия не пройдёт проверку ссылок.
     sections["cost_items"] = _upsert(
-        sections.get("cost_items", ()), code, service.name, {"kind": "service"}
+        sections.get("cost_items", ()), code, service.name, {"kind": "service"}, owned=("kind",)
     )
 
     try:
@@ -540,16 +546,45 @@ def service_to_reference(
     )
 
 
+# Поля правила затрат, которыми распоряжается вкладка: их она задаёт при
+# каждом переносе и стирает, если услуга перестала быть ставкой за смену.
+# Всё остальное — раздел сметы, ресурсный пул, ступени — правят в
+# справочнике, и повторный перенос суммы не вправе это потерять.
+RULE_FIELDS = (
+    "operation_code",
+    "cost_item_code",
+    "behavior_type",
+    "cost_layer",
+    "driver",
+    "rate_rub",
+    "fixed_rub",
+)
+
+
 def _upsert(
-    items: Sequence[ReferenceItem], code: str, name: str, payload: dict[str, Any]
+    items: Sequence[ReferenceItem],
+    code: str,
+    name: str,
+    payload: dict[str, Any],
+    *,
+    owned: Sequence[str],
 ) -> list[ReferenceItem]:
-    """Запись с таким кодом обновляется на месте, новая — добавляется в конец."""
+    """Запись с таким кодом обновляется на месте, новая — добавляется в конец.
+
+    Обновляются только поля вкладки (`owned`): правки справочника в
+    остальных полях переживают перенос.
+    """
 
     existing = next((item for item in items if item.code == code), None)
+    kept = (
+        {key: value for key, value in existing.payload.items() if key not in owned}
+        if existing is not None
+        else {}
+    )
     item = ReferenceItem(
         code=code,
         name=name,
-        payload=payload,
+        payload={**kept, **payload},
         source="вкладка «Экономика блока»",
         revision=(existing.revision + 1) if existing is not None else 1,
     )

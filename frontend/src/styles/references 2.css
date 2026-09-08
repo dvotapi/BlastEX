@@ -1,0 +1,141 @@
+/* Справочники экономики: три панели «разделы / список / форма записи». */
+
+.ref-workbench { display:flex; flex-direction:column; gap:14px; padding:20px 24px 24px; }
+.ref-workbench-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
+.ref-workbench-head h2 { margin:0 0 4px; font-size:24px; letter-spacing:-.5px; }
+.ref-workbench-head p { margin:0; color:#6e7c75; font-size:12px; }
+.ref-draft-status { padding:7px 12px; border-radius:999px; color:#247752; background:#e5f4eb; font-size:11px; font-weight:700; white-space:nowrap; }
+.ref-draft-status.dirty { color:#7a5713; background:#fdf1dc; }
+
+.ref-grid { display:grid; grid-template-columns:204px minmax(0,1fr); gap:14px; align-items:start; }
+@media (min-width:1200px) { .ref-grid.with-form { grid-template-columns:204px minmax(0,1fr) 344px; } }
+
+/* --- навигатор разделов --- */
+.ref-nav { position:sticky; top:12px; display:grid; gap:14px; align-content:start; max-height:calc(100vh - 140px); padding:12px; overflow-y:auto; border:1px solid #dce4e0; border-radius:12px; background:#fff; }
+.ref-nav-search { width:100%; padding:8px 10px; border:1px solid #d7e1dc; border-radius:8px; font-size:12px; }
+.ref-nav-matches { display:grid; gap:4px; padding:8px; border-radius:9px; background:#f2f7f4; }
+.ref-nav-matches button { display:grid; gap:2px; padding:6px 8px; border:0; border-radius:7px; background:transparent; text-align:left; }
+.ref-nav-matches button:hover { background:#e2efe8; }
+.ref-nav-matches b { font-size:12px; } .ref-nav-matches span { color:#6e7c75; font-size:10px; }
+.ref-nav-group { display:grid; gap:2px; }
+.ref-nav-group h5 { margin:0 0 4px; padding:0 6px; color:#8b9a92; font-size:10px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; }
+.ref-nav-group button { display:flex; align-items:center; justify-content:space-between; gap:6px; width:100%; padding:7px 8px; border:0; border-radius:8px; background:transparent; color:#3b4b43; font-size:12px; font-weight:600; text-align:left; }
+.ref-nav-group button:hover { background:#f0f5f2; }
+.ref-nav-group button.active { background:#e5f4eb; color:#1c5c40; font-weight:750; }
+.ref-nav-label em { color:#9aa8a1; font-size:10px; font-style:normal; }
+.ref-nav-badge { flex:0 0 auto; color:#7d8b84; font-size:11px; font-weight:700; }
+.ref-nav-badge.warn { padding:1px 6px; border-radius:999px; color:#7a5713; background:#fdf1dc; }
+
+/* --- список записей --- */
+.ref-main { display:grid; gap:12px; min-width:0; }
+.ref-list-panel { display:grid; gap:12px; padding:16px; border:1px solid #dce4e0; border-radius:12px; background:#fff; }
+.ref-list-head { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:12px 16px; }
+.ref-list-head > div:first-child { flex:1 1 240px; min-width:0; }
+.ref-list-head h3 { margin:0 0 4px; font-size:19px; }
+.ref-list-note { margin:0; max-width:64ch; color:#6e7c75; font-size:12px; line-height:1.5; }
+.ref-list-head-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-left:auto; }
+.ref-list-filters { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.ref-warning-badge { padding:6px 10px; border-radius:8px; color:#7a5713; background:#fdf1dc; font-size:11px; font-weight:700; white-space:nowrap; }
+
+.ref-segments { display:inline-flex; gap:2px; padding:3px; border:1px solid #dce4e0; border-radius:9px; background:#f4f7f5; }
+.ref-segments button { padding:6px 11px; border:0; border-radius:7px; background:transparent; color:#5c6b63; font-size:11px; font-weight:700; }
+.ref-segments button.active { background:#fff; color:#1c5c40; box-shadow:0 1px 3px rgba(22,48,36,.12); }
+.ref-checkbox { display:inline-flex; align-items:center; gap:7px; color:#3b4b43; font-size:12px; font-weight:600; }
+
+.ref-table-scroll { overflow-x:auto; }
+.ref-table { width:100%; border-collapse:collapse; font-size:12px; }
+.ref-table th { padding:8px 10px; border-bottom:1px solid #dce4e0; color:#7d8b84; font-size:10px; font-weight:800; letter-spacing:.4px; text-align:left; text-transform:uppercase; }
+.ref-table td { padding:9px 10px; border-bottom:1px solid #eef2f0; vertical-align:top; }
+.ref-table tbody tr { cursor:pointer; }
+.ref-table tbody tr:hover { background:#f6faf8; }
+.ref-table tbody tr.selected { background:#eef7f2; box-shadow:inset 2px 0 0 #2d7556; }
+.ref-table tbody tr.changed td:first-child { box-shadow:inset 3px 0 0 #e0a92c; }
+.ref-table tbody tr.has-error td:first-child { box-shadow:inset 3px 0 0 #c0392b; }
+.ref-table tbody tr.inactive-row { color:#93a19a; }
+.ref-table td b { display:block; font-size:12px; }
+.ref-table td small { display:block; margin-top:2px; color:#8b9a92; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10px; }
+.ref-table-empty td { color:#8b9a92; text-align:center; cursor:default; }
+.ref-tag { display:inline-block; padding:2px 7px; border-radius:999px; background:#eef3f0; font-size:10px; font-weight:700; }
+
+.ref-matrix td { min-width:140px; }
+.ref-matrix-rig { min-width:170px; }
+.ref-matrix-cell.empty { color:#9aa8a1; font-size:11px; }
+.ref-matrix-cell.missing { color:#c0392b; font-weight:700; }
+.ref-matrix-entry { display:block; width:100%; padding:5px 7px; border:1px solid transparent; border-radius:8px; background:transparent; text-align:left; }
+.ref-matrix-entry + .ref-matrix-entry { margin-top:4px; }
+.ref-matrix-entry:hover { background:#f2f7f4; }
+.ref-matrix-entry.selected { border-color:#2d7556; background:#eef7f2; }
+.ref-matrix-entry.changed { box-shadow:inset 3px 0 0 #e0a92c; }
+.ref-matrix-add { margin-top:4px; padding:3px 6px; border:0; border-radius:6px; background:transparent; color:#8b9a92; font-size:10px; font-weight:700; }
+.ref-matrix-add:hover { color:#2d7556; background:#eef3f0; }
+
+/* --- панель публикации --- */
+.ref-publish-bar { position:sticky; bottom:12px; z-index:3; display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:12px; border:1px solid #cfdcd6; border-radius:12px; background:rgba(255,255,255,.96); box-shadow:0 8px 30px rgba(22,48,36,.12); backdrop-filter:blur(8px); }
+.ref-publish-bar input { flex:1 1 240px; padding:9px 10px; border:1px solid #cfd9d4; border-radius:8px; }
+.ref-publish-errors { padding:6px 10px; border-radius:8px; color:#8b2c23; background:#fce9e7; font-size:11px; font-weight:700; }
+.ref-ghost-button { padding:9px 13px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }
+.ref-ghost-button:disabled { color:#9aa8a1; cursor:not-allowed; }
+.ref-ghost-button.danger { border-color:#e6c4bf; color:#8b2c23; }
+
+/* --- форма записи --- */
+.ref-form { position:sticky; top:12px; display:flex; flex-direction:column; max-height:calc(100vh - 140px); border:1px solid #dce4e0; border-radius:12px; background:#fff; }
+.ref-form-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; padding:14px 14px 10px; border-bottom:1px solid #eef2f0; }
+.ref-form-kicker { display:block; margin-bottom:3px; color:#a07c1d; font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; }
+.ref-form-head b { font-size:15px; }
+.ref-form-head-actions { display:flex; gap:4px; }
+.ref-form-head-actions button { width:28px; height:28px; border:1px solid #dce4e0; border-radius:8px; background:#fff; color:#5c6b63; }
+.ref-form-body { display:grid; gap:12px; padding:14px; overflow-y:auto; }
+.ref-form-issues { display:grid; gap:4px; padding:10px; border-radius:9px; background:#fce9e7; color:#8b2c23; font-size:11px; }
+.ref-form-issues p { margin:0; }
+.ref-form-issues p.warning { color:#7a5713; }
+
+.ref-fieldset { display:grid; gap:10px; }
+.ref-fieldset h4 { margin:6px 0 0; color:#7d8b84; font-size:10px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; }
+.ref-field { display:grid; gap:5px; min-width:0; }
+.ref-field > label { color:#3b4b43; font-size:11px; font-weight:700; }
+.ref-field-optional { color:#9aa8a1; font-weight:600; }
+.ref-field input, .ref-field select, .ref-field textarea { width:100%; padding:9px 10px; border:1px solid #d7e1dc; border-radius:8px; background:#fff; font-size:13px; }
+.ref-field input:focus, .ref-field select:focus, .ref-field textarea:focus { border-color:#2d7556; outline:none; box-shadow:0 0 0 3px rgba(45,117,86,.12); }
+.ref-field.has-error input, .ref-field.has-error select { border-color:#c0392b; background:#fef7f6; }
+.ref-field-hint { margin:0; color:#7d8b84; font-size:11px; line-height:1.45; }
+.ref-field-error { margin:0; color:#c0392b; font-size:11px; line-height:1.45; }
+.ref-field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.ref-input-wrap { position:relative; display:flex; align-items:center; }
+.ref-input-wrap input { padding-right:56px; }
+.ref-input-unit { position:absolute; right:10px; color:#8b9a92; font-size:11px; pointer-events:none; }
+.ref-select-wrap { display:flex; align-items:center; gap:6px; }
+.ref-code-tag { flex:0 0 auto; padding:3px 7px; border-radius:6px; background:#eef3f0; color:#4a5a52; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10px; }
+.inactive-option { color:#9aa8a1; }
+.ref-checkbox input { width:auto; }
+
+.ref-vat-toggle { display:flex; align-items:flex-start; gap:8px; padding:9px 10px; border:1px dashed #cfdcd6; border-radius:9px; color:#5c6b63; font-size:11px; line-height:1.4; }
+.ref-vat-toggle input { margin-top:2px; }
+
+.ref-hints { display:grid; gap:6px; }
+.ref-hints > div { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 11px; border-radius:9px; background:#f2f7f4; }
+.ref-hints span { color:#6e7c75; font-size:11px; }
+.ref-hints b { font-size:13px; text-align:right; }
+
+.ref-list { display:grid; gap:8px; }
+.ref-list-row { display:flex; gap:6px; }
+.ref-list-row button { width:32px; border:1px solid #d7e1dc; border-radius:8px; background:#fff; color:#8b2c23; }
+.ref-list-card { display:grid; gap:8px; padding:10px; border:1px solid #e7edea; border-radius:9px; background:#fafcfb; }
+.ref-list-add, .ref-list-remove { padding:7px 10px; border:1px dashed #cfdcd6; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
+.ref-list-remove { border-style:solid; color:#8b2c23; justify-self:start; }
+
+.ref-form-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; padding:12px 14px; border-top:1px solid #eef2f0; }
+
+/* Узкий экран: форма ложится под список, навигатор становится лентой. */
+@media (max-width:1199px) {
+  .ref-grid { grid-template-columns:1fr; }
+  /* Разделов больше тридцати: на узком экране навигатор прокручивается сам,
+     иначе список записей уезжает на второй экран. */
+  .ref-nav { position:static; max-height:42vh; }
+  .ref-nav-group { grid-auto-flow:row; }
+  .ref-form { position:static; max-height:none; }
+}
+@media (max-width:900px) {
+  .ref-workbench { padding:16px 14px 24px; }
+  .ref-publish-bar { bottom:72px; }
+  .ref-field-row { grid-template-columns:1fr; }
+}

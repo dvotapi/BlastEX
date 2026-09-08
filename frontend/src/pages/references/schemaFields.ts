@@ -177,7 +177,15 @@ export function isRubleField(field: FieldDescriptor): boolean {
   return field.kind === "number" && RUBLE_UNITS.test(field.unit);
 }
 
-/** Значение payload в вид, пригодный для input: числа и коды — строками. */
+/**
+ * Значение payload в вид, пригодный для input: числа и коды — строками.
+ *
+ * Отсутствующее поле показывается значением по умолчанию из схемы: запись
+ * старой ревизии, заведённая до появления поля, считается сервером именно
+ * так, и форма не вправе показывать «— выберите —» там, где расчёт уже
+ * взял «Общепроизводственные». Явный `null` — это выбор «не задано», его
+ * значение по умолчанию не перебивает.
+ */
 export function toFormValues(payload: Record<string, unknown>, fields: FieldDescriptor[]): FormValues {
   const values: FormValues = {};
   for (const field of fields) {
@@ -189,8 +197,13 @@ export function toFormValues(payload: Record<string, unknown>, fields: FieldDesc
       case "list":
         values[field.name] = Array.isArray(raw) ? raw : [];
         break;
-      default:
-        values[field.name] = raw === null || raw === undefined ? "" : String(raw);
+      default: {
+        const fallback =
+          field.defaultValue === undefined || field.defaultValue === null
+            ? ""
+            : String(field.defaultValue);
+        values[field.name] = raw === undefined ? fallback : raw === null ? "" : String(raw);
+      }
     }
   }
   return values;

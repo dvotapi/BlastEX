@@ -243,6 +243,12 @@ def _tooling_lines(
             layer=CostLayer.VARIABLE,
             amount_rub=total,
             formula="; ".join(parts),
+            section="DRILLING",
+            # Оснастка изнашивается погонными метрами: цена за метр —
+            # та же величина, что в разложении стоимости бурения.
+            quantity=drilling_m,
+            unit="п.м.",
+            unit_price_rub=total / drilling_m if drilling_m > 0 else None,
         )
 
 
@@ -266,6 +272,10 @@ def _fuel_line(context: ModelContext, condition: ReferenceItem, drilling_m: Deci
         layer=CostLayer.VARIABLE,
         amount_rub=litres * price,
         formula=f"{drilling_m} м × {fuel_l_per_m} л/м × {price} ₽/л",
+        section="DRILLING",
+        quantity=litres,
+        unit="л",
+        unit_price_rub=price,
     )
 
 
@@ -283,6 +293,10 @@ def _spare_parts_line(
         layer=CostLayer.VARIABLE,
         amount_rub=amount,
         formula=f"{rig_shifts} см × {rate} ₽/см",
+        section="DRILLING",
+        quantity=rig_shifts,
+        unit="см",
+        unit_price_rub=rate,
     )
 
 
@@ -326,6 +340,10 @@ def _fixed_lines(
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=amount,
                 formula=f"{depreciation_month} ₽/мес / {plan_shifts} см × {charged_shifts} см",
+                section="DRILLING",
+                quantity=charged_shifts,
+                unit="см",
+                unit_price_rub=depreciation_month / plan_shifts,
             )
         if insurance_month > 0:
             context.add_line(
@@ -335,6 +353,10 @@ def _fixed_lines(
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=insurance_month / plan_shifts * charged_shifts,
                 formula=f"{insurance_month} ₽/мес / {plan_shifts} см × {charged_shifts} см",
+                section="DRILLING",
+                quantity=charged_shifts,
+                unit="см",
+                unit_price_rub=insurance_month / plan_shifts,
             )
     else:
         context.warn(
@@ -361,6 +383,10 @@ def _inspection_line(
         layer=CostLayer.VARIABLE,
         amount_rub=amount,
         formula=f"{shifts} см × {per_shift} ₽/см",
+        section="DRILLING",
+        quantity=shifts,
+        unit="см",
+        unit_price_rub=per_shift,
     )
 
 
@@ -383,6 +409,10 @@ def _maintenance_lines(
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=budget / plan_shifts * rig_shifts,
             formula=f"{budget} ₽/мес / {plan_shifts} см × {rig_shifts} см",
+            section="DRILLING",
+            quantity=rig_shifts,
+            unit="см",
+            unit_price_rub=budget / plan_shifts,
         )
         return
     rate = payload_number(rig_type, "maintenance_rub_per_shift")
@@ -396,6 +426,10 @@ def _maintenance_lines(
         layer=CostLayer.PROJECT_DIRECT,
         amount_rub=shifts * rate,
         formula=f"({rig_shifts} + {maintenance_shifts}) см × {rate} ₽/см",
+        section="DRILLING",
+        quantity=shifts,
+        unit="см",
+        unit_price_rub=rate,
     )
 
 
@@ -428,6 +462,10 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         layer=CostLayer.VARIABLE,
         amount_rub=drilling_m * rate,
         formula=f"{drilling_m} м × {rate} ₽/м",
+        section="DRILLING",
+        quantity=drilling_m,
+        unit="п.м.",
+        unit_price_rub=rate,
     )
 
     params = context.params
@@ -451,6 +489,7 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         layer=CostLayer.FULL,
         amount_rub=amount,
         formula=f"{monthly} ₽/мес × доля блока {share}",
+        section="DRILLING"
     )
     context.warn(
         "Бурение на субподряде: постоянные затраты собственного станка "

@@ -54,6 +54,10 @@ def _machine_lines(
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=monthly / plan_shifts * shifts,
                 formula=f"{monthly} ₽/мес / {plan_shifts} см × {shifts} см",
+                section="DEPRECIATION",
+                quantity=shifts,
+                unit="см",
+                unit_price_rub=monthly / plan_shifts,
             )
         insurance = payload_number(asset, "insurance_monthly_rub")
         if insurance > 0:
@@ -64,6 +68,11 @@ def _machine_lines(
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=insurance / plan_shifts * shifts,
                 formula=f"{insurance} ₽/мес / {plan_shifts} см × {shifts} см",
+                # ОСАГО в смете стоит в общепроизводственных, рядом с ТОиР.
+                section="OVERHEAD",
+                quantity=shifts,
+                unit="см",
+                unit_price_rub=insurance / plan_shifts,
             )
     elif asset is None:
         context.warn(
@@ -89,6 +98,10 @@ def _machine_lines(
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=shifts * per_shift,
             formula=f"{shifts} см × {per_shift} ₽/см",
+            section="OVERHEAD",
+            quantity=shifts,
+            unit="см",
+            unit_price_rub=per_shift,
         )
 
     spare_parts = payload_number(equipment, "spare_parts_rub_per_shift")
@@ -100,6 +113,10 @@ def _machine_lines(
             layer=CostLayer.VARIABLE,
             amount_rub=shifts * spare_parts,
             formula=f"{shifts} см × {spare_parts} ₽/см",
+            section="OVERHEAD",
+            quantity=shifts,
+            unit="см",
+            unit_price_rub=spare_parts,
         )
 
 
@@ -118,6 +135,7 @@ def _maintenance(
             return
         amount = budget / plan_shifts * shifts
         formula = f"{budget} ₽/мес / {plan_shifts} см × {shifts} см"
+        charged_shifts, rate_per_shift = shifts, budget / plan_shifts
     else:
         rate = payload_number(equipment, "maintenance_rub_per_shift")
         if rate <= 0:
@@ -127,6 +145,7 @@ def _maintenance(
         )
         amount = maintenance_shifts * rate
         formula = f"{maintenance_shifts} см × {rate} ₽/см"
+        charged_shifts, rate_per_shift = maintenance_shifts, rate
     context.add_line(
         operation_code=operation_code,
         cost_item_code=f"{prefix}_MAINTENANCE",
@@ -134,6 +153,10 @@ def _maintenance(
         layer=CostLayer.PROJECT_DIRECT,
         amount_rub=amount,
         formula=formula,
+        section="OVERHEAD",
+        quantity=charged_shifts,
+        unit="см",
+        unit_price_rub=rate_per_shift,
     )
 
 

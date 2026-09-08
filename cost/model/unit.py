@@ -73,6 +73,7 @@ def compute(context: ModelContext) -> None:
             layer=CostLayer.PRODUCTION,
             amount_rub=monthly * share,
             formula=f"{monthly} ₽/мес × доля блока {share}",
+            section="OVERHEAD"
         )
     _storage(context, share)
 
@@ -179,4 +180,7 @@ def _storage(context: ModelContext, share: Decimal) -> None:
         layer=CostLayer.PRODUCTION,
         amount_rub=monthly * share,
         formula=f"{formula} × доля блока {share}",
+        # Склад — это раздел «Хранение, производство и доставка ВМ» бумажной
+        # сметы, а не общепроизводственные: там сметчик его и ищет.
+        section="VM_LOGISTICS",
     )

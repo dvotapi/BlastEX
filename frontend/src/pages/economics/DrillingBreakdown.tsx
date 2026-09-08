@@ -1,9 +1,6 @@
 import type { BlockEconomics } from "../../types/blockEconomics";
 import { drillingBreakdown } from "./drillingRows";
-
-const money = (value: number, digits = 2) =>
-  value.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-const amount = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+import { amount, money } from "./format";
 
 /** Стоимость метра бурения: норма, смены, оснастка — та же цифра, что в структуре затрат. */
 export function DrillingBreakdown({ economics }: { economics: BlockEconomics }) {

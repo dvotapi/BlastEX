@@ -28,6 +28,15 @@ const ENUM_LABELS: Record<string, string> = {
   CUSTOMER: "Заказчик",
   SUPPLIER: "Поставщик",
   SUBCONTRACTOR: "Субподрядчик",
+  // Разделы сметы
+  EXPLOSIVES: "Расходы на ВМ",
+  DRILLING: "Расходы на бурение",
+  VM_LOGISTICS: "Хранение, производство и доставка ВМ",
+  PER_DIEM: "Суточные, вахтовые, проживание",
+  LABOR: "Фонд оплаты труда",
+  FUEL: "ГСМ",
+  DEPRECIATION: "Амортизация",
+  OVERHEAD: "Общепроизводственные затраты",
   // Материалы
   EXPLOSIVE: "Основное ВВ",
   BOOSTER: "Промежуточный детонатор",

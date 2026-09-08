@@ -136,6 +136,15 @@ describe("значения формы и payload", () => {
     });
   });
 
+  it("отсутствующее поле показывается значением по умолчанию из схемы", () => {
+    // Запись старой ревизии поля не знает, а сервер считает её значением по
+    // умолчанию: форма не вправе показывать «— выберите —» вместо него.
+    const values = toFormValues({ category: "DIRECT" }, fields);
+
+    expect(values.norm_shifts_per_month).toBe("21");
+    expect(values.per_diem_applies).toBe(true);
+  });
+
   it("пустое необязательное поле сохраняется как null, пустое обязательное — не сохраняется", () => {
     const payload = toPayload(
       { category: "DIRECT", operation_code: "", norm_shifts_per_month: "", per_diem_applies: false },

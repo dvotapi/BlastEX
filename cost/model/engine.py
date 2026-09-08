@@ -16,11 +16,13 @@ from cost.model import drilling, equipment, labor, logistics, markup, materials,
 from cost.model.inputs import (
     BlockEconomics,
     ModelContext,
+    driver_unit,
     ModelParameters,
     payload_number,
     payload_text,
 )
 from cost.v2.models import CostLayer, ReferenceItem, ReferenceSnapshot, decimal_value
+from cost.v2.models import ESTIMATE_SECTIONS, EstimateSection
 from cost.v2.technical_adapter import TechnicalDriverSnapshot
 
 
@@ -163,8 +165,8 @@ def _cost_rule_lines(
                 "номенклатура блока: в смете осталась строка по выбранному наименованию."
             )
             continue
-        amount, formula = _rule_amount(context, rule)
-        if amount == 0:
+        charge = _rule_amount(context, rule)
+        if charge.amount == 0:
             continue
         if driver_name:
             charged.add(driver_name)
@@ -174,14 +176,35 @@ def _cost_rule_lines(
             cost_item_code=cost_item_code,
             cost_item_name=rule.name,
             layer=_layer(payload_text(rule, "cost_layer", CostLayer.VARIABLE.value)),
-            amount_rub=amount,
-            formula=formula,
+            amount_rub=charge.amount,
+            formula=charge.formula,
             resource_code=payload_text(rule, "resource_code"),
+            section=_section(context, rule),
+            quantity=charge.driver_value if charge.simple else None,
+            unit=driver_unit(driver_name) if charge.simple else "",
+            unit_price_rub=charge.rate if charge.simple else None,
         )
     return RuleOutcome(drivers=charged, cost_items=charged_items)
 
 
-def _rule_amount(context: ModelContext, rule: ReferenceItem) -> tuple[Decimal, str]:
+@dataclass(frozen=True)
+class RuleCharge:
+    """Начисление правила и его разложение на норму и цену.
+
+    Колонки сметы «норма × цена» показываются только у простого правила
+    «ставка × драйвер»: сумму со ступенями или постоянной частью одним
+    числом не описать. Признак считается там же, где сумма, — иначе он
+    отстанет от неё при первом же новом слагаемом.
+    """
+
+    amount: Decimal
+    formula: str
+    rate: Decimal
+    driver_value: Decimal
+    simple: bool
+
+
+def _rule_amount(context: ModelContext, rule: ReferenceItem) -> RuleCharge:
     driver_name = payload_text(rule, "driver")
     driver_value = context.value(driver_name) if driver_name else Decimal("0")
     rate = payload_number(rule, "rate_rub")
@@ -191,6 +214,7 @@ def _rule_amount(context: ModelContext, rule: ReferenceItem) -> tuple[Decimal, s
 
     amount = Decimal("0")
     parts: list[str] = []
+    extra = False
     if driver_name and rate != 0:
         if driver_name not in context.values and driver_name not in OPTIONAL_DRIVERS:
             context.warn(
@@ -202,11 +226,37 @@ def _rule_amount(context: ModelContext, rule: ReferenceItem) -> tuple[Decimal, s
     if fixed != 0:
         amount += fixed
         parts.append(f"{fixed} ₽ на блок")
+        extra = True
     if step_capacity > 0 and step_cost != 0:
         steps = (driver_value / step_capacity).to_integral_value(rounding=ROUND_CEILING)
         amount += steps * step_cost
         parts.append(f"{steps} ступ. × {step_cost} ₽")
-    return amount, "; ".join(parts)
+        extra = True
+    return RuleCharge(
+        amount=amount,
+        formula="; ".join(parts),
+        rate=rate,
+        driver_value=driver_value,
+        simple=bool(driver_name) and rate != 0 and not extra,
+    )
+
+
+def _section(context: ModelContext, rule: ReferenceItem) -> EstimateSection:
+    """Раздел сметы правила.
+
+    Правило из ревизии, опубликованной до появления раздела, поля не имеет:
+    строка встаёт в «Общепроизводственные», и об этом нужно сказать, иначе
+    сметчик будет искать доставку ВМ в её разделе и не найдёт.
+    """
+
+    value = payload_text(rule, "estimate_section")
+    if value in ESTIMATE_SECTIONS:
+        return value
+    context.warn(
+        f"Правило затрат {rule.code}: раздел сметы не задан — "
+        "строка показана в общепроизводственных затратах."
+    )
+    return "OVERHEAD"
 
 
 def _layer(value: str) -> CostLayer:

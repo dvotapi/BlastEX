@@ -138,6 +138,8 @@ import type {
   ServiceChargeInput,
   ServiceToReference,
   TechnicalPassport,
+  VariantRequest,
+  VariantsResponse,
 } from "../types/blockEconomics";
 import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
 
@@ -352,6 +354,12 @@ export const api = {
       post<BlockEconomics>(`${V1}/economics/block-economics`, {
         technical_passport_id: technicalPassportId,
         parameters,
+      }),
+    /** До четырёх колонок сметы одним запросом на одной ревизии справочников. */
+    variants: (technicalPassportId: string, variants: VariantRequest[]) =>
+      post<VariantsResponse>(`${V1}/economics/block-economics/variants`, {
+        technical_passport_id: technicalPassportId,
+        variants,
       }),
     sensitivity: (technicalPassportId: string, parameters: ModelParameters) =>
       post<{ rows: SensitivityRow[] }>(`${V1}/economics/block-economics/sensitivity`, {

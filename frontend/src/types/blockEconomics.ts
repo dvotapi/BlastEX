@@ -112,6 +112,23 @@ export type BlockEconomics = {
   reference_revision_id: string;
 };
 
+/** Один столбец сметы, посланный на расчёт: имя и свой набор параметров. */
+export type VariantRequest = {
+  name: string;
+  parameters: ModelParameters;
+};
+
+export type VariantResult = {
+  name: string;
+  economics: BlockEconomics;
+};
+
+export type VariantsResponse = {
+  /** Одна на все столбцы: см. `VariantsRequest` на бэкенде. */
+  reference_revision_id: string;
+  variants: VariantResult[];
+};
+
 export type EconomicsRun = {
   id: string;
   organization_id: string;

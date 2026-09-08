@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
-from typing import Any, Literal, Mapping
+from typing import Any, Literal, Mapping, get_args
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -434,18 +434,10 @@ EstimateSection = Literal[
 ]
 
 
-ESTIMATE_SECTIONS: frozenset[str] = frozenset(
-    (
-        "EXPLOSIVES",
-        "DRILLING",
-        "VM_LOGISTICS",
-        "PER_DIEM",
-        "LABOR",
-        "FUEL",
-        "DEPRECIATION",
-        "OVERHEAD",
-    )
-)
+# Единственный источник списка: перечислять разделы дважды значит однажды
+# добавить раздел в тип и забыть во множестве, после чего `engine._section`
+# молча свернёт его в «Общепроизводственные».
+ESTIMATE_SECTIONS: frozenset[str] = frozenset(get_args(EstimateSection))
 
 
 @dataclass(frozen=True)
@@ -486,8 +478,11 @@ class CostLine:
             "section": self.section,
             "quantity": float(self.quantity) if self.quantity is not None else None,
             "unit": self.unit,
+            # Без округления до копеек: цена литра ДТ или амортизация за смену
+            # выходят длинной дробью, и квантование рвало бы колонки — норма,
+            # умноженная на цену, перестала бы давать сумму строки.
             "unit_price_rub": (
-                float(money(self.unit_price_rub)) if self.unit_price_rub is not None else None
+                float(self.unit_price_rub) if self.unit_price_rub is not None else None
             ),
         }
 

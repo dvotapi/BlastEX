@@ -31,6 +31,46 @@ DIESEL_LITRES_PER_TON = Decimal("1176.47")
 
 BLOCK_SERVICE_LINE_ID = "BLOCK"
 
+# Единица измерения натуральной величины для колонки сметы. Показывать имя
+# драйвера нельзя: сметчик читает «ткм», а не `vm_tkm`. Незнакомая величина
+# остаётся без единицы — пусто честнее кода.
+DRIVER_UNITS: dict[str, str] = {
+    "rock_volume_m3": "м³",
+    "drilling_m": "п.м.",
+    "contour_drilling_m": "п.м.",
+    "explosive_kg": "кг",
+    "bulk_kg": "кг",
+    "cartridge_kg": "кг",
+    "holes": "шт",
+    "downhole_nsi": "шт",
+    "surface_nsi": "шт",
+    "start_nsi": "шт",
+    "boosters": "шт",
+    "intermediate_detonators": "шт",
+    "electric_detonators": "шт",
+    "nsi_length_m": "м",
+    "blasts": "взрыв",
+    "vm_tkm": "ткм",
+    "component_tkm": "ткм",
+    "rig_shifts": "см",
+    "rig_maintenance_shifts": "см",
+    "szm_shifts": "см",
+    "szm_trips": "рейс",
+    "delivery_shifts": "см",
+    "delivery_trips": "рейс",
+    "emulsion_shifts": "см",
+    "emulsion_trips": "рейс",
+    "mobilization_trip_km": "км",
+    "excavator_hours": "ч",
+    "stakeout_holes": "шт",
+}
+
+
+def driver_unit(driver: str) -> str:
+    """Подпись единицы драйвера для колонки сметы; пусто, если величина незнакома."""
+
+    return DRIVER_UNITS.get(driver, "")
+
 
 @dataclass(frozen=True)
 class CrewMember:
@@ -515,8 +555,10 @@ __all__ = [
     "ModelParameters",
     "NaturalDrivers",
     "OrganizationRates",
+    "DRIVER_UNITS",
     "PackageDefinition",
     "ServiceCharge",
+    "driver_unit",
     "find_items",
     "payload_number",
     "payload_text",

@@ -78,3 +78,23 @@ describe("группировка сметы", () => {
     }
   });
 });
+
+describe("нумерация разделов", () => {
+  it("привязана к слою, а не к порядку: пропуск слоя не сдвигает номера", () => {
+    const withProduction = groupByLayerAndSection([
+      line("MATERIAL", "variable", "EXPLOSIVES", 100),
+      line("LABOR_X", "project_direct", "LABOR", 70),
+      line("UNIT_PPE", "production", "OVERHEAD", 5),
+      line("UNALLOCATED", "full", "DRILLING", 3),
+    ]);
+    const withoutProduction = groupByLayerAndSection([
+      line("MATERIAL", "variable", "EXPLOSIVES", 100),
+      line("LABOR_X", "project_direct", "LABOR", 70),
+      line("UNALLOCATED", "full", "DRILLING", 3),
+    ]);
+
+    expect(withProduction.map((g) => g.sections[0].number)).toEqual(["1.1", "2.1", "3.1", "4.1"]);
+    // Тот же раздел того же слоя называется так же, есть постоянные затраты или нет.
+    expect(withoutProduction.map((g) => g.sections[0].number)).toEqual(["1.1", "2.1", "4.1"]);
+  });
+});

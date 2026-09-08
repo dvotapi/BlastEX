@@ -5,6 +5,8 @@ import type { BlockCostLine, BlockEconomics } from "../../types/blockEconomics";
 const money = (value: number, digits = 0) =>
   value.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const amount = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+const perM3 = (value: number, volume: number | null) =>
+  volume === null ? "—" : `${(value / volume).toFixed(2)} ₽/м³`;
 
 /**
  * Смета блока: слои себестоимости, внутри — разделы бумажной сметы.
@@ -14,7 +16,10 @@ const amount = (value: number) => value.toLocaleString("ru-RU", { maximumFractio
  */
 export function CostStructure({ economics }: { economics: BlockEconomics }) {
   const [openLine, setOpenLine] = useState("");
-  const volume = economics.block_volume_m3 || 1;
+  // Ноль здесь не «единица»: при пустом объёме блока сумма, делённая на 1,
+  // выглядела бы как цена кубометра и расходилась с ₽/м³ из модели, где
+  // при нулевом объёме цены обнулены с предупреждением.
+  const volume = economics.block_volume_m3 > 0 ? economics.block_volume_m3 : null;
   const groups = groupByLayerAndSection(economics.lines);
 
   return (
@@ -27,7 +32,7 @@ export function CostStructure({ economics }: { economics: BlockEconomics }) {
               <b>{group.label}</b>
               <span>{group.hint}</span>
               <strong>{money(group.total)} ₽</strong>
-              <em>{(group.total / volume).toFixed(2)} ₽/м³</em>
+              <em>{perM3(group.total, volume)}</em>
             </div>
             {group.sections.map((section) => (
               <div className="cost-structure-section" key={section.section}>
@@ -35,19 +40,23 @@ export function CostStructure({ economics }: { economics: BlockEconomics }) {
                   <b>{section.number}</b>
                   <span>{section.label}</span>
                   <strong>{money(section.total)} ₽</strong>
-                  <em>{(section.total / volume).toFixed(2)} ₽/м³</em>
+                  <em>{perM3(section.total, volume)}</em>
                 </div>
-                {section.lines.map((line) => (
-                  <CostRow
-                    key={`${line.cost_item_code}-${line.operation_code}`}
-                    line={line}
-                    volume={volume}
-                    open={openLine === line.cost_item_code}
-                    onToggle={() =>
-                      setOpenLine(openLine === line.cost_item_code ? "" : line.cost_item_code)
-                    }
-                  />
-                ))}
+                {section.lines.map((line, index) => {
+                  // Ключ строки — код, операция и место в разделе: две услуги с
+                  // одним названием или две записи одной должности дают строки
+                  // с одинаковым кодом, и по коду они раскрывались бы вместе.
+                  const id = `${section.section}-${line.cost_item_code}-${line.operation_code}-${index}`;
+                  return (
+                    <CostRow
+                      key={id}
+                      line={line}
+                      volume={volume}
+                      open={openLine === id}
+                      onToggle={() => setOpenLine(openLine === id ? "" : id)}
+                    />
+                  );
+                })}
               </div>
             ))}
           </div>
@@ -64,7 +73,7 @@ function CostRow({
   onToggle,
 }: {
   line: BlockCostLine;
-  volume: number;
+  volume: number | null;
   open: boolean;
   onToggle: () => void;
 }) {
@@ -79,7 +88,7 @@ function CostRow({
           {line.unit_price_rub === null ? "—" : money(line.unit_price_rub, 2)}
         </span>
         <b>{money(line.amount_rub)} ₽</b>
-        <em>{(line.amount_rub / volume).toFixed(2)} ₽/м³</em>
+        <em>{perM3(line.amount_rub, volume)}</em>
       </button>
       {open && (
         <p className="cost-structure-formula">

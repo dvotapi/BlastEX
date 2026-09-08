@@ -30,7 +30,7 @@ const SECTION_LABELS: Record<EstimateSection, string> = {
   OVERHEAD: "Общепроизводственные затраты",
 };
 
-export const LAYERS: Array<{ code: CostLayer; label: string; hint: string }> = [
+const LAYERS: Array<{ code: CostLayer; label: string; hint: string }> = [
   { code: "variable", label: "Переменные затраты", hint: "растут вместе с объёмом блока" },
   { code: "project_direct", label: "Прямые затраты блока", hint: "ФОТ, амортизация по сменам, мобилизация" },
   { code: "production", label: "Постоянные затраты юнита", hint: "распределены по плановому объёму" },
@@ -61,12 +61,14 @@ export function sectionLabel(section: EstimateSection): string {
 /** Строки по слоям, внутри — по разделам сметы; пустые группы отбрасываются. */
 export function groupByLayerAndSection(lines: BlockCostLine[]): LayerGroup[] {
   const groups: LayerGroup[] = [];
-  let layerNumber = 0;
 
-  for (const layer of LAYERS) {
+  for (const [index, layer] of LAYERS.entries()) {
     const own = lines.filter((line) => line.layer === layer.code);
     if (own.length === 0) continue;
-    layerNumber += 1;
+    // Номер берётся из места слоя в смете, а не из порядка непустых групп:
+    // иначе один и тот же раздел назывался бы по-разному в двух прогонах —
+    // с постоянными затратами юнита и без них.
+    const layerNumber = index + 1;
 
     const sections: SectionGroup[] = [];
     // Незнакомый раздел (справочник ушёл вперёд кода) не теряется: он идёт

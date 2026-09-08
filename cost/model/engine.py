@@ -16,6 +16,7 @@ from cost.model import drilling, equipment, labor, logistics, markup, materials,
 from cost.model.inputs import (
     BlockEconomics,
     ModelContext,
+    driver_unit,
     ModelParameters,
     payload_number,
     payload_text,
@@ -189,7 +190,7 @@ def _cost_rule_lines(
             resource_code=payload_text(rule, "resource_code"),
             section=_section(payload_text(rule, "estimate_section")),
             quantity=context.value(driver_name) if simple else None,
-            unit=driver_name if simple else "",
+            unit=driver_unit(driver_name) if simple else "",
             unit_price_rub=rate if simple else None,
         )
     return RuleOutcome(drivers=charged, cost_items=charged_items)

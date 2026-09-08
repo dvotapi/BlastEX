@@ -68,7 +68,8 @@ def _machine_lines(
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=insurance / plan_shifts * shifts,
                 formula=f"{insurance} ₽/мес / {plan_shifts} см × {shifts} см",
-                section="DEPRECIATION",
+                # ОСАГО в смете стоит в общепроизводственных, рядом с ТОиР.
+                section="OVERHEAD",
                 quantity=shifts,
                 unit="см",
                 unit_price_rub=insurance / plan_shifts,

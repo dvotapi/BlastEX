@@ -204,7 +204,7 @@ def test_cost_rule_line_shows_its_driver_and_rate() -> None:
     result = compute()
 
     delivery = line_by_code(result, "VM_DELIVERY")
-    assert delivery.unit == "vm_tkm"
+    assert delivery.unit == "ткм"
     assert delivery.quantity == result.natural.get("vm_tkm")
     assert delivery.unit_price_rub == Decimal("25")
     assert delivery.quantity * delivery.unit_price_rub == delivery.amount_rub
@@ -220,3 +220,75 @@ def test_maintenance_counts_shifts_with_its_rate() -> None:
 
     szm_toir = line_by_code(result, "SZM_MAINTENANCE")
     assert szm_toir.unit_price_rub == Decimal("500")
+
+
+# --- находки ревью --------------------------------------------------------
+
+
+def test_unit_of_a_cost_rule_is_a_human_unit_not_a_driver_code() -> None:
+    """В колонке единиц не должно быть машинных кодов: сметчик читает «ткм», не vm_tkm."""
+
+    result = compute()
+
+    delivery = line_by_code(result, "VM_DELIVERY")
+    assert delivery.unit == "ткм"
+    assert delivery.quantity == result.natural.get("vm_tkm")
+
+
+def test_unknown_driver_leaves_the_unit_empty_instead_of_showing_its_code() -> None:
+    rule = fx.item(
+        "RULE_ODD",
+        "Странная статья",
+        {
+            "operation_code": "STEMMING",
+            "cost_item_code": "RULE_ODD",
+            "driver": "holes",
+            "rate_rub": "10",
+        },
+    )
+    result = compute_block_economics(
+        fx.snapshot(), fx.parameters(), fx.references(cost_rules=(rule,))
+    )
+
+    line = line_by_code(result, "RULE_ODD")
+    assert line.unit == "шт"
+    assert line.quantity == Decimal("1224")
+
+
+def test_per_diem_counts_person_shifts_at_its_rate() -> None:
+    """Ставка суточных одна на всех, значит норма и цена у строки есть."""
+
+    result = compute()
+
+    line = line_by_code(result, "LABOR_PER_DIEM")
+    assert line.unit == "чел·см"
+    assert line.unit_price_rub == Decimal("2200")
+    assert line.quantity * line.unit_price_rub == line.amount_rub
+
+
+def test_unit_price_is_not_rounded_to_kopecks_in_json() -> None:
+    """Округление цены рвало бы колонки: норма × цена перестала бы давать сумму."""
+
+    result = compute()
+
+    row = next(item for item in result.to_dict()["lines"] if item["cost_item_code"] == "DRILL_FUEL")
+    assert row["quantity"] * row["unit_price_rub"] == pytest.approx(row["amount_rub"], rel=1e-9)
+
+
+def test_insurance_is_an_overhead_not_a_depreciation() -> None:
+    """ОСАГО в смете стоит в общепроизводственных, рядом с ТОиР, а не в амортизации."""
+
+    result = compute()
+
+    assert line_by_code(result, "SZM_INSURANCE").section == "OVERHEAD"
+    assert line_by_code(result, "SZM_DEPRECIATION").section == "DEPRECIATION"
+
+
+def test_section_list_and_type_cannot_diverge() -> None:
+    """Два перечня одних и тех же разделов рано или поздно разъедутся."""
+
+    from typing import get_args
+
+    from cost.v2.models import ESTIMATE_SECTIONS, EstimateSection
+
+    assert ESTIMATE_SECTIONS == frozenset(get_args(EstimateSection))

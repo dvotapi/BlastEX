@@ -15,7 +15,7 @@ const percent = (share: number | undefined) =>
 export function PricePanel({ economics }: { economics: BlockEconomics }) {
   const prices = economics.price_per_m3;
   const markup = economics.markup;
-  const volume = economics.block_volume_m3 || 1;
+  const volume = economics.block_volume_m3 > 0 ? economics.block_volume_m3 : null;
   const production = markup.full_cost_rub ?? 0;
   const overhead = markup.overhead_rub ?? 0;
   const total = production + overhead;
@@ -24,11 +24,25 @@ export function PricePanel({ economics }: { economics: BlockEconomics }) {
   const gap = prices.full - prices.marginal;
 
   const ladder = [
-    { label: "Производственная себестоимость", value: production, perM3: prices.full },
+    {
+      label: "Производственная себестоимость",
+      value: production,
+      perM3: volume === null ? undefined : prices.full,
+    },
     { label: `Общехозяйственные расходы, ${percent(markup.overhead_rate)}`, value: overhead },
-    { label: "Полная себестоимость", value: total, perM3: total / volume, strong: true },
+    {
+      label: "Полная себестоимость",
+      value: total,
+      perM3: volume === null ? undefined : total / volume,
+      strong: true,
+    },
     { label: `Рентабельность, ${percent(markup.target_margin_rate)}`, value: margin },
-    { label: "Выручка без НДС", value: revenue, perM3: prices.with_margin, strong: true },
+    {
+      label: "Выручка без НДС",
+      value: revenue,
+      perM3: volume === null ? undefined : prices.with_margin,
+      strong: true,
+    },
   ];
 
   return (

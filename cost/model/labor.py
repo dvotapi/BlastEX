@@ -88,6 +88,9 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
     results: list[LaborLine] = []
     accrued_total = Decimal("0")
     per_diem_total = Decimal("0")
+    # Человеко-смены, на которые начислены суточные: ставка у них одна, значит
+    # у строки есть и норма, и цена — как у любой другой статьи сметы.
+    per_diem_shifts = Decimal("0")
 
     for position_code, headcount, manual_shifts in crew_members(context):
         position = context.item("positions", position_code)
@@ -151,7 +154,10 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             unit="чел·см",
         )
         accrued_total += accrued
-        per_diem_total += _per_diem(context, position, shifts, crew_size)
+        charge = _per_diem(context, position, shifts, crew_size)
+        per_diem_total += charge
+        if charge > 0:
+            per_diem_shifts += shifts * crew_size
         results.append(
             LaborLine(
                 position_code=position_code,
@@ -197,9 +203,15 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=per_diem_total,
             formula=(
-                f"чел-смены × ({context.rates.per_diem_rub} + {context.rates.lodging_rub}) ₽"
+                f"{per_diem_shifts} чел·см × "
+                f"({context.rates.per_diem_rub} + {context.rates.lodging_rub}) ₽"
             ),
             section="PER_DIEM",
+            quantity=per_diem_shifts,
+            unit="чел·см",
+            unit_price_rub=(
+                per_diem_total / per_diem_shifts if per_diem_shifts > 0 else None
+            ),
         )
 
     return tuple(results)

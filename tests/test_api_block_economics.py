@@ -592,3 +592,36 @@ def test_export_prices_the_run_on_its_own_date(client) -> None:
 
     assert response.status_code == 200
     assert saved["amount_rub"] == pytest.approx(42000 * 48.9)
+
+
+def test_service_transfer_keeps_the_section_set_in_the_reference(client) -> None:
+    """Раздел правят в справочнике; повторный перенос суммы не должен его сбрасывать."""
+
+    test_client, repository, _ = client
+    service = {
+        "name": "Проживание бригады",
+        "amount_rub": "120000",
+        "layer": "project_direct",
+        "operation_code": "BLAST_EXECUTION",
+        "per_shift": False,
+    }
+    code = test_client.post("/api/v1/economics/services/to-reference", json={"service": service}).json()["code"]
+
+    head = repository.list_reference_revisions("default")[0].id
+    sections = {
+        section: [item.to_dict() for item in items]
+        for section, items in repository.get_reference_snapshot("default", head).sections.items()
+    }
+    for row in sections["cost_rules"]:
+        if row["code"] == code:
+            row["payload"]["estimate_section"] = "PER_DIEM"
+    repository.publish_references("default", "tester", head, sections, "раздел поправлен вручную")
+
+    test_client.post(
+        "/api/v1/economics/services/to-reference",
+        json={"service": {**service, "amount_rub": "130000"}},
+    )
+
+    rule = repository.get_reference_snapshot("default").item("cost_rules", code)
+    assert rule.payload["fixed_rub"] == "130000"
+    assert rule.payload["estimate_section"] == "PER_DIEM"

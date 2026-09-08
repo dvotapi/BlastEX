@@ -491,6 +491,12 @@ def service_to_reference(
         raise repository_error(exc) from exc
     sections = {name: list(items) for name, items in current.sections.items()}
     existing = next((item for item in sections.get("cost_rules", ()) if item.code == code), None)
+    if existing is not None:
+        # Раздел сметы правят в справочнике: перенос суммы со вкладки не вправе
+        # вернуть строку из «Суточных» в «Общепроизводственные».
+        kept_section = payload_text(existing, "estimate_section")
+        if kept_section:
+            rule_payload["estimate_section"] = kept_section
     if existing is not None and existing.name.strip() != service.name.strip():
         # Разные названия дали один код (транслит и регистр): перезаписать
         # чужое правило значит потерять его сумму, а ответ сказал бы

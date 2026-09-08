@@ -27,7 +27,7 @@ const RECALC_DELAY_MS = 300;
 // Драйверы паспорта, которые видно на вкладке: геометрия только для чтения.
 const GEOMETRY_ROWS: [string, string, string][] = [
   ["rock_volume_m3", "Объём блока", "м³"],
-  ["drilling_m", "Погонаж бурения", "м"],
+  ["drilling_m", "Погонаж бурения", "п.м."],
   ["holes", "Скважины", "шт"],
   ["explosive_kg", "Масса ВВ", "кг"],
   ["downhole_nsi", "Скважинные НСИ", "шт"],

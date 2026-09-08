@@ -127,6 +127,58 @@ def test_logistics_rules_ppe_and_per_diem_are_added_once() -> None:
     assert [i.code for i in second["cost_rules"]] == [i.code for i in first["cost_rules"]]
 
 
+def test_a_rule_published_before_the_section_field_gets_one() -> None:
+    """Ревизия старше поля: доставка ВМ не должна остаться в общепроизводственных."""
+
+    base = imported_snapshot()
+    old_rules = (
+        ReferenceItem(
+            code="RULE_VM_DELIVERY",
+            name="Доставка ВМ со склада на объект",
+            payload={
+                "operation_code": "VM_DELIVERY_SITE",
+                "cost_item_code": "VM_DELIVERY",
+                "behavior_type": "VARIABLE",
+                "cost_layer": "variable",
+                "driver": "vm_tkm",
+                "rate_rub": "25",
+            },
+        ),
+        ReferenceItem(
+            code="RULE_HAND_MADE",
+            name="Правило сметчика",
+            payload={
+                "operation_code": "STEMMING",
+                "cost_item_code": "VM_DELIVERY",
+                "behavior_type": "FIXED",
+                "cost_layer": "variable",
+                "fixed_rub": "1000",
+            },
+        ),
+    )
+    sections = {**base.sections, "cost_rules": old_rules}
+    sections["cost_items"] = (
+        *sections.get("cost_items", ()),
+        ReferenceItem(code="VM_DELIVERY", name="Доставка ВМ", payload={"kind": "logistics"}),
+    )
+
+    seeded, report = seed_reference(replace(base, sections=sections))
+
+    rules = {item.code: item.payload for item in seeded["cost_rules"]}
+    # Правило из списка сида знает свой раздел, чужое — общепроизводственное.
+    assert rules["RULE_VM_DELIVERY"]["estimate_section"] == "VM_LOGISTICS"
+    assert rules["RULE_HAND_MADE"]["estimate_section"] == "OVERHEAD"
+    # Ставку, которую правил сметчик, дозаполнение не трогает.
+    assert rules["RULE_VM_DELIVERY"]["rate_rub"] == "25"
+    # Отчёт называет и дозаполненные правила, и созданные.
+    assert {"RULE_VM_DELIVERY", "RULE_HAND_MADE"} <= set(report.rules)
+
+    again, second = seed_reference(
+        replace(base, sections={**sections, "cost_rules": tuple(seeded["cost_rules"])})
+    )
+    assert second.rules == []
+
+
 def test_seeded_revision_is_valid_and_the_model_computes_without_reference_gaps() -> None:
     sections, _ = seed_reference(imported_snapshot())
     assert not has_validation_errors(validate_reference_sections(sections))

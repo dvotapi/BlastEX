@@ -27,6 +27,7 @@ LAYER_LABELS: dict[str, str] = {
 PRICE_LABELS: tuple[tuple[str, str], ...] = (
     ("marginal", "Маржинальная цена, ₽/м³"),
     ("full", "Полная себестоимость, ₽/м³"),
+    ("with_overhead", "Себестоимость с ОХР, ₽/м³"),
     ("with_margin", "Цена с ОХР и рентабельностью, ₽/м³"),
     ("with_vat", "Цена с НДС, ₽/м³"),
 )

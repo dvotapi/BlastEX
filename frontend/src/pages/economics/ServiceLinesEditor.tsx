@@ -18,7 +18,7 @@ const EXECUTORS: Array<{ value: OperationExecutor; label: string }> = [
 
 const PHYSICAL_FIELDS: Array<{ key: string; label: string; step?: number }> = [
   { key: "rock_volume_m3", label: "Горная масса, м³" },
-  { key: "drilling_m", label: "Бурение, м" },
+  { key: "drilling_m", label: "Бурение, п.м." },
   { key: "contour_drilling_m", label: "Контур, м" },
   { key: "explosive_kg", label: "ВМ, кг" },
   { key: "holes", label: "Скважины, шт." },

@@ -50,7 +50,7 @@ describe("группировка сметы", () => {
     expect(groups[0].sections).toHaveLength(1);
   });
 
-  it("нумерует разделы как в смете: переменные — первая цифра, постоянные — вторая", () => {
+  it("нумерует разделы как в смете: слой — первая цифра, раздел — вторая", () => {
     const groups = groupByLayerAndSection([
       line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100),
       line("DRILL_TOOLING", "variable", "DRILLING", 50),
@@ -59,17 +59,19 @@ describe("группировка сметы", () => {
     ]);
 
     expect(groups[0].sections.map((s) => s.number)).toEqual(["1.1", "1.2"]);
-    expect(groups[1].sections.map((s) => s.number)).toEqual(["2.1"]);
-    expect(groups[2].sections.map((s) => s.number)).toEqual(["3.1"]);
+    expect(groups[1].sections.map((s) => s.number)).toEqual(["2.5"]);
+    expect(groups[2].sections.map((s) => s.number)).toEqual(["3.8"]);
   });
 
-  it("незнакомый раздел не теряет строку", () => {
+  it("незнакомый раздел не теряет строку и идёт последним", () => {
     const groups = groupByLayerAndSection([
       { ...line("X", "variable", "EXPLOSIVES", 1), section: "НЕЧТО" as EstimateSection },
+      line("MATERIAL", "variable", "EXPLOSIVES", 2),
     ]);
 
-    expect(groups[0].sections[0].lines).toHaveLength(1);
-    expect(groups[0].total).toBe(1);
+    expect(groups[0].sections.map((s) => s.section)).toEqual(["EXPLOSIVES", "НЕЧТО"]);
+    expect(groups[0].sections[1].lines).toHaveLength(1);
+    expect(groups[0].total).toBe(3);
   });
 
   it("подписи есть у всех разделов модели", () => {
@@ -93,8 +95,27 @@ describe("нумерация разделов", () => {
       line("UNALLOCATED", "full", "DRILLING", 3),
     ]);
 
-    expect(withProduction.map((g) => g.sections[0].number)).toEqual(["1.1", "2.1", "3.1", "4.1"]);
+    expect(withProduction.map((g) => g.sections[0].number)).toEqual(["1.1", "2.5", "3.8", "4.2"]);
     // Тот же раздел того же слоя называется так же, есть постоянные затраты или нет.
-    expect(withoutProduction.map((g) => g.sections[0].number)).toEqual(["1.1", "2.1", "4.1"]);
+    expect(withoutProduction.map((g) => g.sections[0].number)).toEqual(["1.1", "2.5", "4.2"]);
+  });
+
+  it("не зависит от того, какие разделы слоя оказались пустыми", () => {
+    const withMobilization = groupByLayerAndSection([
+      line("MOBILIZATION", "project_direct", "VM_LOGISTICS", 10),
+      line("LABOR_PER_DIEM", "project_direct", "PER_DIEM", 20),
+      line("LABOR_X", "project_direct", "LABOR", 30),
+    ]);
+    const withoutMobilization = groupByLayerAndSection([
+      line("LABOR_PER_DIEM", "project_direct", "PER_DIEM", 20),
+      line("LABOR_X", "project_direct", "LABOR", 30),
+    ]);
+
+    const number = (groups: ReturnType<typeof groupByLayerAndSection>) =>
+      groups[0].sections.find((s) => s.section === "PER_DIEM")?.number;
+    // «Суточные» называются одинаково в обоих прогонах: номер — свойство
+    // раздела, а не его места среди непустых.
+    expect(number(withMobilization)).toBe("2.4");
+    expect(number(withoutMobilization)).toBe("2.4");
   });
 });

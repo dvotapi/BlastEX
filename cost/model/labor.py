@@ -209,9 +209,10 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             section="PER_DIEM",
             quantity=per_diem_shifts,
             unit="чел·см",
-            unit_price_rub=(
-                per_diem_total / per_diem_shifts if per_diem_shifts > 0 else None
-            ),
+            # Ставка берётся из справочника, а не делением суммы на смены:
+            # деление вернуло бы её с двоичным хвостом, и «норма × цена» в
+            # смете перестала бы сходиться с суммой строки.
+            unit_price_rub=per_diem_rate(context),
         )
 
     return tuple(results)
@@ -316,6 +317,12 @@ def _piece_amount(
     )
 
 
+def per_diem_rate(context: ModelContext) -> Decimal:
+    """Суточные и проживание на одну человеко-смену: ставка одна на всех."""
+
+    return context.rates.per_diem_rub + context.rates.lodging_rub
+
+
 def _per_diem(
     context: ModelContext, position: ReferenceItem, shifts: Decimal, headcount: Decimal
 ) -> Decimal:
@@ -323,7 +330,7 @@ def _per_diem(
         return Decimal("0")
     if context.site is None or not bool(context.site.payload.get("is_remote", False)):
         return Decimal("0")
-    per_shift = context.rates.per_diem_rub + context.rates.lodging_rub
+    per_shift = per_diem_rate(context)
     if per_shift <= 0:
         return Decimal("0")
     return shifts * headcount * per_shift

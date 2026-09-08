@@ -1,12 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { groupByLayerAndSection } from "./estimateSections";
+import { amount, money, perM3 } from "./format";
 import type { BlockCostLine, BlockEconomics } from "../../types/blockEconomics";
-
-const money = (value: number, digits = 0) =>
-  value.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-const amount = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
-const perM3 = (value: number, volume: number | null) =>
-  volume === null ? "—" : `${(value / volume).toFixed(2)} ₽/м³`;
 
 /**
  * Смета блока: слои себестоимости, внутри — разделы бумажной сметы.
@@ -20,7 +15,7 @@ export function CostStructure({ economics }: { economics: BlockEconomics }) {
   // выглядела бы как цена кубометра и расходилась с ₽/м³ из модели, где
   // при нулевом объёме цены обнулены с предупреждением.
   const volume = economics.block_volume_m3 > 0 ? economics.block_volume_m3 : null;
-  const groups = groupByLayerAndSection(economics.lines);
+  const groups = useMemo(() => groupByLayerAndSection(economics.lines), [economics.lines]);
 
   return (
     <section className="panel cost-structure">
@@ -31,7 +26,7 @@ export function CostStructure({ economics }: { economics: BlockEconomics }) {
             <div className="cost-structure-head">
               <b>{group.label}</b>
               <span>{group.hint}</span>
-              <strong>{money(group.total)} ₽</strong>
+              <strong>{money(group.total, 0)} ₽</strong>
               <em>{perM3(group.total, volume)}</em>
             </div>
             {group.sections.map((section) => (
@@ -39,14 +34,22 @@ export function CostStructure({ economics }: { economics: BlockEconomics }) {
                 <div className="cost-structure-section-head">
                   <b>{section.number}</b>
                   <span>{section.label}</span>
-                  <strong>{money(section.total)} ₽</strong>
+                  <strong>{money(section.total, 0)} ₽</strong>
                   <em>{perM3(section.total, volume)}</em>
                 </div>
                 {section.lines.map((line, index) => {
-                  // Ключ строки — код, операция и место в разделе: две услуги с
+                  // Ключ строки — код, операция и номер повтора: две услуги с
                   // одним названием или две записи одной должности дают строки
                   // с одинаковым кодом, и по коду они раскрывались бы вместе.
-                  const id = `${section.section}-${line.cost_item_code}-${line.operation_code}-${index}`;
+                  // Место в разделе для ключа не годится: исчезнувшая выше
+                  // строка сдвинула бы его и закрыла раскрытую.
+                  const twin = section.lines.filter(
+                    (row, position) =>
+                      position < index &&
+                      row.cost_item_code === line.cost_item_code &&
+                      row.operation_code === line.operation_code,
+                  ).length;
+                  const id = `${section.section}-${line.cost_item_code}-${line.operation_code}-${twin}`;
                   return (
                     <CostRow
                       key={id}
@@ -85,9 +88,9 @@ function CostRow({
         <span className="cost-row-unit">{line.unit || "—"}</span>
         <span className="cost-row-quantity">{line.quantity === null ? "—" : amount(line.quantity)}</span>
         <span className="cost-row-price">
-          {line.unit_price_rub === null ? "—" : money(line.unit_price_rub, 2)}
+          {line.unit_price_rub === null ? "—" : money(line.unit_price_rub)}
         </span>
-        <b>{money(line.amount_rub)} ₽</b>
+        <b>{money(line.amount_rub, 0)} ₽</b>
         <em>{perM3(line.amount_rub, volume)}</em>
       </button>
       {open && (

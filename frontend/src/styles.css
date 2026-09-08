@@ -358,7 +358,6 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .price-ladder-row { display:grid; grid-template-columns:minmax(0,1fr) 132px 104px; gap:8px; align-items:baseline; padding:7px 10px; border-radius:8px; font-size:12px; }
 .price-ladder-row span { color:#5f7168; }
 .price-ladder-row b { text-align:right; font-size:13px; }
-.price-ladder-row em { text-align:right; color:#6e7b75; font-size:11px; font-style:normal; }
 .price-ladder-row.strong { background:#f5faf7; border:1px solid #cfe0d6; }
 .price-ladder-row.strong span { color:#2f4038; font-weight:700; }
 .price-ladder-row.strong b { font-size:16px; }
@@ -380,22 +379,26 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .drilling-breakdown-lines { display:grid; gap:6px; align-content:start; }
 .drilling-breakdown-lines > div { display:grid; grid-template-columns:minmax(0,1fr) 100px 80px; gap:8px; padding:8px 10px; border:1px solid #eef2f0; border-radius:8px; font-size:12px; }
 .drilling-breakdown-lines b { text-align:right; }
-.drilling-breakdown-lines em { text-align:right; color:#6e7b75; font-size:11px; font-style:normal; }
 .cost-structure .panel-body { display:grid; gap:12px; }
+/* Правая колонка «₽/м³» одна на все панели экономики: смета, лестница цены и
+   разложение бурения выравниваются друг с другом. */
+.price-ladder-row em,
+.drilling-breakdown-lines em,
+.cost-structure-head em,
+.cost-structure-section-head em,
+.cost-structure-row button em { text-align:right; color:#6e7b75; font-size:11px; font-style:normal; }
+.cost-row-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cost-structure-group { border:1px solid #dde5e1; border-radius:12px; overflow:hidden; }
 .cost-structure-head { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) 120px 84px; gap:8px; align-items:baseline; padding:10px 12px; background:#f5f8f6; }
 .cost-structure-head span { color:#78857f; font-size:10px; }
 .cost-structure-head strong { text-align:right; font-size:13px; }
-.cost-structure-head em { text-align:right; color:#5f7168; font-size:11px; font-style:normal; }
 .cost-structure-section { border-top:1px solid #dde5e1; }
 .cost-structure-section-head { display:grid; grid-template-columns:34px minmax(0,1fr) 120px 84px; gap:8px; align-items:baseline; padding:7px 12px; background:#fbfcfb; }
 .cost-structure-section-head b { color:#5f7168; font-size:11px; }
 .cost-structure-section-head span { font-size:12px; font-weight:700; }
 .cost-structure-section-head strong { text-align:right; font-size:12px; }
-.cost-structure-section-head em { text-align:right; color:#6e7b75; font-size:11px; font-style:normal; }
 .cost-structure-row button { display:grid; grid-template-columns:minmax(0,1fr) 46px 96px 88px 120px 84px; gap:8px; width:100%; padding:8px 12px; border:0; border-top:1px solid #eef2f0; background:#fff; text-align:left; font-size:12px; cursor:pointer; }
 .cost-structure-row button b { text-align:right; }
-.cost-structure-row button em { text-align:right; color:#6e7b75; font-size:11px; font-style:normal; }
 .cost-row-unit, .cost-row-quantity, .cost-row-price { color:#5f7168; font-size:11px; text-align:right; }
 .cost-row-unit { text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cost-structure-row.open button { background:#f7faf8; }

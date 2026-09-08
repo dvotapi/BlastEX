@@ -67,13 +67,19 @@ def _parameters(passport_id: str, **overrides) -> dict:
     return {"technical_passport_id": passport_id, "parameters": parameters}
 
 
-def test_block_economics_returns_four_prices(client) -> None:
+def test_block_economics_returns_the_price_ladder(client) -> None:
     test_client, _, passport_id = client
     response = test_client.post("/api/v1/economics/block-economics", json=_parameters(passport_id))
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body["price_per_m3"]) == {"marginal", "full", "with_margin", "with_vat"}
+    assert set(body["price_per_m3"]) == {
+        "marginal",
+        "full",
+        "with_overhead",
+        "with_margin",
+        "with_vat",
+    }
     assert body["price_per_m3"]["full"] > body["price_per_m3"]["marginal"]
     assert body["natural"]["values"]["rig_shifts"]
     assert any(line["cost_item_code"] == "DRILL_TOOLING" for line in body["lines"])
@@ -592,6 +598,75 @@ def test_export_prices_the_run_on_its_own_date(client) -> None:
 
     assert response.status_code == 200
     assert saved["amount_rub"] == pytest.approx(42000 * 48.9)
+
+
+def test_service_transfer_keeps_every_field_edited_in_the_reference(client) -> None:
+    """Вкладка владеет суммой и операцией; ресурсный пул и ступени правят в справочнике."""
+
+    test_client, repository, _ = client
+    service = {
+        "name": "Медосмотр и выпуск на линию",
+        "amount_rub": "40000",
+        "layer": "production",
+        "operation_code": "BLAST_EXECUTION",
+        "per_shift": False,
+    }
+    code = test_client.post(
+        "/api/v1/economics/services/to-reference", json={"service": service}
+    ).json()["code"]
+
+    head = repository.list_reference_revisions("default")[0].id
+    sections = {
+        section: [item.to_dict() for item in items]
+        for section, items in repository.get_reference_snapshot("default", head).sections.items()
+    }
+    for row in sections["cost_rules"]:
+        if row["code"] == code:
+            row["payload"]["step_capacity"] = "50"
+            row["payload"]["step_cost_rub"] = "1000"
+    for row in sections["cost_items"]:
+        if row["code"] == code:
+            row["payload"]["cost_center_code"] = None
+            row["payload"]["legacy_section"] = "2.6"
+    repository.publish_references("default", "tester", head, sections, "правки справочника")
+
+    test_client.post(
+        "/api/v1/economics/services/to-reference",
+        json={"service": {**service, "amount_rub": "45000"}},
+    )
+
+    snapshot = repository.get_reference_snapshot("default")
+    rule = snapshot.item("cost_rules", code)
+    assert rule.payload["fixed_rub"] == "45000"
+    assert rule.payload["step_capacity"] == "50"
+    assert snapshot.item("cost_items", code).payload["legacy_section"] == "2.6"
+
+
+def test_service_transfer_clears_a_rate_when_the_service_stops_being_per_shift(client) -> None:
+    """Ставка за смену снята — драйвер и ставка должны уйти, иначе сумма удвоится."""
+
+    test_client, repository, _ = client
+    service = {
+        "name": "Сопровождение взрывов",
+        "amount_rub": "5000",
+        "layer": "variable",
+        "operation_code": "BULK_CHARGING_SZM",
+        "per_shift": True,
+    }
+    code = test_client.post(
+        "/api/v1/economics/services/to-reference", json={"service": service}
+    ).json()["code"]
+    assert repository.get_reference_snapshot("default").item("cost_rules", code).payload["driver"]
+
+    test_client.post(
+        "/api/v1/economics/services/to-reference",
+        json={"service": {**service, "per_shift": False, "amount_rub": "60000"}},
+    )
+
+    payload = repository.get_reference_snapshot("default").item("cost_rules", code).payload
+    assert payload["fixed_rub"] == "60000"
+    assert "driver" not in payload
+    assert "rate_rub" not in payload
 
 
 def test_service_transfer_keeps_the_section_set_in_the_reference(client) -> None:

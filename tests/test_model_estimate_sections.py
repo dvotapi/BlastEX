@@ -65,12 +65,18 @@ def test_per_diem_is_its_own_section() -> None:
     assert per_diem.section == "PER_DIEM"
 
 
-def test_unit_fixed_costs_go_to_overhead() -> None:
+def test_unit_fixed_costs_go_to_overhead_except_the_vm_warehouse() -> None:
+    """Постоянные затраты юнита — общепроизводственные, склад ВМ — свой раздел."""
+
     result = compute()
     unit_lines = [line for line in result.lines if line.cost_item_code.startswith("UNIT_")]
 
     assert unit_lines
-    assert {line.section for line in unit_lines} == {"OVERHEAD"}
+    sections = sections_by_code(result)
+    assert sections["UNIT_WAREHOUSE_RENT"] == "VM_LOGISTICS"
+    assert {
+        line.section for line in unit_lines if line.cost_item_code != "UNIT_WAREHOUSE_RENT"
+    } == {"OVERHEAD"}
 
 
 def test_cost_rule_names_its_section_and_falls_back_to_overhead() -> None:
@@ -236,23 +242,41 @@ def test_unit_of_a_cost_rule_is_a_human_unit_not_a_driver_code() -> None:
 
 
 def test_unknown_driver_leaves_the_unit_empty_instead_of_showing_its_code() -> None:
+    """Незнакомая величина остаётся без единицы: код в колонке хуже пустоты."""
+
     rule = fx.item(
         "RULE_ODD",
         "Странная статья",
         {
             "operation_code": "STEMMING",
             "cost_item_code": "RULE_ODD",
-            "driver": "holes",
+            "driver": "moon_phases",
             "rate_rub": "10",
+            "estimate_section": "OVERHEAD",
         },
     )
     result = compute_block_economics(
-        fx.snapshot(), fx.parameters(), fx.references(cost_rules=(rule,))
+        {"physical": {**fx.physical(), "moon_phases": Decimal("3")}, "lineage": {}},
+        fx.parameters(),
+        fx.references(cost_rules=(rule,)),
     )
 
     line = line_by_code(result, "RULE_ODD")
-    assert line.unit == "шт"
-    assert line.quantity == Decimal("1224")
+    assert line.unit == ""
+    assert line.quantity == Decimal("3")
+
+
+def test_a_driver_named_after_its_unit_is_labelled_without_a_table_entry() -> None:
+    """Модель заводит величины на ходу (`szm_fuel_l`): единица берётся из хвоста имени."""
+
+    from cost.model.inputs import driver_unit
+
+    assert driver_unit("szm_fuel_l") == "л"
+    assert driver_unit("emulsion_truck_fuel_km") == "км"
+    assert driver_unit("drilling_casing_m") == "п.м."
+    # Ставка — не количество: «₽ за метр» из хвоста имени не выводится.
+    assert driver_unit("drilling_rub_per_m") == "₽/м"
+    assert driver_unit("some_rate_per_shift") == ""
 
 
 def test_per_diem_counts_person_shifts_at_its_rate() -> None:
@@ -266,13 +290,19 @@ def test_per_diem_counts_person_shifts_at_its_rate() -> None:
     assert line.quantity * line.unit_price_rub == line.amount_rub
 
 
-def test_unit_price_is_not_rounded_to_kopecks_in_json() -> None:
-    """Округление цены рвало бы колонки: норма × цена перестала бы давать сумму."""
+@pytest.mark.parametrize("code", ["DRILL_FUEL", "DRILL_TOOLING", "VM_DELIVERY"])
+def test_unit_price_is_not_rounded_to_kopecks_in_json(code: str) -> None:
+    """Округление цены рвало бы колонки: норма × цена перестала бы давать сумму.
 
-    result = compute()
+    Сумма строки округлена до копеек, поэтому произведение сходится с ней в
+    пределах этого округления — но не на рубли, как было бы с округлённой
+    ценой литра ДТ или амортизации за смену.
+    """
 
-    row = next(item for item in result.to_dict()["lines"] if item["cost_item_code"] == "DRILL_FUEL")
-    assert row["quantity"] * row["unit_price_rub"] == pytest.approx(row["amount_rub"], rel=1e-9)
+    lines = compute().to_dict()["lines"]
+
+    row = next(item for item in lines if item["cost_item_code"] == code)
+    assert row["quantity"] * row["unit_price_rub"] == pytest.approx(row["amount_rub"], abs=0.01)
 
 
 def test_insurance_is_an_overhead_not_a_depreciation() -> None:
@@ -284,11 +314,46 @@ def test_insurance_is_an_overhead_not_a_depreciation() -> None:
     assert line_by_code(result, "SZM_DEPRECIATION").section == "DEPRECIATION"
 
 
-def test_section_list_and_type_cannot_diverge() -> None:
-    """Два перечня одних и тех же разделов рано или поздно разъедутся."""
+def test_a_rule_without_a_section_warns_instead_of_hiding_in_overhead() -> None:
+    """Правило старой ревизии поля не знает: молча увести строку в ОПР нельзя."""
 
-    from typing import get_args
+    rule = fx.item(
+        "RULE_OLD",
+        "Правило без раздела",
+        {
+            "operation_code": "STEMMING",
+            "cost_item_code": "RULE_OLD",
+            "driver": "holes",
+            "rate_rub": "10",
+        },
+    )
+    result = compute_block_economics(
+        fx.snapshot(), fx.parameters(), fx.references(cost_rules=(rule,))
+    )
 
-    from cost.v2.models import ESTIMATE_SECTIONS, EstimateSection
+    assert line_by_code(result, "RULE_OLD").section == "OVERHEAD"
+    assert any("RULE_OLD" in warning and "раздел сметы" in warning for warning in result.warnings)
 
-    assert ESTIMATE_SECTIONS == frozenset(get_args(EstimateSection))
+
+def test_a_rule_with_steps_but_no_step_price_still_shows_its_norm() -> None:
+    """Признак «норма × цена» считается там же, где сумма, иначе отстанет от неё."""
+
+    rule = fx.item(
+        "RULE_STEPPED",
+        "Ставка со ступенью без цены",
+        {
+            "operation_code": "STEMMING",
+            "cost_item_code": "RULE_STEPPED",
+            "driver": "holes",
+            "rate_rub": "60",
+            "step_capacity": "50",
+            "estimate_section": "EXPLOSIVES",
+        },
+    )
+    result = compute_block_economics(
+        fx.snapshot(), fx.parameters(), fx.references(cost_rules=(rule,))
+    )
+
+    line = line_by_code(result, "RULE_STEPPED")
+    assert line.unit_price_rub == Decimal("60")
+    assert line.quantity * line.unit_price_rub == line.amount_rub

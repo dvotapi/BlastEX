@@ -13,3 +13,9 @@ frontend/dist/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+
+# iCloud-дубли: Finder создаёт «файл 2.py» рядом с оригиналом при конфликте синхронизации.
+*[[:space:]][0-9].py
+*[[:space:]][0-9].ts
+*[[:space:]][0-9].tsx
+*[[:space:]][0-9].md

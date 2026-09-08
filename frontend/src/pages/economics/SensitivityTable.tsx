@@ -1,6 +1,5 @@
 import type { SensitivityRow } from "../../types/blockEconomics";
-
-const money = (value: number) => value.toFixed(2);
+import { money } from "./format";
 
 /** Чувствительность полной цены м³ к ±10 % по каждому параметру. */
 export function SensitivityTable({

@@ -1,13 +1,14 @@
+import { money, percent } from "./format";
 import type { BlockEconomics } from "../../types/blockEconomics";
 
-const money = (value: number, digits = 2) =>
-  value.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-const percent = (share: number | undefined) =>
-  share === undefined ? "" : `${(share * 100).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} %`;
-
 /**
- * Итог блока лестницей бумажной сметы: производственная себестоимость,
- * общехозяйственные расходы, полная, рентабельность, выручка.
+ * Итог блока лестницей бумажной сметы: полная себестоимость,
+ * общехозяйственные расходы, себестоимость с ОХР, рентабельность, выручка.
+ *
+ * Подписи те же, что в выгрузке и сравнении прогонов: «полная
+ * себестоимость» — сумма всех слоёв до надбавок, и другого значения у неё
+ * на вкладке быть не может. Все суммы и цены за м³ приходят из модели:
+ * складывать их в интерфейсе значит завести второй расчёт.
  *
  * Маржинальная себестоимость стоит отдельно: в бумаге её нет, а нужна она
  * ради одного вопроса — ниже какой цены блок убыточен сам по себе.
@@ -16,30 +17,31 @@ export function PricePanel({ economics }: { economics: BlockEconomics }) {
   const prices = economics.price_per_m3;
   const markup = economics.markup;
   const volume = economics.block_volume_m3 > 0 ? economics.block_volume_m3 : null;
-  const production = markup.full_cost_rub ?? 0;
-  const overhead = markup.overhead_rub ?? 0;
-  const total = production + overhead;
-  const margin = markup.margin_rub ?? 0;
-  const revenue = markup.price_rub ?? 0;
   const gap = prices.full - prices.marginal;
 
   const ladder = [
     {
-      label: "Производственная себестоимость",
-      value: production,
+      label: "Полная себестоимость",
+      value: markup.full_cost_rub ?? 0,
       perM3: volume === null ? undefined : prices.full,
     },
-    { label: `Общехозяйственные расходы, ${percent(markup.overhead_rate)}`, value: overhead },
     {
-      label: "Полная себестоимость",
-      value: total,
-      perM3: volume === null ? undefined : total / volume,
+      label: `Общехозяйственные расходы, ${percent(markup.overhead_rate)}`,
+      value: markup.overhead_rub ?? 0,
+    },
+    {
+      label: "Себестоимость с ОХР",
+      value: markup.cost_with_overhead_rub ?? 0,
+      perM3: volume === null ? undefined : prices.with_overhead,
       strong: true,
     },
-    { label: `Рентабельность, ${percent(markup.target_margin_rate)}`, value: margin },
+    {
+      label: `Рентабельность, ${percent(markup.target_margin_rate)}`,
+      value: markup.margin_rub ?? 0,
+    },
     {
       label: "Выручка без НДС",
-      value: revenue,
+      value: markup.price_rub ?? 0,
       perM3: volume === null ? undefined : prices.with_margin,
       strong: true,
     },

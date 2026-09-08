@@ -377,6 +377,8 @@ LOGISTICS_RULES: tuple[tuple[str, str, str, str, str, str], ...] = (
 def _logistics_rules(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> None:
     rules = {item.code for item in sections["cost_rules"]}
     items = {item.code for item in sections["cost_items"]}
+    known = {code: section for code, _, _, _, _, section in LOGISTICS_RULES}
+    _backfill_sections(sections, known, report)
     for code, name, operation, driver, rate, section in LOGISTICS_RULES:
         if code in rules:
             continue
@@ -404,6 +406,29 @@ def _logistics_rules(sections: dict[str, list[ReferenceItem]], report: SeedRepor
             )
         )
         report.rules.append(code)
+
+
+def _backfill_sections(
+    sections: dict[str, list[ReferenceItem]],
+    known: dict[str, str],
+    report: SeedReport,
+) -> None:
+    """Проставить раздел сметы правилам, заведённым до его появления.
+
+    Ревизия, опубликованная раньше, поля не знает: без этого доставка ВМ и
+    забойка встают в «Общепроизводственные». Правилу из списка сида раздел
+    известен, остальным — «Общепроизводственные»: там их и считает модель,
+    и сметчик увидит значение в справочнике, а не пустое поле.
+    """
+
+    for index, item in enumerate(sections["cost_rules"]):
+        if str(item.payload.get("estimate_section") or "").strip():
+            continue
+        section = known.get(item.code, "OVERHEAD")
+        sections["cost_rules"][index] = replace(
+            item, payload={**item.payload, "estimate_section": section}
+        )
+        report.rules.append(item.code)
 
 
 def _fixed_costs(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> None:

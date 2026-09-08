@@ -103,7 +103,7 @@ export type BlockEconomics = {
   block_volume_m3: number;
   lines: BlockCostLine[];
   layer_totals: Record<CostLayer, number>;
-  price_per_m3: Record<"marginal" | "full" | "with_margin" | "with_vat", number>;
+  price_per_m3: Record<"marginal" | "full" | "with_overhead" | "with_margin" | "with_vat", number>;
   markup: Record<string, number>;
   natural: NaturalDrivers;
   capacity: CapacityWarning[];

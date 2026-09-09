@@ -26,7 +26,7 @@ export function PassportStrip({
   status,
 }: {
   /** React 19: ref — обычный проп функционального компонента, forwardRef не нужен. */
-  ref?: Ref<HTMLDivElement>;
+  ref?: Ref<HTMLElement>;
   passports: TechnicalPassport[];
   selectedId: string;
   onSelect: (id: string) => void;
@@ -43,7 +43,7 @@ export function PassportStrip({
   status: string;
 }) {
   return (
-    <div className="passport-strip" ref={ref}>
+    <section className="passport-strip" aria-label="Паспорт блока" ref={ref}>
       <div className="passport-strip-fields">
         <label>
           Объект работ
@@ -111,6 +111,6 @@ export function PassportStrip({
           </details>
         </>
       )}
-    </div>
+    </section>
   );
 }

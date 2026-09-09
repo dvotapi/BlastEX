@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api } from "../../api/endpoints";
-import { useElementHeight } from "../../lib/useElementHeight";
+import { useElementHeight } from "../../app/useElementHeight";
 import { CostStructure } from "./CostStructure";
 import { DrillingBreakdown } from "./DrillingBreakdown";
 import { EconomicsHelp } from "./EconomicsHelp";

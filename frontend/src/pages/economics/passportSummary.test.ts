@@ -54,4 +54,27 @@ describe("полная таблица паспорта", () => {
     expect(rows[0].source).toBe("технический расчёт");
     expect(rows[1].source).toBe("BlastGeometry.block.total_holes");
   });
+
+  it("пустой паспорт даёт пустую таблицу", () => {
+    expect(passportRows({}, {})).toEqual([]);
+  });
+
+  it("порядок всех шести строк — по паспорту", () => {
+    const rows = passportRows(PHYSICAL, {});
+
+    expect(rows.map((row) => row.key)).toEqual([
+      "rock_volume_m3",
+      "drilling_m",
+      "holes",
+      "explosive_kg",
+      "downhole_nsi",
+      "surface_nsi",
+    ]);
+    expect(rows.slice(3).map((row) => row.label)).toEqual(["Масса ВВ", "Скважинные НСИ", "Поверхностные НСИ"]);
+    expect(rows.slice(3).map((row) => row.unit)).toEqual(["кг", "шт", "шт"]);
+  });
+
+  it("нечисловое значение в строке таблицы — прочерк", () => {
+    expect(passportRows({ explosive_kg: "abc" }, {})[0].value).toBe("—");
+  });
 });

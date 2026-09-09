@@ -14,7 +14,7 @@ export type PassportMetric = { key: string; label: string; value: string; unit: 
 export type PassportRow = PassportMetric & { source: string };
 
 /** Драйверы паспорта в порядке чтения: ключ `physical`, подпись, единица. */
-export const GEOMETRY_ROWS: [string, string, string][] = [
+const GEOMETRY_ROWS: [string, string, string][] = [
   ["rock_volume_m3", "Объём блока", "м³"],
   ["drilling_m", "Погонаж бурения", "п.м."],
   ["holes", "Скважины", "шт"],

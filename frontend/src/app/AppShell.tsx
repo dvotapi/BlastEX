@@ -136,7 +136,9 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
                 onVariantConsumed={() => setPendingVariant(null)}
               />
             )}
-            {page === "Экономика" && <BlockEconomicsPage passportId={economicsPassportId} />}
+            {page === "Экономика" && (
+              <BlockEconomicsPage passportId={economicsPassportId} onOpenDrilling={() => setPage("Бурение")} />
+            )}
             {page === "Экономика юнита" && <EconomicsPage />}
             {page === "Бурение" && <DrillingPage />}
             {page === "ФОТ" && <LaborPage />}

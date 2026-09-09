@@ -1,27 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/endpoints";
 import { useHeightVariable } from "../../app/useHeightVariable";
-import { CostStructure } from "./CostStructure";
-import { DrillingBreakdown } from "./DrillingBreakdown";
-import { EconomicsHelp } from "./EconomicsHelp";
-import { ModelWarnings } from "./ModelWarnings";
-import { NomenclaturePanel } from "./NomenclaturePanel";
-import { ParametersPanel } from "./ParametersPanel";
-import { PassportStrip } from "./PassportStrip";
-import { ServicesPanel } from "./ServicesPanel";
 import { useWorkspace } from "../../app/useWorkspace";
-import { PricePanel } from "./PricePanel";
+import { CostStructure } from "./CostStructure";
+import { EconomicsHeader } from "./EconomicsHeader";
+import { EconomicsHelp } from "./EconomicsHelp";
+import { EconomicsTabs, type EconomicsTab } from "./EconomicsTabs";
+import { HistoryTab } from "./HistoryTab";
+import { PassportStrip } from "./PassportStrip";
+import { ResourcesTab } from "./ResourcesTab";
 import { RunsCompare } from "./RunsCompare";
 import { SensitivityTable } from "./SensitivityTable";
 import { VariantTabs } from "./VariantTabs";
-import {
-  duplicateVariant,
-  makeVariant,
-  patchVariant,
-  removeVariant,
-  renameVariant,
-  type Variant,
-} from "./variants";
+import { EstimateBuilder } from "./estimate/EstimateBuilder";
+import { buildEstimate, ESTIMATE_GROUPS, type EstimateGroup, type EstimateGroupCode } from "./estimateModel";
+import { DrillingSection } from "./sections/DrillingSection";
+import { EquipmentSection } from "./sections/EquipmentSection";
+import { ExplosivesSection } from "./sections/ExplosivesSection";
+import { FixedCostsSection } from "./sections/FixedCostsSection";
+import { FuelSection } from "./sections/FuelSection";
+import { LaborSection } from "./sections/LaborSection";
+import { ServicesSection } from "./sections/ServicesSection";
+import { draftFromDefaults, draftFromRun, isDirty, markSaved, type Draft } from "./scenario";
+import { EconomicsSidebar } from "./sidebar/EconomicsSidebar";
+import { MAX_VARIANTS } from "./variants";
 import type {
   EconomicsRunSummary,
   ModelDefaults,
@@ -35,40 +37,48 @@ import type { ReferenceRevision } from "../../types/economics";
 
 const DEFAULT_PACKAGE = "DRILL_AND_BLAST";
 const RECALC_DELAY_MS = 300;
+/** Сколько раздел сметы остаётся подсвеченным после клика по сегменту диаграммы. */
+const HIGHLIGHT_DURATION_MS = 1500;
 
-export function BlockEconomicsPage({ passportId }: { passportId?: string | null }) {
+export function BlockEconomicsPage({
+  passportId,
+  onOpenDrilling,
+}: {
+  passportId?: string | null;
+  /** Открыть отдельный калькулятор бурения (вкладка «Бурение», Cost V1). */
+  onOpenDrilling: () => void;
+}) {
   const [passports, setPassports] = useState<TechnicalPassport[]>([]);
   const [selectedPassport, setSelectedPassport] = useState(passportId ?? "");
   const [defaults, setDefaults] = useState<ModelDefaults | null>(null);
-  // До четырёх колонок сметы: правит панели активный вариант, структура
-  // затрат показывает все — один запрос на всех, чтобы колонки считались
-  // на одной ревизии справочников (см. `POST .../variants` на бэкенде).
-  //
-  // Список вариантов и то, какой из них редактируется, — одно состояние, а
-  // не два раздельных: добавление и удаление меняют оба сразу, и раздельные
-  // setState гонятся друг с другом при двух кликах подряд в одном такте
-  // React (второй читает список, ещё не увидевший первое изменение).
-  const [variantsState, setVariantsState] = useState<{ variants: Variant[]; activeId: string }>({
-    variants: [],
+  // Сценарии вкладки — до четырёх черновиков, редактируемых параллельно, и
+  // то, какой из них открыт сейчас. Список и активный id меняются одним
+  // `setState`, а не двумя раздельных: иначе два быстрых клика подряд читают
+  // один и тот же список, ещё не увидевший первое изменение.
+  const [draftsState, setDraftsState] = useState<{ drafts: Draft[]; activeId: string }>({
+    drafts: [],
     activeId: "",
   });
-  const { variants, activeId } = variantsState;
+  const { drafts, activeId } = draftsState;
   const [results, setResults] = useState<VariantResult[]>([]);
-  // Варианты, для которых считаны текущие `results` — по ним, а не по
-  // индексу в массиве: список вариантов меняется сразу по клику, а ответ
-  // сервера приходит позже, и без сверки по id вкладка «B» показала бы
-  // цифры удалённого варианта «A», просто оказавшегося на его месте.
+  // Черновики, для которых считаны текущие `results` — по id, а не по
+  // индексу: список черновиков меняется сразу по клику, а ответ сервера
+  // приходит позже, и без сверки по id вкладка «B» показала бы цифры
+  // удалённого черновика «A», просто оказавшегося на его месте.
   const [resultsForIds, setResultsForIds] = useState<string[]>([]);
   const [runs, setRuns] = useState<EconomicsRunSummary[]>([]);
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
   const [compare, setCompare] = useState<RunCompare | null>(null);
   const [sensitivity, setSensitivity] = useState<SensitivityRow[]>([]);
-  const [runName, setRunName] = useState("");
   const [busy, setBusy] = useState(false);
   const [sensitivityBusy, setSensitivityBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [movingService, setMovingService] = useState("");
+  const [tab, setTab] = useState<EconomicsTab>("estimate");
+  const [expanded, setExpanded] = useState<Set<EstimateGroupCode>>(new Set());
+  const [highlighted, setHighlighted] = useState<EstimateGroupCode | null>(null);
+  const [donutUnit, setDonutUnit] = useState<"₽" | "₽/м³">("₽/м³");
   const stripRef = useHeightVariable("--passport-strip-h");
   const { canEdit } = useWorkspace();
   // Подписи вместо кодов: имена объектов по ревизии паспорта и номера ревизий.
@@ -77,9 +87,10 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   const requestId = useRef(0);
   const defaultsRequestId = useRef(0);
   const sensitivityRequestId = useRef(0);
-  // Чувствительность посчитана для этого варианта — переключение вкладки
+  const highlightTimer = useRef<number | undefined>(undefined);
+  // Чувствительность посчитана для этого черновика — переключение вкладки
   // само по себе не гонит новый расчёт, но и не должно показывать таблицу
-  // соседнего варианта, пока сметчик не попросил пересчитать эту.
+  // соседнего черновика, пока сметчик не попросил пересчитать эту.
   const [sensitivityForId, setSensitivityForId] = useState("");
 
   useEffect(() => {
@@ -100,9 +111,11 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     if (passportId) setSelectedPassport(passportId);
   }, [passportId]);
 
-  // Паспорт сменился — начинаем заново с одного варианта на нормативном
-  // пакете. Смену пакета у уже открытого варианта отслеживает эффект ниже:
-  // она не должна стирать остальные колонки сравнения.
+  useEffect(() => () => window.clearTimeout(highlightTimer.current), []);
+
+  // Паспорт сменился — начинаем заново с одного черновика на нормативном
+  // пакете. Смену пакета у уже открытого черновика отслеживает эффект ниже:
+  // она не должна стирать остальные вкладки сравнения.
   const loadDefaults = useCallback(async () => {
     if (!selectedPassport) return;
     // Пользователь может переключить паспорт до ответа: результат устаревшего
@@ -115,8 +128,8 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
       const saved = await api.blockEconomics.runs(selectedPassport);
       if (id !== defaultsRequestId.current) return;
       setDefaults(loaded);
-      const variant = makeVariant("Вариант 1", loaded.parameters);
-      setVariantsState({ variants: [variant], activeId: variant.id });
+      const draft = draftFromDefaults("Вариант 1", loaded.parameters);
+      setDraftsState({ drafts: [draft], activeId: draft.id });
       setResults([]);
       setResultsForIds([]);
       setRuns(saved);
@@ -124,6 +137,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
       setSelectedRuns([]);
       setSensitivity([]);
       setSensitivityForId("");
+      setStatus("");
     } catch (reason) {
       if (id !== defaultsRequestId.current) return;
       setError(reason instanceof Error ? reason.message : "Не удалось открыть модель.");
@@ -136,12 +150,12 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     void loadDefaults();
   }, [loadDefaults]);
 
-  const activePackageCode = variants.find((variant) => variant.id === activeId)?.parameters.package_code;
+  const activePackageCode = drafts.find((draft) => draft.id === activeId)?.parameters.package_code;
   /**
-   * Пакет работ сменили у уже открытого варианта — обновляем каталог
-   * (станки, операции, номенклатуру) под него, но список вариантов не
+   * Пакет работ сменили у уже открытого черновика — обновляем каталог
+   * (станки, операции, номенклатуру) под него, но список черновиков не
    * трогаем. Раньше это делал `loadDefaults`, и смена пакета у одного
-   * варианта тихо стирала остальные колонки сравнения.
+   * черновика тихо стирала остальные вкладки сравнения.
    */
   useEffect(() => {
     if (!selectedPassport || !activePackageCode || !defaults) return;
@@ -154,27 +168,27 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
       })
       .catch(() => {
         // Каталог для нового пакета не подгрузился — прежний остаётся
-        // видимым и рабочим, останавливать редактирование варианта незачем.
+        // видимым и рабочим, останавливать редактирование черновика незачем.
       });
     return () => {
       cancelled = true;
     };
   }, [selectedPassport, activePackageCode, defaults]);
 
-  // Пересчёт с задержкой: пользователь двигает параметры, а не жмёт «Рассчитать».
-  // Один запрос на все варианты — так колонки остаются на одной ревизии
+  // Пересчёт с задержкой: сметчик двигает параметры, а не жмёт «Рассчитать».
+  // Один запрос на все черновики — так вкладки остаются на одной ревизии
   // справочников, даже если правят не активный, а более раннюю вкладку.
   useEffect(() => {
-    if (variants.length === 0 || !selectedPassport) return;
+    if (drafts.length === 0 || !selectedPassport) return;
     const id = ++requestId.current;
-    // На момент ответа список вариантов мог уже смениться (сметчик удалил
+    // На момент ответа список черновиков мог уже смениться (сметчик удалил
     // или дублировал вкладку) — запрос помнит, для кого он был отправлен.
-    const requestedIds = variants.map((variant) => variant.id);
+    const requestedIds = drafts.map((draft) => draft.id);
     const timer = window.setTimeout(() => {
       api.blockEconomics
         .variants(
           selectedPassport,
-          variants.map((variant) => ({ name: variant.name, parameters: variant.parameters })),
+          drafts.map((draft) => ({ name: draft.name, parameters: draft.parameters })),
         )
         .then((response) => {
           if (id === requestId.current) {
@@ -190,17 +204,14 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
         });
     }, RECALC_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [variants, selectedPassport]);
+  }, [drafts, selectedPassport]);
 
-  const defaultRunName = `Сценарий ${runs.length + 1}`;
+  const activeDraft = drafts.find((draft) => draft.id === activeId) ?? null;
+  const dirty = activeDraft ? isDirty(activeDraft) : false;
 
-  const activeVariant = variants.find((variant) => variant.id === activeId) ?? null;
-
-  // Чувствительность посчитана для конкретного варианта, а не для вкладки
+  // Чувствительность посчитана для конкретного черновика, а не для вкладки
   // вообще: переключение (клик, дублирование, удаление активного) прячет
   // таблицу соседа вместо того, чтобы показывать её под чужим заголовком.
-  // Счётчик запроса гасится тем же эффектом: ответ по варианту, с которого
-  // уже ушли, не должен лечь в таблицу, даже если он ещё летит.
   useEffect(() => {
     if (activeId === sensitivityForId) return;
     setSensitivity([]);
@@ -208,11 +219,14 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   }, [activeId, sensitivityForId]);
 
   // Совпадают состав и порядок id — тогда `results` точно про текущие
-  // вкладки, а не про то, что было до последнего добавления/удаления.
-  const resultsMatchVariants =
-    resultsForIds.length === variants.length && resultsForIds.every((id, index) => id === variants[index]?.id);
-  const activeResultIndex = resultsMatchVariants ? resultsForIds.indexOf(activeId) : -1;
+  // черновики, а не про то, что было до последнего добавления/удаления.
+  const resultsMatchDrafts =
+    resultsForIds.length === drafts.length && resultsForIds.every((id, index) => id === drafts[index]?.id);
+  const activeResultIndex = resultsMatchDrafts ? resultsForIds.indexOf(activeId) : -1;
   const activeEconomics = activeResultIndex >= 0 ? results[activeResultIndex]?.economics ?? null : null;
+
+  const volume = activeEconomics && activeEconomics.block_volume_m3 > 0 ? activeEconomics.block_volume_m3 : null;
+  const groups = useMemo(() => (activeEconomics ? buildEstimate(activeEconomics) : []), [activeEconomics]);
 
   const passport = useMemo(
     () => defaults?.passport ?? passports.find((item) => item.id === selectedPassport) ?? null,
@@ -244,29 +258,82 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     const date = new Date(found.published_at).toLocaleDateString("ru-RU");
     return `Ревизия ${found.sequence_no} от ${date}`;
   }, [revisionId, revisions]);
+  const passportContextLabel = passport ? `Паспорт вер. ${passport.version_no}` : "";
 
-  /** Услуга уходит в правила затрат новой ревизией и исчезает из параметров активного варианта: иначе двойной счёт. */
+  const exportUrl = activeDraft?.sourceRunId ? api.blockEconomics.exportUrl(activeDraft.sourceRunId) : null;
+
+  function patchActive(patch: Partial<ModelParameters>) {
+    setDraftsState((current) =>
+      current.activeId
+        ? {
+            ...current,
+            drafts: current.drafts.map((draft) =>
+              draft.id === current.activeId ? { ...draft, parameters: { ...draft.parameters, ...patch } } : draft,
+            ),
+          }
+        : current,
+    );
+  }
+
+  function selectDraft(id: string) {
+    setDraftsState((current) => ({ ...current, activeId: id }));
+  }
+
+  /**
+   * Копия активного черновика становится активной: сравнивают её с исходным,
+   * меняя одно поле. Список и активный id меняются одним `setState`, а не
+   * двумя — иначе два быстрых клика подряд читают один и тот же список,
+   * ещё не увидевший первое изменение, и одно из двух действий теряется.
+   */
+  function duplicateActive() {
+    setDraftsState((current) => {
+      const base = current.drafts.find((draft) => draft.id === current.activeId);
+      if (!base || current.drafts.length >= MAX_VARIANTS) return current;
+      const next = draftFromDefaults(`Вариант ${current.drafts.length + 1}`, { ...base.parameters });
+      return { drafts: [...current.drafts, next], activeId: next.id };
+    });
+  }
+
+  function removeDraft(id: string) {
+    setDraftsState((current) => {
+      if (current.drafts.length <= 1) return current;
+      const next = current.drafts.filter((draft) => draft.id !== id);
+      return {
+        drafts: next,
+        activeId: id === current.activeId ? next[0]?.id ?? "" : current.activeId,
+      };
+    });
+  }
+
+  function renameDraft(id: string, name: string) {
+    setDraftsState((current) => ({
+      ...current,
+      drafts: current.drafts.map((draft) => (draft.id === id ? { ...draft, name } : draft)),
+    }));
+  }
+
+  /** Услуга уходит в правила затрат новой ревизией и исчезает из параметров активного черновика: иначе двойной счёт. */
   async function moveServiceToReference(index: number) {
-    const service = activeVariant?.parameters.services[index];
+    const service = activeDraft?.parameters.services[index];
     if (!service || !activeId) return;
     setMovingService(service.name);
     setError("");
     try {
       const moved = await api.blockEconomics.serviceToReference(service);
-      // Из текущего состояния, а не из захваченного activeVariant: пока шла
+      // Из текущего состояния, а не из захваченного activeDraft: пока шла
       // публикация ревизии, сметчик мог править ту же вкладку ещё раз.
-      setVariantsState((current) => ({
+      setDraftsState((current) => ({
         ...current,
-        variants: current.variants.map((variant) =>
-          variant.id === activeId
+        drafts: current.drafts.map((draft) =>
+          draft.id === current.activeId
             ? {
-                ...variant,
+                ...draft,
                 parameters: {
-                  ...variant.parameters,
-                  services: variant.parameters.services.filter((item) => item !== service),
+                  ...draft.parameters,
+                  services: draft.parameters.services.filter((item) => item !== service),
                 },
               }
-            : variant,
+            : draft,
         ),
       }));
       setStatus(
@@ -279,57 +346,18 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     }
   }
 
-  function patchActive(patch: Partial<ModelParameters>) {
-    setVariantsState((current) =>
-      current.activeId
-        ? { ...current, variants: patchVariant(current.variants, current.activeId, patch) }
-        : current,
-    );
-  }
-
-  function selectVariant(id: string) {
-    setVariantsState((current) => ({ ...current, activeId: id }));
-  }
-
-  /**
-   * Копия активного варианта становится активной: сравнивают её с исходным,
-   * меняя одно поле. Список и активный id меняются одним `setState`, а не
-   * двумя — иначе два быстрых клика подряд читают один и тот же список,
-   * ещё не увидевший первое изменение, и одно из двух действий теряется.
-   */
-  function handleDuplicateVariant() {
-    setVariantsState((current) => {
-      if (!current.activeId) return current;
-      const next = duplicateVariant(current.variants, current.activeId);
-      if (next === current.variants) return current;
-      return { variants: next, activeId: next[next.length - 1].id };
-    });
-  }
-
-  function handleRemoveVariant(id: string) {
-    setVariantsState((current) => {
-      const next = removeVariant(current.variants, id);
-      if (next === current.variants) return current;
-      return {
-        variants: next,
-        activeId: id === current.activeId ? next[0]?.id ?? "" : current.activeId,
-      };
-    });
-  }
-
-  function handleRenameVariant(id: string, name: string) {
-    setVariantsState((current) => ({ ...current, variants: renameVariant(current.variants, id, name) }));
-  }
-
-  async function saveRun() {
-    if (!activeVariant || !selectedPassport) return;
-    const name = runName.trim() || defaultRunName;
+  async function saveActive(name: string) {
+    if (!activeDraft || !selectedPassport) return;
     setBusy(true);
+    setError("");
     try {
-      await api.blockEconomics.saveRun(selectedPassport, activeVariant.parameters, name);
+      const run = await api.blockEconomics.saveRun(selectedPassport, activeDraft.parameters, name);
+      setDraftsState((current) => ({
+        ...current,
+        drafts: current.drafts.map((draft) => (draft.id === current.activeId ? markSaved(draft, run.id) : draft)),
+      }));
       setRuns(await api.blockEconomics.runs(selectedPassport));
-      setRunName("");
-      setStatus(`Сценарий «${name}» сохранён.`);
+      setStatus(`Сохранён как «${name}»`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сохранить сценарий.");
     } finally {
@@ -337,15 +365,44 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     }
   }
 
+  /**
+   * Открыть сохранённый прогон черновиком: заменяет активную вкладку свежими
+   * параметрами прогона, а не добавляет новую — иначе повторный выбор того
+   * же прогона в шапке плодил бы вкладки без ограничения. Несохранённая
+   * правка активной вкладки при этом теряется: сметчик выбрал сценарий из
+   * истории осознанно.
+   */
+  async function openRun(runId: string) {
+    if (!selectedPassport) return;
+    setBusy(true);
+    setError("");
+    try {
+      const run = await api.blockEconomics.run(runId);
+      const draft = draftFromRun(run, run.name);
+      setDraftsState((current) => {
+        const index = current.drafts.findIndex((item) => item.id === current.activeId);
+        const nextDrafts =
+          index >= 0
+            ? current.drafts.map((item, position) => (position === index ? draft : item))
+            : [...current.drafts, draft];
+        return { drafts: nextDrafts, activeId: draft.id };
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось открыть сценарий.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function computeSensitivity() {
-    if (!activeVariant || !selectedPassport) return;
+    if (!activeDraft || !selectedPassport) return;
     const id = ++sensitivityRequestId.current;
     // Пока считаем, сметчик мог переключить вкладку: ответ по старому
-    // варианту не должен лечь в таблицу под новым активным заголовком.
-    const forId = activeVariant.id;
+    // черновику не должен лечь в таблицу под новым активным заголовком.
+    const forId = activeDraft.id;
     setSensitivityBusy(true);
     try {
-      const response = await api.blockEconomics.sensitivity(selectedPassport, activeVariant.parameters);
+      const response = await api.blockEconomics.sensitivity(selectedPassport, activeDraft.parameters);
       if (id !== sensitivityRequestId.current) return;
       setSensitivity(response.rows);
       setSensitivityForId(forId);
@@ -369,6 +426,72 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     }
   }
 
+  function toggleGroup(code: EstimateGroupCode) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  }
+
+  function expandAll() {
+    setExpanded(new Set(ESTIMATE_GROUPS.map((item) => item.code)));
+  }
+
+  function collapseAll() {
+    setExpanded(new Set());
+  }
+
+  /** Клик по сегменту диаграммы: раскрывает раздел на вкладке «Смета», прокручивает к нему и на 1,5 с подсвечивает. */
+  function selectGroupFromChart(code: EstimateGroupCode) {
+    setTab("estimate");
+    setExpanded((current) => (current.has(code) ? current : new Set(current).add(code)));
+    setHighlighted(code);
+    window.clearTimeout(highlightTimer.current);
+    highlightTimer.current = window.setTimeout(() => setHighlighted(null), HIGHLIGHT_DURATION_MS);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`estimate-section-${code}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function renderEstimateGroup(group: EstimateGroup): ReactNode {
+    if (!defaults || !activeDraft) return null;
+    const common = {
+      group,
+      params: activeDraft.parameters,
+      defaults,
+      economics: activeEconomics,
+      volume,
+      canEdit,
+      onChange: patchActive,
+    };
+    switch (group.code) {
+      case "EXPLOSIVES":
+        return <ExplosivesSection {...common} />;
+      case "DRILLING":
+        return <DrillingSection {...common} onOpenDrillingPage={onOpenDrilling} />;
+      case "LABOR":
+        return <LaborSection {...common} />;
+      case "EQUIPMENT":
+        return <EquipmentSection {...common} />;
+      case "FUEL":
+        return <FuelSection {...common} />;
+      case "SERVICES":
+        return (
+          <ServicesSection
+            {...common}
+            busyServiceName={movingService}
+            onMoveService={(index) => void moveServiceToReference(index)}
+          />
+        );
+      case "FIXED":
+        return <FixedCostsSection {...common} />;
+      default:
+        return null;
+    }
+  }
+
   if (!selectedPassport) {
     return (
       <div className="page-content">
@@ -385,10 +508,24 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   return (
     <div
       className="block-economics-page"
-      // Высоту полосы в `--passport-strip-h` на этом узле ставит `useHeightVariable` — см. `.block-economics-inputs`.
+      // Высоту полосы в `--passport-strip-h` на этом узле ставит `useHeightVariable` — см. `.economics-sidebar`.
     >
-      {/* Перед полосой: h2.sr-only с именем страницы идёт в DOM раньше полей полосы (порядок чтения для экранных дикторов). */}
       <EconomicsHelp />
+      <EconomicsHeader
+        context={{ site: siteLabel, passport: passportContextLabel, revision: revisionLabel }}
+        drafts={drafts}
+        runs={runs}
+        activeId={activeId}
+        onSelectDraft={selectDraft}
+        onOpenRun={(runId) => void openRun(runId)}
+        dirty={dirty}
+        onSave={(name) => void saveActive(name)}
+        onDuplicate={duplicateActive}
+        exportUrl={exportUrl}
+        busy={busy}
+        status={status}
+        error=""
+      />
       <PassportStrip
         ref={stripRef}
         passports={passports}
@@ -397,76 +534,95 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
         passport={passport}
         siteLabel={siteLabel}
         revisionLabel={revisionLabel}
-        runName={runName}
-        runPlaceholder={defaultRunName}
-        onRunName={setRunName}
-        onSave={() => void saveRun()}
-        saveDisabled={busy || !activeEconomics}
-        status={status}
       />
       <div className="page-content block-economics-content">
-        {error && <div className="page-error" role="alert">{error}</div>}
+        {error && (
+          <div className="page-error" role="alert">
+            {error}
+          </div>
+        )}
 
-        <div className="block-economics-grid">
-          {defaults && activeVariant && (
-            <div className="block-economics-inputs">
-              <VariantTabs
-                variants={variants}
-                activeId={activeId}
-                onSelect={selectVariant}
-                onDuplicate={handleDuplicateVariant}
-                onRemove={handleRemoveVariant}
-                onRename={handleRenameVariant}
-              />
-              <NomenclaturePanel params={activeVariant.parameters} defaults={defaults} onChange={patchActive} />
-              <ParametersPanel
-                params={activeVariant.parameters}
-                defaults={defaults}
-                computedRevisionId={activeEconomics?.reference_revision_id}
-                onChange={patchActive}
-              />
-              <ServicesPanel
-                services={activeVariant.parameters.services}
-                operations={defaults.operations}
-                canEdit={canEdit}
-                busyCode={movingService}
-                onChange={(services) => patchActive({ services })}
-                onMove={(index) => void moveServiceToReference(index)}
-              />
-            </div>
-          )}
-          <div className="block-economics-results">
-            {results.length > 0 && activeEconomics ? (
+        <div className="economics-workspace">
+          <div className="economics-main">
+            <EconomicsTabs active={tab} onChange={setTab} />
+
+            {tab === "estimate" &&
+              (activeEconomics ? (
+                <div className="table-scroll">
+                  <EstimateBuilder
+                    groups={groups}
+                    volume={volume}
+                    expanded={expanded}
+                    onToggle={toggleGroup}
+                    onExpandAll={expandAll}
+                    onCollapseAll={collapseAll}
+                    highlighted={highlighted}
+                    renderGroup={renderEstimateGroup}
+                    busy={!resultsMatchDrafts}
+                  />
+                </div>
+              ) : (
+                <div className="economic-empty">Расчёт выполняется…</div>
+              ))}
+
+            {tab === "structure" && (
               <>
-                <PricePanel economics={activeEconomics} />
-                <ModelWarnings economics={activeEconomics} />
-                <DrillingBreakdown economics={activeEconomics} />
+                <VariantTabs
+                  variants={drafts}
+                  activeId={activeId}
+                  onSelect={selectDraft}
+                  onDuplicate={duplicateActive}
+                  onRemove={removeDraft}
+                  onRename={renameDraft}
+                />
                 <CostStructure results={results} />
               </>
-            ) : (
-              <div className="economic-empty">Расчёт выполняется…</div>
             )}
+
+            {tab === "resources" &&
+              (activeEconomics ? (
+                <ResourcesTab economics={activeEconomics} />
+              ) : (
+                <div className="economic-empty">Расчёт выполняется…</div>
+              ))}
+
+            {tab === "sensitivity" && (
+              <SensitivityTable rows={sensitivity} busy={sensitivityBusy} onCompute={() => void computeSensitivity()} />
+            )}
+
+            {tab === "compare" && (
+              <RunsCompare
+                runs={runs}
+                selected={selectedRuns}
+                compare={compare}
+                busy={busy}
+                onToggle={(runId) =>
+                  setSelectedRuns((current) =>
+                    current.includes(runId)
+                      ? current.filter((item) => item !== runId)
+                      : current.length >= 3
+                        ? current
+                        : [...current, runId],
+                  )
+                }
+                onCompare={() => void compareRuns()}
+              />
+            )}
+
+            {tab === "history" && <HistoryTab runs={runs} onOpen={(runId) => void openRun(runId)} />}
           </div>
+
+          {activeEconomics && (
+            <EconomicsSidebar
+              economics={activeEconomics}
+              groups={groups}
+              unit={donutUnit}
+              onUnitChange={setDonutUnit}
+              highlighted={highlighted}
+              onSelect={selectGroupFromChart}
+            />
+          )}
         </div>
-
-        <SensitivityTable rows={sensitivity} busy={sensitivityBusy} onCompute={() => void computeSensitivity()} />
-
-        <RunsCompare
-          runs={runs}
-          selected={selectedRuns}
-          compare={compare}
-          busy={busy}
-          onToggle={(runId) =>
-            setSelectedRuns((current) =>
-              current.includes(runId)
-                ? current.filter((item) => item !== runId)
-                : current.length >= 3
-                  ? current
-                  : [...current, runId],
-            )
-          }
-          onCompare={() => void compareRuns()}
-        />
       </div>
     </div>
   );

@@ -10,7 +10,7 @@
 .estimate-builder-toolbar button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
 .estimate-builder-toolbar button:hover { border-color:#2d7556; color:#2d7556; }
 
-.estimate-table { border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#fff; }
+.estimate-table { border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#fff; min-width:960px; }
 .estimate-row {
   display:grid;
   grid-template-columns: 44px minmax(0,1fr) 110px 96px 48px 96px 120px 76px 60px 32px;
@@ -129,3 +129,55 @@
 .economics-totals-tile { padding:11px; border:1px solid #dde5e1; border-radius:10px; background:#fff; }
 .economics-totals-tile span { display:block; margin-bottom:4px; color:#78857f; font-size:10px; }
 .economics-totals-tile b { font-size:14px; font-variant-numeric:tabular-nums; }
+
+/* --- Шапка сценариев (задача 9): заголовок с плашкой черновика/сохранения,
+   строка контекста паспорта и ряд действий — выбор сценария, сохранение,
+   дублирование, выгрузка в XLSX. Не липкая — уходит из вида при прокрутке
+   вместе со страницей, в отличие от `.passport-strip` и шапки таблицы ниже. */
+.economics-header { padding:20px 28px 0; display:grid; gap:8px; }
+.economics-header-title { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.economics-header-title h1 { margin:0; font-size:24px; letter-spacing:-.5px; }
+.economics-header-context { margin:0; color:#6e7c75; font-size:12px; }
+.economics-header-error { margin:0; border-radius:9px; padding:9px 12px; background:#fce9e7; color:#9e3025; font-size:12px; }
+.economics-header-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.economics-header-actions select { padding:9px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fbfcfb; color:#17231d; font-size:12px; min-width:220px; }
+.economics-header-save { display:flex; align-items:center; gap:8px; }
+.economics-header-save input { padding:9px 10px; border:1px solid #2d7556; border-radius:9px; font-size:12px; width:180px; }
+
+/* --- Липкая полоса паспорта (задача 9а): дата паспорта рядом с плашками
+   геометрии — тем же местом, где раньше стоял статус сохранения сценария. --- */
+.passport-strip-date { margin-left:auto; color:#78857f; font-size:11px; }
+
+/* --- Рабочая область вкладки «Экономика блока»: смета/вкладки слева, липкий
+   сайдбар (диаграмма, лестница цены, итоги) справа. --- */
+.economics-workspace { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:16px; align-items:start; }
+.economics-main { min-width:0; display:grid; gap:16px; }
+.economics-sidebar { position:sticky; top:calc(var(--passport-strip-h, 0px) + 14px); }
+@media (max-width:1280px) {
+  .economics-workspace { grid-template-columns:minmax(0,1fr) 300px; }
+}
+@media (max-width:1050px) {
+  .economics-workspace { grid-template-columns:1fr; }
+  .economics-sidebar { position:static; }
+}
+
+/* --- Вкладка «История»: сохранённые сценарии паспорта списком — по образцу
+   `.run-row` из styles.css, но без чекбокса и с кнопкой «Открыть» четвёртой
+   колонкой (имя+дата / цена / «Открыть» / xlsx). --- */
+.history-list { display:grid; gap:7px; }
+.history-row { display:grid; grid-template-columns:minmax(0,1fr) 110px auto auto; gap:9px; align-items:center; padding:8px 10px; border:1px solid #dde5e1; border-radius:10px; background:#fff; font-size:12px; }
+.history-row small { display:block; color:#78857f; font-size:10px; }
+.history-row em { text-align:right; font-style:normal; font-weight:700; }
+
+/* --- Вкладка «Ресурсы»: натуральные величины, узкие места мощности и
+   маржинальная себестоимость с коридором для торга (тот же вид, что был у
+   `.price-panel-secondary`, но собственным классом в новом файле стилей). --- */
+.resources-tab { display:grid; gap:14px; }
+.resources-capacity ul { margin:0; padding-left:18px; display:grid; gap:6px; }
+.resources-margin-body { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.resources-margin-body > div { padding:11px; border:1px solid #dde5e1; border-radius:10px; background:#fff; }
+.resources-margin-body > div span { display:block; margin-bottom:4px; color:#78857f; font-size:10px; }
+.resources-margin-body > div small { display:block; margin-top:4px; color:#78857f; font-size:10px; }
+@media (max-width:1050px) {
+  .resources-margin-body { grid-template-columns:1fr; }
+}

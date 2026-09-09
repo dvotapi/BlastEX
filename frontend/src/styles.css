@@ -51,20 +51,22 @@ button { cursor:pointer; }
 .app-shell.design-mode .workspace { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
 .app-shell.design-mode .topbar { height:36px; min-height:36px; padding:0 16px; flex:0 0 36px; }
 .app-shell.design-mode .topbar > div { display:none; }
-.topbar { height:auto; min-height:72px; padding:10px 28px; display:flex; align-items:center; justify-content:space-between; gap:18px; border-bottom:1px solid #dce4e0; background:#fff; }
-.topbar > div { display:grid; gap:4px; }.topbar b { font-size:17px; }.topbar span { color:#69776f; font-size:11px; }
+/* Одна строка чуть выше кнопок («Выйти» — 34px): заголовок, слот заголовка
+   («Справка» экономики), бренд, слот полосы листа «Расчёт» и «Выйти».
+   Высота не фиксирована: полоса «Расчёта» с плашками при узком окне
+   переносится и растит шапку, но по умолчанию всё умещается в один ряд. */
+.topbar { min-height:48px; padding:6px 28px; display:flex; align-items:center; justify-content:space-between; gap:18px; border-bottom:1px solid #dce4e0; background:#fff; }
+.topbar-lead { display:flex; align-items:center; gap:14px; flex:none; min-width:0; }
+.topbar-title { font-size:17px; white-space:nowrap; }
+.topbar span { color:#69776f; font-size:11px; }
 /* Слот для полосы листа «Расчёт» (см. topbarSlot.tsx): занимает пустующее
    место между заголовком и кнопкой «Выйти», плашки переносятся сюда же
-   (flex-wrap на самой полосе — `.calc-top-strip`), а не в общий ряд шапки.
-   Селектор с двумя классами, а не просто `.topbar-slot` — иначе более
-   специфичный `.topbar > div` (для блока заголовка, строкой выше) выигрывал
-   бы у `display:flex` за счёт равной специфичности и порядка объявления. */
+   (flex-wrap на самой полосе — `.calc-top-strip`), а не в общий ряд шапки. */
 .topbar > .topbar-slot { flex:1 1 auto; min-width:0; display:flex; justify-content:flex-end; }
 .logout-button { padding:8px 12px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }
 .page-content { padding:25px 28px 40px; }
 .page-heading { margin-bottom:20px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
-.topbar-title-row { display:flex; align-items:center; gap:10px; }
-.topbar-brand { display:flex; align-items:center; gap:7px; }
+.topbar-brand { display:flex; align-items:center; gap:7px; padding-left:14px; border-left:1px solid #e2e8e5; }
 /* Тот же бейдж-значок, что у «BX» в сайдбаре — общее правило вверху файла
    (`.brand span` и соседи), здесь только размер и цвет свои. `span.` даёт
    специфичность `.topbar span`, побеждает порядком объявления (см. комментарий
@@ -111,7 +113,7 @@ span.topbar-brand-mark { width:20px; height:20px; border-radius:6px; flex:none; 
   .metric-chips { margin-left:0; width:100%; }
 }
 @media (max-width:760px) {
-  .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { height:64px; padding:0 16px; }.topbar-brand-text i { display:none; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
+  .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { min-height:56px; padding:6px 16px; }.topbar-brand-text { display:none; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
   /* Четыре плашки с min-width:96px не помещаются в узкий слот шапки —
      переносим их на вторую строку вместо горизонтального обрезания. */
   .metric-chips { flex-wrap:wrap; }

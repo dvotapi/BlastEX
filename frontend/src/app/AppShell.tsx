@@ -109,11 +109,9 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
         </aside>
         <main className="workspace">
           <header className="topbar">
-            <div>
-              <div className="topbar-title-row">
-                <b>{TITLES[page]}</b>
-                <div className="topbar-title-slot" ref={setTitleSlot} />
-              </div>
+            <div className="topbar-lead">
+              <b className="topbar-title">{TITLES[page]}</b>
+              <div className="topbar-title-slot" ref={setTitleSlot} />
               {/* Бренд поставщика сервиса — не орг-данные пользователя: та же
                   строка раньше показывала `user.organization_name`, это поле
                   осталось (см. ReferencesPage.tsx), здесь только вид сменился. */}

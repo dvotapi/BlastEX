@@ -40,18 +40,38 @@ _CODE_LIMIT = 80
 _HASH_LENGTH = 7
 
 
-def service_code(name: str) -> str:
-    """Код записи справочника из названия: латиница, стабилен при повторном переносе."""
+def _slug(text: str) -> str:
+    """Одна часть кода: латиница, апперкейс, всё не-A-Z0-9 схлопнуто в `_`."""
 
-    normalized = name.strip().lower()
+    normalized = text.strip().lower()
     latin = "".join(_TRANSLIT.get(ch, ch) for ch in normalized).upper()
-    slug = re.sub(r"[^A-Z0-9]+", "_", latin).strip("_") or "X"
-    code = f"SERVICE_{slug}"
+    return re.sub(r"[^A-Z0-9]+", "_", latin).strip("_") or "X"
+
+
+def reference_code(prefix: str, *parts: str) -> str:
+    """Код записи справочника: `prefix` + части через `_`, стабилен при повторной публикации.
+
+    Части транслитерируются независимо, поэтому уже готовый код (код
+    контрагента, код операции) проходит через слаг без изменений. Слишком
+    длинный код обрезается с хвостом-хешем полного набора частей — иначе два
+    похожих в начале названия схлопнулись бы в один код, и повторная
+    публикация второй записи переписала бы первую.
+    """
+
+    slug = "_".join(_slug(part) for part in parts if part)
+    code = f"{prefix}_{slug}" if slug else prefix
     if len(code) <= _CODE_LIMIT:
         return code
-    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:_HASH_LENGTH].upper()
+    digest_source = "|".join(part.strip().lower() for part in parts)
+    digest = hashlib.sha1(digest_source.encode("utf-8")).hexdigest()[:_HASH_LENGTH].upper()
     head = code[: _CODE_LIMIT - _HASH_LENGTH - 1].rstrip("_")
     return f"{head}_{digest}"
+
+
+def service_code(name: str) -> str:
+    """Код записи справочника из названия услуги — тонкая обёртка над `reference_code`."""
+
+    return reference_code("SERVICE", name)
 
 
 def compute(context: ModelContext, *, charged_items: set[str] | None = None) -> None:
@@ -114,4 +134,4 @@ def _layer(value: str) -> CostLayer:
         return CostLayer.PROJECT_DIRECT
 
 
-__all__ = ["SHIFT_DRIVERS", "compute", "service_code"]
+__all__ = ["SHIFT_DRIVERS", "compute", "reference_code", "service_code"]

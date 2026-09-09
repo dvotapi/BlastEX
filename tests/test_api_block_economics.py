@@ -742,3 +742,99 @@ def test_service_transfer_keeps_the_section_set_in_the_reference(client) -> None
     rule = repository.get_reference_snapshot("default").item("cost_rules", code)
     assert rule.payload["fixed_rub"] == "130000"
     assert rule.payload["estimate_section"] == "PER_DIEM"
+
+
+def test_subcontract_rate_is_published_only_by_explicit_request(client) -> None:
+    """Расчёт с ручной ставкой справочник не трогает — тариф попадает туда только по кнопке."""
+
+    test_client, repository, passport_id = client
+    before = test_client.get(
+        "/api/v1/economics/model-defaults", params={"technical_passport_id": passport_id}
+    ).json()
+
+    computed = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id,
+            drilling_executor="SUBCONTRACTOR",
+            subcontract_rate_rub="185",
+        ),
+    )
+    assert computed.status_code == 200, computed.text
+    unchanged = test_client.get(
+        "/api/v1/economics/model-defaults", params={"technical_passport_id": passport_id}
+    ).json()
+    assert unchanged["reference_revision_id"] == before["reference_revision_id"]
+
+    saved = test_client.post(
+        "/api/v1/economics/subcontract-rates/to-reference",
+        json={
+            "counterparty_code": before["counterparties"][0]["code"],
+            "name": "Бурение Ø140 мм",
+            "rate_rub": "185",
+        },
+    )
+    assert saved.status_code == 201, saved.text
+    body = saved.json()
+    assert body["section"] == "subcontract_rates"
+    assert body["created"] is True
+    assert body["reference_revision_id"] != before["reference_revision_id"]
+    head = repository.list_reference_revisions("default")[0].id
+    assert body["reference_revision_id"] == head
+
+    rate = repository.get_reference_snapshot("default", head).item("subcontract_rates", body["code"])
+    assert rate is not None
+    assert rate.payload["counterparty_code"] == before["counterparties"][0]["code"]
+    assert rate.payload["operation_code"] == "PRODUCTION_DRILLING"
+    assert rate.payload["unit"] == "M"
+    assert rate.payload["rate_rub"] == "185"
+
+    after = test_client.get(
+        "/api/v1/economics/model-defaults", params={"technical_passport_id": passport_id}
+    ).json()
+    assert after["reference_revision_id"] != before["reference_revision_id"]
+    assert any(
+        row["code"] == body["code"] and row["rate_rub"] == 185.0
+        for row in after["subcontract_rates"]
+    )
+
+    # Повторная публикация с тем же кодом обновляет запись, а не плодит дубли.
+    again = test_client.post(
+        "/api/v1/economics/subcontract-rates/to-reference",
+        json={
+            "counterparty_code": before["counterparties"][0]["code"],
+            "name": "Бурение Ø140 мм",
+            "rate_rub": "190",
+        },
+    )
+    assert again.status_code == 201, again.text
+    assert again.json()["created"] is False
+    latest = repository.get_reference_snapshot("default")
+    assert [item.code for item in latest.active_items("subcontract_rates")].count(body["code"]) == 1
+    assert latest.item("subcontract_rates", body["code"]).payload["rate_rub"] == "190"
+
+
+def test_subcontract_rate_transfer_refuses_a_code_taken_by_another_name(client) -> None:
+    """Разные названия могут дать один код после транслита — молча перезаписать чужой тариф нельзя."""
+
+    test_client, repository, passport_id = client
+    before = test_client.get(
+        "/api/v1/economics/model-defaults", params={"technical_passport_id": passport_id}
+    ).json()
+    counterparty_code = before["counterparties"][0]["code"]
+
+    first = test_client.post(
+        "/api/v1/economics/subcontract-rates/to-reference",
+        json={"counterparty_code": counterparty_code, "name": "Бурение Ø140 мм", "rate_rub": "185"},
+    ).json()
+
+    clash = test_client.post(
+        "/api/v1/economics/subcontract-rates/to-reference",
+        json={"counterparty_code": counterparty_code, "name": "бурение ø140 мм!", "rate_rub": "9"},
+    )
+
+    assert clash.status_code == 409, clash.text
+    assert first["code"] in clash.json()["detail"]["message"]
+    rate = repository.get_reference_snapshot("default").item("subcontract_rates", first["code"])
+    assert rate.name == "Бурение Ø140 мм"
+    assert rate.payload["rate_rub"] == "185"

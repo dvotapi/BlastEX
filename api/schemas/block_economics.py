@@ -43,6 +43,27 @@ class ServiceToReferenceResponse(BaseModel):
     reference_revision_id: str
 
 
+class SubcontractRateToReferenceRequest(BaseModel):
+    """Тариф субподряда со вкладки, публикуемый в справочник по явной кнопке."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    counterparty_code: str = Field(..., min_length=1)
+    operation_code: str = Field("PRODUCTION_DRILLING", min_length=1)
+    name: str = Field(..., min_length=1, max_length=200)
+    # «Погонный метр» — код `M` из системного раздела `units`, а не «UNIT_M»:
+    # других единиц для тарифа бурения по факту не бывает.
+    unit: str = Field("M", min_length=1)
+    rate_rub: Decimal = Field(..., gt=0)
+
+
+class SubcontractRateToReferenceResponse(BaseModel):
+    section: Literal["subcontract_rates"] = "subcontract_rates"
+    code: str
+    created: bool
+    reference_revision_id: str
+
+
 class ModelParametersSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

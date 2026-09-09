@@ -8,6 +8,7 @@ import pytest
 
 from tests import model_fixtures as fx
 from tests.conftest import parameters_payload as _parameters
+from api.routers.block_economics import _positions
 
 
 def test_block_economics_returns_the_price_ladder(client) -> None:
@@ -157,6 +158,30 @@ def test_defaults_offer_subcontract_rates_with_counterparties(client) -> None:
     assert driller["category"] == "DIRECT"
 
     assert body["parameters"]["subcontract_rate_code"] is None
+
+
+def test_positions_default_rate_ignores_condition_specific_rows() -> None:
+    """Несколько ставок на должность — отдаём безусловную, а не какую попало по порядку словаря."""
+
+    references = fx.references(
+        labor_rates=(
+            fx.item(
+                "LR_DRILLER_HARD", "Бурильщик (крепкая порода)",
+                {
+                    "position_code": "POS_DRILLER",
+                    "fixed_monthly_rub": "90000",
+                    "condition_code": "HARD_ROCK",
+                },
+            ),
+            fx.item(
+                "LR_DRILLER", "Бурильщик",
+                {"position_code": "POS_DRILLER", "fixed_monthly_rub": "60000"},
+            ),
+        )
+    )
+
+    driller = next(row for row in _positions(references) if row["code"] == "POS_DRILLER")
+    assert driller["fixed_monthly_rub"] == pytest.approx(60000.0)
 
 
 def test_subcontract_rate_selection_reaches_the_computed_line(client) -> None:

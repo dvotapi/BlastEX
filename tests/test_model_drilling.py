@@ -184,6 +184,33 @@ def test_unknown_subcontract_code_falls_back_to_the_first_rate_with_a_warning() 
     assert any("MISSING" in warning for warning in context.warnings)
 
 
+def test_subcontract_rate_in_a_different_unit_is_skipped() -> None:
+    """Тариф не в ₽/м не годится: `drilling_m` × ставка/смену дал бы неверную сумму."""
+
+    references = fx.references(
+        subcontract_rates=(
+            fx.item(
+                "RATE_SHIFT", "БурСервис посменно",
+                {"operation_code": "PRODUCTION_DRILLING", "unit": "SHIFT", "rate_rub": "50000"},
+            ),
+            fx.item(
+                "RATE_M", "БурСервис Ø140",
+                {"operation_code": "PRODUCTION_DRILLING", "unit": "M", "rate_rub": "150"},
+            ),
+        )
+    )
+    context = ModelContext(
+        references,
+        fx.parameters(drilling_executor="SUBCONTRACTOR", subcontract_rate_code="RATE_SHIFT"),
+        fx.physical(),
+    )
+    drilling.compute(context)
+
+    line = next(row for row in context.lines if row.cost_item_code == "DRILL_SUBCONTRACT")
+    assert line.unit_price_rub == Decimal("150")
+    assert any("RATE_SHIFT" in warning for warning in context.warnings)
+
+
 def test_manual_subcontract_rate_wins_and_is_marked_manual() -> None:
     context = ModelContext(
         fx.references(),

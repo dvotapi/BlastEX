@@ -464,7 +464,10 @@ def _subcontract_rate(context: ModelContext) -> tuple[Decimal, ValueOrigin, str]
     Ручной ввод проверяет предложение подрядчика, которого ещё нет в
     справочнике — в справочник ставка попадает только явной кнопкой (не
     здесь). Незнакомый выбранный код не считается ошибкой, а падает к первой
-    ставке по операции — прежнему поведению до появления выбора.
+    ставке по операции — прежнему поведению до появления выбора. `_subcontract_lines`
+    множит ставку на метраж, поэтому годятся только тарифы в ₽/м (`unit == "M"`) —
+    остальные единицы отбрасываются, иначе, например, ставка за смену
+    молча посчиталась бы как ставка за метр.
     """
 
     params = context.params
@@ -474,12 +477,13 @@ def _subcontract_rate(context: ModelContext) -> tuple[Decimal, ValueOrigin, str]
         item
         for item in context.items("subcontract_rates")
         if payload_text(item, "operation_code") == DRILLING_OPERATION
+        and payload_text(item, "unit") == "M"
     ]
     chosen = next((item for item in items if item.code == params.subcontract_rate_code), None)
     if chosen is None and params.subcontract_rate_code:
         context.warn(
-            f"Тариф субподряда {params.subcontract_rate_code} не найден: "
-            "взята первая ставка по операции."
+            f"Тариф субподряда {params.subcontract_rate_code} не найден или задан не в ₽/м: "
+            "взята первая ставка по операции в ₽/м."
         )
     chosen = chosen or (items[0] if items else None)
     if chosen is None:

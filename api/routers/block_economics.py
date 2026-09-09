@@ -777,10 +777,25 @@ def _subcontract_rates(references: ReferenceSnapshot) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (row["counterparty_name"], row["name"]))
 
 
-def _positions(references: ReferenceSnapshot) -> list[dict[str, Any]]:
-    """Должности состава бригады с нормативом и ставкой — селект вкладки не ходит за ними отдельно."""
+def _default_labor_rate(rows: list[ReferenceItem]) -> ReferenceItem | None:
+    """Ставка без условия бурения — тот же фолбэк, что `_labor_rate` берёт, пока условие не выбрано."""
 
-    rates = {payload_text(item, "position_code"): item for item in references.active_items("labor_rates")}
+    if not rows:
+        return None
+    return next((item for item in rows if not payload_text(item, "condition_code")), rows[0])
+
+
+def _positions(references: ReferenceSnapshot) -> list[dict[str, Any]]:
+    """Должности состава бригады с нормативом и ставкой — селект вкладки не ходит за ними отдельно.
+
+    У должности бывает несколько ставок (по условию бурения); здесь отдаём
+    безусловную — конкретное условие выбирается уже в расчёте (`labor._labor_rate`).
+    """
+
+    rates_by_position: dict[str, list[ReferenceItem]] = {}
+    for item in references.active_items("labor_rates"):
+        rates_by_position.setdefault(payload_text(item, "position_code"), []).append(item)
+    rates = {code: _default_labor_rate(rows) for code, rows in rates_by_position.items()}
     return [
         {
             "code": item.code,

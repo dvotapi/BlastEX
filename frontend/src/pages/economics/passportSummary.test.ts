@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { passportMetrics, passportRows } from "./passportSummary";
 
 /** Неразрывный пробел тысяч — обычным, чтобы ожидание читалось глазами. */
-const plain = (text: string) => text.replace(/ /g, " ");
+const plain = (text: string) => text.replace(/\u00a0/g, " ");
 
 const PHYSICAL = {
   rock_volume_m3: 30000,
@@ -37,6 +37,8 @@ describe("плашки паспорта", () => {
 
   it("отсутствующая величина — прочерк", () => {
     expect(passportMetrics({})[0].value).toBe("—");
+    expect(passportMetrics({ rock_volume_m3: "abc" })[0].value).toBe("—");
+    expect(passportMetrics({ holes: "" })[2].value).toBe("—");
   });
 });
 

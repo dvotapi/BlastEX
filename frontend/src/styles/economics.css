@@ -1,0 +1,80 @@
+/* Вкладка «Экономика блока» — конструктор сметы: комбобокс справочника,
+   иерархическая таблица разделов и строк, бейджи происхождения величин,
+   меню действий строки. Палитра и радиусы — те же, что в styles.css
+   (панели 15px, поля 8-9px, границы #cfd9d4/#d9e2dd/#dde5e1, акцент
+   #2d7556, фокус — тень rgba(45,117,86,.1)). */
+
+.estimate-builder { position:relative; }
+.estimate-builder.is-recalculating { opacity:.7; }
+.estimate-builder-toolbar { display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px; }
+.estimate-builder-toolbar button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
+.estimate-builder-toolbar button:hover { border-color:#2d7556; color:#2d7556; }
+
+.estimate-table { border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#fff; }
+.estimate-row {
+  display:grid;
+  grid-template-columns: 44px minmax(0,1fr) 110px 96px 48px 96px 120px 76px 60px 32px;
+  align-items:center;
+  gap:6px;
+}
+
+.estimate-head { position:sticky; top:var(--passport-strip-h, 0px); z-index:2; padding:0 12px; min-height:36px; background:#f5f8f6; border-bottom:1px solid #dde5e1; font-size:10px; font-weight:700; color:#78857f; }
+
+.estimate-section + .estimate-section { border-top:1px solid #dde5e1; }
+.estimate-section-head { padding:0 12px; min-height:38px; background:#f5f8f6; }
+.estimate-section.is-highlighted > .estimate-section-head { background:#eaf3ee; }
+.estimate-section-toggle { grid-column:1 / span 2; display:flex; align-items:center; gap:8px; padding:8px 0; border:0; background:transparent; text-align:left; font-size:12px; font-weight:700; color:#17231d; cursor:pointer; }
+.estimate-section-caret { color:#78857f; font-size:10px; }
+.estimate-section-body { background:#fff; }
+
+.estimate-line-wrap + .estimate-line-wrap,
+.estimate-section-body > .estimate-line-wrap:first-child { border-top:1px solid #eef2f0; }
+.estimate-line { padding:0 12px; min-height:34px; font-size:12px; }
+.estimate-line:hover { background:#f7faf8; }
+.estimate-line-formula { margin:0; padding:8px 12px 10px 56px; background:#f7faf8; border-top:1px solid #eef2f0; font-size:11px; color:#4a5a51; }
+.estimate-line-formula code { font-family:inherit; }
+
+.estimate-row, .estimate-line, .estimate-section-head, .estimate-head { font-variant-numeric:tabular-nums; }
+.estimate-col-quantity, .estimate-col-price, .estimate-col-amount, .estimate-col-perm3, .estimate-col-share { text-align:right; }
+.estimate-col-unit { text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.estimate-col-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.estimate-col-amount { font-weight:700; }
+.estimate-section-head .estimate-col-amount, .estimate-section-head .estimate-col-perm3, .estimate-section-head .estimate-col-share { font-weight:700; }
+.estimate-col-actions { display:flex; align-items:center; justify-content:flex-end; gap:4px; }
+
+/* Бейдж происхождения величины: паспорт/расчёт/справочник/норматив/ручной. */
+.origin-badge { display:inline-flex; align-items:center; padding:2px 7px; border-radius:6px; font-size:10px; font-weight:700; white-space:nowrap; }
+.origin-passport { background:#e8f1fb; color:#1f4e8c; }
+.origin-calc { background:#eef3f1; color:#31483d; }
+.origin-reference { background:#eaf6ef; color:#1f6a4a; }
+.origin-norm { background:#f3f0fb; color:#4f3d9e; }
+.origin-manual { background:#fff4e5; color:#8a5a10; }
+
+/* Комбобокс справочника в строке сметы. */
+.catalog-select { position:relative; }
+.catalog-select-button { width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; color:#17231d; font-size:12px; text-align:left; overflow:hidden; cursor:pointer; }
+.catalog-select-button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.catalog-select-button:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
+.catalog-select-button:disabled { opacity:.6; cursor:not-allowed; }
+
+.catalog-select-popover { position:absolute; z-index:5; top:calc(100% + 4px); left:0; width:max-content; min-width:260px; max-width:360px; padding:8px; border:1px solid #cfd9d4; border-radius:12px; background:#fff; box-shadow:0 12px 30px rgba(22,48,36,.14); }
+.catalog-select-search { box-sizing:border-box; width:100%; margin-bottom:6px; padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; font-size:12px; }
+.catalog-select-search:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
+
+.catalog-select-list { display:grid; gap:2px; max-height:220px; margin:0; padding:0; list-style:none; overflow:auto; }
+.catalog-select-list button { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:7px 9px; border:0; border-radius:7px; background:transparent; color:#17231d; font-size:12px; text-align:left; cursor:pointer; }
+.catalog-select-list button:hover, .catalog-select-list button.active { background:#eaf3ee; }
+.catalog-select-list button:disabled { opacity:.5; cursor:not-allowed; }
+.catalog-select-option-name small { display:block; margin-top:1px; color:#78857f; font-size:10px; font-weight:400; }
+.catalog-select-option-price { flex:none; color:#5f7168; font-size:11px; font-variant-numeric:tabular-nums; }
+.catalog-select-empty { padding:10px; color:#78857f; font-size:11px; text-align:center; }
+
+/* Меню действий строки (⋯). */
+.row-menu { position:relative; }
+.row-menu-trigger { width:24px; height:24px; display:grid; place-items:center; border:0; border-radius:6px; background:transparent; color:#78857f; font-size:14px; line-height:1; cursor:pointer; }
+.row-menu-trigger:hover { background:#eef2f0; color:#3b4b43; }
+.row-menu-list { position:absolute; z-index:5; top:calc(100% + 4px); right:0; min-width:160px; display:grid; gap:2px; padding:6px; border:1px solid #cfd9d4; border-radius:10px; background:#fff; box-shadow:0 12px 30px rgba(22,48,36,.14); }
+.row-menu-list button { padding:7px 9px; border:0; border-radius:7px; background:transparent; color:#17231d; font-size:12px; text-align:left; cursor:pointer; }
+.row-menu-list button:hover { background:#f5f8f6; }
+.row-menu-list button.danger { color:#9e3025; }
+.row-menu-list button.danger:hover { background:#fce9e7; }

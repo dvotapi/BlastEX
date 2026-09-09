@@ -117,6 +117,84 @@ def test_model_defaults_come_from_references(client) -> None:
     assert "PRODUCTION_DRILLING" in body["package_operations"]
 
 
+def test_defaults_offer_subcontract_rates_with_counterparties(client) -> None:
+    test_client, _, passport_id = client
+    response = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["subcontract_rates"], "в фикстуре должна быть ставка бурения"
+    rate = body["subcontract_rates"][0]
+    assert set(rate) >= {
+        "code",
+        "name",
+        "counterparty_code",
+        "counterparty_name",
+        "operation_code",
+        "unit",
+        "rate_rub",
+    }
+    assert rate["code"] == "SUB_DRILLING"
+    assert rate["counterparty_code"] == "CP_DRILLING"
+    assert rate["counterparty_name"] == "БурСервис ООО"
+    assert rate["rate_rub"] == pytest.approx(900.0)
+    assert body["counterparties"] == [{"code": "CP_DRILLING", "name": "БурСервис ООО"}]
+
+    position = body["positions"][0]
+    assert set(position) >= {
+        "code",
+        "name",
+        "fixed_monthly_rub",
+        "norm_shifts_per_month",
+        "category",
+    }
+    driller = next(row for row in body["positions"] if row["code"] == "POS_DRILLER")
+    assert driller["fixed_monthly_rub"] == pytest.approx(60000.0)
+    assert driller["norm_shifts_per_month"] == pytest.approx(15.0)
+    assert driller["category"] == "DIRECT"
+
+    assert body["parameters"]["subcontract_rate_code"] is None
+
+
+def test_subcontract_rate_selection_reaches_the_computed_line(client) -> None:
+    test_client, _, passport_id = client
+    response = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id,
+            drilling_executor="SUBCONTRACTOR",
+            subcontract_rate_code="SUB_DRILLING",
+        ),
+    )
+
+    line = next(
+        row for row in response.json()["lines"] if row["cost_item_code"] == "DRILL_SUBCONTRACT"
+    )
+    assert line["unit_price_rub"] == pytest.approx(900.0)
+    assert line["price_origin"] == "REFERENCE"
+
+
+def test_manual_subcontract_rate_reaches_the_computed_line(client) -> None:
+    test_client, _, passport_id = client
+    response = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(
+            passport_id,
+            drilling_executor="SUBCONTRACTOR",
+            subcontract_rate_rub="199.5",
+        ),
+    )
+
+    line = next(
+        row for row in response.json()["lines"] if row["cost_item_code"] == "DRILL_SUBCONTRACT"
+    )
+    assert line["unit_price_rub"] == pytest.approx(199.5)
+    assert line["price_origin"] == "MANUAL"
+
+
 def test_export_returns_xlsx_workbook(client) -> None:
     test_client, _, passport_id = client
     run = test_client.post(

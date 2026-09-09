@@ -200,6 +200,12 @@ class ModelParameters:
     crew: tuple[CrewMember, ...] = ()
     services: tuple[ServiceCharge, ...] = ()
     drilling_executor: DrillingExecutor = "OWN"
+    # Код тарифа субподряда бурения из справочника `subcontract_rates`.
+    subcontract_rate_code: str | None = None
+    # Ручная ставка за метр: сметчик проверяет предложение подрядчика,
+    # которого ещё нет в справочнике. В справочник попадает только явной
+    # кнопкой (не здесь) — задача 3.
+    subcontract_rate_rub: Decimal | None = None
     # Роль номенклатуры («EXPLOSIVE», «NSI_DOWNHOLE», …) → код материала.
     # Количество берётся из технического паспорта, вкладка выбирает только
     # наименование, а цену модель читает из справочника.
@@ -234,6 +240,8 @@ class ModelParameters:
                 if str(data.get("drilling_executor", "OWN")).upper() == "SUBCONTRACTOR"
                 else "OWN"
             ),
+            subcontract_rate_code=_optional_code(data.get("subcontract_rate_code")),
+            subcontract_rate_rub=_optional_number(data.get("subcontract_rate_rub")),
             nomenclature={
                 str(role): str(code)
                 for role, code in dict(data.get("nomenclature") or {}).items()
@@ -262,6 +270,10 @@ class ModelParameters:
             "crew": [member.to_dict() for member in self.crew],
             "services": [charge.to_dict() for charge in self.services],
             "drilling_executor": self.drilling_executor,
+            "subcontract_rate_code": self.subcontract_rate_code,
+            "subcontract_rate_rub": (
+                str(self.subcontract_rate_rub) if self.subcontract_rate_rub is not None else None
+            ),
             "nomenclature": dict(self.nomenclature),
             "electric_detonators_qty": str(self.electric_detonators_qty),
             "overhead_rate": str(self.overhead_rate) if self.overhead_rate is not None else None,

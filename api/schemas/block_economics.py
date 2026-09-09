@@ -60,6 +60,10 @@ class ModelParametersSchema(BaseModel):
     crew: list[CrewMemberSchema] = Field(default_factory=list)
     services: list[ServiceChargeSchema] = Field(default_factory=list)
     drilling_executor: Literal["OWN", "SUBCONTRACTOR"] = "OWN"
+    # Код тарифа субподряда бурения из справочника `subcontract_rates`.
+    subcontract_rate_code: str | None = None
+    # Ручная ставка за метр: проверить предложение подрядчика без справочника.
+    subcontract_rate_rub: Decimal | None = Field(None, ge=0)
     # Роль номенклатуры → код материала; пустое значение означает «не выбрано».
     nomenclature: dict[str, str] = Field(default_factory=dict)
     electric_detonators_qty: Decimal = Field(Decimal("0"), ge=0)
@@ -240,6 +244,34 @@ class SensitivityResponse(BaseModel):
     reference_revision_id: str = ""
 
 
+class CodeName(BaseModel):
+    code: str
+    name: str
+
+
+class SubcontractRateOption(BaseModel):
+    """Тариф субподряда для выбора на вкладке: справочник `subcontract_rates`."""
+
+    code: str
+    name: str
+    counterparty_code: str
+    counterparty_name: str
+    operation_code: str
+    unit: str
+    rate_rub: float
+
+
+class PositionOption(BaseModel):
+    """Должность для состава бригады: норматив из `positions`, ставка — из `labor_rates`."""
+
+    code: str
+    name: str
+    # Ставки может не быть — постоянная часть тогда нулевая, а не отсутствующая.
+    fixed_monthly_rub: float
+    norm_shifts_per_month: float
+    category: Literal["DIRECT", "INDIRECT"]
+
+
 class ModelDefaultsResponse(BaseModel):
     parameters: ModelParametersSchema
     passport: dict[str, Any]
@@ -252,7 +284,10 @@ class ModelDefaultsResponse(BaseModel):
     szm: list[dict[str, str]]
     delivery_trucks: list[dict[str, str]]
     emulsion_trucks: list[dict[str, str]] = Field(default_factory=list)
-    positions: list[dict[str, str]]
+    positions: list[PositionOption]
+    # Тарифы субподряда бурения и подрядчики, готовые к выбору на вкладке.
+    subcontract_rates: list[SubcontractRateOption] = Field(default_factory=list)
+    counterparties: list[CodeName] = Field(default_factory=list)
     packages: list[dict[str, str]]
     sites: list[dict[str, str]]
     reference_revision_id: str

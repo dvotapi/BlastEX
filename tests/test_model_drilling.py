@@ -143,6 +143,61 @@ def test_asset_without_depreciable_value_warns_instead_of_silent_zero() -> None:
     ), context.warnings
 
 
+def test_subcontract_uses_the_chosen_rate() -> None:
+    """Несколько тарифов по операции — выбранный код должен победить, а не первый."""
+
+    references = fx.references(
+        subcontract_rates=(
+            fx.item(
+                "RATE_A", "БурСервис Ø140",
+                {"operation_code": "PRODUCTION_DRILLING", "unit": "M", "rate_rub": "150"},
+            ),
+            fx.item(
+                "RATE_B", "БурСервис Ø152",
+                {"operation_code": "PRODUCTION_DRILLING", "unit": "M", "rate_rub": "185"},
+            ),
+        )
+    )
+    context = ModelContext(
+        references,
+        fx.parameters(drilling_executor="SUBCONTRACTOR", subcontract_rate_code="RATE_B"),
+        fx.physical(),
+    )
+    drilling.compute(context)
+
+    line = next(row for row in context.lines if row.cost_item_code == "DRILL_SUBCONTRACT")
+    assert line.unit_price_rub == Decimal("185")
+    assert line.price_origin == "REFERENCE"
+
+
+def test_unknown_subcontract_code_falls_back_to_the_first_rate_with_a_warning() -> None:
+    context = ModelContext(
+        fx.references(),
+        fx.parameters(drilling_executor="SUBCONTRACTOR", subcontract_rate_code="MISSING"),
+        fx.physical(),
+    )
+    drilling.compute(context)
+
+    line = next(row for row in context.lines if row.cost_item_code == "DRILL_SUBCONTRACT")
+    assert line.unit_price_rub == Decimal("900")
+    assert line.price_origin == "REFERENCE"
+    assert any("MISSING" in warning for warning in context.warnings)
+
+
+def test_manual_subcontract_rate_wins_and_is_marked_manual() -> None:
+    context = ModelContext(
+        fx.references(),
+        fx.parameters(drilling_executor="SUBCONTRACTOR", subcontract_rate_rub=Decimal("199.5")),
+        fx.physical(),
+    )
+    drilling.compute(context)
+
+    line = next(row for row in context.lines if row.cost_item_code == "DRILL_SUBCONTRACT")
+    assert line.unit_price_rub == Decimal("199.5")
+    assert line.price_origin == "MANUAL"
+    assert line.quantity_origin == "PASSPORT"
+
+
 def test_rig_depreciation_names_the_unit_by_its_inventory_number() -> None:
     """Тот же станок, но разные машины: строка отличает их по инвентарному номеру."""
 

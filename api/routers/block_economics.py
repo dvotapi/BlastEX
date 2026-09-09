@@ -388,7 +388,13 @@ def model_defaults(
             "szm": szm,
             "delivery_trucks": trucks,
             "emulsion_trucks": emulsion_trucks,
-            "positions": _catalog(references, "positions"),
+            "positions": _positions(references),
+            "subcontract_rates": _subcontract_rates(references),
+            "counterparties": [
+                {"code": item.code, "name": item.name}
+                for item in references.active_items("counterparties")
+                if payload_text(item, "role") == "SUBCONTRACTOR"
+            ],
             "packages": [
                 {"code": code, "name": item.name}
                 for code, item in package_map(references).items()
@@ -647,6 +653,44 @@ def _equipment(references: ReferenceSnapshot, kind: str) -> list[dict[str, str]]
 
 def _catalog(references: ReferenceSnapshot, section: str) -> list[dict[str, str]]:
     return [{"code": item.code, "name": item.name} for item in references.active_items(section)]
+
+
+def _subcontract_rates(references: ReferenceSnapshot) -> list[dict[str, Any]]:
+    """Тарифы субподряда с именем подрядчика и единицей — сметчик выбирает по ним, а не по коду."""
+
+    names = {item.code: item.name for item in references.active_items("counterparties")}
+    units = {item.code: item.name for item in references.active_items("units")}
+    rows: list[dict[str, Any]] = []
+    for item in references.active_items("subcontract_rates"):
+        counterparty = payload_text(item, "counterparty_code")
+        rows.append(
+            {
+                "code": item.code,
+                "name": item.name,
+                "counterparty_code": counterparty,
+                "counterparty_name": names.get(counterparty, counterparty),
+                "operation_code": payload_text(item, "operation_code"),
+                "unit": units.get(payload_text(item, "unit"), payload_text(item, "unit")),
+                "rate_rub": float(payload_number(item, "rate_rub")),
+            }
+        )
+    return sorted(rows, key=lambda row: (row["counterparty_name"], row["name"]))
+
+
+def _positions(references: ReferenceSnapshot) -> list[dict[str, Any]]:
+    """Должности состава бригады с нормативом и ставкой — селект вкладки не ходит за ними отдельно."""
+
+    rates = {payload_text(item, "position_code"): item for item in references.active_items("labor_rates")}
+    return [
+        {
+            "code": item.code,
+            "name": item.name,
+            "category": payload_text(item, "category", "DIRECT"),
+            "norm_shifts_per_month": float(payload_number(item, "norm_shifts_per_month", Decimal("21"))),
+            "fixed_monthly_rub": float(payload_number(rates.get(item.code), "fixed_monthly_rub")),
+        }
+        for item in references.active_items("positions")
+    ]
 
 
 def _summary(run: dict[str, Any]) -> dict[str, Any]:

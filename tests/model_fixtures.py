@@ -413,11 +413,20 @@ COST_RULES = (
     ),
 )
 
+COUNTERPARTIES = (
+    item("CP_DRILLING", "БурСервис ООО", {"role": "SUBCONTRACTOR"}),
+)
+
 SUBCONTRACT_RATES = (
     item(
         "SUB_DRILLING",
         "Субподряд бурения",
-        {"operation_code": "PRODUCTION_DRILLING", "unit": "M", "rate_rub": "900"},
+        {
+            "operation_code": "PRODUCTION_DRILLING",
+            "unit": "M",
+            "rate_rub": "900",
+            "counterparty_code": "CP_DRILLING",
+        },
     ),
 )
 
@@ -444,6 +453,7 @@ def references(**overrides: Any) -> ReferenceSnapshot:
             "cost_items": (*base.sections["cost_items"], *COST_ITEMS),
             "cost_rules": COST_RULES,
             "subcontract_rates": SUBCONTRACT_RATES,
+            "counterparties": COUNTERPARTIES,
             "resource_pools": (*base.sections["resource_pools"], WAREHOUSE_POOL),
         }
     )

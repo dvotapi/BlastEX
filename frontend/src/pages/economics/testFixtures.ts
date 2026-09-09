@@ -287,11 +287,26 @@ export function economicsFixture(): BlockEconomics {
     }),
   ];
 
-  const layer_totals = lines.reduce<Record<CostLayer, number>>(
+  // Поэлементные суммы по слою (bucket) — промежуточный шаг, не то, что
+  // отдаёт бэкенд.
+  const layerBuckets = lines.reduce<Record<CostLayer, number>>(
     (totals, line) => ({ ...totals, [line.layer]: totals[line.layer] + line.amount_rub }),
     { variable: 0, project_direct: 0, production: 0, full: 0 },
   );
-  const fullCost = lines.reduce((sum, line) => sum + line.amount_rub, 0);
+  // `layer_totals` — накопительно, как в `cost/model/markup.py::layer_totals`:
+  // variable → project_direct → production → full, каждый следующий слой
+  // включает предыдущий.
+  const variableTotal = layerBuckets.variable;
+  const projectDirectTotal = variableTotal + layerBuckets.project_direct;
+  const productionTotal = projectDirectTotal + layerBuckets.production;
+  const fullTotal = productionTotal + layerBuckets.full;
+  const layer_totals: Record<CostLayer, number> = {
+    variable: variableTotal,
+    project_direct: projectDirectTotal,
+    production: productionTotal,
+    full: fullTotal,
+  };
+  const fullCost = fullTotal;
   const volume = 1000;
 
   // Надбавки — те же ставки и та же формула, что в `cost/model/markup.py`
@@ -313,7 +328,7 @@ export function economicsFixture(): BlockEconomics {
     lines,
     layer_totals,
     price_per_m3: {
-      marginal: layer_totals.variable / volume,
+      marginal: layer_totals.project_direct / volume,
       full: fullCost / volume,
       with_overhead: costWithOverhead / volume,
       with_margin: price / volume,

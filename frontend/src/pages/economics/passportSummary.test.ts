@@ -39,6 +39,7 @@ describe("плашки паспорта", () => {
     expect(passportMetrics({})[0].value).toBe("—");
     expect(passportMetrics({ rock_volume_m3: "abc" })[0].value).toBe("—");
     expect(passportMetrics({ holes: "" })[2].value).toBe("—");
+    expect(passportMetrics({ holes: "  " })[2].value).toBe("—");
   });
 });
 

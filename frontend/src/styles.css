@@ -50,23 +50,26 @@ button { cursor:pointer; }
 .app-shell.design-mode { height:100vh; overflow:hidden; }
 .app-shell.design-mode .workspace { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
 .app-shell.design-mode .topbar { height:36px; min-height:36px; padding:0 16px; flex:0 0 36px; }
-.app-shell.design-mode .topbar > div { display:none; }
+.app-shell.design-mode .topbar-lead, .app-shell.design-mode .topbar-slot { display:none; }
 /* Одна строка чуть выше кнопок («Выйти» — 34px): заголовок, слот заголовка
    («Справка» экономики), бренд, слот полосы листа «Расчёт» и «Выйти».
    Высота не фиксирована: полоса «Расчёта» с плашками при узком окне
-   переносится и растит шапку, но по умолчанию всё умещается в один ряд. */
+   переносится и растит шапку, но по умолчанию всё умещается в один ряд.
+   Заголовок обрезается многоточием, кнопка «Выйти» видна всегда. */
 .topbar { min-height:48px; padding:6px 28px; display:flex; align-items:center; justify-content:space-between; gap:18px; border-bottom:1px solid #dce4e0; background:#fff; }
-.topbar-lead { display:flex; align-items:center; gap:14px; flex:none; }
-.topbar-title { font-size:17px; white-space:nowrap; }
+.topbar-lead { display:flex; align-items:center; gap:14px; flex:0 1 auto; min-width:0; }
+.topbar-title { font-size:17px; white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.topbar-title-slot { flex:none; }
+.topbar-title-slot:empty { display:none; }
 .topbar span { color:#69776f; font-size:11px; }
 /* Слот для полосы листа «Расчёт» (см. topbarSlot.tsx): занимает пустующее
    место между заголовком и кнопкой «Выйти», плашки переносятся сюда же
    (flex-wrap на самой полосе — `.calc-top-strip`), а не в общий ряд шапки. */
 .topbar > .topbar-slot { flex:1 1 auto; min-width:0; display:flex; justify-content:flex-end; }
-.logout-button { padding:8px 12px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }
+.logout-button { flex:none; padding:8px 12px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }
 .page-content { padding:25px 28px 40px; }
 .page-heading { margin-bottom:20px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
-.topbar-brand { display:flex; align-items:center; gap:7px; padding-left:14px; border-left:1px solid #e2e8e5; }
+.topbar-brand { display:flex; align-items:center; gap:7px; flex:none; padding-left:14px; border-left:1px solid #e2e8e5; }
 /* Тот же бейдж-значок, что у «BX» в сайдбаре — общее правило вверху файла
    (`.brand span` и соседи), здесь только размер и цвет свои. `span.` даёт
    ту же специфичность, что у `.topbar span`, и побеждает порядком
@@ -359,14 +362,15 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 /* --- Экономика блока: параметры слева, две цены и структура в центре ---
    `.block-economics-page` (корень вкладки в BlockEconomicsPage.tsx) своих
    правил не несёт — только область видимости переменной
-   `--passport-strip-h`, см. `.block-economics-inputs` ниже. */
+   `--passport-strip-h`, которую ставит хук `useHeightVariable` на этом
+   узле, см. `.block-economics-inputs` ниже. */
 .block-economics-content { display:grid; gap:16px; }
 .geometry-readonly { margin-top:8px; }
 .geometry-readonly table { min-width:640px; }
 .geometry-readonly small { color:#78857f; }
 .block-economics-grid { display:grid; grid-template-columns:340px minmax(0,1fr); gap:16px; align-items:start; }
 /* Отступ на высоту липкой полосы паспорта над колонкой: переменную ставит
-   BlockEconomicsPage по ResizeObserver, без полосы — обычные 14px. */
+   хук useHeightVariable, без полосы — обычные 14px. */
 .block-economics-inputs { display:grid; gap:16px; align-content:start; position:sticky; top:calc(var(--passport-strip-h, 0px) + 14px); }
 .block-economics-parameters .panel-body, .block-economics-nomenclature .panel-body { display:grid; gap:11px; }
 .block-economics-parameters label, .block-economics-nomenclature label { display:grid; gap:6px; color:#425149; font-size:11px; font-weight:700; }

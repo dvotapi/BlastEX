@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
-import { useElementHeight } from "../../app/useElementHeight";
+import { useHeightVariable } from "../../app/useHeightVariable";
 import { CostStructure } from "./CostStructure";
 import { DrillingBreakdown } from "./DrillingBreakdown";
 import { EconomicsHelp } from "./EconomicsHelp";
@@ -69,7 +69,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [movingService, setMovingService] = useState("");
-  const [stripRef, stripHeight] = useElementHeight();
+  const stripRef = useHeightVariable("--passport-strip-h");
   const { canEdit } = useWorkspace();
   // Подписи вместо кодов: имена объектов по ревизии паспорта и номера ревизий.
   const [siteNames, setSiteNames] = useState<Record<string, Record<string, string>>>({});
@@ -191,6 +191,8 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     }, RECALC_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [variants, selectedPassport]);
+
+  const defaultRunName = `Сценарий ${runs.length + 1}`;
 
   const activeVariant = variants.find((variant) => variant.id === activeId) ?? null;
 
@@ -321,7 +323,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
 
   async function saveRun() {
     if (!activeVariant || !selectedPassport) return;
-    const name = runName.trim() || `Сценарий ${runs.length + 1}`;
+    const name = runName.trim() || defaultRunName;
     setBusy(true);
     try {
       await api.blockEconomics.saveRun(selectedPassport, activeVariant.parameters, name);
@@ -383,9 +385,10 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   return (
     <div
       className="block-economics-page"
-      // Липкая колонка параметров отступает на высоту липкой полосы — см. .block-economics-inputs.
-      style={{ "--passport-strip-h": `${stripHeight}px` } as CSSProperties}
+      // Высоту полосы в `--passport-strip-h` на этом узле ставит `useHeightVariable` — см. `.block-economics-inputs`.
     >
+      {/* Перед полосой: h2.sr-only с именем страницы идёт в DOM раньше полей полосы (порядок чтения для экранных дикторов). */}
+      <EconomicsHelp />
       <PassportStrip
         ref={stripRef}
         passports={passports}
@@ -395,14 +398,13 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
         siteLabel={siteLabel}
         revisionLabel={revisionLabel}
         runName={runName}
-        runPlaceholder={`Сценарий ${runs.length + 1}`}
+        runPlaceholder={defaultRunName}
         onRunName={setRunName}
         onSave={() => void saveRun()}
         saveDisabled={busy || !activeEconomics}
         status={status}
       />
       <div className="page-content block-economics-content">
-        <EconomicsHelp />
         {error && <div className="page-error" role="alert">{error}</div>}
 
         <div className="block-economics-grid">

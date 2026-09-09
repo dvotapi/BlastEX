@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { reconcilingColumns } from "./format";
+import { amount, reconcilingColumns } from "./format";
 
 /** Так число читает сметчик: пробелы тысяч убираем, запятую делаем точкой. */
 const num = (text: string) => Number(text.replace(/[\s\u00a0]/g, "").replace(",", "."));
+
+/** Неразрывный пробел тысяч — обычным, чтобы ожидание читалось глазами. */
+const plain = (text: string) => text.replace(/\u00a0/g, " ");
 
 const reconciles = (quantity: number, price: number, amountRub: number) => {
   const shown = reconcilingColumns(quantity, price, amountRub);
@@ -46,5 +49,16 @@ describe("норма и цена в колонках сметы", () => {
     for (const [quantity, price] of cases) {
       expect(reconciles(quantity, price, Math.round(quantity * price * 100) / 100)).toBe(true);
     }
+  });
+});
+
+describe("amount", () => {
+  it("без digits — разделители тысяч, копеек нет", () => {
+    expect(plain(amount(30000))).toBe("30 000");
+  });
+
+  it("с digits — ровно столько знаков, с округлением", () => {
+    expect(amount(11.04, 1)).toBe("11,0");
+    expect(amount(11.36, 1)).toBe("11,4");
   });
 });

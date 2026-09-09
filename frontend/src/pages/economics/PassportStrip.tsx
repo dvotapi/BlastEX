@@ -1,4 +1,4 @@
-import type { Ref } from "react";
+import { useMemo, type Ref } from "react";
 import { passportMetrics, passportRows } from "./passportSummary";
 import type { TechnicalPassport } from "../../types/blockEconomics";
 
@@ -42,6 +42,12 @@ export function PassportStrip({
   /** Сообщение о сохранении или переносе услуги; пусто — не показывать. */
   status: string;
 }) {
+  const metrics = useMemo(() => (passport ? passportMetrics(passport.physical) : []), [passport]);
+  const rows = useMemo(
+    () => (passport ? passportRows(passport.physical, passport.lineage) : []),
+    [passport],
+  );
+
   return (
     <section className="passport-strip" aria-label="Паспорт блока" ref={ref}>
       <div className="passport-strip-fields">
@@ -60,7 +66,7 @@ export function PassportStrip({
           </select>
         </label>
         <label>
-          Ревизия справочников
+          Ревизия справочников паспорта
           <input value={revisionLabel} title={passport?.reference_revision_id ?? ""} disabled />
         </label>
         <label>
@@ -80,7 +86,7 @@ export function PassportStrip({
       {passport && (
         <>
           <div className="passport-strip-metrics">
-            {passportMetrics(passport.physical).map((metric) => (
+            {metrics.map((metric) => (
               <div className="metric-chip" key={metric.key}>
                 <span>{metric.label}</span>
                 <strong>{metric.value}</strong>
@@ -97,7 +103,7 @@ export function PassportStrip({
                   <tr><th>Показатель</th><th>Значение</th><th>Ед.</th><th>Источник</th></tr>
                 </thead>
                 <tbody>
-                  {passportRows(passport.physical, passport.lineage).map((row) => (
+                  {rows.map((row) => (
                     <tr key={row.key}>
                       <td>{row.label}</td>
                       <td>{row.value}</td>

@@ -50,25 +50,30 @@ button { cursor:pointer; }
 .app-shell.design-mode { height:100vh; overflow:hidden; }
 .app-shell.design-mode .workspace { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
 .app-shell.design-mode .topbar { height:36px; min-height:36px; padding:0 16px; flex:0 0 36px; }
-.app-shell.design-mode .topbar > div { display:none; }
-.topbar { height:auto; min-height:72px; padding:10px 28px; display:flex; align-items:center; justify-content:space-between; gap:18px; border-bottom:1px solid #dce4e0; background:#fff; }
-.topbar > div { display:grid; gap:4px; }.topbar b { font-size:17px; }.topbar span { color:#69776f; font-size:11px; }
+.app-shell.design-mode .topbar-lead, .app-shell.design-mode .topbar-slot { display:none; }
+/* Одна строка чуть выше кнопок («Выйти» — 34px): заголовок, слот заголовка
+   («Справка» экономики), бренд, слот полосы листа «Расчёт» и «Выйти».
+   Высота не фиксирована: полоса «Расчёта» с плашками при узком окне
+   переносится и растит шапку, но по умолчанию всё умещается в один ряд.
+   Заголовок обрезается многоточием, кнопка «Выйти» видна всегда. */
+.topbar { min-height:48px; padding:6px 28px; display:flex; align-items:center; justify-content:space-between; gap:18px; border-bottom:1px solid #dce4e0; background:#fff; }
+.topbar-lead { display:flex; align-items:center; gap:14px; flex:0 1 auto; min-width:0; }
+.topbar-title { font-size:17px; white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.topbar-title-slot { flex:none; }
+.topbar-title-slot:empty { display:none; }
+.topbar span { color:#69776f; font-size:11px; }
 /* Слот для полосы листа «Расчёт» (см. topbarSlot.tsx): занимает пустующее
    место между заголовком и кнопкой «Выйти», плашки переносятся сюда же
-   (flex-wrap на самой полосе — `.calc-top-strip`), а не в общий ряд шапки.
-   Селектор с двумя классами, а не просто `.topbar-slot` — иначе более
-   специфичный `.topbar > div` (для блока заголовка, строкой выше) выигрывал
-   бы у `display:flex` за счёт равной специфичности и порядка объявления. */
+   (flex-wrap на самой полосе — `.calc-top-strip`), а не в общий ряд шапки. */
 .topbar > .topbar-slot { flex:1 1 auto; min-width:0; display:flex; justify-content:flex-end; }
-.logout-button { padding:8px 12px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }
+.logout-button { flex:none; padding:8px 12px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:700; }
 .page-content { padding:25px 28px 40px; }
 .page-heading { margin-bottom:20px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
-.topbar-title-row { display:flex; align-items:center; gap:10px; }
-.topbar-brand { display:flex; align-items:center; gap:7px; }
+.topbar-brand { display:flex; align-items:center; gap:7px; flex:none; padding-left:14px; border-left:1px solid #e2e8e5; }
 /* Тот же бейдж-значок, что у «BX» в сайдбаре — общее правило вверху файла
    (`.brand span` и соседи), здесь только размер и цвет свои. `span.` даёт
-   специфичность `.topbar span`, побеждает порядком объявления (см. комментарий
-   про `.topbar-slot`). */
+   ту же специфичность, что у `.topbar span`, и побеждает порядком
+   объявления — это правило ниже. */
 span.topbar-brand-mark { width:20px; height:20px; border-radius:6px; flex:none; background:#d92d3f; color:#fff; font-size:9px; letter-spacing:-.2px; }
 .topbar-brand-text { display:flex; flex-direction:column; line-height:1.3; }
 .topbar-brand-text b { font-size:11px; font-weight:700; color:#3b4b43; }
@@ -111,7 +116,7 @@ span.topbar-brand-mark { width:20px; height:20px; border-radius:6px; flex:none; 
   .metric-chips { margin-left:0; width:100%; }
 }
 @media (max-width:760px) {
-  .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { height:64px; padding:0 16px; }.topbar-brand-text i { display:none; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
+  .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { min-height:56px; padding:6px 16px; }.topbar-brand-text { display:none; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
   /* Четыре плашки с min-width:96px не помещаются в узкий слот шапки —
      переносим их на вторую строку вместо горизонтального обрезания. */
   .metric-chips { flex-wrap:wrap; }
@@ -164,8 +169,8 @@ h2 { margin:0 0 6px; font-size:20px; letter-spacing:-.4px; }
 h4 { margin:20px 0 8px; font-size:14px; }
 h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .button-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
-.button-row button { padding:9px 13px; border:1px solid #cfd9d4; border-radius:9px; background:#fff; font-size:12px; font-weight:700; color:#3b4b43; }
-.button-row button:disabled { opacity:.5; cursor:not-allowed; }
+.button-row button, .passport-strip-actions button { padding:9px 13px; border:1px solid #cfd9d4; border-radius:9px; background:#fff; font-size:12px; font-weight:700; color:#3b4b43; }
+.button-row button:disabled, .passport-strip-actions button:disabled { opacity:.5; cursor:not-allowed; }
 .field-inline { display:grid; gap:6px; max-width:280px; margin-bottom:14px; font-size:12px; font-weight:700; }
 .field-inline input, .field-inline select { padding:9px 10px; border:1px solid #cfd9d4; border-radius:8px; }
 .calc-inputs-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px; }
@@ -291,9 +296,10 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .scenario-toolbar .button-row { margin:14px 0 0; }
 .scenario-toolbar .primary-button { color:#fff; background:#2d7556; border-color:#2d7556; }
 .economic-fields-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:11px; }
-.economic-fields-grid > label { min-width:0; }
-.economic-fields-grid label, .economic-options-grid label { display:grid; gap:6px; color:#425149; font-size:11px; font-weight:700; }
-.economic-fields-grid input, .economic-fields-grid select, .economic-options-grid input, .economic-options-grid select { width:100%; min-width:0; padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; }
+.economic-fields-grid > label, .passport-strip-fields > label { min-width:0; }
+.economic-fields-grid label, .economic-options-grid label, .passport-strip-fields label { display:grid; gap:6px; color:#425149; font-size:11px; font-weight:700; }
+.economic-fields-grid input, .economic-fields-grid select, .economic-options-grid input, .economic-options-grid select,
+.passport-strip-fields input, .passport-strip-fields select { width:100%; min-width:0; padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; }
 .economic-lines-section { display:grid; gap:11px; }
 .economic-section-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:15px; }
 .economic-section-heading h3 { margin:0 0 4px; font-size:16px; }.economic-section-heading p { margin:0; color:#738078; font-size:11px; }
@@ -339,15 +345,33 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
   .mobile-nav button { min-width:70px; }
 }
 
-/* --- Экономика блока: параметры слева, две цены и структура в центре --- */
-.block-economics-page { display:grid; gap:16px; }
-.block-economics-passport .economic-fields-grid { padding-bottom:4px; }
-.block-economics-passport .button-row { align-self:end; }
-.geometry-readonly { margin-top:12px; }
+/* --- Полоса паспорта под шапкой (см. PassportStrip.tsx): поля одной строкой,
+   ниже плашки геометрии тем же видом, что на листе «Расчёт» (.metric-chip),
+   остальные величины паспорта — под раскрывашкой. Вне .page-content, чтобы
+   примыкать к шапке без полей страницы. --- */
+.passport-strip { position:sticky; top:0; z-index:5; padding:12px 28px; border-bottom:1px solid #dce4e0; background:#fff; }
+.passport-strip-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.25fr) minmax(0,1fr) minmax(0,1fr) auto; gap:11px; align-items:end; }
+.passport-strip-actions button { white-space:nowrap; }
+.passport-strip-metrics { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; }
+/* Статус сохранения справа от плашек: длинному сообщению о переносе услуги
+   здесь хватает ширины, в ряду с кнопкой — нет. */
+.passport-strip-metrics .save-status { margin-left:auto; }
+.passport-strip-details { margin-top:8px; font-size:12px; }
+.passport-strip-details summary { cursor:pointer; color:#31483d; font-weight:700; }
+
+/* --- Экономика блока: параметры слева, две цены и структура в центре ---
+   `.block-economics-page` (корень вкладки в BlockEconomicsPage.tsx) своих
+   правил не несёт — только область видимости переменной
+   `--passport-strip-h`, которую ставит хук `useHeightVariable` на этом
+   узле, см. `.block-economics-inputs` ниже. */
+.block-economics-content { display:grid; gap:16px; }
+.geometry-readonly { margin-top:8px; }
 .geometry-readonly table { min-width:640px; }
 .geometry-readonly small { color:#78857f; }
 .block-economics-grid { display:grid; grid-template-columns:340px minmax(0,1fr); gap:16px; align-items:start; }
-.block-economics-inputs { display:grid; gap:16px; align-content:start; position:sticky; top:14px; }
+/* Отступ на высоту липкой полосы паспорта над колонкой: переменную ставит
+   хук useHeightVariable, без полосы — обычные 14px. */
+.block-economics-inputs { display:grid; gap:16px; align-content:start; position:sticky; top:calc(var(--passport-strip-h, 0px) + 14px); }
 .block-economics-parameters .panel-body, .block-economics-nomenclature .panel-body { display:grid; gap:11px; }
 .block-economics-parameters label, .block-economics-nomenclature label { display:grid; gap:6px; color:#425149; font-size:11px; font-weight:700; }
 .block-economics-parameters input, .block-economics-parameters select,
@@ -465,6 +489,8 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
   .price-panel-secondary { grid-template-columns:1fr; }
   .drilling-breakdown-price { grid-template-columns:1fr; }
   .drilling-breakdown-body { grid-template-columns:1fr; }
+  .passport-strip-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .passport-strip-actions { grid-column:1 / -1; }
 }
 @media (max-width:760px) {
   .cost-structure-head { grid-template-columns:minmax(0,1fr) 110px 76px; }
@@ -473,6 +499,8 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
   .cost-row-unit, .cost-row-quantity, .cost-row-price { display:none; }
   .cost-structure-section-head { grid-template-columns:30px minmax(0,1fr) 100px; }
   .cost-structure-section-head em { display:none; }
+  .passport-strip { padding:10px 14px; position:static; }
+  .passport-strip-fields { grid-template-columns:1fr; }
 }
 
 /* Справка вкладки «Экономика блока»: содержание вводного текста, только по клику. */

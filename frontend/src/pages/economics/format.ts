@@ -10,9 +10,14 @@
 export const money = (value: number, digits = 2) =>
   value.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-/** Норма или количество: копеек не показывает, лишние нули не дописывает. */
-export const amount = (value: number) =>
-  value.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+/** Норма или количество: копеек не показывает, лишние нули не дописывает; с `digits` — ровно столько знаков. */
+export const amount = (value: number, digits?: number) =>
+  value.toLocaleString(
+    "ru-RU",
+    digits === undefined
+      ? { maximumFractionDigits: 2 }
+      : { minimumFractionDigits: digits, maximumFractionDigits: digits },
+  );
 
 /** Доля в процентах; пусто, если доля не пришла. */
 export const percent = (share: number | undefined) =>

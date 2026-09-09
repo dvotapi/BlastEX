@@ -6,6 +6,7 @@ import { EconomicsHelp } from "./EconomicsHelp";
 import { ModelWarnings } from "./ModelWarnings";
 import { NomenclaturePanel } from "./NomenclaturePanel";
 import { ParametersPanel } from "./ParametersPanel";
+import { PassportStrip } from "./PassportStrip";
 import { ServicesPanel } from "./ServicesPanel";
 import { useWorkspace } from "../../app/useWorkspace";
 import { PricePanel } from "./PricePanel";
@@ -33,16 +34,6 @@ import type { ReferenceRevision } from "../../types/economics";
 
 const DEFAULT_PACKAGE = "DRILL_AND_BLAST";
 const RECALC_DELAY_MS = 300;
-
-// Драйверы паспорта, которые видно на вкладке: геометрия только для чтения.
-const GEOMETRY_ROWS: [string, string, string][] = [
-  ["rock_volume_m3", "Объём блока", "м³"],
-  ["drilling_m", "Погонаж бурения", "п.м."],
-  ["holes", "Скважины", "шт"],
-  ["explosive_kg", "Масса ВВ", "кг"],
-  ["downhole_nsi", "Скважинные НСИ", "шт"],
-  ["surface_nsi", "Поверхностные НСИ", "шт"],
-];
 
 export function BlockEconomicsPage({ passportId }: { passportId?: string | null }) {
   const [passports, setPassports] = useState<TechnicalPassport[]>([]);
@@ -388,130 +379,86 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   }
 
   return (
-    <div className="page-content block-economics-page">
-      <div className="page-heading">
-        <EconomicsHelp />
-        {status && <span className="save-status">{status}</span>}
-      </div>
-      {error && <div className="page-error" role="alert">{error}</div>}
-
-      <section className="panel block-economics-passport">
-        <div className="economic-fields-grid">
-          <label>
-            Технический паспорт
-            <select value={selectedPassport} onChange={(event) => setSelectedPassport(event.target.value)}>
-              {passports.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.object_name} · вер. {item.version_no}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Объект работ
-            <input value={siteLabel} title={passport?.site_code ?? ""} disabled />
-          </label>
-          <label>
-            Ревизия справочников паспорта
-            <input value={revisionLabel} title={revisionId} disabled />
-          </label>
-          <label>
-            Имя сценария
-            <input
-              value={runName}
-              placeholder={`Сценарий ${runs.length + 1}`}
-              onChange={(event) => setRunName(event.target.value)}
-            />
-          </label>
-          <div className="button-row">
-            <button type="button" onClick={() => void saveRun()} disabled={busy || !activeEconomics}>
-              Сохранить сценарий
-            </button>
-          </div>
-        </div>
-        {passport && (
-          <div className="table-scroll geometry-readonly">
-            <table>
-              <thead>
-                <tr><th>Показатель</th><th>Значение</th><th>Ед.</th><th>Источник</th></tr>
-              </thead>
-              <tbody>
-                {GEOMETRY_ROWS.filter(([key]) => passport.physical[key] !== undefined).map(
-                  ([key, label, unit]) => (
-                    <tr key={key}>
-                      <td>{label}</td>
-                      <td>{Number(passport.physical[key]).toLocaleString("ru-RU", { maximumFractionDigits: 2 })}</td>
-                      <td>{unit}</td>
-                      <td><small>{passport.lineage[key] ?? "технический расчёт"}</small></td>
-                    </tr>
-                  ),
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <div className="block-economics-grid">
-        {defaults && activeVariant && (
-          <div className="block-economics-inputs">
-            <VariantTabs
-              variants={variants}
-              activeId={activeId}
-              onSelect={selectVariant}
-              onDuplicate={handleDuplicateVariant}
-              onRemove={handleRemoveVariant}
-              onRename={handleRenameVariant}
-            />
-            <NomenclaturePanel params={activeVariant.parameters} defaults={defaults} onChange={patchActive} />
-            <ParametersPanel
-              params={activeVariant.parameters}
-              defaults={defaults}
-              computedRevisionId={activeEconomics?.reference_revision_id}
-              onChange={patchActive}
-            />
-            <ServicesPanel
-              services={activeVariant.parameters.services}
-              operations={defaults.operations}
-              canEdit={canEdit}
-              busyCode={movingService}
-              onChange={(services) => patchActive({ services })}
-              onMove={(index) => void moveServiceToReference(index)}
-            />
-          </div>
-        )}
-        <div className="block-economics-results">
-          {results.length > 0 && activeEconomics ? (
-            <>
-              <PricePanel economics={activeEconomics} />
-              <ModelWarnings economics={activeEconomics} />
-              <DrillingBreakdown economics={activeEconomics} />
-              <CostStructure results={results} />
-            </>
-          ) : (
-            <div className="economic-empty">Расчёт выполняется…</div>
-          )}
-        </div>
-      </div>
-
-      <SensitivityTable rows={sensitivity} busy={sensitivityBusy} onCompute={() => void computeSensitivity()} />
-
-      <RunsCompare
-        runs={runs}
-        selected={selectedRuns}
-        compare={compare}
-        busy={busy}
-        onToggle={(runId) =>
-          setSelectedRuns((current) =>
-            current.includes(runId)
-              ? current.filter((item) => item !== runId)
-              : current.length >= 3
-                ? current
-                : [...current, runId],
-          )
-        }
-        onCompare={() => void compareRuns()}
+    <div className="block-economics-page">
+      <PassportStrip
+        passports={passports}
+        selectedId={selectedPassport}
+        onSelect={setSelectedPassport}
+        passport={passport}
+        siteLabel={siteLabel}
+        revisionLabel={revisionLabel}
+        runName={runName}
+        runPlaceholder={`Сценарий ${runs.length + 1}`}
+        onRunName={setRunName}
+        onSave={() => void saveRun()}
+        saveDisabled={busy || !activeEconomics}
+        status={status}
       />
+      <div className="page-content block-economics-content">
+        <EconomicsHelp />
+        {error && <div className="page-error" role="alert">{error}</div>}
+
+        <div className="block-economics-grid">
+          {defaults && activeVariant && (
+            <div className="block-economics-inputs">
+              <VariantTabs
+                variants={variants}
+                activeId={activeId}
+                onSelect={selectVariant}
+                onDuplicate={handleDuplicateVariant}
+                onRemove={handleRemoveVariant}
+                onRename={handleRenameVariant}
+              />
+              <NomenclaturePanel params={activeVariant.parameters} defaults={defaults} onChange={patchActive} />
+              <ParametersPanel
+                params={activeVariant.parameters}
+                defaults={defaults}
+                computedRevisionId={activeEconomics?.reference_revision_id}
+                onChange={patchActive}
+              />
+              <ServicesPanel
+                services={activeVariant.parameters.services}
+                operations={defaults.operations}
+                canEdit={canEdit}
+                busyCode={movingService}
+                onChange={(services) => patchActive({ services })}
+                onMove={(index) => void moveServiceToReference(index)}
+              />
+            </div>
+          )}
+          <div className="block-economics-results">
+            {results.length > 0 && activeEconomics ? (
+              <>
+                <PricePanel economics={activeEconomics} />
+                <ModelWarnings economics={activeEconomics} />
+                <DrillingBreakdown economics={activeEconomics} />
+                <CostStructure results={results} />
+              </>
+            ) : (
+              <div className="economic-empty">Расчёт выполняется…</div>
+            )}
+          </div>
+        </div>
+
+        <SensitivityTable rows={sensitivity} busy={sensitivityBusy} onCompute={() => void computeSensitivity()} />
+
+        <RunsCompare
+          runs={runs}
+          selected={selectedRuns}
+          compare={compare}
+          busy={busy}
+          onToggle={(runId) =>
+            setSelectedRuns((current) =>
+              current.includes(runId)
+                ? current.filter((item) => item !== runId)
+                : current.length >= 3
+                  ? current
+                  : [...current, runId],
+            )
+          }
+          onCompare={() => void compareRuns()}
+        />
+      </div>
     </div>
   );
 }

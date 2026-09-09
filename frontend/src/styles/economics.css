@@ -78,3 +78,54 @@
 .row-menu-list button:hover { background:#f5f8f6; }
 .row-menu-list button.danger { color:#9e3025; }
 .row-menu-list button.danger:hover { background:#fce9e7; }
+
+/* Липкий сайдбар вкладки «Экономика блока» (задача 8): кольцо структуры
+   себестоимости, лестница формирования цены, ключевые итоги. Три блока
+   в одну колонку, каждый — своя карточка с теми же отступами/радиусами,
+   что у остальных панелей вкладки. */
+.economics-sidebar { display:grid; gap:14px; align-content:start; }
+
+/* --- Кольцо структуры себестоимости --- */
+.donut-panel { display:grid; gap:10px; padding:15px; border:1px solid #d9e2dd; border-radius:15px; background:#fff; }
+
+.donut-unit-switch { display:inline-flex; justify-self:end; border:1px solid #cfd9d4; border-radius:9px; overflow:hidden; }
+.donut-unit-switch button { padding:5px 10px; border:0; background:#fff; color:#5f7168; font-size:11px; font-weight:700; cursor:pointer; }
+.donut-unit-switch button + button { border-left:1px solid #cfd9d4; }
+.donut-unit-switch button.is-active { background:#2d7556; color:#fff; }
+
+.donut-panel svg { width:100%; max-width:220px; justify-self:center; }
+.donut-segment { stroke:#fff; stroke-width:1; cursor:pointer; transition:opacity .15s ease; }
+.donut-segment:focus-visible { outline:2px solid #2d7556; outline-offset:2px; }
+.donut-segment.is-selected { stroke:#17231d; stroke-width:3; }
+.donut-segment.is-dimmed { opacity:.55; }
+.donut-center-value { font-size:15px; font-weight:700; fill:#17231d; }
+.donut-center-unit { font-size:9px; fill:#78857f; }
+.donut-center-caption { font-size:9px; fill:#78857f; text-transform:uppercase; letter-spacing:.02em; }
+
+.donut-caption { min-height:16px; display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:8px; align-items:baseline; padding:0 2px; font-size:11px; color:#3b4b43; }
+.donut-caption[aria-hidden="true"] { visibility:hidden; }
+.donut-caption b { font-size:11px; }
+
+.donut-legend { list-style:none; margin:0; padding:0; display:grid; gap:4px; }
+.donut-legend li { display:grid; grid-template-columns:10px minmax(0,1fr) auto auto; align-items:center; gap:7px; padding:4px 6px; border-radius:7px; font-size:11px; }
+.donut-legend li.is-active { background:#eaf3ee; }
+.donut-legend-color { width:10px; height:10px; border-radius:3px; }
+.donut-legend-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#3b4b43; }
+.donut-legend-percent { color:#78857f; font-variant-numeric:tabular-nums; }
+.donut-legend-value { font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+
+/* --- Лестница формирования цены --- */
+.price-formation-ladder { padding:12px 15px 15px; display:grid; gap:2px; }
+.price-formation-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:8px; align-items:baseline; padding:6px 8px; border-radius:8px; font-size:12px; }
+.price-formation-row span { color:#5f7168; }
+.price-formation-row b { text-align:right; font-size:12px; }
+.price-formation-row em { font-style:normal; color:#78857f; font-size:11px; }
+.price-formation-row.strong { background:#eaf6ef; border:1px solid #b9dcc6; }
+.price-formation-row.strong span { color:#1f6a4a; font-weight:700; }
+.price-formation-row.strong b { font-size:15px; color:#1f6a4a; }
+
+/* --- Плашки ключевых итогов --- */
+.economics-totals { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.economics-totals-tile { padding:11px; border:1px solid #dde5e1; border-radius:10px; background:#fff; }
+.economics-totals-tile span { display:block; margin-bottom:4px; color:#78857f; font-size:10px; }
+.economics-totals-tile b { font-size:14px; font-variant-numeric:tabular-nums; }

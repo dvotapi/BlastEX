@@ -294,6 +294,19 @@ export function economicsFixture(): BlockEconomics {
   const fullCost = lines.reduce((sum, line) => sum + line.amount_rub, 0);
   const volume = 1000;
 
+  // Надбавки — те же ставки и та же формула, что в `cost/model/markup.py`
+  // (ОХР → рентабельность → НДС), и те же ставки по умолчанию, что в
+  // `paramsFixture()`: тесты лестницы формирования цены должны видеть
+  // реальную, а не заглушечную структуру `markup`/`price_per_m3`.
+  const overheadRate = 0.15;
+  const targetMarginRate = 0.2;
+  const vatRate = 0.2;
+  const overhead = fullCost * overheadRate;
+  const costWithOverhead = fullCost + overhead;
+  const margin = costWithOverhead * targetMarginRate;
+  const price = costWithOverhead + margin;
+  const vat = price * vatRate;
+
   return {
     model_version: "v1",
     block_volume_m3: volume,
@@ -302,11 +315,23 @@ export function economicsFixture(): BlockEconomics {
     price_per_m3: {
       marginal: layer_totals.variable / volume,
       full: fullCost / volume,
-      with_overhead: fullCost / volume,
-      with_margin: fullCost / volume,
-      with_vat: fullCost / volume,
+      with_overhead: costWithOverhead / volume,
+      with_margin: price / volume,
+      with_vat: (price + vat) / volume,
     },
-    markup: { full_cost_rub: fullCost },
+    markup: {
+      overhead_rate: overheadRate,
+      target_margin_rate: targetMarginRate,
+      vat_rate: vatRate,
+      marginal_cost_rub: layer_totals.project_direct,
+      full_cost_rub: fullCost,
+      overhead_rub: overhead,
+      cost_with_overhead_rub: costWithOverhead,
+      margin_rub: margin,
+      price_rub: price,
+      vat_rub: vat,
+      price_with_vat_rub: price + vat,
+    },
     natural: {
       values: {
         rig_shifts: "18",

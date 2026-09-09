@@ -32,6 +32,14 @@ export type ServiceToReference = {
   reference_revision_id: string;
 };
 
+/** Тариф субподряда бурения, опубликованный со вкладки в справочник `subcontract_rates`. */
+export type SubcontractRateToReference = {
+  section: "subcontract_rates";
+  code: string;
+  created: boolean;
+  reference_revision_id: string;
+};
+
 export type ModelParameters = {
   package_code: string;
   site_code: string;

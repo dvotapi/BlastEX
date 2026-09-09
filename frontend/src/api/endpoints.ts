@@ -135,8 +135,10 @@ import type {
   ModelParameters,
   RunCompare,
   SensitivityRow,
+  Numeric,
   ServiceChargeInput,
   ServiceToReference,
+  SubcontractRateToReference,
   TechnicalPassport,
   VariantRequest,
   VariantsResponse,
@@ -388,6 +390,14 @@ export const api = {
     /** Перенести услугу со вкладки в «Правила расчёта затрат» новой ревизией. */
     serviceToReference: (service: ServiceChargeInput) =>
       post<ServiceToReference>(`${V1}/economics/services/to-reference`, { service }),
+    /** Опубликовать ставку субподряда бурения со вкладки в справочник `subcontract_rates`. */
+    subcontractRateToReference: (payload: {
+      counterparty_code: string;
+      operation_code?: string;
+      name: string;
+      unit?: string;
+      rate_rub: Numeric;
+    }) => post<SubcontractRateToReference>(`${V1}/economics/subcontract-rates/to-reference`, payload),
     exportUrl: (id: string) => `${V1}/economics/runs/${id}/export.xlsx`,
   },
 

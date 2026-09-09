@@ -67,9 +67,15 @@ export function EconomicsHeader({
       <div className="economics-header-title">
         <h1>Экономика блока</h1>
         {dirty ? (
-          <span className="save-status dirty">Черновик · не сохранено</span>
+          <span className="save-status dirty" aria-live="polite">
+            Черновик · не сохранено
+          </span>
         ) : (
-          status && <span className="save-status">{status}</span>
+          status && (
+            <span className="save-status" aria-live="polite">
+              {status}
+            </span>
+          )
         )}
       </div>
       <p className="economics-header-context">

@@ -62,6 +62,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  // Раскрытые разделы сметы (задача 10) пишутся в sessionStorage — без
+  // очистки один тест мог бы открыться уже развёрнутым состоянием соседнего.
+  window.sessionStorage.clear();
 });
 
 /** Заголовок раздела «Взрывчатые материалы» в таблице сметы (не в диаграмме/легенде — там та же подпись встречается ещё трижды). */
@@ -284,6 +287,30 @@ describe("BlockEconomicsPage", () => {
 
     expect(onOpenDrilling).toHaveBeenCalledTimes(1);
     expect(api.blockEconomics.variants).toHaveBeenCalledTimes(1);
+  });
+
+  it("раскрытые разделы сметы сохраняются в sessionStorage и восстанавливаются при новом монтировании", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    const heading = await explosivesGroupHeading();
+    expect(heading).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(heading);
+    await waitFor(() => expect(explosivesGroupHeading()).resolves.toHaveAttribute("aria-expanded", "true"));
+    expect(JSON.parse(window.sessionStorage.getItem("blastex.economics.expanded") ?? "[]")).toEqual(["EXPLOSIVES"]);
+
+    unmount();
+    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+
+    expect(await explosivesGroupHeading()).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("повреждённая запись в sessionStorage не ломает вкладку — разделы открываются свёрнутыми", async () => {
+    window.sessionStorage.setItem("blastex.economics.expanded", "не json");
+
+    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+
+    expect(await explosivesGroupHeading()).toHaveAttribute("aria-expanded", "false");
   });
 
   it("вкладки «Чувствительность», «Сравнение сценариев» и «История» открываются", async () => {

@@ -39,6 +39,36 @@ const DEFAULT_PACKAGE = "DRILL_AND_BLAST";
 const RECALC_DELAY_MS = 300;
 /** Сколько раздел сметы остаётся подсвеченным после клика по сегменту диаграммы. */
 const HIGHLIGHT_DURATION_MS = 1500;
+/** Ключ `sessionStorage`, под которым запоминаются раскрытые разделы сметы. */
+const EXPANDED_STORAGE_KEY = "blastex.economics.expanded";
+
+/**
+ * Раскрытые разделы читаются из `sessionStorage` один раз при инициализации
+ * страницы — приватный режим браузера может запретить доступ к хранилищу,
+ * поэтому чтение обёрнуто в `try/catch` и при любой ошибке (или отсутствии
+ * записи) просто возвращает пустой набор.
+ */
+function readExpandedFromStorage(): Set<EstimateGroupCode> {
+  try {
+    const raw = window.sessionStorage.getItem(EXPANDED_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    const codes = new Set(ESTIMATE_GROUPS.map((group) => group.code));
+    return new Set(parsed.filter((code): code is EstimateGroupCode => codes.has(code)));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Запись тоже обёрнута в `try/catch` — по той же причине, что и чтение. */
+function writeExpandedToStorage(expanded: Set<EstimateGroupCode>) {
+  try {
+    window.sessionStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(Array.from(expanded)));
+  } catch {
+    // Хранилище недоступно (приватный режим и т.п.) — раскрытые разделы просто не запоминаются.
+  }
+}
 
 export function BlockEconomicsPage({
   passportId,
@@ -76,7 +106,7 @@ export function BlockEconomicsPage({
   const [status, setStatus] = useState("");
   const [movingService, setMovingService] = useState("");
   const [tab, setTab] = useState<EconomicsTab>("estimate");
-  const [expanded, setExpanded] = useState<Set<EstimateGroupCode>>(new Set());
+  const [expanded, setExpanded] = useState<Set<EstimateGroupCode>>(() => readExpandedFromStorage());
   const [highlighted, setHighlighted] = useState<EstimateGroupCode | null>(null);
   const [donutUnit, setDonutUnit] = useState<"₽" | "₽/м³">("₽/м³");
   const stripRef = useHeightVariable("--passport-strip-h");
@@ -112,6 +142,12 @@ export function BlockEconomicsPage({
   }, [passportId]);
 
   useEffect(() => () => window.clearTimeout(highlightTimer.current), []);
+
+  // Раскрытые разделы переживают перезагрузку вкладки в пределах вкладки
+  // браузера: запоминаем набор при каждом изменении.
+  useEffect(() => {
+    writeExpandedToStorage(expanded);
+  }, [expanded]);
 
   // Паспорт сменился — начинаем заново с одного черновика на нормативном
   // пакете. Смену пакета у уже открытого черновика отслеживает эффект ниже:

@@ -1,6 +1,8 @@
 """Дубль номенклатуры «Искра-П-*-5»: деактивация, а не удаление, и идемпотентно."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 from cost.v2.dedupe_defaults import deactivate_duplicate_materials
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
 from cost.v2.references import default_reference_snapshot
@@ -102,6 +104,64 @@ def test_missing_canonical_blocks_deactivation() -> None:
     assert report.deactivated == []
     dup = next(item for item in sections["materials"] if item.code == "MAT_NSI_ISKRA_P_50")
     assert dup.is_active is True
+
+
+def test_unpriced_canonical_blocks_deactivation() -> None:
+    """Канонический код активен, но без действующей цены — гасить дубль рано."""
+
+    base = default_reference_snapshot()
+    sections = dict(base.sections)
+    sections["materials"] = (
+        *sections["materials"],
+        ReferenceItem(
+            code="MAT_SURFACE_NSI_5",
+            name="Устройство Искра-П-*-5",
+            payload={"unit": "PIECE", "nomenclature_role": "NSI_SURFACE"},
+        ),
+        ReferenceItem(
+            code="MAT_NSI_ISKRA_P_50",
+            name="НСИ Искра-П-*-5",
+            payload={"unit": "PIECE", "nomenclature_role": "NSI_SURFACE"},
+        ),
+    )
+    sections["material_prices"] = (
+        *sections["material_prices"],
+        ReferenceItem(
+            code="PRICE_MAT_NSI_ISKRA_P_50",
+            name="Цена",
+            payload={"material_code": "MAT_NSI_ISKRA_P_50", "price_rub": "239.55"},
+        ),
+        # У MAT_SURFACE_NSI_5 (канонического кода) нет ни одной записи цены.
+    )
+    snapshot = ReferenceSnapshot(revision_id="TEST", sections=sections)
+
+    sections, report = deactivate_duplicate_materials(snapshot)
+
+    assert report.canonical_unpriced == ["MAT_NSI_ISKRA_P_50"]
+    assert report.deactivated == []
+    dup = next(item for item in sections["materials"] if item.code == "MAT_NSI_ISKRA_P_50")
+    assert dup.is_active is True
+    price = next(item for item in sections["material_prices"] if item.code == "PRICE_MAT_NSI_ISKRA_P_50")
+    assert price.is_active is True
+
+
+def test_price_is_cleaned_even_if_the_material_was_already_deactivated_manually() -> None:
+    """Дубль уже погашен кем-то вручную, но цена осталась активной — её всё равно чистим."""
+
+    snapshot = _snapshot_with_duplicate()
+    sections = dict(snapshot.sections)
+    sections["materials"] = tuple(
+        replace(item, is_active=False) if item.code == "MAT_NSI_ISKRA_P_50" else item
+        for item in sections["materials"]
+    )
+    snapshot = replace(snapshot, sections=sections)
+
+    sections, report = deactivate_duplicate_materials(snapshot)
+
+    assert report.deactivated == []
+    assert report.already_inactive == ["MAT_NSI_ISKRA_P_50"]
+    price = next(item for item in sections["material_prices"] if item.code == "PRICE_MAT_NSI_ISKRA_P_50")
+    assert price.is_active is False
 
 
 def test_orphan_price_without_the_duplicate_material_is_left_alone() -> None:

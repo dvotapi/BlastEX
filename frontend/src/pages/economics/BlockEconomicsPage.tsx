@@ -47,7 +47,6 @@ const GEOMETRY_ROWS: [string, string, string][] = [
 export function BlockEconomicsPage({ passportId }: { passportId?: string | null }) {
   const [passports, setPassports] = useState<TechnicalPassport[]>([]);
   const [selectedPassport, setSelectedPassport] = useState(passportId ?? "");
-  const [packageCode, setPackageCode] = useState(DEFAULT_PACKAGE);
   const [defaults, setDefaults] = useState<ModelDefaults | null>(null);
   // До четырёх колонок сметы: правит панели активный вариант, структура
   // затрат показывает все — один запрос на всех, чтобы колонки считались
@@ -84,6 +83,11 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   const [revisions, setRevisions] = useState<ReferenceRevision[]>([]);
   const requestId = useRef(0);
   const defaultsRequestId = useRef(0);
+  const sensitivityRequestId = useRef(0);
+  // Чувствительность посчитана для этого варианта — переключение вкладки
+  // само по себе не гонит новый расчёт, но и не должно показывать таблицу
+  // соседнего варианта, пока сметчик не попросил пересчитать эту.
+  const [sensitivityForId, setSensitivityForId] = useState("");
 
   useEffect(() => {
     api.economics
@@ -103,6 +107,9 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     if (passportId) setSelectedPassport(passportId);
   }, [passportId]);
 
+  // Паспорт сменился — начинаем заново с одного варианта на нормативном
+  // пакете. Смену пакета у уже открытого варианта отслеживает эффект ниже:
+  // она не должна стирать остальные колонки сравнения.
   const loadDefaults = useCallback(async () => {
     if (!selectedPassport) return;
     // Пользователь может переключить паспорт до ответа: результат устаревшего
@@ -111,7 +118,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     setBusy(true);
     setError("");
     try {
-      const loaded = await api.blockEconomics.modelDefaults(selectedPassport, packageCode);
+      const loaded = await api.blockEconomics.modelDefaults(selectedPassport, DEFAULT_PACKAGE);
       const saved = await api.blockEconomics.runs(selectedPassport);
       if (id !== defaultsRequestId.current) return;
       setDefaults(loaded);
@@ -123,17 +130,43 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
       setCompare(null);
       setSelectedRuns([]);
       setSensitivity([]);
+      setSensitivityForId("");
     } catch (reason) {
       if (id !== defaultsRequestId.current) return;
       setError(reason instanceof Error ? reason.message : "Не удалось открыть модель.");
     } finally {
       if (id === defaultsRequestId.current) setBusy(false);
     }
-  }, [selectedPassport, packageCode]);
+  }, [selectedPassport]);
 
   useEffect(() => {
     void loadDefaults();
   }, [loadDefaults]);
+
+  const activePackageCode = variants.find((variant) => variant.id === activeId)?.parameters.package_code;
+  /**
+   * Пакет работ сменили у уже открытого варианта — обновляем каталог
+   * (станки, операции, номенклатуру) под него, но список вариантов не
+   * трогаем. Раньше это делал `loadDefaults`, и смена пакета у одного
+   * варианта тихо стирала остальные колонки сравнения.
+   */
+  useEffect(() => {
+    if (!selectedPassport || !activePackageCode || !defaults) return;
+    if (activePackageCode === defaults.parameters.package_code) return;
+    let cancelled = false;
+    api.blockEconomics
+      .modelDefaults(selectedPassport, activePackageCode)
+      .then((loaded) => {
+        if (!cancelled) setDefaults(loaded);
+      })
+      .catch(() => {
+        // Каталог для нового пакета не подгрузился — прежний остаётся
+        // видимым и рабочим, останавливать редактирование варианта незачем.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPassport, activePackageCode, defaults]);
 
   // Пересчёт с задержкой: пользователь двигает параметры, а не жмёт «Рассчитать».
   // Один запрос на все варианты — так колонки остаются на одной ревизии
@@ -167,6 +200,18 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   }, [variants, selectedPassport]);
 
   const activeVariant = variants.find((variant) => variant.id === activeId) ?? null;
+
+  // Чувствительность посчитана для конкретного варианта, а не для вкладки
+  // вообще: переключение (клик, дублирование, удаление активного) прячет
+  // таблицу соседа вместо того, чтобы показывать её под чужим заголовком.
+  // Счётчик запроса гасится тем же эффектом: ответ по варианту, с которого
+  // уже ушли, не должен лечь в таблицу, даже если он ещё летит.
+  useEffect(() => {
+    if (activeId === sensitivityForId) return;
+    setSensitivity([]);
+    sensitivityRequestId.current += 1;
+  }, [activeId, sensitivityForId]);
+
   // Совпадают состав и порядок id — тогда `results` точно про текущие
   // вкладки, а не про то, что было до последнего добавления/удаления.
   const resultsMatchVariants =
@@ -245,7 +290,6 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
         ? { ...current, variants: patchVariant(current.variants, current.activeId, patch) }
         : current,
     );
-    if (patch.package_code && patch.package_code !== packageCode) setPackageCode(patch.package_code);
   }
 
   function selectVariant(id: string) {
@@ -300,14 +344,21 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
 
   async function computeSensitivity() {
     if (!activeVariant || !selectedPassport) return;
+    const id = ++sensitivityRequestId.current;
+    // Пока считаем, сметчик мог переключить вкладку: ответ по старому
+    // варианту не должен лечь в таблицу под новым активным заголовком.
+    const forId = activeVariant.id;
     setSensitivityBusy(true);
     try {
       const response = await api.blockEconomics.sensitivity(selectedPassport, activeVariant.parameters);
+      if (id !== sensitivityRequestId.current) return;
       setSensitivity(response.rows);
+      setSensitivityForId(forId);
     } catch (reason) {
+      if (id !== sensitivityRequestId.current) return;
       setError(reason instanceof Error ? reason.message : "Не удалось посчитать чувствительность.");
     } finally {
-      setSensitivityBusy(false);
+      if (id === sensitivityRequestId.current) setSensitivityBusy(false);
     }
   }
 

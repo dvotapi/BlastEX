@@ -198,6 +198,25 @@ def test_manual_subcontract_rate_wins_and_is_marked_manual() -> None:
     assert line.quantity_origin == "PASSPORT"
 
 
+def test_manual_subcontract_rate_wins_over_the_chosen_rate_code() -> None:
+    """Оба параметра заданы сразу — ручная ставка побеждает выбранный код тарифа."""
+
+    context = ModelContext(
+        fx.references(),
+        fx.parameters(
+            drilling_executor="SUBCONTRACTOR",
+            subcontract_rate_code="SUB_DRILLING",
+            subcontract_rate_rub=Decimal("199.5"),
+        ),
+        fx.physical(),
+    )
+    drilling.compute(context)
+
+    line = next(row for row in context.lines if row.cost_item_code == "DRILL_SUBCONTRACT")
+    assert line.unit_price_rub == Decimal("199.5")
+    assert line.price_origin == "MANUAL"
+
+
 def test_rig_depreciation_names_the_unit_by_its_inventory_number() -> None:
     """Тот же станок, но разные машины: строка отличает их по инвентарному номеру."""
 

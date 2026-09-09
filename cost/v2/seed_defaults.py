@@ -58,6 +58,7 @@ class SeedReport:
     roles: list[str] = field(default_factory=list)
     rigs_normed: list[str] = field(default_factory=list)
     conditions: list[str] = field(default_factory=list)
+    conditions_retired: list[str] = field(default_factory=list)
     machines: list[str] = field(default_factory=list)
     assets: list[str] = field(default_factory=list)
     rules: list[str] = field(default_factory=list)
@@ -344,17 +345,31 @@ def _is_jk830_2(name: str) -> bool:
 
 
 def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> None:
-    # Деактивированное условие модель не видит — станок остался бы без нормы.
-    with_condition = {
+    # Ручная запись (не от сида) — настоящее покрытие, её не трогаем. Свою же
+    # старую автогенерацию считаем не покрытием, а черновиком: окружение,
+    # где уже стоит демо-заглушка "10" под каждый станок, должно на повторном
+    # сидировании получить исправление, а не застрять на старом значении —
+    # иначе публикация этого фикса ничего не поменяет там, где сид уже бежал.
+    manual_coverage = {
         str(item.payload.get("equipment_type_code"))
         for item in sections["drilling_conditions"]
-        if item.is_active
+        if item.is_active and item.source != SOURCE
+    }
+    auto_by_rig = {
+        str(item.payload.get("equipment_type_code")): item
+        for item in sections["drilling_conditions"]
+        if item.is_active and item.source == SOURCE
     }
     bit = _tool(sections, "коронк", "долот")
+    conditions = list(sections["drilling_conditions"])
     for rig in sections["equipment_types"]:
-        if _kind(rig) != "DRILL_RIG" or rig.code in with_condition or not rig.is_active:
+        if _kind(rig) != "DRILL_RIG" or not rig.is_active or rig.code in manual_coverage:
             continue
+        stale = auto_by_rig.get(rig.code)
         if not _is_jk830_2(rig.name):
+            if stale is not None:
+                conditions[conditions.index(stale)] = replace(stale, is_active=False)
+                report.conditions_retired.append(stale.code)
             continue
         payload: dict[str, Any] = {
             "equipment_type_code": rig.code,
@@ -363,17 +378,22 @@ def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedR
         }
         if bit:
             payload["bit_material_code"] = bit
-        code = f"COND_{rig.code}_DEFAULT"
-        sections["drilling_conditions"].append(
-            ReferenceItem(
-                code=code,
-                name=f"{rig.name}: норма по умолчанию",
-                payload=payload,
-                source=SOURCE,
-                comment=_JK830_2_COMMENT,
-            )
+        if stale is not None and stale.payload == payload:
+            continue
+        code = stale.code if stale is not None else f"COND_{rig.code}_DEFAULT"
+        item = ReferenceItem(
+            code=code,
+            name=f"{rig.name}: норма по умолчанию",
+            payload=payload,
+            source=SOURCE,
+            comment=_JK830_2_COMMENT,
         )
+        if stale is not None:
+            conditions[conditions.index(stale)] = item
+        else:
+            conditions.append(item)
         report.conditions.append(code)
+    sections["drilling_conditions"] = conditions
 
 
 # --- затраты --------------------------------------------------------------

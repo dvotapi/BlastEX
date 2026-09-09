@@ -131,6 +131,50 @@ def test_only_jk830_2_gets_a_real_default_drilling_condition() -> None:
     assert "COND_PUB_MODEL_1_DEFAULT" in report.conditions
 
 
+def test_reseeding_an_already_seeded_environment_fixes_old_demo_conditions() -> None:
+    """Публикация фикса на среде, где уже стоит старая заглушка "10", должна её поправить.
+
+    До фикса `rig.code in with_condition` считал старую автогенерацию
+    покрытием и пропускал станок навсегда — повторный сид ничего не менял.
+    """
+
+    base = imported_snapshot()
+    jk = ReferenceItem(code="PUB_MODEL_1", name="JK830-2", payload={"kind": "DRILL_RIG"})
+    stale_jk_condition = ReferenceItem(
+        code="COND_PUB_MODEL_1_DEFAULT",
+        name="JK830-2: норма по умолчанию",
+        payload={"equipment_type_code": "PUB_MODEL_1", "tech_speed_m_per_h": "10", "bit_life_m": "600"},
+        source="seed",
+        comment="Демонстрационная норма: уточните скорость и ресурс оснастки.",
+    )
+    stale_other_condition = ReferenceItem(
+        code="COND_TYPE_ZEGA_D480A_DEFAULT",
+        name="ZEGA D480A: норма по умолчанию",
+        payload={"equipment_type_code": "TYPE_ZEGA_D480A", "tech_speed_m_per_h": "10"},
+        source="seed",
+        comment="Демонстрационная норма: уточните скорость и ресурс оснастки.",
+    )
+    snapshot = replace(
+        base,
+        sections={
+            **base.sections,
+            "equipment_types": (*base.sections["equipment_types"], jk),
+            "drilling_conditions": (stale_jk_condition, stale_other_condition),
+        },
+    )
+
+    sections, report = seed_reference(snapshot)
+
+    active = {item.payload["equipment_type_code"]: item.payload for item in sections["drilling_conditions"] if item.is_active}
+    assert active["PUB_MODEL_1"]["tech_speed_m_per_h"] == "12"
+    assert active["PUB_MODEL_1"]["bit_life_m"] == "700"
+    assert "TYPE_ZEGA_D480A" not in active
+    retired = next(item for item in sections["drilling_conditions"] if item.code == "COND_TYPE_ZEGA_D480A_DEFAULT")
+    assert retired.is_active is False
+    assert "COND_PUB_MODEL_1_DEFAULT" in report.conditions
+    assert "COND_TYPE_ZEGA_D480A_DEFAULT" in report.conditions_retired
+
+
 def test_jk830_2_match_ignores_spacing_but_not_other_models() -> None:
     """«JK 830-2» и «JK830-2» — один станок; «JK830-20» — другой, не эталон."""
 

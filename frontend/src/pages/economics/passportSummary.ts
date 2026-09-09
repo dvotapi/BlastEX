@@ -46,14 +46,17 @@ function metricFromRow(key: string, value: number | null): PassportMetric {
 }
 
 /**
- * Четыре плашки полосы паспорта. Выход метров с одной скважины паспорт не
- * хранит — это погонаж на число скважин; без скважин показывать нечего:
- * прочерк, а не Infinity.
+ * Пять плашек полосы паспорта. Выход метров с одной скважины и средний
+ * расход ВВ паспорт не хранит — это погонаж на число скважин и масса ВВ на
+ * погонаж соответственно; без знаменателя показывать нечего: прочерк, а не
+ * Infinity.
  */
 export function passportMetrics(physical: Record<string, Numeric>): PassportMetric[] {
   const drilling = numberOf(physical, "drilling_m");
   const holes = numberOf(physical, "holes");
+  const explosive = numberOf(physical, "explosive_kg");
   const perHole = drilling !== null && holes !== null && holes > 0 ? drilling / holes : null;
+  const explosiveRate = drilling !== null && explosive !== null && drilling > 0 ? explosive / drilling : null;
   return [
     metricFromRow("rock_volume_m3", numberOf(physical, "rock_volume_m3")),
     metricFromRow("drilling_m", drilling),
@@ -64,7 +67,25 @@ export function passportMetrics(physical: Record<string, Numeric>): PassportMetr
       value: perHole === null ? NO_VALUE : amount(perHole, 1),
       unit: "м",
     },
+    {
+      key: "explosive_rate",
+      label: "Средний расход ВВ",
+      value: explosiveRate === null ? NO_VALUE : amount(explosiveRate, 1),
+      unit: "кг/м",
+    },
   ];
+}
+
+/**
+ * Подпись даты паспорта для полосы шапки: «Паспорт от 5 сентября 2026 г.».
+ * Дата — не число паспорта (`physical`), а поле `TechnicalPassport.created_at`,
+ * поэтому подпись живёт отдельной функцией, а не шестой плашкой
+ * `passportMetrics`: у плашек общая форма «значение + единица», у даты её нет.
+ */
+export function passportCreatedAtLabel(createdAt: string): string {
+  const date = new Date(createdAt);
+  const formatted = date.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  return `Паспорт от ${formatted}`;
 }
 
 /** Полная таблица паспорта: только те величины, которые паспорт посчитал. */

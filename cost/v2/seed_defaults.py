@@ -58,6 +58,7 @@ class SeedReport:
     roles: list[str] = field(default_factory=list)
     rigs_normed: list[str] = field(default_factory=list)
     conditions: list[str] = field(default_factory=list)
+    conditions_retired: list[str] = field(default_factory=list)
     machines: list[str] = field(default_factory=list)
     assets: list[str] = field(default_factory=list)
     rules: list[str] = field(default_factory=list)
@@ -325,42 +326,74 @@ def _tool(sections: dict[str, list[ReferenceItem]], *needles: str) -> str | None
     return None
 
 
+_JK830_2_NORMALIZED = "jk8302"
+
+# Единственная норма, которую можно завести без риска соврать: паспортный
+# эталон станка JK830-2 (Docs/COST_MODEL.md, Docs/REFERENCES_MODEL.md). Для
+# прочих станков модель уже сама говорит «заведите запись в разделе «Условия
+# бурения»» (cost/model/drilling.py:pick_condition) — придумывать за
+# пользователя нельзя, норму вводят через матрицу условий бурения.
+_JK830_2_COMMENT = "Паспорт станка (Docs/COST_MODEL.md): техническая скорость 12 м/ч, ресурс коронки 700 м."
+
+
+def _is_jk830_2(name: str) -> bool:
+    # Сравнение без пробелов и дефисов: «JK830-2», «JK 830-2», «JK-830-2» —
+    # один и тот же станок. Точное совпадение, не подстрока — «JK830-20»
+    # или «JK830-2М» не должны молча получить чужой паспорт.
+    normalized = re.sub(r"[\s-]", "", name.lower())
+    return normalized == _JK830_2_NORMALIZED
+
+
 def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> None:
-    # Деактивированное условие модель не видит — станок остался бы без нормы.
-    with_condition = {
+    # Ручная запись (не от сида) — настоящее покрытие, её не трогаем. Свою же
+    # старую автогенерацию считаем не покрытием, а черновиком: окружение,
+    # где уже стоит демо-заглушка "10" под каждый станок, должно на повторном
+    # сидировании получить исправление, а не застрять на старом значении —
+    # иначе публикация этого фикса ничего не поменяет там, где сид уже бежал.
+    manual_coverage = {
         str(item.payload.get("equipment_type_code"))
         for item in sections["drilling_conditions"]
-        if item.is_active
+        if item.is_active and item.source != SOURCE
+    }
+    auto_by_rig = {
+        str(item.payload.get("equipment_type_code")): item
+        for item in sections["drilling_conditions"]
+        if item.is_active and item.source == SOURCE
     }
     bit = _tool(sections, "коронк", "долот")
-    hammer = _tool(sections, "ппу", "пневмоудар")
-    rods = _tool(sections, "штанг")
+    conditions = list(sections["drilling_conditions"])
     for rig in sections["equipment_types"]:
-        if _kind(rig) != "DRILL_RIG" or rig.code in with_condition or not rig.is_active:
+        if _kind(rig) != "DRILL_RIG" or not rig.is_active or rig.code in manual_coverage:
+            continue
+        stale = auto_by_rig.get(rig.code)
+        if not _is_jk830_2(rig.name):
+            if stale is not None:
+                conditions[conditions.index(stale)] = replace(stale, is_active=False)
+                report.conditions_retired.append(stale.code)
             continue
         payload: dict[str, Any] = {
             "equipment_type_code": rig.code,
-            "tech_speed_m_per_h": "10",
-            "unproductive_h_per_shift": "1",
-            "fuel_l_per_m": "4.5",
+            "tech_speed_m_per_h": "12",
+            "bit_life_m": "700",
         }
         if bit:
-            payload.update({"bit_life_m": "600", "bit_material_code": bit})
-        if hammer:
-            payload.update({"hammer_life_m": "7000", "hammer_material_code": hammer})
-        if rods:
-            payload.update({"rods_life_m": "15000", "rods_material_code": rods})
-        code = f"COND_{rig.code}_DEFAULT"
-        sections["drilling_conditions"].append(
-            ReferenceItem(
-                code=code,
-                name=f"{rig.name}: норма по умолчанию",
-                payload=payload,
-                source=SOURCE,
-                comment="Демонстрационная норма: уточните скорость и ресурс оснастки.",
-            )
+            payload["bit_material_code"] = bit
+        if stale is not None and stale.payload == payload:
+            continue
+        code = stale.code if stale is not None else f"COND_{rig.code}_DEFAULT"
+        item = ReferenceItem(
+            code=code,
+            name=f"{rig.name}: норма по умолчанию",
+            payload=payload,
+            source=SOURCE,
+            comment=_JK830_2_COMMENT,
         )
+        if stale is not None:
+            conditions[conditions.index(stale)] = item
+        else:
+            conditions.append(item)
         report.conditions.append(code)
+    sections["drilling_conditions"] = conditions
 
 
 # --- затраты --------------------------------------------------------------

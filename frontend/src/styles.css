@@ -345,7 +345,7 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
    ниже плашки геометрии тем же видом, что на листе «Расчёт» (.metric-chip),
    остальные величины паспорта — под раскрывашкой. Вне .page-content, чтобы
    примыкать к шапке без полей страницы. --- */
-.passport-strip { padding:12px 28px; border-bottom:1px solid #dce4e0; background:#fff; }
+.passport-strip { position:sticky; top:0; z-index:5; padding:12px 28px; border-bottom:1px solid #dce4e0; background:#fff; }
 .passport-strip-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.25fr) minmax(0,1fr) minmax(0,1fr) auto; gap:11px; align-items:end; }
 .passport-strip-fields label { display:grid; gap:6px; min-width:0; color:#425149; font-size:11px; font-weight:700; }
 .passport-strip-fields input, .passport-strip-fields select { width:100%; min-width:0; padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; }
@@ -364,7 +364,9 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .geometry-readonly table { min-width:640px; }
 .geometry-readonly small { color:#78857f; }
 .block-economics-grid { display:grid; grid-template-columns:340px minmax(0,1fr); gap:16px; align-items:start; }
-.block-economics-inputs { display:grid; gap:16px; align-content:start; position:sticky; top:14px; }
+/* Отступ на высоту липкой полосы паспорта над колонкой: переменную ставит
+   BlockEconomicsPage по ResizeObserver, без полосы — обычные 14px. */
+.block-economics-inputs { display:grid; gap:16px; align-content:start; position:sticky; top:calc(var(--passport-strip-h, 0px) + 14px); }
 .block-economics-parameters .panel-body, .block-economics-nomenclature .panel-body { display:grid; gap:11px; }
 .block-economics-parameters label, .block-economics-nomenclature label { display:grid; gap:6px; color:#425149; font-size:11px; font-weight:700; }
 .block-economics-parameters input, .block-economics-parameters select,
@@ -492,7 +494,7 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
   .cost-row-unit, .cost-row-quantity, .cost-row-price { display:none; }
   .cost-structure-section-head { grid-template-columns:30px minmax(0,1fr) 100px; }
   .cost-structure-section-head em { display:none; }
-  .passport-strip { padding:10px 14px; }
+  .passport-strip { padding:10px 14px; position:static; }
   .passport-strip-fields { grid-template-columns:1fr; }
 }
 

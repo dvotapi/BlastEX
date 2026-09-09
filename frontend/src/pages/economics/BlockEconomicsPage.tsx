@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api } from "../../api/endpoints";
+import { useElementHeight } from "../../lib/useElementHeight";
 import { CostStructure } from "./CostStructure";
 import { DrillingBreakdown } from "./DrillingBreakdown";
 import { EconomicsHelp } from "./EconomicsHelp";
@@ -68,6 +69,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [movingService, setMovingService] = useState("");
+  const [stripRef, stripHeight] = useElementHeight();
   const { canEdit } = useWorkspace();
   // Подписи вместо кодов: имена объектов по ревизии паспорта и номера ревизий.
   const [siteNames, setSiteNames] = useState<Record<string, Record<string, string>>>({});
@@ -379,8 +381,13 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   }
 
   return (
-    <div className="block-economics-page">
+    <div
+      className="block-economics-page"
+      // Липкая колонка параметров отступает на высоту липкой полосы — см. .block-economics-inputs.
+      style={{ "--passport-strip-h": `${stripHeight}px` } as CSSProperties}
+    >
       <PassportStrip
+        ref={stripRef}
         passports={passports}
         selectedId={selectedPassport}
         onSelect={setSelectedPassport}

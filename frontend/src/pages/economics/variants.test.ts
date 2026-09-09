@@ -27,6 +27,8 @@ function baseParameters(): ModelParameters {
     crew: [],
     services: [],
     drilling_executor: "OWN",
+    subcontract_rate_code: null,
+    subcontract_rate_rub: null,
     nomenclature: {},
     electric_detonators_qty: "0",
     overhead_rate: null,

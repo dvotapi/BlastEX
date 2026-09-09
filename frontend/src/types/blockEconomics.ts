@@ -21,6 +21,10 @@ export type ServiceChargeInput = {
   per_shift: boolean;
 };
 
+/** Происхождение величины в строке сметы: паспорт, расчёт модели, справочник,
+ * норматив справочника или ручной ввод на вкладке. Пусто — не применимо. */
+export type ValueOrigin = "PASSPORT" | "CALC" | "REFERENCE" | "NORM" | "MANUAL" | "";
+
 export type ServiceToReference = {
   section: "cost_rules";
   code: string;
@@ -43,6 +47,10 @@ export type ModelParameters = {
   crew: CrewMemberInput[];
   services: ServiceChargeInput[];
   drilling_executor: "OWN" | "SUBCONTRACTOR";
+  /** Код тарифа субподряда бурения из справочника `subcontract_rates`. */
+  subcontract_rate_code: string | null;
+  /** Ручная ставка за метр: проверить предложение подрядчика без справочника. */
+  subcontract_rate_rub: Numeric | null;
   /** Роль номенклатуры → код материала; количество приходит из паспорта. */
   nomenclature: Record<string, string>;
   electric_detonators_qty: Numeric;
@@ -87,6 +95,9 @@ export type BlockCostLine = {
    * в справочнике. Null у строк без выбора номенклатуры.
    */
   role_label: string | null;
+  /** Происхождение количества и цены строки — см. `ValueOrigin`. */
+  quantity_origin: ValueOrigin;
+  price_origin: ValueOrigin;
 };
 
 export type NaturalDrivers = {
@@ -216,6 +227,26 @@ export type MaterialOption = {
   quantity_label: string;
 };
 
+/** Тариф субподряда бурения для выбора на вкладке: справочник `subcontract_rates`. */
+export type SubcontractRateOption = {
+  code: string;
+  name: string;
+  counterparty_code: string;
+  counterparty_name: string;
+  operation_code: string;
+  unit: string;
+  rate_rub: number;
+};
+
+/** Должность для состава бригады: норматив из `positions`, ставка — из `labor_rates`. */
+export type PositionOption = {
+  code: string;
+  name: string;
+  fixed_monthly_rub: number;
+  norm_shifts_per_month: number;
+  category: "DIRECT" | "INDIRECT";
+};
+
 export type ModelDefaults = {
   parameters: ModelParameters;
   passport: TechnicalPassport;
@@ -228,7 +259,10 @@ export type ModelDefaults = {
   szm: CodeName[];
   delivery_trucks: CodeName[];
   emulsion_trucks: CodeName[];
-  positions: CodeName[];
+  positions: PositionOption[];
+  /** Тарифы субподряда бурения и подрядчики, готовые к выбору на вкладке. */
+  subcontract_rates: SubcontractRateOption[];
+  counterparties: CodeName[];
   packages: CodeName[];
   sites: CodeName[];
   reference_revision_id: string;

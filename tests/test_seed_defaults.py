@@ -98,19 +98,37 @@ def test_guessers_do_not_invent_values() -> None:
     assert guess_mass_kg(material("X", "Детонатор промежуточный")) is None
 
 
-def test_every_rig_gets_norms_a_condition_and_an_asset() -> None:
+def test_every_rig_gets_norms_and_an_asset_but_no_invented_condition() -> None:
     sections, report = seed_reference(imported_snapshot())
 
     rigs = {item.code: item.payload for item in sections["equipment_types"] if item.payload.get("kind") == "DRILL_RIG"}
     assert rigs["TYPE_ZEGA_D480A"]["norm_shifts_per_month"] == "40"
     assert rigs["TYPE_ZEGA_D480A"]["fuel_l_per_h"] == "55"  # своё значение не перезаписано
+    # Ни JK 830-3, ни ZEGA D480A не JK830-2 — реальной нормы для них нет,
+    # а придумывать её больше нельзя: условие бурения не заводится.
     conditions = {item.payload["equipment_type_code"]: item.payload for item in sections["drilling_conditions"]}
-    assert set(conditions) == {"TYPE_JK_830_3", "TYPE_ZEGA_D480A"}
-    assert conditions["TYPE_ZEGA_D480A"]["bit_material_code"] == "PUB_TOOL_1"
+    assert conditions == {}
     assets = {item.payload["equipment_type_code"] for item in sections["equipment_assets"]}
     # У JK 830-3 основное средство уже было — второе не создаётся.
     assert assets == {"TYPE_JK_830_3", "TYPE_ZEGA_D480A", "SZM_12T", "TRUCK_3T", "TRUCK_EMULSION_20T"}
     assert set(report.machines) == {"SZM_12T", "TRUCK_3T", "TRUCK_EMULSION_20T"}
+
+
+def test_only_jk830_2_gets_a_real_default_drilling_condition() -> None:
+    """Единственная норма без риска соврать — паспортный эталон JK830-2."""
+
+    snapshot = imported_snapshot()
+    rig = ReferenceItem(code="PUB_MODEL_1", name="JK830-2", payload={"kind": "DRILL_RIG"})
+    sections = {**snapshot.sections, "equipment_types": (*snapshot.sections["equipment_types"], rig)}
+
+    sections, report = seed_reference(replace(snapshot, sections=sections))
+
+    conditions = {item.payload["equipment_type_code"]: item.payload for item in sections["drilling_conditions"]}
+    assert set(conditions) == {"PUB_MODEL_1"}
+    assert conditions["PUB_MODEL_1"]["tech_speed_m_per_h"] == "12"
+    assert conditions["PUB_MODEL_1"]["bit_life_m"] == "700"
+    assert conditions["PUB_MODEL_1"]["bit_material_code"] == "PUB_TOOL_1"
+    assert "COND_PUB_MODEL_1_DEFAULT" in report.conditions
 
 
 def test_logistics_rules_ppe_and_per_diem_are_added_once() -> None:
@@ -180,14 +198,19 @@ def test_a_rule_published_before_the_section_field_gets_one() -> None:
 
 
 def test_seeded_revision_is_valid_and_the_model_computes_without_reference_gaps() -> None:
-    sections, _ = seed_reference(imported_snapshot())
+    # Без реальной нормы (не JK830-2) станок так и остаётся с пробелом в
+    # условиях бурения — «без пробелов» это гарантия только для JK830-2.
+    base = imported_snapshot()
+    rig = ReferenceItem(code="PUB_MODEL_1", name="JK830-2", payload={"kind": "DRILL_RIG"})
+    base = replace(base, sections={**base.sections, "equipment_types": (*base.sections["equipment_types"], rig)})
+    sections, _ = seed_reference(base)
     assert not has_validation_errors(validate_reference_sections(sections))
 
-    references = replace(imported_snapshot(), sections={k: tuple(v) for k, v in sections.items()})
+    references = replace(base, sections={k: tuple(v) for k, v in sections.items()})
     result = compute_block_economics(
         fx.snapshot(),
         fx.parameters(
-            rig_code="TYPE_ZEGA_D480A",
+            rig_code="PUB_MODEL_1",
             rig_plan_shifts=None,
             szm_code="SZM_12T",
             delivery_truck_code="TRUCK_3T",
@@ -205,7 +228,9 @@ def test_seeded_revision_is_valid_and_the_model_computes_without_reference_gaps(
     )
 
     codes = {line.cost_item_code for line in result.lines}
-    assert {"DRILL_TOOLING", "DRILL_FUEL", "DRILL_DEPRECIATION", "SZM_DEPRECIATION", "EMULSION_TRUCK_DEPRECIATION"} <= codes
+    # Расход топлива на метр — не паспортная величина JK830-2, которую нашли
+    # в документации: без неё DRILL_FUEL не считается (fuel_l_per_m == 0).
+    assert {"DRILL_TOOLING", "DRILL_DEPRECIATION", "SZM_DEPRECIATION", "EMULSION_TRUCK_DEPRECIATION"} <= codes
     assert {"VM_DELIVERY", "STEMMING", "UNIT_UNIT_PPE"} & codes
     gaps = [w for w in result.warnings if "нет условий бурения" in w or "не заведено основное средство" in w or "не задан" in w.lower()]
     assert gaps == [], gaps
@@ -298,15 +323,21 @@ def test_asset_with_per_shift_depreciation_only_is_left_alone() -> None:
 def test_inactive_condition_does_not_count_as_coverage() -> None:
     """Модель ищет условия среди активных: деактивированное — то же, что никакого."""
 
+    base = imported_snapshot()
+    rig = ReferenceItem(code="PUB_MODEL_1", name="JK830-2", payload={"kind": "DRILL_RIG"})
     retired = ReferenceItem(
         code="COND_OLD",
         name="Старая норма",
-        payload={"equipment_type_code": "TYPE_JK_830_3", "tech_speed_m_per_h": "9"},
+        payload={"equipment_type_code": "PUB_MODEL_1", "tech_speed_m_per_h": "9"},
         is_active=False,
     )
     snapshot = replace(
-        imported_snapshot(),
-        sections={**imported_snapshot().sections, "drilling_conditions": (retired,)},
+        base,
+        sections={
+            **base.sections,
+            "equipment_types": (*base.sections["equipment_types"], rig),
+            "drilling_conditions": (retired,),
+        },
     )
 
     sections, report = seed_reference(snapshot)
@@ -316,8 +347,8 @@ def test_inactive_condition_does_not_count_as_coverage() -> None:
         for item in sections["drilling_conditions"]
         if item.is_active
     }
-    assert rigs == {"TYPE_JK_830_3", "TYPE_ZEGA_D480A"}
-    assert "COND_TYPE_JK_830_3_DEFAULT" in report.conditions
+    assert rigs == {"PUB_MODEL_1"}
+    assert "COND_PUB_MODEL_1_DEFAULT" in report.conditions
 
 
 def test_inactive_asset_does_not_count_as_coverage() -> None:

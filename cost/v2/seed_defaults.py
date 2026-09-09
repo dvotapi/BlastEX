@@ -325,6 +325,16 @@ def _tool(sections: dict[str, list[ReferenceItem]], *needles: str) -> str | None
     return None
 
 
+_JK830_2_NEEDLE = "jk830-2"
+
+# Единственная норма, которую можно завести без риска соврать: паспортный
+# эталон станка JK830-2 (Docs/COST_MODEL.md, Docs/REFERENCES_MODEL.md). Для
+# прочих станков модель уже сама говорит «заведите запись в разделе «Условия
+# бурения»» (cost/model/drilling.py:pick_condition) — придумывать за
+# пользователя нельзя, норму вводят через матрицу условий бурения.
+_JK830_2_COMMENT = "Паспорт станка (Docs/COST_MODEL.md): техническая скорость 12 м/ч, ресурс коронки 700 м."
+
+
 def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> None:
     # Деактивированное условие модель не видит — станок остался бы без нормы.
     with_condition = {
@@ -333,23 +343,18 @@ def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedR
         if item.is_active
     }
     bit = _tool(sections, "коронк", "долот")
-    hammer = _tool(sections, "ппу", "пневмоудар")
-    rods = _tool(sections, "штанг")
     for rig in sections["equipment_types"]:
         if _kind(rig) != "DRILL_RIG" or rig.code in with_condition or not rig.is_active:
             continue
+        if _JK830_2_NEEDLE not in rig.name.lower():
+            continue
         payload: dict[str, Any] = {
             "equipment_type_code": rig.code,
-            "tech_speed_m_per_h": "10",
-            "unproductive_h_per_shift": "1",
-            "fuel_l_per_m": "4.5",
+            "tech_speed_m_per_h": "12",
+            "bit_life_m": "700",
         }
         if bit:
-            payload.update({"bit_life_m": "600", "bit_material_code": bit})
-        if hammer:
-            payload.update({"hammer_life_m": "7000", "hammer_material_code": hammer})
-        if rods:
-            payload.update({"rods_life_m": "15000", "rods_material_code": rods})
+            payload["bit_material_code"] = bit
         code = f"COND_{rig.code}_DEFAULT"
         sections["drilling_conditions"].append(
             ReferenceItem(
@@ -357,7 +362,7 @@ def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedR
                 name=f"{rig.name}: норма по умолчанию",
                 payload=payload,
                 source=SOURCE,
-                comment="Демонстрационная норма: уточните скорость и ресурс оснастки.",
+                comment=_JK830_2_COMMENT,
             )
         )
         report.conditions.append(code)

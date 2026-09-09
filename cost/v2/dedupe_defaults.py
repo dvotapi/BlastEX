@@ -48,12 +48,14 @@ class DedupeReport:
     deactivated: list[str]
     already_inactive: list[str]
     missing: list[str]
+    canonical_missing: list[str]
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "deactivated": list(self.deactivated),
             "already_inactive": list(self.already_inactive),
             "missing": list(self.missing),
+            "canonical_missing": list(self.canonical_missing),
         }
 
 
@@ -63,7 +65,7 @@ def deactivate_duplicate_materials(
     """Гасит известные дубли материалов и их цены. Идемпотентно."""
 
     sections = {name: list(items) for name, items in normalize_sections(snapshot.sections).items()}
-    report = DedupeReport([], [], [])
+    report = DedupeReport([], [], [], [])
     materials = {item.code: item for item in sections["materials"]}
 
     for dup in DUPLICATE_MATERIALS:
@@ -73,6 +75,12 @@ def deactivate_duplicate_materials(
             continue
         if not item.is_active:
             report.already_inactive.append(dup.duplicate_code)
+            continue
+        canonical = materials.get(dup.canonical_code)
+        if canonical is None or not canonical.is_active:
+            # Гасить дубль в пользу несуществующей/неактивной канонической
+            # записи — оставить позицию вообще без активной замены.
+            report.canonical_missing.append(dup.duplicate_code)
             continue
         materials[dup.duplicate_code] = replace(item, is_active=False, comment=dup.comment)
         sections["material_prices"] = [

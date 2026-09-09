@@ -25,6 +25,11 @@ def _snapshot_with_duplicate() -> ReferenceSnapshot:
     sections["material_prices"] = (
         *sections["material_prices"],
         ReferenceItem(
+            code="PRICE_MAT_SURFACE_NSI_5",
+            name="Цена",
+            payload={"material_code": "MAT_SURFACE_NSI_5", "price_rub": "240"},
+        ),
+        ReferenceItem(
             code="PRICE_MAT_NSI_ISKRA_P_50",
             name="Цена",
             payload={"material_code": "MAT_NSI_ISKRA_P_50", "price_rub": "239.55"},
@@ -49,6 +54,9 @@ def test_duplicate_material_and_its_price_are_deactivated_not_deleted() -> None:
     price = next(item for item in sections["material_prices"] if item.code == "PRICE_MAT_NSI_ISKRA_P_50")
     assert price.is_active is False
 
+    canonical_price = next(item for item in sections["material_prices"] if item.code == "PRICE_MAT_SURFACE_NSI_5")
+    assert canonical_price.is_active is True
+
 
 def test_running_twice_does_not_double_deactivate() -> None:
     first_sections, _ = deactivate_duplicate_materials(_snapshot_with_duplicate())
@@ -70,3 +78,49 @@ def test_missing_duplicate_is_reported_not_an_error() -> None:
 
     assert report.missing == ["MAT_NSI_ISKRA_P_50"]
     assert report.deactivated == []
+
+
+def test_missing_canonical_blocks_deactivation() -> None:
+    """Гасить дубль в пользу несуществующей замены нельзя — позиция исчезла бы вовсе."""
+
+    base = default_reference_snapshot()
+    sections = dict(base.sections)
+    sections["materials"] = (
+        *sections["materials"],
+        ReferenceItem(
+            code="MAT_NSI_ISKRA_P_50",
+            name="НСИ Искра-П-*-5",
+            payload={"unit": "PIECE", "nomenclature_role": "NSI_SURFACE"},
+        ),
+        # MAT_SURFACE_NSI_5 (канонический код) в справочнике нет.
+    )
+    snapshot = ReferenceSnapshot(revision_id="TEST", sections=sections)
+
+    sections, report = deactivate_duplicate_materials(snapshot)
+
+    assert report.canonical_missing == ["MAT_NSI_ISKRA_P_50"]
+    assert report.deactivated == []
+    dup = next(item for item in sections["materials"] if item.code == "MAT_NSI_ISKRA_P_50")
+    assert dup.is_active is True
+
+
+def test_orphan_price_without_the_duplicate_material_is_left_alone() -> None:
+    """Цена без своего материала — не наша забота: дубля нет, деактивировать нечего."""
+
+    base = default_reference_snapshot()
+    sections = dict(base.sections)
+    sections["material_prices"] = (
+        *sections["material_prices"],
+        ReferenceItem(
+            code="PRICE_MAT_NSI_ISKRA_P_50",
+            name="Цена",
+            payload={"material_code": "MAT_NSI_ISKRA_P_50", "price_rub": "239.55"},
+        ),
+    )
+    snapshot = ReferenceSnapshot(revision_id="TEST", sections=sections)
+
+    sections, report = deactivate_duplicate_materials(snapshot)
+
+    assert report.missing == ["MAT_NSI_ISKRA_P_50"]
+    price = next(item for item in sections["material_prices"] if item.code == "PRICE_MAT_NSI_ISKRA_P_50")
+    assert price.is_active is True

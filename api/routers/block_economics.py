@@ -21,6 +21,9 @@ from api.schemas.block_economics import (
     SensitivityResponse,
     ServiceToReferenceRequest,
     ServiceToReferenceResponse,
+    VariantResultSchema,
+    VariantsRequest,
+    VariantsResponse,
 )
 from api.security import require_internal_access, require_reference_editor
 from api.services.economics_service import get_economics_repository, repository_error
@@ -109,6 +112,47 @@ def block_economics(
     return BlockEconomicsSchema.model_validate(
         {**result.to_dict(), "reference_revision_id": references.revision_id}
     )
+
+
+@router.post("/block-economics/variants", response_model=VariantsResponse)
+def block_economics_variants(
+    payload: VariantsRequest,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> VariantsResponse:
+    """До четырёх колонок сметы одним запросом на одной ревизии справочников.
+
+    Ревизия — поле запроса, а не параметров варианта: считать колонки на
+    разных ревизиях незачем, коллега опубликует новую между запросами, и
+    суммы в соседних столбцах перестанут быть сравнимы. Ревизии внутри
+    `variant.parameters` на выбор снимка не влияют — тип запроса не даёт
+    вариантам разойтись, вместо того чтобы молча брать одну ревизию и
+    забывать про остальные.
+    """
+
+    organization_id, _ = _identity(session)
+    try:
+        passport, references = _load(
+            repository,
+            organization_id,
+            payload.technical_passport_id,
+            payload.reference_revision_id,
+        )
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    results = []
+    for variant in payload.variants:
+        params = _params_with_site(variant.parameters, passport)
+        result = _compute(passport, params, references)
+        results.append(
+            VariantResultSchema(
+                name=variant.name,
+                economics=BlockEconomicsSchema.model_validate(
+                    {**result.to_dict(), "reference_revision_id": references.revision_id}
+                ),
+            )
+        )
+    return VariantsResponse(reference_revision_id=references.revision_id, variants=results)
 
 
 @router.post("/block-economics/sensitivity", response_model=SensitivityResponse)

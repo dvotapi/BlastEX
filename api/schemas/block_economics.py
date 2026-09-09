@@ -99,6 +99,10 @@ class CostLineSchema(BaseModel):
     quantity: float | None = None
     unit: str = ""
     unit_price_rub: float | None = None
+    # Роль номенклатуры («основное ВВ»): постоянна для статьи, в отличие от
+    # cost_item_name, которое называет выбранный материал. Пусто у строк без
+    # выбора номенклатуры.
+    role_label: str | None = None
 
 
 class NaturalDriversSchema(BaseModel):
@@ -179,6 +183,43 @@ class RunCompareResponse(BaseModel):
     rows: list[CompareRowSchema]
     price_per_m3: dict[str, list[float]]
     delta_price_per_m3: dict[str, float]
+
+
+class VariantRequest(BaseModel):
+    """Один столбец сметы: имя и свой набор параметров."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=120)
+    parameters: ModelParametersSchema
+
+
+class VariantsRequest(BaseModel):
+    """Инвариант «одна ревизия на все колонки» — здесь, а не в докстринге
+    маршрута: `VariantRequest.parameters.reference_revision_id` разделяет тип
+    с одиночным расчётом (`BlockEconomicsRequest`), где своя ревизия у
+    каждого запроса осмысленна, и без отдельного поля здесь у запроса не
+    было бы места сказать, что все варианты считаются на одном снимке."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    technical_passport_id: str = Field(..., min_length=1)
+    # Пусто — актуальная ревизия, как и в ModelParametersSchema. Поля
+    # `reference_revision_id` внутри параметров вариантов на выбор снимка не
+    # влияют: см. `block_economics_variants` в api/routers/block_economics.py.
+    reference_revision_id: str = ""
+    # Четыре колонки — предел читаемой таблицы и предел бумажной сметы.
+    variants: list[VariantRequest] = Field(..., min_length=1, max_length=4)
+
+
+class VariantResultSchema(BaseModel):
+    name: str
+    economics: BlockEconomicsSchema
+
+
+class VariantsResponse(BaseModel):
+    reference_revision_id: str
+    variants: list[VariantResultSchema]
 
 
 class SensitivityRowSchema(BaseModel):

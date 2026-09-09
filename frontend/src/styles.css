@@ -243,6 +243,12 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .sub-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; border-bottom:1px solid #dce4e0; padding-bottom:10px; }
 .sub-tabs button { padding:8px 13px; border:1px solid transparent; border-radius:8px; background:transparent; color:#6e7c75; font-size:12px; font-weight:700; }
 .sub-tabs button.active { background:#e5f4eb; color:#1c5c40; }
+.variant-tab { display:flex; align-items:center; gap:2px; }
+.variant-tab-name { width:120px; padding:7px 9px; border:1px solid #2d7556; border-radius:8px; font-size:12px; font-weight:700; }
+.variant-tab-remove { width:20px; height:20px; margin-left:-4px; border:0; border-radius:50%; background:transparent; color:#9aa8a1; font-size:13px; line-height:1; }
+.variant-tab-remove:hover { background:#fce9e7; color:#9e3025; }
+.variant-tab-add { padding:8px 13px; border:1px dashed #b7c6bf; border-radius:8px; background:transparent; color:#4d7d64; font-size:12px; font-weight:700; }
+.variant-tab-add:hover { border-color:#2d7556; color:#1c5c40; }
 .catalog-category { margin-bottom:16px; border:1px solid #dce4e0; border-radius:10px; padding:10px 14px; }
 .catalog-category summary { cursor:pointer; font-weight:700; font-size:13px; padding:4px 0; }
 
@@ -415,6 +421,28 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .cost-row-unit { text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cost-structure-row.open button { background:#f7faf8; }
 .cost-structure-formula { margin:0; padding:8px 12px 12px; color:#4a5a51; background:#f7faf8; font-size:11px; }
+/* Несколько вариантов рядом: норма и цена уступают место колонке сумм на
+   вариант. Две ведущие колонки (название/подсказка либо название/единица)
+   у разных уровней сметы разной ширины — как и в одиночном режиме выше, —
+   но общий хвост `repeat(N,100px)` у всех уровней одинаковый, и суммы под
+   разными вариантами выстраиваются в столбцы независимо от ведущих колонок:
+   грид всегда прижимает последние N дорожек к правому краю. */
+.cost-structure-variant-names,
+.cost-structure-head.cost-structure-variants-2, .cost-structure-head.cost-structure-variants-3, .cost-structure-head.cost-structure-variants-4,
+.cost-structure-section-head.cost-structure-variants-2, .cost-structure-section-head.cost-structure-variants-3, .cost-structure-section-head.cost-structure-variants-4,
+.cost-structure-variant-perm3 { display:grid; gap:8px; align-items:baseline; padding:0 12px; }
+.cost-structure-variants-2 { grid-template-columns:minmax(0,1fr) minmax(0,1fr) repeat(2,100px); }
+.cost-structure-variants-3 { grid-template-columns:minmax(0,1fr) minmax(0,1fr) repeat(3,100px); }
+.cost-structure-variants-4 { grid-template-columns:minmax(0,1fr) minmax(0,1fr) repeat(4,100px); }
+.cost-structure-variant-row.cost-structure-variants-2 { grid-template-columns:minmax(0,1fr) 46px repeat(2,100px); }
+.cost-structure-variant-row.cost-structure-variants-3 { grid-template-columns:minmax(0,1fr) 46px repeat(3,100px); }
+.cost-structure-variant-row.cost-structure-variants-4 { grid-template-columns:minmax(0,1fr) 46px repeat(4,100px); }
+.cost-structure-variant-row { display:grid; gap:8px; align-items:baseline; padding:8px 12px; border-top:1px solid #eef2f0; font-size:12px; }
+.cost-structure-variant-row b, .cost-structure-variant-names b, .cost-structure-variant-perm3 em { text-align:right; }
+.cost-structure-variant-names { padding-top:10px; padding-bottom:2px; }
+.cost-structure-variant-names b { font-size:11px; color:#5f7168; }
+.cost-structure-variant-perm3 { padding-top:4px; padding-bottom:12px; }
+.cost-structure-variant-perm3 em { color:#6e7b75; font-size:11px; font-style:normal; }
 .sensitivity-panel table { min-width:620px; }
 .sensitivity-panel header button { margin:0; }
 .runs-list { display:grid; gap:7px; }

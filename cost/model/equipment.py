@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from cost.model.inputs import ModelContext, payload_number, payload_text
+from cost.model.inputs import ModelContext, asset_label, payload_number, payload_text
 from cost.v2.models import CostLayer, ReferenceItem
 
 
@@ -50,7 +50,7 @@ def _machine_lines(
             context.add_line(
                 operation_code=operation_code,
                 cost_item_code=f"{prefix}_DEPRECIATION",
-                cost_item_name=f"Амортизация: {equipment.name}",
+                cost_item_name=f"Амортизация: {asset_label(equipment.name, asset)}",
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=monthly / plan_shifts * shifts,
                 formula=f"{monthly} ₽/мес / {plan_shifts} см × {shifts} см",

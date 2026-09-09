@@ -81,6 +81,12 @@ export type BlockCostLine = {
   unit: string;
   /** null у ФОТ: одной ставки за смену не существует. */
   unit_price_rub: number | null;
+  /**
+   * Роль номенклатуры («основное ВВ», «скважинное НСИ») — постоянна для
+   * статьи, в отличие от `cost_item_name`, которое называет то, что выбрали
+   * в справочнике. Null у строк без выбора номенклатуры.
+   */
+  role_label: string | null;
 };
 
 export type NaturalDrivers = {
@@ -110,6 +116,23 @@ export type BlockEconomics = {
   warnings: string[];
   /** Ревизия справочников, на которой посчитано. */
   reference_revision_id: string;
+};
+
+/** Один столбец сметы, посланный на расчёт: имя и свой набор параметров. */
+export type VariantRequest = {
+  name: string;
+  parameters: ModelParameters;
+};
+
+export type VariantResult = {
+  name: string;
+  economics: BlockEconomics;
+};
+
+export type VariantsResponse = {
+  /** Одна на все столбцы: см. `VariantsRequest` на бэкенде. */
+  reference_revision_id: string;
+  variants: VariantResult[];
 };
 
 export type EconomicsRun = {

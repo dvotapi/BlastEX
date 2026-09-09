@@ -282,6 +282,7 @@ def _role_line(context: ModelContext, role: Role, outcome: MaterialsOutcome) -> 
         quantity=quantity,
         unit=role.unit,
         unit_price_rub=price,
+        role_label=role.label,
     )
 
 

@@ -138,6 +138,8 @@ import type {
   ServiceChargeInput,
   ServiceToReference,
   TechnicalPassport,
+  VariantRequest,
+  VariantsResponse,
 } from "../types/blockEconomics";
 import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
 
@@ -352,6 +354,19 @@ export const api = {
       post<BlockEconomics>(`${V1}/economics/block-economics`, {
         technical_passport_id: technicalPassportId,
         parameters,
+      }),
+    /**
+     * До четырёх колонок сметы одним запросом на одной ревизии справочников.
+     * Ревизия — поле запроса, а не какого-то одного варианта: у всех
+     * вариантов вкладки она и так одна (наследуется от загрузки паспорта),
+     * поэтому берём её у первого — но тип запроса требует явного значения,
+     * а не молчаливого выбора между вариантами на бэкенде.
+     */
+    variants: (technicalPassportId: string, variants: VariantRequest[]) =>
+      post<VariantsResponse>(`${V1}/economics/block-economics/variants`, {
+        technical_passport_id: technicalPassportId,
+        reference_revision_id: variants[0]?.parameters.reference_revision_id ?? "",
+        variants,
       }),
     sensitivity: (technicalPassportId: string, parameters: ModelParameters) =>
       post<{ rows: SensitivityRow[] }>(`${V1}/economics/block-economics/sensitivity`, {

@@ -141,3 +141,25 @@ def test_asset_without_depreciable_value_warns_instead_of_silent_zero() -> None:
     assert any(
         "ASSET_EMPTY" in warning and "стоимость" in warning.lower() for warning in context.warnings
     ), context.warnings
+
+
+def test_rig_depreciation_names_the_unit_by_its_inventory_number() -> None:
+    """Тот же станок, но разные машины: строка отличает их по инвентарному номеру."""
+
+    assets = (
+        fx.item(
+            "ASSET_RIG",
+            "JK830 инв. 001",
+            {
+                "equipment_type_code": "RIG_JK830",
+                "inventory_number": "001",
+                "initial_cost_rub": "28450000",
+                "useful_life_months": "60",
+            },
+        ),
+    )
+    context = ModelContext(fx.references(equipment_assets=assets), fx.parameters(), fx.physical())
+    drilling.compute(context)
+
+    line = next(row for row in context.lines if row.cost_item_code == "DRILL_DEPRECIATION")
+    assert "инв. 001" in line.cost_item_name

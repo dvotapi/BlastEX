@@ -475,6 +475,7 @@ class ModelContext:
         quantity: Decimal | None = None,
         unit: str = "",
         unit_price_rub: Decimal | None = None,
+        role_label: str | None = None,
     ) -> None:
         self.lines.append(
             CostLine(
@@ -492,6 +493,7 @@ class ModelContext:
                 quantity=quantity,
                 unit=unit,
                 unit_price_rub=unit_price_rub,
+                role_label=role_label,
             )
         )
 
@@ -564,6 +566,28 @@ def payload_text(item: ReferenceItem | None, key: str, default: str = "") -> str
         return default
     value = item.payload.get(key)
     return default if value in (None, "") else str(value)
+
+
+def asset_label(base_name: str, asset: ReferenceItem | None) -> str:
+    """Строка амортизации называет единицу техники, а не только её тип.
+
+    В смете «Специализированный автомобиль ГАЗ 5796М1 (VIN ***5212)» — не
+    просто марка: под тем же типом техники может стоять несколько машин с
+    разной наработкой и остаточной стоимостью, и сметчик должен видеть,
+    какую из них считает эта строка. Инвентарный номер приоритетнее
+    заводского — это то, что ищут в бухгалтерской карточке основного
+    средства; если ни того, ни другого нет, строка называет только тип.
+    """
+
+    if asset is None:
+        return base_name
+    inventory = payload_text(asset, "inventory_number")
+    if inventory:
+        return f"{base_name} инв. {inventory}"
+    serial = payload_text(asset, "serial_number")
+    if serial:
+        return f"{base_name} зав. № {serial}"
+    return base_name
 
 
 def find_items(items: Iterable[ReferenceItem], key: str, value: str) -> list[ReferenceItem]:

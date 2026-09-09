@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ESTIMATE_SECTIONS, groupByLayerAndSection, sectionLabel } from "./estimateSections";
+import { ESTIMATE_SECTIONS, groupByLayerAndSection, groupVariantsByLayerAndSection, sectionLabel } from "./estimateSections";
 import type { BlockCostLine, CostLayer, EstimateSection } from "../../types/blockEconomics";
 
 const line = (
@@ -8,6 +8,7 @@ const line = (
   layer: CostLayer,
   section: EstimateSection,
   amount: number,
+  unit = "",
 ): BlockCostLine =>
   ({
     cost_item_code: code,
@@ -19,8 +20,9 @@ const line = (
     resource_code: "",
     section,
     quantity: null,
-    unit: "",
+    unit,
     unit_price_rub: null,
+    role_label: null,
   }) as BlockCostLine;
 
 describe("группировка сметы", () => {
@@ -117,5 +119,119 @@ describe("нумерация разделов", () => {
     // раздела, а не его места среди непустых.
     expect(number(withMobilization)).toBe("2.4");
     expect(number(withoutMobilization)).toBe("2.4");
+  });
+});
+
+describe("сводка вариантов по разделам", () => {
+  it("сводит одинаковые статьи из разных вариантов в одну строку", () => {
+    const dry = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100, "кг")];
+    const wet = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120, "кг")];
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+
+    expect(groups).toHaveLength(1);
+    const section = groups[0].sections[0];
+    expect(section.rows).toEqual([
+      { key: "MATERIAL_EXPLOSIVE:", label: "MATERIAL_EXPLOSIVE", unit: "кг", amounts: [100, 120] },
+    ]);
+    expect(section.totals).toEqual([100, 120]);
+    expect(groups[0].totals).toEqual([100, 120]);
+  });
+
+  it("статья без пары в другом варианте получает null, а не ноль", () => {
+    const dry = [
+      line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100),
+      line("SZM_FUEL", "variable", "FUEL", 10),
+    ];
+    const wet = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120)];
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+    const fuelSection = groups[0].sections.find((section) => section.section === "FUEL");
+
+    expect(fuelSection?.rows).toEqual([{ key: "SZM_FUEL:", label: "SZM_FUEL", unit: "", amounts: [10, null] }]);
+    // Итог раздела и слоя, которого у второго варианта нет вовсе, — ноль, а не null:
+    // сумма по варианту законно может быть нулевой, отдельного варианта здесь нет.
+    expect(fuelSection?.totals).toEqual([10, 0]);
+  });
+
+  it("слой, которого нет ни у одного варианта, в сводку не попадает", () => {
+    const groups = groupVariantsByLayerAndSection([
+      [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100)],
+      [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120)],
+    ]);
+
+    expect(groups.map((group) => group.layer)).toEqual(["variable"]);
+  });
+
+  it("номер раздела не зависит от того, у какого варианта он появился первым", () => {
+    const groups = groupVariantsByLayerAndSection([
+      [line("DRILL_TOOLING", "variable", "DRILLING", 50)],
+      [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100), line("DRILL_TOOLING", "variable", "DRILLING", 60)],
+    ]);
+
+    const drilling = groups[0].sections.find((section) => section.section === "DRILLING");
+    expect(drilling?.number).toBe("1.2");
+  });
+});
+
+describe("сводка вариантов: расходящееся наименование под общим кодом", () => {
+  it("называет оба материала, если код статьи общий, а выбор в справочнике разный", () => {
+    const dry = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100)];
+    const wet = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120)];
+    dry[0].cost_item_name = "Гранулит РП";
+    wet[0].cost_item_name = "Эверсин-100";
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+    const row = groups[0].sections[0].rows[0];
+
+    expect(row.label).toBe("Гранулит РП / Эверсин-100");
+    expect(row.amounts).toEqual([100, 120]);
+  });
+
+  it("не повторяет название, если оно совпало у всех вариантов", () => {
+    const dry = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100)];
+    const wet = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120)];
+    dry[0].cost_item_name = "Гранулит РП";
+    wet[0].cost_item_name = "Гранулит РП";
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+
+    expect(groups[0].sections[0].rows[0].label).toBe("Гранулит РП");
+  });
+});
+
+describe("сводка вариантов: роль номенклатуры важнее выбранного материала", () => {
+  it("называет строку ролью, а не склеенными именами материалов, если роль есть у обеих", () => {
+    const dry = [{ ...line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100), cost_item_name: "Гранулит РП", role_label: "Основное ВВ" }];
+    const wet = [{ ...line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120), cost_item_name: "Эверсин-100", role_label: "Основное ВВ" }];
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+
+    expect(groups[0].sections[0].rows[0].label).toBe("Основное ВВ");
+  });
+
+  it("падает на склейку имён, если роли нет хотя бы у одного варианта", () => {
+    const dry = [{ ...line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100), cost_item_name: "Гранулит РП", role_label: "Основное ВВ" }];
+    const wet = [{ ...line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120), cost_item_name: "Эверсин-100", role_label: null }];
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+
+    expect(groups[0].sections[0].rows[0].label).toBe("Гранулит РП / Эверсин-100");
+  });
+});
+
+describe("сводка вариантов: незнакомый раздел не пропадает", () => {
+  it("раздел вне ESTIMATE_SECTIONS попадает в сводку последним, а не исчезает", () => {
+    const dry = [
+      line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100),
+      { ...line("FUTURE_ITEM", "variable", "FUTURE_SECTION" as EstimateSection, 40) },
+    ];
+    const wet = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120)];
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+    const sections = groups[0].sections.map((section) => section.section);
+
+    expect(sections).toEqual(["EXPLOSIVES", "FUTURE_SECTION"]);
+    expect(groups[0].sections[1].totals).toEqual([40, 0]);
   });
 });

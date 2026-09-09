@@ -183,6 +183,10 @@ def _cost_rule_lines(
             quantity=charge.driver_value if charge.simple else None,
             unit=driver_unit(driver_name) if charge.simple else "",
             unit_price_rub=charge.rate if charge.simple else None,
+            # Правило `cost_rules` считает статью по драйверу модели и ставке
+            # справочника — та же логика, что у остальных расчётных статей.
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
         )
     return RuleOutcome(drivers=charged, cost_items=charged_items)
 

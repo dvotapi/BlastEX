@@ -43,6 +43,27 @@ class ServiceToReferenceResponse(BaseModel):
     reference_revision_id: str
 
 
+class SubcontractRateToReferenceRequest(BaseModel):
+    """Тариф субподряда со вкладки, публикуемый в справочник по явной кнопке."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    counterparty_code: str = Field(..., min_length=1)
+    operation_code: str = Field("PRODUCTION_DRILLING", min_length=1)
+    name: str = Field(..., min_length=1, max_length=200)
+    # «Погонный метр» — код `M` из системного раздела `units`, а не «UNIT_M»:
+    # других единиц для тарифа бурения по факту не бывает.
+    unit: str = Field("M", min_length=1)
+    rate_rub: Decimal = Field(..., gt=0)
+
+
+class SubcontractRateToReferenceResponse(BaseModel):
+    section: Literal["subcontract_rates"] = "subcontract_rates"
+    code: str
+    created: bool
+    reference_revision_id: str
+
+
 class ModelParametersSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -60,6 +81,10 @@ class ModelParametersSchema(BaseModel):
     crew: list[CrewMemberSchema] = Field(default_factory=list)
     services: list[ServiceChargeSchema] = Field(default_factory=list)
     drilling_executor: Literal["OWN", "SUBCONTRACTOR"] = "OWN"
+    # Код тарифа субподряда бурения из справочника `subcontract_rates`.
+    subcontract_rate_code: str | None = None
+    # Ручная ставка за метр: проверить предложение подрядчика без справочника.
+    subcontract_rate_rub: Decimal | None = Field(None, ge=0)
     # Роль номенклатуры → код материала; пустое значение означает «не выбрано».
     nomenclature: dict[str, str] = Field(default_factory=dict)
     electric_detonators_qty: Decimal = Field(Decimal("0"), ge=0)
@@ -103,6 +128,10 @@ class CostLineSchema(BaseModel):
     # cost_item_name, которое называет выбранный материал. Пусто у строк без
     # выбора номенклатуры.
     role_label: str | None = None
+    # Откуда взяты количество и цена строки: паспорт, расчёт модели,
+    # справочник, норматив или ручной ввод сметчика.
+    quantity_origin: Literal["PASSPORT", "CALC", "REFERENCE", "NORM", "MANUAL", ""] = ""
+    price_origin: Literal["PASSPORT", "CALC", "REFERENCE", "NORM", "MANUAL", ""] = ""
 
 
 class NaturalDriversSchema(BaseModel):
@@ -236,6 +265,34 @@ class SensitivityResponse(BaseModel):
     reference_revision_id: str = ""
 
 
+class CodeName(BaseModel):
+    code: str
+    name: str
+
+
+class SubcontractRateOption(BaseModel):
+    """Тариф субподряда для выбора на вкладке: справочник `subcontract_rates`."""
+
+    code: str
+    name: str
+    counterparty_code: str
+    counterparty_name: str
+    operation_code: str
+    unit: str
+    rate_rub: float
+
+
+class PositionOption(BaseModel):
+    """Должность для состава бригады: норматив из `positions`, ставка — из `labor_rates`."""
+
+    code: str
+    name: str
+    # Ставки может не быть — постоянная часть тогда нулевая, а не отсутствующая.
+    fixed_monthly_rub: float
+    norm_shifts_per_month: float
+    category: Literal["DIRECT", "INDIRECT"]
+
+
 class ModelDefaultsResponse(BaseModel):
     parameters: ModelParametersSchema
     passport: dict[str, Any]
@@ -248,7 +305,10 @@ class ModelDefaultsResponse(BaseModel):
     szm: list[dict[str, str]]
     delivery_trucks: list[dict[str, str]]
     emulsion_trucks: list[dict[str, str]] = Field(default_factory=list)
-    positions: list[dict[str, str]]
+    positions: list[PositionOption]
+    # Тарифы субподряда бурения и подрядчики, готовые к выбору на вкладке.
+    subcontract_rates: list[SubcontractRateOption] = Field(default_factory=list)
+    counterparties: list[CodeName] = Field(default_factory=list)
     packages: list[dict[str, str]]
     sites: list[dict[str, str]]
     reference_revision_id: str

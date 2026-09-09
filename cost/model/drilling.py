@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from cost.model.inputs import ModelContext, asset_label, payload_number, payload_text
 from cost.model.prices import material_price
-from cost.v2.models import CostLayer, CostLine, ReferenceItem
+from cost.v2.models import CostLayer, CostLine, ReferenceItem, ValueOrigin
 
 
 DRILLING_OPERATION = "PRODUCTION_DRILLING"
@@ -249,6 +249,8 @@ def _tooling_lines(
             quantity=drilling_m,
             unit="п.м.",
             unit_price_rub=total / drilling_m if drilling_m > 0 else None,
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
         )
 
 
@@ -276,6 +278,8 @@ def _fuel_line(context: ModelContext, condition: ReferenceItem, drilling_m: Deci
         quantity=litres,
         unit="л",
         unit_price_rub=price,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 
@@ -297,6 +301,8 @@ def _spare_parts_line(
         quantity=rig_shifts,
         unit="см",
         unit_price_rub=rate,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 
@@ -344,6 +350,10 @@ def _fixed_lines(
                 quantity=charged_shifts,
                 unit="см",
                 unit_price_rub=depreciation_month / plan_shifts,
+                quantity_origin="CALC",
+                # Цена за смену — сама расчётная величина (месячная сумма
+                # амортизации / плановые смены), а не значение из справочника.
+                price_origin="CALC",
             )
         if insurance_month > 0:
             context.add_line(
@@ -357,6 +367,8 @@ def _fixed_lines(
                 quantity=charged_shifts,
                 unit="см",
                 unit_price_rub=insurance_month / plan_shifts,
+                quantity_origin="CALC",
+                price_origin="CALC",
             )
     else:
         context.warn(
@@ -387,6 +399,8 @@ def _inspection_line(
         quantity=shifts,
         unit="см",
         unit_price_rub=per_shift,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 
@@ -413,6 +427,8 @@ def _maintenance_lines(
             quantity=rig_shifts,
             unit="см",
             unit_price_rub=budget / plan_shifts,
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
         )
         return
     rate = payload_number(rig_type, "maintenance_rub_per_shift")
@@ -430,6 +446,8 @@ def _maintenance_lines(
         quantity=shifts,
         unit="см",
         unit_price_rub=rate,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 
@@ -440,21 +458,47 @@ def _rig_asset(context: ModelContext, rig_code: str) -> ReferenceItem | None:
     return None
 
 
+def _subcontract_rate(context: ModelContext) -> tuple[Decimal, ValueOrigin, str]:
+    """Ставка субподряда бурения: ручная → выбранный тариф → первая ставка по операции.
+
+    Ручной ввод проверяет предложение подрядчика, которого ещё нет в
+    справочнике — в справочник ставка попадает только явной кнопкой (не
+    здесь). Незнакомый выбранный код не считается ошибкой, а падает к первой
+    ставке по операции — прежнему поведению до появления выбора. `_subcontract_lines`
+    множит ставку на метраж, поэтому годятся только тарифы в ₽/м (`unit == "M"`) —
+    остальные единицы отбрасываются, иначе, например, ставка за смену
+    молча посчиталась бы как ставка за метр.
+    """
+
+    params = context.params
+    if params.subcontract_rate_rub is not None:
+        return params.subcontract_rate_rub, "MANUAL", "ставка введена на вкладке"
+    items = [
+        item
+        for item in context.items("subcontract_rates")
+        if payload_text(item, "operation_code") == DRILLING_OPERATION
+        and payload_text(item, "unit") == "M"
+    ]
+    chosen = next((item for item in items if item.code == params.subcontract_rate_code), None)
+    if chosen is None and params.subcontract_rate_code:
+        context.warn(
+            f"Тариф субподряда {params.subcontract_rate_code} не найден или задан не в ₽/м: "
+            "взята первая ставка по операции в ₽/м."
+        )
+    chosen = chosen or (items[0] if items else None)
+    if chosen is None:
+        return Decimal("0"), "", "тариф субподряда не найден"
+    return payload_number(chosen, "rate_rub"), "REFERENCE", f"subcontract_rates.{chosen.code}"
+
+
 def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
-    rate_item = next(
-        (
-            item
-            for item in context.items("subcontract_rates")
-            if payload_text(item, "operation_code") == DRILLING_OPERATION
-        ),
-        None,
-    )
-    rate = payload_number(rate_item, "rate_rub")
+    rate, price_origin, rate_source = _subcontract_rate(context)
     if rate <= 0:
         context.warn(
             "Не задана субподрядная ставка бурения: строка субподряда нулевая."
         )
     context.set_value("rig_shifts", Decimal("0"), "бурение на субподряде")
+    context.set_value("drilling_rub_per_m", rate, rate_source)
     context.add_line(
         operation_code=DRILLING_OPERATION,
         cost_item_code="DRILL_SUBCONTRACT",
@@ -466,6 +510,10 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         quantity=drilling_m,
         unit="п.м.",
         unit_price_rub=rate,
+        # Метраж — драйвер паспорта; ставка субподряда несёт своё
+        # происхождение (ручная/справочник/не найдена).
+        quantity_origin="PASSPORT",
+        price_origin=price_origin,
     )
 
     params = context.params
@@ -489,7 +537,11 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         layer=CostLayer.FULL,
         amount_rub=amount,
         formula=f"{monthly} ₽/мес × доля блока {share}",
-        section="DRILLING"
+        section="DRILLING",
+        # Как постоянные затраты юнита: месячная сумма из справочника
+        # техники, распределённая по доле блока — расчёт модели.
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
     context.warn(
         "Бурение на субподряде: постоянные затраты собственного станка "

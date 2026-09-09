@@ -179,6 +179,8 @@ def _vehicle_fuel(
         quantity=litres,
         unit="л",
         unit_price_rub=price,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 
@@ -207,6 +209,8 @@ def _mobilization(context: ModelContext) -> None:
         quantity=trip_km,
         unit="км",
         unit_price_rub=rate,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 

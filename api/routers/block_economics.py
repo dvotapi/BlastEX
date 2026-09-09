@@ -21,6 +21,8 @@ from api.schemas.block_economics import (
     SensitivityResponse,
     ServiceToReferenceRequest,
     ServiceToReferenceResponse,
+    SubcontractRateToReferenceRequest,
+    SubcontractRateToReferenceResponse,
     VariantResultSchema,
     VariantsRequest,
     VariantsResponse,
@@ -33,7 +35,7 @@ from cost.model.engine import compute_block_economics
 from cost.model.export_xlsx import export_bytes
 from cost.model.inputs import BlockEconomics, ModelParameters, payload_number, payload_text
 from cost.model.materials import ROLES, quantity_in_price_units
-from cost.model.services import SHIFT_DRIVERS, service_code
+from cost.model.services import SHIFT_DRIVERS, reference_code, service_code
 from cost.v2.prices import effective_price, effective_price_lookup
 from cost.v2.models import ReferenceItem, ReferenceSnapshot, decimal_value
 from cost.v2.references import has_validation_errors
@@ -388,7 +390,13 @@ def model_defaults(
             "szm": szm,
             "delivery_trucks": trucks,
             "emulsion_trucks": emulsion_trucks,
-            "positions": _catalog(references, "positions"),
+            "positions": _positions(references),
+            "subcontract_rates": _subcontract_rates(references),
+            "counterparties": [
+                {"code": item.code, "name": item.name}
+                for item in references.active_items("counterparties")
+                if payload_text(item, "role") == "SUBCONTRACTOR"
+            ],
             "packages": [
                 {"code": code, "name": item.name}
                 for code, item in package_map(references).items()
@@ -563,25 +571,15 @@ def service_to_reference(
         sections.get("cost_items", ()), code, service.name, {"kind": "service"}, owned=("kind",)
     )
 
-    try:
-        issues = reference_issues(reader, repository, organization_id, sections)
-    except Exception as exc:
-        raise repository_error(exc) from exc
-    if has_validation_errors(issues):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"message": "Справочники содержат ошибки.", "issues": [i.to_dict() for i in issues]},
-        )
-    try:
-        published = repository.publish_references(
-            organization_id,
-            user_id,
-            current.revision_id,
-            sections,
-            f"Услуга со вкладки «Экономика блока»: {service.name}",
-        )
-    except Exception as exc:
-        raise repository_error(exc) from exc
+    published = _publish_single_item(
+        repository,
+        reader,
+        organization_id,
+        user_id,
+        current,
+        sections,
+        f"Услуга со вкладки «Экономика блока»: {service.name}",
+    )
     return ServiceToReferenceResponse(
         section="cost_rules",
         code=code,
@@ -603,6 +601,81 @@ RULE_FIELDS = (
     "rate_rub",
     "fixed_rub",
 )
+
+
+@router.post(
+    "/subcontract-rates/to-reference",
+    response_model=SubcontractRateToReferenceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def subcontract_rate_to_reference(
+    payload: SubcontractRateToReferenceRequest,
+    session: dict[str, object] = Depends(require_reference_editor),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+    reader: PublicReader = Depends(get_public_reader),
+) -> SubcontractRateToReferenceResponse:
+    """Перенести тариф субподряда со вкладки в справочник новой ревизией.
+
+    В справочник тариф попадает только по этой кнопке: расчёт с ручной
+    ставкой (`subcontract_rate_rub`) справочник не трогает — сметчик сверяет
+    предложение подрядчика с моделью и решает сам, заводить ли его тарифом.
+    """
+
+    organization_id, user_id = _identity(session)
+    code = reference_code("RATE", payload.counterparty_code, payload.operation_code, payload.name)
+    rate_payload: dict[str, Any] = {
+        "counterparty_code": payload.counterparty_code,
+        "operation_code": payload.operation_code,
+        "unit": payload.unit,
+        "rate_rub": str(payload.rate_rub),
+    }
+
+    try:
+        current = repository.get_reference_snapshot(organization_id)
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    sections = {name: list(items) for name, items in current.sections.items()}
+    existing = next(
+        (item for item in sections.get("subcontract_rates", ()) if item.code == code), None
+    )
+    if existing is not None and existing.name.strip() != payload.name.strip():
+        # Как и у услуг: разные названия дали один код, перезаписывать чужой
+        # тариф молча нельзя.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    f"Код {code} уже занят тарифом «{existing.name}»: "
+                    "переименуйте позицию или правьте существующий тариф в справочнике."
+                )
+            },
+        )
+    sections["subcontract_rates"] = _upsert(
+        sections.get("subcontract_rates", ()),
+        code,
+        payload.name,
+        rate_payload,
+        owned=SUBCONTRACT_RATE_FIELDS,
+    )
+
+    published = _publish_single_item(
+        repository,
+        reader,
+        organization_id,
+        user_id,
+        current,
+        sections,
+        f"Тариф субподряда с вкладки «Экономика блока»: {payload.name}",
+    )
+    return SubcontractRateToReferenceResponse(
+        code=code,
+        created=existing is None,
+        reference_revision_id=published.revision_id,
+    )
+
+
+# Поля тарифа субподряда, которыми распоряжается вкладка при каждом переносе.
+SUBCONTRACT_RATE_FIELDS = ("counterparty_code", "operation_code", "unit", "rate_rub")
 
 
 def _upsert(
@@ -637,6 +710,39 @@ def _upsert(
     return [item if row.code == code else row for row in items]
 
 
+def _publish_single_item(
+    repository: EconomicsRepository,
+    reader: PublicReader,
+    organization_id: str,
+    user_id: str,
+    current: ReferenceSnapshot,
+    sections: dict[str, list[ReferenceItem]],
+    comment: str,
+) -> ReferenceSnapshot:
+    """Проверить и опубликовать снимок с одной изменённой записью.
+
+    Общий хвост `service_to_reference` и `subcontract_rate_to_reference`:
+    обе кнопки только апсертят запись в своём разделе, а проверка ссылок и
+    обработка ошибок валидации/публикации у них одинаковые.
+    """
+
+    try:
+        issues = reference_issues(reader, repository, organization_id, sections)
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    if has_validation_errors(issues):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": "Справочники содержат ошибки.", "issues": [i.to_dict() for i in issues]},
+        )
+    try:
+        return repository.publish_references(
+            organization_id, user_id, current.revision_id, sections, comment
+        )
+    except Exception as exc:
+        raise repository_error(exc) from exc
+
+
 def _equipment(references: ReferenceSnapshot, kind: str) -> list[dict[str, str]]:
     return [
         {"code": item.code, "name": item.name}
@@ -647,6 +753,59 @@ def _equipment(references: ReferenceSnapshot, kind: str) -> list[dict[str, str]]
 
 def _catalog(references: ReferenceSnapshot, section: str) -> list[dict[str, str]]:
     return [{"code": item.code, "name": item.name} for item in references.active_items(section)]
+
+
+def _subcontract_rates(references: ReferenceSnapshot) -> list[dict[str, Any]]:
+    """Тарифы субподряда с именем подрядчика и единицей — сметчик выбирает по ним, а не по коду."""
+
+    names = {item.code: item.name for item in references.active_items("counterparties")}
+    units = {item.code: item.name for item in references.active_items("units")}
+    rows: list[dict[str, Any]] = []
+    for item in references.active_items("subcontract_rates"):
+        counterparty = payload_text(item, "counterparty_code")
+        rows.append(
+            {
+                "code": item.code,
+                "name": item.name,
+                "counterparty_code": counterparty,
+                "counterparty_name": names.get(counterparty, counterparty),
+                "operation_code": payload_text(item, "operation_code"),
+                "unit": units.get(payload_text(item, "unit"), payload_text(item, "unit")),
+                "rate_rub": float(payload_number(item, "rate_rub")),
+            }
+        )
+    return sorted(rows, key=lambda row: (row["counterparty_name"], row["name"]))
+
+
+def _default_labor_rate(rows: list[ReferenceItem]) -> ReferenceItem | None:
+    """Ставка без условия бурения — тот же фолбэк, что `_labor_rate` берёт, пока условие не выбрано."""
+
+    if not rows:
+        return None
+    return next((item for item in rows if not payload_text(item, "condition_code")), rows[0])
+
+
+def _positions(references: ReferenceSnapshot) -> list[dict[str, Any]]:
+    """Должности состава бригады с нормативом и ставкой — селект вкладки не ходит за ними отдельно.
+
+    У должности бывает несколько ставок (по условию бурения); здесь отдаём
+    безусловную — конкретное условие выбирается уже в расчёте (`labor._labor_rate`).
+    """
+
+    rates_by_position: dict[str, list[ReferenceItem]] = {}
+    for item in references.active_items("labor_rates"):
+        rates_by_position.setdefault(payload_text(item, "position_code"), []).append(item)
+    rates = {code: _default_labor_rate(rows) for code, rows in rates_by_position.items()}
+    return [
+        {
+            "code": item.code,
+            "name": item.name,
+            "category": payload_text(item, "category", "DIRECT"),
+            "norm_shifts_per_month": float(payload_number(item, "norm_shifts_per_month", Decimal("21"))),
+            "fixed_monthly_rub": float(payload_number(rates.get(item.code), "fixed_monthly_rub")),
+        }
+        for item in references.active_items("positions")
+    ]
 
 
 def _summary(run: dict[str, Any]) -> dict[str, Any]:

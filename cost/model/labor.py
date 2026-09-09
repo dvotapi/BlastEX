@@ -152,6 +152,9 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             # ставку за смену, одним числом её не назвать.
             quantity=shifts * crew_size,
             unit="чел·см",
+            # Смены — ручная поправка вкладки, если сметчик её задал,
+            # иначе норматив должности или производительность техники.
+            quantity_origin="MANUAL" if manual_shifts is not None else "NORM",
         )
         accrued_total += accrued
         charge = _per_diem(context, position, shifts, crew_size)
@@ -181,7 +184,9 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=contributions,
             formula=f"{accrued_total} ₽ × {contribution_rate}",
-            section="LABOR"
+            section="LABOR",
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
         )
         reserve = (accrued_total + contributions) * rates.vacation_reserve_rate
         if reserve > 0:
@@ -192,7 +197,9 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=reserve,
                 formula=f"({accrued_total} + {contributions}) ₽ × {rates.vacation_reserve_rate}",
-                section="LABOR"
+                section="LABOR",
+                quantity_origin="CALC",
+                price_origin="REFERENCE",
             )
 
     if per_diem_total > 0:
@@ -213,6 +220,8 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             # деление вернуло бы её с двоичным хвостом, и «норма × цена» в
             # смете перестала бы сходиться с суммой строки.
             unit_price_rub=per_diem_rate(context),
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
         )
 
     return tuple(results)

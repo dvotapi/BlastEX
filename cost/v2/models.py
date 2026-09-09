@@ -440,6 +440,12 @@ EstimateSection = Literal[
 ESTIMATE_SECTIONS: frozenset[str] = frozenset(get_args(EstimateSection))
 
 
+# Происхождение количества или цены строки сметы: паспорт блока, расчёт
+# модели, справочник, норматив должности или ручной ввод сметчика. Пустая
+# строка — значение по умолчанию для кода, ещё не проставившего происхождение.
+ValueOrigin = Literal["PASSPORT", "CALC", "REFERENCE", "NORM", "MANUAL", ""]
+
+
 @dataclass(frozen=True)
 class CostLine:
     month: str
@@ -468,6 +474,11 @@ class CostLine:
     # строку по роли: материал в них может различаться, роль — нет. Пусто у
     # строк без выбора номенклатуры (правила затрат, техника, бригада).
     role_label: str | None = None
+    # Откуда взяты количество и цена строки: паспорт, расчёт модели,
+    # справочник, норматив или ручной ввод сметчика. Пусто — модуль,
+    # создавший строку, происхождение не проставил.
+    quantity_origin: ValueOrigin = ""
+    price_origin: ValueOrigin = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -493,6 +504,8 @@ class CostLine:
             "unit_price_rub": (
                 float(self.unit_price_rub) if self.unit_price_rub is not None else None
             ),
+            "quantity_origin": self.quantity_origin,
+            "price_origin": self.price_origin,
         }
 
 

@@ -18,6 +18,7 @@ from cost.v2.models import (
     EstimateSection,
     ReferenceItem,
     ReferenceSnapshot,
+    ValueOrigin,
     decimal_value,
 )
 from cost.v2.packages import PackageDefinition, package_map
@@ -476,6 +477,8 @@ class ModelContext:
         unit: str = "",
         unit_price_rub: Decimal | None = None,
         role_label: str | None = None,
+        quantity_origin: ValueOrigin = "",
+        price_origin: ValueOrigin = "",
     ) -> None:
         self.lines.append(
             CostLine(
@@ -494,6 +497,8 @@ class ModelContext:
                 unit=unit,
                 unit_price_rub=unit_price_rub,
                 role_label=role_label,
+                quantity_origin=quantity_origin,
+                price_origin=price_origin,
             )
         )
 

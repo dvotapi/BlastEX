@@ -86,6 +86,10 @@ def compute(context: ModelContext, *, charged_items: set[str] | None = None) -> 
             # Ручная услуга — общепроизводственная затрата, пока сметчик не
             # перенёс её в правила затрат со своим разделом.
             section="OVERHEAD",
+            # Сумму и, при «за смену», операцию для расчёта смет сметчик
+            # вводит на вкладке сам — количества и цены из модели тут нет.
+            quantity_origin="MANUAL",
+            price_origin="MANUAL",
         )
 
 

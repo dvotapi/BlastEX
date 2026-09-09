@@ -283,6 +283,10 @@ def _role_line(context: ModelContext, role: Role, outcome: MaterialsOutcome) -> 
         unit=role.unit,
         unit_price_rub=price,
         role_label=role.label,
+        # Электродетонаторов нет в паспорте: их число задаёт сметчик на
+        # вкладке, остальные роли считаются от драйверов паспорта.
+        quantity_origin="MANUAL" if role.code == "DETONATOR_ELECTRIC" else "PASSPORT",
+        price_origin="REFERENCE",
     )
 
 

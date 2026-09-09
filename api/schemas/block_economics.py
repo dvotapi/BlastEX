@@ -103,6 +103,10 @@ class CostLineSchema(BaseModel):
     # cost_item_name, которое называет выбранный материал. Пусто у строк без
     # выбора номенклатуры.
     role_label: str | None = None
+    # Откуда взяты количество и цена строки: паспорт, расчёт модели,
+    # справочник, норматив или ручной ввод сметчика.
+    quantity_origin: Literal["PASSPORT", "CALC", "REFERENCE", "NORM", "MANUAL", ""] = ""
+    price_origin: Literal["PASSPORT", "CALC", "REFERENCE", "NORM", "MANUAL", ""] = ""
 
 
 class NaturalDriversSchema(BaseModel):

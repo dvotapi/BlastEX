@@ -58,6 +58,10 @@ def _machine_lines(
                 quantity=shifts,
                 unit="см",
                 unit_price_rub=monthly / plan_shifts,
+                quantity_origin="CALC",
+                # Цена за смену — расчётная величина (месячная сумма /
+                # плановые смены), а не значение прямо из справочника.
+                price_origin="CALC",
             )
         insurance = payload_number(asset, "insurance_monthly_rub")
         if insurance > 0:
@@ -73,6 +77,8 @@ def _machine_lines(
                 quantity=shifts,
                 unit="см",
                 unit_price_rub=insurance / plan_shifts,
+                quantity_origin="CALC",
+                price_origin="CALC",
             )
     elif asset is None:
         context.warn(
@@ -102,6 +108,8 @@ def _machine_lines(
             quantity=shifts,
             unit="см",
             unit_price_rub=per_shift,
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
         )
 
     spare_parts = payload_number(equipment, "spare_parts_rub_per_shift")
@@ -117,6 +125,8 @@ def _machine_lines(
             quantity=shifts,
             unit="см",
             unit_price_rub=spare_parts,
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
         )
 
 
@@ -157,6 +167,8 @@ def _maintenance(
         quantity=charged_shifts,
         unit="см",
         unit_price_rub=rate_per_shift,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 

@@ -249,6 +249,8 @@ def _tooling_lines(
             quantity=drilling_m,
             unit="п.м.",
             unit_price_rub=total / drilling_m if drilling_m > 0 else None,
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
         )
 
 
@@ -276,6 +278,8 @@ def _fuel_line(context: ModelContext, condition: ReferenceItem, drilling_m: Deci
         quantity=litres,
         unit="л",
         unit_price_rub=price,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 
@@ -297,6 +301,8 @@ def _spare_parts_line(
         quantity=rig_shifts,
         unit="см",
         unit_price_rub=rate,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 
@@ -344,6 +350,10 @@ def _fixed_lines(
                 quantity=charged_shifts,
                 unit="см",
                 unit_price_rub=depreciation_month / plan_shifts,
+                quantity_origin="CALC",
+                # Цена за смену — сама расчётная величина (месячная сумма
+                # амортизации / плановые смены), а не значение из справочника.
+                price_origin="CALC",
             )
         if insurance_month > 0:
             context.add_line(
@@ -357,6 +367,8 @@ def _fixed_lines(
                 quantity=charged_shifts,
                 unit="см",
                 unit_price_rub=insurance_month / plan_shifts,
+                quantity_origin="CALC",
+                price_origin="CALC",
             )
     else:
         context.warn(
@@ -387,6 +399,8 @@ def _inspection_line(
         quantity=shifts,
         unit="см",
         unit_price_rub=per_shift,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 
@@ -413,6 +427,8 @@ def _maintenance_lines(
             quantity=rig_shifts,
             unit="см",
             unit_price_rub=budget / plan_shifts,
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
         )
         return
     rate = payload_number(rig_type, "maintenance_rub_per_shift")
@@ -430,6 +446,8 @@ def _maintenance_lines(
         quantity=shifts,
         unit="см",
         unit_price_rub=rate,
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
 
 
@@ -466,6 +484,10 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         quantity=drilling_m,
         unit="п.м.",
         unit_price_rub=rate,
+        # Метраж — драйвер паспорта, ставка субподряда — справочник; задача 2
+        # добавит ручной выбор конкретного тарифа (MANUAL).
+        quantity_origin="PASSPORT",
+        price_origin="REFERENCE",
     )
 
     params = context.params
@@ -489,7 +511,11 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         layer=CostLayer.FULL,
         amount_rub=amount,
         formula=f"{monthly} ₽/мес × доля блока {share}",
-        section="DRILLING"
+        section="DRILLING",
+        # Как постоянные затраты юнита: месячная сумма из справочника
+        # техники, распределённая по доле блока — расчёт модели.
+        quantity_origin="CALC",
+        price_origin="REFERENCE",
     )
     context.warn(
         "Бурение на субподряде: постоянные затраты собственного станка "

@@ -56,6 +56,20 @@ def test_explosive_line_is_mass_from_the_passport_times_the_current_price() -> N
     assert "material_prices.PR_EVERSIN" in row.formula
 
 
+def test_role_label_names_the_role_not_the_chosen_material() -> None:
+    """Роль постоянна для статьи — сравнение вариантов ищет строку по ней, не по названию материала."""
+
+    anfo = context(nomenclature={"EXPLOSIVE": "MAT_ANFO"})
+    eversin = context(nomenclature={"EXPLOSIVE": "MAT_EVERSIN"})
+    run(anfo)
+    run(eversin)
+
+    row_a = line(anfo, "MATERIAL_EXPLOSIVE")
+    row_b = line(eversin, "MATERIAL_EXPLOSIVE")
+    assert row_a.role_label == row_b.role_label == "основное ВВ"
+    assert row_a.cost_item_name != row_b.cost_item_name
+
+
 def test_downhole_nsi_is_priced_per_hole() -> None:
     ctx = context(nomenclature={"NSI_DOWNHOLE": "MAT_NSI"}, downhole_nsi="189")
     run(ctx)

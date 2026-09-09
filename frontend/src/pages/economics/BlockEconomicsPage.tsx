@@ -52,9 +52,22 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   // До четырёх колонок сметы: правит панели активный вариант, структура
   // затрат показывает все — один запрос на всех, чтобы колонки считались
   // на одной ревизии справочников (см. `POST .../variants` на бэкенде).
-  const [variants, setVariants] = useState<Variant[]>([]);
-  const [activeId, setActiveId] = useState("");
+  //
+  // Список вариантов и то, какой из них редактируется, — одно состояние, а
+  // не два раздельных: добавление и удаление меняют оба сразу, и раздельные
+  // setState гонятся друг с другом при двух кликах подряд в одном такте
+  // React (второй читает список, ещё не увидевший первое изменение).
+  const [variantsState, setVariantsState] = useState<{ variants: Variant[]; activeId: string }>({
+    variants: [],
+    activeId: "",
+  });
+  const { variants, activeId } = variantsState;
   const [results, setResults] = useState<VariantResult[]>([]);
+  // Варианты, для которых считаны текущие `results` — по ним, а не по
+  // индексу в массиве: список вариантов меняется сразу по клику, а ответ
+  // сервера приходит позже, и без сверки по id вкладка «B» показала бы
+  // цифры удалённого варианта «A», просто оказавшегося на его месте.
+  const [resultsForIds, setResultsForIds] = useState<string[]>([]);
   const [runs, setRuns] = useState<EconomicsRunSummary[]>([]);
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
   const [compare, setCompare] = useState<RunCompare | null>(null);
@@ -103,9 +116,9 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
       if (id !== defaultsRequestId.current) return;
       setDefaults(loaded);
       const variant = makeVariant("Вариант 1", loaded.parameters);
-      setVariants([variant]);
-      setActiveId(variant.id);
+      setVariantsState({ variants: [variant], activeId: variant.id });
       setResults([]);
+      setResultsForIds([]);
       setRuns(saved);
       setCompare(null);
       setSelectedRuns([]);
@@ -128,6 +141,9 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   useEffect(() => {
     if (variants.length === 0 || !selectedPassport) return;
     const id = ++requestId.current;
+    // На момент ответа список вариантов мог уже смениться (сметчик удалил
+    // или дублировал вкладку) — запрос помнит, для кого он был отправлен.
+    const requestedIds = variants.map((variant) => variant.id);
     const timer = window.setTimeout(() => {
       api.blockEconomics
         .variants(
@@ -137,6 +153,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
         .then((response) => {
           if (id === requestId.current) {
             setResults(response.variants);
+            setResultsForIds(requestedIds);
             setError("");
           }
         })
@@ -149,10 +166,13 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
     return () => window.clearTimeout(timer);
   }, [variants, selectedPassport]);
 
-  const activeIndex = variants.findIndex((variant) => variant.id === activeId);
-  const activeVariant = activeIndex >= 0 ? variants[activeIndex] : null;
-  // Тот же порядок, что у запроса: индекс варианта не меняется в ответе.
-  const activeEconomics = activeIndex >= 0 ? results[activeIndex]?.economics ?? null : null;
+  const activeVariant = variants.find((variant) => variant.id === activeId) ?? null;
+  // Совпадают состав и порядок id — тогда `results` точно про текущие
+  // вкладки, а не про то, что было до последнего добавления/удаления.
+  const resultsMatchVariants =
+    resultsForIds.length === variants.length && resultsForIds.every((id, index) => id === variants[index]?.id);
+  const activeResultIndex = resultsMatchVariants ? resultsForIds.indexOf(activeId) : -1;
+  const activeEconomics = activeResultIndex >= 0 ? results[activeResultIndex]?.economics ?? null : null;
 
   const passport = useMemo(
     () => defaults?.passport ?? passports.find((item) => item.id === selectedPassport) ?? null,
@@ -195,8 +215,9 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
       const moved = await api.blockEconomics.serviceToReference(service);
       // Из текущего состояния, а не из захваченного activeVariant: пока шла
       // публикация ревизии, сметчик мог править ту же вкладку ещё раз.
-      setVariants((current) =>
-        current.map((variant) =>
+      setVariantsState((current) => ({
+        ...current,
+        variants: current.variants.map((variant) =>
           variant.id === activeId
             ? {
                 ...variant,
@@ -207,7 +228,7 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
               }
             : variant,
         ),
-      );
+      }));
       setStatus(
         `«${service.name}» ${moved.created ? "добавлена" : "обновлена"} в правилах затрат как ${moved.code}.`,
       );
@@ -219,33 +240,46 @@ export function BlockEconomicsPage({ passportId }: { passportId?: string | null 
   }
 
   function patchActive(patch: Partial<ModelParameters>) {
-    if (!activeId) return;
-    setVariants((current) => patchVariant(current, activeId, patch));
+    setVariantsState((current) =>
+      current.activeId
+        ? { ...current, variants: patchVariant(current.variants, current.activeId, patch) }
+        : current,
+    );
     if (patch.package_code && patch.package_code !== packageCode) setPackageCode(patch.package_code);
   }
 
   function selectVariant(id: string) {
-    setActiveId(id);
+    setVariantsState((current) => ({ ...current, activeId: id }));
   }
 
-  /** Копия активного варианта становится активной: сравнивают её с исходным, меняя одно поле. */
+  /**
+   * Копия активного варианта становится активной: сравнивают её с исходным,
+   * меняя одно поле. Список и активный id меняются одним `setState`, а не
+   * двумя — иначе два быстрых клика подряд читают один и тот же список,
+   * ещё не увидевший первое изменение, и одно из двух действий теряется.
+   */
   function handleDuplicateVariant() {
-    if (!activeId) return;
-    const next = duplicateVariant(variants, activeId);
-    if (next === variants) return;
-    setVariants(next);
-    setActiveId(next[next.length - 1].id);
+    setVariantsState((current) => {
+      if (!current.activeId) return current;
+      const next = duplicateVariant(current.variants, current.activeId);
+      if (next === current.variants) return current;
+      return { variants: next, activeId: next[next.length - 1].id };
+    });
   }
 
   function handleRemoveVariant(id: string) {
-    const next = removeVariant(variants, id);
-    if (next === variants) return;
-    setVariants(next);
-    if (id === activeId) setActiveId(next[0]?.id ?? "");
+    setVariantsState((current) => {
+      const next = removeVariant(current.variants, id);
+      if (next === current.variants) return current;
+      return {
+        variants: next,
+        activeId: id === current.activeId ? next[0]?.id ?? "" : current.activeId,
+      };
+    });
   }
 
   function handleRenameVariant(id: string, name: string) {
-    setVariants((current) => renameVariant(current, id, name));
+    setVariantsState((current) => ({ ...current, variants: renameVariant(current.variants, id, name) }));
   }
 
   async function saveRun() {

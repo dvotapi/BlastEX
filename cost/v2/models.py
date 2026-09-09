@@ -462,6 +462,12 @@ class CostLine:
     unit: str = ""
     # Пусто у ФОТ: оклад, сдельная часть и НДФЛ дают разную ставку за смену.
     unit_price_rub: Decimal | None = None
+    # Роль номенклатуры («основное ВВ», «скважинное НСИ») — постоянна для
+    # статьи, в отличие от `cost_item_name`, которое называет то, что выбрал
+    # справочник (конкретный материал). Сравнение вариантов по столбцам ищет
+    # строку по роли: материал в них может различаться, роль — нет. Пусто у
+    # строк без выбора номенклатуры (правила затрат, техника, бригада).
+    role_label: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -475,6 +481,7 @@ class CostLine:
             "amount_rub": float(money(self.amount_rub)),
             "formula": self.formula,
             "resource_code": self.resource_code,
+            "role_label": self.role_label,
             "section": self.section,
             "quantity": float(self.quantity) if self.quantity is not None else None,
             "unit": self.unit,

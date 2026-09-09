@@ -159,9 +159,14 @@ export function groupVariantsByLayerAndSection(
     );
     if (ownPerVariant.every((sections) => sections === undefined)) continue;
 
-    const sections: VariantSectionGroup[] = ESTIMATE_SECTIONS.filter((section) =>
-      ownPerVariant.some((sections) => sections?.some((group) => group.section === section)),
-    ).map((section) => {
+    // Тот же порядок, что у одиночного расчёта (groupByLayerAndSection):
+    // известные разделы по номеру, незнакомый (справочник ушёл вперёд кода)
+    // — последним, а не молча выпадает из сводки по вариантам.
+    const sectionOrder = [
+      ...new Set(ownPerVariant.flatMap((sections) => sections?.map((group) => group.section) ?? [])),
+    ].sort((left, right) => (SECTION_NUMBERS[left] ?? 99) - (SECTION_NUMBERS[right] ?? 99));
+
+    const sections: VariantSectionGroup[] = sectionOrder.map((section) => {
       const linesPerVariant = ownPerVariant.map(
         (sections) => sections?.find((group) => group.section === section)?.lines ?? [],
       );
@@ -179,21 +184,26 @@ export function groupVariantsByLayerAndSection(
         const matches = linesPerVariant.map(
           (lines) => lines.find((line) => `${line.cost_item_code}:${line.operation_code}` === key) ?? null,
         );
-        // Один код статьи — разное наименование в разных вариантах: у
-        // материала, выбранного номенклатурой (ВВ, детонатор, НСИ), код
-        // роли общий, а название — то, что выбрали в справочнике для этого
-        // варианта. Подпись строки называет оба, а не молчит о расхождении.
-        const labels = [...new Set(matches.filter((line) => line !== null).map((line) => line.cost_item_name))];
+        const present = matches.filter((line) => line !== null);
+        // Роль номенклатуры («основное ВВ») не меняется от варианта к
+        // варианту, в отличие от названия выбранного материала — она и
+        // называет строку сравнения. Есть не у всех строк (правила затрат,
+        // техника, бригада не выбирают номенклатуру): для них, как и
+        // раньше, различающееся название вариантов перечисляется через «/»,
+        // а не молчит о расхождении.
+        const roleLabel = present.every((line) => line.role_label) ? present[0]?.role_label ?? null : null;
+        const label =
+          roleLabel ?? [...new Set(present.map((line) => line.cost_item_name))].join(" / ");
         return {
           key,
-          label: labels.join(" / "),
-          unit: matches.find((line) => line !== null)?.unit ?? "",
+          label,
+          unit: present[0]?.unit ?? "",
           amounts: matches.map((line) => line?.amount_rub ?? null),
         };
       });
       return {
         section,
-        number: `${layerNumber}.${SECTION_NUMBERS[section]}`,
+        number: `${layerNumber}.${SECTION_NUMBERS[section] ?? "—"}`,
         label: sectionLabel(section),
         totals: ownPerVariant.map((sections) => sections?.find((group) => group.section === section)?.total ?? 0),
         rows,

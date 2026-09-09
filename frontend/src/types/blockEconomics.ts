@@ -81,6 +81,12 @@ export type BlockCostLine = {
   unit: string;
   /** null у ФОТ: одной ставки за смену не существует. */
   unit_price_rub: number | null;
+  /**
+   * Роль номенклатуры («основное ВВ», «скважинное НСИ») — постоянна для
+   * статьи, в отличие от `cost_item_name`, которое называет то, что выбрали
+   * в справочнике. Null у строк без выбора номенклатуры.
+   */
+  role_label: string | null;
 };
 
 export type NaturalDrivers = {

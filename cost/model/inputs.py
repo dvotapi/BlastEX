@@ -475,6 +475,7 @@ class ModelContext:
         quantity: Decimal | None = None,
         unit: str = "",
         unit_price_rub: Decimal | None = None,
+        role_label: str | None = None,
     ) -> None:
         self.lines.append(
             CostLine(
@@ -492,6 +493,7 @@ class ModelContext:
                 quantity=quantity,
                 unit=unit,
                 unit_price_rub=unit_price_rub,
+                role_label=role_label,
             )
         )
 

@@ -59,3 +59,25 @@ def test_unknown_passport_gives_404(client) -> None:
         json={"technical_passport_id": "missing", "variants": [one]},
     )
     assert response.status_code == 404
+
+
+def test_reference_revision_id_is_a_request_field_not_a_per_variant_one(client) -> None:
+    """Ревизия — поле запроса: разные значения внутри вариантов на выбор снимка не влияют."""
+
+    test_client, _, passport_id = client
+    one = _parameters(passport_id, reference_revision_id="")["parameters"]
+    other = _parameters(passport_id, reference_revision_id="some-other-revision")["parameters"]
+    response = test_client.post(
+        "/api/v1/economics/block-economics/variants",
+        json={
+            "technical_passport_id": passport_id,
+            "reference_revision_id": "",
+            "variants": [{"name": "А", "parameters": one}, {"name": "Б", "parameters": other}],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["reference_revision_id"]
+    assert body["variants"][0]["economics"]["reference_revision_id"] == body["reference_revision_id"]
+    assert body["variants"][1]["economics"]["reference_revision_id"] == body["reference_revision_id"]

@@ -22,6 +22,7 @@ const line = (
     quantity: null,
     unit,
     unit_price_rub: null,
+    role_label: null,
   }) as BlockCostLine;
 
 describe("группировка сметы", () => {
@@ -196,5 +197,41 @@ describe("сводка вариантов: расходящееся наимен
     const groups = groupVariantsByLayerAndSection([dry, wet]);
 
     expect(groups[0].sections[0].rows[0].label).toBe("Гранулит РП");
+  });
+});
+
+describe("сводка вариантов: роль номенклатуры важнее выбранного материала", () => {
+  it("называет строку ролью, а не склеенными именами материалов, если роль есть у обеих", () => {
+    const dry = [{ ...line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100), cost_item_name: "Гранулит РП", role_label: "Основное ВВ" }];
+    const wet = [{ ...line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120), cost_item_name: "Эверсин-100", role_label: "Основное ВВ" }];
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+
+    expect(groups[0].sections[0].rows[0].label).toBe("Основное ВВ");
+  });
+
+  it("падает на склейку имён, если роли нет хотя бы у одного варианта", () => {
+    const dry = [{ ...line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100), cost_item_name: "Гранулит РП", role_label: "Основное ВВ" }];
+    const wet = [{ ...line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120), cost_item_name: "Эверсин-100", role_label: null }];
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+
+    expect(groups[0].sections[0].rows[0].label).toBe("Гранулит РП / Эверсин-100");
+  });
+});
+
+describe("сводка вариантов: незнакомый раздел не пропадает", () => {
+  it("раздел вне ESTIMATE_SECTIONS попадает в сводку последним, а не исчезает", () => {
+    const dry = [
+      line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 100),
+      { ...line("FUTURE_ITEM", "variable", "FUTURE_SECTION" as EstimateSection, 40) },
+    ];
+    const wet = [line("MATERIAL_EXPLOSIVE", "variable", "EXPLOSIVES", 120)];
+
+    const groups = groupVariantsByLayerAndSection([dry, wet]);
+    const sections = groups[0].sections.map((section) => section.section);
+
+    expect(sections).toEqual(["EXPLOSIVES", "FUTURE_SECTION"]);
+    expect(groups[0].sections[1].totals).toEqual([40, 0]);
   });
 });

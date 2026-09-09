@@ -27,6 +27,7 @@ vi.mock("../../api/endpoints", () => ({
 
 import { api } from "../../api/endpoints";
 import { BlockEconomicsPage } from "./BlockEconomicsPage";
+import { money } from "./format";
 import { defaultsFixture, economicsFixture } from "./testFixtures";
 import type { BlockEconomics, EconomicsRun, EconomicsRunSummary, VariantsResponse } from "../../types/blockEconomics";
 
@@ -79,6 +80,12 @@ describe("BlockEconomicsPage", () => {
     expect(await screen.findByRole("heading", { name: "Экономика блока", level: 1 })).toBeInTheDocument();
     expect(await explosivesGroupHeading()).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^7\. Постоянные и общепроизводственные расходы/ })).toBeInTheDocument();
+
+    // `money()` разделяет тысячи неразрывным узким пробелом (U+202F) —
+    // testing-library при сравнении текста узла нормализует его до обычного
+    // пробела, поэтому строку для поиска нормализуем так же.
+    const expectedFullCost = money(economicsFixture().markup.full_cost_rub, 0).replace(/\s/g, " ");
+    expect(await screen.findByText(expectedFullCost)).toBeInTheDocument();
   });
 
   it("смена ВВ вызывает пересчёт и обновляет сумму строки", async () => {
@@ -139,6 +146,101 @@ describe("BlockEconomicsPage", () => {
     );
     expect(await screen.findByText(/Сохранён как «Базовый»/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "XLSX" })).toHaveAttribute("href", "/x/RUN-1");
+  });
+
+  it("открытие сценария из истории спрашивает подтверждение при несохранённых правках черновика", async () => {
+    const user = userEvent.setup();
+    const savedRun: EconomicsRun = {
+      id: "RUN-1",
+      organization_id: "ORG-1",
+      name: "Базовый",
+      technical_passport_id: "PASSPORT-1",
+      package_code: "DRILL_AND_BLAST",
+      reference_revision_id: "REV-1",
+      parameters: {},
+      result: economicsFixture(),
+      created_at: "2026-01-02T00:00:00Z",
+      created_by: "tester@blastex.local",
+    };
+    const runSummary: EconomicsRunSummary = {
+      id: "RUN-1",
+      name: "Базовый",
+      technical_passport_id: "PASSPORT-1",
+      package_code: "DRILL_AND_BLAST",
+      reference_revision_id: "REV-1",
+      created_at: "2026-01-02T00:00:00Z",
+      created_by: "tester@blastex.local",
+      price_per_m3: { full: 1500 },
+    };
+    vi.mocked(api.blockEconomics.runs).mockResolvedValue([runSummary]);
+    vi.mocked(api.blockEconomics.run).mockResolvedValue(savedRun);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    await explosivesGroupHeading();
+    // Свежий черновик от умолчаний ещё не сохранён — savedKey пуст, поэтому «грязный» с самого начала.
+    expect(screen.getByText("Черновик · не сохранено")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "История" }));
+    await user.click(await screen.findByRole("button", { name: "Открыть" }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy).toHaveBeenLastCalledWith(
+      "Черновик «Вариант 1» не сохранён. Открыть другой сценарий и потерять несохранённые правки?",
+    );
+    // Отказ от подтверждения — прогон не запрашивается, черновик остаётся прежним.
+    expect(api.blockEconomics.run).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Открыть" }));
+
+    await waitFor(() => expect(api.blockEconomics.run).toHaveBeenCalledWith("RUN-1"));
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("открытие сценария из истории не спрашивает подтверждения, если черновик уже сохранён", async () => {
+    const user = userEvent.setup();
+    const savedRun: EconomicsRun = {
+      id: "RUN-1",
+      organization_id: "ORG-1",
+      name: "Базовый",
+      technical_passport_id: "PASSPORT-1",
+      package_code: "DRILL_AND_BLAST",
+      reference_revision_id: "REV-1",
+      parameters: {},
+      result: economicsFixture(),
+      created_at: "2026-01-02T00:00:00Z",
+      created_by: "tester@blastex.local",
+    };
+    const runSummary: EconomicsRunSummary = {
+      id: "RUN-1",
+      name: "Базовый",
+      technical_passport_id: "PASSPORT-1",
+      package_code: "DRILL_AND_BLAST",
+      reference_revision_id: "REV-1",
+      created_at: "2026-01-02T00:00:00Z",
+      created_by: "tester@blastex.local",
+      price_per_m3: { full: 1500 },
+    };
+    vi.mocked(api.blockEconomics.saveRun).mockResolvedValue(savedRun);
+    vi.mocked(api.blockEconomics.runs).mockResolvedValueOnce([]).mockResolvedValueOnce([runSummary]);
+    vi.mocked(api.blockEconomics.run).mockResolvedValue(savedRun);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    await explosivesGroupHeading();
+
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await user.type(screen.getByRole("textbox", { name: "Имя сценария" }), "Базовый{Enter}");
+    await waitFor(() => expect(api.blockEconomics.saveRun).toHaveBeenCalled());
+    // После сохранения снимок совпадает с параметрами черновика — признак «не сохранено» исчезает.
+    await waitFor(() => expect(screen.queryByText("Черновик · не сохранено")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("tab", { name: "История" }));
+    await user.click(await screen.findByRole("button", { name: "Открыть" }));
+
+    await waitFor(() => expect(api.blockEconomics.run).toHaveBeenCalledWith("RUN-1"));
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
   it("ошибка пересчёта не стирает форму и прежние числа", async () => {

@@ -325,7 +325,7 @@ def _tool(sections: dict[str, list[ReferenceItem]], *needles: str) -> str | None
     return None
 
 
-_JK830_2_NEEDLE = "jk830-2"
+_JK830_2_NORMALIZED = "jk8302"
 
 # Единственная норма, которую можно завести без риска соврать: паспортный
 # эталон станка JK830-2 (Docs/COST_MODEL.md, Docs/REFERENCES_MODEL.md). Для
@@ -333,6 +333,14 @@ _JK830_2_NEEDLE = "jk830-2"
 # бурения»» (cost/model/drilling.py:pick_condition) — придумывать за
 # пользователя нельзя, норму вводят через матрицу условий бурения.
 _JK830_2_COMMENT = "Паспорт станка (Docs/COST_MODEL.md): техническая скорость 12 м/ч, ресурс коронки 700 м."
+
+
+def _is_jk830_2(name: str) -> bool:
+    # Сравнение без пробелов и дефисов: «JK830-2», «JK 830-2», «JK-830-2» —
+    # один и тот же станок. Точное совпадение, не подстрока — «JK830-20»
+    # или «JK830-2М» не должны молча получить чужой паспорт.
+    normalized = re.sub(r"[\s-]", "", name.lower())
+    return normalized == _JK830_2_NORMALIZED
 
 
 def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedReport) -> None:
@@ -346,7 +354,7 @@ def _drilling_conditions(sections: dict[str, list[ReferenceItem]], report: SeedR
     for rig in sections["equipment_types"]:
         if _kind(rig) != "DRILL_RIG" or rig.code in with_condition or not rig.is_active:
             continue
-        if _JK830_2_NEEDLE not in rig.name.lower():
+        if not _is_jk830_2(rig.name):
             continue
         payload: dict[str, Any] = {
             "equipment_type_code": rig.code,

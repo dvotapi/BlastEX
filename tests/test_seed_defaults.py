@@ -131,6 +131,24 @@ def test_only_jk830_2_gets_a_real_default_drilling_condition() -> None:
     assert "COND_PUB_MODEL_1_DEFAULT" in report.conditions
 
 
+def test_jk830_2_match_ignores_spacing_but_not_other_models() -> None:
+    """«JK 830-2» и «JK830-2» — один станок; «JK830-20» — другой, не эталон."""
+
+    snapshot = imported_snapshot()
+    same_model = ReferenceItem(code="TYPE_JK_SPACED", name="JK 830-2", payload={"kind": "DRILL_RIG"})
+    other_model = ReferenceItem(code="TYPE_JK_20", name="JK830-20", payload={"kind": "DRILL_RIG"})
+    sections = {
+        **snapshot.sections,
+        "equipment_types": (*snapshot.sections["equipment_types"], same_model, other_model),
+    }
+
+    sections, _ = seed_reference(replace(snapshot, sections=sections))
+
+    covered = {item.payload["equipment_type_code"] for item in sections["drilling_conditions"]}
+    assert "TYPE_JK_SPACED" in covered
+    assert "TYPE_JK_20" not in covered
+
+
 def test_logistics_rules_ppe_and_per_diem_are_added_once() -> None:
     first, _ = seed_reference(imported_snapshot())
     again = replace(imported_snapshot(), sections={k: tuple(v) for k, v in first.items()})

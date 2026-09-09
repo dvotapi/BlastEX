@@ -12,7 +12,7 @@ import { OriginBadge } from "../estimate/OriginBadge";
 import { RowMenu } from "../estimate/RowMenu";
 import { lineNumber } from "../estimateModel";
 import { NOMENCLATURE_ROLES, isRoleVisible, optionCaption, type NomenclatureRole } from "../nomenclature";
-import { lineByRoleLabel, lineShare } from "./lineHelpers";
+import { lineByCode, lineShare } from "./lineHelpers";
 import type { SectionEditorProps } from "./types";
 
 export function ExplosivesSection({ group, params, defaults, economics, volume, canEdit, onChange }: SectionEditorProps) {
@@ -55,11 +55,13 @@ export function ExplosivesSection({ group, params, defaults, economics, volume, 
           price: option.price_rub,
           unit: option.unit,
         }));
-        // Количество приходит из строки модели, сопоставленной по роли, а не
-        // по коду выбранного материала — код меняется от прогона к прогону,
-        // а роль (`role_label`) нет. Та же идея, что у
-        // `groupVariantsByLayerAndSection` в `estimateSections.ts`.
-        const line = lineByRoleLabel(group.lines, role.label);
+        // Количество приходит из строки модели, сопоставленной по коду статьи
+        // затрат (`role.costItemCode`), а не по коду выбранного материала —
+        // тот меняется от прогона к прогону. Подпись роли (`role.label`) для
+        // сопоставления не годится: бэкендовый `line.role_label` — строка для
+        // предупреждений (другой регистр, другие формулировки), не машинный
+        // идентификатор.
+        const line = lineByCode(group.lines, role.costItemCode);
         const isManualQuantity = role.driver === null;
 
         return (

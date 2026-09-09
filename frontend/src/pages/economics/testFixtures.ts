@@ -176,30 +176,34 @@ function makeLine(patch: Partial<BlockCostLine> & Pick<BlockCostLine, "cost_item
 
 export function economicsFixture(): BlockEconomics {
   const lines: BlockCostLine[] = [
-    // Взрывчатые материалы — роли сопоставляются по `role_label`, не по коду статьи.
+    // Взрывчатые материалы — роли сопоставляются по `cost_item_code`, а не
+    // по `role_label`: бэкенд (`cost/model/materials.py`, `Role.label`)
+    // отдаёт `role_label` строкой для предупреждений (нижний регистр, другие
+    // формулировки — «основное ВВ», «промежуточный детонатор» и т.п.), а не
+    // машинным идентификатором для сопоставления в UI.
     makeLine({
       cost_item_code: "MATERIAL_EXPLOSIVE", cost_item_name: "Гранулит РП", section: "EXPLOSIVES",
-      role_label: "Основное ВВ", layer: "variable", amount_rub: 1335788.36,
+      role_label: "основное ВВ", layer: "variable", amount_rub: 1335788.36,
       quantity: 29038.86, unit: "кг", unit_price_rub: 46, quantity_origin: "PASSPORT", price_origin: "REFERENCE",
     }),
     makeLine({
       cost_item_code: "MATERIAL_BOOSTER", cost_item_name: "Сферит боевик", section: "EXPLOSIVES",
-      role_label: "Промежуточные детонаторы", layer: "variable", amount_rub: 5760,
+      role_label: "промежуточный детонатор", layer: "variable", amount_rub: 5760,
       quantity: 38.4, unit: "кг", unit_price_rub: 150, quantity_origin: "PASSPORT", price_origin: "REFERENCE",
     }),
     makeLine({
       cost_item_code: "MATERIAL_NSI_DOWNHOLE", cost_item_name: "СИНВ-С", section: "EXPLOSIVES",
-      role_label: "Скважинные НСИ", layer: "variable", amount_rub: 39690,
+      role_label: "скважинное НСИ", layer: "variable", amount_rub: 39690,
       quantity: 189, unit: "шт", unit_price_rub: 210, quantity_origin: "PASSPORT", price_origin: "REFERENCE",
     }),
     makeLine({
       cost_item_code: "MATERIAL_NSI_SURFACE", cost_item_name: "СИНВ-П", section: "EXPLOSIVES",
-      role_label: "Поверхностные НСИ", layer: "variable", amount_rub: 9120,
+      role_label: "поверхностное НСИ", layer: "variable", amount_rub: 9120,
       quantity: 96, unit: "шт", unit_price_rub: 95, quantity_origin: "PASSPORT", price_origin: "REFERENCE",
     }),
     makeLine({
-      cost_item_code: "MATERIAL_DETONATOR_ELECTRIC", cost_item_name: "ЭД-1-Н", section: "EXPLOSIVES",
-      role_label: "Электродетонаторы", layer: "variable", amount_rub: 1080,
+      cost_item_code: "MATERIAL_DETONATOR", cost_item_name: "ЭД-1-Н", section: "EXPLOSIVES",
+      role_label: "электродетонатор", layer: "variable", amount_rub: 1080,
       quantity: 24, unit: "шт", unit_price_rub: 45, quantity_origin: "MANUAL", price_origin: "REFERENCE",
     }),
 

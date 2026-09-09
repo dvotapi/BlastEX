@@ -2,21 +2,12 @@
  * Общие приёмы сопоставления строк модели со строками, которые рисует
  * раздел конструктора сметы.
  *
- * Три и более раздела ищут свою строку одним и тем же способом — по роли
- * номенклатуры, по коду статьи или по префиксу семейства статей техники —
- * поэтому сопоставление вынесено сюда один раз, а не повторяется в каждом
- * файле раздела своей копией.
+ * Несколько разделов ищут свою строку одним и тем же способом — по точному
+ * коду статьи или по префиксу семейства статей техники — поэтому
+ * сопоставление вынесено сюда один раз, а не повторяется в каждом файле
+ * раздела своей копией.
  */
 import type { BlockCostLine, BlockEconomics } from "../../../types/blockEconomics";
-
-/**
- * Строка раздела по роли номенклатуры: код выбранного материала меняется от
- * прогона к прогону, а `role_label` — нет (тот же приём, что у
- * `groupVariantsByLayerAndSection` в `estimateSections.ts`).
- */
-export function lineByRoleLabel(lines: BlockCostLine[], roleLabel: string): BlockCostLine | undefined {
-  return lines.find((line) => line.role_label === roleLabel);
-}
 
 /** Строка раздела по точному коду статьи. */
 export function lineByCode(lines: BlockCostLine[], code: string): BlockCostLine | undefined {

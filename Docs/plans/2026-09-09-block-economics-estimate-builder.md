@@ -1093,7 +1093,7 @@ state: passports, selectedPassport, defaults, drafts: Draft[], activeId, results
   <div class="economics-workspace">
     <div class="economics-main">
       <EconomicsTabs/>
-      tab === "estimate"   → <EstimateBuilder renderGroup={section editors}/>
+      tab === "estimate"   → <EstimateBuilder renderGroup={renderEstimateGroup}/>   // см. renderEstimateGroup ниже
       tab === "structure"  → <VariantTabs/> + <CostStructure results/>   (бумажная группировка и колонки вариантов, как сейчас)
       tab === "resources"  → <ResourcesTab economics/>  (natural.values + lineage таблицей, capacity, ModelWarnings, маржинальная цена и коридор)
       tab === "sensitivity"→ <SensitivityTable/>
@@ -1102,6 +1102,23 @@ state: passports, selectedPassport, defaults, drafts: Draft[], activeId, results
     </div>
     <EconomicsSidebar/>                — sticky: top = высота полосы паспорта + 14px
   </div>
+```
+
+`renderEstimateGroup` — одна функция, маршрутизирующая раздел на его редактор (все семь кодов `EstimateGroupCode` один в один с редакторами задачи 7):
+
+```tsx
+function renderEstimateGroup(group: EstimateGroup): ReactNode {
+  const common = { group, params: activeVariant!.parameters, defaults: defaults!, economics: activeEconomics, volume, canEdit, onChange: patchActive };
+  switch (group.code) {
+    case "EXPLOSIVES": return <ExplosivesSection {...common} />;
+    case "DRILLING": return <DrillingSection {...common} onOpenDrillingPage={onOpenDrilling} />;
+    case "LABOR": return <LaborSection {...common} />;
+    case "EQUIPMENT": return <EquipmentSection {...common} />;
+    case "FUEL": return <FuelSection {...common} />;
+    case "SERVICES": return <ServicesSection {...common} operations={defaults!.operations} busyCode={movingService} onMove={moveServiceToReference} />;
+    case "FIXED": return <FixedCostsSection {...common} />;
+  }
+}
 ```
 
 Ошибка пересчёта показывается баннером над таблицей; прежний `results` остаётся на экране, форма не сбрасывается. `PassportStrip` теряет пропсы `runName/onRunName/onSave/saveDisabled/status`, плашки берутся из `passportSummary.ts` (добавить «Средний расход ВВ» = `explosive_kg / drilling_m`, кг/м, и «Паспорт от …» из `created_at`).

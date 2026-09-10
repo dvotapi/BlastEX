@@ -185,3 +185,10 @@
 @media (max-width:1050px) {
   .resources-margin-body { grid-template-columns:1fr; }
 }
+
+/* --- Ограничитель ошибок вкладки (`EconomicsErrorBoundary`): единственное,
+   что остаётся на месте сметы, когда её не удалось отрисовать. --- */
+.economics-crash { display:grid; justify-items:start; gap:10px; padding:20px; border:1px solid #f0d3cf; border-radius:15px; background:#fdf6f5; }
+.economics-crash b { font-size:14px; color:#9e3025; }
+.economics-crash p { margin:0; max-width:60ch; color:#5f7168; font-size:12px; line-height:1.5; }
+.economics-crash code { padding:8px 10px; border-radius:8px; background:#fff; color:#9e3025; font-family:inherit; font-size:11px; }

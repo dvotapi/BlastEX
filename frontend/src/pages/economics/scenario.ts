@@ -22,6 +22,26 @@ function paramsKey(parameters: ModelParameters): string {
 }
 
 /**
+ * Значение поля параметров из прогона, из каталога умолчаний или из пустого
+ * значения — в этом порядке.
+ *
+ * Отсутствие поля (`undefined`) и явная пустота (`null`) — разные вещи:
+ * `rig_plan_shifts: null` в прогоне означает «считать по нормативу», и
+ * подменять его умолчанием нельзя. Поэтому проверка именно на `undefined`, а
+ * не оператор `??`, который склеил бы оба случая.
+ */
+function pick<K extends keyof ModelParameters>(
+  raw: Partial<ModelParameters>,
+  base: ModelParameters | null,
+  key: K,
+  empty: ModelParameters[K],
+): ModelParameters[K] {
+  if (raw[key] !== undefined) return raw[key] as ModelParameters[K];
+  if (base && base[key] !== undefined) return base[key];
+  return empty;
+}
+
+/**
  * Новый черновик с параметров по умолчанию (`ModelDefaults.parameters`) —
  * ещё ничего не сохранено, поэтому `savedKey` заведомо не совпадает ни с
  * одним снимком параметров: такой черновик всегда «грязный».
@@ -53,20 +73,43 @@ export function draftFromDefaults(name: string, parameters: ModelParameters): Dr
  * `economics_runs` при этом не меняется и остаётся историческим снимком со
  * своей исходной ревизией — это решение касается только нового черновика.
  */
-export function draftFromRun(run: EconomicsRun, name: string): Draft {
-  const rawParameters = run.parameters as unknown as ModelParameters;
-  // Прогоны, сохранённые до появления полей субподряда бурения, не несут их
-  // вовсе — `undefined`, а не `null`. `SubcontractDrillingEditor.tsx`
-  // проверяет строго `!== null` (бейдж «Ручной», доступность кнопки
-  // сохранения), и `undefined` вёл себя иначе, чем ожидается, вплоть до
-  // отправки `rate_rub: undefined` на сервер. `??` подставляет `null` только
-  // когда поля нет вовсе (`undefined`) — настоящее значение, включая явный
-  // `null`, остаётся как есть.
+export function draftFromRun(
+  run: EconomicsRun,
+  name: string,
+  /** Параметры по умолчанию текущего каталога; null — каталог ещё не загружен. */
+  fallback: ModelParameters | null = null,
+): Draft {
+  const raw = run.parameters as unknown as Partial<ModelParameters>;
+  // Прогон несёт ровно те поля, которые существовали в схеме на момент его
+  // сохранения: у старых прогонов нет ни `services`, ни `machine_plan_shifts`,
+  // ни техники эмульсии, ни полей субподряда. Раньше их отсутствие уезжало в
+  // черновик как `undefined` и роняло всю страницу на первом же `.length`.
+  // Каждое поле названо здесь явно, поэтому новое поле `ModelParameters` не
+  // проскочит мимо: TypeScript потребует дописать его в этот объект.
   const parameters: ModelParameters = {
-    ...rawParameters,
-    subcontract_rate_code: rawParameters.subcontract_rate_code ?? null,
-    subcontract_rate_rub: rawParameters.subcontract_rate_rub ?? null,
+    package_code: pick(raw, fallback, "package_code", ""),
+    site_code: pick(raw, fallback, "site_code", ""),
+    // Считать на актуальной ревизии, а не на исторической — см. описание выше.
     reference_revision_id: "",
+    unit_plan_volume_m3: pick(raw, fallback, "unit_plan_volume_m3", "0"),
+    rig_code: pick(raw, fallback, "rig_code", null),
+    rig_plan_shifts: pick(raw, fallback, "rig_plan_shifts", null),
+    szm_code: pick(raw, fallback, "szm_code", null),
+    delivery_truck_code: pick(raw, fallback, "delivery_truck_code", null),
+    emulsion_truck_code: pick(raw, fallback, "emulsion_truck_code", null),
+    machine_plan_shifts: pick(raw, fallback, "machine_plan_shifts", {}),
+    crew: pick(raw, fallback, "crew", []),
+    services: pick(raw, fallback, "services", []),
+    drilling_executor: pick(raw, fallback, "drilling_executor", "OWN"),
+    // Выбор подрядчика — часть самого прогона: его отсутствие означает «не
+    // выбран», а не «взять из умолчаний», поэтому каталог здесь не спрашиваем.
+    subcontract_rate_code: raw.subcontract_rate_code ?? null,
+    subcontract_rate_rub: raw.subcontract_rate_rub ?? null,
+    nomenclature: pick(raw, fallback, "nomenclature", {}),
+    electric_detonators_qty: pick(raw, fallback, "electric_detonators_qty", "0"),
+    overhead_rate: pick(raw, fallback, "overhead_rate", null),
+    target_margin_rate: pick(raw, fallback, "target_margin_rate", null),
+    vat_rate: pick(raw, fallback, "vat_rate", null),
   };
   return { ...makeVariant(name, parameters), sourceRunId: run.id, savedKey: paramsKey(parameters) };
 }

@@ -4,6 +4,7 @@ import { useHeightVariable } from "../../app/useHeightVariable";
 import { useWorkspace } from "../../app/useWorkspace";
 import { CostStructure } from "./CostStructure";
 import { EconomicsHeader } from "./EconomicsHeader";
+import { EconomicsErrorBoundary } from "./EconomicsErrorBoundary";
 import { EconomicsHelp } from "./EconomicsHelp";
 import { EconomicsTabs, type EconomicsTab } from "./EconomicsTabs";
 import { HistoryTab } from "./HistoryTab";
@@ -144,6 +145,12 @@ export function BlockEconomicsPage({
   useEffect(() => {
     selectedPassportRef.current = selectedPassport;
   }, [selectedPassport]);
+  // То же зеркало для каталога умолчаний: `openRun` читает его уже после
+  // `await`, чтобы дополнить параметры старого прогона недостающими полями.
+  const defaultsRef = useRef(defaults);
+  useEffect(() => {
+    defaultsRef.current = defaults;
+  }, [defaults]);
 
   useEffect(() => {
     api.economics
@@ -499,7 +506,7 @@ export function BlockEconomicsPage({
     try {
       const run = await api.blockEconomics.run(runId);
       if (passportAtStart !== selectedPassportRef.current) return;
-      const draft = draftFromRun(run, run.name);
+      const draft = draftFromRun(run, run.name, defaultsRef.current?.parameters ?? null);
       setDraftsState((current) => {
         const index = current.drafts.findIndex((item) => item.id === current.activeId);
         const nextDrafts =
@@ -663,6 +670,10 @@ export function BlockEconomicsPage({
           </div>
         )}
 
+        {/* Ограничитель пересоздаётся вместе со сценарием: выбор другого
+            сценария в шапке — рабочий путь из упавшего состояния, а сама шапка
+            остаётся живой, потому что стоит выше ограничителя. */}
+        <EconomicsErrorBoundary key={activeId}>
         <div className="economics-workspace">
           <div className="economics-main">
             <EconomicsTabs active={tab} onChange={setTab} />
@@ -752,6 +763,7 @@ export function BlockEconomicsPage({
             />
           )}
         </div>
+        </EconomicsErrorBoundary>
       </div>
     </div>
   );

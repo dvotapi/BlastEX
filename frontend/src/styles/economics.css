@@ -30,15 +30,37 @@
 
 .estimate-line-wrap + .estimate-line-wrap,
 .estimate-section-body > .estimate-line-wrap:first-child { border-top:1px solid #eef2f0; }
-.estimate-line { padding:0 12px; min-height:34px; font-size:12px; }
+.estimate-line { padding:4px 12px; min-height:var(--ec-row-h, 40px); font-size:var(--ec-font-row, 13px); }
 .estimate-line:hover { background:#f7faf8; }
-.estimate-line-formula { margin:0; padding:8px 12px 10px 56px; background:#f7faf8; border-top:1px solid #eef2f0; font-size:11px; color:#4a5a51; }
-.estimate-line-formula code { font-family:inherit; }
+.estimate-line-title { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Величины без своей колонки — серой строкой под названием. */
+.estimate-line-caption { display:flex; align-items:center; flex-wrap:wrap; gap:5px; min-width:0; color:#78857f; font-size:11px; }
+.estimate-line-caption-item { display:inline-flex; align-items:center; gap:5px; min-width:0; }
+.estimate-line-caption-sep { color:#c2ccc7; }
+.estimate-line-caption .link-button { font-size:11px; }
+
+/* Панель под строкой: правка величины из меню либо формула строки. */
+.estimate-line-panel { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; padding:9px 12px 11px 56px; background:#f7faf8; border-top:1px solid #eef2f0; font-size:11px; color:#4a5a51; }
+.estimate-line-panel code { font-family:inherit; }
+.estimate-line-field { display:grid; gap:4px; color:#5f7168; font-size:10px; font-weight:700; }
+.estimate-line-field input { width:120px; padding:6px 8px; border:1px solid #cfd9d4; border-radius:7px; background:#fff; font-size:12px; }
+.estimate-line-field input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
+
+/* Строка, деньги которой учтены в другом разделе. */
+.estimate-line.is-reference .estimate-col-amount { font-weight:400; color:#9aa8a1; }
+
+/* Подвал раздела: кнопки «+ Добавить …», панель ручных услуг, ссылки. */
+.estimate-section-footer { padding:8px 12px 12px; display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.estimate-section-empty { padding:10px 12px 12px; }
+.estimate-add-menu { position:relative; }
 
 .estimate-row, .estimate-line, .estimate-section-head, .estimate-head { font-variant-numeric:tabular-nums; }
 .estimate-col-quantity, .estimate-col-price, .estimate-col-amount, .estimate-col-perm3, .estimate-col-share { text-align:right; }
+.estimate-col-quantity input { width:100%; padding:4px 7px; border:1px solid #cfd9d4; border-radius:7px; background:#fff; font-size:12px; text-align:right; }
+.estimate-col-quantity input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
 .estimate-col-unit { text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.estimate-col-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.estimate-col-name { display:flex; flex-direction:column; justify-content:center; gap:1px; min-width:0; overflow:hidden; }
 .estimate-col-amount { font-weight:700; }
 .estimate-section-head .estimate-col-amount, .estimate-section-head .estimate-col-perm3, .estimate-section-head .estimate-col-share { font-weight:700; }
 .estimate-col-actions { display:flex; align-items:center; justify-content:flex-end; gap:4px; }
@@ -210,3 +232,50 @@
 .economics-crash b { font-size:14px; color:#9e3025; }
 .economics-crash p { margin:0; max-width:60ch; color:#5f7168; font-size:12px; line-height:1.5; }
 .economics-crash code { padding:8px 10px; border-radius:8px; background:#fff; color:#9e3025; font-family:inherit; font-size:11px; }
+
+/* --- Карточка раздела «Бурение» ---------------------------------------
+   Способ исполнения меняет саму статью затрат, поэтому раздел открывается
+   формой, а не строкой: переключатель и станок слева, величины метра по
+   центру, сумма и разложение справа. --- */
+.estimate-card { margin:10px 12px; padding:14px; border:1px solid #dde5e1; border-radius:12px; background:#fbfcfb; }
+.drilling-card { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.1fr) 210px; gap:18px; align-items:start; }
+.drilling-card-col { display:grid; gap:10px; align-content:start; min-width:0; }
+.drilling-card-field { display:grid; gap:5px; color:#5f7168; font-size:10px; font-weight:700; }
+.drilling-card-facts { gap:12px; }
+.drilling-card-fact { display:grid; gap:4px; min-width:0; }
+.drilling-card-fact-label { color:#78857f; font-size:10px; font-weight:700; }
+.drilling-card-fact-value { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; font-variant-numeric:tabular-nums; }
+.drilling-card-fact-value input { width:110px; padding:6px 8px; border:1px solid #cfd9d4; border-radius:7px; background:#fff; font-size:12px; }
+.drilling-card-fact-value input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
+.drilling-card-total { justify-items:end; text-align:right; gap:2px; }
+.drilling-card-amount { font-size:22px; letter-spacing:-.5px; font-variant-numeric:tabular-nums; }
+.drilling-card-perm3 { margin-bottom:8px; color:#78857f; font-size:11px; font-variant-numeric:tabular-nums; }
+.drilling-card-footer { grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding-top:12px; border-top:1px solid #e6ece9; }
+
+.drilling-executor { margin:0; padding:0; border:0; display:grid; gap:6px; }
+.drilling-executor legend { padding:0; margin-bottom:2px; color:#5f7168; font-size:10px; font-weight:700; }
+.drilling-executor label { display:flex; align-items:center; gap:7px; font-size:12px; }
+.drilling-executor input { accent-color:#2d7556; }
+
+/* Публикация ручной ставки в справочник — под карточкой. */
+.drilling-rate-save { display:grid; gap:6px; }
+.drilling-rate-save-form { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.drilling-rate-save-form input { padding:7px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fff; font-size:12px; }
+.drilling-rate-save-form button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
+.drilling-rate-save-form button:disabled { opacity:.6; cursor:not-allowed; }
+.drilling-rate-status { margin:0; color:#1f6a4a; font-size:11px; }
+.drilling-rate-error { margin:0; color:#9e3025; font-size:11px; }
+
+/* Выдвижная панель разложения метра: смету за ней видно, она не модальная. */
+.drilling-drawer { position:fixed; z-index:40; top:0; right:0; bottom:0; width:min(460px,100vw); overflow:auto; padding:20px; border-left:1px solid #d9e2dd; background:#fff; box-shadow:-16px 0 40px rgba(22,48,36,.14); }
+.drilling-drawer-close { position:absolute; top:14px; right:16px; width:28px; height:28px; display:grid; place-items:center; border:1px solid #dde5e1; border-radius:50%; background:#fff; color:#5f7168; font-size:16px; line-height:1; }
+.drilling-drawer-close:hover { border-color:#2d7556; color:#2d7556; }
+
+/* Ссылка-кнопка: действие, которое читается как ссылка. */
+.link-button { padding:0; border:0; background:transparent; color:#1f6a4a; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
+.link-button:hover { text-decoration:underline; }
+.link-button:disabled { color:#9aa8a1; cursor:not-allowed; text-decoration:none; }
+.link-button:focus-visible { outline:none; border-radius:5px; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
+
+/* Роль техники: строка роли и её подстроки идут подряд, без своей рамки. */
+.equipment-role { display:contents; }

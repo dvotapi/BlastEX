@@ -11,14 +11,17 @@ import type { ValueOrigin } from "../../../types/blockEconomics";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
 import { NumericInput } from "../NumericInput";
-import { OriginBadge } from "../estimate/OriginBadge";
 import { lineNumber } from "../estimateModel";
+import { amount as formatAmount } from "../format";
 import { lineByCode, lineShare } from "../sections/lineHelpers";
 import type { SectionEditorProps } from "../sections/types";
+import { DrillingCard, type DrillingFact } from "./DrillingCard";
 
 export type SubcontractDrillingEditorProps = SectionEditorProps & {
   /** Каталог устарел и его нужно перечитать — зовётся сразу после публикации тарифа в справочник. */
   onDefaultsChanged: () => void;
+  /** Переключатель «Исполнение» — рисует `DrillingSection`, показывает карточка. */
+  executor: React.ReactNode;
 };
 
 export function SubcontractDrillingEditor({
@@ -30,6 +33,7 @@ export function SubcontractDrillingEditor({
   canEdit,
   onChange,
   onDefaultsChanged,
+  executor,
 }: SubcontractDrillingEditorProps) {
   const selectedRate = defaults.subcontract_rates.find((rate) => rate.code === params.subcontract_rate_code);
 
@@ -106,100 +110,115 @@ export function SubcontractDrillingEditor({
     }
   }
 
+  // Форма публикации тарифа живёт под карточкой: разметка `.drilling-rate-save-form`
+  // сохранена дословно — на неё опирается тест страницы.
+  const saveForm = !saveOpen ? (
+    <button
+      type="button"
+      className="link-button"
+      onClick={() => {
+        setSaveOpen(true);
+        setRateName(selectedRate?.name ?? "");
+      }}
+    >
+      Сохранить тариф в справочник
+    </button>
+  ) : (
+    <div className="drilling-rate-save-form">
+      <input type="text" aria-label="Название тарифа" value={rateName} onChange={(e) => setRateName(e.target.value)} />
+      <button type="button" disabled={saving || !rateName.trim()} onClick={submitSave}>
+        {saving ? "Сохраняем…" : "Сохранить"}
+      </button>
+      <button type="button" disabled={saving} onClick={() => setSaveOpen(false)}>
+        Отмена
+      </button>
+    </div>
+  );
+
+  const facts: DrillingFact[] = [
+    {
+      label: "Объём бурения",
+      value: drillingM === null ? "—" : `${formatAmount(Number(drillingM))} п.м.`,
+      origin: "PASSPORT",
+      originLabel: "Из паспорта",
+    },
+    {
+      label: "Ставка, ₽/м",
+      editor: (
+        <NumericInput
+          value={priceValue}
+          allowEmpty
+          min={0}
+          ariaLabel="Ставка субподряда, ₽/м"
+          onChange={(value) => onChange({ subcontract_rate_rub: value })}
+        />
+      ),
+      origin: priceOrigin,
+    },
+  ];
+
   return (
     <>
-      <EstimateLine
-        number={lineNumber(group, 0)}
-        name={
-          <div className="subcontract-drilling-name">
-            <CatalogSelect
-              id="drilling-counterparty"
-              label="Подрядчик"
-              value={counterpartyCode}
-              options={counterpartyOptions}
-              onChange={selectCounterparty}
-              disabled={!canEdit}
-            />
-            <CatalogSelect
-              id="drilling-rate"
-              label="Тариф"
-              value={params.subcontract_rate_code ?? ""}
-              options={rateCatalogOptions}
-              onChange={selectRate}
-              disabled={!canEdit || !counterpartyCode}
-            />
-          </div>
+      <DrillingCard
+        executor={executor}
+        machine={
+          <>
+            <label className="drilling-card-field">
+              Подрядчик
+              <CatalogSelect
+                id="drilling-counterparty"
+                label="Подрядчик"
+                value={counterpartyCode}
+                options={counterpartyOptions}
+                onChange={selectCounterparty}
+                disabled={!canEdit}
+                variant="field"
+              />
+            </label>
+            <label className="drilling-card-field">
+              Тариф
+              <CatalogSelect
+                id="drilling-rate"
+                label="Тариф"
+                value={params.subcontract_rate_code ?? ""}
+                options={rateCatalogOptions}
+                onChange={selectRate}
+                disabled={!canEdit || !counterpartyCode}
+                variant="field"
+              />
+            </label>
+          </>
         }
-        origin="PASSPORT"
-        quantity={drillingM === null ? null : Number(drillingM)}
-        unit="м"
-        price={priceValue === null ? null : Number(priceValue)}
+        facts={facts}
         amount={line?.amount_rub ?? 0}
         volume={volume}
-        share={line ? lineShare(line, economics) : 0}
-        formula={line?.formula}
-        actions={
-          <label className="drilling-rate-manual">
-            Ставка, ₽/м
-            <NumericInput
-              value={priceValue}
-              allowEmpty
-              min={0}
-              ariaLabel="Ставка субподряда, ₽/м"
-              onChange={(value) => onChange({ subcontract_rate_rub: value })}
-            />
-            <OriginBadge origin={priceOrigin} />
-          </label>
+        footer={
+          <>
+            {needsCounterpartyToSave && (
+              <div className="drilling-rate-save">
+                <button type="button" className="link-button" disabled title="Сначала выберите подрядчика">
+                  Сохранить тариф в справочник
+                </button>
+              </div>
+            )}
+            {canSave && (
+              <div className="drilling-rate-save">
+                {saveForm}
+                {status && <p className="drilling-rate-status">{status}</p>}
+                {error && (
+                  <p className="drilling-rate-error" role="alert">
+                    {error}
+                  </p>
+                )}
+              </div>
+            )}
+          </>
         }
       />
-      {needsCounterpartyToSave && (
-        <div className="drilling-rate-save">
-          <button type="button" className="link-button" disabled title="Сначала выберите подрядчика">
-            Сохранить тариф в справочник
-          </button>
-        </div>
-      )}
-      {canSave && (
-        <div className="drilling-rate-save">
-          {!saveOpen ? (
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                setSaveOpen(true);
-                setRateName(selectedRate?.name ?? "");
-              }}
-            >
-              Сохранить тариф в справочник
-            </button>
-          ) : (
-            <div className="drilling-rate-save-form">
-              <input
-                type="text"
-                aria-label="Название тарифа"
-                value={rateName}
-                onChange={(e) => setRateName(e.target.value)}
-              />
-              <button type="button" disabled={saving || !rateName.trim()} onClick={submitSave}>
-                {saving ? "Сохраняем…" : "Сохранить"}
-              </button>
-              <button type="button" disabled={saving} onClick={() => setSaveOpen(false)}>
-                Отмена
-              </button>
-            </div>
-          )}
-          {status && <p className="drilling-rate-status">{status}</p>}
-          {error && (
-            <p className="drilling-rate-error" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-      )}
       {otherLines.map((item, index) => (
         <EstimateLine
           key={item.cost_item_code}
-          number={`${lineNumber(group, 0)}.${index + 1}`}
+          number={lineNumber(group, index)}
           name={item.cost_item_name}
           origin={item.price_origin || item.quantity_origin}
           quantity={item.quantity}

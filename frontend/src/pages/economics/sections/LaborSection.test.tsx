@@ -91,4 +91,36 @@ describe("LaborSection", () => {
       crew: params.crew.map((member, i) => (i === 0 ? { ...member, headcount: "2" } : member)),
     });
   });
+
+  it("смены на блок видны подписью, а правятся из меню строки", async () => {
+    const { params, defaults, economics, group } = setup();
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LaborSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={onChange}
+      />,
+    );
+
+    // Значение видно всегда — поля в строке нет, оно не наезжает на суммы.
+    expect(screen.getAllByText(/Смены на блок:/).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Смен на блок: Мастер БВР")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Действия: Мастер БВР" }));
+    await user.click(screen.getByRole("menuitem", { name: "Смены на блок" }));
+
+    const shifts = screen.getByLabelText("Смен на блок: Мастер БВР");
+    expect(shifts).toHaveFocus();
+    await user.type(shifts, "3");
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      crew: params.crew.map((member, i) => (i === 0 ? { ...member, shifts_per_block: "3" } : member)),
+    });
+  });
 });

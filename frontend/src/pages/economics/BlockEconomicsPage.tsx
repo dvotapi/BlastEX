@@ -602,7 +602,7 @@ export function BlockEconomicsPage({
       case "LABOR":
         return <LaborSection {...common} />;
       case "EQUIPMENT":
-        return <EquipmentSection {...common} />;
+        return <EquipmentSection {...common} onOpenDrillingGroup={() => selectGroupFromChart("DRILLING")} />;
       case "FUEL":
         return <FuelSection {...common} />;
       case "SERVICES":

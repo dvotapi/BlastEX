@@ -7,9 +7,9 @@
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
 import { NumericInput } from "../NumericInput";
-import { RowMenu } from "../estimate/RowMenu";
+import { AddMenu } from "../estimate/AddMenu";
 import { lineNumber } from "../estimateModel";
-import { money } from "../format";
+import { amount as formatAmount, money } from "../format";
 import { crewOrigin } from "../origin";
 import { lineByCode, lineShare } from "./lineHelpers";
 import type { SectionEditorProps } from "./types";
@@ -75,21 +75,38 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
               />
             }
             origin={origin}
+            // Смены на блок своей колонки в смете не имеют: они видны серой
+            // подписью под должностью, а правятся из меню строки.
+            captions={[
+              {
+                label: "Смены на блок",
+                value:
+                  member.shifts_per_block === null || member.shifts_per_block === ""
+                    ? "норматив"
+                    : formatAmount(Number(member.shifts_per_block)),
+                origin,
+              },
+            ]}
             quantity={Number(member.headcount)}
+            quantityEditor={
+              <NumericInput
+                value={member.headcount}
+                min={0}
+                step={1}
+                ariaLabel={`Численность: ${positionLabel}`}
+                onChange={(value) => update(index, { headcount: value ?? "0" })}
+              />
+            }
             unit="чел."
             price={position?.fixed_monthly_rub ?? null}
             amount={line?.amount_rub ?? 0}
             volume={volume}
             share={line ? lineShare(line, economics) : 0}
-            actions={
-              <>
-                <NumericInput
-                  value={member.headcount}
-                  min={0}
-                  step={1}
-                  ariaLabel={`Численность: ${positionLabel}`}
-                  onChange={(value) => update(index, { headcount: value ?? "0" })}
-                />
+            menuLabel={`Действия: ${positionLabel}`}
+            editorMenuLabel="Смены на блок"
+            editor={
+              <label className="estimate-line-field">
+                Смены на блок
                 <NumericInput
                   value={member.shifts_per_block}
                   allowEmpty
@@ -99,26 +116,27 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
                   ariaLabel={`Смен на блок: ${positionLabel}`}
                   onChange={(value) => update(index, { shifts_per_block: value })}
                 />
-                {canEdit && (
-                  <RowMenu
-                    items={[
-                      ...(template
-                        ? [{ label: "Сбросить к нормативу", onSelect: () => resetToNorm(index, template) }]
-                        : []),
-                      { label: "Убрать", onSelect: () => remove(index), danger: true },
-                    ]}
-                    label={`Действия: ${positionLabel}`}
-                  />
-                )}
-              </>
+              </label>
+            }
+            menuItems={
+              canEdit
+                ? [
+                    ...(template
+                      ? [{ label: "Сбросить к нормативу", onSelect: () => resetToNorm(index, template) }]
+                      : []),
+                    { label: "Убрать", onSelect: () => remove(index), danger: true },
+                  ]
+                : []
             }
           />
         );
       })}
-      {canEdit && (
-        <button type="button" className="row-add" onClick={add} disabled={!directPositions.length}>
-          + Добавить должность
-        </button>
+      {canEdit && directPositions.length > 0 && (
+        <div className="estimate-section-footer">
+          <button type="button" className="row-add" onClick={add}>
+            + Добавить должность
+          </button>
+        </div>
       )}
       {readOnlyLines.map((line, index) => (
         <EstimateLine
@@ -132,6 +150,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
           amount={line.amount_rub}
           volume={volume}
           share={lineShare(line, economics)}
+          formula={line.formula}
         />
       ))}
     </>

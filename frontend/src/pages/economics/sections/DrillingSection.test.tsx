@@ -49,14 +49,68 @@ describe("DrillingSection", () => {
       />,
     );
 
-    expect(screen.getByText("Расчёт бурения")).toHaveAttribute(
+    // Плашка в карточке названа местом расчёта, а не действием: рядом с ней
+    // стоит объём «Из паспорта», и обе подписи читаются одинаково.
+    expect(screen.getByText("Из расчёта бурения")).toHaveAttribute(
       "title",
       "drilling_conditions.COND_GRANITE (станок + порода)",
     );
+    expect(screen.getByText("Из паспорта")).toBeInTheDocument();
 
     await user.click(screen.getByRole("radio", { name: "Субподряд" }));
 
     expect(onChange).toHaveBeenCalledWith({ drilling_executor: "SUBCONTRACTOR" });
+  });
+
+  it("карточка бурения показывает объём, цену метра и сумму раздела", () => {
+    const { params, defaults, economics, group } = setup();
+    render(
+      <DrillingSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={() => {}}
+        onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Объём бурения")).toBeInTheDocument();
+    expect(screen.getByText("Стоимость 1 п.м.")).toBeInTheDocument();
+    expect(screen.getByText("Сумма")).toBeInTheDocument();
+    // Плановые смены станка правятся прямо в карточке — это поле, а не подпись.
+    expect(screen.getByLabelText("Плановые смены станка")).toBeInTheDocument();
+  });
+
+  it("панель расчёта бурения открывается, берёт фокус и закрывается по Escape", async () => {
+    const { params, defaults, economics, group } = setup();
+    const user = userEvent.setup();
+    render(
+      <DrillingSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={() => {}}
+        onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Открыть расчёт бурения →" }));
+
+    const drawer = screen.getByRole("dialog", { name: "Расчёт бурения" });
+    expect(drawer).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Закрыть" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "Расчёт бурения" })).not.toBeInTheDocument();
   });
 
   it("выбор тарифа подрядчика ставит код и сбрасывает ручную ставку", async () => {

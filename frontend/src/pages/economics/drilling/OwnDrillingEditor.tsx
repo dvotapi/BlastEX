@@ -10,16 +10,18 @@ import type { Numeric, ValueOrigin } from "../../../types/blockEconomics";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
 import { NumericInput } from "../NumericInput";
-import { OriginBadge } from "../estimate/OriginBadge";
 import { lineNumber } from "../estimateModel";
 import { amount as formatAmount, money } from "../format";
 import { lineShare } from "../sections/lineHelpers";
 import type { SectionEditorProps } from "../sections/types";
+import { DrillingCard, type DrillingFact } from "./DrillingCard";
 import { DrillingDrawer } from "./DrillingDrawer";
 
 export type OwnDrillingEditorProps = SectionEditorProps & {
   /** Открыть отдельный калькулятор бурения (Cost V1, вкладка «Бурение»). */
   onOpenDrillingPage: () => void;
+  /** Переключатель «Исполнение» — рисует `DrillingSection`, показывает карточка. */
+  executor: React.ReactNode;
 };
 
 function sameNumeric(a: Numeric | null | undefined, b: Numeric | null | undefined): boolean {
@@ -37,6 +39,7 @@ export function OwnDrillingEditor({
   canEdit,
   onChange,
   onOpenDrillingPage,
+  executor,
 }: OwnDrillingEditorProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -53,67 +56,73 @@ export function OwnDrillingEditor({
 
   const otherLines = group.lines.filter((line) => line.cost_item_code !== "DRILL_SUBCONTRACT");
 
+  const facts: DrillingFact[] = [
+    {
+      label: "Объём бурения",
+      value: drillingM === null ? "—" : `${formatAmount(Number(drillingM))} п.м.`,
+      origin: "PASSPORT",
+      originLabel: "Из паспорта",
+    },
+    {
+      label: "Стоимость 1 п.м.",
+      value: rubPerM === undefined ? "—" : `${money(Number(rubPerM))} ₽/м`,
+      origin: "CALC",
+      originLabel: "Из расчёта бурения",
+      originTitle: conditionTitle,
+    },
+    {
+      label: "Плановые смены станка",
+      editor: (
+        <NumericInput
+          value={params.rig_plan_shifts}
+          allowEmpty
+          min={0}
+          step={1}
+          placeholder="норматив"
+          ariaLabel="Плановые смены станка"
+          onChange={(value) => onChange({ rig_plan_shifts: value })}
+        />
+      ),
+      origin: rigPlanOrigin,
+    },
+  ];
+
   return (
     <>
-      <EstimateLine
-        number={lineNumber(group, 0)}
-        name={
-          <CatalogSelect
-            id="drilling-rig"
-            label="Буровая установка"
-            value={params.rig_code ?? ""}
-            options={rigOptions}
-            onChange={(code) => onChange({ rig_code: code || null })}
-            disabled={!canEdit}
-          />
+      <DrillingCard
+        executor={executor}
+        machine={
+          <label className="drilling-card-field">
+            Буровая установка
+            <CatalogSelect
+              id="drilling-rig"
+              label="Буровая установка"
+              value={params.rig_code ?? ""}
+              options={rigOptions}
+              onChange={(code) => onChange({ rig_code: code || null })}
+              disabled={!canEdit}
+              variant="field"
+            />
+          </label>
         }
-        origin=""
-        quantity={null}
-        unit=""
-        price={null}
+        facts={facts}
         amount={group.total}
         volume={volume}
-        share={group.share}
-        actions={
-          <>
-            <span className="drilling-volume">
-              Объём бурения: {drillingM === null ? "—" : formatAmount(Number(drillingM))} м
-              <OriginBadge origin="PASSPORT" />
-            </span>
-            {rubPerM !== undefined && (
-              <span className="drilling-rate">
-                Стоимость метра: {money(Number(rubPerM))} ₽/м
-                <OriginBadge origin="CALC" label="Расчёт бурения" title={conditionTitle} />
-              </span>
-            )}
-            <label className="drilling-plan-shifts">
-              Плановые смены станка
-              <NumericInput
-                value={params.rig_plan_shifts}
-                allowEmpty
-                min={0}
-                step={1}
-                placeholder="норматив"
-                ariaLabel="Плановые смены станка"
-                onChange={(value) => onChange({ rig_plan_shifts: value })}
-              />
-              <OriginBadge origin={rigPlanOrigin} />
-            </label>
-          </>
+        action={
+          <button type="button" className="secondary-button" onClick={() => setDrawerOpen(true)}>
+            Открыть расчёт бурения →
+          </button>
+        }
+        footer={
+          <button type="button" className="link-button" onClick={onOpenDrillingPage}>
+            Перейти к расчёту бурения (Бурение) →
+          </button>
         }
       />
-      <p className="drilling-links">
-        <button type="button" className="link-button" onClick={() => setDrawerOpen(true)}>
-          Открыть расчёт бурения →
-        </button>
-        <button type="button" className="link-button" onClick={onOpenDrillingPage}>
-          Перейти к расчёту бурения (Бурение) →
-        </button>
-      </p>
       {otherLines.map((line, index) => (
         <EstimateLine
           key={line.cost_item_code}
-          number={`${lineNumber(group, 0)}.${index + 1}`}
+          number={lineNumber(group, index)}
           name={line.cost_item_name}
           origin={line.price_origin || line.quantity_origin}
           quantity={line.quantity}

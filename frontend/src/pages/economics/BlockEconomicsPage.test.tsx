@@ -331,4 +331,55 @@ describe("BlockEconomicsPage", () => {
       screen.getByText("Сохранённых сценариев ещё нет: посчитайте и нажмите «Сохранить»."),
     ).toBeInTheDocument();
   });
+
+  it("переключение на другой черновик сбрасывает локальный выбор подрядчика в разделе бурения", async () => {
+    const user = userEvent.setup();
+    const defaultsWithTwoCounterparties = {
+      ...defaultsFixture(),
+      counterparties: [
+        { code: "CONTR_A", name: "ООО «Буровик»" },
+        { code: "CONTR_B", name: "ООО «Скважина»" },
+      ],
+    };
+    vi.mocked(api.blockEconomics.modelDefaults).mockResolvedValue(defaultsWithTwoCounterparties);
+    // После дублирования вкладка запрашивает пересчёт сразу двух черновиков —
+    // ответ должен нести по варианту на каждый, а не всегда один и тот же.
+    vi.mocked(api.blockEconomics.variants).mockImplementation(async (_passportId, variants) => ({
+      reference_revision_id: "REV-1",
+      variants: variants.map((variant) => ({ name: variant.name, economics: economicsFixture() })),
+    }));
+
+    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    await expandAllGroups(user);
+
+    // «Вариант 1» переходит на субподряд — подрядчик по умолчанию (первая
+    // запись справочника, «ООО «Буровик»»), его не трогаем.
+    await user.click(screen.getByRole("radio", { name: "Субподряд" }));
+    expect(await screen.findByRole("combobox", { name: "Подрядчик" })).toHaveTextContent("ООО «Буровик»");
+
+    // Дублирование создаёт «Вариант 2» с теми же параметрами и запускает
+    // пересчёт обоих черновиков — дожидаемся его, иначе «Вариант 2» ещё не
+    // смонтирован (вкладка показывает «Расчёт выполняется…»).
+    await user.click(screen.getByRole("button", { name: "Дублировать" }));
+    await waitFor(() => expect(api.blockEconomics.variants).toHaveBeenCalledTimes(2));
+    await screen.findByRole("combobox", { name: "Подрядчик" });
+
+    // На «Варианте 2» (сейчас активном) выбираем ДРУГОГО подрядчика — это
+    // чисто локальный стейт `SubcontractDrillingEditor` (сбрасывает лишь
+    // тариф в null, который и так null, params «Варианта 1» не трогает).
+    await user.click(screen.getByRole("combobox", { name: "Подрядчик" }));
+    await user.click(await screen.findByRole("option", { name: "ООО «Скважина»" }));
+    expect(screen.getByRole("combobox", { name: "Подрядчик" })).toHaveTextContent("ООО «Скважина»");
+
+    // Переключение обратно на «Вариант 1» через селектор сценария — оба
+    // черновика уже посчитаны (пересчёт не перезапускается, `drafts` не
+    // меняется), поэтому смета не проходит через «Расчёт выполняется…», и
+    // без `key={activeId}` на `EstimateBuilder` компонент раздела бурения
+    // остался бы смонтированным тем же экземпляром — с локальным выбором
+    // подрядчика «Варианта 2», «протёкшим» в «Вариант 1». «Вариант 1»
+    // должен показать своего подрядчика по умолчанию («ООО «Буровик»»).
+    await user.selectOptions(screen.getByRole("combobox", { name: "Сценарий" }), "Вариант 1 · черновик");
+
+    expect(await screen.findByRole("combobox", { name: "Подрядчик" })).toHaveTextContent("ООО «Буровик»");
+  });
 });

@@ -58,6 +58,31 @@ describe("EquipmentSection", () => {
     expect(screen.getAllByText("Норматив").length).toBe(4);
   });
 
+  it("амортизация станка отображается в «Технике», даже если её раздел в модели — DRILLING, а не EQUIPMENT", () => {
+    // `DRILL_DEPRECIATION`/`DRILL_INSURANCE` во фикстуре имеют `section: "DRILLING"`
+    // (реальный раздел бэкенда, `cost/model/drilling.py`) — `groupOf` отправляет их
+    // в раздел «Бурение», поэтому `group.lines` раздела «Техника» их не содержит.
+    // `EquipmentSection` должен найти их сам, по всему расчёту (`economics.lines`),
+    // а не только по строкам своего раздела.
+    const { params, defaults, economics, group } = setup();
+    render(
+      <EquipmentSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Амортизация станка")).toBeInTheDocument();
+    expect(screen.getByText("Страхование станка")).toBeInTheDocument();
+    // Сумма строки роли «Буровая установка» — не нулевая: 45000 + 5000 = 50000,00.
+    expect(screen.getByText("50 000,00")).toBeInTheDocument();
+  });
+
   it("правка плановых смен СЗМ переводит бейдж в «Ручной» и уходит в machine_plan_shifts", async () => {
     const { params, defaults, economics, group } = setup();
     const onChange = vi.fn();

@@ -41,7 +41,19 @@ export function draftFromDefaults(name: string, parameters: ModelParameters): Dr
  * сериализованные параметры модели.
  */
 export function draftFromRun(run: EconomicsRun, name: string): Draft {
-  const parameters = run.parameters as unknown as ModelParameters;
+  const rawParameters = run.parameters as unknown as ModelParameters;
+  // Прогоны, сохранённые до появления полей субподряда бурения, не несут их
+  // вовсе — `undefined`, а не `null`. `SubcontractDrillingEditor.tsx`
+  // проверяет строго `!== null` (бейдж «Ручной», доступность кнопки
+  // сохранения), и `undefined` вёл себя иначе, чем ожидается, вплоть до
+  // отправки `rate_rub: undefined` на сервер. `??` подставляет `null` только
+  // когда поля нет вовсе (`undefined`) — настоящее значение, включая явный
+  // `null`, остаётся как есть.
+  const parameters: ModelParameters = {
+    ...rawParameters,
+    subcontract_rate_code: rawParameters.subcontract_rate_code ?? null,
+    subcontract_rate_rub: rawParameters.subcontract_rate_rub ?? null,
+  };
   return { ...makeVariant(name, parameters), sourceRunId: run.id, savedKey: paramsKey(parameters) };
 }
 

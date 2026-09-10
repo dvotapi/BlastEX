@@ -16,7 +16,21 @@ import { lineNumber } from "../estimateModel";
 import { lineByCode, lineShare } from "../sections/lineHelpers";
 import type { SectionEditorProps } from "../sections/types";
 
-export function SubcontractDrillingEditor({ group, params, defaults, economics, volume, canEdit, onChange }: SectionEditorProps) {
+export type SubcontractDrillingEditorProps = SectionEditorProps & {
+  /** Каталог устарел и его нужно перечитать — зовётся сразу после публикации тарифа в справочник. */
+  onDefaultsChanged: () => void;
+};
+
+export function SubcontractDrillingEditor({
+  group,
+  params,
+  defaults,
+  economics,
+  volume,
+  canEdit,
+  onChange,
+  onDefaultsChanged,
+}: SubcontractDrillingEditorProps) {
   const selectedRate = defaults.subcontract_rates.find((rate) => rate.code === params.subcontract_rate_code);
 
   // Подрядчик — контекст выбора тарифа, в параметрах прогона своего поля не
@@ -77,6 +91,10 @@ export function SubcontractDrillingEditor({ group, params, defaults, economics, 
         rate_rub: params.subcontract_rate_rub,
       });
       onChange({ subcontract_rate_code: response.code, subcontract_rate_rub: null });
+      // Каталог (`defaults.subcontract_rates`) — снимок ДО публикации: без
+      // перезагрузки только что опубликованный код не находится в нём, и
+      // выбор тарифа выглядит так, будто пропал (сброшен на «не выбрано»).
+      onDefaultsChanged();
       setStatus(`Тариф «${response.code}» опубликован ревизией ${response.reference_revision_id}`);
       setSaveOpen(false);
       setRateName("");

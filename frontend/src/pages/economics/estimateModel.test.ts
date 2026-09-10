@@ -62,6 +62,15 @@ describe("groupOf", () => {
     expect(groupOf(line({ section: "FUEL" }))).toBe("FUEL");
   });
 
+  it("строка топлива техники (SZM_FUEL) попадает в ГСМ, а не в Технику, несмотря на префикс кода", () => {
+    // Раздел из данных бэкенда (`section: "FUEL"`, см. `cost/model/logistics.py::_vehicle_fuel`)
+    // важнее эвристики по префиксу кода статьи техники (`MACHINE_PREFIXES`):
+    // код "SZM_FUEL" начинается с "SZM_" и раньше уходил в «Технику» первым же совпадением.
+    expect(groupOf(line({ section: "FUEL", cost_item_code: "SZM_FUEL" }))).toBe("FUEL");
+    expect(groupOf(line({ section: "FUEL", cost_item_code: "EMULSION_TRUCK_FUEL" }))).toBe("FUEL");
+    expect(groupOf(line({ section: "FUEL", cost_item_code: "VM_TRUCK_FUEL" }))).toBe("FUEL");
+  });
+
   it("хранение и доставка ВМ — производственная услуга", () => {
     expect(groupOf(line({ section: "VM_LOGISTICS" }))).toBe("SERVICES");
   });

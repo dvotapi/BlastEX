@@ -12,10 +12,18 @@ import type { SectionEditorProps } from "./types";
 export type DrillingSectionProps = SectionEditorProps & {
   /** Открыть отдельный калькулятор бурения (Cost V1, вкладка «Бурение»); подключает задача 9. */
   onOpenDrillingPage: () => void;
+  /**
+   * Каталог (`defaults`) устарел и его нужно перечитать — зовёт
+   * `SubcontractDrillingEditor` сразу после публикации тарифа субподряда в
+   * справочник: без этого выбранный код не находится в старом снимке
+   * `defaults.subcontract_rates`, и выбор тарифа выглядит сброшенным.
+   */
+  onDefaultsChanged: () => void;
 };
 
 export function DrillingSection(props: DrillingSectionProps) {
-  const { params, canEdit, onChange } = props;
+  const { group, params, defaults, economics, volume, canEdit, onChange, onOpenDrillingPage, onDefaultsChanged } =
+    props;
 
   function setExecutor(executor: ModelParameters["drilling_executor"]) {
     onChange({ drilling_executor: executor });
@@ -46,7 +54,29 @@ export function DrillingSection(props: DrillingSectionProps) {
           Субподряд
         </label>
       </fieldset>
-      {params.drilling_executor === "OWN" ? <OwnDrillingEditor {...props} /> : <SubcontractDrillingEditor {...props} />}
+      {params.drilling_executor === "OWN" ? (
+        <OwnDrillingEditor
+          group={group}
+          params={params}
+          defaults={defaults}
+          economics={economics}
+          volume={volume}
+          canEdit={canEdit}
+          onChange={onChange}
+          onOpenDrillingPage={onOpenDrillingPage}
+        />
+      ) : (
+        <SubcontractDrillingEditor
+          group={group}
+          params={params}
+          defaults={defaults}
+          economics={economics}
+          volume={volume}
+          canEdit={canEdit}
+          onChange={onChange}
+          onDefaultsChanged={onDefaultsChanged}
+        />
+      )}
     </div>
   );
 }

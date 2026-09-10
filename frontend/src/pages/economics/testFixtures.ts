@@ -233,12 +233,16 @@ export function economicsFixture(): BlockEconomics {
     }),
 
     // Техника: станок (при собственном бурении), СЗМ, доставщик ВМ, тягач эмульсии.
+    // Станок — реальный раздел бэкенда "DRILLING" (`cost/model/drilling.py`),
+    // а не "DEPRECIATION": строки станка попадают в раздел «Бурение» по
+    // `groupOf`, а в «Технике» их находит `EquipmentSection` отдельно, по
+    // всему расчёту (см. `linesByPrefix(economics?.lines ?? [], "DRILL_")`).
     makeLine({
-      cost_item_code: "DRILL_DEPRECIATION", cost_item_name: "Амортизация станка", section: "DEPRECIATION",
+      cost_item_code: "DRILL_DEPRECIATION", cost_item_name: "Амортизация станка", section: "DRILLING",
       layer: "project_direct", amount_rub: 45000,
     }),
     makeLine({
-      cost_item_code: "DRILL_INSURANCE", cost_item_name: "Страхование станка", section: "DEPRECIATION",
+      cost_item_code: "DRILL_INSURANCE", cost_item_name: "Страхование станка", section: "DRILLING",
       layer: "production", amount_rub: 5000,
     }),
     makeLine({
@@ -266,17 +270,23 @@ export function economicsFixture(): BlockEconomics {
       layer: "production", amount_rub: 3000,
     }),
 
-    // ГСМ.
+    // ГСМ: реальный код статьи из `cost/model/logistics.py::_vehicle_fuel` —
+    // "SZM_FUEL" начинается с префикса "SZM_" из `MACHINE_PREFIXES`
+    // (`estimateModel.ts`), поэтому именно этот код проверяет, что раздел
+    // ГСМ побеждает эвристику по префиксу техники, а не только код общего вида.
     makeLine({
-      cost_item_code: "FUEL_DIESEL", cost_item_name: "Дизельное топливо", section: "FUEL",
+      cost_item_code: "SZM_FUEL", cost_item_name: "ДТ СЗМ", section: "FUEL",
       layer: "variable", amount_rub: 54000, quantity: 1200, unit: "л", unit_price_rub: 45,
       quantity_origin: "CALC", price_origin: "REFERENCE",
     }),
 
-    // Производственные услуги: доставка и хранение ВМ.
+    // Производственные услуги: мобилизация и демобилизация (реальный код статьи
+    // из `cost/model/logistics.py::_mobilization` — раздел этой строки, а не код
+    // статьи, равен "VM_LOGISTICS").
     makeLine({
-      cost_item_code: "VM_LOGISTICS", cost_item_name: "Доставка и хранение ВМ", section: "VM_LOGISTICS",
-      layer: "project_direct", amount_rub: 22000,
+      cost_item_code: "MOBILIZATION", cost_item_name: "Мобилизация и демобилизация", section: "VM_LOGISTICS",
+      layer: "project_direct", amount_rub: 22000, quantity: 40, unit: "км", unit_price_rub: 550,
+      quantity_origin: "CALC", price_origin: "REFERENCE",
     }),
     // Услуга, введённая на вкладке вручную (входит в раздел «Услуги» по правилу `groupOf`).
     makeLine({

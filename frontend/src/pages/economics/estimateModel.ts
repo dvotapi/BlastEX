@@ -51,9 +51,14 @@ export function groupOf(line: BlockCostLine): EstimateGroupCode {
   if (line.section === "EXPLOSIVES") return "EXPLOSIVES";
   if (line.section === "DRILLING") return "DRILLING";
   if (line.section === "LABOR" || line.section === "PER_DIEM") return "LABOR";
+  // ГСМ по разделу бэкенда — раньше, чем эвристика по префиксу кода статьи
+  // техники: некоторые строки топлива (`SZM_FUEL`, `EMULSION_TRUCK_FUEL` —
+  // см. `cost/model/logistics.py::_vehicle_fuel`) начинаются с префикса из
+  // `MACHINE_PREFIXES`, но раздел, который явно проставил бэкенд, важнее
+  // догадки по коду: топливная строка должна попасть в ГСМ, а не в Технику.
+  if (line.section === "FUEL") return "FUEL";
   if (line.section === "DEPRECIATION") return "EQUIPMENT";
   if (MACHINE_PREFIXES.some((prefix) => line.cost_item_code.startsWith(prefix))) return "EQUIPMENT";
-  if (line.section === "FUEL") return "FUEL";
   if (line.section === "VM_LOGISTICS") return "SERVICES";
   // Ручная услуга с вкладки: и количество, и цена введены сметчиком, а не
   // взяты из модели или справочника — это производственная услуга.

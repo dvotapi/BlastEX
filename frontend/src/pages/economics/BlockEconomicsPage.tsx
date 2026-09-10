@@ -187,6 +187,27 @@ export function BlockEconomicsPage({
   }, [loadDefaults]);
 
   const activePackageCode = drafts.find((draft) => draft.id === activeId)?.parameters.package_code;
+
+  /**
+   * Каталог (`defaults`) обновляется без сброса черновиков — в отличие от
+   * `loadDefaults`, который начинает вкладку заново. Нужен после публикации
+   * записи в справочник прямо со сметы (например, тариф субподряда бурения,
+   * `SubcontractDrillingEditor`): опубликованный код должен появиться в
+   * `defaults.subcontract_rates` сразу, иначе выбор тарифа, только что
+   * записанный в параметры черновика, не находится в старом снимке каталога
+   * и выглядит так, будто сбросился.
+   */
+  const reloadDefaults = useCallback(async () => {
+    if (!selectedPassport || !activePackageCode) return;
+    try {
+      const loaded = await api.blockEconomics.modelDefaults(selectedPassport, activePackageCode);
+      setDefaults(loaded);
+    } catch {
+      // Прежний каталог остаётся видимым и рабочим — обновление не критично
+      // для продолжения работы с уже выбранным тарифом.
+    }
+  }, [selectedPassport, activePackageCode]);
+
   /**
    * Пакет работ сменили у уже открытого черновика — обновляем каталог
    * (станки, операции, номенклатуру) под него, но список черновиков не
@@ -513,7 +534,7 @@ export function BlockEconomicsPage({
       case "EXPLOSIVES":
         return <ExplosivesSection {...common} />;
       case "DRILLING":
-        return <DrillingSection {...common} onOpenDrillingPage={onOpenDrilling} />;
+        return <DrillingSection {...common} onOpenDrillingPage={onOpenDrilling} onDefaultsChanged={() => void reloadDefaults()} />;
       case "LABOR":
         return <LaborSection {...common} />;
       case "EQUIPMENT":
@@ -593,6 +614,14 @@ export function BlockEconomicsPage({
               (activeEconomics ? (
                 <div className="table-scroll">
                   <EstimateBuilder
+                    // Смена черновика (`activeId`) должна сбрасывать весь
+                    // локальный стейт разделов сметы одним движением — например,
+                    // выбор подрядчика в `SubcontractDrillingEditor`, который
+                    // иначе «протекает» между черновиками с разными (или без)
+                    // выбранными тарифами. `key` пересоздаёт поддерево целиком;
+                    // раскрытые разделы (`expanded`) не пострадают — они живут
+                    // здесь, на уровне страницы, а не внутри `EstimateBuilder`.
+                    key={activeId}
                     groups={groups}
                     volume={volume}
                     expanded={expanded}

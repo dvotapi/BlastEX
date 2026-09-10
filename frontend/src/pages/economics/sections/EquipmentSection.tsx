@@ -18,6 +18,14 @@ import { linesByPrefix, lineShare } from "./lineHelpers";
 import type { SectionEditorProps } from "./types";
 import type { CodeName, ModelParameters, ValueOrigin } from "../../../types/blockEconomics";
 
+/**
+ * Статьи станка, относящиеся к владению им (а не к работе метром) — все
+ * имеют `section === "DRILLING"` (`cost/model/drilling.py`), поэтому найти
+ * их по префиксу и разделу «Техника» разом нельзя: ищем по всему расчёту и
+ * отбираем именно эти коды, а не весь префикс `DRILL_` (см. `EquipmentSection`).
+ */
+const RIG_OWNERSHIP_ITEM_CODES = new Set(["DRILL_DEPRECIATION", "DRILL_INSURANCE", "DRILL_MAINTENANCE"]);
+
 type EquipmentRoleKey = "rig_code" | "szm_code" | "delivery_truck_code" | "emulsion_truck_code";
 
 type EquipmentRole = {
@@ -100,7 +108,26 @@ export function EquipmentSection({ group, params, defaults, economics, volume, c
         const shiftsTitle = economics?.natural.lineage[role.shiftsKey];
         const planRaw = role.param === "rig_code" ? params.rig_plan_shifts : code ? (params.machine_plan_shifts[code] ?? null) : null;
         const planOrigin: ValueOrigin = planRaw === null || planRaw === undefined || planRaw === "" ? "NORM" : "MANUAL";
-        const items = linesByPrefix(group.lines, role.prefix);
+        // Статьи станка (`DRILL_*`) все имеют `section === "DRILLING"` (см.
+        // `cost/model/drilling.py`), поэтому `groupOf` относит их в раздел
+        // «Бурение», а не «Техника» — `group.lines` этого раздела их никогда
+        // не содержит. Ищем их во всём расчёте, тем же приёмом, каким чуть
+        // ниже ищется `DRILL_UNALLOCATED_FIXED` при субподряде, но не по
+        // всему префиксу: `DRILL_TOOLING`/`DRILL_FUEL`/`DRILL_SPARE_PARTS`/
+        // `DRILL_INSPECTION` — переменные затраты бурения метром, они уже
+        // показаны в разделе «Бурение» (`OwnDrillingEditor`) и не относятся
+        // к владению станком; `DRILL_SUBCONTRACT`/`DRILL_UNALLOCATED_FIXED`
+        // тоже начинаются с `DRILL_`, но показаны в другом месте: первая —
+        // главной строкой раздела «Бурение» (`SubcontractDrillingEditor`),
+        // вторая — отдельной сноской чуть ниже (`unallocated`). Здесь — как
+        // и у остальных трёх ролей — только статьи владения станком:
+        // амортизация, страхование, ТОиР.
+        const items =
+          role.param === "rig_code"
+            ? linesByPrefix(economics?.lines ?? [], role.prefix).filter((item) =>
+                RIG_OWNERSHIP_ITEM_CODES.has(item.cost_item_code),
+              )
+            : linesByPrefix(group.lines, role.prefix);
         const total = items.reduce((sum, line) => sum + line.amount_rub, 0);
         const share = items.reduce((sum, line) => sum + lineShare(line, economics), 0);
         // Станок при субподряде бурения не работает на блок — его постоянные

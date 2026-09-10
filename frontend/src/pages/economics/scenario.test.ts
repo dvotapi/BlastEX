@@ -77,6 +77,32 @@ describe("draftFromRun", () => {
     const draft = draftFromRun(run, "Сценарий 2");
     expect(draft.parameters).toEqual(baseParameters());
   });
+
+  it("нормализует отсутствующие поля субподряда в null, а не оставляет undefined", () => {
+    // Прогон, сохранённый до появления полей субподряда бурения: ключей нет
+    // вовсе в сериализованных параметрах — как если бы старая запись пришла
+    // с бэкенда без них.
+    const legacyParameters = baseParameters() as unknown as Record<string, unknown>;
+    delete legacyParameters.subcontract_rate_code;
+    delete legacyParameters.subcontract_rate_rub;
+    const run = baseRun({ parameters: legacyParameters });
+
+    const draft = draftFromRun(run, "Старый прогон");
+
+    expect(draft.parameters.subcontract_rate_code).toBeNull();
+    expect(draft.parameters.subcontract_rate_rub).toBeNull();
+  });
+
+  it("настоящее значение поля субподряда перекрывает дефолт null", () => {
+    const run = baseRun({
+      parameters: { ...baseParameters(), subcontract_rate_code: "RATE_A" } as unknown as Record<string, unknown>,
+    });
+
+    const draft = draftFromRun(run, "Сценарий с субподрядом");
+
+    expect(draft.parameters.subcontract_rate_code).toBe("RATE_A");
+    expect(draft.parameters.subcontract_rate_rub).toBeNull();
+  });
 });
 
 describe("markSaved", () => {

@@ -1,13 +1,26 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../../api/endpoints", () => ({
+  api: {
+    blockEconomics: {
+      subcontractRateToReference: vi.fn(),
+    },
+  },
+}));
+
+import { api } from "../../../api/endpoints";
 import { DrillingSection } from "./DrillingSection";
 import { buildEstimate } from "../estimateModel";
 import { defaultsFixture, economicsFixture, paramsFixture } from "../testFixtures";
 import type { ModelParameters } from "../../../types/blockEconomics";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.resetAllMocks();
+});
 
 function setup(paramsPatch: Partial<ModelParameters> = {}) {
   const params = { ...paramsFixture(), ...paramsPatch };
@@ -32,6 +45,7 @@ describe("DrillingSection", () => {
         canEdit
         onChange={onChange}
         onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
       />,
     );
 
@@ -59,6 +73,7 @@ describe("DrillingSection", () => {
         canEdit
         onChange={onChange}
         onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
       />,
     );
 
@@ -85,6 +100,7 @@ describe("DrillingSection", () => {
         canEdit
         onChange={onChange}
         onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
       />,
     );
 
@@ -104,6 +120,7 @@ describe("DrillingSection", () => {
         canEdit
         onChange={onChange}
         onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
       />,
     );
 
@@ -127,6 +144,7 @@ describe("DrillingSection", () => {
         canEdit
         onChange={onChange}
         onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
       />,
     );
 
@@ -156,6 +174,7 @@ describe("DrillingSection", () => {
         canEdit
         onChange={onChange}
         onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
       />,
     );
 
@@ -176,9 +195,51 @@ describe("DrillingSection", () => {
         canEdit
         onChange={onChange}
         onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
       />,
     );
 
     expect(screen.getByRole("button", { name: "Сохранить тариф в справочник" })).toBeEnabled();
+  });
+
+  it("после публикации тарифа субподряда зовёт onDefaultsChanged, чтобы каталог перечитался", async () => {
+    vi.mocked(api.blockEconomics.subcontractRateToReference).mockResolvedValue({
+      section: "subcontract_rates",
+      code: "RATE_NEW",
+      created: true,
+      reference_revision_id: "REV-2",
+    });
+    const { params, defaults, economics, group } = setup({
+      drilling_executor: "SUBCONTRACTOR",
+      subcontract_rate_rub: "185",
+    });
+    const onChange = vi.fn();
+    const onDefaultsChanged = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <DrillingSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={onChange}
+        onOpenDrillingPage={() => {}}
+        onDefaultsChanged={onDefaultsChanged}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Сохранить тариф в справочник" }));
+    await user.type(screen.getByRole("textbox", { name: "Название тарифа" }), "Новый тариф");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(api.blockEconomics.subcontractRateToReference).toHaveBeenCalledTimes(1));
+    // `defaults.subcontract_rates` — снимок каталога ДО публикации: без
+    // перезагрузки только что опубликованный код "RATE_NEW" не находится в
+    // нём, и `SubcontractDrillingEditor` показал бы «не выбрано» — родитель
+    // (`BlockEconomicsPage`) должен перечитать каталог по этому колбэку.
+    expect(onDefaultsChanged).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenLastCalledWith({ subcontract_rate_code: "RATE_NEW", subcontract_rate_rub: null });
   });
 });

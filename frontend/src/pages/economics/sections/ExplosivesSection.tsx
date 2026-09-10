@@ -87,6 +87,7 @@ export function ExplosivesSection({ group, params, defaults, economics, volume, 
                   min={0}
                   step={1}
                   ariaLabel={`Количество: ${role.label}`}
+                  disabled={!canEdit}
                   onChange={(value) => onChange({ electric_detonators_qty: value ?? "0" })}
                 />
               ) : undefined
@@ -102,7 +103,7 @@ export function ExplosivesSection({ group, params, defaults, economics, volume, 
           />
         );
       })}
-      {canEdit && (
+      {canEdit && hiddenRoles.length > 0 && (
         <div className="estimate-section-footer">
           <AddMenu
             label="Добавить материал"

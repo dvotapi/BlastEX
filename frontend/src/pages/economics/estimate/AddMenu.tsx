@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPosition } from "./useAnchoredPosition";
 
+/** Те же величины, что у меню строки: список ведёт себя одинаково. */
+const MENU_MIN_WIDTH = 180;
+const MENU_HEIGHT = 140;
+
 /**
  * Кнопка «+ Добавить …» со списком того, что ещё можно добавить в раздел
  * сметы: скрытые роли номенклатуры, свободные роли техники.
@@ -12,18 +16,17 @@ import { useAnchoredPosition } from "./useAnchoredPosition";
 export function AddMenu({
   label,
   items,
-  disabled,
 }: {
   /** Подпись кнопки и заголовок списка: «Добавить материал». */
   label: string;
+  /** Пустой список кнопку не рисует: добавлять нечего. */
   items: Array<{ code: string; label: string; onSelect: () => void }>;
-  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const position = useAnchoredPosition(triggerRef, open, "start", 180);
+  const position = useAnchoredPosition(triggerRef, open, "start", MENU_MIN_WIDTH, MENU_HEIGHT);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -55,7 +58,6 @@ export function AddMenu({
         className="row-add"
         aria-haspopup="menu"
         aria-expanded={open}
-        disabled={disabled}
         onClick={() => setOpen((value) => !value)}
       >
         + {label}
@@ -66,7 +68,7 @@ export function AddMenu({
           className="row-menu-list"
           role="menu"
           aria-label={label}
-          style={{ position: "fixed", top: position.top, left: position.left }}
+          style={{ position: "fixed", top: position.top, left: position.left, minWidth: position.minWidth }}
         >
           {items.map((item) => (
             <button

@@ -42,6 +42,25 @@ function pick<K extends keyof ModelParameters>(
 }
 
 /**
+ * То же для полей-коллекций, у которых `null` осмысленного значения не имеет.
+ *
+ * Список и карта либо есть, либо их нет; `"crew": null` в старой записи —
+ * такой же пропуск, как отсутствующий ключ, и отличать одно от другого здесь
+ * незачем. Зато `null`, дошедший до `params.crew.map`, роняет всю страницу —
+ * ровно то, ради чего написана эта функция.
+ */
+function pickCollection<K extends keyof ModelParameters>(
+  raw: Partial<ModelParameters>,
+  base: ModelParameters | null,
+  key: K,
+  empty: ModelParameters[K],
+): ModelParameters[K] {
+  if (raw[key] != null) return raw[key] as ModelParameters[K];
+  if (base && base[key] != null) return base[key];
+  return empty;
+}
+
+/**
  * Новый черновик с параметров по умолчанию (`ModelDefaults.parameters`) —
  * ещё ничего не сохранено, поэтому `savedKey` заведомо не совпадает ни с
  * одним снимком параметров: такой черновик всегда «грязный».
@@ -97,15 +116,15 @@ export function draftFromRun(
     szm_code: pick(raw, fallback, "szm_code", null),
     delivery_truck_code: pick(raw, fallback, "delivery_truck_code", null),
     emulsion_truck_code: pick(raw, fallback, "emulsion_truck_code", null),
-    machine_plan_shifts: pick(raw, fallback, "machine_plan_shifts", {}),
-    crew: pick(raw, fallback, "crew", []),
-    services: pick(raw, fallback, "services", []),
+    machine_plan_shifts: pickCollection(raw, fallback, "machine_plan_shifts", {}),
+    crew: pickCollection(raw, fallback, "crew", []),
+    services: pickCollection(raw, fallback, "services", []),
     drilling_executor: pick(raw, fallback, "drilling_executor", "OWN"),
     // Выбор подрядчика — часть самого прогона: его отсутствие означает «не
     // выбран», а не «взять из умолчаний», поэтому каталог здесь не спрашиваем.
     subcontract_rate_code: raw.subcontract_rate_code ?? null,
     subcontract_rate_rub: raw.subcontract_rate_rub ?? null,
-    nomenclature: pick(raw, fallback, "nomenclature", {}),
+    nomenclature: pickCollection(raw, fallback, "nomenclature", {}),
     electric_detonators_qty: pick(raw, fallback, "electric_detonators_qty", "0"),
     overhead_rate: pick(raw, fallback, "overhead_rate", null),
     target_margin_rate: pick(raw, fallback, "target_margin_rate", null),

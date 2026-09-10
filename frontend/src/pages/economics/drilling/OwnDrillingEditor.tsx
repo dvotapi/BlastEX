@@ -5,7 +5,7 @@
  * калькулятор Cost V1 («Бурение») открывается по своей ссылке — числа между
  * ними не переносятся (см. «Решения и допущения», п. 1).
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Numeric, ValueOrigin } from "../../../types/blockEconomics";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
@@ -21,7 +21,7 @@ export type OwnDrillingEditorProps = SectionEditorProps & {
   /** Открыть отдельный калькулятор бурения (Cost V1, вкладка «Бурение»). */
   onOpenDrillingPage: () => void;
   /** Переключатель «Исполнение» — рисует `DrillingSection`, показывает карточка. */
-  executor: React.ReactNode;
+  executor: ReactNode;
 };
 
 function sameNumeric(a: Numeric | null | undefined, b: Numeric | null | undefined): boolean {
@@ -80,6 +80,7 @@ export function OwnDrillingEditor({
           step={1}
           placeholder="норматив"
           ariaLabel="Плановые смены станка"
+          disabled={!canEdit}
           onChange={(value) => onChange({ rig_plan_shifts: value })}
         />
       ),

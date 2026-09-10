@@ -308,7 +308,7 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .economic-fields-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:11px; }
 .economic-fields-grid > label { min-width:0; }
 .economic-fields-grid label, .economic-options-grid label { display:grid; gap:6px; color:#425149; font-size:11px; font-weight:700; }
-.economic-fields-grid input, .economic-fields-grid select, .economic-options-grid input, .economic-options-grid select,
+.economic-fields-grid input, .economic-fields-grid select, .economic-options-grid input, .economic-options-grid select { width:100%; min-width:0; padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; }
 .economic-lines-section { display:grid; gap:11px; }
 .economic-section-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:15px; }
 .economic-section-heading h3 { margin:0 0 4px; font-size:16px; }.economic-section-heading p { margin:0; color:#738078; font-size:11px; }

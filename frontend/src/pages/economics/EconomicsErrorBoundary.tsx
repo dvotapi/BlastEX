@@ -19,8 +19,13 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 type Props = {
   children: ReactNode;
-  /** Вернуться к последнему рабочему состоянию: страница сбрасывает черновик. */
-  onReset?: () => void;
+  /**
+   * Вернуть страницу в рабочее состояние. Простой сброс признака ошибки не
+   * помогает: React перерисовал бы то же поддерево с теми же данными и упал
+   * снова, поэтому причину убирает страница — она пересобирает черновик из
+   * умолчаний.
+   */
+  onReset: () => void;
 };
 
 type State = { error: Error | null };
@@ -40,7 +45,7 @@ export class EconomicsErrorBoundary extends Component<Props, State> {
 
   private reset = () => {
     this.setState({ error: null });
-    this.props.onReset?.();
+    this.props.onReset();
   };
 
   render() {
@@ -52,11 +57,12 @@ export class EconomicsErrorBoundary extends Component<Props, State> {
         <b>Не удалось показать смету</b>
         <p>
           Сценарий открылся, но страница не смогла его отобразить. Расчёт и сохранённые сценарии не
-          пострадали.
+          пострадали: кнопка ниже соберёт черновик заново с параметров по умолчанию, а сохранённый
+          прогон останется в «Истории» как есть.
         </p>
         <code>{error.message}</code>
         <button type="button" className="primary-button" onClick={this.reset}>
-          Показать заново
+          Собрать черновик заново
         </button>
       </div>
     );

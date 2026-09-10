@@ -13,8 +13,6 @@
  */
 import { useCallback, useLayoutEffect, useState, type RefObject } from "react";
 
-/** Ожидаемая высота панели: по ней решается, откроется она вниз или вверх. */
-const PANEL_HEIGHT = 280;
 /** Зазор между кнопкой и панелью и минимальный отступ от края окна. */
 const GAP = 4;
 const EDGE = 8;
@@ -26,8 +24,15 @@ export function useAnchoredPosition(
   open: boolean,
   /** `start` — левый край панели по левому краю кнопки, `end` — правый по правому. */
   align: "start" | "end" = "start",
-  /** Ширина панели: нужна выравниванию по правому краю до того, как панель измерена. */
+  /** Наименьшая ширина панели: она же уходит в `minWidth` результата. */
   width = 0,
+  /**
+   * Ожидаемая высота панели — по ней решается, открыть её вниз или вверх.
+   * Своя у каждой панели: список справочника высокий, меню строки низкое, и
+   * общая величина заставляла бы короткое меню разворачиваться вверх там,
+   * где ему хватало места снизу.
+   */
+  height = 280,
 ): AnchoredPosition | null {
   const [position, setPosition] = useState<AnchoredPosition | null>(null);
 
@@ -40,19 +45,23 @@ export function useAnchoredPosition(
     // переворот и прижатие к краям бессмысленно — тесты проверяют поведение
     // списка, а не геометрию, поэтому просто отдаём нули.
     if (rect.width === 0 && rect.height === 0) {
-      setPosition({ top: 0, left: 0, minWidth: 0 });
+      setPosition({ top: 0, left: 0, minWidth: width });
       return;
     }
 
     const below = window.innerHeight - rect.bottom;
-    const top = below < PANEL_HEIGHT && rect.top > below ? rect.top - GAP - PANEL_HEIGHT : rect.bottom + GAP;
+    const flipUp = below < height && rect.top > below;
+    // Зажим по верхнему краю обязателен: при развороте вверх над кнопкой
+    // может не быть `height` пикселей, и панель уезжала за край окна вместе
+    // с верхними пунктами списка.
+    const top = flipUp ? Math.max(rect.top - GAP - height, EDGE) : rect.bottom + GAP;
 
     const panelWidth = Math.max(width, rect.width);
     const rawLeft = align === "end" ? rect.right - panelWidth : rect.left;
     const left = Math.min(Math.max(rawLeft, EDGE), Math.max(EDGE, window.innerWidth - EDGE - panelWidth));
 
-    setPosition({ top, left, minWidth: rect.width });
-  }, [align, anchorRef, width]);
+    setPosition({ top, left, minWidth: panelWidth });
+  }, [align, anchorRef, height, width]);
 
   useLayoutEffect(() => {
     if (!open) {

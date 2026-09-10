@@ -20,6 +20,8 @@ export type RowMenuItem = {
 
 /** Ширина списка: та же величина, что в `.row-menu-list`. */
 const MENU_MIN_WIDTH = 180;
+/** Меню строки низкое: разворачивать его вверх нужно куда реже, чем список справочника. */
+const MENU_HEIGHT = 140;
 
 /**
  * Меню действий строки сметы (⋯): раскрывается по клику под кнопкой,
@@ -35,7 +37,7 @@ export function RowMenu({ items, label }: { items: RowMenuItem[]; label: string 
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Меню прижимается правым краем к кнопке: она стоит у правого края таблицы.
-  const position = useAnchoredPosition(triggerRef, open, "end", MENU_MIN_WIDTH);
+  const position = useAnchoredPosition(triggerRef, open, "end", MENU_MIN_WIDTH, MENU_HEIGHT);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -78,7 +80,7 @@ export function RowMenu({ items, label }: { items: RowMenuItem[]; label: string 
           className="row-menu-list"
           role="menu"
           aria-label={label}
-          style={{ position: "fixed", top: position.top, left: position.left }}
+          style={{ position: "fixed", top: position.top, left: position.left, minWidth: position.minWidth }}
         >
           {items.map((item) => (
             <button

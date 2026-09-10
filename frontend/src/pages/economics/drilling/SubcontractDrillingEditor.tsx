@@ -5,7 +5,7 @@
  * опубликовать её отдельной кнопкой, после чего вкладка сама переключается
  * на опубликованный тариф.
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { api } from "../../../api/endpoints";
 import type { ValueOrigin } from "../../../types/blockEconomics";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
@@ -21,7 +21,7 @@ export type SubcontractDrillingEditorProps = SectionEditorProps & {
   /** Каталог устарел и его нужно перечитать — зовётся сразу после публикации тарифа в справочник. */
   onDefaultsChanged: () => void;
   /** Переключатель «Исполнение» — рисует `DrillingSection`, показывает карточка. */
-  executor: React.ReactNode;
+  executor: ReactNode;
 };
 
 export function SubcontractDrillingEditor({
@@ -150,6 +150,7 @@ export function SubcontractDrillingEditor({
           allowEmpty
           min={0}
           ariaLabel="Ставка субподряда, ₽/м"
+          disabled={!canEdit}
           onChange={(value) => onChange({ subcontract_rate_rub: value })}
         />
       ),
@@ -192,27 +193,26 @@ export function SubcontractDrillingEditor({
         facts={facts}
         amount={line?.amount_rub ?? 0}
         volume={volume}
+        formula={line?.formula}
         footer={
-          <>
+          // Статус и ошибка публикации стоят рядом с формой, но НЕ под её
+          // условием: удачная публикация сама обнуляет ручную ставку, из-за
+          // чего `canSave` становится ложным — и сообщение «Тариф опубликован
+          // ревизией …» исчезало вместе с формой, ни разу не показавшись.
+          <div className="drilling-rate-save">
             {needsCounterpartyToSave && (
-              <div className="drilling-rate-save">
-                <button type="button" className="link-button" disabled title="Сначала выберите подрядчика">
-                  Сохранить тариф в справочник
-                </button>
-              </div>
+              <button type="button" className="link-button" disabled title="Сначала выберите подрядчика">
+                Сохранить тариф в справочник
+              </button>
             )}
-            {canSave && (
-              <div className="drilling-rate-save">
-                {saveForm}
-                {status && <p className="drilling-rate-status">{status}</p>}
-                {error && (
-                  <p className="drilling-rate-error" role="alert">
-                    {error}
-                  </p>
-                )}
-              </div>
+            {canSave && saveForm}
+            {status && <p className="drilling-rate-status">{status}</p>}
+            {error && (
+              <p className="drilling-rate-error" role="alert">
+                {error}
+              </p>
             )}
-          </>
+          </div>
         }
       />
       {otherLines.map((item, index) => (

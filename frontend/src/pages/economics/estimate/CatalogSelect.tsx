@@ -18,6 +18,8 @@ export type CatalogOption = {
 
 /** Ширина поповера: та же величина, что в `.catalog-select-popover`. */
 const POPOVER_MIN_WIDTH = 260;
+/** Высота поповера с поиском и списком: см. `.catalog-select-list` (220px). */
+const POPOVER_HEIGHT = 280;
 
 /**
  * Свой комбобокс со справочником в строке сметы: кнопка, показывающая
@@ -60,7 +62,7 @@ export function CatalogSelect({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const position = useAnchoredPosition(buttonRef, open, "start", POPOVER_MIN_WIDTH);
+  const position = useAnchoredPosition(buttonRef, open, "start", POPOVER_MIN_WIDTH, POPOVER_HEIGHT);
 
   const selected = options.find((option) => option.code === value);
 
@@ -179,7 +181,7 @@ export function CatalogSelect({
         <div
           ref={popoverRef}
           className="catalog-select-popover"
-          style={{ position: "fixed", top: position.top, left: position.left }}
+          style={{ position: "fixed", top: position.top, left: position.left, minWidth: position.minWidth }}
           onKeyDown={onPopoverKeyDown}
         >
           <input

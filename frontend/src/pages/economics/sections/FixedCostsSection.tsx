@@ -11,7 +11,6 @@
 import { NumericInput } from "../NumericInput";
 import { EstimateLine } from "../estimate/EstimateLine";
 import { lineNumber } from "../estimateModel";
-import { amount as formatAmount } from "../format";
 import { lineShare } from "./lineHelpers";
 import type { SectionEditorProps } from "./types";
 
@@ -23,17 +22,14 @@ export function FixedCostsSection({ group, params, economics, volume, canEdit, o
       <div className="estimate-card unit-plan-card">
         <label className="unit-plan-field">
           Плановый объём юнита, м³
-          {canEdit ? (
-            <NumericInput
-              value={params.unit_plan_volume_m3}
-              min={0}
-              step={1000}
-              ariaLabel="Плановый объём юнита, м³"
-              onChange={(value) => onChange({ unit_plan_volume_m3: value ?? "0" })}
-            />
-          ) : (
-            <b>{formatAmount(Number(params.unit_plan_volume_m3 || 0))}</b>
-          )}
+          <NumericInput
+            value={params.unit_plan_volume_m3}
+            min={0}
+            step={1000}
+            ariaLabel="Плановый объём юнита, м³"
+            disabled={!canEdit}
+            onChange={(value) => onChange({ unit_plan_volume_m3: value ?? "0" })}
+          />
         </label>
         <p className="unit-plan-note">
           {planMissing

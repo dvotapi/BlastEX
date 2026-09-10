@@ -10,7 +10,7 @@
  * установка» только итоговая сумма/доля и сноска со ссылкой на «Бурение»,
  * без повторной построчной разбивки.
  */
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { AddMenu } from "../estimate/AddMenu";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine, type EstimateLineCaption } from "../estimate/EstimateLine";
@@ -199,7 +199,10 @@ export function EquipmentSection({
         }
 
         return (
-          <div className="equipment-role" key={role.param}>
+          // Fragment, а не обёртка: `display:contents` оставляет узел в дереве
+          // DOM, и соседские селекторы разделителей строк перестают совпадать
+          // через границу ролей — линия между ролями пропадала.
+          <Fragment key={role.param}>
             <EstimateLine
               number={number}
               name={
@@ -232,6 +235,7 @@ export function EquipmentSection({
                     step={1}
                     placeholder="норматив"
                     ariaLabel={`Плановые смены: ${role.label}`}
+                    disabled={!canEdit}
                     onChange={(value) => setPlanShifts(role, code, value)}
                   />
                 </label>
@@ -253,10 +257,10 @@ export function EquipmentSection({
                   share={lineShare(line, economics)}
                 />
               ))}
-          </div>
+          </Fragment>
         );
       })}
-      {canEdit && (
+      {canEdit && hiddenRoles.length > 0 && (
         <div className="estimate-section-footer">
           <AddMenu
             label="Добавить технику"

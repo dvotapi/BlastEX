@@ -34,6 +34,7 @@ export function DrillingCard({
   facts,
   amount,
   volume,
+  formula,
   action,
   footer,
 }: {
@@ -44,6 +45,8 @@ export function DrillingCard({
   facts: DrillingFact[];
   amount: number;
   volume: number | null;
+  /** Формула строки модели: как эта сумма собралась. */
+  formula?: string;
   /** Кнопка разложения метра либо публикации тарифа. */
   action?: ReactNode;
   /** Ссылки и формы под карточкой: переход в калькулятор, публикация тарифа. */
@@ -72,6 +75,7 @@ export function DrillingCard({
         <span className="drilling-card-fact-label">Сумма</span>
         <b className="drilling-card-amount">{money(amount, 0)} ₽</b>
         <span className="drilling-card-perm3">{perM3(amount, volume)}</span>
+        {formula && <code className="drilling-card-formula">{formula}</code>}
         {action}
       </div>
       {footer && <div className="drilling-card-footer">{footer}</div>}

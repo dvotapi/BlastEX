@@ -398,6 +398,24 @@ export function BlockEconomicsPage({
     });
   }
 
+  /**
+   * Пересобрать активный черновик с параметров по умолчанию — выход из
+   * состояния, когда его параметры страница отобразить не смогла (см.
+   * `EconomicsErrorBoundary`). Сохранённые прогоны не трогаются: в «Истории»
+   * они остаются как есть.
+   */
+  function resetActiveDraft() {
+    if (!defaults) return;
+    setDraftsState((current) => {
+      const active = current.drafts.find((draft) => draft.id === current.activeId);
+      const next = draftFromDefaults(active?.name ?? "Вариант 1", { ...defaults.parameters });
+      const drafts = current.drafts.length
+        ? current.drafts.map((draft) => (draft.id === current.activeId ? next : draft))
+        : [next];
+      return { drafts, activeId: next.id };
+    });
+  }
+
   function removeDraft(id: string) {
     setDraftsState((current) => {
       if (current.drafts.length <= 1) return current;
@@ -673,7 +691,7 @@ export function BlockEconomicsPage({
         {/* Ограничитель пересоздаётся вместе со сценарием: выбор другого
             сценария в шапке — рабочий путь из упавшего состояния, а сама шапка
             остаётся живой, потому что стоит выше ограничителя. */}
-        <EconomicsErrorBoundary key={activeId}>
+        <EconomicsErrorBoundary key={activeId} onReset={resetActiveDraft}>
         <div className="economics-workspace">
           <div className="economics-main">
             <div className="economics-card">

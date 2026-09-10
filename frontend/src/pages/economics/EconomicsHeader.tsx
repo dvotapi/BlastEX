@@ -52,18 +52,24 @@ export function EconomicsHeader({
   /** Ошибка последнего пересчёта; пусто — баннер не рисуется. */
   error: string;
 }) {
-  const [naming, setNaming] = useState(false);
+  // Одно поле имени на два действия: сохранить сценарий под именем и
+  // переименовать черновик. Отдельный `window.prompt` был третьим способом
+  // ввести то же самое — при том, что `VariantTabs` умеет это своим полем.
+  const [naming, setNaming] = useState<"save" | "rename" | null>(null);
   const [name, setName] = useState("");
 
   function startSave() {
     setName("");
-    setNaming(true);
+    setNaming("save");
   }
 
-  function commitSave() {
+  function commitName() {
     const trimmed = name.trim();
-    if (trimmed) onSave(trimmed);
-    setNaming(false);
+    if (trimmed) {
+      if (naming === "rename") onRename(trimmed);
+      else onSave(trimmed);
+    }
+    setNaming(null);
   }
 
   function handleSelect(id: string) {
@@ -73,10 +79,10 @@ export function EconomicsHeader({
 
   const activeDraft = drafts.find((draft) => draft.id === activeId);
 
-  function renameActive() {
+  function startRename() {
     if (!activeDraft) return;
-    const next = window.prompt("Название сценария", activeDraft.name);
-    if (next && next.trim()) onRename(next.trim());
+    setName(activeDraft.name);
+    setNaming("rename");
   }
 
   return (
@@ -134,21 +140,26 @@ export function EconomicsHeader({
             type="button"
             className="primary-button"
             disabled={busy}
-            onClick={() => (naming ? commitSave() : startSave())}
+            onClick={() => (naming === "save" ? commitName() : startSave())}
           >
             Сохранить
           </button>
           {naming && (
             <input
               autoFocus
-              aria-label="Имя сценария"
+              aria-label={naming === "rename" ? "Новое имя сценария" : "Имя сценария"}
               value={name}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") commitSave();
-                if (event.key === "Escape") setNaming(false);
+                if (event.key === "Enter") commitName();
+                if (event.key === "Escape") setNaming(null);
               }}
             />
+          )}
+          {naming === "rename" && (
+            <button type="button" className="secondary-button" onClick={commitName}>
+              Переименовать
+            </button>
           )}
         </div>
 
@@ -176,7 +187,7 @@ export function EconomicsHeader({
         <RowMenu
           label="Действия со сценарием"
           items={[
-            { label: "Переименовать сценарий", onSelect: renameActive },
+            { label: "Переименовать сценарий", onSelect: startRename },
             ...(canRemove ? [{ label: "Удалить черновик", onSelect: onRemove, danger: true }] : []),
           ]}
         />

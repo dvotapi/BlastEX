@@ -96,6 +96,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
                 min={0}
                 step={1}
                 ariaLabel={`Численность: ${positionLabel}`}
+                disabled={!canEdit}
                 onChange={(value) => update(index, { headcount: value ?? "0" })}
               />
             }
@@ -116,6 +117,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
                   step={0.1}
                   placeholder="норматив"
                   ariaLabel={`Смен на блок: ${positionLabel}`}
+                  disabled={!canEdit}
                   onChange={(value) => update(index, { shifts_per_block: value })}
                 />
               </label>

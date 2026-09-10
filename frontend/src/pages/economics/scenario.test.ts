@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { draftFromDefaults, draftFromRun, isDirty, markSaved, markSavedIfCurrent, scenarioLabel } from "./scenario";
-import type { BlockEconomics, EconomicsRun, EconomicsRunSummary, ModelParameters } from "../../types/blockEconomics";
+import type { BlockEconomics, EconomicsRun, ModelParameters } from "../../types/blockEconomics";
 
 function baseParameters(): ModelParameters {
   return {
@@ -205,37 +205,27 @@ describe("markSavedIfCurrent", () => {
 });
 
 describe("scenarioLabel", () => {
-  const runs: EconomicsRunSummary[] = [
-    {
-      id: "run-1",
-      name: "Сценарий 2",
-      technical_passport_id: "passport-1",
-      package_code: "DRILL_AND_BLAST",
-      reference_revision_id: "rev-1",
-      created_at: "2026-01-01T00:00:00Z",
-      created_by: "user-1",
-      price_per_m3: {},
-    },
-  ];
-
-  it("чистый черновик сохранённого прогона показывает имя прогона без пометки", () => {
+  it("чистый черновик сохранённого прогона показывает имя без пометки", () => {
     const draft = draftFromRun(baseRun(), "Сценарий 2");
-    expect(scenarioLabel(draft, runs)).toBe("Сценарий 2");
+    expect(scenarioLabel(draft)).toBe("Сценарий 2");
   });
 
   it("тронутый черновик получает пометку «· черновик»", () => {
     const draft = draftFromRun(baseRun(), "Сценарий 2");
     const dirty = { ...draft, parameters: { ...draft.parameters, vat_rate: 0.2 } };
-    expect(scenarioLabel(dirty, runs)).toBe("Сценарий 2 · черновик");
+    expect(scenarioLabel(dirty)).toBe("Сценарий 2 · черновик");
   });
 
   it("новый черновик без прогона показывает своё имя с пометкой", () => {
     const draft = draftFromDefaults("Вариант 1", baseParameters());
-    expect(scenarioLabel(draft, runs)).toBe("Вариант 1 · черновик");
+    expect(scenarioLabel(draft)).toBe("Вариант 1 · черновик");
   });
 
-  it("прогон-источник не найден в списке — используется имя черновика", () => {
-    const draft = draftFromRun(baseRun({ id: "run-deleted" }), "Открыт из истории");
-    expect(scenarioLabel(draft, runs)).toBe("Открыт из истории");
+  it("переименованный черновик прогона показывает новое имя, а не имя прогона", () => {
+    // Прогон в базе остаётся под своим именем — переименование касается
+    // только открытого из него черновика, и в списке сценариев должно быть
+    // видно именно оно, иначе действие выглядит несработавшим.
+    const draft = draftFromRun(baseRun({ name: "Сохранённое имя прогона" }), "Сохранённое имя прогона");
+    expect(scenarioLabel({ ...draft, name: "Новое имя" })).toBe("Новое имя");
   });
 });

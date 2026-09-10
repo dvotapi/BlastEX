@@ -523,7 +523,30 @@ export function BlockEconomicsPage({
     try {
       const run = await api.blockEconomics.run(runId);
       if (passportAtStart !== selectedPassportRef.current) return;
-      const draft = draftFromRun(run, run.name, defaultsRef.current?.parameters ?? null);
+
+      // Недостающие поля старого прогона дополняются умолчаниями ЕГО пакета
+      // работ, а не того, что открыт сейчас. Пакетов несколько (полный
+      // комплекс БВР, контурные работы и другие), состав бригады и техника у
+      // них разные: каталог активного пакета подставил бы в чужой сценарий
+      // чужую бригаду, а перечитывание каталога следом уже собранные
+      // параметры не исправляет. Каталог того же пакета заодно сохраняется в
+      // состояние — тогда эффект ниже не пойдёт за ним второй раз.
+      let fallback = defaultsRef.current;
+      if (fallback?.parameters.package_code !== run.package_code) {
+        try {
+          const loaded = await api.blockEconomics.modelDefaults(passportAtStart, run.package_code);
+          if (passportAtStart !== selectedPassportRef.current) return;
+          fallback = loaded;
+          setDefaults(loaded);
+        } catch {
+          // Каталог чужого пакета не подгрузился: заполнять недостающие поля
+          // умолчаниями активного пакета нельзя — они относятся к другим
+          // работам. Пустые значения видны в смете нулями, чужие числа — нет.
+          fallback = null;
+        }
+      }
+
+      const draft = draftFromRun(run, run.name, fallback?.parameters ?? null);
       setDraftsState((current) => {
         const index = current.drafts.findIndex((item) => item.id === current.activeId);
         const nextDrafts =

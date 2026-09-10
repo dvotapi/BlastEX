@@ -102,7 +102,8 @@ describe("DrillingSection", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Открыть расчёт бурения →" }));
+    const opener = screen.getByRole("button", { name: "Открыть расчёт бурения →" });
+    await user.click(opener);
 
     const drawer = screen.getByRole("dialog", { name: "Расчёт бурения" });
     expect(drawer).toBeInTheDocument();
@@ -111,6 +112,9 @@ describe("DrillingSection", () => {
     await user.keyboard("{Escape}");
 
     expect(screen.queryByRole("dialog", { name: "Расчёт бурения" })).not.toBeInTheDocument();
+    // Фокус вернулся на кнопку, а не упал на тело документа: иначе путь по
+    // клавиатуре пришлось бы начинать заново.
+    expect(opener).toHaveFocus();
   });
 
   it("выбор тарифа подрядчика ставит код и сбрасывает ручную ставку", async () => {

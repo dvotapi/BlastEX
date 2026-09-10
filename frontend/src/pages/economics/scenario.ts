@@ -7,7 +7,7 @@
  * состоянием параметров он был в последний раз сохранён — по ним `isDirty`
  * узнаёт, разошёлся ли черновик с прогоном, не спрашивая бэкенд.
  */
-import type { EconomicsRun, EconomicsRunSummary, ModelParameters } from "../../types/blockEconomics";
+import type { EconomicsRun, ModelParameters } from "../../types/blockEconomics";
 import { makeVariant, type Variant } from "./variants";
 
 export type Draft = Variant & {
@@ -160,12 +160,15 @@ export function markSavedIfCurrent(draft: Draft, runId: string, submittedParamet
 }
 
 /**
- * Подпись сценария для селектора: имя сохранённого прогона (если черновик
- * открыт из существующего и найден в списке прогонов паспорта) либо имя
- * самого черновика, с пометкой «· черновик», пока параметры не сохранены.
+ * Подпись сценария для селектора: имя черновика с пометкой «· черновик»,
+ * пока параметры не сохранены.
+ *
+ * Имя берётся из самого черновика, а не из прогона-источника. Раньше было
+ * наоборот, и переименование черновика, открытого из прогона, не появлялось
+ * в списке вовсе: подпись продолжала показывать имя прогона. Подмены смысла
+ * тут нет — прогоны неизменяемы, а `draftFromRun` кладёт в черновик имя
+ * прогона, так что до переименования обе подписи совпадают.
  */
-export function scenarioLabel(draft: Draft, runs: EconomicsRunSummary[]): string {
-  const savedRun = draft.sourceRunId ? runs.find((run) => run.id === draft.sourceRunId) : undefined;
-  const name = savedRun?.name ?? draft.name;
-  return isDirty(draft) ? `${name} · черновик` : name;
+export function scenarioLabel(draft: Draft): string {
+  return isDirty(draft) ? `${draft.name} · черновик` : draft.name;
 }

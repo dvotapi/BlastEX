@@ -122,7 +122,7 @@ export function EconomicsHeader({
           <optgroup label="Черновики">
             {drafts.map((draft) => (
               <option key={draft.id} value={draft.id}>
-                {scenarioLabel(draft, runs)}
+                {scenarioLabel(draft)}
               </option>
             ))}
           </optgroup>

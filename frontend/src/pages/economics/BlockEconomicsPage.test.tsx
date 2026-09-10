@@ -29,7 +29,7 @@ vi.mock("../../api/endpoints", () => ({
 import { api } from "../../api/endpoints";
 import { BlockEconomicsPage } from "./BlockEconomicsPage";
 import { money } from "./format";
-import { defaultsFixture, economicsFixture } from "./testFixtures";
+import { defaultsFixture, economicsFixture, paramsFixture } from "./testFixtures";
 import type {
   BlockEconomics,
   EconomicsRun,
@@ -235,6 +235,71 @@ describe("BlockEconomicsPage", () => {
 
     await waitFor(() => expect(api.blockEconomics.run).toHaveBeenCalledWith("RUN-1"));
     expect(confirmSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("прогон другого пакета работ дополняется умолчаниями своего пакета, а не открытого", async () => {
+    // Пакетов в справочнике несколько (полный комплекс БВР, контурные работы
+    // и другие), состав бригады и техника у них разные. Старый прогон, в
+    // котором части полей нет вовсе, нельзя дополнять каталогом активного
+    // пакета: в чужой сценарий попала бы чужая бригада, а перечитывание
+    // каталога следом уже собранные параметры не исправляет.
+    const user = userEvent.setup();
+    const legacyParameters = { ...paramsFixture(), package_code: "CONTOUR_DRILL_AND_BLAST" } as unknown as Record<
+      string,
+      unknown
+    >;
+    delete legacyParameters.crew;
+    const savedRun: EconomicsRun = {
+      id: "RUN-CONTOUR",
+      organization_id: "ORG-1",
+      name: "Контурный",
+      technical_passport_id: "PASSPORT-1",
+      package_code: "CONTOUR_DRILL_AND_BLAST",
+      reference_revision_id: "REV-1",
+      parameters: legacyParameters,
+      result: economicsFixture(),
+      created_at: "2026-01-02T00:00:00Z",
+      created_by: "tester@blastex.local",
+    };
+    const runSummary: EconomicsRunSummary = {
+      id: "RUN-CONTOUR",
+      name: "Контурный",
+      technical_passport_id: "PASSPORT-1",
+      package_code: "CONTOUR_DRILL_AND_BLAST",
+      reference_revision_id: "REV-1",
+      created_at: "2026-01-02T00:00:00Z",
+      created_by: "tester@blastex.local",
+      price_per_m3: { full: 1500 },
+    };
+    const contourCrew = [{ position_code: "POS_CONTOUR", headcount: "3", shifts_per_block: null }];
+    vi.mocked(api.blockEconomics.modelDefaults).mockImplementation(async (_passport, packageCode) => ({
+      ...defaultsFixture(),
+      parameters: {
+        ...defaultsFixture().parameters,
+        package_code: packageCode,
+        ...(packageCode === "CONTOUR_DRILL_AND_BLAST" ? { crew: contourCrew } : {}),
+      },
+    }));
+    vi.mocked(api.blockEconomics.runs).mockResolvedValue([runSummary]);
+    vi.mocked(api.blockEconomics.run).mockResolvedValue(savedRun);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    await explosivesGroupHeading();
+
+    await user.click(screen.getByRole("tab", { name: "История" }));
+    await user.click(await screen.findByRole("button", { name: "Открыть" }));
+
+    // Каталог запрошен под пакет прогона, а не под открытый.
+    await waitFor(() =>
+      expect(api.blockEconomics.modelDefaults).toHaveBeenCalledWith("PASSPORT-1", "CONTOUR_DRILL_AND_BLAST"),
+    );
+    // И именно его бригада уехала в параметры пересчёта.
+    await waitFor(() => {
+      const calls = vi.mocked(api.blockEconomics.variants).mock.calls;
+      const last = calls[calls.length - 1][1] as Array<{ parameters: { crew: unknown } }>;
+      expect(last[0].parameters.crew).toEqual(contourCrew);
+    });
   });
 
   it("открытие сценария из истории не спрашивает подтверждения, если черновик уже сохранён", async () => {

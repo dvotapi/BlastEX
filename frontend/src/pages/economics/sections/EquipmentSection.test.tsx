@@ -89,6 +89,30 @@ describe("EquipmentSection", () => {
     expect(screen.getByText("50 000,00")).toBeInTheDocument();
   });
 
+  it("построчная разбивка СЗМ (не станка) по-прежнему выводится построчно", () => {
+    // Регрессия на находку ревью: фикс дублирования станка (коммит ac62b86)
+    // добавил развилку `role.param !== "rig_code" && items.map(...)` — без
+    // этой проверки её можно случайно расширить на другие роли, и ни один
+    // тест не покраснеет. СЗМ — одна из трёх ролей, для которых построчная
+    // разбивка обязана остаться (`SZM_DEPRECIATION` во фикстуре, section
+    // "DEPRECIATION", попадает в `group.lines` раздела «Техника», а не
+    // «Бурение», как у станка).
+    const { params, defaults, economics, group } = setup();
+    render(
+      <EquipmentSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Амортизация СЗМ")).toBeInTheDocument();
+  });
+
   it("правка плановых смен СЗМ переводит бейдж в «Ручной» и уходит в machine_plan_shifts", async () => {
     const { params, defaults, economics, group } = setup();
     const onChange = vi.fn();

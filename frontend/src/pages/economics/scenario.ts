@@ -39,6 +39,19 @@ export function draftFromDefaults(name: string, parameters: ModelParameters): Dr
  * `EconomicsRun` не знает об этой схеме. Приведение безопасно: маршрут,
  * который отдаёт `EconomicsRun`, всегда пишет в это поле именно
  * сериализованные параметры модели.
+ *
+ * Открытый из прогона черновик — это НОВЫЙ редактируемый артефакт для
+ * дальнейшей работы, а не точная историческая копия: `reference_revision_id`
+ * из прогона (зафиксированный на момент его сохранения) намеренно
+ * отбрасывается и заменяется на `""` — тот же приём, что уже используют
+ * черновики по умолчанию из `model-defaults`, означающий «считать на
+ * актуальной ревизии». Иначе открытые для правки редакторы (комбобоксы
+ * номенклатуры/техники/должностей) показывали бы опции из ТЕКУЩЕГО каталога
+ * (`defaults`), а пересчёт шёл бы по ИСТОРИЧЕСКОЙ ревизии, пришпиленной в
+ * прогоне, — несостыковка цен и списка опций, вплоть до отсутствия в
+ * текущем каталоге позиции, выбранной в прошлой ревизии. Сам прогон в
+ * `economics_runs` при этом не меняется и остаётся историческим снимком со
+ * своей исходной ревизией — это решение касается только нового черновика.
  */
 export function draftFromRun(run: EconomicsRun, name: string): Draft {
   const rawParameters = run.parameters as unknown as ModelParameters;
@@ -53,6 +66,7 @@ export function draftFromRun(run: EconomicsRun, name: string): Draft {
     ...rawParameters,
     subcontract_rate_code: rawParameters.subcontract_rate_code ?? null,
     subcontract_rate_rub: rawParameters.subcontract_rate_rub ?? null,
+    reference_revision_id: "",
   };
   return { ...makeVariant(name, parameters), sourceRunId: run.id, savedKey: paramsKey(parameters) };
 }
@@ -65,6 +79,22 @@ export function isDirty(draft: Draft): boolean {
 /** После сохранения прогона черновик привязывается к нему и перестаёт быть «грязным». */
 export function markSaved(draft: Draft, runId: string): Draft {
   return { ...draft, sourceRunId: runId, savedKey: paramsKey(draft.parameters) };
+}
+
+/**
+ * Пометить черновик сохранённым, только если параметры не изменились с
+ * момента, когда прогон был отправлен на сервер — иначе правка, сделанная
+ * во время сохранения, тихо считалась бы уже сохранённой, хотя в прогоне
+ * лежит более старый снимок. Прогон при этом всё равно привязывается
+ * (`sourceRunId`) — он реально создан и существует, просто черновик
+ * остаётся «грязным» относительно него.
+ */
+export function markSavedIfCurrent(draft: Draft, runId: string, submittedParameters: ModelParameters): Draft {
+  const submittedKey = paramsKey(submittedParameters);
+  if (paramsKey(draft.parameters) !== submittedKey) {
+    return { ...draft, sourceRunId: runId };
+  }
+  return { ...draft, sourceRunId: runId, savedKey: submittedKey };
 }
 
 /**

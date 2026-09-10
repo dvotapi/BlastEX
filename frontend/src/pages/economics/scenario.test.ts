@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { draftFromDefaults, draftFromRun, isDirty, markSaved, scenarioLabel } from "./scenario";
+import { draftFromDefaults, draftFromRun, isDirty, markSaved, markSavedIfCurrent, scenarioLabel } from "./scenario";
 import type { BlockEconomics, EconomicsRun, EconomicsRunSummary, ModelParameters } from "../../types/blockEconomics";
 
 function baseParameters(): ModelParameters {
@@ -103,6 +103,20 @@ describe("draftFromRun", () => {
     expect(draft.parameters.subcontract_rate_code).toBe("RATE_A");
     expect(draft.parameters.subcontract_rate_rub).toBeNull();
   });
+
+  it("переустанавливает ревизию справочников на актуальную, а не тянет историческую из прогона", () => {
+    // Прогон посчитан и сохранён на исторической ревизии "rev-old" — черновик,
+    // открытый из него для дальнейшей правки, должен считать на актуальной
+    // ревизии (пустая строка), а не на той, что была зафиксирована в прогоне.
+    const run = baseRun({
+      parameters: { ...baseParameters(), reference_revision_id: "rev-old" } as unknown as Record<string, unknown>,
+    });
+
+    const draft = draftFromRun(run, "Сценарий с исторической ревизией");
+
+    expect(draft.parameters.reference_revision_id).toBe("");
+    expect(isDirty(draft)).toBe(false);
+  });
 });
 
 describe("markSaved", () => {
@@ -117,6 +131,27 @@ describe("markSaved", () => {
     const saved = markSaved(draftFromDefaults("Вариант 1", baseParameters()), "run-99");
     const edited = { ...saved, parameters: { ...saved.parameters, vat_rate: 0.2 } };
     expect(isDirty(edited)).toBe(true);
+  });
+});
+
+describe("markSavedIfCurrent", () => {
+  it("помечает сохранённым, если параметры не изменились с момента отправки", () => {
+    const draft = draftFromDefaults("Вариант 1", baseParameters());
+    const result = markSavedIfCurrent(draft, "run-99", draft.parameters);
+    expect(result.sourceRunId).toBe("run-99");
+    expect(isDirty(result)).toBe(false);
+  });
+
+  it("не помечает savedKey (но привязывает sourceRunId), если параметры изменились после отправки", () => {
+    const draft = draftFromDefaults("Вариант 1", baseParameters());
+    const submittedParameters = draft.parameters;
+    // Сметчик поправил черновик, пока сохранение летело на сервер.
+    const edited = { ...draft, parameters: { ...draft.parameters, vat_rate: 0.2 } };
+    const result = markSavedIfCurrent(edited, "run-99", submittedParameters);
+    expect(result.sourceRunId).toBe("run-99");
+    // savedKey не обновился на снимок отправленных параметров — черновик
+    // остаётся «грязным» относительно реально сохранённого прогона.
+    expect(isDirty(result)).toBe(true);
   });
 });
 

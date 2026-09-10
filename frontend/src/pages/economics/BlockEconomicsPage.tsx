@@ -21,7 +21,7 @@ import { FixedCostsSection } from "./sections/FixedCostsSection";
 import { FuelSection } from "./sections/FuelSection";
 import { LaborSection } from "./sections/LaborSection";
 import { ServicesSection } from "./sections/ServicesSection";
-import { draftFromDefaults, draftFromRun, isDirty, markSaved, type Draft } from "./scenario";
+import { draftFromDefaults, draftFromRun, isDirty, markSavedIfCurrent, type Draft } from "./scenario";
 import { EconomicsSidebar } from "./sidebar/EconomicsSidebar";
 import { MAX_VARIANTS } from "./variants";
 import type {
@@ -122,6 +122,14 @@ export function BlockEconomicsPage({
   // само по себе не гонит новый расчёт, но и не должно показывать таблицу
   // соседнего черновика, пока сметчик не попросил пересчитать эту.
   const [sensitivityForId, setSensitivityForId] = useState("");
+  // Живое зеркало `selectedPassport` для сверки ПОСЛЕ `await` в `openRun`:
+  // сравнение двух чтений обычной переменной состояния внутри одного и того
+  // же замыкания асинхронной функции всегда даёт равенство (замыкание не
+  // видит более поздних рендеров) — нужен `ref`, как и для `requestId` выше.
+  const selectedPassportRef = useRef(selectedPassport);
+  useEffect(() => {
+    selectedPassportRef.current = selectedPassport;
+  }, [selectedPassport]);
 
   useEffect(() => {
     api.economics
@@ -308,28 +316,41 @@ export function BlockEconomicsPage({
   const siteLabel = passport
     ? siteNames[revisionId]?.[passport.site_code] ?? passport.site_code
     : "";
+  // Ревизия, на которой реально посчитан ТЕКУЩИЙ результат (`activeEconomics`),
+  // а не ревизия паспорта на момент его создания — справочники могли
+  // обновиться позже, и тогда `activeEconomics.reference_revision_id` новее.
+  const displayedRevisionId = activeEconomics?.reference_revision_id ?? passport?.reference_revision_id ?? "";
   const revisionLabel = useMemo(() => {
-    if (!revisionId) return "";
-    const found = revisions.find((item) => item.id === revisionId);
-    if (!found) return revisionId;
+    if (!displayedRevisionId) return "";
+    const found = revisions.find((item) => item.id === displayedRevisionId);
+    if (!found) return displayedRevisionId;
     const date = new Date(found.published_at).toLocaleDateString("ru-RU");
     return `Ревизия ${found.sequence_no} от ${date}`;
-  }, [revisionId, revisions]);
+  }, [displayedRevisionId, revisions]);
   const passportContextLabel = passport ? `Паспорт вер. ${passport.version_no}` : "";
 
   const exportUrl = activeDraft?.sourceRunId ? api.blockEconomics.exportUrl(activeDraft.sourceRunId) : null;
 
-  function patchActive(patch: Partial<ModelParameters>) {
-    setDraftsState((current) =>
-      current.activeId
-        ? {
-            ...current,
-            drafts: current.drafts.map((draft) =>
-              draft.id === current.activeId ? { ...draft, parameters: { ...draft.parameters, ...patch } } : draft,
-            ),
-          }
-        : current,
-    );
+  /**
+   * Патчит параметры конкретного черновика по его id, а не «текущего
+   * активного» (в отличие от прежней `patchActive`, которая читала
+   * `current.activeId` внутри `setDraftsState` — в момент ПРИМЕНЕНИЯ патча,
+   * а не в момент, когда асинхронная операция, вызвавшая этот патч, начала
+   * выполняться). `renderEstimateGroup` передаёт сюда `activeDraft.id`,
+   * захваченный в замыкании `onChange` заново при каждом рендере — обычные
+   * синхронные правки (`NumericInput` и т.п.) бьют по актуальному черновику
+   * в тот же тик, что и рендер, а асинхронные операции (`await fetch`),
+   * начатые в старом инстансе раздела до его размонтирования по смене
+   * `key={activeId}`, патчат именно тот черновик, с которого начинались, —
+   * даже если сметчик успел переключиться на другой, пока запрос летел.
+   */
+  function patchDraft(draftId: string, patch: Partial<ModelParameters>) {
+    setDraftsState((current) => ({
+      ...current,
+      drafts: current.drafts.map((draft) =>
+        draft.id === draftId ? { ...draft, parameters: { ...draft.parameters, ...patch } } : draft,
+      ),
+    }));
   }
 
   function selectDraft(id: string) {
@@ -373,16 +394,19 @@ export function BlockEconomicsPage({
   async function moveServiceToReference(index: number) {
     const service = activeDraft?.parameters.services[index];
     if (!service || !activeId) return;
+    // Захватываем цель до `await`: пока публикация ревизии шла, сметчик мог
+    // переключить вкладку/черновик — услуга должна уйти из того черновика,
+    // с которого она реально ушла в справочник, а не из того, что стал
+    // активным к моменту ответа.
+    const draftId = activeId;
     setMovingService(service.name);
     setError("");
     try {
       const moved = await api.blockEconomics.serviceToReference(service);
-      // Из текущего состояния, а не из захваченного activeDraft: пока шла
-      // публикация ревизии, сметчик мог править ту же вкладку ещё раз.
       setDraftsState((current) => ({
         ...current,
         drafts: current.drafts.map((draft) =>
-          draft.id === current.activeId
+          draft.id === draftId
             ? {
                 ...draft,
                 parameters: {
@@ -405,13 +429,21 @@ export function BlockEconomicsPage({
 
   async function saveActive(name: string) {
     if (!activeDraft || !selectedPassport) return;
+    // Захватываем черновик и снимок параметров ДО await: пока сохранение
+    // летит на сервер, поля сметы остаются редактируемыми, и `activeDraft`/
+    // `current.activeId` на момент ответа могут указывать уже на другой
+    // черновик или на другой снимок параметров того же черновика.
+    const draftId = activeDraft.id;
+    const submittedParameters = activeDraft.parameters;
     setBusy(true);
     setError("");
     try {
-      const run = await api.blockEconomics.saveRun(selectedPassport, activeDraft.parameters, name);
+      const run = await api.blockEconomics.saveRun(selectedPassport, submittedParameters, name);
       setDraftsState((current) => ({
         ...current,
-        drafts: current.drafts.map((draft) => (draft.id === current.activeId ? markSaved(draft, run.id) : draft)),
+        drafts: current.drafts.map((draft) =>
+          draft.id === draftId ? markSavedIfCurrent(draft, run.id, submittedParameters) : draft,
+        ),
       }));
       setRuns(await api.blockEconomics.runs(selectedPassport));
       setStatus(`Сохранён как «${name}»`);
@@ -438,10 +470,15 @@ export function BlockEconomicsPage({
       );
       if (!confirmed) return;
     }
+    // Паспорт мог смениться, пока прогон грузился (сметчик открыл прогон
+    // паспорта A, затем переключился на паспорт B до ответа) — тогда ответ
+    // устарел и не должен подменить черновик уже выбранного паспорта B.
+    const passportAtStart = selectedPassport;
     setBusy(true);
     setError("");
     try {
       const run = await api.blockEconomics.run(runId);
+      if (passportAtStart !== selectedPassportRef.current) return;
       const draft = draftFromRun(run, run.name);
       setDraftsState((current) => {
         const index = current.drafts.findIndex((item) => item.id === current.activeId);
@@ -528,7 +565,7 @@ export function BlockEconomicsPage({
       economics: activeEconomics,
       volume,
       canEdit,
-      onChange: patchActive,
+      onChange: (patch: Partial<ModelParameters>) => patchDraft(activeDraft.id, patch),
     };
     switch (group.code) {
       case "EXPLOSIVES":

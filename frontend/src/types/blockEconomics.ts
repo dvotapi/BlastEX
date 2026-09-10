@@ -220,6 +220,9 @@ export type TechnicalPassport = {
   lineage: Record<string, string>;
   created_at: string;
   created_by: string;
+  /** Заполнено у удалённого паспорта: в списках такие не приходят, но
+   * сохранённый прогон экономики открывает свой паспорт и после удаления. */
+  deleted_at?: string | null;
 };
 
 export type MaterialOption = {

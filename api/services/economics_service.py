@@ -27,6 +27,7 @@ from cost.v2.repository import (
     EconomicsRecordNotFound,
     EconomicsRepository,
     ReferenceRevisionConflict,
+    TechnicalPassportDeleted,
 )
 from cost.v2.technical_adapter import adapt_blast_block, scale_passport_physical
 
@@ -301,6 +302,10 @@ def repository_error(exc: Exception) -> HTTPException:
         )
     if isinstance(exc, EconomicsRecordNotFound):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, TechnicalPassportDeleted):
+        # Паспорт есть и читается, но считать по нему нельзя — это конфликт
+        # состояния, а не отказ хранилища.
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     return HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail=f"Cost V2 временно недоступен: {exc}",

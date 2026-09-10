@@ -196,3 +196,58 @@ def test_technical_geometry_adapter_endpoint(monkeypatch) -> None:
     assert Decimal(payload["physical"]["rock_volume_m3"]) == Decimal("25000")
     assert Decimal(payload["physical"]["szm_hours"]) == Decimal("8")
     assert Decimal(payload["physical"]["blasts"]) == Decimal("1")
+
+
+def _passport_payload(**overrides) -> dict:
+    payload = {
+        "site_code": "SITE_MAIN",
+        "object_name": "Блок 25 000 м³",
+        "block": {
+            "block_volume_m3": 25000,
+            "drilling_footage_m": 650,
+            "total_charge_mass_kg": 12000,
+            "total_holes": 50,
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_technical_passport_delete_hides_it_but_keeps_it_readable(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    created = client.post("/api/v1/economics/technical-passports", json=_passport_payload())
+    assert created.status_code == 201, created.text
+    passport_id = created.json()["id"]
+    assert client.get("/api/v1/economics/technical-passports").json() != []
+
+    deleted = client.delete(f"/api/v1/economics/technical-passports/{passport_id}")
+    assert deleted.status_code == 204, deleted.text
+    assert client.get("/api/v1/economics/technical-passports").json() == []
+
+    # Прогоны экономики и блоки проектов ссылаются на паспорт — по
+    # идентификатору он обязан читаться и после удаления.
+    single = client.get(f"/api/v1/economics/technical-passports/{passport_id}")
+    assert single.status_code == 200
+    assert single.json()["deleted_at"]
+
+
+def test_deleted_technical_passport_takes_no_new_records(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    passport_id = client.post(
+        "/api/v1/economics/technical-passports", json=_passport_payload()
+    ).json()["id"]
+    client.delete(f"/api/v1/economics/technical-passports/{passport_id}")
+
+    repeated = client.delete(f"/api/v1/economics/technical-passports/{passport_id}")
+    assert repeated.status_code == 409, repeated.text
+    next_version = client.post(
+        "/api/v1/economics/technical-passports",
+        json=_passport_payload(previous_passport_id=passport_id),
+    )
+    assert next_version.status_code == 409, next_version.text
+
+
+def test_unknown_technical_passport_delete_gives_404(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    response = client.delete("/api/v1/economics/technical-passports/NOPE")
+    assert response.status_code == 404

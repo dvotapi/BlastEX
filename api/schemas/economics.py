@@ -280,6 +280,9 @@ class TechnicalPassportSchema(BaseModel):
     lineage: dict[str, str]
     created_at: str
     created_by: str
+    # Заполнено у удалённого паспорта. В списках такие не приходят — поле
+    # видно только при чтении паспорта по идентификатору (история прогонов).
+    deleted_at: str | None = None
 
 
 class PublicDeltaRequest(BaseModel):

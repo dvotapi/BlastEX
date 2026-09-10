@@ -169,6 +169,30 @@ def post_technical_passport(
         raise repository_error(exc) from exc
 
 
+@router.delete(
+    "/technical-passports/{passport_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_technical_passport(
+    passport_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> Response:
+    """Убрать паспорт из списка.
+
+    Сохранённые прогоны экономики и блоки проектов паспорт не теряют: строка
+    остаётся в хранилище и читается по идентификатору — удаление лишь
+    закрывает её для новых расчётов и убирает из списков.
+    """
+
+    organization_id, user_id = _identity(session)
+    try:
+        repository.delete_technical_passport(organization_id, user_id, passport_id)
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/calculations/event", response_model=CalculationRunSchema)
 def calculate_event(
     payload: EventCalculationRequest,

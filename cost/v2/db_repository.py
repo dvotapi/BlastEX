@@ -44,6 +44,7 @@ from cost.v2.repository import (
     StoredEconomicsRun,
     StoredScenario,
     StoredTechnicalPassport,
+    TechnicalPassportDeleted,
     link_is_rekeyed,
     links_for_sections,
     published_codes,
@@ -200,6 +201,12 @@ class TechnicalPassportRow(Base):
     lineage: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+    # Удаление паспорта — пометка, а не DELETE: на строку ссылаются прогоны
+    # экономики, событийные расчёты и блоки проектов (везде FK RESTRICT), и
+    # эти расчёты должны переживать удаление паспорта.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class EconomicsRunRow(Base):
@@ -731,7 +738,8 @@ class PostgresEconomicsRepository:
     ) -> Sequence[StoredTechnicalPassport]:
         with self.session_factory() as session:
             statement = select(TechnicalPassportRow).where(
-                TechnicalPassportRow.organization_id == organization_id
+                TechnicalPassportRow.organization_id == organization_id,
+                TechnicalPassportRow.deleted_at.is_(None),
             )
             if site_code:
                 statement = statement.where(TechnicalPassportRow.site_code == site_code)
@@ -741,6 +749,14 @@ class PostgresEconomicsRepository:
     def get_technical_passport(
         self, organization_id: str, passport_id: str
     ) -> StoredTechnicalPassport:
+        """Паспорт по идентификатору, включая удалённый.
+
+        Удалённый паспорт остаётся читаемым: на него ссылаются сохранённые
+        прогоны экономики и блоки проектов, и они должны открываться после
+        того, как паспорт убрали из списка. Заводить новые записи по такому
+        паспорту нельзя — это проверяет ``_active_passport_row``.
+        """
+
         with self.session_factory() as session:
             row = session.get(TechnicalPassportRow, passport_id)
             if row is None or row.organization_id != organization_id:
@@ -748,6 +764,46 @@ class PostgresEconomicsRepository:
                     f"Технический паспорт {passport_id} не найден."
                 )
             return self._stored_technical_passport(row)
+
+    @staticmethod
+    def _active_passport_row(
+        session: Session, organization_id: str, passport_id: str
+    ) -> TechnicalPassportRow:
+        """Строка неудалённого паспорта — для всего, что заводит новые записи."""
+
+        row = session.get(TechnicalPassportRow, passport_id)
+        if row is None or row.organization_id != organization_id:
+            raise EconomicsRecordNotFound(
+                f"Технический паспорт {passport_id} не найден."
+            )
+        if row.deleted_at is not None:
+            raise TechnicalPassportDeleted(passport_id)
+        return row
+
+    def delete_technical_passport(
+        self, organization_id: str, user_id: str, passport_id: str
+    ) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        with self.session_factory() as session, session.begin():
+            row = self._active_passport_row(session, organization_id, passport_id)
+            row.deleted_at = now
+            session.add(
+                AuditLogRow(
+                    id=str(uuid4()),
+                    organization_id=organization_id,
+                    actor=user_id,
+                    action="DELETE_TECHNICAL_PASSPORT",
+                    entity_type="technical_passport",
+                    entity_id=passport_id,
+                    before_payload={
+                        "site_code": row.site_code,
+                        "object_name": row.object_name,
+                        "version_no": row.version_no,
+                    },
+                    after_payload={"deleted_at": now.isoformat()},
+                    created_at=now,
+                )
+            )
 
     def save_technical_passport(
         self,
@@ -775,11 +831,9 @@ class PostgresEconomicsRepository:
                 )
             previous = None
             if previous_passport_id:
-                previous = session.get(TechnicalPassportRow, previous_passport_id)
-                if previous is None or previous.organization_id != organization_id:
-                    raise EconomicsRecordNotFound(
-                        f"Технический паспорт {previous_passport_id} не найден."
-                    )
+                previous = self._active_passport_row(
+                    session, organization_id, previous_passport_id
+                )
                 if previous.site_code != site_code:
                     raise ValueError(
                         "Новая версия паспорта должна относиться к тому же объекту."
@@ -839,11 +893,7 @@ class PostgresEconomicsRepository:
         run_id = str(uuid4())
         now = datetime.now(timezone.utc).replace(microsecond=0)
         with self.session_factory() as session, session.begin():
-            passport = session.get(TechnicalPassportRow, technical_passport_id)
-            if passport is None or passport.organization_id != organization_id:
-                raise EconomicsRecordNotFound(
-                    f"Технический паспорт {technical_passport_id} не найден."
-                )
+            self._active_passport_row(session, organization_id, technical_passport_id)
             session.add(
                 CalculationRunRow(
                     id=run_id,
@@ -879,11 +929,7 @@ class PostgresEconomicsRepository:
         run_id = str(uuid4())
         now = datetime.now(timezone.utc).replace(microsecond=0)
         with self.session_factory() as session, session.begin():
-            passport = session.get(TechnicalPassportRow, technical_passport_id)
-            if passport is None or passport.organization_id != organization_id:
-                raise EconomicsRecordNotFound(
-                    f"Технический паспорт {technical_passport_id} не найден."
-                )
+            self._active_passport_row(session, organization_id, technical_passport_id)
             session.add(
                 EconomicsRunRow(
                     id=run_id,
@@ -1435,4 +1481,5 @@ class PostgresEconomicsRepository:
             lineage={key: str(value) for key, value in dict(row.lineage).items()},
             created_at=row.created_at,
             created_by=row.created_by,
+            deleted_at=row.deleted_at,
         )

@@ -20,11 +20,10 @@ import {
   type SheetState,
 } from "./calc/calcInputs";
 import { CalcTopStrip, CalcWorkspaceNotices } from "./calc/CalcTopStrip";
+import { PassportBar } from "./calc/PassportBar";
 import { HolePanel } from "./calc/HolePanel";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
-import { revisionsToFetch, siteNameFor, type SiteNamesByRevision } from "./calc/passportSiteNames";
 import type { BlastGeometryResponse, BlastVariant, Explosive, Rock } from "../types";
-import type { TechnicalPassport } from "../types/blockEconomics";
 
 function ResultsChart({ variants }: { variants: BlastVariant[] }) {
   if (!variants.length) return <div className="chart-empty">После расчёта здесь появится сравнение вариантов.</div>;
@@ -54,199 +53,6 @@ function ResultsChart({ variants }: { variants: BlastVariant[] }) {
       <polyline points={points} />
       {variants.map((item, index) => <g key={item.crown_mm}><circle cx={x(index)} cy={y(item.specific_q_kg_m3)} r="5" /><text x={x(index)} y={height - 10} textAnchor="middle">{item.crown_mm}</text></g>)}
     </svg>
-  );
-}
-
-/**
- * Технические паспорта блока: вход во вкладку «Экономика».
- *
- * Паспорт фиксирует рассчитанный блок и ревизию справочников, поэтому
- * экономика считается по нему, а не по текущему состоянию формы.
- */
-type PassportVariant = { key: string; label: string; geometry: BlastGeometryResponse | null };
-
-function PassportBar({
-  variants,
-  onOpenEconomics,
-}: {
-  /** Панели расчёта с их блоками: в паспорт уходит выбранная пользователем. */
-  variants: PassportVariant[];
-  onOpenEconomics?: (passportId: string) => void;
-}) {
-  const [passports, setPassports] = useState<TechnicalPassport[]>([]);
-  const [sites, setSites] = useState<{ code: string; name: string }[]>([]);
-  const [currentRevisionId, setCurrentRevisionId] = useState("");
-  // Имена объектов по ревизии справочников, на которой выпущен паспорт: объект
-  // могли переименовать (или удалить) позже — список не должен показать новое
-  // имя у старой записи. Так же считает вкладка «Экономика» для того же паспорта.
-  const [namesByRevision, setNamesByRevision] = useState<SiteNamesByRevision>({});
-  // Зеркало namesByRevision для эффекта ниже: он не должен зависеть от
-  // namesByRevision (иначе каждый пришедший снимок его перезапускает и
-  // дублирует запросы для ещё не ответивших ревизий), но обязан видеть
-  // актуальные данные, а не устаревшее замыкание.
-  const namesByRevisionRef = useRef<SiteNamesByRevision>(namesByRevision);
-  // Ревизии, запрос которых уже отправлен и ещё не завершился.
-  const pendingRevisionsRef = useRef<Set<string>>(new Set());
-  const [siteCode, setSiteCode] = useState("");
-  const [objectName, setObjectName] = useState("");
-  const [variantKey, setVariantKey] = useState(variants[0]?.key ?? "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const variant = variants.find((item) => item.key === variantKey) ?? variants[0];
-  const geometry = variant?.geometry ?? null;
-  const currentNames = useMemo(
-    () => Object.fromEntries(sites.map((site) => [site.code, site.name])),
-    [sites],
-  );
-
-  useEffect(() => {
-    Promise.all([api.economics.technicalPassports(), api.economics.referenceSnapshot()])
-      .then(([saved, snapshot]) => {
-        setPassports(saved);
-        const siteItems = (snapshot.sections.sites ?? []).map((item) => ({
-          code: item.code,
-          name: item.name,
-        }));
-        setSites(siteItems);
-        setSiteCode((current) => current || siteItems[0]?.code || "");
-        setCurrentRevisionId(snapshot.revision_id);
-      })
-      .catch((reason) =>
-        setError(reason instanceof Error ? reason.message : "Не удалось загрузить паспорта."),
-      );
-  }, []);
-
-  // Для видимых паспортов (первые 8) подгружаем снимок каждой их ревизии —
-  // кроме текущей, она уже загружена выше. Ошибка одной ревизии не должна
-  // ломать список: паспорт просто откатится к текущему имени или коду, а
-  // сама ревизия запоминается как «недоступна» и не запрашивается повторно.
-  // Эффект намеренно не зависит от namesByRevision: иначе каждый пришедший
-  // снимок перезапускал бы его и дублировал запросы для ревизий, чьи ответы
-  // ещё не пришли (pendingRevisionsRef защищает от этого же в рамках одного
-  // прохода эффекта).
-  useEffect(() => {
-    const revisionIds = revisionsToFetch(
-      passports.slice(0, 8),
-      namesByRevisionRef.current,
-      pendingRevisionsRef.current,
-      currentRevisionId,
-    );
-    if (revisionIds.length === 0) return;
-    revisionIds.forEach((revisionId) => {
-      pendingRevisionsRef.current.add(revisionId);
-      api.economics
-        .referenceSnapshot(revisionId)
-        .then((snapshot) => {
-          const names: Record<string, string> = {};
-          for (const item of snapshot.sections.sites ?? []) names[item.code] = item.name;
-          namesByRevisionRef.current = { ...namesByRevisionRef.current, [revisionId]: names };
-          setNamesByRevision(namesByRevisionRef.current);
-        })
-        .catch(() => {
-          namesByRevisionRef.current = { ...namesByRevisionRef.current, [revisionId]: {} };
-          setNamesByRevision(namesByRevisionRef.current);
-        })
-        .finally(() => {
-          pendingRevisionsRef.current.delete(revisionId);
-        });
-    });
-  }, [passports, currentRevisionId]);
-
-  async function savePassport() {
-    if (!geometry || !siteCode) return;
-    setBusy(true);
-    setError("");
-    try {
-      const created = await api.economics.createTechnicalPassport({
-        site_code: siteCode,
-        object_name: objectName.trim() || `Блок ${Math.round(geometry.block.block_volume_m3)} м³`,
-        block: geometry.block as unknown as Record<string, unknown>,
-        selected_variant: { label: geometry.label },
-      });
-      setPassports((rows) => [created, ...rows]);
-      setObjectName("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось сохранить паспорт.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="panel passport-bar">
-      <header><b>Технические паспорта</b><span>Экономика блока</span></header>
-      <div className="panel-body">
-        {error && <div className="page-error" role="alert">{error}</div>}
-        <div className="economic-fields-grid">
-          <label>
-            Объект работ
-            <select value={siteCode} onChange={(event) => setSiteCode(event.target.value)}>
-              {sites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
-            </select>
-          </label>
-          <label>
-            Название паспорта
-            <input
-              value={objectName}
-              placeholder="Блок, м³"
-              onChange={(event) => setObjectName(event.target.value)}
-            />
-          </label>
-          <label>
-            Вариант расчёта
-            <select value={variant?.key ?? ""} onChange={(event) => setVariantKey(event.target.value)}>
-              {variants.map((item) => (
-                <option key={item.key} value={item.key} disabled={!item.geometry}>
-                  {item.label}{item.geometry ? "" : " (нет расчёта)"}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="button-row">
-            <button type="button" onClick={() => void savePassport()} disabled={busy || !geometry || !siteCode}>
-              Сохранить паспорт
-            </button>
-          </div>
-        </div>
-        {geometry && variant && (
-          // В паспорт уходит блок выбранной панели с её зарядом и недозарядом —
-          // показываем это до сохранения, чтобы масса не была сюрпризом.
-          <p className="page-caption">
-            В паспорт пойдёт «{variant.label}»: {Math.round(geometry.block.total_charge_mass_kg).toLocaleString("ru-RU")} кг ВВ,{" "}
-            {geometry.block.total_holes} скважин, {Math.round(geometry.block.drilling_footage_m).toLocaleString("ru-RU")} п.м.,{" "}
-            {geometry.block.specific_q_kg_m3.toFixed(2)} кг/м³ с доп. скважинами. Кнопка «Экономика» открывает сохранённый
-            паспорт: чтобы передать текущий расчёт, сначала сохраните новый.
-          </p>
-        )}
-        {passports.length === 0 ? (
-          <p className="page-caption">Сохранённых паспортов нет.</p>
-        ) : (
-          <div className="passport-list">
-            {passports.slice(0, 8).map((passport) => (
-              <div className="passport-list-row" key={passport.id}>
-                <span>
-                  <b>{passport.object_name}</b>
-                  <small>
-                    {siteNameFor(passport, namesByRevision, currentNames)} · вер.{" "}
-                    {passport.version_no} · {new Date(passport.created_at).toLocaleDateString("ru-RU")} ·{" "}
-                    {Math.round(Number(passport.physical.explosive_kg ?? 0)).toLocaleString("ru-RU")} кг ВВ
-                  </small>
-                </span>
-                <em>{Number(passport.physical.rock_volume_m3 ?? 0).toLocaleString("ru-RU")} м³</em>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => onOpenEconomics?.(passport.id)}
-                  disabled={!onOpenEconomics}
-                >
-                  Экономика
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </section>
   );
 }
 
@@ -702,6 +508,7 @@ function FullBvrCalc({
               { key: "left", label: "Вариант 1", geometry: geometries.left ?? null },
               { key: "right", label: "Вариант 2", geometry: geometries.right ?? null },
             ]}
+            objectName={objectName}
             onOpenEconomics={onOpenEconomics}
           />
         </div>

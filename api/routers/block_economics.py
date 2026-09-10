@@ -494,7 +494,10 @@ def _explosive_from_variant(
     номенклатуре, и смета всё равно должна собраться.
     """
 
-    key = _explosive_key(str(passport.selected_variant.get("label", "")))
+    # Снимок варианта — свободный JSON клиента: подписи может не быть вовсе,
+    # а `str(None)` дал бы ключ «none» и случайное совпадение.
+    label = passport.selected_variant.get("label")
+    key = _explosive_key(label) if isinstance(label, str) else ""
     if not key:
         return ""
 

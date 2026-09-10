@@ -232,11 +232,13 @@ def _explosive_from_variant(
     candidates = exact or partial
     if not candidates:
         return ""
-    # Ближе к подписи — то, у чего меньше лишнего хвоста; имя добивает порядок,
-    # чтобы умолчание не зависело от порядка обхода справочника.
-    return min(candidates, key=lambda row: (len(_explosive_key(row["name"])), row["name"]))[
-        "code"
-    ]
+    # Ближе к подписи то, что меньше расходится с ней длиной: у подписи
+    # «Гранулит РП новый» это «Гранулит РП», а не «Гранулит». Имя добивает
+    # порядок, чтобы умолчание не зависело от порядка обхода справочника.
+    return min(
+        candidates,
+        key=lambda row: (abs(len(_explosive_key(row["name"])) - len(key)), row["name"]),
+    )["code"]
 ```
 
 В `_default_nomenclature`, после общего цикла по ролям и рядом с веткой

@@ -8,7 +8,7 @@ import pytest
 
 from tests import model_fixtures as fx
 from tests.conftest import parameters_payload as _parameters
-from api.routers.block_economics import _positions
+from api.routers.block_economics import _explosive_from_variant, _positions
 
 
 def test_block_economics_returns_the_price_ladder(client) -> None:
@@ -665,6 +665,21 @@ def test_explosive_default_skips_the_priceless_twin(client) -> None:
 
     assert chosen == "MAT_EVERSIN"
     assert chosen != "EXP_PEVV_EVERSIN_E_100"
+
+
+def test_explosive_partial_match_takes_the_name_closest_to_the_label(client) -> None:
+    """Из похожих имён выигрывает ближайшее к подписи, а не самое короткое."""
+
+    _, repository, _ = client
+    passport = repository.get_technical_passport(
+        "default", _passport_with_variant(repository, "Гранулит РП новый")
+    )
+    options = [
+        {"code": "MAT_GRANULIT", "name": "ГВВ Гранулит", "price_rub": 45.0},
+        {"code": "MAT_GRANULIT_RP", "name": "ГВВ Гранулит РП", "price_rub": 46.0},
+    ]
+
+    assert _explosive_from_variant(options, passport) == "MAT_GRANULIT_RP"
 
 
 def test_explosive_default_falls_back_when_the_variant_is_unknown(client) -> None:

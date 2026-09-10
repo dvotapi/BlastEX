@@ -83,3 +83,11 @@ export const perM3 = (value: number, volume: number | null) =>
  * прогон, сметчик сразу увидит другое число.
  */
 export const runPrice = (value: number | undefined) => (!value ? "—" : `${money(value)} ₽/м³`);
+
+/**
+ * Рубли на кубометр без единицы — для колонки таблицы, у которой единица уже
+ * стоит в шапке. Повторять «₽/м³» в каждой ячейке значит отнимать у колонки
+ * названия статьи полсотни пикселей на 33 повторения одного и того же.
+ */
+export const perM3Value = (value: number, volume: number | null) =>
+  volume === null || volume === 0 ? "—" : money(value / volume);

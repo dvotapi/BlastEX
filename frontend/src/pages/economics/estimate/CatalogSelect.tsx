@@ -168,7 +168,11 @@ export function CatalogSelect({
         onClick={() => setOpen((o) => !o)}
         onKeyDown={onButtonKeyDown}
       >
-        <span className="catalog-select-value">{selected?.name ?? placeholder}</span>
+        {/* `title`: в строке сметы название урезано по ширине колонки, а
+            полное имя позиции сметчику нужно целиком. */}
+        <span className="catalog-select-value" title={selected?.name ?? undefined}>
+          {selected?.name ?? placeholder}
+        </span>
         <span className="catalog-select-caret" aria-hidden="true">▾</span>
       </button>
       {open && position && createPortal(

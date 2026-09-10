@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { EstimateGroup } from "../estimateModel";
-import { money, perM3, percent } from "../format";
+import { money, perM3Value, percent } from "../format";
 
 /**
  * Раздел сметы: заголовок-кнопка (номер, имя, итог раздела — виден всегда,
@@ -53,7 +53,7 @@ export function EstimateSection({
         <span role="cell" className="estimate-col-unit" />
         <span role="cell" className="estimate-col-price" />
         <span role="cell" className="estimate-col-amount">{money(group.total)}</span>
-        <span role="cell" className="estimate-col-perm3">{perM3(group.total, volume)}</span>
+        <span role="cell" className="estimate-col-perm3">{perM3Value(group.total, volume)}</span>
         <span role="cell" className="estimate-col-share">{percent(group.share)}</span>
         <span role="cell" className="estimate-col-actions" />
       </div>

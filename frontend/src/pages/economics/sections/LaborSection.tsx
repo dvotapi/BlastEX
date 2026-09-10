@@ -80,11 +80,13 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
             captions={[
               {
                 label: "Смены на блок",
+                // Без бейджа: происхождение записи бригады уже стоит в колонке
+                // «Основание», а само слово «норматив» и есть ответ на вопрос,
+                // откуда взялось число.
                 value:
                   member.shifts_per_block === null || member.shifts_per_block === ""
                     ? "норматив"
                     : formatAmount(Number(member.shifts_per_block)),
-                origin,
               },
             ]}
             quantity={Number(member.headcount)}

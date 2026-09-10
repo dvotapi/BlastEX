@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { OriginBadge } from "./OriginBadge";
 import { RowMenu, type RowMenuItem } from "./RowMenu";
-import { amount as formatAmount, money, perM3, percent, reconcilingColumns } from "../format";
+import { amount as formatAmount, money, perM3Value, percent, reconcilingColumns } from "../format";
 import type { ValueOrigin } from "../../../types/blockEconomics";
 
 /**
@@ -186,7 +186,7 @@ export function EstimateLine({
         <span role="cell" className="estimate-col-price">{priceText}</span>
         <span role="cell" className="estimate-col-amount">{amount === null ? "—" : money(amount)}</span>
         <span role="cell" className="estimate-col-perm3">
-          {amount === null ? "—" : perM3(amount, volume)}
+          {amount === null ? "—" : perM3Value(amount, volume)}
         </span>
         <span role="cell" className="estimate-col-share">{share === null ? "" : percent(share)}</span>
         <span role="cell" className="estimate-col-actions">

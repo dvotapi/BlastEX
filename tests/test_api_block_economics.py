@@ -8,7 +8,7 @@ import pytest
 
 from tests import model_fixtures as fx
 from tests.conftest import parameters_payload as _parameters
-from api.routers.block_economics import _positions
+from api.routers.block_economics import _explosive_from_variant, _positions
 
 
 def test_block_economics_returns_the_price_ladder(client) -> None:
@@ -611,6 +611,87 @@ def test_downhole_nsi_default_is_never_shorter_than_required(client) -> None:
     ).json()
 
     assert body["parameters"]["nomenclature"]["NSI_DOWNHOLE"] == "MAT_NSI_12"
+
+
+def _passport_with_variant(repository, label: str) -> str:
+    passport = repository.save_technical_passport(
+        "default",
+        "tester",
+        site_code="SITE_MAIN",
+        object_name=f"Блок на {label}",
+        previous_passport_id=None,
+        reference_revision_id=repository.list_reference_revisions("default")[0].id,
+        formula_version="blast-geometry-v1",
+        input_snapshot={},
+        selected_variant={"label": label},
+        block_snapshot={},
+        physical={key: str(value) for key, value in fx.physical().items()},
+        lineage={},
+    )
+    return passport.id
+
+
+def _explosive_default(test_client, passport_id: str) -> str:
+    body = test_client.get(
+        "/api/v1/economics/model-defaults",
+        params={"technical_passport_id": passport_id, "package_code": "DRILL_AND_BLAST"},
+    ).json()
+    return body["parameters"]["nomenclature"]["EXPLOSIVE"]
+
+
+def test_explosive_default_follows_the_passport_variant(client) -> None:
+    """Смета считается на том ВВ, на котором посчитан блок, а не на первом в каталоге."""
+
+    test_client, repository, _ = client
+
+    # Подпись паспорта — подпись диаграммы: без префикса типа ВВ, без марки,
+    # в другом регистре и с дефисами.
+    eversin = _passport_with_variant(repository, "ЭВЕРСИН")
+    granulit = _passport_with_variant(repository, "ГРАНУЛИТ-РП")
+    # Подпись бывает и с маркой — вещество то же.
+    marked = _passport_with_variant(repository, "ЭВЕРСИН Э-100")
+
+    assert _explosive_default(test_client, eversin) == "MAT_EVERSIN"
+    assert _explosive_default(test_client, granulit) == "MAT_ANFO"
+    assert _explosive_default(test_client, marked) == "MAT_EVERSIN"
+
+
+def test_explosive_default_skips_the_priceless_twin(client) -> None:
+    """Дубль из справочника расчётной части совпадает по имени, но цены не имеет."""
+
+    test_client, repository, _ = client
+
+    chosen = _explosive_default(test_client, _passport_with_variant(repository, "ЭВЕРСИН"))
+
+    assert chosen == "MAT_EVERSIN"
+    assert chosen != "EXP_PEVV_EVERSIN_E_100"
+
+
+def test_explosive_partial_match_takes_the_name_closest_to_the_label(client) -> None:
+    """Из похожих имён выигрывает ближайшее к подписи, а не самое короткое."""
+
+    _, repository, _ = client
+    passport = repository.get_technical_passport(
+        "default", _passport_with_variant(repository, "Гранулит РП новый")
+    )
+    options = [
+        {"code": "MAT_GRANULIT", "name": "ГВВ Гранулит", "price_rub": 45.0},
+        {"code": "MAT_GRANULIT_RP", "name": "ГВВ Гранулит РП", "price_rub": 46.0},
+    ]
+
+    assert _explosive_from_variant(options, passport) == "MAT_GRANULIT_RP"
+
+
+def test_explosive_default_falls_back_when_the_variant_is_unknown(client) -> None:
+    """Подписи нет в каталоге — прежнее правило, а не пустая строка сметы."""
+
+    test_client, repository, passport_id = client
+
+    unknown = _passport_with_variant(repository, "ПОРЭМИТ 1А")
+
+    assert _explosive_default(test_client, unknown) == "MAT_ANFO"
+    # Старый паспорт без выбранного варианта ведёт себя как прежде.
+    assert _explosive_default(test_client, passport_id) == "MAT_ANFO"
 
 
 def test_export_prices_the_run_on_its_own_date(client) -> None:

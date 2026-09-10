@@ -1,6 +1,7 @@
 """REST API вкладки «Экономика»: расчёт блока, снимки, сравнение, чувствительность."""
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Any, Sequence
@@ -451,13 +452,93 @@ def _nomenclature(
     return catalog
 
 
+# Слова типа ВВ в номенклатуре: справочник расчётной части их не пишет.
+_EXPLOSIVE_KIND_WORDS = frozenset({"вв", "эвв", "гвв", "пвв", "пэвв"})
+
+
+def _explosive_key(text: str) -> str:
+    """Имя ВВ без того, чем расходятся два справочника.
+
+    Номенклатура зовёт вещество «ЭВВ Эверсин-100», паспорт несёт подпись
+    диаграммы «ЭВЕРСИН» или «ЭВЕРСИН Э-100». Общее у записей — само название,
+    поэтому из имени убираются регистр, знаки, слово типа ВВ и обозначение
+    марки: части с цифрами («100», «1А») и одиночные буквы («Э»).
+    """
+
+    tokens = [
+        token
+        for token in re.split(r"[^0-9a-zа-я]+", str(text).casefold().replace("ё", "е"))
+        if token
+    ]
+    kept = [
+        token
+        for token in tokens
+        if token not in _EXPLOSIVE_KIND_WORDS
+        and len(token) > 1
+        and not any(char.isdigit() for char in token)
+    ]
+    return "".join(kept)
+
+
+def _explosive_from_variant(
+    options: Sequence[dict[str, Any]], passport: StoredTechnicalPassport
+) -> str:
+    """Ценовая позиция каталога, отвечающая выбранному в паспорте ВВ.
+
+    Блок посчитан на конкретном веществе, и смета обязана считаться на нём же,
+    иначе цена блока тихо уезжает на разницу цен. Паспорт несёт не код, а
+    подпись диаграммы, поэтому сопоставление идёт по нормализованному имени.
+
+    Пустая строка означает «совпадения нет» — тогда работает прежнее правило
+    первой ценовой позиции: подпись бывает старой, пустой или отсутствующей в
+    номенклатуре, и смета всё равно должна собраться.
+    """
+
+    # Снимок варианта — свободный JSON клиента: подписи может не быть вовсе,
+    # а `str(None)` дал бы ключ «none» и случайное совпадение.
+    label = passport.selected_variant.get("label")
+    key = _explosive_key(label) if isinstance(label, str) else ""
+    if not key:
+        return ""
+
+    exact: list[dict[str, Any]] = []
+    partial: list[dict[str, Any]] = []
+    for row in options:
+        # Бесценовой дубль из справочника расчётной части совпадает по имени
+        # точнее ценовой позиции, но дал бы нулевую строку сметы.
+        if row["price_rub"] <= 0:
+            continue
+        name_key = _explosive_key(row["name"])
+        if not name_key:
+            continue
+        if name_key == key:
+            exact.append(row)
+            continue
+        longer, shorter = (name_key, key) if len(name_key) >= len(key) else (key, name_key)
+        # Четыре знака — чтобы «ЭВ» или «РП» не притянули чужое вещество.
+        if len(shorter) >= 4 and longer.startswith(shorter):
+            partial.append(row)
+
+    candidates = exact or partial
+    if not candidates:
+        return ""
+    # Ближе к подписи то, что меньше расходится с ней длиной: у подписи
+    # «Гранулит РП новый» это «Гранулит РП», а не «Гранулит». Имя добивает
+    # порядок, чтобы умолчание не зависело от порядка обхода справочника.
+    return min(
+        candidates,
+        key=lambda row: (abs(len(_explosive_key(row["name"])) - len(key)), row["name"]),
+    )["code"]
+
+
 def _default_nomenclature(
     catalog: dict[str, list[dict[str, Any]]], passport: StoredTechnicalPassport
 ) -> dict[str, str]:
     """Что подставить сметчику сразу после переноса паспорта.
 
     Позиция без цены в умолчание не годится: она дала бы нулевую строку и
-    предупреждение вместо готовой сметы.
+    предупреждение вместо готовой сметы. Основное ВВ и скважинные НСИ идут
+    от паспорта: первое — по выбранному веществу, вторые — по требуемой длине.
     """
 
     chosen: dict[str, str] = {}
@@ -487,6 +568,10 @@ def _default_nomenclature(
             candidates,
             key=lambda row: (abs(row["length_m"] - target), row["name"]),
         )["code"]
+
+    explosive = _explosive_from_variant(catalog.get("EXPLOSIVE", ()), passport)
+    if explosive:
+        chosen["EXPLOSIVE"] = explosive
     return chosen
 
 

@@ -98,6 +98,34 @@ describe("BlockEconomicsPage", () => {
     expect(await screen.findByText(expectedFullCost)).toBeInTheDocument();
   });
 
+  it("полоса паспорта показывает ревизию паспорта, а не ревизию расчёта, даже когда они расходятся", async () => {
+    // Паспорт выпущен на REV-1; справочники успели опубликовать REV-2, и
+    // именно на ней посчитан текущий результат (`activeEconomics`).
+    vi.mocked(api.economics.revisions).mockResolvedValue([
+      { id: "REV-1", organization_id: "ORG-1", sequence_no: 1, published_at: "2026-01-01T00:00:00Z", published_by: "tester", comment: "" },
+      { id: "REV-2", organization_id: "ORG-1", sequence_no: 2, published_at: "2026-02-01T00:00:00Z", published_by: "tester", comment: "" },
+    ]);
+    const economicsOnLaterRevision = { ...economicsFixture(), reference_revision_id: "REV-2" };
+    vi.mocked(api.blockEconomics.variants).mockResolvedValue(variantsResponse(economicsOnLaterRevision));
+
+    const { container } = renderWithWorkspace(
+      <BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />,
+    );
+    await screen.findByRole("heading", { name: "Экономика блока", level: 1 });
+
+    // Полоса паспорта (подпись поля — «Ревизия справочников паспорта»): ревизия ПАСПОРТА (REV-1).
+    expect(await screen.findByLabelText("Ревизия справочников паспорта")).toHaveValue("Ревизия 1 от 01.01.2026");
+    // Шапка сценариев: ревизия РАСЧЁТА (REV-2), на которой реально получен показанный результат.
+    // Изначально (до ответа `variants`) шапка ещё показывает ревизию паспорта — ждём пересчёта.
+    // `{context.site} · {context.passport} · {context.revision}` рендерится JSX-выражениями
+    // как отдельные текстовые узлы, поэтому сравниваем `textContent` контейнера, а не `getByText`.
+    await waitFor(() =>
+      expect(container.querySelector(".economics-header-context")?.textContent).toBe(
+        "Карьер №1 · Паспорт вер. 1 · Ревизия 2 от 01.02.2026",
+      ),
+    );
+  });
+
   it("смена ВВ вызывает пересчёт и обновляет сумму строки", async () => {
     const user = userEvent.setup();
     vi.mocked(api.blockEconomics.variants)

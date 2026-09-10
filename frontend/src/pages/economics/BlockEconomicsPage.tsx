@@ -70,6 +70,20 @@ function writeExpandedToStorage(expanded: Set<EstimateGroupCode>) {
   }
 }
 
+/**
+ * Человекочитаемая подпись ревизии справочников по её id: «Ревизия N от
+ * ДД.ММ.ГГГГ», либо сам id, если ревизия ещё не подгружена в `revisions`.
+ * Используется и для ревизии расчёта (шапка сценариев), и для ревизии
+ * паспорта (полоса паспорта) — это разные id, которые могут расходиться.
+ */
+function formatRevisionLabel(revisionId: string, revisions: ReferenceRevision[]): string {
+  if (!revisionId) return "";
+  const found = revisions.find((item) => item.id === revisionId);
+  if (!found) return revisionId;
+  const date = new Date(found.published_at).toLocaleDateString("ru-RU");
+  return `Ревизия ${found.sequence_no} от ${date}`;
+}
+
 export function BlockEconomicsPage({
   passportId,
   onOpenDrilling,
@@ -319,14 +333,20 @@ export function BlockEconomicsPage({
   // Ревизия, на которой реально посчитан ТЕКУЩИЙ результат (`activeEconomics`),
   // а не ревизия паспорта на момент его создания — справочники могли
   // обновиться позже, и тогда `activeEconomics.reference_revision_id` новее.
+  // Идёт в шапку сценариев (`EconomicsHeader`).
   const displayedRevisionId = activeEconomics?.reference_revision_id ?? passport?.reference_revision_id ?? "";
-  const revisionLabel = useMemo(() => {
-    if (!displayedRevisionId) return "";
-    const found = revisions.find((item) => item.id === displayedRevisionId);
-    if (!found) return displayedRevisionId;
-    const date = new Date(found.published_at).toLocaleDateString("ru-RU");
-    return `Ревизия ${found.sequence_no} от ${date}`;
-  }, [displayedRevisionId, revisions]);
+  const revisionLabel = useMemo(
+    () => formatRevisionLabel(displayedRevisionId, revisions),
+    [displayedRevisionId, revisions],
+  );
+  // Ревизия самого паспорта на момент его создания — идёт в `PassportStrip`
+  // (поле подписано «Ревизия справочников паспорта»), а не ревизия текущего
+  // расчёта: они расходятся, как только справочники публикуют новую ревизию
+  // после создания паспорта.
+  const passportRevisionLabel = useMemo(
+    () => formatRevisionLabel(revisionId, revisions),
+    [revisionId, revisions],
+  );
   const passportContextLabel = passport ? `Паспорт вер. ${passport.version_no}` : "";
 
   const exportUrl = activeDraft?.sourceRunId ? api.blockEconomics.exportUrl(activeDraft.sourceRunId) : null;
@@ -634,7 +654,7 @@ export function BlockEconomicsPage({
         onSelect={setSelectedPassport}
         passport={passport}
         siteLabel={siteLabel}
-        revisionLabel={revisionLabel}
+        revisionLabel={passportRevisionLabel}
       />
       <div className="page-content block-economics-content">
         {error && (

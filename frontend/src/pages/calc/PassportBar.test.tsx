@@ -25,23 +25,28 @@ afterEach(cleanup);
 const DRESVA = 'карьер месторождения "Дресьва"';
 const DAYKA = 'карьер месторождения "Рассохинская Дайка"';
 
-function snapshot(): EconomicsReferenceSnapshot {
-  const site = (code: string, name: string) => ({
+function site(code: string, name: string, isActive = true) {
+  return {
     code,
     name,
     payload: {},
-    is_active: true,
+    is_active: isActive,
     valid_from: null,
     valid_to: null,
     source: "test",
     comment: "",
     revision: 1,
-  });
+  };
+}
+
+function snapshot(
+  sites = [site("SITE_DRESVA", DRESVA), site("SITE_DAYKA", DAYKA)],
+): EconomicsReferenceSnapshot {
   return {
     revision_id: "REV-1",
     published_at: "2026-09-01T00:00:00Z",
     published_by: "tester",
-    sections: { sites: [site("SITE_DRESVA", DRESVA), site("SITE_DAYKA", DAYKA)] },
+    sections: { sites },
     section_catalog: [],
     group_catalog: [],
   };
@@ -153,6 +158,41 @@ describe("PassportBar", () => {
     expect(api.economics.deleteTechnicalPassport).not.toHaveBeenCalled();
     expect(screen.getByText("Блок 4")).toBeTruthy();
     confirm.mockRestore();
+  });
+
+  it("закрытый объект-тёзка не перехватывает имя у действующего", async () => {
+    // Объект закрыли и завели заново с тем же названием: в шапке остаётся
+    // только действующий, паспорт обязан уйти на его код.
+    vi.mocked(api.economics.referenceSnapshot).mockResolvedValue(
+      snapshot([site("SITE_OLD", DRESVA, false), site("SITE_NEW", DRESVA)]),
+    );
+    setup();
+    await waitFor(() =>
+      expect(api.economics.technicalPassports).toHaveBeenCalledWith("SITE_NEW"),
+    );
+  });
+
+  it("успешная загрузка списка гасит ошибку прошлого объекта", async () => {
+    vi.mocked(api.economics.technicalPassports)
+      .mockRejectedValueOnce(new Error("Не удалось загрузить паспорта."))
+      .mockResolvedValueOnce([passport("P-9", "Блок Дайки", "SITE_DAYKA")]);
+    const { rerender } = render(
+      <PassportBar
+        variants={[{ key: "left", label: "Вариант 1", geometry: GEOMETRY }]}
+        objectName={DRESVA}
+        onOpenEconomics={vi.fn()}
+      />,
+    );
+    await screen.findByText("Не удалось загрузить паспорта.");
+    rerender(
+      <PassportBar
+        variants={[{ key: "left", label: "Вариант 1", geometry: GEOMETRY }]}
+        objectName={DAYKA}
+        onOpenEconomics={vi.fn()}
+      />,
+    );
+    await screen.findByText("Блок Дайки");
+    expect(screen.queryByText("Не удалось загрузить паспорта.")).toBeNull();
   });
 
   it("ошибка удаления показывается, а строка остаётся", async () => {

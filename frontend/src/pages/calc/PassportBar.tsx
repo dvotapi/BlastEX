@@ -67,7 +67,13 @@ export function PassportBar({
       .referenceSnapshot()
       .then((snapshot) => {
         setSites(
-          (snapshot.sections.sites ?? []).map((item) => ({ code: item.code, name: item.name })),
+          // Только действующие объекты: список в шапке страницы собран из них
+          // же (`active_items("sites")` в legacy_adapter). Иначе закрытый
+          // объект с тем же названием мог перехватить имя у действующего, и
+          // паспорт ушёл бы на закрытый код.
+          (snapshot.sections.sites ?? [])
+            .filter((item) => item.is_active)
+            .map((item) => ({ code: item.code, name: item.name })),
         );
         setCurrentRevisionId(snapshot.revision_id);
       })
@@ -87,7 +93,11 @@ export function PassportBar({
     api.economics
       .technicalPassports(siteCode)
       .then((saved) => {
-        if (!cancelled) setPassports(saved);
+        if (cancelled) return;
+        setPassports(saved);
+        // Список этого объекта получен — прошлая ошибка (другого объекта или
+        // неудачной попытки) больше ни о чём не говорит.
+        setError("");
       })
       .catch((reason) => {
         if (!cancelled) {

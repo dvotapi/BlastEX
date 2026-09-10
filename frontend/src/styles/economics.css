@@ -1,3 +1,18 @@
+/* Токены вкладки: размеры строк и шрифтов таблицы сметы объявлены один раз
+   на корне страницы, чтобы правились в одном месте, а не по правилу. */
+.block-economics-page {
+  --ec-font-title: 28px;
+  --ec-font-section: 14px;
+  --ec-font-row: 13px;
+  --ec-font-head: 11px;
+  --ec-row-h: 40px;
+  --ec-section-h: 46px;
+  --ec-radius: 14px;
+  --ec-border: #dde5e1;
+  --ec-muted: #78857f;
+  --ec-accent: #1f6a4a;
+}
+
 /* Вкладка «Экономика блока» — конструктор сметы: комбобокс справочника,
    иерархическая таблица разделов и строк, бейджи происхождения величин,
    меню действий строки. Палитра и радиусы — те же, что в styles.css
@@ -10,41 +25,85 @@
 .estimate-builder-toolbar button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
 .estimate-builder-toolbar button:hover { border-color:#2d7556; color:#2d7556; }
 
-.estimate-table { border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#fff; min-width:960px; }
+/* `overflow` здесь обязан оставаться `visible`: любой предок с прокруткой
+   или обрезкой становится для липкой шапки колонок точкой отсчёта, и шапка
+   застывает внутри таблицы вместо верха окна. Скругление углов держат сама
+   шапка и последняя секция. */
+.estimate-table { border:1px solid #d9e2dd; border-radius:14px; background:#fff; }
+.estimate-section:last-child { border-radius:0 0 14px 14px; overflow:hidden; }
 .estimate-row {
   display:grid;
-  grid-template-columns: 44px minmax(0,1fr) 110px 96px 48px 96px 120px 76px 60px 32px;
+  /* Ширины подогнаны под самое длинное реальное число, а не «на глаз»:
+     «1 359 509,31» в сумме, «29 554,55» в количестве, «45,32 ₽/м³» в цене
+     куба. Всё лишнее здесь отнимается у названия статьи — единственной
+     колонки, которой ширина действительно нужна. */
+  grid-template-columns: 34px minmax(120px,1fr) 74px 88px 36px 76px 96px 62px 60px 28px;
   align-items:center;
   gap:6px;
 }
 
-.estimate-head { position:sticky; top:var(--passport-strip-h, 0px); z-index:2; padding:0 12px; min-height:36px; background:#f5f8f6; border-bottom:1px solid #dde5e1; font-size:10px; font-weight:700; color:#78857f; }
+.estimate-head { position:sticky; top:0; z-index:2; border-radius:14px 14px 0 0; padding:0 10px; min-height:40px; background:#f5f8f6; border-bottom:1px solid #dde5e1; font-size:var(--ec-font-head, 11px); font-weight:700; color:var(--ec-muted, #78857f); }
 
 .estimate-section + .estimate-section { border-top:1px solid #dde5e1; }
-.estimate-section-head { padding:0 12px; min-height:38px; background:#f5f8f6; }
+/* Числа заголовка раздела — того же размера, что и в строках: без этого они
+   набирались базовыми 14px полужирным и не влезали в свои колонки. Крупнее —
+   только само название раздела. */
+.estimate-section-head { padding:0 10px; min-height:var(--ec-section-h, 46px); background:#f5f8f6; font-size:var(--ec-font-row, 13px); }
 .estimate-section.is-highlighted > .estimate-section-head { background:#eaf3ee; }
-.estimate-section-toggle { grid-column:1 / span 2; display:flex; align-items:center; gap:8px; padding:8px 0; border:0; background:transparent; text-align:left; font-size:12px; font-weight:700; color:#17231d; cursor:pointer; border-radius:6px; }
+.estimate-section-toggle { display:flex; align-items:center; gap:8px; min-width:0; white-space:nowrap; overflow:hidden; padding:8px 0; border:0; background:transparent; text-align:left; font-size:var(--ec-font-section, 14px); font-weight:700; color:#17231d; cursor:pointer; border-radius:6px; }
+.estimate-section-number { color:var(--ec-muted, #78857f); font-size:var(--ec-font-section, 14px); font-weight:700; }
 .estimate-section-toggle:focus-visible { outline:none; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
-.estimate-section-caret { color:#78857f; font-size:10px; }
+.estimate-section-caret { flex:none; color:#78857f; font-size:10px; width:10px; }
+.estimate-section-toggle > span:last-child { overflow:hidden; text-overflow:ellipsis; }
 .estimate-section-body { background:#fff; }
 
 .estimate-line-wrap + .estimate-line-wrap,
 .estimate-section-body > .estimate-line-wrap:first-child { border-top:1px solid #eef2f0; }
-.estimate-line { padding:0 12px; min-height:34px; font-size:12px; }
+.estimate-line { padding:4px 10px; min-height:var(--ec-row-h, 40px); font-size:var(--ec-font-row, 13px); }
 .estimate-line:hover { background:#f7faf8; }
-.estimate-line-formula { margin:0; padding:8px 12px 10px 56px; background:#f7faf8; border-top:1px solid #eef2f0; font-size:11px; color:#4a5a51; }
-.estimate-line-formula code { font-family:inherit; }
+.estimate-line-title { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Величины без своей колонки — серой строкой под названием. */
+.estimate-line-caption { display:flex; align-items:center; flex-wrap:wrap; gap:5px; min-width:0; color:#78857f; font-size:11px; }
+.estimate-line-caption-item { display:inline-flex; align-items:center; gap:5px; min-width:0; }
+.estimate-line-caption-sep { color:#c2ccc7; }
+.estimate-line-caption .link-button { font-size:11px; }
+
+/* Панель под строкой: правка величины из меню либо формула строки. */
+.estimate-line-panel { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; padding:9px 12px 11px 50px; background:#f7faf8; border-top:1px solid #eef2f0; font-size:11px; color:#4a5a51; }
+.estimate-line-panel code { font-family:inherit; }
+.estimate-line-field { display:grid; gap:4px; color:#5f7168; font-size:10px; font-weight:700; }
+.estimate-line-field input { width:120px; padding:6px 8px; border:1px solid #cfd9d4; border-radius:7px; background:#fff; font-size:12px; }
+.estimate-line-field input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
+/* Поле без права правки: видно, но не принимает ввод — как соседние комбобоксы. */
+.estimate-line-field input:disabled,
+.estimate-col-quantity input:disabled,
+.drilling-card-fact-value input:disabled,
+.unit-plan-field input:disabled { opacity:.6; cursor:not-allowed; background:#f5f8f6; }
+
+/* Строка, деньги которой учтены в другом разделе. */
+.estimate-line.is-reference .estimate-col-amount { font-weight:400; color:#9aa8a1; }
+
+/* Подвал раздела: кнопки «+ Добавить …», панель ручных услуг, ссылки. */
+.estimate-section-footer { padding:8px 12px 12px; display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.estimate-section-empty { padding:10px 12px 12px; }
+.estimate-add-menu { position:relative; }
 
 .estimate-row, .estimate-line, .estimate-section-head, .estimate-head { font-variant-numeric:tabular-nums; }
-.estimate-col-quantity, .estimate-col-price, .estimate-col-amount, .estimate-col-perm3, .estimate-col-share { text-align:right; }
+/* Числа не переносятся: «50,77 ₽/м³» в две строки ломает высоту строки. */
+.estimate-col-quantity, .estimate-col-price, .estimate-col-amount, .estimate-col-perm3, .estimate-col-share { text-align:right; white-space:nowrap; }
+.estimate-col-quantity input { width:100%; padding:4px 7px; border:1px solid #cfd9d4; border-radius:7px; background:#fff; font-size:12px; text-align:right; }
+.estimate-col-quantity input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
 .estimate-col-unit { text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.estimate-col-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.estimate-col-number { color:var(--ec-muted, #78857f); }
+.estimate-col-basis { display:flex; align-items:center; min-width:0; }
+.estimate-col-name { display:flex; flex-direction:column; justify-content:center; gap:1px; min-width:0; overflow:hidden; }
 .estimate-col-amount { font-weight:700; }
 .estimate-section-head .estimate-col-amount, .estimate-section-head .estimate-col-perm3, .estimate-section-head .estimate-col-share { font-weight:700; }
 .estimate-col-actions { display:flex; align-items:center; justify-content:flex-end; gap:4px; }
 
 /* Бейдж происхождения величины: паспорт/расчёт/справочник/норматив/ручной. */
-.origin-badge { display:inline-flex; align-items:center; padding:2px 7px; border-radius:6px; font-size:10px; font-weight:700; white-space:nowrap; }
+.origin-badge { display:inline-flex; align-items:center; max-width:100%; overflow:hidden; text-overflow:ellipsis; padding:2px 6px; border-radius:6px; font-size:10px; font-weight:700; white-space:nowrap; }
 .origin-passport { background:#e8f1fb; color:#1f4e8c; }
 .origin-calc { background:#eef3f1; color:#31483d; }
 .origin-reference { background:#eaf6ef; color:#1f6a4a; }
@@ -53,13 +112,30 @@
 
 /* Комбобокс справочника в строке сметы. */
 .catalog-select { position:relative; }
-.catalog-select-button { width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; color:#17231d; font-size:12px; text-align:left; overflow:hidden; cursor:pointer; }
-.catalog-select-button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.catalog-select-button:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
-.catalog-select-button:focus-visible { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
+.catalog-select-button { width:100%; display:flex; align-items:center; gap:6px; color:#17231d; text-align:left; overflow:hidden; cursor:pointer; }
+.catalog-select-value { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.catalog-select-caret { flex:none; margin-left:auto; color:#8b988f; font-size:9px; }
+
+/* Вид строки сметы: название читается как название, а не как поле ввода —
+   стрелка и подчёркивание появляются только при наведении и с клавиатуры. */
+.catalog-select-button.is-ghost { padding:2px 0; border:0; border-radius:6px; background:transparent; font-size:inherit; font-weight:inherit; }
+.catalog-select-button.is-ghost .catalog-select-caret { opacity:0; transition:opacity .12s ease; }
+.catalog-select-button.is-ghost:hover .catalog-select-value,
+.catalog-select-button.is-ghost:focus-visible .catalog-select-value { text-decoration:underline dotted; text-underline-offset:3px; }
+.catalog-select-button.is-ghost:hover .catalog-select-caret,
+.catalog-select-button.is-ghost:focus-visible .catalog-select-caret { opacity:1; }
+.catalog-select-button.is-ghost:focus-visible { outline:none; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
+
+/* Вид самостоятельного поля формы: карточка бурения. */
+.catalog-select-button.is-field { justify-content:space-between; padding:7px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; font-size:12px; }
+.catalog-select-button.is-field .catalog-select-caret { opacity:1; }
+.catalog-select-button.is-field:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
+.catalog-select-button.is-field:focus-visible { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
 .catalog-select-button:disabled { opacity:.6; cursor:not-allowed; }
 
-.catalog-select-popover { position:absolute; z-index:5; top:calc(100% + 4px); left:0; width:max-content; min-width:260px; max-width:360px; padding:8px; border:1px solid #cfd9d4; border-radius:12px; background:#fff; box-shadow:0 12px 30px rgba(22,48,36,.14); }
+/* Координаты ставит `useAnchoredPosition` инлайновым стилем: панель живёт
+   порталом в `body`, а не в строке, иначе её срезала бы ячейка названия. */
+.catalog-select-popover { position:fixed; z-index:50; width:max-content; min-width:260px; max-width:360px; padding:8px; border:1px solid #cfd9d4; border-radius:12px; background:#fff; box-shadow:0 12px 30px rgba(22,48,36,.14); }
 .catalog-select-search { box-sizing:border-box; width:100%; margin-bottom:6px; padding:8px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fbfcfb; font-size:12px; }
 .catalog-select-search:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
 
@@ -76,7 +152,8 @@
 .row-menu-trigger { width:24px; height:24px; display:grid; place-items:center; border:0; border-radius:6px; background:transparent; color:#78857f; font-size:14px; line-height:1; cursor:pointer; }
 .row-menu-trigger:hover { background:#eef2f0; color:#3b4b43; }
 .row-menu-trigger:focus-visible { outline:none; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
-.row-menu-list { position:absolute; z-index:5; top:calc(100% + 4px); right:0; min-width:160px; display:grid; gap:2px; padding:6px; border:1px solid #cfd9d4; border-radius:10px; background:#fff; box-shadow:0 12px 30px rgba(22,48,36,.14); }
+/* Координаты ставит `useAnchoredPosition`: список живёт порталом в `body`. */
+.row-menu-list { position:fixed; z-index:50; min-width:180px; display:grid; gap:2px; padding:6px; border:1px solid #cfd9d4; border-radius:10px; background:#fff; box-shadow:0 12px 30px rgba(22,48,36,.14); }
 .row-menu-list button { padding:7px 9px; border:0; border-radius:7px; background:transparent; color:#17231d; font-size:12px; text-align:left; cursor:pointer; }
 .row-menu-list button:hover { background:#f5f8f6; }
 .row-menu-list button:focus-visible { outline:none; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
@@ -90,19 +167,23 @@
 .economics-sidebar { display:grid; gap:14px; align-content:start; }
 
 /* --- Кольцо структуры себестоимости --- */
-.donut-panel { display:grid; gap:10px; padding:15px; border:1px solid #d9e2dd; border-radius:15px; background:#fff; }
+.donut-panel { display:grid; gap:12px; padding:15px; border:1px solid var(--ec-border, #dde5e1); border-radius:var(--ec-radius, 14px); background:#fff; }
 
-.donut-unit-switch { display:inline-flex; justify-self:end; border:1px solid #cfd9d4; border-radius:9px; overflow:hidden; }
+/* Заголовок карточки сайдбара: название слева, переключатель единицы справа. */
+.economics-sidebar-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.economics-sidebar-head b { font-size:13px; }
+
+.donut-unit-switch { display:inline-flex; flex:none; border:1px solid #cfd9d4; border-radius:9px; overflow:hidden; }
 .donut-unit-switch button { padding:5px 10px; border:0; background:#fff; color:#5f7168; font-size:11px; font-weight:700; cursor:pointer; }
 .donut-unit-switch button + button { border-left:1px solid #cfd9d4; }
 .donut-unit-switch button.is-active { background:#2d7556; color:#fff; }
 
-.donut-panel svg { width:100%; max-width:220px; justify-self:center; }
+.donut-panel svg { width:100%; max-width:200px; justify-self:center; }
 .donut-segment { stroke:#fff; stroke-width:1; cursor:pointer; transition:opacity .15s ease; }
 .donut-segment:focus-visible { outline:2px solid #2d7556; outline-offset:2px; }
 .donut-segment.is-selected { stroke:#17231d; stroke-width:3; }
 .donut-segment.is-dimmed { opacity:.55; }
-.donut-center-value { font-size:15px; font-weight:700; fill:#17231d; }
+.donut-center-value { font-size:19px; font-weight:700; fill:#17231d; }
 .donut-center-unit { font-size:9px; fill:#78857f; }
 .donut-center-caption { font-size:9px; fill:#78857f; text-transform:uppercase; letter-spacing:.02em; }
 
@@ -111,7 +192,7 @@
 .donut-caption b { font-size:11px; }
 
 .donut-legend { list-style:none; margin:0; padding:0; display:grid; gap:4px; }
-.donut-legend li { display:grid; grid-template-columns:10px minmax(0,1fr) auto auto; align-items:center; gap:7px; padding:4px 6px; border-radius:7px; font-size:11px; }
+.donut-legend li { display:grid; grid-template-columns:10px minmax(0,1fr) auto auto; align-items:center; gap:8px; padding:5px 6px; border-radius:7px; font-size:12px; }
 .donut-legend li.is-active { background:#eaf3ee; }
 .donut-legend-color { width:10px; height:10px; border-radius:3px; }
 .donut-legend-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#3b4b43; }
@@ -128,39 +209,66 @@
 .price-formation-row.strong span { color:#1f6a4a; font-weight:700; }
 .price-formation-row.strong b { font-size:15px; color:#1f6a4a; }
 
+/* Плашки ключевых показателей — карточкой с заголовком, как соседние. */
+.economics-totals-panel .economics-totals { padding:14px; }
+
 /* --- Плашки ключевых итогов --- */
 .economics-totals { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.economics-totals-tile b { display:block; }
 .economics-totals-tile { padding:11px; border:1px solid #dde5e1; border-radius:10px; background:#fff; }
 .economics-totals-tile span { display:block; margin-bottom:4px; color:#78857f; font-size:10px; }
 .economics-totals-tile b { font-size:14px; font-variant-numeric:tabular-nums; }
 
-/* --- Шапка сценариев (задача 9): заголовок с плашкой черновика/сохранения,
-   строка контекста паспорта и ряд действий — выбор сценария, сохранение,
-   дублирование, выгрузка в XLSX. Не липкая — уходит из вида при прокрутке
-   вместе со страницей, в отличие от `.passport-strip` и шапки таблицы ниже. */
-.economics-header { padding:20px 28px 0; display:grid; gap:8px; }
+/* --- Шапка страницы: заголовок с плашкой черновика слева, сценарий и
+   действия справа — одной строкой, как в концепте. Не липкая: уходит из
+   вида вместе со страницей, к верху окна липнет шапка колонок сметы. --- */
+.economics-header { padding:22px 28px 2px; display:grid; grid-template-columns:minmax(320px,1fr) auto; gap:10px 18px; align-items:start; }
+@media (max-width:1240px) {
+  .economics-header { grid-template-columns:1fr; }
+  .economics-header-actions { justify-content:flex-start; }
+}
+.economics-header-lead { display:grid; gap:5px; min-width:0; }
 .economics-header-title { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-.economics-header-title h1 { margin:0; font-size:24px; letter-spacing:-.5px; }
+.economics-header-title h1 { margin:0; font-size:var(--ec-font-title, 28px); letter-spacing:-.6px; }
 .economics-header-context { margin:0; color:#6e7c75; font-size:12px; }
-.economics-header-error { margin:0; border-radius:9px; padding:9px 12px; background:#fce9e7; color:#9e3025; font-size:12px; }
-.economics-header-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
-.economics-header-actions select { padding:9px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fbfcfb; color:#17231d; font-size:12px; min-width:220px; }
+.economics-header-error { grid-column:1 / -1; margin:0; border-radius:9px; padding:9px 12px; background:#fce9e7; color:#9e3025; font-size:12px; }
+.economics-header-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:9px; }
+.economics-header-scenario-label { color:var(--ec-muted, #78857f); font-size:11px; font-weight:700; }
+.economics-header-actions select { padding:9px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fbfcfb; color:#17231d; font-size:12px; min-width:190px; }
 .economics-header-save { display:flex; align-items:center; gap:8px; }
 .economics-header-save input { padding:9px 10px; border:1px solid #2d7556; border-radius:9px; font-size:12px; width:180px; }
+/* Кнопка «⋮» в шапке — та же `RowMenu`, что и в строках сметы. */
+.economics-header-actions .row-menu-trigger { width:32px; height:32px; border:1px solid #ced9d3; border-radius:9px; font-size:15px; }
 
-/* --- Липкая полоса паспорта (задача 9а): дата паспорта рядом с плашками
-   геометрии — тем же местом, где раньше стоял статус сохранения сценария. --- */
-.passport-strip-date { margin-left:auto; color:#78857f; font-size:11px; }
+/* --- Карточка показателей блока: объём, погонаж, скважины, расход ВВ и
+   дата паспорта — одной строкой через разделители; полная таблица величин
+   раскрывается кнопкой справа. --- */
+.passport-card { margin:0 28px; padding:14px 18px; border:1px solid var(--ec-border, #dde5e1); border-radius:var(--ec-radius, 14px); background:#fff; }
+.passport-card-metrics { display:flex; flex-wrap:wrap; align-items:center; gap:0; }
+.passport-card-metric { display:grid; gap:3px; padding:0 22px; border-left:1px solid #e6ece9; }
+.passport-card-metric:first-child { padding-left:0; border-left:0; }
+.passport-card-metric span { color:var(--ec-muted, #78857f); font-size:11px; }
+.passport-card-metric b { font-size:18px; letter-spacing:-.2px; font-variant-numeric:tabular-nums; }
+.passport-card-metric b small { color:var(--ec-muted, #78857f); font-size:11px; font-weight:500; }
+.passport-card-date b { font-size:13px; font-weight:600; }
+.passport-card-details-toggle { margin-left:auto; width:34px; height:34px; display:grid; place-items:center; border:1px solid #dde5e1; border-radius:9px; background:#fff; color:#5f7168; font-size:14px; }
+.passport-card-details-toggle:hover { border-color:#2d7556; color:#2d7556; }
+.passport-card-details-toggle[aria-expanded="true"] { border-color:#2d7556; background:#eaf3ee; color:#1f6a4a; }
+.passport-card-details { margin-top:12px; padding-top:12px; border-top:1px solid #eef2f0; font-size:12px; }
 
 /* --- Рабочая область вкладки «Экономика блока»: смета/вкладки слева, липкий
    сайдбар (диаграмма, лестница цены, итоги) справа. --- */
 .economics-workspace { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:16px; align-items:start; }
 .economics-main { min-width:0; display:grid; gap:16px; }
-.economics-sidebar { position:sticky; top:calc(var(--passport-strip-h, 0px) + 14px); }
-@media (max-width:1280px) {
+.economics-sidebar { position:sticky; top:14px; }
+@media (max-width:1400px) {
   .economics-workspace { grid-template-columns:minmax(0,1fr) 300px; }
 }
-@media (max-width:1050px) {
+/* Ниже этой ширины смете не хватает места рядом с сайдбаром: названия статей
+   ужимаются до нечитаемых. Сайдбар уходит под смету, и таблица получает всю
+   ширину — это дешевле горизонтальной прокрутки, которая ломает липкую шапку
+   колонок. */
+@media (max-width:1340px) {
   .economics-workspace { grid-template-columns:1fr; }
   .economics-sidebar { position:static; }
 }
@@ -185,3 +293,116 @@
 @media (max-width:1050px) {
   .resources-margin-body { grid-template-columns:1fr; }
 }
+
+/* --- Ограничитель ошибок вкладки (`EconomicsErrorBoundary`): единственное,
+   что остаётся на месте сметы, когда её не удалось отрисовать. --- */
+.economics-crash { display:grid; justify-items:start; gap:10px; padding:20px; border:1px solid #f0d3cf; border-radius:15px; background:#fdf6f5; }
+.economics-crash b { font-size:14px; color:#9e3025; }
+.economics-crash p { margin:0; max-width:60ch; color:#5f7168; font-size:12px; line-height:1.5; }
+.economics-crash code { padding:8px 10px; border-radius:8px; background:#fff; color:#9e3025; font-family:inherit; font-size:11px; }
+
+/* --- Карточка раздела «Бурение» ---------------------------------------
+   Способ исполнения меняет саму статью затрат, поэтому раздел открывается
+   формой, а не строкой: переключатель и станок слева, величины метра по
+   центру, сумма и разложение справа. --- */
+.estimate-card { margin:10px 12px; padding:14px; border:1px solid #dde5e1; border-radius:12px; background:#fbfcfb; }
+.drilling-card { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.1fr) 210px; gap:18px; align-items:start; }
+.drilling-card-col { display:grid; gap:10px; align-content:start; min-width:0; }
+.drilling-card-field { display:grid; gap:5px; color:#5f7168; font-size:10px; font-weight:700; }
+.drilling-card-facts { gap:12px; }
+.drilling-card-fact { display:grid; gap:4px; min-width:0; }
+.drilling-card-fact-label { color:#78857f; font-size:10px; font-weight:700; }
+.drilling-card-fact-value { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; font-variant-numeric:tabular-nums; }
+.drilling-card-fact-value input { width:110px; padding:6px 8px; border:1px solid #cfd9d4; border-radius:7px; background:#fff; font-size:12px; }
+.drilling-card-fact-value input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
+.drilling-card-total { justify-items:end; text-align:right; gap:2px; }
+.drilling-card-amount { font-size:22px; letter-spacing:-.5px; font-variant-numeric:tabular-nums; }
+.drilling-card-perm3 { color:#78857f; font-size:11px; font-variant-numeric:tabular-nums; }
+.drilling-card-formula { margin:6px 0 8px; color:#78857f; font-family:inherit; font-size:10px; line-height:1.4; }
+.drilling-card-footer { grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding-top:12px; border-top:1px solid #e6ece9; }
+
+.drilling-executor { margin:0; padding:0; border:0; display:grid; gap:6px; }
+.drilling-executor legend { padding:0; margin-bottom:2px; color:#5f7168; font-size:10px; font-weight:700; }
+.drilling-executor label { display:flex; align-items:center; gap:7px; font-size:12px; }
+.drilling-executor input { accent-color:#2d7556; }
+
+/* Публикация ручной ставки в справочник — под карточкой. */
+.drilling-rate-save { display:grid; gap:6px; }
+.drilling-rate-save-form { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.drilling-rate-save-form input { padding:7px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fff; font-size:12px; }
+.drilling-rate-save-form button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
+.drilling-rate-save-form button:disabled { opacity:.6; cursor:not-allowed; }
+.drilling-rate-status { margin:0; color:#1f6a4a; font-size:11px; }
+.drilling-rate-error { margin:0; color:#9e3025; font-size:11px; }
+
+/* Выдвижная панель разложения метра: смету за ней видно, она не модальная. */
+.drilling-drawer { position:fixed; z-index:40; top:0; right:0; bottom:0; width:min(460px,100vw); overflow:auto; padding:20px; border-left:1px solid #d9e2dd; background:#fff; box-shadow:-16px 0 40px rgba(22,48,36,.14); }
+.drilling-drawer-close { position:absolute; top:14px; right:16px; width:28px; height:28px; display:grid; place-items:center; border:1px solid #dde5e1; border-radius:50%; background:#fff; color:#5f7168; font-size:16px; line-height:1; }
+.drilling-drawer-close:hover { border-color:#2d7556; color:#2d7556; }
+
+/* Ссылка-кнопка: действие, которое читается как ссылка. */
+.link-button { padding:0; border:0; background:transparent; color:#1f6a4a; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
+.link-button:hover { text-decoration:underline; }
+.link-button:disabled { color:#9aa8a1; cursor:not-allowed; text-decoration:none; }
+.link-button:focus-visible { outline:none; border-radius:5px; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
+
+
+/* --- Карточка рабочей области: вкладки, панель инструментов и содержимое
+   активной вкладки — одним листом, как в концепте. --- */
+/* Отступы держит сама карточка, а не селектор всех потомков: вкладки идут
+   во всю ширину и гасят боковые поля своим отрицательным полем. */
+.economics-card { padding:0 18px 16px; border:1px solid var(--ec-border, #dde5e1); border-radius:var(--ec-radius, 14px); background:#fff; }
+.economics-card > .economics-tabs { margin:0 -18px; }
+.economics-card .estimate-scroll { margin-top:14px; }
+/* Панели вкладок лежат внутри карточки — своя рамка сделала бы коробку в
+   коробке; карточка уже держит и рамку, и скругление. */
+.economics-card .panel { margin-top:14px; border:0; border-radius:0; }
+.economics-card .panel > header { min-height:0; padding:14px 0 10px; border-bottom:0; }
+.economics-card .panel-body { padding:0; }
+
+/* Вкладки: активная подчёркнута зелёным, без заливки. */
+.economics-tabs { display:flex; flex-wrap:wrap; gap:2px; padding:0 18px; margin-bottom:0; border-bottom:1px solid #e6ece9; }
+.economics-tabs button { padding:14px 12px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:#6e7c75; font-size:13px; font-weight:600; }
+.economics-tabs button:hover { color:#17231d; }
+.economics-tabs button.active { background:transparent; border-bottom-color:#2d7556; color:var(--ec-accent, #1f6a4a); font-weight:700; }
+.economics-tabs button:focus-visible { outline:none; border-radius:8px 8px 0 0; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
+
+/* Смета шире окна только на узких экранах: там же гаснет липкая шапка —
+   у контейнера с прокруткой она липла бы к нему, а не к верху окна. */
+.estimate-scroll { min-width:0; }
+/* Совсем узкий экран: смета не влезает и во всю ширину — тогда прокрутка по
+   горизонтали, а липкая шапка гаснет (её точкой отсчёта стал бы контейнер
+   прокрутки, и она застыла бы внутри таблицы). */
+@media (max-width:980px) {
+  .estimate-scroll { overflow-x:auto; }
+  .estimate-table { min-width:840px; }
+  .estimate-head { position:static; }
+}
+
+/* Селекторы объекта и паспорта в шапке приложения. */
+.topbar-selectors { display:flex; align-items:center; gap:10px; min-width:0; }
+.topbar-selector { display:grid; gap:1px; min-width:0; max-width:290px; padding:5px 11px; border:1px solid #dce4e0; border-radius:9px; background:#fff; }
+.topbar-selector > span { color:#78857f; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; white-space:nowrap; }
+.topbar-selector > b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.topbar-selector.is-select { padding:5px 6px 5px 11px; }
+.topbar-selector select { max-width:260px; border:0; background:transparent; color:#17231d; font-size:12px; font-weight:700; }
+.topbar-selector select:focus { outline:none; }
+@media (max-width:1050px) {
+  .topbar-selectors { flex-wrap:wrap; gap:6px; }
+  .topbar-selector { max-width:none; }
+}
+
+/* Плановый объём юнита — в разделе постоянных расходов: на него модель делит
+   постоянные затраты юнита, без него они на блок не распределяются. */
+.unit-plan-card { display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; }
+.unit-plan-field { display:grid; gap:5px; color:#5f7168; font-size:10px; font-weight:700; }
+.unit-plan-field input { width:160px; padding:7px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fff; font-size:12px; }
+.unit-plan-field input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
+.unit-plan-field b { font-size:13px; font-variant-numeric:tabular-nums; }
+.unit-plan-note { flex:1 1 260px; margin:0; color:var(--ec-muted, #78857f); font-size:11px; line-height:1.5; }
+
+/* Предупреждения модели над сметой: свёрнуты в одну строку, раскрываются. */
+.estimate-warnings { margin-bottom:12px; padding:10px 14px; border:1px solid #f0e2c4; border-radius:10px; background:#fdf9ef; font-size:12px; }
+.estimate-warnings > summary { cursor:pointer; color:#8a5a10; font-weight:700; list-style:none; }
+.estimate-warnings > summary::-webkit-details-marker { display:none; }
+.estimate-warnings ul { margin:8px 0 0; padding-left:18px; display:grid; gap:5px; color:#5f7168; }

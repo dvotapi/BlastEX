@@ -29,54 +29,57 @@ export function DrillingSection(props: DrillingSectionProps) {
     onChange({ drilling_executor: executor });
   }
 
-  return (
-    <div className="drilling-section">
-      <fieldset className="drilling-executor" disabled={!canEdit}>
-        <legend>Исполнение</legend>
-        <label>
-          <input
-            type="radio"
-            name="drilling_executor"
-            value="OWN"
-            checked={params.drilling_executor === "OWN"}
-            onChange={() => setExecutor("OWN")}
-          />
-          Собственными силами
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="drilling_executor"
-            value="SUBCONTRACTOR"
-            checked={params.drilling_executor === "SUBCONTRACTOR"}
-            onChange={() => setExecutor("SUBCONTRACTOR")}
-          />
-          Субподряд
-        </label>
-      </fieldset>
-      {params.drilling_executor === "OWN" ? (
-        <OwnDrillingEditor
-          group={group}
-          params={params}
-          defaults={defaults}
-          economics={economics}
-          volume={volume}
-          canEdit={canEdit}
-          onChange={onChange}
-          onOpenDrillingPage={onOpenDrillingPage}
+  // Переключатель рисуется здесь, а показывается внутри карточки бурения:
+  // способ исполнения и его параметры — одна форма, а не два соседних блока.
+  const executor = (
+    <fieldset className="drilling-executor" disabled={!canEdit}>
+      <legend>Исполнение</legend>
+      <label>
+        <input
+          type="radio"
+          name="drilling_executor"
+          value="OWN"
+          checked={params.drilling_executor === "OWN"}
+          onChange={() => setExecutor("OWN")}
         />
-      ) : (
-        <SubcontractDrillingEditor
-          group={group}
-          params={params}
-          defaults={defaults}
-          economics={economics}
-          volume={volume}
-          canEdit={canEdit}
-          onChange={onChange}
-          onDefaultsChanged={onDefaultsChanged}
+        Собственными силами
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="drilling_executor"
+          value="SUBCONTRACTOR"
+          checked={params.drilling_executor === "SUBCONTRACTOR"}
+          onChange={() => setExecutor("SUBCONTRACTOR")}
         />
-      )}
-    </div>
+        Субподряд
+      </label>
+    </fieldset>
+  );
+
+  return params.drilling_executor === "OWN" ? (
+    <OwnDrillingEditor
+      group={group}
+      params={params}
+      defaults={defaults}
+      economics={economics}
+      volume={volume}
+      canEdit={canEdit}
+      onChange={onChange}
+      onOpenDrillingPage={onOpenDrillingPage}
+      executor={executor}
+    />
+  ) : (
+    <SubcontractDrillingEditor
+      group={group}
+      params={params}
+      defaults={defaults}
+      economics={economics}
+      volume={volume}
+      canEdit={canEdit}
+      onChange={onChange}
+      onDefaultsChanged={onDefaultsChanged}
+      executor={executor}
+    />
   );
 }

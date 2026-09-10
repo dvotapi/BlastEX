@@ -63,7 +63,9 @@ export function ServicesSection({
         />
       ))}
       <ServicesPanel
-        services={params.services}
+        // Второй рубеж после `draftFromRun`: панель не обязана падать целиком,
+        // если параметры пришли откуда-то ещё без списка услуг.
+        services={params.services ?? []}
         operations={defaults.operations}
         canEdit={canEdit}
         busyCode={busyServiceName}

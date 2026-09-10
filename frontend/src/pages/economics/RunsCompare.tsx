@@ -1,6 +1,6 @@
 import { api } from "../../api/endpoints";
 import type { EconomicsRunSummary, RunCompare } from "../../types/blockEconomics";
-import { money } from "./format";
+import { money, runPrice } from "./format";
 
 /** Сохранённые сценарии блока и сравнение до трёх снимков рядом. */
 export function RunsCompare({
@@ -19,7 +19,7 @@ export function RunsCompare({
   onCompare: () => void;
 }) {
   return (
-    <section className="panel runs-compare">
+    <section className="panel">
       <header>
         <b>Сценарии блока</b>
         <button
@@ -48,7 +48,7 @@ export function RunsCompare({
                   <b>{run.name}</b>
                   <small>{new Date(run.created_at).toLocaleString("ru-RU")} · {run.package_code}</small>
                 </span>
-                <em>{(run.price_per_m3.full ?? 0).toFixed(2)} ₽/м³</em>
+                <em title={run.price_per_m3.full ? undefined : "Прогон сохранён без расчёта"}>{runPrice(run.price_per_m3.full)}</em>
                 <a href={api.blockEconomics.exportUrl(run.id)} target="_blank" rel="noreferrer">xlsx</a>
               </label>
             ))}
@@ -78,11 +78,11 @@ export function RunsCompare({
                 <tr className="compare-total">
                   <td>Полная себестоимость, ₽/м³</td>
                   {(compare.price_per_m3.full ?? []).map((value, index) => (
-                    <td key={index}>{value.toFixed(2)}</td>
+                    <td key={index}>{money(value)}</td>
                   ))}
                   <td className={(compare.delta_price_per_m3.full ?? 0) < 0 ? "metric-negative" : ""}>
                     {(compare.delta_price_per_m3.full ?? 0) > 0 ? "+" : ""}
-                    {(compare.delta_price_per_m3.full ?? 0).toFixed(2)}
+                    {money(compare.delta_price_per_m3.full ?? 0)}
                   </td>
                 </tr>
               </tbody>

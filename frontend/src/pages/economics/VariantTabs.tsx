@@ -37,7 +37,7 @@ export function VariantTabs({
   }
 
   return (
-    <div className="sub-tabs variant-tabs" role="tablist">
+    <div className="sub-tabs" role="tablist">
       {variants.map((variant) => (
         <div className="variant-tab" key={variant.id}>
           {editingId === variant.id ? (

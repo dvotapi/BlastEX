@@ -10,14 +10,13 @@
  * установка» только итоговая сумма/доля и сноска со ссылкой на «Бурение»,
  * без повторной построчной разбивки.
  */
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { AddMenu } from "../estimate/AddMenu";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
-import { EstimateLine } from "../estimate/EstimateLine";
+import { EstimateLine, type EstimateLineCaption } from "../estimate/EstimateLine";
 import { NumericInput } from "../NumericInput";
-import { OriginBadge } from "../estimate/OriginBadge";
-import { RowMenu } from "../estimate/RowMenu";
 import { lineNumber } from "../estimateModel";
-import { money } from "../format";
+import { amount as formatAmount, money } from "../format";
 import { linesByPrefix, lineShare } from "./lineHelpers";
 import type { SectionEditorProps } from "./types";
 import type { CodeName, ModelParameters, ValueOrigin } from "../../../types/blockEconomics";
@@ -42,6 +41,11 @@ type EquipmentRole = {
   prefix: string;
 };
 
+export type EquipmentSectionProps = SectionEditorProps & {
+  /** Раскрыть раздел «Бурение»: там учтены деньги строки станка. */
+  onOpenDrillingGroup?: () => void;
+};
+
 function equipmentRoles(defaults: SectionEditorProps["defaults"]): EquipmentRole[] {
   return [
     { param: "rig_code", label: "Буровая установка", options: defaults.rigs, shiftsKey: "rig_shifts", prefix: "DRILL_" },
@@ -63,11 +67,19 @@ function equipmentRoles(defaults: SectionEditorProps["defaults"]): EquipmentRole
   ];
 }
 
-export function EquipmentSection({ group, params, defaults, economics, volume, canEdit, onChange }: SectionEditorProps) {
+export function EquipmentSection({
+  group,
+  params,
+  defaults,
+  economics,
+  volume,
+  canEdit,
+  onChange,
+  onOpenDrillingGroup,
+}: EquipmentSectionProps) {
   // Роль без выбранной техники не занимает строку сметы сама по себе —
   // сметчик добавляет её кнопкой «+ Добавить технику», как и материалы ВМ.
   const [addedRoles, setAddedRoles] = useState<Set<EquipmentRoleKey>>(new Set());
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   const roles = equipmentRoles(defaults);
   const visibleRoles = roles.filter((role) => Boolean(params[role.param]) || addedRoles.has(role.param));
@@ -153,8 +165,44 @@ export function EquipmentSection({ group, params, defaults, economics, volume, c
         const number = lineNumber(group, rowIndex);
         rowIndex += 1;
 
+        // Деньги станка учтены в разделе «Бурение» — здесь у его строки нет
+        // ни суммы, ни доли. Иначе итог раздела не сходился с суммой видимых
+        // строк, а колонка процентов дважды считала одни и те же рубли.
+        const isRig = role.param === "rig_code";
+        const captions: EstimateLineCaption[] = [];
+        if (shiftsValue !== undefined) {
+          captions.push({
+            label: "Смены на блок",
+            value: formatAmount(Number(shiftsValue)),
+            origin: "CALC",
+            originLabel: "Расчёт",
+            originTitle: shiftsTitle,
+          });
+        }
+        captions.push({
+          label: "Плановые смены в месяц",
+          value: planRaw === null || planRaw === undefined || planRaw === "" ? "норматив" : formatAmount(Number(planRaw)),
+          origin: planOrigin,
+        });
+        if (isRig && items.length > 0) {
+          captions.push({
+            label: "Затраты станка",
+            value: `${money(total, 0)} ₽ — в разделе «Бурение»`,
+            onClick: onOpenDrillingGroup,
+          });
+        }
+        if (unallocated) {
+          captions.push({
+            label: "При субподряде",
+            value: `${money(unallocated.amount_rub, 0)} ₽ постоянных затрат станка не распределены на блок`,
+          });
+        }
+
         return (
-          <div className="equipment-role" key={role.param}>
+          // Fragment, а не обёртка: `display:contents` оставляет узел в дереве
+          // DOM, и соседские селекторы разделителей строк перестают совпадать
+          // через границу ролей — линия между ролями пропадала.
+          <Fragment key={role.param}>
             <EstimateLine
               number={number}
               name={
@@ -167,56 +215,34 @@ export function EquipmentSection({ group, params, defaults, economics, volume, c
                   disabled={!canEdit}
                 />
               }
+              captions={captions}
               origin=""
               quantity={null}
               unit=""
               price={null}
-              amount={total}
+              amount={isRig ? null : total}
               volume={volume}
-              share={share}
-              actions={
-                <>
-                  {shiftsValue !== undefined && (
-                    <span className="equipment-role-shifts">
-                      Смены на блок: {shiftsValue}
-                      <OriginBadge origin="CALC" label="Расчёт" title={shiftsTitle} />
-                    </span>
-                  )}
-                  <label className="equipment-role-plan">
-                    Плановые смены в месяц
-                    <NumericInput
-                      value={planRaw}
-                      allowEmpty
-                      min={0}
-                      step={1}
-                      placeholder="норматив"
-                      ariaLabel={`Плановые смены: ${role.label}`}
-                      onChange={(value) => setPlanShifts(role, code, value)}
-                    />
-                    <OriginBadge origin={planOrigin} />
-                  </label>
-                  {canEdit && (
-                    <RowMenu
-                      items={[{ label: "Убрать", onSelect: () => removeRole(role), danger: true }]}
-                      label={`Действия: ${role.label}`}
-                    />
-                  )}
-                </>
+              share={isRig ? null : share}
+              menuLabel={`Действия: ${role.label}`}
+              editorMenuLabel="Плановые смены в месяц"
+              editor={
+                <label className="estimate-line-field">
+                  Плановые смены в месяц
+                  <NumericInput
+                    value={planRaw}
+                    allowEmpty
+                    min={0}
+                    step={1}
+                    placeholder="норматив"
+                    ariaLabel={`Плановые смены: ${role.label}`}
+                    disabled={!canEdit}
+                    onChange={(value) => setPlanShifts(role, code, value)}
+                  />
+                </label>
               }
+              menuItems={canEdit ? [{ label: "Убрать", onSelect: () => removeRole(role), danger: true }] : []}
             />
-            {unallocated && (
-              <p className="equipment-role-note">
-                Станок при субподряде: постоянные затраты станка не распределены на блок
-                {` (${money(unallocated.amount_rub, 0)} ₽).`}
-              </p>
-            )}
-            {role.param === "rig_code" && items.length > 0 && (
-              <p className="equipment-role-note">
-                Построчная разбивка амортизации, страхования и ТОиР станка — в разделе «Бурение»
-                {` (${money(total, 0)} ₽ суммарно).`}
-              </p>
-            )}
-            {role.param !== "rig_code" &&
+            {!isRig &&
               items.map((line, index) => (
                 <EstimateLine
                   key={line.cost_item_code}
@@ -231,31 +257,19 @@ export function EquipmentSection({ group, params, defaults, economics, volume, c
                   share={lineShare(line, economics)}
                 />
               ))}
-          </div>
+          </Fragment>
         );
       })}
       {canEdit && hiddenRoles.length > 0 && (
-        <div className="row-menu equipment-add-role">
-          <button type="button" className="row-add" onClick={() => setAddMenuOpen((open) => !open)}>
-            + Добавить технику
-          </button>
-          {addMenuOpen && (
-            <div className="row-menu-list" role="menu" aria-label="Добавить технику">
-              {hiddenRoles.map((role) => (
-                <button
-                  key={role.param}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setAddedRoles((current) => new Set(current).add(role.param));
-                    setAddMenuOpen(false);
-                  }}
-                >
-                  {role.label}
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="estimate-section-footer">
+          <AddMenu
+            label="Добавить технику"
+            items={hiddenRoles.map((role) => ({
+              code: role.param,
+              label: role.label,
+              onSelect: () => setAddedRoles((current) => new Set(current).add(role.param)),
+            }))}
+          />
         </div>
       )}
     </>

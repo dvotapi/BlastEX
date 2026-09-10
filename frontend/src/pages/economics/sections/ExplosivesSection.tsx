@@ -6,10 +6,9 @@
  */
 import { useState } from "react";
 import { NumericInput } from "../NumericInput";
+import { AddMenu } from "../estimate/AddMenu";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
-import { OriginBadge } from "../estimate/OriginBadge";
-import { RowMenu } from "../estimate/RowMenu";
 import { lineNumber } from "../estimateModel";
 import { NOMENCLATURE_ROLES, isRoleVisible, optionCaption, type NomenclatureRole } from "../nomenclature";
 import { lineByCode, lineShare } from "./lineHelpers";
@@ -20,7 +19,6 @@ export function ExplosivesSection({ group, params, defaults, economics, volume, 
   // сметы сама по себе — сметчик добавляет её вручную кнопкой «+ Добавить
   // материал», если материал всё же нужен (паспорт устарел, замена ЭД и т.п.).
   const [addedRoles, setAddedRoles] = useState<Set<string>>(new Set());
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   const passport = defaults.passport;
   const visibleRoles = NOMENCLATURE_ROLES.filter(
@@ -79,60 +77,42 @@ export function ExplosivesSection({ group, params, defaults, economics, volume, 
               />
             }
             origin={line?.quantity_origin ?? ""}
-            quantity={isManualQuantity ? null : (line?.quantity ?? null)}
+            quantity={line?.quantity ?? null}
+            // Бейджа «Ручной» рядом с полем больше нет: происхождение
+            // количества уже приходит от модели и стоит в колонке «Основание».
+            quantityEditor={
+              isManualQuantity ? (
+                <NumericInput
+                  value={params.electric_detonators_qty}
+                  min={0}
+                  step={1}
+                  ariaLabel={`Количество: ${role.label}`}
+                  disabled={!canEdit}
+                  onChange={(value) => onChange({ electric_detonators_qty: value ?? "0" })}
+                />
+              ) : undefined
+            }
             unit={line?.unit ?? selected?.unit ?? ""}
             price={line?.unit_price_rub ?? null}
             amount={line?.amount_rub ?? 0}
             volume={volume}
             share={line ? lineShare(line, economics) : 0}
             formula={line?.formula}
-            actions={
-              <>
-                {isManualQuantity && (
-                  <span className="explosives-manual-qty">
-                    <NumericInput
-                      value={params.electric_detonators_qty}
-                      min={0}
-                      step={1}
-                      ariaLabel={`Количество: ${role.label}`}
-                      onChange={(value) => onChange({ electric_detonators_qty: value ?? "0" })}
-                    />
-                    <OriginBadge origin="MANUAL" />
-                  </span>
-                )}
-                {canEdit && (
-                  <RowMenu
-                    items={[{ label: "Убрать", onSelect: () => removeRole(role), danger: true }]}
-                    label={`Действия: ${role.label}`}
-                  />
-                )}
-              </>
-            }
+            menuLabel={`Действия: ${role.label}`}
+            menuItems={canEdit ? [{ label: "Убрать", onSelect: () => removeRole(role), danger: true }] : []}
           />
         );
       })}
       {canEdit && hiddenRoles.length > 0 && (
-        <div className="row-menu explosives-add-role">
-          <button type="button" className="row-add" onClick={() => setAddMenuOpen((open) => !open)}>
-            + Добавить материал
-          </button>
-          {addMenuOpen && (
-            <div className="row-menu-list" role="menu" aria-label="Добавить материал">
-              {hiddenRoles.map((role) => (
-                <button
-                  key={role.role}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setAddedRoles((current) => new Set(current).add(role.role));
-                    setAddMenuOpen(false);
-                  }}
-                >
-                  {role.label}
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="estimate-section-footer">
+          <AddMenu
+            label="Добавить материал"
+            items={hiddenRoles.map((role) => ({
+              code: role.role,
+              label: role.label,
+              onSelect: () => setAddedRoles((current) => new Set(current).add(role.role)),
+            }))}
+          />
         </div>
       )}
     </>

@@ -39,7 +39,9 @@ export function CostStructureDonut(props: {
 
   return (
     <div className="donut-panel">
-      <div className="donut-unit-switch" role="group" aria-label="Единица легенды">
+      <header className="economics-sidebar-head">
+        <b>Структура себестоимости</b>
+        <div className="donut-unit-switch" role="group" aria-label="Единица легенды">
         <button
           type="button"
           className={unit === "₽" ? "is-active" : undefined}
@@ -56,7 +58,8 @@ export function CostStructureDonut(props: {
         >
           ₽/м³
         </button>
-      </div>
+        </div>
+      </header>
 
       <svg viewBox="0 0 200 200" role="img" aria-labelledby="donut-title">
         <title id="donut-title">Структура себестоимости блока по разделам</title>

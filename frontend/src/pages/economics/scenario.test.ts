@@ -104,6 +104,55 @@ describe("draftFromRun", () => {
     expect(draft.parameters.subcontract_rate_rub).toBeNull();
   });
 
+  it("подставляет пустые коллекции вместо полей, которых нет в старом прогоне", () => {
+    // Прогон эпохи до конструктора сметы: списочных полей в нём нет вовсе.
+    // Раньше они уезжали в черновик как `undefined` и роняли всю страницу на
+    // первом же обращении к длине списка (`ServicesPanel`).
+    const legacyParameters = baseParameters() as unknown as Record<string, unknown>;
+    delete legacyParameters.services;
+    delete legacyParameters.crew;
+    delete legacyParameters.machine_plan_shifts;
+    delete legacyParameters.nomenclature;
+    delete legacyParameters.emulsion_truck_code;
+
+    const draft = draftFromRun(baseRun({ parameters: legacyParameters }), "Старый прогон");
+
+    expect(draft.parameters.services).toEqual([]);
+    expect(draft.parameters.crew).toEqual([]);
+    expect(draft.parameters.machine_plan_shifts).toEqual({});
+    expect(draft.parameters.nomenclature).toEqual({});
+    expect(draft.parameters.emulsion_truck_code).toBeNull();
+  });
+
+  it("берёт недостающее поле из каталога умолчаний, когда он передан", () => {
+    const legacyParameters = baseParameters() as unknown as Record<string, unknown>;
+    delete legacyParameters.crew;
+    delete legacyParameters.unit_plan_volume_m3;
+    const fallback: ModelParameters = {
+      ...baseParameters(),
+      crew: [{ position_code: "POS_MASTER", headcount: "1", shifts_per_block: null }],
+      unit_plan_volume_m3: "750000",
+    };
+
+    const draft = draftFromRun(baseRun({ parameters: legacyParameters }), "Старый прогон", fallback);
+
+    expect(draft.parameters.crew).toEqual(fallback.crew);
+    expect(draft.parameters.unit_plan_volume_m3).toBe("750000");
+  });
+
+  it("явный null в прогоне не подменяется значением из умолчаний", () => {
+    // `rig_plan_shifts: null` означает «считать по нормативу» — это осознанный
+    // выбор сметчика, а не пропуск поля.
+    const fallback: ModelParameters = { ...baseParameters(), rig_plan_shifts: "40" };
+    const run = baseRun({
+      parameters: { ...baseParameters(), rig_plan_shifts: null } as unknown as Record<string, unknown>,
+    });
+
+    const draft = draftFromRun(run, "Сценарий по нормативу", fallback);
+
+    expect(draft.parameters.rig_plan_shifts).toBeNull();
+  });
+
   it("переустанавливает ревизию справочников на актуальную, а не тянет историческую из прогона", () => {
     // Прогон посчитан и сохранён на исторической ревизии "rev-old" — черновик,
     // открытый из него для дальнейшей правки, должен считать на актуальной

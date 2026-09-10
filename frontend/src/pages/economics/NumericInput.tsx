@@ -21,6 +21,7 @@ export function NumericInput({
   step,
   placeholder,
   ariaLabel,
+  disabled,
 }: {
   value: Numeric | null;
   onChange: (value: string | null) => void;
@@ -31,6 +32,12 @@ export function NumericInput({
   step?: number;
   placeholder?: string;
   ariaLabel?: string;
+  /**
+   * Читателю без права правки поле показывается, но не принимает ввод — иначе
+   * интерфейс врёт: комбобоксы рядом уже выключены по тому же признаку, а
+   * числа молча правились и уходили в пересчёт.
+   */
+  disabled?: boolean;
 }) {
   const [text, setText] = useState(() => toText(value));
   const sent = useRef(toText(value));
@@ -68,6 +75,7 @@ export function NumericInput({
       step={step}
       placeholder={placeholder}
       aria-label={ariaLabel}
+      disabled={disabled}
       onChange={(event) => handleChange(event.target.value)}
       onBlur={() => {
         // Поле нельзя оставить пустым: возвращаем последнее принятое число.

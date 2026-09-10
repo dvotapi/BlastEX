@@ -108,7 +108,10 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
           </div>
         </aside>
         <main className="workspace">
-          <header className="topbar">
+          {/* На вкладке экономики заголовок страницы живёт на самой странице
+              (как в концепте), а его место в шапке занимают селекторы объекта
+              и паспорта — см. `TopbarSelectors`. Другие страницы не затронуты. */}
+          <header className={`topbar${page === "Экономика" ? " topbar-economics" : ""}`}>
             <div className="topbar-lead">
               <b className="topbar-title">{TITLES[page]}</b>
               <div className="topbar-title-slot" ref={setTitleSlot} />

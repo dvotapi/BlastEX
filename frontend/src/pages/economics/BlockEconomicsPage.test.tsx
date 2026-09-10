@@ -113,8 +113,9 @@ describe("BlockEconomicsPage", () => {
     );
     await screen.findByRole("heading", { name: "Экономика блока", level: 1 });
 
-    // Полоса паспорта (подпись поля — «Ревизия справочников паспорта»): ревизия ПАСПОРТА (REV-1).
-    expect(await screen.findByLabelText("Ревизия справочников паспорта")).toHaveValue("Ревизия 1 от 01.01.2026");
+    // Блок в шапке приложения («Ревизия справочников паспорта»): ревизия ПАСПОРТА (REV-1).
+    const revisionBlock = (await screen.findByText("Ревизия справочников паспорта")).parentElement;
+    expect(revisionBlock).toHaveTextContent("Ревизия 1 от 01.01.2026");
     // Шапка сценариев: ревизия РАСЧЁТА (REV-2), на которой реально получен показанный результат.
     // Изначально (до ответа `variants`) шапка ещё показывает ревизию паспорта — ждём пересчёта.
     // `{context.site} · {context.passport} · {context.revision}` рендерится JSX-выражениями

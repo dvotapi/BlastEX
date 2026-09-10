@@ -1,36 +1,24 @@
-import { useMemo, type Ref } from "react";
+import { useMemo, useState } from "react";
 import { passportCreatedAtLabel, passportMetrics, passportRows } from "./passportSummary";
 import type { TechnicalPassport } from "../../types/blockEconomics";
 
 /**
- * Компактная полоса паспорта под шапкой сценариев: объект, технический
- * паспорт и ревизия справочников — одной строкой; ниже — плашки геометрии и
- * дата паспорта, а остальные величины с источниками — под раскрывашкой.
- * Имя сценария и «Сохранить» переехали в `EconomicsHeader` — полоса больше
- * не знает о сценарии, только о паспорте.
- * Полоса закреплена при прокрутке (`.passport-strip` в styles.css), поэтому
- * страница меряет её высоту через `ref` и на неё отступает липкую колонку
- * параметров.
+ * Карточка показателей блока: объём, погонаж, скважины, расход ВВ — одной
+ * строкой через разделители, справа дата паспорта и кнопка, раскрывающая
+ * полную таблицу величин с источником каждой.
+ *
+ * Выбор объекта, паспорта и ревизии переехал в шапку приложения
+ * (`TopbarSelectors`): это контекст всей страницы, а не её содержимое.
+ * Карточка вместе с ними перестала быть липкой — она уходит из вида при
+ * прокрутке, а к верху окна липнет шапка колонок сметы.
  */
 export function PassportStrip({
-  ref,
-  passports,
-  selectedId,
-  onSelect,
   passport,
-  siteLabel,
-  revisionLabel,
 }: {
-  /** React 19: ref — обычный проп функционального компонента, forwardRef не нужен. */
-  ref?: Ref<HTMLElement>;
-  passports: TechnicalPassport[];
-  selectedId: string;
-  onSelect: (id: string) => void;
   /** Паспорт, по которому считается модель; null — ещё не загружен. */
   passport: TechnicalPassport | null;
-  siteLabel: string;
-  revisionLabel: string;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const metrics = useMemo(() => (passport ? passportMetrics(passport.physical) : []), [passport]);
   const rows = useMemo(
     () => (passport ? passportRows(passport.physical, passport.lineage) : []),
@@ -38,62 +26,56 @@ export function PassportStrip({
   );
   const createdAtLabel = passport ? passportCreatedAtLabel(passport.created_at) : "";
 
+  if (!passport) return null;
+
   return (
-    <section className="passport-strip" aria-label="Паспорт блока" ref={ref}>
-      <div className="passport-strip-fields">
-        <label>
-          Объект работ
-          <input value={siteLabel} title={passport?.site_code ?? ""} disabled />
-        </label>
-        <label>
-          Технический паспорт
-          <select value={selectedId} onChange={(event) => onSelect(event.target.value)}>
-            {passports.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.object_name} · вер. {item.version_no}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Ревизия справочников паспорта
-          <input value={revisionLabel} title={passport?.reference_revision_id ?? ""} disabled />
-        </label>
-      </div>
-      {passport && (
-        <>
-          <div className="passport-strip-metrics">
-            {metrics.map((metric) => (
-              <div className="metric-chip" key={metric.key}>
-                <span>{metric.label}</span>
-                <strong>{metric.value}</strong>
-                <small>{metric.unit}</small>
-              </div>
-            ))}
-            {createdAtLabel && <span className="passport-strip-date">{createdAtLabel}</span>}
+    <section className="passport-card" aria-label="Показатели блока">
+      <div className="passport-card-metrics">
+        {metrics.map((metric) => (
+          <div className="passport-card-metric" key={metric.key}>
+            <span>{metric.label}</span>
+            <b>
+              {metric.value} <small>{metric.unit}</small>
+            </b>
           </div>
-          <details className="passport-strip-details">
-            <summary>Все показатели паспорта и источники</summary>
-            <div className="table-scroll geometry-readonly">
-              <table>
-                <thead>
-                  <tr><th>Показатель</th><th>Значение</th><th>Ед.</th><th>Источник</th></tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.key}>
-                      <td>{row.label}</td>
-                      <td>{row.value}</td>
-                      <td>{row.unit}</td>
-                      <td><small>{row.source}</small></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        </>
-      )}
+        ))}
+        {createdAtLabel && (
+          <div className="passport-card-metric passport-card-date">
+            <span>Результаты по паспорту</span>
+            <b>{createdAtLabel}</b>
+          </div>
+        )}
+        <button
+          type="button"
+          className="passport-card-details-toggle"
+          aria-label="Все показатели паспорта и источники"
+          title="Все показатели паспорта и источники"
+          aria-expanded={detailsOpen}
+          aria-controls="passport-card-details"
+          onClick={() => setDetailsOpen((open) => !open)}
+        >
+          ▤
+        </button>
+      </div>
+      <div id="passport-card-details" className="passport-card-details" hidden={!detailsOpen}>
+        <div className="table-scroll geometry-readonly">
+          <table>
+            <thead>
+              <tr><th>Показатель</th><th>Значение</th><th>Ед.</th><th>Источник</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  <td>{row.label}</td>
+                  <td>{row.value}</td>
+                  <td>{row.unit}</td>
+                  <td><small>{row.source}</small></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   );
 }

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/endpoints";
-import { useHeightVariable } from "../../app/useHeightVariable";
 import { useWorkspace } from "../../app/useWorkspace";
 import { CostStructure } from "./CostStructure";
 import { EconomicsHeader } from "./EconomicsHeader";
+import { EconomicsErrorBoundary } from "./EconomicsErrorBoundary";
 import { EconomicsHelp } from "./EconomicsHelp";
 import { EconomicsTabs, type EconomicsTab } from "./EconomicsTabs";
 import { HistoryTab } from "./HistoryTab";
 import { PassportStrip } from "./PassportStrip";
+import { TopbarSelectors } from "./TopbarSelectors";
 import { ResourcesTab } from "./ResourcesTab";
 import { RunsCompare } from "./RunsCompare";
 import { SensitivityTable } from "./SensitivityTable";
@@ -123,7 +124,6 @@ export function BlockEconomicsPage({
   const [expanded, setExpanded] = useState<Set<EstimateGroupCode>>(() => readExpandedFromStorage());
   const [highlighted, setHighlighted] = useState<EstimateGroupCode | null>(null);
   const [donutUnit, setDonutUnit] = useState<"₽" | "₽/м³">("₽/м³");
-  const stripRef = useHeightVariable("--passport-strip-h");
   const { canEdit } = useWorkspace();
   // Подписи вместо кодов: имена объектов по ревизии паспорта и номера ревизий.
   const [siteNames, setSiteNames] = useState<Record<string, Record<string, string>>>({});
@@ -144,6 +144,12 @@ export function BlockEconomicsPage({
   useEffect(() => {
     selectedPassportRef.current = selectedPassport;
   }, [selectedPassport]);
+  // То же зеркало для каталога умолчаний: `openRun` читает его уже после
+  // `await`, чтобы дополнить параметры старого прогона недостающими полями.
+  const defaultsRef = useRef(defaults);
+  useEffect(() => {
+    defaultsRef.current = defaults;
+  }, [defaults]);
 
   useEffect(() => {
     api.economics
@@ -392,6 +398,24 @@ export function BlockEconomicsPage({
     });
   }
 
+  /**
+   * Пересобрать активный черновик с параметров по умолчанию — выход из
+   * состояния, когда его параметры страница отобразить не смогла (см.
+   * `EconomicsErrorBoundary`). Сохранённые прогоны не трогаются: в «Истории»
+   * они остаются как есть.
+   */
+  function resetActiveDraft() {
+    if (!defaults) return;
+    setDraftsState((current) => {
+      const active = current.drafts.find((draft) => draft.id === current.activeId);
+      const next = draftFromDefaults(active?.name ?? "Вариант 1", { ...defaults.parameters });
+      const drafts = current.drafts.length
+        ? current.drafts.map((draft) => (draft.id === current.activeId ? next : draft))
+        : [next];
+      return { drafts, activeId: next.id };
+    });
+  }
+
   function removeDraft(id: string) {
     setDraftsState((current) => {
       if (current.drafts.length <= 1) return current;
@@ -499,7 +523,7 @@ export function BlockEconomicsPage({
     try {
       const run = await api.blockEconomics.run(runId);
       if (passportAtStart !== selectedPassportRef.current) return;
-      const draft = draftFromRun(run, run.name);
+      const draft = draftFromRun(run, run.name, defaultsRef.current?.parameters ?? null);
       setDraftsState((current) => {
         const index = current.drafts.findIndex((item) => item.id === current.activeId);
         const nextDrafts =
@@ -595,7 +619,7 @@ export function BlockEconomicsPage({
       case "LABOR":
         return <LaborSection {...common} />;
       case "EQUIPMENT":
-        return <EquipmentSection {...common} />;
+        return <EquipmentSection {...common} onOpenDrillingGroup={() => selectGroupFromChart("DRILLING")} />;
       case "FUEL":
         return <FuelSection {...common} />;
       case "SERVICES":
@@ -627,11 +651,17 @@ export function BlockEconomicsPage({
   }
 
   return (
-    <div
-      className="block-economics-page"
-      // Высоту полосы в `--passport-strip-h` на этом узле ставит `useHeightVariable` — см. `.economics-sidebar`.
-    >
+    <div className="block-economics-page">
       <EconomicsHelp />
+      <TopbarSelectors
+        passports={passports}
+        selectedId={selectedPassport}
+        onSelect={setSelectedPassport}
+        siteLabel={siteLabel}
+        siteTitle={passport?.site_code}
+        revisionLabel={passportRevisionLabel}
+        revisionTitle={passport?.reference_revision_id}
+      />
       <EconomicsHeader
         context={{ site: siteLabel, passport: passportContextLabel, revision: revisionLabel }}
         drafts={drafts}
@@ -642,20 +672,15 @@ export function BlockEconomicsPage({
         dirty={dirty}
         onSave={(name) => void saveActive(name)}
         onDuplicate={duplicateActive}
+        onRename={(name) => renameDraft(activeId, name)}
+        onRemove={() => removeDraft(activeId)}
+        canRemove={drafts.length > 1}
         exportUrl={exportUrl}
         busy={busy}
         status={status}
         error=""
       />
-      <PassportStrip
-        ref={stripRef}
-        passports={passports}
-        selectedId={selectedPassport}
-        onSelect={setSelectedPassport}
-        passport={passport}
-        siteLabel={siteLabel}
-        revisionLabel={passportRevisionLabel}
-      />
+      <PassportStrip passport={passport} />
       <div className="page-content block-economics-content">
         {error && (
           <div className="page-error" role="alert">
@@ -663,13 +688,37 @@ export function BlockEconomicsPage({
           </div>
         )}
 
+        {/* Ограничитель пересоздаётся вместе со сценарием: выбор другого
+            сценария в шапке — рабочий путь из упавшего состояния, а сама шапка
+            остаётся живой, потому что стоит выше ограничителя. */}
+        <EconomicsErrorBoundary key={activeId} onReset={resetActiveDraft}>
         <div className="economics-workspace">
           <div className="economics-main">
+            <div className="economics-card">
             <EconomicsTabs active={tab} onChange={setTab} />
 
             {tab === "estimate" &&
               (activeEconomics ? (
-                <div className="table-scroll">
+                // Без обёртки с прокруткой: любой предок с `overflow` делается
+                // точкой отсчёта для липкой шапки колонок, и та застывает
+                // внутри таблицы вместо верха окна.
+                <>
+                {/* Предупреждения модели — над сметой, а не только на вкладке
+                    «Ресурсы»: нулевая строка бурения или неразнесённые
+                    постоянные затраты видны там, где на них смотрят. */}
+                {activeEconomics.warnings.length > 0 && (
+                  <details className="estimate-warnings">
+                    <summary>
+                      Модель сообщает: {activeEconomics.warnings.length}
+                    </summary>
+                    <ul>
+                      {activeEconomics.warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                <div className="estimate-scroll">
                   <EstimateBuilder
                     // Смена черновика (`activeId`) должна сбрасывать весь
                     // локальный стейт разделов сметы одним движением — например,
@@ -690,6 +739,7 @@ export function BlockEconomicsPage({
                     busy={!resultsMatchDrafts}
                   />
                 </div>
+                </>
               ) : (
                 <div className="economic-empty">Расчёт выполняется…</div>
               ))}
@@ -739,6 +789,7 @@ export function BlockEconomicsPage({
             )}
 
             {tab === "history" && <HistoryTab runs={runs} onOpen={(runId) => void openRun(runId)} />}
+            </div>
           </div>
 
           {activeEconomics && (
@@ -752,6 +803,7 @@ export function BlockEconomicsPage({
             />
           )}
         </div>
+        </EconomicsErrorBoundary>
       </div>
     </div>
   );

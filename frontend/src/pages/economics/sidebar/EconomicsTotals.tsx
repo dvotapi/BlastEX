@@ -20,13 +20,18 @@ export function EconomicsTotals({ economics }: { economics: BlockEconomics }) {
   ];
 
   return (
-    <div className="economics-totals">
-      {tiles.map((tile) => (
-        <div className="economics-totals-tile" key={tile.label}>
-          <span>{tile.label}</span>
-          <b>{tile.value}</b>
-        </div>
-      ))}
-    </div>
+    <section className="panel economics-totals-panel">
+      <header>
+        <b>Ключевые показатели блока</b>
+      </header>
+      <div className="economics-totals">
+        {tiles.map((tile) => (
+          <div className="economics-totals-tile" key={tile.label}>
+            <span>{tile.label}</span>
+            <b>{tile.value}</b>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

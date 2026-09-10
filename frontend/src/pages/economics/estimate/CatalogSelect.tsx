@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { money } from "../format";
+import { useAnchoredPosition } from "./useAnchoredPosition";
 
 /**
  * Позиция справочника в комбобоксе строки сметы. `caption` — необязательная
@@ -14,11 +16,26 @@ export type CatalogOption = {
   disabled?: boolean;
 };
 
+/** Ширина поповера: та же величина, что в `.catalog-select-popover`. */
+const POPOVER_MIN_WIDTH = 260;
+/** Высота поповера с поиском и списком: см. `.catalog-select-list` (220px). */
+const POPOVER_HEIGHT = 280;
+
 /**
  * Свой комбобокс со справочником в строке сметы: кнопка, показывающая
  * выбранное имя, и поповер с полем поиска. Не модальная палитра на весь
  * экран (в отличие от `CommandPalette`) — раскрывается прямо под кнопкой и
  * закрывается кликом вне себя.
+ *
+ * В строке сметы кнопка выглядит обычным текстом (`variant="ghost"`):
+ * название статьи читается как название, а не как поле ввода, и только при
+ * наведении и с клавиатуры показывает, что его можно сменить. Вид поля с
+ * рамкой (`variant="field"`) остаётся там, где выбор — самостоятельный
+ * элемент формы, а не ячейка таблицы: в карточке бурения.
+ *
+ * Поповер рисуется порталом в `document.body`: ячейка названия обрезает
+ * содержимое по многоточию, и список, нарисованный внутри строки, был бы
+ * срезан по её высоте.
  */
 export function CatalogSelect({
   id,
@@ -28,6 +45,7 @@ export function CatalogSelect({
   placeholder = "не выбрано",
   onChange,
   disabled,
+  variant = "ghost",
 }: {
   id: string;
   label: string;
@@ -36,13 +54,15 @@ export function CatalogSelect({
   placeholder?: string;
   onChange: (code: string) => void;
   disabled?: boolean;
+  variant?: "ghost" | "field";
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const position = useAnchoredPosition(buttonRef, open, "start", POPOVER_MIN_WIDTH, POPOVER_HEIGHT);
 
   const selected = options.find((option) => option.code === value);
 
@@ -65,16 +85,28 @@ export function CatalogSelect({
     if (!open) return;
     setQuery("");
     setActive(0);
-    inputRef.current?.focus();
   }, [open]);
+
+  // Фокус ставится ref-колбэком в момент монтирования поля, а не эффектом по
+  // `open`: поповер живёт в портале и появляется на рендер позже кнопки —
+  // когда `useAnchoredPosition` уже измерил её, — поэтому в эффекте по `open`
+  // поля ещё не существует.
+  const focusSearch = useCallback((node: HTMLInputElement | null) => {
+    node?.focus();
+  }, []);
 
   // Клик вне комбобокса закрывает поповер — обычный паттерн выпадающих
   // списков проекта (см. `HoleContextMenu`), здесь на `mousedown`, а не на
   // `click`, чтобы поповер не подхватывал клик, которым его же открыли.
+  //
+  // Проверяются оба узла: поповер живёт в портале и предком кнопки не
+  // является, поэтому по одному контейнеру клик по пункту списка считался бы
+  // «кликом вне» и закрывал список раньше, чем срабатывал выбор.
   useEffect(() => {
     if (!open) return undefined;
     function onMouseDown(e: MouseEvent) {
-      if (containerRef.current?.contains(e.target as Node)) return;
+      const target = e.target as Node;
+      if (containerRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
       setOpen(false);
     }
     document.addEventListener("mousedown", onMouseDown);
@@ -134,16 +166,26 @@ export function CatalogSelect({
         aria-controls={open ? listboxId : undefined}
         aria-activedescendant={open ? activeOptionId : undefined}
         disabled={disabled}
-        className="catalog-select-button"
+        className={`catalog-select-button is-${variant}`}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={onButtonKeyDown}
       >
-        <span>{selected?.name ?? placeholder}</span>
+        {/* `title`: в строке сметы название урезано по ширине колонки, а
+            полное имя позиции сметчику нужно целиком. */}
+        <span className="catalog-select-value" title={selected?.name ?? undefined}>
+          {selected?.name ?? placeholder}
+        </span>
+        <span className="catalog-select-caret" aria-hidden="true">▾</span>
       </button>
-      {open && (
-        <div className="catalog-select-popover" onKeyDown={onPopoverKeyDown}>
+      {open && position && createPortal(
+        <div
+          ref={popoverRef}
+          className="catalog-select-popover"
+          style={{ position: "fixed", top: position.top, left: position.left, minWidth: position.minWidth }}
+          onKeyDown={onPopoverKeyDown}
+        >
           <input
-            ref={inputRef}
+            ref={focusSearch}
             type="search"
             role="searchbox"
             aria-label="Поиск в справочнике"
@@ -178,7 +220,8 @@ export function CatalogSelect({
               </li>
             ))}
           </ul>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

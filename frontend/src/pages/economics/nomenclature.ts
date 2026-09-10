@@ -7,25 +7,58 @@ export type NomenclatureRole = {
   /** Драйвер паспорта, из которого берётся количество; null — задаётся вручную. */
   driver: string | null;
   hint: string;
+  /**
+   * Код статьи затрат (`cost/model/materials.py`, `Role.cost_item_code`) —
+   * стабильный машинный ключ для сопоставления со строкой сметы. `label`
+   * для этого не годится: бэкендовый `line.role_label` — подпись для
+   * предупреждений (нижний регистр, другие формулировки), а не идентификатор.
+   */
+  costItemCode: string;
 };
 
 /** Порядок ролей повторяет порядок сборки заряда: ВВ, боевик, сеть, инициирование. */
 export const NOMENCLATURE_ROLES: NomenclatureRole[] = [
-  { role: "EXPLOSIVE", label: "Основное ВВ", driver: "explosive_kg", hint: "масса заряда из паспорта" },
+  {
+    role: "EXPLOSIVE",
+    label: "Основное ВВ",
+    driver: "explosive_kg",
+    hint: "масса заряда из паспорта",
+    costItemCode: "MATERIAL_EXPLOSIVE",
+  },
   {
     role: "BOOSTER",
     label: "Промежуточные детонаторы",
     driver: "intermediate_detonators",
     hint: "боевики из паспорта",
+    costItemCode: "MATERIAL_BOOSTER",
   },
-  { role: "NSI_DOWNHOLE", label: "Скважинные НСИ", driver: "downhole_nsi", hint: "по числу скважин" },
-  { role: "NSI_SURFACE", label: "Поверхностные НСИ", driver: "surface_nsi", hint: "из схемы монтажа" },
-  { role: "NSI_START", label: "Стартовые НСИ", driver: "start_nsi", hint: "из схемы монтажа" },
+  {
+    role: "NSI_DOWNHOLE",
+    label: "Скважинные НСИ",
+    driver: "downhole_nsi",
+    hint: "по числу скважин",
+    costItemCode: "MATERIAL_NSI_DOWNHOLE",
+  },
+  {
+    role: "NSI_SURFACE",
+    label: "Поверхностные НСИ",
+    driver: "surface_nsi",
+    hint: "из схемы монтажа",
+    costItemCode: "MATERIAL_NSI_SURFACE",
+  },
+  {
+    role: "NSI_START",
+    label: "Стартовые НСИ",
+    driver: "start_nsi",
+    hint: "из схемы монтажа",
+    costItemCode: "MATERIAL_NSI_START",
+  },
   {
     role: "DETONATOR_ELECTRIC",
     label: "Электродетонаторы",
     driver: null,
     hint: "количество задаётся вручную",
+    costItemCode: "MATERIAL_DETONATOR",
   },
 ];
 

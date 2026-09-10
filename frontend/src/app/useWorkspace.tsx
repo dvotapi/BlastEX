@@ -52,7 +52,7 @@ type WorkspaceContextValue = {
   canEdit: boolean;
 };
 
-const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
+export const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
 export function WorkspaceProvider({ user, children }: { user: User; children: ReactNode }) {
   const [state, setState] = useState<WorkspaceState | null>(null);

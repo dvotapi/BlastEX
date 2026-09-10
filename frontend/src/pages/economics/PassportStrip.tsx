@@ -1,14 +1,16 @@
 import { useMemo, type Ref } from "react";
-import { passportMetrics, passportRows } from "./passportSummary";
+import { passportCreatedAtLabel, passportMetrics, passportRows } from "./passportSummary";
 import type { TechnicalPassport } from "../../types/blockEconomics";
 
 /**
- * Полоса паспорта под шапкой приложения: объект, паспорт, ревизия, имя
- * сценария и «Сохранить сценарий» одной строкой; ниже — четыре плашки
- * геометрии, а остальные величины паспорта с источниками — под
- * раскрывашкой. Полоса закреплена при прокрутке (`.passport-strip` в
- * styles.css), поэтому страница меряет её высоту через `ref` и на неё
- * отступает липкую колонку параметров.
+ * Компактная полоса паспорта под шапкой сценариев: объект, технический
+ * паспорт и ревизия справочников — одной строкой; ниже — плашки геометрии и
+ * дата паспорта, а остальные величины с источниками — под раскрывашкой.
+ * Имя сценария и «Сохранить» переехали в `EconomicsHeader` — полоса больше
+ * не знает о сценарии, только о паспорте.
+ * Полоса закреплена при прокрутке (`.passport-strip` в styles.css), поэтому
+ * страница меряет её высоту через `ref` и на неё отступает липкую колонку
+ * параметров.
  */
 export function PassportStrip({
   ref,
@@ -18,12 +20,6 @@ export function PassportStrip({
   passport,
   siteLabel,
   revisionLabel,
-  runName,
-  runPlaceholder,
-  onRunName,
-  onSave,
-  saveDisabled,
-  status,
 }: {
   /** React 19: ref — обычный проп функционального компонента, forwardRef не нужен. */
   ref?: Ref<HTMLElement>;
@@ -34,19 +30,13 @@ export function PassportStrip({
   passport: TechnicalPassport | null;
   siteLabel: string;
   revisionLabel: string;
-  runName: string;
-  runPlaceholder: string;
-  onRunName: (name: string) => void;
-  onSave: () => void;
-  saveDisabled: boolean;
-  /** Сообщение о сохранении или переносе услуги; пусто — не показывать. */
-  status: string;
 }) {
   const metrics = useMemo(() => (passport ? passportMetrics(passport.physical) : []), [passport]);
   const rows = useMemo(
     () => (passport ? passportRows(passport.physical, passport.lineage) : []),
     [passport],
   );
+  const createdAtLabel = passport ? passportCreatedAtLabel(passport.created_at) : "";
 
   return (
     <section className="passport-strip" aria-label="Паспорт блока" ref={ref}>
@@ -69,19 +59,6 @@ export function PassportStrip({
           Ревизия справочников паспорта
           <input value={revisionLabel} title={passport?.reference_revision_id ?? ""} disabled />
         </label>
-        <label>
-          Имя сценария
-          <input
-            value={runName}
-            placeholder={runPlaceholder}
-            onChange={(event) => onRunName(event.target.value)}
-          />
-        </label>
-        <div className="passport-strip-actions">
-          <button type="button" onClick={onSave} disabled={saveDisabled}>
-            Сохранить сценарий
-          </button>
-        </div>
       </div>
       {passport && (
         <>
@@ -93,7 +70,7 @@ export function PassportStrip({
                 <small>{metric.unit}</small>
               </div>
             ))}
-            {status && <span className="save-status">{status}</span>}
+            {createdAtLabel && <span className="passport-strip-date">{createdAtLabel}</span>}
           </div>
           <details className="passport-strip-details">
             <summary>Все показатели паспорта и источники</summary>

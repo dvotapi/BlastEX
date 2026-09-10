@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { passportMetrics, passportRows } from "./passportSummary";
+import { passportCreatedAtLabel, passportMetrics, passportRows } from "./passportSummary";
 
 /** Неразрывный пробел тысяч — обычным, чтобы ожидание читалось глазами. */
 const plain = (text: string) => text.replace(/\u00a0/g, " ");
@@ -15,7 +15,7 @@ const PHYSICAL = {
 };
 
 describe("плашки паспорта", () => {
-  it("четыре показателя в порядке чтения", () => {
+  it("пять показателей в порядке чтения", () => {
     const shown = passportMetrics(PHYSICAL).map((m) => `${m.label}: ${plain(m.value)} ${m.unit}`);
 
     expect(shown).toEqual([
@@ -23,6 +23,7 @@ describe("плашки паспорта", () => {
       "Погонаж бурения: 2 420 п.м.",
       "Скважины: 220 шт",
       "С одной скважины: 11,0 м",
+      "Средний расход ВВ: 12,2 кг/м",
     ]);
   });
 
@@ -35,11 +36,29 @@ describe("плашки паспорта", () => {
     expect(passportMetrics({ drilling_m: 2420 })[3].value).toBe("—");
   });
 
+  it("средний расход ВВ — масса на погонаж, с одним знаком", () => {
+    expect(passportMetrics({ explosive_kg: 33000, drilling_m: 2079 })[4].value).toBe("15,9");
+    expect(passportMetrics({ explosive_kg: 33000, drilling_m: 2079 })[4].unit).toBe("кг/м");
+  });
+
+  it("при нулевом или отсутствующем погонаже средний расход ВВ — прочерк", () => {
+    expect(passportMetrics({ explosive_kg: 33000, drilling_m: 0 })[4].value).toBe("—");
+    expect(passportMetrics({ explosive_kg: 33000 })[4].value).toBe("—");
+    expect(passportMetrics({ drilling_m: 2079 })[4].value).toBe("—");
+  });
+
   it("отсутствующая величина — прочерк", () => {
     expect(passportMetrics({})[0].value).toBe("—");
     expect(passportMetrics({ rock_volume_m3: "abc" })[0].value).toBe("—");
     expect(passportMetrics({ holes: "" })[2].value).toBe("—");
     expect(passportMetrics({ holes: "  " })[2].value).toBe("—");
+  });
+});
+
+describe("дата паспорта", () => {
+  it("короткая подпись днём, месяцем словом и годом — без времени", () => {
+    // Полдень UTC, чтобы дата не съезжала на соседние сутки в любом часовом поясе теста.
+    expect(passportCreatedAtLabel("2026-09-05T12:00:00Z")).toMatch(/^Паспорт от \d{1,2} \S+ 2026 г\.$/);
   });
 });
 

@@ -31,15 +31,22 @@ export function EstimateSection({
       className={`estimate-section${highlighted ? " is-highlighted" : ""}`}
     >
       <div className="estimate-row estimate-section-head" role="row">
+        {/* Номер раздела — в колонке «№», как у строк: колонки читаются сверху
+            вниз одной линейкой, а не сбиваются на заголовке раздела. */}
+        <span role="cell" className="estimate-col-number estimate-section-number">{group.number}</span>
         <button
           type="button"
           className="estimate-section-toggle"
+          // Номер виден в своей колонке, но в имени кнопки он остаётся: с
+          // клавиатуры раздел называется так же, как читается глазами, и не
+          // путается с одноимённым сегментом кольца в сайдбаре.
+          aria-label={`${group.number}. ${group.label}`}
           aria-expanded={open}
           aria-controls={bodyId}
           onClick={onToggle}
         >
           <span aria-hidden="true" className="estimate-section-caret">{open ? "▾" : "▸"}</span>
-          <span>{group.number}. {group.label}</span>
+          <span>{group.label}</span>
         </button>
         <span role="cell" className="estimate-col-basis" />
         <span role="cell" className="estimate-col-quantity" />

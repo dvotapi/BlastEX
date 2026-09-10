@@ -29,6 +29,8 @@ function setup(overrides: Partial<ComponentProps<typeof EconomicsHeader>> = {}) 
   const onDuplicate = vi.fn();
   const onSelectDraft = vi.fn();
   const onOpenRun = vi.fn();
+  const onRename = vi.fn();
+  const onRemove = vi.fn();
   const props: ComponentProps<typeof EconomicsHeader> = {
     context: CONTEXT,
     drafts: [draft],
@@ -39,6 +41,9 @@ function setup(overrides: Partial<ComponentProps<typeof EconomicsHeader>> = {}) 
     dirty: true,
     onSave,
     onDuplicate,
+    onRename,
+    onRemove,
+    canRemove: true,
     exportUrl: null,
     busy: false,
     status: "",
@@ -46,7 +51,7 @@ function setup(overrides: Partial<ComponentProps<typeof EconomicsHeader>> = {}) 
     ...overrides,
   };
   render(<EconomicsHeader {...props} />);
-  return { onSave, onDuplicate, onSelectDraft, onOpenRun, draft };
+  return { onSave, onDuplicate, onSelectDraft, onOpenRun, onRename, onRemove, draft };
 }
 
 describe("EconomicsHeader", () => {

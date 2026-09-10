@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/endpoints";
-import { useHeightVariable } from "../../app/useHeightVariable";
 import { useWorkspace } from "../../app/useWorkspace";
 import { CostStructure } from "./CostStructure";
 import { EconomicsHeader } from "./EconomicsHeader";
@@ -9,6 +8,7 @@ import { EconomicsHelp } from "./EconomicsHelp";
 import { EconomicsTabs, type EconomicsTab } from "./EconomicsTabs";
 import { HistoryTab } from "./HistoryTab";
 import { PassportStrip } from "./PassportStrip";
+import { TopbarSelectors } from "./TopbarSelectors";
 import { ResourcesTab } from "./ResourcesTab";
 import { RunsCompare } from "./RunsCompare";
 import { SensitivityTable } from "./SensitivityTable";
@@ -124,7 +124,6 @@ export function BlockEconomicsPage({
   const [expanded, setExpanded] = useState<Set<EstimateGroupCode>>(() => readExpandedFromStorage());
   const [highlighted, setHighlighted] = useState<EstimateGroupCode | null>(null);
   const [donutUnit, setDonutUnit] = useState<"₽" | "₽/м³">("₽/м³");
-  const stripRef = useHeightVariable("--passport-strip-h");
   const { canEdit } = useWorkspace();
   // Подписи вместо кодов: имена объектов по ревизии паспорта и номера ревизий.
   const [siteNames, setSiteNames] = useState<Record<string, Record<string, string>>>({});
@@ -634,11 +633,17 @@ export function BlockEconomicsPage({
   }
 
   return (
-    <div
-      className="block-economics-page"
-      // Высоту полосы в `--passport-strip-h` на этом узле ставит `useHeightVariable` — см. `.economics-sidebar`.
-    >
+    <div className="block-economics-page">
       <EconomicsHelp />
+      <TopbarSelectors
+        passports={passports}
+        selectedId={selectedPassport}
+        onSelect={setSelectedPassport}
+        siteLabel={siteLabel}
+        siteTitle={passport?.site_code}
+        revisionLabel={passportRevisionLabel}
+        revisionTitle={passport?.reference_revision_id}
+      />
       <EconomicsHeader
         context={{ site: siteLabel, passport: passportContextLabel, revision: revisionLabel }}
         drafts={drafts}
@@ -649,20 +654,15 @@ export function BlockEconomicsPage({
         dirty={dirty}
         onSave={(name) => void saveActive(name)}
         onDuplicate={duplicateActive}
+        onRename={(name) => renameDraft(activeId, name)}
+        onRemove={() => removeDraft(activeId)}
+        canRemove={drafts.length > 1}
         exportUrl={exportUrl}
         busy={busy}
         status={status}
         error=""
       />
-      <PassportStrip
-        ref={stripRef}
-        passports={passports}
-        selectedId={selectedPassport}
-        onSelect={setSelectedPassport}
-        passport={passport}
-        siteLabel={siteLabel}
-        revisionLabel={passportRevisionLabel}
-      />
+      <PassportStrip passport={passport} />
       <div className="page-content block-economics-content">
         {error && (
           <div className="page-error" role="alert">
@@ -676,11 +676,15 @@ export function BlockEconomicsPage({
         <EconomicsErrorBoundary key={activeId}>
         <div className="economics-workspace">
           <div className="economics-main">
+            <div className="economics-card">
             <EconomicsTabs active={tab} onChange={setTab} />
 
             {tab === "estimate" &&
               (activeEconomics ? (
-                <div className="table-scroll">
+                // Без обёртки с прокруткой: любой предок с `overflow` делается
+                // точкой отсчёта для липкой шапки колонок, и та застывает
+                // внутри таблицы вместо верха окна.
+                <div className="estimate-scroll">
                   <EstimateBuilder
                     // Смена черновика (`activeId`) должна сбрасывать весь
                     // локальный стейт разделов сметы одним движением — например,
@@ -750,6 +754,7 @@ export function BlockEconomicsPage({
             )}
 
             {tab === "history" && <HistoryTab runs={runs} onOpen={(runId) => void openRun(runId)} />}
+            </div>
           </div>
 
           {activeEconomics && (

@@ -1,3 +1,18 @@
+/* Токены вкладки: размеры строк и шрифтов таблицы сметы объявлены один раз
+   на корне страницы, чтобы правились в одном месте, а не по правилу. */
+.block-economics-page {
+  --ec-font-title: 28px;
+  --ec-font-section: 14px;
+  --ec-font-row: 13px;
+  --ec-font-head: 11px;
+  --ec-row-h: 40px;
+  --ec-section-h: 46px;
+  --ec-radius: 14px;
+  --ec-border: #dde5e1;
+  --ec-muted: #78857f;
+  --ec-accent: #1f6a4a;
+}
+
 /* Вкладка «Экономика блока» — конструктор сметы: комбобокс справочника,
    иерархическая таблица разделов и строк, бейджи происхождения величин,
    меню действий строки. Палитра и радиусы — те же, что в styles.css
@@ -10,22 +25,28 @@
 .estimate-builder-toolbar button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
 .estimate-builder-toolbar button:hover { border-color:#2d7556; color:#2d7556; }
 
-.estimate-table { border:1px solid #d9e2dd; border-radius:15px; overflow:hidden; background:#fff; min-width:960px; }
+/* `overflow` здесь обязан оставаться `visible`: любой предок с прокруткой
+   или обрезкой становится для липкой шапки колонок точкой отсчёта, и шапка
+   застывает внутри таблицы вместо верха окна. Скругление углов держат сама
+   шапка и последняя секция. */
+.estimate-table { border:1px solid #d9e2dd; border-radius:14px; background:#fff; min-width:1000px; }
+.estimate-section:last-child { border-radius:0 0 14px 14px; overflow:hidden; }
 .estimate-row {
   display:grid;
-  grid-template-columns: 44px minmax(0,1fr) 110px 96px 48px 96px 120px 76px 60px 32px;
+  grid-template-columns: 46px minmax(0,1fr) 104px 104px 56px 104px 128px 84px 68px 36px;
   align-items:center;
-  gap:6px;
+  gap:8px;
 }
 
-.estimate-head { position:sticky; top:var(--passport-strip-h, 0px); z-index:2; padding:0 12px; min-height:36px; background:#f5f8f6; border-bottom:1px solid #dde5e1; font-size:10px; font-weight:700; color:#78857f; }
+.estimate-head { position:sticky; top:0; z-index:2; border-radius:14px 14px 0 0; padding:0 12px; min-height:40px; background:#f5f8f6; border-bottom:1px solid #dde5e1; font-size:var(--ec-font-head, 11px); font-weight:700; color:var(--ec-muted, #78857f); }
 
 .estimate-section + .estimate-section { border-top:1px solid #dde5e1; }
-.estimate-section-head { padding:0 12px; min-height:38px; background:#f5f8f6; }
+.estimate-section-head { padding:0 12px; min-height:var(--ec-section-h, 46px); background:#f5f8f6; }
 .estimate-section.is-highlighted > .estimate-section-head { background:#eaf3ee; }
-.estimate-section-toggle { grid-column:1 / span 2; display:flex; align-items:center; gap:8px; padding:8px 0; border:0; background:transparent; text-align:left; font-size:12px; font-weight:700; color:#17231d; cursor:pointer; border-radius:6px; }
+.estimate-section-toggle { display:flex; align-items:center; gap:9px; padding:8px 0; border:0; background:transparent; text-align:left; font-size:var(--ec-font-section, 14px); font-weight:700; color:#17231d; cursor:pointer; border-radius:6px; }
+.estimate-section-number { color:var(--ec-muted, #78857f); font-size:var(--ec-font-section, 14px); font-weight:700; }
 .estimate-section-toggle:focus-visible { outline:none; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
-.estimate-section-caret { color:#78857f; font-size:10px; }
+.estimate-section-caret { color:#78857f; font-size:10px; width:10px; }
 .estimate-section-body { background:#fff; }
 
 .estimate-line-wrap + .estimate-line-wrap,
@@ -174,29 +195,44 @@
 .economics-totals-tile span { display:block; margin-bottom:4px; color:#78857f; font-size:10px; }
 .economics-totals-tile b { font-size:14px; font-variant-numeric:tabular-nums; }
 
-/* --- Шапка сценариев (задача 9): заголовок с плашкой черновика/сохранения,
-   строка контекста паспорта и ряд действий — выбор сценария, сохранение,
-   дублирование, выгрузка в XLSX. Не липкая — уходит из вида при прокрутке
-   вместе со страницей, в отличие от `.passport-strip` и шапки таблицы ниже. */
-.economics-header { padding:20px 28px 0; display:grid; gap:8px; }
+/* --- Шапка страницы: заголовок с плашкой черновика слева, сценарий и
+   действия справа — одной строкой, как в концепте. Не липкая: уходит из
+   вида вместе со страницей, к верху окна липнет шапка колонок сметы. --- */
+.economics-header { padding:22px 28px 2px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px 18px; align-items:start; }
+.economics-header-lead { display:grid; gap:5px; min-width:0; }
 .economics-header-title { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-.economics-header-title h1 { margin:0; font-size:24px; letter-spacing:-.5px; }
+.economics-header-title h1 { margin:0; font-size:var(--ec-font-title, 28px); letter-spacing:-.6px; }
 .economics-header-context { margin:0; color:#6e7c75; font-size:12px; }
-.economics-header-error { margin:0; border-radius:9px; padding:9px 12px; background:#fce9e7; color:#9e3025; font-size:12px; }
-.economics-header-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
-.economics-header-actions select { padding:9px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fbfcfb; color:#17231d; font-size:12px; min-width:220px; }
+.economics-header-error { grid-column:1 / -1; margin:0; border-radius:9px; padding:9px 12px; background:#fce9e7; color:#9e3025; font-size:12px; }
+.economics-header-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:9px; }
+.economics-header-scenario-label { color:var(--ec-muted, #78857f); font-size:11px; font-weight:700; }
+.economics-header-actions select { padding:9px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fbfcfb; color:#17231d; font-size:12px; min-width:190px; }
 .economics-header-save { display:flex; align-items:center; gap:8px; }
 .economics-header-save input { padding:9px 10px; border:1px solid #2d7556; border-radius:9px; font-size:12px; width:180px; }
+/* Кнопка «⋮» в шапке — та же `RowMenu`, что и в строках сметы. */
+.economics-header-actions .row-menu-trigger { width:32px; height:32px; border:1px solid #ced9d3; border-radius:9px; font-size:15px; }
 
-/* --- Липкая полоса паспорта (задача 9а): дата паспорта рядом с плашками
-   геометрии — тем же местом, где раньше стоял статус сохранения сценария. --- */
-.passport-strip-date { margin-left:auto; color:#78857f; font-size:11px; }
+/* --- Карточка показателей блока: объём, погонаж, скважины, расход ВВ и
+   дата паспорта — одной строкой через разделители; полная таблица величин
+   раскрывается кнопкой справа. --- */
+.passport-card { margin:0 28px; padding:14px 18px; border:1px solid var(--ec-border, #dde5e1); border-radius:var(--ec-radius, 14px); background:#fff; }
+.passport-card-metrics { display:flex; flex-wrap:wrap; align-items:center; gap:0; }
+.passport-card-metric { display:grid; gap:3px; padding:0 22px; border-left:1px solid #e6ece9; }
+.passport-card-metric:first-child { padding-left:0; border-left:0; }
+.passport-card-metric span { color:var(--ec-muted, #78857f); font-size:11px; }
+.passport-card-metric b { font-size:18px; letter-spacing:-.2px; font-variant-numeric:tabular-nums; }
+.passport-card-metric b small { color:var(--ec-muted, #78857f); font-size:11px; font-weight:500; }
+.passport-card-date b { font-size:13px; font-weight:600; }
+.passport-card-details-toggle { margin-left:auto; width:34px; height:34px; display:grid; place-items:center; border:1px solid #dde5e1; border-radius:9px; background:#fff; color:#5f7168; font-size:14px; }
+.passport-card-details-toggle:hover { border-color:#2d7556; color:#2d7556; }
+.passport-card-details-toggle[aria-expanded="true"] { border-color:#2d7556; background:#eaf3ee; color:#1f6a4a; }
+.passport-card-details { margin-top:12px; padding-top:12px; border-top:1px solid #eef2f0; font-size:12px; }
 
 /* --- Рабочая область вкладки «Экономика блока»: смета/вкладки слева, липкий
    сайдбар (диаграмма, лестница цены, итоги) справа. --- */
 .economics-workspace { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:16px; align-items:start; }
 .economics-main { min-width:0; display:grid; gap:16px; }
-.economics-sidebar { position:sticky; top:calc(var(--passport-strip-h, 0px) + 14px); }
+.economics-sidebar { position:sticky; top:14px; }
 @media (max-width:1280px) {
   .economics-workspace { grid-template-columns:minmax(0,1fr) 300px; }
 }
@@ -279,3 +315,38 @@
 
 /* Роль техники: строка роли и её подстроки идут подряд, без своей рамки. */
 .equipment-role { display:contents; }
+
+/* --- Карточка рабочей области: вкладки, панель инструментов и содержимое
+   активной вкладки — одним листом, как в концепте. --- */
+.economics-card { padding:0 0 16px; border:1px solid var(--ec-border, #dde5e1); border-radius:var(--ec-radius, 14px); background:#fff; }
+.economics-card > * { margin-left:18px; margin-right:18px; }
+.economics-card > .economics-tabs { margin:0; }
+.economics-card .estimate-scroll { margin-top:14px; }
+
+/* Вкладки: активная подчёркнута зелёным, без заливки. */
+.economics-tabs { display:flex; flex-wrap:wrap; gap:2px; padding:0 18px; margin-bottom:0; border-bottom:1px solid #e6ece9; }
+.economics-tabs button { padding:14px 12px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:#6e7c75; font-size:13px; font-weight:600; }
+.economics-tabs button:hover { color:#17231d; }
+.economics-tabs button.active { background:transparent; border-bottom-color:#2d7556; color:var(--ec-accent, #1f6a4a); font-weight:700; }
+.economics-tabs button:focus-visible { outline:none; border-radius:8px 8px 0 0; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
+
+/* Смета шире окна только на узких экранах: там же гаснет липкая шапка —
+   у контейнера с прокруткой она липла бы к нему, а не к верху окна. */
+.estimate-scroll { min-width:0; }
+@media (max-width:1120px) {
+  .estimate-scroll { overflow-x:auto; }
+  .estimate-head { position:static; }
+}
+
+/* Селекторы объекта и паспорта в шапке приложения. */
+.topbar-selectors { display:flex; align-items:center; gap:10px; min-width:0; }
+.topbar-selector { display:grid; gap:1px; min-width:0; max-width:290px; padding:5px 11px; border:1px solid #dce4e0; border-radius:9px; background:#fff; }
+.topbar-selector > span { color:#78857f; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; white-space:nowrap; }
+.topbar-selector > b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.topbar-selector.is-select { padding:5px 6px 5px 11px; }
+.topbar-selector select { max-width:260px; border:0; background:transparent; color:#17231d; font-size:12px; font-weight:700; }
+.topbar-selector select:focus { outline:none; }
+@media (max-width:1050px) {
+  .topbar-selectors { flex-wrap:wrap; gap:6px; }
+  .topbar-selector { max-width:none; }
+}

@@ -343,6 +343,10 @@ export const api = {
       selected_variant?: Record<string, unknown>;
       existing_physical?: Record<string, number | string>;
     }) => post<TechnicalPassport>(`${V1}/economics/technical-passports`, payload),
+    /** Убрать паспорт из списка. Сохранённые прогоны экономики остаются: сервер
+     * помечает паспорт удалённым, а не стирает строку. */
+    deleteTechnicalPassport: (id: string) =>
+      del<void>(`${V1}/economics/technical-passports/${id}`),
   },
 
   // --- Cost V2: экономика блока (модель себестоимости) ---

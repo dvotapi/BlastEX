@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Collection, Mapping, Protocol, Sequence
@@ -22,6 +22,19 @@ if TYPE_CHECKING:
 
 class EconomicsRepositoryError(RuntimeError):
     pass
+
+
+class TechnicalPassportDeleted(EconomicsRepositoryError):
+    """Паспорт удалён: новых записей по нему не заводим.
+
+    Отдельный класс, потому что для клиента это конфликт состояния (409), а
+    не отказ хранилища: паспорт существует и читается, но список его больше
+    не показывает и считать по нему нельзя.
+    """
+
+    def __init__(self, passport_id: str) -> None:
+        self.passport_id = passport_id
+        super().__init__(f"Технический паспорт {passport_id} удалён.")
 
 
 class ReferenceRevisionConflict(EconomicsRepositoryError):
@@ -146,6 +159,10 @@ class StoredTechnicalPassport:
     lineage: dict[str, str]
     created_at: datetime
     created_by: str
+    # Момент удаления паспорта. Запись остаётся в хранилище: на неё
+    # ссылаются сохранённые прогоны экономики и блоки проектов, и они
+    # должны читаться и после того, как паспорт убрали из списка.
+    deleted_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -164,6 +181,7 @@ class StoredTechnicalPassport:
             "lineage": self.lineage,
             "created_at": self.created_at.isoformat(),
             "created_by": self.created_by,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
         }
 
 
@@ -359,6 +377,10 @@ class EconomicsRepository(Protocol):
         physical: dict[str, Any],
         lineage: dict[str, str],
     ) -> StoredTechnicalPassport: ...
+
+    def delete_technical_passport(
+        self, organization_id: str, user_id: str, passport_id: str
+    ) -> None: ...
 
     def save_event_calculation_run(
         self,
@@ -699,13 +721,23 @@ class InMemoryEconomicsRepository:
             rows = [
                 deepcopy(value)
                 for (org, _), value in self._passports.items()
-                if org == organization_id and (not site_code or value.site_code == site_code)
+                if org == organization_id
+                and value.deleted_at is None
+                and (not site_code or value.site_code == site_code)
             ]
             return tuple(sorted(rows, key=lambda row: row.created_at, reverse=True))
 
     def get_technical_passport(
         self, organization_id: str, passport_id: str
     ) -> StoredTechnicalPassport:
+        """Паспорт по идентификатору, включая удалённый.
+
+        Удалённый паспорт остаётся читаемым: сохранённые прогоны экономики и
+        блоки проектов ссылаются на него, и их нужно открывать и после того,
+        как паспорт убрали из списка. Новые записи по такому паспорту не
+        создаются — это проверяет ``_active_passport``.
+        """
+
         with self._lock:
             try:
                 return deepcopy(self._passports[(organization_id, passport_id)])
@@ -713,6 +745,25 @@ class InMemoryEconomicsRepository:
                 raise EconomicsRecordNotFound(
                     f"Технический паспорт {passport_id} не найден."
                 ) from exc
+
+    def _active_passport(
+        self, organization_id: str, passport_id: str
+    ) -> StoredTechnicalPassport:
+        """Неудалённый паспорт — для всего, что заводит новые записи."""
+
+        passport = self.get_technical_passport(organization_id, passport_id)
+        if passport.deleted_at is not None:
+            raise TechnicalPassportDeleted(passport_id)
+        return passport
+
+    def delete_technical_passport(
+        self, organization_id: str, user_id: str, passport_id: str
+    ) -> None:
+        with self._lock:
+            passport = self._active_passport(organization_id, passport_id)
+            self._passports[(organization_id, passport_id)] = replace(
+                passport, deleted_at=datetime.now(timezone.utc).replace(microsecond=0)
+            )
 
     def save_technical_passport(
         self,
@@ -733,7 +784,7 @@ class InMemoryEconomicsRepository:
         with self._lock:
             self.get_reference_snapshot(organization_id, reference_revision_id)
             previous = (
-                self.get_technical_passport(organization_id, previous_passport_id)
+                self._active_passport(organization_id, previous_passport_id)
                 if previous_passport_id
                 else None
             )
@@ -777,7 +828,7 @@ class InMemoryEconomicsRepository:
         result: dict[str, Any],
     ) -> StoredCalculationRun:
         with self._lock:
-            self.get_technical_passport(organization_id, technical_passport_id)
+            self._active_passport(organization_id, technical_passport_id)
             run_id = str(uuid4())
             run = StoredCalculationRun(
                 id=run_id,
@@ -811,7 +862,7 @@ class InMemoryEconomicsRepository:
         result: dict[str, Any],
     ) -> StoredEconomicsRun:
         with self._lock:
-            self.get_technical_passport(organization_id, technical_passport_id)
+            self._active_passport(organization_id, technical_passport_id)
             run_id = str(uuid4())
             run = StoredEconomicsRun(
                 id=run_id,

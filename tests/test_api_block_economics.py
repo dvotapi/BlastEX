@@ -944,3 +944,22 @@ def test_subcontract_rate_transfer_refuses_a_code_taken_by_another_name(client) 
     rate = repository.get_reference_snapshot("default").item("subcontract_rates", first["code"])
     assert rate.name == "Бурение Ø140 мм"
     assert rate.payload["rate_rub"] == "185"
+
+
+def test_saved_run_survives_passport_deletion(client) -> None:
+    """Удаление паспорта не трогает уже сохранённые прогоны, но закрывает новые."""
+
+    test_client, repository, passport_id = client
+    run = test_client.post(
+        "/api/v1/economics/runs", json={**_parameters(passport_id), "name": "Базовый"}
+    ).json()
+    repository.delete_technical_passport("default", "tester", passport_id)
+
+    single = test_client.get(f"/api/v1/economics/runs/{run['id']}")
+    assert single.status_code == 200, single.text
+    assert single.json()["result"]["price_per_m3"]
+
+    repeated = test_client.post(
+        "/api/v1/economics/runs", json={**_parameters(passport_id), "name": "Ещё один"}
+    )
+    assert repeated.status_code == 409, repeated.text

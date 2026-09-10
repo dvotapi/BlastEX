@@ -58,12 +58,15 @@ describe("EquipmentSection", () => {
     expect(screen.getAllByText("Норматив").length).toBe(4);
   });
 
-  it("амортизация станка отображается в «Технике», даже если её раздел в модели — DRILLING, а не EQUIPMENT", () => {
+  it("сумма амортизации станка учтена в «Технике», но построчно не дублируется — она уже в «Бурении»", () => {
     // `DRILL_DEPRECIATION`/`DRILL_INSURANCE` во фикстуре имеют `section: "DRILLING"`
     // (реальный раздел бэкенда, `cost/model/drilling.py`) — `groupOf` отправляет их
     // в раздел «Бурение», поэтому `group.lines` раздела «Техника» их не содержит.
-    // `EquipmentSection` должен найти их сам, по всему расчёту (`economics.lines`),
-    // а не только по строкам своего раздела.
+    // `EquipmentSection` находит их сам, по всему расчёту (`economics.lines`), и
+    // складывает в сумму строки роли «Буровая установка», но НЕ выводит построчно —
+    // построчная разбивка уже есть в разделе «Бурение» (`OwnDrillingEditor`), и
+    // повторный построчный вывод в «Технике» вводил сметчика в заблуждение
+    // (одна и та же сумма амортизации на двух страницах).
     const { params, defaults, economics, group } = setup();
     render(
       <EquipmentSection
@@ -77,8 +80,11 @@ describe("EquipmentSection", () => {
       />,
     );
 
-    expect(screen.getByText("Амортизация станка")).toBeInTheDocument();
-    expect(screen.getByText("Страхование станка")).toBeInTheDocument();
+    // Построчных статей станка в «Технике» больше нет.
+    expect(screen.queryByText("Амортизация станка")).not.toBeInTheDocument();
+    expect(screen.queryByText("Страхование станка")).not.toBeInTheDocument();
+    // Сноска поясняет, где искать разбивку, и называет ту же сумму: 45000 + 5000 = 50000,00.
+    expect(screen.getByText(/Построчная разбивка.*станка.*«Бурение»/)).toBeInTheDocument();
     // Сумма строки роли «Буровая установка» — не нулевая: 45000 + 5000 = 50000,00.
     expect(screen.getByText("50 000,00")).toBeInTheDocument();
   });

@@ -4,7 +4,11 @@
  * справочника, смены на блок (считает модель) и плановые смены в месяц
  * (правит сметчик, от них зависит доля постоянных затрат техники на смену).
  * Под строкой роли — её статьи только для чтения (амортизация, ТОиР,
- * страхование), найденные по общему префиксу кода статьи.
+ * страхование), найденные по общему префиксу кода статьи. Исключение —
+ * станок: его статьи владения уже показаны построчно в разделе «Бурение»
+ * (у них `section === "DRILLING"`), поэтому здесь у роли «Буровая
+ * установка» только итоговая сумма/доля и сноска со ссылкой на «Бурение»,
+ * без повторной построчной разбивки.
  */
 import { useState } from "react";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
@@ -121,7 +125,14 @@ export function EquipmentSection({ group, params, defaults, economics, volume, c
         // главной строкой раздела «Бурение» (`SubcontractDrillingEditor`),
         // вторая — отдельной сноской чуть ниже (`unallocated`). Здесь — как
         // и у остальных трёх ролей — только статьи владения станком:
-        // амортизация, страхование, ТОиР.
+        // амортизация, страхование, ТОиР. Сумма этих статей идёт в строку
+        // роли (`amount`/`share` ниже), но построчно они здесь больше не
+        // выводятся — `OwnDrillingEditor` уже показывает их построчно в
+        // разделе «Бурение» (те же статьи входят в `group.lines` раздела
+        // «Бурение» через `otherLines`), и построчный дубль в «Технике»
+        // вводил сметчика в заблуждение (одна и та же сумма амортизации на
+        // двух страницах). Для остальных трёх ролей дубля нет — их статьи
+        // существуют только в разделе «Техника».
         const items =
           role.param === "rig_code"
             ? linesByPrefix(economics?.lines ?? [], role.prefix).filter((item) =>
@@ -199,20 +210,27 @@ export function EquipmentSection({ group, params, defaults, economics, volume, c
                 {` (${money(unallocated.amount_rub, 0)} ₽).`}
               </p>
             )}
-            {items.map((line, index) => (
-              <EstimateLine
-                key={line.cost_item_code}
-                number={`${number}.${index + 1}`}
-                name={line.cost_item_name}
-                origin={line.price_origin || line.quantity_origin}
-                quantity={line.quantity}
-                unit={line.unit}
-                price={line.unit_price_rub}
-                amount={line.amount_rub}
-                volume={volume}
-                share={lineShare(line, economics)}
-              />
-            ))}
+            {role.param === "rig_code" && items.length > 0 && (
+              <p className="equipment-role-note">
+                Построчная разбивка амортизации, страхования и ТОиР станка — в разделе «Бурение»
+                {` (${money(total, 0)} ₽ суммарно).`}
+              </p>
+            )}
+            {role.param !== "rig_code" &&
+              items.map((line, index) => (
+                <EstimateLine
+                  key={line.cost_item_code}
+                  number={`${number}.${index + 1}`}
+                  name={line.cost_item_name}
+                  origin={line.price_origin || line.quantity_origin}
+                  quantity={line.quantity}
+                  unit={line.unit}
+                  price={line.unit_price_rub}
+                  amount={line.amount_rub}
+                  volume={volume}
+                  share={lineShare(line, economics)}
+                />
+              ))}
           </div>
         );
       })}

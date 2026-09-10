@@ -195,6 +195,44 @@ describe("PassportBar", () => {
     expect(screen.queryByText("Не удалось загрузить паспорта.")).toBeNull();
   });
 
+  it("пустой справочник объектов — объекта шапки нет, и это сказано", async () => {
+    // Активных объектов нет: шапка всё равно показывает объект Cost V1 по
+    // умолчанию, поэтому молчать нельзя — сохранять паспорт некуда.
+    vi.mocked(api.economics.referenceSnapshot).mockResolvedValue(snapshot([]));
+    setup();
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "Сохранить паспорт" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+  });
+
+  it("смена объекта во время сохранения не подмешивает паспорт в чужой список", async () => {
+    let resolveCreate: (value: TechnicalPassport) => void = () => {};
+    vi.mocked(api.economics.createTechnicalPassport).mockReturnValue(
+      new Promise<TechnicalPassport>((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    vi.mocked(api.economics.technicalPassports)
+      .mockResolvedValueOnce([passport("P-1", "Блок 4", "SITE_DRESVA")])
+      .mockResolvedValueOnce([passport("P-9", "Блок Дайки", "SITE_DAYKA")]);
+    const props = { variants: [{ key: "left", label: "Вариант 1", geometry: GEOMETRY }] };
+    const { rerender } = render(
+      <PassportBar {...props} objectName={DRESVA} onOpenEconomics={vi.fn()} />,
+    );
+    await screen.findByText("Блок 4");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить паспорт" }));
+    rerender(<PassportBar {...props} objectName={DAYKA} onOpenEconomics={vi.fn()} />);
+    await screen.findByText("Блок Дайки");
+    resolveCreate(passport("P-2", "Паспорт Дресьвы", "SITE_DRESVA"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Сохранить паспорт" }).hasAttribute("disabled")).toBe(
+        false,
+      ),
+    );
+    expect(screen.queryByText("Паспорт Дресьвы")).toBeNull();
+  });
+
   it("ошибка удаления показывается, а строка остаётся", async () => {
     vi.mocked(api.economics.deleteTechnicalPassport).mockRejectedValue(
       new Error("Технический паспорт P-1 удалён."),

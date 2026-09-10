@@ -247,6 +247,54 @@ def test_deleted_technical_passport_takes_no_new_records(monkeypatch) -> None:
     assert next_version.status_code == 409, next_version.text
 
 
+def test_scenario_calculation_refuses_a_deleted_passport(monkeypatch) -> None:
+    """Расчёт сценария сохраняется, значит удалённый паспорт для него закрыт."""
+
+    client, _ = _client(monkeypatch)
+    revision = client.get("/api/v1/economics/references/snapshot").json()["revision_id"]
+    passport_id = client.post(
+        "/api/v1/economics/technical-passports", json=_passport_payload()
+    ).json()["id"]
+    scenario = {
+        "id": "",
+        "name": "Сценарий с паспортом",
+        "description": "",
+        "production_unit_code": "UNIT_1",
+        "baseline_service_lines": [],
+        "candidate_service_lines": [
+            {
+                "id": "line-1",
+                "name": "Франко-скважина",
+                "package_code": "VM_IN_HOLE",
+                "customer_code": "C1",
+                "site_code": "SITE_MAIN",
+                "billing_unit": "M3",
+                "market_price_rub": 100,
+                "monthly_plans": [
+                    {
+                        "month": "2026-09",
+                        "billed_quantity": 25000,
+                        "physical": {},
+                        "technical_passport_id": passport_id,
+                    }
+                ],
+                "operation_overrides": [],
+                "site_conditions": {},
+                "options": {"component_supply_mode": "PURCHASED_COMPONENTS"},
+                "replaces_service_line_id": None,
+            }
+        ],
+        "capacity_choices": [],
+        "reference_revision_id": revision,
+    }
+    scenario_id = client.post("/api/v1/economics/scenarios", json=scenario).json()["id"]
+    assert client.post(f"/api/v1/economics/scenarios/{scenario_id}/calculate", json={}).status_code == 200
+
+    client.delete(f"/api/v1/economics/technical-passports/{passport_id}")
+    refused = client.post(f"/api/v1/economics/scenarios/{scenario_id}/calculate", json={})
+    assert refused.status_code == 409, refused.text
+
+
 def test_unknown_technical_passport_delete_gives_404(monkeypatch) -> None:
     client, _ = _client(monkeypatch)
     response = client.delete("/api/v1/economics/technical-passports/NOPE")

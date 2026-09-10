@@ -30,6 +30,12 @@ export function PassportBar({
 }) {
   const [passports, setPassports] = useState<TechnicalPassport[]>([]);
   const [sites, setSites] = useState<{ code: string; name: string }[]>([]);
+  // Справочник объектов получен (пусть даже пустым). Без этого флага пустой
+  // каталог не отличить от ещё не пришедшего ответа, а разница видна
+  // пользователю: объект в шапке может быть значением Cost V1 по умолчанию,
+  // которого в справочнике нет вовсе — тогда сохранять некуда, и об этом
+  // нужно сказать, а не молча выключить кнопку.
+  const [sitesLoaded, setSitesLoaded] = useState(false);
   const [currentRevisionId, setCurrentRevisionId] = useState("");
   // Имена объектов по ревизии справочников, на которой выпущен паспорт: объект
   // могли переименовать (или удалить) позже — список не должен показать новое
@@ -60,7 +66,12 @@ export function PassportBar({
     () => sites.find((site) => site.name === objectName)?.code ?? "",
     [sites, objectName],
   );
-  const siteMissing = sites.length > 0 && !siteCode;
+  const siteMissing = sitesLoaded && !siteCode;
+  // Актуальный код объекта для асинхронных обработчиков: пока идёт запрос,
+  // объект в шапке могли переключить, и ответ по прошлому объекту в список
+  // нового попадать не должен.
+  const siteCodeRef = useRef(siteCode);
+  siteCodeRef.current = siteCode;
 
   useEffect(() => {
     api.economics
@@ -76,6 +87,7 @@ export function PassportBar({
             .map((item) => ({ code: item.code, name: item.name })),
         );
         setCurrentRevisionId(snapshot.revision_id);
+        setSitesLoaded(true);
       })
       .catch((reason) =>
         setError(reason instanceof Error ? reason.message : "Не удалось загрузить справочник объектов."),
@@ -147,17 +159,21 @@ export function PassportBar({
 
   async function savePassport() {
     if (!geometry || !siteCode) return;
+    const requestedSite = siteCode;
     setBusy(true);
     setError("");
     try {
       const created = await api.economics.createTechnicalPassport({
-        site_code: siteCode,
+        site_code: requestedSite,
         object_name: passportName.trim() || `Блок ${Math.round(geometry.block.block_volume_m3)} м³`,
         block: geometry.block as unknown as Record<string, unknown>,
         selected_variant: { label: geometry.label },
       });
-      setPassports((rows) => [created, ...rows]);
       setPassportName("");
+      // Объект мог смениться, пока шёл запрос: список уже показывает другой
+      // объект, и созданный паспорт в него не относится.
+      if (siteCodeRef.current !== requestedSite) return;
+      setPassports((rows) => [created, ...rows]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сохранить паспорт.");
     } finally {

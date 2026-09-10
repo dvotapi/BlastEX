@@ -162,7 +162,13 @@ def resolve_scenario_passports(
     organization_id: str,
     scenario: EconomicScenario,
 ) -> tuple[EconomicScenario, list[dict[str, Any]]]:
-    """Resolve one immutable technical passport per service-line month."""
+    """Resolve one immutable technical passport per service-line month.
+
+    Расчёт сценария сохраняется (``save_calculation_run``), то есть заводит
+    новую запись по паспорту — значит удалённый паспорт сюда не годится.
+    Чтение самого паспорта остаётся доступным для удалённых: по ним
+    открываются прогоны, сохранённые до удаления.
+    """
 
     data = scenario.to_dict()
     sources: list[dict[str, Any]] = []
@@ -173,6 +179,8 @@ def resolve_scenario_passports(
                 if not passport_id:
                     continue
                 passport = repository.get_technical_passport(organization_id, passport_id)
+                if passport.deleted_at is not None:
+                    raise TechnicalPassportDeleted(passport.id)
                 if line.get("site_code") and passport.site_code != line["site_code"]:
                     raise ValueError(
                         f"Паспорт {passport.id} относится к объекту {passport.site_code}, "

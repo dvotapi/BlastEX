@@ -109,4 +109,76 @@ describe("DrillingSection", () => {
 
     expect(screen.getByRole("button", { name: "Сохранить тариф в справочник" })).toBeEnabled();
   });
+
+  it("без выбранного подрядчика (пустой справочник контрагентов) кнопка сохранения тарифа недоступна", () => {
+    const { params, economics, group } = setup({
+      drilling_executor: "SUBCONTRACTOR",
+      subcontract_rate_rub: "185",
+    });
+    const defaults = { ...defaultsFixture(), counterparties: [] };
+    const onChange = vi.fn();
+    render(
+      <DrillingSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={onChange}
+        onOpenDrillingPage={() => {}}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Сохранить тариф в справочник" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "Сначала выберите подрядчика");
+  });
+
+  it("после выбора подрядчика кнопка сохранения тарифа доступна", async () => {
+    const { params, economics, group } = setup({ drilling_executor: "SUBCONTRACTOR" });
+    const defaults = {
+      ...defaultsFixture(),
+      counterparties: [
+        { code: "CONTR_A", name: "ООО «Буровик»" },
+        { code: "CONTR_B", name: "ООО «Скважина»" },
+      ],
+    };
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <DrillingSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={onChange}
+        onOpenDrillingPage={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Подрядчик" }));
+    await user.click(screen.getByRole("option", { name: "ООО «Скважина»" }));
+
+    const price = screen.getByLabelText("Ставка субподряда, ₽/м");
+    await user.clear(price);
+    await user.type(price, "185");
+
+    rerender(
+      <DrillingSection
+        group={group}
+        params={{ ...params, subcontract_rate_rub: "185" }}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={onChange}
+        onOpenDrillingPage={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Сохранить тариф в справочник" })).toBeEnabled();
+  });
 });

@@ -56,10 +56,16 @@ export function SubcontractDrillingEditor({ group, params, defaults, economics, 
   const drillingM = defaults.passport.physical.drilling_m ?? null;
   const otherLines = group.lines.filter((item) => item.cost_item_code !== "DRILL_SUBCONTRACT");
 
-  const canSave = params.subcontract_rate_rub !== null && canEdit;
+  // Подрядчик не выбран (справочник пуст либо выбор не сделан) — бэкенд
+  // требует `counterparty_code` непусто (min_length=1) и отклонит публикацию
+  // тарифа без него, так что кнопку показываем недоступной, а не отправляем
+  // запрос, который заведомо упадёт с 422.
+  const hasCounterparty = counterpartyCode !== "";
+  const canSave = params.subcontract_rate_rub !== null && canEdit && hasCounterparty;
+  const needsCounterpartyToSave = params.subcontract_rate_rub !== null && canEdit && !hasCounterparty;
 
   async function submitSave() {
-    if (params.subcontract_rate_rub === null) return;
+    if (params.subcontract_rate_rub === null || !hasCounterparty) return;
     setSaving(true);
     setError(null);
     try {
@@ -74,8 +80,9 @@ export function SubcontractDrillingEditor({ group, params, defaults, economics, 
       setStatus(`Тариф «${response.code}» опубликован ревизией ${response.reference_revision_id}`);
       setSaveOpen(false);
       setRateName("");
-    } catch {
-      setError("Не удалось сохранить тариф в справочник");
+    } catch (err) {
+      const detail = err instanceof Error && err.message ? err.message : null;
+      setError(detail ? `Не удалось сохранить тариф в справочник: ${detail}` : "Не удалось сохранить тариф в справочник");
     } finally {
       setSaving(false);
     }
@@ -127,6 +134,13 @@ export function SubcontractDrillingEditor({ group, params, defaults, economics, 
           </label>
         }
       />
+      {needsCounterpartyToSave && (
+        <div className="drilling-rate-save">
+          <button type="button" className="link-button" disabled title="Сначала выберите подрядчика">
+            Сохранить тариф в справочник
+          </button>
+        </div>
+      )}
       {canSave && (
         <div className="drilling-rate-save">
           {!saveOpen ? (

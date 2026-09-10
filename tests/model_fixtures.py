@@ -64,6 +64,17 @@ MATERIALS = (
         "ЭВВ Протолит-100",
         {"unit": "KG", "material_kind": "ВВ", "storage_class": "BULK", "nomenclature_role": "EXPLOSIVE"},
     ),
+    # Дубли из справочника ВВ расчётной части: имена те же, цен нет.
+    item(
+        "EXP_PEVV_EVERSIN_E_100",
+        "Эверсин Э-100",
+        {"unit": "KG", "material_kind": "ВВ", "storage_class": "BULK", "nomenclature_role": "EXPLOSIVE"},
+    ),
+    item(
+        "EXP_PVV_GRANULIT_RP",
+        "Гранулит-РП",
+        {"unit": "KG", "material_kind": "ВВ", "storage_class": "BULK", "nomenclature_role": "EXPLOSIVE"},
+    ),
     item(
         "MAT_NSI",
         "НСИ скважинное",

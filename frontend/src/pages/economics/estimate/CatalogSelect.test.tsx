@@ -44,4 +44,61 @@ describe("CatalogSelect", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     expect(button).toHaveFocus();
   });
+
+  it("список не обрезается предком: он рисуется порталом в body, а не внутри строки", async () => {
+    // Ячейка названия в смете обрезает содержимое по многоточию — список,
+    // нарисованный внутри неё, был бы срезан по высоте строки.
+    render(
+      <div style={{ overflow: "hidden", height: 20 }}>
+        <CatalogSelect id="ex" label="Основное ВВ" value="" options={options} onChange={() => {}} />
+      </div>,
+    );
+    await userEvent.click(screen.getByRole("combobox", { name: "Основное ВВ" }));
+
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.closest(".catalog-select")).toBeNull();
+    expect(listbox.closest(".catalog-select-popover")?.parentElement).toBe(document.body);
+  });
+
+  it("клик по пункту списка выбирает позицию, а не считается кликом вне", async () => {
+    // Поповер живёт в портале и предком кнопки не является: без проверки
+    // самого поповера обработчик «клик вне» закрывал список раньше выбора.
+    const onChange = vi.fn();
+    render(<CatalogSelect id="ex" label="Основное ВВ" value="" options={options} onChange={onChange} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("combobox", { name: "Основное ВВ" }));
+    await user.click(screen.getByRole("option", { name: /Березит/ }));
+
+    expect(onChange).toHaveBeenCalledWith("BEREZIT");
+  });
+
+  it("клик мимо комбобокса закрывает список", async () => {
+    render(<CatalogSelect id="ex" label="Основное ВВ" value="" options={options} onChange={() => {}} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("combobox", { name: "Основное ВВ" }));
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+
+    await user.click(document.body);
+
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("в строке сметы кнопка выглядит текстом, в форме — полем", () => {
+    const { rerender } = render(
+      <CatalogSelect id="ex" label="Основное ВВ" value="GRANULIT" options={options} onChange={() => {}} />,
+    );
+    expect(screen.getByRole("combobox", { name: "Основное ВВ" })).toHaveClass("is-ghost");
+
+    rerender(
+      <CatalogSelect
+        id="ex"
+        label="Основное ВВ"
+        value="GRANULIT"
+        options={options}
+        onChange={() => {}}
+        variant="field"
+      />,
+    );
+    expect(screen.getByRole("combobox", { name: "Основное ВВ" })).toHaveClass("is-field");
+  });
 });

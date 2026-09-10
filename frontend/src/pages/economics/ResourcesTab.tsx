@@ -21,7 +21,7 @@ export function ResourcesTab({ economics }: { economics: BlockEconomics }) {
 
   return (
     <div className="resources-tab">
-      <section className="panel resources-natural">
+      <section className="panel">
         <header>
           <b>Натуральные величины расчёта</b>
         </header>

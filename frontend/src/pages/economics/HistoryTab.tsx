@@ -1,6 +1,6 @@
 import { api } from "../../api/endpoints";
 import type { EconomicsRunSummary } from "../../types/blockEconomics";
-import { money } from "./format";
+import { runPrice } from "./format";
 
 /**
  * Вкладка «История»: все сохранённые сценарии паспорта списком, каждый
@@ -19,7 +19,7 @@ export function HistoryTab({
   onOpen: (runId: string) => void;
 }) {
   return (
-    <section className="panel history-tab">
+    <section className="panel">
       <header>
         <b>История сценариев</b>
       </header>
@@ -36,7 +36,7 @@ export function HistoryTab({
                     {new Date(run.created_at).toLocaleString("ru-RU")} · ревизия {run.reference_revision_id}
                   </small>
                 </span>
-                <em>{money(run.price_per_m3.full ?? 0)} ₽/м³</em>
+                <em title={run.price_per_m3.full ? undefined : "Прогон сохранён без расчёта"}>{runPrice(run.price_per_m3.full)}</em>
                 <button type="button" className="secondary-button" onClick={() => onOpen(run.id)}>
                   Открыть
                 </button>

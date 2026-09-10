@@ -684,6 +684,22 @@ export function BlockEconomicsPage({
                 // Без обёртки с прокруткой: любой предок с `overflow` делается
                 // точкой отсчёта для липкой шапки колонок, и та застывает
                 // внутри таблицы вместо верха окна.
+                <>
+                {/* Предупреждения модели — над сметой, а не только на вкладке
+                    «Ресурсы»: нулевая строка бурения или неразнесённые
+                    постоянные затраты видны там, где на них смотрят. */}
+                {activeEconomics.warnings.length > 0 && (
+                  <details className="estimate-warnings">
+                    <summary>
+                      Модель сообщает: {activeEconomics.warnings.length}
+                    </summary>
+                    <ul>
+                      {activeEconomics.warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 <div className="estimate-scroll">
                   <EstimateBuilder
                     // Смена черновика (`activeId`) должна сбрасывать весь
@@ -705,6 +721,7 @@ export function BlockEconomicsPage({
                     busy={!resultsMatchDrafts}
                   />
                 </div>
+                </>
               ) : (
                 <div className="economic-empty">Расчёт выполняется…</div>
               ))}

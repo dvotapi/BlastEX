@@ -73,3 +73,13 @@ export function reconcilingColumns(
  */
 export const perM3 = (value: number, volume: number | null) =>
   volume === null ? "—" : `${money(value / volume)} ₽/м³`;
+
+/**
+ * Цена за кубометр у сохранённого прогона.
+ *
+ * Ноль здесь означает не «бесплатно», а «прогон сохранён без посчитанных
+ * строк» — так лежат в базе прогоны, сделанные до того, как модель научилась
+ * считать блок. Показывать их как «0,00 ₽/м³» значит врать: открыв такой
+ * прогон, сметчик сразу увидит другое число.
+ */
+export const runPrice = (value: number | undefined) => (!value ? "—" : `${money(value)} ₽/м³`);

@@ -82,7 +82,7 @@
 .ref-public-banner.unavailable { display:flex; align-items:center; gap:12px; border-color:#e6d7bf; background:#fdf7ec; }
 .ref-public-banner .page-caption { margin:0; flex:1 1 auto; }
 .ref-public-banner-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-.ref-public-banner-head .primary-button { padding:9px 13px; font-size:12px; }
+.ref-public-banner-head .primary-button { padding:0 13px; }
 .ref-public-entries summary { color:#3b4b43; font-size:12px; font-weight:700; cursor:pointer; }
 .ref-public-entries ul { display:grid; gap:6px; margin:8px 0 0; padding:0; list-style:none; }
 .ref-public-entries li p { margin:0; font-size:12px; }

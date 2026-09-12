@@ -26,8 +26,8 @@ function autosaveStatusText(status: AutosaveStatus): string {
  *
  * Юнит — фильтр списка объектов (см. `unitSelection.ts`); поле не рисуется,
  * если в опубликованной ревизии нет ни одного действующего юнита. Показатели
- * выбранного варианта живут в панели «Варианты сетки» (`MetricChips`), ошибка
- * рабочего пространства и предупреждения — в `CalcWorkspaceNotices`.
+ * выбранного варианта живут в панели «Варианты сетки» (`MetricChips`),
+ * предупреждения справочников — в заголовке «Исходных данных» (`ReferenceWarnings`).
  */
 export function CalcTopStrip({
   variant,
@@ -95,35 +95,20 @@ export function CalcTopStrip({
 }
 
 /**
- * Ошибка рабочего пространства (неудачная загрузка или смена объекта) и
- * предупреждения справочников для листа «Расчёт».
- *
- * Отдельно от `CalcTopStrip`: полоса живёт в верхней панели приложения, а
- * этому блоку там не место по высоте.
+ * Предупреждения справочников для листа «Расчёт»: свёрнутая строка в
+ * заголовке панели «Исходные данные», список раскрывается поверх содержимого
+ * (стили `.calc-warnings`), а не сдвигает панели листа вниз.
  */
-export function CalcWorkspaceNotices({
-  workspaceError,
-  warnings,
-}: {
-  workspaceError: string;
-  warnings: string[];
-}) {
-  if (!workspaceError && !warnings.length) return null;
+export function ReferenceWarnings({ warnings }: { warnings: string[] }) {
+  if (!warnings.length) return null;
   return (
-    <>
-      {workspaceError && <div className="page-error" role="alert">{workspaceError}</div>}
-      {warnings.length > 0 && (
-        <div className="calc-warnings">
-          <details>
-            <summary>Предупреждения справочников ({warnings.length})</summary>
-            <ul>
-              {warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          </details>
-        </div>
-      )}
-    </>
+    <details className="calc-warnings">
+      <summary>Предупреждения справочников ({warnings.length})</summary>
+      <ul>
+        {warnings.map((warning) => (
+          <li key={warning}>{warning}</li>
+        ))}
+      </ul>
+    </details>
   );
 }

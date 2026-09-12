@@ -1,6 +1,8 @@
-// Палитра чертежей скважины. Цвета ВВ совпадают с серверной схемой заряда
-// (blast_hole_viz.py, CHARGE_COLORS), чтобы разрез в проекте и схема в расчёте
-// показывали одно и то же ВВ одинаково.
+// Палитра чертежей скважины — единственный источник цвета ВВ в интерфейсе:
+// по ней рисуются разрез в проекте, схема заряда и маркеры вариантов на листе
+// «Расчёт». Серверная `blast_hole_viz.py::CHARGE_COLORS` к интерфейсу не
+// относится: ею рисует только SVG-эндпоинт `/blast/hole-scheme`, который фронт
+// не вызывает.
 
 export const DRAW = {
   rock: "#e8ece9",
@@ -34,11 +36,15 @@ const EXPLOSIVE_COLORS: [string, string][] = [
 
 const DEFAULT_EXPLOSIVE_COLOR = "#4472C4";
 
-/** Цвет колонны заряда по названию/метке ВВ. */
+/**
+ * Цвет колонны заряда по названию, ключу или метке ВВ. Без учёта регистра:
+ * метка схемы (`chart_label`) приходит заглавными — «ГРАНУЛИТ-РП», — и
+ * регистрозависимый поиск отдавал для неё цвет по умолчанию.
+ */
 export function explosiveColor(...names: (string | undefined)[]): string {
-  const haystack = names.filter(Boolean).join(" ");
+  const haystack = names.filter(Boolean).join(" ").toLocaleLowerCase("ru-RU");
   for (const [key, color] of EXPLOSIVE_COLORS) {
-    if (haystack.includes(key)) return color;
+    if (haystack.includes(key.toLocaleLowerCase("ru-RU"))) return color;
   }
   return DEFAULT_EXPLOSIVE_COLOR;
 }

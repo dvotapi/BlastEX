@@ -20,6 +20,9 @@ const api = vi.hoisted(() => ({
   calcInputs: vi.fn(),
   saveCalcInputs: vi.fn(),
   optimize: vi.fn(),
+  geometry: vi.fn(),
+  // Панель паспортов стоит в верхнем ряду листа всегда.
+  economics: { referenceSnapshot: vi.fn(), technicalPassports: vi.fn() },
 }));
 vi.mock("../api/endpoints", () => ({ api }));
 
@@ -102,6 +105,8 @@ beforeEach(() => {
   api.blastOptions.mockResolvedValue({ crown_diameters_mm: [152], nsi_length_options_m: [6, 12], detonator_delay_ms_options: [500] });
   api.productionUnits.mockResolvedValue({ items: UNITS });
   api.optimize.mockResolvedValue({ variants: [] });
+  api.economics.referenceSnapshot.mockResolvedValue({ revision_id: "REV", sections: { sites: [] } });
+  api.economics.technicalPassports.mockResolvedValue([]);
   api.saveCalcInputs.mockImplementation(async (name: string, inputs: object) => ({ work_object_name: name, inputs, updated_at: "now" }));
 });
 afterEach(cleanup);

@@ -8,10 +8,37 @@ import { barrelWidthPx, deckTooltip, makeAxis } from "../../components/holeDrawi
 import { ruNumber } from "../../lib/format";
 import type { HoleGeometry, InitiationConfig } from "../../types";
 
-const DRAW_PREFIX = "hs";
-const WIDTH = 248;
-const HEIGHT = 400;
-const PAD = { left: 46, right: 68, top: 40, bottom: 32 };
+/**
+ * Размеры схемы. `full` — отдельная схема с линейкой глубины; `compact` —
+ * разрез 128 × 236 рядом с таблицами сравнения (макет TASK-009, доска «A»):
+ * ствол уже, подписи мельче, вместо линейки — общий размер глубины слева.
+ */
+const LAYOUTS = {
+  full: {
+    width: 248,
+    height: 400,
+    pad: { left: 46, right: 68, top: 40, bottom: 32 },
+    barrel: { min: 20, max: 40 },
+    groundLeft: 22,
+    groundRight: 10,
+    dimOffset: 26,
+    titleY: 13,
+    depthScale: true,
+  },
+  compact: {
+    width: 128,
+    height: 236,
+    pad: { left: 34, right: 50, top: 30, bottom: 8 },
+    barrel: { min: 16, max: 34 },
+    groundLeft: 16,
+    groundRight: 18,
+    dimOffset: 16,
+    titleY: 12,
+    depthScale: false,
+  },
+} as const;
+
+export type SchemeSize = keyof typeof LAYOUTS;
 
 /**
  * Глубина боевика от устья — тот же расчёт, что и в серверной схеме
@@ -41,19 +68,28 @@ export function HoleSchemeView({
   initiation,
   crownMm,
   title,
+  size = "full",
+  idPrefix = "hs",
 }: {
   hole: HoleGeometry;
   initiation: InitiationConfig;
   crownMm: number;
   title?: string;
+  size?: SchemeSize;
+  /** Префикс id штриховок и стрелок: у двух схем на одной странице — разный. */
+  idPrefix?: string;
 }) {
   const depthM = hole.depth_m;
   if (depthM <= 0) return null;
 
+  const layout = LAYOUTS[size];
+  const { width: WIDTH, height: HEIGHT, pad: PAD } = layout;
+  const DRAW_PREFIX = idPrefix;
+
   const yTop = PAD.top;
   const yBottom = HEIGHT - PAD.bottom;
   const xAxis = PAD.left + (WIDTH - PAD.left - PAD.right) / 2;
-  const width = barrelWidthPx(crownMm, { min: 20, max: 40, base: 152 });
+  const width = barrelWidthPx(crownMm, { ...layout.barrel, base: 152 });
 
   const axis = makeAxis({ x: xAxis, y: yTop }, { x: xAxis, y: yBottom }, depthM, width);
   const toY = (depth: number) => axis.at(depth).y;
@@ -69,7 +105,9 @@ export function HoleSchemeView({
       kind: "charge",
       from_m: stemmingM,
       to_m: stemmingM + chargeLengthM,
-      explosive_key: hole.explosive_label || hole.explosive_name,
+      // Цвет ищется и по названию, и по метке схемы (`palette.ts`).
+      explosive_key: hole.explosive_name,
+      product: hole.explosive_label,
       mass_kg: hole.charge_mass_kg,
     });
   }
@@ -90,38 +128,40 @@ export function HoleSchemeView({
     )
     .sort((a, b) => b - a);
 
-  const dimX = xAxis + width / 2 + 26;
+  const dimX = xAxis + width / 2 + layout.dimOffset;
   const barrelEdge = xAxis + width / 2;
   // Во сколько раз ствол на схеме шире натурального — указываем на чертеже.
   const pxPerM = (yBottom - yTop) / depthM;
   const exaggeration = Math.max(1, Math.round(width / ((crownMm / 1000) * pxPerM)));
 
   return (
-    <div className="hole-scheme">
+    <div className={`hole-scheme${size === "compact" ? " compact" : ""}`}>
       <svg className="hole-scheme-svg" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label="Конструкция заряда скважины">
         <HoleDrawingDefs prefix={DRAW_PREFIX} />
 
-        {title && <text className="hole-scheme-title" x={WIDTH / 2} y={13} textAnchor="middle">{title.toUpperCase()}</text>}
+        {title && <text className="hole-scheme-title" x={WIDTH / 2} y={layout.titleY} textAnchor="middle">{title.toUpperCase()}</text>}
 
         {/* Поверхность уступа у устья. */}
-        <line className="hole-scheme-surface" x1={PAD.left - 22} y1={yTop} x2={WIDTH - 10} y2={yTop} />
+        <line className="hole-scheme-surface" x1={PAD.left - layout.groundLeft} y1={yTop} x2={WIDTH - layout.groundRight} y2={yTop} />
         <rect
           className="hole-scheme-ground"
-          x={PAD.left - 22}
+          x={PAD.left - layout.groundLeft}
           y={yTop}
-          width={WIDTH - PAD.left - 10 + 22}
-          height={yBottom - yTop + 14}
+          width={WIDTH - PAD.left - layout.groundRight + layout.groundLeft}
+          height={Math.min(yBottom - yTop + 14, HEIGHT - yTop)}
           fill={`url(#${DRAW_PREFIX}-rock)`}
         />
 
-        <DepthScale
-          x={PAD.left - 22}
-          yTop={yTop}
-          yBottom={yBottom}
-          fromValue={0}
-          toValue={depthM}
-          toY={toY}
-        />
+        {layout.depthScale && (
+          <DepthScale
+            x={PAD.left - 22}
+            yTop={yTop}
+            yBottom={yBottom}
+            fromValue={0}
+            toValue={depthM}
+            toY={toY}
+          />
+        )}
 
         <HoleBarrel axis={axis} prefix={DRAW_PREFIX} subdrillFromM={subdrillFromM} />
 
@@ -178,7 +218,7 @@ export function HoleSchemeView({
         )}
         <VerticalDimension
           prefix={DRAW_PREFIX}
-          x={PAD.left - 4}
+          x={PAD.left - (size === "compact" ? 1 : 4)}
           y1={toY(0)}
           y2={toY(depthM)}
           tickFromX={xAxis - width / 2}

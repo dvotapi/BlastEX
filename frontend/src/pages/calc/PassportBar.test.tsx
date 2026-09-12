@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -83,15 +83,20 @@ const GEOMETRY = {
   },
 } as unknown as BlastGeometryResponse;
 
-function setup(objectName = DRESVA) {
+function setup(objectName = DRESVA, onOpenEconomics = vi.fn()) {
   render(
     <PassportBar
       variants={[{ key: "left", label: "Вариант 1", geometry: GEOMETRY }]}
       objectName={objectName}
-      onOpenEconomics={vi.fn()}
+      onOpenEconomics={onOpenEconomics}
     />,
   );
+  return { onOpenEconomics };
 }
+
+/** Сохранённый паспорт в выпадающем списке: «название · масса ВВ». */
+const findPassport = (name: string) => screen.findByRole("option", { name: new RegExp(`^${name} ·`) });
+const queryPassport = (name: string) => screen.queryByRole("option", { name: new RegExp(`^${name} ·`) });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -104,9 +109,43 @@ beforeEach(() => {
 describe("PassportBar", () => {
   it("объект работ не выбирается здесь — он берётся из шапки страницы", async () => {
     setup();
-    await screen.findByText("Блок 4");
+    await findPassport("Блок 4");
     expect(screen.queryByLabelText("Объект работ")).toBeNull();
-    expect(screen.getByText(new RegExp(`по объекту «${DRESVA}»`))).toBeTruthy();
+    expect(screen.getByText(/В паспорт пойдёт «Вариант 1»: 20 727 кг ВВ, 189 скважин/)).toBeTruthy();
+  });
+
+  it("список сохранённых паспортов показывает название и массу ВВ", async () => {
+    setup();
+    // `toLocaleString("ru-RU")` разделяет тысячи узким неразрывным пробелом.
+    expect((await findPassport("Блок 4")).textContent?.replace(/\s/g, " ")).toBe("Блок 4 · 20 727 кг ВВ");
+    expect(screen.getByText("1 по объекту")).toBeTruthy();
+  });
+
+  it("«Экономика» и «Удалить» действуют на паспорт, выбранный в списке", async () => {
+    vi.mocked(api.economics.technicalPassports).mockResolvedValue([
+      passport("P-1", "Блок 4", "SITE_DRESVA"),
+      passport("P-2", "Блок 5", "SITE_DRESVA"),
+    ]);
+    vi.mocked(api.economics.deleteTechnicalPassport).mockResolvedValue(undefined);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { onOpenEconomics } = setup();
+    await findPassport("Блок 5");
+    await userEvent.selectOptions(screen.getByLabelText("Сохранённые паспорта"), "P-2");
+    await userEvent.click(screen.getByRole("button", { name: "Экономика" }));
+    expect(onOpenEconomics).toHaveBeenCalledWith("P-2");
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    await waitFor(() => expect(queryPassport("Блок 5")).toBeNull());
+    expect(api.economics.deleteTechnicalPassport).toHaveBeenCalledWith("P-2");
+    expect(queryPassport("Блок 4")).not.toBeNull();
+    confirm.mockRestore();
+  });
+
+  it("без сохранённых паспортов действия над ними выключены", async () => {
+    vi.mocked(api.economics.technicalPassports).mockResolvedValue([]);
+    setup();
+    await waitFor(() => expect(api.economics.technicalPassports).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Экономика" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Удалить" })).toBeDisabled();
   });
 
   it("список запрашивается по коду объекта из шапки", async () => {
@@ -143,9 +182,9 @@ describe("PassportBar", () => {
     vi.mocked(api.economics.deleteTechnicalPassport).mockResolvedValue(undefined);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     setup();
-    const row = (await screen.findByText("Блок 4")).closest(".passport-list-row") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: "Удалить" }));
-    await waitFor(() => expect(screen.queryByText("Блок 4")).toBeNull());
+    await findPassport("Блок 4");
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    await waitFor(() => expect(queryPassport("Блок 4")).toBeNull());
     expect(api.economics.deleteTechnicalPassport).toHaveBeenCalledWith("P-1");
     confirm.mockRestore();
   });
@@ -153,10 +192,10 @@ describe("PassportBar", () => {
   it("отказ в подтверждении оставляет паспорт на месте", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     setup();
-    const row = (await screen.findByText("Блок 4")).closest(".passport-list-row") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: "Удалить" }));
+    await findPassport("Блок 4");
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
     expect(api.economics.deleteTechnicalPassport).not.toHaveBeenCalled();
-    expect(screen.getByText("Блок 4")).toBeTruthy();
+    expect(queryPassport("Блок 4")).not.toBeNull();
     confirm.mockRestore();
   });
 
@@ -191,7 +230,7 @@ describe("PassportBar", () => {
         onOpenEconomics={vi.fn()}
       />,
     );
-    await screen.findByText("Блок Дайки");
+    await findPassport("Блок Дайки");
     expect(screen.queryByText("Не удалось загрузить паспорта.")).toBeNull();
   });
 
@@ -220,17 +259,17 @@ describe("PassportBar", () => {
     const { rerender } = render(
       <PassportBar {...props} objectName={DRESVA} onOpenEconomics={vi.fn()} />,
     );
-    await screen.findByText("Блок 4");
+    await findPassport("Блок 4");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить паспорт" }));
     rerender(<PassportBar {...props} objectName={DAYKA} onOpenEconomics={vi.fn()} />);
-    await screen.findByText("Блок Дайки");
+    await findPassport("Блок Дайки");
     resolveCreate(passport("P-2", "Паспорт Дресьвы", "SITE_DRESVA"));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Сохранить паспорт" }).hasAttribute("disabled")).toBe(
         false,
       ),
     );
-    expect(screen.queryByText("Паспорт Дресьвы")).toBeNull();
+    expect(queryPassport("Паспорт Дресьвы")).toBeNull();
   });
 
   it("ошибка удаления показывается, а строка остаётся", async () => {
@@ -239,10 +278,10 @@ describe("PassportBar", () => {
     );
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     setup();
-    const row = (await screen.findByText("Блок 4")).closest(".passport-list-row") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: "Удалить" }));
+    await findPassport("Блок 4");
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
     await screen.findByText("Технический паспорт P-1 удалён.");
-    expect(screen.getByText("Блок 4")).toBeTruthy();
+    expect(queryPassport("Блок 4")).not.toBeNull();
     confirm.mockRestore();
   });
 });

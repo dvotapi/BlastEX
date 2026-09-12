@@ -22,7 +22,7 @@
 .estimate-builder { position:relative; }
 .estimate-builder.is-recalculating { opacity:.7; }
 .estimate-builder-toolbar { display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px; }
-.estimate-builder-toolbar button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
+.estimate-builder-toolbar button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fff; color:#3b4b43; font-size:11px; font-weight:var(--font-weight-strong); }
 .estimate-builder-toolbar button:hover { border-color:#2d7556; color:#2d7556; }
 
 /* `overflow` здесь обязан оставаться `visible`: любой предок с прокруткой
@@ -42,7 +42,7 @@
   gap:6px;
 }
 
-.estimate-head { position:sticky; top:0; z-index:2; border-radius:14px 14px 0 0; padding:0 10px; min-height:40px; background:#f5f8f6; border-bottom:1px solid #dde5e1; font-size:var(--ec-font-head, 11px); font-weight:700; color:var(--ec-muted, #78857f); }
+.estimate-head { position:sticky; top:0; z-index:2; border-radius:14px 14px 0 0; padding:0 10px; min-height:40px; background:#f5f8f6; border-bottom:1px solid #dde5e1; font-size:var(--ec-font-head, 11px); font-weight:var(--font-weight-strong); color:var(--ec-muted, #78857f); }
 
 .estimate-section + .estimate-section { border-top:1px solid #dde5e1; }
 /* Числа заголовка раздела — того же размера, что и в строках: без этого они
@@ -50,8 +50,8 @@
    только само название раздела. */
 .estimate-section-head { padding:0 10px; min-height:var(--ec-section-h, 46px); background:#f5f8f6; font-size:var(--ec-font-row, 13px); }
 .estimate-section.is-highlighted > .estimate-section-head { background:#eaf3ee; }
-.estimate-section-toggle { display:flex; align-items:center; gap:8px; min-width:0; white-space:nowrap; overflow:hidden; padding:8px 0; border:0; background:transparent; text-align:left; font-size:var(--ec-font-section, 14px); font-weight:700; color:#17231d; cursor:pointer; border-radius:6px; }
-.estimate-section-number { color:var(--ec-muted, #78857f); font-size:var(--ec-font-section, 14px); font-weight:700; }
+.estimate-section-toggle { display:flex; align-items:center; gap:8px; min-width:0; white-space:nowrap; overflow:hidden; padding:8px 0; border:0; background:transparent; text-align:left; font-size:var(--ec-font-section, 14px); font-weight:var(--font-weight-strong); color:#17231d; cursor:pointer; border-radius:6px; }
+.estimate-section-number { color:var(--ec-muted, #78857f); font-size:var(--ec-font-section, 14px); font-weight:var(--font-weight-strong); }
 .estimate-section-toggle:focus-visible { outline:none; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
 .estimate-section-caret { flex:none; color:#78857f; font-size:10px; width:10px; }
 .estimate-section-toggle > span:last-child { overflow:hidden; text-overflow:ellipsis; }
@@ -72,7 +72,7 @@
 /* Панель под строкой: правка величины из меню либо формула строки. */
 .estimate-line-panel { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; padding:9px 12px 11px 50px; background:#f7faf8; border-top:1px solid #eef2f0; font-size:11px; color:#4a5a51; }
 .estimate-line-panel code { font-family:inherit; }
-.estimate-line-field { display:grid; gap:4px; color:#5f7168; font-size:10px; font-weight:700; }
+.estimate-line-field { display:grid; gap:4px; color:#5f7168; font-size:10px; font-weight:var(--font-weight-strong); }
 .estimate-line-field input { width:120px; padding:6px 8px; border:1px solid #cfd9d4; border-radius:7px; background:#fff; font-size:12px; }
 .estimate-line-field input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
 /* Поле без права правки: видно, но не принимает ввод — как соседние комбобоксы. */
@@ -98,12 +98,12 @@
 .estimate-col-number { color:var(--ec-muted, #78857f); }
 .estimate-col-basis { display:flex; align-items:center; min-width:0; }
 .estimate-col-name { display:flex; flex-direction:column; justify-content:center; gap:1px; min-width:0; overflow:hidden; }
-.estimate-col-amount { font-weight:700; }
-.estimate-section-head .estimate-col-amount, .estimate-section-head .estimate-col-perm3, .estimate-section-head .estimate-col-share { font-weight:700; }
+.estimate-col-amount { font-weight:var(--font-weight-strong); }
+.estimate-section-head .estimate-col-amount, .estimate-section-head .estimate-col-perm3, .estimate-section-head .estimate-col-share { font-weight:var(--font-weight-strong); }
 .estimate-col-actions { display:flex; align-items:center; justify-content:flex-end; gap:4px; }
 
 /* Бейдж происхождения величины: паспорт/расчёт/справочник/норматив/ручной. */
-.origin-badge { display:inline-flex; align-items:center; max-width:100%; overflow:hidden; text-overflow:ellipsis; padding:2px 6px; border-radius:6px; font-size:10px; font-weight:700; white-space:nowrap; }
+.origin-badge { display:inline-flex; align-items:center; max-width:100%; overflow:hidden; text-overflow:ellipsis; padding:2px 6px; border-radius:6px; font-size:10px; font-weight:var(--font-weight-strong); white-space:nowrap; }
 .origin-passport { background:#e8f1fb; color:#1f4e8c; }
 .origin-calc { background:#eef3f1; color:#31483d; }
 .origin-reference { background:#eaf6ef; color:#1f6a4a; }
@@ -174,7 +174,7 @@
 .economics-sidebar-head b { font-size:13px; }
 
 .donut-unit-switch { display:inline-flex; flex:none; border:1px solid #cfd9d4; border-radius:9px; overflow:hidden; }
-.donut-unit-switch button { padding:5px 10px; border:0; background:#fff; color:#5f7168; font-size:11px; font-weight:700; cursor:pointer; }
+.donut-unit-switch button { padding:5px 10px; border:0; background:#fff; color:#5f7168; font-size:11px; font-weight:var(--font-weight-strong); cursor:pointer; }
 .donut-unit-switch button + button { border-left:1px solid #cfd9d4; }
 .donut-unit-switch button.is-active { background:#2d7556; color:#fff; }
 
@@ -183,7 +183,7 @@
 .donut-segment:focus-visible { outline:2px solid #2d7556; outline-offset:2px; }
 .donut-segment.is-selected { stroke:#17231d; stroke-width:3; }
 .donut-segment.is-dimmed { opacity:.55; }
-.donut-center-value { font-size:19px; font-weight:700; fill:#17231d; }
+.donut-center-value { font-size:19px; font-weight:var(--font-weight-strong); fill:#17231d; }
 .donut-center-unit { font-size:9px; fill:#78857f; }
 .donut-center-caption { font-size:9px; fill:#78857f; text-transform:uppercase; letter-spacing:.02em; }
 
@@ -197,7 +197,7 @@
 .donut-legend-color { width:10px; height:10px; border-radius:3px; }
 .donut-legend-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#3b4b43; }
 .donut-legend-percent { color:#78857f; font-variant-numeric:tabular-nums; }
-.donut-legend-value { font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+.donut-legend-value { font-weight:var(--font-weight-strong); text-align:right; font-variant-numeric:tabular-nums; }
 
 /* --- Лестница формирования цены --- */
 .price-formation-ladder { padding:12px 15px 15px; display:grid; gap:2px; }
@@ -206,7 +206,7 @@
 .price-formation-row b { text-align:right; font-size:12px; }
 .price-formation-row em { font-style:normal; color:#78857f; font-size:11px; }
 .price-formation-row.strong { background:#eaf6ef; border:1px solid #b9dcc6; }
-.price-formation-row.strong span { color:#1f6a4a; font-weight:700; }
+.price-formation-row.strong span { color:#1f6a4a; font-weight:var(--font-weight-strong); }
 .price-formation-row.strong b { font-size:15px; color:#1f6a4a; }
 
 /* Плашки ключевых показателей — карточкой с заголовком, как соседние. */
@@ -233,12 +233,12 @@
 .economics-header-context { margin:0; color:#6e7c75; font-size:12px; }
 .economics-header-error { grid-column:1 / -1; margin:0; border-radius:9px; padding:9px 12px; background:#fce9e7; color:#9e3025; font-size:12px; }
 .economics-header-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:9px; }
-.economics-header-scenario-label { color:var(--ec-muted, #78857f); font-size:11px; font-weight:700; }
-.economics-header-actions select { padding:9px 11px; border:1px solid #cfd9d4; border-radius:9px; background:#fbfcfb; color:#17231d; font-size:12px; min-width:190px; }
+.economics-header-scenario-label { color:var(--ec-muted, #78857f); font-size:11px; font-weight:var(--font-weight-strong); }
+.economics-header-actions select { height:var(--control-h); padding:0 8px; border:1px solid #cfd9d4; border-radius:var(--radius-control); background:#fbfcfb; color:#17231d; font-size:var(--fs-base); min-width:190px; }
 .economics-header-save { display:flex; align-items:center; gap:8px; }
-.economics-header-save input { padding:9px 10px; border:1px solid #2d7556; border-radius:9px; font-size:12px; width:180px; }
+.economics-header-save input { height:var(--control-h); padding:0 8px; border:1px solid #2d7556; border-radius:var(--radius-control); font-size:var(--fs-base); width:180px; }
 /* Кнопка «⋮» в шапке — та же `RowMenu`, что и в строках сметы. */
-.economics-header-actions .row-menu-trigger { width:32px; height:32px; border:1px solid #ced9d3; border-radius:9px; font-size:15px; }
+.economics-header-actions .row-menu-trigger { width:var(--control-h); height:var(--control-h); border:1px solid #ced9d3; border-radius:var(--radius-control); font-size:15px; }
 
 /* --- Карточка показателей блока: объём, погонаж, скважины, расход ВВ и
    дата паспорта — одной строкой через разделители; полная таблица величин
@@ -249,8 +249,8 @@
 .passport-card-metric:first-child { padding-left:0; border-left:0; }
 .passport-card-metric span { color:var(--ec-muted, #78857f); font-size:11px; }
 .passport-card-metric b { font-size:18px; letter-spacing:-.2px; font-variant-numeric:tabular-nums; }
-.passport-card-metric b small { color:var(--ec-muted, #78857f); font-size:11px; font-weight:500; }
-.passport-card-date b { font-size:13px; font-weight:600; }
+.passport-card-metric b small { color:var(--ec-muted, #78857f); font-size:11px; font-weight:var(--font-weight-strong); }
+.passport-card-date b { font-size:13px; font-weight:var(--font-weight-strong); }
 .passport-card-details-toggle { margin-left:auto; width:34px; height:34px; display:grid; place-items:center; border:1px solid #dde5e1; border-radius:9px; background:#fff; color:#5f7168; font-size:14px; }
 .passport-card-details-toggle:hover { border-color:#2d7556; color:#2d7556; }
 .passport-card-details-toggle[aria-expanded="true"] { border-color:#2d7556; background:#eaf3ee; color:#1f6a4a; }
@@ -279,7 +279,7 @@
 .history-list { display:grid; gap:7px; }
 .history-row { display:grid; grid-template-columns:minmax(0,1fr) 110px auto auto; gap:9px; align-items:center; padding:8px 10px; border:1px solid #dde5e1; border-radius:10px; background:#fff; font-size:12px; }
 .history-row small { display:block; color:#78857f; font-size:10px; }
-.history-row em { text-align:right; font-style:normal; font-weight:700; }
+.history-row em { text-align:right; font-style:normal; font-weight:var(--font-weight-strong); }
 
 /* --- Вкладка «Ресурсы»: натуральные величины, узкие места мощности и
    маржинальная себестоимость с коридором для торга (тот же вид, что был у
@@ -308,10 +308,10 @@
 .estimate-card { margin:10px 12px; padding:14px; border:1px solid #dde5e1; border-radius:12px; background:#fbfcfb; }
 .drilling-card { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.1fr) 210px; gap:18px; align-items:start; }
 .drilling-card-col { display:grid; gap:10px; align-content:start; min-width:0; }
-.drilling-card-field { display:grid; gap:5px; color:#5f7168; font-size:10px; font-weight:700; }
+.drilling-card-field { display:grid; gap:5px; color:#5f7168; font-size:10px; font-weight:var(--font-weight-strong); }
 .drilling-card-facts { gap:12px; }
 .drilling-card-fact { display:grid; gap:4px; min-width:0; }
-.drilling-card-fact-label { color:#78857f; font-size:10px; font-weight:700; }
+.drilling-card-fact-label { color:#78857f; font-size:10px; font-weight:var(--font-weight-strong); }
 .drilling-card-fact-value { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; font-variant-numeric:tabular-nums; }
 .drilling-card-fact-value input { width:110px; padding:6px 8px; border:1px solid #cfd9d4; border-radius:7px; background:#fff; font-size:12px; }
 .drilling-card-fact-value input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
@@ -322,7 +322,7 @@
 .drilling-card-footer { grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding-top:12px; border-top:1px solid #e6ece9; }
 
 .drilling-executor { margin:0; padding:0; border:0; display:grid; gap:6px; }
-.drilling-executor legend { padding:0; margin-bottom:2px; color:#5f7168; font-size:10px; font-weight:700; }
+.drilling-executor legend { padding:0; margin-bottom:2px; color:#5f7168; font-size:10px; font-weight:var(--font-weight-strong); }
 .drilling-executor label { display:flex; align-items:center; gap:7px; font-size:12px; }
 .drilling-executor input { accent-color:#2d7556; }
 
@@ -330,7 +330,7 @@
 .drilling-rate-save { display:grid; gap:6px; }
 .drilling-rate-save-form { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .drilling-rate-save-form input { padding:7px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fff; font-size:12px; }
-.drilling-rate-save-form button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:700; }
+.drilling-rate-save-form button { padding:7px 11px; border:1px solid #cfd9d4; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:var(--font-weight-strong); }
 .drilling-rate-save-form button:disabled { opacity:.6; cursor:not-allowed; }
 .drilling-rate-status { margin:0; color:#1f6a4a; font-size:11px; }
 .drilling-rate-error { margin:0; color:#9e3025; font-size:11px; }
@@ -341,7 +341,7 @@
 .drilling-drawer-close:hover { border-color:#2d7556; color:#2d7556; }
 
 /* Ссылка-кнопка: действие, которое читается как ссылка. */
-.link-button { padding:0; border:0; background:transparent; color:#1f6a4a; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
+.link-button { padding:0; border:0; background:transparent; color:#1f6a4a; font-size:12px; font-weight:var(--font-weight-strong); text-align:left; cursor:pointer; }
 .link-button:hover { text-decoration:underline; }
 .link-button:disabled { color:#9aa8a1; cursor:not-allowed; text-decoration:none; }
 .link-button:focus-visible { outline:none; border-radius:5px; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
@@ -362,9 +362,9 @@
 
 /* Вкладки: активная подчёркнута зелёным, без заливки. */
 .economics-tabs { display:flex; flex-wrap:wrap; gap:2px; padding:0 18px; margin-bottom:0; border-bottom:1px solid #e6ece9; }
-.economics-tabs button { padding:14px 12px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:#6e7c75; font-size:13px; font-weight:600; }
+.economics-tabs button { padding:14px 12px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:#6e7c75; font-size:13px; font-weight:var(--font-weight-strong); }
 .economics-tabs button:hover { color:#17231d; }
-.economics-tabs button.active { background:transparent; border-bottom-color:#2d7556; color:var(--ec-accent, #1f6a4a); font-weight:700; }
+.economics-tabs button.active { background:transparent; border-bottom-color:#2d7556; color:var(--ec-accent, #1f6a4a); font-weight:var(--font-weight-strong); }
 .economics-tabs button:focus-visible { outline:none; border-radius:8px 8px 0 0; box-shadow:0 0 0 3px rgba(45,117,86,.25); }
 
 /* Смета шире окна только на узких экранах: там же гаснет липкая шапка —
@@ -382,10 +382,10 @@
 /* Селекторы объекта и паспорта в шапке приложения. */
 .topbar-selectors { display:flex; align-items:center; gap:10px; min-width:0; }
 .topbar-selector { display:grid; gap:1px; min-width:0; max-width:290px; padding:5px 11px; border:1px solid #dce4e0; border-radius:9px; background:#fff; }
-.topbar-selector > span { color:#78857f; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; white-space:nowrap; }
+.topbar-selector > span { color:#78857f; font-size:9px; font-weight:var(--font-weight-strong); text-transform:uppercase; letter-spacing:.02em; white-space:nowrap; }
 .topbar-selector > b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
 .topbar-selector.is-select { padding:5px 6px 5px 11px; }
-.topbar-selector select { max-width:260px; border:0; background:transparent; color:#17231d; font-size:12px; font-weight:700; }
+.topbar-selector select { max-width:260px; border:0; background:transparent; color:#17231d; font-size:12px; font-weight:var(--font-weight-strong); }
 .topbar-selector select:focus { outline:none; }
 @media (max-width:1050px) {
   .topbar-selectors { flex-wrap:wrap; gap:6px; }
@@ -395,7 +395,7 @@
 /* Плановый объём юнита — в разделе постоянных расходов: на него модель делит
    постоянные затраты юнита, без него они на блок не распределяются. */
 .unit-plan-card { display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; }
-.unit-plan-field { display:grid; gap:5px; color:#5f7168; font-size:10px; font-weight:700; }
+.unit-plan-field { display:grid; gap:5px; color:#5f7168; font-size:10px; font-weight:var(--font-weight-strong); }
 .unit-plan-field input { width:160px; padding:7px 9px; border:1px solid #cfd9d4; border-radius:8px; background:#fff; font-size:12px; }
 .unit-plan-field input:focus { outline:none; border-color:#2d7556; box-shadow:0 0 0 3px rgba(45,117,86,.1); }
 .unit-plan-field b { font-size:13px; font-variant-numeric:tabular-nums; }
@@ -403,6 +403,6 @@
 
 /* Предупреждения модели над сметой: свёрнуты в одну строку, раскрываются. */
 .estimate-warnings { margin-bottom:12px; padding:10px 14px; border:1px solid #f0e2c4; border-radius:10px; background:#fdf9ef; font-size:12px; }
-.estimate-warnings > summary { cursor:pointer; color:#8a5a10; font-weight:700; list-style:none; }
+.estimate-warnings > summary { cursor:pointer; color:#8a5a10; font-weight:var(--font-weight-strong); list-style:none; }
 .estimate-warnings > summary::-webkit-details-marker { display:none; }
 .estimate-warnings ul { margin:8px 0 0; padding-left:18px; display:grid; gap:5px; color:#5f7168; }

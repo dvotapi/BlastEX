@@ -68,7 +68,7 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 /* Полный логотип развёрнутого сайдбара: знак, COMPLEX с красным «EX» и подложка. */
 .complex-logo { display:flex; align-items:center; gap:8px; min-width:0; }
 .complex-logo-text { display:grid; gap:2px; min-width:0; line-height:1.05; }
-.complex-logo-text b { color:#fff; font-size:15px; letter-spacing:1.6px; white-space:nowrap; }
+.complex-logo-text b { color:#fff; font-size:12px; letter-spacing:.8px; white-space:nowrap; }
 .complex-logo-text b em { color:#e63945; font-style:normal; }
 /* Рядом с кнопкой сворачивания на подпись остаётся ~70 px — переносим на две строки, а не обрезаем. */
 .complex-logo-text small { color:#9fb3a9; font-size:8.5px; line-height:1.15; letter-spacing:.2px; }

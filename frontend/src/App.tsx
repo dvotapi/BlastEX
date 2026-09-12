@@ -26,7 +26,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
   return (
     <main className="login-page">
       <section className="login-card">
-        <div className="login-brand"><ComplexMark size={36} /> BlastEX</div>
+        <div className="login-brand"><ComplexMark size={44} /> BlastEX</div>
         <h1>Внутренний сервис БВР</h1>
         <p>Расчёт технологических параметров и стоимости буровзрывных работ.</p>
         <form onSubmit={submit}>
@@ -46,6 +46,6 @@ export default function App() {
   const [checking, setChecking] = useState(true);
   useEffect(() => { api.me().then(setUser).catch(() => setUser(null)).finally(() => setChecking(false)); }, []);
   async function logout() { await api.logout().catch(() => undefined); setUser(null); }
-  if (checking) return <div className="loading-screen"><ComplexMark size={42} /><p>Загрузка BlastEX…</p></div>;
+  if (checking) return <div className="loading-screen"><ComplexMark size={56} /><p>Загрузка BlastEX…</p></div>;
   return user ? <AppShell user={user} onLogout={logout} /> : <Login onLogin={setUser} />;
 }

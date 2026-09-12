@@ -78,7 +78,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
       <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}${page === "Проектирование" ? " design-mode" : ""}`}>
         <aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
           <div className="brand">
-            {sidebarCollapsed ? <ComplexMark size={30} /> : <ComplexLogo />}
+            {sidebarCollapsed ? <ComplexMark size={40} /> : <ComplexLogo />}
             <button
               className="sidebar-toggle"
               type="button"

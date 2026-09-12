@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { AutosaveStatus } from "./useCalcInputsAutosave";
 import { filterObjectsByUnit, type ObjectOption, type UnitOption } from "./unitSelection";
 
@@ -100,9 +100,31 @@ export function CalcTopStrip({
  * (стили `.calc-warnings`), а не сдвигает панели листа вниз.
  */
 export function ReferenceWarnings({ warnings }: { warnings: string[] }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  // Список лежит поверх полей — закрываем его, как всплывающее окно: кликом
+  // мимо и по Esc, а не только повторным кликом по строке в заголовке.
+  useEffect(() => {
+    function onPointerDown(event: PointerEvent) {
+      const details = ref.current;
+      if (details?.open && !details.contains(event.target as Node)) details.open = false;
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      const details = ref.current;
+      if (!details?.open || event.key !== "Escape") return;
+      details.open = false;
+      details.querySelector("summary")?.focus();
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
   if (!warnings.length) return null;
   return (
-    <details className="calc-warnings">
+    <details className="calc-warnings" ref={ref}>
       <summary>Предупреждения справочников ({warnings.length})</summary>
       <ul>
         {warnings.map((warning) => (

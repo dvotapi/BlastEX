@@ -31,11 +31,25 @@ describe("useHoleGeometry", () => {
       .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
       .mockResolvedValueOnce(response("новый"));
     const { result, rerender } = renderHook(({ p }) => useHoleGeometry(p), { initialProps: { p: payload(1) } });
+    await waitFor(() => expect(api.geometry).toHaveBeenCalledTimes(1));
     rerender({ p: payload(2) });
     await waitFor(() => expect(result.current.geometry?.label).toBe("новый"));
     resolveOld(response("старый"));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(result.current.geometry?.label).toBe("новый");
+  });
+
+  it("серия быстрых правок уходит одним запросом, а пересчёт виден сразу", async () => {
+    api.geometry.mockResolvedValue(response("итог"));
+    const { result, rerender } = renderHook(({ p }) => useHoleGeometry(p), { initialProps: { p: payload(1) } });
+    expect(result.current.loading).toBe(true);
+    rerender({ p: payload(1.1) });
+    rerender({ p: payload(1.2) });
+    rerender({ p: payload(1.3) });
+    await waitFor(() => expect(result.current.geometry?.label).toBe("итог"));
+    expect(api.geometry).toHaveBeenCalledTimes(1);
+    expect(api.geometry).toHaveBeenCalledWith(payload(1.3));
+    expect(result.current.loading).toBe(false);
   });
 
   it("без запроса схемы нет", async () => {

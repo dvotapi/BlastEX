@@ -44,6 +44,7 @@ function variant(key: "left" | "right", overrides: Partial<ComparisonVariant> = 
     onInputsChange: vi.fn(),
     geometry: geometry(key === "left" ? "136" : "179"),
     error: "",
+    loading: false,
     ...overrides,
   };
 }
@@ -102,8 +103,15 @@ describe("ChargeComparison", () => {
     expect(right.onInputsChange).toHaveBeenLastCalledWith(expect.objectContaining({ explosive_key: EXPLOSIVES[0].key }));
   });
 
-  it("ошибку схемы варианта показывает рядом со сравнением", () => {
+  it("при ошибке схемы варианта сравнения по устаревшей схеме нет, есть ошибка", () => {
     renderPanel(variant("left", { error: "Сбой расчёта" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Вариант 1: Сбой расчёта");
+    expect(screen.queryAllByRole("table")).toHaveLength(0);
+  });
+
+  it("пока схема пересчитывается, сравнение помечено как пересчёт", () => {
+    renderPanel(variant("left", { loading: true }));
+    expect(screen.getByText(/Отличаются между вариантами · пересчёт…/)).toBeInTheDocument();
+    expect(screen.getByText(/Отличаются между вариантами/).parentElement).toHaveAttribute("aria-busy", "true");
   });
 });

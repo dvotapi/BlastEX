@@ -55,7 +55,7 @@ describe("splitComparison", () => {
     expect(labels(result.diffHole)).toEqual(inApiOrder(holeRows(), DIFF_HOLE_LABELS));
     expect(labels(result.diffBlock)).toEqual(inApiOrder(blockRows(), DIFF_BLOCK_LABELS));
     expect(labels(result.diffHole)).toHaveLength(DIFF_HOLE_LABELS.length - 1);
-    expect(result.diffHole.find((row) => row.label === "Заряд, кг")).toEqual({ label: "Заряд, кг", a: "136", b: "179", flag: false });
+    expect(result.diffHole.find((row) => row.label === "Заряд, кг")).toMatchObject({ label: "Заряд, кг", a: "136", b: "179", flag: false });
     expect(result.diffHole.every((row) => !row.flag)).toBe(true);
   });
 
@@ -77,13 +77,13 @@ describe("splitComparison", () => {
       "НСИ поверхностное, шт",
       "НСИ стартовое, шт",
     ]);
-    expect(result.shared[0]).toEqual({ label: "Сетка a×b, м", value: "4.84 × 4.84" });
+    expect(result.shared[0]).toMatchObject({ label: "Сетка a×b, м", value: "4.84 × 4.84" });
   });
 
   it("«общая» строка, которая неожиданно различается, уходит в отличия с флагом", () => {
     const result = splitComparison(holeRows(), holeRows({ "Диаметр заряда, мм": "160" }), blockRows(), blockRows());
     expect(labels(result.shared)).not.toContain("Диаметр заряда, мм");
-    expect(result.diffHole).toContainEqual({ label: "Диаметр заряда, мм", a: "157", b: "160", flag: true });
+    expect(result.diffHole).toContainEqual(expect.objectContaining({ label: "Диаметр заряда, мм", a: "157", b: "160", flag: true }));
     // Своё место по порядку API: сразу после «Длина заряда, м».
     expect(labels(result.diffHole).slice(0, 3)).toEqual(["Недозаряд, м", "Длина заряда, м", "Диаметр заряда, мм"]);
   });
@@ -91,7 +91,7 @@ describe("splitComparison", () => {
   it("НСИ-2 появляется, когда он есть хотя бы у одного варианта, на своём месте", () => {
     const result = splitComparison(holeRows({}, true), holeRows(), blockRows(), blockRows());
     const nsi2 = result.diffHole.find((row) => row.label === "Длина скважинного НСИ-2, м");
-    expect(nsi2).toEqual({ label: "Длина скважинного НСИ-2, м", a: "6", b: null, flag: false });
+    expect(nsi2).toMatchObject({ label: "Длина скважинного НСИ-2, м", a: "6", b: null, flag: false });
     const order = labels(result.diffHole);
     expect(order.indexOf("Длина скважинного НСИ-2, м")).toBe(order.indexOf("Длина скважинного НСИ-1, м") + 1);
     expect(order.indexOf("Замедление, мс")).toBeGreaterThan(order.indexOf("Длина скважинного НСИ-2, м"));
@@ -105,7 +105,17 @@ describe("splitComparison", () => {
   it("строка, которой у второго варианта нет вовсе, не теряется", () => {
     const holeB = holeRows().filter(([label]) => label !== "Выход, м³");
     const result = splitComparison(holeRows(), holeB, blockRows(), blockRows());
-    expect(result.diffHole).toContainEqual({ label: "Выход, м³", a: "234.26", b: null, flag: true });
+    expect(result.diffHole).toContainEqual(expect.objectContaining({ label: "Выход, м³", a: "234.26", b: null, flag: true }));
+  });
+
+  it("повторяющаяся подпись в ответе не схлопывается: каждая строка сохраняет своё значение", () => {
+    const withSeparator = (rows: Row[]): Row[] => [...rows.slice(0, 2), ["", ""], ...rows.slice(2), ["", ""]];
+    const result = splitComparison(holeRows(), holeRows(), withSeparator(blockRows()), withSeparator(blockRows({ "Скважин, шт.": "95" })));
+    const blanks = result.shared.filter((row) => row.label === "");
+    expect(blanks).toHaveLength(2);
+    expect(new Set([...result.diffHole, ...result.diffBlock, ...result.shared].map((row) => row.key)).size).toBe(
+      result.diffHole.length + result.diffBlock.length + result.shared.length,
+    );
   });
 
   it("ни одна строка ответа не теряется и значения не меняются", () => {

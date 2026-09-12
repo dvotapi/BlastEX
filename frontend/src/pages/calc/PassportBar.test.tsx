@@ -117,7 +117,7 @@ describe("PassportBar", () => {
   it("список сохранённых паспортов показывает название и массу ВВ", async () => {
     setup();
     // `toLocaleString("ru-RU")` разделяет тысячи узким неразрывным пробелом.
-    expect((await findPassport("Блок 4")).textContent?.replace(/\s/g, " ")).toBe("Блок 4 · 20 727 кг ВВ");
+    expect((await findPassport("Блок 4")).textContent?.replace(/\s/g, " ")).toBe("Блок 4 · 20 727 кг ВВ · 05.09.2026 · вер. 1");
     expect(screen.getByText("1 по объекту")).toBeTruthy();
   });
 
@@ -138,6 +138,20 @@ describe("PassportBar", () => {
     expect(api.economics.deleteTechnicalPassport).toHaveBeenCalledWith("P-2");
     expect(queryPassport("Блок 4")).not.toBeNull();
     confirm.mockRestore();
+  });
+
+  it("пока схема пересчитывается, сохранить прошлый блок нельзя", async () => {
+    render(
+      <PassportBar
+        variants={[{ key: "left", label: "Вариант 1", geometry: GEOMETRY, pending: true }]}
+        objectName={DRESVA}
+        onOpenEconomics={vi.fn()}
+      />,
+    );
+    await findPassport("Блок 4");
+    expect(screen.getByRole("button", { name: "Сохранить паспорт" })).toBeDisabled();
+    expect(screen.getByText("Схема заряда пересчитывается…")).toBeTruthy();
+    expect(screen.queryByText(/В паспорт пойдёт/)).toBeNull();
   });
 
   it("без сохранённых паспортов действия над ними выключены", async () => {

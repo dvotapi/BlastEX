@@ -16,7 +16,8 @@ import type { TechnicalPassport } from "../../types/blockEconomics";
  * «Экономика» и «Удалить» действуют на выбранный в нём: панель должна
  * уместиться в верхний ряд листа рядом с исходными данными и вариантами.
  */
-export type PassportVariant = { key: string; label: string; geometry: BlastGeometryResponse | null };
+/** `pending` — схема варианта пересчитывается: `geometry` ещё от прошлых значений полей. */
+export type PassportVariant = { key: string; label: string; geometry: BlastGeometryResponse | null; pending?: boolean };
 
 export function PassportBar({
   variants,
@@ -48,6 +49,9 @@ export function PassportBar({
   const [error, setError] = useState("");
   const variant = variants.find((item) => item.key === variantKey) ?? variants[0];
   const geometry = variant?.geometry ?? null;
+  // Пока схема пересчитывается, на экране блок прошлых значений полей —
+  // сохранить его в паспорт значило бы отправить в экономику не то, что видно.
+  const pending = Boolean(variant?.pending);
   const selected = passports.find((item) => item.id === selectedId) ?? passports[0] ?? null;
   // Объект работ из шапки — в справочнике он же «карьер/объект» с кодом.
   // Пока справочник не загружен, кода нет: сохранять и грузить список нечего.
@@ -191,12 +195,13 @@ export function PassportBar({
             type="button"
             className="secondary-button"
             onClick={() => void savePassport()}
-            disabled={busy || !geometry || !siteCode}
+            disabled={busy || pending || !geometry || !siteCode}
           >
             Сохранить паспорт
           </button>
         </div>
-        {geometry && variant && (
+        {pending && <p className="passport-hint">Схема заряда пересчитывается…</p>}
+        {!pending && geometry && variant && (
           // В паспорт уходит блок выбранного варианта с его зарядом и недозарядом —
           // показываем это до сохранения, чтобы масса не была сюрпризом. Что делает
           // кнопка «Экономика» — в справке листа (`CalcHelp`).
@@ -219,7 +224,9 @@ export function PassportBar({
               {passports.map((passport) => (
                 <option key={passport.id} value={passport.id}>
                   {passport.object_name} ·{" "}
-                  {Math.round(Number(passport.physical.explosive_kg ?? 0)).toLocaleString("ru-RU")} кг ВВ
+                  {Math.round(Number(passport.physical.explosive_kg ?? 0)).toLocaleString("ru-RU")} кг ВВ ·{" "}
+                  {/* Дата и версия различают паспорта одного блока с одинаковым названием. */}
+                  {new Date(passport.created_at).toLocaleDateString("ru-RU")} · вер. {passport.version_no}
                 </option>
               ))}
             </select>

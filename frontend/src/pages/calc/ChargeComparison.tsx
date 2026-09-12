@@ -1,10 +1,10 @@
 import { useMemo } from "react";
-import { darken } from "../../components/holeDrawing/palette";
 import type { BlastGeometryResponse } from "../../types";
 import type { PanelInputs } from "./calcInputs";
 import { splitComparison, type DiffRow } from "./comparisonLayout";
 import { HoleSchemeView } from "./HoleSchemeView";
 import { HoleVariantCard } from "./HoleVariantCard";
+import { VariantMarker } from "./VariantMarker";
 
 export type ComparisonVariant = {
   key: "left" | "right";
@@ -16,11 +16,9 @@ export type ComparisonVariant = {
   onInputsChange: (inputs: PanelInputs) => void;
   geometry: BlastGeometryResponse | null;
   error: string;
+  /** Схема пересчитывается: на экране ещё ответ по прошлым значениям полей. */
+  loading: boolean;
 };
-
-function Marker({ color }: { color: string }) {
-  return <span className="variant-marker" style={{ background: color, borderColor: darken(color, 0.35) }} aria-hidden="true" />;
-}
 
 function DiffTable({ title, rows, variants }: { title: string; rows: DiffRow[]; variants: [ComparisonVariant, ComparisonVariant] }) {
   return (
@@ -30,7 +28,7 @@ function DiffTable({ title, rows, variants }: { title: string; rows: DiffRow[]; 
           <th scope="col">{title}</th>
           {variants.map((variant) => (
             <th key={variant.key} scope="col" className="num">
-              <Marker color={variant.color} />
+              <VariantMarker color={variant.color} />
               {variant.shortLabel}
             </th>
           ))}
@@ -38,7 +36,7 @@ function DiffTable({ title, rows, variants }: { title: string; rows: DiffRow[]; 
       </thead>
       <tbody>
         {rows.map((row) => (
-          <tr key={row.label} className={row.flag ? "flagged" : undefined} title={row.flag ? "Обычно одинаково у обоих вариантов, но здесь различается" : undefined}>
+          <tr key={row.key} className={row.flag ? "flagged" : undefined} title={row.flag ? "Обычно одинаково у обоих вариантов, но здесь различается" : undefined}>
             <th scope="row" title={row.label}>{row.label}</th>
             <td className="num">{row.a ?? "—"}</td>
             <td className="num">{row.b ?? "—"}</td>
@@ -83,13 +81,18 @@ export function ChargeComparison({
   onAdditionalHolesChange: (value: number) => void;
 }) {
   const [first, second] = variants;
+  // Сравнение — только когда обе схемы посчитаны по текущим полям: схема
+  // варианта с ошибкой осталась от прошлых значений, и разница вышла бы между
+  // разными сетками.
+  const failed = Boolean(first.error || second.error);
   const comparison = useMemo(
     () =>
-      first.geometry && second.geometry
+      first.geometry && second.geometry && !failed
         ? splitComparison(first.geometry.hole_rows, second.geometry.hole_rows, first.geometry.block_rows, second.geometry.block_rows)
         : null,
-    [first.geometry, second.geometry],
+    [first.geometry, second.geometry, failed],
   );
+  const pending = first.loading || second.loading;
   const totalHoles = first.geometry?.block.total_holes ?? second.geometry?.block.total_holes;
   const errors = variants.filter((variant) => variant.error);
 
@@ -159,8 +162,8 @@ export function ChargeComparison({
             ),
           )}
         </div>
-        <div className="diff-block">
-          <p className="block-caption">Отличаются между вариантами</p>
+        <div className={`diff-block${pending ? " is-pending" : ""}`} aria-busy={pending}>
+          <p className="block-caption">Отличаются между вариантами{pending ? " · пересчёт…" : ""}</p>
           {errors.map((variant) => (
             <div key={variant.key} className="page-error" role="alert">{variant.label}: {variant.error}</div>
           ))}
@@ -170,15 +173,15 @@ export function ChargeComparison({
               <DiffTable title="Блок" rows={comparison.diffBlock} variants={variants} />
             </div>
           ) : (
-            <p className="page-caption">Считаем схемы заряда…</p>
+            !failed && <p className="page-caption">Считаем схемы заряда…</p>
           )}
         </div>
-        <div className="shared-block">
+        <div className={`shared-block${pending ? " is-pending" : ""}`}>
           <p className="block-caption">Общее для обоих</p>
           {comparison && (
             <dl className="shared-list">
               {comparison.shared.map((row) => (
-                <div key={row.label}>
+                <div key={row.key}>
                   <dt>{row.label}</dt>
                   <dd>{row.value}</dd>
                 </div>

@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
-import { darken } from "../../components/holeDrawing/palette";
 import { maxUnderchargeM, type PanelInputs } from "./calcInputs";
+import { VariantMarker } from "./VariantMarker";
 
 /**
  * Параметры одного варианта заряда: тип ВВ, недозаряд, замедление,
@@ -58,7 +58,7 @@ export function HoleVariantCard({
   return (
     <div className="vcard" aria-labelledby={`${id}-title`} role="group">
       <div className="vcard-head" id={`${id}-title`}>
-        <span className="variant-marker" style={{ background: color, borderColor: darken(color, 0.35) }} aria-hidden="true" />
+        <VariantMarker color={color} />
         {variantLabel}
       </div>
       <div className="vcard-grid">

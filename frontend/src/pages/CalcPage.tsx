@@ -538,8 +538,8 @@ function FullBvrCalc({
 
         <PassportBar
           variants={[
-            { key: "left", label: "Вариант 1", geometry: leftGeometry.geometry },
-            { key: "right", label: "Вариант 2", geometry: rightGeometry.geometry },
+            { key: "left", label: "Вариант 1", geometry: leftGeometry.geometry, pending: leftGeometry.loading },
+            { key: "right", label: "Вариант 2", geometry: rightGeometry.geometry, pending: rightGeometry.loading },
           ]}
           objectName={objectName}
           onOpenEconomics={onOpenEconomics}
@@ -559,6 +559,7 @@ function FullBvrCalc({
               onInputsChange: handleLeftInputs,
               geometry: leftGeometry.geometry,
               error: leftGeometry.error,
+              loading: leftGeometry.loading,
             },
             {
               key: "right",
@@ -569,6 +570,7 @@ function FullBvrCalc({
               onInputsChange: handleRightInputs,
               geometry: rightGeometry.geometry,
               error: rightGeometry.error,
+              loading: rightGeometry.loading,
             },
           ]}
           crownMm={selected.crown_mm}

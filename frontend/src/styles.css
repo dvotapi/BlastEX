@@ -276,6 +276,16 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .calc-errors .page-error { margin:0; }
 .calc-top-row { display:grid; grid-template-columns:460px minmax(0,1fr) 380px; gap:8px; align-items:stretch; }
 .calc-top-row > .panel { display:flex; flex-direction:column; min-width:0; }
+/* Страховка одного экрана: лист не выше окна. Если что-то всё же не влезло
+   (длинная ошибка, другой шрифт), прокручивается тело нижней панели, а не
+   страница. Панель только сжимается — на высоком окне пустоты в ней нет. */
+@media (min-width:1400px) and (min-height:700px) {
+  .calc-sheet { display:flex; flex-direction:column; height:calc(100vh - 45px); }
+  .calc-sheet > .calc-top-row, .calc-sheet > .calc-errors { flex:none; }
+  .calc-sheet > .charge-comparison { display:flex; flex:0 1 auto; flex-direction:column; min-height:0; }
+  .charge-comparison > header { flex:none; }
+  .charge-comparison-body { min-height:0; overflow:auto; }
+}
 
 /* Исходные данные: две колонки полей и во всю ширину — слайдеры. */
 .input-panel { overflow:visible; }
@@ -364,7 +374,9 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .hole-scheme.compact .hole-scheme-caption b { font-size:10px; }
 .hole-scheme.compact .hole-scheme-caption small { font-size:8px; }
 .scheme-pending { height:236px; place-items:center; border:1px dashed #d9e2dd; border-radius:9px; color:#87948d; font-size:10px; }
-.diff-block, .shared-block { min-width:0; }
+.diff-block, .shared-block { min-width:0; transition:opacity .15s ease; }
+/* Схемы пересчитываются: значения ещё от прошлых полей — приглушаем их. */
+.diff-block.is-pending .diff-tables, .shared-block.is-pending .shared-list { opacity:.55; }
 .diff-block .page-error { margin:0 0 6px; font-size:10.5px; }
 .diff-block .page-caption { margin:0; }
 .diff-tables { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 10px; align-items:start; }

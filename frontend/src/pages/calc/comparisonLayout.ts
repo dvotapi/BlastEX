@@ -37,49 +37,67 @@ export const DIFF_BLOCK_LABELS = [
 ] as const;
 
 /** Строка сравнения. `null` — строки нет в ответе этого варианта.
- * `flag` — строка вне фиксированного состава, но значения различаются. */
-export type DiffRow = { label: string; a: string | null; b: string | null; flag: boolean };
-export type SharedRow = { label: string; value: string };
+ * `flag` — строка вне фиксированного состава, но значения различаются.
+ * `key` — уникален в пределах сравнения, даже если подпись в ответе повторяется. */
+export type DiffRow = { key: string; label: string; a: string | null; b: string | null; flag: boolean };
+export type SharedRow = { key: string; label: string; value: string };
 export type Comparison = { diffHole: DiffRow[]; diffBlock: DiffRow[]; shared: SharedRow[] };
 
+type Keyed = { key: string; label: string; value: string };
+
+/** Ключ строки — подпись и номер её повторения в ответе: подписи в ответе
+ * бэкенда не обязаны быть уникальными (например, пустой разделитель). */
+function keyed(section: string, rows: Row[]): Keyed[] {
+  const seen = new Map<string, number>();
+  return rows.map(([label, value]) => {
+    const occurrence = seen.get(label) ?? 0;
+    seen.set(label, occurrence + 1);
+    return { key: `${section}:${label}#${occurrence}`, label, value };
+  });
+}
+
 /**
- * Подписи обоих вариантов в порядке ответа: сначала первого, затем
- * недостающие второго — каждая перед той подписью первого, за которой она
- * идёт у второго варианта. Так строка, которая есть только у одного варианта
- * (НСИ-2), встаёт на своё место, а не в конец.
+ * Ключи обоих вариантов в порядке ответа: сначала первого, затем недостающие
+ * второго — каждый перед тем ключом первого, за которым он идёт у второго
+ * варианта. Так строка, которая есть только у одного варианта (НСИ-2), встаёт
+ * на своё место, а не в конец.
  */
-function unionLabels(a: Row[], b: Row[]): string[] {
-  const order = a.map(([label]) => label);
+function unionKeys(a: Keyed[], b: Keyed[]): string[] {
+  const order = a.map((row) => row.key);
   const known = new Set(order);
-  b.forEach(([label], index) => {
-    if (known.has(label)) return;
-    // Ближайшая следующая подпись второго варианта, которая есть в списке.
-    const next = b.slice(index + 1).find(([candidate]) => known.has(candidate));
-    const at = next ? order.indexOf(next[0]) : order.length;
-    order.splice(at, 0, label);
-    known.add(label);
+  b.forEach((row, index) => {
+    if (known.has(row.key)) return;
+    const next = b.slice(index + 1).find((candidate) => known.has(candidate.key));
+    const at = next ? order.indexOf(next.key) : order.length;
+    order.splice(at, 0, row.key);
+    known.add(row.key);
   });
   return order;
 }
 
-function splitSection(a: Row[], b: Row[], diffLabels: readonly string[]): { diff: DiffRow[]; shared: SharedRow[] } {
-  const valuesA = new Map(a);
-  const valuesB = new Map(b);
+function splitSection(section: string, rowsA: Row[], rowsB: Row[], diffLabels: readonly string[]): { diff: DiffRow[]; shared: SharedRow[] } {
+  const a = keyed(section, rowsA);
+  const b = keyed(section, rowsB);
+  const byKeyA = new Map(a.map((row) => [row.key, row]));
+  const byKeyB = new Map(b.map((row) => [row.key, row]));
   const fixed = new Set(diffLabels);
   const diff: DiffRow[] = [];
   const shared: SharedRow[] = [];
-  for (const label of unionLabels(a, b)) {
-    const va = valuesA.get(label) ?? null;
-    const vb = valuesB.get(label) ?? null;
-    if (fixed.has(label)) diff.push({ label, a: va, b: vb, flag: false });
-    else if (va !== null && va === vb) shared.push({ label, value: va });
-    else diff.push({ label, a: va, b: vb, flag: true });
+  for (const key of unionKeys(a, b)) {
+    const rowA = byKeyA.get(key);
+    const rowB = byKeyB.get(key);
+    const label = (rowA ?? rowB)!.label;
+    const va = rowA?.value ?? null;
+    const vb = rowB?.value ?? null;
+    if (fixed.has(label)) diff.push({ key, label, a: va, b: vb, flag: false });
+    else if (va !== null && va === vb) shared.push({ key, label, value: va });
+    else diff.push({ key, label, a: va, b: vb, flag: true });
   }
   return { diff, shared };
 }
 
 export function splitComparison(holeA: Row[], holeB: Row[], blockA: Row[], blockB: Row[]): Comparison {
-  const hole = splitSection(holeA, holeB, DIFF_HOLE_LABELS);
-  const block = splitSection(blockA, blockB, DIFF_BLOCK_LABELS);
+  const hole = splitSection("hole", holeA, holeB, DIFF_HOLE_LABELS);
+  const block = splitSection("block", blockA, blockB, DIFF_BLOCK_LABELS);
   return { diffHole: hole.diff, diffBlock: block.diff, shared: [...hole.shared, ...block.shared] };
 }

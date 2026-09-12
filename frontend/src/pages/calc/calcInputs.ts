@@ -31,6 +31,9 @@ export type CalcInputs = {
   selected_crown_mm: number | null;
   block_volume_m3: number;
   additional_holes_pct: number;
+  /** Юнит, выбранный в шапке (фильтр объектов); `""` — все юниты. Поле
+   * появилось позже версии 1 и в старых настройках отсутствует. */
+  production_unit_code: string;
   panels: { left: PanelInputs; right: PanelInputs };
 };
 
@@ -48,6 +51,7 @@ export type SheetState = {
   selectedCrownMm: number | null;
   blockVolumeM3: number;
   additionalHolesPct: number;
+  productionUnitCode: string;
   panels: { left: PanelInputs; right: PanelInputs };
 };
 
@@ -124,6 +128,7 @@ export function defaultCalcSheet(
     selectedCrownMm: null,
     blockVolumeM3: BOUNDS.blockVolumeM3.fallback,
     additionalHolesPct: BOUNDS.additionalHolesPct.fallback,
+    productionUnitCode: "",
     panels: {
       left: defaultPanelInputs(DEFAULT_EXPLOSIVE_1, Math.min(DEFAULT_UNDERCHARGE_1_M, limit)),
       right: defaultPanelInputs(DEFAULT_EXPLOSIVE_2, Math.min(DEFAULT_UNDERCHARGE_2_M, limit)),
@@ -146,6 +151,7 @@ export function collectCalcInputs(sheet: SheetState): CalcInputs {
     selected_crown_mm: sheet.selectedCrownMm,
     block_volume_m3: sheet.blockVolumeM3,
     additional_holes_pct: sheet.additionalHolesPct,
+    production_unit_code: sheet.productionUnitCode,
     panels: { left: { ...sheet.panels.left }, right: { ...sheet.panels.right } },
   };
 }
@@ -244,6 +250,9 @@ export function applyCalcInputs(raw: unknown, catalogs: CalcInputsCatalogs): She
     selectedCrownMm,
     blockVolumeM3: clamped(raw.block_volume_m3, BOUNDS.blockVolumeM3),
     additionalHolesPct: clamped(raw.additional_holes_pct, BOUNDS.additionalHolesPct),
+    // Проверка кода по справочнику юнитов — на листе (`knownUnitCode`): юниты
+    // приходят отдельным запросом и к моменту загрузки настроек могут не успеть.
+    productionUnitCode: typeof raw.production_unit_code === "string" ? raw.production_unit_code : "",
     panels: {
       left: applyPanelInputs(raw.panels.left, catalogs, defaults.panels.left, underchargeLimit),
       right: applyPanelInputs(raw.panels.right, catalogs, defaults.panels.right, underchargeLimit),

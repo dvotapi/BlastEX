@@ -11,20 +11,26 @@ import { createContext, useContext, type ReactNode } from "react";
  */
 const TopbarSlotContext = createContext<HTMLDivElement | null>(null);
 const TopbarTitleSlotContext = createContext<HTMLDivElement | null>(null);
+const TopbarTrailingSlotContext = createContext<HTMLDivElement | null>(null);
 
 export function TopbarSlotProvider({
   slot,
   titleSlot,
+  trailingSlot,
   children,
 }: {
   slot: HTMLDivElement | null;
   /** Узел рядом с заголовком страницы — см. `useTopbarTitleSlot`. */
   titleSlot: HTMLDivElement | null;
+  /** Узел после кнопки «Выйти» — см. `useTopbarTrailingSlot`. */
+  trailingSlot: HTMLDivElement | null;
   children: ReactNode;
 }) {
   return (
     <TopbarSlotContext.Provider value={slot}>
-      <TopbarTitleSlotContext.Provider value={titleSlot}>{children}</TopbarTitleSlotContext.Provider>
+      <TopbarTitleSlotContext.Provider value={titleSlot}>
+        <TopbarTrailingSlotContext.Provider value={trailingSlot}>{children}</TopbarTrailingSlotContext.Provider>
+      </TopbarTitleSlotContext.Provider>
     </TopbarSlotContext.Provider>
   );
 }
@@ -45,4 +51,13 @@ export function useTopbarSlot(): HTMLDivElement | null {
  */
 export function useTopbarTitleSlot(): HTMLDivElement | null {
   return useContext(TopbarTitleSlotContext);
+}
+
+/**
+ * Узел в самом правом углу шапки, после кнопки «Выйти» — для круглой кнопки
+ * справки листа «Расчёт». Общий слот (`useTopbarSlot`) стоит до «Выйти», и
+ * кнопка в нём оказалась бы посреди полосы.
+ */
+export function useTopbarTrailingSlot(): HTMLDivElement | null {
+  return useContext(TopbarTrailingSlotContext);
 }

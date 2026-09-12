@@ -3,12 +3,13 @@
  *
  * Не путать с `user.organization_name` (см. `types.ts`, `ReferencesPage.tsx`)
  * — то поле про организацию пользователя, оно per-account и приходит с
- * бэкенда; здесь — название и слоган самого BlastEX, одно на все аккаунты.
- * Вынесено отдельно от `AppShell.tsx`, чтобы смену бренда не искали в
- * компоненте маршрутизации страниц.
+ * бэкенда; здесь — название и слоган самого сервиса, одно на все аккаунты.
+ * Знак и логотип — векторные компоненты `assets/ComplexMark.tsx` и
+ * `assets/ComplexLogo.tsx`. Слоган разбит на части, потому что «EX» в нём
+ * выделяется цветом бренда.
  */
 export const BRAND = {
-  mark: "EX",
   name: "Комплексные Решения",
-  tagline: "EXcellence in mining",
+  taglineAccent: "EX",
+  taglineRest: "cellence in mining",
 } as const;

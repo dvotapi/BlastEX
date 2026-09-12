@@ -1,9 +1,6 @@
+import { useId } from "react";
 import type { AutosaveStatus } from "./useCalcInputsAutosave";
-
-/** Значение плашки: без расчёта показываем «—», иначе — с заданным числом знаков. */
-export function formatMetric(value: number | null, digits: number): string {
-  return value === null ? "—" : value.toFixed(digits);
-}
+import { filterObjectsByUnit, type ObjectOption, type UnitOption } from "./unitSelection";
 
 function autosaveStatusText(status: AutosaveStatus): string {
   switch (status) {
@@ -18,62 +15,70 @@ function autosaveStatusText(status: AutosaveStatus): string {
   }
 }
 
-export type CalcTopStripMetrics = {
-  q: number | null;
-  w: number | null;
-  x50: number | null;
-  oversize: number | null;
-};
-
 /**
- * Компактная полоса листа «Расчёт»: команда и объект работ вместо шапки
- * рабочего пространства (её на этой странице не показываем), статус
- * автосохранения и плашки с результатом выбранного варианта.
+ * Полоса листа «Расчёт» в шапке приложения: юнит, объект работ и статус
+ * автосохранения — одной строкой между заголовком и кнопкой «Выйти».
  *
- * `variant="topbar"` — полоса встроена в верхнюю панель приложения через
- * `createPortal` в узел из `topbarSlot.tsx` (см. `AppShell.tsx`,
- * `CalcPage.tsx`): без своей рамки и фона, занимает пустующее место рядом с
- * заголовком. `variant="page"` — запасной инлайн-вид на самой странице (нет
- * слота — например, до его монтирования или вне `AppShell`), со своей
- * рамкой и фоном, как до переноса в шапку.
+ * `variant="topbar"` — полоса встроена в верхнюю панель через `createPortal`
+ * в узел из `topbarSlot.tsx` (см. `AppShell.tsx`, `CalcPage.tsx`): без своей
+ * рамки и фона. `variant="page"` — запасной вид на самой странице, когда
+ * слота нет (до его монтирования или вне `AppShell`).
  *
- * Ошибка рабочего пространства и предупреждения справочников сюда не
- * входят ни в одном варианте — их рисует `CalcWorkspaceNotices` отдельно на
- * странице: по высоте им нет места в верхней панели.
+ * Юнит — фильтр списка объектов (см. `unitSelection.ts`); поле не рисуется,
+ * если в опубликованной ревизии нет ни одного действующего юнита. Показатели
+ * выбранного варианта живут в панели «Варианты сетки» (`MetricChips`), ошибка
+ * рабочего пространства и предупреждения — в `CalcWorkspaceNotices`.
  */
 export function CalcTopStrip({
   variant,
-  teamName,
   objectName,
   objects,
+  units,
+  unitCode,
+  onUnitChange,
   onObjectChange,
   autosaveStatus,
-  metrics,
   workspaceLoading,
 }: {
   variant: "topbar" | "page";
-  teamName: string;
   objectName: string;
-  objects: { id?: string; name: string }[];
+  objects: ObjectOption[];
+  units: UnitOption[];
+  /** Выбранный юнит, уже сверенный со справочником; `""` — все юниты. */
+  unitCode: string;
+  onUnitChange: (code: string) => void;
   onObjectChange: (name: string) => void;
   autosaveStatus: AutosaveStatus;
-  metrics: CalcTopStripMetrics;
   /** Рабочее пространство ещё загружается — список объектов неполон. */
   workspaceLoading: boolean;
 }) {
+  const unitId = useId();
+  const objectId = useId();
   const statusText = autosaveStatusText(autosaveStatus);
+  const visibleObjects = filterObjectsByUnit(objects, unitCode, objectName);
 
   return (
     <div className={`calc-top-strip${variant === "topbar" ? " in-topbar" : ""}`}>
-      <div className="wb-field"><label>Команда</label><b>{teamName}</b></div>
-      <div className="wb-field calc-top-strip-object">
-        <label>Объект работ</label>
+      {units.length > 0 && (
+        <div className="topbar-field topbar-field-unit">
+          <label htmlFor={unitId}>Юнит</label>
+          <select id={unitId} value={unitCode} onChange={(e) => onUnitChange(e.target.value)} disabled={workspaceLoading}>
+            <option value="">Все юниты</option>
+            {units.map((unit) => (
+              <option key={unit.code} value={unit.code}>{unit.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className="topbar-field topbar-field-object">
+        <label htmlFor={objectId}>Объект</label>
         <select
+          id={objectId}
           value={objectName}
           onChange={(e) => onObjectChange(e.target.value)}
-          disabled={workspaceLoading || !objects.length}
+          disabled={workspaceLoading || !visibleObjects.length}
         >
-          {objects.map((o) => (
+          {visibleObjects.map((o) => (
             <option key={o.id || o.name} value={o.name}>{o.name}</option>
           ))}
         </select>
@@ -82,12 +87,6 @@ export function CalcTopStrip({
       {statusText && (
         <span className="calc-autosave-status" data-status={autosaveStatus}>{statusText}</span>
       )}
-      <div className="metric-chips">
-        <div className="metric-chip"><span>Удельный расход</span><strong>{formatMetric(metrics.q, 2)}</strong><small>кг/м³</small></div>
-        <div className="metric-chip"><span>ЛНС W</span><strong>{formatMetric(metrics.w, 2)}</strong><small>м</small></div>
-        <div className="metric-chip"><span>Средний кусок x50</span><strong>{formatMetric(metrics.x50, 1)}</strong><small>мм</small></div>
-        <div className="metric-chip"><span>Негабарит</span><strong>{formatMetric(metrics.oversize, 1)}</strong><small>%</small></div>
-      </div>
     </div>
   );
 }
@@ -96,9 +95,8 @@ export function CalcTopStrip({
  * Ошибка рабочего пространства (неудачная загрузка или смена объекта) и
  * предупреждения справочников для листа «Расчёт».
  *
- * Отдельно от `CalcTopStrip`, потому что теперь полоса живёт в верхней
- * панели приложения, а этому блоку там не место по высоте — он остаётся на
- * странице под заголовком, независимо от того, куда встала полоса.
+ * Отдельно от `CalcTopStrip`: полоса живёт в верхней панели приложения, а
+ * этому блоку там не место по высоте.
  */
 export function CalcWorkspaceNotices({
   workspaceError,

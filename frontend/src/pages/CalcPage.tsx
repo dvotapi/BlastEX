@@ -19,11 +19,14 @@ import {
   type PanelInputs,
   type SheetState,
 } from "./calc/calcInputs";
+import { CalcHelp } from "./calc/CalcHelp";
 import { CalcTopStrip, CalcWorkspaceNotices } from "./calc/CalcTopStrip";
+import { MetricChips } from "./calc/MetricChips";
+import { knownUnitCode, unitForLoadedSheet } from "./calc/unitSelection";
 import { PassportBar } from "./calc/PassportBar";
 import { HolePanel } from "./calc/HolePanel";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
-import type { BlastGeometryResponse, BlastVariant, Explosive, Rock } from "../types";
+import type { BlastGeometryResponse, BlastVariant, Explosive, ProductionUnit, Rock } from "../types";
 
 function ResultsChart({ variants }: { variants: BlastVariant[] }) {
   if (!variants.length) return <div className="chart-empty">После расчёта здесь появится сравнение вариантов.</div>;
@@ -132,6 +135,13 @@ function FullBvrCalc({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [blockVolumeM3, setBlockVolumeM3] = useState(30_000);
   const [additionalHolesPct, setAdditionalHolesPct] = useState(3.0);
+  // Юнит в шапке — фильтр списка объектов (см. `unitSelection.ts`). Хранится
+  // за объектом вместе с остальными настройками листа.
+  const [productionUnitCode, setProductionUnitCode] = useState("");
+  const [units, setUnits] = useState<ProductionUnit[]>([]);
+  // Фильтр, действовавший в момент выбора объекта в шапке: у объекта без
+  // юнита лист после загрузки не должен сбрасывать фильтр на сохранённый.
+  const carriedUnitRef = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   // Поля панелей «Вариант 1/2»: панели ведут их у себя, а сюда сообщают об
@@ -159,6 +169,11 @@ function FullBvrCalc({
     loading: workspaceLoading,
   } = useWorkspace();
   const objectName = state?.settings.active_work_object_name ?? "";
+  const objects = state?.references.work_object_records ?? [];
+  // Для загрузки листа в эффекте, который не перезапускается от смены списка.
+  const objectsRef = useRef(objects);
+  objectsRef.current = objects;
+  const unitCode = knownUnitCode(units, productionUnitCode);
   const ready = loadedObjectName !== null && loadedObjectName === objectName;
   // Актуальное имя объекта для проверок «не устарел ли расчёт» в замыканиях,
   // которые не перевызываются при каждом рендере (например, `calculate()`,
@@ -185,6 +200,9 @@ function FullBvrCalc({
       setNsiLengthOptions(opts.nsi_length_options_m);
       setDetonatorDelayOptions(opts.detonator_delay_ms_options);
     }).catch((reason) => setError(reason instanceof Error ? reason.message : "Не удалось загрузить справочники."));
+    // Отдельно от справочников расчёта: без юнитов лист работает, поле просто
+    // не показывается.
+    api.productionUnits().then((data) => setUnits(data.items)).catch(() => setUnits([]));
   }, []);
 
   const rock = useMemo(() => rocks.find((r) => r.name === rockName), [rocks, rockName]);
@@ -220,10 +238,11 @@ function FullBvrCalc({
       selectedCrownMm: selected?.crown_mm ?? loadedCrownMm,
       blockVolumeM3,
       additionalHolesPct,
+      productionUnitCode,
       panels: panelInputs,
     }),
     [rockName, explosiveKey, lumpSize, benchHeight, overdrill, oversizeCoeff, spacing, threshold,
-      selectedCrowns, selected, loadedCrownMm, blockVolumeM3, additionalHolesPct, panelInputs]
+      selectedCrowns, selected, loadedCrownMm, blockVolumeM3, additionalHolesPct, productionUnitCode, panelInputs]
   );
   const sheetInputs = useMemo(() => collectCalcInputs(sheet), [sheet]);
 
@@ -243,6 +262,7 @@ function FullBvrCalc({
     setLoadedCrownMm(next.selectedCrownMm);
     setBlockVolumeM3(next.blockVolumeM3);
     setAdditionalHolesPct(next.additionalHolesPct);
+    setProductionUnitCode(next.productionUnitCode);
     setPanelInputs(next.panels);
   }, []);
 
@@ -332,12 +352,19 @@ function FullBvrCalc({
     setLoadedCrownMm(null);
     setVariants([]);
     setGeometries({});
+    const carriedUnit = carriedUnitRef.current;
+    carriedUnitRef.current = null;
+    const withUnit = (next: SheetState): SheetState => ({
+      ...next,
+      productionUnitCode: unitForLoadedSheet(objectsRef.current, objectName, carriedUnit, next.productionUnitCode),
+    });
     void (async () => {
       await flush();
       try {
         const saved = await api.calcInputs(objectName);
         if (cancelled) return;
-        const applied = applyCalcInputs(saved.inputs, catalogs);
+        const loaded = applyCalcInputs(saved.inputs, catalogs);
+        const applied = loaded && withUnit(loaded);
         if (applied) {
           applySheet(applied);
           if (cancelled) return;
@@ -356,7 +383,7 @@ function FullBvrCalc({
             isOptimizationResultStale(startedGeneration, optimizeGenerationRef.current, objectName, objectNameRef.current),
           );
         } else {
-          applySheet(defaultCalcSheet(catalogs, referenceDefaults));
+          applySheet(withUnit(defaultCalcSheet(catalogs, referenceDefaults)));
           if (cancelled) return;
           setLoadedObjectName(objectName);
         }
@@ -366,7 +393,7 @@ function FullBvrCalc({
         // чужими, поэтому открываем умолчания. `loadedObjectName` не ставим —
         // лист остаётся «не готовым», и автосохранение не затрёт умолчаниями
         // то, что мы не смогли прочитать.
-        applySheet(defaultCalcSheet(catalogs, referenceDefaults));
+        applySheet(withUnit(defaultCalcSheet(catalogs, referenceDefaults)));
         setError(
           "Не удалось загрузить настройки листа — открыты значения по умолчанию, " +
             "автосохранение выключено до перезагрузки страницы.",
@@ -380,17 +407,16 @@ function FullBvrCalc({
   const topStrip = (
     <CalcTopStrip
       variant={topbarSlot ? "topbar" : "page"}
-      teamName={state?.settings.team_name ?? ""}
       objectName={objectName}
-      objects={state?.references.work_object_records ?? []}
-      onObjectChange={(name) => void setActiveWorkObjectName(name)}
-      autosaveStatus={autosaveStatus}
-      metrics={{
-        q: selected ? selected.specific_q_kg_m3 : null,
-        w: selected ? selected.line_of_least_resistance_m : null,
-        x50: selected ? selected.x50_mm : null,
-        oversize: selected ? selected.oversize_pct : null,
+      objects={objects}
+      units={units}
+      unitCode={unitCode}
+      onUnitChange={setProductionUnitCode}
+      onObjectChange={(name) => {
+        carriedUnitRef.current = unitCode;
+        void setActiveWorkObjectName(name);
       }}
+      autosaveStatus={autosaveStatus}
       workspaceLoading={workspaceLoading}
     />
   );
@@ -400,6 +426,7 @@ function FullBvrCalc({
       {error && <div className="page-error" role="alert">{error}</div>}
       <CalcWorkspaceNotices workspaceError={workspaceError} warnings={state?.warnings ?? []} />
       {topbarSlot ? createPortal(topStrip, topbarSlot) : topStrip}
+      <CalcHelp />
       <div className="calculator-grid">
         <section className="panel input-panel">
           <header><b>Исходные данные</b><span>01</span></header>
@@ -437,6 +464,16 @@ function FullBvrCalc({
         <div className="results-column">
           <section className="panel"><header><b>Зависимость расхода от диаметра</b><span>Куз–Рам</span></header><ResultsChart variants={variants} /></section>
           <section className="panel variants-panel"><header><b>Варианты сетки</b><span>{variants.length ? `${variants.length} вариантов` : "Нет расчёта"}</span></header>
+            <div className="panel-body variants-metrics">
+              <MetricChips
+                metrics={{
+                  q: selected ? selected.specific_q_kg_m3 : null,
+                  w: selected ? selected.line_of_least_resistance_m : null,
+                  x50: selected ? selected.x50_mm : null,
+                  oversize: selected ? selected.oversize_pct : null,
+                }}
+              />
+            </div>
             <div className="table-scroll"><table><thead><tr><th></th><th>Коронка</th><th>Сетка a × b</th><th>q</th><th>Негабарит</th></tr></thead><tbody>
               {variants.map((item, index) => <tr key={item.crown_mm} className={index === selectedIndex ? "selected" : ""} onClick={() => setSelectedIndex(index)}><td><span className="row-radio" /></td><td><b>Ø {item.crown_mm} мм</b></td><td>{item.grid_label} м</td><td>{item.specific_q_kg_m3.toFixed(2)}</td><td>{item.oversize_pct.toFixed(1)}%</td></tr>)}
             </tbody></table></div>

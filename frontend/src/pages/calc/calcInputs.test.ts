@@ -48,6 +48,7 @@ function sheet(overrides: Partial<SheetState> = {}): SheetState {
     selectedCrownMm: 152,
     blockVolumeM3: 42_000,
     additionalHolesPct: 2.5,
+    productionUnitCode: "UNIT_PERM",
     panels: {
       left: panel(),
       right: panel({ explosive_key: "ПЭВВ ЭВЕРСИН Э-100", undercharge_m: 2, nsi_per_hole: 2 }),
@@ -65,6 +66,20 @@ describe("collectCalcInputs / applyCalcInputs", () => {
 
   it("помечает настройки версией 1", () => {
     expect(collectCalcInputs(sheet()).version).toBe(1);
+  });
+
+  it("хранит выбранный юнит под тем же ключом, что и остальные поля листа", () => {
+    expect(collectCalcInputs(sheet()).production_unit_code).toBe("UNIT_PERM");
+  });
+
+  it("настройки, сохранённые до появления юнита, открываются без фильтра", () => {
+    const { production_unit_code: _dropped, ...legacy } = collectCalcInputs(sheet());
+    expect(applyCalcInputs(legacy, CATALOGS)?.productionUnitCode).toBe("");
+  });
+
+  it("не принимает юнит не строкой", () => {
+    const raw = { ...collectCalcInputs(sheet()), production_unit_code: 42 };
+    expect(applyCalcInputs(raw, CATALOGS)?.productionUnitCode).toBe("");
   });
 
   it("подменяет чужие породу, ВВ и диаметр первыми доступными", () => {

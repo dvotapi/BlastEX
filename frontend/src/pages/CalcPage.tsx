@@ -142,6 +142,10 @@ function FullBvrCalc({
   // Фильтр, действовавший в момент выбора объекта в шапке: у объекта без
   // юнита лист после загрузки не должен сбрасывать фильтр на сохранённый.
   const carriedUnitRef = useRef<string | null>(null);
+  // Юнит, который надо поставить загруженному листу вместо сохранённого (юнит
+  // объекта или перенесённый фильтр). Ставится после отсечки автосохранения —
+  // как обычная правка, иначе он не записался бы и пропал после перезагрузки.
+  const pendingUnitRef = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   // Поля панелей «Вариант 1/2»: панели ведут их у себя, а сюда сообщают об
@@ -249,6 +253,14 @@ function FullBvrCalc({
   // Статус автосохранения показывает верхняя полоса листа (задача 5).
   const { status: autosaveStatus, flush } = useCalcInputsAutosave({ objectName, inputs: sheetInputs, ready });
 
+  // После автосохранения: его эффект отсечки в том же коммите уже запомнил
+  // загруженный лист, и смена юнита здесь уйдёт в запись.
+  useEffect(() => {
+    if (!ready || pendingUnitRef.current === null) return;
+    setProductionUnitCode(pendingUnitRef.current);
+    pendingUnitRef.current = null;
+  }, [ready]);
+
   const applySheet = useCallback((next: SheetState) => {
     setRockName(next.rockName);
     setExplosiveKey(next.explosiveKey);
@@ -354,17 +366,22 @@ function FullBvrCalc({
     setGeometries({});
     const carriedUnit = carriedUnitRef.current;
     carriedUnitRef.current = null;
-    const withUnit = (next: SheetState): SheetState => ({
-      ...next,
-      productionUnitCode: unitForLoadedSheet(objectsRef.current, objectName, carriedUnit, next.productionUnitCode),
-    });
+    pendingUnitRef.current = null;
+    const unitFor = (next: SheetState) =>
+      unitForLoadedSheet(objectsRef.current, objectName, carriedUnit, next.productionUnitCode);
+    /** Лист, который пойдёт в автосохранение: юнит, отличный от сохранённого, ждёт отсечки. */
+    const withPendingUnit = (next: SheetState): SheetState => {
+      const unit = unitFor(next);
+      if (unit !== next.productionUnitCode) pendingUnitRef.current = unit;
+      return next;
+    };
     void (async () => {
       await flush();
       try {
         const saved = await api.calcInputs(objectName);
         if (cancelled) return;
         const loaded = applyCalcInputs(saved.inputs, catalogs);
-        const applied = loaded && withUnit(loaded);
+        const applied = loaded && withPendingUnit(loaded);
         if (applied) {
           applySheet(applied);
           if (cancelled) return;
@@ -383,7 +400,7 @@ function FullBvrCalc({
             isOptimizationResultStale(startedGeneration, optimizeGenerationRef.current, objectName, objectNameRef.current),
           );
         } else {
-          applySheet(withUnit(defaultCalcSheet(catalogs, referenceDefaults)));
+          applySheet(withPendingUnit(defaultCalcSheet(catalogs, referenceDefaults)));
           if (cancelled) return;
           setLoadedObjectName(objectName);
         }
@@ -393,7 +410,9 @@ function FullBvrCalc({
         // чужими, поэтому открываем умолчания. `loadedObjectName` не ставим —
         // лист остаётся «не готовым», и автосохранение не затрёт умолчаниями
         // то, что мы не смогли прочитать.
-        applySheet(withUnit(defaultCalcSheet(catalogs, referenceDefaults)));
+        // Лист «не готов», автосохранения не будет — юнит ставим сразу.
+        const fallback = defaultCalcSheet(catalogs, referenceDefaults);
+        applySheet({ ...fallback, productionUnitCode: unitFor(fallback) });
         setError(
           "Не удалось загрузить настройки листа — открыты значения по умолчанию, " +
             "автосохранение выключено до перезагрузки страницы.",

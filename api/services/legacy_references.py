@@ -6,6 +6,7 @@ from fastapi import Depends
 from api.security import current_team_id
 from api.services.economics_service import get_economics_repository
 from cost.v2.legacy_adapter import LegacyReferences, legacy_references_from_snapshot
+from cost.v2.models import ReferenceSnapshot
 from cost.v2.repository import EconomicsRepository
 
 
@@ -20,3 +21,12 @@ def current_legacy_references(
     repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> LegacyReferences:
     return load_legacy_references(repository, organization_id)
+
+
+def current_reference_snapshot(
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> ReferenceSnapshot:
+    """Опубликованная ревизия организации как есть — для разделов, которых нет в V1."""
+
+    return repository.get_reference_snapshot(organization_id)

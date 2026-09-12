@@ -17,6 +17,9 @@ class WorkObject:
     name: str
     mobilization_km: float
     diesel_price_ton_rub: float | None = None
+    # Юнит, обслуживающий объект (раздел V2 `production_units`). Расчёту не
+    # нужен — по нему шапка листа «Расчёт» фильтрует объекты.
+    production_unit_code: str | None = None
 
 
 DEFAULT_DRILL_RIGS: tuple[DrillRig, ...] = (
@@ -47,6 +50,13 @@ DEFAULT_DIESEL_PRICE_TON_RUB = 80_000.0
 SHIFT_HOURS = 11
 
 
+def optional_code(value: object) -> str | None:
+    """Код ссылки из записи справочника: пустая строка и пробелы — «не задан»."""
+
+    code = str(value or "").strip()
+    return code or None
+
+
 def work_objects_to_records(objects: Iterable[WorkObject]) -> list[dict]:
     return [asdict(obj) for obj in objects]
 
@@ -63,6 +73,7 @@ def work_objects_from_records(records: list[dict]) -> list[WorkObject]:
                 name=name,
                 mobilization_km=float(row.get("mobilization_km", 0) or 0),
                 diesel_price_ton_rub=float(diesel) if diesel not in (None, "") else None,
+                production_unit_code=optional_code(row.get("production_unit_code")),
             )
         )
     return objects

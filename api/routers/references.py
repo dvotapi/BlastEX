@@ -16,16 +16,19 @@ from api.schemas.references import (
     ExplosiveListResponse,
     FixedAssetDepreciationListResponse,
     FixedAssetDepreciationSchema,
+    ProductionUnitListResponse,
+    ProductionUnitSchema,
     RockListResponse,
     RockSchema,
     WorkObjectListResponse,
     WorkObjectSchema,
 )
-from api.services.legacy_references import current_legacy_references
+from api.services.legacy_references import current_legacy_references, current_reference_snapshot
 from cost.drilling_data import DEFAULT_OBJECT_NAME, DEFAULT_RIG_NAME
 from cost.explosive_data import DEFAULT_EXPLOSIVE_KEY
 from cost.rock_data import DEFAULT_ROCK_NAME
 from cost.v2.legacy_adapter import LegacyReferences
+from cost.v2.models import ReferenceSnapshot
 
 router = APIRouter(prefix="/references", tags=["references"])
 
@@ -94,3 +97,18 @@ def list_catalog(
     """Номенклатура и цены из разделов «Материалы» и «Стоимость материалов»."""
 
     return CatalogListResponse(items=[CatalogItemSchema.model_validate(item) for item in legacy.catalog])
+
+
+@router.get("/production-units", response_model=ProductionUnitListResponse)
+def list_production_units(
+    snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
+) -> ProductionUnitListResponse:
+    """Действующие юниты опубликованной ревизии — для выбора юнита в шапке листа «Расчёт».
+
+    Юнит — сущность только V2: умолчаний Cost V1 для него нет, поэтому пустой
+    раздел даёт пустой список, а не подстановку.
+    """
+
+    return ProductionUnitListResponse(
+        items=[ProductionUnitSchema(code=item.code, name=item.name) for item in snapshot.active_items("production_units")],
+    )

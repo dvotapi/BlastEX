@@ -25,6 +25,7 @@ from cost.drilling_data import (
     DrillRig,
     WorkObject,
     find_object,
+    optional_code,
 )
 from cost.explosive_data import DEFAULT_EXPLOSIVES, ExplosiveCatalogItem
 from cost.fixed_costs import DEFAULT_FIXED_COSTS, SECTION_TITLES, FixedCostItem
@@ -182,6 +183,7 @@ def _work_object(item: ReferenceItem, warnings: list[str]) -> WorkObject:
         name=item.name,
         mobilization_km=km,
         diesel_price_ton_rub=_optional_number(item.payload.get("diesel_price_ton_rub")),
+        production_unit_code=optional_code(item.payload.get("production_unit_code")),
     )
 
 

@@ -16,6 +16,7 @@ class WorkObjectSchema(BaseModel):
     name: str
     mobilization_km: float = Field(..., ge=0)
     diesel_price_ton_rub: float | None = None
+    production_unit_code: str | None = None
 
 
 class DrillRigSchema(BaseModel):
@@ -98,3 +99,12 @@ class RockListResponse(BaseModel):
 
 class CatalogListResponse(BaseModel):
     items: list[CatalogItemSchema]
+
+
+class ProductionUnitSchema(BaseModel):
+    code: str
+    name: str
+
+
+class ProductionUnitListResponse(BaseModel):
+    items: list[ProductionUnitSchema]

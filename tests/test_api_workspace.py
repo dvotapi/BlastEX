@@ -97,11 +97,15 @@ def test_published_sites_feed_the_workspace(monkeypatch) -> None:
     client, repository = _client(monkeypatch)
     current = repository.get_reference_snapshot("default")
     sections = dict(current.sections)
-    sections["sites"] = (ReferenceItem("SITE_NEW", "Новый карьер", {"mobilization_km": "15"}),)
+    sections["sites"] = (
+        ReferenceItem("SITE_NEW", "Новый карьер", {"mobilization_km": "15", "production_unit_code": "UNIT_1"}),
+    )
     repository.publish_references("default", "tester", current.revision_id, sections, "test")
 
     state = client.get("/api/v1/workspace").json()
     assert [o["name"] for o in state["references"]["work_object_records"]] == ["Новый карьер"]
+    # Юнит объекта нужен шапке листа «Расчёт» для фильтра объектов по юниту.
+    assert state["references"]["work_object_records"][0]["production_unit_code"] == "UNIT_1"
 
 
 def test_stale_active_object_falls_back_to_an_existing_one(monkeypatch) -> None:

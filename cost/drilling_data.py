@@ -17,8 +17,8 @@ class WorkObject:
     name: str
     mobilization_km: float
     diesel_price_ton_rub: float | None = None
-    # Юнит, обслуживающий объект (раздел V2 `production_units`). Расчёту не
-    # нужен — по нему шапка листа «Расчёт» фильтрует объекты.
+    # Юнит, обслуживающий объект: ссылка `sites.production_unit_code` на раздел
+    # V2 `production_units`. В расчёт стоимости не входит.
     production_unit_code: str | None = None
 
 

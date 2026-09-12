@@ -34,16 +34,25 @@ export function knownUnitCode(units: UnitOption[], code: string): string {
 }
 
 /**
- * Юнит для только что загруженного листа объекта. Юнит самого объекта важнее
- * всего. Для объекта без юнита: при переходе из шапки (`carried` — фильтр,
- * действовавший в момент выбора) фильтр не должен прыгать, поэтому остаётся
- * он; при открытии листа (`carried === null`) — последний сохранённый выбор.
+ * Юнит для только что загруженного листа объекта и нужно ли его записать.
+ *
+ * - Юнит самого объекта важнее всего. Записывать его незачем: при следующей
+ *   загрузке он снова возьмётся из объекта, а запись создала бы настройки
+ *   объекта, который пользователь просто открыл.
+ * - Объект без юнита при переходе из шапки (`carried` — видимый фильтр в
+ *   момент выбора) сохраняет фильтр, чтобы список не прыгал. Записывается он
+ *   только поверх уже сохранённых настроек (`saved`), иначе — только на экран.
+ * - При открытии листа (`carried === null`) — последний сохранённый выбор.
  */
 export function unitForLoadedSheet(
   objects: ObjectOption[],
   objectName: string,
   carried: string | null,
   stored: string,
-): string {
-  return objectUnitCode(objects, objectName) || (carried ?? stored);
+  saved: boolean,
+): { unit: string; persist: boolean } {
+  const own = objectUnitCode(objects, objectName);
+  if (own) return { unit: own, persist: false };
+  if (carried === null || carried === stored) return { unit: stored, persist: false };
+  return { unit: carried, persist: saved };
 }

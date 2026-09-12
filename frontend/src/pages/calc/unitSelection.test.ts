@@ -58,16 +58,25 @@ describe("knownUnitCode", () => {
 });
 
 describe("unitForLoadedSheet", () => {
-  it("юнит объекта важнее перенесённого фильтра и сохранённого значения", () => {
-    expect(unitForLoadedSheet(OBJECTS, "Карьер Анна", "UNIT_URAL", "UNIT_URAL")).toBe("UNIT_PERM");
+  it("юнит объекта важнее перенесённого фильтра и сохранённого значения и не записывается", () => {
+    expect(unitForLoadedSheet(OBJECTS, "Карьер Анна", "UNIT_URAL", "UNIT_URAL", true)).toEqual({ unit: "UNIT_PERM", persist: false });
+    expect(unitForLoadedSheet(OBJECTS, "Карьер Анна", null, "", false)).toEqual({ unit: "UNIT_PERM", persist: false });
   });
 
   it("у объекта без юнита при переходе из шапки сохраняется текущий фильтр", () => {
-    expect(unitForLoadedSheet(OBJECTS, "Карьер без юнита", "UNIT_URAL", "UNIT_PERM")).toBe("UNIT_URAL");
-    expect(unitForLoadedSheet(OBJECTS, "Карьер без юнита", "", "UNIT_PERM")).toBe("");
+    expect(unitForLoadedSheet(OBJECTS, "Карьер без юнита", "UNIT_URAL", "UNIT_PERM", true)).toEqual({ unit: "UNIT_URAL", persist: true });
+    expect(unitForLoadedSheet(OBJECTS, "Карьер без юнита", "", "UNIT_PERM", true)).toEqual({ unit: "", persist: true });
+  });
+
+  it("перенесённый фильтр объекта без сохранённых настроек только показывается", () => {
+    expect(unitForLoadedSheet(OBJECTS, "Карьер без юнита", "UNIT_URAL", "", false)).toEqual({ unit: "UNIT_URAL", persist: false });
+  });
+
+  it("совпадающий с сохранённым фильтр записывать нечего", () => {
+    expect(unitForLoadedSheet(OBJECTS, "Карьер без юнита", "UNIT_PERM", "UNIT_PERM", true)).toEqual({ unit: "UNIT_PERM", persist: false });
   });
 
   it("при открытии листа (без перехода из шапки) объект без юнита берёт сохранённый выбор", () => {
-    expect(unitForLoadedSheet(OBJECTS, "Карьер без юнита", null, "UNIT_PERM")).toBe("UNIT_PERM");
+    expect(unitForLoadedSheet(OBJECTS, "Карьер без юнита", null, "UNIT_PERM", true)).toEqual({ unit: "UNIT_PERM", persist: false });
   });
 });

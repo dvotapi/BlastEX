@@ -96,9 +96,9 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .app-shell.design-mode .workspace { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
 .app-shell.design-mode .topbar { height:36px; min-height:36px; padding:0 16px; flex:0 0 36px; }
 .app-shell.design-mode .topbar-lead, .app-shell.design-mode .topbar-slot { display:none; }
-/* Одна строка чуть выше кнопок («Выйти» — 34px): заголовок, слот заголовка
-   («Справка» экономики), бренд, слот полосы листа «Расчёт» и «Выйти».
-   Высота не фиксирована: полоса «Расчёта» с плашками при узком окне
+/* Одна строка 44px (8 + 28 + 8): бренд, заголовок, слот заголовка
+   (селекторы «Экономики блока»), слот полосы листа «Расчёт», «Выйти» и
+   слот справки. Высота не фиксирована: полоса «Расчёта» при узком окне
    переносится и растит шапку, но по умолчанию всё умещается в один ряд.
    Заголовок обрезается многоточием, кнопка «Выйти» видна всегда. */
 .topbar { min-height:44px; padding:8px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid #dce4e0; background:#fff; }
@@ -114,8 +114,8 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .topbar-title-slot:empty { display:none; }
 .topbar span { color:#69776f; font-size:11px; }
 /* Слот для полосы листа «Расчёт» (см. topbarSlot.tsx): занимает пустующее
-   место между заголовком и кнопкой «Выйти», плашки переносятся сюда же
-   (flex-wrap на самой полосе — `.calc-top-strip`), а не в общий ряд шапки. */
+   место между заголовком и кнопкой «Выйти»; при узком окне поля переносятся
+   внутри полосы (flex-wrap на `.calc-top-strip`), а не в общий ряд шапки. */
 .topbar > .topbar-slot { flex:1 1 auto; min-width:0; display:flex; justify-content:flex-end; }
 .topbar-icon-button { flex:none; width:28px; height:28px; display:grid; place-items:center; border:1px solid #ced9d3; border-radius:50%; background:#fff; color:#3b4b43; font-size:12px; font-weight:var(--font-weight-strong); }
 .topbar-icon-button:hover { border-color:#2d7556; color:#2d7556; }
@@ -172,7 +172,7 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
   .topbar-field-object select { width:100%; }
 }
 @media (max-width:760px) {
-  .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { min-height:56px; padding:6px 16px; }.topbar-brand-text { display:none; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
+  .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { min-height:56px; padding:6px 16px; }.topbar-brand { display:none; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
   .mobile-nav { position:fixed; z-index:10; left:0; right:0; bottom:0; display:flex; justify-content:space-around; padding:7px 2px max(7px,env(safe-area-inset-bottom)); border-top:1px solid #dce4e0; background:#fff; }.mobile-nav button { display:grid; gap:2px; place-items:center; border:0; background:transparent; color:#78857f; font-size:8px; padding:2px; }.mobile-nav button b { color:#6d7a73; font-size:15px; }.mobile-nav button.active, .mobile-nav button.active b { color:#247752; }
 }
 
@@ -192,10 +192,10 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .scenario-phases ul { margin:8px 0 0; padding:0; list-style:none; display:grid; gap:6px; }
 .scenario-phases label { display:flex; align-items:center; gap:8px; font-size:12px; }
 
-/* --- Компактная полоса листа «Расчёт»: команда, объект, статус и плашки --- */
+/* --- Компактная полоса листа «Расчёт»: юнит, объект и статус автосохранения --- */
 .calc-top-strip { display:flex; flex-wrap:wrap; align-items:center; gap:14px; margin:0 0 14px; padding:10px 14px; border:1px solid #d9e2dd; border-radius:12px; background:#fff; }
 /* В шапке приложения (см. topbar-slot выше) — без своей рамки и фона,
-   заполняет слот целиком; перенос плашек на вторую строку остаётся за счёт
+   заполняет слот целиком; перенос полей на вторую строку остаётся за счёт
    flex-wrap, но заголовок и «Выйти» в `.topbar` от этого не переносятся. */
 .calc-top-strip.in-topbar { flex:1 1 auto; min-width:0; margin:0; padding:0; border:0; background:transparent; }
 .topbar-field { display:flex; align-items:center; gap:6px; min-width:0; }

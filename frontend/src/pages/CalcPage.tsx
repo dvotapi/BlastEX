@@ -364,16 +364,20 @@ function FullBvrCalc({
     setLoadedCrownMm(null);
     setVariants([]);
     setGeometries({});
+    // Перенесённый фильтр читается здесь, а очищается только после применения
+    // листа: если смена объекта откатится, эффект запустится ещё раз (для
+    // прежнего объекта), и фильтр должен дожить до этого запуска.
     const carriedUnit = carriedUnitRef.current;
-    carriedUnitRef.current = null;
     pendingUnitRef.current = null;
-    const unitFor = (next: SheetState) =>
-      unitForLoadedSheet(objectsRef.current, objectName, carriedUnit, next.productionUnitCode);
-    /** Лист, который пойдёт в автосохранение: юнит, отличный от сохранённого, ждёт отсечки. */
-    const withPendingUnit = (next: SheetState): SheetState => {
-      const unit = unitFor(next);
-      if (unit !== next.productionUnitCode) pendingUnitRef.current = unit;
-      return next;
+    /** Лист с юнитом загрузки; юнит, который надо записать, ждёт отсечки автосохранения. */
+    const withUnit = (next: SheetState, saved: boolean): SheetState => {
+      carriedUnitRef.current = null;
+      const { unit, persist } = unitForLoadedSheet(objectsRef.current, objectName, carriedUnit, next.productionUnitCode, saved);
+      if (persist) {
+        pendingUnitRef.current = unit;
+        return next;
+      }
+      return { ...next, productionUnitCode: unit };
     };
     void (async () => {
       await flush();
@@ -381,7 +385,7 @@ function FullBvrCalc({
         const saved = await api.calcInputs(objectName);
         if (cancelled) return;
         const loaded = applyCalcInputs(saved.inputs, catalogs);
-        const applied = loaded && withPendingUnit(loaded);
+        const applied = loaded && withUnit(loaded, true);
         if (applied) {
           applySheet(applied);
           if (cancelled) return;
@@ -400,7 +404,7 @@ function FullBvrCalc({
             isOptimizationResultStale(startedGeneration, optimizeGenerationRef.current, objectName, objectNameRef.current),
           );
         } else {
-          applySheet(withPendingUnit(defaultCalcSheet(catalogs, referenceDefaults)));
+          applySheet(withUnit(defaultCalcSheet(catalogs, referenceDefaults), false));
           if (cancelled) return;
           setLoadedObjectName(objectName);
         }
@@ -410,9 +414,8 @@ function FullBvrCalc({
         // чужими, поэтому открываем умолчания. `loadedObjectName` не ставим —
         // лист остаётся «не готовым», и автосохранение не затрёт умолчаниями
         // то, что мы не смогли прочитать.
-        // Лист «не готов», автосохранения не будет — юнит ставим сразу.
-        const fallback = defaultCalcSheet(catalogs, referenceDefaults);
-        applySheet({ ...fallback, productionUnitCode: unitFor(fallback) });
+        // Лист «не готов», автосохранения не будет — юнит только на экран.
+        applySheet(withUnit(defaultCalcSheet(catalogs, referenceDefaults), false));
         setError(
           "Не удалось загрузить настройки листа — открыты значения по умолчанию, " +
             "автосохранение выключено до перезагрузки страницы.",
@@ -432,11 +435,14 @@ function FullBvrCalc({
       unitCode={unitCode}
       onUnitChange={setProductionUnitCode}
       onObjectChange={(name) => {
-        carriedUnitRef.current = unitCode;
+        // Переносим только видимый фильтр: пока юниты не загружены (или не
+        // загрузились), поля «Юнит» нет, и пустой фильтр затёр бы сохранённый.
+        carriedUnitRef.current = units.length ? unitCode : null;
         void setActiveWorkObjectName(name);
       }}
       autosaveStatus={autosaveStatus}
       workspaceLoading={workspaceLoading}
+      sheetReady={ready}
     />
   );
 

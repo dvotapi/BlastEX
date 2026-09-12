@@ -39,6 +39,7 @@ export function CalcTopStrip({
   onObjectChange,
   autosaveStatus,
   workspaceLoading,
+  sheetReady = true,
 }: {
   variant: "topbar" | "page";
   objectName: string;
@@ -51,6 +52,8 @@ export function CalcTopStrip({
   autosaveStatus: AutosaveStatus;
   /** Рабочее пространство ещё загружается — список объектов неполон. */
   workspaceLoading: boolean;
+  /** Настройки объекта загружены. До этого выбор юнита перезаписала бы загрузка. */
+  sheetReady?: boolean;
 }) {
   const unitId = useId();
   const objectId = useId();
@@ -62,7 +65,7 @@ export function CalcTopStrip({
       {units.length > 0 && (
         <div className="topbar-field topbar-field-unit">
           <label htmlFor={unitId}>Юнит</label>
-          <select id={unitId} value={unitCode} onChange={(e) => onUnitChange(e.target.value)} disabled={workspaceLoading}>
+          <select id={unitId} value={unitCode} onChange={(e) => onUnitChange(e.target.value)} disabled={workspaceLoading || !sheetReady}>
             <option value="">Все юниты</option>
             {units.map((unit) => (
               <option key={unit.code} value={unit.code}>{unit.name}</option>

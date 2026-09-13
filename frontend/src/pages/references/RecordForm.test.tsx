@@ -90,6 +90,33 @@ describe("RecordForm: списки объектов", () => {
     expect(onApply.mock.calls[0][0].payload).toEqual(RECORD.payload);
   });
 
+  it("«Применить» без правок не трогает строку с пустой должностью из старой записи", () => {
+    const onApply = vi.fn();
+    const legacy: DraftItem = {
+      ...RECORD,
+      payload: { members: [{ position_code: "", headcount: "1" }, { position_code: "POS_A", headcount: 2 }] },
+    };
+    render(formElement(onApply, [], legacy));
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
+    expect(onApply.mock.calls[0][0].payload).toEqual(legacy.payload);
+  });
+
+  it("правка строки со старой пустой должностью нормализует эту строку", () => {
+    const onApply = vi.fn();
+    const legacy: DraftItem = {
+      ...RECORD,
+      payload: { members: [{ position_code: "", headcount: "1" }, { position_code: "POS_A", headcount: 2 }] },
+    };
+    render(formElement(onApply, [], legacy));
+    fireEvent.change(screen.getAllByLabelText("Численность")[0], { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
+    // Пустая должность в изменённой строке не сохраняется: проверка ревизии
+    // покажет ошибку под полем той строки, которую сметчик сейчас правит.
+    expect(onApply.mock.calls[0][0].payload).toEqual({
+      members: [{ headcount: "3" }, { position_code: "POS_A", headcount: 2 }],
+    });
+  });
+
   it("запятая в числе подполя сохраняется точкой, пустое обязательное — не сохраняется", () => {
     const onApply = vi.fn();
     renderForm(onApply);

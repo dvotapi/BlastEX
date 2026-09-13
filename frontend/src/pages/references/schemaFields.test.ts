@@ -302,6 +302,23 @@ describe("строки списка объектов", () => {
     });
   });
 
+  it("нетронутая строка сохранённой записи не нормализуется, изменённая — нормализуется", () => {
+    // Старая кнопка «+ Добавить строку» писала пустую должность; такая строка
+    // проходит проверку ревизии. Нормализация удалила бы ключ и сломала
+    // публикацию записи, в которой сметчик эту строку даже не открывал.
+    const legacy = { position_code: "", headcount: "1" };
+    const rows = normalizeListRows([legacy, { position_code: "", headcount: "2" }], members, [legacy]);
+    expect(rows[0]).toBe(legacy);
+    expect(rows[1]).toEqual({ headcount: "2" });
+  });
+
+  it("toPayload сравнивает строки списка с сохранённым payload", () => {
+    const legacy = { position_code: "", headcount: "1" };
+    expect(toPayload({ members: [legacy] }, sectionFields(CREW_SCHEMA), { members: [legacy] })).toEqual({
+      members: [{ position_code: "", headcount: "1" }],
+    });
+  });
+
   it("новая строка заполняется значениями по умолчанию из схемы элемента", () => {
     expect(newListRow(members.itemFields ?? [])).toEqual({ position_code: "", headcount: "1" });
     expect(newListRow(tiers.itemFields ?? [])).toEqual({ upto_per_shift: "", rate: "0", grade: "" });

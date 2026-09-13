@@ -230,13 +230,20 @@ export function decimalText(text: string): string {
  * сохраняется, число приводится к записи с точкой. Числа, флаги и `null` из
  * payload не трогаем — «Применить» без правок возвращает тот же объект.
  * Ключи, которых нет в схеме элемента, сохраняются как есть.
+ *
+ * Строка, которую сметчик не правил, сохраняется как была, даже с пустой
+ * ссылкой из старой записи: иначе удалённый ключ дал бы ошибку ревизии в
+ * записи, которую никто не менял. Нетронутую строку узнаём по ссылке на
+ * объект из `stored`: `toFormValues` отдаёт в форму сами строки payload, а
+ * `ListField` заменяет новым объектом только изменённую строку.
  */
-export function normalizeListRows(rows: unknown, field: FieldDescriptor): unknown[] {
+export function normalizeListRows(rows: unknown, field: FieldDescriptor, stored?: unknown): unknown[] {
   if (!Array.isArray(rows)) return [];
   const subs = field.itemKind === "object" ? field.itemFields ?? [] : [];
   if (!subs.length) return rows;
+  const untouched = new Set(Array.isArray(stored) ? stored : []);
   return rows.map((row) => {
-    if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+    if (!row || typeof row !== "object" || Array.isArray(row) || untouched.has(row)) return row;
     const item: Record<string, unknown> = { ...(row as Record<string, unknown>) };
     for (const sub of subs) {
       const raw = item[sub.name];
@@ -345,7 +352,7 @@ export function toPayload(
       continue;
     }
     if (field.kind === "list") {
-      payload[field.name] = normalizeListRows(value, field);
+      payload[field.name] = normalizeListRows(value, field, base[field.name]);
       continue;
     }
     const text = typeof value === "string" ? value.trim() : value == null ? "" : String(value);

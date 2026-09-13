@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from cost.model import drilling, labor
+from cost.model import drilling, labor, logistics
 from cost.model.inputs import CrewMember, ModelContext
 from tests import model_fixtures as fx
 
@@ -144,6 +144,33 @@ def test_crew_fixed_part_follows_machine_plan_shifts() -> None:
     ) in no_plan.warnings
 
 
+def test_pieceworker_without_salary_gets_no_false_salary_warning() -> None:
+    """У сдельщика без оклада нет плановых смен техники — предупреждать об окладе нечего."""
+
+    references = fx.references(
+        labor_rates=(
+            fx.item(
+                "LR_SZM_PIECE",
+                "Водитель-оператор СЗМ (сделка)",
+                {"position_code": "POS_SZM_DRIVER", "piece_rate_rub": "200"},
+            ),
+        )
+    )
+    crew = (CrewMember("POS_SZM_DRIVER", Decimal("1"), Decimal("4")),)
+    context = ModelContext(
+        references,
+        fx.parameters(crew=crew, machine_plan_shifts={"SZM_12T": Decimal("0")}),
+        fx.physical(),
+    )
+    drilling.compute(context)
+    labor.compute(context)
+
+    line = _line(context, "LABOR_POS_SZM_DRIVER")
+    # Оклада нет (fixed_monthly_rub не задан) — только сделка: 200 × 42 000 / 1000 × 1 чел.
+    assert line.amount_rub == Decimal("8400")
+    assert not [warning for warning in context.warnings if "оклад должности" in warning]
+
+
 def test_per_diem_counts_people_in_shift_not_rotation() -> None:
     rates_item = fx.item(
         "ORG_RATES_DEFAULT",
@@ -218,6 +245,35 @@ def test_net_salary_basis_grosses_up_accrual() -> None:
     assert round(float(gross), 2) == round((5500 + 42000) / 0.87, 2)
 
 
+def test_net_salary_basis_applies_to_crew_rotation_position() -> None:
+    """Экипаж техники при NET: строка = (оклад по плановым сменам + сделка) ÷ (1 − НДФЛ)."""
+
+    references = fx.references(
+        organization_rates=(
+            fx.item(
+                "ORG_RATES_DEFAULT",
+                "Ставки организации",
+                {"salary_basis": "NET", "income_tax_rate": "0.13"},
+            ),
+        )
+    )
+    context = ModelContext(
+        references,
+        fx.parameters(crew=(CrewMember("POS_DRILLER", Decimal("0")),)),
+        fx.physical(),
+    )
+    drilling.compute(context)
+    labor.compute(context)
+
+    line = _line(context, "LABOR_POS_DRILLER")
+    # Как в test_driller_block_payroll_pays_each_metre_once: оклад штата
+    # 60 000 × 3 / 40 см × 116,2790697666… см = 523 255,8139500…, сделка
+    # 150 × 13 953,488372 = 2 093 023,2558. Сумма 2 616 279,06975 ÷ (1 − 0,13)
+    # = 3 007 217,321551724137931034483 ₽.
+    assert _money(line.amount_rub) == Decimal("3007217.32")
+    assert line.formula.endswith(" ÷ (1 − НДФЛ)")
+
+
 def test_per_diem_only_on_remote_site() -> None:
     rates_item = fx.item(
         "ORG_RATES_DEFAULT",
@@ -260,3 +316,42 @@ def test_subcontracted_drilling_removes_own_driller() -> None:
     assert "LABOR_POS_DRILLER" not in codes
     assert "LABOR_POS_BLASTER" in codes
     assert not [w for w in subcontract.warnings if "POS_DRILLER" in w]
+
+
+def test_delivery_truck_driver_rotation_follows_machine_plan_shifts() -> None:
+    """Доставщик ВМ: смены — из рейсов доставщика, штат ротации и оклад — из его плановых смен."""
+
+    references = fx.references(
+        positions=(
+            *fx.POSITIONS,
+            fx.item(
+                "POS_VM_DELIVERY_DRIVER",
+                "Водитель доставки ВМ",
+                {"category": "DIRECT", "operation_code": "VM_DELIVERY_SITE", "norm_shifts_per_month": "20"},
+            ),
+        ),
+        labor_rates=(
+            *fx.LABOR_RATES,
+            fx.item(
+                "LR_VM_DELIVERY",
+                "Водитель доставки ВМ",
+                {"position_code": "POS_VM_DELIVERY_DRIVER", "fixed_monthly_rub": "50000"},
+            ),
+        ),
+    )
+    context = ModelContext(
+        references,
+        fx.parameters(crew=(CrewMember("POS_VM_DELIVERY_DRIVER", Decimal("1")),)),
+        fx.physical(cartridge_kg=Decimal("6000")),
+    )
+    logistics.compute(context)
+    labor.compute(context)
+
+    driver = _line(context, "LABOR_POS_VM_DELIVERY_DRIVER")
+    # ⌈6 000 кг / 3 000 кг (TRUCK_3T)⌉ = 2 рейса = 2 смены доставщика.
+    assert context.value("crew_shifts.POS_VM_DELIVERY_DRIVER") == Decimal("2")
+    # Плановые смены доставщика — норматив типа (20, ручной поправки нет).
+    # ⌈20 см × 1 чел / 20 см человека⌉ = 1.
+    assert context.value("crew_rotation.POS_VM_DELIVERY_DRIVER") == Decimal("1")
+    # 50 000 ₽/мес × 1 чел / 20 см × 2 см
+    assert driver.amount_rub == Decimal("50000") * 1 / 20 * 2

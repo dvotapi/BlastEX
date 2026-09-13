@@ -21,6 +21,9 @@
   ёмкостью ресурсного пула по плану юнита.
 * 2.2 (суточные 5 000 ₽) — в смете «чел × смен/2 × 1000 ₽»; в модели
   начисляется по чел-сменам и только на вахтовом объекте.
+* 2.3 (+0,57 %) — оклад водителя СЗМ в смете делится на его 21 нормативную
+  смену; в модели месячный оклад штата экипажа делится на 20 плановых смен
+  СЗМ, как амортизация машины (TASK-010 PR 0b).
 * 2.4 (ГСМ 24 480 ₽) — в смете четыре машины по 300 км с общей нормой; в
   модели ДТ считается по норме каждой машины на её собственные рейсы.
 * 2.6 (ОПР 77 700 ₽) — в модели это постоянные затраты юнита,
@@ -173,3 +176,32 @@ def test_documented_deviations_are_visible_not_silent(result) -> None:
     assert "UNIT_UFC_OPR" in codes
     # 2.2 сметы: на невахтовом объекте суточные не начисляются.
     assert "LABOR_PER_DIEM" not in codes
+
+
+def test_crew_salary_is_spread_over_machine_plan_shifts(result) -> None:
+    """TASK-010 PR 0b: оклад экипажа техники — месячный ФОТ штата на плановые смены машины.
+
+    Смета делит оклад водителя СЗМ на его 21 нормативную смену, модель — на
+    20 плановых смен СЗМ при штате ⌈20 / 21⌉ = 1. Раздел 2.3 растёт на 0,57 %:
+    193 018,38 → 194 123,11 ₽. Сделку бурильщика штат ротации не умножает.
+    """
+
+    economics, _ = result
+    lines = {line.cost_item_code: line for line in economics.lines}
+
+    driver = lines["LABOR_POS_SZM_DRIVER"]
+    assert driver.formula.startswith("60000 ₽/мес × 1 чел / 20 см × 4.2 см")
+    assert driver.amount_rub.quantize(Decimal("0.01")) == Decimal("24430.34")
+    assert economics.natural.values["crew_rotation.POS_SZM_DRIVER"] == Decimal("1")
+
+    assert lines["LABOR_POS_DRILLER"].amount_rub.quantize(Decimal("0.01")) == Decimal("373266.88")
+
+    block_positions = _sum(
+        economics,
+        "LABOR_POS_MASTER",
+        "LABOR_POS_BLASTER",
+        "LABOR_POS_SZM_DRIVER",
+        "LABOR_POS_DELIVERY_DRIVER",
+    )
+    section = block_positions * Decimal("1.3042") * Decimal("1.2")
+    assert section.quantize(Decimal("0.01")) == Decimal("194123.11")

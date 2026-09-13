@@ -236,7 +236,7 @@ export function normalizeListRows(rows: unknown, field: FieldDescriptor): unknow
   const subs = field.itemKind === "object" ? field.itemFields ?? [] : [];
   if (!subs.length) return rows;
   return rows.map((row) => {
-    if (!row || typeof row !== "object") return row;
+    if (!row || typeof row !== "object" || Array.isArray(row)) return row;
     const item: Record<string, unknown> = { ...(row as Record<string, unknown>) };
     for (const sub of subs) {
       const raw = item[sub.name];

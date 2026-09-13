@@ -273,13 +273,20 @@ describe("строки списка объектов", () => {
     expect(normalizeListRows([{ position_code: "POS_A", headcount: "" }], members)).toEqual([{ position_code: "POS_A" }]);
   });
 
-  it("пустая ссылка в необязательном текстовом подполе — null, а не пустая строка", () => {
+  it("пустое необязательное текстовое подполе — null, а не пустая строка", () => {
     expect(normalizeListRows([{ rate: "1", grade: "" }], tiers)).toEqual([{ rate: "1", grade: null }]);
   });
 
   it("числа, null и неизвестные ключи из payload не меняются", () => {
     const rows = [{ upto_per_shift: null, rate: 45, legacy_ref: "X" }];
     expect(normalizeListRows(rows, tiers)).toEqual(rows);
+  });
+
+  it("строка-массив в списке объектов возвращается как есть", () => {
+    // typeof массива тоже "object": без явной проверки Array.isArray строка
+    // рассыпалась бы в {0: "POS_A", 1: 2}.
+    const rows = [["POS_A", 2]];
+    expect(normalizeListRows(rows, members)).toEqual(rows);
   });
 
   it("список без схемы элемента и не-список возвращаются как есть", () => {

@@ -218,8 +218,123 @@ export function toFormValues(payload: Record<string, unknown>, fields: FieldDesc
  * число, оставляем как есть: пусть о нём скажет валидация, а не мы молча.
  */
 export function decimalText(text: string): string {
-  const compact = text.replace(/[\s ]/g, "").replace(",", ".");
+  const compact = text.replace(/[\s\u00a0]/g, "").replace(",", ".");
   return compact !== "" && /^[+-]?\d*\.?\d*$/.test(compact) ? compact : text;
+}
+
+/**
+ * Строки списка объектов в вид payload.
+ *
+ * Подполя элемента подчиняются тому же правилу, что поля верхнего уровня в
+ * `toPayload`: пустое необязательное — `null`, пустое обязательное не
+ * сохраняется, число приводится к записи с точкой. Числа, флаги и `null` из
+ * payload не трогаем — «Применить» без правок возвращает тот же объект.
+ * Ключи, которых нет в схеме элемента, сохраняются как есть.
+ *
+ * Строка, которую сметчик не правил, сохраняется как была, даже с пустой
+ * ссылкой из старой записи: иначе удалённый ключ дал бы ошибку ревизии в
+ * записи, которую никто не менял. Нетронутую строку узнаём по ссылке на
+ * объект из `stored`: `toFormValues` отдаёт в форму сами строки payload, а
+ * `ListField` заменяет новым объектом только изменённую строку.
+ */
+export function normalizeListRows(rows: unknown, field: FieldDescriptor, stored?: unknown): unknown[] {
+  if (!Array.isArray(rows)) return [];
+  const subs = field.itemKind === "object" ? field.itemFields ?? [] : [];
+  if (!subs.length) return rows;
+  const untouched = new Set(Array.isArray(stored) ? stored : []);
+  return rows.map((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row) || untouched.has(row)) return row;
+    const item: Record<string, unknown> = { ...(row as Record<string, unknown>) };
+    for (const sub of subs) {
+      const raw = item[sub.name];
+      if (raw === undefined || raw === null || typeof raw !== "string") continue;
+      const text = raw.trim();
+      if (text === "") {
+        if (sub.optional) item[sub.name] = null;
+        else delete item[sub.name];
+        continue;
+      }
+      item[sub.name] = sub.kind === "number" ? decimalText(text) : text;
+    }
+    return item;
+  });
+}
+
+/**
+ * Текст ячейки подполя списка.
+ *
+ * То же правило, что `toFormValues` применяет к полям верхнего уровня:
+ * отсутствующее подполе показывается значением по умолчанию схемы, явный
+ * `null` — пустой строкой.
+ */
+export function listCellText(raw: unknown, sub: FieldDescriptor): string {
+  if (raw === undefined) {
+    return sub.defaultValue === undefined || sub.defaultValue === null ? "" : String(sub.defaultValue);
+  }
+  return raw === null ? "" : String(raw);
+}
+
+/** Новая строка списка: значения по умолчанию из схемы элемента, остальное пусто. */
+export function newListRow(itemFields: FieldDescriptor[]): Record<string, unknown> {
+  return Object.fromEntries(
+    itemFields.map((sub) => [
+      sub.name,
+      sub.defaultValue === undefined || sub.defaultValue === null ? "" : sub.defaultValue,
+    ]),
+  );
+}
+
+/**
+ * Ошибки подполей списка.
+ *
+ * Сервер адресует ошибку внутри списка путём `members.0.headcount`
+ * (`cost/v2/references.py`); список получает её без своего имени —
+ * `0.headcount`, а ошибку всей строки — `0`.
+ */
+export function listItemErrors(errors: Map<string, string>, name: string): Map<string, string> {
+  const prefix = `${name}.`;
+  const nested = new Map<string, string>();
+  for (const [path, message] of errors) {
+    if (path.startsWith(prefix)) nested.set(path.slice(prefix.length), message);
+  }
+  return nested;
+}
+
+/**
+ * Список объектов, строки которого форма рисует по подполям схемы элемента.
+ * Элемент без видимых подполей рисуется как свободный объект — по ключам.
+ */
+export function hasItemFields(field: FieldDescriptor): field is FieldDescriptor & { itemFields: FieldDescriptor[] } {
+  return field.itemKind === "object" && !!field.itemFields?.length;
+}
+
+/**
+ * Показывает ли форма ошибку с этим путём под каким-нибудь полем.
+ *
+ * Путь совпадает с полем верхнего уровня, если равен его имени. Для списка
+ * объектов сервер адресует и всю строку (`имя.N`), и её подполе
+ * (`имя.N.подполе`) — обе формы путей форма рисует (строку — в карточке,
+ * подполе — под ним), если строка N есть в форме, а подполе указано в схеме
+ * элемента. Строку, удалённую после проверки, путь глубже одного уровня,
+ * лишний ключ (`extra="forbid"`) или список без подполей форма нигде не
+ * рисует: такую ошибку покажет только общий блок.
+ */
+export function fieldErrorShown(path: string, fields: FieldDescriptor[], values: FormValues): boolean {
+  for (const field of fields) {
+    if (path === field.name) return true;
+    if (!hasItemFields(field)) continue;
+    const prefix = `${field.name}.`;
+    if (!path.startsWith(prefix)) continue;
+    const rest = path.slice(prefix.length);
+    const dot = rest.indexOf(".");
+    const indexPart = dot === -1 ? rest : rest.slice(0, dot);
+    const rows = values[field.name];
+    if (!/^\d+$/.test(indexPart) || Number(indexPart) >= (Array.isArray(rows) ? rows.length : 0)) continue;
+    if (dot === -1) return true;
+    const subName = rest.slice(dot + 1);
+    if (field.itemFields.some((sub) => sub.name === subName)) return true;
+  }
+  return false;
 }
 
 /**
@@ -247,7 +362,7 @@ export function toPayload(
       continue;
     }
     if (field.kind === "list") {
-      payload[field.name] = Array.isArray(value) ? value : [];
+      payload[field.name] = normalizeListRows(value, field, base[field.name]);
       continue;
     }
     const text = typeof value === "string" ? value.trim() : value == null ? "" : String(value);
@@ -283,7 +398,7 @@ export function withoutVat(value: number, vatRate: number): number {
 export function parseNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
-  const text = value.trim().replace(/\s| /g, "").replace(",", ".");
+  const text = value.trim().replace(/\s|\u00a0/g, "").replace(",", ".");
   if (!text) return null;
   const parsed = Number(text);
   return Number.isFinite(parsed) ? parsed : null;

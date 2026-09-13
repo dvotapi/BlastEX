@@ -3,8 +3,10 @@ import type { ReferenceSectionSchema } from "../../types/referenceSchema";
 import type { EconomicsReferenceItem, ReferenceValidationIssue } from "../../types/economics";
 import { derivedHints, type DerivedContext } from "../../lib/referenceDerived";
 import {
+  fieldErrorShown,
   formFieldsets,
   isRubleField,
+  listItemErrors,
   parseNumber,
   sectionFields,
   toFormValues,
@@ -115,11 +117,21 @@ export function RecordForm({
   const fieldErrors = useMemo(() => {
     const map = new Map<string, string>();
     for (const issue of issues) {
-      if (issue.field && !map.has(issue.field)) map.set(issue.field, issue.message);
+      if (!issue.field) continue;
+      // Одно поле может получить несколько сообщений (ошибка схемы и висячая
+      // ссылка): под полем показываем все, по одному на строку.
+      const previous = map.get(issue.field);
+      if (previous === undefined) map.set(issue.field, issue.message);
+      else if (!previous.split("\n").includes(issue.message)) map.set(issue.field, `${previous}\n${issue.message}`);
     }
     return map;
   }, [issues]);
-  const commonIssues = issues.filter((issue) => !issue.field);
+  // Поля брать те, что реально рисуются: ошибка поля вне групп сервера (не
+  // попавшего в fieldsets) тоже должна попасть сюда, а не потеряться.
+  const renderedFields = fieldsets.flatMap((set) => set.fields);
+  const commonIssues = issues.filter(
+    (issue) => !issue.field || !fieldErrorShown(issue.field, renderedFields, values),
+  );
 
   const previewPayload = useMemo(() => toPayload(values, fields, record.payload), [values, fields, record.payload]);
   const hints = useMemo(
@@ -222,6 +234,7 @@ export function RecordForm({
             onChange={(next) => setValue(field.name, next)}
             disabled={disabled}
             error={error}
+            itemErrors={listItemErrors(fieldErrors, field.name)}
             refOptions={refOptions}
             sampleRows={siblings.flatMap((payload) => {
               const value = payload[field.name];

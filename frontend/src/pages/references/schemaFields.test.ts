@@ -3,8 +3,13 @@ import {
   decimalText,
   defaultPayload,
   describeField,
+  fieldErrorShown,
   formatFieldValue,
   formFieldsets,
+  listCellText,
+  listItemErrors,
+  newListRow,
+  normalizeListRows,
   numericPayloadKeys,
   sectionFields,
   toFormValues,
@@ -220,5 +225,186 @@ describe("числовые поля раздела", () => {
 
   it("принимает раздел без схемы", () => {
     expect(numericPayloadKeys(undefined)).toEqual(new Set());
+  });
+});
+
+// Ступени шкалы: у последней ступени верхнего порога нет (`null`).
+const TIERS_SCHEMA: JsonSchemaObject = {
+  type: "object",
+  $defs: {
+    Tier: {
+      type: "object",
+      properties: {
+        upto_per_shift: {
+          anyOf: [{ minimum: 0, type: "number" }, { pattern: "^\\d+(\\.\\d+)?$", type: "string" }, { type: "null" }],
+          default: null,
+          title: "До, м/смену",
+          "x-unit": "м/смену",
+        },
+        rate: {
+          anyOf: [{ minimum: 0, type: "number" }, { pattern: "^\\d+(\\.\\d+)?$", type: "string" }],
+          default: "0",
+          title: "Расценка",
+          "x-unit": "₽/м",
+        },
+        grade: { anyOf: [{ type: "string" }, { type: "null" }], default: null, title: "Категория" },
+      },
+    },
+  },
+  properties: {
+    tiers: { type: "array", items: { $ref: "#/$defs/Tier" }, title: "Ступени" },
+  },
+};
+
+describe("строки списка объектов", () => {
+  const tiers = sectionFields(TIERS_SCHEMA)[0];
+  const members = sectionFields(CREW_SCHEMA)[0];
+
+  it("пустое необязательное подполе сохраняется как null, запятая становится точкой", () => {
+    expect(
+      normalizeListRows([{ upto_per_shift: "115,3846", rate: " 45 " }, { upto_per_shift: "", rate: "168,66" }], tiers),
+    ).toEqual([
+      { upto_per_shift: "115.3846", rate: "45" },
+      { upto_per_shift: null, rate: "168.66" },
+    ]);
+  });
+
+  it("пустое обязательное подполе не сохраняется — сервер возьмёт значение по умолчанию", () => {
+    expect(normalizeListRows([{ position_code: "POS_A", headcount: "" }], members)).toEqual([{ position_code: "POS_A" }]);
+  });
+
+  it("пустое необязательное текстовое подполе — null, а не пустая строка", () => {
+    expect(normalizeListRows([{ rate: "1", grade: "" }], tiers)).toEqual([{ rate: "1", grade: null }]);
+  });
+
+  it("числа, null и неизвестные ключи из payload не меняются", () => {
+    const rows = [{ upto_per_shift: null, rate: 45, legacy_ref: "X" }];
+    expect(normalizeListRows(rows, tiers)).toEqual(rows);
+  });
+
+  it("строка-массив в списке объектов возвращается как есть", () => {
+    // typeof массива тоже "object": без явной проверки Array.isArray строка
+    // рассыпалась бы в {0: "POS_A", 1: 2}.
+    const rows = [["POS_A", 2]];
+    expect(normalizeListRows(rows, members)).toEqual(rows);
+  });
+
+  it("список без схемы элемента и не-список возвращаются как есть", () => {
+    const free = describeField("items", { type: "array", title: "Состав" });
+    expect(normalizeListRows([{ a: "" }], free)).toEqual([{ a: "" }]);
+    expect(normalizeListRows("не список", tiers)).toEqual([]);
+  });
+
+  it("toPayload нормализует списки объектов", () => {
+    const fields = sectionFields(TIERS_SCHEMA);
+    expect(toPayload({ tiers: [{ upto_per_shift: "", rate: "4,5" }] }, fields)).toEqual({
+      tiers: [{ upto_per_shift: null, rate: "4.5" }],
+    });
+  });
+
+  it("нетронутая строка сохранённой записи не нормализуется, изменённая — нормализуется", () => {
+    // Старая кнопка «+ Добавить строку» писала пустую должность; такая строка
+    // проходит проверку ревизии. Нормализация удалила бы ключ и сломала
+    // публикацию записи, в которой сметчик эту строку даже не открывал.
+    const legacy = { position_code: "", headcount: "1" };
+    const rows = normalizeListRows([legacy, { position_code: "", headcount: "2" }], members, [legacy]);
+    expect(rows[0]).toBe(legacy);
+    expect(rows[1]).toEqual({ headcount: "2" });
+  });
+
+  it("toPayload сравнивает строки списка с сохранённым payload", () => {
+    const legacy = { position_code: "", headcount: "1" };
+    expect(toPayload({ members: [legacy] }, sectionFields(CREW_SCHEMA), { members: [legacy] })).toEqual({
+      members: [{ position_code: "", headcount: "1" }],
+    });
+  });
+
+  it("новая строка заполняется значениями по умолчанию из схемы элемента", () => {
+    expect(newListRow(members.itemFields ?? [])).toEqual({ position_code: "", headcount: "1" });
+    expect(newListRow(tiers.itemFields ?? [])).toEqual({ upto_per_shift: "", rate: "0", grade: "" });
+  });
+
+  it("ошибки подполей отбираются по имени списка без префикса", () => {
+    const errors = new Map([
+      ["members.0.headcount", "Численность: ожидается число"],
+      ["members.1", "Строка: должность повторяется"],
+      ["members", "Состав пуст"],
+      ["membership", "чужое поле"],
+    ]);
+    expect(listItemErrors(errors, "members")).toEqual(
+      new Map([
+        ["0.headcount", "Численность: ожидается число"],
+        ["1", "Строка: должность повторяется"],
+      ]),
+    );
+  });
+});
+
+describe("listCellText: текст ячейки подполя списка", () => {
+  const members = sectionFields(CREW_SCHEMA)[0];
+  const headcount = members.itemFields!.find((field) => field.name === "headcount")!;
+  const positionCode = members.itemFields!.find((field) => field.name === "position_code")!;
+
+  it("отсутствующее подполе с умолчанием в схеме — умолчание", () => {
+    expect(listCellText(undefined, headcount)).toBe("1");
+  });
+
+  it("отсутствующее подполе без умолчания в схеме — пустая строка", () => {
+    expect(listCellText(undefined, positionCode)).toBe("");
+  });
+
+  it("null — пустая строка", () => {
+    expect(listCellText(null, headcount)).toBe("");
+  });
+
+  it("число остаётся строкой числа", () => {
+    expect(listCellText(45, headcount)).toBe("45");
+  });
+});
+
+describe("fieldErrorShown: путь ошибки, который форма рисует полем", () => {
+  const fields = sectionFields(CREW_SCHEMA);
+  const values = { members: [{}] };
+
+  it("путь равен имени поля верхнего уровня", () => {
+    expect(fieldErrorShown("members", fields, values)).toBe(true);
+  });
+
+  it("путь — вся строка списка объектов", () => {
+    expect(fieldErrorShown("members.0", fields, values)).toBe(true);
+  });
+
+  it("путь — подполе строки, которое есть в схеме элемента", () => {
+    expect(fieldErrorShown("members.0.headcount", fields, values)).toBe(true);
+  });
+
+  it("подполе, которого нет в схеме элемента (лишний ключ), форма не рисует", () => {
+    expect(fieldErrorShown("members.0.unknown_key", fields, values)).toBe(false);
+  });
+
+  it("путь глубже одного уровня форма не рисует", () => {
+    expect(fieldErrorShown("members.0.headcount.extra", fields, values)).toBe(false);
+  });
+
+  it("поле верхнего уровня вне переданного набора полей", () => {
+    expect(fieldErrorShown("other_field", fields, values)).toBe(false);
+  });
+
+  it("строку, которой уже нет в форме, форма не рисует", () => {
+    // Проверка ревизии прошла по трём строкам, сметчик удалил две до
+    // повторной проверки: ошибке третьей строки место только в общем блоке.
+    expect(fieldErrorShown("members.2.position_code", fields, values)).toBe(false);
+    expect(fieldErrorShown("members.2", fields, values)).toBe(false);
+  });
+
+  it("список объектов без видимых подполей рисуется свободным — ошибки его строк форма не рисует", () => {
+    const internalOnly: JsonSchemaObject = {
+      type: "object",
+      $defs: {
+        Item: { type: "object", properties: { legacy_ref: { type: "string", title: "Ссылка", "x-internal": true } } },
+      },
+      properties: { items: { type: "array", items: { $ref: "#/$defs/Item" }, title: "Состав" } },
+    };
+    expect(fieldErrorShown("items.0", sectionFields(internalOnly), { items: [{}] })).toBe(false);
   });
 });

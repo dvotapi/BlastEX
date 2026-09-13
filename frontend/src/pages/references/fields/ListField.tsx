@@ -2,7 +2,7 @@ import { FieldShell } from "./FieldShell";
 import { RefSelect, type RefOption } from "./RefSelect";
 import { EnumSegment } from "./EnumSegment";
 import { keyLabel } from "../enumLabels";
-import type { FieldDescriptor } from "../schemaFields";
+import { hasItemFields, listCellText, newListRow, type FieldDescriptor } from "../schemaFields";
 
 type Row = Record<string, unknown>;
 
@@ -17,6 +17,7 @@ export function ListField({
   onChange,
   disabled,
   error,
+  itemErrors,
   refOptions,
   sampleRows = [],
 }: {
@@ -25,6 +26,8 @@ export function ListField({
   onChange: (value: unknown[]) => void;
   disabled?: boolean;
   error?: string;
+  /** Ошибки внутри списка: `0.headcount` — подполе строки, `0` — вся строка. */
+  itemErrors?: Map<string, string>;
   refOptions: (section: string) => RefOption[];
   /** Строки того же поля у соседних записей раздела: по ним узнаём состав ключей. */
   sampleRows?: unknown[];
@@ -63,41 +66,55 @@ export function ListField({
     );
   }
 
-  if (field.itemKind === "object" && field.itemFields?.length) {
+  // Условие общее с `fieldErrorShown`: ошибки строк форма показывает только здесь.
+  if (hasItemFields(field)) {
     const itemFields = field.itemFields;
     return (
       <FieldShell field={field} error={error}>
         <div className="ref-list">
           {rows.map((row, index) => {
             const item = (row ?? {}) as Row;
+            const rowError = itemErrors?.get(String(index));
             return (
-              <div className="ref-list-card" key={index}>
+              <div className={`ref-list-card${rowError ? " has-error" : ""}`} key={index}>
                 {itemFields.map((sub) => {
                   const raw = item[sub.name];
-                  const text = raw === null || raw === undefined ? "" : String(raw);
+                  const text = listCellText(raw, sub);
                   const patch = (next: unknown) => replace(index, { ...item, [sub.name]: next });
+                  // Имя с номером строки делает id подполя уникальным в форме и
+                  // связывает подпись с полем; значение пишется по имени подполя.
+                  const cell: FieldDescriptor = { ...sub, name: `${field.name}.${index}.${sub.name}` };
+                  const subError = itemErrors?.get(`${index}.${sub.name}`);
                   if (sub.kind === "ref") {
                     return (
                       <RefSelect
                         key={sub.name}
-                        field={sub}
+                        field={cell}
                         value={text}
                         options={refOptions(sub.ref)}
                         onChange={patch}
                         disabled={disabled}
+                        error={subError}
                       />
                     );
                   }
                   if (sub.kind === "enum") {
                     return (
-                      <EnumSegment key={sub.name} field={sub} value={text} onChange={patch} disabled={disabled} />
+                      <EnumSegment
+                        key={sub.name}
+                        field={cell}
+                        value={text}
+                        onChange={patch}
+                        disabled={disabled}
+                        error={subError}
+                      />
                     );
                   }
                   return (
-                    <div className="ref-field" key={sub.name}>
-                      <label>{sub.title}</label>
+                    <FieldShell key={sub.name} field={cell} error={subError}>
                       <div className="ref-input-wrap">
                         <input
+                          id={`ref-field-${cell.name}`}
                           value={text}
                           disabled={disabled}
                           inputMode={sub.kind === "number" ? "decimal" : undefined}
@@ -105,9 +122,10 @@ export function ListField({
                         />
                         {sub.unit && <span className="ref-input-unit">{sub.unit}</span>}
                       </div>
-                    </div>
+                    </FieldShell>
                   );
                 })}
+                {rowError && <p className="ref-field-error">{rowError}</p>}
                 <button type="button" className="ref-list-remove" disabled={disabled} onClick={() => remove(index)}>
                   Удалить строку
                 </button>
@@ -118,7 +136,7 @@ export function ListField({
             type="button"
             className="ref-list-add"
             disabled={disabled}
-            onClick={() => onChange([...rows, Object.fromEntries(itemFields.map((sub) => [sub.name, ""]))])}
+            onClick={() => onChange([...rows, newListRow(itemFields)])}
           >
             + Добавить строку
           </button>

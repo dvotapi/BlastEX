@@ -39,13 +39,14 @@ class TestRegistry:
 
         missing: list[str] = []
         for section in SECTION_SCHEMAS:
-            for name, field in (section_json_schema(section).get("properties") or {}).items():
-                if not _is_numeric(field):
-                    continue
-                if "x-unit" not in field and not any(
-                    "x-unit" in variant for variant in field.get("anyOf", []) if isinstance(variant, dict)
-                ):
-                    missing.append(f"{section}.{name}")
+            for container, properties in _field_containers(section):
+                for name, field in properties.items():
+                    if not _is_numeric(field):
+                        continue
+                    if "x-unit" not in field and not any(
+                        "x-unit" in variant for variant in field.get("anyOf", []) if isinstance(variant, dict)
+                    ):
+                        missing.append(f"{container}.{name}")
         assert missing == []
 
     def test_reference_fields_point_at_existing_sections(self):
@@ -59,6 +60,15 @@ def _is_numeric(field: dict) -> bool:
         return False
     variants = field.get("anyOf") or [field]
     return any(isinstance(v, dict) and v.get("type") in {"number", "integer"} for v in variants)
+
+
+def _field_containers(section: str):
+    """Свойства раздела и вложенных моделей: подполе списка — такое же поле формы."""
+
+    schema = section_json_schema(section)
+    yield section, schema.get("properties") or {}
+    for name, model in (schema.get("$defs") or {}).items():
+        yield f"{section}.{name}", model.get("properties") or {}
 
 
 class TestPositionSchema:
@@ -165,14 +175,14 @@ class TestValidationThroughSchemas:
     def test_every_field_has_a_russian_title(self):
         latin = set("abcdefghijklmnopqrstuvwxyz")
         for section in SECTION_SCHEMAS:
-            properties = section_json_schema(section).get("properties") or {}
-            for name, node in properties.items():
-                if node.get("x-internal"):
-                    continue
-                title = node.get("title", "")
-                assert title, f"{section}.{name}: нет подписи поля"
-                # Английский заголовок pydantic («Rock Code») в интерфейс не попадает.
-                assert not set(title.lower()) <= latin | set(" -/()0123456789"), f"{section}.{name}: подпись {title!r}"
+            for container, properties in _field_containers(section):
+                for name, node in properties.items():
+                    if node.get("x-internal"):
+                        continue
+                    title = node.get("title", "")
+                    assert title, f"{container}.{name}: нет подписи поля"
+                    # Английский заголовок pydantic («Rock Code») в интерфейс не попадает.
+                    assert not set(title.lower()) <= latin | set(" -/()0123456789"), f"{container}.{name}: подпись {title!r}"
 
     def test_dangling_reference_is_reported_under_its_field(self):
         sections = dict(default_reference_sections())

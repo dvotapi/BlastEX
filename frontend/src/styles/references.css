@@ -121,7 +121,7 @@
 .ref-field input:focus, .ref-field select:focus, .ref-field textarea:focus { border-color:#2d7556; outline:none; box-shadow:0 0 0 3px rgba(45,117,86,.12); }
 .ref-field.has-error input, .ref-field.has-error select { border-color:#c0392b; background:#fef7f6; }
 .ref-field-hint { margin:0; color:#7d8b84; font-size:11px; line-height:1.45; }
-.ref-field-error { margin:0; color:#c0392b; font-size:11px; line-height:1.45; }
+.ref-field-error { margin:0; color:#c0392b; font-size:11px; line-height:1.45; white-space:pre-line; }
 .ref-field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 .ref-input-wrap { position:relative; display:flex; align-items:center; }
 .ref-input-wrap input { padding-right:56px; }
@@ -143,6 +143,7 @@
 .ref-list-row { display:flex; gap:6px; }
 .ref-list-row button { width:32px; border:1px solid #d7e1dc; border-radius:8px; background:#fff; color:#8b2c23; }
 .ref-list-card { display:grid; gap:8px; padding:10px; border:1px solid #e7edea; border-radius:9px; background:#fafcfb; }
+.ref-list-card.has-error { border-color:#c0392b; background:#fef7f6; }
 .ref-list-add, .ref-list-remove { padding:7px 10px; border:1px dashed #cfdcd6; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:var(--font-weight-strong); }
 .ref-list-remove { border-style:solid; color:#8b2c23; justify-self:start; }
 

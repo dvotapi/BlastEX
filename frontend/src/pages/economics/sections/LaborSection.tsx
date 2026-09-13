@@ -62,6 +62,12 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
         // Штат на ротацию модель выводит только экипажу техники — у остальных
         // должностей ключа нет, и подпись не показывается.
         const rotation = economics?.natural.values[`crew_rotation.${member.position_code}`];
+        // 0 в составе — правило «по экипажу техники один человек в смене»
+        // знает только модель; подпись показывает её число, только если оно
+        // отличается от поля состава (иначе это был бы дубль).
+        const crewPerShift = economics?.natural.values[`crew_per_shift.${member.position_code}`];
+        const crewPerShiftDiffers =
+          crewPerShift !== undefined && Number(crewPerShift) !== Number(member.headcount);
 
         return (
           <EstimateLine
@@ -91,6 +97,9 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
                     ? "норматив"
                     : formatAmount(Number(member.shifts_per_block)),
               },
+              ...(crewPerShiftDiffers
+                ? [{ label: "В смене", value: `${formatAmount(Number(crewPerShift))} чел.` }]
+                : []),
               ...(rotation === undefined
                 ? []
                 : [{ label: "Штат на ротацию", value: `${formatAmount(Number(rotation))} чел.` }]),

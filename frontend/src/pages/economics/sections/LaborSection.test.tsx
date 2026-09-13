@@ -149,4 +149,57 @@ describe("LaborSection", () => {
     // У взрывника техники нет — и подписи нет.
     expect(screen.getAllByText(/Штат на ротацию/)).toHaveLength(1);
   });
+
+  it("показывает «В смене» из расчёта, когда 0 в составе даёт одного человека", () => {
+    const { params, defaults, economics, group } = setup();
+    const zeroHeadcount = {
+      ...params,
+      crew: params.crew.map((member, i) => (i === 0 ? { ...member, headcount: 0 } : member)),
+    };
+    const withCrewPerShift = {
+      ...economics,
+      natural: {
+        ...economics.natural,
+        values: { ...economics.natural.values, "crew_per_shift.MASTER_BVR": "1" },
+      },
+    };
+    render(
+      <LaborSection
+        group={group}
+        params={zeroHeadcount}
+        defaults={defaults}
+        economics={withCrewPerShift}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/В смене: 1 чел\./)).toBeInTheDocument();
+  });
+
+  it("не показывает «В смене», когда расчёт совпадает с составом", () => {
+    const { params, defaults, economics, group } = setup();
+    const withCrewPerShift = {
+      ...economics,
+      natural: {
+        ...economics.natural,
+        // У взрывника в составе уже 2 человека — расчёт подтверждает то же число.
+        values: { ...economics.natural.values, "crew_per_shift.VZRYVNIK": "2" },
+      },
+    };
+    render(
+      <LaborSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={withCrewPerShift}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/В смене/)).not.toBeInTheDocument();
+  });
 });

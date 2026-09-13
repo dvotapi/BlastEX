@@ -3,6 +3,7 @@ import type { ReferenceSectionSchema } from "../../types/referenceSchema";
 import type { EconomicsReferenceItem, ReferenceValidationIssue } from "../../types/economics";
 import { derivedHints, type DerivedContext } from "../../lib/referenceDerived";
 import {
+  fieldErrorShown,
   formFieldsets,
   isRubleField,
   listItemErrors,
@@ -120,7 +121,10 @@ export function RecordForm({
     }
     return map;
   }, [issues]);
-  const commonIssues = issues.filter((issue) => !issue.field);
+  // Поля брать те, что реально рисуются: ошибка поля вне групп сервера (не
+  // попавшего в fieldsets) тоже должна попасть сюда, а не потеряться.
+  const renderedFields = fieldsets.flatMap((set) => set.fields);
+  const commonIssues = issues.filter((issue) => !issue.field || !fieldErrorShown(issue.field, renderedFields));
 
   const previewPayload = useMemo(() => toPayload(values, fields, record.payload), [values, fields, record.payload]);
   const hints = useMemo(

@@ -132,4 +132,17 @@ describe("RecordForm: списки объектов", () => {
     rerender(formElement(onApply, [], { ...RECORD, payload }));
     expect(screen.getByLabelText("Численность")).toHaveValue("1");
   });
+
+  it("ошибка лишнего ключа подполя (extra=forbid) видна в общем блоке", () => {
+    renderForm(() => undefined, [
+      {
+        level: "error",
+        section: "crew_templates",
+        code: "CREW_DRILL",
+        message: "Состав бригады → строка 1: неизвестное поле unknown_key",
+        field: "members.0.unknown_key",
+      },
+    ]);
+    expect(screen.getByText("Состав бригады → строка 1: неизвестное поле unknown_key")).toBeInTheDocument();
+  });
 });

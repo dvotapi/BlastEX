@@ -3,6 +3,7 @@ import {
   decimalText,
   defaultPayload,
   describeField,
+  fieldErrorShown,
   formatFieldValue,
   formFieldsets,
   listCellText,
@@ -334,5 +335,33 @@ describe("listCellText: текст ячейки подполя списка", ()
 
   it("число остаётся строкой числа", () => {
     expect(listCellText(45, headcount)).toBe("45");
+  });
+});
+
+describe("fieldErrorShown: путь ошибки, который форма рисует полем", () => {
+  const fields = sectionFields(CREW_SCHEMA);
+
+  it("путь равен имени поля верхнего уровня", () => {
+    expect(fieldErrorShown("members", fields)).toBe(true);
+  });
+
+  it("путь — вся строка списка объектов", () => {
+    expect(fieldErrorShown("members.0", fields)).toBe(true);
+  });
+
+  it("путь — подполе строки, которое есть в схеме элемента", () => {
+    expect(fieldErrorShown("members.0.headcount", fields)).toBe(true);
+  });
+
+  it("подполе, которого нет в схеме элемента (лишний ключ), форма не рисует", () => {
+    expect(fieldErrorShown("members.0.unknown_key", fields)).toBe(false);
+  });
+
+  it("путь глубже одного уровня форма не рисует", () => {
+    expect(fieldErrorShown("members.0.headcount.extra", fields)).toBe(false);
+  });
+
+  it("поле верхнего уровня вне переданного набора полей", () => {
+    expect(fieldErrorShown("other_field", fields)).toBe(false);
   });
 });

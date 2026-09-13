@@ -294,6 +294,33 @@ export function listItemErrors(errors: Map<string, string>, name: string): Map<s
 }
 
 /**
+ * Показывает ли форма ошибку с этим путём под каким-нибудь полем.
+ *
+ * Путь совпадает с полем верхнего уровня, если равен его имени. Для списка
+ * объектов сервер адресует и всю строку (`имя.N`), и её подполе
+ * (`имя.N.подполе`) — обе формы путей форма рисует (строку — в карточке,
+ * подполе — под ним), если подполе указано в схеме элемента. Путь глубже
+ * одного уровня, лишний ключ (`extra="forbid"`) или список без схемы
+ * элемента форма нигде не рисует: такую ошибку покажет только общий блок.
+ */
+export function fieldErrorShown(path: string, fields: FieldDescriptor[]): boolean {
+  for (const field of fields) {
+    if (path === field.name) return true;
+    if (field.kind !== "list" || field.itemKind !== "object") continue;
+    const prefix = `${field.name}.`;
+    if (!path.startsWith(prefix)) continue;
+    const rest = path.slice(prefix.length);
+    const dot = rest.indexOf(".");
+    const indexPart = dot === -1 ? rest : rest.slice(0, dot);
+    if (!/^\d+$/.test(indexPart)) continue;
+    if (dot === -1) return true;
+    const subName = rest.slice(dot + 1);
+    if (field.itemFields?.some((sub) => sub.name === subName)) return true;
+  }
+  return false;
+}
+
+/**
  * Обратное преобразование. Пустое необязательное поле сохраняется как `null`,
  * пустое обязательное — не сохраняется вовсе, и запись получает значение по
  * умолчанию из схемы вместо ошибки «ожидается число».

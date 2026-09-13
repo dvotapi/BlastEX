@@ -14,10 +14,6 @@
 body { margin:0; min-width:320px; min-height:100vh; }
 button, input, select { font:inherit; }
 button { cursor:pointer; }
-/* `index.html` без doctype — страница в quirks-режиме, где таблица не
-   наследует шрифт и сбрасывает вес на 400: без этого основной текст ячеек
-   и выделения (`th`, `b`, итоговые строки) были бы одного веса. */
-table { font-size:inherit; font-weight:inherit; font-style:inherit; }
 /* Всё, что выделяется, — Regular 400: подписи полей, заголовки, кнопки и
    значения в полях (в 200 они нечитаемы); заголовок страницы — Medium 500. */
 b, strong, th, label, legend, h2, h3, h4, h5, summary, button, select, input, svg text { font-weight:var(--font-weight-strong); }

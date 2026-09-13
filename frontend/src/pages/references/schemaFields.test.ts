@@ -364,28 +364,47 @@ describe("listCellText: текст ячейки подполя списка", ()
 
 describe("fieldErrorShown: путь ошибки, который форма рисует полем", () => {
   const fields = sectionFields(CREW_SCHEMA);
+  const values = { members: [{}] };
 
   it("путь равен имени поля верхнего уровня", () => {
-    expect(fieldErrorShown("members", fields)).toBe(true);
+    expect(fieldErrorShown("members", fields, values)).toBe(true);
   });
 
   it("путь — вся строка списка объектов", () => {
-    expect(fieldErrorShown("members.0", fields)).toBe(true);
+    expect(fieldErrorShown("members.0", fields, values)).toBe(true);
   });
 
   it("путь — подполе строки, которое есть в схеме элемента", () => {
-    expect(fieldErrorShown("members.0.headcount", fields)).toBe(true);
+    expect(fieldErrorShown("members.0.headcount", fields, values)).toBe(true);
   });
 
   it("подполе, которого нет в схеме элемента (лишний ключ), форма не рисует", () => {
-    expect(fieldErrorShown("members.0.unknown_key", fields)).toBe(false);
+    expect(fieldErrorShown("members.0.unknown_key", fields, values)).toBe(false);
   });
 
   it("путь глубже одного уровня форма не рисует", () => {
-    expect(fieldErrorShown("members.0.headcount.extra", fields)).toBe(false);
+    expect(fieldErrorShown("members.0.headcount.extra", fields, values)).toBe(false);
   });
 
   it("поле верхнего уровня вне переданного набора полей", () => {
-    expect(fieldErrorShown("other_field", fields)).toBe(false);
+    expect(fieldErrorShown("other_field", fields, values)).toBe(false);
+  });
+
+  it("строку, которой уже нет в форме, форма не рисует", () => {
+    // Проверка ревизии прошла по трём строкам, сметчик удалил две до
+    // повторной проверки: ошибке третьей строки место только в общем блоке.
+    expect(fieldErrorShown("members.2.position_code", fields, values)).toBe(false);
+    expect(fieldErrorShown("members.2", fields, values)).toBe(false);
+  });
+
+  it("список объектов без видимых подполей рисуется свободным — ошибки его строк форма не рисует", () => {
+    const internalOnly: JsonSchemaObject = {
+      type: "object",
+      $defs: {
+        Item: { type: "object", properties: { legacy_ref: { type: "string", title: "Ссылка", "x-internal": true } } },
+      },
+      properties: { items: { type: "array", items: { $ref: "#/$defs/Item" }, title: "Состав" } },
+    };
+    expect(fieldErrorShown("items.0", sectionFields(internalOnly), { items: [{}] })).toBe(false);
   });
 });

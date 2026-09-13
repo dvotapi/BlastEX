@@ -301,28 +301,38 @@ export function listItemErrors(errors: Map<string, string>, name: string): Map<s
 }
 
 /**
+ * Список объектов, строки которого форма рисует по подполям схемы элемента.
+ * Элемент без видимых подполей рисуется как свободный объект — по ключам.
+ */
+export function hasItemFields(field: FieldDescriptor): field is FieldDescriptor & { itemFields: FieldDescriptor[] } {
+  return field.itemKind === "object" && !!field.itemFields?.length;
+}
+
+/**
  * Показывает ли форма ошибку с этим путём под каким-нибудь полем.
  *
  * Путь совпадает с полем верхнего уровня, если равен его имени. Для списка
  * объектов сервер адресует и всю строку (`имя.N`), и её подполе
  * (`имя.N.подполе`) — обе формы путей форма рисует (строку — в карточке,
- * подполе — под ним), если подполе указано в схеме элемента. Путь глубже
- * одного уровня, лишний ключ (`extra="forbid"`) или список без схемы
- * элемента форма нигде не рисует: такую ошибку покажет только общий блок.
+ * подполе — под ним), если строка N есть в форме, а подполе указано в схеме
+ * элемента. Строку, удалённую после проверки, путь глубже одного уровня,
+ * лишний ключ (`extra="forbid"`) или список без подполей форма нигде не
+ * рисует: такую ошибку покажет только общий блок.
  */
-export function fieldErrorShown(path: string, fields: FieldDescriptor[]): boolean {
+export function fieldErrorShown(path: string, fields: FieldDescriptor[], values: FormValues): boolean {
   for (const field of fields) {
     if (path === field.name) return true;
-    if (field.kind !== "list" || field.itemKind !== "object") continue;
+    if (!hasItemFields(field)) continue;
     const prefix = `${field.name}.`;
     if (!path.startsWith(prefix)) continue;
     const rest = path.slice(prefix.length);
     const dot = rest.indexOf(".");
     const indexPart = dot === -1 ? rest : rest.slice(0, dot);
-    if (!/^\d+$/.test(indexPart)) continue;
+    const rows = values[field.name];
+    if (!/^\d+$/.test(indexPart) || Number(indexPart) >= (Array.isArray(rows) ? rows.length : 0)) continue;
     if (dot === -1) return true;
     const subName = rest.slice(dot + 1);
-    if (field.itemFields?.some((sub) => sub.name === subName)) return true;
+    if (field.itemFields.some((sub) => sub.name === subName)) return true;
   }
   return false;
 }

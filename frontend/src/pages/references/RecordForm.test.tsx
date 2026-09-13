@@ -160,6 +160,43 @@ describe("RecordForm: списки объектов", () => {
     expect(screen.getByLabelText("Численность")).toHaveValue("1");
   });
 
+  it("ошибка строки, которой уже нет в форме, видна в общем блоке", () => {
+    renderForm(() => undefined, [
+      {
+        level: "error",
+        section: "crew_templates",
+        code: "CREW_DRILL",
+        message: "Не заполнено обязательное поле «Состав бригады → строка 3 → Должность».",
+        field: "members.2.position_code",
+      },
+    ]);
+    expect(
+      screen.getByText("Не заполнено обязательное поле «Состав бригады → строка 3 → Должность».").closest(".ref-form-issues"),
+    ).not.toBeNull();
+  });
+
+  it("две ошибки одного подполя видны обе под этим подполем", () => {
+    renderForm(() => undefined, [
+      {
+        level: "error",
+        section: "crew_templates",
+        code: "CREW_DRILL",
+        message: "Первая ошибка должности.",
+        field: "members.0.position_code",
+      },
+      {
+        level: "error",
+        section: "crew_templates",
+        code: "CREW_DRILL",
+        message: "Вторая ошибка должности.",
+        field: "members.0.position_code",
+      },
+    ]);
+    const error = screen.getByLabelText("Должность").closest(".ref-field")?.querySelector(".ref-field-error");
+    expect(error?.textContent).toContain("Первая ошибка должности.");
+    expect(error?.textContent).toContain("Вторая ошибка должности.");
+  });
+
   it("ошибка лишнего ключа подполя (extra=forbid) видна в общем блоке", () => {
     renderForm(() => undefined, [
       {

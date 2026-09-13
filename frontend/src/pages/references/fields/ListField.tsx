@@ -2,7 +2,7 @@ import { FieldShell } from "./FieldShell";
 import { RefSelect, type RefOption } from "./RefSelect";
 import { EnumSegment } from "./EnumSegment";
 import { keyLabel } from "../enumLabels";
-import { listCellText, newListRow, type FieldDescriptor } from "../schemaFields";
+import { hasItemFields, listCellText, newListRow, type FieldDescriptor } from "../schemaFields";
 
 type Row = Record<string, unknown>;
 
@@ -66,7 +66,8 @@ export function ListField({
     );
   }
 
-  if (field.itemKind === "object" && field.itemFields?.length) {
+  // Условие общее с `fieldErrorShown`: ошибки строк форма показывает только здесь.
+  if (hasItemFields(field)) {
     const itemFields = field.itemFields;
     return (
       <FieldShell field={field} error={error}>

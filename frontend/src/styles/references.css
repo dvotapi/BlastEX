@@ -121,7 +121,7 @@
 .ref-field input:focus, .ref-field select:focus, .ref-field textarea:focus { border-color:#2d7556; outline:none; box-shadow:0 0 0 3px rgba(45,117,86,.12); }
 .ref-field.has-error input, .ref-field.has-error select { border-color:#c0392b; background:#fef7f6; }
 .ref-field-hint { margin:0; color:#7d8b84; font-size:11px; line-height:1.45; }
-.ref-field-error { margin:0; color:#c0392b; font-size:11px; line-height:1.45; }
+.ref-field-error { margin:0; color:#c0392b; font-size:11px; line-height:1.45; white-space:pre-line; }
 .ref-field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 .ref-input-wrap { position:relative; display:flex; align-items:center; }
 .ref-input-wrap input { padding-right:56px; }

@@ -218,8 +218,65 @@ export function toFormValues(payload: Record<string, unknown>, fields: FieldDesc
  * число, оставляем как есть: пусть о нём скажет валидация, а не мы молча.
  */
 export function decimalText(text: string): string {
-  const compact = text.replace(/[\s ]/g, "").replace(",", ".");
+  const compact = text.replace(/[\s ]/g, "").replace(",", ".");
   return compact !== "" && /^[+-]?\d*\.?\d*$/.test(compact) ? compact : text;
+}
+
+/**
+ * Строки списка объектов в вид payload.
+ *
+ * Подполя элемента подчиняются тому же правилу, что поля верхнего уровня в
+ * `toPayload`: пустое необязательное — `null`, пустое обязательное не
+ * сохраняется, число приводится к записи с точкой. Числа, флаги и `null` из
+ * payload не трогаем — «Применить» без правок возвращает тот же объект.
+ * Ключи, которых нет в схеме элемента, сохраняются как есть.
+ */
+export function normalizeListRows(rows: unknown, field: FieldDescriptor): unknown[] {
+  if (!Array.isArray(rows)) return [];
+  const subs = field.itemKind === "object" ? field.itemFields ?? [] : [];
+  if (!subs.length) return rows;
+  return rows.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const item: Record<string, unknown> = { ...(row as Record<string, unknown>) };
+    for (const sub of subs) {
+      const raw = item[sub.name];
+      if (raw === undefined || raw === null || typeof raw !== "string") continue;
+      const text = raw.trim();
+      if (text === "") {
+        if (sub.optional) item[sub.name] = null;
+        else delete item[sub.name];
+        continue;
+      }
+      item[sub.name] = sub.kind === "number" ? decimalText(text) : text;
+    }
+    return item;
+  });
+}
+
+/** Новая строка списка: значения по умолчанию из схемы элемента, остальное пусто. */
+export function newListRow(itemFields: FieldDescriptor[]): Record<string, unknown> {
+  return Object.fromEntries(
+    itemFields.map((sub) => [
+      sub.name,
+      sub.defaultValue === undefined || sub.defaultValue === null ? "" : sub.defaultValue,
+    ]),
+  );
+}
+
+/**
+ * Ошибки подполей списка.
+ *
+ * Сервер адресует ошибку внутри списка путём `members.0.headcount`
+ * (`cost/v2/references.py`); список получает её без своего имени —
+ * `0.headcount`, а ошибку всей строки — `0`.
+ */
+export function listItemErrors(errors: Map<string, string>, name: string): Map<string, string> {
+  const prefix = `${name}.`;
+  const nested = new Map<string, string>();
+  for (const [path, message] of errors) {
+    if (path.startsWith(prefix)) nested.set(path.slice(prefix.length), message);
+  }
+  return nested;
 }
 
 /**
@@ -247,7 +304,7 @@ export function toPayload(
       continue;
     }
     if (field.kind === "list") {
-      payload[field.name] = Array.isArray(value) ? value : [];
+      payload[field.name] = normalizeListRows(value, field);
       continue;
     }
     const text = typeof value === "string" ? value.trim() : value == null ? "" : String(value);
@@ -283,7 +340,7 @@ export function withoutVat(value: number, vatRate: number): number {
 export function parseNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
-  const text = value.trim().replace(/\s| /g, "").replace(",", ".");
+  const text = value.trim().replace(/\s| /g, "").replace(",", ".");
   if (!text) return null;
   const parsed = Number(text);
   return Number.isFinite(parsed) ? parsed : null;

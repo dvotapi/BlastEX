@@ -1,6 +1,6 @@
 /**
  * Раздел «Персонал»: по строке на запись состава бригады (`params.crew`).
- * Должность выбирается из справочника, численность и смены на блок правит
+ * Должность выбирается из справочника, людей в смене и смены на блок правит
  * сметчик; строки взносов, резерва и суточных, которых нет в составе
  * бригады напрямую, показываются под ними только для чтения.
  */
@@ -59,6 +59,9 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
         const origin = crewOrigin(member, template);
         const line = lineByCode(group.lines, `LABOR_${member.position_code}`);
         const positionLabel = position?.name ?? member.position_code;
+        // Штат на ротацию модель выводит только экипажу техники — у остальных
+        // должностей ключа нет, и подпись не показывается.
+        const rotation = economics?.natural.values[`crew_rotation.${member.position_code}`];
 
         return (
           <EstimateLine
@@ -88,6 +91,9 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
                     ? "норматив"
                     : formatAmount(Number(member.shifts_per_block)),
               },
+              ...(rotation === undefined
+                ? []
+                : [{ label: "Штат на ротацию", value: `${formatAmount(Number(rotation))} чел.` }]),
             ]}
             quantity={Number(member.headcount)}
             quantityEditor={
@@ -95,12 +101,12 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
                 value={member.headcount}
                 min={0}
                 step={1}
-                ariaLabel={`Численность: ${positionLabel}`}
+                ariaLabel={`Человек в смене: ${positionLabel}`}
                 disabled={!canEdit}
                 onChange={(value) => update(index, { headcount: value ?? "0" })}
               />
             }
-            unit="чел."
+            unit="чел./см"
             price={position?.fixed_monthly_rub ?? null}
             amount={line?.amount_rub ?? 0}
             volume={volume}

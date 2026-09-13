@@ -83,7 +83,7 @@ describe("LaborSection", () => {
     // Состав бригады совпадает с шаблоном пакета — обе записи стартуют с «Норматив».
     expect(screen.getAllByText("Норматив").length).toBeGreaterThan(0);
 
-    const headcount = screen.getByLabelText("Численность: Мастер БВР");
+    const headcount = screen.getByLabelText("Человек в смене: Мастер БВР");
     await user.clear(headcount);
     await user.type(headcount, "2");
 
@@ -122,5 +122,31 @@ describe("LaborSection", () => {
     expect(onChange).toHaveBeenLastCalledWith({
       crew: params.crew.map((member, i) => (i === 0 ? { ...member, shifts_per_block: "3" } : member)),
     });
+  });
+
+  it("показывает штат на ротацию экипажа техники из расчёта", () => {
+    const { params, defaults, economics, group } = setup();
+    const withRotation = {
+      ...economics,
+      natural: {
+        ...economics.natural,
+        values: { ...economics.natural.values, "crew_rotation.MASTER_BVR": "3" },
+      },
+    };
+    render(
+      <LaborSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={withRotation}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Штат на ротацию: 3 чел\./)).toBeInTheDocument();
+    // У взрывника техники нет — и подписи нет.
+    expect(screen.getAllByText(/Штат на ротацию/)).toHaveLength(1);
   });
 });

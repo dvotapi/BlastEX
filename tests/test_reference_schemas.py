@@ -170,7 +170,7 @@ class TestValidationThroughSchemas:
         )
         issues = _errors(validate_reference_sections(sections))
         message = next(issue.message for issue in issues if issue.field == "members.0.headcount")
-        assert "Состав бригады → строка 1 → Численность" in message
+        assert "Состав бригады → строка 1 → Человек в смене" in message
 
     def test_every_field_has_a_russian_title(self):
         latin = set("abcdefghijklmnopqrstuvwxyz")

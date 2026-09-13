@@ -5,6 +5,7 @@ import { derivedHints, type DerivedContext } from "../../lib/referenceDerived";
 import {
   formFieldsets,
   isRubleField,
+  listItemErrors,
   parseNumber,
   sectionFields,
   toFormValues,
@@ -222,6 +223,7 @@ export function RecordForm({
             onChange={(next) => setValue(field.name, next)}
             disabled={disabled}
             error={error}
+            itemErrors={listItemErrors(fieldErrors, field.name)}
             refOptions={refOptions}
             sampleRows={siblings.flatMap((payload) => {
               const value = payload[field.name];

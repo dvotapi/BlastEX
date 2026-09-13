@@ -30,7 +30,12 @@ export type WorkObject = {
   name: string;
   mobilization_km: number;
   diesel_price_ton_rub: number | null;
+  /** Юнит, обслуживающий объект (раздел `production_units`); у старых записей может не быть. */
+  production_unit_code?: string | null;
 };
+
+/** Производственный юнит опубликованной ревизии. */
+export type ProductionUnit = { code: string; name: string };
 
 export type DrillRig = {
   id?: string;

@@ -61,8 +61,8 @@ def imported_snapshot(tmp_path) -> ReferenceSnapshot:
     return ReferenceSnapshot(revision_id="IMPORTED", sections=sections)
 
 
-def _plain(items):
-    return [asdict(item) for item in items]
+def _plain(items, *, drop: tuple[str, ...] = ()):
+    return [{key: value for key, value in asdict(item).items() if key not in drop} for item in items]
 
 
 def test_structures_survive_import_and_adapter(imported_snapshot) -> None:
@@ -70,7 +70,11 @@ def test_structures_survive_import_and_adapter(imported_snapshot) -> None:
     expected = default_legacy_references()
 
     assert not legacy.warnings, legacy.warnings
-    assert _plain(legacy.work_objects) == _plain(expected.work_objects)
+    # Импорт привязывает каждый объект к юниту команды (`import_v1.py`), у
+    # умолчаний V1 юнита нет — это единственное ожидаемое расхождение.
+    unit = ("production_unit_code",)
+    assert _plain(legacy.work_objects, drop=unit) == _plain(expected.work_objects, drop=unit)
+    assert all(obj.production_unit_code for obj in legacy.work_objects)
     assert _plain(legacy.drill_rigs) == _plain(expected.drill_rigs)
     assert _plain(legacy.rocks) == _plain(expected.rocks)
     assert _plain(legacy.explosives) == _plain(expected.explosives)

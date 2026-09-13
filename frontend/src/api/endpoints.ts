@@ -20,6 +20,7 @@ import type {
   Rock,
   ScenarioListItem,
   User,
+  ProductionUnit,
   WorkObject,
   WorkspaceSnapshot,
   WorkspaceState,
@@ -160,6 +161,7 @@ export const api = {
   rocks: () => get<{ items: Rock[]; default_name: string }>(`${V1}/references/rocks`),
   explosives: () => get<{ items: Explosive[]; default_key: string }>(`${V1}/references/explosives`),
   workObjects: () => get<{ items: WorkObject[]; default_name: string }>(`${V1}/references/work-objects`),
+  productionUnits: () => get<{ items: ProductionUnit[] }>(`${V1}/references/production-units`),
   drillRigs: () => get<{ items: DrillRig[]; default_name: string }>(`${V1}/references/drill-rigs`),
   depreciationAssets: () =>
     get<{ items: FixedAssetDepreciation[] }>(`${V1}/references/depreciation-assets`),

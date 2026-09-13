@@ -40,6 +40,24 @@ class TeamScopedReferencesTests(unittest.TestCase):
         self.assertEqual(team_b.default_name, "Тестовый карьер")
         self.assertEqual(team_b.items[0].mobilization_km, 42.0)
 
+    def test_production_units_come_from_published_revision_and_are_isolated(self):
+        _publish(
+            self.repository,
+            "team_b",
+            "production_units",
+            [
+                ReferenceItem("UNIT_B", "Юнит Б", {"region": "Пермский край"}),
+                ReferenceItem("UNIT_OFF", "Закрытый юнит", {}, is_active=False),
+            ],
+        )
+
+        team_b = references_router.list_production_units(snapshot=self.repository.get_reference_snapshot("team_b"))
+        self.assertEqual([(u.code, u.name) for u in team_b.items], [("UNIT_B", "Юнит Б")])
+
+        # У другой организации своей ревизии нет: юниты — сущность V2, умолчаний V1 для них не существует.
+        team_a = references_router.list_production_units(snapshot=self.repository.get_reference_snapshot("team_a"))
+        self.assertEqual(team_a.items, [])
+
     def test_rocks_come_from_published_revision(self):
         _publish(
             self.repository,

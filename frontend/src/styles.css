@@ -38,7 +38,8 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .loading-screen, .login-page { min-height:100vh; display:grid; place-items:center; background:radial-gradient(circle at 70% 20%,#254d3d 0,#10271d 42%,#09150f 100%); color:#fff; }
 .loading-screen { align-content:center; gap:12px; }
 .loading-screen, .login-page { font-size:13px; font-weight:300; }
-.loading-screen span, .login-brand span, .brand span, .topbar-brand-mark { width:42px; height:42px; display:grid; place-items:center; border-radius:12px; background:rgba(229, 185, 76, 0.55); color:#17231c; font-weight:var(--font-weight-strong); }
+/* Знак ComplEX (assets/ComplexMark.tsx): красный прямо на фоне, без плашки. */
+.complex-mark { display:block; flex:none; color:#e63945; }
 .login-card { width:min(430px,calc(100% - 32px)); padding:36px; border:1px solid rgba(255,255,255,.14); border-radius:22px; background:rgba(14,32,24,.86); box-shadow:0 30px 100px rgba(0,0,0,.35); backdrop-filter:blur(18px); }
 .login-brand { display:flex; align-items:center; gap:12px; font-size:18px; font-weight:var(--font-weight-strong); margin-bottom:30px; }
 .login-card h1 { margin:0 0 8px; font-size:28px; }
@@ -64,10 +65,13 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .app-shell.sidebar-collapsed { grid-template-columns:68px minmax(0,1fr); }
 .sidebar { position:sticky; top:0; height:100vh; min-width:0; padding:20px 12px; display:flex; flex-direction:column; color:#eaf3ef; background:#10291f; transition:padding .18s ease; }
 .brand { position:relative; display:flex; align-items:center; gap:9px; min-height:40px; padding:0 6px 24px; font-weight:var(--font-weight-strong); }
-.brand span { width:34px; height:34px; border-radius:10px; }
-/* Знак «BX» рисовался от корневых 16 px; корень теперь 11 px. */
-.brand span, .loading-screen span { font-size:16px; font-weight:var(--font-weight-title); }
-.brand-name { overflow:hidden; white-space:nowrap; font-size:15px; }
+/* Полный логотип развёрнутого сайдбара: знак, COMPLEX с красным «EX» и подложка. */
+.complex-logo { display:flex; align-items:center; gap:8px; min-width:0; }
+.complex-logo-text { display:grid; gap:2px; min-width:0; line-height:1.05; }
+.complex-logo-text b { color:#fff; font-size:12px; letter-spacing:.8px; white-space:nowrap; }
+.complex-logo-text b em { color:#e63945; font-style:normal; }
+/* Рядом с кнопкой сворачивания на подпись остаётся ~70 px — переносим на две строки, а не обрезаем. */
+.complex-logo-text small { color:#9fb3a9; font-size:8.5px; line-height:1.15; letter-spacing:.2px; }
 .sidebar-toggle { width:28px; height:28px; display:grid; place-items:center; margin-left:auto; border:1px solid #365548; border-radius:8px; background:#17382b; color:#c7d8cf; font-size:20px; line-height:1; }
 .sidebar-toggle:hover { border-color:#6b957e; background:#244638; color:#fff; }
 .sidebar nav { display:grid; gap:7px; }
@@ -76,7 +80,7 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .sidebar nav i { width:20px; font-size:16px; font-style:normal; text-align:center; }
 .sidebar.collapsed { padding-right:10px; padding-left:10px; }
 .sidebar.collapsed .brand { justify-content:center; padding-right:0; padding-left:0; }
-.sidebar.collapsed .brand-name, .sidebar.collapsed .user-details { display:none; }
+.sidebar.collapsed .user-details { display:none; }
 .sidebar.collapsed .sidebar-toggle { position:absolute; top:5px; right:-7px; width:22px; height:22px; border-radius:50%; background:#2d7556; color:#fff; font-size:17px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
 .sidebar.collapsed nav button { min-width:0; justify-content:center; overflow:hidden; padding-right:8px; padding-left:8px; }
 .sidebar.collapsed nav button > span { display:none; }
@@ -92,9 +96,9 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .app-shell.design-mode .workspace { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
 .app-shell.design-mode .topbar { height:36px; min-height:36px; padding:0 16px; flex:0 0 36px; }
 .app-shell.design-mode .topbar-lead, .app-shell.design-mode .topbar-slot { display:none; }
-/* Одна строка чуть выше кнопок («Выйти» — 34px): заголовок, слот заголовка
-   («Справка» экономики), бренд, слот полосы листа «Расчёт» и «Выйти».
-   Высота не фиксирована: полоса «Расчёта» с плашками при узком окне
+/* Одна строка 44px (8 + 28 + 8): бренд, заголовок, слот заголовка
+   (селекторы «Экономики блока»), слот полосы листа «Расчёт», «Выйти» и
+   слот справки. Высота не фиксирована: полоса «Расчёта» при узком окне
    переносится и растит шапку, но по умолчанию всё умещается в один ряд.
    Заголовок обрезается многоточием, кнопка «Выйти» видна всегда. */
 .topbar { min-height:44px; padding:8px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid #dce4e0; background:#fff; }
@@ -110,8 +114,8 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .topbar-title-slot:empty { display:none; }
 .topbar span { color:#69776f; font-size:11px; }
 /* Слот для полосы листа «Расчёт» (см. topbarSlot.tsx): занимает пустующее
-   место между заголовком и кнопкой «Выйти», плашки переносятся сюда же
-   (flex-wrap на самой полосе — `.calc-top-strip`), а не в общий ряд шапки. */
+   место между заголовком и кнопкой «Выйти»; при узком окне поля переносятся
+   внутри полосы (flex-wrap на `.calc-top-strip`), а не в общий ряд шапки. */
 .topbar > .topbar-slot { flex:1 1 auto; min-width:0; display:flex; justify-content:flex-end; }
 .topbar-icon-button { flex:none; width:28px; height:28px; display:grid; place-items:center; border:1px solid #ced9d3; border-radius:50%; background:#fff; color:#3b4b43; font-size:12px; font-weight:var(--font-weight-strong); }
 .topbar-icon-button:hover { border-color:#2d7556; color:#2d7556; }
@@ -120,12 +124,25 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .logout-button { flex:none; height:var(--control-h); padding:0 10px; border:1px solid #ced9d3; border-radius:var(--radius-control); background:#fff; color:#3b4b43; font-size:var(--fs-base); font-weight:var(--font-weight-strong); }
 .page-content { padding:25px 28px 40px; }
 .page-heading { margin-bottom:20px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
-.topbar-brand { display:flex; align-items:center; gap:7px; flex:none; padding-left:14px; border-left:1px solid #e2e8e5; }
-/* Тот же бейдж-значок, что у «BX» в сайдбаре — общее правило вверху файла
-   (`.brand span` и соседи), здесь только размер и цвет свои. `span.` даёт
-   ту же специфичность, что у `.topbar span`, и побеждает порядком
-   объявления — это правило ниже. */
-span.topbar-brand-mark { width:20px; height:20px; border-radius:6px; flex:none; background:#d92d3f; color:#fff; font-size:9px; letter-spacing:-.2px; }
+.topbar-brand { display:flex; align-items:center; gap:7px; flex:none; padding-right:12px; border-right:1px solid #e2e8e5; }
+/* «EX» в слогане — цвет знака ComplEX. */
+.brand-ex { color:#e63945; font-style:normal; }
+/* Шапка листа «Расчёт» на узком окне: сначала поля юнита и объекта
+   переносятся на вторую строку (слот сжимается в первую очередь, но не уже
+   своих полей), и только потом заголовок сжимается с многоточием. Бренд
+   уступает место раньше — знак ComplEX остаётся в сайдбаре. */
+.topbar-calc > .topbar-slot { flex-shrink:1000; }
+@media (min-width:761px) {
+  .topbar-calc > .topbar-slot { min-width:auto; }
+  .topbar-calc .topbar-field-unit select { min-width:110px; }
+  .topbar-calc .topbar-field-object select { min-width:160px; }
+}
+@media (max-width:1099px) {
+  .topbar-calc .topbar-brand { display:none; }
+}
+/* Узел после «Выйти» — круглая кнопка справки (topbarSlot.tsx). */
+.topbar-trailing-slot { flex:none; display:flex; align-items:center; }
+.topbar-trailing-slot:empty { display:none; }
 .topbar-brand-text { display:flex; flex-direction:column; line-height:1.3; }
 .topbar-brand-text b { font-size:11px; font-weight:var(--font-weight-strong); color:#3b4b43; }
 .topbar-brand-text i { font-style:normal; font-size:9px; color:#8a978f; letter-spacing:.2px; }
@@ -162,15 +179,13 @@ span.topbar-brand-mark { width:20px; height:20px; border-radius:6px; flex:none; 
 @media (max-width:900px) {
   .metrics-grid { grid-template-columns:1fr 1fr; }
   .calculator-grid { grid-template-columns:290px minmax(0,1fr); }
-  .calc-top-strip-object { flex:1 1 100%; }
-  .calc-top-strip-object select { width:100%; }
-  .metric-chips { margin-left:0; width:100%; }
+  .topbar-field-object { flex:1 1 100%; }
+  .topbar-field-object select { width:100%; }
 }
 @media (max-width:760px) {
-  .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { min-height:56px; padding:6px 16px; }.topbar-brand-text { display:none; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
-  /* Четыре плашки с min-width:96px не помещаются в узкий слот шапки —
-     переносим их на вторую строку вместо горизонтального обрезания. */
-  .metric-chips { flex-wrap:wrap; }
+  .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { min-height:56px; padding:6px 16px; }.topbar-brand { display:none; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
+  /* Лист назван активной вкладкой нижней навигации — шапка отдана юниту и объекту. */
+  .topbar-calc .topbar-lead { display:none; }
   .mobile-nav { position:fixed; z-index:10; left:0; right:0; bottom:0; display:flex; justify-content:space-around; padding:7px 2px max(7px,env(safe-area-inset-bottom)); border-top:1px solid #dce4e0; background:#fff; }.mobile-nav button { display:grid; gap:2px; place-items:center; border:0; background:transparent; color:#78857f; font-size:8px; padding:2px; }.mobile-nav button b { color:#6d7a73; font-size:15px; }.mobile-nav button.active, .mobile-nav button.active b { color:#247752; }
 }
 
@@ -190,23 +205,29 @@ span.topbar-brand-mark { width:20px; height:20px; border-radius:6px; flex:none; 
 .scenario-phases ul { margin:8px 0 0; padding:0; list-style:none; display:grid; gap:6px; }
 .scenario-phases label { display:flex; align-items:center; gap:8px; font-size:12px; }
 
-/* --- Компактная полоса листа «Расчёт»: команда, объект, статус и плашки --- */
+/* --- Компактная полоса листа «Расчёт»: юнит, объект и статус автосохранения --- */
 .calc-top-strip { display:flex; flex-wrap:wrap; align-items:center; gap:14px; margin:0 0 14px; padding:10px 14px; border:1px solid #d9e2dd; border-radius:12px; background:#fff; }
 /* В шапке приложения (см. topbar-slot выше) — без своей рамки и фона,
-   заполняет слот целиком; перенос плашек на вторую строку остаётся за счёт
+   заполняет слот целиком; перенос полей на вторую строку остаётся за счёт
    flex-wrap, но заголовок и «Выйти» в `.topbar` от этого не переносятся. */
 .calc-top-strip.in-topbar { flex:1 1 auto; min-width:0; margin:0; padding:0; border:0; background:transparent; }
-.calc-top-strip-object { max-width:420px; }
-/* У <select> текст не обрезается ellipsis-ом — просто разрешаем сжатие. */
-.calc-top-strip-object select { min-width:0; }
+.topbar-field { display:flex; align-items:center; gap:6px; min-width:0; }
+.topbar-field label { color:#78857f; font-size:10px; white-space:nowrap; }
+.topbar-field select { height:var(--control-h); min-width:0; padding:0 8px; border:1px solid #cfd9d4; border-radius:var(--radius-control); background:#fbfcfb; color:#17231d; }
+.topbar-field-unit select { width:160px; }
+/* У <select> текст не обрезается ellipsis-ом — ширина ограничена, сжатие разрешено. */
+.topbar-field-object { flex:0 1 auto; }
+.topbar-field-object select { width:260px; max-width:100%; }
 .calc-autosave-status { font-size:11px; font-weight:var(--font-weight-strong); color:#6e7c75; }
 .calc-autosave-status[data-status="saved"] { color:#247752; }
 .calc-autosave-status[data-status="error"] { color:#9e3025; }
-.metric-chips { display:flex; gap:8px; margin-left:auto; }
-.metric-chip { padding:6px 10px; border:1px solid #dce4e0; border-radius:10px; min-width:96px; }
-.metric-chip span { display:block; margin-bottom:3px; color:#78857f; font-size:10px; }
-.metric-chip strong { font-size:15px; letter-spacing:-.2px; }
-.metric-chip small { margin-left:3px; color:#6e7b75; font-size:10px; }
+/* Плашки показателей выбранного варианта (MetricChips) над таблицей «Варианты сетки». */
+.chips { display:flex; flex-wrap:wrap; gap:6px; }
+.chip { display:grid; gap:1px; min-width:78px; padding:4px 8px; border:1px solid #dce4e0; border-radius:var(--radius-control); }
+.chip span { color:#78857f; font-size:9.5px; }
+.chip b { font-size:13px; letter-spacing:-.2px; }
+.chip small { margin-left:2px; color:#6e7b75; font-size:9.5px; }
+.variants-metrics { border-bottom:1px solid #edf1ef; }
 /* Предупреждения под полосой: тот же вид, что в шапке, но без её
    разделительной черты — блок стоит отдельным элементом страницы. */
 .calc-warnings { margin:0 0 14px; font-size:12px; color:#6e7c75; }
@@ -396,7 +417,7 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 }
 
 /* --- Полоса паспорта под шапкой (см. PassportStrip.tsx): поля одной строкой,
-   ниже плашки геометрии тем же видом, что на листе «Расчёт» (.metric-chip),
+   ниже плашки геометрии тем же видом, что на листе «Расчёт» (.chip),
    остальные величины паспорта — под раскрывашкой. Вне .page-content, чтобы
    примыкать к шапке без полей страницы. --- */
 
@@ -517,15 +538,15 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
   .cost-structure-section-head em { display:none; }
 }
 
-/* Справка вкладки «Экономика блока»: содержание вводного текста, только по клику. */
-.economics-help { width:min(620px,calc(100% - 32px)); max-height:min(680px,calc(100% - 64px)); padding:0; border:1px solid #d9e2dd; border-radius:16px; box-shadow:0 30px 80px rgba(15,35,26,.18); }
-.economics-help::backdrop { background:rgba(15,26,20,.45); }
-.economics-help header { position:sticky; top:0; display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #e2e8e5; background:#fff; }
-.economics-help header b { font-size:15px; }
-.economics-help header button { width:28px; height:28px; border:0; border-radius:8px; background:transparent; color:#6e7c75; font-size:16px; line-height:1; }
-.economics-help header button:hover { background:#f0f4f2; }
-.economics-help-body { padding:16px 20px 22px; overflow-y:auto; color:#3b4b43; font-size:13px; line-height:1.6; }
-.economics-help-body p { margin:0 0 10px; }
-.economics-help-body h4 { margin:18px 0 8px; color:#17231d; font-size:13px; }
-.economics-help-body ul { margin:0 0 10px; padding-left:18px; display:grid; gap:8px; }
-.economics-help-body li b { color:#17231d; }
+/* Справки вкладки «Экономика блока» и листа «Расчёт»: содержание вводного текста, только по клику. */
+.economics-help, .calc-help { width:min(620px,calc(100% - 32px)); max-height:min(680px,calc(100% - 64px)); padding:0; border:1px solid #d9e2dd; border-radius:16px; box-shadow:0 30px 80px rgba(15,35,26,.18); }
+.economics-help::backdrop, .calc-help::backdrop { background:rgba(15,26,20,.45); }
+.economics-help header, .calc-help header { position:sticky; top:0; display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #e2e8e5; background:#fff; }
+.economics-help header b, .calc-help header b { font-size:15px; }
+.economics-help header button, .calc-help header button { width:28px; height:28px; border:0; border-radius:8px; background:transparent; color:#6e7c75; font-size:16px; line-height:1; }
+.economics-help header button:hover, .calc-help header button:hover { background:#f0f4f2; }
+.economics-help-body, .calc-help-body { padding:16px 20px 22px; overflow-y:auto; color:#3b4b43; font-size:13px; line-height:1.6; }
+.economics-help-body p, .calc-help-body p { margin:0 0 10px; }
+.economics-help-body h4, .calc-help-body h4 { margin:18px 0 8px; color:#17231d; font-size:13px; }
+.economics-help-body ul, .calc-help-body ul { margin:0 0 10px; padding-left:18px; display:grid; gap:8px; }
+.economics-help-body li b, .calc-help-body li b { color:#17231d; }

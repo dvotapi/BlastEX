@@ -72,7 +72,11 @@ class TestMapping:
         legacy = legacy_references_from_snapshot(
             _snapshot(
                 sites=[
-                    _item("SITE_A", "Карьер А", {"mobilization_km": "220", "diesel_price_ton_rub": "52200"}),
+                    _item(
+                        "SITE_A",
+                        "Карьер А",
+                        {"mobilization_km": "220", "diesel_price_ton_rub": "52200", "production_unit_code": "UNIT_1"},
+                    ),
                     _item("SITE_B", "Карьер Б", {"mobilization_km": None}),
                 ]
             )
@@ -81,9 +85,26 @@ class TestMapping:
         assert names == ["Карьер А", "Карьер Б"]
         assert legacy.work_objects[0].mobilization_km == 220.0
         assert legacy.work_objects[0].diesel_price_ton_rub == 52_200.0
+        assert legacy.work_objects[0].production_unit_code == "UNIT_1"
         assert legacy.work_objects[1].mobilization_km == 0.0
         assert legacy.work_objects[1].diesel_price_ton_rub is None
+        assert legacy.work_objects[1].production_unit_code is None
         assert any("Карьер Б" in warning and "мобилизац" in warning.lower() for warning in legacy.warnings)
+
+    def test_blank_production_unit_code_becomes_none(self):
+        legacy = legacy_references_from_snapshot(
+            _snapshot(sites=[_item("SITE_A", "Карьер А", {"mobilization_km": "1", "production_unit_code": "  "})])
+        )
+        assert legacy.work_objects[0].production_unit_code is None
+
+    def test_work_object_records_keep_production_unit_code(self):
+        from cost.drilling_data import WorkObject, work_objects_from_records, work_objects_to_records
+
+        objects = [WorkObject("Карьер А", 10.0, None, "UNIT_1"), WorkObject("Карьер Б", 5.0, 80_000.0)]
+        records = work_objects_to_records(objects)
+        assert records[0]["production_unit_code"] == "UNIT_1"
+        assert records[1]["production_unit_code"] is None
+        assert work_objects_from_records(records) == objects
 
     def test_drill_rigs_come_from_assets_of_drill_rig_type(self):
         legacy = legacy_references_from_snapshot(

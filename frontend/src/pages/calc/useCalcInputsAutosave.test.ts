@@ -30,6 +30,7 @@ function sheet(overrides: Partial<SheetState> = {}): SheetState {
     selectedCrownMm: 152,
     blockVolumeM3: 42_000,
     additionalHolesPct: 2.5,
+    productionUnitCode: "UNIT_PERM",
     panels: { left: panel(), right: panel() },
     ...overrides,
   };

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { BlastVariant, User } from "../types";
 import { BRAND } from "./brand";
+import { ComplexLogo } from "../assets/ComplexLogo";
+import { ComplexMark } from "../assets/ComplexMark";
 import { WorkspaceProvider } from "./useWorkspace";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { TopbarSlotProvider } from "./topbarSlot";
@@ -24,7 +26,7 @@ const ICONS: Record<Page, string> = {
   "Справочники": "▦",
 };
 const TITLES: Record<Page, string> = {
-  "Расчёт": "Расчёт БВР",
+  "Расчёт": "Подбор параметров БВР",
   "Проектирование": "Проектирование БВР",
   "Экономика": "Экономика блока",
   "Экономика юнита": "Экономика производственного юнита",
@@ -44,6 +46,8 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
   // Узел рядом с заголовком страницы: сюда вкладка «Экономика блока» кладёт
   // кнопку «Справка» через тот же портальный механизм (см. topbarSlot.tsx).
   const [titleSlot, setTitleSlot] = useState<HTMLDivElement | null>(null);
+  // Узел после «Выйти»: круглая кнопка справки листа «Расчёт».
+  const [trailingSlot, setTrailingSlot] = useState<HTMLDivElement | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     const saved = window.localStorage.getItem("blastex.sidebar.collapsed");
@@ -74,8 +78,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
       <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}${page === "Проектирование" ? " design-mode" : ""}`}>
         <aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
           <div className="brand">
-            <span>BX</span>
-            <strong className="brand-name">BlastEX</strong>
+            {sidebarCollapsed ? <ComplexMark size={40} /> : <ComplexLogo />}
             <button
               className="sidebar-toggle"
               type="button"
@@ -111,25 +114,26 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
           {/* На вкладке экономики заголовок страницы живёт на самой странице
               (как в концепте), а его место в шапке занимают селекторы объекта
               и паспорта — см. `TopbarSelectors`. Другие страницы не затронуты. */}
-          <header className={`topbar${page === "Экономика" ? " topbar-economics" : ""}`}>
+          <header className={`topbar${page === "Экономика" ? " topbar-economics" : ""}${page === "Расчёт" ? " topbar-calc" : ""}`}>
             <div className="topbar-lead">
-              <b className="topbar-title">{TITLES[page]}</b>
-              <div className="topbar-title-slot" ref={setTitleSlot} />
               {/* Бренд поставщика сервиса — не орг-данные пользователя: та же
                   строка раньше показывала `user.organization_name`, это поле
-                  осталось (см. ReferencesPage.tsx), здесь только вид сменился. */}
+                  осталось (см. ReferencesPage.tsx). Стоит первым: шапка читается
+                  «чей сервис → какой лист → его контекст». */}
               <div className="topbar-brand">
-                <span className="topbar-brand-mark" aria-hidden="true">{BRAND.mark}</span>
                 <span className="topbar-brand-text">
                   <b>{BRAND.name}</b>
-                  <i>{BRAND.tagline}</i>
+                  <i><em className="brand-ex">{BRAND.taglineAccent}</em>{BRAND.taglineRest}</i>
                 </span>
               </div>
+              <b className="topbar-title">{TITLES[page]}</b>
+              <div className="topbar-title-slot" ref={setTitleSlot} />
             </div>
             <div className="topbar-slot" ref={setTopbarSlot} />
             <button className="logout-button" onClick={onLogout}>Выйти</button>
+            <div className="topbar-trailing-slot" ref={setTrailingSlot} />
           </header>
-          <TopbarSlotProvider slot={topbarSlot} titleSlot={titleSlot}>
+          <TopbarSlotProvider slot={topbarSlot} titleSlot={titleSlot} trailingSlot={trailingSlot}>
             {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
             {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
             {page === "Проектирование" && (

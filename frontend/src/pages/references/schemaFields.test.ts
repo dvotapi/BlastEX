@@ -5,6 +5,7 @@ import {
   describeField,
   formatFieldValue,
   formFieldsets,
+  listCellText,
   listItemErrors,
   newListRow,
   normalizeListRows,
@@ -311,5 +312,27 @@ describe("строки списка объектов", () => {
         ["1", "Строка: должность повторяется"],
       ]),
     );
+  });
+});
+
+describe("listCellText: текст ячейки подполя списка", () => {
+  const members = sectionFields(CREW_SCHEMA)[0];
+  const headcount = members.itemFields!.find((field) => field.name === "headcount")!;
+  const positionCode = members.itemFields!.find((field) => field.name === "position_code")!;
+
+  it("отсутствующее подполе с умолчанием в схеме — умолчание", () => {
+    expect(listCellText(undefined, headcount)).toBe("1");
+  });
+
+  it("отсутствующее подполе без умолчания в схеме — пустая строка", () => {
+    expect(listCellText(undefined, positionCode)).toBe("");
+  });
+
+  it("null — пустая строка", () => {
+    expect(listCellText(null, headcount)).toBe("");
+  });
+
+  it("число остаётся строкой числа", () => {
+    expect(listCellText(45, headcount)).toBe("45");
   });
 });

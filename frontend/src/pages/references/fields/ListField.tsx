@@ -2,7 +2,7 @@ import { FieldShell } from "./FieldShell";
 import { RefSelect, type RefOption } from "./RefSelect";
 import { EnumSegment } from "./EnumSegment";
 import { keyLabel } from "../enumLabels";
-import { newListRow, type FieldDescriptor } from "../schemaFields";
+import { listCellText, newListRow, type FieldDescriptor } from "../schemaFields";
 
 type Row = Record<string, unknown>;
 
@@ -78,7 +78,7 @@ export function ListField({
               <div className={`ref-list-card${rowError ? " has-error" : ""}`} key={index}>
                 {itemFields.map((sub) => {
                   const raw = item[sub.name];
-                  const text = raw === null || raw === undefined ? "" : String(raw);
+                  const text = listCellText(raw, sub);
                   const patch = (next: unknown) => replace(index, { ...item, [sub.name]: next });
                   // Имя с номером строки делает id подполя уникальным в форме и
                   // связывает подпись с полем; значение пишется по имени подполя.

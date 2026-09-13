@@ -50,11 +50,15 @@ const RECORD: DraftItem = {
   revision: 1,
 };
 
-function renderForm(onApply: (next: DraftItem) => void, issues: ReferenceValidationIssue[] = []) {
-  return render(
+function formElement(
+  onApply: (next: DraftItem) => void,
+  issues: ReferenceValidationIssue[] = [],
+  record: DraftItem = RECORD,
+) {
+  return (
     <RecordForm
       section={SECTION}
-      record={RECORD}
+      record={record}
       published={RECORD}
       issues={issues}
       canEdit
@@ -70,8 +74,12 @@ function renderForm(onApply: (next: DraftItem) => void, issues: ReferenceValidat
       onDeactivate={() => undefined}
       onDuplicate={() => undefined}
       onClose={() => undefined}
-    />,
+    />
   );
+}
+
+function renderForm(onApply: (next: DraftItem) => void, issues: ReferenceValidationIssue[] = []) {
+  return render(formElement(onApply, issues));
 }
 
 describe("RecordForm: списки объектов", () => {
@@ -108,5 +116,20 @@ describe("RecordForm: списки объектов", () => {
       },
     ]);
     expect(screen.getByText("Состав бригады → строка 1 → Численность: ожидается число")).toBeInTheDocument();
+  });
+
+  it("очищенное обязательное подполе после «Применить» показывает умолчание схемы", () => {
+    const onApply = vi.fn();
+    const { rerender } = renderForm(onApply);
+    fireEvent.change(screen.getByLabelText("Численность"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
+
+    const payload = onApply.mock.calls[0][0].payload;
+    expect(payload).toEqual({ members: [{ position_code: "POS_A" }] });
+
+    // `record` — константа, useEffect формы реагирует на смену записи:
+    // пересобираем форму с payload из onApply, чтобы проверить отображение.
+    rerender(formElement(onApply, [], { ...RECORD, payload }));
+    expect(screen.getByLabelText("Численность")).toHaveValue("1");
   });
 });

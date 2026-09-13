@@ -253,6 +253,20 @@ export function normalizeListRows(rows: unknown, field: FieldDescriptor): unknow
   });
 }
 
+/**
+ * Текст ячейки подполя списка.
+ *
+ * То же правило, что `toFormValues` применяет к полям верхнего уровня:
+ * отсутствующее подполе показывается значением по умолчанию схемы, явный
+ * `null` — пустой строкой.
+ */
+export function listCellText(raw: unknown, sub: FieldDescriptor): string {
+  if (raw === undefined) {
+    return sub.defaultValue === undefined || sub.defaultValue === null ? "" : String(sub.defaultValue);
+  }
+  return raw === null ? "" : String(raw);
+}
+
 /** Новая строка списка: значения по умолчанию из схемы элемента, остальное пусто. */
 export function newListRow(itemFields: FieldDescriptor[]): Record<string, unknown> {
   return Object.fromEntries(

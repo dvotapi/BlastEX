@@ -218,7 +218,7 @@ export function toFormValues(payload: Record<string, unknown>, fields: FieldDesc
  * число, оставляем как есть: пусть о нём скажет валидация, а не мы молча.
  */
 export function decimalText(text: string): string {
-  const compact = text.replace(/[\s ]/g, "").replace(",", ".");
+  const compact = text.replace(/[\s\u00a0]/g, "").replace(",", ".");
   return compact !== "" && /^[+-]?\d*\.?\d*$/.test(compact) ? compact : text;
 }
 
@@ -354,7 +354,7 @@ export function withoutVat(value: number, vatRate: number): number {
 export function parseNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
-  const text = value.trim().replace(/\s| /g, "").replace(",", ".");
+  const text = value.trim().replace(/\s|\u00a0/g, "").replace(",", ".");
   if (!text) return null;
   const parsed = Number(text);
   return Number.isFinite(parsed) ? parsed : null;

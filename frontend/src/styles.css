@@ -127,8 +127,19 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .topbar-brand { display:flex; align-items:center; gap:7px; flex:none; padding-right:12px; border-right:1px solid #e2e8e5; }
 /* «EX» в слогане — цвет знака ComplEX. */
 .brand-ex { color:#e63945; font-style:normal; }
-/* Заголовок листа «Расчёт» в одну строку целиком: места в шапке хватает. */
-.topbar-calc .topbar-title { flex:none; overflow:visible; text-overflow:clip; }
+/* Шапка листа «Расчёт» на узком окне: сначала поля юнита и объекта
+   переносятся на вторую строку (слот сжимается в первую очередь, но не уже
+   своих полей), и только потом заголовок сжимается с многоточием. Бренд
+   уступает место раньше — знак ComplEX остаётся в сайдбаре. */
+.topbar-calc > .topbar-slot { flex-shrink:1000; }
+@media (min-width:761px) {
+  .topbar-calc > .topbar-slot { min-width:auto; }
+  .topbar-calc .topbar-field-unit select { min-width:110px; }
+  .topbar-calc .topbar-field-object select { min-width:160px; }
+}
+@media (max-width:1099px) {
+  .topbar-calc .topbar-brand { display:none; }
+}
 /* Узел после «Выйти» — круглая кнопка справки (topbarSlot.tsx). */
 .topbar-trailing-slot { flex:none; display:flex; align-items:center; }
 .topbar-trailing-slot:empty { display:none; }
@@ -173,6 +184,8 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 }
 @media (max-width:760px) {
   .app-shell { display:block; padding-bottom:65px; }.sidebar { display:none; }.topbar { min-height:56px; padding:6px 16px; }.topbar-brand { display:none; }.page-content { padding:18px 14px 28px; }.page-heading { align-items:flex-start; }.page-heading h1 { font-size:22px; }.save-status { display:none; }.calculator-grid { grid-template-columns:1fr; }.metrics-grid { order:-1; }.variants-panel th:nth-child(4), .variants-panel td:nth-child(4), .variants-panel th:nth-child(5), .variants-panel td:nth-child(5) { display:none; }
+  /* Лист назван активной вкладкой нижней навигации — шапка отдана юниту и объекту. */
+  .topbar-calc .topbar-lead { display:none; }
   .mobile-nav { position:fixed; z-index:10; left:0; right:0; bottom:0; display:flex; justify-content:space-around; padding:7px 2px max(7px,env(safe-area-inset-bottom)); border-top:1px solid #dce4e0; background:#fff; }.mobile-nav button { display:grid; gap:2px; place-items:center; border:0; background:transparent; color:#78857f; font-size:8px; padding:2px; }.mobile-nav button b { color:#6d7a73; font-size:15px; }.mobile-nav button.active, .mobile-nav button.active b { color:#247752; }
 }
 

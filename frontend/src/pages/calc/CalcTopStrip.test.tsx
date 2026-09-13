@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CalcTopStrip } from "./CalcTopStrip";
+import { CalcTopStrip, ReferenceWarnings } from "./CalcTopStrip";
 
 afterEach(cleanup);
 
@@ -61,6 +61,29 @@ describe("CalcTopStrip", () => {
     expect(props.onUnitChange).toHaveBeenCalledWith("UNIT_URAL");
     fireEvent.change(screen.getByLabelText("Объект"), { target: { value: "Карьер без юнита" } });
     expect(props.onObjectChange).toHaveBeenCalledWith("Карьер без юнита");
+  });
+
+  it("предупреждения справочников закрываются кликом мимо и по Esc", () => {
+    render(
+      <div>
+        <button type="button">Порода</button>
+        <ReferenceWarnings warnings={["Раздел «Породы» пуст"]} />
+      </div>,
+    );
+    const details = screen.getByText("Предупреждения справочников (1)").closest("details")!;
+    details.open = true;
+    fireEvent.pointerDown(screen.getByText("Раздел «Породы» пуст"));
+    expect(details.open).toBe(true);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Порода" }));
+    expect(details.open).toBe(false);
+    details.open = true;
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(details.open).toBe(false);
+  });
+
+  it("без предупреждений строки в заголовке нет", () => {
+    render(<ReferenceWarnings warnings={[]} />);
+    expect(screen.queryByText(/Предупреждения справочников/)).toBeNull();
   });
 
   it("команда в шапке больше не показывается", () => {

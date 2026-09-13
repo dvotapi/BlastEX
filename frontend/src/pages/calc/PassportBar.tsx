@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
-import { revisionsToFetch, siteNameFor, type SiteNamesByRevision } from "./passportSiteNames";
 import type { BlastGeometryResponse } from "../../types";
 import type { TechnicalPassport } from "../../types/blockEconomics";
 
@@ -13,16 +12,19 @@ import type { TechnicalPassport } from "../../types/blockEconomics";
  * Объект работ здесь не выбирается: паспорт принадлежит тому объекту, что
  * выбран в шапке страницы (`objectName`) — по нему считался сам блок, и
  * второй выбор мог с ним разойтись. По нему же отфильтрован список
- * сохранённых паспортов.
+ * сохранённых паспортов. Сохранённые паспорта — выпадающий список, а
+ * «Экономика» и «Удалить» действуют на выбранный в нём: панель должна
+ * уместиться в верхний ряд листа рядом с исходными данными и вариантами.
  */
-export type PassportVariant = { key: string; label: string; geometry: BlastGeometryResponse | null };
+/** `pending` — схема варианта пересчитывается: `geometry` ещё от прошлых значений полей. */
+export type PassportVariant = { key: string; label: string; geometry: BlastGeometryResponse | null; pending?: boolean };
 
 export function PassportBar({
   variants,
   objectName,
   onOpenEconomics,
 }: {
-  /** Панели расчёта с их блоками: в паспорт уходит выбранная пользователем. */
+  /** Варианты заряда с их блоками: в паспорт уходит выбранный пользователем. */
   variants: PassportVariant[];
   /** Активный объект работ страницы: и адрес нового паспорта, и фильтр списка. */
   objectName: string;
@@ -36,30 +38,21 @@ export function PassportBar({
   // которого в справочнике нет вовсе — тогда сохранять некуда, и об этом
   // нужно сказать, а не молча выключить кнопку.
   const [sitesLoaded, setSitesLoaded] = useState(false);
-  const [currentRevisionId, setCurrentRevisionId] = useState("");
-  // Имена объектов по ревизии справочников, на которой выпущен паспорт: объект
-  // могли переименовать (или удалить) позже — список не должен показать новое
-  // имя у старой записи. Так же считает вкладка «Экономика» для того же паспорта.
-  const [namesByRevision, setNamesByRevision] = useState<SiteNamesByRevision>({});
-  // Зеркало namesByRevision для эффекта ниже: он не должен зависеть от
-  // namesByRevision (иначе каждый пришедший снимок его перезапускает и
-  // дублирует запросы для ещё не ответивших ревизий), но обязан видеть
-  // актуальные данные, а не устаревшее замыкание.
-  const namesByRevisionRef = useRef<SiteNamesByRevision>(namesByRevision);
-  // Ревизии, запрос которых уже отправлен и ещё не завершился.
-  const pendingRevisionsRef = useRef<Set<string>>(new Set());
   const [passportName, setPassportName] = useState("");
   const [variantKey, setVariantKey] = useState(variants[0]?.key ?? "");
+  // Паспорт, выбранный в списке сохранённых. Пустой или исчезнувший из
+  // списка — действует первый в списке.
+  const [selectedId, setSelectedId] = useState("");
   const [busy, setBusy] = useState(false);
-  // Паспорт, который сейчас удаляется: блокируем его кнопку, не весь список.
+  // Паспорт, который сейчас удаляется: блокируем кнопку, пока идёт запрос.
   const [deletingId, setDeletingId] = useState("");
   const [error, setError] = useState("");
   const variant = variants.find((item) => item.key === variantKey) ?? variants[0];
   const geometry = variant?.geometry ?? null;
-  const currentNames = useMemo(
-    () => Object.fromEntries(sites.map((site) => [site.code, site.name])),
-    [sites],
-  );
+  // Пока схема пересчитывается, на экране блок прошлых значений полей —
+  // сохранить его в паспорт значило бы отправить в экономику не то, что видно.
+  const pending = Boolean(variant?.pending);
+  const selected = passports.find((item) => item.id === selectedId) ?? passports[0] ?? null;
   // Объект работ из шапки — в справочнике он же «карьер/объект» с кодом.
   // Пока справочник не загружен, кода нет: сохранять и грузить список нечего.
   const siteCode = useMemo(
@@ -86,7 +79,6 @@ export function PassportBar({
             .filter((item) => item.is_active)
             .map((item) => ({ code: item.code, name: item.name })),
         );
-        setCurrentRevisionId(snapshot.revision_id);
         setSitesLoaded(true);
       })
       .catch((reason) =>
@@ -121,42 +113,6 @@ export function PassportBar({
     };
   }, [siteCode]);
 
-  // Для видимых паспортов (первые 8) подгружаем снимок каждой их ревизии —
-  // кроме текущей, она уже загружена выше. Ошибка одной ревизии не должна
-  // ломать список: паспорт просто откатится к текущему имени или коду, а
-  // сама ревизия запоминается как «недоступна» и не запрашивается повторно.
-  // Эффект намеренно не зависит от namesByRevision: иначе каждый пришедший
-  // снимок перезапускал бы его и дублировал запросы для ревизий, чьи ответы
-  // ещё не пришли (pendingRevisionsRef защищает от этого же в рамках одного
-  // прохода эффекта).
-  useEffect(() => {
-    const revisionIds = revisionsToFetch(
-      passports.slice(0, 8),
-      namesByRevisionRef.current,
-      pendingRevisionsRef.current,
-      currentRevisionId,
-    );
-    if (revisionIds.length === 0) return;
-    revisionIds.forEach((revisionId) => {
-      pendingRevisionsRef.current.add(revisionId);
-      api.economics
-        .referenceSnapshot(revisionId)
-        .then((snapshot) => {
-          const names: Record<string, string> = {};
-          for (const item of snapshot.sections.sites ?? []) names[item.code] = item.name;
-          namesByRevisionRef.current = { ...namesByRevisionRef.current, [revisionId]: names };
-          setNamesByRevision(namesByRevisionRef.current);
-        })
-        .catch(() => {
-          namesByRevisionRef.current = { ...namesByRevisionRef.current, [revisionId]: {} };
-          setNamesByRevision(namesByRevisionRef.current);
-        })
-        .finally(() => {
-          pendingRevisionsRef.current.delete(revisionId);
-        });
-    });
-  }, [passports, currentRevisionId]);
-
   async function savePassport() {
     if (!geometry || !siteCode) return;
     const requestedSite = siteCode;
@@ -174,6 +130,7 @@ export function PassportBar({
       // объект, и созданный паспорт в него не относится.
       if (siteCodeRef.current !== requestedSite) return;
       setPassports((rows) => [created, ...rows]);
+      setSelectedId(created.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сохранить паспорт.");
     } finally {
@@ -203,8 +160,11 @@ export function PassportBar({
 
   return (
     <section className="panel passport-bar">
-      <header><b>Технические паспорта</b><span>{objectName || "Экономика блока"}</span></header>
-      <div className="panel-body">
+      <header>
+        <b>Технические паспорта</b>
+        <span>{passports.length ? `${passports.length} по объекту` : "нет по объекту"}</span>
+      </header>
+      <div className="panel-body passport-fields">
         {error && <div className="page-error" role="alert">{error}</div>}
         {siteMissing && (
           <div className="page-error" role="alert">
@@ -212,15 +172,15 @@ export function PassportBar({
             чему. Выберите другой объект в шапке или заведите этот в справочниках.
           </div>
         )}
-        <div className="economic-fields-grid">
-          <label>
-            Название паспорта
-            <input
-              value={passportName}
-              placeholder="Блок, м³"
-              onChange={(event) => setPassportName(event.target.value)}
-            />
-          </label>
+        <label>
+          Название паспорта
+          <input
+            value={passportName}
+            placeholder="Блок, м³"
+            onChange={(event) => setPassportName(event.target.value)}
+          />
+        </label>
+        <div className="passport-line">
           <label>
             Вариант расчёта
             <select value={variant?.key ?? ""} onChange={(event) => setVariantKey(event.target.value)}>
@@ -231,59 +191,64 @@ export function PassportBar({
               ))}
             </select>
           </label>
-          <div className="button-row">
-            <button type="button" onClick={() => void savePassport()} disabled={busy || !geometry || !siteCode}>
-              Сохранить паспорт
-            </button>
-          </div>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void savePassport()}
+            disabled={busy || pending || !geometry || !siteCode}
+          >
+            Сохранить паспорт
+          </button>
         </div>
-        {geometry && variant && (
-          // В паспорт уходит блок выбранной панели с её зарядом и недозарядом —
-          // показываем это до сохранения, чтобы масса не была сюрпризом.
-          <p className="page-caption">
-            В паспорт пойдёт «{variant.label}» по объекту «{objectName}»:{" "}
+        {pending && <p className="passport-hint">Схема заряда пересчитывается…</p>}
+        {!pending && geometry && variant && (
+          // В паспорт уходит блок выбранного варианта с его зарядом и недозарядом —
+          // показываем это до сохранения, чтобы масса не была сюрпризом. Что делает
+          // кнопка «Экономика» — в справке листа (`CalcHelp`).
+          <p className="passport-hint">
+            В паспорт пойдёт «{variant.label}»:{" "}
             {Math.round(geometry.block.total_charge_mass_kg).toLocaleString("ru-RU")} кг ВВ,{" "}
             {geometry.block.total_holes} скважин, {Math.round(geometry.block.drilling_footage_m).toLocaleString("ru-RU")} п.м.,{" "}
-            {geometry.block.specific_q_kg_m3.toFixed(2)} кг/м³ с доп. скважинами. Кнопка «Экономика» открывает сохранённый
-            паспорт: чтобы передать текущий расчёт, сначала сохраните новый.
+            {geometry.block.specific_q_kg_m3.toFixed(2)} кг/м³ с доп. скважинами.
           </p>
         )}
-        {passports.length === 0 ? (
-          <p className="page-caption">Сохранённых паспортов по этому объекту нет.</p>
-        ) : (
-          <div className="passport-list">
-            {passports.slice(0, 8).map((passport) => (
-              <div className="passport-list-row" key={passport.id}>
-                <span>
-                  <b>{passport.object_name}</b>
-                  <small>
-                    {siteNameFor(passport, namesByRevision, currentNames)} · вер.{" "}
-                    {passport.version_no} · {new Date(passport.created_at).toLocaleDateString("ru-RU")} ·{" "}
-                    {Math.round(Number(passport.physical.explosive_kg ?? 0)).toLocaleString("ru-RU")} кг ВВ
-                  </small>
-                </span>
-                <em>{Number(passport.physical.rock_volume_m3 ?? 0).toLocaleString("ru-RU")} м³</em>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => onOpenEconomics?.(passport.id)}
-                  disabled={!onOpenEconomics}
-                >
-                  Экономика
-                </button>
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() => void removePassport(passport)}
-                  disabled={deletingId === passport.id}
-                  title="Удалить паспорт из списка"
-                >
-                  {deletingId === passport.id ? "Удаление…" : "Удалить"}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="passport-line passport-saved">
+          <label>
+            Сохранённые паспорта
+            <select
+              value={selected?.id ?? ""}
+              onChange={(event) => setSelectedId(event.target.value)}
+              disabled={!passports.length}
+            >
+              {passports.length === 0 && <option value="">Сохранённых паспортов по этому объекту нет</option>}
+              {passports.map((passport) => (
+                <option key={passport.id} value={passport.id}>
+                  {passport.object_name} ·{" "}
+                  {Math.round(Number(passport.physical.explosive_kg ?? 0)).toLocaleString("ru-RU")} кг ВВ ·{" "}
+                  {/* Дата и версия различают паспорта одного блока с одинаковым названием. */}
+                  {new Date(passport.created_at).toLocaleDateString("ru-RU")} · вер. {passport.version_no}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => selected && onOpenEconomics?.(selected.id)}
+            disabled={!selected || !onOpenEconomics}
+          >
+            Экономика
+          </button>
+          <button
+            type="button"
+            className="danger-button"
+            onClick={() => selected && void removePassport(selected)}
+            disabled={!selected || deletingId === selected.id}
+            title="Удалить выбранный паспорт из списка"
+          >
+            {selected && deletingId === selected.id ? "Удаление…" : "Удалить"}
+          </button>
+        </div>
       </div>
     </section>
   );

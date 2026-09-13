@@ -13,14 +13,17 @@ import { describe, expect, it } from "vitest";
  * колонку и наезжало на соседние. Этот тест ловит такое при первом же
  * появлении.
  *
- * Проверяются только классы этой вкладки: остальное приложение живёт по
- * прежним правилам, и разбирать его целиком — отдельная работа.
+ * Проверяются классы этой вкладки и листа «Расчёт» (его перевёрстка в
+ * TASK-009 сменила почти все классы): остальное приложение живёт по прежним
+ * правилам, и разбирать его целиком — отдельная работа.
  */
 
 // `fileURLToPath`, а не `.pathname`: путь проекта содержит кириллицу,
 // и в URL она приезжает в процентной записи.
 const SRC = fileURLToPath(new URL("../../", import.meta.url));
 const PAGE_DIR = join(SRC, "pages/economics");
+/** Классы листа «Расчёт», стили которых живут в общих файлах чертежа и дизайна. */
+const CALC_STYLE_FILES = [join(SRC, "styles/hole-drawing.css"), join(SRC, "styles/design.css")];
 const STYLE_FILES = [join(SRC, "styles.css"), join(SRC, "styles/economics.css")];
 
 /** Дубликаты iCloud (« 2.tsx») — не часть проекта, как и в конфиге vitest. */
@@ -48,6 +51,20 @@ function classNamesIn(source: string): Set<string> {
   }
   return found;
 }
+
+describe("стили листа «Расчёт»", () => {
+  it("каждый класс разметки имеет хотя бы одно правило", () => {
+    const css = [...STYLE_FILES, ...CALC_STYLE_FILES].map((file) => readFileSync(file, "utf8")).join("\n");
+    const used = new Set<string>();
+    for (const file of [join(SRC, "pages/CalcPage.tsx"), ...collectFiles(join(SRC, "pages/calc"))]) {
+      for (const name of classNamesIn(readFileSync(file, "utf8"))) used.add(name);
+    }
+
+    const orphans = [...used].filter((name) => !css.includes(`.${name}`)).sort();
+
+    expect(orphans).toEqual([]);
+  });
+});
 
 describe("стили вкладки «Экономика блока»", () => {
   it("каждый класс разметки имеет хотя бы одно правило", () => {

@@ -25,9 +25,9 @@ describe("MetricChips", () => {
   it("рисует четыре показателя выбранного варианта с единицами", () => {
     const { container } = render(<MetricChips metrics={{ q: 0.6, w: 3.87, x50: 212.44, oversize: 4.96 }} />);
     expect(container.querySelectorAll(".chip")).toHaveLength(4);
-    expect(screen.getByText("Удельный q").nextSibling).toHaveTextContent("0.60кг/м³");
-    expect(screen.getByText("ЛНС W").nextSibling).toHaveTextContent("3.87м");
-    expect(screen.getByText("x50").nextSibling).toHaveTextContent("212.4мм");
-    expect(screen.getByText("Негабарит").nextSibling).toHaveTextContent("5.0%");
+    expect(screen.getByText("Удельный q").parentElement).toHaveTextContent("Удельный q0.60кг/м³");
+    expect(screen.getByText("ЛНС W").parentElement).toHaveTextContent("ЛНС W3.87м");
+    expect(screen.getByText("x50").parentElement).toHaveTextContent("x50212.4мм");
+    expect(screen.getByText("Негабарит").parentElement).toHaveTextContent("Негабарит5.0%");
   });
 });

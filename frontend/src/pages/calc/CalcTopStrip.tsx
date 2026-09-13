@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { AutosaveStatus } from "./useCalcInputsAutosave";
 import { filterObjectsByUnit, type ObjectOption, type UnitOption } from "./unitSelection";
 
@@ -26,8 +26,8 @@ function autosaveStatusText(status: AutosaveStatus): string {
  *
  * Юнит — фильтр списка объектов (см. `unitSelection.ts`); поле не рисуется,
  * если в опубликованной ревизии нет ни одного действующего юнита. Показатели
- * выбранного варианта живут в панели «Варианты сетки» (`MetricChips`), ошибка
- * рабочего пространства и предупреждения — в `CalcWorkspaceNotices`.
+ * выбранного варианта живут в панели «Варианты сетки» (`MetricChips`),
+ * предупреждения справочников — в заголовке «Исходных данных» (`ReferenceWarnings`).
  */
 export function CalcTopStrip({
   variant,
@@ -95,35 +95,42 @@ export function CalcTopStrip({
 }
 
 /**
- * Ошибка рабочего пространства (неудачная загрузка или смена объекта) и
- * предупреждения справочников для листа «Расчёт».
- *
- * Отдельно от `CalcTopStrip`: полоса живёт в верхней панели приложения, а
- * этому блоку там не место по высоте.
+ * Предупреждения справочников для листа «Расчёт»: свёрнутая строка в
+ * заголовке панели «Исходные данные», список раскрывается поверх содержимого
+ * (стили `.calc-warnings`), а не сдвигает панели листа вниз.
  */
-export function CalcWorkspaceNotices({
-  workspaceError,
-  warnings,
-}: {
-  workspaceError: string;
-  warnings: string[];
-}) {
-  if (!workspaceError && !warnings.length) return null;
+export function ReferenceWarnings({ warnings }: { warnings: string[] }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  // Список лежит поверх полей — закрываем его, как всплывающее окно: кликом
+  // мимо и по Esc, а не только повторным кликом по строке в заголовке.
+  useEffect(() => {
+    function onPointerDown(event: PointerEvent) {
+      const details = ref.current;
+      if (details?.open && !details.contains(event.target as Node)) details.open = false;
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      const details = ref.current;
+      if (!details?.open || event.key !== "Escape") return;
+      details.open = false;
+      details.querySelector("summary")?.focus();
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  if (!warnings.length) return null;
   return (
-    <>
-      {workspaceError && <div className="page-error" role="alert">{workspaceError}</div>}
-      {warnings.length > 0 && (
-        <div className="calc-warnings">
-          <details>
-            <summary>Предупреждения справочников ({warnings.length})</summary>
-            <ul>
-              {warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          </details>
-        </div>
-      )}
-    </>
+    <details className="calc-warnings" ref={ref}>
+      <summary>Предупреждения справочников ({warnings.length})</summary>
+      <ul>
+        {warnings.map((warning) => (
+          <li key={warning}>{warning}</li>
+        ))}
+      </ul>
+    </details>
   );
 }

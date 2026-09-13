@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { api } from "../api/endpoints";
 import { useWorkspace } from "../app/useWorkspace";
 import { useTopbarSlot } from "../app/topbarSlot";
-import { DataTable } from "../components/DataTable";
+import { explosiveColor } from "../components/holeDrawing/palette";
 import {
   applyCalcInputs,
   collectCalcInputs,
@@ -20,51 +20,21 @@ import {
   type SheetState,
 } from "./calc/calcInputs";
 import { CalcHelp } from "./calc/CalcHelp";
-import { CalcTopStrip, CalcWorkspaceNotices } from "./calc/CalcTopStrip";
+import { ChargeComparison } from "./calc/ChargeComparison";
+import { CalcTopStrip, ReferenceWarnings } from "./calc/CalcTopStrip";
+import { geometryPayload, type VariantContext } from "./calc/holeGeometryPayload";
 import { MetricChips } from "./calc/MetricChips";
 import { knownUnitCode, unitForLoadedSheet } from "./calc/unitSelection";
 import { PassportBar } from "./calc/PassportBar";
-import { HolePanel } from "./calc/HolePanel";
+import { ResultsChart } from "./calc/ResultsChart";
+import { useHoleGeometry } from "./calc/useHoleGeometry";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
-import type { BlastGeometryResponse, BlastVariant, Explosive, ProductionUnit, Rock } from "../types";
-
-function ResultsChart({ variants }: { variants: BlastVariant[] }) {
-  if (!variants.length) return <div className="chart-empty">После расчёта здесь появится сравнение вариантов.</div>;
-  const width = 620;
-  const height = 190;
-  const pad = { left: 42, right: 20, top: 20, bottom: 35 };
-  const qValues = variants.map((item) => item.specific_q_kg_m3);
-  const minQ = Math.min(...qValues) - 0.04;
-  const maxQ = Math.max(...qValues) + 0.04;
-  const x = (index: number) => pad.left + index * ((width - pad.left - pad.right) / Math.max(1, variants.length - 1));
-  const y = (value: number) => pad.top + ((maxQ - value) / (maxQ - minQ)) * (height - pad.top - pad.bottom);
-  const points = variants.map((item, index) => `${x(index)},${y(item.specific_q_kg_m3)}`).join(" ");
-  const tickCount = 4;
-  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => minQ + ((maxQ - minQ) * i) / tickCount);
-  return (
-    <svg className="result-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Зависимость удельного расхода от диаметра коронки">
-      {ticks.map((value) => (
-        <line key={value} className="grid-line" x1={pad.left} x2={width - pad.right} y1={y(value)} y2={y(value)} />
-      ))}
-      <line className="axis-line" x1={pad.left} x2={pad.left} y1={pad.top} y2={height - pad.bottom} />
-      {ticks.map((value) => (
-        <g key={value}>
-          <line className="axis-tick" x1={pad.left - 4} x2={pad.left} y1={y(value)} y2={y(value)} />
-          <text className="axis-label" x={pad.left - 8} y={y(value)} textAnchor="end" dominantBaseline="middle">{value.toFixed(2)}</text>
-        </g>
-      ))}
-      <polyline points={points} />
-      {variants.map((item, index) => <g key={item.crown_mm}><circle cx={x(index)} cy={y(item.specific_q_kg_m3)} r="5" /><text x={x(index)} y={height - 10} textAnchor="middle">{item.crown_mm}</text></g>)}
-    </svg>
-  );
-}
+import type { BlastVariant, Explosive, ProductionUnit, Rock } from "../types";
 
 function FullBvrCalc({
-  explosiveBasis,
   onSendToDesign,
   onOpenEconomics,
 }: {
-  explosiveBasis: "per_m3" | "per_m";
   onSendToDesign?: (variant: BlastVariant) => void;
   onOpenEconomics?: (passportId: string) => void;
 }) {
@@ -148,8 +118,8 @@ function FullBvrCalc({
   const pendingUnitRef = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  // Поля панелей «Вариант 1/2»: панели ведут их у себя, а сюда сообщают об
-  // изменениях — из них собираются настройки листа.
+  // Поля вариантов заряда: карточки ведут их у себя, а сюда сообщают об
+  // изменениях — из них собираются настройки листа и запросы схем заряда.
   const [panelInputs, setPanelInputs] = useState<{ left: PanelInputs; right: PanelInputs }>(() => ({
     left: defaultPanelInputs(DEFAULT_EXPLOSIVE_1, DEFAULT_UNDERCHARGE_1_M),
     right: defaultPanelInputs(DEFAULT_EXPLOSIVE_2, DEFAULT_UNDERCHARGE_2_M),
@@ -161,10 +131,6 @@ function FullBvrCalc({
   // или автозапуск упал), сохраняем его, а не `null` — иначе выбор диаметра
   // потерялся бы при первой же записи автосохранения.
   const [loadedCrownMm, setLoadedCrownMm] = useState<number | null>(null);
-  // Блоки обеих панелей: в паспорт уходит та, что выбрана под расчётом.
-  const [geometries, setGeometries] = useState<Record<string, BlastGeometryResponse | null>>({});
-  const geometryFor = (key: string) => (geometry: BlastGeometryResponse) =>
-    setGeometries((current) => ({ ...current, [key]: geometry }));
 
   const {
     state,
@@ -278,6 +244,32 @@ function FullBvrCalc({
     setPanelInputs(next.panels);
   }, []);
 
+  const variantContext: VariantContext | null = useMemo(
+    () =>
+      selected && rock
+        ? {
+            gridAM: selected.grid_a_m,
+            gridBM: selected.grid_b_m,
+            depthM: benchHeight + overdrill,
+            overdrillM: overdrill,
+            crownMm: selected.crown_mm,
+            holeOversizeCoeff: oversizeCoeff,
+            blockVolumeM3,
+            additionalHolesPct: additionalHolesPct / 100,
+          }
+        : null,
+    [selected, rock, benchHeight, overdrill, oversizeCoeff, blockVolumeM3, additionalHolesPct],
+  );
+  // Схемы заряда обоих вариантов считаются здесь, из полей карточек, поднятых
+  // в `panelInputs`: одна правда и для таблиц сравнения, и для паспорта.
+  const leftGeometry = useHoleGeometry(variantContext ? geometryPayload(panelInputs.left, variantContext) : null);
+  const rightGeometry = useHoleGeometry(variantContext ? geometryPayload(panelInputs.right, variantContext) : null);
+  /** Цвет ВВ варианта: есть и до ответа схемы — по записи справочника. */
+  const variantColor = (inputs: PanelInputs) => {
+    const record = explosives.find((item) => item.key === inputs.explosive_key);
+    return explosiveColor(inputs.explosive_key, record?.name, record?.chart_label);
+  };
+
   const handleLeftInputs = useCallback((next: PanelInputs) => {
     setPanelInputs((current) => (panelInputsEqual(current.left, next) ? current : { ...current, left: next }));
   }, []);
@@ -363,7 +355,6 @@ function FullBvrCalc({
     setLoadedObjectName(null);
     setLoadedCrownMm(null);
     setVariants([]);
-    setGeometries({});
     // Перенесённый фильтр читается здесь, а очищается только после применения
     // листа: если смена объекта откатится, эффект запустится ещё раз (для
     // прежнего объекта), и фильтр должен дожить до этого запуска.
@@ -446,134 +437,158 @@ function FullBvrCalc({
     />
   );
 
+  const metrics = {
+    q: selected ? selected.specific_q_kg_m3 : null,
+    w: selected ? selected.line_of_least_resistance_m : null,
+    x50: selected ? selected.x50_mm : null,
+    oversize: selected ? selected.oversize_pct : null,
+  };
+
   return (
-    <div className="page-content">
-      {error && <div className="page-error" role="alert">{error}</div>}
-      <CalcWorkspaceNotices workspaceError={workspaceError} warnings={state?.warnings ?? []} />
+    <div className="calc-sheet">
       {topbarSlot ? createPortal(topStrip, topbarSlot) : topStrip}
       <CalcHelp />
-      <div className="calculator-grid">
+      {(error || workspaceError) && (
+        <div className="calc-errors">
+          {error && <div className="page-error" role="alert">{error}</div>}
+          {workspaceError && <div className="page-error" role="alert">{workspaceError}</div>}
+        </div>
+      )}
+      <div className="calc-top-row">
         <section className="panel input-panel">
-          <header><b>Исходные данные</b><span>01</span></header>
-          <div className="panel-body">
+          <header>
+            <b>Исходные данные</b>
+            <ReferenceWarnings warnings={state?.warnings ?? []} />
+          </header>
+          <div className="panel-body input-panel-body">
             {/* Пока настройки объекта не загружены (`!ready`), правка любого
                 поля пропала бы: `applySheet` при ответе перезапишет её своими
                 значениями. Отключаем весь ввод на этот момент — `fieldset`
-                выключает вложенные поля браузерными средствами, `display:
-                contents` не мешает сетке `.panel-body`. */}
+                выключает вложенные поля браузерными средствами, а `display:
+                contents` оставляет его колонки прямыми детьми сетки панели. */}
             <fieldset className="input-panel-fieldset" disabled={!ready}>
-              <label>Порода<select value={rockName} onChange={(e) => setRockName(e.target.value)}>{rocks.map((r) => <option key={r.id || r.name}>{r.name}</option>)}</select></label>
-              <label>Взрывчатое вещество<select value={explosiveKey} onChange={(e) => setExplosiveKey(e.target.value)}>{explosives.map((ex) => <option key={ex.id || ex.key} value={ex.key}>{ex.name}</option>)}</select></label>
-              <div className="field-pair">
-                <label>Высота уступа, м<input type="number" min={5} max={25} step={0.5} value={benchHeight} onChange={(e) => setBenchHeight(Number(e.target.value))} /></label>
-                <label>Перебур, м<input type="number" min={0} max={3} step={0.1} value={overdrill} onChange={(e) => setOverdrill(Number(e.target.value))} /></label>
+              <div className="input-column">
+                <label>Порода<select value={rockName} onChange={(e) => setRockName(e.target.value)}>{rocks.map((r) => <option key={r.id || r.name}>{r.name}</option>)}</select></label>
+                <label>Взрывчатое вещество<select value={explosiveKey} onChange={(e) => setExplosiveKey(e.target.value)}>{explosives.map((ex) => <option key={ex.id || ex.key} value={ex.key}>{ex.name}</option>)}</select></label>
+                <div className="field-triple">
+                  <label title="Высота уступа, м">Уступ, м<input type="number" min={5} max={25} step={0.5} value={benchHeight} onChange={(e) => setBenchHeight(Number(e.target.value))} /></label>
+                  <label title="Перебур, м">Перебур, м<input type="number" min={0} max={3} step={0.1} value={overdrill} onChange={(e) => setOverdrill(Number(e.target.value))} /></label>
+                  <label title="Кондиционный кусок, мм">Кусок, мм<input type="number" min={100} max={1200} step={50} value={lumpSize} onChange={(e) => setLumpSize(Number(e.target.value))} /></label>
+                </div>
               </div>
-              <label>Кондиционный кусок, мм<input type="number" min={100} max={1200} step={50} value={lumpSize} onChange={(e) => setLumpSize(Number(e.target.value))} /></label>
-              <label className="range-label"><span>Допустимый негабарит <b>{threshold}%</b></span><input type="range" min={1} max={15} step={0.5} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} /></label>
-              <label className="range-label"><span>Коэффициент сетки a/W <b>{spacing.toFixed(2)}</b></span><input type="range" min={1} max={2} step={0.05} value={spacing} onChange={(e) => setSpacing(Number(e.target.value))} /></label>
-              <label className="range-label"><span>Коэфф. разбуривания <b>{oversizeCoeff.toFixed(2)}</b></span><input type="range" min={1} max={1.15} step={0.01} value={oversizeCoeff} onChange={(e) => setOversizeCoeff(Number(e.target.value))} /></label>
-              <fieldset className="crown-select">
-                <legend>Диаметры коронок, мм</legend>
-                {allCrowns.map((c) => (
-                  <label key={c} className="crown-checkbox">
-                    <input type="checkbox" checked={selectedCrowns.includes(c)} onChange={() => toggleCrown(c)} /> {c}
-                  </label>
-                ))}
-              </fieldset>
-              <button className="calculate-button" onClick={calculate} disabled={busy || !ready || !rock || !explosive || !selectedCrowns.length}>
-                {!ready ? "Загрузка настроек объекта…" : busy ? "Выполняется расчёт…" : "Рассчитать варианты"}
-              </button>
+              <div className="input-column">
+                <fieldset className="crown-select">
+                  <legend>Диаметры коронок, мм</legend>
+                  {allCrowns.map((c) => (
+                    <label key={c} className="crown-checkbox">
+                      <input type="checkbox" checked={selectedCrowns.includes(c)} onChange={() => toggleCrown(c)} /> {c}
+                    </label>
+                  ))}
+                </fieldset>
+                <button className="calculate-button" onClick={calculate} disabled={busy || !ready || !rock || !explosive || !selectedCrowns.length}>
+                  {!ready ? "Загрузка настроек объекта…" : busy ? "Выполняется расчёт…" : "Рассчитать варианты"}
+                </button>
+              </div>
+              <div className="slider-rows">
+                <label className="slider-row"><span>Допустимый негабарит</span><input type="range" min={1} max={15} step={0.5} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} /><b>{threshold}%</b></label>
+                <label className="slider-row"><span title="Коэффициент сетки a/W">Коэфф. сетки a/W</span><input type="range" min={1} max={2} step={0.05} value={spacing} onChange={(e) => setSpacing(Number(e.target.value))} /><b>{spacing.toFixed(2)}</b></label>
+                <label className="slider-row"><span>Коэфф. разбуривания</span><input type="range" min={1} max={1.15} step={0.01} value={oversizeCoeff} onChange={(e) => setOversizeCoeff(Number(e.target.value))} /><b>{oversizeCoeff.toFixed(2)}</b></label>
+              </div>
             </fieldset>
           </div>
         </section>
-        <div className="results-column">
-          <section className="panel"><header><b>Зависимость расхода от диаметра</b><span>Куз–Рам</span></header><ResultsChart variants={variants} /></section>
-          <section className="panel variants-panel"><header><b>Варианты сетки</b><span>{variants.length ? `${variants.length} вариантов` : "Нет расчёта"}</span></header>
-            <div className="panel-body variants-metrics">
-              <MetricChips
-                metrics={{
-                  q: selected ? selected.specific_q_kg_m3 : null,
-                  w: selected ? selected.line_of_least_resistance_m : null,
-                  x50: selected ? selected.x50_mm : null,
-                  oversize: selected ? selected.oversize_pct : null,
-                }}
-              />
+
+        <section className="panel variants-panel">
+          <header>
+            <b>Варианты сетки</b>
+            <div className="panel-header-actions">
+              <span>Куз–Рам</span>
+              {onSendToDesign && (
+                <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected)}>
+                  Перенести в проект →
+                </button>
+              )}
             </div>
-            <div className="table-scroll"><table><thead><tr><th></th><th>Коронка</th><th>Сетка a × b</th><th>q</th><th>Негабарит</th></tr></thead><tbody>
-              {variants.map((item, index) => <tr key={item.crown_mm} className={index === selectedIndex ? "selected" : ""} onClick={() => setSelectedIndex(index)}><td><span className="row-radio" /></td><td><b>Ø {item.crown_mm} мм</b></td><td>{item.grid_label} м</td><td>{item.specific_q_kg_m3.toFixed(2)}</td><td>{item.oversize_pct.toFixed(1)}%</td></tr>)}
-            </tbody></table></div>
-            {selected && onSendToDesign && (
-              <div className="panel-body" style={{ borderTop: "1px solid var(--line, #d7e0db)", paddingTop: 12 }}>
-                <button className="secondary-button" onClick={() => onSendToDesign(selected)}>Перенести в проект →</button>
-              </div>
-            )}
-          </section>
-        </div>
+          </header>
+          <div className="variants-metrics"><MetricChips metrics={metrics} /></div>
+          <div className="variants-body">
+            <div className="table-scroll">
+              <table>
+                <thead><tr><th aria-label="Выбор" /><th>Коронка, мм</th><th>Сетка a × b, м</th><th className="num">q</th><th className="num">Негаб.</th></tr></thead>
+                <tbody>
+                  {variants.map((item, index) => (
+                    <tr key={item.crown_mm} className={index === selectedIndex ? "selected" : ""} onClick={() => setSelectedIndex(index)}>
+                      <td><span className="row-radio" /></td>
+                      <td><b>Ø {item.crown_mm}</b></td>
+                      <td>{item.grid_label}</td>
+                      <td className="num">{item.specific_q_kg_m3.toFixed(2)}</td>
+                      <td className="num">{item.oversize_pct.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!variants.length && <p className="table-empty">Нет расчёта</p>}
+            </div>
+            <div className="variants-chart">
+              <p className="block-caption">q от диаметра</p>
+              <ResultsChart variants={variants} size="compact" />
+            </div>
+          </div>
+        </section>
+
+        <PassportBar
+          variants={[
+            { key: "left", label: "Вариант 1", geometry: leftGeometry.geometry, pending: leftGeometry.loading },
+            { key: "right", label: "Вариант 2", geometry: rightGeometry.geometry, pending: rightGeometry.loading },
+          ]}
+          objectName={objectName}
+          onOpenEconomics={onOpenEconomics}
+        />
       </div>
 
-      {selected && rock && (
-        <div className="hole-visualization">
-          <h2>{explosiveBasis === "per_m" ? "Схема заряда контура" : "Схема заряда скважины"}</h2>
-          <div className="calc-inputs-grid">
-            <label>Объём блока, м³<input type="number" min={1000} step={1000} value={blockVolumeM3} onChange={(e) => setBlockVolumeM3(Number(e.target.value))} /></label>
-            <label>Доп. скважины, %<input type="number" min={0} max={20} step={0.5} value={additionalHolesPct} onChange={(e) => setAdditionalHolesPct(Number(e.target.value))} /></label>
-          </div>
-          <div className="hole-panels-row">
-            <HolePanel
-              key={`${objectName}-left`}
-              panelKey="left"
-              variantLabel="Вариант 1"
-              gridAM={selected.grid_a_m}
-              gridBM={selected.grid_b_m}
-              depthM={benchHeight + overdrill}
-              overdrillM={overdrill}
-              crownMm={selected.crown_mm}
-              holeOversizeCoeff={oversizeCoeff}
-              blockVolumeM3={blockVolumeM3}
-              additionalHolesPct={additionalHolesPct / 100}
-              defaultExplosiveKey={DEFAULT_EXPLOSIVE_1}
-              defaultUnderchargeM={DEFAULT_UNDERCHARGE_1_M}
-              showChargeDesign={true}
-              explosiveBasis={explosiveBasis}
-              nsiLengthOptions={nsiLengthOptions}
-              detonatorDelayOptions={detonatorDelayOptions}
-              initialInputs={panelInputs.left}
-              onInputsChange={handleLeftInputs}
-              onGeometry={geometryFor("left")}
-            />
-            <HolePanel
-              key={`${objectName}-right`}
-              panelKey="right"
-              variantLabel="Вариант 2"
-              gridAM={selected.grid_a_m}
-              gridBM={selected.grid_b_m}
-              depthM={benchHeight + overdrill}
-              overdrillM={overdrill}
-              crownMm={selected.crown_mm}
-              holeOversizeCoeff={oversizeCoeff}
-              blockVolumeM3={blockVolumeM3}
-              additionalHolesPct={additionalHolesPct / 100}
-              defaultExplosiveKey={DEFAULT_EXPLOSIVE_2}
-              defaultUnderchargeM={DEFAULT_UNDERCHARGE_2_M}
-              showChargeDesign={true}
-              explosiveBasis={explosiveBasis}
-              isBlastContextSource={false}
-              nsiLengthOptions={nsiLengthOptions}
-              detonatorDelayOptions={detonatorDelayOptions}
-              initialInputs={panelInputs.right}
-              onInputsChange={handleRightInputs}
-              onGeometry={geometryFor("right")}
-            />
-          </div>
-          <PassportBar
-            variants={[
-              { key: "left", label: "Вариант 1", geometry: geometries.left ?? null },
-              { key: "right", label: "Вариант 2", geometry: geometries.right ?? null },
-            ]}
-            objectName={objectName}
-            onOpenEconomics={onOpenEconomics}
-          />
-        </div>
+      {selected && rock ? (
+        <ChargeComparison
+          cardKey={objectName}
+          variants={[
+            {
+              key: "left",
+              label: "Вариант 1",
+              shortLabel: "Вар. 1",
+              color: variantColor(panelInputs.left),
+              initialInputs: panelInputs.left,
+              onInputsChange: handleLeftInputs,
+              geometry: leftGeometry.geometry,
+              error: leftGeometry.error,
+              loading: leftGeometry.loading,
+            },
+            {
+              key: "right",
+              label: "Вариант 2",
+              shortLabel: "Вар. 2",
+              color: variantColor(panelInputs.right),
+              initialInputs: panelInputs.right,
+              onInputsChange: handleRightInputs,
+              geometry: rightGeometry.geometry,
+              error: rightGeometry.error,
+              loading: rightGeometry.loading,
+            },
+          ]}
+          crownMm={selected.crown_mm}
+          gridLabel={selected.grid_label}
+          depthM={benchHeight + overdrill}
+          explosives={explosives}
+          nsiLengthOptions={nsiLengthOptions}
+          detonatorDelayOptions={detonatorDelayOptions}
+          blockVolumeM3={blockVolumeM3}
+          onBlockVolumeChange={setBlockVolumeM3}
+          additionalHolesPct={additionalHolesPct}
+          onAdditionalHolesChange={setAdditionalHolesPct}
+        />
+      ) : (
+        <section className="panel charge-comparison charge-comparison-empty">
+          <header><b>Схема заряда и сравнение вариантов</b></header>
+          <p className="page-caption">После расчёта вариантов сетки здесь появятся два варианта заряда и их сравнение.</p>
+        </section>
       )}
     </div>
   );
@@ -586,14 +601,5 @@ export function CalcPage({
   onSendToDesign?: (variant: BlastVariant) => void;
   onOpenEconomics?: (passportId: string) => void;
 }) {
-  return (
-    <div className="page-content-wrap">
-      <p className="page-caption">Комплекс БВР: оптимизация q, сетка, схема заряда</p>
-      <FullBvrCalc
-        explosiveBasis="per_m3"
-        onSendToDesign={onSendToDesign}
-        onOpenEconomics={onOpenEconomics}
-      />
-    </div>
-  );
+  return <FullBvrCalc onSendToDesign={onSendToDesign} onOpenEconomics={onOpenEconomics} />;
 }

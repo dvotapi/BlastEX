@@ -19,10 +19,10 @@ export function formatMetric(value: number | null, digits: number): string {
 export function MetricChips({ metrics }: { metrics: Metrics }) {
   return (
     <div className="chips" aria-label="Показатели выбранного варианта">
-      <div className="chip"><span>Удельный q</span><b>{formatMetric(metrics.q, 2)}<small>кг/м³</small></b></div>
-      <div className="chip"><span>ЛНС W</span><b>{formatMetric(metrics.w, 2)}<small>м</small></b></div>
-      <div className="chip"><span>x50</span><b>{formatMetric(metrics.x50, 1)}<small>мм</small></b></div>
-      <div className="chip"><span>Негабарит</span><b>{formatMetric(metrics.oversize, 1)}<small>%</small></b></div>
+      <div className="chip"><span>Удельный q</span><b>{formatMetric(metrics.q, 2)}</b><small>кг/м³</small></div>
+      <div className="chip"><span>ЛНС W</span><b>{formatMetric(metrics.w, 2)}</b><small>м</small></div>
+      <div className="chip"><span>x50</span><b>{formatMetric(metrics.x50, 1)}</b><small>мм</small></div>
+      <div className="chip"><span>Негабарит</span><b>{formatMetric(metrics.oversize, 1)}</b><small>%</small></div>
     </div>
   );
 }

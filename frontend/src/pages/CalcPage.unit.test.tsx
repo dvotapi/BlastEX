@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceContext } from "../app/useWorkspace";
@@ -20,6 +20,9 @@ const api = vi.hoisted(() => ({
   calcInputs: vi.fn(),
   saveCalcInputs: vi.fn(),
   optimize: vi.fn(),
+  geometry: vi.fn(),
+  // Панель паспортов стоит в верхнем ряду листа всегда.
+  economics: { referenceSnapshot: vi.fn(), technicalPassports: vi.fn() },
 }));
 vi.mock("../api/endpoints", () => ({ api }));
 
@@ -96,18 +99,26 @@ beforeEach(() => {
   vi.clearAllMocks();
   api.rocks.mockResolvedValue({ items: [{ name: "Гранит", density_t_m3: 2.7, ucs_mpa: 120, fissuring_ff: 1 }], default_name: "Гранит" });
   api.explosives.mockResolvedValue({
-    items: [{ key: "ПВВ Гранулит-РП", name: "Гранулит-РП", density_t_m3: 0.9, power_mj_kg: 3.8, chart_label: "ГРАНУЛИТ-РП" }],
+    items: [
+      { key: "ПВВ Гранулит-РП", name: "Гранулит-РП", density_t_m3: 0.9, power_mj_kg: 3.8, chart_label: "ГРАНУЛИТ-РП" },
+      { key: "ПЭВВ ЭВЕРСИН Э-100", name: "ЭВЕРСИН Э-100", density_t_m3: 1.2, power_mj_kg: 3.2, chart_label: "ЭВЕРСИН" },
+    ],
     default_key: "ПВВ Гранулит-РП",
   });
   api.blastOptions.mockResolvedValue({ crown_diameters_mm: [152], nsi_length_options_m: [6, 12], detonator_delay_ms_options: [500] });
   api.productionUnits.mockResolvedValue({ items: UNITS });
   api.optimize.mockResolvedValue({ variants: [] });
+  api.economics.referenceSnapshot.mockResolvedValue({ revision_id: "REV", sections: { sites: [] } });
+  api.economics.technicalPassports.mockResolvedValue([]);
   api.saveCalcInputs.mockImplementation(async (name: string, inputs: object) => ({ work_object_name: name, inputs, updated_at: "now" }));
 });
 afterEach(cleanup);
 
+// Под нагрузкой полного прогона лист грузится дольше секунды по умолчанию.
+const SLOW = { timeout: 3000 };
+
 async function loaded(objectPart: string) {
-  await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
   expect(screen.getByLabelText("Объект")).toHaveValue(OBJECTS.find((o) => o.name.includes(objectPart))!.name);
 }
 
@@ -119,7 +130,7 @@ describe("CalcPage: юнит в шапке и автосохранение", () 
     api.calcInputs.mockResolvedValue({ work_object_name: "Карьер Анна", inputs: null, updated_at: null });
     renderSheet("Карьер Анна");
     await loaded("Анна");
-    await waitFor(() => expect(screen.getByLabelText("Юнит")).toHaveValue("UNIT_PERM"));
+    await waitFor(() => expect(screen.getByLabelText("Юнит")).toHaveValue("UNIT_PERM"), SLOW);
     await autosaveWindow();
     expect(api.saveCalcInputs).not.toHaveBeenCalled();
   });
@@ -128,7 +139,7 @@ describe("CalcPage: юнит в шапке и автосохранение", () 
     api.calcInputs.mockResolvedValue({ work_object_name: "Карьер Лом", inputs: savedInputs(""), updated_at: "then" });
     renderSheet("Карьер Лом");
     await loaded("Лом");
-    await waitFor(() => expect(screen.getByLabelText("Юнит")).toHaveValue("UNIT_URAL"));
+    await waitFor(() => expect(screen.getByLabelText("Юнит")).toHaveValue("UNIT_URAL"), SLOW);
     await autosaveWindow();
     expect(api.saveCalcInputs).not.toHaveBeenCalled();
   });
@@ -141,10 +152,10 @@ describe("CalcPage: юнит в шапке и автосохранение", () 
     }));
     renderSheet("Карьер Анна");
     await loaded("Анна");
-    await waitFor(() => expect(screen.getByLabelText("Юнит")).toHaveValue("UNIT_PERM"));
+    await waitFor(() => expect(screen.getByLabelText("Юнит")).toHaveValue("UNIT_PERM"), SLOW);
     fireEvent.change(screen.getByLabelText("Объект"), { target: { value: "Карьер Жуков" } });
     await loaded("Жуков");
-    await waitFor(() => expect(screen.getByLabelText("Юнит")).toHaveValue("UNIT_PERM"));
+    await waitFor(() => expect(screen.getByLabelText("Юнит")).toHaveValue("UNIT_PERM"), SLOW);
     await waitFor(() => expect(savedUnits()).toContainEqual(["Карьер Жуков", "UNIT_PERM"]), { timeout: 2000 });
   });
 
@@ -167,9 +178,60 @@ describe("CalcPage: юнит в шапке и автосохранение", () 
     let release: (value: unknown) => void = () => {};
     api.calcInputs.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
     renderSheet("Карьер Анна");
-    await waitFor(() => expect(screen.getByLabelText("Юнит")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Юнит")).toBeInTheDocument(), { timeout: 3000 });
     expect(screen.getByLabelText("Юнит")).toBeDisabled();
     await act(async () => release({ work_object_name: "Карьер Анна", inputs: null, updated_at: null }));
-    await waitFor(() => expect(screen.getByLabelText("Юнит")).toBeEnabled());
+    await waitFor(() => expect(screen.getByLabelText("Юнит")).toBeEnabled(), { timeout: 3000 });
+  });
+});
+
+/** Ответ схемы заряда: масса заряда зависит от ВВ варианта — так видно, чья схема где. */
+function geometryFor(payload: { explosive_key: string; block_volume_m3: number }) {
+  const charge = payload.explosive_key === "ПВВ Гранулит-РП" ? "136" : "179";
+  return {
+    label: payload.explosive_key === "ПВВ Гранулит-РП" ? "ГРАНУЛИТ-РП" : "ЭВЕРСИН",
+    hole: {
+      grid_a_m: 4.84, grid_b_m: 4.84, depth_m: 11, overdrill_m: 1, undercharge_m: 2.7, charge_length_m: 8.3,
+      charge_diameter_m: 0.157, capacity_kg_per_m: 16.36, charge_mass_kg: Number(charge), yield_m3: 234,
+      specific_q_kg_m3: 0.58, explosive_name: payload.explosive_key, explosive_label: "",
+    },
+    block: {
+      block_volume_m3: payload.block_volume_m3, total_holes: 97, drilling_footage_m: 1067,
+      total_charge_mass_kg: Number(charge) * 97, specific_q_kg_m3: 0.6,
+    },
+    initiation: { intermediate_detonators_per_hole: 1, nsi_per_hole: 1, nsi_length_1_m: 12, nsi_length_2_m: 6, detonator_delay_ms: 500 },
+    hole_rows: [["Сетка a×b, м", "4.84 × 4.84"], ["Заряд, кг", charge]],
+    block_rows: [["Объём блока, м³", String(payload.block_volume_m3)], ["Масса ВВ на блок, кг", String(Number(charge) * 97)]],
+  };
+}
+
+describe("CalcPage: схемы заряда, сравнение и паспорт", () => {
+  beforeEach(() => {
+    const inputs = savedInputs("UNIT_PERM");
+    inputs.panels.right.explosive_key = "ПЭВВ ЭВЕРСИН Э-100";
+    api.calcInputs.mockResolvedValue({ work_object_name: "Карьер Анна", inputs, updated_at: "then" });
+    api.optimize.mockResolvedValue({
+      variants: [{ crown_mm: 152, specific_q_kg_m3: 0.6, line_of_least_resistance_m: 4.84, grid_a_m: 4.84, grid_b_m: 4.84, grid_label: "4.84 × 4.84", x50_mm: 72.9, oversize_pct: 3.9, target_q_kg_m3: 0.6 }],
+    });
+    api.geometry.mockImplementation(async (payload: { explosive_key: string; block_volume_m3: number }) => geometryFor(payload));
+    api.economics.referenceSnapshot.mockResolvedValue({ revision_id: "REV", sections: { sites: [{ code: "SITE_A", name: "Карьер Анна", is_active: true }] } });
+  });
+
+  it("обе схемы доходят до таблиц сравнения и до паспорта, правка карточки пересчитывает свой вариант", async () => {
+    renderSheet("Карьер Анна");
+    const chargeRow = await screen.findByRole("rowheader", { name: "Заряд, кг" }, { timeout: 3000 });
+    expect([...chargeRow.closest("tr")!.querySelectorAll("td")].map((cell) => cell.textContent)).toEqual(["136", "179"]);
+    expect(screen.getByText(/В паспорт пойдёт «Вариант 1»: 13\s192 кг ВВ, 97 скважин/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Сохранить паспорт" })).toBeEnabled();
+
+    const leftCard = screen.getByRole("group", { name: "Вариант 1" });
+    fireEvent.change(within(leftCard).getByLabelText("Тип ВВ"), { target: { value: "ПЭВВ ЭВЕРСИН Э-100" } });
+    // Пересчёт виден сразу: сохранить прошлый блок в паспорт нельзя.
+    expect(screen.getByRole("button", { name: "Сохранить паспорт" })).toBeDisabled();
+    await waitFor(() =>
+      expect([...screen.getByRole("rowheader", { name: "Заряд, кг" }).closest("tr")!.querySelectorAll("td")].map((cell) => cell.textContent)).toEqual(["179", "179"]),
+    );
+    expect(api.geometry).toHaveBeenLastCalledWith(expect.objectContaining({ explosive_key: "ПЭВВ ЭВЕРСИН Э-100", view: "charge" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Сохранить паспорт" })).toBeEnabled());
   });
 });

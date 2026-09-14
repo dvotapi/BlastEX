@@ -75,7 +75,13 @@ class LaborRatePayload(ReferencePayload):
 
 class CrewMember(ReferencePayload):
     position_code: str = RefField("positions", description="Должность")
-    headcount: Decimal = UnitField("чел", description="Численность", default=Decimal("1"), ge=0)
+    headcount: Decimal = UnitField(
+        "чел",
+        title="Человек в смене",
+        description="Сколько человек должности работает в одной смене; штат на ротацию модель выводит из плановых смен техники",
+        default=Decimal("1"),
+        ge=0,
+    )
 
 
 class CrewTemplatePayload(ReferencePayload):

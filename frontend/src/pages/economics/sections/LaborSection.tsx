@@ -1,6 +1,6 @@
 /**
  * Раздел «Персонал»: по строке на запись состава бригады (`params.crew`).
- * Должность выбирается из справочника, численность и смены на блок правит
+ * Должность выбирается из справочника, людей в смене и смены на блок правит
  * сметчик; строки взносов, резерва и суточных, которых нет в составе
  * бригады напрямую, показываются под ними только для чтения.
  */
@@ -59,6 +59,15 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
         const origin = crewOrigin(member, template);
         const line = lineByCode(group.lines, `LABOR_${member.position_code}`);
         const positionLabel = position?.name ?? member.position_code;
+        // Штат на ротацию модель выводит только экипажу техники — у остальных
+        // должностей ключа нет, и подпись не показывается.
+        const rotation = economics?.natural.values[`crew_rotation.${member.position_code}`];
+        // 0 в составе — правило «по экипажу техники один человек в смене»
+        // знает только модель; подпись показывает её число, только если оно
+        // отличается от поля состава (иначе это был бы дубль).
+        const crewPerShift = economics?.natural.values[`crew_per_shift.${member.position_code}`];
+        const crewPerShiftDiffers =
+          crewPerShift !== undefined && Number(crewPerShift) !== Number(member.headcount);
 
         return (
           <EstimateLine
@@ -88,6 +97,12 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
                     ? "норматив"
                     : formatAmount(Number(member.shifts_per_block)),
               },
+              ...(crewPerShiftDiffers
+                ? [{ label: "В смене", value: `${formatAmount(Number(crewPerShift))} чел.` }]
+                : []),
+              ...(rotation === undefined
+                ? []
+                : [{ label: "Штат на ротацию", value: `${formatAmount(Number(rotation))} чел.` }]),
             ]}
             quantity={Number(member.headcount)}
             quantityEditor={
@@ -95,12 +110,12 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
                 value={member.headcount}
                 min={0}
                 step={1}
-                ariaLabel={`Численность: ${positionLabel}`}
+                ariaLabel={`Человек в смене: ${positionLabel}`}
                 disabled={!canEdit}
                 onChange={(value) => update(index, { headcount: value ?? "0" })}
               />
             }
-            unit="чел."
+            unit="чел./см"
             price={position?.fixed_monthly_rub ?? null}
             amount={line?.amount_rub ?? 0}
             volume={volume}

@@ -99,7 +99,10 @@ def test_component_delivery_driver_works_the_emulsion_truck_shifts() -> None:
 
     driver = _line(context, "LABOR_POS_EMULSION_DRIVER")
     assert context.value("crew_shifts.POS_EMULSION_DRIVER") == Decimal("3")
-    assert driver.amount_rub == Decimal("63000") / 21 * 3
+    # Оклад штата делится на плановые смены тягача (норматив типа — 18), а не на
+    # норму смен водителя (21): до TASK-010 PR 0b было 63 000 / 21 × 3 = 9 000 ₽.
+    assert context.value("crew_rotation.POS_EMULSION_DRIVER") == Decimal("1")
+    assert driver.amount_rub == Decimal("63000") * 1 / 18 * 3
 
 
 def test_engine_reports_emulsion_truck_lines_and_keeps_the_round_trip() -> None:

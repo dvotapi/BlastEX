@@ -3,6 +3,10 @@
 Должность попадает в расчёт, только если её операция входит в пакет работ.
 Косвенный персонал здесь не считается — он распределяется по объёму юнита
 (`cost/model/unit.py`).
+
+Численность двух видов: `headcount` состава бригады — люди в смене, им идут
+сделка и суточные; штат на ротацию экипажа техники модель выводит из плановых
+смен машины, и на него приходится только месячный оклад.
 """
 from __future__ import annotations
 
@@ -41,11 +45,25 @@ class LaborLine:
     position_code: str
     position_name: str
     operation_code: str
+    # Человек в смене: столько людей должности одновременно работает в одной смене.
     headcount: Decimal
     shifts_per_block: Decimal
     fixed_rub: Decimal
     piece_rub: Decimal
     accrued_rub: Decimal
+    # Штат на ротацию экипажа техники; None — должность не экипаж техники или
+    # у техники нет плановых смен.
+    rotation_headcount: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class CrewRotation:
+    """Штат экипажа техники, закрывающий её плановые смены."""
+
+    equipment_code: str
+    plan_shifts: Decimal
+    person_shifts: Decimal
+    headcount: Decimal
 
 
 def crew_members(context: ModelContext) -> tuple[tuple[str, Decimal, Decimal | None], ...]:
@@ -112,21 +130,22 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             continue
 
         shifts = _shifts_per_block(context, position, operation_code, manual_shifts)
-        crew_size = _headcount(context, position, operation_code, headcount)
-        if shifts <= 0 or crew_size <= 0:
+        if shifts <= 0:
             continue
+        per_shift = _per_shift_headcount(headcount)
 
         rate_item = _labor_rate(context, position_code)
         if rate_item is None:
             context.warn(f"Для должности {position_code} не задана ставка в «Ставках персонала».")
             continue
 
-        norm_shifts = payload_number(position, "norm_shifts_per_month", Decimal("21"))
         fixed_monthly = payload_number(rate_item, "fixed_monthly_rub")
-        rate_per_shift = fixed_monthly / norm_shifts if norm_shifts > 0 else Decimal("0")
-        fixed_block = rate_per_shift * shifts * crew_size
-
-        piece_block, piece_formula = _piece_amount(context, position, rate_item, crew_size)
+        # Читаем один раз: норма нужна и экипажу техники (штат ротации), и
+        # обычной ставке человеко-смены (F2 ревью PR #80).
+        norm_shifts = payload_number(position, "norm_shifts_per_month", Decimal("21"))
+        rotation = _crew_rotation(context, position, operation_code, per_shift, fixed_monthly, norm_shifts)
+        fixed_block, fixed_formula = _fixed_amount(fixed_monthly, shifts, per_shift, rotation, norm_shifts)
+        piece_block, piece_formula = _piece_amount(context, position, rate_item, per_shift)
         accrued = fixed_block + piece_block
         if rates.salary_basis == "NET" and rates.income_tax_rate < 1:
             accrued = accrued / (Decimal("1") - rates.income_tax_rate)
@@ -134,7 +153,18 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         context.set_value(
             f"crew_shifts.{position_code}", shifts, f"смен на блок должности {position_code}"
         )
-        context.set_value(f"crew_headcount.{position_code}", crew_size, "численность на блок")
+        context.set_value(
+            f"crew_per_shift.{position_code}",
+            per_shift,
+            "человек в смене" if headcount > 0 else "в составе 0 — один человек в смене",
+        )
+        if rotation is not None:
+            context.set_value(
+                f"crew_rotation.{position_code}",
+                rotation.headcount,
+                f"⌈{rotation.plan_shifts} см {rotation.equipment_code} × {per_shift} чел / "
+                f"{rotation.person_shifts} см человека⌉",
+            )
 
         context.add_line(
             operation_code=operation_code,
@@ -143,34 +173,35 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=accrued,
             formula=(
-                f"{fixed_monthly} ₽/мес / {norm_shifts} см × {shifts} см × {crew_size} чел"
+                fixed_formula
                 + (f" + {piece_formula}" if piece_formula else "")
                 + (" ÷ (1 − НДФЛ)" if rates.salary_basis == "NET" else "")
             ),
             section="LABOR",
             # Цены за единицу нет: оклад, сдельная часть и НДФЛ дают разную
             # ставку за смену, одним числом её не назвать.
-            quantity=shifts * crew_size,
+            quantity=shifts * per_shift,
             unit="чел·см",
             # Смены — ручная поправка вкладки, если сметчик её задал,
             # иначе норматив должности или производительность техники.
             quantity_origin="MANUAL" if manual_shifts is not None else "NORM",
         )
         accrued_total += accrued
-        charge = _per_diem(context, position, shifts, crew_size)
+        charge = _per_diem(context, position, shifts, per_shift)
         per_diem_total += charge
         if charge > 0:
-            per_diem_shifts += shifts * crew_size
+            per_diem_shifts += shifts * per_shift
         results.append(
             LaborLine(
                 position_code=position_code,
                 position_name=position.name,
                 operation_code=operation_code,
-                headcount=crew_size,
+                headcount=per_shift,
                 shifts_per_block=shifts,
                 fixed_rub=fixed_block,
                 piece_rub=piece_block,
                 accrued_rub=accrued,
+                rotation_headcount=rotation.headcount if rotation is not None else None,
             )
         )
 
@@ -251,28 +282,92 @@ def _shifts_per_block(
     return Decimal("1")
 
 
-def _headcount(
+def _per_shift_headcount(explicit: Decimal) -> Decimal:
+    """Человек в смене из состава бригады.
+
+    Ноль — прежнее «по экипажу техники»: в смене один человек, а штат на
+    ротацию модель выводит сама. Так записан бурильщик в шаблонах, и так же
+    очищенное поле численности приходит с вкладки.
+    """
+
+    return explicit if explicit > 0 else Decimal("1")
+
+
+def _crew_rotation(
     context: ModelContext,
     position: ReferenceItem,
     operation_code: str,
-    explicit: Decimal,
-) -> Decimal:
-    if explicit > 0:
-        return explicit
+    per_shift: Decimal,
+    fixed_monthly: Decimal,
+    norm_shifts: Decimal,
+) -> CrewRotation | None:
+    """Штат экипажа техники: ⌈плановые смены машины × человек в смене / норма смен человека⌉.
+
+    None — у операции нет техники, техника не выбрана или у неё нет плановых
+    смен: тогда оклад считается по норме смен должности.
+    """
+
     param_name = CREW_EQUIPMENT_PARAM.get(operation_code)
-    equipment_code = getattr(context.params, param_name, None) if param_name else None
-    equipment = context.item("equipment_types", equipment_code)
+    if not param_name:
+        return None
+    equipment = context.item("equipment_types", getattr(context.params, param_name, None))
     if equipment is None:
-        return Decimal("1")
-    # Численность экипажа выводится из плановой загрузки техники: при плане в
-    # 25 смен вместо 40 экипажу хватает двух человек вместо трёх.
-    equipment_shifts = context.machine_plan_shifts(equipment)
-    if param_name == "rig_code" and context.params.rig_plan_shifts is not None:
-        equipment_shifts = context.params.rig_plan_shifts
-    person_shifts = payload_number(position, "norm_shifts_per_month", Decimal("21"))
-    if equipment_shifts <= 0 or person_shifts <= 0:
-        return Decimal("1")
-    return (equipment_shifts / person_shifts).to_integral_value(rounding=ROUND_CEILING)
+        return None
+    plan_shifts = _equipment_plan_shifts(context, param_name, equipment)
+    if plan_shifts <= 0:
+        if fixed_monthly > 0:
+            # У сдельщика без оклада нечего пересчитывать по плановым сменам
+            # техники — предупреждение о нём вводит в заблуждение.
+            context.warn(
+                f"Для техники {equipment.code} не заданы плановые смены в месяц: "
+                f"оклад должности {position.code} посчитан по норме смен человека."
+            )
+        return None
+    person_shifts = norm_shifts
+    if person_shifts <= 0:
+        return None
+    # Двое в смене при 35 сменах станка и норме 15 — пять человек, а не 2 × 3:
+    # недобор смен одного закрывает другой.
+    headcount = (plan_shifts * per_shift / person_shifts).to_integral_value(rounding=ROUND_CEILING)
+    return CrewRotation(equipment.code, plan_shifts, person_shifts, headcount)
+
+
+def _equipment_plan_shifts(context: ModelContext, param_name: str, equipment: ReferenceItem) -> Decimal:
+    """Плановые смены машины — та же база, что у её амортизации.
+
+    Станок: параметр вкладки, пусто и ноль — норматив типа (`drilling.py`).
+    Остальная техника: `machine_plan_shifts`, ноль — «загрузки нет» (`equipment.py`).
+    """
+
+    if param_name == "rig_code":
+        return context.params.rig_plan_shifts or payload_number(equipment, "norm_shifts_per_month")
+    return context.machine_plan_shifts(equipment)
+
+
+def _fixed_amount(
+    fixed_monthly: Decimal,
+    shifts: Decimal,
+    per_shift: Decimal,
+    rotation: CrewRotation | None,
+    norm_shifts: Decimal,
+) -> tuple[Decimal, str]:
+    """Постоянная часть на блок.
+
+    Экипаж техники получает оклад за месяц при любой загрузке машины, поэтому
+    месячный ФОТ штата делится на плановые смены машины — как её амортизация.
+    Остальным — ставка человеко-смены: оклад / норма смен.
+    """
+
+    if rotation is not None:
+        return (
+            fixed_monthly * rotation.headcount / rotation.plan_shifts * shifts,
+            f"{fixed_monthly} ₽/мес × {rotation.headcount} чел / {rotation.plan_shifts} см × {shifts} см",
+        )
+    rate_per_shift = fixed_monthly / norm_shifts if norm_shifts > 0 else Decimal("0")
+    return (
+        rate_per_shift * shifts * per_shift,
+        f"{fixed_monthly} ₽/мес / {norm_shifts} см × {shifts} см × {per_shift} чел",
+    )
 
 
 def _labor_rate(context: ModelContext, position_code: str) -> ReferenceItem | None:
@@ -307,9 +402,12 @@ def _piece_amount(
     context: ModelContext,
     position: ReferenceItem,
     rate_item: ReferenceItem,
-    headcount: Decimal,
+    per_shift: Decimal,
 ) -> tuple[Decimal, str]:
-    """Сдельная часть начисляется каждому в бригаде: расценка — на человека."""
+    """Сдельная часть — каждому, кто работает в смене: расценка на человека.
+
+    Штат на ротацию сюда не входит: метры блока бурит смена, а не весь штат.
+    """
 
     piece_rate = payload_number(rate_item, "piece_rate_rub")
     driver_name = payload_text(position, "piece_driver")
@@ -319,10 +417,10 @@ def _piece_amount(
     if piece_unit <= 0:
         piece_unit = Decimal("1")
     driver_value = context.value(driver_name)
-    amount = piece_rate * driver_value / piece_unit * headcount
+    amount = piece_rate * driver_value / piece_unit * per_shift
     return (
         amount,
-        f"{piece_rate} ₽ × {driver_value} {driver_name} / {piece_unit} × {headcount} чел",
+        f"{piece_rate} ₽ × {driver_value} {driver_name} / {piece_unit} × {per_shift} чел",
     )
 
 
@@ -333,13 +431,13 @@ def per_diem_rate(context: ModelContext) -> Decimal:
 
 
 def _per_diem(
-    context: ModelContext, position: ReferenceItem, shifts: Decimal, headcount: Decimal
+    context: ModelContext, position: ReferenceItem, shifts: Decimal, per_shift: Decimal
 ) -> Decimal:
     if not bool(position.payload.get("per_diem_applies", True)):
         return Decimal("0")
     if context.site is None or not bool(context.site.payload.get("is_remote", False)):
         return Decimal("0")
-    per_shift = per_diem_rate(context)
-    if per_shift <= 0:
+    per_shift_rate = per_diem_rate(context)
+    if per_shift_rate <= 0:
         return Decimal("0")
-    return shifts * headcount * per_shift
+    return shifts * per_shift * per_shift_rate

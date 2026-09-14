@@ -4,7 +4,9 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from pydantic import ValidationError
+from pydantic import ValidationError, model_validator
+
+from cost.v2.schemas.base import ReferencePayload, field_error
 
 from cost.v2.models import ReferenceItem
 from cost.v2.references import (
@@ -54,6 +56,33 @@ class TestRegistry:
             for field, target in referenced_sections(section).items():
                 assert target in REFERENCE_SECTION_DEFINITIONS, f"{section}.{field} → {target}"
 
+    def test_forms_get_only_flat_fields_and_lists_of_flat_rows(self):
+        """Форма справочника рисует плоские поля и списки плоских строк.
+
+        Вложенный объект она превратила бы в строку «[object Object]», а флаг
+        или дату в строке списка — в текстовое поле (открытые вопросы после
+        TASK-010 PR 0). Новая схема с такими полями сначала учит форму.
+        """
+
+        problems: list[str] = []
+        for section in SECTION_SCHEMAS:
+            schema = section_json_schema(section)
+            for name, node in (schema.get("properties") or {}).items():
+                if any("$ref" in variant for variant in _variants(node)):
+                    problems.append(f"{section}.{name}: вложенный объект")
+            for model_name, model in (schema.get("$defs") or {}).items():
+                for name, node in (model.get("properties") or {}).items():
+                    if node.get("x-internal"):
+                        continue
+                    if any(
+                        variant.get("type") in {"array", "object", "boolean"}
+                        or "$ref" in variant
+                        or variant.get("format") == "date"
+                        for variant in _variants(node)
+                    ):
+                        problems.append(f"{section}.{model_name}.{name}: подполе строки списка")
+        assert problems == []
+
 
 def _is_numeric(field: dict) -> bool:
     if field.get("x-internal"):
@@ -69,6 +98,37 @@ def _field_containers(section: str):
     yield section, schema.get("properties") or {}
     for name, model in (schema.get("$defs") or {}).items():
         yield f"{section}.{name}", model.get("properties") or {}
+
+
+class _ProbeRow(ReferencePayload):
+    rate: int = 0
+
+
+class _Probe(ReferencePayload):
+    rows: list[_ProbeRow] = []
+
+    @model_validator(mode="after")
+    def _second_row_is_wrong(self) -> "_Probe":
+        if len(self.rows) > 1:
+            field_error(type(self), ("rows", 1, "rate"), "Ошибка во второй строке", self.rows[1].rate)
+        return self
+
+
+class TestFieldErrorPath:
+    def test_error_inside_a_list_row_keeps_the_row_path(self):
+        with pytest.raises(ValidationError) as exc:
+            _Probe.model_validate({"rows": [{}, {"rate": 5}]})
+        error = exc.value.errors()[0]
+        assert (error["loc"], error["msg"]) == (("rows", 1, "rate"), "Ошибка во второй строке")
+
+    def test_plain_field_name_still_works(self):
+        with pytest.raises(ValidationError) as exc:
+            field_error(_Probe, "rows", "Ошибка поля")
+        assert exc.value.errors()[0]["loc"] == ("rows",)
+
+
+def _variants(node: dict) -> list[dict]:
+    return [variant for variant in (node.get("anyOf") or [node]) if isinstance(variant, dict)]
 
 
 class TestPositionSchema:

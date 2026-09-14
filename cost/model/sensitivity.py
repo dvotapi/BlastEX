@@ -11,8 +11,7 @@ from decimal import Decimal
 from typing import Any, Callable, Mapping
 
 from cost.model.engine import compute_block_economics
-from cost.model.inputs import CrewMember, ModelParameters
-from cost.model.labor import crew_members
+from cost.model.inputs import ModelParameters
 from cost.v2.models import ReferenceItem, ReferenceSnapshot, decimal_value
 from cost.v2.technical_adapter import TechnicalDriverSnapshot
 
@@ -70,19 +69,11 @@ def _scale_param(field: str) -> Transform:
 
 
 def _scale_crew(inputs: Inputs, factor: Decimal) -> Inputs:
+    # Не `headcount × factor`: ноль в составе означает одного человека и
+    # остался бы нулём, а штат экипажа техники округляется вверх и дал бы
+    # скачок оклада. Множитель модель накладывает на уже посчитанный штат.
     physical, params, references = inputs
-    crew = params.crew
-    if not crew:
-        return inputs
-    scaled = tuple(
-        CrewMember(
-            position_code=member.position_code,
-            headcount=member.headcount * factor,
-            shifts_per_block=member.shifts_per_block,
-        )
-        for member in crew
-    )
-    return physical, replace(params, crew=scaled), references
+    return physical, replace(params, crew_scale=params.crew_scale * factor), references
 
 
 def _scale_reference(
@@ -165,11 +156,10 @@ def compute(
     *,
     passport_name: str = "Блок",
 ) -> list[SensitivityRow]:
-    base_params = _materialize_crew(snapshot, params, references)
     physical = _physical(snapshot)
     base = compute_block_economics(
         {"physical": physical, "lineage": _lineage(snapshot)},
-        base_params,
+        params,
         references,
         passport_name=passport_name,
     )
@@ -181,7 +171,7 @@ def compute(
         prices: list[Decimal] = []
         for factor in (Decimal("1") - STEP, Decimal("1") + STEP):
             changed_physical, changed_params, changed_references = transform(
-                (dict(physical), base_params, references), factor
+                (dict(physical), params, references), factor
             )
             result = compute_block_economics(
                 {"physical": changed_physical, "lineage": lineage},
@@ -201,29 +191,6 @@ def compute(
         )
     rows.sort(key=lambda row: abs(row.delta), reverse=True)
     return rows
-
-
-def _materialize_crew(
-    snapshot: TechnicalDriverSnapshot | Mapping[str, Any],
-    params: ModelParameters,
-    references: ReferenceSnapshot,
-) -> ModelParameters:
-    """Разложить шаблон бригады в явный состав.
-
-    Иначе перебор по численности ничего не изменит: шаблон пересчитывается
-    заново на каждом прогоне.
-    """
-
-    if params.crew:
-        return params
-    from cost.model.inputs import ModelContext  # локально: только ради состава
-
-    context = ModelContext(references, params, _physical(snapshot))
-    crew = tuple(
-        CrewMember(position_code=code, headcount=headcount, shifts_per_block=shifts)
-        for code, headcount, shifts in crew_members(context)
-    )
-    return replace(params, crew=crew) if crew else params
 
 
 def _physical(snapshot: TechnicalDriverSnapshot | Mapping[str, Any]) -> dict[str, Decimal]:

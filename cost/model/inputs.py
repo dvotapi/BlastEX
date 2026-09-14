@@ -215,6 +215,11 @@ class ModelParameters:
     overhead_rate: Decimal | None = None
     target_margin_rate: Decimal | None = None
     vat_rate: Decimal | None = None
+    # Множитель людей в смене и штата на ротацию — только для перебора
+    # чувствительности. Штат экипажа техники целый, и ±10 % до округления дали
+    # бы скачок оклада; множитель ложится на уже округлённый штат. С вкладки не
+    # приходит и не сохраняется.
+    crew_scale: Decimal = Decimal("1")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ModelParameters":

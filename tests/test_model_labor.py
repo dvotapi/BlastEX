@@ -86,6 +86,24 @@ def test_driller_block_payroll_pays_each_metre_once() -> None:
     assert _money(line.amount_rub + contributions + reserve) == Decimal("4094581.40")
 
 
+def test_crew_scale_applies_to_the_rounded_rotation() -> None:
+    """Множитель чувствительности ложится на уже округлённый штат.
+
+    Бурильщик с 0 в составе — один человек в смене, штат ⌈40 / 15⌉ = 3. Если
+    умножить людей в смене до округления, ⌈40 × 1,1 / 15⌉ = 3 оставит оклад
+    прежним. С множителем после округления оклад и сделка растут ровно на 10 %:
+    523 255,81 × 1,1 и 2 093 023,26 × 1,1.
+    """
+
+    crew = (CrewMember("POS_DRILLER", Decimal("0")),)
+    driller = labor.compute(_context(crew=crew, crew_scale=Decimal("1.1")))[0]
+
+    assert driller.headcount == Decimal("1.1")
+    assert driller.rotation_headcount == Decimal("3.3")
+    assert _money(driller.fixed_rub) == Decimal("575581.40")
+    assert _money(driller.piece_rub) == Decimal("2302325.58")
+
+
 def test_rig_plan_shifts_move_the_fixed_part_only() -> None:
     """25 смен станка: штат 2, смена станка стоит 4 800 ₽ оклада вместо 4 500; сделка та же."""
 

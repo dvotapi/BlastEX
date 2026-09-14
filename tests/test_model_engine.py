@@ -117,6 +117,48 @@ def test_sensitivity_of_explosive_price_follows_the_selected_nomenclature() -> N
     assert explosive.delta == Decimal("42000") * Decimal("48.9") * Decimal("0.2") / Decimal("60000")
 
 
+def test_sensitivity_of_crew_moves_payroll_by_ten_percent_both_ways() -> None:
+    """±10 % людей двигают ФОТ блока ровно на ±10 %, без скачков штата ротации.
+
+    Состав фикстуры: бурильщик (0 в составе — один в смене), двое взрывников и
+    водитель СЗМ. Если масштабировать людей в смене до округления штата, у
+    водителя при +10 % выходит ⌈20 × 1,1 / 20⌉ = 2 и оклад удваивается, при
+    −10 % ⌈0,9⌉ = 1 — не меняется; бурильщик с нулём в переборе не участвует.
+    """
+
+    base = _compute()
+    payroll = sum(
+        (line.amount_rub for line in base.lines if line.cost_item_code.startswith("LABOR_")),
+        Decimal("0"),
+    )
+    step = (payroll * Decimal("0.1") / Decimal("60000")).quantize(Decimal("0.0001"))
+
+    rows = {row.code: row for row in sensitivity.compute(fx.snapshot(), fx.parameters(), fx.references())}
+    crew = rows["CREW_HEADCOUNT"]
+
+    assert step > 0
+    assert (crew.price_plus - crew.base_price).quantize(Decimal("0.0001")) == step
+    assert (crew.base_price - crew.price_minus).quantize(Decimal("0.0001")) == step
+
+
+def test_sensitivity_of_crew_works_with_the_package_template() -> None:
+    """Состав не задан на вкладке — бригада из шаблона пакета тоже двигается на ±10 %."""
+
+    params = fx.parameters(crew=())
+    base = compute_block_economics(fx.snapshot(), params, fx.references())
+    payroll = sum(
+        (line.amount_rub for line in base.lines if line.cost_item_code.startswith("LABOR_")),
+        Decimal("0"),
+    )
+    step = (payroll * Decimal("0.1") / Decimal("60000")).quantize(Decimal("0.0001"))
+
+    crew = {row.code: row for row in sensitivity.compute(fx.snapshot(), params, fx.references())}["CREW_HEADCOUNT"]
+
+    assert step > 0
+    assert (crew.price_plus - crew.base_price).quantize(Decimal("0.0001")) == step
+    assert (crew.base_price - crew.price_minus).quantize(Decimal("0.0001")) == step
+
+
 def test_sensitivity_of_explosive_price_still_scales_cost_rules_without_a_selection() -> None:
     rows = {row.code: row for row in sensitivity.compute(fx.snapshot(), fx.parameters(), fx.references())}
 

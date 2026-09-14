@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_CEILING
 
 from cost.model.inputs import ModelContext, payload_number, payload_text
@@ -144,6 +144,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         # обычной ставке человеко-смены (F2 ревью PR #80).
         norm_shifts = payload_number(position, "norm_shifts_per_month", Decimal("21"))
         rotation = _crew_rotation(context, position, operation_code, per_shift, fixed_monthly, norm_shifts)
+        per_shift, rotation = _apply_crew_scale(context.params.crew_scale, per_shift, rotation)
         fixed_block, fixed_formula = _fixed_amount(fixed_monthly, shifts, per_shift, rotation, norm_shifts)
         piece_block, piece_formula = _piece_amount(context, position, rate_item, per_shift)
         accrued = fixed_block + piece_block
@@ -291,6 +292,24 @@ def _per_shift_headcount(explicit: Decimal) -> Decimal:
     """
 
     return explicit if explicit > 0 else Decimal("1")
+
+
+def _apply_crew_scale(
+    scale: Decimal, per_shift: Decimal, rotation: CrewRotation | None
+) -> tuple[Decimal, CrewRotation | None]:
+    """Множитель чувствительности — на людей в смене и на округлённый штат.
+
+    Штат считается по составу бригады и округляется вверх до множителя: иначе
+    водитель СЗМ при +10 % получил бы ⌈1,1⌉ = 2 человека и двойной оклад, а
+    при −10 % — прежний. С множителем после округления ФОТ меняется ровно на
+    ±10 %, как остальные строки чувствительности.
+    """
+
+    if scale == 1:
+        return per_shift, rotation
+    if rotation is not None:
+        rotation = replace(rotation, headcount=rotation.headcount * scale)
+    return per_shift * scale, rotation
 
 
 def _crew_rotation(

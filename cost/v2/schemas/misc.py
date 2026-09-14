@@ -9,9 +9,9 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
-from cost.v2.schemas.base import RefField, ReferencePayload, UnitField
+from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_error
 
 __all__ = [
     "UnitPayload",
@@ -83,6 +83,19 @@ class RockPayload(ReferencePayload):
     fissuring_ff: Decimal | None = UnitField(
         "трещин/м", title="Трещиноватость", description="Число трещин на метр массива", default=None, ge=0
     )
+
+    @model_validator(mode="after")
+    def _hardness_is_positive(self) -> "RockPayload":
+        # Нуль — не «мягкая порода», а незаполненное поле: коэффициент
+        # крепости для него не выбрать (решение владельца 13.09.2026).
+        if self.hardness_f is not None and self.hardness_f <= 0:
+            field_error(
+                type(self),
+                "hardness_f",
+                "Крепость по Протодьяконову должна быть больше нуля; не знаете — оставьте поле пустым",
+                self.hardness_f,
+            )
+        return self
 
 
 class BlastDesignParameterPayload(ReferencePayload):

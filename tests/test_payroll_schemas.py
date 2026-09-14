@@ -8,6 +8,8 @@ from pydantic import ValidationError
 
 from cost.v2.schemas import section_json_schema
 from cost.v2.schemas.labor import LaborRatePayload, PositionPayload
+from cost.v2.schemas.misc import RockPayload
+from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload
 
 
 def _error(exc: pytest.ExceptionInfo[ValidationError]) -> tuple[str, str]:
@@ -154,3 +156,70 @@ class TestLaborRateScale:
         with pytest.raises(ValidationError) as exc:
             LaborRatePayload.model_validate({**STEP, "norm_per_shift": "115"})
         assert _error(exc) == ("norm_per_shift", "У шкалы «Ступени» поля кривой не заполняются")
+
+
+class TestSitePayroll:
+    def test_old_site_reads_with_the_company_schedule(self):
+        site = SitePayload.model_validate({})
+        assert (site.shift_days_on, site.shift_days_off, site.travel_days) == (Decimal("15"), Decimal("15"), Decimal("2"))
+        assert site.maintenance_shifts == Decimal("2")
+        assert site.night_shift_share == Decimal("0.5")
+        assert site.regional_coefficient == Decimal("0.15")
+        assert site.northern_pct == Decimal("0")
+        assert site.contract_k == Decimal("1")
+        assert site.geology == []
+        # Длительность смены объекта заводится в PR 3a вместе с резолвером.
+        assert "shift_hours" not in SitePayload.model_fields
+
+    def test_geology_shares_sum_to_one_within_a_thousandth(self):
+        thirds = [{"rock_code": code, "share": "0.333"} for code in ("R1", "R2", "R3")]
+        assert len(SitePayload.model_validate({"geology": thirds}).geology) == 3
+        with pytest.raises(ValidationError) as exc:
+            SitePayload.model_validate({"geology": [{"rock_code": "R1", "share": "0.5"}, {"rock_code": "R2", "share": "0.4"}]})
+        assert _error(exc) == ("geology", "Сумма долей пород — 0.9, а должна быть 1")
+
+    def test_rock_is_listed_once(self):
+        with pytest.raises(ValidationError) as exc:
+            SitePayload.model_validate({"geology": [{"rock_code": "R1", "share": "0.5"}, {"rock_code": "R1", "share": "0.5"}]})
+        assert _error(exc) == ("geology.1.rock_code", "Порода уже есть в плановой геологии")
+
+    def test_maintenance_cannot_take_the_whole_rotation(self):
+        with pytest.raises(ValidationError) as exc:
+            SitePayload.model_validate({"shift_days_on": "2", "maintenance_shifts": "2"})
+        assert _error(exc) == (
+            "maintenance_shifts", "Плановое ТОиР не может занимать всю вахту: эффективных смен не останется"
+        )
+
+    def test_contract_factor_is_positive(self):
+        with pytest.raises(ValidationError) as exc:
+            SitePayload.model_validate({"contract_k": "0"})
+        assert _error(exc) == ("contract_k", "Договорной коэффициент должен быть больше нуля")
+
+
+class TestOrganizationTariffs:
+    def test_extra_tariffs_default_to_empty_and_accept_the_law_table(self):
+        assert OrganizationRatesPayload().extra_tariffs == []
+        rates = OrganizationRatesPayload.model_validate(
+            {"extra_tariffs": [{"work_conditions_class": "3.2", "rate": "0.04"}, {"work_conditions_class": "4", "rate": "0.08"}]}
+        )
+        assert rates.extra_tariffs[1].rate == Decimal("0.08")
+
+    def test_class_is_listed_once(self):
+        with pytest.raises(ValidationError) as exc:
+            OrganizationRatesPayload.model_validate(
+                {"extra_tariffs": [{"work_conditions_class": "3.2", "rate": "0.04"}, {"work_conditions_class": "3.2", "rate": "0.05"}]}
+            )
+        assert _error(exc) == ("extra_tariffs.1.work_conditions_class", "Класс условий труда уже есть в таблице")
+
+
+class TestRockHardness:
+    def test_empty_hardness_is_allowed(self):
+        assert RockPayload.model_validate({}).hardness_f is None
+
+    def test_zero_hardness_is_rejected(self):
+        # Отрицательное значение отсекает ещё `ge=0` поля; нуль — только эта проверка.
+        with pytest.raises(ValidationError) as exc:
+            RockPayload.model_validate({"hardness_f": "0"})
+        assert _error(exc) == (
+            "hardness_f", "Крепость по Протодьяконову должна быть больше нуля; не знаете — оставьте поле пустым"
+        )

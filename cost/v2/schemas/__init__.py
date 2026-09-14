@@ -90,7 +90,7 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "organization_rates": (
         ("Налоги и взносы", (
             "income_tax_rate", "social_contribution_rate", "injury_insurance_rate",
-            "vacation_reserve_rate", "salary_basis",
+            "vacation_reserve_rate", "salary_basis", "extra_tariffs",
         )),
         ("Надбавки", ("overhead_rate", "target_margin_rate", "vat_rate")),
         ("Вахта и смена", ("per_diem_rub", "lodging_rub", "shift_hours")),
@@ -119,6 +119,11 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
             "mobilization_rate_rub_per_km", "blocks_per_mobilization",
         )),
         ("Условия", ("diesel_price_ton_rub", "customer_provides_fuel", "is_watered", "is_remote")),
+        ("Вахта и оплата труда", (
+            "shift_days_on", "shift_days_off", "travel_days", "night_shift_share", "maintenance_shifts",
+            "regional_coefficient", "northern_pct", "contract_k",
+        )),
+        ("Геология", ("geology",)),
     ),
     "unit_fixed_costs": (
         ("Отнесение", ("production_unit_code", "scope", "category", "allocation_driver")),

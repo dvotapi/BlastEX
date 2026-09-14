@@ -69,11 +69,11 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
     },
     "positions": {
         "group": "labor", "label": "Должности и ставки",
-        "columns": ["name", "category", "operation_code", "norm_shifts_per_month", "piece_driver"],
+        "columns": ["name", "category", "operation_code", "pay_system", "norm_shifts_per_month"],
     },
     "labor_rates": {
         "group": "labor", "label": "Ставки персонала",
-        "columns": ["name", "position_code", "fixed_monthly_rub", "piece_rate_rub", "condition_code"],
+        "columns": ["name", "position_code", "fixed_monthly_rub", "piece_rate_rub", "scale_type"],
     },
     "crew_templates": {"group": "labor", "label": "Составы бригад", "columns": ["name", "package_code"]},
     "equipment_types": {

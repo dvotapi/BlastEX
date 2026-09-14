@@ -69,15 +69,23 @@ __all__ = [
 # набором в порядке объявления схемы.
 SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "positions": (
-        ("Роль", ("category", "operation_code")),
+        ("Роль", ("category", "department", "operation_code")),
         ("Нормативы", ("norm_shifts_per_month", "norm_operations_per_month")),
         ("Сдельная часть", ("piece_driver", "piece_unit")),
+        ("Оплата труда", ("pay_system", "output_unit", "output_source", "difficulty")),
+        ("Условия труда", (
+            "work_conditions_class", "week_hours_override", "hazard_pct",
+            "extra_vacation_days", "night_hours_per_shift",
+        )),
         ("Прочее", ("per_diem_applies",)),
     ),
     "labor_rates": (
         ("Должность", ("position_code", "condition_code")),
-        ("Постоянная часть", ("fixed_monthly_rub",)),
+        ("Постоянная часть", ("fixed_monthly_rub", "kpi_bonus_pct")),
         ("Сдельная часть", ("piece_rate_rub",)),
+        ("Шкала сдельной премии", (
+            "scale_type", "norm_per_shift", "rate_norm", "ceiling_per_shift", "rate_ceiling", "tiers",
+        )),
     ),
     "organization_rates": (
         ("Налоги и взносы", (

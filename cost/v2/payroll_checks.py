@@ -50,9 +50,23 @@ def _decimal(value: Any) -> Decimal | None:
     if value is None or value == "" or isinstance(value, bool):
         return None
     try:
-        return Decimal(str(value))
+        result = Decimal(str(value))
     except InvalidOperation:
         return None
+    # NaN/Infinity парсятся без ошибки, но не участвуют в сравнениях
+    # (`<=`, `>`, `max()` бросают `InvalidOperation`) — схема раздела уже
+    # отвергает такое значение как ошибку, здесь оно просто «не задано».
+    return result if result.is_finite() else None
+
+
+def _rows(value: Any) -> Sequence[Mapping[str, Any]]:
+    """Список строк подраздела payload, если тип совпадает; иначе пусто.
+
+    Схема раздела отдельно отвергает нелистовое значение как ошибку —
+    здесь достаточно не упасть и не проверять то, чего нет.
+    """
+
+    return value if isinstance(value, (list, tuple)) else ()
 
 
 def _plain(value: Decimal) -> str:
@@ -110,7 +124,7 @@ def _bit_diameters(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
         return []
     table = {
         diameter
-        for row in difficulty.payload.get("diameter") or ()
+        for row in _rows(difficulty.payload.get("diameter"))
         if isinstance(row, Mapping) and (diameter := _decimal(row.get("diameter_mm"))) is not None
     }
     materials = {item.code: item for item in _active(sections, "materials")}
@@ -231,7 +245,7 @@ def _missing_extra_tariffs(sections: Mapping[str, Sequence[ReferenceItem]]) -> l
     rates = next(iter(_active(sections, "organization_rates")), None)
     covered = {
         str(row.get("work_conditions_class"))
-        for row in (rates.payload.get("extra_tariffs") or () if rates is not None else ())
+        for row in _rows(rates.payload.get("extra_tariffs") if rates is not None else None)
         if isinstance(row, Mapping)
     }
     issues: list[ValidationIssue] = []

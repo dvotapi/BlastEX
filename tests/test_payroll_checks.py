@@ -193,3 +193,55 @@ def test_schema_errors_inside_lists_carry_the_row_path():
     assert _about(issues, "labor_rates") == [
         ("error", "RATE_STEP", "tiers.1.rate", "Расценка ступени не может быть ниже предыдущей")
     ]
+
+
+# Регресс: битые значения в payload не должны ронять validate_reference_sections
+# исключением — они уже отражены как ошибка схемы, а перекрёстные проверки
+# просто не учитывают такое значение (Fix round 1).
+
+
+def _schema_error_fields(issues: list[ValidationIssue], section: str) -> set[tuple[str, str, str]]:
+    return {(issue.level, issue.code, issue.field) for issue in issues if issue.section == section}
+
+
+def test_nan_ceiling_per_shift_does_not_crash_validation():
+    # Нужна валидная базовая строка бурения, иначе `_ceiling_above_rigs` выходит
+    # раньше сравнения "ceiling <= best" и баг не воспроизводится.
+    sections = _drilling_rate(COND_BASE={"tech_speed_m_per_h": "20", "unproductive_h_per_shift": "1"})
+    sections["labor_rates"] = (_item("RATE_DRILLER", {**CURVE, "ceiling_per_shift": "NaN"}),)
+    issues = _issues(**sections)
+    assert ("error", "RATE_DRILLER", "ceiling_per_shift") in _schema_error_fields(issues, "labor_rates")
+
+
+def test_nan_tech_speed_does_not_crash_validation():
+    # Нужны две базовые строки бурения, иначе `max()` над одним элементом не
+    # сравнивает его ни с чем и баг не воспроизводится.
+    issues = _issues(
+        equipment_types=(_item("RIG", {"kind": "DRILL_RIG"}),),
+        drilling_conditions=(
+            _item("COND_OK", {"equipment_type_code": "RIG", "tech_speed_m_per_h": "20"}),
+            _item("COND_NAN", {"equipment_type_code": "RIG", "tech_speed_m_per_h": "NaN"}),
+        ),
+    )
+    assert ("error", "COND_NAN", "tech_speed_m_per_h") in _schema_error_fields(issues, "drilling_conditions")
+
+
+def test_nan_maintenance_shifts_does_not_crash_validation():
+    rig = (_item("RIG", {"kind": "DRILL_RIG", "maintenance_ratio": "0.14"}),)
+    issues = _issues(equipment_types=rig, sites=(_item("S", {"maintenance_shifts": "NaN"}),))
+    assert ("error", "S", "maintenance_shifts") in _schema_error_fields(issues, "sites")
+
+
+def test_non_list_diameter_does_not_crash_validation():
+    issues = _issues(drilling_difficulty=(_item("DD", {"diameter": 5}),))
+    assert ("error", "DD", "diameter") in _schema_error_fields(issues, "drilling_difficulty")
+
+
+def test_non_list_extra_tariffs_does_not_crash_validation():
+    sections = dict(default_reference_sections())
+    rates = sections["organization_rates"][0]
+    broken = ReferenceItem(
+        code=rates.code, name=rates.name, payload={**rates.payload, "extra_tariffs": 5}
+    )
+    issues = _issues(organization_rates=(broken,))
+    assert ("error", rates.code, "extra_tariffs") in _schema_error_fields(issues, "organization_rates")

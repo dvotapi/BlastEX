@@ -53,6 +53,11 @@ from cost.v2.schemas.organization import (
     ProductionUnitPayload,
     SitePayload,
 )
+from cost.v2.schemas.payroll import (
+    DowntimeReasonPayload,
+    DrillingDifficultyPayload,
+    PayrollParamsPayload,
+)
 
 __all__ = [
     "SECTION_SCHEMAS",
@@ -86,6 +91,11 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("Шкала сдельной премии", (
             "scale_type", "norm_per_shift", "rate_norm", "ceiling_per_shift", "rate_ceiling", "tiers",
         )),
+    ),
+    "payroll_params": (
+        ("Календарь", ("year", "work_days_year", "holidays_year", "annual_hours_40", "annual_hours_36")),
+        ("Оплата", ("mrot", "night_pct", "vacation_days_base")),
+        ("Контроль", ("margin_share_warn",)),
     ),
     "organization_rates": (
         ("Налоги и взносы", (
@@ -150,11 +160,14 @@ SECTION_SCHEMAS: dict[str, type[ReferencePayload]] = {
     "positions": PositionPayload,
     "labor_rates": LaborRatePayload,
     "crew_templates": CrewTemplatePayload,
+    "payroll_params": PayrollParamsPayload,
+    "downtime_reasons": DowntimeReasonPayload,
     "equipment_types": EquipmentTypePayload,
     "equipment_assets": EquipmentAssetPayload,
     "resource_pools": ResourcePoolPayload,
     "resource_norms": ResourceNormPayload,
     "drilling_conditions": DrillingConditionPayload,
+    "drilling_difficulty": DrillingDifficultyPayload,
     "rocks": RockPayload,
     "blast_design_parameters": BlastDesignParameterPayload,
     "bench_surface_conditions": BenchSurfaceConditionPayload,

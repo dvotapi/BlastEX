@@ -10,6 +10,7 @@ from cost.v2.schemas import section_json_schema
 from cost.v2.schemas.labor import LaborRatePayload, PositionPayload
 from cost.v2.schemas.misc import RockPayload
 from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload
+from cost.v2.schemas.payroll import DowntimeReasonPayload, DrillingDifficultyPayload, PayrollParamsPayload
 
 
 def _error(exc: pytest.ExceptionInfo[ValidationError]) -> tuple[str, str]:
@@ -222,4 +223,100 @@ class TestRockHardness:
             RockPayload.model_validate({"hardness_f": "0"})
         assert _error(exc) == (
             "hardness_f", "Крепость по Протодьяконову должна быть больше нуля; не знаете — оставьте поле пустым"
+        )
+
+
+PARAMS = {
+    "year": "2026",
+    "mrot": "27093",
+    "annual_hours_40": "1972",
+    "annual_hours_36": "1774.4",
+    "work_days_year": "247",
+    "holidays_year": "14",
+}
+
+
+class TestPayrollParams:
+    def test_year_2026_from_the_owner_file(self):
+        params = PayrollParamsPayload.model_validate(PARAMS)
+        assert params.year == 2026
+        assert params.night_pct == Decimal("0.20")
+        assert params.vacation_days_base == Decimal("28")
+        assert params.margin_share_warn == Decimal("0.70")
+
+    def test_calendar_fields_are_required(self):
+        with pytest.raises(ValidationError) as exc:
+            PayrollParamsPayload.model_validate({"year": "2026"})
+        assert {error["loc"][0] for error in exc.value.errors()} == {
+            "mrot", "annual_hours_40", "annual_hours_36", "work_days_year", "holidays_year",
+        }
+
+    def test_36_hour_norm_is_not_above_40_hour_norm(self):
+        with pytest.raises(ValidationError) as exc:
+            PayrollParamsPayload.model_validate({**PARAMS, "annual_hours_36": "2000"})
+        assert _error(exc) == (
+            "annual_hours_36", "Норма при 36-часовой неделе больше нуля и не больше нормы при 40-часовой"
+        )
+
+
+HARDNESS = [
+    {"f_from": None, "f_to": "8", "k": "0.9"},
+    {"f_from": "8", "f_to": "12", "k": "1.0"},
+    {"f_from": "12", "f_to": "16", "k": "1.1"},
+    {"f_from": "16", "f_to": "18", "k": "1.2"},
+    {"f_from": "18", "f_to": None, "k": "1.3"},
+]
+
+
+class TestDrillingDifficulty:
+    def test_owner_tables_are_valid(self):
+        difficulty = DrillingDifficultyPayload.model_validate(
+            {"hardness": HARDNESS, "diameter": [{"diameter_mm": "152", "k": "1.00"}, {"diameter_mm": "250", "k": "1.64"}]}
+        )
+        assert difficulty.hardness[3].k == Decimal("1.2")
+
+    @pytest.mark.parametrize(
+        ("rows", "expected"),
+        [
+            (
+                [{"f_from": "0", "f_to": "8", "k": "0.9"}, {"f_from": "8", "f_to": None, "k": "1"}],
+                ("hardness.0.f_from", "У первой строки нижней границы нет: она охватывает всю крепость до верхней границы"),
+            ),
+            (
+                [{"f_from": None, "f_to": "8", "k": "0.9"}, {"f_from": "8", "f_to": "20", "k": "1"}],
+                ("hardness.1.f_to", "У последней строки верхней границы нет: крепость выше шкалы берёт её коэффициент"),
+            ),
+            (
+                [{"f_from": None, "f_to": "8", "k": "0.9"}, {"f_from": "9", "f_to": None, "k": "1"}],
+                (
+                    "hardness.1.f_from",
+                    "Интервалы крепости идут без разрыва: нижняя граница равна верхней границе предыдущей строки (8)",
+                ),
+            ),
+            (
+                [{"f_from": None, "f_to": "8", "k": "0"}],
+                ("hardness.0.k", "Коэффициент должен быть больше нуля"),
+            ),
+        ],
+    )
+    def test_broken_hardness_table_is_reported_under_the_row(self, rows, expected):
+        with pytest.raises(ValidationError) as exc:
+            DrillingDifficultyPayload.model_validate({"hardness": rows})
+        assert _error(exc) == expected
+
+    def test_diameter_is_listed_once(self):
+        with pytest.raises(ValidationError) as exc:
+            DrillingDifficultyPayload.model_validate(
+                {"diameter": [{"diameter_mm": "152", "k": "1"}, {"diameter_mm": "152.0", "k": "1"}]}
+            )
+        assert _error(exc) == ("diameter.1.diameter_mm", "Диаметр уже есть в таблице")
+
+
+class TestDowntimeReasons:
+    def test_planned_maintenance_is_excusable(self):
+        assert DowntimeReasonPayload.model_validate({"excusable": True, "planned_maintenance": True}).planned_maintenance
+        with pytest.raises(ValidationError) as exc:
+            DowntimeReasonPayload.model_validate({"planned_maintenance": True})
+        assert _error(exc) == (
+            "planned_maintenance", "Плановое ТОиР — простой не по вине машиниста: отметьте оба признака"
         )

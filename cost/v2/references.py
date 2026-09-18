@@ -76,6 +76,14 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
         "columns": ["name", "position_code", "fixed_monthly_rub", "piece_rate_rub", "scale_type"],
     },
     "crew_templates": {"group": "labor", "label": "Составы бригад", "columns": ["name", "package_code"]},
+    "payroll_params": {
+        "group": "labor", "label": "Параметры года для ФОТ",
+        "columns": ["name", "year", "mrot", "work_days_year", "margin_share_warn"],
+    },
+    "downtime_reasons": {
+        "group": "labor", "label": "Причины простоев",
+        "columns": ["name", "excusable", "planned_maintenance"],
+    },
     "equipment_types": {
         "group": "equipment", "label": "Типы оборудования",
         "columns": ["name", "kind", "norm_shifts_per_month", "maintenance_mode", "capacity"],
@@ -102,6 +110,10 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
         "group": "drilling", "label": "Условия бурения",
         "view": "matrix",
         "columns": ["name", "equipment_type_code", "rock_code", "site_code", "tech_speed_m_per_h", "bit_life_m"],
+    },
+    "drilling_difficulty": {
+        "group": "drilling", "label": "Сложность бурения",
+        "columns": ["name", "hardness", "diameter"],
     },
     "drilling_productivity": {
         "group": "drilling", "label": "Производительность бурения",

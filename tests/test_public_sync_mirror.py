@@ -275,3 +275,16 @@ def test_payload_that_the_schema_rejects_is_written_as_it_is() -> None:
     assert len(warnings) == 1
     assert "MASTER" in warnings[0]
     assert "per_diem_applies" in warnings[0]
+
+
+def test_payroll_sections_can_be_mirrored() -> None:
+    """TASK-010 PR 1: новые разделы доступны зеркалу, списки уходят в jsonb."""
+
+    from cost.v2.public_sync.settings import mirrorable_sections
+
+    assert {"payroll_params", "drilling_difficulty", "downtime_reasons"} <= set(mirrorable_sections())
+    assert column("drilling_difficulty", "hardness").sql_type == "jsonb"
+    assert column("payroll_params", "mrot").sql_type == "numeric"
+    assert column("downtime_reasons", "excusable").sql_type == "boolean"
+    assert column("labor_rates", "tiers").sql_type == "jsonb"
+    assert column("labor_rates", "scale_type").sql_type == "text"

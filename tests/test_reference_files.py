@@ -335,3 +335,68 @@ def _with_broken_sheet(data: bytes, arcname: str = "xl/worksheets/sheet1.xml") -
                 payload = payload[: payload.index(marker) + len(marker)] + b'<row r="1"><c r="A1"'
             target.writestr(info.filename, payload)
     return buffer.getvalue()
+
+
+class TestPayrollSectionsRoundTrip:
+    """Списки шкалы, крепости и диаметров переживают круг «файл → черновик» (TASK-010 PR 1)."""
+
+    RATES = (
+        ReferenceItem(
+            code="RATE_CURVE",
+            name="Машинист",
+            payload={
+                "position_code": "POSITION_LABOR_DRILLER",
+                "scale_type": "CURVE_POWER",
+                "norm_per_shift": "115.3846",
+                "rate_norm": "45",
+                "ceiling_per_shift": "184.6154",
+                "rate_ceiling": "168.66",
+                "kpi_bonus_pct": "0.10",
+            },
+        ),
+        ReferenceItem(
+            code="RATE_STEP",
+            name="Водитель",
+            payload={
+                "position_code": "POSITION_LABOR_DRIVER",
+                "scale_type": "STEP",
+                "tiers": [
+                    {"upto_per_shift": "115.3846", "rate": "45"},
+                    {"upto_per_shift": "138.4615", "rate": "75"},
+                    {"upto_per_shift": None, "rate": "140"},
+                ],
+            },
+        ),
+    )
+    DIFFICULTY = ReferenceItem(
+        code="DRILLING_DIFFICULTY_BASE",
+        name="Сложность бурения",
+        payload={
+            "hardness": [{"f_from": None, "f_to": "8", "k": "0.9"}, {"f_from": "8", "f_to": None, "k": "1.0"}],
+            "diameter": [{"diameter_mm": "152", "k": "1.00"}, {"diameter_mm": "250", "k": "1.64"}],
+        },
+    )
+
+    def test_xlsx_round_trip_keeps_curve_and_step_scales(self):
+        from cost.v2.reference_files import export_xlsx, import_xlsx
+
+        snapshot = _snapshot(labor_rates=self.RATES, drilling_difficulty=(self.DIFFICULTY,))
+        imported = import_xlsx(export_xlsx(snapshot))
+
+        for section, originals in (("labor_rates", self.RATES), ("drilling_difficulty", (self.DIFFICULTY,))):
+            model = SECTION_SCHEMAS[section]
+            back = {item.code: item.payload for item in imported[section]}
+            for item in originals:
+                # Число из ячейки возвращается без хвостовых нулей («0.10» → «0.1»):
+                # сравниваем разобранные схемой значения, а не строки.
+                assert model.model_validate(back[item.code]) == model.model_validate(item.payload)
+        step = next(item for item in imported["labor_rates"] if item.code == "RATE_STEP")
+        assert step.payload["tiers"][2] == {"upto_per_shift": None, "rate": "140"}
+
+    def test_json_round_trip_is_exact(self):
+        from cost.v2.reference_files import export_json, import_json
+
+        snapshot = _snapshot(labor_rates=self.RATES, drilling_difficulty=(self.DIFFICULTY,))
+        imported = import_json(json.dumps(export_json(snapshot), ensure_ascii=False).encode("utf-8"))
+        assert tuple(imported["labor_rates"]) == self.RATES
+        assert tuple(imported["drilling_difficulty"]) == (self.DIFFICULTY,)

@@ -349,6 +349,10 @@ def validate_reference_sections(
 
     issues.extend(_schema_issues(sections))
     issues.extend(_reference_issues(sections))
+    # Локальный импорт: модуль проверок сам берёт `ValidationIssue` отсюда.
+    from cost.v2.payroll_checks import payroll_issues
+
+    issues.extend(payroll_issues(sections))
 
     operations = {item.code for item in sections["operations"] if item.is_active}
     packages = {item.code: item for item in sections["work_packages"] if item.is_active}

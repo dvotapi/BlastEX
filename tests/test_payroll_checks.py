@@ -1,0 +1,195 @@
+"""Проверки ревизии для методики ФОТ по нескольким разделам сразу (TASK-010 PR 1, Т15, Т16)."""
+from __future__ import annotations
+
+from cost.v2.models import ReferenceItem
+from cost.v2.references import ValidationIssue, default_reference_sections, validate_reference_sections
+
+
+def _item(code: str, payload: dict, name: str = "Запись") -> ReferenceItem:
+    return ReferenceItem(code=code, name=name, payload=payload)
+
+
+def _issues(**sections) -> list[ValidationIssue]:
+    merged = dict(default_reference_sections())
+    merged.update(sections)
+    return validate_reference_sections(merged)
+
+
+def _about(issues: list[ValidationIssue], section: str) -> list[tuple[str, str, str, str]]:
+    return [(issue.level, issue.code, issue.field, issue.message) for issue in issues if issue.section == section]
+
+
+PARAMS = {
+    "year": "2026",
+    "mrot": "27093",
+    "annual_hours_40": "1972",
+    "annual_hours_36": "1774.4",
+    "work_days_year": "247",
+    "holidays_year": "14",
+}
+CURVE = {
+    "position_code": "POS_DRILLER",
+    "scale_type": "CURVE_POWER",
+    "norm_per_shift": "115.3846",
+    "rate_norm": "45",
+    "ceiling_per_shift": "184.6154",
+    "rate_ceiling": "168.66",
+}
+
+
+def test_empty_new_sections_are_warnings_not_errors():
+    issues = _issues()
+    assert ("warning", "", "", "Не заведены параметры года: ФОТ по методике не рассчитается.") in _about(issues, "payroll_params")
+    assert _about(issues, "drilling_difficulty") == [
+        ("warning", "", "", "Не заведены коэффициенты сложности бурения: приведённые метры не посчитать.")
+    ]
+    assert _about(issues, "downtime_reasons") == [
+        ("warning", "", "", "Не заведены причины простоев: простой не по вине машиниста не списать.")
+    ]
+    assert not [issue for issue in issues if issue.level == "error"]
+
+
+def test_one_parameter_record_per_year():
+    issues = _issues(payroll_params=(_item("P1", PARAMS), _item("P2", {**PARAMS, "year": 2026})))
+    assert _about(issues, "payroll_params") == [
+        ("error", "P2", "year", "Параметры 2026 года уже заведены записью P1.")
+    ]
+
+
+def test_one_active_difficulty_record():
+    issues = _issues(drilling_difficulty=(_item("DD1", {}), _item("DD2", {})))
+    assert _about(issues, "drilling_difficulty") == [
+        ("error", "DD2", "", "Действует одна запись коэффициентов сложности бурения, уже есть DD1.")
+    ]
+
+
+def _bits(material: dict, diameters: list[str]) -> dict:
+    return {
+        "materials": (_item("MAT_BIT", material, name="Коронка 165"),),
+        "equipment_types": (_item("RIG", {"kind": "DRILL_RIG"}),),
+        "drilling_conditions": (_item("COND", {"equipment_type_code": "RIG", "bit_material_code": "MAT_BIT"}),),
+        "drilling_difficulty": (
+            _item("DD", {"diameter": [{"diameter_mm": value, "k": "1"} for value in diameters]}),
+        ),
+    }
+
+
+def test_every_bit_diameter_needs_a_factor():
+    issues = _issues(**_bits({"diameter_mm": "165"}, ["152"]))
+    assert _about(issues, "drilling_difficulty") == [
+        ("error", "DD", "diameter", "Нет коэффициента для коронки Ø 165 мм (Коронка 165).")
+    ]
+    assert _about(_issues(**_bits({"diameter_mm": "165.0"}, ["152", "165"])), "drilling_difficulty") == []
+
+
+def test_bit_without_a_diameter_is_a_warning_on_the_material():
+    issues = _issues(**_bits({}, ["152"]))
+    assert _about(issues, "materials") == [
+        (
+            "warning",
+            "MAT_BIT",
+            "diameter_mm",
+            "У коронки из условий бурения не задан диаметр: коэффициент диаметра для неё не проверен.",
+        )
+    ]
+
+
+def test_bit_diameters_are_not_checked_while_the_section_is_empty():
+    sections = _bits({"diameter_mm": "165"}, [])
+    sections["drilling_difficulty"] = ()
+    assert [issue for issue in _issues(**sections) if issue.level == "error"] == []
+
+
+def _drilling_rate(**conditions) -> dict:
+    return {
+        "positions": (_item("POS_DRILLER", {"category": "INDIRECT", "difficulty": "NORMALIZED_METERS"}),),
+        "labor_rates": (_item("RATE_DRILLER", CURVE),),
+        "equipment_types": (_item("RIG", {"kind": "DRILL_RIG"}),),
+        "drilling_conditions": tuple(
+            _item(code, {"equipment_type_code": "RIG", **payload}) for code, payload in conditions.items()
+        ),
+    }
+
+
+def test_ceiling_above_what_a_rig_drills_in_a_shift_is_a_warning():
+    # Базовая строка 10 м/ч × (11 − 1) ч = 100 м/смену; строка по породе в сравнение не входит.
+    issues = _issues(
+        **_drilling_rate(
+            COND_BASE={"tech_speed_m_per_h": "10", "unproductive_h_per_shift": "1"},
+            COND_GRANITE={"rock_code": "ROCK", "tech_speed_m_per_h": "30"},
+        ),
+        rocks=(_item("ROCK", {}),),
+    )
+    assert _about(issues, "labor_rates") == [
+        (
+            "warning",
+            "RATE_DRILLER",
+            "ceiling_per_shift",
+            "Потолок 184.6154 м/смену выше производительности станков по базовым условиям бурения "
+            "(до 100 м/смену): машинист не дойдёт до потолка.",
+        )
+    ]
+
+
+def test_ceiling_within_rig_capacity_passes():
+    # 20 м/ч × 10 ч = 200 м/смену.
+    issues = _issues(**_drilling_rate(COND_BASE={"tech_speed_m_per_h": "20", "unproductive_h_per_shift": "1"}))
+    assert _about(issues, "labor_rates") == []
+
+
+def test_rotation_maintenance_against_rig_maintenance_ratio():
+    rig = (_item("RIG", {"kind": "DRILL_RIG", "maintenance_ratio": "0.14"}, name="JK830"),)
+    # 15 × 0,14 / 1,14 = 1,84 смены: 2 в пределах полусмены, 3 — нет.
+    assert _about(_issues(equipment_types=rig, sites=(_item("S", {}),)), "sites") == []
+    issues = _issues(equipment_types=rig, sites=(_item("S", {"maintenance_shifts": "3"}),))
+    assert _about(issues, "sites") == [
+        (
+            "warning",
+            "S",
+            "maintenance_shifts",
+            "Плановое ТОиР 3 см за вахту расходится с долей ТОиР станка JK830: "
+            "0.14 смены ТОиР на рабочую смену дают 1.84 см из 15.",
+        )
+    ]
+
+
+def test_hazardous_class_needs_an_extra_tariff():
+    position = (_item("POS_X", {"category": "INDIRECT", "work_conditions_class": "3.3"}),)
+    issues = _issues(positions=position)
+    assert _about(issues, "positions") == [
+        (
+            "warning",
+            "POS_X",
+            "work_conditions_class",
+            "Для класса условий труда 3.3 в «Ставках и надбавках организации» не задан доп. тариф взносов: "
+            "расчёт ФОТ возьмёт 0.",
+        )
+    ]
+    sections = dict(default_reference_sections())
+    rates = sections["organization_rates"][0]
+    covered = ReferenceItem(
+        code=rates.code,
+        name=rates.name,
+        payload={**rates.payload, "extra_tariffs": [{"work_conditions_class": "3.3", "rate": "0.06"}]},
+    )
+    assert _about(_issues(positions=position, organization_rates=(covered,)), "positions") == []
+    assert _about(_issues(positions=(_item("POS_Y", {"category": "INDIRECT", "work_conditions_class": "2"}),)), "positions") == []
+
+
+def test_schema_errors_inside_lists_carry_the_row_path():
+    issues = _issues(
+        positions=(_item("POS_DRILLER", {"category": "INDIRECT"}),),
+        labor_rates=(
+            _item(
+                "RATE_STEP",
+                {
+                    "position_code": "POS_DRILLER",
+                    "scale_type": "STEP",
+                    "tiers": [{"upto_per_shift": "115", "rate": "45"}, {"upto_per_shift": "138", "rate": "40"}, {"rate": "140"}],
+                },
+            ),
+        ),
+    )
+    assert _about(issues, "labor_rates") == [
+        ("error", "RATE_STEP", "tiers.1.rate", "Расценка ступени не может быть ниже предыдущей")
+    ]

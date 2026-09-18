@@ -1,0 +1,142 @@
+"""Сид справочников методики ФОТ поверх опубликованного снимка (TASK-010 PR 1, Т10)."""
+from __future__ import annotations
+
+from dataclasses import replace
+from decimal import Decimal
+
+from cost.model.engine import compute_block_economics
+from cost.model.inputs import CrewMember
+from cost.v2.crew_defaults import DEFAULT_CREW_CODE, reclassify_positions
+from cost.v2.models import ReferenceItem, ReferenceSnapshot
+from cost.v2.payroll_defaults import seed_payroll_references
+from cost.v2.references import has_validation_errors, validate_reference_sections
+from tests import model_fixtures as fx
+from tests.test_crew_defaults import imported_snapshot
+
+
+def _as_snapshot(base: ReferenceSnapshot, sections: dict[str, list[ReferenceItem]]) -> ReferenceSnapshot:
+    return replace(base, sections={name: tuple(items) for name, items in sections.items()})
+
+
+def _by_code(sections: dict[str, list[ReferenceItem]], section: str) -> dict[str, ReferenceItem]:
+    return {item.code: item for item in sections[section]}
+
+
+def test_seed_over_imported_positions_is_valid_and_complete():
+    sections, report = seed_payroll_references(imported_snapshot())
+
+    positions = _by_code(sections, "positions")
+    assert len([code for code in positions if code.startswith("POSITION_LABOR_")]) == 14
+    driller = positions["POSITION_LABOR_DRILLER"]
+    # Наименование и заданная категория существующей записи не меняются.
+    assert driller.name == "Бурильщик"
+    assert driller.payload["category"] == "INDIRECT"
+    assert driller.payload["pay_system"] == "PIECE_PROGRESSIVE"
+    assert driller.payload["work_conditions_class"] == "3.2"
+    assert driller.payload["difficulty"] == "NORMALIZED_METERS"
+    assert positions["POSITION_LABOR_MINER"].payload["output_source"] == "SECTION_OUTPUT"
+    storekeeper = positions["POSITION_LABOR_STOREKEEPER"]
+    assert (storekeeper.source, storekeeper.payload["category"], storekeeper.payload["pay_system"]) == (
+        "payroll_seed", "INDIRECT", "TIME_BONUS",
+    )
+
+    rate = _by_code(sections, "labor_rates")["RATE_POSITION_LABOR_DRILLER"]
+    assert rate.payload["fixed_monthly_rub"] == "60000"
+    assert {key: rate.payload[key] for key in ("scale_type", "norm_per_shift", "rate_norm", "ceiling_per_shift", "rate_ceiling")} == {
+        "scale_type": "CURVE_POWER",
+        "norm_per_shift": "115.3846",
+        "rate_norm": "45",
+        "ceiling_per_shift": "184.6154",
+        "rate_ceiling": "168.66",
+    }
+    # У помощника в этом снимке нет ставки — новую не заводим.
+    assert "labor_rates:POSITION_LABOR_ASSISTANT: нет ставки без условия бурения, шкала не заведена" in report.skipped
+
+    params = _by_code(sections, "payroll_params")["PAYROLL_PARAMS_2026"].payload
+    assert (params["mrot"], params["annual_hours_36"], params["work_days_year"]) == ("27093", "1774.4", "247")
+    difficulty = _by_code(sections, "drilling_difficulty")["DRILLING_DIFFICULTY_BASE"].payload
+    assert [row["k"] for row in difficulty["hardness"]] == ["0.9", "1.0", "1.1", "1.2", "1.3"]
+    assert difficulty["diameter"] == [
+        {"diameter_mm": diameter, "k": k}
+        for diameter, k in (
+            ("110", "0.72"), ("127", "0.84"), ("140", "0.92"), ("152", "1.00"),
+            ("165", "1.09"), ("190", "1.25"), ("215", "1.41"), ("250", "1.64"),
+        )
+    ]
+    reasons = _by_code(sections, "downtime_reasons")
+    assert len(reasons) == 10
+    assert reasons["DT_PLANNED_MAINTENANCE"].payload == {"excusable": True, "planned_maintenance": True}
+    assert reasons["DT_LATE"].payload == {"excusable": False, "planned_maintenance": False}
+    rates = sections["organization_rates"][0].payload
+    assert rates["extra_tariffs"][1] == {"work_conditions_class": "3.2", "rate": "0.04"}
+    assert rates["social_contribution_rate"] == "0.30"
+    assert "units:KM" in report.added
+
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+
+def test_second_run_changes_nothing():
+    first, _ = seed_payroll_references(imported_snapshot())
+    again, report = seed_payroll_references(_as_snapshot(imported_snapshot(), first))
+    assert again == first
+    assert report.added == [] and report.filled == []
+
+
+def test_filled_values_are_never_overwritten():
+    base = imported_snapshot()
+    positions = tuple(
+        replace(item, payload={**item.payload, "pay_system": "TIME_BONUS", "work_conditions_class": "3.3"})
+        if item.code == "POSITION_LABOR_DRILLER"
+        else item
+        for item in base.sections["positions"]
+    )
+    rates = tuple(
+        replace(item, payload={**item.payload, "scale_type": "STEP", "tiers": [{"rate": "100"}]})
+        if item.code == "RATE_POSITION_LABOR_DRILLER"
+        else item
+        for item in base.sections["labor_rates"]
+    )
+    sections, _ = seed_payroll_references(replace(base, sections={**base.sections, "positions": positions, "labor_rates": rates}))
+
+    driller = _by_code(sections, "positions")["POSITION_LABOR_DRILLER"].payload
+    assert (driller["pay_system"], driller["work_conditions_class"]) == ("TIME_BONUS", "3.3")
+    assert driller["hazard_pct"] == "0.04"
+    rate = _by_code(sections, "labor_rates")["RATE_POSITION_LABOR_DRILLER"].payload
+    assert rate["scale_type"] == "STEP" and "norm_per_shift" not in rate
+
+
+def test_bit_diameters_from_drilling_conditions_join_the_owner_list():
+    snapshot = fx.references(
+        materials=tuple(
+            replace(item, payload={**item.payload, "diameter_mm": "171"}) if item.code == "MAT_BIT" else item
+            for item in fx.MATERIALS
+        )
+    )
+    sections, _ = seed_payroll_references(snapshot)
+    diameters = _by_code(sections, "drilling_difficulty")["DRILLING_DIFFICULTY_BASE"].payload["diameter"]
+    assert {"diameter_mm": "171", "k": "1.13"} in diameters
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+
+def test_rates_based_block_economics_do_not_move():
+    """Расчёт по ставкам новых ключей не читает: смета до и после сида одна."""
+
+    reclassified, _ = reclassify_positions(imported_snapshot())
+    before = _as_snapshot(imported_snapshot(), reclassified)
+    crew = tuple(
+        CrewMember(member["position_code"], Decimal(member["headcount"]))
+        for item in reclassified["crew_templates"]
+        if item.code == DEFAULT_CREW_CODE
+        for member in item.payload["members"]
+    ) + (CrewMember("POSITION_LABOR_DRILLER", Decimal("1")),)
+    seeded, _ = seed_payroll_references(before)
+    after = _as_snapshot(before, seeded)
+
+    parameters = fx.parameters(crew=crew)
+    lines_before = compute_block_economics(fx.snapshot(), parameters, before).lines
+    lines_after = compute_block_economics(fx.snapshot(), parameters, after).lines
+
+    assert [(line.cost_item_code, line.amount_rub) for line in lines_after] == [
+        (line.cost_item_code, line.amount_rub) for line in lines_before
+    ]
+    assert any(line.cost_item_code == "LABOR_POSITION_LABOR_DRILLER" for line in lines_after)

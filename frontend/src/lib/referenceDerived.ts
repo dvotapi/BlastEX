@@ -25,6 +25,8 @@ export type DerivedHint = {
 
 const DEFAULT_SHIFT_HOURS = 11;
 const DEFAULT_VAT_RATE = 0.2;
+// Премия за смену — рубли с копейками: узлы кривой хранятся с четырьмя знаками.
+const RUBLES = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function records(context: DerivedContext, section: string): DerivedRecord[] {
   return context.sections[section] ?? [];
@@ -93,6 +95,37 @@ function drillingConditionHints(
   return [{ label: "Коммерческая скорость", value: parts.join(" · ") }];
 }
 
+/**
+ * Кривая сдельной премии: показатель γ и премия за смену на норме и потолке.
+ *
+ * Формулы — те же, что у модели ФОТ (TASK-010 §2.3): на норме
+ * p = rate_norm × norm; степенная кривая r(m) = rate_norm × (m / norm)^γ даёт
+ * на потолке p = rate_norm × norm × (1 + ((ceiling / norm)^(γ+1) − 1) / (γ + 1)),
+ * линейная — трапецию. Владелец видит, что меняет каждая правка узлов.
+ */
+function laborRateHints(payload: Record<string, unknown>): DerivedHint[] {
+  const shape = payload.scale_type;
+  if (shape !== "CURVE_POWER" && shape !== "CURVE_LINEAR") return [];
+  const norm = parseNumber(payload.norm_per_shift);
+  const rateNorm = parseNumber(payload.rate_norm);
+  const ceiling = parseNumber(payload.ceiling_per_shift);
+  const rateCeiling = parseNumber(payload.rate_ceiling);
+  if (norm === null || rateNorm === null || ceiling === null || rateCeiling === null) return [];
+  if (norm <= 0 || rateNorm <= 0 || ceiling <= norm || rateCeiling < rateNorm) return [];
+
+  const atNorm = rateNorm * norm;
+  if (shape === "CURVE_LINEAR") {
+    const atCeiling = atNorm + ((ceiling - norm) * (rateNorm + rateCeiling)) / 2;
+    return [{ label: "Премия за смену: норма · потолок", value: `${RUBLES.format(atNorm)} ₽ · ${RUBLES.format(atCeiling)} ₽` }];
+  }
+  const gamma = Math.log(rateCeiling / rateNorm) / Math.log(ceiling / norm);
+  const atCeiling = atNorm * (1 + (Math.pow(ceiling / norm, gamma + 1) - 1) / (gamma + 1));
+  return [
+    { label: "Показатель кривой γ", value: formatNumber(gamma) },
+    { label: "Премия за смену: норма · потолок", value: `${RUBLES.format(atNorm)} ₽ · ${RUBLES.format(atCeiling)} ₽` },
+  ];
+}
+
 export function derivedHints(
   section: string,
   code: string,
@@ -101,5 +134,6 @@ export function derivedHints(
 ): DerivedHint[] {
   if (section === "positions") return positionHints(code, payload, context);
   if (section === "drilling_conditions") return drillingConditionHints(payload, context);
+  if (section === "labor_rates") return laborRateHints(payload);
   return [];
 }

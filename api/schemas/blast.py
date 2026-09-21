@@ -1,14 +1,15 @@
 """Pydantic-схемы технологического расчёта BlastEngine."""
 from __future__ import annotations
 
+import math
 from dataclasses import asdict
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
 
 from api.schemas.cost import BlockGeometrySchema, HoleGeometrySchema, InitiationConfigSchema
-from simulation.fragmentation.cunningham import KuzRamSettings
+from simulation.fragmentation.cunningham import MIN_HOLE_DIAMETER_MM, KuzRamSettings
 
 
 class RockPropertiesSchema(BaseModel):
@@ -42,6 +43,21 @@ class TargetParamsSchema(BaseModel):
     spacing_coeff_m: float = Field(1.25, gt=0, le=10)
     bench_height_m: float = Field(10.0, gt=0)
 
+
+# Коронка не меньше нижней границы диаметра скважины в формуле n (коэффициент
+# разбуривания не меньше 1); сверху — прежний предел фактов калибровки. Что
+# и при коэффициенте до 1,5 скважина остаётся в границах формулы, проверяет тест.
+CROWN_MM_MIN = MIN_HOLE_DIAMETER_MM
+CROWN_MM_MAX = 1000.0
+
+
+def _crown_within_bounds(value: float) -> float:
+    if not (math.isfinite(value) and CROWN_MM_MIN <= value <= CROWN_MM_MAX):
+        raise PydanticCustomError("crown_mm", f"Диаметр коронки — от {CROWN_MM_MIN:g} до {CROWN_MM_MAX:g} мм.")
+    return value
+
+
+CrownMm = Annotated[float, AfterValidator(_crown_within_bounds)]
 
 _KUZRAM_DEFAULTS = KuzRamSettings()
 
@@ -144,7 +160,7 @@ class BlastOptimizeRequest(BaseModel):
     rock: RockPropertiesSchema
     explosive: ExplosivePropertiesSchema
     target: TargetParamsSchema
-    crown_diameters_mm: list[float] = Field(
+    crown_diameters_mm: list[CrownMm] = Field(
         default_factory=lambda: [110, 115, 122, 125, 130, 140, 152, 165, 171, 220, 250],
         min_length=1,
         max_length=50,
@@ -178,7 +194,7 @@ class BlastOptimizeResponse(BaseModel):
 
 
 class KuzRamFactSchema(BaseModel):
-    crown_mm: float = Field(..., gt=0, le=1000)
+    crown_mm: CrownMm
     q_kg_m3: float = Field(..., gt=0, le=10)
     oversize_pct: float = Field(..., gt=0, lt=100)
 

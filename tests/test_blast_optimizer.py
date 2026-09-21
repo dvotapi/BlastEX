@@ -106,6 +106,10 @@ class KuzRamOptimizerTests(unittest.TestCase):
         self.assertEqual(point.rock_factor.method, "rmd50")
         self.assertEqual(point.strength_exponent, "19/20")
         self.assertAlmostEqual(point.charge_to_bench, 0.88)
+        # n при умолчаниях: без отклонения бурения и с C(n) = 1.
+        expected_n = (2.2 - 14 * point.burden_m / 159.6) * math.sqrt(2.25 / 2) * 1.1 ** 0.1 * 0.88
+        self.assertAlmostEqual(point.uniformity_n, expected_n)
+        self.assertEqual(round(point.uniformity_n, 2), 1.78)
         self.assertAlmostEqual(point.hole_diameter_mm, 159.6)
         self.assertAlmostEqual(point.burden_to_diameter, point.burden_m / 0.1596)
 

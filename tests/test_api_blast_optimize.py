@@ -6,9 +6,11 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
+from annotated_types import Ge, Le
+
 from api.main import request_validation_handler, value_error_handler
 from api.routers import blast
-from api.schemas.blast import KuzRamSettingsSchema
+from api.schemas.blast import CROWN_MM_MAX, CROWN_MM_MIN, KuzRamSettingsSchema, TargetParamsSchema
 from Blast import BlastEngine, ExplosiveProperties, RockProperties, TargetParams
 from simulation.fragmentation import cunningham as kr
 
@@ -123,14 +125,45 @@ class OptimizeEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Фактор породы A", response.json()["detail"])
 
-    def test_crown_in_metres_is_400_with_russian_message(self):
-        # 0,152 вместо 152: скважина 0,1596 мм — формула Каннингема отказывает,
-        # а не упирает n в нижнюю границу молча.
-        response = _client_with_app_handlers().post(
-            "/api/v1/blast/optimize", json={**GABBRO, "crown_diameters_mm": [0.152]}
+    def test_crown_out_of_bounds_is_422_with_russian_message(self):
+        # 0,152 (метры вместо миллиметров), 15 и 5000 мм — вне 20–1000 мм.
+        # Ошибка называет коронку и её место в списке, а не диаметр скважины.
+        for crowns, index in (([0.152], 0), ([152, 15], 1), ([5000], 0)):
+            with self.subTest(crowns=crowns):
+                response = _client_with_app_handlers().post(
+                    "/api/v1/blast/optimize", json={**GABBRO, "crown_diameters_mm": crowns}
+                )
+                self.assertEqual(response.status_code, 422)
+                errors = response.json()["details"]
+                self.assertEqual([error["msg"] for error in errors], ["Диаметр коронки — от 20 до 1000 мм."])
+                self.assertEqual(errors[0]["loc"], ["body", "crown_diameters_mm", index])
+
+    def test_non_finite_input_is_422_with_russian_message(self):
+        # json.loads принимает NaN, а в деталях 422 pydantic повторяет ввод:
+        # без замены JSONResponse падал на NaN, и вместо 422 уходил 400
+        # «Out of range float values are not JSON compliant».
+        cases = (
+            ({"crown_diameters_mm": [float("nan")]}, "Диаметр коронки — от 20 до 1000 мм."),
+            ({"kuzram": {"rock_factor_correction": float("inf")}}, "Поправка C(A) — от 0,1 до 10."),
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("в миллиметрах", response.json()["detail"])
+        for extra, message in cases:
+            with self.subTest(extra=extra):
+                response = _client_with_app_handlers().post(
+                    "/api/v1/blast/optimize",
+                    content=json.dumps({**GABBRO, **extra}),
+                    headers={"content-type": "application/json"},
+                )
+                self.assertEqual(response.status_code, 422, response.text)
+                self.assertIn(message, [error["msg"] for error in response.json()["details"]])
+
+    def test_crown_bounds_fit_formula_bounds(self):
+        # Коэффициент разбуривания — в границах TargetParamsSchema: любая
+        # коронка, которую пропускает схема, даёт скважину в границах формулы n.
+        metadata = TargetParamsSchema.model_fields["hole_oversize_coeff"].metadata
+        coeff_min = next(item.ge for item in metadata if isinstance(item, Ge))
+        coeff_max = next(item.le for item in metadata if isinstance(item, Le))
+        self.assertGreaterEqual(CROWN_MM_MIN * coeff_min, kr.MIN_HOLE_DIAMETER_MM)
+        self.assertLessEqual(CROWN_MM_MAX * coeff_max, kr.MAX_HOLE_DIAMETER_MM)
 
     def test_crown_diameters_over_fifty_is_422(self):
         response = _client().post(
@@ -215,6 +248,17 @@ class CalibrateEndpointTests(unittest.TestCase):
         facts = [{"crown_mm": 152, "q_kg_m3": 1.1, "oversize_pct": 5.0}]
         response = _client().post("/api/v1/blast/kuzram/calibrate", json={**GABBRO, "kuzram": None, "facts": facts})
         self.assertEqual(response.status_code, 200, response.text)
+
+    def test_fact_crown_out_of_bounds_is_422(self):
+        facts = [
+            {"crown_mm": 152, "q_kg_m3": 1.1, "oversize_pct": 5.0},
+            {"crown_mm": 15, "q_kg_m3": 1.1, "oversize_pct": 5.0},
+        ]
+        response = _client_with_app_handlers().post("/api/v1/blast/kuzram/calibrate", json={**GABBRO, "facts": facts})
+        self.assertEqual(response.status_code, 422)
+        errors = response.json()["details"]
+        self.assertEqual([error["msg"] for error in errors], ["Диаметр коронки — от 20 до 1000 мм."])
+        self.assertEqual(errors[0]["loc"], ["body", "facts", 1, "crown_mm"])
 
     def test_fact_q_over_ten_is_422(self):
         facts = [{"crown_mm": 152, "q_kg_m3": 11, "oversize_pct": 5.0}]

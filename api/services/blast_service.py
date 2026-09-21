@@ -42,10 +42,8 @@ def optimize_blast(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
     threshold = request.max_oversize_threshold_pct
     variants: list[BlastOptimizeVariant] = []
 
+    # Коронки уже в границах 20–1000 мм: их проверяет схема (CrownMm).
     for diameter_mm in sorted(request.crown_diameters_mm):
-        if diameter_mm <= 0:
-            raise InvalidGeometryError(f"Некорректный диаметр коронки: {diameter_mm} мм.")
-
         current = engine.optimize_blast(diameter_mm, threshold, settings)
         legacy = engine.optimize_blast_legacy(diameter_mm, threshold)
         a_m, b_m, label = _grid(current.point, target.spacing_coeff_m)

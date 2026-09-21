@@ -127,12 +127,12 @@ class UniformityTests(unittest.TestCase):
         self.assertEqual(crushed.value, kr.MIN_UNIFORMITY_N)
 
     def test_deviation_larger_than_burden_does_not_flip_sign(self):
-        # (2,2 − 14·8/45) ≈ −0,29 — уже отрицательный первый множитель; без
-        # max(0, ...) (1 − 9/8) = −0,125 даёт произведение двух минусов,
-        # и итог получался положительным вместо нуля.
+        # (2,2 − 14·4/20) = −0,6 — уже отрицательный первый множитель; без
+        # max(0, ...) (1 − 6/4) = −0,5 даёт произведение двух минусов, и итог
+        # получался бы ≈ +0,26 — выше нижней границы n, а не нулём.
         n = kr.uniformity_index(
-            burden_m=8.0, hole_diameter_mm=45.0, spacing_to_burden=1.25,
-            drill_deviation_m=9.0, charge_length_m=8.0, bench_height_m=10.0, correction=1.0,
+            burden_m=4.0, hole_diameter_mm=20.0, spacing_to_burden=1.25,
+            drill_deviation_m=6.0, charge_length_m=8.0, bench_height_m=10.0, correction=1.0,
         )
         self.assertEqual(n.raw, 0.0)
         self.assertEqual(n.value, kr.MIN_UNIFORMITY_N)
@@ -157,18 +157,29 @@ class UniformityTests(unittest.TestCase):
         self.assertLess(n.raw, 0.0)
         self.assertEqual(n.value, kr.MIN_UNIFORMITY_N)
 
-    def test_diameter_in_metres_is_rejected(self):
+    def test_implausible_diameter_is_rejected(self):
         # Формула сама по себе безразлична к единицам: диаметр 0,1596 (метры)
-        # дал бы n ≈ −290 и молчаливый упор в нижнюю границу, как в PR #82.
-        for diameter in (0.1596, 19.9, math.nan, math.inf):
+        # дал бы n ≈ −290 и молчаливый упор в нижнюю границу, как в PR #82;
+        # 159 600 (миллиметры, пересчитанные ещё раз) — правдоподобный n ≈ 2,07.
+        for diameter in (0.1596, 19.9, 2000.1, 159600.0):
             with self.subTest(diameter=diameter):
-                with self.assertRaisesRegex(ValueError, "в миллиметрах"):
+                with self.assertRaisesRegex(ValueError, r"в миллиметрах, от 20 до 2000 мм"):
                     kr.uniformity_index(burden_m=3.54, hole_diameter_mm=diameter, **self.PATTERN)
 
-    def test_smallest_diameter_is_accepted(self):
-        n = kr.uniformity_index(burden_m=0.6, hole_diameter_mm=kr.MIN_HOLE_DIAMETER_MM, **self.PATTERN)
-        self.assertEqual(kr.MIN_HOLE_DIAMETER_MM, 20.0)
-        self.assertGreater(n.value, kr.MIN_UNIFORMITY_N)
+    def test_non_finite_diameter_is_rejected_in_russian(self):
+        for diameter in (math.nan, math.inf, -math.inf):
+            with self.subTest(diameter=diameter):
+                with self.assertRaisesRegex(ValueError, "конечным числом") as caught:
+                    kr.uniformity_index(burden_m=3.54, hole_diameter_mm=diameter, **self.PATTERN)
+                self.assertNotIn("nan", str(caught.exception))
+                self.assertNotIn("inf", str(caught.exception))
+
+    def test_diameter_bounds_are_accepted(self):
+        self.assertEqual((kr.MIN_HOLE_DIAMETER_MM, kr.MAX_HOLE_DIAMETER_MM), (20.0, 2000.0))
+        for diameter, burden_m in ((kr.MIN_HOLE_DIAMETER_MM, 0.6), (kr.MAX_HOLE_DIAMETER_MM, 60.0)):
+            with self.subTest(diameter=diameter):
+                n = kr.uniformity_index(burden_m=burden_m, hole_diameter_mm=diameter, **self.PATTERN)
+                self.assertGreater(n.value, kr.MIN_UNIFORMITY_N)
 
 
 class SolveCorrectionTests(unittest.TestCase):

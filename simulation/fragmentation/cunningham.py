@@ -38,9 +38,11 @@ NUMERIC_BOUNDS: dict[str, tuple[float, float, str]] = {
 
 Q_MIN_KG_M3 = 0.10
 MIN_UNIFORMITY_N = 0.1
-# Самые малые взрывные скважины — 32–45 мм; диаметр меньше 20 почти наверняка
-# передан в метрах (0,1–0,3), а формула n к единицам безразлична (PR #82).
+# Взрывные скважины — от 32–45 до ~450 мм. Формула n к единицам безразлична
+# (PR #82): диаметр меньше 20 почти наверняка передан в метрах (0,1–0,3),
+# больше 2000 — пересчитан в миллиметры дважды.
 MIN_HOLE_DIAMETER_MM = 20.0
+MAX_HOLE_DIAMETER_MM = 2000.0
 RMD_MASSIVE = 50.0
 RMD_FRIABLE = 10.0
 # Один заряд в скважине: множитель (|BCL − CCL|/L + 0,1)^0,1 при BCL = 0.
@@ -202,10 +204,13 @@ def uniformity_index(
 
     W, σ, L, H — метры, d — миллиметры (Каннингем 1987). L/H не больше 1.
     """
-    if not (math.isfinite(hole_diameter_mm) and hole_diameter_mm >= MIN_HOLE_DIAMETER_MM):
+    if not math.isfinite(hole_diameter_mm):
+        raise ValueError("Диаметр скважины для формулы Каннингема должен быть конечным числом в миллиметрах.")
+    if not MIN_HOLE_DIAMETER_MM <= hole_diameter_mm <= MAX_HOLE_DIAMETER_MM:
         raise ValueError(
-            "Диаметр скважины для формулы Каннингема задаётся в миллиметрах и должен быть "
-            f"не меньше {_number(MIN_HOLE_DIAMETER_MM)} мм; получено {_number(hole_diameter_mm)}."
+            "Диаметр скважины для формулы Каннингема задаётся в миллиметрах, "
+            f"от {_number(MIN_HOLE_DIAMETER_MM)} до {_number(MAX_HOLE_DIAMETER_MM)} мм; "
+            f"получено {_number(hole_diameter_mm)}."
         )
     charge_to_bench = min(1.0, charge_length_m / bench_height_m)
     raw = (

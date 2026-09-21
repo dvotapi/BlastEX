@@ -7,6 +7,9 @@
 - записи, которой нет, заводится новая с источником `payroll_seed`;
 - у записи, которая уже есть, заполняются только пустые ключи payload —
   заданные значения не меняются (решение владельца 14.09.2026);
+- заданное значение, которое расходится с файлом, остаётся, но называется в
+  `kept` отчёта: форма справочника пишет в payload умолчания схемы, и
+  «Применить» до сида превратил бы их в заданные значения;
 - повторный прогон ничего не меняет.
 
 Расчёт по ставкам (`labor.compute`) новых ключей не читает, поэтому смета
@@ -18,7 +21,7 @@ from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Mapping
 
-from cost.v2.models import ReferenceItem, ReferenceSnapshot
+from cost.v2.models import ReferenceItem, ReferenceSnapshot, finite_decimal
 from cost.v2.references import normalize_sections
 
 SOURCE = "payroll_seed"
@@ -113,6 +116,8 @@ POSITIONS: tuple[tuple[str, str, dict[str, str]], ...] = (
     ("POSITION_LABOR_EMULSION_OPERATOR", "Аппаратчик линии ЭВВ", {"department": "WAREHOUSE", "pay_system": "PIECE_BONUS", "output_unit": "T"}),
     ("POSITION_LABOR_REPAIR_FITTER", "Слесарь по ремонту оборудования и автомобилей", {"department": "MAINTENANCE", "pay_system": "TIME_BONUS"}),
 )
+# Сопоставленные владельцем: ни одной из них в снимке — вероятно, не та организация.
+MAPPED_POSITIONS: tuple[str, ...] = tuple(code for code, *_ in POSITIONS[:7])
 SCALED_POSITIONS: tuple[str, ...] = ("POSITION_LABOR_DRILLER", "POSITION_LABOR_ASSISTANT")
 
 KM_UNIT = ReferenceItem(
@@ -127,10 +132,20 @@ KM_UNIT = ReferenceItem(
 class PayrollSeedReport:
     added: list[str] = field(default_factory=list)
     filled: list[str] = field(default_factory=list)
+    # Заданные значения, которые расходятся с файлом: сид их не меняет.
+    kept: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    # Коды из `MAPPED_POSITIONS`, которые нашлись среди должностей снимка.
+    matched_positions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"added": list(self.added), "filled": list(self.filled), "skipped": list(self.skipped)}
+        return {
+            "added": list(self.added),
+            "filled": list(self.filled),
+            "kept": list(self.kept),
+            "skipped": list(self.skipped),
+            "matched_positions": list(self.matched_positions),
+        }
 
 
 def seed_payroll_references(
@@ -161,6 +176,36 @@ def _fill(item: ReferenceItem, values: Mapping[str, Any]) -> tuple[ReferenceItem
     return replace(item, payload={**item.payload, **{key: values[key] for key in filled}}), filled
 
 
+def _same(current: Any, expected: Any) -> bool:
+    """Значение записи равно значению файла.
+
+    Число приходит то строкой, то числом: `"0.04"`, `0.04` и `"0.040"` — одно
+    значение. Списки сравниваются как есть.
+    """
+
+    if isinstance(current, list) or isinstance(expected, list):
+        return current == expected
+    if str(current) == str(expected):
+        return True
+    left = finite_decimal(current)
+    return left is not None and left == finite_decimal(expected)
+
+
+def _kept(prefix: str, item: ReferenceItem, values: Mapping[str, Any]) -> list[str]:
+    """Строки отчёта о заданных значениях записи, которые расходятся с файлом."""
+
+    lines: list[str] = []
+    for key, expected in values.items():
+        current = item.payload.get(key)
+        if _empty(current) or _same(current, expected):
+            continue
+        if isinstance(expected, list):
+            lines.append(f"{prefix}: {key} задан, отличается от файла")
+        else:
+            lines.append(f"{prefix}: {key}={current} (файл: {expected})")
+    return lines
+
+
 def _new(code: str, name: str, payload: Mapping[str, Any]) -> ReferenceItem:
     return ReferenceItem(code=code, name=name, payload=dict(payload), source=SOURCE, comment=_COMMENT)
 
@@ -182,7 +227,11 @@ def _positions(sections: dict[str, list[ReferenceItem]], report: PayrollSeedRepo
             sections["positions"].append(_new(code, name, {"category": "INDIRECT", **values}))
             report.added.append(f"positions:{code}")
             continue
-        updated, filled = _fill(sections["positions"][index], values)
+        if code in MAPPED_POSITIONS:
+            report.matched_positions.append(code)
+        item = sections["positions"][index]
+        report.kept.extend(_kept(f"positions:{code}", item, values))
+        updated, filled = _fill(item, values)
         if filled:
             sections["positions"][index] = updated
             report.filled.append(f"positions:{code}: {', '.join(filled)}")
@@ -206,6 +255,7 @@ def _driller_scales(sections: dict[str, list[ReferenceItem]], report: PayrollSee
             report.skipped.append(f"labor_rates:{code}: нет ставки без условия бурения, шкала не заведена")
             continue
         rate = sections["labor_rates"][index]
+        report.kept.extend(_kept(f"labor_rates:{rate.code}", rate, DRILLER_SCALE))
         if not _empty(rate.payload.get("scale_type")):
             continue
         updated, filled = _fill(rate, DRILLER_SCALE)
@@ -218,9 +268,10 @@ def _extra_tariffs(sections: dict[str, list[ReferenceItem]], report: PayrollSeed
     if index is None:
         report.skipped.append("organization_rates: нет действующей записи, доп. тариф не заведён")
         return
-    updated, filled = _fill(
-        sections["organization_rates"][index], {"extra_tariffs": [dict(row) for row in EXTRA_TARIFFS]}
-    )
+    rates = sections["organization_rates"][index]
+    values = {"extra_tariffs": [dict(row) for row in EXTRA_TARIFFS]}
+    report.kept.extend(_kept(f"organization_rates:{rates.code}", rates, values))
+    updated, filled = _fill(rates, values)
     if filled:
         sections["organization_rates"][index] = updated
         report.filled.append(f"organization_rates:{updated.code}: extra_tariffs")
@@ -241,10 +292,11 @@ def _bit_diameters(sections: dict[str, list[ReferenceItem]]) -> set[Decimal]:
         if not condition.is_active:
             continue
         material = materials.get(str(condition.payload.get("bit_material_code") or ""))
-        raw = material.payload.get("diameter_mm") if material is not None else None
-        if _empty(raw):
-            continue
-        found.add(Decimal(str(raw)).normalize())
+        # Пустой или битый диаметр («abc», NaN) пропускается: о нём скажет
+        # проверка ревизии, таблица строится из остальных.
+        diameter = finite_decimal(material.payload.get("diameter_mm")) if material is not None else None
+        if diameter is not None:
+            found.add(diameter.normalize())
     return found
 
 
@@ -279,4 +331,4 @@ def _downtime_reasons(sections: dict[str, list[ReferenceItem]], report: PayrollS
         report.added.append(f"downtime_reasons:{code}")
 
 
-__all__ = ["PayrollSeedReport", "seed_payroll_references"]
+__all__ = ["MAPPED_POSITIONS", "PayrollSeedReport", "seed_payroll_references"]

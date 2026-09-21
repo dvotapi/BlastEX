@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from enum import Enum
 from typing import Any, Literal, Mapping, get_args
 
@@ -26,6 +26,24 @@ def decimal_value(value: Any, default: Decimal = Decimal("0")) -> Decimal:
     if isinstance(value, bool):
         return Decimal(int(value))
     return Decimal(str(value))
+
+
+def finite_decimal(value: Any) -> Decimal | None:
+    """Конечное число из значения payload; `None` — пусто, флаг или не число.
+
+    Для перекрёстных проверок ревизии и сида: битое значение уже отвергает
+    схема раздела, здесь оно просто «не задано». NaN и бесконечность `Decimal`
+    разбирает без ошибки, но в сравнениях (`<=`, `max()`, сортировка) они
+    бросают `InvalidOperation` — поэтому тоже `None`.
+    """
+
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    try:
+        result = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    return result if result.is_finite() else None
 
 
 def money(value: Decimal) -> Decimal:

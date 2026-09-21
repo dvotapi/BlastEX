@@ -8,10 +8,10 @@
 """
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
-from cost.v2.models import ReferenceItem
+from cost.v2.models import ReferenceItem, finite_decimal
 from cost.v2.references import ValidationIssue
 from cost.v2.schemas.labor import CURVE_SCALES, HAZARDOUS_CLASSES
 from cost.v2.schemas.organization import SitePayload
@@ -46,19 +46,6 @@ def _active(sections: Mapping[str, Sequence[ReferenceItem]], section: str) -> li
     return [item for item in sections.get(section, ()) if item.is_active]
 
 
-def _decimal(value: Any) -> Decimal | None:
-    if value is None or value == "" or isinstance(value, bool):
-        return None
-    try:
-        result = Decimal(str(value))
-    except InvalidOperation:
-        return None
-    # NaN/Infinity парсятся без ошибки, но не участвуют в сравнениях
-    # (`<=`, `>`, `max()` бросают `InvalidOperation`) — схема раздела уже
-    # отвергает такое значение как ошибку, здесь оно просто «не задано».
-    return result if result.is_finite() else None
-
-
 def _rows(value: Any) -> Sequence[Mapping[str, Any]]:
     """Список строк подраздела payload, если тип совпадает; иначе пусто.
 
@@ -85,7 +72,7 @@ def _duplicate_years(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Va
     issues: list[ValidationIssue] = []
     first: dict[Decimal, str] = {}
     for item in _active(sections, "payroll_params"):
-        year = _decimal(item.payload.get("year"))
+        year = finite_decimal(item.payload.get("year"))
         if year is None:
             continue
         if year in first:
@@ -125,7 +112,7 @@ def _bit_diameters(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
     table = {
         diameter
         for row in _rows(difficulty.payload.get("diameter"))
-        if isinstance(row, Mapping) and (diameter := _decimal(row.get("diameter_mm"))) is not None
+        if isinstance(row, Mapping) and (diameter := finite_decimal(row.get("diameter_mm"))) is not None
     }
     materials = {item.code: item for item in _active(sections, "materials")}
     issues: list[ValidationIssue] = []
@@ -135,7 +122,7 @@ def _bit_diameters(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
         if material is None or material.code in reported:
             continue
         reported.add(material.code)
-        diameter = _decimal(material.payload.get("diameter_mm"))
+        diameter = finite_decimal(material.payload.get("diameter_mm"))
         if diameter is None:
             issues.append(
                 ValidationIssue(
@@ -163,14 +150,14 @@ def _ceiling_above_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -> list
     """Потолок шкалы машиниста выше того, что станок бурит за смену по базовым условиям."""
 
     rates = next(iter(_active(sections, "organization_rates")), None)
-    shift_hours = _decimal(rates.payload.get("shift_hours")) if rates is not None else None
+    shift_hours = finite_decimal(rates.payload.get("shift_hours")) if rates is not None else None
     shift_hours = shift_hours or DEFAULT_SHIFT_HOURS
     per_shift = [
-        speed * max(shift_hours - (_decimal(item.payload.get("unproductive_h_per_shift")) or Decimal("0")), Decimal("0"))
+        speed * max(shift_hours - (finite_decimal(item.payload.get("unproductive_h_per_shift")) or Decimal("0")), Decimal("0"))
         for item in _active(sections, "drilling_conditions")
         # Базовая строка — без породы и карьера: шкала задана для базовых условий.
         if not item.payload.get("rock_code") and not item.payload.get("site_code")
-        and (speed := _decimal(item.payload.get("tech_speed_m_per_h"))) is not None
+        and (speed := finite_decimal(item.payload.get("tech_speed_m_per_h"))) is not None
     ]
     if not per_shift:
         return []
@@ -184,7 +171,7 @@ def _ceiling_above_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -> list
             continue
         if str(item.payload.get("position_code") or "") not in normalized:
             continue
-        ceiling = _decimal(item.payload.get("ceiling_per_shift"))
+        ceiling = finite_decimal(item.payload.get("ceiling_per_shift"))
         if ceiling is None or ceiling <= best:
             continue
         issues.append(
@@ -211,7 +198,7 @@ def _maintenance_against_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -
         (item, ratio)
         for item in _active(sections, "equipment_types")
         if str(item.payload.get("kind") or "DRILL_RIG") == "DRILL_RIG"
-        and (ratio := _decimal(item.payload.get("maintenance_ratio"))) is not None
+        and (ratio := finite_decimal(item.payload.get("maintenance_ratio"))) is not None
         and ratio > 0
     ]
     if not rigs:
@@ -220,8 +207,8 @@ def _maintenance_against_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -
     default_shifts = SitePayload.model_fields["maintenance_shifts"].default
     issues: list[ValidationIssue] = []
     for site in _active(sections, "sites"):
-        days = _decimal(site.payload.get("shift_days_on")) or default_days
-        planned = _decimal(site.payload.get("maintenance_shifts"))
+        days = finite_decimal(site.payload.get("shift_days_on")) or default_days
+        planned = finite_decimal(site.payload.get("maintenance_shifts"))
         planned = default_shifts if planned is None else planned
         for rig, ratio in rigs:
             expected = days * ratio / (1 + ratio)

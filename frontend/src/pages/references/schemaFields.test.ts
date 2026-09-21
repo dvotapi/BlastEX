@@ -205,6 +205,25 @@ describe("НДС и форматирование", () => {
     expect(formatFieldValue("21", field).replace(/\s/g, " ")).toBe("21 см/мес");
     expect(formatFieldValue(null, field)).toBe("—");
   });
+
+  it("целое поле схемы показывается без разделителя разрядов", () => {
+    // Фрагмент схемы «Параметров года для ФОТ»: год — integer, МРОТ — Decimal.
+    const year = describeField("year", {
+      type: "integer",
+      minimum: 2000,
+      maximum: 2100,
+      title: "Год",
+      "x-unit": "год",
+    });
+    const mrot = describeField("mrot", {
+      anyOf: [{ minimum: 0, type: "number" }, { pattern: "^\\d+$", type: "string" }],
+      title: "МРОТ",
+      "x-unit": "₽/мес",
+    });
+    expect(formatFieldValue(2026, year)).toBe("2026 год");
+    expect(formatFieldValue("2026", year)).toBe("2026 год");
+    expect(formatFieldValue("27093", mrot).replace(/\s/g, " ")).toBe("27 093 ₽/мес");
+  });
 });
 
 describe("числовые поля раздела", () => {

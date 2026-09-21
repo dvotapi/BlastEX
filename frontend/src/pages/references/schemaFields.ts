@@ -26,6 +26,8 @@ export type FieldDescriptor = {
   internal: boolean;
   minimum?: number;
   maximum?: number;
+  /** Схема задаёт целое (`integer`), а не Decimal. */
+  integer: boolean;
   defaultValue: unknown;
   /** Для списков: описание элемента. Объектный элемент раскрывается в подполя. */
   itemKind?: "text" | "object" | "free";
@@ -124,6 +126,7 @@ export function describeField(
     internal: node["x-internal"] === true,
     minimum: pick(node, (variant) => variant.minimum),
     maximum: pick(node, (variant) => variant.maximum),
+    integer: type === "integer",
     defaultValue: node.default,
     ...(kind === "list" ? describeItem(itemsNode, defs) : {}),
   };
@@ -405,6 +408,9 @@ export function parseNumber(value: unknown): number | null {
 }
 
 const NUMBER_FORMAT = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 });
+// Целое поле схемы — год, номер: с разделителем разрядов «2 026 год» читается
+// как опечатка.
+const INTEGER_FORMAT = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3, useGrouping: false });
 
 export function formatNumber(value: number): string {
   return NUMBER_FORMAT.format(value);
@@ -420,7 +426,8 @@ export function formatFieldValue(value: unknown, field: FieldDescriptor | undefi
     case "number": {
       const parsed = parseNumber(value);
       if (parsed === null) return String(value);
-      return field.unit ? `${formatNumber(parsed)} ${field.unit}` : formatNumber(parsed);
+      const text = field.integer ? INTEGER_FORMAT.format(parsed) : formatNumber(parsed);
+      return field.unit ? `${text} ${field.unit}` : text;
     }
     case "list":
       return Array.isArray(value) ? `${value.length}` : "—";

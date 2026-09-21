@@ -62,7 +62,10 @@ class LaborRatePayload(ReferencePayload):
     piece_rate_rub: Decimal = UnitField(
         "₽",
         title="Сдельная расценка",
-        description="Сдельная расценка за piece_unit единиц драйвера должности",
+        description=(
+            "Цена за столько единиц драйвера сдельной оплаты, сколько указано у должности "
+            "в поле «За единиц драйвера» — например, за 1000 м³"
+        ),
         default=Decimal("0"),
     )
     condition_code: str | None = RefField(

@@ -24,8 +24,16 @@ class CostCenterPayload(ReferencePayload):
 
 
 class CostItemPayload(ReferencePayload):
+    # Метка для списка: расчёт её не читает. Пишут её системные записи
+    # («behavior_type», «cost_layer»), логистика из seed_defaults («logistics»)
+    # и перенос услуги со вкладки «Экономика блока» («service»).
     kind: str | None = Field(
-        default=None, title="Вид статьи", description="Служебный вид статьи: behavior_type / cost_layer"
+        default=None,
+        title="Вид статьи",
+        description=(
+            "Метка для группировки статей в списке, в расчёте не участвует. "
+            "Поведение затраты и слой себестоимости задаются в разделе «Правила расчёта затрат»"
+        ),
     )
     cost_center_code: str | None = RefField("cost_centers", description="Центр затрат", default=None)
     # Статьи, перенесённые из постоянных затрат Cost V1: сумма сохранена, но

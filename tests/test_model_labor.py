@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from cost.model import drilling, labor, logistics
 from cost.model.inputs import CrewMember, ModelContext, driver_unit
 from cost.v2.schemas.labor import PIECE_DRIVERS
@@ -55,20 +57,34 @@ def test_every_piece_driver_has_unit_label() -> None:
     assert [driver for driver in PIECE_DRIVERS if not driver_unit(driver)] == []
 
 
-def test_missing_piece_driver_warns_instead_of_silent_zero() -> None:
-    """Нет массы ВВ в паспорте: сделка водителя СЗМ не начислена, и сметчик знает почему."""
-
+def _physical_without(key: str) -> dict[str, Decimal]:
     physical = fx.physical()
-    del physical["explosive_kg"]
+    del physical[key]
+    return physical
+
+
+@pytest.mark.parametrize(
+    "physical",
+    [_physical_without("explosive_kg"), fx.physical(explosive_kg=0)],
+    ids=["нет в паспорте", "ноль в паспорте"],
+)
+def test_empty_piece_driver_warns_instead_of_silent_zero(physical: dict[str, Decimal]) -> None:
+    """Паспорт без массы ВВ: сделка водителя СЗМ не начислена, и сметчик знает почему.
+
+    Паспорт блока пишет незаполненное поле нулём, а не пропускает его, поэтому
+    ноль — такой же пробел в паспорте, как отсутствующая величина.
+    """
+
     context = ModelContext(fx.references(), fx.parameters(), physical)
     drilling.compute(context)
     szm = next(line for line in labor.compute(context) if line.position_code == "POS_SZM_DRIVER")
 
     assert szm.piece_rub == Decimal("0")
-    assert " + " not in _line(context, "LABOR_POS_SZM_DRIVER").formula
+    # Расценка водителя СЗМ в фикстуре — 200 ₽ за 1000 кг.
+    assert "200 ₽ × " not in _line(context, "LABOR_POS_SZM_DRIVER").formula
     assert (
-        "Сдельная часть должности «Водитель-оператор СЗМ» не начислена: "
-        "в паспорте блока нет объёма работ в кг."
+        "Сдельная часть должности «Водитель-оператор СЗМ» не начислена: количество, "
+        "за которое платится сделка (кг), в паспорте блока не задано или равно нулю."
     ) in context.warnings
 
 

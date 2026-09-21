@@ -132,6 +132,32 @@ class UniformityTests(unittest.TestCase):
         self.assertEqual(n.raw, 0.0)
         self.assertEqual(n.value, kr.MIN_UNIFORMITY_N)
 
+    def test_usual_patterns_stay_above_floor(self):
+        # Перенесено из PR #82: при обычной сетке W = 25–35·d индекс n лежит
+        # в привычной полосе Каннингема и не упирается в нижнюю границу.
+        # С диаметром в метрах 14·W/d ≈ 350–490, n ушёл бы на границу.
+        for diameter_mm in (110.0, 152.0, 250.0):
+            for burden_to_diameter in (25.0, 35.0):
+                burden_m = burden_to_diameter * diameter_mm / 1000.0
+                with self.subTest(diameter_mm=diameter_mm, burden_m=burden_m):
+                    n = kr.uniformity_index(
+                        burden_m=burden_m, hole_diameter_mm=diameter_mm, spacing_to_burden=1.25,
+                        drill_deviation_m=0.0, charge_length_m=8.8, bench_height_m=10.0, correction=1.0,
+                    )
+                    self.assertEqual(n.value, n.raw)
+                    self.assertGreater(n.raw, 1.5)
+                    self.assertLess(n.raw, 2.0)
+
+    def test_large_burden_to_diameter_hits_floor(self):
+        # W/d = 8 м / 45 мм: 14·W/d ≈ 2,49 > 2,2 — n отрицательный уже без
+        # отклонения бурения, остаётся нижняя граница.
+        n = kr.uniformity_index(
+            burden_m=8.0, hole_diameter_mm=45.0, spacing_to_burden=1.25,
+            drill_deviation_m=0.0, charge_length_m=8.8, bench_height_m=10.0, correction=1.0,
+        )
+        self.assertLess(n.raw, 0.0)
+        self.assertEqual(n.value, kr.MIN_UNIFORMITY_N)
+
 
 class SolveCorrectionTests(unittest.TestCase):
     @staticmethod

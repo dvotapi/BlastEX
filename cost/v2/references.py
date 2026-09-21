@@ -488,6 +488,28 @@ def _free_form_string_decimal(value: str) -> Decimal | None:
     return result
 
 
+def _free_form_number_decimal(value: int | float) -> Decimal | None:
+    """`int`/`float` свободного значения (без схемы поля) — как `Decimal`.
+
+    Тот же случай, что и `_free_form_string_decimal`, только число уже
+    разобрано JSON-парсером, а не осталось строкой: `consumption_norms:
+    [{"units_per_capacity": 1e-320}]` — JSON-число, не строка, но так же не
+    проверялось до сих пор, хотя строка `"1e-320"` в том же свободном месте
+    уже отвергается. `bool` — подкласс `int`, но не число справочника,
+    поэтому вызывающий код (`_out_of_range_issues`) сюда для него не заходит.
+
+    `float("inf")`/`float("nan")` конечны не всегда, и `Decimal(str(...))`
+    их тоже разбирает без исключения ("Infinity"/"NaN") — не числа
+    справочника, отсеиваем так же, как нечисловые строки в
+    `_free_form_string_decimal`.
+    """
+
+    result = Decimal(str(value))
+    if not result.is_finite():
+        return None
+    return result
+
+
 def _out_of_range_issue(
     section: str, code: str, path: tuple[str, ...], value: Decimal
 ) -> ValidationIssue | None:
@@ -536,7 +558,14 @@ def _out_of_range_issues(
       признаке «свободное» (значение внутри нетипизированного `dict`).
       `bool` строкой не бывает, поэтому под неё не попадает и числом не
       считается.
-    - остальное (`None`, `int`, перечисления и т. п.) пропускается.
+    - `int`/`float` (кроме `bool`, который подкласс `int`) — так же только
+      при признаке «свободное»: `_free_form_number_decimal` и та же проверка
+      порядка. Типизированные `int`/`float` сюда не попадают — они приходят
+      `Decimal` (`UnitField`) или ограничены собственной схемой поля
+      (например, `year: int` с границами), а свободное значение (внутри
+      нетипизированного `dict`) схемы не имеет вовсе.
+    - остальное (`None`, `bool` вне свободного значения, перечисления и
+      т. п.) пропускается.
     """
 
     if isinstance(value, BaseModel):
@@ -553,6 +582,14 @@ def _out_of_range_issues(
         if not free_form:
             return []
         parsed = _free_form_string_decimal(value)
+        if parsed is None:
+            return []
+        issue = _out_of_range_issue(section, code, path, parsed)
+        return [issue] if issue else []
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not free_form:
+            return []
+        parsed = _free_form_number_decimal(value)
         if parsed is None:
             return []
         issue = _out_of_range_issue(section, code, path, parsed)

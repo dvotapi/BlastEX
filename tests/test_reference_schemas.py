@@ -395,6 +395,64 @@ class TestValidationThroughSchemas:
         issues = _errors(validate_reference_sections(sections))
         assert [issue for issue in issues if issue.section == "resource_pools"] == []
 
+    # Codex к голове bc141e2 (PR #83): в свободном значении разбираются
+    # `Decimal` и строки-числа, а JSON-числа (`int`/`float`) проходят без
+    # проверки — тот же порядок, отвергнутый строкой, публикуется как
+    # `float`, и `cost/model/unit.py` позже делит на него.
+
+    def test_unthinkable_order_float_in_a_free_form_list_is_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_HUGE_FLOAT", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": 1e-320},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity")
+        assert issue.section == "resource_pools"
+        assert "вне допустимого порядка" in issue.message
+
+    def test_unthinkable_order_int_in_a_free_form_list_is_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_HUGE_INT", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": 10**16},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity")
+        assert issue.section == "resource_pools"
+        assert "вне допустимого порядка" in issue.message
+
+    @pytest.mark.parametrize("value", [0.5, 2, True])
+    def test_ordinary_json_numbers_in_a_free_form_list_are_not_schema_errors(self, value):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_OK_JSON", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": value},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.section == "resource_pools"] == []
+
+    def test_non_finite_float_in_a_free_form_list_does_not_crash_validation(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_INF", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": float("inf")},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity"] == []
+
     # Codex (P1) к голове 76dafc3 (PR #83): обход по `model_dump()` не
     # отличает типизированное поле схемы от свободного значения — строка
     # разбиралась как число в любом строковом поле, в том числе в объявленном

@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 from cost.v2.models import ReferenceItem, finite_decimal
 from cost.v2.references import ValidationIssue
 from cost.v2.schemas.labor import CURVE_SCALES, HAZARDOUS_CLASSES
-from cost.v2.schemas.organization import SitePayload
+from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload
 
 __all__ = ["payroll_issues"]
 
@@ -27,7 +27,6 @@ EMPTY_SECTION_MESSAGES: dict[str, str] = {
 # Расхождение планового ТОиР объекта с долей ТОиР станка, после которого
 # источники считаются разными (Т16).
 MAINTENANCE_TOLERANCE_SHIFTS = Decimal("0.5")
-DEFAULT_SHIFT_HOURS = Decimal("11")
 
 
 def payroll_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
@@ -151,7 +150,7 @@ def _ceiling_above_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -> list
 
     rates = next(iter(_active(sections, "organization_rates")), None)
     shift_hours = finite_decimal(rates.payload.get("shift_hours")) if rates is not None else None
-    shift_hours = shift_hours or DEFAULT_SHIFT_HOURS
+    shift_hours = shift_hours or OrganizationRatesPayload.model_fields["shift_hours"].default
     per_shift = [
         speed * max(shift_hours - (finite_decimal(item.payload.get("unproductive_h_per_shift")) or Decimal("0")), Decimal("0"))
         for item in _active(sections, "drilling_conditions")

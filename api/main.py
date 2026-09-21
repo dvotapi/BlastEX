@@ -155,7 +155,7 @@ async def pydantic_validation_handler(_: Request, exc: ValidationError) -> JSONR
             message="Ошибка сериализации ответа.",
             error_type="response_validation_error",
             status_code=422,
-            details=jsonable_encoder(exc.errors()),
+            details=_json_safe(jsonable_encoder(exc.errors())),
         ),
     )
 

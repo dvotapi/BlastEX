@@ -1,16 +1,24 @@
 """API подбора q: /blast/optimize (Kuz-Ram и «до исправления») и /blast/kuzram/calibrate."""
+import asyncio
 import json
 import unittest
 
+from annotated_types import Ge, Le
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
-from annotated_types import Ge, Le
-
-from api.main import request_validation_handler, value_error_handler
+from api.main import pydantic_validation_handler, request_validation_handler, value_error_handler
 from api.routers import blast
-from api.schemas.blast import CROWN_MM_MAX, CROWN_MM_MIN, KuzRamSettingsSchema, TargetParamsSchema
+from api.schemas.blast import (
+    CROWN_MM_MAX,
+    CROWN_MM_MIN,
+    BlastOptimizeRequest,
+    KuzRamFactSchema,
+    KuzRamSettingsSchema,
+    TargetParamsSchema,
+)
 from Blast import BlastEngine, ExplosiveProperties, RockProperties, TargetParams
 from simulation.fragmentation import cunningham as kr
 
@@ -165,6 +173,20 @@ class OptimizeEndpointTests(unittest.TestCase):
         self.assertGreaterEqual(CROWN_MM_MIN * coeff_min, kr.MIN_HOLE_DIAMETER_MM)
         self.assertLessEqual(CROWN_MM_MAX * coeff_max, kr.MAX_HOLE_DIAMETER_MM)
 
+    def test_crown_bounds_are_published_in_json_schema(self):
+        # Границы коронки проверяет AfterValidator (ради русского текста) — в
+        # схеме OpenAPI их нужно объявить явно, иначе клиенты видят просто число.
+        fact = KuzRamFactSchema.model_json_schema()["properties"]["crown_mm"]
+        crowns = BlastOptimizeRequest.model_json_schema()["properties"]["crown_diameters_mm"]["items"]
+        for schema in (fact, crowns):
+            with self.subTest(schema=schema):
+                self.assertEqual((schema["minimum"], schema["maximum"]), (CROWN_MM_MIN, CROWN_MM_MAX))
+
+    def test_empty_crowns_is_422(self):
+        # Пустой список отсекает схема (min_length=1), сервис его не проверяет.
+        response = _client().post("/api/v1/blast/optimize", json={**GABBRO, "crown_diameters_mm": []})
+        self.assertEqual(response.status_code, 422)
+
     def test_crown_diameters_over_fifty_is_422(self):
         response = _client().post(
             "/api/v1/blast/optimize", json={**GABBRO, "crown_diameters_mm": [110.0 + i for i in range(51)]}
@@ -289,6 +311,19 @@ class SettingsSchemaParityTests(unittest.TestCase):
             KuzRamSettingsSchema.from_settings(kr.KuzRamSettings()).model_dump(),
             KuzRamSettingsSchema().model_dump(),
         )
+
+
+
+class ErrorHandlerTests(unittest.TestCase):
+    def test_response_validation_error_with_nan_input_is_422(self):
+        # ValidationError, поднятый внутри маршрута, повторяет ввод в деталях;
+        # NaN там ронял JSONResponse, и вместо 422 уходил 400.
+        with self.assertRaises(ValidationError) as caught:
+            KuzRamSettingsSchema(rock_factor_correction=float("nan"))
+        response = asyncio.run(pydantic_validation_handler(None, caught.exception))
+        self.assertEqual(response.status_code, 422)
+        messages = [error["msg"] for error in json.loads(response.body)["details"]]
+        self.assertIn("Поправка C(A) — от 0,1 до 10.", messages)
 
 
 if __name__ == "__main__":

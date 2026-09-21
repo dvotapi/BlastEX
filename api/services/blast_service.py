@@ -33,8 +33,6 @@ def optimize_blast(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
 
     if target.bench_height_m <= 0:
         raise InvalidGeometryError("Высота уступа должна быть больше нуля.")
-    if not request.crown_diameters_mm:
-        raise InvalidGeometryError("Укажите хотя бы один диаметр коронки.")
 
     settings_schema = request.kuzram or KuzRamSettingsSchema()
     settings = settings_schema.to_settings()
@@ -42,7 +40,7 @@ def optimize_blast(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
     threshold = request.max_oversize_threshold_pct
     variants: list[BlastOptimizeVariant] = []
 
-    # Коронки уже в границах 20–1000 мм: их проверяет схема (CrownMm).
+    # Непустой список коронок в границах CROWN_MM_MIN–CROWN_MM_MAX гарантирует схема.
     for diameter_mm in sorted(request.crown_diameters_mm):
         current = engine.optimize_blast(diameter_mm, threshold, settings)
         legacy = engine.optimize_blast_legacy(diameter_mm, threshold)

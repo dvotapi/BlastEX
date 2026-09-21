@@ -5,7 +5,7 @@ import math
 from dataclasses import asdict
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 from pydantic_core import PydanticCustomError
 
 from api.schemas.cost import BlockGeometrySchema, HoleGeometrySchema, InitiationConfigSchema
@@ -57,7 +57,13 @@ def _crown_within_bounds(value: float) -> float:
     return value
 
 
-CrownMm = Annotated[float, AfterValidator(_crown_within_bounds)]
+# Границы проверяет AfterValidator (ради русского текста ошибки), поэтому в
+# JSON-схему OpenAPI они вписаны явно — иначе клиент видит просто число.
+CrownMm = Annotated[
+    float,
+    AfterValidator(_crown_within_bounds),
+    WithJsonSchema({"type": "number", "minimum": CROWN_MM_MIN, "maximum": CROWN_MM_MAX}),
+]
 
 _KUZRAM_DEFAULTS = KuzRamSettings()
 

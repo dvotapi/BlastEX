@@ -171,6 +171,34 @@ def test_payroll_params_disabled_default_code_is_not_duplicated():
     assert not has_validation_errors(validate_reference_sections(sections))
 
 
+# Codex к PR #83: действующая запись с каноническим кодом PAYROLL_PARAMS_2026,
+# у которой год — валидный непустой год другого года (например, 2025), тоже
+# подходила под «пустой год» и дополнялась умолчаниями 2026-го — получалась
+# гибридная запись 2025 года, а запись 2026-го так и не заводилась.
+
+
+def test_payroll_params_active_default_code_other_year_is_skipped():
+    payload = {"year": 2025, "mrot": "20000"}
+    existing = ReferenceItem(
+        code=f"PAYROLL_PARAMS_{PAYROLL_YEAR}", name="ФОТ 2025", payload=dict(payload)
+    )
+    base = imported_snapshot()
+    snapshot = replace(base, sections={**base.sections, "payroll_params": (existing,)})
+
+    sections, report = seed_payroll_references(snapshot)
+
+    assert len(sections["payroll_params"]) == 1
+    assert _by_code(sections, "payroll_params")["PAYROLL_PARAMS_2026"].payload == payload
+    assert not any(
+        entry.startswith("payroll_params:PAYROLL_PARAMS_2026: ") for entry in report.filled
+    )
+    assert not any(entry.startswith("payroll_params:") for entry in report.added)
+    assert (
+        "payroll_params:PAYROLL_PARAMS_2026: код занят записью 2025 года — новая не заведена; смените код"
+        in report.skipped
+    )
+
+
 def test_filled_values_are_never_overwritten():
     base = imported_snapshot()
     positions = tuple(

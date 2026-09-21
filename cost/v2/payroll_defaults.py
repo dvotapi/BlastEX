@@ -320,24 +320,39 @@ def _payroll_params(sections: dict[str, list[ReferenceItem]], report: PayrollSee
         return
 
     code = f"PAYROLL_PARAMS_{PAYROLL_YEAR}"
-    # Действующая запись канонического кода, у которой год не совпал числом
-    # (например, пуст — форма даёт такую запись): это не «выключена, не тот
-    # год действует», а просто незаполненная запись 2026 года — дополняем её
-    # пустые ключи, а не заводим вторую запись с тем же кодом (Codex к PR #83).
+    # Действующая запись канонического кода, у которой год пуст (форма даёт
+    # такую запись): это не «выключена, не тот год действует», а просто
+    # незаполненная запись 2026 года — дополняем её пустые ключи, а не
+    # заводим вторую запись с тем же кодом (Codex к PR #83). Действующую
+    # запись с валидным непустым годом (например, 2025) сюда не пускаем —
+    # иначе умолчания 2026-го дополнили бы чужой год гибридной записью.
     index = next(
-        (i for i, item in enumerate(sections["payroll_params"]) if item.is_active and item.code == code),
+        (
+            i
+            for i, item in enumerate(sections["payroll_params"])
+            if item.is_active and item.code == code and _empty(item.payload.get("year"))
+        ),
         None,
     )
     if index is not None:
         _fill_at(index)
         return
 
-    if any(item.code == code for item in sections["payroll_params"]):
-        # Запись с этим кодом уже есть, но выключена (не тот год действует) —
-        # новая с тем же кодом сломала бы публикацию на дубле.
-        report.skipped.append(
-            f"payroll_params:{code}: запись выключена — новая не заведена; включите её или смените код"
-        )
+    existing = next((item for item in sections["payroll_params"] if item.code == code), None)
+    if existing is not None:
+        # Запись с этим кодом уже есть — выключена, или действует под другим
+        # непустым годом: новая с тем же кодом сломала бы публикацию на
+        # дубле, а дополнение чужого года умолчаниями 2026-го дало бы
+        # гибридную запись — код занят, новая не заводится (Codex к PR #83).
+        if existing.is_active:
+            report.skipped.append(
+                f"payroll_params:{code}: код занят записью {existing.payload.get('year')} года — "
+                "новая не заведена; смените код"
+            )
+        else:
+            report.skipped.append(
+                f"payroll_params:{code}: запись выключена — новая не заведена; включите её или смените код"
+            )
         return
     sections["payroll_params"].append(_new(code, f"Параметры ФОТ {PAYROLL_YEAR}", PAYROLL_PARAMS))
     report.added.append(f"payroll_params:{code}")

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   boundError,
+  boundErrors,
   decimalText,
   defaultPayload,
   describeField,
@@ -472,5 +473,69 @@ describe("boundError: граница числового поля из схемы
   it("нечисловое поле границу не проверяет", () => {
     const text = describeField("comment", { type: "string", title: "Комментарий" });
     expect(boundError(text, "что угодно")).toBeNull();
+  });
+});
+
+// Раздел со списком строк геологии: подполе share ограничено долей от 0 до 1,
+// как в перекрёстных проверках ФОТ.
+const GEOLOGY_SCHEMA: JsonSchemaObject = {
+  type: "object",
+  $defs: {
+    GeologyShare: {
+      type: "object",
+      properties: {
+        share: {
+          anyOf: [{ minimum: 0, maximum: 1, type: "number" }, { type: "string" }],
+          default: "0",
+          title: "Доля",
+        },
+      },
+    },
+  },
+  properties: {
+    geology: { type: "array", items: { $ref: "#/$defs/GeologyShare" }, title: "Геология" },
+  },
+};
+
+describe("boundErrors: границы полей верхнего уровня и подполей строк списков", () => {
+  const fields = sectionFields(GEOLOGY_SCHEMA);
+
+  it("подполе строки за верхней границей — ключ поле.индекс.подполе", () => {
+    const errors = boundErrors(fields, { geology: [{ share: "0.5" }, { share: "1,5" }] });
+    expect(errors.get("geology.1.share")).toBe("Должно быть не больше 1");
+    expect(errors.has("geology.0.share")).toBe(false);
+  });
+
+  it("подполе строки за нижней границей", () => {
+    const errors = boundErrors(fields, { geology: [{ share: "-1" }] });
+    expect(errors.get("geology.0.share")).toBe("Должно быть не меньше 0");
+  });
+
+  it("пустое подполе и нечисловой текст — без ошибки", () => {
+    const errors = boundErrors(fields, { geology: [{ share: "" }, { share: "много" }] });
+    expect(errors.size).toBe(0);
+  });
+
+  it("строка списка не-объект пропускается", () => {
+    const errors = boundErrors(fields, { geology: ["не объект", ["a", "b"]] });
+    expect(errors.size).toBe(0);
+  });
+
+  it("границы верхнего уровня и подполей списка живут в одной карте", () => {
+    const schema: JsonSchemaObject = {
+      type: "object",
+      $defs: GEOLOGY_SCHEMA.$defs,
+      properties: {
+        hardness_f: {
+          anyOf: [{ exclusiveMinimum: 0, type: "number" }, { type: "string" }],
+          title: "Крепость",
+        },
+        ...GEOLOGY_SCHEMA.properties,
+      },
+    };
+    const combinedFields = sectionFields(schema);
+    const errors = boundErrors(combinedFields, { hardness_f: "0", geology: [{ share: "1,5" }] });
+    expect(errors.get("hardness_f")).toBe("Должно быть больше 0");
+    expect(errors.get("geology.0.share")).toBe("Должно быть не больше 1");
   });
 });

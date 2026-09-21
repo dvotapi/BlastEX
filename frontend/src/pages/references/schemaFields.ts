@@ -451,6 +451,36 @@ export function boundError(field: FieldDescriptor, value: unknown): string | nul
   return null;
 }
 
+/**
+ * Ошибки границы всех числовых полей формы: верхнего уровня и подполей строк
+ * списков — тот же общий механизм `boundError`, без знания о конкретном поле
+ * или разделе.
+ *
+ * Ключ подполя — `${имя поля}.${индекс строки}.${имя подполя}`: тот же путь,
+ * которым сервер адресует ошибку внутри списка (`listItemErrors` его уже
+ * понимает), поэтому `ListField` показывает ошибку под подполем нужной
+ * строки. Строка не-объект (текстовый список, битое значение) пропускается —
+ * там подполей нет.
+ */
+export function boundErrors(fields: FieldDescriptor[], values: FormValues): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const field of fields) {
+    const message = boundError(field, values[field.name]);
+    if (message) map.set(field.name, message);
+    if (!hasItemFields(field)) continue;
+    const rows = values[field.name];
+    if (!Array.isArray(rows)) continue;
+    rows.forEach((row, index) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return;
+      for (const sub of field.itemFields) {
+        const subMessage = boundError(sub, (row as Record<string, unknown>)[sub.name]);
+        if (subMessage) map.set(`${field.name}.${index}.${sub.name}`, subMessage);
+      }
+    });
+  }
+  return map;
+}
+
 /** Значение поля для списка записей: число с единицей, код ссылки, «да/нет». */
 export function formatFieldValue(value: unknown, field: FieldDescriptor | undefined): string {
   if (value === null || value === undefined || value === "") return "—";

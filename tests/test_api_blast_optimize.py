@@ -123,6 +123,15 @@ class OptimizeEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Фактор породы A", response.json()["detail"])
 
+    def test_crown_in_metres_is_400_with_russian_message(self):
+        # 0,152 вместо 152: скважина 0,1596 мм — формула Каннингема отказывает,
+        # а не упирает n в нижнюю границу молча.
+        response = _client_with_app_handlers().post(
+            "/api/v1/blast/optimize", json={**GABBRO, "crown_diameters_mm": [0.152]}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("в миллиметрах", response.json()["detail"])
+
     def test_crown_diameters_over_fifty_is_422(self):
         response = _client().post(
             "/api/v1/blast/optimize", json={**GABBRO, "crown_diameters_mm": [110.0 + i for i in range(51)]}

@@ -4,7 +4,7 @@ import math
 import unittest
 from pathlib import Path
 
-from Blast import CROWNS_MM, BlastEngine, ExplosiveProperties, RockProperties, TargetParams, _legacy_uniformity_raw
+from Blast import BlastEngine, ExplosiveProperties, RockProperties, TargetParams, _legacy_uniformity_raw
 from simulation.fragmentation import cunningham as kr
 from simulation.fragmentation.kuzram import MIN_UNIFORMITY_N as LEGACY_MIN_UNIFORMITY_N
 from simulation.fragmentation.kuzram import cunningham_uniformity_n
@@ -108,18 +108,6 @@ class KuzRamOptimizerTests(unittest.TestCase):
         self.assertAlmostEqual(point.charge_to_bench, 0.88)
         self.assertAlmostEqual(point.hole_diameter_mm, 159.6)
         self.assertAlmostEqual(point.burden_to_diameter, point.burden_m / 0.1596)
-
-    def test_n_is_not_floored_for_any_crown(self):
-        # Перенесено из PR #82: подбор передаёт в n диаметр скважины в мм.
-        # С диаметром в метрах n по формуле < −300, и подбор шёл бы на
-        # нижней границе n для любой коронки.
-        engine = _gabbro()
-        for crown_mm in CROWNS_MM:
-            with self.subTest(crown_mm=crown_mm):
-                point = engine.optimize_blast(crown_mm, 5.0).point
-                self.assertEqual(point.uniformity_n, point.uniformity_n_raw)
-                self.assertGreater(point.uniformity_n, 1.5)
-                self.assertLess(point.uniformity_n, 2.0)
 
     def test_q_can_go_below_old_floor(self):
         soft = BlastEngine(

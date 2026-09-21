@@ -362,6 +362,39 @@ class TestValidationThroughSchemas:
         issues = _errors(validate_reference_sections(sections))
         assert [issue for issue in issues if issue.field == "tech_speed_m_per_h"] == []
 
+    # Codex к PR #83: в свободном списке (`ResourcePoolPayload.consumption_norms:
+    # list[dict]`) pydantic не типизирует значения — число остаётся строкой,
+    # `_out_of_range_issues` проверяла только `Decimal`, а `cost/model/unit.py`
+    # позже падает `decimal.Overflow` на той же строке.
+
+    def test_unthinkable_order_number_as_a_string_in_a_free_form_list_is_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_HUGE", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": "1e-999999"},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity")
+        assert issue.section == "resource_pools"
+        assert issue.level == "error"
+        assert "вне допустимого порядка" in issue.message
+
+    def test_ordinary_numbers_and_codes_in_a_free_form_list_are_not_schema_errors(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_OK", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": "1e15"},
+                    {"driver": "downhole_nsi", "units_per_capacity": "0.5"},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.section == "resource_pools"] == []
+
 
 def _errors(issues: list[ValidationIssue]) -> list[ValidationIssue]:
     return [issue for issue in issues if issue.level == "error"]

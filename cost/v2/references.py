@@ -450,6 +450,47 @@ def _schema_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
     return issues
 
 
+def _free_form_string_decimal(value: str) -> Decimal | None:
+    """Строку свободного списка (без схемы поля) разобрать как `Decimal`.
+
+    `ResourcePoolPayload.consumption_norms: list[dict]` не типизирует свои
+    элементы, поэтому число вроде `"1e-999999"` доходит до `model_dump()`
+    строкой, а не `Decimal`, — и порядок никто не проверяет, пока
+    `cost/model/unit.py` не разделит на него и не упадёт `decimal.Overflow`.
+    Запятая как десятичный разделитель не подменяется: то же значение в
+    `cost/model/unit.py:135` разбирается прямым `Decimal(str(...))`, так что
+    поддержка запятой здесь означала бы пропускать то, что расчёт всё равно
+    не примет. Код или текст (`"downhole_nsi"`) не разбирается как число —
+    `None`, как и пустая строка.
+    """
+
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
+
+
+def _out_of_range_issue(
+    section: str, code: str, path: tuple[str, ...], value: Decimal
+) -> ValidationIssue | None:
+    if value.adjusted() > FINITE_DECIMAL_MAX_EXPONENT or (
+        value != 0 and value.adjusted() < -FINITE_DECIMAL_MAX_EXPONENT
+    ):
+        field = ".".join(path)
+        label = field_label(section, path) or field or "запись"
+        return ValidationIssue(
+            "error",
+            section,
+            code,
+            f"Поле «{label}»: число вне допустимого порядка (не больше 10^{FINITE_DECIMAL_MAX_EXPONENT} по модулю).",
+            field=field,
+        )
+    return None
+
+
 def _out_of_range_issues(
     section: str, code: str, value: Any, path: tuple[str, ...] = ()
 ) -> list[ValidationIssue]:
@@ -461,24 +502,23 @@ def _out_of_range_issues(
     `cost/model/`, роняет расчёт `decimal.Overflow`. Обходим `model_dump()`
     рекурсивно по словарям и спискам, чтобы поймать такое значение на
     публикации ревизии, а не в расчёте. Правило общее — без знаний о разделах.
+
+    Типизированные поля (`UnitField`) приходят из `model_dump()` уже
+    `Decimal`. Но в свободных списках без схемы элемента (например,
+    `consumption_norms: list[dict]`) число остаётся строкой — разбираем её
+    отдельной веткой. `bool` строкой не бывает, поэтому под неё не попадает
+    и числом не считается.
     """
 
     if isinstance(value, Decimal):
-        if value.adjusted() > FINITE_DECIMAL_MAX_EXPONENT or (
-            value != 0 and value.adjusted() < -FINITE_DECIMAL_MAX_EXPONENT
-        ):
-            field = ".".join(path)
-            label = field_label(section, path) or field or "запись"
-            return [
-                ValidationIssue(
-                    "error",
-                    section,
-                    code,
-                    f"Поле «{label}»: число вне допустимого порядка (не больше 10^{FINITE_DECIMAL_MAX_EXPONENT} по модулю).",
-                    field=field,
-                )
-            ]
-        return []
+        issue = _out_of_range_issue(section, code, path, value)
+        return [issue] if issue else []
+    if isinstance(value, str):
+        parsed = _free_form_string_decimal(value)
+        if parsed is None:
+            return []
+        issue = _out_of_range_issue(section, code, path, parsed)
+        return [issue] if issue else []
     if isinstance(value, Mapping):
         issues: list[ValidationIssue] = []
         for key, nested in value.items():

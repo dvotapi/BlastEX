@@ -1,9 +1,12 @@
 """Справочники методики ФОТ по файлу владельца поверх текущей ревизии (TASK-010).
 
 По умолчанию — сухой прогон: печатает отчёт сида, ошибки и предупреждения
-проверки и ревизию не публикует. Организация обязательна: для неизвестной
-организации уже чтение снимка заводит ревизию справочников по умолчанию, и
-опечатка в коде создала бы в базе новую организацию.
+проверки и ничего не пишет в базу. Организация обязательна и проверяется
+первой, только на чтение (`organization_exists`): без этого опечатка в
+`--organization` попала бы в `repository.get_reference_snapshot`, чьё
+`_ensure_defaults` заводит ревизию №1 для любой организации, — даже в сухом
+прогоне. Для неизвестной организации `main()` печатает сообщение и завершается
+с кодом 1, не вызывая `run()`.
 
 `--publish` публикует новую ревизию, только если проверка прошла без ошибок и
 в справочнике нашлась хотя бы одна из должностей, сопоставленных владельцем
@@ -21,10 +24,26 @@ import json
 import os
 from typing import Any
 
-from cost.v2.db_repository import PostgresEconomicsRepository
+from sqlalchemy import select
+
+from cost.v2.db_repository import PostgresEconomicsRepository, ReferenceRevisionRow
 from cost.v2.payroll_defaults import MAPPED_POSITIONS, seed_payroll_references
 from cost.v2.references import has_validation_errors, validate_reference_sections
 from cost.v2.repository import EconomicsRepository
+
+
+def organization_exists(repository: PostgresEconomicsRepository, organization: str) -> bool:
+    """Есть ли у организации хоть одна ревизия справочников — чтение без побочных эффектов.
+
+    В отличие от `repository.get_reference_snapshot`, не вызывает
+    `_ensure_defaults` и не заводит ревизию №1 для неизвестной организации.
+    """
+
+    with repository.session_factory() as session:
+        found = session.scalar(
+            select(ReferenceRevisionRow.id).where(ReferenceRevisionRow.organization_id == organization).limit(1)
+        )
+    return found is not None
 
 
 def run(
@@ -84,9 +103,24 @@ def main() -> None:
     if not database_url:
         raise SystemExit("Задайте BLASTEX_DATABASE_URL для базы project1.")
 
-    output, code = run(
-        PostgresEconomicsRepository(database_url), args.organization, publish=args.publish, comment=args.comment
-    )
+    repository = PostgresEconomicsRepository(database_url)
+    if not organization_exists(repository, args.organization):
+        print(
+            json.dumps(
+                {
+                    "organization": args.organization,
+                    "message": (
+                        f"Организация «{args.organization}» не найдена: справочников у неё нет. "
+                        "Проверьте --organization."
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        raise SystemExit(1)
+
+    output, code = run(repository, args.organization, publish=args.publish, comment=args.comment)
     print(json.dumps(output, ensure_ascii=False, indent=2))
     raise SystemExit(code)
 

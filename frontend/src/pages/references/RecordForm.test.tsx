@@ -118,13 +118,17 @@ const BOUND_RECORD: DraftItem = {
   revision: 1,
 };
 
-function renderBoundForm(onApply: (next: DraftItem) => void) {
+function renderBoundForm(
+  onApply: (next: DraftItem) => void,
+  record: DraftItem = BOUND_RECORD,
+  issues: ReferenceValidationIssue[] = [],
+) {
   return render(
     <RecordForm
       section={BOUND_SECTION}
-      record={BOUND_RECORD}
-      published={BOUND_RECORD}
-      issues={[]}
+      record={record}
+      published={record}
+      issues={issues}
       canEdit
       isNew={false}
       changed={false}
@@ -374,5 +378,32 @@ describe("RecordForm: граница числового поля из схемы
     expect(button).not.toBeDisabled();
     fireEvent.click(button);
     expect(onApply.mock.calls[0][0].payload).toEqual({ hardness_f: "2" });
+  });
+});
+
+describe("RecordForm: одна причина — одно сообщение", () => {
+  const SERVER_ISSUE: ReferenceValidationIssue = {
+    level: "error",
+    section: "rocks",
+    code: "ROCK_X",
+    message: "Поле «Крепость по Протодьяконову»: должно быть больше 0.",
+    field: "hardness_f",
+  };
+
+  it("сохранённое значение вне границы и серверная ошибка того же поля — под полем только сообщение границы", () => {
+    const record: DraftItem = { ...BOUND_RECORD, payload: { hardness_f: "0" } };
+    renderBoundForm(() => undefined, record, [SERVER_ISSUE]);
+    const error = screen
+      .getByLabelText(/Крепость по Протодьяконову/)
+      .closest(".ref-field")
+      ?.querySelector(".ref-field-error");
+    expect(error?.textContent).toBe("Должно быть больше 0");
+  });
+
+  it("после ввода значения в границе серверное сообщение снова видно — оно остаётся, пока не перепроверят", () => {
+    const record: DraftItem = { ...BOUND_RECORD, payload: { hardness_f: "0" } };
+    renderBoundForm(() => undefined, record, [SERVER_ISSUE]);
+    fireEvent.change(screen.getByLabelText(/Крепость по Протодьяконову/), { target: { value: "2" } });
+    expect(screen.getByText("Поле «Крепость по Протодьяконову»: должно быть больше 0.")).toBeInTheDocument();
   });
 });

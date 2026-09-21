@@ -131,12 +131,13 @@ export function RecordForm({
       if (previous === undefined) map.set(issue.field, issue.message);
       else if (!previous.split("\n").includes(issue.message)) map.set(issue.field, `${previous}\n${issue.message}`);
     }
-    // Ошибка границы — впереди серверной ошибки того же поля (или подполя
-    // строки списка, тот же путь): она не даёт отправить значение, которое
-    // сервер ещё не видел.
+    // Одна причина — одно сообщение: пока граница нарушена, серверные
+    // сообщения того же поля (или подполя строки списка, тот же путь)
+    // скрываются — сервер видел значение до правки, а форма уже проверяет
+    // текущий ввод. Как только граница соблюдена, серверные сообщения снова
+    // видны — их скрывает только сам факт нарушения границы, не факт правки.
     for (const [name, message] of formBoundErrors) {
-      const previous = map.get(name);
-      map.set(name, previous ? `${message}\n${previous}` : message);
+      map.set(name, message);
     }
     return map;
   }, [issues, formBoundErrors]);

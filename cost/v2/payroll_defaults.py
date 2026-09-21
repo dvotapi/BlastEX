@@ -382,14 +382,22 @@ def _drilling_difficulty(sections: dict[str, list[ReferenceItem]], report: Payro
 
 
 def _downtime_reasons(sections: dict[str, list[ReferenceItem]], report: PayrollSeedReport) -> None:
-    known = {item.code for item in sections["downtime_reasons"]}
+    by_code = {item.code: index for index, item in enumerate(sections["downtime_reasons"])}
     for code, name, excusable, planned in DOWNTIME_REASONS:
-        if code in known:
+        index = by_code.get(code)
+        if index is None:
+            sections["downtime_reasons"].append(
+                _new(code, name, {"excusable": excusable, "planned_maintenance": planned})
+            )
+            report.added.append(f"downtime_reasons:{code}")
             continue
-        sections["downtime_reasons"].append(
-            _new(code, name, {"excusable": excusable, "planned_maintenance": planned})
-        )
-        report.added.append(f"downtime_reasons:{code}")
+        item = sections["downtime_reasons"][index]
+        values = {"excusable": excusable, "planned_maintenance": planned}
+        report.kept.extend(_kept(f"downtime_reasons:{code}", item, values))
+        updated, filled = _fill(item, values)
+        if filled:
+            sections["downtime_reasons"][index] = updated
+            report.filled.append(f"downtime_reasons:{code}: {', '.join(filled)}")
 
 
 __all__ = ["MAPPED_POSITIONS", "PayrollSeedReport", "seed_payroll_references"]

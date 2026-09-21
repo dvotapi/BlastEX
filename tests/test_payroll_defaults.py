@@ -9,6 +9,7 @@ from cost.model.inputs import CrewMember
 from cost.v2.crew_defaults import DEFAULT_CREW_CODE, reclassify_positions
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
 from cost.v2.payroll_defaults import (
+    DOWNTIME_REASONS,
     DRILLER_SCALE,
     EXTRA_TARIFFS,
     MAPPED_POSITIONS,
@@ -433,6 +434,42 @@ def test_disabled_default_difficulty_code_is_not_duplicated():
         issue.level == "error" and issue.section == "drilling_difficulty" and "повторяется" in issue.message
         for issue in validate_reference_sections(sections)
     )
+
+
+# Codex к PR #83: запись с кодом сида, но пустым или неполным payload
+# (DT_PLANNED_MAINTENANCE с {}) пропускалась целиком — схема подставляла
+# false, и плановое ТОиР оставалось «по вине машиниста» и не плановым.
+
+
+def test_existing_downtime_reason_with_empty_payload_gets_seed_values():
+    existing = ReferenceItem(code="DT_PLANNED_MAINTENANCE", name="Плановое ТОиР", payload={})
+    sections, report = seed_payroll_references(fx.references(downtime_reasons=(existing,)))
+
+    items = sections["downtime_reasons"]
+    assert len(items) == len(DOWNTIME_REASONS)
+    reason = _by_code(sections, "downtime_reasons")["DT_PLANNED_MAINTENANCE"]
+    assert reason.payload == {"excusable": True, "planned_maintenance": True}
+    assert "downtime_reasons:DT_PLANNED_MAINTENANCE: excusable, planned_maintenance" in report.filled
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+
+def test_existing_downtime_reason_with_an_explicit_false_keeps_it():
+    existing = ReferenceItem(
+        code="DT_PLANNED_MAINTENANCE", name="Плановое ТОиР", payload={"planned_maintenance": False}
+    )
+    snapshot = fx.references(downtime_reasons=(existing,))
+    sections, report = seed_payroll_references(snapshot)
+
+    reason = _by_code(sections, "downtime_reasons")["DT_PLANNED_MAINTENANCE"]
+    assert reason.payload["planned_maintenance"] is False
+    assert reason.payload["excusable"] is True
+    assert "downtime_reasons:DT_PLANNED_MAINTENANCE: planned_maintenance=False (файл: True)" in report.kept
+    assert "downtime_reasons:DT_PLANNED_MAINTENANCE: excusable" in report.filled
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+    again, report_again = seed_payroll_references(_as_snapshot(snapshot, sections))
+    assert again == sections
+    assert report_again.added == [] and report_again.filled == []
 
 
 def test_rates_based_block_economics_do_not_move():

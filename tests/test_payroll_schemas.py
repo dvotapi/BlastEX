@@ -1,6 +1,7 @@
 """Схемы справочников методики ФОТ (TASK-010 PR 1): поля, умолчания, правила записи."""
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 import pytest
@@ -339,6 +340,16 @@ class TestDrillingDifficulty:
                 {"diameter": [{"diameter_mm": "152", "k": "1"}, {"diameter_mm": "152.0", "k": "1"}]}
             )
         assert _error(exc) == ("diameter.1.diameter_mm", "Диаметр уже есть в таблице")
+
+    def test_table_hints_name_the_coefficient_by_its_title(self):
+        """В форме колонка подписана «Коэффициент»: имени поля `k` сметчик не видит."""
+
+        schema = section_json_schema("drilling_difficulty")
+        for table, row in (("hardness", "HardnessBand"), ("diameter", "DiameterFactor")):
+            title = schema["$defs"][row]["properties"]["k"]["title"]
+            hint = schema["properties"][table]["description"]
+            assert f"{title.lower()} 1" in hint, hint
+            assert not re.search(r"\bk\b", hint), hint
 
 
 class TestDowntimeReasons:

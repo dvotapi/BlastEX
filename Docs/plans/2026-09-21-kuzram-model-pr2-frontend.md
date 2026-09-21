@@ -12,7 +12,7 @@
 
 ## Общие ограничения
 
-- Рабочая копия: `/Users/apple/Documents/Проекты/BlastEX/.claude/worktrees/dazzling-antonelli-bfc24e`, ветка `feat/kuzram-model-ui` (от `origin/feat/kuzram-model` 7dbeec8, без upstream). Все команды — из её корня. Если PR 1 получит новые коммиты — `git fetch origin && git rebase origin/feat/kuzram-model` до начала следующей задачи.
+- Рабочая копия: `/Users/apple/Documents/Проекты/BlastEX/.claude/worktrees/dazzling-antonelli-bfc24e`, ветка `feat/kuzram-model-ui` (от `origin/feat/kuzram-model` 909bcb6, без upstream). Все команды — из её корня. Если PR 1 получит новые коммиты — `git fetch origin && git rebase origin/feat/kuzram-model` до начала следующей задачи.
 - **Не пушить в `main` и ничего не сливать**: push в `main` сразу выкатывает прод (`.github/workflows/deploy.yml`). PR 2 — черновик с базой `feat/kuzram-model`; PR 1 (#88) и PR 2 сливаются вместе и только по решению владельца.
 - Python: `../../../.venv/bin/python -m pytest <путь> -q -p no:cacheprovider`.
 - Тесты фронта: `npm --prefix frontend test -- <путь от frontend/>` (все — без пути). Проверка типов: `frontend/node_modules/.bin/tsc -p frontend/tsconfig.app.json`. Зависимости уже поставлены (`npm --prefix frontend ci`).
@@ -29,7 +29,7 @@
 1. **W/d (B/d у Каннингема)** — решение владельца 21.09.2026: предупреждать **только выше 35**, подбор не ограничивать. Ниже 25 не предупреждаем: для одобренного габбро-диабаза W/d = 20–23,5 на всех коронках. Предупреждение — в разборе расчёта и строкой под таблицей вариантов окна.
 2. **Подписи JPA** — по Каннингему 2005, §4.1.1.3 («out of face» — плоскость трещины, продолженная из откоса, уходит вверх): 20 — «падение в сторону откоса», 30 — «простирание поперёк откоса», 40 — «падение в массив». В спецификации было наоборот; владелец 21.09.2026 выбрал вариант статьи. Формулировки отдаются на подтверждение технологу (пометка в описании PR и в спецификации).
 3. **Границы и умолчания** — не запросом к серверу, а копией в `kuzramContract.json` с Python-тестом на совпадение с `cunningham.py` и схемами API. Причина: сохранённые настройки листа читаются синхронно при загрузке объекта; тест ловит расхождение так же надёжно, как общий источник.
-4. **`loc` у ошибок настроек и `field_error`** не нужны: фронт проверяет те же границы до отправки (настройки, коронка факта 20–1000 мм, q и негабарит факта), поэтому 422 не ожидается. Коронки листа приходят из `/blast/options` (110–250 мм) и всегда в границах `CrownMm`. 400 при A ≤ 0 приходит строкой `detail` и показывается как есть (на листе и в окне).
+4. **`loc` у ошибок настроек и `field_error`** не нужны (подсветку по `loc` не делаем, но `errorMessage` показывает русские `details[].msg` — Task 2, шаг 3б): фронт проверяет те же границы до отправки (настройки, коронка факта 20–1000 мм, q и негабарит факта), поэтому 422 не ожидается. Коронки листа приходят из `/blast/options` (110–250 мм) и всегда в границах `CrownMm`. 400 при A ≤ 0 приходит строкой `detail` и показывается как есть (на листе и в окне).
 5. **Пример скачка JF.** Цифры из ревью PR 1 (q 1,60 → 1,61, негабарит 7,53 → 1,79 %) не воспроизводятся по сохранённым данным. Справка показывает проверяемый тестом случай: габбро-диабаз с трещиноватостью 0,3 на 1 м, коронка 152 мм, JF: q 1,60 → 1,61, JPS 80 → 50, негабарит 11,48 → 4,00 %.
 6. **Цвета графика**: Kuz-Ram — акцентный зелёный `#2d7556`, «до исправления» — серо-синий пунктир `#8a99a6` (в симуляторе были синий и оранжевый; оранжевого в палитре приложения нет).
 7. **«≤» у q**: у Kuz-Ram от 0,10, у «до исправления» — от его нижней границы 0,30. Плашки над таблицей листа (`MetricChips`) не меняются.
@@ -723,6 +723,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Файлы:**
 - Изменить: `frontend/src/types.ts` (тип `BlastVariant` и новые типы ответа)
 - Изменить: `frontend/src/api/endpoints.ts` (`optimize`, новый `calibrateKuzram`)
+- Изменить: `frontend/src/api/client.ts` (`errorMessage` — русские тексты из `details[].msg`), создать `frontend/src/api/client.test.ts`
 - Создать: `frontend/src/api/endpoints.kuzram.test.ts`
 - Изменить: `frontend/src/pages/calc/calcInputs.ts`, `frontend/src/pages/calc/calcInputs.test.ts`
 - Создать: `frontend/src/pages/calc/kuzram/testing/optimizeGabbro.json`, `frontend/src/pages/calc/kuzram/testing/fixtures.ts`
@@ -974,6 +975,82 @@ function blastSheetPayload(input: BlastSheetInput) {
 Run: `npm --prefix frontend test -- src/api/endpoints.kuzram.test.ts`
 Expected: 2 passed.
 
+- [ ] **Шаг 3б. Тексты ошибок проверки (422) в `errorMessage`**
+
+При 422 сервер кладёт в `detail` только общее «Ошибка валидации входных данных.», а точный русский текст своих валидаторов — в `details[].msg` (например, «Диаметр коронки — от 20 до 1000 мм.», «Поправка C(A) — от 0,1 до 10.»). Фронт проверяет те же границы до отправки, так что из окна 422 не ожидается; это страховка, чтобы пользователь не видел одну общую фразу. Стандартные тексты pydantic — английские, их не показываем (решение координатора R2 в журнале).
+
+`frontend/src/api/client.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { errorMessage } from "./client";
+
+const response = (body: unknown, status = 422) =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+describe("errorMessage", () => {
+  it("422: русские тексты валидаторов API дописываются к общему, без повторов", async () => {
+    const body = {
+      detail: "Ошибка валидации входных данных.",
+      details: [
+        { loc: ["body", "facts", 1, "crown_mm"], msg: "Диаметр коронки — от 20 до 1000 мм.", type: "crown_mm" },
+        { loc: ["body", "facts", 2, "crown_mm"], msg: "Диаметр коронки — от 20 до 1000 мм.", type: "crown_mm" },
+        { loc: ["body", "kuzram"], msg: "Поправка C(A) — от 0,1 до 10.", type: "kuzram_settings" },
+      ],
+    };
+    expect(await errorMessage(response(body), "запасной")).toBe(
+      "Ошибка валидации входных данных: Диаметр коронки — от 20 до 1000 мм. Поправка C(A) — от 0,1 до 10.",
+    );
+  });
+
+  it("английские тексты pydantic не показываются", async () => {
+    const body = {
+      detail: "Ошибка валидации входных данных.",
+      details: [{ loc: ["body", "target", "lump_size_mm"], msg: "Input should be greater than 0", type: "greater_than" }],
+    };
+    expect(await errorMessage(response(body), "запасной")).toBe("Ошибка валидации входных данных.");
+  });
+
+  it("прежние форматы: строка detail, detail.message, ответ без JSON", async () => {
+    expect(await errorMessage(response({ detail: "Фактор породы A = −0,5." }, 400), "запасной")).toBe("Фактор породы A = −0,5.");
+    expect(await errorMessage(response({ detail: { message: "Нет доступа." } }, 403), "запасной")).toBe("Нет доступа.");
+    expect(await errorMessage(new Response("oops", { status: 500 }), "запасной")).toBe("запасной");
+  });
+});
+```
+
+Run: `npm --prefix frontend test -- src/api/client.test.ts`
+Expected: FAIL в первом тесте (сейчас возвращается только общий текст).
+
+В `frontend/src/api/client.ts` перед `errorMessage` добавить функцию и заменить ветку строкового `detail`:
+
+```ts
+/**
+ * Русские тексты ошибок проверки из `details[].msg` (ответ 422), без повторов.
+ * Свои валидаторы API пишут по-русски и точнее общего `detail`; стандартные
+ * тексты pydantic — английские, их пользователю не показываем.
+ */
+function validationMessages(details: unknown): string[] {
+  if (!Array.isArray(details)) return [];
+  const messages = details
+    .map((item) => (typeof item === "object" && item !== null && typeof item.msg === "string" ? item.msg : ""))
+    .filter((message) => /[А-Яа-яЁё]/.test(message));
+  return [...new Set(messages)];
+}
+```
+
+```ts
+    if (typeof payload.detail === "string") {
+      const messages = validationMessages(payload.details);
+      return messages.length ? `${payload.detail.replace(/\.$/, "")}: ${messages.join(" ")}` : payload.detail;
+    }
+```
+
+Комментарий над `errorMessage` дополнить: «…строкой или объектом с `message`; при 422 — ещё русские тексты валидаторов из `details`.»
+
+Run: `npm --prefix frontend test -- src/api/client.test.ts`
+Expected: 3 passed.
+
 - [ ] **Шаг 4. Падающие тесты блока в настройках листа**
 
 В `frontend/src/pages/calc/calcInputs.test.ts`:
@@ -1114,6 +1191,7 @@ Expected: без ошибок типов; все тесты фронта зел�
 
 ```bash
 git add frontend/src/types.ts frontend/src/api/endpoints.ts frontend/src/api/endpoints.kuzram.test.ts \
+  frontend/src/api/client.ts frontend/src/api/client.test.ts \
   frontend/src/pages/calc/calcInputs.ts frontend/src/pages/calc/calcInputs.test.ts \
   frontend/src/pages/calc/kuzram/testing/optimizeGabbro.json frontend/src/pages/calc/kuzram/testing/fixtures.ts \
   frontend/src/pages/CalcPage.tsx
@@ -4382,7 +4460,7 @@ npm --prefix frontend test
 npm --prefix frontend run build
 ```
 
-Expected: все Python-тесты зелёные (в PR 1 на 7dbeec8 — 1436, плюс 9 новых), все тесты фронта зелёные, сборка без ошибок.
+Expected: все Python-тесты зелёные (PR 1 плюс 9 новых), все тесты фронта зелёные, сборка без ошибок.
 
 - [ ] **Шаг 2. Стенд из worktree (с согласия пользователя)**
 

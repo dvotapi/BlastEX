@@ -309,6 +309,21 @@ def _payroll_params(sections: dict[str, list[ReferenceItem]], report: PayrollSee
     report.added.append(f"payroll_params:{code}")
 
 
+def _difficulty_factor(diameter: Decimal) -> Decimal:
+    """Стартовый коэффициент сложности бурения по диаметру, Ø / 152.
+
+    Не ниже 0,01, чтобы строка прошла схему: коронка тоньше 0,76 мм даёт
+    точное отношение, округляющееся до "0.00", а `DrillingDifficultyPayload`
+    отклоняет неположительный коэффициент (Codex к PR #83) — значение
+    стартовое до калибровки по факту, ниже 0,01 не нужно.
+    """
+
+    return max(
+        (diameter / BASE_DIAMETER_MM).quantize(Decimal("0.01"), ROUND_HALF_UP),
+        Decimal("0.01"),
+    )
+
+
 def _bit_diameters(sections: dict[str, list[ReferenceItem]]) -> set[Decimal]:
     materials = {item.code: item for item in sections["materials"] if item.is_active}
     found: set[Decimal] = set()
@@ -323,7 +338,7 @@ def _bit_diameters(sections: dict[str, list[ReferenceItem]]) -> set[Decimal]:
         if diameter is None or diameter <= 0:
             continue
         try:
-            (diameter / BASE_DIAMETER_MM).quantize(Decimal("0.01"), ROUND_HALF_UP)
+            _difficulty_factor(diameter)
         except ArithmeticError:
             # Коэффициент диаметра не вычисляется (огромный диаметр не
             # укладывается в точность Decimal) — коронка в таблицу не попадает.
@@ -342,12 +357,10 @@ def _drilling_difficulty_tables(sections: dict[str, list[ReferenceItem]]) -> dic
     diameters = sorted({Decimal(value) for value in OWNER_DIAMETERS_MM} | _bit_diameters(sections))
     return {
         "hardness": [dict(row) for row in HARDNESS_BANDS],
-        # Стартовое k = Ø / 152 (показатель 1) до калибровки по факту.
+        # Стартовое k = Ø / 152 (показатель 1) до калибровки по факту, не
+        # ниже 0,01 — см. `_difficulty_factor`.
         "diameter": [
-            {
-                "diameter_mm": format(diameter, "f"),
-                "k": format((diameter / BASE_DIAMETER_MM).quantize(Decimal("0.01"), ROUND_HALF_UP), "f"),
-            }
+            {"diameter_mm": format(diameter, "f"), "k": format(_difficulty_factor(diameter), "f")}
             for diameter in diameters
         ],
     }

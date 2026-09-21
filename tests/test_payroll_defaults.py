@@ -395,6 +395,34 @@ def test_nonpositive_bit_diameters_are_skipped():
     )
 
 
+# Codex к PR #83: положительный диаметр коронки меньше 0,76 мм валиден для
+# схемы материала, но даёт стартовый коэффициент Ø / 152, округляющийся до
+# "0.00" — `DrillingDifficultyPayload` отклоняет неположительный
+# коэффициент, и сидированная ревизия не публикуется. Строку диаметра сид
+# не пропускает (иначе проверка ревизии `_bit_diameters` всё равно
+# потребует её), а коэффициент не опускается ниже 0,01.
+
+
+def test_small_bit_diameter_gets_floored_difficulty_factor():
+    material = ReferenceItem(code="MAT_BIT_SMALL", name="Коронка", payload={"unit": "PIECE", "diameter_mm": "0.5"})
+    condition = ReferenceItem(
+        code="COND_MAT_BIT_SMALL",
+        name="JK830",
+        payload={"equipment_type_code": "RIG_JK830", "tech_speed_m_per_h": "10", "bit_material_code": "MAT_BIT_SMALL"},
+    )
+
+    sections, _ = seed_payroll_references(fx.references(materials=(material,), drilling_conditions=(condition,)))
+
+    table = _by_code(sections, "drilling_difficulty")["DRILLING_DIFFICULTY_BASE"].payload["diameter"]
+    assert {"diameter_mm": "0.5", "k": "0.01"} in table
+    owner_row = next(row for row in table if row["diameter_mm"] == "152")
+    assert owner_row["k"] == "1.00"
+    assert not any(
+        issue.level == "error" and issue.section == "drilling_difficulty"
+        for issue in validate_reference_sections(sections)
+    )
+
+
 # Codex к PR #83: форма создаёт допустимую схемой действующую запись
 # {"hardness": [], "diameter": []} — ранний выход "есть действующая запись"
 # не давал сиду заполнить пустые таблицы владельца.

@@ -63,6 +63,11 @@ def _is_numeric(field: dict) -> bool:
     return any(isinstance(v, dict) and v.get("type") in {"number", "integer"} for v in variants)
 
 
+def _enum_codes(field: dict) -> set[str]:
+    variants = field.get("anyOf") or [field]
+    return {code for v in variants if isinstance(v, dict) for code in v.get("enum", ()) if isinstance(code, str)}
+
+
 def _field_containers(section: str):
     """Свойства раздела и вложенных моделей: подполе списка — такое же поле формы."""
 
@@ -186,26 +191,36 @@ class TestValidationThroughSchemas:
                     assert not set(title.lower()) <= latin | set(" -/()0123456789"), f"{container}.{name}: подпись {title!r}"
 
     def test_no_field_text_shows_a_service_name(self):
-        """Подпись и пояснение пишутся для сметчика: имя поля вроде `piece_unit` ему ничего не говорит."""
+        """Подпись и пояснение пишутся для сметчика.
 
-        service_name = re.compile(r"[a-z0-9]_[a-z0-9]")
+        Имя поля (`piece_unit`, `headcount`) и код значения (`MONTHLY_BUDGET`)
+        ему ничего не говорят: в форме он видит подпись поля и подпись значения.
+        """
+
+        containers = [pair for section in SECTION_SCHEMAS for pair in _field_containers(section)]
+        codes = {name for _, properties in containers for name in properties}
+        codes |= {code for _, properties in containers for node in properties.values() for code in _enum_codes(node)}
+        # Числовой код («3.3») совпадает с числом в тексте, однобуквенное имя
+        # (`k`, `f`) — с обозначением в формуле: служебными словами они не считаются.
+        codes = {code for code in codes if len(code) > 1 and re.search(r"[A-Za-z]", code)}
+        snake_case = re.compile(r"[a-z0-9]_[a-z0-9]")
         leaks: list[str] = []
-        for section in SECTION_SCHEMAS:
-            for container, properties in _field_containers(section):
-                for name, node in properties.items():
-                    if node.get("x-internal"):
-                        continue
-                    for key in ("title", "description"):
-                        text = node.get(key, "")
-                        if service_name.search(text):
-                            leaks.append(f"{container}.{name}.{key}: {text!r}")
+        for container, properties in containers:
+            for name, node in properties.items():
+                if node.get("x-internal"):
+                    continue
+                for key in ("title", "description"):
+                    text = node.get(key, "")
+                    if snake_case.search(text) or codes & set(re.findall(r"\w+", text)):
+                        leaks.append(f"{container}.{name}.{key}: {text!r}")
         assert leaks == []
 
-    def test_cost_item_kind_hint_names_the_rules_section(self):
+    def test_cost_item_kind_hint_names_the_rules_sections(self):
         """Вид статьи в расчёт не входит: подсказка отсылает туда, где задают слой и поведение."""
 
         hint = section_json_schema("cost_items")["properties"]["kind"]["description"]
-        assert f"«{REFERENCE_SECTION_DEFINITIONS['cost_rules']['label']}»" in hint
+        for section in ("cost_rules", "allocation_rules"):
+            assert f"«{REFERENCE_SECTION_DEFINITIONS[section]['label']}»" in hint
 
     def test_dangling_reference_is_reported_under_its_field(self):
         sections = dict(default_reference_sections())

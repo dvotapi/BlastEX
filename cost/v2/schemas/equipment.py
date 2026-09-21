@@ -24,7 +24,7 @@ class EquipmentTypePayload(ReferencePayload):
         default="DRILL_RIG",
         description=(
             "Вид техники: буровой станок, СЗМ, доставщик ВМ, тягач с полуприцепом "
-            "под эмульсию, лёгкий транспорт, трактор; OTHER — прочая техника без норм модели"
+            "под эмульсию, лёгкий транспорт, трактор или прочая техника без норм модели"
         ),
     )
     brand: str | None = Field(
@@ -50,7 +50,7 @@ class EquipmentTypePayload(ReferencePayload):
     )
     maintenance_rub_per_shift: Decimal = UnitField("₽/см", description="ТОиР за смену", default=Decimal("0"))
     maintenance_monthly_rub: Decimal | None = UnitField(
-        "₽/мес", description="Бюджет ТОиР в месяц (для режима MONTHLY_BUDGET)", default=None
+        "₽/мес", description="Бюджет ТОиР в месяц (для режима «месячный бюджет»)", default=None
     )
     spare_parts_rub_per_shift: Decimal = UnitField("₽/см", description="Запчасти за смену", default=Decimal("0"))
     inspection_rub_per_shift: Decimal = UnitField("₽/см", description="Выпуск на линию", default=Decimal("0"))

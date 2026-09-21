@@ -20,7 +20,7 @@ class RockProperties:
 class ExplosiveProperties:
     name: str                     # Название взрывчатки (например, "ЭВЕРСИН-100")
     density_t_m3: float           # Плотность заряжания (г/см³ или т/м³)
-    power_mj_kg: float            # Теплота взрыва Q_exp (МДж/кг). RE_weight = 4.184/Q_exp, E = RE_weight*115 для формулы Кузнецова
+    power_mj_kg: float            # Теплота взрыва Q_exp (МДж/кг). RE_weight = Q_exp/4.184, E = RE_weight*115 для формулы Кузнецова
 
 @dataclass
 class TargetParams:
@@ -130,7 +130,7 @@ class BlastEngine:
 if __name__ == "__main__":
     # 1. Инициализация данных
     rock = RockProperties("Габбро-диабаз", 2.9, 168, 2.2) # Характеристики породы
-    # ВВ задаётся теплотой взрыва Q_exp (МДж/кг). RE_weight = 4.184/2.99 ≈ 1.40 (эмульсия слабее ТНТ по энергии на кг)
+    # ВВ задаётся теплотой взрыва Q_exp (МДж/кг). RE_weight = 2.99/4.184 ≈ 0.71 (эмульсия слабее ТНТ по энергии на кг)
     explosive = ExplosiveProperties("ЭВЕРСИН Э-100", 1.12, 2.99)
     # Цель: кусок не более 400мм, высота уступа 10м
     target = TargetParams(lump_size_mm=400, hole_diameter_mm=0, bench_height_m=10.0)

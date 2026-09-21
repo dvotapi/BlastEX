@@ -38,14 +38,11 @@ class KuzRamTests(unittest.TestCase):
     def test_cunningham_n_takes_burden_in_m_and_diameter_in_mm(self):
         # Cunningham: n = (2.2 − 14 B/d) × (1 + (S/B − 1)/2), B in m, d in mm.
         # B = 3.43 m, d = 152 mm × 1.05 = 159.6 mm: (2.2 − 0.3009) × 1.125.
-        self.assertAlmostEqual(cunningham_uniformity_n(3.43, 159.6, 1.25), 2.1365, places=4)
-
-    def test_cunningham_n_names_diameter_unit(self):
         n = cunningham_uniformity_n(burden_m=3.43, diameter_mm=159.6, spacing_to_burden=1.25)
         self.assertAlmostEqual(n, 2.1365, places=4)
 
     def test_n_is_not_clamped_on_usual_patterns(self):
-        # B = 25–35 d is the usual burden range; n must stay in its 0.7–2 band, above the clamp.
+        # B = 25–35 d is the usual burden range: n ≈ 1.7–2.1, well above the 0.8 clamp.
         for diameter_mm in (110.0, 152.0, 250.0):
             for burden_to_diameter in (25.0, 35.0):
                 burden_m = burden_to_diameter * diameter_mm / 1000.0

@@ -186,6 +186,14 @@ class TestSitePayroll:
             SitePayload.model_validate({"geology": [{"rock_code": "R1", "share": "0.5"}, {"rock_code": "R2", "share": "0.4"}]})
         assert _error(exc) == ("geology", "Сумма долей пород — 0.9, а должна быть 1")
 
+    def test_geology_sum_message_has_no_trailing_zeros(self):
+        # 0.45 + 0.45 = 0.90 как Decimal — в сообщении не «0.90», а «0.9».
+        with pytest.raises(ValidationError) as exc:
+            SitePayload.model_validate(
+                {"geology": [{"rock_code": "R1", "share": "0.45"}, {"rock_code": "R2", "share": "0.45"}]}
+            )
+        assert _error(exc) == ("geology", "Сумма долей пород — 0.9, а должна быть 1")
+
     def test_rock_is_listed_once(self):
         with pytest.raises(ValidationError) as exc:
             SitePayload.model_validate({"geology": [{"rock_code": "R1", "share": "0.5"}, {"rock_code": "R1", "share": "0.5"}]})

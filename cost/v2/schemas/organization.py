@@ -173,7 +173,9 @@ class SitePayload(ReferencePayload):
             rocks.add(row.rock_code)
         total = sum((row.share for row in self.geology), Decimal("0"))
         if self.geology and abs(total - 1) > GEOLOGY_TOLERANCE:
-            field_error(type(self), "geology", f"Сумма долей пород — {total}, а должна быть 1", total)
+            field_error(
+                type(self), "geology", f"Сумма долей пород — {format(total.normalize(), 'f')}, а должна быть 1", total
+            )
         return self
 
 

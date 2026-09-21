@@ -320,11 +320,15 @@ def _bit_diameters(sections: dict[str, list[ReferenceItem]]) -> set[Decimal]:
     return found
 
 
-def _drilling_difficulty(sections: dict[str, list[ReferenceItem]], report: PayrollSeedReport) -> None:
-    if any(item.is_active for item in sections["drilling_difficulty"]):
-        return
+def _drilling_difficulty_tables(sections: dict[str, list[ReferenceItem]]) -> dict[str, list[dict[str, Any]]]:
+    """Таблицы владельца: полосы крепости и диаметры владельца ∪ коронок условий.
+
+    Общая для новой записи и для заполнения пустых таблиц действующей —
+    те же данные не должны собираться по-разному в двух местах.
+    """
+
     diameters = sorted({Decimal(value) for value in OWNER_DIAMETERS_MM} | _bit_diameters(sections))
-    payload = {
+    return {
         "hardness": [dict(row) for row in HARDNESS_BANDS],
         # Стартовое k = Ø / 152 (показатель 1) до калибровки по факту.
         "diameter": [
@@ -335,9 +339,28 @@ def _drilling_difficulty(sections: dict[str, list[ReferenceItem]], report: Payro
             for diameter in diameters
         ],
     }
-    code = "DRILLING_DIFFICULTY_BASE"
-    sections["drilling_difficulty"].append(_new(code, "Сложность бурения: база f 10, Ø 152 мм", payload))
-    report.added.append(f"drilling_difficulty:{code}")
+
+
+def _drilling_difficulty(sections: dict[str, list[ReferenceItem]], report: PayrollSeedReport) -> None:
+    index = next(
+        (i for i, item in enumerate(sections["drilling_difficulty"]) if item.is_active), None
+    )
+    if index is None:
+        payload = _drilling_difficulty_tables(sections)
+        code = "DRILLING_DIFFICULTY_BASE"
+        sections["drilling_difficulty"].append(_new(code, "Сложность бурения: база f 10, Ø 152 мм", payload))
+        report.added.append(f"drilling_difficulty:{code}")
+        return
+    # Форма даёт допустимую схемой действующую запись с пустыми таблицами
+    # ({"hardness": [], "diameter": []}) — к ней те же _kept + _fill, что и
+    # к остальным существующим записям; заданные таблицы сид не меняет.
+    item = sections["drilling_difficulty"][index]
+    values = _drilling_difficulty_tables(sections)
+    report.kept.extend(_kept(f"drilling_difficulty:{item.code}", item, values))
+    updated, filled = _fill(item, values)
+    if filled:
+        sections["drilling_difficulty"][index] = updated
+        report.filled.append(f"drilling_difficulty:{updated.code}: {', '.join(filled)}")
 
 
 def _downtime_reasons(sections: dict[str, list[ReferenceItem]], report: PayrollSeedReport) -> None:

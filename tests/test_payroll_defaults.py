@@ -307,6 +307,57 @@ def test_huge_bit_diameter_is_skipped_not_crashed():
     assert [row["diameter_mm"] for row in diameters] == ["110", "127", "140", "152", "165", "190", "215", "250"]
 
 
+# Codex к PR #83: форма создаёт допустимую схемой действующую запись
+# {"hardness": [], "diameter": []} — ранний выход "есть действующая запись"
+# не давал сиду заполнить пустые таблицы владельца.
+
+_OWNER_DIAMETER_TABLE = [
+    {"diameter_mm": diameter, "k": k}
+    for diameter, k in (
+        ("110", "0.72"), ("127", "0.84"), ("140", "0.92"), ("152", "1.00"),
+        ("165", "1.09"), ("190", "1.25"), ("215", "1.41"), ("250", "1.64"),
+    )
+]
+
+
+def test_active_difficulty_record_with_empty_tables_gets_owner_tables():
+    existing = ReferenceItem(code="DD_EXISTING", name="Действующая", payload={"hardness": [], "diameter": []})
+    sections, report = seed_payroll_references(fx.references(drilling_difficulty=(existing,)))
+
+    items = sections["drilling_difficulty"]
+    assert len(items) == 1
+    item = items[0]
+    assert item.code == "DD_EXISTING"
+    assert [row["k"] for row in item.payload["hardness"]] == ["0.9", "1.0", "1.1", "1.2", "1.3"]
+    assert item.payload["diameter"] == _OWNER_DIAMETER_TABLE
+    assert "drilling_difficulty:DD_EXISTING: hardness, diameter" in report.filled
+
+
+def test_active_difficulty_record_with_diameter_empty_keeps_hardness():
+    filled_hardness = [{"f_from": None, "f_to": None, "k": "1"}]
+    existing = ReferenceItem(
+        code="DD_EXISTING", name="Действующая", payload={"hardness": filled_hardness, "diameter": []}
+    )
+    sections, report = seed_payroll_references(fx.references(drilling_difficulty=(existing,)))
+
+    item = sections["drilling_difficulty"][0]
+    # Заданная таблица крепости не меняется.
+    assert item.payload["hardness"] == filled_hardness
+    assert item.payload["diameter"] == _OWNER_DIAMETER_TABLE
+    assert "drilling_difficulty:DD_EXISTING: diameter" in report.filled
+    assert not any(line.startswith("drilling_difficulty:") and line.endswith("hardness") for line in report.filled)
+
+
+def test_active_difficulty_record_seed_is_idempotent():
+    existing = ReferenceItem(code="DD_EXISTING", name="Действующая", payload={"hardness": [], "diameter": []})
+    snapshot = fx.references(drilling_difficulty=(existing,))
+    first, _ = seed_payroll_references(snapshot)
+    again, report = seed_payroll_references(_as_snapshot(snapshot, first))
+
+    assert again == first
+    assert report.added == [] and report.filled == []
+
+
 def test_rates_based_block_economics_do_not_move():
     """Расчёт по ставкам новых ключей не читает: смета до и после сида одна."""
 

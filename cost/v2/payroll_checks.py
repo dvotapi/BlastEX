@@ -60,11 +60,29 @@ def _plain(value: Decimal) -> str:
 
 
 def _empty_sections(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
-    return [
-        ValidationIssue("warning", section, "", message)
-        for section, message in EMPTY_SECTION_MESSAGES.items()
-        if not _active(sections, section)
-    ]
+    issues: list[ValidationIssue] = []
+    for section, message in EMPTY_SECTION_MESSAGES.items():
+        if section == "drilling_difficulty":
+            empty = _drilling_difficulty_is_empty(sections)
+        else:
+            empty = not _active(sections, section)
+        if empty:
+            issues.append(ValidationIssue("warning", section, "", message))
+    return issues
+
+
+def _drilling_difficulty_is_empty(sections: Mapping[str, Sequence[ReferenceItem]]) -> bool:
+    """Раздел не заведён и без действующей записи, и с записью без данных.
+
+    `DrillingDifficultyPayload` допускает запись с пустыми таблицами
+    (форма подставляет такую по умолчанию) — приведённые метры по ней не
+    посчитать, как и вовсе без записи.
+    """
+
+    difficulty = next(iter(_active(sections, "drilling_difficulty")), None)
+    if difficulty is None:
+        return True
+    return not _rows(difficulty.payload.get("hardness")) or not _rows(difficulty.payload.get("diameter"))
 
 
 def _duplicate_years(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:

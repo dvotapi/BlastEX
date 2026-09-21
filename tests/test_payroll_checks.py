@@ -57,10 +57,38 @@ def test_one_parameter_record_per_year():
     ]
 
 
+_FILLED_DIFFICULTY = {"hardness": [{"k": "1"}], "diameter": [{"diameter_mm": "152", "k": "1"}]}
+
+
 def test_one_active_difficulty_record():
-    issues = _issues(drilling_difficulty=(_item("DD1", {}), _item("DD2", {})))
+    issues = _issues(drilling_difficulty=(_item("DD1", _FILLED_DIFFICULTY), _item("DD2", _FILLED_DIFFICULTY)))
     assert _about(issues, "drilling_difficulty") == [
         ("error", "DD2", "", "Действует одна запись коэффициентов сложности бурения, уже есть DD1.")
+    ]
+
+
+# Codex к PR #83: раздел не должен считаться заведённым, если у действующей
+# записи пусты (или не заполнены) таблицы крепости/диаметра — форма и схема
+# допускают такую запись, а «приведённые метры» по ней не посчитать.
+
+
+def test_active_difficulty_record_with_empty_tables_is_still_a_warning():
+    issues = _issues(drilling_difficulty=(_item("DD", {"hardness": [], "diameter": []}),))
+    assert _about(issues, "drilling_difficulty") == [
+        ("warning", "", "", "Не заведены коэффициенты сложности бурения: приведённые метры не посчитать.")
+    ]
+
+
+def test_active_difficulty_record_with_both_tables_filled_is_not_a_warning():
+    issues = _issues(drilling_difficulty=(_item("DD", _FILLED_DIFFICULTY),))
+    assert _about(issues, "drilling_difficulty") == []
+
+
+def test_active_difficulty_record_with_empty_diameter_table_is_a_warning():
+    partial = {**_FILLED_DIFFICULTY, "diameter": []}
+    issues = _issues(drilling_difficulty=(_item("DD", partial),))
+    assert _about(issues, "drilling_difficulty") == [
+        ("warning", "", "", "Не заведены коэффициенты сложности бурения: приведённые метры не посчитать.")
     ]
 
 
@@ -70,7 +98,13 @@ def _bits(material: dict, diameters: list[str]) -> dict:
         "equipment_types": (_item("RIG", {"kind": "DRILL_RIG"}),),
         "drilling_conditions": (_item("COND", {"equipment_type_code": "RIG", "bit_material_code": "MAT_BIT"}),),
         "drilling_difficulty": (
-            _item("DD", {"diameter": [{"diameter_mm": value, "k": "1"} for value in diameters]}),
+            _item(
+                "DD",
+                {
+                    "hardness": [{"k": "1"}],
+                    "diameter": [{"diameter_mm": value, "k": "1"} for value in diameters],
+                },
+            ),
         ),
     }
 

@@ -126,9 +126,14 @@ def _bit_diameters(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
     difficulty = next(iter(_active(sections, "drilling_difficulty")), None)
     if difficulty is None:
         return []
+    diameter_rows = _rows(difficulty.payload.get("diameter"))
+    if not diameter_rows:
+        # Действующая запись без таблицы диаметров — уже предупреждение
+        # `_drilling_difficulty_is_empty`, а не повод отклонять каждую коронку.
+        return []
     table = {
         diameter
-        for row in _rows(difficulty.payload.get("diameter"))
+        for row in diameter_rows
         if isinstance(row, Mapping) and (diameter := finite_decimal(row.get("diameter_mm"))) is not None
     }
     materials = {item.code: item for item in _active(sections, "materials")}

@@ -137,6 +137,27 @@ def test_bit_diameters_are_not_checked_while_the_section_is_empty():
     assert [issue for issue in _issues(**sections) if issue.level == "error"] == []
 
 
+# Codex к PR #83: действующая запись «Сложности бурения» с пустой таблицей
+# `diameter` (форма создаёт такую запись, схема её принимает) не должна давать
+# ошибку на каждую коронку условий бурения — только предупреждение о пустом
+# разделе (Т15). Ошибка блокирует публикацию любых правок организации.
+
+
+def test_bit_diameters_are_not_checked_while_the_active_records_diameter_table_is_empty():
+    sections = _bits({"diameter_mm": "165"}, [])
+    issues = _issues(**sections)
+    assert _about(issues, "drilling_difficulty") == [
+        ("warning", "", "", "Не заведены коэффициенты сложности бурения: приведённые метры не посчитать.")
+    ]
+
+
+def test_bit_diameters_are_still_checked_once_the_diameter_table_is_filled():
+    issues = _issues(**_bits({"diameter_mm": "165"}, ["152"]))
+    assert _about(issues, "drilling_difficulty") == [
+        ("error", "DD", "diameter", "Нет коэффициента для коронки Ø 165 мм (Коронка 165).")
+    ]
+
+
 def _drilling_rate(**conditions) -> dict:
     return {
         "positions": (_item("POS_DRILLER", {"category": "INDIRECT", "difficulty": "NORMALIZED_METERS"}),),

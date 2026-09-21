@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Sequence
 
+from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
 from cost.v2.models import (
@@ -446,17 +447,21 @@ def _schema_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
                         )
                     )
             else:
-                issues.extend(_out_of_range_issues(section, item.code, validated.model_dump(mode="python")))
+                issues.extend(_out_of_range_issues(section, item.code, validated))
     return issues
 
 
 def _free_form_string_decimal(value: str) -> Decimal | None:
-    """Строку свободного списка (без схемы поля) разобрать как `Decimal`.
+    """Строку свободного значения (без схемы поля) разобрать как `Decimal`.
 
-    `ResourcePoolPayload.consumption_norms: list[dict]` не типизирует свои
-    элементы, поэтому число вроде `"1e-999999"` доходит до `model_dump()`
-    строкой, а не `Decimal`, — и порядок никто не проверяет, пока
+    Разбирается только строка из свободного значения — поля без схемы
+    элемента, например `dict` внутри `ResourcePoolPayload.consumption_norms:
+    list[dict]`. Там число вроде `"1e-999999"` остаётся строкой и после
+    `model_validate()`, а не `Decimal`, — и порядок никто не проверяет, пока
     `cost/model/unit.py` не разделит на него и не упадёт `decimal.Overflow`.
+    Текст объявленного схемой поля (например, `equipment_assets.
+    serial_number`) числом не считается вовсе — вызывающий код
+    (`_out_of_range_issues`) сюда для таких полей не заходит.
     Запятая как десятичный разделитель не подменяется: то же значение в
     `cost/model/unit.py:135` разбирается прямым `Decimal(str(...))`, так что
     поддержка запятой здесь означала бы пропускать то, что расчёт всё равно
@@ -502,42 +507,67 @@ def _out_of_range_issue(
 
 
 def _out_of_range_issues(
-    section: str, code: str, value: Any, path: tuple[str, ...] = ()
+    section: str, code: str, value: Any, path: tuple[str, ...] = (), *, free_form: bool = False
 ) -> list[ValidationIssue]:
-    """Числа немыслимого порядка в уже провалидированном payload.
+    """Числа немыслимого порядка в уже провалидированной модели раздела.
 
     `UnitField`/pydantic и последующий `finite_decimal` сравнивают `Decimal` с
     границей, не переполняясь сами по себе, поэтому значение вроде
     `"1e999999"` проходит схему раздела — и только позже, при арифметике в
-    `cost/model/`, роняет расчёт `decimal.Overflow`. Обходим `model_dump()`
-    рекурсивно по словарям и спискам, чтобы поймать такое значение на
-    публикации ревизии, а не в расчёте. Правило общее — без знаний о разделах.
+    `cost/model/`, роняет расчёт `decimal.Overflow`. Обходим не
+    `model_dump()`, а саму провалидированную модель (`BaseModel`), чтобы не
+    потерять различие между объявленным схемой полем и свободным значением:
+    `model_dump()` превращает и то, и другое в одинаковый `dict`/`str`.
 
-    Типизированные поля (`UnitField`) приходят из `model_dump()` уже
-    `Decimal`. Но в свободных списках без схемы элемента (например,
-    `consumption_norms: list[dict]`) число остаётся строкой — разбираем её
-    отдельной веткой. `bool` строкой не бывает, поэтому под неё не попадает
-    и числом не считается.
+    - `BaseModel` — обходим по `type(value).model_fields`, значение поля
+      берём через `getattr`; строка в поле модели — объявленный схемой
+      текст (например, `equipment_assets.serial_number`), числом не
+      считается никогда, порядок не проверяется;
+    - `list`/`tuple` — по элементам с индексом в пути; признак «свободное»
+      передаётся от родителя без изменений (типизированный `list[Модель]`
+      остаётся типизированным на уровне элементов — уже `BaseModel`);
+    - простой `dict`/`Mapping` (не модель, то есть без схемы элемента,
+      например `ResourcePoolPayload.consumption_norms: list[dict]`) — сам
+      свободное значение: всё внутри него, включая вложенные списки,
+      обходится с признаком «свободное» дальше;
+    - `Decimal` — типизированные поля (`UnitField`) приходят уже `Decimal`
+      после валидации; порядок проверяется всегда;
+    - `str` — `_free_form_string_decimal` и проверка порядка только при
+      признаке «свободное» (значение внутри нетипизированного `dict`).
+      `bool` строкой не бывает, поэтому под неё не попадает и числом не
+      считается.
+    - остальное (`None`, `int`, перечисления и т. п.) пропускается.
     """
 
+    if isinstance(value, BaseModel):
+        issues: list[ValidationIssue] = []
+        for name in type(value).model_fields:
+            issues.extend(
+                _out_of_range_issues(section, code, getattr(value, name), (*path, name), free_form=False)
+            )
+        return issues
     if isinstance(value, Decimal):
         issue = _out_of_range_issue(section, code, path, value)
         return [issue] if issue else []
     if isinstance(value, str):
+        if not free_form:
+            return []
         parsed = _free_form_string_decimal(value)
         if parsed is None:
             return []
         issue = _out_of_range_issue(section, code, path, parsed)
         return [issue] if issue else []
     if isinstance(value, Mapping):
-        issues: list[ValidationIssue] = []
+        issues = []
         for key, nested in value.items():
-            issues.extend(_out_of_range_issues(section, code, nested, (*path, str(key))))
+            issues.extend(_out_of_range_issues(section, code, nested, (*path, str(key)), free_form=True))
         return issues
     if isinstance(value, (list, tuple)):
         issues = []
         for index, nested in enumerate(value):
-            issues.extend(_out_of_range_issues(section, code, nested, (*path, str(index))))
+            issues.extend(
+                _out_of_range_issues(section, code, nested, (*path, str(index)), free_form=free_form)
+            )
         return issues
     return []
 

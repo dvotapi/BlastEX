@@ -395,6 +395,24 @@ class TestValidationThroughSchemas:
         issues = _errors(validate_reference_sections(sections))
         assert [issue for issue in issues if issue.section == "resource_pools"] == []
 
+    # Codex (P1) к голове 76dafc3 (PR #83): обход по `model_dump()` не
+    # отличает типизированное поле схемы от свободного значения — строка
+    # разбиралась как число в любом строковом поле, в том числе в объявленном
+    # схемой тексте вроде `equipment_assets.serial_number`/`inventory_number`.
+
+    def test_a_long_digit_string_in_a_typed_text_field_is_not_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (_item("TYPE_JK830", {"kind": "DRILL_RIG"}),)
+        sections["equipment_assets"] = (
+            _item("ASSET_X", {
+                "equipment_type_code": "TYPE_JK830",
+                "serial_number": "12345678901234567",
+                "inventory_number": "12345678901234567",
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.section == "equipment_assets"] == []
+
     # Раунд правки 1 к da74c31: "snan"/"sNaN" разбирается в сигнальный
     # `Decimal('sNaN')` без исключения при парсинге, а `_out_of_range_issue`
     # сравнивает его с нулём (`value != 0`) — сравнение сигнального NaN

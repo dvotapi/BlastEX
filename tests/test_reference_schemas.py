@@ -108,6 +108,14 @@ class TestPositionSchema:
         with pytest.raises(ValidationError):
             PositionPayload.model_validate({"category": "INDIRECT", "norm_shifts_per_month": -1})
 
+    def test_piece_rate_hint_names_the_position_field_by_its_title(self):
+        """Подсказка отсылает к полю должности по подписи, а не по служебному имени."""
+
+        hint = section_json_schema("labor_rates")["properties"]["piece_rate_rub"]["description"]
+        unit_title = section_json_schema("positions")["properties"]["piece_unit"]["title"]
+        assert f"«{unit_title}»" in hint
+        assert not re.search(r"[a-z]_[a-z]", hint), hint
+
 
 class TestOtherSchemas:
     def test_organization_rates_defaults_match_the_adr(self):

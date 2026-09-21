@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_CEILING
 
-from cost.model.inputs import ModelContext, payload_number, payload_text
+from cost.model.inputs import ModelContext, driver_unit, payload_number, payload_text
 from cost.v2.models import CostLayer, ReferenceItem
 
 
@@ -432,14 +432,23 @@ def _piece_amount(
     driver_name = payload_text(position, "piece_driver")
     if piece_rate <= 0 or not driver_name:
         return Decimal("0"), ""
+    unit = driver_unit(driver_name)
+    driver_value = context.values.get(driver_name, Decimal("0"))
+    if driver_value <= 0:
+        # Молча обнулить сделку нельзя: ФОТ стал бы меньше без объяснения.
+        # Ноль — тот же пробел: паспорт блока пишет незаполненное поле нулём.
+        context.warn(
+            f"Сдельная часть должности «{position.name}» не начислена: количество, "
+            f"за которое платится сделка ({unit}), в паспорте блока не задано или равно нулю."
+        )
+        return Decimal("0"), ""
     piece_unit = payload_number(position, "piece_unit", Decimal("1"))
     if piece_unit <= 0:
         piece_unit = Decimal("1")
-    driver_value = context.value(driver_name)
     amount = piece_rate * driver_value / piece_unit * per_shift
     return (
         amount,
-        f"{piece_rate} ₽ × {driver_value} {driver_name} / {piece_unit} × {per_shift} чел",
+        f"{piece_rate} ₽ × {driver_value} {unit} / {piece_unit} × {per_shift} чел",
     )
 
 

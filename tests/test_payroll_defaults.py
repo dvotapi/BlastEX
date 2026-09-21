@@ -10,6 +10,8 @@ from cost.v2.crew_defaults import DEFAULT_CREW_CODE, reclassify_positions
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
 from cost.v2.payroll_defaults import DRILLER_SCALE, EXTRA_TARIFFS, MAPPED_POSITIONS, _fill, seed_payroll_references
 from cost.v2.references import has_validation_errors, validate_reference_sections
+from cost.v2.repository import InMemoryEconomicsRepository
+from scripts.seed_payroll_references import run
 from tests import model_fixtures as fx
 from tests.test_crew_defaults import imported_snapshot
 
@@ -282,3 +284,101 @@ def test_rates_based_block_economics_do_not_move():
         (line.cost_item_code, line.amount_rub) for line in lines_before
     ]
     assert any(line.cost_item_code == "LABOR_POSITION_LABOR_DRILLER" for line in lines_after)
+
+
+# Скрипт `scripts/seed_payroll_references.py`: публикация и коды выхода.
+
+ORGANIZATION = "team-payroll"
+COMMENT = "Справочники методики ФОТ"
+
+
+def _repository(snapshot: ReferenceSnapshot) -> InMemoryEconomicsRepository:
+    repository = InMemoryEconomicsRepository()
+    repository.publish_references(
+        ORGANIZATION,
+        "tester",
+        _latest(repository),
+        {name: list(items) for name, items in snapshot.sections.items()},
+        "фикстура тестов",
+    )
+    return repository
+
+
+def _latest(repository: InMemoryEconomicsRepository) -> str:
+    return repository.list_reference_revisions(ORGANIZATION)[0].id
+
+
+def test_dry_run_reports_and_publishes_nothing():
+    repository = _repository(imported_snapshot())
+    base = _latest(repository)
+
+    output, code = run(repository, ORGANIZATION, publish=False, comment=COMMENT)
+
+    assert code == 0
+    assert _latest(repository) == base
+    assert "published_revision" not in output
+    assert (output["organization"], output["base_revision"], output["valid"]) == (ORGANIZATION, base, True)
+    # У помощника в этом снимке нет должности: сопоставлены шесть из семи.
+    assert output["matched_positions"] == {
+        "found": 6,
+        "of": len(MAPPED_POSITIONS),
+        "codes": [
+            "POSITION_LABOR_DRILLER",
+            "POSITION_LABOR_DRIVER_SZM",
+            "POSITION_LABOR_BLASTERS",
+            "POSITION_LABOR_MASTER",
+            "POSITION_LABOR_MINER",
+            "POSITION_LABOR_DRIVER_DEL",
+        ],
+    }
+    assert "positions:POSITION_LABOR_ASSISTANT" in output["report"]["added"]
+
+
+def test_publish_again_after_a_successful_one_creates_no_revision():
+    repository = _repository(imported_snapshot())
+
+    first, code = run(repository, ORGANIZATION, publish=True, comment=COMMENT)
+    assert code == 0
+    seeded = repository.list_reference_revisions(ORGANIZATION)[0]
+    assert (first["published_revision"], seeded.comment) == (seeded.id, COMMENT)
+
+    again, code = run(repository, ORGANIZATION, publish=True, comment=COMMENT)
+
+    assert code == 0
+    assert "published_revision" not in again
+    assert again["message"] == "Изменений нет: ревизия не опубликована."
+    assert _latest(repository) == seeded.id
+
+
+def test_publish_with_validation_errors_exits_with_one():
+    base = imported_snapshot()
+    broken = ReferenceItem(code="ROCK_ZERO", name="Порода без крепости", payload={"hardness_f": 0})
+    repository = _repository(replace(base, sections={**base.sections, "rocks": (*base.sections["rocks"], broken)}))
+    before = _latest(repository)
+
+    output, code = run(repository, ORGANIZATION, publish=True, comment=COMMENT)
+
+    assert code == 1
+    assert _latest(repository) == before
+    assert output["valid"] is False
+    assert ("rocks", "ROCK_ZERO", "hardness_f") in {
+        (issue["section"], issue["code"], issue["field"]) for issue in output["issues"]
+    }
+    assert "published_revision" not in output
+
+
+def test_publish_into_an_organization_without_mapped_positions_exits_with_one():
+    repository = _repository(fx.references())
+    before = _latest(repository)
+
+    output, code = run(repository, ORGANIZATION, publish=True, comment=COMMENT)
+
+    assert code == 1
+    assert _latest(repository) == before
+    assert output["valid"] is True
+    assert output["matched_positions"] == {"found": 0, "of": len(MAPPED_POSITIONS), "codes": []}
+    assert output["message"] == (
+        "Ни одной из должностей, сопоставленных владельцем, нет в справочнике организации: "
+        "вероятно, не та организация. Ревизия не опубликована."
+    )
+    assert "published_revision" not in output

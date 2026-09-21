@@ -565,6 +565,43 @@ def test_active_payroll_params_record_gets_missing_keys_filled():
     assert report_again.added == [] and report_again.filled == []
 
 
+# Codex к PR #83: единица KM без символа/размерности/коэффициента уходила
+# ранним выходом «код уже есть» — сид не заполнял её пустые ключи.
+
+
+def test_existing_km_unit_gets_missing_keys_filled():
+    existing = ReferenceItem(code="KM", name="Километр", payload={})
+    base = imported_snapshot()
+    snapshot = replace(base, sections={**base.sections, "units": (*base.sections["units"], existing)})
+
+    sections, report = seed_payroll_references(snapshot)
+
+    assert len(sections["units"]) == len(base.sections["units"]) + 1
+    unit = _by_code(sections, "units")["KM"].payload
+    assert (unit["symbol"], unit["dimension"], unit["factor_to_base"]) == ("км", "length", 1000)
+    assert "units:KM: symbol, dimension, factor_to_base" in report.filled
+    assert not any(entry.startswith("units:") for entry in report.added)
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+    again, report_again = seed_payroll_references(_as_snapshot(snapshot, sections))
+    assert again == sections
+    assert report_again.added == [] and report_again.filled == []
+
+
+def test_existing_km_unit_with_symbol_set_keeps_it_and_fills_rest():
+    existing = ReferenceItem(code="KM", name="Километр", payload={"symbol": "km"})
+    base = imported_snapshot()
+    snapshot = replace(base, sections={**base.sections, "units": (*base.sections["units"], existing)})
+
+    sections, report = seed_payroll_references(snapshot)
+
+    unit = _by_code(sections, "units")["KM"].payload
+    assert unit["symbol"] == "km"
+    assert (unit["dimension"], unit["factor_to_base"]) == ("length", 1000)
+    assert "units:KM: symbol=km (файл: км)" in report.kept
+    assert "units:KM: dimension, factor_to_base" in report.filled
+
+
 def test_rates_based_block_economics_do_not_move():
     """Расчёт по ставкам новых ключей не читает: смета до и после сида одна."""
 

@@ -224,10 +224,17 @@ def _new(code: str, name: str, payload: Mapping[str, Any]) -> ReferenceItem:
 
 
 def _units(sections: dict[str, list[ReferenceItem]], report: PayrollSeedReport) -> None:
-    if any(item.code == KM_UNIT.code for item in sections["units"]):
+    index = next((i for i, item in enumerate(sections["units"]) if item.code == KM_UNIT.code), None)
+    if index is None:
+        sections["units"].append(KM_UNIT)
+        report.added.append(f"units:{KM_UNIT.code}")
         return
-    sections["units"].append(KM_UNIT)
-    report.added.append(f"units:{KM_UNIT.code}")
+    item = sections["units"][index]
+    report.kept.extend(_kept(f"units:{item.code}", item, KM_UNIT.payload))
+    updated, filled = _fill(item, KM_UNIT.payload)
+    if filled:
+        sections["units"][index] = updated
+        report.filled.append(f"units:{updated.code}: {', '.join(filled)}")
 
 
 def _positions(sections: dict[str, list[ReferenceItem]], report: PayrollSeedReport) -> None:

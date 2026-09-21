@@ -31,10 +31,14 @@ python3 scripts/hash_password.py
 
 1. Зайдите на сервер по SSH и перейдите в каталог проекта, где лежат
    `docker-compose.production.yml` и `.env`.
-2. Сделайте резервную копию:
+2. Сделайте резервную копию **вне каталога проекта** — в `.env` пароли
+   к базе, ключи и секрет сессий, и копии не место в рабочем дереве Git
+   и в контексте сборки Docker:
 
    ```bash
-   cp .env .env.bak-$(date +%F)
+   install -m 700 -d ~/blastex-env-backups
+   cp -p .env ~/blastex-env-backups/.env.bak-$(date +%F)
+   chmod 600 ~/blastex-env-backups/.env.bak-*
    ```
 
 3. Откройте `.env`, найдите строку `BLASTEX_USERS_JSON=` и у нужного
@@ -93,7 +97,7 @@ python3 scripts/hash_password.py
 | Нужного пользователя нет в списке | `role` не из допустимых, либо пустой `email` или `password_hash` |
 | Изменения не применились | Выполнен `restart` вместо `up -d` |
 
-Откат: `cp .env.bak-<дата> .env`, затем снова
+Откат: `cp -p ~/blastex-env-backups/.env.bak-<дата> .env`, затем снова
 `docker compose -f docker-compose.production.yml up -d api`.
 
 ## Безопасность

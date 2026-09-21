@@ -7,7 +7,9 @@ data/*.jsonl
 data/teams/
 !data/teams/.gitkeep
 .streamlit/secrets.toml
-.env
+# Любые копии .env (резервные, локальные) несут секреты; образец — исключение.
+.env*
+!.env.example
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo

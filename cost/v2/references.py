@@ -9,7 +9,13 @@ from typing import Any, Mapping, Sequence
 
 from pydantic import ValidationError as PydanticValidationError
 
-from cost.v2.models import CostBehavior, CostLayer, ReferenceItem, ReferenceSnapshot
+from cost.v2.models import (
+    FINITE_DECIMAL_MAX_EXPONENT,
+    CostBehavior,
+    CostLayer,
+    ReferenceItem,
+    ReferenceSnapshot,
+)
 from cost.v2.schemas import SECTION_SCHEMAS, field_label, reference_paths
 from cost.v2.packages import (
     DEFAULT_OPERATIONS,
@@ -427,7 +433,7 @@ def _schema_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
             continue
         for item in items:
             try:
-                model.model_validate(item.payload)
+                validated = model.model_validate(item.payload)
             except PydanticValidationError as exc:
                 for error in exc.errors():
                     issues.append(
@@ -439,7 +445,51 @@ def _schema_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
                             field=".".join(str(part) for part in error.get("loc", ())),
                         )
                     )
+            else:
+                issues.extend(_out_of_range_issues(section, item.code, validated.model_dump(mode="python")))
     return issues
+
+
+def _out_of_range_issues(
+    section: str, code: str, value: Any, path: tuple[str, ...] = ()
+) -> list[ValidationIssue]:
+    """Числа немыслимого порядка в уже провалидированном payload.
+
+    `UnitField`/pydantic и последующий `finite_decimal` сравнивают `Decimal` с
+    границей, не переполняясь сами по себе, поэтому значение вроде
+    `"1e999999"` проходит схему раздела — и только позже, при арифметике в
+    `cost/model/`, роняет расчёт `decimal.Overflow`. Обходим `model_dump()`
+    рекурсивно по словарям и спискам, чтобы поймать такое значение на
+    публикации ревизии, а не в расчёте. Правило общее — без знаний о разделах.
+    """
+
+    if isinstance(value, Decimal):
+        if value.adjusted() > FINITE_DECIMAL_MAX_EXPONENT or (
+            value != 0 and value.adjusted() < -FINITE_DECIMAL_MAX_EXPONENT
+        ):
+            field = ".".join(path)
+            label = field_label(section, path) or field or "запись"
+            return [
+                ValidationIssue(
+                    "error",
+                    section,
+                    code,
+                    f"Поле «{label}»: число вне допустимого порядка (не больше 10^{FINITE_DECIMAL_MAX_EXPONENT} по модулю).",
+                    field=field,
+                )
+            ]
+        return []
+    if isinstance(value, Mapping):
+        issues: list[ValidationIssue] = []
+        for key, nested in value.items():
+            issues.extend(_out_of_range_issues(section, code, nested, (*path, str(key))))
+        return issues
+    if isinstance(value, (list, tuple)):
+        issues = []
+        for index, nested in enumerate(value):
+            issues.extend(_out_of_range_issues(section, code, nested, (*path, str(index))))
+        return issues
+    return []
 
 
 # Типы ошибок pydantic, которые видит сметчик при опечатке в значении. Текст

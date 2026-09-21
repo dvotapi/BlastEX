@@ -311,6 +311,57 @@ class TestValidationThroughSchemas:
         issues = _errors(validate_reference_sections(sections))
         assert [issue for issue in issues if issue.section == "drilling_conditions"] == []
 
+    # Codex к PR #83: "1e999999" проходит и `UnitField`, и `finite_decimal`
+    # (сравнение с границей само не переполняется), а `cost/model/drilling.py`
+    # позже падает `decimal.Overflow` на том же значении — схема должна
+    # отклонять немыслимый порядок сама, без знаний о разделах.
+
+    def test_unthinkable_order_number_is_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (_item("TYPE_JK830", {"kind": "DRILL_RIG"}),)
+        sections["drilling_conditions"] = (
+            _item("COND_HUGE", {"equipment_type_code": "TYPE_JK830", "tech_speed_m_per_h": "1e999999"}),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "tech_speed_m_per_h")
+        assert issue.section == "drilling_conditions"
+        assert "вне допустимого порядка" in issue.message
+
+    def test_unthinkable_order_number_inside_a_list_row_is_reported_with_its_path(self):
+        sections = dict(default_reference_sections())
+        sections["labor_rates"] = (
+            _item("RATE_X", {
+                "position_code": "POSITION_ANY",
+                "scale_type": "STEP",
+                "tiers": [
+                    {"upto_per_shift": "1e999999", "rate": "10"},
+                    {"rate": "20"},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "tiers.0.upto_per_shift")
+        assert issue.section == "labor_rates"
+        assert "вне допустимого порядка" in issue.message
+
+    def test_number_at_the_threshold_is_not_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (_item("TYPE_JK830", {"kind": "DRILL_RIG"}),)
+        sections["drilling_conditions"] = (
+            _item("COND_15", {"equipment_type_code": "TYPE_JK830", "tech_speed_m_per_h": "1e15"}),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "tech_speed_m_per_h"] == []
+
+    def test_zero_is_not_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (_item("TYPE_JK830", {"kind": "DRILL_RIG"}),)
+        sections["drilling_conditions"] = (
+            _item("COND_ZERO", {"equipment_type_code": "TYPE_JK830", "tech_speed_m_per_h": "0"}),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "tech_speed_m_per_h"] == []
+
 
 def _errors(issues: list[ValidationIssue]) -> list[ValidationIssue]:
     return [issue for issue in issues if issue.level == "error"]

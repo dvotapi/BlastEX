@@ -190,7 +190,7 @@ def test_crew_salary_is_spread_over_machine_plan_shifts(result) -> None:
     lines = {line.cost_item_code: line for line in economics.lines}
 
     driver = lines["LABOR_POS_SZM_DRIVER"]
-    assert driver.formula.startswith("60000 ₽/мес × 1 чел / 20 см × 4.2 см")
+    assert driver.formula.startswith("60\u00a0000 ₽/мес × 1 чел / 20 см × 4,2 см")
     assert driver.amount_rub.quantize(Decimal("0.01")) == Decimal("24430.34")
     assert economics.natural.values["crew_rotation.POS_SZM_DRIVER"] == Decimal("1")
 

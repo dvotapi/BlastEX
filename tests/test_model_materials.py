@@ -55,7 +55,7 @@ def test_explosive_line_is_mass_from_the_passport_times_the_current_price() -> N
     assert row.operation_code == "EVV_MANUFACTURE_ON_SITE"
     assert row.cost_item_name == "ЭВВ Эверсин-100"
     # У цены в фикстуре нет даты начала действия — пояснять в скобках нечего.
-    assert row.formula == "29038.86 кг × 48.9 ₽/кг"
+    assert row.formula == "29\u00a0038,86 кг × 48,9 ₽/кг"
 
 
 def test_formula_names_the_date_of_the_price_not_its_record_code() -> None:
@@ -73,7 +73,7 @@ def test_formula_names_the_date_of_the_price_not_its_record_code() -> None:
     )
     run(ctx)
 
-    assert line(ctx, "MATERIAL_EXPLOSIVE").formula == "42000 кг × 48.9 ₽/кг (цена с 01.09.2026)"
+    assert line(ctx, "MATERIAL_EXPLOSIVE").formula == "42\u00a0000 кг × 48,9 ₽/кг (цена с 01.09.2026)"
 
 
 def test_role_label_names_the_role_not_the_chosen_material() -> None:
@@ -120,7 +120,7 @@ def test_booster_pieces_are_converted_to_kilograms() -> None:
 
     row = line(ctx, "MATERIAL_BOOSTER")
     assert row.amount_rub == Decimal("189") * Decimal("0.8") * Decimal("150")
-    assert "189 шт × 0.8 кг" in row.formula
+    assert row.formula == "189 шт × 0,8 кг × 150 ₽/кг"
 
 
 def test_electric_detonators_come_from_the_tab_not_the_passport() -> None:

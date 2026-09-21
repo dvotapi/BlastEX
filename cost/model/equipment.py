@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from cost.model.inputs import ModelContext, asset_label, payload_number, payload_text
+from cost.model.inputs import ModelContext, asset_label, formula_number, payload_number, payload_text
 from cost.v2.models import CostLayer, ReferenceItem
 
 
@@ -53,7 +53,7 @@ def _machine_lines(
                 cost_item_name=f"Амортизация: {asset_label(equipment.name, asset)}",
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=monthly / plan_shifts * shifts,
-                formula=f"{monthly} ₽/мес / {plan_shifts} см × {shifts} см",
+                formula=f"{formula_number(monthly)} ₽/мес / {formula_number(plan_shifts)} см × {formula_number(shifts)} см",
                 section="DEPRECIATION",
                 quantity=shifts,
                 unit="см",
@@ -71,7 +71,7 @@ def _machine_lines(
                 cost_item_name=f"Страхование: {equipment.name}",
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=insurance / plan_shifts * shifts,
-                formula=f"{insurance} ₽/мес / {plan_shifts} см × {shifts} см",
+                formula=f"{formula_number(insurance)} ₽/мес / {formula_number(plan_shifts)} см × {formula_number(shifts)} см",
                 # ОСАГО в смете стоит в общепроизводственных, рядом с ТОиР.
                 section="OVERHEAD",
                 quantity=shifts,
@@ -103,7 +103,7 @@ def _machine_lines(
             cost_item_name=f"Выпуск на линию и медосмотр: {equipment.name}",
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=shifts * per_shift,
-            formula=f"{shifts} см × {per_shift} ₽/см",
+            formula=f"{formula_number(shifts)} см × {formula_number(per_shift)} ₽/см",
             section="OVERHEAD",
             quantity=shifts,
             unit="см",
@@ -120,7 +120,7 @@ def _machine_lines(
             cost_item_name=f"Запчасти: {equipment.name}",
             layer=CostLayer.VARIABLE,
             amount_rub=shifts * spare_parts,
-            formula=f"{shifts} см × {spare_parts} ₽/см",
+            formula=f"{formula_number(shifts)} см × {formula_number(spare_parts)} ₽/см",
             section="OVERHEAD",
             quantity=shifts,
             unit="см",
@@ -144,7 +144,7 @@ def _maintenance(
         if budget <= 0 or plan_shifts <= 0:
             return
         amount = budget / plan_shifts * shifts
-        formula = f"{budget} ₽/мес / {plan_shifts} см × {shifts} см"
+        formula = f"{formula_number(budget)} ₽/мес / {formula_number(plan_shifts)} см × {formula_number(shifts)} см"
         charged_shifts, rate_per_shift = shifts, budget / plan_shifts
     else:
         rate = payload_number(equipment, "maintenance_rub_per_shift")
@@ -154,7 +154,7 @@ def _maintenance(
             Decimal("1") + payload_number(equipment, "maintenance_ratio")
         )
         amount = maintenance_shifts * rate
-        formula = f"{maintenance_shifts} см × {rate} ₽/см"
+        formula = f"{formula_number(maintenance_shifts)} см × {formula_number(rate)} ₽/см"
         charged_shifts, rate_per_shift = maintenance_shifts, rate
     context.add_line(
         operation_code=operation_code,

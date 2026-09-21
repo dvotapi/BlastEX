@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Literal, Mapping
 
 from cost.v2.models import (
@@ -108,6 +108,40 @@ def driver_unit(driver: str) -> str:
         if driver.endswith(suffix):
             return unit
     return ""
+
+
+# Разряды в русской записи разделяет неразрывный пробел — так же, как у
+# Intl ru-RU в колонках сметы: число не рвётся переносом строки.
+_GROUP_SEPARATOR = "\u00a0"
+_CENTS = Decimal("0.01")
+_SIGNIFICANT_DIGITS = 4
+
+
+def formula_number(value: Decimal) -> str:
+    """Число для формулы строки сметы — так же, как колонки «Кол-во» и «Цена».
+
+    Модель считает в Decimal без округления, и сырое значение приходит с
+    28 знаками (`132.5581395340000000000000000` смены станка). Сметчику
+    хватает двух знаков после запятой; у числа меньше единицы (доля, ставка
+    взносов, расход на километр) два знака съели бы смысл, поэтому ему
+    оставлены четыре значащие цифры.
+    """
+
+    number = Decimal(value)
+    if number.is_zero():
+        return "0"
+    if abs(number) >= 1:
+        rounded = number.quantize(_CENTS, rounding=ROUND_HALF_UP)
+    else:
+        step = Decimal(1).scaleb(number.adjusted() - _SIGNIFICANT_DIGITS + 1)
+        rounded = number.quantize(step, rounding=ROUND_HALF_UP)
+    text = format(rounded, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    sign = "-" if text.startswith("-") else ""
+    integer, _, fraction = text.lstrip("-").partition(".")
+    grouped = f"{int(integer):,}".replace(",", _GROUP_SEPARATOR)
+    return f"{sign}{grouped},{fraction}" if fraction else f"{sign}{grouped}"
 
 
 @dataclass(frozen=True)
@@ -642,6 +676,7 @@ __all__ = [
     "PackageDefinition",
     "ServiceCharge",
     "driver_unit",
+    "formula_number",
     "find_items",
     "payload_number",
     "payload_text",

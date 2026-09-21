@@ -46,11 +46,11 @@ describe("подпись под выбором", () => {
     const caption = optionCaption(
       {
         code: "MAT_BOOSTER", name: "Сферит", unit: "кг", price_rub: 150, length_m: 0,
-        quantity: 979.2, quantity_label: "1224 шт × 0.8 кг",
+        quantity: 979.2, quantity_label: "1\u00a0224 шт × 0,8 кг",
       },
       role("BOOSTER"),
     );
-    expect(caption).toBe("150,00 ₽ за кг · 979,2 кг на блок (1224 шт × 0.8 кг)");
+    expect(caption).toBe("150,00 ₽ за кг · 979,2 кг на блок (1\u00a0224 шт × 0,8 кг)");
   });
 
   it("ручная роль — только цена", () => {

@@ -1,8 +1,9 @@
-"""Формулу строки сметы читает сметчик: служебных имён в ней быть не должно.
+"""Формулу строки сметы читает сметчик: служебных имён и сырых чисел в ней нет.
 
 Коды драйверов (`vm_tkm`), записей справочников (`PR_EVERSIN`) и ссылки
-«раздел.код» — внутренняя кухня модели. Тест проходит по всем строкам
-нескольких типичных расчётов, чтобы новая статья не принесла код обратно.
+«раздел.код» — внутренняя кухня модели, а 28 знаков Decimal — шум. Тесты
+проходят по всем строкам нескольких типичных расчётов, чтобы новая статья
+не принесла ни код, ни сырое число обратно.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from decimal import Decimal
 import pytest
 
 from cost.model.engine import compute_block_economics
-from cost.model.inputs import ServiceCharge
+from cost.model.inputs import ServiceCharge, formula_number
 from tests import model_fixtures as fx
 
 NOMENCLATURE = {
@@ -62,8 +63,7 @@ def service_names(formula: str, known: set[str]) -> set[str]:
     return found
 
 
-@pytest.mark.parametrize("scenario", sorted(SCENARIOS))
-def test_formulas_show_no_service_names(scenario: str) -> None:
+def compute(scenario: str):
     drivers, params = SCENARIOS[scenario]
     references = fx.references(organization_rates=(REMOTE_RATES,))
     result = compute_block_economics(
@@ -71,6 +71,12 @@ def test_formulas_show_no_service_names(scenario: str) -> None:
         fx.parameters(**params),
         references,
     )
+    return result, references
+
+
+@pytest.mark.parametrize("scenario", sorted(SCENARIOS))
+def test_formulas_show_no_service_names(scenario: str) -> None:
+    result, references = compute(scenario)
 
     known = set(result.natural.values) | {
         item.code for items in references.sections.values() for item in items
@@ -82,3 +88,63 @@ def test_formulas_show_no_service_names(scenario: str) -> None:
     }
     assert result.lines
     assert leaks == {}
+
+
+# --- числа ------------------------------------------------------------------
+
+NBSP = "\u00a0"
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        ("474166.6666666666666666666667", "474 166,67"),
+        ("132.5581395340000000000000000", "132,56"),
+        ("42000", "42 000"),
+        ("4800", "4 800"),
+        ("594.0", "594"),
+        ("48.9", "48,9"),
+        ("4.1666667", "4,17"),
+        ("0.3042", "0,3042"),
+        ("0.45", "0,45"),
+        ("0.123456", "0,1235"),
+        ("0.00012345", "0,0001235"),
+        ("0.99996", "1"),
+        ("0", "0"),
+        ("0E-10", "0"),
+        ("1E+3", "1 000"),
+        ("-1234.5", "-1 234,5"),
+    ],
+)
+def test_formula_number_reads_like_the_columns(value: str, text: str) -> None:
+    """Как колонки «Кол-во» и «Цена» (Intl ru-RU): запятая, разряды через
+    неразрывный пробел, не больше двух знаков; меньше единицы — четыре значащих."""
+
+    assert formula_number(Decimal(value)) == text.replace(" ", NBSP)
+
+
+DATE = re.compile(r"\d{2}\.\d{2}\.\d{4}")
+RAW_NUMBER = re.compile(
+    "|".join(
+        (
+            r"\d\.\d",  # точка вместо запятой
+            r"\d[eE][+-]?\d",  # экспонента Decimal
+            r"(?<![\d,])\d{4,}",  # тысячи без разрядов
+            rf"(?<![\d,{NBSP}])[1-9][\d{NBSP}]*,\d{{3,}}",  # больше двух знаков у числа от единицы
+            rf"(?<![\d{NBSP}])0,0*[1-9]\d{{4,}}",  # больше четырёх значащих у дроби
+        )
+    )
+)
+
+
+@pytest.mark.parametrize("scenario", sorted(SCENARIOS))
+def test_formula_numbers_read_like_the_columns(scenario: str) -> None:
+    result, _ = compute(scenario)
+
+    raw = {
+        line.cost_item_code: line.formula
+        for line in result.lines
+        if RAW_NUMBER.search(DATE.sub("", line.formula))
+    }
+    assert result.lines
+    assert raw == {}

@@ -11,7 +11,7 @@ import hashlib
 import re
 from decimal import Decimal
 
-from cost.model.inputs import ModelContext, ServiceCharge, payload_text
+from cost.model.inputs import ModelContext, ServiceCharge, formula_number, payload_text
 from cost.model.labor import DERIVED_SHIFT_DRIVERS
 from cost.v2.models import CostLayer
 
@@ -124,7 +124,7 @@ def _amount(context: ModelContext, charge: ServiceCharge) -> tuple[Decimal, str]
             "не выведены, сумма взята как разовая."
         )
         return charge.amount_rub, "введено на вкладке (смен нет, сумма разовая)"
-    return charge.amount_rub * shifts, f"{shifts} см × {charge.amount_rub} ₽/см (введено на вкладке)"
+    return charge.amount_rub * shifts, f"{formula_number(shifts)} см × {formula_number(charge.amount_rub)} ₽/см (введено на вкладке)"
 
 
 def _layer(value: str) -> CostLayer:

@@ -384,7 +384,7 @@ def test_options_carry_the_quantity_in_price_units(client) -> None:
     booster = next(row for row in body["nomenclature"]["BOOSTER"] if row["code"] == "MAT_BOOSTER")
     # 1224 боевика × 0,8 кг — справочник хранит цену килограмма.
     assert booster["quantity"] == pytest.approx(1224 * 0.8)
-    assert booster["quantity_label"] == "1224 шт × 0.8 кг"
+    assert booster["quantity_label"] == "1\u00a0224 шт × 0,8 кг"
     assert booster["unit"] == "кг"
 
     eversin = next(row for row in body["nomenclature"]["EXPLOSIVE"] if row["code"] == "MAT_EVERSIN")

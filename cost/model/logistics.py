@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_CEILING
 
-from cost.model.inputs import ModelContext, payload_number
+from cost.model.inputs import ModelContext, formula_number, payload_number
 from cost.v2.models import CostLayer, ReferenceItem
 
 
@@ -158,7 +158,7 @@ def _vehicle_fuel(
             return
         km = trips * distance_km * Decimal("2")
         litres = km * fuel_l_per_km
-        formula = f"{trips} рейсов × {distance_km} км × 2 × {fuel_l_per_km} л/км × {price} ₽/л"
+        formula = f"{formula_number(trips)} рейсов × {formula_number(distance_km)} км × 2 × {formula_number(fuel_l_per_km)} л/км × {formula_number(price)} ₽/л"
         context.set_value(f"{cost_item_code.lower()}_km", km, "рейсы × плечо × 2")
     else:
         fuel_l_per_h = payload_number(vehicle, "fuel_l_per_h")
@@ -166,7 +166,7 @@ def _vehicle_fuel(
             return
         hours = trips * context.rates.shift_hours
         litres = hours * fuel_l_per_h
-        formula = f"{trips} см × {context.rates.shift_hours} ч × {fuel_l_per_h} л/ч × {price} ₽/л"
+        formula = f"{formula_number(trips)} см × {formula_number(context.rates.shift_hours)} ч × {formula_number(fuel_l_per_h)} л/ч × {formula_number(price)} ₽/л"
     context.set_value(f"{cost_item_code.lower()}_l", litres, "расход по норме техники")
     context.add_line(
         operation_code=operation_code,
@@ -204,7 +204,7 @@ def _mobilization(context: ModelContext) -> None:
         cost_item_name="Мобилизация и демобилизация",
         layer=CostLayer.PROJECT_DIRECT,
         amount_rub=trip_km * rate,
-        formula=f"{trip_km} км × {rate} ₽/км",
+        formula=f"{formula_number(trip_km)} км × {formula_number(rate)} ₽/км",
         section="VM_LOGISTICS",
         quantity=trip_km,
         unit="км",

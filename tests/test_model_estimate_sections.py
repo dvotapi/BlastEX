@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from cost.model.engine import compute_block_economics
+from cost.model.inputs import formula_number
 from tests import model_fixtures as fx
 
 NOMENCLATURE = {
@@ -267,12 +268,12 @@ def test_unknown_driver_leaves_the_unit_empty_instead_of_showing_its_code() -> N
 
 
 def test_cost_rule_formula_names_the_unit_not_the_driver_code() -> None:
-    """Сметчик читает в формуле «25 ₽ × 1234 ткм», а не служебное имя `vm_tkm`."""
+    """Сметчик читает в формуле «25 ₽ × 594 ткм», а не служебное имя `vm_tkm`."""
 
     result = compute()
 
     delivery = line_by_code(result, "VM_DELIVERY")
-    assert delivery.formula == f"25 ₽ × {delivery.quantity} ткм"
+    assert delivery.formula == f"25 ₽ × {formula_number(delivery.quantity)} ткм"
 
 
 @pytest.mark.parametrize("driver", ["moon_phases", "explosive_kg_per_m"])

@@ -291,9 +291,20 @@ def _extra_tariffs(sections: dict[str, list[ReferenceItem]], report: PayrollSeed
 
 
 def _payroll_params(sections: dict[str, list[ReferenceItem]], report: PayrollSeedReport) -> None:
-    if any(str(item.payload.get("year")) == PAYROLL_YEAR for item in sections["payroll_params"] if item.is_active):
+    year = Decimal(PAYROLL_YEAR)
+    if any(
+        item.is_active and finite_decimal(item.payload.get("year")) == year
+        for item in sections["payroll_params"]
+    ):
         return
     code = f"PAYROLL_PARAMS_{PAYROLL_YEAR}"
+    if any(item.code == code for item in sections["payroll_params"]):
+        # Запись с этим кодом уже есть, но выключена (не тот год действует) —
+        # новая с тем же кодом сломала бы публикацию на дубле.
+        report.skipped.append(
+            f"payroll_params:{code}: запись выключена — новая не заведена; включите её или смените код"
+        )
+        return
     sections["payroll_params"].append(_new(code, f"Параметры ФОТ {PAYROLL_YEAR}", PAYROLL_PARAMS))
     report.added.append(f"payroll_params:{code}")
 

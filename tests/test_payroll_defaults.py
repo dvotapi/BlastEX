@@ -8,7 +8,15 @@ from cost.model.engine import compute_block_economics
 from cost.model.inputs import CrewMember
 from cost.v2.crew_defaults import DEFAULT_CREW_CODE, reclassify_positions
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
-from cost.v2.payroll_defaults import DRILLER_SCALE, EXTRA_TARIFFS, MAPPED_POSITIONS, _fill, seed_payroll_references
+from cost.v2.payroll_defaults import (
+    DRILLER_SCALE,
+    EXTRA_TARIFFS,
+    MAPPED_POSITIONS,
+    PAYROLL_PARAMS,
+    PAYROLL_YEAR,
+    _fill,
+    seed_payroll_references,
+)
 from cost.v2.references import has_validation_errors, validate_reference_sections
 from cost.v2.repository import InMemoryEconomicsRepository
 from scripts.seed_payroll_references import run
@@ -82,6 +90,49 @@ def test_second_run_changes_nothing():
     again, report = seed_payroll_references(_as_snapshot(imported_snapshot(), first))
     assert again == first
     assert report.added == [] and report.filled == []
+
+
+# Codex к PR #83: год сравнивался строкой (`str(item.payload.get("year")) ==
+# PAYROLL_YEAR`) — действующая запись с годом-числом 2026.0 не узнавалась,
+# сид заводил вторую запись 2026, и проверка ревизии давала ошибку дубля года.
+
+
+def test_payroll_params_year_as_number_matches_existing_record():
+    existing = ReferenceItem(
+        code="PAYROLL_PARAMS_OLD", name="ФОТ 2026", payload={**PAYROLL_PARAMS, "year": 2026.0}
+    )
+    base = imported_snapshot()
+    snapshot = replace(base, sections={**base.sections, "payroll_params": (existing,)})
+
+    sections, report = seed_payroll_references(snapshot)
+
+    assert [item.code for item in sections["payroll_params"]] == ["PAYROLL_PARAMS_OLD"]
+    assert not any(entry.startswith("payroll_params:") for entry in report.added)
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+
+# Codex к PR #83: если действующей записи года нет, а PAYROLL_PARAMS_2026 уже
+# есть выключенной, сид заводил новую запись с тем же кодом, и публикация
+# ломалась на дубле кода раздела.
+
+
+def test_payroll_params_disabled_default_code_is_not_duplicated():
+    existing = ReferenceItem(
+        code=f"PAYROLL_PARAMS_{PAYROLL_YEAR}", name="ФОТ 2026 (черновик)", payload=dict(PAYROLL_PARAMS), is_active=False
+    )
+    base = imported_snapshot()
+    snapshot = replace(base, sections={**base.sections, "payroll_params": (existing,)})
+
+    sections, report = seed_payroll_references(snapshot)
+
+    assert [item.code for item in sections["payroll_params"]] == ["PAYROLL_PARAMS_2026"]
+    assert not _by_code(sections, "payroll_params")["PAYROLL_PARAMS_2026"].is_active
+    assert not any(entry.startswith("payroll_params:") for entry in report.added)
+    assert (
+        "payroll_params:PAYROLL_PARAMS_2026: запись выключена — новая не заведена; включите её или смените код"
+        in report.skipped
+    )
+    assert not has_validation_errors(validate_reference_sections(sections))
 
 
 def test_filled_values_are_never_overwritten():

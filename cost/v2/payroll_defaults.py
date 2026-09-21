@@ -180,11 +180,24 @@ def _same(current: Any, expected: Any) -> bool:
     """Значение записи равно значению файла.
 
     Число приходит то строкой, то числом: `"0.04"`, `0.04` и `"0.040"` — одно
-    значение. Списки сравниваются как есть.
+    значение. Списки (таблица доп. тарифов) сравниваются поэлементно той же
+    функцией: длина совпадает, у строк-словарей совпадают ключи, а значения
+    сравниваются рекурсивно — иначе таблица с теми же числами, но другого
+    типа (`0.02` вместо `"0.02"`), считалась бы расходящейся с файлом.
     """
 
     if isinstance(current, list) or isinstance(expected, list):
-        return current == expected
+        if not isinstance(current, list) or not isinstance(expected, list):
+            return False
+        if len(current) != len(expected):
+            return False
+        return all(_same(left, right) for left, right in zip(current, expected))
+    if isinstance(current, Mapping) or isinstance(expected, Mapping):
+        if not isinstance(current, Mapping) or not isinstance(expected, Mapping):
+            return False
+        if set(current.keys()) != set(expected.keys()):
+            return False
+        return all(_same(current[key], expected[key]) for key in current)
     if str(current) == str(expected):
         return True
     left = finite_decimal(current)

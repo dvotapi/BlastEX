@@ -167,6 +167,19 @@ def test_extra_tariffs_that_differ_from_the_file_are_kept_and_reported():
     assert same.kept == []
 
 
+def test_extra_tariffs_with_numbers_instead_of_strings_are_not_a_mismatch():
+    # Ставки файла как числа (не строки) — то же значение, не расхождение.
+    numeric = [{**row, "rate": float(row["rate"])} for row in EXTRA_TARIFFS]
+    _, report = seed_payroll_references(_organization_rates(numeric))
+    assert report.kept == []
+
+    differs = [
+        {**row, "rate": "0.05"} if row["work_conditions_class"] == "3.2" else row for row in EXTRA_TARIFFS
+    ]
+    _, report_differs = seed_payroll_references(_organization_rates(differs))
+    assert report_differs.kept == ["organization_rates:ORG_RATES_DEFAULT: extra_tariffs задан, отличается от файла"]
+
+
 def test_assistant_rate_without_a_drilling_condition_gets_the_curve():
     base = imported_snapshot()
     rate = ReferenceItem(

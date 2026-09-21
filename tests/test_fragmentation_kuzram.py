@@ -35,16 +35,35 @@ def _inputs(**overrides) -> FragmentationInputs:
 
 
 class KuzRamTests(unittest.TestCase):
-    def test_cunningham_n_matches_blast_py(self):
-        # n = max(0.8, (2.2 - 14*B/d) * (1 + (S/B - 1)/2))
-        burden = 4.0
-        diameter = 0.152 * 1.05
-        spacing_coeff = 5.0 / 4.0
-        expected = max(0.8, (2.2 - 14 * (burden / diameter)) * (1 + (spacing_coeff - 1) / 2))
-        self.assertAlmostEqual(cunningham_uniformity_n(burden, diameter, spacing_coeff), expected)
+    def test_cunningham_n_takes_burden_in_m_and_diameter_in_mm(self):
+        # Cunningham: n = (2.2 − 14 B/d) × (1 + (S/B − 1)/2), B in m, d in mm.
+        # B = 3.43 m, d = 152 mm × 1.05 = 159.6 mm: (2.2 − 0.3009) × 1.125.
+        self.assertAlmostEqual(cunningham_uniformity_n(3.43, 159.6, 1.25), 2.1365, places=4)
+
+    def test_cunningham_n_names_diameter_unit(self):
+        n = cunningham_uniformity_n(burden_m=3.43, diameter_mm=159.6, spacing_to_burden=1.25)
+        self.assertAlmostEqual(n, 2.1365, places=4)
+
+    def test_n_is_not_clamped_on_usual_patterns(self):
+        # B = 25–35 d is the usual burden range; n must stay in its 0.7–2 band, above the clamp.
+        for diameter_mm in (110.0, 152.0, 250.0):
+            for burden_to_diameter in (25.0, 35.0):
+                burden_m = burden_to_diameter * diameter_mm / 1000.0
+                with self.subTest(diameter_mm=diameter_mm, burden_m=burden_m):
+                    n = cunningham_uniformity_n(burden_m, diameter_mm, 1.25)
+                    self.assertGreater(n, 1.5)
+                    self.assertLess(n, 2.5)
 
     def test_n_is_clamped(self):
-        self.assertEqual(cunningham_uniformity_n(8.0, 0.1, 1.25), 0.8)
+        # B/d = 8 m / 45 mm: 14 B/d ≈ 2.49 > 2.2, raw n goes negative.
+        self.assertEqual(cunningham_uniformity_n(8.0, 45.0, 1.25), 0.8)
+
+    def test_kuzram_passes_charged_diameter_in_mm(self):
+        # B = 4 m, d = 152 mm × 1.05 = 159.6 mm, S/B = 1.25.
+        prediction = predict_kuzram(_inputs())
+        expected = (2.2 - 14.0 * 4.0 / 159.6) * 1.125
+        self.assertAlmostEqual(prediction.provenance.parameters["uniformity_n"], expected)
+        self.assertAlmostEqual(prediction.provenance.parameters["diameter_m"], 0.1596)
 
     def test_percentiles_are_monotonic(self):
         prediction = predict_kuzram(_inputs())

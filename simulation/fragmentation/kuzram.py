@@ -17,15 +17,16 @@ from simulation.fragmentation.models import (
 from simulation.fragmentation.units import length_m_from_mm, relative_weight_strength
 
 MODEL_ID = "kuzram"
-MODEL_VERSION = "1.0.0"
+# 1.1.0: Cunningham n takes the hole diameter in millimetres (was metres, n sat at the clamp).
+MODEL_VERSION = "1.1.0"
 
-# Cunningham n is clamped so a very tight B/d ratio cannot go negative.
+# Cunningham n is clamped so a very large B/d ratio cannot go negative.
 MIN_UNIFORMITY_N = 0.8
 
 
 def cunningham_uniformity_n(
     burden_m: float,
-    diameter_m: float,
+    diameter_mm: float,
     spacing_to_burden: float,
     drill_deviation_m: float = 0.0,
 ) -> float:
@@ -33,12 +34,13 @@ def cunningham_uniformity_n(
 
     n = (2.2 − 14 B/d) × (1 + (S/B − 1)/2) × (1 − W/B)
 
-    ``W`` here is drilling accuracy (m), not burden. Burden is ``B``.
-    Matches ``Blast.py`` when ``drill_deviation_m`` is 0.
+    Units are Cunningham's: burden ``B`` in metres, hole diameter ``d`` in
+    millimetres, so 14 B/d is about 0.3–0.5 on usual patterns. ``W`` here is
+    drilling accuracy (m), not burden.
     """
-    if diameter_m <= 0:
+    if diameter_mm <= 0:
         return MIN_UNIFORMITY_N
-    n = (2.2 - 14.0 * (burden_m / diameter_m)) * (1.0 + (spacing_to_burden - 1.0) / 2.0)
+    n = (2.2 - 14.0 * (burden_m / diameter_mm)) * (1.0 + (spacing_to_burden - 1.0) / 2.0)
     if burden_m > 0.0 and drill_deviation_m > 0.0:
         n *= max(0.0, 1.0 - drill_deviation_m / burden_m)
     return max(MIN_UNIFORMITY_N, n)
@@ -55,11 +57,11 @@ def kuzram_parameters(inputs: FragmentationInputs, calibration: Calibration | No
     calibration = calibration or Calibration()
     factor_A = calibration.rock_factor_A or rock_factor_A(inputs.rock_ucs_mpa, inputs.rock_density_t_m3)
     re_weight = relative_weight_strength(inputs.explosive_energy_mj_kg)
-    diameter_m = length_m_from_mm(inputs.diameter_mm) * inputs.hole_oversize_coeff
+    diameter_mm = inputs.diameter_mm * inputs.hole_oversize_coeff
     ratio = spacing_to_burden_ratio(inputs.spacing_m, inputs.burden_m)
     n = calibration.uniformity_n or cunningham_uniformity_n(
         inputs.burden_m,
-        diameter_m,
+        diameter_mm,
         ratio,
         drill_deviation_m=calibration.drill_deviation_m or 0.0,
     )
@@ -68,7 +70,7 @@ def kuzram_parameters(inputs: FragmentationInputs, calibration: Calibration | No
         "rock_factor_A": factor_A,
         "re_weight": re_weight,
         "uniformity_n": n,
-        "diameter_m": diameter_m,
+        "diameter_m": length_m_from_mm(diameter_mm),
         "spacing_to_burden": ratio,
         "x50_mm": x50_mm,
     }

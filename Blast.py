@@ -79,9 +79,10 @@ class BlastEngine:
         A = self._get_rock_factor()
         re_weight = self._get_re_weight()
         x50_mm = kuznetsov_x50_mm(A, q, charge_mass, re_weight)
-        n = cunningham_uniformity_n(W, d_m, self.target.spacing_coeff_m)
+        d_hole_mm = diameter_mm * self.target.hole_oversize_coeff # У Каннингема ЛНС в метрах, а диаметр скважины в миллиметрах
+        n = cunningham_uniformity_n(W, d_hole_mm, self.target.spacing_coeff_m)
         oversize = rosin_rammler_oversize_pct(x50_mm, n, self.target.lump_size_mm)
-        
+
         return {
            "diameter": diameter_mm, # Диаметр скважины
             "W_m": round(W, 2), # ЛНС
@@ -112,7 +113,8 @@ class BlastEngine:
         A = self._get_rock_factor()
         re_weight = self._get_re_weight()
         x50_mm = kuznetsov_x50_mm(A, target_q, charge_mass, re_weight)
-        n = cunningham_uniformity_n(W, d_m, self.target.spacing_coeff_m)
+        d_hole_mm = diameter_mm * self.target.hole_oversize_coeff # У Каннингема ЛНС в метрах, а диаметр скважины в миллиметрах
+        n = cunningham_uniformity_n(W, d_hole_mm, self.target.spacing_coeff_m)
         oversize = rosin_rammler_oversize_pct(x50_mm, n, self.target.lump_size_mm)
         
         # Возвращаем результаты в виде словаря (ключ: значение)

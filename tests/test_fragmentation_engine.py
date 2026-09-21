@@ -203,6 +203,19 @@ class BlastEngineRegressionTests(unittest.TestCase):
         self.assertGreater(result["x50_mm"], 0)
         self.assertGreaterEqual(result["oversize_pct"], 0)
 
+    def test_optimize_uses_cunningham_n_with_diameter_in_mm(self):
+        # Габбро-диабаз, ЭВЕРСИН Э-100, кусок 400 мм, порог 5 %, коронка 152 мм.
+        # With d in metres n sat at the 0.8 clamp and q came out ≈ 1.34 kg/m³, W ≈ 3.43 m.
+        engine = BlastEngine(
+            RockProperties("Габбро-диабаз", 2.9, 168, 2.2),
+            ExplosiveProperties("ЭВЕРСИН Э-100", 1.12, 2.99),
+            TargetParams(lump_size_mm=400, hole_diameter_mm=0, bench_height_m=10.0),
+        )
+        result = engine.optimize_blast(152, max_oversize_threshold=5.0)
+        self.assertEqual(result["target_q"], 0.37)
+        self.assertEqual(result["W_m"], 6.53)
+        self.assertLessEqual(result["oversize_pct"], 5.0)
+
 
 if __name__ == "__main__":
     unittest.main()

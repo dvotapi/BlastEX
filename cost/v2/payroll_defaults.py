@@ -295,8 +295,15 @@ def _bit_diameters(sections: dict[str, list[ReferenceItem]]) -> set[Decimal]:
         # Пустой или битый диаметр («abc», NaN) пропускается: о нём скажет
         # проверка ревизии, таблица строится из остальных.
         diameter = finite_decimal(material.payload.get("diameter_mm")) if material is not None else None
-        if diameter is not None:
-            found.add(diameter.normalize())
+        if diameter is None:
+            continue
+        try:
+            (diameter / BASE_DIAMETER_MM).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        except ArithmeticError:
+            # Коэффициент диаметра не вычисляется (огромный диаметр не
+            # укладывается в точность Decimal) — коронка в таблицу не попадает.
+            continue
+        found.add(diameter.normalize())
     return found
 
 

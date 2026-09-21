@@ -262,6 +262,20 @@ def test_bit_diameters_from_drilling_conditions_join_the_owner_list():
     assert not has_validation_errors(validate_reference_sections(sections))
 
 
+def test_huge_bit_diameter_is_skipped_not_crashed():
+    # "1e30" / 152 не укладывается в 28 знаков Decimal при округлении до
+    # сотых — коэффициент не вычисляется, коронка в таблицу не попадает.
+    snapshot = fx.references(
+        materials=tuple(
+            replace(item, payload={**item.payload, "diameter_mm": "1e30"}) if item.code == "MAT_BIT" else item
+            for item in fx.MATERIALS
+        )
+    )
+    sections, _ = seed_payroll_references(snapshot)
+    diameters = _by_code(sections, "drilling_difficulty")["DRILLING_DIFFICULTY_BASE"].payload["diameter"]
+    assert [row["diameter_mm"] for row in diameters] == ["110", "127", "140", "152", "165", "190", "215", "250"]
+
+
 def test_rates_based_block_economics_do_not_move():
     """Расчёт по ставкам новых ключей не читает: смета до и после сида одна."""
 

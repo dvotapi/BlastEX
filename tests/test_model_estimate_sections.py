@@ -266,6 +266,41 @@ def test_unknown_driver_leaves_the_unit_empty_instead_of_showing_its_code() -> N
     assert line.quantity == Decimal("3")
 
 
+def test_cost_rule_formula_names_the_unit_not_the_driver_code() -> None:
+    """Сметчик читает в формуле «25 ₽ × 1234 ткм», а не служебное имя `vm_tkm`."""
+
+    result = compute()
+
+    delivery = line_by_code(result, "VM_DELIVERY")
+    assert delivery.formula == f"25 ₽ × {delivery.quantity} ткм"
+
+
+@pytest.mark.parametrize("driver", ["moon_phases", "explosive_kg_per_m"])
+def test_cost_rule_formula_without_a_unit_shows_neither_code_nor_a_dangling_space(
+    driver: str,
+) -> None:
+    """Незнакомая величина и ставка с `_per_` подписи не имеют: в формуле одно число."""
+
+    rule = fx.item(
+        "RULE_ODD",
+        "Странная статья",
+        {
+            "operation_code": "STEMMING",
+            "cost_item_code": "RULE_ODD",
+            "driver": driver,
+            "rate_rub": "10",
+            "estimate_section": "OVERHEAD",
+        },
+    )
+    result = compute_block_economics(
+        {"physical": {**fx.physical(), driver: Decimal("3")}, "lineage": {}},
+        fx.parameters(),
+        fx.references(cost_rules=(rule,)),
+    )
+
+    assert line_by_code(result, "RULE_ODD").formula == "10 ₽ × 3"
+
+
 def test_a_driver_named_after_its_unit_is_labelled_without_a_table_entry() -> None:
     """Модель заводит величины на ходу (`szm_fuel_l`): единица берётся из хвоста имени."""
 

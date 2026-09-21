@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from cost.v2.models import ReferenceItem
+from cost.v2.payroll_checks import payroll_issues
 from cost.v2.references import ValidationIssue, default_reference_sections, validate_reference_sections
 
 
@@ -230,6 +231,20 @@ def test_nan_maintenance_shifts_does_not_crash_validation():
     rig = (_item("RIG", {"kind": "DRILL_RIG", "maintenance_ratio": "0.14"}),)
     issues = _issues(equipment_types=rig, sites=(_item("S", {"maintenance_shifts": "NaN"}),))
     assert ("error", "S", "maintenance_shifts") in _schema_error_fields(issues, "sites")
+
+
+def test_huge_rotation_does_not_crash_validation():
+    # 1e30 × 0,14 / 1,14 не укладывается в 28 знаков Decimal при округлении до сотых.
+    rig = (_item("RIG", {"kind": "DRILL_RIG", "maintenance_ratio": "0.14"}),)
+    issues = _issues(equipment_types=rig, sites=(_item("S", {"shift_days_on": "1e30"}),))
+    assert ("error", "S", "shift_days_on") in _schema_error_fields(issues, "sites")
+
+
+def test_maintenance_check_skips_a_rotation_it_cannot_compute():
+    # Минуя схему: пара пропускается без предупреждения, а не роняет проверку.
+    rig = (_item("RIG", {"kind": "DRILL_RIG", "maintenance_ratio": "0.14"}),)
+    issues = payroll_issues({"equipment_types": rig, "sites": (_item("S", {"shift_days_on": "1e30"}),)})
+    assert [issue for issue in issues if issue.section == "sites"] == []
 
 
 def test_non_list_diameter_does_not_crash_validation():

@@ -211,8 +211,14 @@ def _maintenance_against_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -
         planned = finite_decimal(site.payload.get("maintenance_shifts"))
         planned = default_shifts if planned is None else planned
         for rig, ratio in rigs:
-            expected = days * ratio / (1 + ratio)
-            if abs(expected - planned) <= MAINTENANCE_TOLERANCE_SHIFTS:
+            try:
+                expected = days * ratio / (1 + ratio)
+                if abs(expected - planned) <= MAINTENANCE_TOLERANCE_SHIFTS:
+                    continue
+                shown = expected.quantize(Decimal("0.01"))
+            except ArithmeticError:
+                # Вахта за пределами точности Decimal («1e30» дней) — ошибка
+                # схемы объекта уже есть, пару здесь не сравнить.
                 continue
             issues.append(
                 ValidationIssue(
@@ -221,7 +227,7 @@ def _maintenance_against_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -
                     site.code,
                     f"Плановое ТОиР {_plain(planned)} см за вахту расходится с долей ТОиР станка {rig.name}: "
                     f"{_plain(ratio)} смены ТОиР на рабочую смену дают "
-                    f"{_plain(expected.quantize(Decimal('0.01')))} см из {_plain(days)}.",
+                    f"{_plain(shown)} см из {_plain(days)}.",
                     field="maintenance_shifts",
                 )
             )

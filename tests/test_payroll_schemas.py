@@ -191,6 +191,13 @@ class TestSitePayroll:
             "maintenance_shifts", "Плановое ТОиР не может занимать всю вахту: эффективных смен не останется"
         )
 
+    @pytest.mark.parametrize("field", ["shift_days_on", "shift_days_off", "travel_days", "maintenance_shifts"])
+    def test_rotation_days_fit_in_a_year(self, field):
+        with pytest.raises(ValidationError) as exc:
+            SitePayload.model_validate({"shift_days_on": "366", field: "367"})
+        error = exc.value.errors()[0]
+        assert (error["loc"], error["type"]) == ((field,), "less_than_equal")
+
     def test_contract_factor_is_positive(self):
         with pytest.raises(ValidationError) as exc:
             SitePayload.model_validate({"contract_k": "0"})

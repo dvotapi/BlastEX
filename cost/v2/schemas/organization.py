@@ -115,15 +115,20 @@ class SitePayload(ReferencePayload):
         default=False, title="Вахтовый объект", description="Начисляются суточные и проживание"
     )
     # Вахта и оплата труда (TASK-010). Умолчания — график компании 15/15:
-    # запись, заведённая до появления полей, считается по нему.
+    # запись, заведённая до появления полей, считается по нему. Дни и смены
+    # вахты — не больше года.
     shift_days_on: Decimal = UnitField(
-        "дн", title="Дней вахты", description="Рабочих дней за вахту, включая плановое ТОиР", default=Decimal("15")
+        "дн",
+        title="Дней вахты",
+        description="Рабочих дней за вахту, включая плановое ТОиР",
+        default=Decimal("15"),
+        le=366,
     )
     shift_days_off: Decimal = UnitField(
-        "дн", title="Дней межвахты", description="Дней межвахтового отдыха", default=Decimal("15")
+        "дн", title="Дней межвахты", description="Дней межвахтового отдыха", default=Decimal("15"), le=366
     )
     travel_days: Decimal = UnitField(
-        "дн", title="Дней в дороге", description="Дней в пути на вахту и обратно", default=Decimal("2")
+        "дн", title="Дней в дороге", description="Дней в пути на вахту и обратно", default=Decimal("2"), le=366
     )
     night_shift_share: Decimal = RateField(
         title="Доля ночных смен", description="Доля смен вахты, приходящихся на ночь", default=Decimal("0.5")
@@ -133,6 +138,7 @@ class SitePayload(ReferencePayload):
         title="Плановое ТОиР за вахту",
         description="Смен вахты, которые уходят на плановое ТОиР станка",
         default=Decimal("2"),
+        le=366,
     )
     regional_coefficient: Decimal = RateField(
         title="Районный коэффициент", description="Надбавка к начислениям: 0,15 — коэффициент 1,15", default=Decimal("0.15")

@@ -195,7 +195,7 @@ class OrganizationRatesPayload(ReferencePayload):
     salary_basis: Literal["GROSS", "NET"] = Field(
         default="GROSS",
         title="Основа окладов",
-        description="Оклады в справочнике заданы до НДФЛ (GROSS) или на руки (NET)",
+        description="Оклады в справочнике заданы до НДФЛ или на руки",
     )
     overhead_rate: Decimal = RateField(description="Общехозяйственные расходы", default=Decimal("0.10"))
     target_margin_rate: Decimal = RateField(description="Целевая рентабельность", default=Decimal("0.10"))

@@ -28,13 +28,28 @@ def decimal_value(value: Any, default: Decimal = Decimal("0")) -> Decimal:
     return Decimal(str(value))
 
 
-def finite_decimal(value: Any) -> Decimal | None:
-    """Конечное число из значения payload; `None` — пусто, флаг или не число.
+# Порядок числа (`result.adjusted()`), вне которого `finite_decimal` считает
+# значение «не числом» справочника. Величины справочника — дни, метры,
+# миллиметры, рубли — на порядки меньше; произведение двух чисел этого
+# порядка и последующий `quantize(0.01)` укладываются в точность Decimal
+# (28 знаков) без `Overflow`/`InvalidOperation`.
+FINITE_DECIMAL_MAX_EXPONENT = 15
 
-    Для перекрёстных проверок ревизии и сида: битое значение уже отвергает
-    схема раздела, здесь оно просто «не задано». NaN и бесконечность `Decimal`
-    разбирает без ошибки, но в сравнениях (`<=`, `max()`, сортировка) они
-    бросают `InvalidOperation` — поэтому тоже `None`.
+
+def finite_decimal(value: Any) -> Decimal | None:
+    """Конечное число разумного порядка из значения payload.
+
+    `None` — пусто, флаг, не число, NaN/бесконечность или порядок вне
+    `FINITE_DECIMAL_MAX_EXPONENT` (по модулю, для отрицательного — только у
+    ненулевых). Для перекрёстных проверок ревизии и сида: битое значение уже
+    отвергает схема раздела, здесь оно просто «не задано». NaN и бесконечность
+    `Decimal` разбирает без ошибки, но в сравнениях (`<=`, `max()`, сортировка)
+    они бросают `InvalidOperation` — поэтому тоже `None`. Числа немыслимого
+    порядка (`"1e999999"`) схема тоже не отвергает (сравнение с границей
+    `Decimal` само по себе не переполняется), но дальнейшая арифметика над
+    ними (`*`, `quantize`, `normalize`) бросает `Overflow`/`InvalidOperation`,
+    а умеренно огромные порядки просто раздувают текст сообщения — поэтому
+    такие значения тоже `None`.
     """
 
     if value is None or value == "" or isinstance(value, bool):
@@ -43,7 +58,13 @@ def finite_decimal(value: Any) -> Decimal | None:
         result = Decimal(str(value))
     except InvalidOperation:
         return None
-    return result if result.is_finite() else None
+    if not result.is_finite():
+        return None
+    if result.adjusted() > FINITE_DECIMAL_MAX_EXPONENT:
+        return None
+    if result != 0 and result.adjusted() < -FINITE_DECIMAL_MAX_EXPONENT:
+        return None
+    return result
 
 
 def money(value: Decimal) -> Decimal:

@@ -1,7 +1,9 @@
 """Проверки ревизии для методики ФОТ по нескольким разделам сразу (TASK-010 PR 1, Т15, Т16)."""
 from __future__ import annotations
 
-from cost.v2.models import ReferenceItem
+from decimal import Decimal
+
+from cost.v2.models import ReferenceItem, finite_decimal
 from cost.v2.payroll_checks import payroll_issues
 from cost.v2.references import ValidationIssue, default_reference_sections, validate_reference_sections
 
@@ -324,3 +326,35 @@ def test_non_list_extra_tariffs_does_not_crash_validation():
     )
     issues = _issues(organization_rates=(broken,))
     assert ("error", rates.code, "extra_tariffs") in _schema_error_fields(issues, "organization_rates")
+
+
+# Codex к PR #83: числа немыслимого порядка (`"1e999999"`) схема не отвергает
+# (сравнение с границей поля само по себе не переполняется), а дальнейшая
+# арифметика (`_ceiling_above_rigs`, `_bit_diameters` + `_plain`) — падает.
+# `finite_decimal` теперь отсекает такие значения по порядку числа.
+
+
+def test_finite_decimal_rejects_numbers_outside_the_reference_range():
+    assert finite_decimal("1e16") is None
+    assert finite_decimal("1e-16") is None
+
+
+def test_finite_decimal_keeps_numbers_within_the_reference_range():
+    assert finite_decimal("1e15") == Decimal("1e15")
+    assert finite_decimal("0") == Decimal("0")
+    assert finite_decimal("0.001") == Decimal("0.001")
+
+
+def test_unthinkably_huge_tech_speed_does_not_crash_validation():
+    # До фикса: speed × (shift_hours − unproductive) бросает decimal.Overflow.
+    issues = _issues(
+        **_drilling_rate(COND_BASE={"tech_speed_m_per_h": "1e999999", "unproductive_h_per_shift": "1"})
+    )
+    assert all(len(issue.message) < 300 for issue in issues)
+
+
+def test_unthinkably_huge_bit_diameter_does_not_crash_validation():
+    # До фикса: `_plain` вызывает `.normalize()` на диаметре и бросает
+    # decimal.Overflow при формировании сообщения об ошибке.
+    issues = _issues(**_bits({"diameter_mm": "1e999999999999999999"}, ["152"]))
+    assert all(len(issue.message) < 300 for issue in issues)

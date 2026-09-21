@@ -395,6 +395,36 @@ class TestValidationThroughSchemas:
         issues = _errors(validate_reference_sections(sections))
         assert [issue for issue in issues if issue.section == "resource_pools"] == []
 
+    # Раунд правки 1 к da74c31: "snan"/"sNaN" разбирается в сигнальный
+    # `Decimal('sNaN')` без исключения при парсинге, а `_out_of_range_issue`
+    # сравнивает его с нулём (`value != 0`) — сравнение сигнального NaN
+    # бросает `decimal.InvalidOperation`, и `validate_reference_sections`
+    # падает вместо того, чтобы вернуть список замечаний (API отдал бы 500).
+    # Обычный NaN и Infinity сравниваются без исключения, но по смыслу тоже
+    # не число справочника — тем же путём пропускаем их все.
+
+    @pytest.mark.parametrize("value", ["snan", "sNaN", "NaN", "Infinity"])
+    def test_non_finite_string_in_a_free_form_list_does_not_crash_validation(self, value):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_NONFINITE", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": value},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity"] == []
+
+    @pytest.mark.parametrize("value", ["snan", "NaN", "Infinity"])
+    def test_non_finite_string_in_an_ordinary_text_field_does_not_crash_validation(self, value):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (
+            _item("TYPE_JK830", {"kind": "DRILL_RIG", "brand": value}),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "brand"] == []
+
 
 def _errors(issues: list[ValidationIssue]) -> list[ValidationIssue]:
     return [issue for issue in issues if issue.level == "error"]

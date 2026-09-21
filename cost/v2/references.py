@@ -462,15 +462,25 @@ def _free_form_string_decimal(value: str) -> Decimal | None:
     поддержка запятой здесь означала бы пропускать то, что расчёт всё равно
     не примет. Код или текст (`"downhole_nsi"`) не разбирается как число —
     `None`, как и пустая строка.
+
+    `Decimal` без исключения разбирает "NaN"/"Infinity" — и сигнальный
+    "sNaN" тоже, исключение при сигнальном NaN бросает не парсинг, а
+    первое же сравнение (`_out_of_range_issue` делает `value != 0`), уронив
+    всю публикацию ревизии вместо списка замечаний. Ни одно из них не число
+    справочника, поэтому конечность проверяем сразу здесь, как и
+    `finite_decimal` в `cost/v2/models.py`.
     """
 
     text = value.strip()
     if not text:
         return None
     try:
-        return Decimal(text)
+        result = Decimal(text)
     except InvalidOperation:
         return None
+    if not result.is_finite():
+        return None
+    return result
 
 
 def _out_of_range_issue(

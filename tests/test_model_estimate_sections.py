@@ -275,7 +275,7 @@ def test_cost_rule_formula_names_the_unit_not_the_driver_code() -> None:
     assert delivery.formula == f"25 ₽ × {delivery.quantity} ткм"
 
 
-@pytest.mark.parametrize("driver", ["moon_phases", "charges_per_hole"])
+@pytest.mark.parametrize("driver", ["moon_phases", "explosive_kg_per_m"])
 def test_cost_rule_formula_without_a_unit_shows_neither_code_nor_a_dangling_space(
     driver: str,
 ) -> None:

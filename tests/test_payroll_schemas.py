@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
+from cost.v2.references import REFERENCE_SECTION_DEFINITIONS
 from cost.v2.schemas import section_json_schema
 from cost.v2.schemas.labor import LaborRatePayload, PositionPayload
 from cost.v2.schemas.misc import RockPayload
@@ -98,6 +99,12 @@ class TestLaborRateScale:
             "condition_code",
             "Шкала сдельной премии задаётся ставкой без условия бурения: породу учитывают приведённые метры",
         )
+
+    def test_rates_list_tells_drilling_conditions_apart(self):
+        # Ставки машиниста по разным породам в списке различает только условие бурения.
+        assert REFERENCE_SECTION_DEFINITIONS["labor_rates"]["columns"] == [
+            "name", "position_code", "condition_code", "fixed_monthly_rub", "piece_rate_rub", "scale_type",
+        ]
 
     @pytest.mark.parametrize(
         ("patch", "expected"),

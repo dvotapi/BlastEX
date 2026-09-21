@@ -73,7 +73,7 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
     },
     "labor_rates": {
         "group": "labor", "label": "Ставки персонала",
-        "columns": ["name", "position_code", "fixed_monthly_rub", "piece_rate_rub", "scale_type"],
+        "columns": ["name", "position_code", "condition_code", "fixed_monthly_rub", "piece_rate_rub", "scale_type"],
     },
     "crew_templates": {"group": "labor", "label": "Составы бригад", "columns": ["name", "package_code"]},
     "payroll_params": {

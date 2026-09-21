@@ -9,9 +9,9 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field
 
-from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_error
+from cost.v2.schemas.base import RefField, ReferencePayload, UnitField
 
 __all__ = [
     "UnitPayload",
@@ -75,7 +75,13 @@ class RoutePayload(ReferencePayload):
 
 class RockPayload(ReferencePayload):
     density_t_m3: Decimal | None = UnitField("т/м³", description="Плотность", default=None)
-    hardness_f: Decimal | None = UnitField("f", description="Крепость по Протодьяконову", default=None)
+    # Нуль — не «мягкая порода», а незаполненное поле: коэффициент крепости
+    # для него не выбрать (решение владельца 13.09.2026). Строгая нижняя
+    # граница `gt=0` не пускает нуль и минус ещё на уровне схемы — форма и
+    # сервер проверяют её одним и тем же полем, без отдельного правила.
+    hardness_f: Decimal | None = UnitField(
+        "f", description="Крепость по Протодьяконову; не знаете — оставьте пустым", default=None, gt=0
+    )
     fracture_class: str | None = Field(default=None, description="Класс трещиноватости")
     ucs_mpa: Decimal | None = UnitField(
         "МПа", title="Прочность на сжатие", description="Предел прочности на одноосное сжатие", default=None, ge=0
@@ -83,19 +89,6 @@ class RockPayload(ReferencePayload):
     fissuring_ff: Decimal | None = UnitField(
         "трещин/м", title="Трещиноватость", description="Число трещин на метр массива", default=None, ge=0
     )
-
-    @model_validator(mode="after")
-    def _hardness_is_positive(self) -> "RockPayload":
-        # Нуль — не «мягкая порода», а незаполненное поле: коэффициент
-        # крепости для него не выбрать (решение владельца 13.09.2026).
-        if self.hardness_f is not None and self.hardness_f <= 0:
-            field_error(
-                type(self),
-                "hardness_f",
-                "Крепость по Протодьяконову должна быть больше нуля; не знаете — оставьте поле пустым",
-                self.hardness_f,
-            )
-        return self
 
 
 class BlastDesignParameterPayload(ReferencePayload):

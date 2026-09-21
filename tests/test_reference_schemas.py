@@ -401,3 +401,34 @@ class TestNomenclatureRole:
 
         with pytest.raises(ValidationError):
             MaterialPayload.model_validate({"nomenclature_role": "DYNAMITE"})
+
+
+class TestNumericBoundMessages:
+    """Границы `UnitField` (`gt`/`ge`/`le`) — из схемы, а не отдельного правила.
+
+    Крепость породы больше не проверяется валидатором: нижняя граница —
+    строгая (`gt=0`) прямо в поле, и `_humanize` называет её числом из
+    `ctx`, а не общей фразой «вне допустимого диапазона» (решение владельца
+    21.09.2026, TASK-010 PR 1).
+    """
+
+    def test_hardness_schema_declares_a_strict_lower_bound(self):
+        variants = _variants(section_json_schema("rocks")["properties"]["hardness_f"])
+        numeric = next(v for v in variants if v.get("type") == "number")
+        assert numeric.get("exclusiveMinimum") == 0
+        assert "minimum" not in numeric
+
+    @pytest.mark.parametrize("value", ["0", "-1"])
+    def test_non_positive_hardness_is_rejected_with_the_bound_in_the_message(self, value):
+        sections = dict(default_reference_sections())
+        sections["rocks"] = (_item("ROCK_X", {"hardness_f": value}),)
+        issues = _errors(validate_reference_sections(sections))
+        message = next(issue.message for issue in issues if issue.field == "hardness_f")
+        assert message == "Поле «Крепость по Протодьяконову»: должно быть больше 0."
+
+    def test_upper_bound_message_names_the_limit(self):
+        sections = dict(default_reference_sections())
+        sections["sites"] = (_item("SITE_X", {"shift_days_on": "400"}),)
+        issues = _errors(validate_reference_sections(sections))
+        message = next(issue.message for issue in issues if issue.field == "shift_days_on")
+        assert message == "Поле «Дней вахты»: должно быть не больше 366."

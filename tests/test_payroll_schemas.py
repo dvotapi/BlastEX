@@ -236,16 +236,23 @@ class TestOrganizationTariffs:
 
 
 class TestRockHardness:
+    """Нижняя граница крепости — строгая `gt=0` в схеме поля (TASK-010 PR 1).
+
+    Текст ошибки для сметчика («должно быть больше 0.») собирает `_humanize`
+    из `ctx` в `cost/v2/references.py`: здесь проверяется только граница
+    схемы, `tests/test_reference_schemas.py::TestNumericBoundMessages` —
+    итоговое сообщение.
+    """
+
     def test_empty_hardness_is_allowed(self):
         assert RockPayload.model_validate({}).hardness_f is None
 
-    def test_zero_hardness_is_rejected(self):
-        # Отрицательное значение отсекает ещё `ge=0` поля; нуль — только эта проверка.
+    @pytest.mark.parametrize("value", ["0", "-1"])
+    def test_non_positive_hardness_is_rejected(self, value):
         with pytest.raises(ValidationError) as exc:
-            RockPayload.model_validate({"hardness_f": "0"})
-        assert _error(exc) == (
-            "hardness_f", "Крепость по Протодьяконову должна быть больше нуля; не знаете — оставьте поле пустым"
-        )
+            RockPayload.model_validate({"hardness_f": value})
+        error = exc.value.errors()[0]
+        assert (error["loc"], error["type"]) == (("hardness_f",), "greater_than")
 
 
 PARAMS = {

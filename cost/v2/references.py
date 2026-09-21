@@ -468,6 +468,9 @@ def _humanize(error: Mapping[str, Any], section: str = "") -> str:
     if kind == "missing":
         return f"Не заполнено обязательное поле «{field}»."
     if kind.startswith("greater_than") or kind.startswith("less_than"):
+        bound_phrase = _bound_phrase(kind, error.get("ctx") or {})
+        if bound_phrase is not None:
+            return f"Поле «{field}»: {bound_phrase}."
         return f"Поле «{field}»: значение вне допустимого диапазона."
     if kind == "value_error":
         # Сообщения наших model_validator уже написаны по-русски.
@@ -476,6 +479,35 @@ def _humanize(error: Mapping[str, Any], section: str = "") -> str:
         if marker in kind:
             return f"Поле «{field}»: {message}."
     return f"Поле «{field}»: значение не подходит."
+
+
+# type → (ключ границы в error["ctx"], русская фраза с местом под число).
+_BOUND_PHRASES: dict[str, tuple[str, str]] = {
+    "greater_than": ("gt", "должно быть больше {}"),
+    "greater_than_equal": ("ge", "должно быть не меньше {}"),
+    "less_than": ("lt", "должно быть меньше {}"),
+    "less_than_equal": ("le", "должно быть не больше {}"),
+}
+
+
+def _bound_phrase(kind: str, ctx: Mapping[str, Any]) -> str | None:
+    """Фраза с границей поля (`greater_than` → «должно быть больше 0»).
+
+    `None`, если в типе ошибки или в `ctx` нет числа границы: вызывающий код
+    оставляет прежнюю общую фразу.
+    """
+
+    spec = _BOUND_PHRASES.get(kind)
+    if spec is None or spec[0] not in ctx:
+        return None
+    ctx_key, phrase = spec
+    return phrase.format(_format_number(ctx[ctx_key]))
+
+
+def _format_number(value: Any) -> str:
+    """Число без хвостовых нулей и экспоненты («0», «366», а не «0E+1»)."""
+
+    return format(Decimal(str(value)).normalize(), "f")
 
 
 def _reference_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:

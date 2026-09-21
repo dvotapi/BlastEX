@@ -70,16 +70,25 @@ def UnitField(  # noqa: N802
     default: Any = ...,
     ge: float | None = 0,
     le: float | None = None,
+    gt: float | None = None,
     title: str | None = None,
 ) -> Any:
     """Число с единицей измерения.
 
     Единица обязательна: без неё сметчик не понимает, руб/смену перед ним или
     руб/месяц. Для безразмерных величин передаётся пустая строка.
+
+    `gt` — строгая нижняя граница (значение само в диапазон не входит, как у
+    крепости породы: нуль — не «мягкая порода», а незаполненное поле). Когда
+    она задана, умолчание `ge=0` не передаётся в `Field`, иначе pydantic
+    получит обе границы разом и на нуле молчаливо победит менее строгая `ge`.
     """
 
     extra: dict[str, Any] = {"x-unit": unit}
-    return Field(default, description=description, title=title, ge=ge, le=le, json_schema_extra=extra)
+    return Field(
+        default, description=description, title=title, ge=None if gt is not None else ge, gt=gt, le=le,
+        json_schema_extra=extra,
+    )
 
 
 def RateField(  # noqa: N802

@@ -112,6 +112,41 @@ def test_payroll_params_year_as_number_matches_existing_record():
     assert not has_validation_errors(validate_reference_sections(sections))
 
 
+# Codex к PR #83: действующая запись с каноническим кодом PAYROLL_PARAMS_2026,
+# у которой пуст (не заполнен) год, не находилась поиском по году, а по коду
+# считалась «выключенной» и пропускалась — пустые обязательные поля
+# оставались пустыми, и проверка ревизии блокировала публикацию.
+
+
+def test_active_default_code_record_with_empty_year_gets_filled():
+    existing = ReferenceItem(
+        code=f"PAYROLL_PARAMS_{PAYROLL_YEAR}", name="ФОТ 2026 (черновик)", payload={"mrot": "30000"}
+    )
+    base = imported_snapshot()
+    snapshot = replace(base, sections={**base.sections, "payroll_params": (existing,)})
+
+    sections, report = seed_payroll_references(snapshot)
+
+    assert len(sections["payroll_params"]) == 1
+    params = _by_code(sections, "payroll_params")["PAYROLL_PARAMS_2026"].payload
+    assert params["mrot"] == "30000"
+    assert (params["year"], params["annual_hours_36"], params["work_days_year"]) == (
+        PAYROLL_PARAMS["year"], PAYROLL_PARAMS["annual_hours_36"], PAYROLL_PARAMS["work_days_year"],
+    )
+    assert "payroll_params:PAYROLL_PARAMS_2026: mrot=30000 (файл: 27093)" in report.kept
+    assert any(
+        entry.startswith("payroll_params:PAYROLL_PARAMS_2026: ") and "year" in entry
+        for entry in report.filled
+    )
+    assert not any(entry.startswith("payroll_params:") for entry in report.added)
+    assert not any(entry.startswith("payroll_params:") for entry in report.skipped)
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+    again, report_again = seed_payroll_references(_as_snapshot(snapshot, sections))
+    assert again == sections
+    assert report_again.added == [] and report_again.filled == []
+
+
 # Codex к PR #83: если действующей записи года нет, а PAYROLL_PARAMS_2026 уже
 # есть выключенной, сид заводил новую запись с тем же кодом, и публикация
 # ломалась на дубле кода раздела.

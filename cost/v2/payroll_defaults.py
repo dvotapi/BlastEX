@@ -298,6 +298,14 @@ def _extra_tariffs(sections: dict[str, list[ReferenceItem]], report: PayrollSeed
 
 
 def _payroll_params(sections: dict[str, list[ReferenceItem]], report: PayrollSeedReport) -> None:
+    def _fill_at(index: int) -> None:
+        item = sections["payroll_params"][index]
+        report.kept.extend(_kept(f"payroll_params:{item.code}", item, PAYROLL_PARAMS))
+        updated, filled = _fill(item, PAYROLL_PARAMS)
+        if filled:
+            sections["payroll_params"][index] = updated
+            report.filled.append(f"payroll_params:{updated.code}: {', '.join(filled)}")
+
     year = Decimal(PAYROLL_YEAR)
     index = next(
         (
@@ -308,14 +316,22 @@ def _payroll_params(sections: dict[str, list[ReferenceItem]], report: PayrollSee
         None,
     )
     if index is not None:
-        item = sections["payroll_params"][index]
-        report.kept.extend(_kept(f"payroll_params:{item.code}", item, PAYROLL_PARAMS))
-        updated, filled = _fill(item, PAYROLL_PARAMS)
-        if filled:
-            sections["payroll_params"][index] = updated
-            report.filled.append(f"payroll_params:{updated.code}: {', '.join(filled)}")
+        _fill_at(index)
         return
+
     code = f"PAYROLL_PARAMS_{PAYROLL_YEAR}"
+    # Действующая запись канонического кода, у которой год не совпал числом
+    # (например, пуст — форма даёт такую запись): это не «выключена, не тот
+    # год действует», а просто незаполненная запись 2026 года — дополняем её
+    # пустые ключи, а не заводим вторую запись с тем же кодом (Codex к PR #83).
+    index = next(
+        (i for i, item in enumerate(sections["payroll_params"]) if item.is_active and item.code == code),
+        None,
+    )
+    if index is not None:
+        _fill_at(index)
+        return
+
     if any(item.code == code for item in sections["payroll_params"]):
         # Запись с этим кодом уже есть, но выключена (не тот год действует) —
         # новая с тем же кодом сломала бы публикацию на дубле.

@@ -143,9 +143,16 @@ def rock_factor(
         rmd = float(settings.joint_condition) * jps + float(settings.joint_angle)
     else:
         rmd = RMD_MASSIVE
+    base = 0.06 * (rmd + rdi + hf)
+    if base * correction <= 0:
+        raise ValueError(
+            f"Фактор породы A = {_number(round(base * correction, 2))} — он должен быть больше нуля. "
+            f"При плотности {_number(density_t_m3)} т/м³ и UCS {_number(ucs_mpa)} МПа выбранный способ даёт A ≤ 0: "
+            "выберите монолитный массив (RMD 50), способ по трещиноватости или задайте A вручную."
+        )
     return RockFactorBreakdown(
         settings.rock_factor_method, rmd, rdi, hf, joint_spacing, reduced_pattern, jps,
-        0.06 * (rmd + rdi + hf), correction,
+        base, correction,
     )
 
 
@@ -193,7 +200,10 @@ def uniformity_index(
     raw = (
         (2.2 - 14.0 * burden_m / hole_diameter_mm)
         * math.sqrt((1.0 + spacing_to_burden) / 2.0)
-        * (1.0 - drill_deviation_m / burden_m)
+        # Не даём отклонению бурения сделать множитель отрицательным: иначе
+        # при (2.2 − 14·W/d) < 0 два минуса дают положительный n (kuzram.py
+        # клэмпит этот же член так же).
+        * max(0.0, 1.0 - drill_deviation_m / burden_m)
         * SINGLE_CHARGE_FACTOR
         * charge_to_bench
         * correction
@@ -226,8 +236,12 @@ def solve_rock_factor_correction(
     lo, hi = math.log(low), math.log(high)
     for _ in range(iterations):
         mid = (lo + hi) / 2.0
-        if oversize_at(math.exp(mid)) > target_pct:
+        # exp(mid) у самой границы может дать 10.000000000000002 —
+        # зажимаем каждое пробное значение, иначе replace(...) на входе
+        # в тест не пройдёт валидацию границ настройки.
+        trial = min(high, max(low, math.exp(mid)))
+        if oversize_at(trial) > target_pct:
             hi = mid
         else:
             lo = mid
-    return math.exp((lo + hi) / 2.0)
+    return min(high, max(low, math.exp((lo + hi) / 2.0)))

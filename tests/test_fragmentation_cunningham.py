@@ -70,6 +70,12 @@ class RockFactorTests(unittest.TestCase):
         self.assertEqual(a.rmd, 50.0)
         self.assertIsNone(a.jps)
 
+    def test_non_positive_a_is_rejected_with_russian_message(self):
+        # RDI = 25·1,4 − 50 = −15; HF = 20/5 = 4; A = 0,06·(10 − 15 + 4) = −0,06 ≤ 0.
+        settings = kr.KuzRamSettings(rock_factor_method="rmd10")
+        with self.assertRaisesRegex(ValueError, "Фактор породы A"):
+            kr.rock_factor(settings, **{**self.ROCK, "ucs_mpa": 20.0, "density_t_m3": 1.4})
+
 
 class MeanFragmentTests(unittest.TestCase):
     def test_formula_and_exponent(self):
@@ -109,6 +115,17 @@ class UniformityTests(unittest.TestCase):
         self.assertLessEqual(crushed.raw, 0.0)
         self.assertEqual(crushed.value, kr.MIN_UNIFORMITY_N)
 
+    def test_deviation_larger_than_burden_does_not_flip_sign(self):
+        # (2,2 − 14·3/10) = −2,0 — уже отрицательный первый множитель; без
+        # max(0, ...) (1 − 4/3) = −0,3333 даёт произведение двух минусов,
+        # и итог получался положительным вместо нуля.
+        n = kr.uniformity_index(
+            burden_m=3.0, hole_diameter_mm=10.0, spacing_to_burden=1.25,
+            drill_deviation_m=4.0, charge_length_m=8.0, bench_height_m=10.0, correction=1.0,
+        )
+        self.assertEqual(n.raw, 0.0)
+        self.assertEqual(n.value, kr.MIN_UNIFORMITY_N)
+
 
 class SolveCorrectionTests(unittest.TestCase):
     @staticmethod
@@ -124,6 +141,15 @@ class SolveCorrectionTests(unittest.TestCase):
         # при C(A) = 10 негабарит ≈ 95 %, при C(A) = 0,1 — около 6·10⁻⁷⁷ %
         self.assertIsNone(kr.solve_rock_factor_correction(self._oversize_at, 99.9))
         self.assertIsNone(kr.solve_rock_factor_correction(self._oversize_at, 1e-100))
+
+    def test_target_at_upper_bound_is_clamped(self):
+        # Бисекция сходится к границе log(10); exp() обратно может дать
+        # 10.000000000000002 — без зажима result не проходит валидацию
+        # KuzRamSettings (0,1–10).
+        target = self._oversize_at(10.0)
+        result = kr.solve_rock_factor_correction(self._oversize_at, target)
+        self.assertLessEqual(result, 10.0)
+        self.assertAlmostEqual(result, 10.0, places=6)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,7 @@ class BlastPoint:
     volume_per_hole_m3: float
     burden_m: float
     spacing_m: float
+    burden_to_diameter: float  # W/d — ЛНС к диаметру скважины (обе величины в метрах)
     rock_factor_a: float
     rock_factor: kr.RockFactorBreakdown | None  # None — расчёт «до исправления»
     re_weight: float
@@ -116,6 +117,7 @@ class BlastEngine:
         return BlastPoint(
             q_kg_m3=q, hole_diameter_mm=d_m * 1000, charge_length_m=charge_length,
             charge_mass_kg=charge_mass, volume_per_hole_m3=v_hole, burden_m=W, spacing_m=m * W,
+            burden_to_diameter=W / d_m,
             rock_factor_a=A, rock_factor=None, re_weight=re_weight, strength_exponent="19/30",
             x50_mm=x50_mm, uniformity_n_raw=n_raw, uniformity_n=n, charge_to_bench=None,
             characteristic_size_mm=rosin_rammler_characteristic_mm(x50_mm, n),
@@ -163,6 +165,7 @@ class BlastEngine:
         return BlastPoint(
             q_kg_m3=q, hole_diameter_mm=d_m * 1000, charge_length_m=charge_length,
             charge_mass_kg=charge_mass, volume_per_hole_m3=v_hole, burden_m=W, spacing_m=m * W,
+            burden_to_diameter=W / d_m,
             rock_factor_a=rock.value, rock_factor=rock, re_weight=re_weight,
             strength_exponent=settings.strength_exponent, x50_mm=x50_mm,
             uniformity_n_raw=n.raw, uniformity_n=n.value, charge_to_bench=n.charge_to_bench,
@@ -178,7 +181,9 @@ class BlastEngine:
         """Наименьший q (шаг 0,01 от 0,10 до верхней границы), при котором негабарит не больше порога."""
         settings = settings or kr.KuzRamSettings()
         first = round(kr.Q_MIN_KG_M3 * 100)
-        last = round(settings.q_max_kg_m3 * 100)
+        # floor, не round: у верхней границы 1.557 не должен стать 1.56 —
+        # тогда «порог не достигнут» может отдать q выше запрошенного предела.
+        last = math.floor(settings.q_max_kg_m3 * 100 + 1e-9)
         for i in range(first, last + 1):
             point = self.kuzram_point(diameter_mm, i / 100, settings)
             if point.oversize_pct <= max_oversize_threshold:
@@ -205,7 +210,7 @@ class BlastEngine:
 if __name__ == "__main__":
     # 1. Инициализация данных
     rock = RockProperties("Габбро-диабаз", 2.9, 168, 2.2) # Характеристики породы
-    # ВВ задаётся теплотой взрыва Q_exp (МДж/кг). RE_weight = 4.184/2.99 ≈ 1.40 (эмульсия слабее ТНТ по энергии на кг)
+    # ВВ задаётся теплотой взрыва Q_exp (МДж/кг). RE_weight = 2.99/4.184 ≈ 0.71 (эмульсия слабее ТНТ по энергии на кг)
     explosive = ExplosiveProperties("ЭВЕРСИН Э-100", 1.12, 2.99)
     # Цель: кусок не более 400мм, высота уступа 10м
     target = TargetParams(lump_size_mm=400, hole_diameter_mm=0, bench_height_m=10.0)

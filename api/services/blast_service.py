@@ -92,7 +92,7 @@ def optimize_blast(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
 def calibrate_kuzram(request: KuzRamCalibrateRequest) -> KuzRamCalibrateResponse:
     """C(A) по фактическим взрывам: для каждой строки и среднее геометрическое по решённым."""
     rock, explosive, target = blast_request_to_engine_inputs(request)
-    settings = request.kuzram.to_settings()
+    settings = (request.kuzram or KuzRamSettingsSchema()).to_settings()
     engine = BlastEngine(rock, explosive, target)
     rows: list[KuzRamCalibrationRow] = []
     solved: list[float] = []

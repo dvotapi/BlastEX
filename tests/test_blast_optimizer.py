@@ -86,6 +86,7 @@ class KuzRamOptimizerTests(unittest.TestCase):
         self.assertEqual(point.strength_exponent, "19/20")
         self.assertAlmostEqual(point.charge_to_bench, 0.88)
         self.assertAlmostEqual(point.hole_diameter_mm, 159.6)
+        self.assertAlmostEqual(point.burden_to_diameter, point.burden_m / 0.1596)
 
     def test_q_can_go_below_old_floor(self):
         soft = BlastEngine(
@@ -112,6 +113,23 @@ class KuzRamOptimizerTests(unittest.TestCase):
 
     def test_calibration_outside_bounds(self):
         self.assertIsNone(_gabbro().calibrate_rock_factor(152, 1.1, 99.99, kr.KuzRamSettings()))
+
+    def test_calibration_at_upper_bound_does_not_raise(self):
+        # oversize_at(C(A)=10) — без зажима в solve_rock_factor_correction
+        # replace(settings, rock_factor_correction=10.000000000000002) падает
+        # с «Поправка C(A) — от 0,1 до 10.».
+        engine = _gabbro()
+        target = engine.kuzram_point(152, 1.1, kr.KuzRamSettings(rock_factor_correction=10.0)).oversize_pct
+        found = engine.calibrate_rock_factor(152, 1.1, target, kr.KuzRamSettings())
+        self.assertIsNotNone(found)
+        self.assertLessEqual(found, 10.0)
+
+    def test_upper_bound_is_floored_not_rounded(self):
+        # round(1.527 * 100) = 153 → 1.53 кг/м³; порог впервые достигается
+        # только на 1.53, значит на floor-границе 1.52 «не достигнут».
+        result = _gabbro().optimize_blast(250, 5.0, kr.KuzRamSettings(q_max_kg_m3=1.527))
+        self.assertFalse(result.reached)
+        self.assertEqual(result.point.q_kg_m3, 1.52)
 
 
 if __name__ == "__main__":

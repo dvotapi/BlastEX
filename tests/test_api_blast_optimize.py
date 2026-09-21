@@ -2,9 +2,12 @@
 import unittest
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
+from api.main import request_validation_handler, value_error_handler
 from api.routers import blast
+from api.schemas.blast import KuzRamSettingsSchema
 from Blast import BlastEngine, ExplosiveProperties, RockProperties, TargetParams
 from simulation.fragmentation import cunningham as kr
 
@@ -21,6 +24,20 @@ GABBRO = {
 def _client() -> TestClient:
     app = FastAPI()
     app.include_router(blast.router, prefix="/api/v1")
+    return TestClient(app)
+
+
+def _client_with_app_handlers() -> TestClient:
+    """Клиент с обработчиками ошибок из api/main.py (не умолчаниями FastAPI).
+
+    ``_client()`` использует голый ``FastAPI()`` со стандартным обработчиком
+    ``RequestValidationError`` — он маскирует баг сериализации, из-за
+    которого в реальном приложении та же ошибка настроек даёт 500.
+    """
+    app = FastAPI()
+    app.include_router(blast.router, prefix="/api/v1")
+    app.add_exception_handler(RequestValidationError, request_validation_handler)
+    app.add_exception_handler(ValueError, value_error_handler)
     return TestClient(app)
 
 
@@ -44,6 +61,7 @@ class OptimizeEndpointTests(unittest.TestCase):
         self.assertAlmostEqual(variant["details"]["rock_factor"]["value"], 6.366)
         self.assertAlmostEqual(variant["details"]["rock_factor"]["rdi"], 22.5)
         self.assertEqual(variant["details"]["strength_exponent"], "19/20")
+        self.assertIn("burden_to_diameter", variant["details"])
 
     def test_legacy_block_matches_old_response(self):
         legacy = _optimize(crown_diameters_mm=[152])["variants"][0]["legacy"]
@@ -71,9 +89,43 @@ class OptimizeEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         messages = " ".join(error["msg"] for error in response.json()["detail"])
         self.assertIn("Поправка C(A) — от 0,1 до 10.", messages)
+        for error in response.json()["detail"]:
+            self.assertFalse(error["msg"].startswith("Value error"), error["msg"])
 
     def test_unknown_setting_is_rejected(self):
         response = _client().post("/api/v1/blast/optimize", json={**GABBRO, "kuzram": {"a_method": "code"}})
+        self.assertEqual(response.status_code, 422)
+
+    def test_out_of_range_setting_is_422_with_real_app_handlers(self):
+        # С голым FastAPI() (_client()) обработчик по умолчанию сериализует
+        # ошибку без проблем; в реальном приложении (api/main.py) тот же
+        # ValueError в ctx падал с TypeError → 500. Проверяем через
+        # настоящие обработчики.
+        response = _client_with_app_handlers().post(
+            "/api/v1/blast/optimize", json={**GABBRO, "kuzram": {"rock_factor_correction": 50}}
+        )
+        self.assertEqual(response.status_code, 422)
+        body = response.json()
+        self.assertEqual(body["error_type"], "validation_error")
+        messages = [error["msg"] for error in body["details"]]
+        self.assertIn("Поправка C(A) — от 0,1 до 10.", messages)
+
+    def test_rock_factor_non_positive_is_400_with_real_app_handlers(self):
+        response = _client_with_app_handlers().post(
+            "/api/v1/blast/optimize",
+            json={
+                **GABBRO,
+                "rock": {"name": "Уголь", "density_t_m3": 1.4, "ucs_mpa": 20, "fissuring_ff": 1},
+                "kuzram": {"rock_factor_method": "rmd10"},
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Фактор породы A", response.json()["detail"])
+
+    def test_crown_diameters_over_fifty_is_422(self):
+        response = _client().post(
+            "/api/v1/blast/optimize", json={**GABBRO, "crown_diameters_mm": [110.0 + i for i in range(51)]}
+        )
         self.assertEqual(response.status_code, 422)
 
 
@@ -101,6 +153,12 @@ class CalibrateEndpointTests(unittest.TestCase):
         self.assertGreater(body["rows"][0]["legacy_oversize_pct"], 0)
         self.assertIsNone(body["rows"][3]["rock_factor_correction"])
         self.assertIn("C(A) от 0,1 до 10", body["rows"][3]["note"])
+        # GABBRO не задаёт "kuzram" → запрос считает по умолчаниям
+        # KuzRamSettings() (F10.3), значит и разобранная строка тоже.
+        self.assertEqual(
+            body["rows"][0]["model_oversize_pct"],
+            round(engine.kuzram_point(110, 1.0, kr.KuzRamSettings()).oversize_pct, 2),
+        )
 
     def test_nothing_solved_gives_null(self):
         facts = [{"crown_mm": 152, "q_kg_m3": 1.1, "oversize_pct": 99.99}]
@@ -111,6 +169,41 @@ class CalibrateEndpointTests(unittest.TestCase):
     def test_facts_are_required(self):
         response = _client().post("/api/v1/blast/kuzram/calibrate", json={**GABBRO, "facts": []})
         self.assertEqual(response.status_code, 422)
+
+    def test_kuzram_none_uses_defaults(self):
+        facts = [{"crown_mm": 152, "q_kg_m3": 1.1, "oversize_pct": 5.0}]
+        response = _client().post("/api/v1/blast/kuzram/calibrate", json={**GABBRO, "kuzram": None, "facts": facts})
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_fact_q_over_ten_is_422(self):
+        facts = [{"crown_mm": 152, "q_kg_m3": 11, "oversize_pct": 5.0}]
+        response = _client().post("/api/v1/blast/kuzram/calibrate", json={**GABBRO, "facts": facts})
+        self.assertEqual(response.status_code, 422)
+
+    def test_out_of_range_kuzram_is_422_with_real_app_handlers(self):
+        facts = [{"crown_mm": 152, "q_kg_m3": 1.1, "oversize_pct": 5.0}]
+        response = _client_with_app_handlers().post(
+            "/api/v1/blast/kuzram/calibrate",
+            json={**GABBRO, "kuzram": {"rock_factor_correction": 50}, "facts": facts},
+        )
+        self.assertEqual(response.status_code, 422)
+        body = response.json()
+        self.assertEqual(body["error_type"], "validation_error")
+        messages = [error["msg"] for error in body["details"]]
+        self.assertIn("Поправка C(A) — от 0,1 до 10.", messages)
+
+
+class SettingsSchemaParityTests(unittest.TestCase):
+    """F7: умолчания и выбор значений не должны расходиться между схемой и датаклассом."""
+
+    def test_schema_defaults_round_trip_to_dataclass_defaults(self):
+        self.assertEqual(KuzRamSettingsSchema().to_settings(), kr.KuzRamSettings())
+
+    def test_from_settings_round_trip_matches_schema_defaults(self):
+        self.assertEqual(
+            KuzRamSettingsSchema.from_settings(kr.KuzRamSettings()).model_dump(),
+            KuzRamSettingsSchema().model_dump(),
+        )
 
 
 if __name__ == "__main__":

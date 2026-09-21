@@ -5,6 +5,7 @@ from dataclasses import asdict
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import PydanticCustomError
 
 from api.schemas.cost import BlockGeometrySchema, HoleGeometrySchema, InitiationConfigSchema
 from simulation.fragmentation.cunningham import KuzRamSettings
@@ -55,7 +56,13 @@ class KuzRamSettingsSchema(BaseModel):
 
     @model_validator(mode="after")
     def _within_bounds(self) -> "KuzRamSettingsSchema":
-        self.to_settings()
+        try:
+            self.to_settings()
+        except ValueError as exc:
+            # Простой ValueError pydantic заворачивает в ctx с самим объектом
+            # исключения (не JSON-сериализуемо) и добавляет префикс «Value
+            # error, » — PydanticCustomError отдаёт ровно текст сообщения.
+            raise PydanticCustomError("kuzram_settings", str(exc)) from exc
         return self
 
     def to_settings(self) -> KuzRamSettings:
@@ -95,6 +102,7 @@ class FragmentationDetailsSchema(BaseModel):
     volume_per_hole_m3: float
     burden_m: float
     spacing_m: float
+    burden_to_diameter: float
     rock_factor_a: float
     rock_factor: RockFactorBreakdownSchema | None
     re_weight: float
@@ -128,6 +136,7 @@ class BlastOptimizeRequest(BaseModel):
     crown_diameters_mm: list[float] = Field(
         default_factory=lambda: [110, 115, 122, 125, 130, 140, 152, 165, 171, 220, 250],
         min_length=1,
+        max_length=50,
     )
     max_oversize_threshold_pct: float = Field(5.0, gt=0, le=30)
     kuzram: KuzRamSettingsSchema | None = None
@@ -158,8 +167,8 @@ class BlastOptimizeResponse(BaseModel):
 
 
 class KuzRamFactSchema(BaseModel):
-    crown_mm: float = Field(..., gt=0)
-    q_kg_m3: float = Field(..., gt=0)
+    crown_mm: float = Field(..., gt=0, le=1000)
+    q_kg_m3: float = Field(..., gt=0, le=10)
     oversize_pct: float = Field(..., gt=0, lt=100)
 
 
@@ -167,7 +176,7 @@ class KuzRamCalibrateRequest(BaseModel):
     rock: RockPropertiesSchema
     explosive: ExplosivePropertiesSchema
     target: TargetParamsSchema
-    kuzram: KuzRamSettingsSchema = Field(default_factory=KuzRamSettingsSchema)
+    kuzram: KuzRamSettingsSchema | None = None
     facts: list[KuzRamFactSchema] = Field(..., min_length=1, max_length=50)
 
 

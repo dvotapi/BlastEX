@@ -10,6 +10,7 @@ import matplotlib
 matplotlib.use("Agg")  # без дисплея в контейнере — до любого импорта pyplot
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -125,7 +126,7 @@ async def request_validation_handler(
             message="Ошибка валидации входных данных.",
             error_type="validation_error",
             status_code=422,
-            details=exc.errors(),
+            details=jsonable_encoder(exc.errors()),
         ),
     )
 
@@ -138,7 +139,7 @@ async def pydantic_validation_handler(_: Request, exc: ValidationError) -> JSONR
             message="Ошибка сериализации ответа.",
             error_type="response_validation_error",
             status_code=422,
-            details=exc.errors(),
+            details=jsonable_encoder(exc.errors()),
         ),
     )
 

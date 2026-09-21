@@ -44,7 +44,7 @@
 
 ---
 
-### Задача 1. Эталоны до правки
+### Task 1. Эталоны до правки
 
 Снимок старой модели нужно снять **до** любого изменения `Blast.py`, иначе сравнивать будет не с чем.
 
@@ -241,7 +241,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Задача 2. Модуль формул Каннингема
+### Task 2. Модуль формул Каннингема
 
 **Файлы:**
 - Создать: `simulation/fragmentation/cunningham.py`
@@ -658,7 +658,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Задача 3. Подбор q в `Blast.py`: новая модель и расчёт «до исправления»
+### Task 3. Подбор q в `Blast.py`: новая модель и расчёт «до исправления»
 
 **Файлы:**
 - Изменить: `Blast.py` (весь движок, строки 1–160)
@@ -1050,7 +1050,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Задача 4. API: настройки, разбор, «до исправления» и калибровка
+### Task 4. API: настройки, разбор, «до исправления» и калибровка
 
 **Файлы:**
 - Изменить: `api/schemas/blast.py` (после `TargetParamsSchema` и в `BlastOptimizeRequest` / `BlastOptimizeVariant` / `BlastOptimizeResponse`)
@@ -1520,7 +1520,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Задача 5. Документация
+### Task 5. Документация
 
 **Файлы:**
 - Создать: `Docs/KUZRAM_MODEL.md`
@@ -1660,7 +1660,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Задача 6. Проверка, ревью и PR
+### Task 6. Проверка, ревью и PR
 
 - [ ] **Шаг 1. Все тесты**
 

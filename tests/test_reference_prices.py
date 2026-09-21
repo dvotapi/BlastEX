@@ -70,9 +70,3 @@ def test_unknown_material_is_not_found() -> None:
     lookup = effective_price_lookup((price("P_A", "10"),), "MAT_NONE", as_of=TODAY)
     assert not lookup.found
     assert lookup.chosen is None
-    assert lookup.source == ""
-
-
-def test_source_names_the_chosen_record() -> None:
-    lookup = effective_price_lookup((price("P_A", "10"),), "MAT_VV", as_of=TODAY)
-    assert lookup.source == "material_prices.P_A"

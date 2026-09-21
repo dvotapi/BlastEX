@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 
 import pytest
 
 from cost.model.engine import compute_block_economics
+from cost.model.inputs import ServiceCharge
 from tests import model_fixtures as fx
 
 NOMENCLATURE = {
@@ -19,6 +21,7 @@ NOMENCLATURE = {
     "NSI_DOWNHOLE": "MAT_NSI",
     "NSI_SURFACE": "MAT_NSI_SURFACE",
     "NSI_START": "MAT_NSI_START",
+    "DETONATOR_ELECTRIC": "MAT_DETONATOR_EL",
 }
 
 REMOTE_RATES = fx.item(
@@ -28,10 +31,16 @@ REMOTE_RATES = fx.item(
 )
 
 SCENARIOS = {
-    # Все разделы сметы: номенклатура, патроны со склада, эмульсия, вахта.
+    # Все разделы сметы: номенклатура с электродетонаторами, введёнными
+    # вручную, патроны со склада, эмульсия, вахта, услуга с вкладки.
     "full": (
         {"cartridge_kg": 2200, "bulk_kg": 39800},
-        {"nomenclature": NOMENCLATURE, "emulsion_truck_code": "TRUCK_EMULSION_20T"},
+        {
+            "nomenclature": NOMENCLATURE,
+            "electric_detonators_qty": Decimal("10"),
+            "emulsion_truck_code": "TRUCK_EMULSION_20T",
+            "services": (ServiceCharge("Проживание бригады", Decimal("120000")),),
+        },
     ),
     # ВМ считают правила затрат, а не выбранная номенклатура.
     "rules_only": ({}, {}),

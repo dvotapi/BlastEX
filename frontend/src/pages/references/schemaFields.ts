@@ -26,6 +26,9 @@ export type FieldDescriptor = {
   internal: boolean;
   minimum?: number;
   maximum?: number;
+  /** Строгие границы (`gt`/`lt` на сервере): значение само в диапазон не входит. */
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
   /** Схема задаёт целое (`integer`), а не Decimal. */
   integer: boolean;
   defaultValue: unknown;
@@ -126,6 +129,8 @@ export function describeField(
     internal: node["x-internal"] === true,
     minimum: pick(node, (variant) => variant.minimum),
     maximum: pick(node, (variant) => variant.maximum),
+    exclusiveMinimum: pick(node, (variant) => variant.exclusiveMinimum),
+    exclusiveMaximum: pick(node, (variant) => variant.exclusiveMaximum),
     integer: type === "integer",
     defaultValue: node.default,
     ...(kind === "list" ? describeItem(itemsNode, defs) : {}),
@@ -414,6 +419,36 @@ const INTEGER_FORMAT = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3
 
 export function formatNumber(value: number): string {
   return NUMBER_FORMAT.format(value);
+}
+
+/**
+ * Ошибка границы числового поля верхнего уровня — общий механизм вместо
+ * знания о конкретном поле (крепость породы, дни вахты и любое другое число
+ * с `gt`/`ge`/`lt`/`le` в схеме проверяются одинаково).
+ *
+ * Пустое значение и нечисловой ввод не считаются ошибкой границы: об
+ * обязательности и формате числа скажет сервер. Тексты — те же, что
+ * `_humanize` на сервере (`cost/v2/references.py`), но без имени поля: его
+ * уже называет подпись над полем.
+ */
+export function boundError(field: FieldDescriptor, value: unknown): string | null {
+  if (field.kind !== "number") return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const parsed = parseNumber(value);
+  if (parsed === null) return null;
+  if (field.exclusiveMinimum !== undefined && parsed <= field.exclusiveMinimum) {
+    return `Должно быть больше ${formatNumber(field.exclusiveMinimum)}`;
+  }
+  if (field.minimum !== undefined && parsed < field.minimum) {
+    return `Должно быть не меньше ${formatNumber(field.minimum)}`;
+  }
+  if (field.exclusiveMaximum !== undefined && parsed >= field.exclusiveMaximum) {
+    return `Должно быть меньше ${formatNumber(field.exclusiveMaximum)}`;
+  }
+  if (field.maximum !== undefined && parsed > field.maximum) {
+    return `Должно быть не больше ${formatNumber(field.maximum)}`;
+  }
+  return null;
 }
 
 /** Значение поля для списка записей: число с единицей, код ссылки, «да/нет». */

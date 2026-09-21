@@ -16,6 +16,8 @@ export type JsonSchemaNode = {
   default?: unknown;
   minimum?: number;
   maximum?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
   format?: string;
   pattern?: string;
   properties?: Record<string, JsonSchemaNode>;

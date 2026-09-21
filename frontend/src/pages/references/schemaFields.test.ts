@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  boundError,
   decimalText,
   defaultPayload,
   describeField,
@@ -425,5 +426,51 @@ describe("fieldErrorShown: путь ошибки, который форма ри
       properties: { items: { type: "array", items: { $ref: "#/$defs/Item" }, title: "Состав" } },
     };
     expect(fieldErrorShown("items.0", sectionFields(internalOnly), { items: [{}] })).toBe(false);
+  });
+});
+
+describe("boundError: граница числового поля из схемы", () => {
+  // Как «Крепость по Протодьяконову» в разделе rocks: gt=0 на сервере даёт
+  // exclusiveMinimum в JSON Schema.
+  const strictlyPositive = describeField("hardness_f", {
+    anyOf: [{ exclusiveMinimum: 0, type: "number" }, { type: "string" }, { type: "null" }],
+    title: "Крепость",
+    "x-unit": "f",
+  });
+
+  it("значение на строгой нижней границе или за ней — ошибка с текстом сервера", () => {
+    expect(boundError(strictlyPositive, "0")).toBe("Должно быть больше 0");
+    expect(boundError(strictlyPositive, "-1")).toBe("Должно быть больше 0");
+  });
+
+  it("значение с запятой внутри границы — не ошибка", () => {
+    expect(boundError(strictlyPositive, "0,5")).toBeNull();
+  });
+
+  it("пустое значение — не ошибка: обязательность проверяет сервер", () => {
+    expect(boundError(strictlyPositive, "")).toBeNull();
+  });
+
+  it("нечисловой ввод — не ошибка: о нём скажет сервер", () => {
+    expect(boundError(strictlyPositive, "полтора")).toBeNull();
+  });
+
+  // Как «Дней вахты» в разделе sites: ge/le обычные, не строгие.
+  const bounded = describeField("shift_days_on", {
+    anyOf: [{ minimum: 0, maximum: 366, type: "number" }, { type: "string" }],
+    title: "Дней вахты",
+    "x-unit": "дн",
+  });
+
+  it("minimum и maximum проверяются нестрого", () => {
+    expect(boundError(bounded, "-1")).toBe("Должно быть не меньше 0");
+    expect(boundError(bounded, "0")).toBeNull();
+    expect(boundError(bounded, "400")).toBe("Должно быть не больше 366");
+    expect(boundError(bounded, "366")).toBeNull();
+  });
+
+  it("нечисловое поле границу не проверяет", () => {
+    const text = describeField("comment", { type: "string", title: "Комментарий" });
+    expect(boundError(text, "что угодно")).toBeNull();
   });
 });

@@ -82,6 +82,66 @@ function renderForm(onApply: (next: DraftItem) => void, issues: ReferenceValidat
   return render(formElement(onApply, issues));
 }
 
+// Раздел с числовым полем верхнего уровня и строгой нижней границей — как
+// «Крепость по Протодьяконову» в rocks (gt=0 → exclusiveMinimum в схеме).
+const BOUND_SECTION: ReferenceSectionSchema = {
+  code: "rocks",
+  label: "Породы",
+  group: "misc",
+  view: "table",
+  deprecated: false,
+  list_columns: [],
+  fieldsets: [],
+  json_schema: {
+    type: "object",
+    properties: {
+      hardness_f: {
+        anyOf: [{ exclusiveMinimum: 0, type: "number" }, { type: "string" }, { type: "null" }],
+        default: null,
+        title: "Крепость по Протодьяконову",
+        "x-unit": "f",
+      },
+    },
+  },
+};
+
+const BOUND_RECORD: DraftItem = {
+  row_id: "row-2",
+  code: "ROCK_X",
+  name: "Порода",
+  payload: { hardness_f: "5" },
+  is_active: true,
+  valid_from: null,
+  valid_to: null,
+  source: "",
+  comment: "",
+  revision: 1,
+};
+
+function renderBoundForm(onApply: (next: DraftItem) => void) {
+  return render(
+    <RecordForm
+      section={BOUND_SECTION}
+      record={BOUND_RECORD}
+      published={BOUND_RECORD}
+      issues={[]}
+      canEdit
+      isNew={false}
+      changed={false}
+      refOptions={() => []}
+      sectionLabels={{}}
+      siblings={[]}
+      context={{ sections: {} }}
+      vatRate={0.2}
+      onApply={onApply}
+      onReset={() => undefined}
+      onDeactivate={() => undefined}
+      onDuplicate={() => undefined}
+      onClose={() => undefined}
+    />,
+  );
+}
+
 describe("RecordForm: списки объектов", () => {
   it("«Применить» без правок возвращает тот же payload", () => {
     const onApply = vi.fn();
@@ -208,5 +268,25 @@ describe("RecordForm: списки объектов", () => {
       },
     ]);
     expect(screen.getByText("Состав бригады → строка 1: неизвестное поле unknown_key")).toBeInTheDocument();
+  });
+});
+
+describe("RecordForm: граница числового поля из схемы", () => {
+  it("значение на строгой нижней границе — ошибка под полем, «Применить» недоступна", () => {
+    const onApply = vi.fn();
+    renderBoundForm(onApply);
+    fireEvent.change(screen.getByLabelText(/Крепость по Протодьяконову/), { target: { value: "0" } });
+    expect(screen.getByText("Должно быть больше 0")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+  });
+
+  it("значение внутри границы — «Применить» доступна и возвращает payload", () => {
+    const onApply = vi.fn();
+    renderBoundForm(onApply);
+    fireEvent.change(screen.getByLabelText(/Крепость по Протодьяконову/), { target: { value: "2" } });
+    const button = screen.getByRole("button", { name: "Применить" });
+    expect(button).not.toBeDisabled();
+    fireEvent.click(button);
+    expect(onApply.mock.calls[0][0].payload).toEqual({ hardness_f: "2" });
   });
 });

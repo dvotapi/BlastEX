@@ -3,6 +3,7 @@ import type { ReferenceSectionSchema } from "../../types/referenceSchema";
 import type { EconomicsReferenceItem, ReferenceValidationIssue } from "../../types/economics";
 import { derivedHints, type DerivedContext } from "../../lib/referenceDerived";
 import {
+  boundError,
   fieldErrorShown,
   formFieldsets,
   isRubleField,
@@ -114,6 +115,19 @@ export function RecordForm({
     setTouched(new Set());
   }, [record, section.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Границы числовых полей верхнего уровня — из схемы, а не знания формы о
+  // конкретном поле; считаются по текущему вводу, включая режим «Ввести с
+  // НДС» (граница проверяет то же значение, что сметчик набрал). Подполя
+  // строк списков границу здесь не получают — ListField их не трогает.
+  const boundErrors = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const field of fields) {
+      const message = boundError(field, values[field.name]);
+      if (message) map.set(field.name, message);
+    }
+    return map;
+  }, [fields, values]);
+
   const fieldErrors = useMemo(() => {
     const map = new Map<string, string>();
     for (const issue of issues) {
@@ -124,8 +138,14 @@ export function RecordForm({
       if (previous === undefined) map.set(issue.field, issue.message);
       else if (!previous.split("\n").includes(issue.message)) map.set(issue.field, `${previous}\n${issue.message}`);
     }
+    // Ошибка границы — впереди серверной ошибки того же поля: она не даёт
+    // отправить значение, которое сервер ещё не видел.
+    for (const [name, message] of boundErrors) {
+      const previous = map.get(name);
+      map.set(name, previous ? `${message}\n${previous}` : message);
+    }
     return map;
-  }, [issues]);
+  }, [issues, boundErrors]);
   // Поля брать те, что реально рисуются: ошибка поля вне групп сервера (не
   // попавшего в fieldsets) тоже должна попасть сюда, а не потеряться.
   const renderedFields = fieldsets.flatMap((set) => set.fields);
@@ -397,7 +417,12 @@ export function RecordForm({
         >
           {published ? "Сбросить" : "Удалить"}
         </button>
-        <button type="button" className="primary-button" onClick={apply} disabled={!canEdit}>
+        <button
+          type="button"
+          className="primary-button"
+          onClick={apply}
+          disabled={!canEdit || boundErrors.size > 0}
+        >
           Применить
         </button>
       </footer>

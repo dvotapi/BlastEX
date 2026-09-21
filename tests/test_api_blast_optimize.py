@@ -1,4 +1,5 @@
 """API подбора q: /blast/optimize (Kuz-Ram и «до исправления») и /blast/kuzram/calibrate."""
+import json
 import unittest
 
 from fastapi import FastAPI
@@ -127,6 +128,37 @@ class OptimizeEndpointTests(unittest.TestCase):
             "/api/v1/blast/optimize", json={**GABBRO, "crown_diameters_mm": [110.0 + i for i in range(51)]}
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_absurd_lump_size_is_422_not_500(self):
+        # Без верхней границы n не клэмпится, и math.pow(lump/xc, n) в
+        # rosin_rammler_oversize_pct кидает OverflowError → 500.
+        response = _client().post(
+            "/api/v1/blast/optimize",
+            json={**GABBRO, "crown_diameters_mm": [152], "target": {**GABBRO["target"], "lump_size_mm": 1e305}},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_absurd_spacing_coeff_is_422_not_500(self):
+        # Огромное a/W тоже даёт переполнение через n (при полном наборе
+        # коронок по умолчанию — см. cr-fix-brief.md R1).
+        response = _client().post(
+            "/api/v1/blast/optimize",
+            json={**GABBRO, "target": {**GABBRO["target"], "spacing_coeff_m": 1e6}},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_huge_joint_angle_is_422_with_jpa_message(self):
+        # 10**400 не помещается в float → float(joint_angle) в
+        # KuzRamSettings.__post_init__ кидал OverflowError. Тело собираем
+        # через json.dumps: Python-int неограничен, а TestClient(json=...)
+        # не должен превращать его во float на пути к серверу.
+        body = json.dumps({**GABBRO, "crown_diameters_mm": [152], "kuzram": {"joint_angle": 10**400}})
+        response = _client().post(
+            "/api/v1/blast/optimize", content=body, headers={"Content-Type": "application/json"}
+        )
+        self.assertEqual(response.status_code, 422)
+        messages = [error["msg"] for error in response.json()["detail"]]
+        self.assertTrue(any("JPA" in msg for msg in messages), messages)
 
 
 class CalibrateEndpointTests(unittest.TestCase):

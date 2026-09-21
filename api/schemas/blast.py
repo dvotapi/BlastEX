@@ -31,28 +31,39 @@ class ExplosivePropertiesSchema(BaseModel):
 class TargetParamsSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    lump_size_mm: float = Field(..., gt=0, examples=[400])
+    # Верхние границы — не технологический предел, а защита от переполнения:
+    # без клэмпа n = math.pow(lump/xc, n) в rosin_rammler_oversize_pct кидает
+    # OverflowError на абсурдных значениях (интерфейс не даёт их ввести:
+    # lump_size_mm — 100–1200 мм, spacing_coeff_m — 1–2).
+    lump_size_mm: float = Field(..., gt=0, le=10000, examples=[400])
     hole_diameter_mm: float = Field(0, ge=0)
     overdrill_m: float = Field(1.0, ge=0)
     hole_oversize_coeff: float = Field(1.05, ge=1.0, le=1.5)
-    spacing_coeff_m: float = Field(1.25, gt=0)
+    spacing_coeff_m: float = Field(1.25, gt=0, le=10)
     bench_height_m: float = Field(10.0, gt=0)
 
 
+_KUZRAM_DEFAULTS = KuzRamSettings()
+
+
 class KuzRamSettingsSchema(BaseModel):
-    """Настройки модели Kuz-Ram. Границы и тексты ошибок — в KuzRamSettings."""
+    """Настройки модели Kuz-Ram. Границы и тексты ошибок — в KuzRamSettings.
+
+    Умолчания читаются из ``_KUZRAM_DEFAULTS`` (сам датакласс), а не
+    повторяются литералами — иначе схема и датакласс расходятся молча.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    rock_factor_method: Literal["rmd50", "rmd10", "joint_factor", "manual"] = "rmd50"
-    rock_factor_manual: float = 6.0
-    joint_condition: float = 1.0
-    joint_angle: int = 20
-    rock_factor_correction: float = 1.0
-    strength_exponent: Literal["19/20", "19/30"] = "19/20"
-    drill_deviation_m: float = 0.0
-    uniformity_correction: float = 1.0
-    q_max_kg_m3: float = 2.0
+    rock_factor_method: Literal["rmd50", "rmd10", "joint_factor", "manual"] = _KUZRAM_DEFAULTS.rock_factor_method
+    rock_factor_manual: float = _KUZRAM_DEFAULTS.rock_factor_manual
+    joint_condition: float = _KUZRAM_DEFAULTS.joint_condition
+    joint_angle: int = _KUZRAM_DEFAULTS.joint_angle
+    rock_factor_correction: float = _KUZRAM_DEFAULTS.rock_factor_correction
+    strength_exponent: Literal["19/20", "19/30"] = _KUZRAM_DEFAULTS.strength_exponent
+    drill_deviation_m: float = _KUZRAM_DEFAULTS.drill_deviation_m
+    uniformity_correction: float = _KUZRAM_DEFAULTS.uniformity_correction
+    q_max_kg_m3: float = _KUZRAM_DEFAULTS.q_max_kg_m3
 
     @model_validator(mode="after")
     def _within_bounds(self) -> "KuzRamSettingsSchema":

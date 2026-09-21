@@ -69,7 +69,10 @@ class KuzRamSettings:
             raise ValueError("Показатель при силе ВВ — 19/20 или 19/30.")
         if float(self.joint_condition) not in JOINT_CONDITIONS:
             raise ValueError("Состояние трещин JCF — 1; 1,5 или 2.")
-        if float(self.joint_angle) not in JOINT_ANGLES:
+        # Без float(...): int и float (например, 20.0) и так сравниваются по
+        # значению через ==, а float(10**400) кидает OverflowError раньше,
+        # чем мы успеваем сказать пользователю, что JPA не входит в список.
+        if self.joint_angle not in JOINT_ANGLES:
             raise ValueError("Ориентация трещин JPA — 20, 30 или 40.")
         for name, (low, high, label) in NUMERIC_BOUNDS.items():
             value = float(getattr(self, name))

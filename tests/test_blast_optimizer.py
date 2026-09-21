@@ -4,8 +4,10 @@ import math
 import unittest
 from pathlib import Path
 
-from Blast import BlastEngine, ExplosiveProperties, RockProperties, TargetParams
+from Blast import BlastEngine, ExplosiveProperties, RockProperties, TargetParams, _legacy_uniformity_raw
 from simulation.fragmentation import cunningham as kr
+from simulation.fragmentation.kuzram import MIN_UNIFORMITY_N as LEGACY_MIN_UNIFORMITY_N
+from simulation.fragmentation.kuzram import cunningham_uniformity_n
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -48,6 +50,25 @@ class LegacyOptimizerTests(unittest.TestCase):
         self.assertEqual(round(result.point.q_kg_m3, 2), 1.34)
         self.assertIsNone(result.point.rock_factor)
         self.assertEqual(result.point.strength_exponent, "19/30")
+
+
+class LegacyUniformityRawTests(unittest.TestCase):
+    """R3: _legacy_uniformity_raw не должен разойтись с cunningham_uniformity_n."""
+
+    def test_matches_kuzram_module_when_not_clamped(self):
+        # burden/diameter и a/W подобраны так, чтобы (2,2 − 14·W/d) не
+        # клэмпилось полом 0,8 в cunningham_uniformity_n — тогда обе функции
+        # обязаны совпасть побитово (drill_deviation_m по умолчанию 0).
+        cases = [
+            (0.01, 0.16, 1.25),
+            (0.005, 0.2, 1.0),
+        ]
+        for burden_m, diameter_m, spacing_to_burden in cases:
+            with self.subTest(burden_m=burden_m, diameter_m=diameter_m, spacing_to_burden=spacing_to_burden):
+                raw = _legacy_uniformity_raw(burden_m, diameter_m, spacing_to_burden)
+                clamped = cunningham_uniformity_n(burden_m, diameter_m, spacing_to_burden)
+                self.assertGreater(raw, LEGACY_MIN_UNIFORMITY_N)  # клэмп и правда не сработал
+                self.assertEqual(raw, clamped)
 
 
 class KuzRamOptimizerTests(unittest.TestCase):

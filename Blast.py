@@ -41,6 +41,19 @@ CROWNS_MM = [110, 115, 122, 125, 130, 140, 152, 165, 171, 220, 250]
 FILL_RATIO = 0.8
 
 
+def _legacy_uniformity_raw(burden_m: float, diameter_m: float, spacing_to_burden: float) -> float:
+    """Нераскэмпленный индекс равномерности n для расчёта «до исправления».
+
+    Выражение должно оставаться идентичным нераскэмпленной части внутри
+    simulation/fragmentation/kuzram.py::cunningham_uniformity_n (при
+    drill_deviation_m = 0) — так расчёт «до исправления» и клэмпнутое n,
+    которое он же использует для самого прогноза, не расходятся незаметно
+    при будущей правке одной из формул. Результат может быть отрицательным
+    или сколь угодно большим — здесь его никто не клэмпит.
+    """
+    return (2.2 - 14.0 * (burden_m / diameter_m)) * (1.0 + (spacing_to_burden - 1.0) / 2.0)
+
+
 @dataclass(frozen=True)
 class BlastPoint:
     """Расчёт одной коронки при заданном q — все промежуточные величины без округления."""
@@ -102,17 +115,26 @@ class BlastEngine:
         W = math.sqrt(v_hole / (self.target.spacing_coeff_m * self.target.bench_height_m))
         return v_hole, W
 
+    def _hole(self, diameter_mm: float, q: float) -> tuple[float, float, float, float, float, float]:
+        """Общий пролог legacy_point и kuzram_point: геометрия скважины и заряда при q.
+
+        Отдаёт d_m, charge_length, charge_mass, v_hole, W, m — только вызовы
+        _charge/_burden и чтение spacing_coeff_m, без собственной арифметики.
+        """
+        d_m, charge_length, charge_mass = self._charge(diameter_mm)
+        v_hole, W = self._burden(charge_mass, q)
+        m = self.target.spacing_coeff_m
+        return d_m, charge_length, charge_mass, v_hole, W, m
+
     # --- Расчёт «до исправления»: только для сравнения на переходный период ---
 
     def legacy_point(self, diameter_mm: float, q: float) -> BlastPoint:
         """Прежняя модель: A не по Каннингему, показатель 19/30, n с диаметром в метрах (n ≥ 0,8)."""
-        d_m, charge_length, charge_mass = self._charge(diameter_mm)
-        v_hole, W = self._burden(charge_mass, q)
+        d_m, charge_length, charge_mass, v_hole, W, m = self._hole(diameter_mm, q)
         A = self._get_rock_factor()
         re_weight = self._get_re_weight()
         x50_mm = kuznetsov_x50_mm(A, q, charge_mass, re_weight)
-        m = self.target.spacing_coeff_m
-        n_raw = (2.2 - 14.0 * (W / d_m)) * (1.0 + (m - 1.0) / 2.0)
+        n_raw = _legacy_uniformity_raw(W, d_m, m)
         n = cunningham_uniformity_n(W, d_m, m)
         return BlastPoint(
             q_kg_m3=q, hole_diameter_mm=d_m * 1000, charge_length_m=charge_length,
@@ -139,9 +161,7 @@ class BlastEngine:
 
     def kuzram_point(self, diameter_mm: float, q: float, settings: kr.KuzRamSettings) -> BlastPoint:
         """Расчёт коронки при заданном q по Kuz-Ram (Каннингем, EFEE 2005)."""
-        d_m, charge_length, charge_mass = self._charge(diameter_mm)
-        v_hole, W = self._burden(charge_mass, q)
-        m = self.target.spacing_coeff_m
+        d_m, charge_length, charge_mass, v_hole, W, m = self._hole(diameter_mm, q)
         rock = kr.rock_factor(
             settings,
             ucs_mpa=self.rock.ucs_mpa,

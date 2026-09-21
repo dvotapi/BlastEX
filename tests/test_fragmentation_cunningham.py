@@ -30,6 +30,12 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "способ"):
             kr.KuzRamSettings(rock_factor_method="code")
 
+    def test_huge_joint_angle_is_rejected_without_overflow(self):
+        # float(10**400) кидает OverflowError, который не ловится как
+        # ValueError выше по стеку (KuzRamSettingsSchema._within_bounds).
+        with self.assertRaisesRegex(ValueError, "JPA"):
+            kr.KuzRamSettings(joint_angle=10**400)
+
 
 class RockFactorTests(unittest.TestCase):
     ROCK = dict(ucs_mpa=168.0, density_t_m3=2.9, fissuring_per_m=2.2, burden_m=3.54, spacing_m=4.425)

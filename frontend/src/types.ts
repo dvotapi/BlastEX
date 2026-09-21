@@ -212,6 +212,28 @@ export type BlastVariant = {
   target_q_kg_m3: number | null;
 };
 
+/** Способ расчёта фактора породы A в модели Kuz-Ram (Каннингем, 2005). */
+export type RockFactorMethod = "rmd50" | "rmd10" | "joint_factor" | "manual";
+
+/** Показатель при силе ВВ в формуле среднего куска. */
+export type StrengthExponent = "19/20" | "19/30";
+
+/** Настройки модели Kuz-Ram — как `KuzRamSettingsSchema` в API. */
+export type KuzRamSettings = {
+  rock_factor_method: RockFactorMethod;
+  rock_factor_manual: number;
+  joint_condition: number;
+  joint_angle: number;
+  rock_factor_correction: number;
+  strength_exponent: StrengthExponent;
+  drill_deviation_m: number;
+  uniformity_correction: number;
+  q_max_kg_m3: number;
+};
+
+/** Фактический взрыв для подбора C(A) — как `KuzRamFactSchema` в API. */
+export type KuzRamFactInput = { crown_mm: number; q_kg_m3: number; oversize_pct: number };
+
 export type InitiationConfig = {
   intermediate_detonators_per_hole: number;
   nsi_per_hole: number;

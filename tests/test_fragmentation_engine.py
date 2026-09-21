@@ -198,10 +198,9 @@ class BlastEngineRegressionTests(unittest.TestCase):
             TargetParams(lump_size_mm=400, hole_diameter_mm=0, bench_height_m=10.0),
         )
         result = engine.optimize_blast(152, max_oversize_threshold=5.0)
-        self.assertIn("x50_mm", result)
-        self.assertIn("oversize_pct", result)
-        self.assertGreater(result["x50_mm"], 0)
-        self.assertGreaterEqual(result["oversize_pct"], 0)
+        self.assertTrue(result.reached)
+        self.assertGreater(result.point.x50_mm, 0)
+        self.assertGreaterEqual(result.point.oversize_pct, 0)
 
 
 if __name__ == "__main__":

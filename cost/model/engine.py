@@ -226,7 +226,11 @@ def _rule_amount(context: ModelContext, rule: ReferenceItem) -> RuleCharge:
                 "отсутствует в натуральных величинах блока."
             )
         amount += rate * driver_value
-        parts.append(f"{rate} ₽ × {driver_value} {driver_name}")
+        # Сметчик читает «ткм», а не `vm_tkm`; величина без подписи остаётся
+        # голым числом — код драйвера в формуле хуже пустоты.
+        unit_label = driver_unit(driver_name)
+        quantity = f"{driver_value} {unit_label}" if unit_label else f"{driver_value}"
+        parts.append(f"{rate} ₽ × {quantity}")
     if fixed != 0:
         amount += fixed
         parts.append(f"{fixed} ₽ на блок")

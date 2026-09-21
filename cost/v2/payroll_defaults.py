@@ -227,9 +227,9 @@ def _positions(sections: dict[str, list[ReferenceItem]], report: PayrollSeedRepo
             sections["positions"].append(_new(code, name, {"category": "INDIRECT", **values}))
             report.added.append(f"positions:{code}")
             continue
-        if code in MAPPED_POSITIONS:
-            report.matched_positions.append(code)
         item = sections["positions"][index]
+        if code in MAPPED_POSITIONS and item.is_active:
+            report.matched_positions.append(code)
         report.kept.extend(_kept(f"positions:{code}", item, values))
         updated, filled = _fill(item, values)
         if filled:

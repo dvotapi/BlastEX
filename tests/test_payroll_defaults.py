@@ -222,6 +222,24 @@ def test_matched_positions_are_the_mapped_codes_found_in_the_snapshot():
     assert report.to_dict()["matched_positions"] == report.matched_positions
 
 
+def test_matched_positions_count_only_active_records():
+    # Из семи сопоставленных владельцем должностей в снимке есть только
+    # одна, и та деактивирована — защита «не та организация» не должна
+    # считать её найденной.
+    positions = (
+        ReferenceItem(
+            code="POSITION_LABOR_DRILLER",
+            name="Машинист буровой установки",
+            payload={"category": "INDIRECT"},
+            is_active=False,
+        ),
+    )
+
+    _, report = seed_payroll_references(fx.references(positions=(*fx.POSITIONS, *positions)))
+
+    assert report.matched_positions == []
+
+
 def test_broken_bit_diameters_are_skipped():
     diameters = {
         "MAT_BIT_TEXT": "abc",

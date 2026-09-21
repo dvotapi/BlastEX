@@ -229,6 +229,33 @@ def test_ceiling_within_rig_capacity_passes():
     assert _about(issues, "labor_rates") == []
 
 
+# Явный shift_hours=0 — «станок не бурит», как читает `cost/model/drilling.py`
+# (context.rates.shift_hours без подстановки умолчания). `_ceiling_above_rigs`
+# не должен заменять его умолчанием схемы (11 ч) — тогда потолок шкалы всегда
+# оказался бы выше нулевой производительности станков.
+
+
+def test_zero_shift_hours_is_not_replaced_by_the_schema_default():
+    sections = dict(default_reference_sections())
+    rates = sections["organization_rates"][0]
+    zero_shift = ReferenceItem(
+        code=rates.code, name=rates.name, payload={**rates.payload, "shift_hours": "0"}
+    )
+    issues = _issues(
+        **_drilling_rate(COND_BASE={"tech_speed_m_per_h": "10", "unproductive_h_per_shift": "1"}),
+        organization_rates=(zero_shift,),
+    )
+    assert _about(issues, "labor_rates") == [
+        (
+            "warning",
+            "RATE_DRILLER",
+            "ceiling_per_shift",
+            "Потолок 184.6154 м/смену выше производительности станков по базовым условиям бурения "
+            "(до 0 м/смену): машинист не дойдёт до потолка.",
+        )
+    ]
+
+
 def test_rotation_maintenance_against_rig_maintenance_ratio():
     rig = (_item("RIG", {"kind": "DRILL_RIG", "maintenance_ratio": "0.14"}, name="JK830"),)
     # 15 × 0,14 / 1,14 = 1,84 смены: 2 в пределах полусмены, 3 — нет.

@@ -177,7 +177,10 @@ def _ceiling_above_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -> list
 
     rates = next(iter(_active(sections, "organization_rates")), None)
     shift_hours = finite_decimal(rates.payload.get("shift_hours")) if rates is not None else None
-    shift_hours = shift_hours or OrganizationRatesPayload.model_fields["shift_hours"].default
+    # Явный 0 — «станок не бурит», как в `cost/model/drilling.py`: на умолчание
+    # схемы (11 ч) заменяется только отсутствующее/битое значение, не ноль.
+    if shift_hours is None:
+        shift_hours = OrganizationRatesPayload.model_fields["shift_hours"].default
     per_shift = [
         speed * max(shift_hours - (finite_decimal(item.payload.get("unproductive_h_per_shift")) or Decimal("0")), Decimal("0"))
         for item in _active(sections, "drilling_conditions")

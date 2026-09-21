@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import date
 from decimal import Decimal
 
 from cost.model import materials
@@ -52,8 +54,26 @@ def test_explosive_line_is_mass_from_the_passport_times_the_current_price() -> N
     assert row.layer is CostLayer.VARIABLE
     assert row.operation_code == "EVV_MANUFACTURE_ON_SITE"
     assert row.cost_item_name == "ЭВВ Эверсин-100"
-    assert "48.9 ₽/кг" in row.formula
-    assert "material_prices.PR_EVERSIN" in row.formula
+    # У цены в фикстуре нет даты начала действия — пояснять в скобках нечего.
+    assert row.formula == "29038.86 кг × 48.9 ₽/кг"
+
+
+def test_formula_names_the_date_of_the_price_not_its_record_code() -> None:
+    """Сметчик видит, с какой даты действует цена, а не служебный код записи прайса."""
+
+    price = replace(
+        fx.item("PR_EVERSIN", "ЭВВ Эверсин-100", {"material_code": "MAT_EVERSIN", "price_rub": "48.9"}),
+        valid_from=date(2026, 9, 1),
+    )
+    ctx = ModelContext(
+        references(material_prices=(price,)),
+        parameters(nomenclature={"EXPLOSIVE": "MAT_EVERSIN"}),
+        physical(explosive_kg="42000"),
+        as_of=date(2026, 9, 22),
+    )
+    run(ctx)
+
+    assert line(ctx, "MATERIAL_EXPLOSIVE").formula == "42000 кг × 48.9 ₽/кг (цена с 01.09.2026)"
 
 
 def test_role_label_names_the_role_not_the_chosen_material() -> None:

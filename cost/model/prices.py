@@ -27,7 +27,7 @@ def material_price(context: ModelContext, material_code: str) -> Decimal:
 
 
 def price_source(context: ModelContext, material_code: str) -> str:
-    """Происхождение цены для колонки «формула» строки затрат."""
+    """Какая запись справочника дала цену — для проверки подбора; в смету код не попадает."""
 
     return price_lookup(context, material_code).source
 

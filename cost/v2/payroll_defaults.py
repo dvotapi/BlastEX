@@ -292,10 +292,21 @@ def _extra_tariffs(sections: dict[str, list[ReferenceItem]], report: PayrollSeed
 
 def _payroll_params(sections: dict[str, list[ReferenceItem]], report: PayrollSeedReport) -> None:
     year = Decimal(PAYROLL_YEAR)
-    if any(
-        item.is_active and finite_decimal(item.payload.get("year")) == year
-        for item in sections["payroll_params"]
-    ):
+    index = next(
+        (
+            i
+            for i, item in enumerate(sections["payroll_params"])
+            if item.is_active and finite_decimal(item.payload.get("year")) == year
+        ),
+        None,
+    )
+    if index is not None:
+        item = sections["payroll_params"][index]
+        report.kept.extend(_kept(f"payroll_params:{item.code}", item, PAYROLL_PARAMS))
+        updated, filled = _fill(item, PAYROLL_PARAMS)
+        if filled:
+            sections["payroll_params"][index] = updated
+            report.filled.append(f"payroll_params:{updated.code}: {', '.join(filled)}")
         return
     code = f"PAYROLL_PARAMS_{PAYROLL_YEAR}"
     if any(item.code == code for item in sections["payroll_params"]):

@@ -536,6 +536,35 @@ def test_existing_downtime_reason_with_an_explicit_false_keeps_it():
     assert report_again.added == [] and report_again.filled == []
 
 
+# Codex к PR #83: действующая запись параметров ФОТ 2026 с собственным кодом
+# уходила ранним выходом — сид не заполнял её пустые ключи и не сообщал о
+# расхождении заданных с файлом.
+
+
+def test_active_payroll_params_record_gets_missing_keys_filled():
+    existing = ReferenceItem(
+        code="PAYROLL_PARAMS_CUSTOM", name="ФОТ 2026 (свой код)", payload={"year": 2026, "mrot": "30000"}
+    )
+    base = imported_snapshot()
+    snapshot = replace(base, sections={**base.sections, "payroll_params": (existing,)})
+
+    sections, report = seed_payroll_references(snapshot)
+
+    assert len(sections["payroll_params"]) == 1
+    params = _by_code(sections, "payroll_params")["PAYROLL_PARAMS_CUSTOM"].payload
+    assert params["mrot"] == "30000"
+    assert (params["annual_hours_36"], params["work_days_year"]) == (
+        PAYROLL_PARAMS["annual_hours_36"], PAYROLL_PARAMS["work_days_year"],
+    )
+    assert "payroll_params:PAYROLL_PARAMS_CUSTOM: mrot=30000 (файл: 27093)" in report.kept
+    assert "payroll_params:PAYROLL_PARAMS_CUSTOM: annual_hours_40, annual_hours_36" in "".join(report.filled)
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+    again, report_again = seed_payroll_references(_as_snapshot(snapshot, sections))
+    assert again == sections
+    assert report_again.added == [] and report_again.filled == []
+
+
 def test_rates_based_block_economics_do_not_move():
     """Расчёт по ставкам новых ключей не читает: смета до и после сида одна."""
 

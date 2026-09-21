@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_CEILING
 
-from cost.model.inputs import ModelContext, payload_number, payload_text
+from cost.model.inputs import ModelContext, driver_unit, payload_number, payload_text
 from cost.v2.models import CostLayer, ReferenceItem
 
 
@@ -439,7 +439,7 @@ def _piece_amount(
     amount = piece_rate * driver_value / piece_unit * per_shift
     return (
         amount,
-        f"{piece_rate} ₽ × {driver_value} {driver_name} / {piece_unit} × {per_shift} чел",
+        f"{piece_rate} ₽ × {driver_value} {driver_unit(driver_name)} / {piece_unit} × {per_shift} чел",
     )
 
 

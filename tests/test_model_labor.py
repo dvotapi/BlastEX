@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from cost.model import drilling, labor, logistics
 from cost.model.inputs import CrewMember, ModelContext
+from cost.v2.schemas.labor import PIECE_DRIVERS
 from tests import model_fixtures as fx
 
 
@@ -32,6 +33,20 @@ def test_blaster_fixed_and_piece_parts() -> None:
     amount = _line(context, "LABOR_POS_BLASTER").amount_rub
     assert round(float(amount), 2) == 5500 + 700 * 60
     assert context.value("crew_shifts.POS_BLASTER") == Decimal("2.1")
+
+
+def test_piece_formula_names_driver_unit_not_code() -> None:
+    """Сметчик читает в формуле «60000 м³», а не служебное имя `rock_volume_m3`."""
+
+    context = _context()
+    labor.compute(context)
+
+    formulas = {line.cost_item_code: line.formula for line in _labor_lines(context)}
+    assert formulas["LABOR_POS_DRILLER"].endswith(" + 150 ₽ × 13953.488372 п.м. / 1 × 1 чел")
+    assert formulas["LABOR_POS_BLASTER"].endswith(" + 700 ₽ × 60000 м³ / 1000 × 2 чел")
+    assert formulas["LABOR_POS_SZM_DRIVER"].endswith(" + 200 ₽ × 42000 кг / 1000 × 1 чел")
+    for formula in formulas.values():
+        assert not any(driver in formula for driver in PIECE_DRIVERS), formula
 
 
 def test_driller_shifts_follow_rig_and_rotation_follows_plan() -> None:

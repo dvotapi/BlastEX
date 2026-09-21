@@ -238,7 +238,7 @@ def _missing_extra_tariffs(sections: Mapping[str, Sequence[ReferenceItem]]) -> l
     covered = {
         str(row.get("work_conditions_class"))
         for row in _rows(rates.payload.get("extra_tariffs") if rates is not None else None)
-        if isinstance(row, Mapping)
+        if isinstance(row, Mapping) and (rate := finite_decimal(row.get("rate"))) is not None and rate > 0
     }
     issues: list[ValidationIssue] = []
     for item in _active(sections, "positions"):

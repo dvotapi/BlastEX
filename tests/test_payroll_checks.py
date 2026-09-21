@@ -177,6 +177,36 @@ def test_hazardous_class_needs_an_extra_tariff():
     assert _about(_issues(positions=(_item("POS_Y", {"category": "INDIRECT", "work_conditions_class": "2"}),)), "positions") == []
 
 
+def test_extra_tariff_with_a_zero_rate_does_not_cover_the_class():
+    # Форма подставляет 0 в новую строку доп. тарифа: строка есть, но класс
+    # ещё не покрыт, пока ставка не больше нуля.
+    position = (_item("POS_Z", {"category": "INDIRECT", "work_conditions_class": "3.2"}),)
+    sections = dict(default_reference_sections())
+    rates = sections["organization_rates"][0]
+    zero_rate = ReferenceItem(
+        code=rates.code,
+        name=rates.name,
+        payload={**rates.payload, "extra_tariffs": [{"work_conditions_class": "3.2", "rate": "0"}]},
+    )
+    issues = _issues(positions=position, organization_rates=(zero_rate,))
+    assert _about(issues, "positions") == [
+        (
+            "warning",
+            "POS_Z",
+            "work_conditions_class",
+            "Для класса условий труда 3.2 в «Ставках и надбавках организации» не задан доп. тариф взносов: "
+            "расчёт ФОТ возьмёт 0.",
+        )
+    ]
+
+    real_rate = ReferenceItem(
+        code=rates.code,
+        name=rates.name,
+        payload={**rates.payload, "extra_tariffs": [{"work_conditions_class": "3.2", "rate": "0.04"}]},
+    )
+    assert _about(_issues(positions=position, organization_rates=(real_rate,)), "positions") == []
+
+
 def test_schema_errors_inside_lists_carry_the_row_path():
     issues = _issues(
         positions=(_item("POS_DRILLER", {"category": "INDIRECT"}),),

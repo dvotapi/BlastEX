@@ -432,6 +432,13 @@ def _piece_amount(
     driver_name = payload_text(position, "piece_driver")
     if piece_rate <= 0 or not driver_name:
         return Decimal("0"), ""
+    if driver_name not in context.values:
+        # Молча обнулить сделку нельзя: ФОТ стал бы меньше без объяснения.
+        context.warn(
+            f"Сдельная часть должности «{position.name}» не начислена: "
+            f"в паспорте блока нет объёма работ в {driver_unit(driver_name)}."
+        )
+        return Decimal("0"), ""
     piece_unit = payload_number(position, "piece_unit", Decimal("1"))
     if piece_unit <= 0:
         piece_unit = Decimal("1")

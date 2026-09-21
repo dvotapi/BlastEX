@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from cost.model import drilling, labor, logistics
-from cost.model.inputs import CrewMember, ModelContext
+from cost.model.inputs import CrewMember, ModelContext, driver_unit
 from cost.v2.schemas.labor import PIECE_DRIVERS
 from tests import model_fixtures as fx
 
@@ -47,6 +47,29 @@ def test_piece_formula_names_driver_unit_not_code() -> None:
     assert formulas["LABOR_POS_SZM_DRIVER"].endswith(" + 200 ₽ × 42000 кг / 1000 × 1 чел")
     for formula in formulas.values():
         assert not any(driver in formula for driver in PIECE_DRIVERS), formula
+
+
+def test_every_piece_driver_has_unit_label() -> None:
+    """Драйвер сделки без подписи оставил бы в формуле число без единицы."""
+
+    assert [driver for driver in PIECE_DRIVERS if not driver_unit(driver)] == []
+
+
+def test_missing_piece_driver_warns_instead_of_silent_zero() -> None:
+    """Нет массы ВВ в паспорте: сделка водителя СЗМ не начислена, и сметчик знает почему."""
+
+    physical = fx.physical()
+    del physical["explosive_kg"]
+    context = ModelContext(fx.references(), fx.parameters(), physical)
+    drilling.compute(context)
+    szm = next(line for line in labor.compute(context) if line.position_code == "POS_SZM_DRIVER")
+
+    assert szm.piece_rub == Decimal("0")
+    assert " + " not in _line(context, "LABOR_POS_SZM_DRIVER").formula
+    assert (
+        "Сдельная часть должности «Водитель-оператор СЗМ» не начислена: "
+        "в паспорте блока нет объёма работ в кг."
+    ) in context.warnings
 
 
 def test_driller_shifts_follow_rig_and_rotation_follows_plan() -> None:

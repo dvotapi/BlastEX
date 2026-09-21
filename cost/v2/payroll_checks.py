@@ -145,6 +145,10 @@ def _bit_diameters(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
             continue
         reported.add(material.code)
         diameter = finite_decimal(material.payload.get("diameter_mm"))
+        # Неположительный диаметр в `MaterialPayload` — тот же «не задан», что
+        # и пустое значение: коронка не проверяется по таблице диаметров.
+        if diameter is not None and diameter <= 0:
+            diameter = None
         if diameter is None:
             issues.append(
                 ValidationIssue(

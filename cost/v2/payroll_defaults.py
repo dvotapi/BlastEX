@@ -316,10 +316,11 @@ def _bit_diameters(sections: dict[str, list[ReferenceItem]]) -> set[Decimal]:
         if not condition.is_active:
             continue
         material = materials.get(str(condition.payload.get("bit_material_code") or ""))
-        # Пустой или битый диаметр («abc», NaN) пропускается: о нём скажет
-        # проверка ревизии, таблица строится из остальных.
+        # Пустой, битый («abc», NaN) или неположительный диаметр (в
+        # `MaterialPayload` это «диаметр не задан», а не ноль) пропускается:
+        # о нём скажет проверка ревизии, таблица строится из остальных.
         diameter = finite_decimal(material.payload.get("diameter_mm")) if material is not None else None
-        if diameter is None:
+        if diameter is None or diameter <= 0:
             continue
         try:
             (diameter / BASE_DIAMETER_MM).quantize(Decimal("0.01"), ROUND_HALF_UP)

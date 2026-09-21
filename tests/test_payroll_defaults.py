@@ -359,6 +359,42 @@ def test_huge_bit_diameter_is_skipped_not_crashed():
     assert [row["diameter_mm"] for row in diameters] == ["110", "127", "140", "152", "165", "190", "215", "250"]
 
 
+# Codex к PR #83: `MaterialPayload` допускает diameter_mm <= 0 («диаметр не
+# задан» для не-коронок), но `DrillingDifficultyPayload` отклоняет любой
+# неположительный диаметр в таблице — коронка с таким диаметром не должна
+# попадать в таблицу владельца, иначе сидированная ревизия не публикуется.
+
+
+def test_nonpositive_bit_diameters_are_skipped():
+    diameters = {
+        "MAT_BIT_ZERO": "0",
+        "MAT_BIT_NEGATIVE": "-5",
+    }
+    materials = tuple(
+        ReferenceItem(code=code, name="Коронка", payload={"unit": "PIECE", "diameter_mm": diameter})
+        for code, diameter in diameters.items()
+    )
+    conditions = tuple(
+        ReferenceItem(
+            code=f"COND_{code}",
+            name="JK830",
+            payload={"equipment_type_code": "RIG_JK830", "tech_speed_m_per_h": "10", "bit_material_code": code},
+        )
+        for code in diameters
+    )
+
+    sections, _ = seed_payroll_references(fx.references(materials=materials, drilling_conditions=conditions))
+
+    table = _by_code(sections, "drilling_difficulty")["DRILLING_DIFFICULTY_BASE"].payload["diameter"]
+    assert [row["diameter_mm"] for row in table] == ["110", "127", "140", "152", "165", "190", "215", "250"]
+    # "-5" сам по себе остаётся ошибкой схемы материала (UnitField `ge=0`),
+    # но раздел «Сложности бурения» эта коронка не портит.
+    assert not any(
+        issue.level == "error" and issue.section == "drilling_difficulty"
+        for issue in validate_reference_sections(sections)
+    )
+
+
 # Codex к PR #83: форма создаёт допустимую схемой действующую запись
 # {"hardness": [], "diameter": []} — ранний выход "есть действующая запись"
 # не давал сиду заполнить пустые таблицы владельца.

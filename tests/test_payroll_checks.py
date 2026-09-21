@@ -131,6 +131,40 @@ def test_bit_without_a_diameter_is_a_warning_on_the_material():
     ]
 
 
+# Codex к PR #83: `MaterialPayload` допускает diameter_mm <= 0 («диаметр не
+# задан» для не-коронок), а `DrillingDifficultyPayload` отклоняет любой
+# неположительный диаметр в таблице — коронка с diameter_mm <= 0 должна
+# получать то же предупреждение «диаметр не задан», а не ошибку «нет
+# коэффициента для коронки Ø 0 мм».
+
+
+def test_bit_with_zero_diameter_is_a_warning_on_the_material():
+    issues = _issues(**_bits({"diameter_mm": "0"}, ["152"]))
+    assert _about(issues, "materials") == [
+        (
+            "warning",
+            "MAT_BIT",
+            "diameter_mm",
+            "У коронки из условий бурения не задан диаметр: коэффициент диаметра для неё не проверен.",
+        )
+    ]
+    assert _about(issues, "drilling_difficulty") == []
+
+
+def test_bit_with_negative_diameter_does_not_get_the_missing_factor_error():
+    # "-5" само по себе уже ошибка схемы материала (UnitField `ge=0`), но
+    # проверка коронок не должна вдобавок требовать для неё коэффициент
+    # диаметра, как для обычной коронки без диаметра.
+    issues = _issues(**_bits({"diameter_mm": "-5"}, ["152"]))
+    assert _about(issues, "drilling_difficulty") == []
+    assert (
+        "warning",
+        "MAT_BIT",
+        "diameter_mm",
+        "У коронки из условий бурения не задан диаметр: коэффициент диаметра для неё не проверен.",
+    ) in _about(issues, "materials")
+
+
 def test_bit_diameters_are_not_checked_while_the_section_is_empty():
     sections = _bits({"diameter_mm": "165"}, [])
     sections["drilling_difficulty"] = ()

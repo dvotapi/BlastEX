@@ -357,8 +357,15 @@ def _drilling_difficulty(sections: dict[str, list[ReferenceItem]], report: Payro
         (i for i, item in enumerate(sections["drilling_difficulty"]) if item.is_active), None
     )
     if index is None:
-        payload = _drilling_difficulty_tables(sections)
         code = "DRILLING_DIFFICULTY_BASE"
+        if any(item.code == code for item in sections["drilling_difficulty"]):
+            # Запись с этим кодом уже есть, но выключена — новая с тем же
+            # кодом сломала бы публикацию на дубле.
+            report.skipped.append(
+                f"drilling_difficulty:{code}: запись выключена — новая не заведена; включите её или смените код"
+            )
+            return
+        payload = _drilling_difficulty_tables(sections)
         sections["drilling_difficulty"].append(_new(code, "Сложность бурения: база f 10, Ø 152 мм", payload))
         report.added.append(f"drilling_difficulty:{code}")
         return

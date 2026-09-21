@@ -409,6 +409,32 @@ def test_active_difficulty_record_seed_is_idempotent():
     assert report.added == [] and report.filled == []
 
 
+# Codex к PR #83: если действующей записи нет, а DRILLING_DIFFICULTY_BASE уже
+# есть выключенной, сид заводил новую запись с тем же кодом, и публикация
+# ломалась на дубле кода раздела.
+
+
+def test_disabled_default_difficulty_code_is_not_duplicated():
+    existing = ReferenceItem(
+        code="DRILLING_DIFFICULTY_BASE", name="Сложность бурения (черновик)", payload={}, is_active=False
+    )
+    snapshot = fx.references(drilling_difficulty=(existing,))
+
+    sections, report = seed_payroll_references(snapshot)
+
+    assert [item.code for item in sections["drilling_difficulty"]] == ["DRILLING_DIFFICULTY_BASE"]
+    assert not _by_code(sections, "drilling_difficulty")["DRILLING_DIFFICULTY_BASE"].is_active
+    assert not any(entry.startswith("drilling_difficulty:") for entry in report.added)
+    assert (
+        "drilling_difficulty:DRILLING_DIFFICULTY_BASE: запись выключена — новая не заведена; включите её или смените код"
+        in report.skipped
+    )
+    assert not any(
+        issue.level == "error" and issue.section == "drilling_difficulty" and "повторяется" in issue.message
+        for issue in validate_reference_sections(sections)
+    )
+
+
 def test_rates_based_block_economics_do_not_move():
     """Расчёт по ставкам новых ключей не читает: смета до и после сида одна."""
 

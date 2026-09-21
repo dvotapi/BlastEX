@@ -66,7 +66,7 @@ def _physical_without(key: str) -> dict[str, Decimal]:
 @pytest.mark.parametrize(
     "physical",
     [_physical_without("explosive_kg"), fx.physical(explosive_kg=0)],
-    ids=["нет в паспорте", "ноль в паспорте"],
+    ids=["missing", "zero"],
 )
 def test_empty_piece_driver_warns_instead_of_silent_zero(physical: dict[str, Decimal]) -> None:
     """Паспорт без массы ВВ: сделка водителя СЗМ не начислена, и сметчик знает почему.

@@ -8,6 +8,7 @@ from Blast import ExplosiveProperties, RockProperties, TargetParams
 from api.schemas.blast import (
     BlastOptimizeRequest,
     ExplosivePropertiesSchema,
+    KuzRamCalibrateRequest,
     RockPropertiesSchema,
     TargetParamsSchema,
 )
@@ -59,7 +60,7 @@ def target_from_schema(schema: TargetParamsSchema) -> TargetParams:
 
 
 def blast_request_to_engine_inputs(
-    request: BlastOptimizeRequest,
+    request: BlastOptimizeRequest | KuzRamCalibrateRequest,
 ) -> tuple[RockProperties, ExplosiveProperties, TargetParams]:
     return (
         rock_from_schema(request.rock),

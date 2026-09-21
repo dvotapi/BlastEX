@@ -1,9 +1,13 @@
 """Pydantic-схемы технологического расчёта BlastEngine."""
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from dataclasses import asdict
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.schemas.cost import BlockGeometrySchema, HoleGeometrySchema, InitiationConfigSchema
+from simulation.fragmentation.cunningham import KuzRamSettings
 
 
 class RockPropertiesSchema(BaseModel):
@@ -34,6 +38,89 @@ class TargetParamsSchema(BaseModel):
     bench_height_m: float = Field(10.0, gt=0)
 
 
+class KuzRamSettingsSchema(BaseModel):
+    """Настройки модели Kuz-Ram. Границы и тексты ошибок — в KuzRamSettings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rock_factor_method: Literal["rmd50", "rmd10", "joint_factor", "manual"] = "rmd50"
+    rock_factor_manual: float = 6.0
+    joint_condition: float = 1.0
+    joint_angle: int = 20
+    rock_factor_correction: float = 1.0
+    strength_exponent: Literal["19/20", "19/30"] = "19/20"
+    drill_deviation_m: float = 0.0
+    uniformity_correction: float = 1.0
+    q_max_kg_m3: float = 2.0
+
+    @model_validator(mode="after")
+    def _within_bounds(self) -> "KuzRamSettingsSchema":
+        self.to_settings()
+        return self
+
+    def to_settings(self) -> KuzRamSettings:
+        return KuzRamSettings(**self.model_dump())
+
+    @classmethod
+    def from_settings(cls, settings: KuzRamSettings) -> "KuzRamSettingsSchema":
+        return cls(**asdict(settings))
+
+
+class RockFactorBreakdownSchema(BaseModel):
+    """Состав фактора породы A (только новая модель)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    method: str
+    rmd: float | None
+    rdi: float | None
+    hf: float | None
+    joint_spacing_m: float | None
+    reduced_pattern_m: float | None
+    jps: float | None
+    base: float
+    correction: float
+    value: float
+
+
+class FragmentationDetailsSchema(BaseModel):
+    """Промежуточные величины расчёта коронки при подобранном q — для разбора."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    q_kg_m3: float
+    hole_diameter_mm: float
+    charge_length_m: float
+    charge_mass_kg: float
+    volume_per_hole_m3: float
+    burden_m: float
+    spacing_m: float
+    rock_factor_a: float
+    rock_factor: RockFactorBreakdownSchema | None
+    re_weight: float
+    strength_exponent: str
+    x50_mm: float
+    uniformity_n_raw: float
+    uniformity_n: float
+    charge_to_bench: float | None
+    characteristic_size_mm: float
+    oversize_pct: float
+
+
+class LegacyVariantSchema(BaseModel):
+    """Результат расчёта «до исправления» — для сравнения на переходный период."""
+
+    specific_q_kg_m3: float
+    line_of_least_resistance_m: float
+    grid_a_m: float
+    grid_b_m: float
+    grid_label: str
+    x50_mm: float
+    oversize_pct: float
+    reached: bool
+    details: FragmentationDetailsSchema
+
+
 class BlastOptimizeRequest(BaseModel):
     rock: RockPropertiesSchema
     explosive: ExplosivePropertiesSchema
@@ -43,6 +130,7 @@ class BlastOptimizeRequest(BaseModel):
         min_length=1,
     )
     max_oversize_threshold_pct: float = Field(5.0, gt=0, le=30)
+    kuzram: KuzRamSettingsSchema | None = None
 
 
 class BlastOptimizeVariant(BaseModel):
@@ -55,6 +143,9 @@ class BlastOptimizeVariant(BaseModel):
     x50_mm: float
     oversize_pct: float
     target_q_kg_m3: float | None = None
+    reached: bool
+    details: FragmentationDetailsSchema
+    legacy: LegacyVariantSchema
 
 
 class BlastOptimizeResponse(BaseModel):
@@ -62,6 +153,40 @@ class BlastOptimizeResponse(BaseModel):
     max_oversize_threshold_pct: float
     rock_name: str
     explosive_name: str
+    model_version: str
+    kuzram: KuzRamSettingsSchema
+
+
+class KuzRamFactSchema(BaseModel):
+    crown_mm: float = Field(..., gt=0)
+    q_kg_m3: float = Field(..., gt=0)
+    oversize_pct: float = Field(..., gt=0, lt=100)
+
+
+class KuzRamCalibrateRequest(BaseModel):
+    rock: RockPropertiesSchema
+    explosive: ExplosivePropertiesSchema
+    target: TargetParamsSchema
+    kuzram: KuzRamSettingsSchema = Field(default_factory=KuzRamSettingsSchema)
+    facts: list[KuzRamFactSchema] = Field(..., min_length=1, max_length=50)
+
+
+class KuzRamCalibrationRow(BaseModel):
+    crown_mm: float
+    q_kg_m3: float
+    oversize_pct: float
+    legacy_oversize_pct: float
+    model_oversize_pct: float
+    rock_factor_correction: float | None
+    note: str | None = None
+
+
+class KuzRamCalibrateResponse(BaseModel):
+    rows: list[KuzRamCalibrationRow]
+    rock_factor_correction: float | None
+    used: int
+    skipped: int
+    model_version: str
 
 
 class BlastConstantsSchema(BaseModel):

@@ -200,6 +200,55 @@ export type DefaultReferences = {
 
 // --- Технологический расчёт БВР ---
 
+/** Состав фактора породы A новой модели — как `RockFactorBreakdownSchema`. */
+export type RockFactorBreakdown = {
+  method: string;
+  rmd: number | null;
+  rdi: number | null;
+  hf: number | null;
+  joint_spacing_m: number | null;
+  reduced_pattern_m: number | null;
+  jps: number | null;
+  base: number;
+  correction: number;
+  value: number;
+};
+
+/** Промежуточные величины расчёта коронки на подобранном q — как `FragmentationDetailsSchema`. */
+export type FragmentationDetails = {
+  q_kg_m3: number;
+  hole_diameter_mm: number;
+  charge_length_m: number;
+  charge_mass_kg: number;
+  volume_per_hole_m3: number;
+  burden_m: number;
+  spacing_m: number;
+  burden_to_diameter: number;
+  rock_factor_a: number;
+  rock_factor: RockFactorBreakdown | null;
+  re_weight: number;
+  strength_exponent: string;
+  x50_mm: number;
+  uniformity_n_raw: number;
+  uniformity_n: number;
+  charge_to_bench: number | null;
+  characteristic_size_mm: number;
+  oversize_pct: number;
+};
+
+/** Расчёт «до исправления» — как `LegacyVariantSchema`. */
+export type LegacyBlastVariant = {
+  specific_q_kg_m3: number;
+  line_of_least_resistance_m: number;
+  grid_a_m: number;
+  grid_b_m: number;
+  grid_label: string;
+  x50_mm: number;
+  oversize_pct: number;
+  reached: boolean;
+  details: FragmentationDetails;
+};
+
 export type BlastVariant = {
   crown_mm: number;
   specific_q_kg_m3: number;
@@ -210,6 +259,63 @@ export type BlastVariant = {
   x50_mm: number;
   oversize_pct: number;
   target_q_kg_m3: number | null;
+  /** Порог негабарита достигнут; иначе q — на верхней границе перебора. */
+  reached: boolean;
+  details: FragmentationDetails;
+  legacy: LegacyBlastVariant;
+};
+
+/** Способ расчёта фактора породы A в модели Kuz-Ram (Каннингем, 2005). */
+export type RockFactorMethod = "rmd50" | "rmd10" | "joint_factor" | "manual";
+
+/** Показатель при силе ВВ в формуле среднего куска. */
+export type StrengthExponent = "19/20" | "19/30";
+
+/** Настройки модели Kuz-Ram — как `KuzRamSettingsSchema` в API. */
+export type KuzRamSettings = {
+  rock_factor_method: RockFactorMethod;
+  rock_factor_manual: number;
+  joint_condition: number;
+  joint_angle: number;
+  rock_factor_correction: number;
+  strength_exponent: StrengthExponent;
+  drill_deviation_m: number;
+  uniformity_correction: number;
+  q_max_kg_m3: number;
+};
+
+/** Фактический взрыв для подбора C(A) — как `KuzRamFactSchema` в API. */
+export type KuzRamFactInput = { crown_mm: number; q_kg_m3: number; oversize_pct: number };
+
+/** Ответ `/blast/optimize`. */
+export type BlastOptimizeResponse = {
+  variants: BlastVariant[];
+  max_oversize_threshold_pct: number;
+  rock_name: string;
+  explosive_name: string;
+  model_version: string;
+  /** Настройки, с которыми фактически посчитано. */
+  kuzram: KuzRamSettings;
+};
+
+/** Строка ответа калибровки: прогнозы обеих моделей при фактическом q и C(A) строки. */
+export type KuzRamCalibrationRow = {
+  crown_mm: number;
+  q_kg_m3: number;
+  oversize_pct: number;
+  legacy_oversize_pct: number;
+  model_oversize_pct: number;
+  rock_factor_correction: number | null;
+  note: string | null;
+};
+
+/** Ответ `/blast/kuzram/calibrate`: C(A) — среднее геометрическое по решённым строкам. */
+export type KuzRamCalibrateResponse = {
+  rows: KuzRamCalibrationRow[];
+  rock_factor_correction: number | null;
+  used: number;
+  skipped: number;
+  model_version: string;
 };
 
 export type InitiationConfig = {

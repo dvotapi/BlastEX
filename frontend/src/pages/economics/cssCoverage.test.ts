@@ -22,8 +22,8 @@ import { describe, expect, it } from "vitest";
 // и в URL она приезжает в процентной записи.
 const SRC = fileURLToPath(new URL("../../", import.meta.url));
 const PAGE_DIR = join(SRC, "pages/economics");
-/** Классы листа «Расчёт», стили которых живут в общих файлах чертежа и дизайна. */
-const CALC_STYLE_FILES = [join(SRC, "styles/hole-drawing.css"), join(SRC, "styles/design.css")];
+/** Классы листа «Расчёт», стили которых живут в общих файлах чертежа, дизайна и окна Kuz-Ram. */
+const CALC_STYLE_FILES = [join(SRC, "styles/hole-drawing.css"), join(SRC, "styles/design.css"), join(SRC, "styles/kuzram.css")];
 const STYLE_FILES = [join(SRC, "styles.css"), join(SRC, "styles/economics.css")];
 
 /** Дубликаты iCloud (« 2.tsx») — не часть проекта, как и в конфиге vitest. */

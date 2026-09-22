@@ -2,7 +2,7 @@ import { del, errorMessage, get, post, postFile, put, requestSvg } from "./clien
 import type {
   AggregatedCostResult,
   BlastGeometryResponse,
-  BlastVariant,
+  BlastOptimizeResponse,
   CalcObjectInputs,
   CatalogItem,
   DefaultReferences,
@@ -13,6 +13,9 @@ import type {
   FixedAssetDepreciation,
   InitiationConfig,
   JobPosition,
+  KuzRamCalibrateResponse,
+  KuzRamFactInput,
+  KuzRamSettings,
   LaborAssignment,
   LaborFOTResult,
   LaborFOTSettings,
@@ -148,6 +151,36 @@ import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
 
 const V1 = "/api/v1";
 
+/** Порода, ВВ и уступ листа — общая часть запросов подбора q и подбора C(A). */
+type BlastSheetInput = {
+  rock: Rock;
+  explosive: Explosive;
+  lumpSize: number;
+  benchHeight: number;
+  overdrill: number;
+  oversizeCoeff: number;
+  spacing: number;
+};
+
+function blastSheetPayload(input: BlastSheetInput) {
+  return {
+    rock: input.rock,
+    explosive: {
+      name: input.explosive.name,
+      density_t_m3: input.explosive.density_t_m3,
+      power_mj_kg: input.explosive.power_mj_kg,
+    },
+    target: {
+      lump_size_mm: input.lumpSize,
+      hole_diameter_mm: 0,
+      overdrill_m: input.overdrill,
+      hole_oversize_coeff: input.oversizeCoeff,
+      spacing_coeff_m: input.spacing,
+      bench_height_m: input.benchHeight,
+    },
+  };
+}
+
 export const api = {
   /** Какие модули включены в этой установке (ML-слой за фича-флагом). */
   features: () => get<{ intelligence: boolean }>(`${V1}/features`),
@@ -190,34 +223,19 @@ export const api = {
     get<{ crown_diameters_mm: number[]; nsi_length_options_m: number[]; detonator_delay_ms_options: number[] }>(
       `${V1}/blast/options`
     ),
-  optimize: (input: {
-    rock: Rock;
-    explosive: Explosive;
-    lumpSize: number;
-    benchHeight: number;
-    overdrill: number;
-    oversizeCoeff: number;
-    spacing: number;
-    threshold: number;
-    crownDiametersMm: number[];
-  }) =>
-    post<{ variants: BlastVariant[]; rock_name: string; explosive_name: string }>(`${V1}/blast/optimize`, {
-      rock: input.rock,
-      explosive: {
-        name: input.explosive.name,
-        density_t_m3: input.explosive.density_t_m3,
-        power_mj_kg: input.explosive.power_mj_kg,
-      },
-      target: {
-        lump_size_mm: input.lumpSize,
-        hole_diameter_mm: 0,
-        overdrill_m: input.overdrill,
-        hole_oversize_coeff: input.oversizeCoeff,
-        spacing_coeff_m: input.spacing,
-        bench_height_m: input.benchHeight,
-      },
+  optimize: (input: BlastSheetInput & { threshold: number; crownDiametersMm: number[]; kuzram?: KuzRamSettings }) =>
+    post<BlastOptimizeResponse>(`${V1}/blast/optimize`, {
+      ...blastSheetPayload(input),
       crown_diameters_mm: input.crownDiametersMm,
       max_oversize_threshold_pct: input.threshold,
+      ...(input.kuzram ? { kuzram: input.kuzram } : {}),
+    }),
+  /** Подбор C(A) по фактическим взрывам: сервер только считает, ничего не сохраняет. */
+  calibrateKuzram: (input: BlastSheetInput & { kuzram: KuzRamSettings; facts: KuzRamFactInput[] }) =>
+    post<KuzRamCalibrateResponse>(`${V1}/blast/kuzram/calibrate`, {
+      ...blastSheetPayload(input),
+      kuzram: input.kuzram,
+      facts: input.facts,
     }),
   geometry: (payload: GeometryRequest) => post<BlastGeometryResponse>(`${V1}/blast/geometry`, payload),
   holeSchemeSvg: (payload: GeometryRequest) =>

@@ -1,0 +1,31 @@
+{
+  "defaults": {
+    "rock_factor_method": "rmd50",
+    "rock_factor_manual": 6,
+    "joint_condition": 1,
+    "joint_angle": 20,
+    "rock_factor_correction": 1,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0,
+    "uniformity_correction": 1,
+    "q_max_kg_m3": 2
+  },
+  "bounds": {
+    "rock_factor_manual": [0.5, 30],
+    "rock_factor_correction": [0.1, 10],
+    "drill_deviation_m": [0, 2],
+    "uniformity_correction": [0.5, 2],
+    "q_max_kg_m3": [0.5, 5]
+  },
+  "rock_factor_methods": ["rmd50", "rmd10", "joint_factor", "manual"],
+  "joint_conditions": [1, 1.5, 2],
+  "joint_angles": [20, 30, 40],
+  "strength_exponents": ["19/20", "19/30"],
+  "q_min_kg_m3": 0.1,
+  "fact_bounds": {
+    "crown_mm": { "ge": 20, "le": 1000 },
+    "q_kg_m3": { "gt": 0, "le": 10 },
+    "oversize_pct": { "gt": 0, "lt": 100 }
+  },
+  "max_facts": 50
+}

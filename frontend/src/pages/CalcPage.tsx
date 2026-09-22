@@ -29,7 +29,15 @@ import { PassportBar } from "./calc/PassportBar";
 import { ResultsChart } from "./calc/ResultsChart";
 import { useHoleGeometry } from "./calc/useHoleGeometry";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
-import type { BlastVariant, Explosive, ProductionUnit, Rock } from "../types";
+import { KuzRamDialog, type KuzRamSource } from "./calc/kuzram/KuzRamDialog";
+import { ThresholdFlag } from "./calc/kuzram/ThresholdFlag";
+import { formatOversize, formatQ } from "./calc/kuzram/kuzramFormat";
+import { defaultKuzramBlock, kuzramSettingsOf, settingsCaption, type KuzRamBlock, type KuzRamFact } from "./calc/kuzram/kuzramSettings";
+import type { BlastVariant, Explosive, KuzRamFactInput, KuzRamSettings, ProductionUnit, Rock } from "../types";
+
+/** Пауза перед пересчётом после правки настроек модели: набор «1,15» по
+ * цифрам не должен слать запрос на каждую. */
+const KUZRAM_RECALC_DELAY_MS = 300;
 
 function FullBvrCalc({
   onSendToDesign,
@@ -52,14 +60,18 @@ function FullBvrCalc({
   const [selectedCrowns, setSelectedCrownsRaw] = useState<number[]>([]);
   // Растёт при каждой правке поля, влияющего на `api.optimize` (порода, ВВ,
   // кондиционный кусок, высота уступа, перебур, коэффициенты, порог
-  // негабарита, выбранные коронки) — включая применение загруженного листа.
-  // Ответ расчёта, запущенного на одном значении счётчика, отбрасывается,
-  // если к моменту ответа счётчик уже другой: лист успели поправить, пока
-  // ответ летел, и метрики в ответе — уже про прежние значения полей.
+  // негабарита, выбранные коронки, настройки модели Kuz-Ram) — включая
+  // применение загруженного листа. Ответ расчёта, запущенного на одном
+  // значении счётчика, отбрасывается, если к моменту ответа счётчик уже
+  // другой: лист успели поправить, пока ответ летел, и метрики в ответе —
+  // уже про прежние значения полей.
   const optimizeGenerationRef = useRef(0);
   const bumpOptimizeGeneration = useCallback(() => {
     optimizeGenerationRef.current += 1;
   }, []);
+  // Номер последнего запущенного подбора: флаг «идёт расчёт» снимает только
+  // он — иначе ранний ответ погасил бы «Пересчёт…», пока летит новый запрос.
+  const optimizeRunRef = useRef(0);
   const setRockName = useCallback(
     (value: string) => { setRockNameRaw(value); bumpOptimizeGeneration(); },
     [bumpOptimizeGeneration],
@@ -99,9 +111,33 @@ function FullBvrCalc({
     },
     [bumpOptimizeGeneration],
   );
+  // Блок модели Kuz-Ram объекта: настройки подбора q и фактические взрывы.
+  const [kuzram, setKuzram] = useState<KuzRamBlock>(defaultKuzramBlock);
+  // Растёт при каждой правке настроек модели в окне — эффект ниже
+  // перезапускает подбор. Загрузка листа её не трогает: там подбор идёт сам.
+  const [kuzramRevision, setKuzramRevision] = useState(0);
+  // До какой ревизии подбор уже досчитан: пока отстаёт, окно пишет «Пересчёт…»
+  // (и в паузе перед запросом).
+  const [calculatedKuzramRevision, setCalculatedKuzramRevision] = useState(0);
+  const [kuzramOpen, setKuzramOpen] = useState(false);
+  const setKuzramSettings = useCallback(
+    (next: KuzRamSettings) => {
+      setKuzram((current) => ({ ...kuzramSettingsOf(next), facts: current.facts }));
+      bumpOptimizeGeneration();
+      setKuzramRevision((value) => value + 1);
+    },
+    [bumpOptimizeGeneration],
+  );
+  const setKuzramFacts = useCallback((facts: KuzRamFact[]) => {
+    // Факты подбор не трогают: ни счётчик поколений, ни ревизия настроек не растут.
+    setKuzram((current) => ({ ...current, facts }));
+  }, []);
   const [nsiLengthOptions, setNsiLengthOptions] = useState<number[]>([12]);
   const [detonatorDelayOptions, setDetonatorDelayOptions] = useState<number[]>([500]);
   const [variants, setVariants] = useState<BlastVariant[]>([]);
+  // Порог, с которым посчитаны варианты: «> порога» сравнивается с ним, а не
+  // с ползунком, который могли сдвинуть без пересчёта.
+  const [variantsThresholdPct, setVariantsThresholdPct] = useState<number | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [blockVolumeM3, setBlockVolumeM3] = useState(30_000);
   const [additionalHolesPct, setAdditionalHolesPct] = useState(3.0);
@@ -178,6 +214,12 @@ function FullBvrCalc({
   const rock = useMemo(() => rocks.find((r) => r.name === rockName), [rocks, rockName]);
   const explosive = useMemo(() => explosives.find((e) => e.key === explosiveKey), [explosives, explosiveKey]);
   const selected = variants[selectedIndex];
+  // Актуальная выбранная коронка для `preferredCrownMm` подбора по правке
+  // настроек модели: клик по другой строке, случившийся в паузе перед
+  // запросом или пока он летит, не должен откатиться к коронке, выбранной на
+  // момент планирования таймера (см. `runOptimize` и эффект ниже).
+  const selectedCrownRef = useRef<number | null>(null);
+  selectedCrownRef.current = selected?.crown_mm ?? loadedCrownMm;
 
   /** Чем проверяются сохранённые настройки: пока справочники не пришли — нечем. */
   const catalogs: CalcInputsCatalogs | null = useMemo(
@@ -209,10 +251,11 @@ function FullBvrCalc({
       blockVolumeM3,
       additionalHolesPct,
       productionUnitCode,
+      kuzram,
       panels: panelInputs,
     }),
     [rockName, explosiveKey, lumpSize, benchHeight, overdrill, oversizeCoeff, spacing, threshold,
-      selectedCrowns, selected, loadedCrownMm, blockVolumeM3, additionalHolesPct, productionUnitCode, panelInputs]
+      selectedCrowns, selected, loadedCrownMm, blockVolumeM3, additionalHolesPct, productionUnitCode, panelInputs, kuzram]
   );
   const sheetInputs = useMemo(() => collectCalcInputs(sheet), [sheet]);
 
@@ -242,6 +285,7 @@ function FullBvrCalc({
     setAdditionalHolesPct(next.additionalHolesPct);
     setProductionUnitCode(next.productionUnitCode);
     setPanelInputs(next.panels);
+    setKuzram(next.kuzram);
   }, []);
 
   const variantContext: VariantContext | null = useMemo(
@@ -283,17 +327,21 @@ function FullBvrCalc({
 
   /** Расчёт вариантов по переданному листу: он же считает при автозапуске,
    * когда состояние формы ещё не успело обновиться после загрузки настроек.
-   * `preferredCrownMm` — сохранённый диаметр, если такой вариант найдётся.
+   * `preferredCrownMm` — сохранённый диаметр, если такой вариант найдётся;
+   * геттер, а не значение, чтобы читать его в момент ответа, а не в момент
+   * планирования запроса — иначе клик по другой строке в паузе перед
+   * запросом или пока он летит откатился бы к прежней коронке.
    * `isStale` — автозапуск для объекта, который успели сменить: его результат
    * выбрасываем, иначе он затрёт варианты нового объекта. */
   async function runOptimize(
     source: SheetState,
-    preferredCrownMm: number | null,
+    preferredCrownMm: () => number | null,
     isStale: () => boolean = () => false,
   ) {
     const sheetRock = rocks.find((r) => r.name === source.rockName);
     const sheetExplosive = explosives.find((e) => e.key === source.explosiveKey);
     if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return;
+    const run = ++optimizeRunRef.current;
     setBusy(true);
     setError("");
     try {
@@ -307,17 +355,22 @@ function FullBvrCalc({
         spacing: source.spacingCoeff,
         threshold: source.oversizeThresholdPct,
         crownDiametersMm: source.selectedCrownsMm,
+        kuzram: kuzramSettingsOf(source.kuzram),
       });
       if (isStale()) return;
       setVariants(result.variants);
-      const restored = preferredCrownMm === null ? -1 : result.variants.findIndex((v) => v.crown_mm === preferredCrownMm);
+      setVariantsThresholdPct(result.max_oversize_threshold_pct);
+      const preferredValue = preferredCrownMm();
+      const restored = preferredValue === null ? -1 : result.variants.findIndex((v) => v.crown_mm === preferredValue);
       const preferred = result.variants.findIndex((v) => v.crown_mm === 152);
       setSelectedIndex(restored >= 0 ? restored : preferred >= 0 ? preferred : 0);
     } catch (reason) {
       if (isStale()) return;
       setError(reason instanceof Error ? reason.message : "Ошибка расчёта.");
     } finally {
-      setBusy(false);
+      // Параллельный подбор (правка настроек модели, пока летел прошлый) сам
+      // снимет флаг — ранний ответ не должен гасить «идёт расчёт».
+      if (run === optimizeRunRef.current) setBusy(false);
     }
   }
 
@@ -328,7 +381,7 @@ function FullBvrCalc({
   async function calculate() {
     const requestedObjectName = objectName;
     const startedGeneration = optimizeGenerationRef.current;
-    await runOptimize(sheet, null, () =>
+    await runOptimize(sheet, () => null, () =>
       isOptimizationResultStale(
         startedGeneration,
         optimizeGenerationRef.current,
@@ -337,6 +390,34 @@ function FullBvrCalc({
       ),
     );
   }
+
+  // Правка настроек модели в окне пересчитывает варианты сама — с паузой,
+  // чтобы набор числа по цифрам не слал запрос на каждую. В отличие от
+  // ручного `calculate()`, выбранную коронку не сбрасываем — считаем с той
+  // же `preferredCrownMm`, что и сейчас на листе, иначе выбор прыгал бы на
+  // Ø152 при каждой правке. Лист (`sourceSheet`) и счётчик поколения ловим
+  // в момент планирования таймера, а не когда он сработает: правка листа за
+  // время паузы должна пометить эту попытку устаревшей, как и обычный
+  // автозапуск.
+  useEffect(() => {
+    if (kuzramRevision === 0) return;
+    const revision = kuzramRevision;
+    const sourceSheet = sheet;
+    const startedGeneration = optimizeGenerationRef.current;
+    const requestedObjectName = objectName;
+    const timer = window.setTimeout(() => {
+      void runOptimize(sourceSheet, () => selectedCrownRef.current, () =>
+        isOptimizationResultStale(
+          startedGeneration,
+          optimizeGenerationRef.current,
+          requestedObjectName,
+          objectNameRef.current,
+        ),
+      ).finally(() => setCalculatedKuzramRevision((done) => Math.max(done, revision)));
+    }, KUZRAM_RECALC_DELAY_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kuzramRevision]);
 
   /**
    * Настройки активного объекта: при появлении справочников и при каждой смене
@@ -390,7 +471,7 @@ function FullBvrCalc({
           // этой отсечки, автосохранение её подхватит само.
           setLoadedObjectName(objectName);
           const startedGeneration = optimizeGenerationRef.current;
-          await runOptimize(applied, applied.selectedCrownMm, () =>
+          await runOptimize(applied, () => applied.selectedCrownMm, () =>
             cancelled ||
             isOptimizationResultStale(startedGeneration, optimizeGenerationRef.current, objectName, objectNameRef.current),
           );
@@ -442,6 +523,43 @@ function FullBvrCalc({
     w: selected ? selected.line_of_least_resistance_m : null,
     x50: selected ? selected.x50_mm : null,
     oversize: selected ? selected.oversize_pct : null,
+  };
+  const kuzramCaption = settingsCaption(kuzram);
+  const kuzramSource: KuzRamSource = {
+    rockName,
+    explosiveName: explosive?.name ?? explosiveKey,
+    benchHeightM: benchHeight,
+    overdrillM: overdrill,
+    lumpSizeMm: lumpSize,
+    thresholdPct: threshold,
+    crownsMm: selectedCrowns,
+  };
+  // Пока запрос летит, пользователь мог поправить настройки модели в окне
+  // (сам подбор их не трогает), поправить лист (даже закрыв окно) или сменить
+  // объект — тогда ответ, пусть и успешный, уже не про текущие настройки и не
+  // про этот объект: записывать его C(A) поверх свежих значений нельзя
+  // (`KuzRamFacts` покажет причину как обычную ошибку подбора). Счётчик
+  // поколений растёт от правки любого поля, влияющего на расчёт (не только
+  // настроек модели), поэтому ловит и правку листа после закрытия окна.
+  const calibrateKuzram = async (facts: KuzRamFactInput[]) => {
+    if (!rock || !explosive) throw new Error("Выберите породу и ВВ на листе.");
+    const requestedObjectName = objectName;
+    const startedGeneration = optimizeGenerationRef.current;
+    const response = await api.calibrateKuzram({
+      rock,
+      explosive,
+      lumpSize,
+      benchHeight,
+      overdrill,
+      oversizeCoeff,
+      spacing,
+      kuzram: kuzramSettingsOf(kuzram),
+      facts,
+    });
+    if (objectNameRef.current !== requestedObjectName || optimizeGenerationRef.current !== startedGeneration) {
+      throw new Error("Настройки модели или объект изменились, пока шёл подбор, — C(A) не записана. Запустите подбор ещё раз.");
+    }
+    return response;
   };
 
   return (
@@ -502,7 +620,20 @@ function FullBvrCalc({
           <header>
             <b>Варианты сетки</b>
             <div className="panel-header-actions">
-              <span>Куз–Рам</span>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!ready}
+                aria-describedby={kuzramCaption ? "kuzram-caption" : undefined}
+                onClick={() => setKuzramOpen(true)}
+              >
+                Модель Kuz-Ram
+              </button>
+              {kuzramCaption && (
+                <span id="kuzram-caption" className="kuzram-caption" title={`Настройки модели: ${kuzramCaption}`}>
+                  {kuzramCaption}
+                </span>
+              )}
               {onSendToDesign && (
                 <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected)}>
                   Перенести в проект →
@@ -521,8 +652,13 @@ function FullBvrCalc({
                       <td><span className="row-radio" /></td>
                       <td><b>Ø {item.crown_mm}</b></td>
                       <td>{item.grid_label}</td>
-                      <td className="num">{item.specific_q_kg_m3.toFixed(2)}</td>
-                      <td className="num">{item.oversize_pct.toFixed(1)}%</td>
+                      <td className="num">
+                        {!item.reached && <ThresholdFlag />}
+                        {formatQ(item.specific_q_kg_m3, ".")}
+                      </td>
+                      <td className="num">
+                        {formatOversize(item.oversize_pct, item.reached, variantsThresholdPct ?? threshold, 1, ".")}%
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -590,6 +726,22 @@ function FullBvrCalc({
           <p className="page-caption">После расчёта вариантов сетки здесь появятся два варианта заряда и их сравнение.</p>
         </section>
       )}
+
+      <KuzRamDialog
+        open={kuzramOpen}
+        onClose={() => setKuzramOpen(false)}
+        block={kuzram}
+        onSettingsChange={setKuzramSettings}
+        source={kuzramSource}
+        busy={busy || calculatedKuzramRevision < kuzramRevision}
+        error={error}
+        variants={variants}
+        selectedIndex={selectedIndex}
+        onSelect={setSelectedIndex}
+        thresholdPct={variantsThresholdPct ?? threshold}
+        onFactsChange={setKuzramFacts}
+        onCalibrate={calibrateKuzram}
+      />
     </div>
   );
 }

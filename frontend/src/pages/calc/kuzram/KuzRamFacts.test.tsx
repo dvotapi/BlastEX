@@ -158,6 +158,40 @@ describe("KuzRamFacts", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("закрытие окна во время подбора отменяет запись C(A) (диалог размонтирует KuzRamFacts)", async () => {
+    let release: (value: KuzRamCalibrateResponse) => void = () => {};
+    const onCalibrate = vi.fn(() => new Promise<KuzRamCalibrateResponse>((resolve) => { release = resolve; }));
+    const onApplyCorrection = vi.fn();
+    const onChange = vi.fn();
+    const { unmount } = render(
+      <KuzRamFacts
+        facts={[{ crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 }]}
+        onChange={onChange}
+        defaultCrownMm={152}
+        onCalibrate={onCalibrate}
+        onApplyCorrection={onApplyCorrection}
+      />,
+    );
+    fireEvent.click(calibrateButton());
+    await waitFor(() => expect(onCalibrate).toHaveBeenCalledTimes(1));
+    // Пользователь закрыл окно (Esc/«Закрыть»), пока подбор ещё летит: KuzRamDialog
+    // размонтирует KuzRamFacts, потому что рисует тело только у открытого окна.
+    unmount();
+    await act(async () =>
+      release(
+        response({
+          rows: [
+            { crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8, legacy_oversize_pct: 5.3, model_oversize_pct: 4.29, rock_factor_correction: 1.132, note: null },
+          ],
+          rock_factor_correction: 1.132,
+          used: 1,
+          skipped: 0,
+        }),
+      ),
+    );
+    expect(onApplyCorrection).not.toHaveBeenCalled();
+  });
+
   it("на MAX_FACTS строках «Добавить взрыв» выключена и показан текст «Не больше 50 строк.»", () => {
     const facts = Array.from({ length: MAX_FACTS }, () => ({ crown_mm: 152, q_kg_m3: null, oversize_pct: null }));
     renderFacts(facts);

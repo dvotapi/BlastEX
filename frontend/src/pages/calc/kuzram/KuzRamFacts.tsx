@@ -94,6 +94,18 @@ export function KuzRamFacts({
   const [pending, setPending] = useState(false);
   // Растёт при каждой правке строк: ответ подбора, начатого до правки, уже не про эти строки.
   const editRef = useRef(0);
+  // Закрытое окно рисует тело только у открытого (`open &&` в KuzRamDialog) и
+  // размонтирует KuzRamFacts, пока подбор ещё летит: закрытое окно отменяет
+  // запись подбора — иначе C(A) легла бы в настройки молча, без сообщения о
+  // строках. Эффект переустанавливает `true` при монтировании — StrictMode
+  // вызывает cleanup и эффект дважды на dev-рендере.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const complete = completeFacts(facts);
   // Ключ строки — не её место в массиве: место после удаления сдвигается, а
   // React по одинаковому ключу переиспользовал бы `FactCell` соседней строки
@@ -131,6 +143,7 @@ export function KuzRamFacts({
     setMessage(null);
     try {
       const response = await onCalibrate(rows.map((row) => row.fact));
+      if (!mountedRef.current) return;
       if (edit !== editRef.current) return;
       setCalibration(new Map(rows.map((row, index) => [row.index, response.rows[index]])));
       const skippedRows = facts.length - rows.length;
@@ -151,6 +164,7 @@ export function KuzRamFacts({
           `${response.used} из ${rows.length}.${skipped}${tail}`,
       });
     } catch (reason) {
+      if (!mountedRef.current) return;
       if (edit !== editRef.current) return;
       setMessage({ tone: "error", text: reason instanceof Error ? reason.message : "Не удалось подобрать C(A)." });
     } finally {

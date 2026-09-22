@@ -34,6 +34,9 @@ export type KuzRamDialogProps = {
   source: KuzRamSource;
   /** Идёт подбор q (или пауза перед ним после правки) — прежние цифры приглушены. */
   busy: boolean;
+  /** Варианты посчитаны не по текущим настройкам модели, а пересчёт не идёт
+   * (лист правили во время каждой попытки пересчёта) — нужен ручной расчёт. */
+  outdated?: boolean;
   /** Ошибка последнего подбора — та же, что на листе. */
   error: string;
   /** Варианты последнего подбора: Kuz-Ram, «до исправления» и разбор. */
@@ -150,6 +153,7 @@ function CalcTab({
   onSettingsChange,
   source,
   busy,
+  outdated = false,
   error,
   variants,
   selectedIndex,
@@ -171,9 +175,13 @@ function CalcTab({
           {trimmed(source.thresholdPct)} %. Исходные данные меняются на листе.
         </p>
       </aside>
-      <div className={`kuzram-results${busy ? " is-pending" : ""}`} aria-busy={busy}>
+      <div className={`kuzram-results${busy || outdated ? " is-pending" : ""}`} aria-busy={busy}>
         <p className="kuzram-status" role="status">
-          {busy ? "Пересчёт…" : ""}
+          {busy
+            ? "Пересчёт…"
+            : outdated
+              ? "Варианты посчитаны по прежним настройкам модели: лист правили, пока шёл пересчёт. Нажмите «Рассчитать варианты» на листе."
+              : ""}
         </p>
         {error && (
           <div className="page-error" role="alert">

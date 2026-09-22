@@ -124,9 +124,12 @@ function FullBvrCalc({
   // Для отложенного пересчёта: новая правка настроек отменяет попытки прежней.
   const kuzramRevisionRef = useRef(kuzramRevision);
   kuzramRevisionRef.current = kuzramRevision;
-  // До какой ревизии подбор уже досчитан: пока отстаёт, окно пишет «Пересчёт…»
-  // (и в паузе перед запросом).
+  // До какой ревизии настроек варианты досчитаны: растёт только от применённого
+  // ответа (или ошибки) подбора, начатого на этой ревизии, — в том числе ручного
+  // «Рассчитать варианты». Пока отстаёт, варианты — по прежним настройкам.
   const [calculatedKuzramRevision, setCalculatedKuzramRevision] = useState(0);
+  // Идёт пауза перед пересчётом по правке настроек или его попытки.
+  const [kuzramPending, setKuzramPending] = useState(false);
   const [kuzramOpen, setKuzramOpen] = useState(false);
   const setKuzramSettings = useCallback(
     (next: KuzRamSettings) => {
@@ -353,7 +356,14 @@ function FullBvrCalc({
   ): Promise<boolean> {
     const sheetRock = rocks.find((r) => r.name === source.rockName);
     const sheetExplosive = explosives.find((e) => e.key === source.explosiveKey);
-    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return true;
+    // Лист и ревизия настроек меняются вместе, поэтому ответ по этому листу —
+    // варианты по настройкам ревизии на момент запроса.
+    const revisionAtStart = kuzramRevisionRef.current;
+    const markCalculated = () => setCalculatedKuzramRevision((done) => Math.max(done, revisionAtStart));
+    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) {
+      markCalculated();
+      return true;
+    }
     const run = ++optimizeRunRef.current;
     setBusy(true);
     setError("");
@@ -377,10 +387,12 @@ function FullBvrCalc({
       const restored = preferredValue === null ? -1 : result.variants.findIndex((v) => v.crown_mm === preferredValue);
       const preferred = result.variants.findIndex((v) => v.crown_mm === 152);
       setSelectedIndex(restored >= 0 ? restored : preferred >= 0 ? preferred : 0);
+      markCalculated();
       return true;
     } catch (reason) {
       if (isStale()) return false;
       setError(reason instanceof Error ? reason.message : "Ошибка расчёта.");
+      markCalculated();
       return true;
     } finally {
       // Параллельный подбор (правка настроек модели, пока летел прошлый) сам
@@ -419,11 +431,15 @@ function FullBvrCalc({
   // «Пересчёт…». Смена объекта или новая правка настроек (у неё свой таймер)
   // останавливают попытки ещё до запроса: запрос по листу прежнего объекта
   // стал бы последним и не дал бы ответу нового снять «идёт расчёт».
+  // Попытки кончились, а ответ так и не применён — ревизия остаётся
+  // непосчитанной, и окно говорит, что варианты по прежним настройкам, пока
+  // их не пересчитают вручную.
   useEffect(() => {
     if (kuzramRevision === 0) return;
     const revision = kuzramRevision;
     const requestedObjectName = objectName;
     const current = () => objectNameRef.current === requestedObjectName && kuzramRevisionRef.current === revision;
+    setKuzramPending(true);
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
@@ -440,7 +456,8 @@ function FullBvrCalc({
             if (applied) break;
           }
         } finally {
-          setCalculatedKuzramRevision((done) => Math.max(done, revision));
+          // Новая правка настроек сама ведёт свою паузу и попытки.
+          if (kuzramRevisionRef.current === revision) setKuzramPending(false);
         }
       })();
     }, KUZRAM_RECALC_DELAY_MS);
@@ -762,7 +779,8 @@ function FullBvrCalc({
         block={kuzram}
         onSettingsChange={setKuzramSettings}
         source={kuzramSource}
-        busy={busy || calculatedKuzramRevision < kuzramRevision}
+        busy={busy || kuzramPending}
+        outdated={calculatedKuzramRevision < kuzramRevision}
         error={error}
         variants={variants}
         selectedIndex={selectedIndex}

@@ -92,6 +92,19 @@ describe("KuzRamDialog", () => {
     expect(within(dialog).getByRole("alert")).toHaveTextContent("Фактор породы A = −0,5");
   });
 
+  it("варианты не по текущим настройкам и расчёта нет — окно так и пишет, а не «Пересчёт…»", () => {
+    renderDialog({ outdated: true });
+    const status = within(screen.getByRole("dialog", { name: "Модель Kuz-Ram" })).getByRole("status");
+    expect(status).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
+    expect(status).toHaveTextContent("«Рассчитать варианты»");
+    expect(status).not.toHaveTextContent("Пересчёт…");
+  });
+
+  it("идёт пересчёт — «Пересчёт…», даже если варианты пока по прежним настройкам", () => {
+    renderDialog({ busy: true, outdated: true });
+    expect(within(screen.getByRole("dialog", { name: "Модель Kuz-Ram" })).getByRole("status")).toHaveTextContent("Пересчёт…");
+  });
+
   it("показывает сводку, таблицу и график; выбор строки уходит листу", () => {
     const props = renderDialog({ variants: [gabbroVariant(110), gabbroVariant(152), gabbroVariant(250)], selectedIndex: 1 });
     expect(screen.getByRole("region", { name: "Коронка 152 мм" })).toBeInTheDocument();

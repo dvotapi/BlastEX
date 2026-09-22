@@ -294,6 +294,17 @@ describe("CalcPage: модель Kuz-Ram", () => {
     }
     await recalcWindow();
     expect(api.optimize).toHaveBeenCalledTimes(4);
+    // Все три ответа выброшены — варианты по прежней C(A); окно не гасит это молча.
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    expect(within(dialog()).getByRole("status")).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Закрыть" }));
+    // Ручной расчёт по текущему листу снимает пометку.
+    fireEvent.click(screen.getByRole("button", { name: "Рассчитать варианты" }));
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(5), SLOW);
+    expect(api.optimize.mock.calls[4][0].kuzram.rock_factor_correction).toBe(1.2);
+    await act(async () => releases.at(-1)!(OPTIMIZE_GABBRO));
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    await waitFor(() => expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement(), SLOW);
   });
 
   it("пока идёт пересчёт, окно показывает «Пересчёт…»", async () => {

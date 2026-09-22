@@ -219,6 +219,23 @@ describe("CalcPage: модель Kuz-Ram", () => {
     await act(async () => release(OPTIMIZE_GABBRO));
     await waitFor(() => expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement(), SLOW);
   });
+
+  it("пересчёт по настройкам не уходит, если за паузу перед ним поправили лист", async () => {
+    renderSheet();
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+    // Окно закрыли и сразу поправили лист — всё в пределах паузы перед запросом.
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Закрыть" }));
+    fireEvent.change(screen.getByRole("slider", { name: /Допустимый негабарит/ }), { target: { value: "6" } });
+    await autosaveWindow();
+    // Устаревший запрос не отправлен: иначе он стал бы «последним» подбором —
+    // держал бы флаг расчёта и стирал ошибку листа, пока не вернётся.
+    expect(api.optimize).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement();
+  });
 });
 
 describe("CalcPage: фактические взрывы", () => {

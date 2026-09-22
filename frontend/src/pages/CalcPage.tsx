@@ -341,6 +341,11 @@ function FullBvrCalc({
     const sheetRock = rocks.find((r) => r.name === source.rockName);
     const sheetExplosive = explosives.find((e) => e.key === source.explosiveKey);
     if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return;
+    // Устаревшим запуск может оказаться ещё до запроса: пересчёт по настройкам
+    // модели ждёт паузу, за которую лист могли поправить или сменить объект.
+    // Такой запрос не отправляем — иначе он стал бы «последним» подбором,
+    // держал бы флаг расчёта и стёр бы ошибку уже нового листа.
+    if (isStale()) return;
     const run = ++optimizeRunRef.current;
     setBusy(true);
     setError("");

@@ -380,6 +380,25 @@ describe("CalcPage: модель Kuz-Ram", () => {
     expect(status).not.toHaveTextContent("лист правили");
   });
 
+  it("после ошибки пересчёта сняли коронки и поправили настройку — совет выбрать коронки, а не читать прежнюю ошибку", async () => {
+    renderSheet();
+    await loaded();
+    api.optimize.mockRejectedValueOnce(new Error("Фактор породы A = −0,06 — он должен быть больше нуля."));
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+    await waitFor(() => expect(outdatedBadge()).toHaveTextContent("причина в сообщении об ошибке"), SLOW);
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Закрыть" }));
+    for (const crown of ["110", "152", "250"]) fireEvent.click(screen.getByRole("checkbox", { name: crown }));
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,3" } });
+    await recalcWindow();
+    // Запроса нет (коронок нет), ошибка — от прошлой попытки.
+    expect(api.optimize).toHaveBeenCalledTimes(2);
+    expect(outdatedBadge()).toHaveTextContent("выберите коронки");
+    expect(outdatedBadge()).not.toHaveTextContent("причина в сообщении об ошибке");
+    expect(within(dialog()).getByRole("status")).toHaveTextContent("выберите коронки");
+  });
+
   it("у объекта без вариантов ошибка пересчёта по настройкам не даёт пометки «по прежним настройкам»", async () => {
     // Сохранённого листа нет — умолчания, вариантов нет, автозапуска тоже.
     api.calcInputs.mockResolvedValue({ work_object_name: OBJECT.name, inputs: null, updated_at: null });

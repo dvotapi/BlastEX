@@ -104,6 +104,8 @@ async function loaded() {
 const lastSaved = () => api.saveCalcInputs.mock.calls.at(-1)?.[1] as { kuzram: KuzRamBlock } | undefined;
 const lastSavedCrown = () => api.saveCalcInputs.mock.calls.at(-1)?.[1] as { selected_crown_mm: number } | undefined;
 const dialog = () => screen.getByRole("dialog", { name: "Модель Kuz-Ram" });
+/** Пометка листа «варианты — по прежним настройкам модели» (живая область, пустая без пометки). */
+const outdatedBadge = () => document.querySelector(".kuzram-outdated") as HTMLElement;
 /** Пауза дольше задержки пересчёта по правке настроек (300 мс): таймер точно успел бы сработать. */
 const recalcWindow = () => act(() => new Promise((resolve) => setTimeout(resolve, 500)));
 /** Правка C(A) в окне и закрытие окна — дальше правят лист. */
@@ -295,7 +297,9 @@ describe("CalcPage: модель Kuz-Ram", () => {
     await recalcWindow();
     expect(api.optimize).toHaveBeenCalledTimes(4);
     // Все три ответа выброшены — варианты по прежней C(A); ни лист, ни окно не гасят это молча.
-    expect(document.querySelector(".kuzram-outdated")).toHaveTextContent("по прежним настройкам модели");
+    expect(outdatedBadge()).toHaveAttribute("role", "status");
+    expect(outdatedBadge()).toHaveTextContent("по прежним настройкам модели");
+    expect(outdatedBadge()).toHaveTextContent("«Рассчитать варианты»");
     fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
     expect(within(dialog()).getByRole("status")).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
     fireEvent.click(within(dialog()).getByRole("button", { name: "Закрыть" }));
@@ -304,7 +308,7 @@ describe("CalcPage: модель Kuz-Ram", () => {
     await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(5), SLOW);
     expect(api.optimize.mock.calls[4][0].kuzram.rock_factor_correction).toBe(1.2);
     await act(async () => releases.at(-1)!(OPTIMIZE_GABBRO));
-    await waitFor(() => expect(document.querySelector(".kuzram-outdated")).toBeNull(), SLOW);
+    await waitFor(() => expect(outdatedBadge()).toBeEmptyDOMElement(), SLOW);
     fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
     await waitFor(() => expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement(), SLOW);
   });
@@ -319,11 +323,38 @@ describe("CalcPage: модель Kuz-Ram", () => {
     // В таблице — q по RMD 50, в настройках — RMD 10: ошибка объясняет, почему, пометка — что цифры чужие.
     expect(within(dialog()).getByRole("status")).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
     expect(within(dialog()).getByRole("status")).toHaveTextContent("расчёт не прошёл");
-    expect(document.querySelector(".kuzram-outdated")).toBeInTheDocument();
+    // Повторный «Рассчитать варианты» упадёт с той же ошибкой — пометка советует исправить настройки.
+    expect(outdatedBadge()).toHaveTextContent("исправьте настройки модели");
+    expect(outdatedBadge()).not.toHaveTextContent("«Рассчитать варианты»");
     // Вернули способ — пересчёт прошёл, пометки нет.
     fireEvent.change(within(dialog()).getByLabelText("Фактор породы A"), { target: { value: "rmd50" } });
     await waitFor(() => expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement(), SLOW);
-    expect(document.querySelector(".kuzram-outdated")).toBeNull();
+    expect(outdatedBadge()).toBeEmptyDOMElement();
+  });
+
+  it("смена объекта в паузе перед пересчётом — пока грузится новый объект, пометки нет", async () => {
+    let releaseSecondObject: (value: unknown) => void = () => {};
+    api.calcInputs.mockImplementation((name: string) =>
+      name === OBJECT_2.name
+        ? new Promise((resolve) => { releaseSecondObject = resolve; })
+        : Promise.resolve({ work_object_name: name, inputs: savedInputs(), updated_at: "then" }),
+    );
+    const { rerender } = renderSheet();
+    await loaded();
+    editCorrectionAndClose("1,2");
+    rerender(
+      <Workspace objectName={OBJECT_2.name}>
+        <CalcPage />
+      </Workspace>,
+    );
+    // Таймер пересчёта сработал и остановился (объект другой), а настройки
+    // нового объекта ещё не пришли — лист не готов, помечать нечего.
+    await recalcWindow();
+    expect(outdatedBadge()).toBeEmptyDOMElement();
+    await act(async () => releaseSecondObject({ work_object_name: OBJECT_2.name, inputs: savedInputs(), updated_at: "then" }));
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
+    expect(outdatedBadge()).toBeEmptyDOMElement();
   });
 
   it("пока идёт пересчёт, окно показывает «Пересчёт…»", async () => {

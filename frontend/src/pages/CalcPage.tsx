@@ -575,8 +575,13 @@ function FullBvrCalc({
   };
   const kuzramCaption = settingsCaption(kuzram);
   const kuzramBusy = busy || kuzramPending;
-  // Варианты не по текущим настройкам модели, и пересчёт не идёт.
-  const kuzramOutdated = calculatedKuzramRevision < kuzramRevision && !kuzramBusy;
+  // Варианты не по текущим настройкам модели, и пересчёт не идёт. Пока лист
+  // не готов (грузятся настройки другого объекта), помечать нечего.
+  const kuzramOutdated = ready && calculatedKuzramRevision < kuzramRevision && !kuzramBusy;
+  // Ошибку пересчёта ручной расчёт не исправит — тогда советуем настройки.
+  const kuzramOutdatedHint = error
+    ? "Пересчёт по текущим настройкам модели не прошёл — исправьте настройки модели в окне «Модель Kuz-Ram»."
+    : "Пересчёт по текущим настройкам модели прервали правки листа — пересчитайте кнопкой «Рассчитать варианты».";
   const kuzramSource: KuzRamSource = {
     rockName,
     explosiveName: explosive?.name ?? explosiveKey,
@@ -686,14 +691,17 @@ function FullBvrCalc({
                   {kuzramCaption}
                 </span>
               )}
-              {kuzramOutdated && (
-                <span
-                  className="kuzram-outdated"
-                  title="Пересчёт по текущим настройкам модели не выполнен — подробности в окне «Модель Kuz-Ram», пересчитать — «Рассчитать варианты»."
-                >
-                  варианты — по прежним настройкам модели
-                </span>
-              )}
+              {/* Живая область есть всегда, пустая без пометки: так программы
+                  чтения экрана объявляют её появление. Пояснение — и в title,
+                  и скрытым текстом, чтобы его слышали без мыши. */}
+              <span className="kuzram-outdated" role="status" title={kuzramOutdated ? kuzramOutdatedHint : undefined}>
+                {kuzramOutdated && (
+                  <>
+                    варианты — по прежним настройкам модели
+                    <span className="sr-only">. {kuzramOutdatedHint}</span>
+                  </>
+                )}
+              </span>
               {onSendToDesign && (
                 <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected)}>
                   Перенести в проект →

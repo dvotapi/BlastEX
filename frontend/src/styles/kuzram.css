@@ -38,6 +38,7 @@
 /* Подпись у кнопки окна: чем настройки модели отличаются от умолчаний. */
 .kuzram-caption { overflow:hidden; max-width:180px; color:#6e7c75; font-size:var(--fs-small); white-space:nowrap; text-overflow:ellipsis; }
 .kuzram-outdated { overflow:hidden; max-width:220px; color:#8a5a12; font-size:var(--fs-small); font-weight:var(--font-weight-strong); white-space:nowrap; text-overflow:ellipsis; cursor:help; }
+.kuzram-outdated:empty { display:none; }
 @media (max-width:760px) { .kuzram-caption, .kuzram-outdated { max-width:110px; } }
 
 /* Карточки результатов: сводка, таблица, график, разбор, фактические взрывы. */

@@ -19,6 +19,16 @@ describe("errorMessage", () => {
     );
   });
 
+  it("префикс pydantic «Value error, » у валидаторов на ValueError убирается", async () => {
+    const body = {
+      detail: "Ошибка валидации входных данных.",
+      details: [{ loc: ["body", "target", "diesel_price_ton_rub"], msg: "Value error, Цена не может быть отрицательной.", type: "value_error" }],
+    };
+    expect(await errorMessage(response(body), "запасной")).toBe(
+      "Ошибка валидации входных данных: Цена не может быть отрицательной.",
+    );
+  });
+
   it("английские тексты pydantic не показываются", async () => {
     const body = {
       detail: "Ошибка валидации входных данных.",

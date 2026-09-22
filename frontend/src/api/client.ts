@@ -1,12 +1,16 @@
 /**
  * Русские тексты ошибок проверки из `details[].msg` (ответ 422), без повторов.
  * Свои валидаторы API пишут по-русски и точнее общего `detail`; стандартные
- * тексты pydantic — английские, их пользователю не показываем.
+ * тексты pydantic — английские, их пользователю не показываем. У валидаторов
+ * на `ValueError` (например, `api/schemas/economics.py`) pydantic сам
+ * приписывает перед текстом «Value error, » — убираем его до проверки на
+ * кириллицу, иначе он остаётся в сообщении пользователю.
  */
 function validationMessages(details: unknown): string[] {
   if (!Array.isArray(details)) return [];
   const messages = details
     .map((item) => (typeof item === "object" && item !== null && typeof item.msg === "string" ? item.msg : ""))
+    .map((message) => message.replace(/^Value error, /, ""))
     .filter((message) => /[А-Яа-яЁё]/.test(message));
   return [...new Set(messages)];
 }

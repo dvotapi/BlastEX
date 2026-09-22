@@ -9,6 +9,8 @@
 .kuzram-close:hover { background:#f0f4f2; }
 .kuzram-body { flex:1 1 auto; min-height:0; overflow:auto; padding:14px 16px 18px; font-size:12px; line-height:1.5; }
 .kuzram-calc { display:grid; grid-template-columns:280px minmax(0,1fr); gap:16px; align-items:start; }
+/* Скрытая вкладка окна: авторское display перебивает встроенное [hidden]. */
+.kuzram-body[hidden] { display:none; }
 .kuzram-side { position:sticky; top:0; display:grid; gap:12px; }
 .kuzram-settings { display:grid; gap:9px; min-width:0; margin:0; padding:0; border:0; }
 .kuzram-settings legend { margin-bottom:6px; padding:0; color:#7b8982; font-size:9.5px; letter-spacing:.3px; text-transform:uppercase; }

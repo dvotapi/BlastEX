@@ -72,6 +72,13 @@ describe("KuzRamDialog", () => {
     ).toBeInTheDocument();
   });
 
+  it("если коронки не выбраны, строка показывает «коронки не выбраны»", () => {
+    renderDialog({ source: { ...SOURCE, crownsMm: [] } });
+    expect(
+      screen.getByText(/коронки не выбраны · допустимый негабарит/),
+    ).toBeInTheDocument();
+  });
+
   it("правка настроек уходит листу", () => {
     const props = renderDialog();
     fireEvent.change(screen.getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });

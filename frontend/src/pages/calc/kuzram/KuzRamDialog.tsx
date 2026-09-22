@@ -167,7 +167,7 @@ function CalcTab({
         <p className="kuzram-source">
           <b>С листа:</b> {source.rockName} · {source.explosiveName} · уступ {trimmed(source.benchHeightM)} м, перебур{" "}
           {trimmed(source.overdrillM)} м · кусок {trimmed(source.lumpSizeMm)} мм · коронки{" "}
-          {source.crownsMm.map((mm) => trimmed(mm)).join(", ")} мм · допустимый негабарит{" "}
+          {source.crownsMm.length > 0 ? `${source.crownsMm.map((mm) => trimmed(mm)).join(", ")} мм` : "не выбраны"} · допустимый негабарит{" "}
           {trimmed(source.thresholdPct)} %. Исходные данные меняются на листе.
         </p>
       </aside>

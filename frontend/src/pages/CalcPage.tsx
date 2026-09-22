@@ -622,7 +622,12 @@ function FullBvrCalc({
         explosive: !explosive,
       })
     : null;
-  const optimizeErrorMessage = optimizeErrorText(optimizeError, kuzramRevision);
+  // Пока идёт пауза перед пересчётом по правке настроек (или его попытки),
+  // ошибку сотрёт сам запрос: приставка «прошлый расчёт» только мелькнула бы,
+  // а alert зачитался бы заново посреди ввода.
+  const optimizeErrorMessage = kuzramPending
+    ? (optimizeError?.message ?? "")
+    : optimizeErrorText(optimizeError, kuzramRevision);
   const sheetErrors = [referencesError, sheetLoadError, optimizeErrorMessage, workspaceError].filter(Boolean);
   const kuzramSource: KuzRamSource = {
     rockName,

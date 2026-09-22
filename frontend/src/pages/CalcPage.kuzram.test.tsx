@@ -362,6 +362,21 @@ describe("CalcPage: модель Kuz-Ram", () => {
     expect(outdatedBadge()).toBeEmptyDOMElement();
   });
 
+  it("в паузе перед пересчётом ошибка не меняет текст — её сотрёт сам запрос", async () => {
+    renderSheet();
+    await loaded();
+    api.optimize.mockRejectedValueOnce(new Error("Фактор породы A = −0,06 — он должен быть больше нуля."));
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+    await waitFor(() => expect(within(dialog()).getByRole("alert")).toHaveTextContent("Фактор породы A"), SLOW);
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,3" } });
+    // Пересчёт обещан: приставка «Прошлый расчёт» мелькнула бы на время
+    // паузы, а alert зачитался бы заново посреди ввода.
+    expect(within(dialog()).getByRole("alert")).toHaveTextContent(/^Фактор породы A = −0,06/);
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(3), SLOW);
+    await waitFor(() => expect(within(dialog()).queryByRole("alert")).not.toBeInTheDocument(), SLOW);
+  });
+
   it("снятые коронки: правка настроек не выдаёт прежние варианты за посчитанные", async () => {
     renderSheet();
     await loaded();

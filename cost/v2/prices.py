@@ -30,10 +30,6 @@ class PriceLookup:
     # что справочник неоднозначен.
     duplicates: tuple[ReferenceItem, ...] = ()
 
-    @property
-    def source(self) -> str:
-        return f"material_prices.{self.chosen.code}" if self.chosen is not None else ""
-
 
 def effective_price_lookup(
     prices: Iterable[ReferenceItem], material_code: str, *, as_of: date | None = None

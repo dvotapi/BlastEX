@@ -265,6 +265,10 @@ def _role_line(context: ModelContext, role: Role, outcome: MaterialsOutcome) -> 
         )
 
     price = effective_price(lookup)
+    # Код записи прайса сметчику ничего не скажет, а дата начала действия
+    # показывает, какая цена из истории раздела попала в смету.
+    valid_from = lookup.chosen.valid_from
+    price_date = f" (цена с {valid_from:%d.%m.%Y})" if valid_from else ""
     outcome.charged_drivers |= role.covered_drivers
     outcome.charged_operation_drivers |= {
         (operation_code, driver) for driver in role.covered_drivers
@@ -276,7 +280,7 @@ def _role_line(context: ModelContext, role: Role, outcome: MaterialsOutcome) -> 
         cost_item_name=material.name,
         layer=CostLayer.VARIABLE,
         amount_rub=quantity * price,
-        formula=f"{quantity_formula} × {price} ₽/{role.unit} ({lookup.source})",
+        formula=f"{quantity_formula} × {price} ₽/{role.unit}{price_date}",
         resource_code=code,
         section="EXPLOSIVES",
         quantity=quantity,

@@ -26,10 +26,4 @@ def material_price(context: ModelContext, material_code: str) -> Decimal:
     return effective_price(price_lookup(context, material_code))
 
 
-def price_source(context: ModelContext, material_code: str) -> str:
-    """Происхождение цены для колонки «формула» строки затрат."""
-
-    return price_lookup(context, material_code).source
-
-
-__all__ = ["material_price", "price_lookup", "price_source"]
+__all__ = ["material_price", "price_lookup"]

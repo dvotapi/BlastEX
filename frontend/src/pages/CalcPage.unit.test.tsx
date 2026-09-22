@@ -180,6 +180,11 @@ describe("CalcPage: юнит в шапке и автосохранение", () 
     renderSheet("Карьер Анна");
     await waitFor(() => expect(screen.getByLabelText("Юнит")).toBeInTheDocument(), { timeout: 3000 });
     expect(screen.getByLabelText("Юнит")).toBeDisabled();
+    // Поле «Юнит» появляется раньше, чем лист запрашивает настройки объекта
+    // (сначала справочники, потом `flush()` автосохранения): отпустить ответ
+    // до этого запроса нельзя — `release` ещё заглушка, и лист навсегда
+    // останется «не готов» (так тест падал в CI под нагрузкой).
+    await waitFor(() => expect(api.calcInputs).toHaveBeenCalled(), { timeout: 3000 });
     await act(async () => release({ work_object_name: "Карьер Анна", inputs: null, updated_at: null }));
     await waitFor(() => expect(screen.getByLabelText("Юнит")).toBeEnabled(), { timeout: 3000 });
   });

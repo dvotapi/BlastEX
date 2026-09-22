@@ -35,16 +35,13 @@ import { formatOversize, formatQ } from "./calc/kuzram/kuzramFormat";
 import {
   defaultKuzramBlock,
   kuzramSettingsOf,
+  KUZRAM_RECALC_DELAY_MS,
   outdatedHint,
   settingsCaption,
   type KuzRamBlock,
   type KuzRamFact,
 } from "./calc/kuzram/kuzramSettings";
 import type { BlastVariant, Explosive, KuzRamFactInput, KuzRamSettings, ProductionUnit, Rock } from "../types";
-
-/** Пауза перед пересчётом после правки настроек модели: набор «1,15» по
- * цифрам не должен слать запрос на каждую. */
-const KUZRAM_RECALC_DELAY_MS = 300;
 
 /** Сколько раз повторить пересчёт по правке настроек, если лист правят, пока
  * летит запрос: каждый повтор требует новой правки, предел — страховка от
@@ -378,6 +375,11 @@ function FullBvrCalc({
     const markCalculated = () => setCalculatedKuzramRevision((done) => Math.max(done, revisionAtStart));
     // Считать нечего — варианты на экране остались прежними, ревизию не двигаем.
     if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return true;
+    // Устаревшим запуск может оказаться ещё до запроса. Такой запрос не
+    // отправляем — иначе он стал бы «последним» подбором, держал бы флаг
+    // расчёта и стёр бы ошибку уже нового листа. Пересчёт по настройкам модели
+    // сам берёт лист в момент запроса и при `false` повторяет по свежему.
+    if (isStale()) return false;
     const run = ++optimizeRunRef.current;
     setBusy(true);
     setError("");

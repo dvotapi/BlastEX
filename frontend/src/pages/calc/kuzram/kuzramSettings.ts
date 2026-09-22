@@ -41,6 +41,10 @@ export const FACT_FIELDS: FactField[] = ["crown_mm", "q_kg_m3", "oversize_pct"];
  */
 export const BURDEN_TO_DIAMETER_WARN_ABOVE = 35;
 
+/** Пауза перед пересчётом после правки настроек модели: набор «1,15» по
+ * цифрам не должен слать запрос на каждую. */
+export const KUZRAM_RECALC_DELAY_MS = 300;
+
 /** Подписи числовых настроек — как в сообщениях сервера (`NUMERIC_BOUNDS`). */
 export const NUMERIC_LABELS: Record<NumericSetting, string> = {
   rock_factor_manual: "Фактор породы A",

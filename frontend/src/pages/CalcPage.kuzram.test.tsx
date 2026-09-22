@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceContext } from "../app/useWorkspace";
 import { CalcPage } from "./CalcPage";
-import { KUZRAM_DEFAULTS, type KuzRamBlock } from "./calc/kuzram/kuzramSettings";
+import { KUZRAM_DEFAULTS, KUZRAM_RECALC_DELAY_MS, type KuzRamBlock } from "./calc/kuzram/kuzramSettings";
 import { gabbroVariant, OPTIMIZE_GABBRO } from "./calc/kuzram/testing/fixtures";
 
 /**
@@ -108,6 +108,47 @@ const dialog = () => screen.getByRole("dialog", { name: "Модель Kuz-Ram" }
 const outdatedBadge = () => document.querySelector(".kuzram-outdated") as HTMLElement;
 /** Пауза дольше задержки пересчёта по правке настроек (300 мс): таймер точно успел бы сработать. */
 const recalcWindow = () => act(() => new Promise((resolve) => setTimeout(resolve, 500)));
+/**
+ * Перехват таймера пересчёта по правке настроек: он не ставится, а копится, и
+ * тест запускает его сам, когда нужно. clearTimeout снимает перехваченный
+ * таймер, как настоящий, — таймер, отменённый компонентом, тест не запустит.
+ */
+function interceptRecalcTimers() {
+  const pending = new Map<number, () => void>();
+  let nextId = 1_000_000;
+  const realSetTimeout = window.setTimeout.bind(window);
+  const realClearTimeout = window.clearTimeout.bind(window);
+  const setSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
+    handler: TimerHandler,
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (delay === KUZRAM_RECALC_DELAY_MS && typeof handler === "function") {
+      const id = nextId++;
+      pending.set(id, handler as () => void);
+      return id;
+    }
+    return realSetTimeout(handler, delay, ...args);
+  }) as typeof window.setTimeout);
+  const clearSpy = vi.spyOn(window, "clearTimeout").mockImplementation(((id?: number) => {
+    if (id !== undefined && pending.delete(id)) return;
+    realClearTimeout(id);
+  }) as typeof window.clearTimeout);
+  return {
+    pending,
+    /** Запустить единственный ждущий таймер пересчёта. */
+    fire: () => {
+      expect(pending.size).toBe(1);
+      const [[id, handler]] = [...pending];
+      pending.delete(id);
+      handler();
+    },
+    restore: () => {
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
+    },
+  };
+}
 /** Правка C(A) в окне и закрытие окна — дальше правят лист. */
 function editCorrectionAndClose(value: string) {
   fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
@@ -237,17 +278,6 @@ describe("CalcPage: модель Kuz-Ram", () => {
     expect(api.optimize).toHaveBeenCalledTimes(2);
     await act(async () => release(OPTIMIZE_GABBRO));
     await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
-  });
-
-  it("правка листа в паузе перед пересчётом по настройкам — запрос уходит по свежему листу", async () => {
-    renderSheet();
-    await loaded();
-    editCorrectionAndClose("1,2");
-    fireEvent.change(screen.getByLabelText("Кусок, мм"), { target: { value: "600" } });
-    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
-    expect(api.optimize.mock.calls[1][0]).toMatchObject({ lumpSize: 600, kuzram: { rock_factor_correction: 1.2 } });
-    await recalcWindow();
-    expect(api.optimize).toHaveBeenCalledTimes(2);
   });
 
   it("правка листа, пока летит пересчёт по настройкам, — пересчёт повторяется по свежему листу", async () => {
@@ -401,25 +431,13 @@ describe("CalcPage: модель Kuz-Ram", () => {
     });
     const { rerender } = renderSheet();
     await loaded();
-    // Таймер пересчёта (300 мс) перехватываем и запускаем сами — строго после
-    // возврата к А. На реальном таймере медленный прогон дождался бы его ещё
-    // на Б, и тест прошёл бы, не проверив ничего.
-    const recalcTimers: (() => void)[] = [];
-    const realSetTimeout = window.setTimeout.bind(window);
-    const timeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
-      handler: TimerHandler,
-      delay?: number,
-      ...args: unknown[]
-    ) => {
-      if (delay === 300 && typeof handler === "function") {
-        recalcTimers.push(handler as () => void);
-        return 0;
-      }
-      return realSetTimeout(handler, delay, ...args);
-    }) as typeof window.setTimeout);
+    // Таймер пересчёта перехватываем и запускаем сами — строго после возврата
+    // к А. На реальном таймере медленный прогон дождался бы его ещё на Б, и
+    // тест прошёл бы, не проверив ничего.
+    const timers = interceptRecalcTimers();
     try {
       editCorrectionAndClose("1,2");
-      expect(recalcTimers).toHaveLength(1);
+      expect(timers.pending.size).toBe(1);
       rerender(
         <Workspace objectName={OBJECT_2.name}>
           <CalcPage />
@@ -432,10 +450,28 @@ describe("CalcPage: модель Kuz-Ram", () => {
           <CalcPage />
         </Workspace>,
       );
-      await act(async () => recalcTimers[0]());
+      await act(async () => timers.fire());
       expect(api.optimize).toHaveBeenCalledTimes(2);
     } finally {
-      timeoutSpy.mockRestore();
+      timers.restore();
+    }
+  });
+
+  it("вторая правка настроек в паузе отменяет таймер первой — уходит один запрос, по последней", async () => {
+    renderSheet();
+    await loaded();
+    const timers = interceptRecalcTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+      fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+      fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,3" } });
+      // Таймер первой правки снят clearTimeout — ждёт только таймер второй.
+      await act(async () => timers.fire());
+      await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+      expect(api.optimize.mock.calls[1][0].kuzram.rock_factor_correction).toBe(1.3);
+      expect(timers.pending.size).toBe(0);
+    } finally {
+      timers.restore();
     }
   });
 
@@ -475,6 +511,27 @@ describe("CalcPage: модель Kuz-Ram", () => {
     await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
     await act(async () => release(OPTIMIZE_GABBRO));
     await waitFor(() => expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement(), SLOW);
+  });
+
+  it("правка листа в паузе перед пересчётом по настройкам — уходит один запрос, по свежему листу", async () => {
+    renderSheet();
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+    // Окно закрыли и сразу поправили лист — всё в пределах паузы перед запросом.
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Закрыть" }));
+    fireEvent.change(screen.getByRole("slider", { name: /Допустимый негабарит/ }), { target: { value: "6" } });
+    await autosaveWindow();
+    // Запрос по прежнему листу не уходит: он стал бы «последним» подбором —
+    // держал бы флаг расчёта и стирал ошибку листа. Пересчёт по правке
+    // настроек обещан, поэтому уходит один запрос — по свежему листу, и
+    // варианты не остаются по прежним настройкам.
+    expect(api.optimize).toHaveBeenCalledTimes(2);
+    expect(api.optimize.mock.calls[1][0]).toMatchObject({ threshold: 6, kuzram: { rock_factor_correction: 1.2 } });
+    expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled();
+    expect(outdatedBadge()).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement();
   });
 });
 

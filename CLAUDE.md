@@ -29,6 +29,10 @@
 юнита, постоянные затраты техники — по её плановым сменам; оба плана —
 параметры вкладки. Подробности — `Docs/COST_MODEL.md`.
 
+## Модель подбора q (Kuz-Ram)
+
+Лист «Расчёт» подбирает q по Каннингему: формулы — `simulation/fragmentation/cunningham.py`, подбор — `Blast.py::optimize_blast`, окно «Модель Kuz-Ram» — `frontend/src/pages/calc/kuzram/`; «Проектирование», отчёты и ML пока на `simulation/fragmentation/kuzram.py`, подробности — `Docs/KUZRAM_MODEL.md`.
+
 ## Интерфейс
 
 Streamlit удалён: UI — только `frontend/` (React + TypeScript). Расчётные

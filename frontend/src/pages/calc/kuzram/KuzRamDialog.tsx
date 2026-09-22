@@ -1,11 +1,12 @@
 import { useEffect, useRef, type MouseEvent } from "react";
-import type { BlastVariant, KuzRamSettings } from "../../../types";
+import type { BlastVariant, KuzRamCalibrateResponse, KuzRamFactInput, KuzRamSettings } from "../../../types";
 import { KuzRamBreakdown } from "./KuzRamBreakdown";
 import { KuzRamChart } from "./KuzRamChart";
 import { KuzRamComparison } from "./KuzRamComparison";
+import { KuzRamFacts } from "./KuzRamFacts";
 import { KuzRamSettingsForm } from "./KuzRamSettingsForm";
 import { trimmed } from "./kuzramFormat";
-import { completeFacts, type KuzRamBlock } from "./kuzramSettings";
+import { completeFacts, kuzramSettingsOf, type KuzRamBlock, type KuzRamFact } from "./kuzramSettings";
 
 /** Исходные данные листа — в окне только строкой, правятся на листе. */
 export type KuzRamSource = {
@@ -36,6 +37,10 @@ export type KuzRamDialogProps = {
   onSelect: (index: number) => void;
   /** Порог негабарита, с которым посчитаны варианты. */
   thresholdPct: number;
+  /** Правка строк фактов: лист сохраняет их, подбор q не запускается. */
+  onFactsChange: (next: KuzRamFact[]) => void;
+  /** Подбор C(A) по полным строкам — запрос `/blast/kuzram/calibrate` с данными листа. */
+  onCalibrate: (facts: KuzRamFactInput[]) => Promise<KuzRamCalibrateResponse>;
 };
 
 /**
@@ -80,7 +85,19 @@ export function KuzRamDialog(props: KuzRamDialogProps) {
   );
 }
 
-function CalcTab({ block, onSettingsChange, source, busy, error, variants, selectedIndex, onSelect, thresholdPct }: KuzRamDialogProps) {
+function CalcTab({
+  block,
+  onSettingsChange,
+  source,
+  busy,
+  error,
+  variants,
+  selectedIndex,
+  onSelect,
+  thresholdPct,
+  onFactsChange,
+  onCalibrate,
+}: KuzRamDialogProps) {
   const chartFacts = completeFacts(block.facts).map((row) => row.fact);
   const selected = variants[selectedIndex];
   return (
@@ -110,6 +127,13 @@ function CalcTab({ block, onSettingsChange, source, busy, error, variants, selec
           </section>
         )}
         {selected && <KuzRamBreakdown variant={selected} thresholdPct={thresholdPct} />}
+        <KuzRamFacts
+          facts={block.facts}
+          onChange={onFactsChange}
+          defaultCrownMm={selected?.crown_mm ?? null}
+          onCalibrate={onCalibrate}
+          onApplyCorrection={(value) => onSettingsChange({ ...kuzramSettingsOf(block), rock_factor_correction: value })}
+        />
       </div>
     </div>
   );

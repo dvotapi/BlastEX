@@ -32,8 +32,8 @@ import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
 import { KuzRamDialog, type KuzRamSource } from "./calc/kuzram/KuzRamDialog";
 import { ThresholdFlag } from "./calc/kuzram/ThresholdFlag";
 import { formatOversize, formatQ } from "./calc/kuzram/kuzramFormat";
-import { defaultKuzramBlock, kuzramSettingsOf, settingsCaption, type KuzRamBlock } from "./calc/kuzram/kuzramSettings";
-import type { BlastVariant, Explosive, KuzRamSettings, ProductionUnit, Rock } from "../types";
+import { defaultKuzramBlock, kuzramSettingsOf, settingsCaption, type KuzRamBlock, type KuzRamFact } from "./calc/kuzram/kuzramSettings";
+import type { BlastVariant, Explosive, KuzRamFactInput, KuzRamSettings, ProductionUnit, Rock } from "../types";
 
 /** Пауза перед пересчётом после правки настроек модели: набор «1,15» по
  * цифрам не должен слать запрос на каждую. */
@@ -128,6 +128,10 @@ function FullBvrCalc({
     },
     [bumpOptimizeGeneration],
   );
+  const setKuzramFacts = useCallback((facts: KuzRamFact[]) => {
+    // Факты подбор не трогают: ни счётчик поколений, ни ревизия настроек не растут.
+    setKuzram((current) => ({ ...current, facts }));
+  }, []);
   const [nsiLengthOptions, setNsiLengthOptions] = useState<number[]>([12]);
   const [detonatorDelayOptions, setDetonatorDelayOptions] = useState<number[]>([500]);
   const [variants, setVariants] = useState<BlastVariant[]>([]);
@@ -519,6 +523,20 @@ function FullBvrCalc({
     lumpSizeMm: lumpSize,
     thresholdPct: threshold,
   };
+  const calibrateKuzram = (facts: KuzRamFactInput[]) => {
+    if (!rock || !explosive) return Promise.reject(new Error("Выберите породу и ВВ на листе."));
+    return api.calibrateKuzram({
+      rock,
+      explosive,
+      lumpSize,
+      benchHeight,
+      overdrill,
+      oversizeCoeff,
+      spacing,
+      kuzram: kuzramSettingsOf(kuzram),
+      facts,
+    });
+  };
 
   return (
     <div className="calc-sheet">
@@ -697,6 +715,8 @@ function FullBvrCalc({
         selectedIndex={selectedIndex}
         onSelect={setSelectedIndex}
         thresholdPct={variantsThresholdPct ?? threshold}
+        onFactsChange={setKuzramFacts}
+        onCalibrate={calibrateKuzram}
       />
     </div>
   );

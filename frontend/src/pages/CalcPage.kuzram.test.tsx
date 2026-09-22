@@ -201,3 +201,43 @@ describe("CalcPage: модель Kuz-Ram", () => {
     await waitFor(() => expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement(), SLOW);
   });
 });
+
+describe("CalcPage: фактические взрывы", () => {
+  it("правка фактов сохраняется за объектом и подбор не запускает", async () => {
+    renderSheet();
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Добавить взрыв" }));
+    fireEvent.change(within(dialog()).getByLabelText("Фактический q, строка 1"), { target: { value: "1,3" } });
+    await waitFor(() => expect(lastSaved()?.kuzram.facts).toEqual([{ crown_mm: 152, q_kg_m3: 1.3, oversize_pct: null }]), SLOW);
+    await autosaveWindow();
+    expect(api.optimize).toHaveBeenCalledTimes(1);
+  });
+
+  it("«Подобрать C(A) по факту» шлёт только полные строки и пересчитывает варианты с новой поправкой", async () => {
+    const facts = [
+      { crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 },
+      { crown_mm: 165, q_kg_m3: null, oversize_pct: null },
+    ];
+    api.calcInputs.mockResolvedValue({ work_object_name: OBJECT.name, inputs: savedInputs({ ...KUZRAM_DEFAULTS, facts }), updated_at: "then" });
+    api.calibrateKuzram.mockResolvedValue({
+      rows: [{ crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8, legacy_oversize_pct: 5.3, model_oversize_pct: 4.29, rock_factor_correction: 1.132, note: null }],
+      rock_factor_correction: 1.132,
+      used: 1,
+      skipped: 0,
+      model_version: "kuzram-cunningham-1.0",
+    });
+    renderSheet();
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Подобрать C(A) по факту" }));
+    await waitFor(() => expect(api.calibrateKuzram).toHaveBeenCalledTimes(1));
+    const request = api.calibrateKuzram.mock.calls[0][0];
+    expect(request.kuzram).toEqual(KUZRAM_DEFAULTS);
+    expect(request.facts).toEqual([{ crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 }]);
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    expect(api.optimize.mock.calls[1][0].kuzram).toEqual({ ...KUZRAM_DEFAULTS, rock_factor_correction: 1.132 });
+    expect(within(dialog()).getByText(/C\(A\) = 1,132 записана в настройки/)).toBeInTheDocument();
+    expect(document.querySelector(".kuzram-caption")).toHaveTextContent("C(A) 1,132");
+  });
+});

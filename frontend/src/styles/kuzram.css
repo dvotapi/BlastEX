@@ -96,3 +96,16 @@
 .kuzram-breakdown tr.key th, .kuzram-breakdown tr.key td { color:#17231d; font-weight:var(--font-weight-strong); }
 .kuzram-warning-mark { margin-left:6px; padding:0 6px; border-radius:999px; background:#fdf3e2; color:#745014; font-size:10px; }
 .kuzram-warning { margin:0; padding:8px 10px; border:1px solid #ead39f; border-radius:9px; background:#fff8e9; color:#684b17; font-size:11px; }
+
+/* Фактические взрывы: правка на месте, подбор C(A). */
+.kuzram-facts td { vertical-align:top; }
+.kuzram-facts input { width:78px; height:26px; padding:0 6px; border:1px solid #ced9d3; border-radius:6px; background:#fff; color:#17231d; font-size:11px; text-align:right; font-variant-numeric:tabular-nums; }
+.kuzram-facts .kuzram-field-error { max-width:160px; white-space:normal; text-align:left; }
+.kuzram-row-remove { width:24px; height:24px; border:0; border-radius:6px; background:transparent; color:#9aa8a1; font-size:14px; line-height:1; }
+.kuzram-row-remove:hover { background:#fce9e7; color:#9e3025; }
+.kuzram-facts-hint { margin:0; color:#6e7c75; font-size:11px; }
+.kuzram-facts-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.kuzram-message { margin:0; font-size:11px; }
+.kuzram-message.ok { color:#1c5c40; }
+.kuzram-message.warn { color:#745014; }
+.kuzram-message.error { color:#9e3025; }

@@ -39,6 +39,8 @@ function renderDialog(overrides: Partial<KuzRamDialogProps> = {}) {
     selectedIndex: 0,
     onSelect: vi.fn(),
     thresholdPct: 5,
+    onFactsChange: vi.fn(),
+    onCalibrate: vi.fn(),
     ...overrides,
   };
   render(<KuzRamDialog {...props} />);
@@ -88,5 +90,11 @@ describe("KuzRamDialog", () => {
     const table = within(screen.getByRole("region", { name: "Варианты сетки" })).getByRole("table");
     fireEvent.click(within(table).getAllByRole("row")[2]);
     expect(props.onSelect).toHaveBeenCalledWith(0);
+  });
+
+  it("фактические взрывы — в окне, правка строк уходит листу", () => {
+    const props = renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: "Добавить взрыв" }));
+    expect(props.onFactsChange).toHaveBeenCalledWith([{ crown_mm: null, q_kg_m3: null, oversize_pct: null }]);
   });
 });

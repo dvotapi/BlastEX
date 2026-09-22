@@ -546,6 +546,29 @@ describe("CalcPage: модель Kuz-Ram", () => {
     expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement();
   });
 
+  it("смена объекта, пока летит подбор, — у объекта без сохранённого листа расчёт доступен", async () => {
+    api.calcInputs.mockImplementation(async (name: string) =>
+      name === OBJECT_2.name
+        ? { work_object_name: name, inputs: null, updated_at: null }
+        : { work_object_name: name, inputs: savedInputs(), updated_at: "then" },
+    );
+    const { rerender } = renderSheet();
+    await loaded();
+    api.optimize.mockImplementationOnce(() => new Promise(() => {}));
+    editCorrectionAndClose("1,2");
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    rerender(
+      <Workspace objectName={OBJECT_2.name}>
+        <CalcPage />
+      </Workspace>,
+    );
+    // Автозапуска у нового объекта нет: флаг расчёта, кроме загрузки, снял бы
+    // только ответ прежнего объекта, а он так и не приходит.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement();
+  });
+
   it("возврат к тому же объекту в паузе перед пересчётом не оживляет прежний таймер", async () => {
     // А → Б → А быстрее паузы: лист Б уже применён, повторная загрузка А ещё идёт.
     // Таймер, сверяющий только имя объекта, отправил бы лист Б и принял ответ как варианты А.

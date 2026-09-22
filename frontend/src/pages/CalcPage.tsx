@@ -31,7 +31,7 @@ import { useHoleGeometry } from "./calc/useHoleGeometry";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
 import { KuzRamDialog, type KuzRamSource } from "./calc/kuzram/KuzRamDialog";
 import { ThresholdFlag } from "./calc/kuzram/ThresholdFlag";
-import { formatOversize, formatQ } from "./calc/kuzram/kuzramFormat";
+import { formatOversize, formatQ, outdatedHint } from "./calc/kuzram/kuzramFormat";
 import { defaultKuzramBlock, kuzramSettingsOf, settingsCaption, type KuzRamBlock, type KuzRamFact } from "./calc/kuzram/kuzramSettings";
 import type { BlastVariant, Explosive, KuzRamFactInput, KuzRamSettings, ProductionUnit, Rock } from "../types";
 
@@ -77,6 +77,10 @@ function FullBvrCalc({
   // Номер последнего запущенного подбора: флаг «идёт расчёт» снимает только
   // он — иначе ранний ответ погасил бы «Пересчёт…», пока летит новый запрос.
   const optimizeRunRef = useRef(0);
+  // Номер загрузки объекта (растёт в начале каждой): отложенный пересчёт по
+  // правке настроек сверяет его, а не только имя — после А → Б → А лист ещё
+  // может быть от Б, пока идёт повторная загрузка А.
+  const objectLoadRef = useRef(0);
   const setRockName = useCallback(
     (value: string) => { setRockNameRaw(value); bumpOptimizeGeneration(); },
     [bumpOptimizeGeneration],
@@ -440,7 +444,11 @@ function FullBvrCalc({
     if (kuzramRevision === 0) return;
     const revision = kuzramRevision;
     const requestedObjectName = objectName;
-    const current = () => objectNameRef.current === requestedObjectName && kuzramRevisionRef.current === revision;
+    const load = objectLoadRef.current;
+    const current = () =>
+      objectLoadRef.current === load &&
+      objectNameRef.current === requestedObjectName &&
+      kuzramRevisionRef.current === revision;
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
@@ -480,6 +488,7 @@ function FullBvrCalc({
   useEffect(() => {
     if (!catalogs || !referenceDefaults || !objectName) return;
     let cancelled = false;
+    objectLoadRef.current += 1;
     setLoadedObjectName(null);
     setLoadedCrownMm(null);
     setVariants([]);
@@ -578,19 +587,10 @@ function FullBvrCalc({
   // помечать нечего. Счётчики ревизий общие для всех объектов, но при смене
   // объекта варианты сбрасываются — пометка к ним не переходит.
   const kuzramOutdated = ready && variants.length > 0 && calculatedKuzramRevision < kuzramRevision && !kuzramBusy;
-  // Совет к пометке — одинаковый на листе и в окне. Ошибку пересчёта ручной
-  // расчёт не исправит — советуем настройки; нечего считать — выбрать
-  // недостающее («Рассчитать варианты» без него недоступна); иначе — пересчитать.
-  const missingForCalculation = [!selectedCrowns.length && "коронки", !rock && "породу", !explosive && "ВВ"]
-    .filter(Boolean)
-    .join(", ");
-  const kuzramOutdatedHint = !kuzramOutdated
-    ? null
-    : error
-      ? "по текущим расчёт не прошёл — исправьте настройки модели."
-      : missingForCalculation
-        ? `на листе нечего считать — выберите ${missingForCalculation} и нажмите «Рассчитать варианты».`
-        : "пересчитайте их кнопкой «Рассчитать варианты» на листе.";
+  // Совет к пометке — одинаковый на листе и в окне.
+  const kuzramOutdatedHint = kuzramOutdated
+    ? outdatedHint(error, { crowns: !selectedCrowns.length, rock: !rock, explosive: !explosive })
+    : null;
   const kuzramSource: KuzRamSource = {
     rockName,
     explosiveName: explosive?.name ?? explosiveKey,

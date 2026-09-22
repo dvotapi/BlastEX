@@ -323,8 +323,8 @@ describe("CalcPage: модель Kuz-Ram", () => {
     // В таблице — q по RMD 50, в настройках — RMD 10: ошибка объясняет, почему, пометка — что цифры чужие.
     expect(within(dialog()).getByRole("status")).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
     expect(within(dialog()).getByRole("status")).toHaveTextContent("расчёт не прошёл");
-    // Повторный «Рассчитать варианты» упадёт с той же ошибкой — пометка советует исправить настройки.
-    expect(outdatedBadge()).toHaveTextContent("исправьте настройки модели");
+    // Повторный «Рассчитать варианты» упал бы так же — пометка ведёт к сообщению об ошибке.
+    expect(outdatedBadge()).toHaveTextContent("причина в сообщении об ошибке");
     expect(outdatedBadge()).not.toHaveTextContent("«Рассчитать варианты»");
     // Вернули способ — пересчёт прошёл, пометки нет.
     fireEvent.change(within(dialog()).getByLabelText("Фактор породы A"), { target: { value: "rmd50" } });
@@ -384,6 +384,38 @@ describe("CalcPage: модель Kuz-Ram", () => {
     // Новый объект: умолчания, вариантов нет, считать его ещё не просили.
     await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
     expect(outdatedBadge()).toBeEmptyDOMElement();
+  });
+
+  it("возврат к тому же объекту в паузе перед пересчётом не оживляет прежний таймер", async () => {
+    // А → Б → А быстрее паузы: лист Б уже применён, повторная загрузка А ещё идёт.
+    // Таймер, сверяющий только имя объекта, отправил бы лист Б и принял ответ как варианты А.
+    let loadsOfFirst = 0;
+    api.calcInputs.mockImplementation((name: string) => {
+      if (name === OBJECT_2.name) {
+        return Promise.resolve({ work_object_name: name, inputs: { ...savedInputs(), lump_size_mm: 600 }, updated_at: "then" });
+      }
+      loadsOfFirst += 1;
+      return loadsOfFirst === 1
+        ? Promise.resolve({ work_object_name: name, inputs: savedInputs(), updated_at: "then" })
+        : new Promise(() => {});
+    });
+    const { rerender } = renderSheet();
+    await loaded();
+    editCorrectionAndClose("1,2");
+    rerender(
+      <Workspace objectName={OBJECT_2.name}>
+        <CalcPage />
+      </Workspace>,
+    );
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    expect(api.optimize.mock.calls[1][0].lumpSize).toBe(600);
+    rerender(
+      <Workspace objectName={OBJECT.name}>
+        <CalcPage />
+      </Workspace>,
+    );
+    await recalcWindow();
+    expect(api.optimize).toHaveBeenCalledTimes(2);
   });
 
   it("смена объекта в паузе перед пересчётом — пока грузится новый объект, пометки нет", async () => {

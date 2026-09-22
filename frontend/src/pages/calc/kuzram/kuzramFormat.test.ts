@@ -1,7 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { formatOversize, formatQ, gridText, LEGACY_Q_MIN_KG_M3, qDeltaText, trimmed } from "./kuzramFormat";
+import { formatOversize, formatQ, gridText, LEGACY_Q_MIN_KG_M3, outdatedHint, qDeltaText, trimmed } from "./kuzramFormat";
 
 describe("kuzramFormat", () => {
+  it("совет к пометке «по прежним настройкам»: ошибка, недостающее на листе, иначе — пересчитать", () => {
+    const nothing = { crowns: false, rock: false, explosive: false };
+    // Ошибка может быть любой (сеть, сервер) — совет не винит настройки, а ведёт к сообщению.
+    expect(outdatedHint("Не удалось выполнить запрос.", { ...nothing, crowns: true })).toBe(
+      "по текущим расчёт не прошёл — причина в сообщении об ошибке.",
+    );
+    expect(outdatedHint("", { ...nothing, crowns: true })).toBe(
+      "на листе нечего считать — выберите коронки и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint("", { ...nothing, rock: true })).toBe(
+      "на листе нечего считать — выберите породу и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint("", { ...nothing, explosive: true })).toBe(
+      "на листе нечего считать — выберите ВВ и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint("", { crowns: true, rock: true, explosive: true })).toBe(
+      "на листе нечего считать — выберите коронки, породу, ВВ и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint("", nothing)).toBe("пересчитайте их кнопкой «Рассчитать варианты» на листе.");
+  });
+
   it("trimmed — запятая, без лишних нулей и разделителя тысяч", () => {
     expect(trimmed(1.127)).toBe("1,127");
     expect(trimmed(2)).toBe("2");

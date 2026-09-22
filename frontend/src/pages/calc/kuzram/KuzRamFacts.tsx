@@ -92,12 +92,32 @@ export function KuzRamFacts({
   // Растёт при каждой правке строк: ответ подбора, начатого до правки, уже не про эти строки.
   const editRef = useRef(0);
   const complete = completeFacts(facts);
+  // Ключ строки — не её место в массиве: место после удаления сдвигается, а
+  // React по одинаковому ключу переиспользовал бы `FactCell` соседней строки
+  // вместе с её непринятым (неверным) черновиком ячейки.
+  const nextRowId = useRef(0);
+  const [rowIds, setRowIds] = useState<number[]>(() => facts.map(() => nextRowId.current++));
+  if (rowIds.length !== facts.length) {
+    // Строки заменили снаружи (например, загрузили другой лист) — свои
+    // прежние правки и добавление/удаление здесь ни при чём.
+    setRowIds(facts.map(() => nextRowId.current++));
+  }
 
   function update(next: KuzRamFact[]) {
     editRef.current += 1;
     setCalibration(null);
     setMessage(null);
     onChange(next);
+  }
+
+  function addRow() {
+    setRowIds((ids) => [...ids, nextRowId.current++]);
+    update([...facts, { crown_mm: defaultCrownMm, q_kg_m3: null, oversize_pct: null }]);
+  }
+
+  function removeRow(index: number) {
+    setRowIds((ids) => ids.filter((_, i) => i !== index));
+    update(facts.filter((_, i) => i !== index));
   }
 
   async function calibrate() {
@@ -159,7 +179,7 @@ export function KuzRamFacts({
             {facts.map((row, index) => {
               const result = calibration?.get(index);
               return (
-                <tr key={index}>
+                <tr key={rowIds[index]}>
                   {FACT_FIELDS.map((field) => (
                     <td key={field}>
                       <FactCell
@@ -184,7 +204,7 @@ export function KuzRamFacts({
                       type="button"
                       className="kuzram-row-remove"
                       aria-label={`Удалить взрыв ${index + 1}`}
-                      onClick={() => update(facts.filter((_, i) => i !== index))}
+                      onClick={() => removeRow(index)}
                     >
                       ×
                     </button>
@@ -208,7 +228,7 @@ export function KuzRamFacts({
           type="button"
           className="secondary-button"
           disabled={facts.length >= MAX_FACTS}
-          onClick={() => update([...facts, { crown_mm: defaultCrownMm, q_kg_m3: null, oversize_pct: null }])}
+          onClick={addRow}
         >
           Добавить взрыв
         </button>

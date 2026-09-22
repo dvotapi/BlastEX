@@ -116,6 +116,10 @@ function FullBvrCalc({
   // Растёт при каждой правке настроек модели в окне — эффект ниже
   // перезапускает подбор. Загрузка листа её не трогает: там подбор идёт сам.
   const [kuzramRevision, setKuzramRevision] = useState(0);
+  // Актуальная ревизия настроек модели для проверки «не устарел ли подбор
+  // C(A)» в `calibrateKuzram`, который не пересоздаётся при каждой правке.
+  const kuzramRevisionRef = useRef(kuzramRevision);
+  kuzramRevisionRef.current = kuzramRevision;
   // До какой ревизии подбор уже досчитан: пока отстаёт, окно пишет «Пересчёт…»
   // (и в паузе перед запросом).
   const [calculatedKuzramRevision, setCalculatedKuzramRevision] = useState(0);
@@ -523,9 +527,16 @@ function FullBvrCalc({
     lumpSizeMm: lumpSize,
     thresholdPct: threshold,
   };
-  const calibrateKuzram = (facts: KuzRamFactInput[]) => {
-    if (!rock || !explosive) return Promise.reject(new Error("Выберите породу и ВВ на листе."));
-    return api.calibrateKuzram({
+  // Пока запрос летит, пользователь мог поправить настройки модели в окне
+  // (сам подбор их не трогает) или сменить объект — тогда ответ, пусть и
+  // успешный, уже не про текущие настройки и не про этот объект: записывать
+  // его C(A) поверх свежих значений нельзя (`KuzRamFacts` покажет причину
+  // как обычную ошибку подбора).
+  const calibrateKuzram = async (facts: KuzRamFactInput[]) => {
+    if (!rock || !explosive) throw new Error("Выберите породу и ВВ на листе.");
+    const requestedObjectName = objectName;
+    const startedRevision = kuzramRevision;
+    const response = await api.calibrateKuzram({
       rock,
       explosive,
       lumpSize,
@@ -536,6 +547,10 @@ function FullBvrCalc({
       kuzram: kuzramSettingsOf(kuzram),
       facts,
     });
+    if (objectNameRef.current !== requestedObjectName || kuzramRevisionRef.current !== startedRevision) {
+      throw new Error("Настройки модели или объект изменились, пока шёл подбор, — C(A) не записана. Запустите подбор ещё раз.");
+    }
+    return response;
   };
 
   return (

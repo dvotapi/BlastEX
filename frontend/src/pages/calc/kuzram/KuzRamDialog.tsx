@@ -132,7 +132,12 @@ function CalcTab({
           onChange={onFactsChange}
           defaultCrownMm={selected?.crown_mm ?? null}
           onCalibrate={onCalibrate}
-          onApplyCorrection={(value) => onSettingsChange({ ...kuzramSettingsOf(block), rock_factor_correction: value })}
+          onApplyCorrection={(value) => {
+            // Настройки не изменились с подбора (частый случай — повторный
+            // подбор на тех же данных) — не гоняем пересчёт варианта впустую.
+            if (value === block.rock_factor_correction) return;
+            onSettingsChange({ ...kuzramSettingsOf(block), rock_factor_correction: value });
+          }}
         />
       </div>
     </div>

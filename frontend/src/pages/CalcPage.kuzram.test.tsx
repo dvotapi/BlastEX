@@ -240,4 +240,32 @@ describe("CalcPage: фактические взрывы", () => {
     expect(within(dialog()).getByText(/C\(A\) = 1,132 записана в настройки/)).toBeInTheDocument();
     expect(document.querySelector(".kuzram-caption")).toHaveTextContent("C(A) 1,132");
   });
+
+  it("подбор C(A), устаревший из-за правки настроек за время запроса, не записывается", async () => {
+    const facts = [{ crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 }];
+    api.calcInputs.mockResolvedValue({ work_object_name: OBJECT.name, inputs: savedInputs({ ...KUZRAM_DEFAULTS, facts }), updated_at: "then" });
+    let release: (value: unknown) => void = () => {};
+    api.calibrateKuzram.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    renderSheet();
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Подобрать C(A) по факту" }));
+    await waitFor(() => expect(api.calibrateKuzram).toHaveBeenCalledTimes(1));
+    // Пока подбор летит, в окне поправляют настройку — она пересчитывает
+    // варианты сама, независимо от подбора.
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,3" } });
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    await act(async () =>
+      release({
+        rows: [{ crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8, legacy_oversize_pct: 5.3, model_oversize_pct: 4.29, rock_factor_correction: 1.132, note: null }],
+        rock_factor_correction: 1.132,
+        used: 1,
+        skipped: 0,
+        model_version: "kuzram-cunningham-1.0",
+      }),
+    );
+    await waitFor(() => expect(within(dialog()).getByRole("alert")).toHaveTextContent("C(A) не записана"));
+    expect(document.querySelector(".kuzram-caption")).toHaveTextContent("C(A) 1,3");
+    expect(api.optimize.mock.calls.some((call) => call[0].kuzram.rock_factor_correction === 1.132)).toBe(false);
+  });
 });

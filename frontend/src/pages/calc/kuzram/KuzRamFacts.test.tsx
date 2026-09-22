@@ -68,6 +68,17 @@ describe("KuzRamFacts", () => {
     expect(screen.queryByLabelText("Коронка, строка 2")).not.toBeInTheDocument();
   });
 
+  it("удаление строки не переносит непринятый черновик соседней ячейки (ключ строки — не место в массиве)", () => {
+    renderFacts([
+      { crown_mm: 152, q_kg_m3: null, oversize_pct: 8 },
+      { crown_mm: 165, q_kg_m3: null, oversize_pct: 7.5 },
+    ]);
+    fireEvent.change(screen.getByLabelText("Фактический q, строка 1"), { target: { value: "1ю3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Удалить взрыв 1" }));
+    expect(screen.getByLabelText("Фактический q, строка 1")).toHaveValue("");
+    expect(screen.queryByText("Введите число.")).not.toBeInTheDocument();
+  });
+
   it("подбор C(A): только полные строки, C(A) записывается, по строкам видны прогнозы", async () => {
     const onCalibrate = vi.fn().mockResolvedValue(
       response({

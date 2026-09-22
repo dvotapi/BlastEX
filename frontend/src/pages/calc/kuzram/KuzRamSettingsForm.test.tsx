@@ -84,6 +84,9 @@ describe("KuzRamSettingsForm", () => {
     expect(screen.getByLabelText("Поправка C(A)")).toHaveValue("1");
     expect(screen.getByLabelText("Поправка C(A)")).not.toHaveAttribute("aria-invalid");
     expect(reset()).toBeDisabled();
+    // Настройки и так умолчания: сброс стирает только ввод — правки настроек,
+    // а с ней и пересчёта листа, нет.
+    expect(onChange).not.toHaveBeenCalled();
     // Число вне границ тоже не принято — и тоже включает сброс.
     fireEvent.change(screen.getByLabelText("Поправка C(A)"), { target: { value: "50" } });
     expect(reset()).toBeEnabled();

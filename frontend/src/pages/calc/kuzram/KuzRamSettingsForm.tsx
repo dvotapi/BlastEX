@@ -241,7 +241,9 @@ export function KuzRamSettingsForm({
         disabled={sameSettings(settings, KUZRAM_DEFAULTS) && unaccepted.size === 0}
         onClick={() => {
           setResetCount((count) => count + 1);
-          onChange({ ...KUZRAM_DEFAULTS });
+          // Настройки и так умолчания — сброс стирает только неверный ввод в
+          // полях: правка настроек подняла бы ревизию и лишний пересчёт листа.
+          if (!sameSettings(settings, KUZRAM_DEFAULTS)) onChange({ ...KUZRAM_DEFAULTS });
         }}
       >
         Сбросить к умолчаниям

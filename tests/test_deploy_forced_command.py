@@ -331,6 +331,23 @@ def test_rejects_untracked_files(stand: Stand) -> None:
     assert stray.exists()
 
 
+def test_rejects_file_unignored_by_requested_commit(stand: Stand) -> None:
+    # Правила игнора до checkout — от выкаченного коммита. Если новый коммит
+    # перестал игнорировать файл, лежащий на сервере, тот станет
+    # неотслеживаемым только после checkout и попал бы в сборку.
+    ignoring = stand.commit("ignore local config", {".gitignore": ".env\nlocal.cfg\n"})
+    assert stand.run(ignoring).returncode == 0
+    (stand.app / "local.cfg").write_text("stale\n", encoding="utf-8")
+    unignoring = stand.commit("stop ignoring local config", {".gitignore": ".env\n"})
+
+    result = stand.run(unignoring)
+
+    assert result.returncode == REJECTED, result.stderr
+    assert "local.cfg" in result.stderr
+    assert stand.deployed() == [ignoring]
+    assert stand.marker() == ignoring
+
+
 def test_ignored_runtime_files_do_not_block_deploy(stand: Stand) -> None:
     # .env лежит в рабочей копии сервера и в git не входит.
     sha = stand.commit("second")

@@ -63,13 +63,21 @@ fi
 # Правленый или лишний файл рабочей копии попал бы в контекст сборки, и на
 # прод ушёл бы не проверенный коммит. Игнорируемые файлы (.env) git status не
 # показывает: сборочные среди них отсекают .dockerignore.
-modified="$(git status --porcelain)"
-if [[ -n "$modified" ]]; then
-  printf '%s\n' "$modified" >&2
-  reject "рабочая копия $APP_DIR отличается от коммита, выкатить ровно $sha нельзя"
-fi
+ensure_clean() {
+  local modified
+  modified="$(git status --porcelain)"
+  if [[ -n "$modified" ]]; then
+    printf '%s\n' "$modified" >&2
+    reject "рабочая копия $APP_DIR отличается от коммита, выкатить ровно $sha нельзя"
+  fi
+}
 
+# До checkout — чтобы не трогать рабочую копию с правками. После — потому что
+# правила игнора теперь от $sha: файл, который он перестал игнорировать,
+# стал неотслеживаемым только сейчас.
+ensure_clean
 git checkout --quiet --detach "$sha"
+ensure_clean
 
 ahead="$(git rev-list --count "$sha..refs/remotes/origin/main")"
 echo "Разворачиваю $(git log -1 --format='%h %s')"

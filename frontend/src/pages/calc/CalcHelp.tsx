@@ -8,7 +8,9 @@ import { useTopbarTrailingSlot } from "../../app/topbarSlot";
  * Тем же приёмом, что `pages/economics/EconomicsHelp.tsx`: круглая кнопка «?»
  * в шапке, нативный `dialog`. Сюда же ушла вторая фраза подсказки панели
  * паспортов — про кнопку «Экономика»: на одном экране ей нет места, а знать
- * её нужно один раз. Формулировки про q и негабарит пересказывают `Blast.py::optimize_blast` (модель Kuz-Ram по Каннингему, окно `calc/kuzram/`) — при изменении подбора сверьте текст.
+ * её нужно один раз. Формулировки про q и негабарит пересказывают
+ * `Blast.py::optimize_blast` (модель Kuz-Ram по Каннингему, окно
+ * `calc/kuzram/`) — при изменении подбора сверьте текст.
  */
 export function CalcHelp() {
   const ref = useRef<HTMLDialogElement>(null);

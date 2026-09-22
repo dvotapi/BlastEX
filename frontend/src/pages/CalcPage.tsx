@@ -39,6 +39,11 @@ import type { BlastVariant, Explosive, KuzRamFactInput, KuzRamSettings, Producti
  * цифрам не должен слать запрос на каждую. */
 const KUZRAM_RECALC_DELAY_MS = 300;
 
+/** Сколько раз повторить пересчёт по правке настроек, если лист правят, пока
+ * летит запрос: каждый повтор требует новой правки, предел — страховка от
+ * бесконечного цикла при будущей правке условий. */
+const KUZRAM_RECALC_ATTEMPTS = 3;
+
 function FullBvrCalc({
   onSendToDesign,
   onOpenEconomics,
@@ -116,6 +121,9 @@ function FullBvrCalc({
   // Растёт при каждой правке настроек модели в окне — эффект ниже
   // перезапускает подбор. Загрузка листа её не трогает: там подбор идёт сам.
   const [kuzramRevision, setKuzramRevision] = useState(0);
+  // Для отложенного пересчёта: новая правка настроек отменяет попытки прежней.
+  const kuzramRevisionRef = useRef(kuzramRevision);
+  kuzramRevisionRef.current = kuzramRevision;
   // До какой ревизии подбор уже досчитан: пока отстаёт, окно пишет «Пересчёт…»
   // (и в паузе перед запросом).
   const [calculatedKuzramRevision, setCalculatedKuzramRevision] = useState(0);
@@ -258,6 +266,9 @@ function FullBvrCalc({
       selectedCrowns, selected, loadedCrownMm, blockVolumeM3, additionalHolesPct, productionUnitCode, panelInputs, kuzram]
   );
   const sheetInputs = useMemo(() => collectCalcInputs(sheet), [sheet]);
+  // Актуальный лист для отложенного пересчёта по правке настроек модели.
+  const sheetRef = useRef(sheet);
+  sheetRef.current = sheet;
 
   // Статус автосохранения показывает верхняя полоса листа (задача 5).
   const { status: autosaveStatus, flush } = useCalcInputsAutosave({ objectName, inputs: sheetInputs, ready });
@@ -332,15 +343,17 @@ function FullBvrCalc({
    * планирования запроса — иначе клик по другой строке в паузе перед
    * запросом или пока он летит откатился бы к прежней коронке.
    * `isStale` — автозапуск для объекта, который успели сменить: его результат
-   * выбрасываем, иначе он затрёт варианты нового объекта. */
+   * выбрасываем, иначе он затрёт варианты нового объекта.
+   * Возвращает `false`, только если ответ выброшен как устаревший; ответ,
+   * ошибка или «считать нечего» (нет породы, ВВ или коронок) — `true`. */
   async function runOptimize(
     source: SheetState,
     preferredCrownMm: () => number | null,
     isStale: () => boolean = () => false,
-  ) {
+  ): Promise<boolean> {
     const sheetRock = rocks.find((r) => r.name === source.rockName);
     const sheetExplosive = explosives.find((e) => e.key === source.explosiveKey);
-    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return;
+    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return true;
     const run = ++optimizeRunRef.current;
     setBusy(true);
     setError("");
@@ -357,16 +370,18 @@ function FullBvrCalc({
         crownDiametersMm: source.selectedCrownsMm,
         kuzram: kuzramSettingsOf(source.kuzram),
       });
-      if (isStale()) return;
+      if (isStale()) return false;
       setVariants(result.variants);
       setVariantsThresholdPct(result.max_oversize_threshold_pct);
       const preferredValue = preferredCrownMm();
       const restored = preferredValue === null ? -1 : result.variants.findIndex((v) => v.crown_mm === preferredValue);
       const preferred = result.variants.findIndex((v) => v.crown_mm === 152);
       setSelectedIndex(restored >= 0 ? restored : preferred >= 0 ? preferred : 0);
+      return true;
     } catch (reason) {
-      if (isStale()) return;
+      if (isStale()) return false;
       setError(reason instanceof Error ? reason.message : "Ошибка расчёта.");
+      return true;
     } finally {
       // Параллельный подбор (правка настроек модели, пока летел прошлый) сам
       // снимет флаг — ранний ответ не должен гасить «идёт расчёт».
@@ -395,25 +410,39 @@ function FullBvrCalc({
   // чтобы набор числа по цифрам не слал запрос на каждую. В отличие от
   // ручного `calculate()`, выбранную коронку не сбрасываем — считаем с той
   // же `preferredCrownMm`, что и сейчас на листе, иначе выбор прыгал бы на
-  // Ø152 при каждой правке. Лист (`sourceSheet`) и счётчик поколения ловим
-  // в момент планирования таймера, а не когда он сработает: правка листа за
-  // время паузы должна пометить эту попытку устаревшей, как и обычный
-  // автозапуск.
+  // Ø152 при каждой правке.
+  //
+  // Пересчёт по правке настроек обещан, поэтому лист берём в момент запроса
+  // (`sheetRef`), а не планирования таймера, и повторяем запрос, если лист
+  // поправили, пока он летел: иначе ответ отбросится как устаревший, а
+  // варианты останутся посчитанными по прежним настройкам при погасшем
+  // «Пересчёт…». Смена объекта или новая правка настроек (у неё свой таймер)
+  // останавливают попытки ещё до запроса: запрос по листу прежнего объекта
+  // стал бы последним и не дал бы ответу нового снять «идёт расчёт».
   useEffect(() => {
     if (kuzramRevision === 0) return;
     const revision = kuzramRevision;
-    const sourceSheet = sheet;
-    const startedGeneration = optimizeGenerationRef.current;
     const requestedObjectName = objectName;
+    const current = () => objectNameRef.current === requestedObjectName && kuzramRevisionRef.current === revision;
     const timer = window.setTimeout(() => {
-      void runOptimize(sourceSheet, () => selectedCrownRef.current, () =>
-        isOptimizationResultStale(
-          startedGeneration,
-          optimizeGenerationRef.current,
-          requestedObjectName,
-          objectNameRef.current,
-        ),
-      ).finally(() => setCalculatedKuzramRevision((done) => Math.max(done, revision)));
+      void (async () => {
+        try {
+          for (let attempt = 0; attempt < KUZRAM_RECALC_ATTEMPTS && current(); attempt += 1) {
+            const startedGeneration = optimizeGenerationRef.current;
+            const applied = await runOptimize(sheetRef.current, () => selectedCrownRef.current, () =>
+              isOptimizationResultStale(
+                startedGeneration,
+                optimizeGenerationRef.current,
+                requestedObjectName,
+                objectNameRef.current,
+              ),
+            );
+            if (applied) break;
+          }
+        } finally {
+          setCalculatedKuzramRevision((done) => Math.max(done, revision));
+        }
+      })();
     }, KUZRAM_RECALC_DELAY_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps

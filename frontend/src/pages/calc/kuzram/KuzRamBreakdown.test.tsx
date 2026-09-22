@@ -22,6 +22,12 @@ describe("KuzRamBreakdown", () => {
     expect(screen.queryByText(/Каннингем рекомендует 25–35/)).not.toBeInTheDocument();
   });
 
+  it("сетка в разборе — та же, что в сводке и таблице: сервер считает a от округлённой W", () => {
+    // Коронка 110 мм: a/W · W без округления = 3,3949 → «3,39», а сервер от W = 2,72 даёт a = 3,40.
+    render(<KuzRamBreakdown variant={gabbroVariant(110)} thresholdPct={5} />);
+    expect(cellsOf(/^ЛНС W · сетка a × b/)).toEqual(["2,72 · 3,40 × 2,72", "2,65 · 3,31 × 2,65"]);
+  });
+
   it("«!» у q «до исправления» советует про фиксированную верхнюю границу прежнего перебора", () => {
     const variant = gabbroVariant(250);
     render(<KuzRamBreakdown variant={variant} thresholdPct={5} />);

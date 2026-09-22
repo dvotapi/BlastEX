@@ -28,6 +28,7 @@ const api = vi.hoisted(() => ({
 vi.mock("../api/endpoints", () => ({ api }));
 
 const OBJECT = { name: "Карьер Анна", mobilization_km: 1, diesel_price_ton_rub: null, production_unit_code: "UNIT_PERM" };
+const OBJECT_2 = { ...OBJECT, name: "Карьер Берёзовый" };
 const PANEL = {
   explosive_key: "ПВВ Гранулит-РП",
   undercharge_m: 2,
@@ -59,13 +60,13 @@ function savedInputs(kuzram?: KuzRamBlock) {
   };
 }
 
-function Workspace({ children }: { children: ReactNode }) {
+function Workspace({ children, objectName = OBJECT.name }: { children: ReactNode; objectName?: string }) {
   const value = {
     loading: false,
     error: "",
     state: {
-      settings: { team_id: "t", team_name: "Команда", active_scenario_id: "drill_blast", active_work_object_name: OBJECT.name },
-      references: { work_object_records: [OBJECT] },
+      settings: { team_id: "t", team_name: "Команда", active_scenario_id: "drill_blast", active_work_object_name: objectName },
+      references: { work_object_records: [OBJECT, OBJECT_2] },
       warnings: [],
     } as never,
     scenarios: [],
@@ -103,6 +104,14 @@ async function loaded() {
 const lastSaved = () => api.saveCalcInputs.mock.calls.at(-1)?.[1] as { kuzram: KuzRamBlock } | undefined;
 const lastSavedCrown = () => api.saveCalcInputs.mock.calls.at(-1)?.[1] as { selected_crown_mm: number } | undefined;
 const dialog = () => screen.getByRole("dialog", { name: "Модель Kuz-Ram" });
+/** Пауза дольше задержки пересчёта по правке настроек (300 мс): таймер точно успел бы сработать. */
+const recalcWindow = () => act(() => new Promise((resolve) => setTimeout(resolve, 500)));
+/** Правка C(A) в окне и закрытие окна — дальше правят лист. */
+function editCorrectionAndClose(value: string) {
+  fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+  fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value } });
+  fireEvent.click(within(dialog()).getByRole("button", { name: "Закрыть" }));
+}
 
 beforeAll(() => {
   // jsdom не реализует модальный `dialog`.
@@ -205,6 +214,53 @@ describe("CalcPage: модель Kuz-Ram", () => {
     await act(async () => release(OPTIMIZE_GABBRO));
     expect(await rowOf(110)).toHaveClass("selected");
     await waitFor(() => expect(lastSavedCrown()?.selected_crown_mm).toBe(110), SLOW);
+  });
+
+  it("смена объекта в паузе перед пересчётом по настройкам не шлёт запрос по прежнему листу", async () => {
+    api.calcInputs.mockImplementation(async (name: string) => ({ work_object_name: name, inputs: savedInputs(), updated_at: "then" }));
+    const { rerender } = renderSheet();
+    await loaded();
+    let release: (value: unknown) => void = () => {};
+    api.optimize.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    editCorrectionAndClose("1,2");
+    rerender(
+      <Workspace objectName={OBJECT_2.name}>
+        <CalcPage />
+      </Workspace>,
+    );
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    await recalcWindow();
+    // Только загрузка нового объекта: запрос по листу прежнего стал бы последним
+    // и не дал бы ответу нового объекта снять «идёт расчёт».
+    expect(api.optimize).toHaveBeenCalledTimes(2);
+    await act(async () => release(OPTIMIZE_GABBRO));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
+  });
+
+  it("правка листа в паузе перед пересчётом по настройкам — запрос уходит по свежему листу", async () => {
+    renderSheet();
+    await loaded();
+    editCorrectionAndClose("1,2");
+    fireEvent.change(screen.getByLabelText("Кусок, мм"), { target: { value: "600" } });
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    expect(api.optimize.mock.calls[1][0]).toMatchObject({ lumpSize: 600, kuzram: { rock_factor_correction: 1.2 } });
+    await recalcWindow();
+    expect(api.optimize).toHaveBeenCalledTimes(2);
+  });
+
+  it("правка листа, пока летит пересчёт по настройкам, — пересчёт повторяется по свежему листу", async () => {
+    renderSheet();
+    await loaded();
+    let release: (value: unknown) => void = () => {};
+    api.optimize.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    editCorrectionAndClose("1,2");
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    fireEvent.change(screen.getByLabelText("Кусок, мм"), { target: { value: "600" } });
+    // Ответ по прежнему листу отбрасывается — варианты не должны остаться
+    // посчитанными по прежней C(A) с погасшим «Пересчёт…».
+    await act(async () => release(OPTIMIZE_GABBRO));
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(3), SLOW);
+    expect(api.optimize.mock.calls[2][0]).toMatchObject({ lumpSize: 600, kuzram: { rock_factor_correction: 1.2 } });
   });
 
   it("пока идёт пересчёт, окно показывает «Пересчёт…»", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useId, useState } from "react";
 import { ruNumber } from "../../../lib/format";
 import type { KuzRamSettings, RockFactorMethod, StrengthExponent } from "../../../types";
 import { Q_MIN_KG_M3, trimmed } from "./kuzramFormat";
@@ -131,6 +131,10 @@ export function KuzRamSettingsForm({
   settings: KuzRamSettings;
   onChange: (next: KuzRamSettings) => void;
 }) {
+  // Сброс пересоздаёт поля: поле, чьё значение и так было умолчанием, иначе
+  // сохранило бы неверный набранный текст с ошибкой (черновик поля
+  // обновляется только при смене значения).
+  const [resetCount, setResetCount] = useState(0);
   function set<K extends keyof KuzRamSettings>(key: K, value: KuzRamSettings[K]) {
     onChange({ ...settings, [key]: value });
   }
@@ -140,71 +144,77 @@ export function KuzRamSettingsForm({
   return (
     <fieldset className="kuzram-settings">
       <legend>Настройки модели</legend>
-      <SelectField label="Фактор породы A" value={method} options={METHOD_OPTIONS} onChange={(value) => set("rock_factor_method", value)} />
-      {method === "manual" && (
+      {/* Ключ — только на полях с черновиками; кнопку сброса пересоздавать незачем. */}
+      <Fragment key={resetCount}>
+        <SelectField label="Фактор породы A" value={method} options={METHOD_OPTIONS} onChange={(value) => set("rock_factor_method", value)} />
+        {method === "manual" && (
+          <NumberSetting
+            field="rock_factor_manual"
+            label="A вручную"
+            hint={`из опыта или отчёта, от ${trimmed(manualBounds.min)} до ${trimmed(manualBounds.max)}`}
+            value={settings.rock_factor_manual}
+            onCommit={(value) => set("rock_factor_manual", value)}
+          />
+        )}
+        {method === "joint_factor" && (
+          <>
+            <SelectField
+              label="Состояние трещин JCF"
+              value={settings.joint_condition}
+              options={JOINT_CONDITION_OPTIONS}
+              onChange={(value) => set("joint_condition", value)}
+            />
+            <SelectField
+              label="Ориентация трещин JPA"
+              value={settings.joint_angle}
+              options={JOINT_ANGLE_OPTIONS}
+              onChange={(value) => set("joint_angle", value)}
+            />
+          </>
+        )}
         <NumberSetting
-          field="rock_factor_manual"
-          label="A вручную"
-          hint={`из опыта или отчёта, от ${trimmed(manualBounds.min)} до ${trimmed(manualBounds.max)}`}
-          value={settings.rock_factor_manual}
-          onCommit={(value) => set("rock_factor_manual", value)}
+          field="rock_factor_correction"
+          label="Поправка C(A)"
+          hint="1 — без поправки; подбирается по фактическим взрывам"
+          value={settings.rock_factor_correction}
+          onCommit={(value) => set("rock_factor_correction", value)}
         />
-      )}
-      {method === "joint_factor" && (
-        <>
-          <SelectField
-            label="Состояние трещин JCF"
-            value={settings.joint_condition}
-            options={JOINT_CONDITION_OPTIONS}
-            onChange={(value) => set("joint_condition", value)}
-          />
-          <SelectField
-            label="Ориентация трещин JPA"
-            value={settings.joint_angle}
-            options={JOINT_ANGLE_OPTIONS}
-            onChange={(value) => set("joint_angle", value)}
-          />
-        </>
-      )}
-      <NumberSetting
-        field="rock_factor_correction"
-        label="Поправка C(A)"
-        hint="1 — без поправки; подбирается по фактическим взрывам"
-        value={settings.rock_factor_correction}
-        onCommit={(value) => set("rock_factor_correction", value)}
-      />
-      <SelectField
-        label="Показатель при силе ВВ"
-        value={settings.strength_exponent}
-        options={EXPONENT_OPTIONS}
-        onChange={(value) => set("strength_exponent", value)}
-      />
-      <NumberSetting
-        field="drill_deviation_m"
-        label="Отклонение бурения σ, м"
-        hint="стандартное отклонение забоя скважины от проекта"
-        value={settings.drill_deviation_m}
-        onCommit={(value) => set("drill_deviation_m", value)}
-      />
-      <NumberSetting
-        field="uniformity_correction"
-        label="Поправка C(n)"
-        hint="множитель к индексу равномерности n"
-        value={settings.uniformity_correction}
-        onCommit={(value) => set("uniformity_correction", value)}
-      />
-      <NumberSetting
-        field="q_max_kg_m3"
-        label="Верхняя граница перебора q, кг/м³"
-        hint={`перебор идёт от ${ruNumber(Q_MIN_KG_M3, 2)} с шагом 0,01`}
-        value={settings.q_max_kg_m3}
-        onCommit={(value) => set("q_max_kg_m3", value)}
-      />
+        <SelectField
+          label="Показатель при силе ВВ"
+          value={settings.strength_exponent}
+          options={EXPONENT_OPTIONS}
+          onChange={(value) => set("strength_exponent", value)}
+        />
+        <NumberSetting
+          field="drill_deviation_m"
+          label="Отклонение бурения σ, м"
+          hint="стандартное отклонение забоя скважины от проекта"
+          value={settings.drill_deviation_m}
+          onCommit={(value) => set("drill_deviation_m", value)}
+        />
+        <NumberSetting
+          field="uniformity_correction"
+          label="Поправка C(n)"
+          hint="множитель к индексу равномерности n"
+          value={settings.uniformity_correction}
+          onCommit={(value) => set("uniformity_correction", value)}
+        />
+        <NumberSetting
+          field="q_max_kg_m3"
+          label="Верхняя граница перебора q, кг/м³"
+          hint={`перебор идёт от ${ruNumber(Q_MIN_KG_M3, 2)} с шагом 0,01`}
+          value={settings.q_max_kg_m3}
+          onCommit={(value) => set("q_max_kg_m3", value)}
+        />
+      </Fragment>
       <button
         type="button"
         className="secondary-button"
         disabled={sameSettings(settings, KUZRAM_DEFAULTS)}
-        onClick={() => onChange({ ...KUZRAM_DEFAULTS })}
+        onClick={() => {
+          setResetCount((count) => count + 1);
+          onChange({ ...KUZRAM_DEFAULTS });
+        }}
       >
         Сбросить к умолчаниям
       </button>

@@ -65,9 +65,12 @@ export function KuzRamBreakdown({ variant, thresholdPct }: { variant: BlastVaria
     },
     { label: "Объём на скважину V = Q/q, м³", now: ruNumber(now.volume_per_hole_m3, 1), old: ruNumber(old.volume_per_hole_m3, 1) },
     {
+      // Сетка — та же, что в сводке, таблице и на листе: сервер считает a от
+      // округлённой W (`_grid`), а неокруглённое a/W · W из `details`
+      // расходится с ней на сотую.
       label: "ЛНС W · сетка a × b, м",
-      now: `${ruNumber(now.burden_m, 2)} · ${gridText(now.spacing_m, now.burden_m)}`,
-      old: `${ruNumber(old.burden_m, 2)} · ${gridText(old.spacing_m, old.burden_m)}`,
+      now: `${ruNumber(now.burden_m, 2)} · ${gridText(variant.grid_a_m, variant.grid_b_m)}`,
+      old: `${ruNumber(old.burden_m, 2)} · ${gridText(variant.legacy.grid_a_m, variant.legacy.grid_b_m)}`,
     },
     {
       label: "W/d — ЛНС к диаметру скважины",

@@ -71,4 +71,14 @@ describe("KuzRamSettingsForm", () => {
     expect(screen.getByRole("button", { name: "Сбросить к умолчаниям" })).toBeDisabled();
     expect(screen.getByLabelText("Верхняя граница перебора q, кг/м³")).toHaveValue("2");
   });
+
+  it("«Сбросить к умолчаниям» стирает и неверный ввод в поле, значение которого не менялось", () => {
+    renderForm({ ...KUZRAM_DEFAULTS, q_max_kg_m3: 3 });
+    // C(A) осталась умолчанием 1, в поле — мусор; сброс не меняет её значение.
+    fireEvent.change(screen.getByLabelText("Поправка C(A)"), { target: { value: "abc" } });
+    expect(screen.getByLabelText("Поправка C(A)")).toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Сбросить к умолчаниям" }));
+    expect(screen.getByLabelText("Поправка C(A)")).toHaveValue("1");
+    expect(screen.getByLabelText("Поправка C(A)")).not.toHaveAttribute("aria-invalid");
+  });
 });

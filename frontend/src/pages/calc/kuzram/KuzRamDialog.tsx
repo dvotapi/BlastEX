@@ -1,9 +1,10 @@
-import { useEffect, useRef, type MouseEvent } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
 import type { BlastVariant, KuzRamCalibrateResponse, KuzRamFactInput, KuzRamSettings } from "../../../types";
 import { KuzRamBreakdown } from "./KuzRamBreakdown";
 import { KuzRamChart } from "./KuzRamChart";
 import { KuzRamComparison } from "./KuzRamComparison";
 import { KuzRamFacts } from "./KuzRamFacts";
+import { KuzRamHelp } from "./KuzRamHelp";
 import { KuzRamSettingsForm } from "./KuzRamSettingsForm";
 import { trimmed } from "./kuzramFormat";
 import { completeFacts, kuzramSettingsOf, type KuzRamBlock, type KuzRamFact } from "./kuzramSettings";
@@ -53,6 +54,10 @@ export type KuzRamDialogProps = {
 export function KuzRamDialog(props: KuzRamDialogProps) {
   const { open, onClose } = props;
   const ref = useRef<HTMLDialogElement>(null);
+  const [tab, setTab] = useState<"calc" | "help">("calc");
+  const ids = useId();
+  const tabId = (name: "calc" | "help") => `${ids}-tab-${name}`;
+  const panelId = (name: "calc" | "help") => `${ids}-panel-${name}`;
 
   useEffect(() => {
     const dialog = ref.current;
@@ -76,11 +81,35 @@ export function KuzRamDialog(props: KuzRamDialogProps) {
     >
       <header>
         <b id="kuzram-dialog-title">Модель Kuz-Ram</b>
+        <div className="kuzram-tabs" role="tablist" aria-label="Разделы окна">
+          {(["calc", "help"] as const).map((name) => (
+            <button
+              key={name}
+              type="button"
+              role="tab"
+              id={tabId(name)}
+              aria-controls={panelId(name)}
+              aria-selected={tab === name}
+              onClick={() => setTab(name)}
+            >
+              {name === "calc" ? "Расчёт" : "Как пользоваться"}
+            </button>
+          ))}
+        </div>
         <button type="button" className="kuzram-close" aria-label="Закрыть" onClick={onClose}>
           ×
         </button>
       </header>
-      {open && <CalcTab {...props} />}
+      {open &&
+        (tab === "calc" ? (
+          <div role="tabpanel" id={panelId("calc")} aria-labelledby={tabId("calc")} className="kuzram-body kuzram-calc">
+            <CalcTab {...props} />
+          </div>
+        ) : (
+          <div role="tabpanel" id={panelId("help")} aria-labelledby={tabId("help")} className="kuzram-body">
+            <KuzRamHelp />
+          </div>
+        ))}
     </dialog>
   );
 }
@@ -101,7 +130,7 @@ function CalcTab({
   const chartFacts = completeFacts(block.facts).map((row) => row.fact);
   const selected = variants[selectedIndex];
   return (
-    <div className="kuzram-body kuzram-calc">
+    <>
       <aside className="kuzram-side">
         <KuzRamSettingsForm settings={block} onChange={onSettingsChange} />
         <p className="kuzram-source">
@@ -140,6 +169,6 @@ function CalcTab({
           }}
         />
       </div>
-    </div>
+    </>
   );
 }

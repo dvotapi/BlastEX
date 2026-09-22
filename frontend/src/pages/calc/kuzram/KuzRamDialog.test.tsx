@@ -97,4 +97,13 @@ describe("KuzRamDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Добавить взрыв" }));
     expect(props.onFactsChange).toHaveBeenCalledWith([{ crown_mm: null, q_kg_m3: null, oversize_pct: null }]);
   });
+
+  it("вкладка «Как пользоваться» показывает справку", () => {
+    renderDialog();
+    expect(screen.getByRole("tab", { name: "Расчёт" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: "Как пользоваться" }));
+    expect(screen.getByRole("tab", { name: "Как пользоваться" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "Как пользоваться" })).toHaveTextContent("Что делает модель");
+    expect(screen.queryByLabelText("Поправка C(A)")).not.toBeInTheDocument();
+  });
 });

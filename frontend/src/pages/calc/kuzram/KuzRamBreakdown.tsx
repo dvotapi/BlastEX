@@ -2,13 +2,8 @@ import type { ReactNode } from "react";
 import { ruNumber } from "../../../lib/format";
 import type { BlastVariant, FragmentationDetails, RockFactorBreakdown } from "../../../types";
 import { ThresholdFlag } from "./ThresholdFlag";
-import { formatOversize, formatQ, gridText, LEGACY_Q_MAX_KG_M3, LEGACY_Q_MIN_KG_M3, trimmed } from "./kuzramFormat";
+import { formatOversize, formatQ, gridText, LEGACY_Q_MIN_KG_M3, LEGACY_THRESHOLD_TITLE, trimmed } from "./kuzramFormat";
 import { BURDEN_TO_DIAMETER_WARN_ABOVE } from "./kuzramSettings";
-
-/** Заголовок «!» у «до исправления»: граница перебора там фиксирована, окно
- * настроек Kuz-Ram на неё не влияет (см. `KuzRamComparison.tsx`). */
-const LEGACY_THRESHOLD_TITLE =
-  `Порог негабарита не достигнут: q на верхней границе прежнего перебора (${ruNumber(LEGACY_Q_MAX_KG_M3, 2)} кг/м³).`;
 
 /** Состав фактора породы A новой модели — строками для подписи в разборе. */
 export function rockFactorLines(breakdown: RockFactorBreakdown | null): string[] {

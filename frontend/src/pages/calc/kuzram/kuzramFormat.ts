@@ -16,6 +16,14 @@ export const LEGACY_Q_MIN_KG_M3 = 0.3;
 /** Перебор «до исправления» заканчивается на 1,50 (`Blast.py::optimize_blast_legacy`). */
 export const LEGACY_Q_MAX_KG_M3 = 1.5;
 
+/**
+ * Заголовок значка «!» у q «до исправления»: там граница перебора
+ * фиксирована и от окна настроек Kuz-Ram не зависит — совет поднять её
+ * там (умолчание у `ThresholdFlag`) был бы неверным.
+ */
+export const LEGACY_THRESHOLD_TITLE =
+  `Порог негабарита не достигнут: q на верхней границе прежнего перебора (${ruNumber(LEGACY_Q_MAX_KG_M3, 2)} кг/м³).`;
+
 function fixed(value: number, digits: number, decimal: Decimal): string {
   return decimal === "," ? ruNumber(value, digits) : value.toFixed(digits);
 }

@@ -1,7 +1,16 @@
 import { ruNumber } from "../../../lib/format";
 import type { BlastVariant } from "../../../types";
 import { ThresholdFlag } from "./ThresholdFlag";
-import { formatOversize, formatQ, gridText, LEGACY_Q_MAX_KG_M3, LEGACY_Q_MIN_KG_M3, Q_MIN_KG_M3, qDeltaText, trimmed } from "./kuzramFormat";
+import {
+  formatOversize,
+  formatQ,
+  gridText,
+  LEGACY_Q_MIN_KG_M3,
+  LEGACY_THRESHOLD_TITLE,
+  Q_MIN_KG_M3,
+  qDeltaText,
+  trimmed,
+} from "./kuzramFormat";
 import { BURDEN_TO_DIAMETER_WARN_ABOVE } from "./kuzramSettings";
 
 /** Результат одной модели в строке — чтобы сводка и таблица рисовали обе модели одинаково. */
@@ -46,11 +55,6 @@ function legacyResult(variant: BlastVariant): ModelResult {
     legacy: true,
   };
 }
-
-/** Заголовок «!»: у «до исправления» граница перебора фиксирована и от окна
- * настроек не зависит — совет поднять её там был бы неверным. */
-const LEGACY_THRESHOLD_TITLE =
-  `Порог негабарита не достигнут: q на верхней границе прежнего перебора (${ruNumber(LEGACY_Q_MAX_KG_M3, 2)} кг/м³).`;
 
 function QValue({ result }: { result: ModelResult }) {
   return (

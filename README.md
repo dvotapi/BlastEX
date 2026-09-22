@@ -258,8 +258,13 @@ docker compose build --build-arg LIBREDWG_VERSION=0.14
 ### 7. Автоматический production-деплой
 
 Workflow `.github/workflows/deploy.yml` запускается после каждого push в
-`main`: выполняет Python-тесты, собирает React-фронтенд и по SSH обновляет
+`main`: выполняет Python-тесты и тесты фронтенда (vitest), собирает React-фронтенд и по SSH обновляет
 production VPS. Ручной запуск доступен через `workflow_dispatch`.
+
+Деплои идут по одному в группе `blastex-production`: ждать может только один,
+и новый push в `main` вытесняет ожидающий — сервер всё равно выкатывает
+последний `main`. Проверки PR в эту очередь не встают: у каждого PR своя
+группа, и новый push в ветку отменяет её устаревший прогон.
 
 Для GitHub Environment `production` нужны секреты:
 

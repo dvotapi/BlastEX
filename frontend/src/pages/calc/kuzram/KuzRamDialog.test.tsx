@@ -83,6 +83,7 @@ describe("KuzRamDialog", () => {
     const props = renderDialog({ variants: [gabbroVariant(110), gabbroVariant(152), gabbroVariant(250)], selectedIndex: 1 });
     expect(screen.getByRole("region", { name: "Коронка 152 мм" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /Удельный расход q по диаметрам коронок/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Разбор расчёта" })).toBeInTheDocument();
     // Таблиц в окне несколько (разбор, факты) — берём таблицу вариантов по её карточке.
     const table = within(screen.getByRole("region", { name: "Варианты сетки" })).getByRole("table");
     fireEvent.click(within(table).getAllByRole("row")[2]);

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import type { BlastVariant, KuzRamSettings } from "../../../types";
+import { KuzRamBreakdown } from "./KuzRamBreakdown";
 import { KuzRamChart } from "./KuzRamChart";
 import { KuzRamComparison } from "./KuzRamComparison";
 import { KuzRamSettingsForm } from "./KuzRamSettingsForm";
@@ -81,6 +82,7 @@ export function KuzRamDialog(props: KuzRamDialogProps) {
 
 function CalcTab({ block, onSettingsChange, source, busy, error, variants, selectedIndex, onSelect, thresholdPct }: KuzRamDialogProps) {
   const chartFacts = completeFacts(block.facts).map((row) => row.fact);
+  const selected = variants[selectedIndex];
   return (
     <div className="kuzram-body kuzram-calc">
       <aside className="kuzram-side">
@@ -107,6 +109,7 @@ function CalcTab({ block, onSettingsChange, source, busy, error, variants, selec
             <KuzRamChart variants={variants} facts={chartFacts} selectedIndex={selectedIndex} onSelect={onSelect} />
           </section>
         )}
+        {selected && <KuzRamBreakdown variant={selected} thresholdPct={thresholdPct} />}
       </div>
     </div>
   );

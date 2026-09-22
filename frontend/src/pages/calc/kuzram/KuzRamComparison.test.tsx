@@ -47,4 +47,11 @@ describe("KuzRamComparison", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText(/Нет расчёта/)).toBeInTheDocument();
   });
+
+  it("под таблицей — коронки с W/d выше 35", () => {
+    const wide = gabbroVariant(110);
+    wide.details.burden_to_diameter = 40.9;
+    render(<KuzRamComparison variants={[wide, gabbroVariant(152)]} selectedIndex={1} onSelect={vi.fn()} thresholdPct={5} />);
+    expect(screen.getByText(/W\/d выше 35 у коронок 110 мм/)).toBeInTheDocument();
+  });
 });

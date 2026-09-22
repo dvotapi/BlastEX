@@ -2,6 +2,7 @@ import { ruNumber } from "../../../lib/format";
 import type { BlastVariant } from "../../../types";
 import { ThresholdFlag } from "./ThresholdFlag";
 import { formatOversize, formatQ, gridText, LEGACY_Q_MIN_KG_M3, Q_MIN_KG_M3, qDeltaText, trimmed } from "./kuzramFormat";
+import { BURDEN_TO_DIAMETER_WARN_ABOVE } from "./kuzramSettings";
 
 /** Результат одной модели в строке — чтобы сводка и таблица рисовали обе модели одинаково. */
 type ModelResult = {
@@ -106,6 +107,7 @@ export function KuzRamComparison({
     return <p className="kuzram-empty">Нет расчёта: задайте исходные данные на листе и нажмите «Рассчитать варианты».</p>;
   }
   const selected = variants[selectedIndex] ?? variants[0];
+  const wide = variants.filter((variant) => variant.details.burden_to_diameter > BURDEN_TO_DIAMETER_WARN_ABOVE);
 
   return (
     <>
@@ -169,6 +171,12 @@ export function KuzRamComparison({
             </tbody>
           </table>
         </div>
+        {wide.length > 0 && (
+          <p className="kuzram-warning">
+            W/d выше {BURDEN_TO_DIAMETER_WARN_ABOVE} у коронок {wide.map((variant) => trimmed(variant.crown_mm)).join(", ")} мм —
+            сетка редкая для диаметра: Каннингем рекомендует 25–35. Подробности — в разборе расчёта.
+          </p>
+        )}
       </section>
     </>
   );

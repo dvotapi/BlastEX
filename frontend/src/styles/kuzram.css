@@ -91,3 +91,8 @@
 .kuzram-legend i.open { display:inline-block; width:9px; height:9px; border:2px solid #748079; border-radius:50%; background:#fff; }
 .kuzram-dialog i.fact { display:inline-block; width:8px; height:8px; border-radius:1px; background:#17231d; transform:rotate(45deg); }
 @media (max-width:760px) { .kuzram-summary { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } }
+.kuzram-breakdown th[scope="row"] { min-width:200px; color:#3b4b43; font-weight:var(--font-weight-body); text-align:left; white-space:normal; }
+.kuzram-breakdown th[scope="row"] small { display:block; color:#7b8982; font-size:10px; }
+.kuzram-breakdown tr.key th, .kuzram-breakdown tr.key td { color:#17231d; font-weight:var(--font-weight-strong); }
+.kuzram-warning-mark { margin-left:6px; padding:0 6px; border-radius:999px; background:#fdf3e2; color:#745014; font-size:10px; }
+.kuzram-warning { margin:0; padding:8px 10px; border:1px solid #ead39f; border-radius:9px; background:#fff8e9; color:#684b17; font-size:11px; }

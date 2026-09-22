@@ -263,6 +263,39 @@ describe("CalcPage: модель Kuz-Ram", () => {
     expect(api.optimize.mock.calls[2][0]).toMatchObject({ lumpSize: 600, kuzram: { rock_factor_correction: 1.2 } });
   });
 
+  it("новая правка настроек, пока летит пересчёт по прежней, — прежний пересчёт не повторяется", async () => {
+    renderSheet();
+    await loaded();
+    let release: (value: unknown) => void = () => {};
+    api.optimize.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,3" } });
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(3), SLOW);
+    expect(api.optimize.mock.calls[2][0].kuzram.rock_factor_correction).toBe(1.3);
+    // Ответ по C(A) 1,2 устарел; повторять его незачем — C(A) 1,3 считает свой таймер.
+    await act(async () => release(OPTIMIZE_GABBRO));
+    await recalcWindow();
+    expect(api.optimize).toHaveBeenCalledTimes(3);
+  });
+
+  it("повторы пересчёта по настройкам ограничены тремя попытками", async () => {
+    renderSheet();
+    await loaded();
+    const releases: ((value: unknown) => void)[] = [];
+    api.optimize.mockImplementation(() => new Promise((resolve) => { releases.push(resolve); }));
+    editCorrectionAndClose("1,2");
+    // Каждую попытку лист правят, пока она летит, — каждая отбрасывается.
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(1 + attempt), SLOW);
+      fireEvent.change(screen.getByLabelText("Кусок, мм"), { target: { value: String(400 + attempt * 50) } });
+      await act(async () => releases.at(-1)!(OPTIMIZE_GABBRO));
+    }
+    await recalcWindow();
+    expect(api.optimize).toHaveBeenCalledTimes(4);
+  });
+
   it("пока идёт пересчёт, окно показывает «Пересчёт…»", async () => {
     renderSheet();
     await loaded();

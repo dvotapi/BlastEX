@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useState } from "react";
 import { ruNumber } from "../../../lib/format";
 import type { KuzRamSettings, RockFactorMethod, StrengthExponent } from "../../../types";
 import { Q_MIN_KG_M3, trimmed } from "./kuzramFormat";
@@ -77,12 +77,15 @@ function NumberSetting({
   hint,
   value,
   onCommit,
+  onUnacceptedChange,
 }: {
   field: NumericSetting;
   label: string;
   hint: string;
   value: number;
   onCommit: (value: number) => void;
+  /** В поле текст, который не стал значением (неверный, вне границ, пустой). */
+  onUnacceptedChange: (field: NumericSetting, unaccepted: boolean) => void;
 }) {
   const id = useId();
   const [draft, setDraft] = useState(() => trimmed(value, 6));
@@ -92,6 +95,14 @@ function NumberSetting({
     setDraft((current) => (parseDecimal(current) === value ? current : trimmed(value, 6)));
   }, [value]);
   const error = settingError(field, parseDecimal(draft));
+  // Набранный текст не стал значением — форме нужно знать это для кнопки
+  // сброса: сохранённые настройки при этом могут совпадать с умолчаниями.
+  // Скрытое поле (другой способ фактора A) свою пометку снимает.
+  const unaccepted = parseDecimal(draft) !== value;
+  useEffect(() => {
+    onUnacceptedChange(field, unaccepted);
+  }, [field, unaccepted, onUnacceptedChange]);
+  useEffect(() => () => onUnacceptedChange(field, false), [field, onUnacceptedChange]);
   const describedBy = [`${id}-hint`, error ? `${id}-error` : ""].filter(Boolean).join(" ");
 
   function change(text: string) {
@@ -135,6 +146,18 @@ export function KuzRamSettingsForm({
   // сохранило бы неверный набранный текст с ошибкой (черновик поля
   // обновляется только при смене значения).
   const [resetCount, setResetCount] = useState(0);
+  // Поля с непринятым текстом: в настройки он не ушёл, но стереть его может
+  // только сброс — поэтому кнопка доступна и при настройках по умолчанию.
+  const [unaccepted, setUnaccepted] = useState<ReadonlySet<NumericSetting>>(() => new Set());
+  const markUnaccepted = useCallback((field: NumericSetting, value: boolean) => {
+    setUnaccepted((current) => {
+      if (current.has(field) === value) return current;
+      const next = new Set(current);
+      if (value) next.add(field);
+      else next.delete(field);
+      return next;
+    });
+  }, []);
   function set<K extends keyof KuzRamSettings>(key: K, value: KuzRamSettings[K]) {
     onChange({ ...settings, [key]: value });
   }
@@ -150,6 +173,7 @@ export function KuzRamSettingsForm({
         {method === "manual" && (
           <NumberSetting
             field="rock_factor_manual"
+            onUnacceptedChange={markUnaccepted}
             label="A вручную"
             hint={`из опыта или отчёта, от ${trimmed(manualBounds.min)} до ${trimmed(manualBounds.max)}`}
             value={settings.rock_factor_manual}
@@ -174,6 +198,7 @@ export function KuzRamSettingsForm({
         )}
         <NumberSetting
           field="rock_factor_correction"
+          onUnacceptedChange={markUnaccepted}
           label="Поправка C(A)"
           hint="1 — без поправки; подбирается по фактическим взрывам"
           value={settings.rock_factor_correction}
@@ -187,6 +212,7 @@ export function KuzRamSettingsForm({
         />
         <NumberSetting
           field="drill_deviation_m"
+          onUnacceptedChange={markUnaccepted}
           label="Отклонение бурения σ, м"
           hint="стандартное отклонение забоя скважины от проекта"
           value={settings.drill_deviation_m}
@@ -194,6 +220,7 @@ export function KuzRamSettingsForm({
         />
         <NumberSetting
           field="uniformity_correction"
+          onUnacceptedChange={markUnaccepted}
           label="Поправка C(n)"
           hint="множитель к индексу равномерности n"
           value={settings.uniformity_correction}
@@ -201,6 +228,7 @@ export function KuzRamSettingsForm({
         />
         <NumberSetting
           field="q_max_kg_m3"
+          onUnacceptedChange={markUnaccepted}
           label="Верхняя граница перебора q, кг/м³"
           hint={`перебор идёт от ${ruNumber(Q_MIN_KG_M3, 2)} с шагом 0,01`}
           value={settings.q_max_kg_m3}
@@ -210,7 +238,7 @@ export function KuzRamSettingsForm({
       <button
         type="button"
         className="secondary-button"
-        disabled={sameSettings(settings, KUZRAM_DEFAULTS)}
+        disabled={sameSettings(settings, KUZRAM_DEFAULTS) && unaccepted.size === 0}
         onClick={() => {
           setResetCount((count) => count + 1);
           onChange({ ...KUZRAM_DEFAULTS });

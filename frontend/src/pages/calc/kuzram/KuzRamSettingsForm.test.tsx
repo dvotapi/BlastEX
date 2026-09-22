@@ -72,6 +72,35 @@ describe("KuzRamSettingsForm", () => {
     expect(screen.getByLabelText("Верхняя граница перебора q, кг/м³")).toHaveValue("2");
   });
 
+  it("неверный ввод при настройках по умолчанию включает «Сбросить к умолчаниям», сброс стирает его", () => {
+    const onChange = renderForm();
+    const reset = () => screen.getByRole("button", { name: "Сбросить к умолчаниям" });
+    expect(reset()).toBeDisabled();
+    // Мусор в поле в настройки не уходит — сохранённые значения остаются умолчаниями.
+    fireEvent.change(screen.getByLabelText("Поправка C(A)"), { target: { value: "abc" } });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(reset()).toBeEnabled();
+    fireEvent.click(reset());
+    expect(screen.getByLabelText("Поправка C(A)")).toHaveValue("1");
+    expect(screen.getByLabelText("Поправка C(A)")).not.toHaveAttribute("aria-invalid");
+    expect(reset()).toBeDisabled();
+    // Число вне границ тоже не принято — и тоже включает сброс.
+    fireEvent.change(screen.getByLabelText("Поправка C(A)"), { target: { value: "50" } });
+    expect(reset()).toBeEnabled();
+    // Исправили на верное значение, равное умолчанию, — сбрасывать нечего.
+    fireEvent.change(screen.getByLabelText("Поправка C(A)"), { target: { value: "1" } });
+    expect(reset()).toBeDisabled();
+  });
+
+  it("неверный ввод в поле, которое скрыли сменой способа, сброс не держит", () => {
+    renderForm({ ...KUZRAM_DEFAULTS, rock_factor_method: "manual" });
+    fireEvent.change(screen.getByLabelText("A вручную"), { target: { value: "abc" } });
+    fireEvent.change(screen.getByLabelText("Фактор породы A"), { target: { value: "rmd50" } });
+    // Поле «A вручную» скрыто, настройки снова умолчания — кнопка выключена.
+    expect(screen.queryByLabelText("A вручную")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Сбросить к умолчаниям" })).toBeDisabled();
+  });
+
   it("«Сбросить к умолчаниям» стирает и неверный ввод в поле, значение которого не менялось", () => {
     renderForm({ ...KUZRAM_DEFAULTS, q_max_kg_m3: 3 });
     // C(A) осталась умолчанием 1, в поле — мусор; сброс не меняет её значение.

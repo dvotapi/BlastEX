@@ -332,6 +332,40 @@ describe("CalcPage: модель Kuz-Ram", () => {
     expect(outdatedBadge()).toBeEmptyDOMElement();
   });
 
+  it("снятые коронки: правка настроек не выдаёт прежние варианты за посчитанные", async () => {
+    renderSheet();
+    await loaded();
+    for (const crown of ["110", "152", "250"]) fireEvent.click(screen.getByRole("checkbox", { name: crown }));
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+    await recalcWindow();
+    // Считать нечего — запроса нет, а в таблице остались варианты по C(A) 1.
+    expect(api.optimize).toHaveBeenCalledTimes(1);
+    expect(outdatedBadge()).toHaveTextContent("по прежним настройкам модели");
+    expect(within(dialog()).getByRole("status")).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
+  });
+
+  it("после неудачного пересчёта на одном объекте у объекта без сохранённого листа пометки нет", async () => {
+    api.calcInputs.mockImplementation(async (name: string) =>
+      name === OBJECT_2.name
+        ? { work_object_name: name, inputs: null, updated_at: null }
+        : { work_object_name: name, inputs: savedInputs(), updated_at: "then" },
+    );
+    const { rerender } = renderSheet();
+    await loaded();
+    api.optimize.mockRejectedValueOnce(new Error("Фактор породы A = −0,06 — он должен быть больше нуля."));
+    editCorrectionAndClose("1,2");
+    await waitFor(() => expect(outdatedBadge()).toHaveTextContent("по прежним настройкам модели"), SLOW);
+    rerender(
+      <Workspace objectName={OBJECT_2.name}>
+        <CalcPage />
+      </Workspace>,
+    );
+    // Новый объект: умолчания, вариантов нет, считать его ещё не просили.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
+    expect(outdatedBadge()).toBeEmptyDOMElement();
+  });
+
   it("смена объекта в паузе перед пересчётом — пока грузится новый объект, пометки нет", async () => {
     let releaseSecondObject: (value: unknown) => void = () => {};
     api.calcInputs.mockImplementation((name: string) =>

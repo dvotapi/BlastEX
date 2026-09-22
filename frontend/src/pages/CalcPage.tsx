@@ -365,10 +365,8 @@ function FullBvrCalc({
     // варианты по настройкам ревизии на момент запроса.
     const revisionAtStart = kuzramRevisionRef.current;
     const markCalculated = () => setCalculatedKuzramRevision((done) => Math.max(done, revisionAtStart));
-    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) {
-      markCalculated();
-      return true;
-    }
+    // Считать нечего — варианты на экране остались прежними, ревизию не двигаем.
+    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return true;
     const run = ++optimizeRunRef.current;
     setBusy(true);
     setError("");
@@ -485,6 +483,9 @@ function FullBvrCalc({
     setLoadedObjectName(null);
     setLoadedCrownMm(null);
     setVariants([]);
+    // Вариантов прежнего объекта больше нет — «по прежним настройкам» у нового
+    // объекта быть не может: счётчики ревизий настроек общие для всех объектов.
+    setCalculatedKuzramRevision(kuzramRevisionRef.current);
     // Перенесённый фильтр читается здесь, а очищается только после применения
     // листа: если смена объекта откатится, эффект запустится ещё раз (для
     // прежнего объекта), и фильтр должен дожить до этого запуска.
@@ -576,8 +577,9 @@ function FullBvrCalc({
   const kuzramCaption = settingsCaption(kuzram);
   const kuzramBusy = busy || kuzramPending;
   // Варианты не по текущим настройкам модели, и пересчёт не идёт. Пока лист
-  // не готов (грузятся настройки другого объекта), помечать нечего.
-  const kuzramOutdated = ready && calculatedKuzramRevision < kuzramRevision && !kuzramBusy;
+  // не готов (грузятся настройки другого объекта) или вариантов нет,
+  // помечать нечего.
+  const kuzramOutdated = ready && variants.length > 0 && calculatedKuzramRevision < kuzramRevision && !kuzramBusy;
   // Ошибку пересчёта ручной расчёт не исправит — тогда советуем настройки.
   const kuzramOutdatedHint = error
     ? "Пересчёт по текущим настройкам модели не прошёл — исправьте настройки модели в окне «Модель Kuz-Ram»."

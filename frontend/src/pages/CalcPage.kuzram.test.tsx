@@ -294,7 +294,8 @@ describe("CalcPage: модель Kuz-Ram", () => {
     }
     await recalcWindow();
     expect(api.optimize).toHaveBeenCalledTimes(4);
-    // Все три ответа выброшены — варианты по прежней C(A); окно не гасит это молча.
+    // Все три ответа выброшены — варианты по прежней C(A); ни лист, ни окно не гасят это молча.
+    expect(document.querySelector(".kuzram-outdated")).toHaveTextContent("по прежним настройкам модели");
     fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
     expect(within(dialog()).getByRole("status")).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
     fireEvent.click(within(dialog()).getByRole("button", { name: "Закрыть" }));
@@ -303,8 +304,26 @@ describe("CalcPage: модель Kuz-Ram", () => {
     await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(5), SLOW);
     expect(api.optimize.mock.calls[4][0].kuzram.rock_factor_correction).toBe(1.2);
     await act(async () => releases.at(-1)!(OPTIMIZE_GABBRO));
+    await waitFor(() => expect(document.querySelector(".kuzram-outdated")).toBeNull(), SLOW);
     fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
     await waitFor(() => expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement(), SLOW);
+  });
+
+  it("пересчёт по настройкам с ошибкой — варианты помечены как посчитанные по прежним настройкам", async () => {
+    renderSheet();
+    await loaded();
+    api.optimize.mockRejectedValueOnce(new Error("Фактор породы A = −0,06 — он должен быть больше нуля."));
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Фактор породы A"), { target: { value: "rmd10" } });
+    await waitFor(() => expect(within(dialog()).getByRole("alert")).toHaveTextContent("Фактор породы A = −0,06"), SLOW);
+    // В таблице — q по RMD 50, в настройках — RMD 10: ошибка объясняет, почему, пометка — что цифры чужие.
+    expect(within(dialog()).getByRole("status")).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
+    expect(within(dialog()).getByRole("status")).toHaveTextContent("расчёт не прошёл");
+    expect(document.querySelector(".kuzram-outdated")).toBeInTheDocument();
+    // Вернули способ — пересчёт прошёл, пометки нет.
+    fireEvent.change(within(dialog()).getByLabelText("Фактор породы A"), { target: { value: "rmd50" } });
+    await waitFor(() => expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement(), SLOW);
+    expect(document.querySelector(".kuzram-outdated")).toBeNull();
   });
 
   it("пока идёт пересчёт, окно показывает «Пересчёт…»", async () => {
@@ -349,6 +368,18 @@ describe("CalcPage: фактические взрывы", () => {
     renderSheet();
     await loaded();
     fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    // Поправка записывается из ответа сервера (не из события ввода) — эффекты
+    // React идут уже после отрисовки. Ни один кадр не должен показать «по
+    // прежним настройкам» между записью C(A) и «Пересчёт…».
+    const statusTexts: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.oldValue) statusTexts.push(record.oldValue);
+        record.removedNodes.forEach((node) => statusTexts.push(node.textContent ?? ""));
+        statusTexts.push(record.target.textContent ?? "");
+      }
+    });
+    observer.observe(within(dialog()).getByRole("status"), { subtree: true, childList: true, characterData: true, characterDataOldValue: true });
     fireEvent.click(within(dialog()).getByRole("button", { name: "Подобрать C(A) по факту" }));
     await waitFor(() => expect(api.calibrateKuzram).toHaveBeenCalledTimes(1));
     const request = api.calibrateKuzram.mock.calls[0][0];
@@ -358,6 +389,9 @@ describe("CalcPage: фактические взрывы", () => {
     expect(api.optimize.mock.calls[1][0].kuzram).toEqual({ ...KUZRAM_DEFAULTS, rock_factor_correction: 1.132 });
     expect(within(dialog()).getByText(/C\(A\) = 1,132 записана в настройки/)).toBeInTheDocument();
     expect(document.querySelector(".kuzram-caption")).toHaveTextContent("C(A) 1,132");
+    observer.disconnect();
+    expect(statusTexts.some((text) => text.includes("Пересчёт…"))).toBe(true);
+    expect(statusTexts.filter((text) => text.includes("по прежним настройкам"))).toEqual([]);
   });
 
   it("подбор C(A), устаревший из-за правки настроек за время запроса, не записывается", async () => {

@@ -125,8 +125,9 @@ function FullBvrCalc({
   const kuzramRevisionRef = useRef(kuzramRevision);
   kuzramRevisionRef.current = kuzramRevision;
   // До какой ревизии настроек варианты досчитаны: растёт только от применённого
-  // ответа (или ошибки) подбора, начатого на этой ревизии, — в том числе ручного
-  // «Рассчитать варианты». Пока отстаёт, варианты — по прежним настройкам.
+  // ответа подбора, начатого на этой ревизии, — в том числе ручного «Рассчитать
+  // варианты». Ошибка подбора её не двигает: варианты остались прежними. Пока
+  // отстаёт, варианты — по прежним настройкам.
   const [calculatedKuzramRevision, setCalculatedKuzramRevision] = useState(0);
   // Идёт пауза перед пересчётом по правке настроек или его попытки.
   const [kuzramPending, setKuzramPending] = useState(false);
@@ -136,6 +137,10 @@ function FullBvrCalc({
       setKuzram((current) => ({ ...kuzramSettingsOf(next), facts: current.facts }));
       bumpOptimizeGeneration();
       setKuzramRevision((value) => value + 1);
+      // Вместе с ревизией, а не в эффекте: запись C(A) из ответа сервера идёт
+      // не из события ввода, и эффект сработал бы уже после отрисовки кадра
+      // «варианты по прежним настройкам» без «Пересчёт…».
+      setKuzramPending(true);
     },
     [bumpOptimizeGeneration],
   );
@@ -392,7 +397,6 @@ function FullBvrCalc({
     } catch (reason) {
       if (isStale()) return false;
       setError(reason instanceof Error ? reason.message : "Ошибка расчёта.");
-      markCalculated();
       return true;
     } finally {
       // Параллельный подбор (правка настроек модели, пока летел прошлый) сам
@@ -439,7 +443,6 @@ function FullBvrCalc({
     const revision = kuzramRevision;
     const requestedObjectName = objectName;
     const current = () => objectNameRef.current === requestedObjectName && kuzramRevisionRef.current === revision;
-    setKuzramPending(true);
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
@@ -571,6 +574,9 @@ function FullBvrCalc({
     oversize: selected ? selected.oversize_pct : null,
   };
   const kuzramCaption = settingsCaption(kuzram);
+  const kuzramBusy = busy || kuzramPending;
+  // Варианты не по текущим настройкам модели, и пересчёт не идёт.
+  const kuzramOutdated = calculatedKuzramRevision < kuzramRevision && !kuzramBusy;
   const kuzramSource: KuzRamSource = {
     rockName,
     explosiveName: explosive?.name ?? explosiveKey,
@@ -680,6 +686,14 @@ function FullBvrCalc({
                   {kuzramCaption}
                 </span>
               )}
+              {kuzramOutdated && (
+                <span
+                  className="kuzram-outdated"
+                  title="Пересчёт по текущим настройкам модели не выполнен — подробности в окне «Модель Kuz-Ram», пересчитать — «Рассчитать варианты»."
+                >
+                  варианты — по прежним настройкам модели
+                </span>
+              )}
               {onSendToDesign && (
                 <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected)}>
                   Перенести в проект →
@@ -779,8 +793,8 @@ function FullBvrCalc({
         block={kuzram}
         onSettingsChange={setKuzramSettings}
         source={kuzramSource}
-        busy={busy || kuzramPending}
-        outdated={calculatedKuzramRevision < kuzramRevision}
+        busy={kuzramBusy}
+        outdated={kuzramOutdated}
         error={error}
         variants={variants}
         selectedIndex={selectedIndex}

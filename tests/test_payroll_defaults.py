@@ -422,6 +422,44 @@ def test_huge_bit_diameter_is_skipped_not_crashed():
     assert [row["diameter_mm"] for row in diameters] == ["110", "127", "140", "152", "165", "190", "215", "250"]
 
 
+# Codex к PR #83: `normalize()` округлял диаметр длиннее 28 значащих цифр
+# (точность Decimal), в таблицу попадало округлённое значение, и проверка
+# ревизии не находила коэффициента для исходного диаметра коронки —
+# `--publish` отказывал. Диаметр пишется как есть; «171.0» и «171» множество
+# и так считает одним значением.
+
+
+def test_long_bit_diameter_is_stored_exactly():
+    exact = "152.123456789012345678901234567890"
+    snapshot = fx.references(
+        materials=tuple(
+            replace(item, payload={**item.payload, "diameter_mm": exact}) if item.code == "MAT_BIT" else item
+            for item in fx.MATERIALS
+        )
+    )
+
+    sections, _ = seed_payroll_references(snapshot)
+
+    table = _by_code(sections, "drilling_difficulty")["DRILLING_DIFFICULTY_BASE"].payload["diameter"]
+    assert {"diameter_mm": exact, "k": "1.00"} in table
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+
+def test_bit_diameter_equal_to_an_owner_one_is_not_duplicated():
+    snapshot = fx.references(
+        materials=tuple(
+            replace(item, payload={**item.payload, "diameter_mm": "152.00"}) if item.code == "MAT_BIT" else item
+            for item in fx.MATERIALS
+        )
+    )
+
+    sections, _ = seed_payroll_references(snapshot)
+
+    table = _by_code(sections, "drilling_difficulty")["DRILLING_DIFFICULTY_BASE"].payload["diameter"]
+    assert [row["diameter_mm"] for row in table] == ["110", "127", "140", "152", "165", "190", "215", "250"]
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+
 # Codex к PR #83: `MaterialPayload` допускает diameter_mm <= 0 («диаметр не
 # задан» для не-коронок), но `DrillingDifficultyPayload` отклоняет любой
 # неположительный диаметр в таблице — коронка с таким диаметром не должна

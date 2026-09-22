@@ -25,7 +25,10 @@ describe("KuzRamComparison", () => {
     render(<KuzRamComparison variants={VARIANTS} selectedIndex={1} onSelect={onSelect} thresholdPct={5} />);
     const rows = within(screen.getByRole("table")).getAllByRole("row").slice(2);
     expect(rows).toHaveLength(3);
-    expect(rows[1]).toHaveAttribute("aria-selected", "true");
+    // aria-selected у строки обычной таблицы не озвучивается — выбранную отмечает aria-current.
+    expect(rows[1]).toHaveAttribute("aria-current", "true");
+    expect(rows[0]).not.toHaveAttribute("aria-current");
+    expect(rows[1]).not.toHaveAttribute("aria-selected");
     expect(within(rows[2]).getAllByRole("img", FLAG)).toHaveLength(2);
     expect(within(rows[0]).queryByRole("img", FLAG)).not.toBeInTheDocument();
     fireEvent.click(rows[0]);

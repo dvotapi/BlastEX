@@ -31,7 +31,11 @@
 
 ## Модель подбора q (Kuz-Ram)
 
-Лист «Расчёт» подбирает q по Каннингему: формулы — `simulation/fragmentation/cunningham.py`, подбор — `Blast.py::optimize_blast`, окно «Модель Kuz-Ram» — `frontend/src/pages/calc/kuzram/`; «Проектирование», отчёты и ML пока на `simulation/fragmentation/kuzram.py`, подробности — `Docs/KUZRAM_MODEL.md`.
+Лист «Расчёт» подбирает q по Каннингему: формулы —
+`simulation/fragmentation/cunningham.py`, подбор — `Blast.py::optimize_blast`,
+окно «Модель Kuz-Ram» — `frontend/src/pages/calc/kuzram/`. «Проектирование»,
+отчёты и ML пока на `simulation/fragmentation/kuzram.py`; подробности —
+`Docs/KUZRAM_MODEL.md`.
 
 ## Интерфейс
 

@@ -5,7 +5,8 @@
  * Умолчания и границы — в `kuzramContract.json`, копии констант
  * `simulation/fragmentation/cunningham.py` и схем `api/schemas/blast.py`:
  * совпадение проверяет `tests/test_kuzram_frontend_contract.py`. Формул модели
- * здесь нет — только чтение сохранённого, проверка ввода и подпись у кнопки.
+ * здесь нет — только чтение сохранённого, проверка ввода и тексты листа:
+ * подпись у кнопки и совет к пометке «варианты — по прежним настройкам модели».
  */
 import contract from "./kuzramContract.json";
 import { trimmed } from "./kuzramFormat";
@@ -39,6 +40,10 @@ export const FACT_FIELDS: FactField[] = ["crown_mm", "q_kg_m3", "oversize_pct"];
  * ограничивает. Решение владельца от 21.09.2026.
  */
 export const BURDEN_TO_DIAMETER_WARN_ABOVE = 35;
+
+/** Пауза перед пересчётом после правки настроек модели: набор «1,15» по
+ * цифрам не должен слать запрос на каждую. */
+export const KUZRAM_RECALC_DELAY_MS = 300;
 
 /** Подписи числовых настроек — как в сообщениях сервера (`NUMERIC_BOUNDS`). */
 export const NUMERIC_LABELS: Record<NumericSetting, string> = {
@@ -158,6 +163,38 @@ export function settingsCaption(settings: KuzRamSettings): string {
   }
   if (settings.q_max_kg_m3 !== defaults.q_max_kg_m3) parts.push(`q до ${trimmed(settings.q_max_kg_m3)}`);
   return parts.join(" · ");
+}
+
+/** Чего на листе нет для расчёта вариантов («Рассчитать варианты» без этого недоступна). */
+export type MissingForCalculation = { crowns: boolean; rock: boolean; explosive: boolean };
+
+/**
+ * Совет к пометке «варианты — по прежним настройкам модели» — один и тот же на
+ * листе и в окне. Нечего считать — выбрать недостающее: без него пересчитать
+ * нельзя. Расчёт по текущим настройкам модели упал (`failed`) — ведём к
+ * сообщению об ошибке: причина бывает любой (сеть, сервер, настройки), а
+ * сообщения сервера сами говорят, что менять. Иначе — пересчитать.
+ */
+export function outdatedHint(failed: boolean, missing: MissingForCalculation): string {
+  const items = [missing.crowns && "коронки", missing.rock && "породу", missing.explosive && "ВВ"].filter(Boolean);
+  if (items.length) return `на листе нечего считать — выберите ${items.join(", ")} и нажмите «Рассчитать варианты».`;
+  if (failed) return "по текущим расчёт не прошёл — причина в сообщении об ошибке.";
+  return "пересчитайте их кнопкой «Рассчитать варианты» на листе.";
+}
+
+/** Ошибка подбора и ревизия настроек модели, на которой он запущен. */
+export type OptimizeError = { message: string; revision: number };
+
+/**
+ * Текст ошибки подбора на листе и в окне при ревизии настроек `revision`.
+ * Настройки с тех пор поправили, а пересчёта не было (считать нечего), —
+ * ошибка от прошлого расчёта: прятать её нельзя (причина бывает и в поле
+ * листа), выдавать за ошибку текущих настроек тоже.
+ */
+export function optimizeErrorText(error: OptimizeError | null, revision: number): string {
+  if (!error) return "";
+  if (error.revision === revision) return error.message;
+  return `Прошлый расчёт, до правки настроек модели: ${error.message}`;
 }
 
 /** Число из поля ввода: запятая или точка; пусто и мусор — `null`. */

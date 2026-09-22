@@ -165,7 +165,8 @@ export function KuzRamComparison({
               {variants.map((variant, index) => (
                 <tr
                   key={variant.crown_mm}
-                  aria-selected={index === selectedIndex}
+                  // aria-selected у строки обычной таблицы (не grid) не озвучивается.
+                  aria-current={index === selectedIndex ? "true" : undefined}
                   tabIndex={0}
                   onClick={() => onSelect(index)}
                   onKeyDown={(event) => {

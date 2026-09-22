@@ -5,6 +5,8 @@ import {
   factCellError,
   KUZRAM_DEFAULTS,
   kuzramSettingsOf,
+  optimizeErrorText,
+  outdatedHint,
   MAX_FACTS,
   parseDecimal,
   readKuzramBlock,
@@ -109,6 +111,48 @@ describe("проверка ввода", () => {
       { index: 0, fact: { crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 } },
       { index: 3, fact: { crown_mm: 110, q_kg_m3: 1.1, oversize_pct: 6 } },
     ]);
+  });
+});
+
+describe("outdatedHint", () => {
+  it("совет к пометке «по прежним настройкам»: недостающее на листе, ошибка текущих настроек, иначе — пересчитать", () => {
+    const nothing = { crowns: false, rock: false, explosive: false };
+    // Ошибка может быть любой (сеть, сервер) — совет не винит настройки, а ведёт к сообщению.
+    expect(outdatedHint(true, nothing)).toBe("по текущим расчёт не прошёл — причина в сообщении об ошибке.");
+    // Нечего считать — пересчитать нельзя: совет — выбрать недостающее.
+    expect(outdatedHint(true, { ...nothing, crowns: true })).toBe(
+      "на листе нечего считать — выберите коронки и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint(false, { ...nothing, crowns: true })).toBe(
+      "на листе нечего считать — выберите коронки и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint(false, { ...nothing, rock: true })).toBe(
+      "на листе нечего считать — выберите породу и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint(false, { ...nothing, explosive: true })).toBe(
+      "на листе нечего считать — выберите ВВ и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint(false, { crowns: true, rock: true, explosive: true })).toBe(
+      "на листе нечего считать — выберите коронки, породу, ВВ и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint(false, nothing)).toBe("пересчитайте их кнопкой «Рассчитать варианты» на листе.");
+  });
+});
+
+describe("optimizeErrorText", () => {
+  const error = { message: "Фактор породы A = −0,06 — он должен быть больше нуля.", revision: 2 };
+
+  it("ошибки нет — пусто; ошибка текущих настроек модели — как есть", () => {
+    expect(optimizeErrorText(null, 2)).toBe("");
+    expect(optimizeErrorText(error, 2)).toBe("Фактор породы A = −0,06 — он должен быть больше нуля.");
+  });
+
+  it("настройки модели с тех пор поправили — ошибка видна, но как прошлый расчёт", () => {
+    // Причина бывает и в поле листа (уступ, кусок) — прятать её нельзя,
+    // выдавать за ошибку текущих настроек тоже.
+    expect(optimizeErrorText(error, 3)).toBe(
+      "Прошлый расчёт, до правки настроек модели: Фактор породы A = −0,06 — он должен быть больше нуля.",
+    );
   });
 });
 

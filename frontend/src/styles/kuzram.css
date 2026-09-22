@@ -37,7 +37,9 @@
 .threshold-flag { display:inline-grid; place-items:center; width:13px; height:13px; margin-right:4px; border-radius:50%; background:#ead39f; color:#684b17; font-size:var(--fs-small); font-weight:var(--font-weight-title); line-height:1; vertical-align:1px; cursor:help; }
 /* Подпись у кнопки окна: чем настройки модели отличаются от умолчаний. */
 .kuzram-caption { overflow:hidden; max-width:180px; color:#6e7c75; font-size:var(--fs-small); white-space:nowrap; text-overflow:ellipsis; }
-@media (max-width:760px) { .kuzram-caption { max-width:110px; } }
+.kuzram-outdated { overflow:hidden; max-width:220px; color:#8a5a12; font-size:var(--fs-small); font-weight:var(--font-weight-strong); white-space:nowrap; text-overflow:ellipsis; cursor:help; }
+.kuzram-outdated:empty { display:none; }
+@media (max-width:760px) { .kuzram-caption, .kuzram-outdated { max-width:110px; } }
 
 /* Карточки результатов: сводка, таблица, график, разбор, фактические взрывы. */
 .kuzram-card { display:grid; gap:10px; min-width:0; padding:12px 14px; border:1px solid #e2e8e5; border-radius:var(--radius-panel); background:#fff; }
@@ -62,9 +64,10 @@
 .kuzram-table .groups .g-new { box-shadow:inset 0 -2px 0 #2d7556; }
 .kuzram-table .groups .g-legacy { box-shadow:inset 0 -2px 0 #8a99a6; }
 .kuzram-table .sep { border-left:1px solid #e2e8e5; }
-.kuzram-table tbody tr[aria-selected] { cursor:pointer; }
-.kuzram-table tbody tr[aria-selected]:hover { background:#f5f9f7; }
-.kuzram-table tbody tr[aria-selected="true"] { background:#edf7f1; }
+/* Строки сравнения кликабельны (tabindex), выбранная — aria-current. */
+.kuzram-table tbody tr[tabindex] { cursor:pointer; }
+.kuzram-table tbody tr[tabindex]:hover { background:#f5f9f7; }
+.kuzram-table tbody tr[aria-current="true"] { background:#edf7f1; }
 .kuzram-table tbody tr:focus-visible { outline:2px solid #2d7556; outline-offset:-2px; }
 /* График q(d): Kuz-Ram — акцентный зелёный, «до исправления» — серо-синий пунктир. */
 .kuzram-chart { position:relative; }

@@ -266,6 +266,22 @@ def test_rejects_commit_older_than_deployed(stand: Stand) -> None:
     assert stand.marker() == newer
 
 
+def test_rejects_older_commit_before_first_marked_deploy(stand: Stand) -> None:
+    # Сразу после установки новой команды refs/deploy/production ещё нет, а
+    # прод уже на коммите, который выкатила старая (fetch + merge --ff-only).
+    # Перезапуск старого прогона в этом окне не должен откатить прод.
+    older = stand.commit("older")
+    newer = stand.commit("newer")
+    stand.git(stand.app, "pull", "-q", "--ff-only", "origin", "main")
+    assert stand.head() == newer and stand.marker() is None
+
+    result = stand.run(older)
+
+    assert result.returncode == REJECTED, result.stderr
+    assert stand.deployed() == []
+    assert stand.head() == newer
+
+
 def test_redeploys_deployed_commit(stand: Stand) -> None:
     # Ручной запуск на том же main пересобирает прод — например, после
     # правки .env.

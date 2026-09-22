@@ -53,9 +53,11 @@ fi
 # Прогоны в concurrency-группе не обязаны идти по порядку, а перезапуск
 # старого прогона присылает его SHA. Коммит, уже вошедший в выкаченный, —
 # это откат; его делают revert-коммитом в main, а не повтором прогона. Тот
-# же коммит выкатывается повторно: так ручной запуск пересобирает прод.
-deployed="$(git rev-parse -q --verify "$DEPLOYED_REF^{commit}" || true)"
-if [[ -n "$deployed" && "$sha" != "$deployed" ]] \
+# же коммит выкатывается повторно: так ручной запуск пересобирает прод. Пока
+# ref нет — сразу после установки этой команды, — выкаченным считается HEAD:
+# его выкатила прежняя версия.
+deployed="$(git rev-parse -q --verify "$DEPLOYED_REF^{commit}" || git rev-parse HEAD)"
+if [[ "$sha" != "$deployed" ]] \
   && git merge-base --is-ancestor "$sha" "$deployed"; then
   reject "коммит $sha старше выкаченного $deployed и уже входит в него; откат — revert-коммитом в main"
 fi

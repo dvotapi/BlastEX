@@ -14,7 +14,7 @@ from decimal import Decimal
 import pytest
 
 from cost.model.engine import compute_block_economics
-from cost.model.inputs import ServiceCharge, formula_number
+from cost.model.inputs import ServiceCharge, formula_number, formula_quantity
 from tests import model_fixtures as fx
 
 NOMENCLATURE = {
@@ -201,3 +201,29 @@ def test_formula_numbers_read_like_the_columns(scenario: str) -> None:
     }
     assert result.lines
     assert raw == {}
+
+
+@pytest.mark.parametrize(
+    ("value", "unit", "text"),
+    [
+        ("1", "рейс", "1 рейс"),
+        ("2", "рейс", "2 рейса"),
+        ("5", "рейс", "5 рейсов"),
+        ("11", "рейс", "11 рейсов"),
+        ("21", "рейс", "21 рейс"),
+        ("22", "рейс", "22 рейса"),
+        ("112", "рейс", "112 рейсов"),
+        # Дробь читается «одна целая пять десятых рейса».
+        ("1.5", "рейс", "1,5 рейса"),
+        # Форма — по напечатанному числу: 1,004 показано как «1».
+        ("1.004", "рейс", "1 рейс"),
+        ("2", "взрыв", "2 взрыва"),
+        # Сокращения не склоняются.
+        ("1224", "шт", "1\u00a0224 шт"),
+        ("3", "см", "3 см"),
+        # Без единицы — одно число, без висящего пробела.
+        ("3", "", "3"),
+    ],
+)
+def test_formula_quantity_declines_word_units(value: str, unit: str, text: str) -> None:
+    assert formula_quantity(Decimal(value), unit) == text

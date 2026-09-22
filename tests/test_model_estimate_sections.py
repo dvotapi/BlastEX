@@ -302,6 +302,25 @@ def test_cost_rule_formula_without_a_unit_shows_neither_code_nor_a_dangling_spac
     assert line_by_code(result, "RULE_ODD").formula == "10 ₽ × 3"
 
 
+def test_cost_rule_formula_declines_a_word_unit() -> None:
+    """Правило по рейсам СЗМ: «4 рейса», а не «4 рейс»."""
+
+    rule = fx.item(
+        "RULE_SZM_TRIPS",
+        "Пропуск на рейс СЗМ",
+        {
+            "operation_code": "BULK_CHARGING_SZM",
+            "cost_item_code": "RULE_SZM_TRIPS",
+            "driver": "szm_trips",
+            "rate_rub": "100",
+            "estimate_section": "OVERHEAD",
+        },
+    )
+    result = compute_block_economics(fx.snapshot(), fx.parameters(), fx.references(cost_rules=(rule,)))
+
+    assert line_by_code(result, "RULE_SZM_TRIPS").formula == "100 ₽ × 4 рейса"
+
+
 def test_a_driver_named_after_its_unit_is_labelled_without_a_table_entry() -> None:
     """Модель заводит величины на ходу (`szm_fuel_l`): единица берётся из хвоста имени."""
 

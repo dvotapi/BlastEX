@@ -30,3 +30,9 @@
   .kuzram-calc { grid-template-columns:minmax(0,1fr); }
   .kuzram-side { position:static; }
 }
+
+/* Значок «!» у q: порог негабарита не достигнут (таблица листа и окно). */
+.threshold-flag { display:inline-grid; place-items:center; width:13px; height:13px; margin-right:4px; border-radius:50%; background:#f0b43c; color:#3a2600; font-size:9px; font-weight:var(--font-weight-title); line-height:1; vertical-align:1px; cursor:help; }
+/* Подпись у кнопки окна: чем настройки модели отличаются от умолчаний. */
+.kuzram-caption { overflow:hidden; max-width:180px; color:#6e7c75; font-size:10px; white-space:nowrap; text-overflow:ellipsis; }
+@media (max-width:760px) { .kuzram-caption { max-width:110px; } }

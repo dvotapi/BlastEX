@@ -14,7 +14,13 @@ from decimal import Decimal
 import pytest
 
 from cost.model.engine import compute_block_economics
-from cost.model.inputs import ServiceCharge, formula_number, formula_quantity
+from cost.model.inputs import (
+    DRIVER_UNIT_SUFFIXES,
+    DRIVER_UNITS,
+    ServiceCharge,
+    formula_number,
+    formula_quantity,
+)
 from tests import model_fixtures as fx
 
 NOMENCLATURE = {
@@ -218,6 +224,11 @@ def test_formula_numbers_read_like_the_columns(scenario: str) -> None:
         # Форма — по напечатанному числу: 1,004 показано как «1».
         ("1.004", "рейс", "1 рейс"),
         ("2", "взрыв", "2 взрыва"),
+        ("0.03", "доля", "0,03 доли"),
+        ("1", "доля", "1 доля"),
+        ("0", "рейс", "0 рейсов"),
+        # Форма берётся по числу с разрядами так же, как без них.
+        ("1221", "рейс", "1\u00a0221 рейс"),
         # Сокращения не склоняются.
         ("1224", "шт", "1\u00a0224 шт"),
         ("3", "см", "3 см"),
@@ -227,3 +238,17 @@ def test_formula_numbers_read_like_the_columns(scenario: str) -> None:
 )
 def test_formula_quantity_declines_word_units(value: str, unit: str, text: str) -> None:
     assert formula_quantity(Decimal(value), unit) == text
+
+
+# Сокращения не склоняются: «2 кг», «2 см». Новая единица-слово требует
+# решения — склонять её или считать сокращением, — иначе формула напишет «2 смена».
+ABBREVIATIONS = {"кг", "шт", "см", "ткм", "км", "ч", "л", "м"}
+
+
+def test_every_word_unit_of_a_driver_is_declined() -> None:
+    units = set(DRIVER_UNITS.values()) | {unit for _, unit in DRIVER_UNIT_SUFFIXES}
+    words = {unit for unit in units if unit.isalpha() and unit not in ABBREVIATIONS}
+
+    undeclined = {unit for unit in words if formula_quantity(Decimal("2"), unit) == f"2 {unit}"}
+    assert words
+    assert undeclined == set()

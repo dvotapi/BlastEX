@@ -156,6 +156,7 @@ def formula_number(value: Decimal) -> str:
 _WORD_UNIT_FORMS: dict[str, tuple[str, str, str]] = {
     "рейс": ("рейс", "рейса", "рейсов"),
     "взрыв": ("взрыв", "взрыва", "взрывов"),
+    "доля": ("доля", "доли", "долей"),
 }
 
 

@@ -17,6 +17,7 @@ from cost.model.inputs import (
     BlockEconomics,
     ModelContext,
     driver_unit,
+    formula_number,
     ModelParameters,
     payload_number,
     payload_text,
@@ -229,16 +230,18 @@ def _rule_amount(context: ModelContext, rule: ReferenceItem) -> RuleCharge:
         # Сметчик читает «ткм», а не `vm_tkm`; величина без подписи остаётся
         # голым числом — код драйвера в формуле хуже пустоты.
         unit_label = driver_unit(driver_name)
-        quantity = f"{driver_value} {unit_label}" if unit_label else f"{driver_value}"
-        parts.append(f"{rate} ₽ × {quantity}")
+        quantity = formula_number(driver_value)
+        if unit_label:
+            quantity = f"{quantity} {unit_label}"
+        parts.append(f"{formula_number(rate)} ₽ × {quantity}")
     if fixed != 0:
         amount += fixed
-        parts.append(f"{fixed} ₽ на блок")
+        parts.append(f"{formula_number(fixed)} ₽ на блок")
         extra = True
     if step_capacity > 0 and step_cost != 0:
         steps = (driver_value / step_capacity).to_integral_value(rounding=ROUND_CEILING)
         amount += steps * step_cost
-        parts.append(f"{steps} ступ. × {step_cost} ₽")
+        parts.append(f"{formula_number(steps)} ступ. × {formula_number(step_cost)} ₽")
         extra = True
     return RuleCharge(
         amount=amount,

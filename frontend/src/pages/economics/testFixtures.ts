@@ -111,7 +111,7 @@ export function defaultsFixture(): ModelDefaults {
         { code: "BEREZIT", name: "Березит Э-100", unit: "кг", price_rub: 54.2, length_m: 0, quantity: 29038.86, quantity_label: "" },
       ],
       BOOSTER: [
-        { code: "BOOSTER_STD", name: "Сферит боевик", unit: "кг", price_rub: 150, length_m: 0, quantity: 38.4, quantity_label: "48 шт × 0.8 кг" },
+        { code: "BOOSTER_STD", name: "Сферит боевик", unit: "кг", price_rub: 150, length_m: 0, quantity: 38.4, quantity_label: "48 шт × 0,8 кг" },
       ],
       NSI_DOWNHOLE: [
         { code: "NSI_DOWNHOLE_STD", name: "СИНВ-С", unit: "шт", price_rub: 210, length_m: 0, quantity: 189, quantity_label: "" },

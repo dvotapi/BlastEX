@@ -38,15 +38,15 @@ def test_blaster_fixed_and_piece_parts() -> None:
 
 
 def test_piece_formula_names_driver_unit_not_code() -> None:
-    """Сметчик читает в формуле «60000 м³», а не служебное имя `rock_volume_m3`."""
+    """Сметчик читает в формуле «60 000 м³», а не служебное имя `rock_volume_m3`."""
 
     context = _context()
     labor.compute(context)
 
     formulas = {line.cost_item_code: line.formula for line in _labor_lines(context)}
-    assert formulas["LABOR_POS_DRILLER"].endswith(" + 150 ₽ × 13953.488372 п.м. / 1 × 1 чел")
-    assert formulas["LABOR_POS_BLASTER"].endswith(" + 700 ₽ × 60000 м³ / 1000 × 2 чел")
-    assert formulas["LABOR_POS_SZM_DRIVER"].endswith(" + 200 ₽ × 42000 кг / 1000 × 1 чел")
+    assert formulas["LABOR_POS_DRILLER"].endswith(" + 150 ₽ × 13\u00a0953,49 п.м. / 1 × 1 чел")
+    assert formulas["LABOR_POS_BLASTER"].endswith(" + 700 ₽ × 60\u00a0000 м³ / 1\u00a0000 × 2 чел")
+    assert formulas["LABOR_POS_SZM_DRIVER"].endswith(" + 200 ₽ × 42\u00a0000 кг / 1\u00a0000 × 1 чел")
     for formula in formulas.values():
         assert not any(driver in formula for driver in PIECE_DRIVERS), formula
 
@@ -132,7 +132,7 @@ def test_driller_block_payroll_pays_each_metre_once() -> None:
     line = _line(context, "LABOR_POS_DRILLER")
     assert _money(line.amount_rub) == Decimal("2616279.07")
     assert line.quantity == context.value("rig_shifts")
-    assert line.formula.startswith("60000 ₽/мес × 3 чел / 40 см × ")
+    assert line.formula.startswith("60\u00a0000 ₽/мес × 3 чел / 40 см × 116,28 см")
     contributions = _line(context, "LABOR_CONTRIBUTIONS").amount_rub
     reserve = _line(context, "LABOR_VACATION_RESERVE").amount_rub
     assert _money(contributions) == Decimal("795872.09")

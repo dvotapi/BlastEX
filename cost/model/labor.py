@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_CEILING
 
-from cost.model.inputs import ModelContext, driver_unit, payload_number, payload_text
+from cost.model.inputs import ModelContext, driver_unit, formula_number, payload_number, payload_text
 from cost.v2.models import CostLayer, ReferenceItem
 
 
@@ -215,7 +215,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             cost_item_name="Страховые взносы и НС",
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=contributions,
-            formula=f"{accrued_total} ₽ × {contribution_rate}",
+            formula=f"{formula_number(accrued_total)} ₽ × {formula_number(contribution_rate)}",
             section="LABOR",
             quantity_origin="CALC",
             price_origin="REFERENCE",
@@ -228,7 +228,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
                 cost_item_name="Резерв отпусков",
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=reserve,
-                formula=f"({accrued_total} + {contributions}) ₽ × {rates.vacation_reserve_rate}",
+                formula=f"({formula_number(accrued_total)} + {formula_number(contributions)}) ₽ × {formula_number(rates.vacation_reserve_rate)}",
                 section="LABOR",
                 quantity_origin="CALC",
                 price_origin="REFERENCE",
@@ -242,8 +242,8 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=per_diem_total,
             formula=(
-                f"{per_diem_shifts} чел·см × "
-                f"({context.rates.per_diem_rub} + {context.rates.lodging_rub}) ₽"
+                f"{formula_number(per_diem_shifts)} чел·см × "
+                f"({formula_number(context.rates.per_diem_rub)} + {formula_number(context.rates.lodging_rub)}) ₽"
             ),
             section="PER_DIEM",
             quantity=per_diem_shifts,
@@ -380,12 +380,12 @@ def _fixed_amount(
     if rotation is not None:
         return (
             fixed_monthly * rotation.headcount / rotation.plan_shifts * shifts,
-            f"{fixed_monthly} ₽/мес × {rotation.headcount} чел / {rotation.plan_shifts} см × {shifts} см",
+            f"{formula_number(fixed_monthly)} ₽/мес × {formula_number(rotation.headcount)} чел / {formula_number(rotation.plan_shifts)} см × {formula_number(shifts)} см",
         )
     rate_per_shift = fixed_monthly / norm_shifts if norm_shifts > 0 else Decimal("0")
     return (
         rate_per_shift * shifts * per_shift,
-        f"{fixed_monthly} ₽/мес / {norm_shifts} см × {shifts} см × {per_shift} чел",
+        f"{formula_number(fixed_monthly)} ₽/мес / {formula_number(norm_shifts)} см × {formula_number(shifts)} см × {formula_number(per_shift)} чел",
     )
 
 
@@ -448,7 +448,7 @@ def _piece_amount(
     amount = piece_rate * driver_value / piece_unit * per_shift
     return (
         amount,
-        f"{piece_rate} ₽ × {driver_value} {unit} / {piece_unit} × {per_shift} чел",
+        f"{formula_number(piece_rate)} ₽ × {formula_number(driver_value)} {unit} / {formula_number(piece_unit)} × {formula_number(per_shift)} чел",
     )
 
 

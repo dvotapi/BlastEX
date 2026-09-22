@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from cost.model.inputs import ModelContext, asset_label, payload_number, payload_text
+from cost.model.inputs import ModelContext, asset_label, formula_number, payload_number, payload_text
 from cost.model.prices import material_price
 from cost.v2.models import CostLayer, CostLine, ReferenceItem, ValueOrigin
 
@@ -224,7 +224,7 @@ def _tooling_lines(
             f"{drilling_m} м / {life} м",
         )
         total += quantity * price
-        parts.append(f"{label}: {drilling_m} / {life} × {price} ₽")
+        parts.append(f"{label}: {formula_number(drilling_m)} / {formula_number(life)} × {formula_number(price)} ₽")
 
     casing_per_m = payload_number(condition, "casing_m_per_m")
     casing_code = payload_text(condition, "casing_material_code")
@@ -233,7 +233,7 @@ def _tooling_lines(
         casing_m = drilling_m * casing_per_m
         context.set_value("drilling_casing_m", casing_m, f"{drilling_m} м × {casing_per_m} м/м")
         total += casing_m * price
-        parts.append(f"обсадка: {casing_m} м × {price} ₽")
+        parts.append(f"обсадка: {formula_number(casing_m)} м × {formula_number(price)} ₽")
 
     if total > 0:
         context.add_line(
@@ -273,7 +273,7 @@ def _fuel_line(context: ModelContext, condition: ReferenceItem, drilling_m: Deci
         cost_item_name="ДТ на бурение",
         layer=CostLayer.VARIABLE,
         amount_rub=litres * price,
-        formula=f"{drilling_m} м × {fuel_l_per_m} л/м × {price} ₽/л",
+        formula=f"{formula_number(drilling_m)} м × {formula_number(fuel_l_per_m)} л/м × {formula_number(price)} ₽/л",
         section="DRILLING",
         quantity=litres,
         unit="л",
@@ -296,7 +296,7 @@ def _spare_parts_line(
         cost_item_name="Запчасти и расходники станка",
         layer=CostLayer.VARIABLE,
         amount_rub=amount,
-        formula=f"{rig_shifts} см × {rate} ₽/см",
+        formula=f"{formula_number(rig_shifts)} см × {formula_number(rate)} ₽/см",
         section="DRILLING",
         quantity=rig_shifts,
         unit="см",
@@ -345,7 +345,7 @@ def _fixed_lines(
                 cost_item_name=f"Амортизация: {asset_label(rig_type.name, asset)}",
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=amount,
-                formula=f"{depreciation_month} ₽/мес / {plan_shifts} см × {charged_shifts} см",
+                formula=f"{formula_number(depreciation_month)} ₽/мес / {formula_number(plan_shifts)} см × {formula_number(charged_shifts)} см",
                 section="DRILLING",
                 quantity=charged_shifts,
                 unit="см",
@@ -362,7 +362,7 @@ def _fixed_lines(
                 cost_item_name="Страхование бурового станка",
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=insurance_month / plan_shifts * charged_shifts,
-                formula=f"{insurance_month} ₽/мес / {plan_shifts} см × {charged_shifts} см",
+                formula=f"{formula_number(insurance_month)} ₽/мес / {formula_number(plan_shifts)} см × {formula_number(charged_shifts)} см",
                 section="DRILLING",
                 quantity=charged_shifts,
                 unit="см",
@@ -394,7 +394,7 @@ def _inspection_line(
         cost_item_name="Выпуск на линию и медосмотр экипажа станка",
         layer=CostLayer.VARIABLE,
         amount_rub=amount,
-        formula=f"{shifts} см × {per_shift} ₽/см",
+        formula=f"{formula_number(shifts)} см × {formula_number(per_shift)} ₽/см",
         section="DRILLING",
         quantity=shifts,
         unit="см",
@@ -422,7 +422,7 @@ def _maintenance_lines(
             cost_item_name="ТОиР бурового станка",
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=budget / plan_shifts * rig_shifts,
-            formula=f"{budget} ₽/мес / {plan_shifts} см × {rig_shifts} см",
+            formula=f"{formula_number(budget)} ₽/мес / {formula_number(plan_shifts)} см × {formula_number(rig_shifts)} см",
             section="DRILLING",
             quantity=rig_shifts,
             unit="см",
@@ -441,7 +441,7 @@ def _maintenance_lines(
         cost_item_name="ТОиР бурового станка",
         layer=CostLayer.PROJECT_DIRECT,
         amount_rub=shifts * rate,
-        formula=f"({rig_shifts} + {maintenance_shifts}) см × {rate} ₽/см",
+        formula=f"({formula_number(rig_shifts)} + {formula_number(maintenance_shifts)}) см × {formula_number(rate)} ₽/см",
         section="DRILLING",
         quantity=shifts,
         unit="см",
@@ -505,7 +505,7 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         cost_item_name="Субподряд: бурение",
         layer=CostLayer.VARIABLE,
         amount_rub=drilling_m * rate,
-        formula=f"{drilling_m} м × {rate} ₽/м",
+        formula=f"{formula_number(drilling_m)} м × {formula_number(rate)} ₽/м",
         section="DRILLING",
         quantity=drilling_m,
         unit="п.м.",
@@ -536,7 +536,7 @@ def _subcontract_lines(context: ModelContext, drilling_m: Decimal) -> None:
         cost_item_name="Нераспределённые постоянные станка",
         layer=CostLayer.FULL,
         amount_rub=amount,
-        formula=f"{monthly} ₽/мес × доля блока {share}",
+        formula=f"{formula_number(monthly)} ₽/мес × доля блока {formula_number(share)}",
         section="DRILLING",
         # Как постоянные затраты юнита: месячная сумма из справочника
         # техники, распределённая по доле блока — расчёт модели.

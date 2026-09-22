@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from cost.model.inputs import ModelContext, payload_number, payload_text
+from cost.model.inputs import ModelContext, formula_number, payload_number, payload_text
 from cost.model.prices import price_lookup
 from cost.v2.models import CostLayer, ReferenceItem
 from cost.v2.prices import effective_price
@@ -280,7 +280,7 @@ def _role_line(context: ModelContext, role: Role, outcome: MaterialsOutcome) -> 
         cost_item_name=material.name,
         layer=CostLayer.VARIABLE,
         amount_rub=quantity * price,
-        formula=f"{quantity_formula} × {price} ₽/{role.unit}{price_date}",
+        formula=f"{quantity_formula} × {formula_number(price)} ₽/{role.unit}{price_date}",
         resource_code=code,
         section="EXPLOSIVES",
         quantity=quantity,
@@ -305,11 +305,11 @@ def quantity_in_price_units(
     """
 
     if not role.priced_per_kg:
-        return driver_value, f"{driver_value} {role.unit}"
+        return driver_value, f"{formula_number(driver_value)} {role.unit}"
     mass_kg = payload_number(material, "mass_kg")
     if mass_kg <= 0:
         return None, ""
-    return driver_value * mass_kg, f"{driver_value} шт × {mass_kg} кг"
+    return driver_value * mass_kg, f"{formula_number(driver_value)} шт × {formula_number(mass_kg)} кг"
 
 
 _quantity = quantity_in_price_units

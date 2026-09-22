@@ -11,6 +11,7 @@ from decimal import Decimal, ROUND_CEILING
 from cost.model.inputs import (
     CapacityWarning,
     ModelContext,
+    formula_number,
     payload_number,
     payload_text,
 )
@@ -72,7 +73,7 @@ def compute(context: ModelContext) -> None:
             cost_item_name=f"{CATEGORY_NAMES.get(category, category)}: {item.name}",
             layer=CostLayer.PRODUCTION,
             amount_rub=monthly * share,
-            formula=f"{monthly} ₽/мес × доля блока {share}",
+            formula=f"{formula_number(monthly)} ₽/мес × доля блока {formula_number(share)}",
             section="OVERHEAD",
             quantity_origin="CALC",
             price_origin="REFERENCE",
@@ -148,7 +149,7 @@ def _storage(context: ModelContext, share: Decimal) -> None:
 
     capacity = payload_number(pool, "monthly_capacity")
     monthly = payload_number(pool, "fixed_cost_rub")
-    formula = f"{monthly} ₽/мес базовой аренды"
+    formula = f"{formula_number(monthly)} ₽/мес базовой аренды"
     if capacity > 0 and required_area > capacity:
         step_capacity = payload_number(pool, "step_capacity", Decimal("1"))
         step_cost = payload_number(pool, "step_cost_rub")
@@ -158,7 +159,7 @@ def _storage(context: ModelContext, share: Decimal) -> None:
             rounding=ROUND_CEILING
         )
         monthly += steps * step_cost
-        formula += f" + {steps} ступ. × {step_cost} ₽"
+        formula += f" + {formula_number(steps)} ступ. × {formula_number(step_cost)} ₽"
         context.add_capacity(
             CapacityWarning(
                 resource_code=pool.code,
@@ -181,7 +182,7 @@ def _storage(context: ModelContext, share: Decimal) -> None:
         cost_item_name=f"Аренда склада ВМ: {pool.name}",
         layer=CostLayer.PRODUCTION,
         amount_rub=monthly * share,
-        formula=f"{formula} × доля блока {share}",
+        formula=f"{formula} × доля блока {formula_number(share)}",
         # Склад — это раздел «Хранение, производство и доставка ВМ» бумажной
         # сметы, а не общепроизводственные: там сметчик его и ищет.
         section="VM_LOGISTICS",

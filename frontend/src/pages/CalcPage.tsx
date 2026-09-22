@@ -25,6 +25,7 @@ import { CalcTopStrip, ReferenceWarnings } from "./calc/CalcTopStrip";
 import { geometryPayload, type VariantContext } from "./calc/holeGeometryPayload";
 import { MetricChips } from "./calc/MetricChips";
 import { knownUnitCode, unitForLoadedSheet } from "./calc/unitSelection";
+import { defaultKuzramBlock } from "./calc/kuzram/kuzramSettings";
 import { PassportBar } from "./calc/PassportBar";
 import { ResultsChart } from "./calc/ResultsChart";
 import { useHoleGeometry } from "./calc/useHoleGeometry";
@@ -209,6 +210,8 @@ function FullBvrCalc({
       blockVolumeM3,
       additionalHolesPct,
       productionUnitCode,
+      // TODO(Task 4): заменить на состояние окна Kuz-Ram.
+      kuzram: defaultKuzramBlock(),
       panels: panelInputs,
     }),
     [rockName, explosiveKey, lumpSize, benchHeight, overdrill, oversizeCoeff, spacing, threshold,

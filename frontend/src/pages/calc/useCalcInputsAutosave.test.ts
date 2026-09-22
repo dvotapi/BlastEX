@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nextSavedAfterWrite, pendingAfterSaveError, shouldReportSaveStatus } from "./useCalcInputsAutosave";
 import { collectCalcInputs } from "./calcInputs";
 import type { PanelInputs, SheetState } from "./calcInputs";
+import { defaultKuzramBlock } from "./kuzram/kuzramSettings";
 
 function panel(overrides: Partial<PanelInputs> = {}): PanelInputs {
   return {
@@ -32,6 +33,7 @@ function sheet(overrides: Partial<SheetState> = {}): SheetState {
     additionalHolesPct: 2.5,
     productionUnitCode: "UNIT_PERM",
     panels: { left: panel(), right: panel() },
+    kuzram: defaultKuzramBlock(),
     ...overrides,
   };
 }

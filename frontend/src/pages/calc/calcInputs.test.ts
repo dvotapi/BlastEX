@@ -12,6 +12,7 @@ import {
   type PanelInputs,
   type SheetState,
 } from "./calcInputs";
+import { defaultKuzramBlock, KUZRAM_DEFAULTS } from "./kuzram/kuzramSettings";
 
 const CATALOGS: CalcInputsCatalogs = {
   rocks: ["Гранит", "Известняк"],
@@ -53,6 +54,7 @@ function sheet(overrides: Partial<SheetState> = {}): SheetState {
       left: panel(),
       right: panel({ explosive_key: "ПЭВВ ЭВЕРСИН Э-100", undercharge_m: 2, nsi_per_hole: 2 }),
     },
+    kuzram: defaultKuzramBlock(),
     ...overrides,
   };
 }
@@ -172,6 +174,35 @@ describe("collectCalcInputs / applyCalcInputs", () => {
     const raw = collectCalcInputs(sheet({ selectedCrownsMm: [152, 110], selectedCrownMm: 110 }));
     const restored = applyCalcInputs(raw, CATALOGS);
     expect(restored?.selectedCrownsMm).toEqual([110, 152]);
+  });
+
+  it("блок kuzram записывается и читается обратно вместе с незаполненными строками фактов", () => {
+    const original = sheet({
+      kuzram: {
+        ...KUZRAM_DEFAULTS,
+        rock_factor_method: "joint_factor",
+        rock_factor_correction: 1.15,
+        facts: [
+          { crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 },
+          { crown_mm: 165, q_kg_m3: null, oversize_pct: null },
+        ],
+      },
+    });
+    const saved = collectCalcInputs(original);
+    expect(saved.kuzram).toEqual(original.kuzram);
+    expect(applyCalcInputs(saved, CATALOGS)?.kuzram).toEqual(original.kuzram);
+  });
+
+  it("настройки без блока kuzram (до модели) открываются с умолчаниями модели", () => {
+    const { kuzram: _omitted, ...legacy } = collectCalcInputs(sheet());
+    expect(applyCalcInputs(legacy, CATALOGS)?.kuzram).toEqual(defaultKuzramBlock());
+  });
+
+  it("collectCalcInputs копирует строки фактов, а не делит их с листом", () => {
+    const original = sheet({ kuzram: { ...KUZRAM_DEFAULTS, facts: [{ crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 }] } });
+    const saved = collectCalcInputs(original);
+    saved.kuzram.facts[0].q_kg_m3 = 2;
+    expect(original.kuzram.facts[0].q_kg_m3).toBe(1.3);
   });
 
   it.each([

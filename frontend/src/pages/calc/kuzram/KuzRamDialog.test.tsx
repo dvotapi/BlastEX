@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import type { KuzRamCalibrateResponse } from "../../../types";
 import { KuzRamDialog, type KuzRamDialogProps } from "./KuzRamDialog";
 import { defaultKuzramBlock } from "./kuzramSettings";
 import { gabbroVariant } from "./testing/fixtures";
@@ -24,6 +25,7 @@ const SOURCE = {
   overdrillM: 1,
   lumpSizeMm: 400,
   thresholdPct: 5,
+  crownsMm: [110, 152, 250],
 };
 
 function renderDialog(overrides: Partial<KuzRamDialogProps> = {}) {
@@ -61,10 +63,12 @@ describe("KuzRamDialog", () => {
     expect(screen.queryByLabelText("Поправка C(A)")).not.toBeInTheDocument();
   });
 
-  it("исходные данные — строкой с листа", () => {
+  it("исходные данные — строкой с листа, включая коронки", () => {
     renderDialog();
     expect(
-      screen.getByText(/Габбро-диабаз · ЭВЕРСИН Э-100 · уступ 10 м, перебур 1 м · кусок 400 мм · допустимый негабарит 5 %/),
+      screen.getByText(
+        /Габбро-диабаз · ЭВЕРСИН Э-100 · уступ 10 м, перебур 1 м · кусок 400 мм · коронки 110, 152, 250 мм · допустимый негабарит 5 %/,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -98,12 +102,59 @@ describe("KuzRamDialog", () => {
     expect(props.onFactsChange).toHaveBeenCalledWith([{ crown_mm: null, q_kg_m3: null, oversize_pct: null }]);
   });
 
-  it("вкладка «Как пользоваться» показывает справку", () => {
+  it("вкладка «Как пользоваться» показывает справку, вкладка «Расчёт» остаётся в DOM скрытой", () => {
     renderDialog();
     expect(screen.getByRole("tab", { name: "Расчёт" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "Как пользоваться" }));
     expect(screen.getByRole("tab", { name: "Как пользоваться" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel", { name: "Как пользоваться" })).toHaveTextContent("Что делает модель");
-    expect(screen.queryByLabelText("Поправка C(A)")).not.toBeInTheDocument();
+    // Вкладка «Расчёт» не размонтирована — скрыта атрибутом `hidden`, поэтому
+    // в обычном запросе по роли её не видно, а по факту она в DOM. (Скрытому
+    // элементу testing-library не приписывает доступное имя из
+    // `aria-labelledby`, поэтому ищем среди всех панелей по атрибуту.)
+    expect(screen.queryByRole("tabpanel", { name: "Расчёт" })).not.toBeInTheDocument();
+    const panels = screen.getAllByRole("tabpanel", { hidden: true });
+    const calcPanel = panels.find((panel) => panel.hasAttribute("hidden"))!;
+    expect(calcPanel).toBeTruthy();
+    expect(within(calcPanel).getByLabelText("Поправка C(A)")).toBeInTheDocument();
+  });
+
+  it("стрелками переключаются вкладки, фокус уходит на новую", () => {
+    renderDialog();
+    const calcTab = screen.getByRole("tab", { name: "Расчёт" });
+    const helpTab = screen.getByRole("tab", { name: "Как пользоваться" });
+    calcTab.focus();
+    fireEvent.keyDown(calcTab, { key: "ArrowRight" });
+    expect(helpTab).toHaveAttribute("aria-selected", "true");
+    expect(helpTab).toHaveFocus();
+    fireEvent.keyDown(helpTab, { key: "ArrowLeft" });
+    expect(calcTab).toHaveAttribute("aria-selected", "true");
+    expect(calcTab).toHaveFocus();
+  });
+
+  it("подбор C(A), начатый на «Расчёт», не прерывается переключением на «Как пользоваться» и обратно", async () => {
+    let release: (value: KuzRamCalibrateResponse) => void = () => {};
+    const onCalibrate = vi.fn(() => new Promise<KuzRamCalibrateResponse>((resolve) => { release = resolve; }));
+    const props = renderDialog({
+      block: { ...defaultKuzramBlock(), facts: [{ crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 }] },
+      onCalibrate,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Подобрать C(A) по факту" }));
+    expect(onCalibrate).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("tab", { name: "Как пользоваться" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Расчёт" }));
+    await act(async () => {
+      release({
+        rows: [
+          { crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8, legacy_oversize_pct: 5.3, model_oversize_pct: 4.29, rock_factor_correction: 1.132, note: null },
+        ],
+        rock_factor_correction: 1.132,
+        used: 1,
+        skipped: 0,
+        model_version: "kuzram-cunningham-1.0",
+      });
+    });
+    expect(props.onSettingsChange).toHaveBeenCalledWith(expect.objectContaining({ rock_factor_correction: 1.132 }));
+    await waitFor(() => expect(screen.getByText(/записана в настройки/)).toBeInTheDocument());
   });
 });

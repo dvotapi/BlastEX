@@ -116,10 +116,6 @@ function FullBvrCalc({
   // Растёт при каждой правке настроек модели в окне — эффект ниже
   // перезапускает подбор. Загрузка листа её не трогает: там подбор идёт сам.
   const [kuzramRevision, setKuzramRevision] = useState(0);
-  // Актуальная ревизия настроек модели для проверки «не устарел ли подбор
-  // C(A)» в `calibrateKuzram`, который не пересоздаётся при каждой правке.
-  const kuzramRevisionRef = useRef(kuzramRevision);
-  kuzramRevisionRef.current = kuzramRevision;
   // До какой ревизии подбор уже досчитан: пока отстаёт, окно пишет «Пересчёт…»
   // (и в паузе перед запросом).
   const [calculatedKuzramRevision, setCalculatedKuzramRevision] = useState(0);
@@ -218,6 +214,12 @@ function FullBvrCalc({
   const rock = useMemo(() => rocks.find((r) => r.name === rockName), [rocks, rockName]);
   const explosive = useMemo(() => explosives.find((e) => e.key === explosiveKey), [explosives, explosiveKey]);
   const selected = variants[selectedIndex];
+  // Актуальная выбранная коронка для `preferredCrownMm` подбора по правке
+  // настроек модели: клик по другой строке, случившийся в паузе перед
+  // запросом или пока он летит, не должен откатиться к коронке, выбранной на
+  // момент планирования таймера (см. `runOptimize` и эффект ниже).
+  const selectedCrownRef = useRef<number | null>(null);
+  selectedCrownRef.current = selected?.crown_mm ?? loadedCrownMm;
 
   /** Чем проверяются сохранённые настройки: пока справочники не пришли — нечем. */
   const catalogs: CalcInputsCatalogs | null = useMemo(
@@ -325,12 +327,15 @@ function FullBvrCalc({
 
   /** Расчёт вариантов по переданному листу: он же считает при автозапуске,
    * когда состояние формы ещё не успело обновиться после загрузки настроек.
-   * `preferredCrownMm` — сохранённый диаметр, если такой вариант найдётся.
+   * `preferredCrownMm` — сохранённый диаметр, если такой вариант найдётся;
+   * геттер, а не значение, чтобы читать его в момент ответа, а не в момент
+   * планирования запроса — иначе клик по другой строке в паузе перед
+   * запросом или пока он летит откатился бы к прежней коронке.
    * `isStale` — автозапуск для объекта, который успели сменить: его результат
    * выбрасываем, иначе он затрёт варианты нового объекта. */
   async function runOptimize(
     source: SheetState,
-    preferredCrownMm: number | null,
+    preferredCrownMm: () => number | null,
     isStale: () => boolean = () => false,
   ) {
     const sheetRock = rocks.find((r) => r.name === source.rockName);
@@ -355,7 +360,8 @@ function FullBvrCalc({
       if (isStale()) return;
       setVariants(result.variants);
       setVariantsThresholdPct(result.max_oversize_threshold_pct);
-      const restored = preferredCrownMm === null ? -1 : result.variants.findIndex((v) => v.crown_mm === preferredCrownMm);
+      const preferredValue = preferredCrownMm();
+      const restored = preferredValue === null ? -1 : result.variants.findIndex((v) => v.crown_mm === preferredValue);
       const preferred = result.variants.findIndex((v) => v.crown_mm === 152);
       setSelectedIndex(restored >= 0 ? restored : preferred >= 0 ? preferred : 0);
     } catch (reason) {
@@ -375,7 +381,7 @@ function FullBvrCalc({
   async function calculate() {
     const requestedObjectName = objectName;
     const startedGeneration = optimizeGenerationRef.current;
-    await runOptimize(sheet, null, () =>
+    await runOptimize(sheet, () => null, () =>
       isOptimizationResultStale(
         startedGeneration,
         optimizeGenerationRef.current,
@@ -400,7 +406,7 @@ function FullBvrCalc({
     const startedGeneration = optimizeGenerationRef.current;
     const requestedObjectName = objectName;
     const timer = window.setTimeout(() => {
-      void runOptimize(sourceSheet, sourceSheet.selectedCrownMm, () =>
+      void runOptimize(sourceSheet, () => selectedCrownRef.current, () =>
         isOptimizationResultStale(
           startedGeneration,
           optimizeGenerationRef.current,
@@ -465,7 +471,7 @@ function FullBvrCalc({
           // этой отсечки, автосохранение её подхватит само.
           setLoadedObjectName(objectName);
           const startedGeneration = optimizeGenerationRef.current;
-          await runOptimize(applied, applied.selectedCrownMm, () =>
+          await runOptimize(applied, () => applied.selectedCrownMm, () =>
             cancelled ||
             isOptimizationResultStale(startedGeneration, optimizeGenerationRef.current, objectName, objectNameRef.current),
           );
@@ -526,16 +532,19 @@ function FullBvrCalc({
     overdrillM: overdrill,
     lumpSizeMm: lumpSize,
     thresholdPct: threshold,
+    crownsMm: selectedCrowns,
   };
   // Пока запрос летит, пользователь мог поправить настройки модели в окне
-  // (сам подбор их не трогает) или сменить объект — тогда ответ, пусть и
-  // успешный, уже не про текущие настройки и не про этот объект: записывать
-  // его C(A) поверх свежих значений нельзя (`KuzRamFacts` покажет причину
-  // как обычную ошибку подбора).
+  // (сам подбор их не трогает), поправить лист (даже закрыв окно) или сменить
+  // объект — тогда ответ, пусть и успешный, уже не про текущие настройки и не
+  // про этот объект: записывать его C(A) поверх свежих значений нельзя
+  // (`KuzRamFacts` покажет причину как обычную ошибку подбора). Счётчик
+  // поколений растёт от правки любого поля, влияющего на расчёт (не только
+  // настроек модели), поэтому ловит и правку листа после закрытия окна.
   const calibrateKuzram = async (facts: KuzRamFactInput[]) => {
     if (!rock || !explosive) throw new Error("Выберите породу и ВВ на листе.");
     const requestedObjectName = objectName;
-    const startedRevision = kuzramRevision;
+    const startedGeneration = optimizeGenerationRef.current;
     const response = await api.calibrateKuzram({
       rock,
       explosive,
@@ -547,7 +556,7 @@ function FullBvrCalc({
       kuzram: kuzramSettingsOf(kuzram),
       facts,
     });
-    if (objectNameRef.current !== requestedObjectName || kuzramRevisionRef.current !== startedRevision) {
+    if (objectNameRef.current !== requestedObjectName || optimizeGenerationRef.current !== startedGeneration) {
       throw new Error("Настройки модели или объект изменились, пока шёл подбор, — C(A) не записана. Запустите подбор ещё раз.");
     }
     return response;

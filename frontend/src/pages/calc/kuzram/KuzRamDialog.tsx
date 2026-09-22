@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { BlastVariant, KuzRamCalibrateResponse, KuzRamFactInput, KuzRamSettings } from "../../../types";
 import { KuzRamBreakdown } from "./KuzRamBreakdown";
 import { KuzRamChart } from "./KuzRamChart";
@@ -17,7 +17,12 @@ export type KuzRamSource = {
   overdrillM: number;
   lumpSizeMm: number;
   thresholdPct: number;
+  /** Выбранные коронки — из чекбоксов листа. */
+  crownsMm: number[];
 };
+
+const TAB_NAMES = ["calc", "help"] as const;
+type TabName = (typeof TAB_NAMES)[number];
 
 export type KuzRamDialogProps = {
   open: boolean;
@@ -54,10 +59,12 @@ export type KuzRamDialogProps = {
 export function KuzRamDialog(props: KuzRamDialogProps) {
   const { open, onClose } = props;
   const ref = useRef<HTMLDialogElement>(null);
-  const [tab, setTab] = useState<"calc" | "help">("calc");
+  const [tab, setTab] = useState<TabName>("calc");
   const ids = useId();
-  const tabId = (name: "calc" | "help") => `${ids}-tab-${name}`;
-  const panelId = (name: "calc" | "help") => `${ids}-panel-${name}`;
+  const tabId = (name: TabName) => `${ids}-tab-${name}`;
+  const panelId = (name: TabName) => `${ids}-panel-${name}`;
+  // Фокус переключателя вкладок стрелками — переносим его на новую кнопку.
+  const tabButtonRefs = useRef<Record<TabName, HTMLButtonElement | null>>({ calc: null, help: null });
 
   useEffect(() => {
     const dialog = ref.current;
@@ -71,6 +78,16 @@ export function KuzRamDialog(props: KuzRamDialogProps) {
     if (event.target === ref.current) onClose();
   }
 
+  // Стандартный ARIA-паттерн вкладок: стрелки переключают вкладку и фокус на
+  // ней же (у окна их только две, поэтому обе стрелки просто меняют вкладку).
+  function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, name: TabName) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const next = TAB_NAMES[(TAB_NAMES.indexOf(name) + 1) % TAB_NAMES.length];
+    setTab(next);
+    tabButtonRefs.current[next]?.focus();
+  }
+
   return (
     <dialog
       ref={ref}
@@ -82,15 +99,17 @@ export function KuzRamDialog(props: KuzRamDialogProps) {
       <header>
         <b id="kuzram-dialog-title">Модель Kuz-Ram</b>
         <div className="kuzram-tabs" role="tablist" aria-label="Разделы окна">
-          {(["calc", "help"] as const).map((name) => (
+          {TAB_NAMES.map((name) => (
             <button
               key={name}
+              ref={(el) => { tabButtonRefs.current[name] = el; }}
               type="button"
               role="tab"
               id={tabId(name)}
               aria-controls={panelId(name)}
               aria-selected={tab === name}
               onClick={() => setTab(name)}
+              onKeyDown={(event) => onTabKeyDown(event, name)}
             >
               {name === "calc" ? "Расчёт" : "Как пользоваться"}
             </button>
@@ -100,16 +119,28 @@ export function KuzRamDialog(props: KuzRamDialogProps) {
           ×
         </button>
       </header>
-      {open &&
-        (tab === "calc" ? (
-          <div role="tabpanel" id={panelId("calc")} aria-labelledby={tabId("calc")} className="kuzram-body kuzram-calc">
+      {/* Обе панели рисуются, пока окно открыто, — переключение вкладок только
+          скрывает неактивную атрибутом `hidden`, не размонтируя её: подбор
+          C(A) или пересчёт, начатые на вкладке «Расчёт», не должны прерваться
+          переходом на «Как пользоваться» и обратно. Всё окно всё равно не
+          рисуется закрытым (`open &&`) — при следующем открытии поля заново
+          берут сохранённые значения. */}
+      {open && (
+        <>
+          <div
+            role="tabpanel"
+            id={panelId("calc")}
+            aria-labelledby={tabId("calc")}
+            className="kuzram-body kuzram-calc"
+            hidden={tab !== "calc"}
+          >
             <CalcTab {...props} />
           </div>
-        ) : (
-          <div role="tabpanel" id={panelId("help")} aria-labelledby={tabId("help")} className="kuzram-body">
+          <div role="tabpanel" id={panelId("help")} aria-labelledby={tabId("help")} className="kuzram-body" hidden={tab !== "help"}>
             <KuzRamHelp />
           </div>
-        ))}
+        </>
+      )}
     </dialog>
   );
 }
@@ -135,7 +166,8 @@ function CalcTab({
         <KuzRamSettingsForm settings={block} onChange={onSettingsChange} />
         <p className="kuzram-source">
           <b>С листа:</b> {source.rockName} · {source.explosiveName} · уступ {trimmed(source.benchHeightM)} м, перебур{" "}
-          {trimmed(source.overdrillM)} м · кусок {trimmed(source.lumpSizeMm)} мм · допустимый негабарит{" "}
+          {trimmed(source.overdrillM)} м · кусок {trimmed(source.lumpSizeMm)} мм · коронки{" "}
+          {source.crownsMm.map((mm) => trimmed(mm)).join(", ")} мм · допустимый негабарит{" "}
           {trimmed(source.thresholdPct)} %. Исходные данные меняются на листе.
         </p>
       </aside>

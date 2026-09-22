@@ -188,6 +188,25 @@ describe("CalcPage: модель Kuz-Ram", () => {
     await waitFor(() => expect(lastSavedCrown()?.selected_crown_mm).toBe(250), SLOW);
   });
 
+  it("клик по другой строке во время пересчёта по правке настроек не откатывается к прежней коронке", async () => {
+    renderSheet();
+    await loaded();
+    const rowOf = async (crown: number) => (await screen.findByText(`Ø ${crown}`, undefined, SLOW)).closest("tr")!;
+    fireEvent.click(await rowOf(250));
+    expect(await rowOf(250)).toHaveClass("selected");
+    let release: (value: unknown) => void = () => {};
+    api.optimize.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    // Второй запрос (по правке настроек) ещё не ответил — кликаем другую строку.
+    fireEvent.click(await rowOf(110));
+    expect(await rowOf(110)).toHaveClass("selected");
+    await act(async () => release(OPTIMIZE_GABBRO));
+    expect(await rowOf(110)).toHaveClass("selected");
+    await waitFor(() => expect(lastSavedCrown()?.selected_crown_mm).toBe(110), SLOW);
+  });
+
   it("пока идёт пересчёт, окно показывает «Пересчёт…»", async () => {
     renderSheet();
     await loaded();

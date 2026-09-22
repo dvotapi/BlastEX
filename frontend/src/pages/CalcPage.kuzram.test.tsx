@@ -101,6 +101,7 @@ async function loaded() {
 }
 
 const lastSaved = () => api.saveCalcInputs.mock.calls.at(-1)?.[1] as { kuzram: KuzRamBlock } | undefined;
+const lastSavedCrown = () => api.saveCalcInputs.mock.calls.at(-1)?.[1] as { selected_crown_mm: number } | undefined;
 const dialog = () => screen.getByRole("dialog", { name: "Модель Kuz-Ram" });
 
 beforeAll(() => {
@@ -172,6 +173,19 @@ describe("CalcPage: модель Kuz-Ram", () => {
     expect(api.optimize.mock.calls[1][0].kuzram).toEqual({ ...KUZRAM_DEFAULTS, rock_factor_correction: 1.2 });
     expect(document.querySelector(".kuzram-caption")).toHaveTextContent("C(A) 1,2");
     await waitFor(() => expect(lastSaved()?.kuzram).toEqual({ ...KUZRAM_DEFAULTS, rock_factor_correction: 1.2, facts }), SLOW);
+  });
+
+  it("пересчёт по правке настроек модели не сбрасывает выбранную коронку", async () => {
+    renderSheet();
+    await loaded();
+    const rowOf = async (crown: number) => (await screen.findByText(`Ø ${crown}`, undefined, SLOW)).closest("tr")!;
+    fireEvent.click(await rowOf(250));
+    expect(await rowOf(250)).toHaveClass("selected");
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+    expect(await rowOf(250)).toHaveClass("selected");
+    await waitFor(() => expect(lastSavedCrown()?.selected_crown_mm).toBe(250), SLOW);
   });
 
   it("пока идёт пересчёт, окно показывает «Пересчёт…»", async () => {

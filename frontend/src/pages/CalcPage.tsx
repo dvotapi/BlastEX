@@ -378,13 +378,28 @@ function FullBvrCalc({
   }
 
   // Правка настроек модели в окне пересчитывает варианты сама — с паузой,
-  // чтобы набор числа по цифрам не слал запрос на каждую. `calculate` из
-  // рендера с новой ревизией уже видит новые настройки в `sheet`.
+  // чтобы набор числа по цифрам не слал запрос на каждую. В отличие от
+  // ручного `calculate()`, выбранную коронку не сбрасываем — считаем с той
+  // же `preferredCrownMm`, что и сейчас на листе, иначе выбор прыгал бы на
+  // Ø152 при каждой правке. Лист (`sourceSheet`) и счётчик поколения ловим
+  // в момент планирования таймера, а не когда он сработает: правка листа за
+  // время паузы должна пометить эту попытку устаревшей, как и обычный
+  // автозапуск.
   useEffect(() => {
     if (kuzramRevision === 0) return;
     const revision = kuzramRevision;
+    const sourceSheet = sheet;
+    const startedGeneration = optimizeGenerationRef.current;
+    const requestedObjectName = objectName;
     const timer = window.setTimeout(() => {
-      void calculate().finally(() => setCalculatedKuzramRevision((done) => Math.max(done, revision)));
+      void runOptimize(sourceSheet, sourceSheet.selectedCrownMm, () =>
+        isOptimizationResultStale(
+          startedGeneration,
+          optimizeGenerationRef.current,
+          requestedObjectName,
+          objectNameRef.current,
+        ),
+      ).finally(() => setCalculatedKuzramRevision((done) => Math.max(done, revision)));
     }, KUZRAM_RECALC_DELAY_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -452,6 +452,22 @@ def test_frontend_build_context_skips_ignored_files() -> None:
     assert ".env*" in excluded
 
 
+@pytest.mark.parametrize("context", [ROOT, ROOT / "frontend"], ids=["api", "frontend"])
+def test_build_context_skips_icloud_duplicates(context: Path) -> None:
+    # git игнорирует дубли iCloud («foo 2.py»), и git status их не покажет.
+    # Устаревший дубль миграции в образе уронил бы alembic upgrade head.
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "*[[:space:]][0-9].*" in gitignore
+    assert "*[[:space:]][0-9]" in gitignore
+    excluded = {
+        line.strip()
+        for line in (context / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    }
+
+    assert "**/* [0-9].*" in excluded
+    assert "**/* [0-9]" in excluded
+
+
 def _deploy_job() -> dict:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["deploy"]
 

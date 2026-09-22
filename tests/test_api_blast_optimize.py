@@ -182,6 +182,12 @@ class OptimizeEndpointTests(unittest.TestCase):
             with self.subTest(schema=schema):
                 self.assertEqual((schema["minimum"], schema["maximum"]), (CROWN_MM_MIN, CROWN_MM_MAX))
 
+    def test_zero_bench_height_is_422(self):
+        # Нулевой уступ отсекает схема (gt=0), сервис его не проверяет.
+        target = {**GABBRO["target"], "bench_height_m": 0}
+        response = _client().post("/api/v1/blast/optimize", json={**GABBRO, "target": target})
+        self.assertEqual(response.status_code, 422)
+
     def test_empty_crowns_is_422(self):
         # Пустой список отсекает схема (min_length=1), сервис его не проверяет.
         response = _client().post("/api/v1/blast/optimize", json={**GABBRO, "crown_diameters_mm": []})
@@ -313,11 +319,12 @@ class SettingsSchemaParityTests(unittest.TestCase):
         )
 
 
-
 class ErrorHandlerTests(unittest.TestCase):
-    def test_response_validation_error_with_nan_input_is_422(self):
-        # ValidationError, поднятый внутри маршрута, повторяет ввод в деталях;
-        # NaN там ронял JSONResponse, и вместо 422 уходил 400.
+    def test_validation_error_in_route_with_nan_is_422(self):
+        # pydantic_validation_handler ловит ValidationError, поднятый внутри
+        # маршрута (ручной model_validate), — не ResponseValidationError FastAPI.
+        # Ошибка повторяет ввод в деталях; NaN там ронял JSONResponse, и вместо
+        # 422 уходил 400.
         with self.assertRaises(ValidationError) as caught:
             KuzRamSettingsSchema(rock_factor_correction=float("nan"))
         response = asyncio.run(pydantic_validation_handler(None, caught.exception))

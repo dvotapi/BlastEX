@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 
 from Blast import BlastEngine, BlastPoint
-from api.exceptions import InvalidGeometryError
 from api.schemas.blast import (
     BlastOptimizeRequest,
     BlastOptimizeResponse,
@@ -30,17 +29,14 @@ def _grid(point: BlastPoint, spacing_coeff_m: float) -> tuple[float, float, str]
 
 def optimize_blast(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
     rock, explosive, target = blast_request_to_engine_inputs(request)
-
-    if target.bench_height_m <= 0:
-        raise InvalidGeometryError("Высота уступа должна быть больше нуля.")
-
+    # Высоту уступа > 0 и непустой список коронок в границах
+    # CROWN_MM_MIN–CROWN_MM_MAX гарантирует схема запроса.
     settings_schema = request.kuzram or KuzRamSettingsSchema()
     settings = settings_schema.to_settings()
     engine = BlastEngine(rock, explosive, target)
     threshold = request.max_oversize_threshold_pct
     variants: list[BlastOptimizeVariant] = []
 
-    # Непустой список коронок в границах CROWN_MM_MIN–CROWN_MM_MAX гарантирует схема.
     for diameter_mm in sorted(request.crown_diameters_mm):
         current = engine.optimize_blast(diameter_mm, threshold, settings)
         legacy = engine.optimize_blast_legacy(diameter_mm, threshold)

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KuzRamCalibrateResponse } from "../../../types";
 import { KuzRamFacts } from "./KuzRamFacts";
-import type { KuzRamFact } from "./kuzramSettings";
+import { MAX_FACTS, type KuzRamFact } from "./kuzramSettings";
 
 afterEach(cleanup);
 
@@ -131,5 +131,37 @@ describe("KuzRamFacts", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Фактор породы A = −0,5"));
     fireEvent.change(screen.getByLabelText("Фактический q, строка 1"), { target: { value: "1,4" } });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("правка строки во время подбора отменяет применение уже летевшего ответа", async () => {
+    let release: (value: KuzRamCalibrateResponse) => void = () => {};
+    const onCalibrate = vi.fn(() => new Promise<KuzRamCalibrateResponse>((resolve) => { release = resolve; }));
+    const { onApplyCorrection } = renderFacts([{ crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 }], onCalibrate);
+    fireEvent.click(calibrateButton());
+    await waitFor(() => expect(onCalibrate).toHaveBeenCalledTimes(1));
+    // Правка строки, пока подбор летит, — ответ, когда он придёт, уже не про эти строки.
+    fireEvent.change(screen.getByLabelText("Фактический q, строка 1"), { target: { value: "1,4" } });
+    await act(async () =>
+      release(
+        response({
+          rows: [
+            { crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8, legacy_oversize_pct: 5.3, model_oversize_pct: 4.29, rock_factor_correction: 1.132, note: null },
+          ],
+          rock_factor_correction: 1.132,
+          used: 1,
+          skipped: 0,
+        }),
+      ),
+    );
+    expect(onApplyCorrection).not.toHaveBeenCalled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("на MAX_FACTS строках «Добавить взрыв» выключена и показан текст «Не больше 50 строк.»", () => {
+    const facts = Array.from({ length: MAX_FACTS }, () => ({ crown_mm: 152, q_kg_m3: null, oversize_pct: null }));
+    renderFacts(facts);
+    expect(screen.getByRole("button", { name: "Добавить взрыв" })).toBeDisabled();
+    expect(screen.getByText(`Не больше ${MAX_FACTS} строк.`)).toBeInTheDocument();
   });
 });

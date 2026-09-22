@@ -340,9 +340,29 @@ describe("CalcPage: модель Kuz-Ram", () => {
     fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
     await recalcWindow();
     // Считать нечего — запроса нет, а в таблице остались варианты по C(A) 1.
+    // Совет — выбрать коронки: «Рассчитать варианты» без них недоступна.
     expect(api.optimize).toHaveBeenCalledTimes(1);
     expect(outdatedBadge()).toHaveTextContent("по прежним настройкам модели");
-    expect(within(dialog()).getByRole("status")).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
+    expect(outdatedBadge()).toHaveTextContent("выберите коронки");
+    const status = within(dialog()).getByRole("status");
+    expect(status).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
+    expect(status).toHaveTextContent("выберите коронки");
+    expect(status).not.toHaveTextContent("лист правили");
+  });
+
+  it("у объекта без вариантов ошибка пересчёта по настройкам не даёт пометки «по прежним настройкам»", async () => {
+    // Сохранённого листа нет — умолчания, вариантов нет, автозапуска тоже.
+    api.calcInputs.mockResolvedValue({ work_object_name: OBJECT.name, inputs: null, updated_at: null });
+    renderSheet();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
+    expect(api.optimize).not.toHaveBeenCalled();
+    api.optimize.mockRejectedValueOnce(new Error("Фактор породы A = −0,06 — он должен быть больше нуля."));
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,2" } });
+    await waitFor(() => expect(within(dialog()).getByRole("alert")).toHaveTextContent("Фактор породы A"), SLOW);
+    // Помечать нечего: вариантов на экране нет.
+    expect(outdatedBadge()).toBeEmptyDOMElement();
+    expect(within(dialog()).getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("после неудачного пересчёта на одном объекте у объекта без сохранённого листа пометки нет", async () => {

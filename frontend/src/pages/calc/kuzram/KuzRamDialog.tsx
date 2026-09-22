@@ -34,10 +34,10 @@ export type KuzRamDialogProps = {
   source: KuzRamSource;
   /** Идёт подбор q (или пауза перед ним после правки) — прежние цифры приглушены. */
   busy: boolean;
-  /** Варианты посчитаны не по текущим настройкам модели, а пересчёт не идёт:
-   * расчёт по ним не прошёл (ошибка — в `error`) или лист правили во время
-   * каждой попытки пересчёта. */
-  outdated?: boolean;
+  /** Варианты посчитаны не по текущим настройкам модели, а пересчёт не идёт, —
+   * что с этим делать (тот же совет, что у пометки на листе); `null` — варианты
+   * по текущим настройкам. */
+  outdatedHint?: string | null;
   /** Ошибка последнего подбора — та же, что на листе. */
   error: string;
   /** Варианты последнего подбора: Kuz-Ram, «до исправления» и разбор. */
@@ -154,7 +154,7 @@ function CalcTab({
   onSettingsChange,
   source,
   busy,
-  outdated = false,
+  outdatedHint = null,
   error,
   variants,
   selectedIndex,
@@ -176,15 +176,9 @@ function CalcTab({
           {trimmed(source.thresholdPct)} %. Исходные данные меняются на листе.
         </p>
       </aside>
-      <div className={`kuzram-results${busy || outdated ? " is-pending" : ""}`} aria-busy={busy}>
+      <div className={`kuzram-results${busy || outdatedHint ? " is-pending" : ""}`} aria-busy={busy}>
         <p className="kuzram-status" role="status">
-          {busy
-            ? "Пересчёт…"
-            : !outdated
-              ? ""
-              : error
-                ? "Варианты посчитаны по прежним настройкам модели: по текущим расчёт не прошёл — причина ниже."
-                : "Варианты посчитаны по прежним настройкам модели: лист правили, пока шёл пересчёт. Нажмите «Рассчитать варианты» на листе."}
+          {busy ? "Пересчёт…" : outdatedHint ? `Варианты посчитаны по прежним настройкам модели: ${outdatedHint}` : ""}
         </p>
         {error && (
           <div className="page-error" role="alert">

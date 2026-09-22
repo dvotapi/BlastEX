@@ -483,9 +483,6 @@ function FullBvrCalc({
     setLoadedObjectName(null);
     setLoadedCrownMm(null);
     setVariants([]);
-    // Вариантов прежнего объекта больше нет — «по прежним настройкам» у нового
-    // объекта быть не может: счётчики ревизий настроек общие для всех объектов.
-    setCalculatedKuzramRevision(kuzramRevisionRef.current);
     // Перенесённый фильтр читается здесь, а очищается только после применения
     // листа: если смена объекта откатится, эффект запустится ещё раз (для
     // прежнего объекта), и фильтр должен дожить до этого запуска.
@@ -578,12 +575,22 @@ function FullBvrCalc({
   const kuzramBusy = busy || kuzramPending;
   // Варианты не по текущим настройкам модели, и пересчёт не идёт. Пока лист
   // не готов (грузятся настройки другого объекта) или вариантов нет,
-  // помечать нечего.
+  // помечать нечего. Счётчики ревизий общие для всех объектов, но при смене
+  // объекта варианты сбрасываются — пометка к ним не переходит.
   const kuzramOutdated = ready && variants.length > 0 && calculatedKuzramRevision < kuzramRevision && !kuzramBusy;
-  // Ошибку пересчёта ручной расчёт не исправит — тогда советуем настройки.
-  const kuzramOutdatedHint = error
-    ? "Пересчёт по текущим настройкам модели не прошёл — исправьте настройки модели в окне «Модель Kuz-Ram»."
-    : "Пересчёт по текущим настройкам модели прервали правки листа — пересчитайте кнопкой «Рассчитать варианты».";
+  // Совет к пометке — одинаковый на листе и в окне. Ошибку пересчёта ручной
+  // расчёт не исправит — советуем настройки; нечего считать — выбрать
+  // недостающее («Рассчитать варианты» без него недоступна); иначе — пересчитать.
+  const missingForCalculation = [!selectedCrowns.length && "коронки", !rock && "породу", !explosive && "ВВ"]
+    .filter(Boolean)
+    .join(", ");
+  const kuzramOutdatedHint = !kuzramOutdated
+    ? null
+    : error
+      ? "по текущим расчёт не прошёл — исправьте настройки модели."
+      : missingForCalculation
+        ? `на листе нечего считать — выберите ${missingForCalculation} и нажмите «Рассчитать варианты».`
+        : "пересчитайте их кнопкой «Рассчитать варианты» на листе.";
   const kuzramSource: KuzRamSource = {
     rockName,
     explosiveName: explosive?.name ?? explosiveKey,
@@ -696,11 +703,15 @@ function FullBvrCalc({
               {/* Живая область есть всегда, пустая без пометки: так программы
                   чтения экрана объявляют её появление. Пояснение — и в title,
                   и скрытым текстом, чтобы его слышали без мыши. */}
-              <span className="kuzram-outdated" role="status" title={kuzramOutdated ? kuzramOutdatedHint : undefined}>
-                {kuzramOutdated && (
+              <span
+                className="kuzram-outdated"
+                role="status"
+                title={kuzramOutdatedHint ? `Варианты посчитаны по прежним настройкам модели: ${kuzramOutdatedHint}` : undefined}
+              >
+                {kuzramOutdatedHint && (
                   <>
                     варианты — по прежним настройкам модели
-                    <span className="sr-only">. {kuzramOutdatedHint}</span>
+                    <span className="sr-only">: {kuzramOutdatedHint}</span>
                   </>
                 )}
               </span>
@@ -804,7 +815,7 @@ function FullBvrCalc({
         onSettingsChange={setKuzramSettings}
         source={kuzramSource}
         busy={kuzramBusy}
-        outdated={kuzramOutdated}
+        outdatedHint={kuzramOutdatedHint}
         error={error}
         variants={variants}
         selectedIndex={selectedIndex}

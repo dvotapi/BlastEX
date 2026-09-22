@@ -93,7 +93,7 @@ describe("KuzRamDialog", () => {
   });
 
   it("варианты не по текущим настройкам и расчёта нет — окно так и пишет, а не «Пересчёт…»", () => {
-    renderDialog({ outdated: true });
+    renderDialog({ outdatedHint: "пересчитайте их кнопкой «Рассчитать варианты» на листе." });
     const status = within(screen.getByRole("dialog", { name: "Модель Kuz-Ram" })).getByRole("status");
     expect(status).toHaveTextContent("Варианты посчитаны по прежним настройкам модели");
     expect(status).toHaveTextContent("«Рассчитать варианты»");
@@ -101,7 +101,7 @@ describe("KuzRamDialog", () => {
   });
 
   it("идёт пересчёт — «Пересчёт…», даже если варианты пока по прежним настройкам", () => {
-    renderDialog({ busy: true, outdated: true });
+    renderDialog({ busy: true, outdatedHint: "пересчитайте их кнопкой «Рассчитать варианты» на листе." });
     expect(within(screen.getByRole("dialog", { name: "Модель Kuz-Ram" })).getByRole("status")).toHaveTextContent("Пересчёт…");
   });
 

@@ -11,8 +11,11 @@ on:
 
 # Деплои идут строго по одному: forced command на сервере держит flock, и
 # второй одновременный запуск падает. В группе ждёт только один прогон, а
-# новый вытесняет ожидающий — для деплоя это безвредно, сервер всё равно
-# выкатывает последний main. Проверки PR в эту очередь не встают, иначе они
+# новый вытесняет ожидающий. Для деплоя это безвредно: сервер выкатывает
+# ровно SHA своего прогона (scripts/deploy_forced_command.sh), а вытеснивший
+# прогон проверит и выкатит более новый main, в который вошёл вытесненный
+# коммит. Порядок прогонов в группе GitHub не гарантирует, поэтому коммит
+# старше уже выкаченного сервер отклоняет. Проверки PR в эту очередь не встают, иначе они
 # вытесняли бы деплой, а деплой — их: у каждого PR своя группа, и новый push
 # в ветку отменяет её устаревший прогон.
 concurrency:
@@ -64,7 +67,9 @@ jobs:
         run: npm run build
 
   deploy:
-    if: github.event_name != 'pull_request'
+    # Ручной запуск на другой ветке только проверяет её: сервер выкатывает
+    # коммиты из main и остальные всё равно отклонит.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     environment: production
@@ -85,11 +90,16 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.VPS_HOST }}
           DEPLOY_USER: ${{ secrets.VPS_USER }}
+          # Коммит, чьи тесты прошли в этом прогоне. Сервер выкатывает ровно
+          # его, а не последний main: пока шёл прогон, в main мог попасть
+          # коммит с падающим тестом.
+          DEPLOY_SHA: ${{ github.sha }}
           DEPLOY_ATTEMPTS: "3"
           DEPLOY_RETRY_DELAY_SECONDS: "60"
         run: |
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SHA"
           # Сервер обновляет код `git fetch`-ем. GitHub временами ограничивает
           # неаутентифицированные скачивания, и тогда обновление падает с кодом
           # 128 ещё до сборки образов. Ограничение временное, поэтому повторяем;
@@ -100,6 +110,8 @@ jobs:
             # Сборка образов на сервере идёт минутами и молчит, пока pip качает
             # колёса. Без keepalive соединение рвётся на этом молчании, и деплой
             # падает с `client_loop: send disconnect: Broken pipe` (код 255).
+            # SHA уходит командой SSH: ключ ограничен forced command, и она
+            # читает его из SSH_ORIGINAL_COMMAND.
             ssh \
               -i "$HOME/.ssh/blastex_deploy" \
               -o BatchMode=yes \
@@ -108,9 +120,15 @@ jobs:
               -o ServerAliveInterval=30 \
               -o ServerAliveCountMax=20 \
               -o TCPKeepAlive=yes \
-              "$DEPLOY_USER@$DEPLOY_HOST" || status=$?
+              "$DEPLOY_USER@$DEPLOY_HOST" "$DEPLOY_SHA" || status=$?
             if [ "$status" -eq 0 ]; then
               exit 0
+            fi
+            # 65 — сервер отклонил коммит: не входит в main, старше выкаченного
+            # или дерево на сервере изменено. Повтор ничего не изменит.
+            if [ "$status" -eq 65 ]; then
+              echo "::error::Сервер отклонил коммит $DEPLOY_SHA (код 65), причина — в выводе выше"
+              exit "$status"
             fi
             echo "::warning::Попытка $attempt не удалась (код $status)"
             if [ "$attempt" -lt "$DEPLOY_ATTEMPTS" ]; then

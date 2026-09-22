@@ -261,10 +261,18 @@ Workflow `.github/workflows/deploy.yml` запускается после каж
 `main`: выполняет Python-тесты и тесты фронтенда (vitest), собирает React-фронтенд и по SSH обновляет
 production VPS. Ручной запуск доступен через `workflow_dispatch`.
 
+Деплой привязан к проверенному коммиту: job `deploy` передаёт серверу
+`github.sha` — коммит, чьи тесты прошли в этом же прогоне, — и сервер
+выкатывает ровно его, а не последний `main`. Деплой идёт только с `main`:
+ручной запуск на другой ветке лишь прогоняет её тесты.
+
 Деплои идут по одному в группе `blastex-production`: ждать может только один,
-и новый push в `main` вытесняет ожидающий — сервер всё равно выкатывает
-последний `main`. Проверки PR в эту очередь не встают: у каждого PR своя
-группа, и новый push в ветку отменяет её устаревший прогон.
+и новый push в `main` вытесняет ожидающий. Вытесненный коммит не теряется:
+вытеснивший прогон проверяет и выкатывает более новый `main`, в который тот
+вошёл. Если к деплою `main` ушёл дальше, выкатывается всё равно проверенный
+коммит, а новые — их собственным прогоном, когда пройдут тесты; не пройдут —
+на проде остаётся проверенный. Проверки PR в эту очередь не встают: у каждого
+PR своя группа, и новый push в ветку отменяет её устаревший прогон.
 
 Для GitHub Environment `production` нужны секреты:
 
@@ -279,9 +287,7 @@ production VPS. Ручной запуск доступен через `workflow_
 `/root/complex-services-web/blastex`, а `.env` и внешняя Docker-сеть
 `blastex-edge` создаются при первичном ручном развёртывании. Скрипт
 `scripts/deploy_vps.sh` сохраняет предыдущие Docker-образы и откатывает их,
-если новая версия не проходит health-check. Ключ GitHub Actions на VPS должен
-быть ограничен forced command `/usr/local/sbin/deploy-blastex` и опцией
-`restrict`, чтобы его нельзя было использовать для произвольного SSH-доступа.
+если новая версия не проходит health-check.
 
 Сборка образов на сервере занимает минуты и не выводит ничего, пока pip
 качает колёса, поэтому SSH-вызов деплоя идёт с keepalive
@@ -300,6 +306,57 @@ unauthenticated downloads» и кодом 128 — деплой останавл�
 git remote set-url origin git@github.com:dvotapi/BlastEX.git   # + deploy-ключ в ~/.ssh
 # либо через токен:
 git remote set-url origin https://x-access-token:ТОКЕН@github.com/dvotapi/BlastEX.git
+```
+
+#### Forced command на сервере
+
+Ключ GitHub Actions на VPS ограничен forced command и опцией `restrict`,
+чтобы его нельзя было использовать для произвольного SSH-доступа:
+
+```
+restrict,command="/usr/local/sbin/deploy-blastex" <публичный ключ>
+```
+
+Копия этой команды — `scripts/deploy_forced_command.sh`. SHA, который
+workflow передаёт командой SSH, sshd кладёт в `SSH_ORIGINAL_COMMAND`, и
+скрипт:
+
+1. принимает только 40 символов `0-9a-f`;
+2. берёт `flock -n /var/lock/blastex-deploy.lock` — второй одновременный
+   запуск завершается кодом 75;
+3. делает `git fetch` ветки `main` и проверяет, что коммит — предок
+   `origin/main` или равен ему;
+4. отклоняет коммит, который старше последнего выкаченного и уже входит в
+   него (ref `refs/deploy/production`): порядок прогонов в группе GitHub не
+   гарантирует, а перезапуск старого прогона присылает его SHA. Тот же коммит
+   выкатывается повторно — так ручной запуск пересобирает прод. Откат делается
+   revert-коммитом в `main`;
+5. отклоняет коммит, если на сервере изменены отслеживаемые файлы: иначе
+   правка ушла бы в сборку вместе с ним;
+6. переключает рабочую копию на коммит (`HEAD` отсоединён), запускает
+   `scripts/deploy_vps.sh` и после успеха записывает коммит в
+   `refs/deploy/production`.
+
+Отказ — код 65, workflow его не повторяет. Выкаченный коммит:
+`git -C /root/complex-services-web/blastex rev-parse refs/deploy/production`.
+До первого успешного деплоя этой версией ref нет, и проверка на откат не
+действует.
+
+Копия в `/usr/local/sbin` ставится вручную: правка
+`scripts/deploy_forced_command.sh` доходит до сервера только после
+переустановки, а пока копии расходятся, деплой пишет `WARNING` в лог.
+Ставится из рабочей копии сервера, когда в ней уже нужная версия, то есть
+после деплоя с ней:
+
+```bash
+# на сервере от root
+cd /root/complex-services-web/blastex
+git status --porcelain --untracked-files=no   # должно быть пусто
+diff -u /usr/local/sbin/deploy-blastex scripts/deploy_forced_command.sh
+cp -p /usr/local/sbin/deploy-blastex /root/deploy-blastex.bak
+# под блокировкой деплоя: если он идёт, flock сразу вернёт ошибку
+flock -n /var/lock/blastex-deploy.lock \
+  install -o root -g root -m 0755 scripts/deploy_forced_command.sh /usr/local/sbin/deploy-blastex
 ```
 
 ---

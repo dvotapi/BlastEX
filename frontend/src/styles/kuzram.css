@@ -93,8 +93,8 @@
 .kuzram-legend i.open { display:inline-block; width:9px; height:9px; border:2px solid #748079; border-radius:50%; background:#fff; }
 .kuzram-dialog i.fact { display:inline-block; width:8px; height:8px; border-radius:1px; background:#17231d; transform:rotate(45deg); }
 @media (max-width:760px) { .kuzram-summary { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } }
-/* На телефоне SVG графика ужат примерно вдвое — подписи в единицах viewBox увеличены. */
-@media (max-width:760px) { .kuzram-chart text, .kuzram-chart .axis-title { font-size:20px; } }
+/* На телефоне SVG графика ужат примерно вдвое: подписи в единицах viewBox крупнее, а названия осей скрыты — их смысл несят заголовок карточки и легенда. */
+@media (max-width:760px) { .kuzram-chart text { font-size:16px; } .kuzram-chart .axis-title { display:none; } }
 .kuzram-breakdown th[scope="row"] { min-width:200px; color:#3b4b43; font-weight:var(--font-weight-body); text-align:left; white-space:normal; }
 .kuzram-breakdown th[scope="row"] small { display:block; color:#7b8982; font-size:10px; }
 .kuzram-breakdown tr.key th, .kuzram-breakdown tr.key td { color:#17231d; font-weight:var(--font-weight-strong); }

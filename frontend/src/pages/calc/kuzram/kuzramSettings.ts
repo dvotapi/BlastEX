@@ -5,7 +5,8 @@
  * Умолчания и границы — в `kuzramContract.json`, копии констант
  * `simulation/fragmentation/cunningham.py` и схем `api/schemas/blast.py`:
  * совпадение проверяет `tests/test_kuzram_frontend_contract.py`. Формул модели
- * здесь нет — только чтение сохранённого, проверка ввода и подпись у кнопки.
+ * здесь нет — только чтение сохранённого, проверка ввода и тексты листа:
+ * подпись у кнопки и совет к пометке «варианты — по прежним настройкам модели».
  */
 import contract from "./kuzramContract.json";
 import { trimmed } from "./kuzramFormat";
@@ -158,6 +159,22 @@ export function settingsCaption(settings: KuzRamSettings): string {
   }
   if (settings.q_max_kg_m3 !== defaults.q_max_kg_m3) parts.push(`q до ${trimmed(settings.q_max_kg_m3)}`);
   return parts.join(" · ");
+}
+
+/** Чего на листе нет для расчёта вариантов («Рассчитать варианты» без этого недоступна). */
+export type MissingForCalculation = { crowns: boolean; rock: boolean; explosive: boolean };
+
+/**
+ * Совет к пометке «варианты — по прежним настройкам модели» — один и тот же на
+ * листе и в окне. Расчёт упал — ведём к сообщению об ошибке: причина бывает
+ * любой (сеть, сервер, настройки), а сообщения сервера сами говорят, что менять.
+ * Нечего считать — выбрать недостающее; иначе — пересчитать.
+ */
+export function outdatedHint(error: string, missing: MissingForCalculation): string {
+  if (error) return "по текущим расчёт не прошёл — причина в сообщении об ошибке.";
+  const items = [missing.crowns && "коронки", missing.rock && "породу", missing.explosive && "ВВ"].filter(Boolean);
+  if (items.length) return `на листе нечего считать — выберите ${items.join(", ")} и нажмите «Рассчитать варианты».`;
+  return "пересчитайте их кнопкой «Рассчитать варианты» на листе.";
 }
 
 /** Число из поля ввода: запятая или точка; пусто и мусор — `null`. */

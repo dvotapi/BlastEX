@@ -67,22 +67,6 @@ export function qDeltaText(newQ: number, legacyQ: number): string {
   return `${delta > 0 ? "+" : "−"}${Math.abs(delta)} %`;
 }
 
-/** Чего на листе нет для расчёта вариантов («Рассчитать варианты» без этого недоступна). */
-export type MissingForCalculation = { crowns: boolean; rock: boolean; explosive: boolean };
-
-/**
- * Совет к пометке «варианты — по прежним настройкам модели» — один и тот же на
- * листе и в окне. Расчёт упал — ведём к сообщению об ошибке: причина бывает
- * любой (сеть, сервер, настройки), а сообщения сервера сами говорят, что менять.
- * Нечего считать — выбрать недостающее; иначе — пересчитать.
- */
-export function outdatedHint(error: string, missing: MissingForCalculation): string {
-  if (error) return "по текущим расчёт не прошёл — причина в сообщении об ошибке.";
-  const items = [missing.crowns && "коронки", missing.rock && "породу", missing.explosive && "ВВ"].filter(Boolean);
-  if (items.length) return `на листе нечего считать — выберите ${items.join(", ")} и нажмите «Рассчитать варианты».`;
-  return "пересчитайте их кнопкой «Рассчитать варианты» на листе.";
-}
-
 /** Сетка a × b в метрах: «4,42 × 3,54». */
 export function gridText(aM: number, bM: number): string {
   return `${ruNumber(aM, 2)} × ${ruNumber(bM, 2)}`;

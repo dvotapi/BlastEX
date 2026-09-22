@@ -31,8 +31,15 @@ import { useHoleGeometry } from "./calc/useHoleGeometry";
 import { useCalcInputsAutosave } from "./calc/useCalcInputsAutosave";
 import { KuzRamDialog, type KuzRamSource } from "./calc/kuzram/KuzRamDialog";
 import { ThresholdFlag } from "./calc/kuzram/ThresholdFlag";
-import { formatOversize, formatQ, outdatedHint } from "./calc/kuzram/kuzramFormat";
-import { defaultKuzramBlock, kuzramSettingsOf, settingsCaption, type KuzRamBlock, type KuzRamFact } from "./calc/kuzram/kuzramSettings";
+import { formatOversize, formatQ } from "./calc/kuzram/kuzramFormat";
+import {
+  defaultKuzramBlock,
+  kuzramSettingsOf,
+  outdatedHint,
+  settingsCaption,
+  type KuzRamBlock,
+  type KuzRamFact,
+} from "./calc/kuzram/kuzramSettings";
 import type { BlastVariant, Explosive, KuzRamFactInput, KuzRamSettings, ProductionUnit, Rock } from "../types";
 
 /** Пауза перед пересчётом после правки настроек модели: набор «1,15» по

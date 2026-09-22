@@ -401,21 +401,42 @@ describe("CalcPage: модель Kuz-Ram", () => {
     });
     const { rerender } = renderSheet();
     await loaded();
-    editCorrectionAndClose("1,2");
-    rerender(
-      <Workspace objectName={OBJECT_2.name}>
-        <CalcPage />
-      </Workspace>,
-    );
-    await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
-    expect(api.optimize.mock.calls[1][0].lumpSize).toBe(600);
-    rerender(
-      <Workspace objectName={OBJECT.name}>
-        <CalcPage />
-      </Workspace>,
-    );
-    await recalcWindow();
-    expect(api.optimize).toHaveBeenCalledTimes(2);
+    // Таймер пересчёта (300 мс) перехватываем и запускаем сами — строго после
+    // возврата к А. На реальном таймере медленный прогон дождался бы его ещё
+    // на Б, и тест прошёл бы, не проверив ничего.
+    const recalcTimers: (() => void)[] = [];
+    const realSetTimeout = window.setTimeout.bind(window);
+    const timeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (delay === 300 && typeof handler === "function") {
+        recalcTimers.push(handler as () => void);
+        return 0;
+      }
+      return realSetTimeout(handler, delay, ...args);
+    }) as typeof window.setTimeout);
+    try {
+      editCorrectionAndClose("1,2");
+      expect(recalcTimers).toHaveLength(1);
+      rerender(
+        <Workspace objectName={OBJECT_2.name}>
+          <CalcPage />
+        </Workspace>,
+      );
+      await waitFor(() => expect(api.optimize).toHaveBeenCalledTimes(2), SLOW);
+      expect(api.optimize.mock.calls[1][0].lumpSize).toBe(600);
+      rerender(
+        <Workspace objectName={OBJECT.name}>
+          <CalcPage />
+        </Workspace>,
+      );
+      await act(async () => recalcTimers[0]());
+      expect(api.optimize).toHaveBeenCalledTimes(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 
   it("смена объекта в паузе перед пересчётом — пока грузится новый объект, пометки нет", async () => {

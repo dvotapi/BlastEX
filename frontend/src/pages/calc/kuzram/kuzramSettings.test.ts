@@ -5,6 +5,7 @@ import {
   factCellError,
   KUZRAM_DEFAULTS,
   kuzramSettingsOf,
+  outdatedHint,
   MAX_FACTS,
   parseDecimal,
   readKuzramBlock,
@@ -109,6 +110,29 @@ describe("проверка ввода", () => {
       { index: 0, fact: { crown_mm: 152, q_kg_m3: 1.3, oversize_pct: 8 } },
       { index: 3, fact: { crown_mm: 110, q_kg_m3: 1.1, oversize_pct: 6 } },
     ]);
+  });
+});
+
+describe("outdatedHint", () => {
+  it("совет к пометке «по прежним настройкам»: ошибка, недостающее на листе, иначе — пересчитать", () => {
+    const nothing = { crowns: false, rock: false, explosive: false };
+    // Ошибка может быть любой (сеть, сервер) — совет не винит настройки, а ведёт к сообщению.
+    expect(outdatedHint("Не удалось выполнить запрос.", { ...nothing, crowns: true })).toBe(
+      "по текущим расчёт не прошёл — причина в сообщении об ошибке.",
+    );
+    expect(outdatedHint("", { ...nothing, crowns: true })).toBe(
+      "на листе нечего считать — выберите коронки и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint("", { ...nothing, rock: true })).toBe(
+      "на листе нечего считать — выберите породу и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint("", { ...nothing, explosive: true })).toBe(
+      "на листе нечего считать — выберите ВВ и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint("", { crowns: true, rock: true, explosive: true })).toBe(
+      "на листе нечего считать — выберите коронки, породу, ВВ и нажмите «Рассчитать варианты».",
+    );
+    expect(outdatedHint("", nothing)).toBe("пересчитайте их кнопкой «Рассчитать варианты» на листе.");
   });
 });
 

@@ -6,6 +6,7 @@ import "./styles/hole-drawing.css";
 import "./styles/design.css";
 import "./styles/references.css";
 import "./styles/economics.css";
+import "./styles/kuzram.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

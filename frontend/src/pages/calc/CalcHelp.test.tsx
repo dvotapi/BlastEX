@@ -29,4 +29,11 @@ describe("CalcHelp", () => {
     render(<CalcHelp />);
     expect(screen.getByText(/чтобы передать текущий\s+расчёт, сначала сохраните новый/)).toBeInTheDocument();
   });
+
+  it("описывает модель Kuz-Ram, кнопку окна и значок «!»", () => {
+    render(<CalcHelp />);
+    expect(screen.getByText(/Кнопка в заголовке панели «Варианты сетки» открывает окно/)).toBeInTheDocument();
+    expect(screen.getByText(/вкладке окна «Как пользоваться»/)).toBeInTheDocument();
+    expect(screen.getByText(/значок «!» — порог не\s+достигнут даже на верхней/)).toBeInTheDocument();
+  });
 });

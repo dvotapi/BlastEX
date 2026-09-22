@@ -11,8 +11,10 @@ from api.schemas.blast import (
     BlastGeometryResponse,
     BlastOptimizeRequest,
     BlastOptimizeResponse,
+    KuzRamCalibrateRequest,
+    KuzRamCalibrateResponse,
 )
-from api.services.blast_service import compute_geometry, optimize_blast
+from api.services.blast_service import calibrate_kuzram, compute_geometry, optimize_blast
 from api.services.legacy_references import current_legacy_references
 from Blast import CROWNS_MM
 from cost.geometry import (
@@ -41,6 +43,11 @@ def blast_options() -> BlastConstantsSchema:
 @router.post("/optimize", response_model=BlastOptimizeResponse)
 def post_blast_optimize(request: BlastOptimizeRequest) -> BlastOptimizeResponse:
     return optimize_blast(request)
+
+
+@router.post("/kuzram/calibrate", response_model=KuzRamCalibrateResponse)
+def post_kuzram_calibrate(request: KuzRamCalibrateRequest) -> KuzRamCalibrateResponse:
+    return calibrate_kuzram(request)
 
 
 @router.post("/geometry", response_model=BlastGeometryResponse)

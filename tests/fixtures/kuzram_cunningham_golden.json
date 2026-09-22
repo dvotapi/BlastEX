@@ -1,0 +1,2485 @@
+{
+ "source": "Независимая реализация Kuz-Ram по Каннингему (EFEE 2005), сверенная с симулятором; seed 20260922",
+ "cases": [
+  {
+   "rock": {
+    "density_t_m3": 2.5,
+    "ucs_mpa": 80.0,
+    "fissuring_ff": 1.06
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 5.0
+   },
+   "threshold": 10.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 3.522,
+    "joint_condition": 2.0,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 0.916,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.1,
+     "burden_m": 8.842697477017625,
+     "x50_mm": 303.88714939203345,
+     "n": 1.1922210937905842,
+     "oversize_pct": 5.682460223820232,
+     "rock_factor_a": 2.31,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.1,
+     "burden_m": 12.219000150060719,
+     "x50_mm": 338.47710893789395,
+     "n": 1.1922210937905842,
+     "oversize_pct": 8.030562489133157,
+     "rock_factor_a": 2.31,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.11,
+     "burden_m": 19.1617755280743,
+     "x50_mm": 370.2092748932373,
+     "n": 1.2404552865127614,
+     "oversize_pct": 9.276864690249544,
+     "rock_factor_a": 2.31,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.9,
+    "ucs_mpa": 56.4,
+    "fissuring_ff": 2.2
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 0.5,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 5.0
+   },
+   "threshold": 3.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 9.1,
+    "joint_condition": 2.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.48,
+     "burden_m": 4.148600803530718,
+     "x50_mm": 125.47173567159948,
+     "n": 1.4065021283390644,
+     "oversize_pct": 2.900958309036926,
+     "rock_factor_a": 2.6268,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.52,
+     "burden_m": 5.507715474907557,
+     "x50_mm": 131.08505731476154,
+     "n": 1.4709673047227996,
+     "oversize_pct": 2.795940783492265,
+     "rock_factor_a": 2.6268,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.59,
+     "burden_m": 8.504398133845111,
+     "x50_mm": 139.8641447823868,
+     "n": 1.5489414636269516,
+     "oversize_pct": 2.9324985198821207,
+     "rock_factor_a": 2.6268,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.962,
+    "ucs_mpa": 52.5,
+    "fissuring_ff": 2.0
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 300.0,
+    "overdrill_m": 1.5,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 10.0
+   },
+   "threshold": 2.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 9.893,
+    "joint_condition": 2.0,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 0.946,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.53,
+     "burden_m": 3.684179199348888,
+     "x50_mm": 104.06542566125403,
+     "n": 1.6530360740032277,
+     "oversize_pct": 1.8509403864792928,
+     "rock_factor_a": 2.6730000000000005,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.59,
+     "burden_m": 4.8250695523889995,
+     "x50_mm": 106.38062044503545,
+     "n": 1.6737773325910306,
+     "oversize_pct": 1.9631982812838098,
+     "rock_factor_a": 2.6730000000000005,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.71,
+     "burden_m": 7.2343052567042285,
+     "x50_mm": 108.28532130532568,
+     "n": 1.7070677529448148,
+     "oversize_pct": 1.9308338527462172,
+     "rock_factor_a": 2.6730000000000005,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.4,
+    "ucs_mpa": 38.5,
+    "fissuring_ff": 7.17
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 300.0,
+    "overdrill_m": 1.5,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.0,
+    "bench_height_m": 5.0
+   },
+   "threshold": 10.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 4.68,
+    "joint_condition": 1.5,
+    "joint_angle": 30,
+    "rock_factor_correction": 0.992,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.21,
+     "burden_m": 6.957397168997629,
+     "x50_mm": 122.40468588744909,
+     "n": 1.40837134471597,
+     "oversize_pct": 8.63076896882545,
+     "rock_factor_a": 1.648704,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.23,
+     "burden_m": 9.186359312621196,
+     "x50_mm": 126.76757376065589,
+     "n": 1.444509478508946,
+     "oversize_pct": 9.020539095735247,
+     "rock_factor_a": 1.648704,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.27,
+     "burden_m": 13.945108092024658,
+     "x50_mm": 131.62293662108485,
+     "n": 1.504336976523668,
+     "oversize_pct": 9.129531359731129,
+     "rock_factor_a": 1.648704,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.5,
+    "ucs_mpa": 186.1,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 800.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.0,
+    "bench_height_m": 10.0
+   },
+   "threshold": 5.0,
+   "settings": {
+    "rock_factor_method": "rmd50",
+    "rock_factor_manual": 10.198,
+    "joint_condition": 1.5,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.771,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 0.895,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.85,
+     "burden_m": 3.1810584353428335,
+     "x50_mm": 271.289553262832,
+     "n": 1.365073165563049,
+     "oversize_pct": 4.814766448241371,
+     "rock_factor_a": 10.596247199999999,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.94,
+     "burden_m": 4.179921117217383,
+     "x50_mm": 278.79366152036755,
+     "n": 1.400633899571096,
+     "oversize_pct": 4.811267123696236,
+     "rock_factor_a": 10.596247199999999,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 1.1,
+     "burden_m": 6.355241974363666,
+     "x50_mm": 290.2038506418073,
+     "n": 1.4450984038263541,
+     "oversize_pct": 4.975045307557936,
+     "rock_factor_a": 10.596247199999999,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.9,
+    "ucs_mpa": 168.0,
+    "fissuring_ff": 2.2
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 1.5,
+    "hole_oversize_coeff": 1.0,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 8.0
+   },
+   "threshold": 10.0,
+   "settings": {
+    "rock_factor_method": "rmd50",
+    "rock_factor_manual": 5.805,
+    "joint_condition": 1.0,
+    "joint_angle": 30,
+    "rock_factor_correction": 1.917,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.56,
+     "burden_m": 3.591289439792118,
+     "x50_mm": 499.2741857904149,
+     "n": 1.7292074317853114,
+     "oversize_pct": 9.987066959582087,
+     "rock_factor_a": 12.203622,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.63,
+     "burden_m": 4.678698395687975,
+     "x50_mm": 506.0973481994443,
+     "n": 1.7791993341875227,
+     "oversize_pct": 9.74544546276693,
+     "rock_factor_a": 12.203622,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.75,
+     "burden_m": 7.0527926158251955,
+     "x50_mm": 519.6245134126146,
+     "n": 1.842670452472024,
+     "oversize_pct": 9.86794524487478,
+     "rock_factor_a": 12.203622,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 3.015,
+    "ucs_mpa": 156.2,
+    "fissuring_ff": 1.8
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.0,
+    "bench_height_m": 12.0
+   },
+   "threshold": 3.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 5.035,
+    "joint_condition": 1.5,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.322,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 0.982,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 1.5,
+     "burden_m": 2.8308188648166106,
+     "x50_mm": 319.4420610209481,
+     "n": 1.4265868096016776,
+     "oversize_pct": 2.9286233905505177,
+     "rock_factor_a": 15.595501800000001,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 1.58,
+     "burden_m": 3.811360861707065,
+     "x50_mm": 341.3158091578884,
+     "n": 1.5120705021392653,
+     "oversize_pct": 2.955550110799634,
+     "rock_factor_a": 15.595501800000001,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 1.79,
+     "burden_m": 5.88950125509528,
+     "x50_mm": 364.612698181304,
+     "n": 1.6089785040688853,
+     "oversize_pct": 2.977107629082085,
+     "rock_factor_a": 15.595501800000001,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.421,
+    "ucs_mpa": 80.0,
+    "fissuring_ff": 5.57
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.0,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 8.0
+   },
+   "threshold": 3.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 7.376,
+    "joint_condition": 2.0,
+    "joint_angle": 30,
+    "rock_factor_correction": 0.799,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 0.811,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.34,
+     "burden_m": 4.728715228351671,
+     "x50_mm": 119.79171817479622,
+     "n": 1.3727890602602697,
+     "oversize_pct": 2.657013381830866,
+     "rock_factor_a": 1.7510085000000002,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.37,
+     "burden_m": 6.263724678484735,
+     "x50_mm": 124.69973082792077,
+     "n": 1.4092788954643292,
+     "oversize_pct": 2.780415720531777,
+     "rock_factor_a": 1.7510085000000002,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.43,
+     "burden_m": 9.556430705912778,
+     "x50_mm": 130.52216564503505,
+     "n": 1.4619674618019787,
+     "oversize_pct": 2.8336166763311934,
+     "rock_factor_a": 1.7510085000000002,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.65,
+    "ucs_mpa": 150.0,
+    "fissuring_ff": 9.61
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 300.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.1,
+    "bench_height_m": 8.0
+   },
+   "threshold": 2.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 4.959,
+    "joint_condition": 1.5,
+    "joint_angle": 30,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.87,
+     "burden_m": 3.5017083144237526,
+     "x50_mm": 99.50272939458517,
+     "n": 1.5745464229552686,
+     "oversize_pct": 1.9450383787734111,
+     "rock_factor_a": 3.375,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.93,
+     "burden_m": 4.6800341506864305,
+     "x50_mm": 105.07054975653867,
+     "n": 1.6534433313697203,
+     "oversize_pct": 1.9677780957872724,
+     "rock_factor_a": 3.375,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 1.07,
+     "burden_m": 7.176208169187191,
+     "x50_mm": 110.86449460776547,
+     "n": 1.7489925248037685,
+     "oversize_pct": 1.919030847968398,
+     "rock_factor_a": 3.375,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 3.123,
+    "ucs_mpa": 150.0,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 12.0
+   },
+   "threshold": 5.0,
+   "settings": {
+    "rock_factor_method": "rmd50",
+    "rock_factor_manual": 4.675,
+    "joint_condition": 2.0,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 1.185,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.97,
+     "burden_m": 2.97514286832883,
+     "x50_mm": 209.3789487128701,
+     "n": 2.269911050616625,
+     "oversize_pct": 4.915781452579509,
+     "rock_factor_a": 6.4845,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 1.1,
+     "burden_m": 3.860541745568005,
+     "x50_mm": 210.88865732149884,
+     "n": 2.29557342152729,
+     "oversize_pct": 4.914017935188923,
+     "rock_factor_a": 6.4845,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 1.34,
+     "burden_m": 5.752923740331657,
+     "x50_mm": 212.57670518125022,
+     "n": 2.3327270382404315,
+     "oversize_pct": 4.837641048334317,
+     "rock_factor_a": 6.4845,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.5,
+    "ucs_mpa": 128.3,
+    "fissuring_ff": 7.09
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 0.5,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.1,
+    "bench_height_m": 10.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 2.061,
+    "joint_condition": 1.0,
+    "joint_angle": 30,
+    "rock_factor_correction": 0.892,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.23,
+     "burden_m": 5.696645001242438,
+     "x50_mm": 341.07847772482637,
+     "n": 1.2214819598217261,
+     "oversize_pct": 7.585695782417535,
+     "rock_factor_a": 4.7183231999999995,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.25,
+     "burden_m": 7.55029590992765,
+     "x50_mm": 355.3870066620192,
+     "n": 1.2721746436012071,
+     "oversize_pct": 7.541806468400779,
+     "rock_factor_a": 4.7183231999999995,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.29,
+     "burden_m": 11.530055529036403,
+     "x50_mm": 372.5351826916114,
+     "n": 1.3409049861079887,
+     "oversize_pct": 7.388467715045362,
+     "rock_factor_a": 4.7183231999999995,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.9,
+    "ucs_mpa": 168.0,
+    "fissuring_ff": 2.2
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 500.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.0,
+    "bench_height_m": 8.0
+   },
+   "threshold": 2.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 6.219,
+    "joint_condition": 1.5,
+    "joint_angle": 30,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 0.912,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 2.27,
+     "burden_m": 2.3819157369164365,
+     "x50_mm": 171.91732188275893,
+     "n": 1.6230895818547908,
+     "oversize_pct": 1.9825791623085398,
+     "rock_factor_a": 12.366,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 2.5,
+     "burden_m": 3.136318940369482,
+     "x50_mm": 177.25777089650245,
+     "n": 1.670067667676064,
+     "oversize_pct": 1.9898652626270201,
+     "rock_factor_a": 12.366,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 2.95,
+     "burden_m": 4.748709885095247,
+     "x50_mm": 183.2870654536668,
+     "n": 1.727087288014196,
+     "oversize_pct": 1.9792787371116374,
+     "rock_factor_a": 12.366,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.33,
+    "ucs_mpa": 42.0,
+    "fissuring_ff": 4.44
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.0,
+    "spacing_coeff_m": 1.1,
+    "bench_height_m": 10.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 3.649,
+    "joint_condition": 1.0,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.41,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.3,
+     "burden_m": 5.327592554581533,
+     "x50_mm": 355.39251115900555,
+     "n": 1.2554936380640118,
+     "oversize_pct": 7.883197143365775,
+     "rock_factor_a": 5.14509,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.33,
+     "burden_m": 7.019166810123644,
+     "x50_mm": 366.784598895056,
+     "n": 1.3135111425384063,
+     "oversize_pct": 7.51648219951049,
+     "rock_factor_a": 5.14509,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.38,
+     "burden_m": 10.758386832491137,
+     "x50_mm": 386.74749233394823,
+     "n": 1.3867482304283605,
+     "oversize_pct": 7.517230680312957,
+     "rock_factor_a": 5.14509,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.4,
+    "ucs_mpa": 209.0,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 0.5,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 8.0
+   },
+   "threshold": 2.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 4.865,
+    "joint_condition": 1.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.36,
+     "burden_m": 4.448669382054566,
+     "x50_mm": 282.78342503757005,
+     "n": 1.3857288416900069,
+     "oversize_pct": 1.850164370880248,
+     "rock_factor_a": 4.865,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.39,
+     "burden_m": 5.906088910130048,
+     "x50_mm": 295.4345158317987,
+     "n": 1.4472310729916724,
+     "oversize_pct": 1.7465405300214218,
+     "rock_factor_a": 4.865,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.44,
+     "burden_m": 9.145392865671825,
+     "x50_mm": 316.6524973661515,
+     "n": 1.5215886911440601,
+     "oversize_pct": 1.8540547360467226,
+     "rock_factor_a": 4.865,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.5,
+    "ucs_mpa": 80.0,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.0,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 15.0
+   },
+   "threshold": 5.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 5.547,
+    "joint_condition": 1.5,
+    "joint_angle": 40,
+    "rock_factor_correction": 0.658,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.27,
+     "burden_m": 5.187631323272673,
+     "x50_mm": 135.23482166997758,
+     "n": 1.3527308328762375,
+     "oversize_pct": 4.951181794702684,
+     "rock_factor_a": 1.51998,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.3,
+     "burden_m": 6.800506521004868,
+     "x50_mm": 138.45208738745535,
+     "n": 1.3956449727028724,
+     "oversize_pct": 4.749752889973494,
+     "rock_factor_a": 1.51998,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.35,
+     "burden_m": 10.355338200297064,
+     "x50_mm": 144.46885020704678,
+     "n": 1.4517988584014152,
+     "oversize_pct": 4.781417924726126,
+     "rock_factor_a": 1.51998,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.596,
+    "ucs_mpa": 150.0,
+    "fissuring_ff": 2.0
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 10.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 10.781,
+    "joint_condition": 1.5,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 0.891,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 2.0,
+     "burden_m": 2.0118780051549647,
+     "x50_mm": 192.16711663311537,
+     "n": 1.7058598958659383,
+     "oversize_pct": 8.886051860499505,
+     "rock_factor_a": 12.294,
+     "reached": false
+    },
+    {
+     "crown_mm": 152,
+     "q": 2.0,
+     "burden_m": 2.7800496071232237,
+     "x50_mm": 214.04054169792124,
+     "n": 1.7058598958659383,
+     "oversize_pct": 13.344386001695637,
+     "rock_factor_a": 12.294,
+     "reached": false
+    },
+    {
+     "crown_mm": 250,
+     "q": 2.0,
+     "burden_m": 4.572450011715828,
+     "x50_mm": 252.6551654482705,
+     "n": 1.7058598958659383,
+     "oversize_pct": 21.92056676560907,
+     "rock_factor_a": 12.294,
+     "reached": false
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.648,
+    "ucs_mpa": 142.4,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 12.0
+   },
+   "threshold": 5.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 11.58,
+    "joint_condition": 1.5,
+    "joint_angle": 20,
+    "rock_factor_correction": 0.999,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 2.0,
+     "burden_m": 2.093072733735044,
+     "x50_mm": 185.3451996025326,
+     "n": 1.7593156988289655,
+     "oversize_pct": 6.837694712204799,
+     "rock_factor_a": 11.56842,
+     "reached": false
+    },
+    {
+     "crown_mm": 152,
+     "q": 2.0,
+     "burden_m": 2.8922459593429695,
+     "x50_mm": 206.44211985433412,
+     "n": 1.8106741804754936,
+     "oversize_pct": 10.066553205730763,
+     "rock_factor_a": 11.56842,
+     "reached": false
+    },
+    {
+     "crown_mm": 250,
+     "q": 2.0,
+     "burden_m": 4.756983485761464,
+     "x50_mm": 243.68592759824367,
+     "n": 1.863402221632596,
+     "oversize_pct": 17.45823754230356,
+     "rock_factor_a": 11.56842,
+     "reached": false
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.802,
+    "ucs_mpa": 168.0,
+    "fissuring_ff": 2.2
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 500.0,
+    "overdrill_m": 0.5,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.1,
+    "bench_height_m": 12.0
+   },
+   "threshold": 3.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 9.436,
+    "joint_condition": 2.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.803,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 2.99,
+     "burden_m": 1.72430217686917,
+     "x50_mm": 193.8987439547719,
+     "n": 1.7164159929474985,
+     "oversize_pct": 2.9501724326608296,
+     "rock_factor_a": 17.013108,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 3.0,
+     "burden_m": 2.378697663987812,
+     "x50_mm": 215.39316124010102,
+     "n": 1.7167165474337243,
+     "oversize_pct": 5.274172330496793,
+     "rock_factor_a": 17.013108,
+     "reached": false
+    },
+    {
+     "crown_mm": 250,
+     "q": 3.0,
+     "burden_m": 3.9123316841904807,
+     "x50_mm": 254.2518083623046,
+     "n": 1.7167165474337243,
+     "oversize_pct": 10.934199243226185,
+     "rock_factor_a": 17.013108,
+     "reached": false
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.955,
+    "ucs_mpa": 229.5,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 300.0,
+    "overdrill_m": 0.5,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.1,
+    "bench_height_m": 12.0
+   },
+   "threshold": 2.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 2.029,
+    "joint_condition": 1.5,
+    "joint_angle": 30,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.139,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 2.19,
+     "burden_m": 1.7552030493721174,
+     "x50_mm": 86.79539692107055,
+     "n": 1.39545266925524,
+     "oversize_pct": 1.9991148162993133,
+     "rock_factor_a": 7.1865,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 2.15,
+     "burden_m": 2.447829108934534,
+     "x50_mm": 98.11110906694906,
+     "n": 1.551198996996358,
+     "oversize_pct": 1.9752388383483876,
+     "rock_factor_a": 7.1865,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 2.33,
+     "burden_m": 3.8673972596935124,
+     "x50_mm": 108.5966320318418,
+     "n": 1.7045911470744608,
+     "oversize_pct": 1.9879838788474995,
+     "rock_factor_a": 7.1865,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.181,
+    "ucs_mpa": 221.7,
+    "fissuring_ff": 4.81
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 12.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 2.458,
+    "joint_condition": 2.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.094,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.14,
+     "burden_m": 6.5121851617064355,
+     "x50_mm": 405.82432591334225,
+     "n": 1.5440255205509419,
+     "oversize_pct": 6.143807832155772,
+     "rock_factor_a": 3.5318999999999994,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.15,
+     "burden_m": 8.69352748492324,
+     "x50_mm": 427.7445303488221,
+     "n": 1.5858301764539786,
+     "oversize_pct": 6.959634136796258,
+     "rock_factor_a": 3.5318999999999994,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.17,
+     "burden_m": 13.431163041797662,
+     "x50_mm": 456.8046069865876,
+     "n": 1.650464119266237,
+     "oversize_pct": 7.9980733756649105,
+     "rock_factor_a": 3.5318999999999994,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.65,
+    "ucs_mpa": 138.4,
+    "fissuring_ff": 1.76
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 300.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 5.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 5.666,
+    "joint_condition": 1.5,
+    "joint_angle": 30,
+    "rock_factor_correction": 0.666,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.68,
+     "burden_m": 3.8138664033908993,
+     "x50_mm": 140.56853306863994,
+     "n": 1.7131351030301842,
+     "oversize_pct": 7.886058943159416,
+     "rock_factor_a": 3.7735560000000006,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.76,
+     "burden_m": 4.984987102314397,
+     "x50_mm": 143.23901854609608,
+     "n": 1.7589626246844328,
+     "oversize_pct": 7.853281490724741,
+     "rock_factor_a": 3.7735560000000006,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.91,
+     "burden_m": 7.492841739245741,
+     "x50_mm": 146.38994136543172,
+     "n": 1.8195388805501913,
+     "oversize_pct": 7.749990448559456,
+     "rock_factor_a": 3.7735560000000006,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.816,
+    "ucs_mpa": 202.5,
+    "fissuring_ff": 3.85
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 1.5,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 8.0
+   },
+   "threshold": 2.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 9.894,
+    "joint_condition": 2.0,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.055,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.65,
+     "burden_m": 3.500072519125576,
+     "x50_mm": 157.01121940170916,
+     "n": 1.8558117651911554,
+     "oversize_pct": 1.9620138433381316,
+     "rock_factor_a": 4.254,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.72,
+     "burden_m": 4.59534768333724,
+     "x50_mm": 161.1433330528928,
+     "n": 1.9050420276823894,
+     "oversize_pct": 1.98875620793144,
+     "rock_factor_a": 4.254,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.86,
+     "burden_m": 6.91563110417937,
+     "x50_mm": 165.01055258059347,
+     "n": 1.9710097216465634,
+     "oversize_pct": 1.8876307912204011,
+     "rock_factor_a": 4.254,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.5,
+    "ucs_mpa": 224.0,
+    "fissuring_ff": 1.37
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 12.0
+   },
+   "threshold": 10.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 3.141,
+    "joint_condition": 2.0,
+    "joint_angle": 30,
+    "rock_factor_correction": 0.924,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 0.931,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.39,
+     "burden_m": 4.965584773186058,
+     "x50_mm": 174.64412286968445,
+     "n": 1.451532015323095,
+     "oversize_pct": 9.945745607322097,
+     "rock_factor_a": 2.9022840000000003,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.44,
+     "burden_m": 6.459921918565667,
+     "x50_mm": 176.6283806758415,
+     "n": 1.49594466712462,
+     "oversize_pct": 9.494797518816434,
+     "rock_factor_a": 2.9022840000000003,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.52,
+     "burden_m": 9.773460359600719,
+     "x50_mm": 182.4114492798493,
+     "n": 1.5516540683690483,
+     "oversize_pct": 9.59461291286949,
+     "rock_factor_a": 2.9022840000000003,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.12,
+    "ucs_mpa": 119.2,
+    "fissuring_ff": 1.8
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 500.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.0,
+    "bench_height_m": 5.0
+   },
+   "threshold": 3.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 11.97,
+    "joint_condition": 1.0,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 1.92,
+     "burden_m": 2.422261008972232,
+     "x50_mm": 191.36528164280602,
+     "n": 1.6951064413133858,
+     "oversize_pct": 2.928318096256392,
+     "rock_factor_a": 11.97,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 2.0,
+     "burden_m": 3.279498659508397,
+     "x50_mm": 206.29899056227924,
+     "n": 1.7403824409198505,
+     "oversize_pct": 3.9336443242112074,
+     "rock_factor_a": 11.97,
+     "reached": false
+    },
+    {
+     "crown_mm": 250,
+     "q": 2.0,
+     "burden_m": 5.393912268928285,
+     "x50_mm": 243.5169766384032,
+     "n": 1.7846902969881815,
+     "oversize_pct": 8.185109061510722,
+     "rock_factor_a": 11.97,
+     "reached": false
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.9,
+    "ucs_mpa": 168.0,
+    "fissuring_ff": 8.32
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 800.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 12.0
+   },
+   "threshold": 3.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 6.159,
+    "joint_condition": 1.0,
+    "joint_angle": 30,
+    "rock_factor_correction": 0.64,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.34,
+     "burden_m": 5.318182610430748,
+     "x50_mm": 273.6082749549012,
+     "n": 1.5242089931375737,
+     "oversize_pct": 2.85328733094712,
+     "rock_factor_a": 4.07424,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.38,
+     "burden_m": 6.951232402157313,
+     "x50_mm": 278.8062158370338,
+     "n": 1.5705113185176727,
+     "oversize_pct": 2.6542936052451256,
+     "rock_factor_a": 4.07424,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.44,
+     "burden_m": 10.624871576588268,
+     "x50_mm": 292.684233522431,
+     "n": 1.626938834018285,
+     "oversize_pct": 2.847510198388708,
+     "rock_factor_a": 4.07424,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.617,
+    "ucs_mpa": 80.0,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 300.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 10.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 6.796,
+    "joint_condition": 1.5,
+    "joint_angle": 20,
+    "rock_factor_correction": 0.736,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.131,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.56,
+     "burden_m": 3.7906485565123282,
+     "x50_mm": 155.45686430703722,
+     "n": 1.9797209732824408,
+     "oversize_pct": 7.830279378448422,
+     "rock_factor_a": 3.5957279999999994,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.63,
+     "burden_m": 4.938421594055024,
+     "x50_mm": 157.58136315547284,
+     "n": 2.0356256532385566,
+     "oversize_pct": 7.649630325138375,
+     "rock_factor_a": 3.5957279999999994,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.75,
+     "burden_m": 7.444306173803168,
+     "x50_mm": 161.7932586366573,
+     "n": 2.1068076253820864,
+     "oversize_pct": 7.8426632408041055,
+     "rock_factor_a": 3.5957279999999994,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 3.081,
+    "ucs_mpa": 100.0,
+    "fissuring_ff": 1.8
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.1,
+    "bench_height_m": 8.0
+   },
+   "threshold": 10.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 5.697,
+    "joint_condition": 1.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.332,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.051,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 1.5,
+     "burden_m": 2.529969111328618,
+     "x50_mm": 244.86808266603603,
+     "n": 1.486556068205349,
+     "oversize_pct": 23.74861900386935,
+     "rock_factor_a": 11.750238000000001,
+     "reached": false
+    },
+    {
+     "crown_mm": 152,
+     "q": 1.5,
+     "burden_m": 3.495957317472272,
+     "x50_mm": 272.7401960161264,
+     "n": 1.587729753876412,
+     "oversize_pct": 27.994629259511772,
+     "rock_factor_a": 11.750238000000001,
+     "reached": false
+    },
+    {
+     "crown_mm": 250,
+     "q": 1.5,
+     "burden_m": 5.749929798474131,
+     "x50_mm": 321.9447063729674,
+     "n": 1.691601404498703,
+     "oversize_pct": 36.76190108258623,
+     "rock_factor_a": 11.750238000000001,
+     "reached": false
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 3.167,
+    "ucs_mpa": 139.2,
+    "fissuring_ff": 2.2
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 300.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 10.0
+   },
+   "threshold": 3.0,
+   "settings": {
+    "rock_factor_method": "rmd50",
+    "rock_factor_manual": 7.618,
+    "joint_condition": 2.0,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.353,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 0.948,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 2.0,
+     "burden_m": 2.005822677635518,
+     "x50_mm": 135.65730946100365,
+     "n": 1.9695700537989194,
+     "oversize_pct": 3.655374701151954,
+     "rock_factor_a": 8.687477699999999,
+     "reached": false
+    },
+    {
+     "crown_mm": 152,
+     "q": 2.0,
+     "burden_m": 2.7716822454599885,
+     "x50_mm": 151.0985048381169,
+     "n": 1.9695700537989194,
+     "oversize_pct": 6.883896096652779,
+     "rock_factor_a": 8.687477699999999,
+     "reached": false
+    },
+    {
+     "crown_mm": 250,
+     "q": 2.0,
+     "burden_m": 4.558687903717087,
+     "x50_mm": 178.3578822779231,
+     "n": 1.9695700537989194,
+     "oversize_pct": 14.51133140141588,
+     "rock_factor_a": 8.687477699999999,
+     "reached": false
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.65,
+    "ucs_mpa": 200.6,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 800.0,
+    "overdrill_m": 0.5,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 12.0
+   },
+   "threshold": 3.0,
+   "settings": {
+    "rock_factor_method": "rmd50",
+    "rock_factor_manual": 3.08,
+    "joint_condition": 2.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.76,
+     "burden_m": 3.3611422780998246,
+     "x50_mm": 245.8048454685992,
+     "n": 1.3757232344173027,
+     "oversize_pct": 2.975799669426812,
+     "rock_factor_a": 6.3822,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.81,
+     "burden_m": 4.498855934979962,
+     "x50_mm": 260.1778173574842,
+     "n": 1.44619366163579,
+     "oversize_pct": 2.9655951065131285,
+     "rock_factor_a": 6.3822,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.93,
+     "burden_m": 6.905570160383146,
+     "x50_mm": 274.98187096258084,
+     "n": 1.530025826249023,
+     "oversize_pct": 2.8677343599162657,
+     "rock_factor_a": 6.3822,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.9,
+    "ucs_mpa": 168.0,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 500.0,
+    "overdrill_m": 1.5,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.1,
+    "bench_height_m": 10.0
+   },
+   "threshold": 10.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 4.608,
+    "joint_condition": 2.0,
+    "joint_angle": 30,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.49,
+     "burden_m": 4.475437199003813,
+     "x50_mm": 210.71571476358582,
+     "n": 1.4012985634981032,
+     "oversize_pct": 9.764104735519668,
+     "rock_factor_a": 3.9659999999999993,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.54,
+     "burden_m": 5.890979754691738,
+     "x50_mm": 217.14795783662112,
+     "n": 1.46605365758623,
+     "oversize_pct": 9.496551918849018,
+     "rock_factor_a": 3.9659999999999993,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.62,
+     "burden_m": 9.042426474054606,
+     "x50_mm": 229.5036230532051,
+     "n": 1.5444531670413413,
+     "oversize_pct": 9.951625474334701,
+     "rock_factor_a": 3.9659999999999993,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.919,
+    "ucs_mpa": 80.0,
+    "fissuring_ff": 1.5
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 10.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 6.219,
+    "joint_condition": 1.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.47,
+     "burden_m": 4.150187438795178,
+     "x50_mm": 461.7720714528378,
+     "n": 1.6737623599485398,
+     "oversize_pct": 7.995017174271246,
+     "rock_factor_a": 8.3385,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.53,
+     "burden_m": 5.400445760101308,
+     "x50_mm": 467.19934041075226,
+     "n": 1.701009251005874,
+     "oversize_pct": 7.971252788255099,
+     "rock_factor_a": 8.3385,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.64,
+     "burden_m": 8.083026024801926,
+     "x50_mm": 474.2540820762875,
+     "n": 1.7406106159852968,
+     "oversize_pct": 7.889855232474227,
+     "rock_factor_a": 8.3385,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.5,
+    "ucs_mpa": 198.7,
+    "fissuring_ff": 0.0
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 800.0,
+    "overdrill_m": 1.5,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 12.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "rmd50",
+    "rock_factor_manual": 10.132,
+    "joint_condition": 1.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.36,
+     "burden_m": 4.220378341303867,
+     "x50_mm": 318.15245003670043,
+     "n": 1.434429252213971,
+     "oversize_pct": 7.4150884486818684,
+     "rock_factor_a": 6.134399999999999,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.39,
+     "burden_m": 5.603007905841738,
+     "x50_mm": 332.3858710064261,
+     "n": 1.4996160562469354,
+     "oversize_pct": 7.522135912067736,
+     "rock_factor_a": 6.134399999999999,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.45,
+     "burden_m": 8.579138965384777,
+     "x50_mm": 349.9100122283287,
+     "n": 1.5813890349960833,
+     "oversize_pct": 7.707007182454922,
+     "rock_factor_a": 6.134399999999999,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.448,
+    "ucs_mpa": 168.0,
+    "fissuring_ff": 8.15
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 500.0,
+    "overdrill_m": 1.5,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 8.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "rmd10",
+    "rock_factor_manual": 2.124,
+    "joint_condition": 2.0,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 0.88,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.3,
+     "burden_m": 4.701938358417146,
+     "x50_mm": 188.99025950099798,
+     "n": 1.3682405207630224,
+     "oversize_pct": 7.2518763241141535,
+     "rock_factor_a": 3.288,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.32,
+     "burden_m": 6.2909100033422805,
+     "x50_mm": 199.9094894718371,
+     "n": 1.424066035804911,
+     "oversize_pct": 7.750617606223935,
+     "rock_factor_a": 3.288,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.37,
+     "burden_m": 9.622413597873848,
+     "x50_mm": 210.09908146297607,
+     "n": 1.4989648799220647,
+     "oversize_pct": 7.867247129022538,
+     "rock_factor_a": 3.288,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.4,
+    "ucs_mpa": 100.0,
+    "fissuring_ff": 1.8
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.05,
+    "spacing_coeff_m": 1.1,
+    "bench_height_m": 10.0
+   },
+   "threshold": 5.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 5.534,
+    "joint_condition": 2.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 0.949,
+    "q_max_kg_m3": 2.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.28,
+     "burden_m": 5.044316935741616,
+     "x50_mm": 339.15201155721604,
+     "n": 1.3724246672824079,
+     "oversize_pct": 4.701919015331827,
+     "rock_factor_a": 5.534,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.31,
+     "burden_m": 6.624474567989389,
+     "x50_mm": 348.2157694470833,
+     "n": 1.3986349144647874,
+     "oversize_pct": 4.825848772297961,
+     "rock_factor_a": 5.534,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.37,
+     "burden_m": 9.973046471810731,
+     "x50_mm": 356.7866130756754,
+     "n": 1.4411393457928907,
+     "oversize_pct": 4.683958317657646,
+     "rock_factor_a": 5.534,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 3.093,
+    "ucs_mpa": 160.7,
+    "fissuring_ff": 2.17
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 300.0,
+    "overdrill_m": 1.0,
+    "hole_oversize_coeff": 1.0,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 8.0
+   },
+   "threshold": 5.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 7.293,
+    "joint_condition": 1.0,
+    "joint_angle": 30,
+    "rock_factor_correction": 1.59,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 3.0,
+     "burden_m": 1.59827776637446,
+     "x50_mm": 171.1664555085971,
+     "n": 1.3222248189838537,
+     "oversize_pct": 23.325017359988447,
+     "rock_factor_a": 16.166960999999997,
+     "reached": false
+    },
+    {
+     "crown_mm": 152,
+     "q": 3.0,
+     "burden_m": 2.208529277171981,
+     "x50_mm": 190.6494799915202,
+     "n": 1.4885541419953217,
+     "oversize_pct": 25.637029182535443,
+     "rock_factor_a": 16.166960999999997,
+     "reached": false
+    },
+    {
+     "crown_mm": 250,
+     "q": 3.0,
+     "burden_m": 3.6324494690328635,
+     "x50_mm": 225.04416933248717,
+     "n": 1.659318913620429,
+     "oversize_pct": 32.73072024386354,
+     "rock_factor_a": 16.166960999999997,
+     "reached": false
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.5,
+    "ucs_mpa": 83.6,
+    "fissuring_ff": 1.5
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 500.0,
+    "overdrill_m": 1.5,
+    "hole_oversize_coeff": 1.0,
+    "spacing_coeff_m": 1.0,
+    "bench_height_m": 5.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "rmd50",
+    "rock_factor_manual": 4.365,
+    "joint_condition": 1.0,
+    "joint_angle": 30,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 1.115,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.32,
+     "burden_m": 5.123759885012563,
+     "x50_mm": 235.94174416857817,
+     "n": 1.7424200392556208,
+     "oversize_pct": 7.689424089986277,
+     "rock_factor_a": 4.7532,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.36,
+     "burden_m": 6.675186602416075,
+     "x50_mm": 239.16616250493433,
+     "n": 1.7844022814960918,
+     "oversize_pct": 7.546075889723719,
+     "rock_factor_a": 4.7532,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.43,
+     "burden_m": 10.045622502353371,
+     "x50_mm": 244.9058231938486,
+     "n": 1.843235789703939,
+     "oversize_pct": 7.552433482327099,
+     "rock_factor_a": 4.7532,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.5,
+    "ucs_mpa": 80.0,
+    "fissuring_ff": 1.5
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 500.0,
+    "overdrill_m": 0.5,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.1,
+    "bench_height_m": 10.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 8.134,
+    "joint_condition": 1.0,
+    "joint_angle": 20,
+    "rock_factor_correction": 0.569,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.2,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.63,
+     "burden_m": 3.951048384314969,
+     "x50_mm": 201.18462129230784,
+     "n": 1.4378530606941151,
+     "oversize_pct": 7.6814932930770325,
+     "rock_factor_a": 4.628246,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.7,
+     "burden_m": 5.179460263839454,
+     "x50_mm": 205.97084703634778,
+     "n": 1.475634051294883,
+     "oversize_pct": 7.687395394554998,
+     "rock_factor_a": 4.628246,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.83,
+     "burden_m": 7.823316494566289,
+     "x50_mm": 212.15528421872577,
+     "n": 1.5256469771134016,
+     "oversize_pct": 7.702775831545126,
+     "rock_factor_a": 4.628246,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.518,
+    "ucs_mpa": 150.0,
+    "fissuring_ff": 6.28
+   },
+   "explosive": {
+    "density_t_m3": 0.85,
+    "power_mj_kg": 3.76
+   },
+   "target": {
+    "lump_size_mm": 400.0,
+    "overdrill_m": 2.0,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 12.0
+   },
+   "threshold": 3.0,
+   "settings": {
+    "rock_factor_method": "rmd50",
+    "rock_factor_manual": 11.252,
+    "joint_condition": 1.5,
+    "joint_angle": 20,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 1.5
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.78,
+     "burden_m": 3.0588336157307405,
+     "x50_mm": 164.69921534473906,
+     "n": 1.8450327786178693,
+     "oversize_pct": 2.834733699804727,
+     "rock_factor_a": 5.576999999999999,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.88,
+     "burden_m": 3.9793553472708156,
+     "x50_mm": 166.57048188578145,
+     "n": 1.8657359902773958,
+     "oversize_pct": 2.8621774864822607,
+     "rock_factor_a": 5.576999999999999,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 1.06,
+     "burden_m": 5.963449509001871,
+     "x50_mm": 169.422711437271,
+     "n": 1.895324927069621,
+     "oversize_pct": 2.9263388583551433,
+     "rock_factor_a": 5.576999999999999,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 2.5,
+    "ucs_mpa": 80.0,
+    "fissuring_ff": 3.16
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 800.0,
+    "overdrill_m": 0.5,
+    "hole_oversize_coeff": 1.0,
+    "spacing_coeff_m": 1.25,
+    "bench_height_m": 8.0
+   },
+   "threshold": 2.0,
+   "settings": {
+    "rock_factor_method": "manual",
+    "rock_factor_manual": 2.437,
+    "joint_condition": 1.5,
+    "joint_angle": 30,
+    "rock_factor_correction": 0.843,
+    "strength_exponent": "19/20",
+    "drill_deviation_m": 0.0,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 0.2,
+     "burden_m": 6.015698969798235,
+     "x50_mm": 209.13044822879542,
+     "n": 1.3055524143003219,
+     "oversize_pct": 1.8404322179449861,
+     "rock_factor_a": 2.054391,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 0.22,
+     "burden_m": 7.925755229196471,
+     "x50_mm": 215.83411344315917,
+     "n": 1.3379832483596872,
+     "oversize_pct": 1.8309286098194881,
+     "rock_factor_a": 2.054391,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 0.26,
+     "burden_m": 11.991175052724037,
+     "x50_mm": 222.90083443301938,
+     "n": 1.3912278077128317,
+     "oversize_pct": 1.6550338958737945,
+     "rock_factor_a": 2.054391,
+     "reached": true
+    }
+   ]
+  },
+  {
+   "rock": {
+    "density_t_m3": 3.258,
+    "ucs_mpa": 221.7,
+    "fissuring_ff": 1.5
+   },
+   "explosive": {
+    "density_t_m3": 1.12,
+    "power_mj_kg": 2.99
+   },
+   "target": {
+    "lump_size_mm": 1000.0,
+    "overdrill_m": 0.5,
+    "hole_oversize_coeff": 1.1,
+    "spacing_coeff_m": 1.4,
+    "bench_height_m": 12.0
+   },
+   "threshold": 8.0,
+   "settings": {
+    "rock_factor_method": "joint_factor",
+    "rock_factor_manual": 7.426,
+    "joint_condition": 2.0,
+    "joint_angle": 40,
+    "rock_factor_correction": 1.0,
+    "strength_exponent": "19/30",
+    "drill_deviation_m": 0.5,
+    "uniformity_correction": 1.0,
+    "q_max_kg_m3": 3.0
+   },
+   "rows": [
+    {
+     "crown_mm": 110,
+     "q": 1.2,
+     "burden_m": 2.5275168435862594,
+     "x50_mm": 397.6010457007201,
+     "n": 1.4102537809994113,
+     "oversize_pct": 7.846462457181988,
+     "rock_factor_a": 16.547399999999996,
+     "reached": true
+    },
+    {
+     "crown_mm": 152,
+     "q": 1.27,
+     "burden_m": 3.394952668001432,
+     "x50_mm": 423.2203145150912,
+     "n": 1.5055372731920256,
+     "oversize_pct": 7.969476458936908,
+     "rock_factor_a": 16.547399999999996,
+     "reached": true
+    },
+    {
+     "crown_mm": 250,
+     "q": 1.46,
+     "burden_m": 5.207815346966214,
+     "x50_mm": 446.84750563029286,
+     "n": 1.6120012321909458,
+     "oversize_pct": 7.889623597604853,
+     "rock_factor_a": 16.547399999999996,
+     "reached": true
+    }
+   ]
+  }
+ ]
+}

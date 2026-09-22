@@ -1,6 +1,7 @@
 """Точка входа FastAPI для BlastEX REST API."""
 from __future__ import annotations
 
+import math
 import os
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
@@ -10,6 +11,7 @@ import matplotlib
 matplotlib.use("Agg")  # без дисплея в контейнере — до любого импорта pyplot
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -77,6 +79,21 @@ def _error_payload(
     return payload
 
 
+def _json_safe(value: Any) -> Any:
+    """NaN и ±inf — строкой: JSONResponse не пишет их в JSON и падает с ValueError.
+
+    json.loads принимает NaN и Infinity, а pydantic повторяет ввод в деталях
+    ошибки, так что без замены 422 превращался в 400 с английским текстом.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 @app.exception_handler(BlastExError)
 async def blastex_error_handler(_: Request, exc: BlastExError) -> JSONResponse:
     return JSONResponse(
@@ -125,7 +142,7 @@ async def request_validation_handler(
             message="Ошибка валидации входных данных.",
             error_type="validation_error",
             status_code=422,
-            details=exc.errors(),
+            details=_json_safe(jsonable_encoder(exc.errors())),
         ),
     )
 
@@ -138,7 +155,7 @@ async def pydantic_validation_handler(_: Request, exc: ValidationError) -> JSONR
             message="Ошибка сериализации ответа.",
             error_type="response_validation_error",
             status_code=422,
-            details=exc.errors(),
+            details=_json_safe(jsonable_encoder(exc.errors())),
         ),
     )
 

@@ -75,7 +75,13 @@ class RoutePayload(ReferencePayload):
 
 class RockPayload(ReferencePayload):
     density_t_m3: Decimal | None = UnitField("т/м³", description="Плотность", default=None)
-    hardness_f: Decimal | None = UnitField("f", description="Крепость по Протодьяконову", default=None)
+    # Нуль — не «мягкая порода», а незаполненное поле: коэффициент крепости
+    # для него не выбрать (решение владельца 13.09.2026). Строгая нижняя
+    # граница `gt=0` не пускает нуль и минус ещё на уровне схемы — форма и
+    # сервер проверяют её одним и тем же полем, без отдельного правила.
+    hardness_f: Decimal | None = UnitField(
+        "f", description="Крепость по Протодьяконову; не знаете — оставьте пустым", default=None, gt=0
+    )
     fracture_class: str | None = Field(default=None, description="Класс трещиноватости")
     ucs_mpa: Decimal | None = UnitField(
         "МПа", title="Прочность на сжатие", description="Предел прочности на одноосное сжатие", default=None, ge=0

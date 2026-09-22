@@ -3,6 +3,7 @@ import type { ReferenceSectionSchema } from "../../types/referenceSchema";
 import type { EconomicsReferenceItem, ReferenceValidationIssue } from "../../types/economics";
 import { derivedHints, type DerivedContext } from "../../lib/referenceDerived";
 import {
+  boundErrors,
   fieldErrorShown,
   formFieldsets,
   isRubleField,
@@ -114,6 +115,12 @@ export function RecordForm({
     setTouched(new Set());
   }, [record, section.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Границы числовых полей — из схемы, а не знания формы о конкретном поле;
+  // считаются по текущему вводу, включая режим «Ввести с НДС» (граница
+  // проверяет то же значение, что сметчик набрал), и подполя строк списков —
+  // тем же обходом, что и поля верхнего уровня.
+  const formBoundErrors = useMemo(() => boundErrors(fields, values), [fields, values]);
+
   const fieldErrors = useMemo(() => {
     const map = new Map<string, string>();
     for (const issue of issues) {
@@ -124,8 +131,16 @@ export function RecordForm({
       if (previous === undefined) map.set(issue.field, issue.message);
       else if (!previous.split("\n").includes(issue.message)) map.set(issue.field, `${previous}\n${issue.message}`);
     }
+    // Одна причина — одно сообщение: пока граница нарушена, серверные
+    // сообщения того же поля (или подполя строки списка, тот же путь)
+    // скрываются — сервер видел значение до правки, а форма уже проверяет
+    // текущий ввод. Как только граница соблюдена, серверные сообщения снова
+    // видны — их скрывает только сам факт нарушения границы, не факт правки.
+    for (const [name, message] of formBoundErrors) {
+      map.set(name, message);
+    }
     return map;
-  }, [issues]);
+  }, [issues, formBoundErrors]);
   // Поля брать те, что реально рисуются: ошибка поля вне групп сервера (не
   // попавшего в fieldsets) тоже должна попасть сюда, а не потеряться.
   const renderedFields = fieldsets.flatMap((set) => set.fields);
@@ -397,7 +412,12 @@ export function RecordForm({
         >
           {published ? "Сбросить" : "Удалить"}
         </button>
-        <button type="button" className="primary-button" onClick={apply} disabled={!canEdit}>
+        <button
+          type="button"
+          className="primary-button"
+          onClick={apply}
+          disabled={!canEdit || formBoundErrors.size > 0}
+        >
           Применить
         </button>
       </footer>

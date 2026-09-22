@@ -82,6 +82,70 @@ function renderForm(onApply: (next: DraftItem) => void, issues: ReferenceValidat
   return render(formElement(onApply, issues));
 }
 
+// Раздел с числовым полем верхнего уровня и строгой нижней границей — как
+// «Крепость по Протодьяконову» в rocks (gt=0 → exclusiveMinimum в схеме).
+const BOUND_SECTION: ReferenceSectionSchema = {
+  code: "rocks",
+  label: "Породы",
+  group: "misc",
+  view: "table",
+  deprecated: false,
+  list_columns: [],
+  fieldsets: [],
+  json_schema: {
+    type: "object",
+    properties: {
+      hardness_f: {
+        anyOf: [{ exclusiveMinimum: 0, type: "number" }, { type: "string" }, { type: "null" }],
+        default: null,
+        title: "Крепость по Протодьяконову",
+        "x-unit": "f",
+      },
+    },
+  },
+};
+
+const BOUND_RECORD: DraftItem = {
+  row_id: "row-2",
+  code: "ROCK_X",
+  name: "Порода",
+  payload: { hardness_f: "5" },
+  is_active: true,
+  valid_from: null,
+  valid_to: null,
+  source: "",
+  comment: "",
+  revision: 1,
+};
+
+function renderBoundForm(
+  onApply: (next: DraftItem) => void,
+  record: DraftItem = BOUND_RECORD,
+  issues: ReferenceValidationIssue[] = [],
+) {
+  return render(
+    <RecordForm
+      section={BOUND_SECTION}
+      record={record}
+      published={record}
+      issues={issues}
+      canEdit
+      isNew={false}
+      changed={false}
+      refOptions={() => []}
+      sectionLabels={{}}
+      siblings={[]}
+      context={{ sections: {} }}
+      vatRate={0.2}
+      onApply={onApply}
+      onReset={() => undefined}
+      onDeactivate={() => undefined}
+      onDuplicate={() => undefined}
+      onClose={() => undefined}
+    />,
+  );
+}
+
 describe("RecordForm: списки объектов", () => {
   it("«Применить» без правок возвращает тот же payload", () => {
     const onApply = vi.fn();
@@ -208,5 +272,138 @@ describe("RecordForm: списки объектов", () => {
       },
     ]);
     expect(screen.getByText("Состав бригады → строка 1: неизвестное поле unknown_key")).toBeInTheDocument();
+  });
+});
+
+// Раздел со списком строк геологии: подполе share ограничено долей от 0 до 1,
+// как в перекрёстных проверках ФОТ.
+const LIST_BOUND_SECTION: ReferenceSectionSchema = {
+  code: "geology_shares",
+  label: "Геология",
+  group: "misc",
+  view: "table",
+  deprecated: false,
+  list_columns: [],
+  fieldsets: [],
+  json_schema: {
+    type: "object",
+    $defs: {
+      GeologyShare: {
+        type: "object",
+        properties: {
+          share: {
+            anyOf: [{ minimum: 0, maximum: 1, type: "number" }, { type: "string" }],
+            default: "0",
+            title: "Доля",
+          },
+        },
+      },
+    },
+    properties: {
+      geology: { type: "array", items: { $ref: "#/$defs/GeologyShare" }, title: "Геология" },
+    },
+  },
+};
+
+const LIST_BOUND_RECORD: DraftItem = {
+  row_id: "row-3",
+  code: "GEO_X",
+  name: "Геология",
+  payload: { geology: [{ share: "0.3" }, { share: "0.4" }] },
+  is_active: true,
+  valid_from: null,
+  valid_to: null,
+  source: "",
+  comment: "",
+  revision: 1,
+};
+
+function renderListBoundForm(onApply: (next: DraftItem) => void) {
+  return render(
+    <RecordForm
+      section={LIST_BOUND_SECTION}
+      record={LIST_BOUND_RECORD}
+      published={LIST_BOUND_RECORD}
+      issues={[]}
+      canEdit
+      isNew={false}
+      changed={false}
+      refOptions={() => []}
+      sectionLabels={{}}
+      siblings={[]}
+      context={{ sections: {} }}
+      vatRate={0.2}
+      onApply={onApply}
+      onReset={() => undefined}
+      onDeactivate={() => undefined}
+      onDuplicate={() => undefined}
+      onClose={() => undefined}
+    />,
+  );
+}
+
+describe("RecordForm: граница подполя строки списка", () => {
+  it("значение за верхней границей подполя строки — ошибка под этой строкой, «Применить» недоступна", () => {
+    const onApply = vi.fn();
+    renderListBoundForm(onApply);
+    const shareInputs = screen.getAllByLabelText("Доля");
+    fireEvent.change(shareInputs[1], { target: { value: "1,5" } });
+    expect(screen.getByText("Должно быть не больше 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+  });
+
+  it("значение внутри границы подполя строки — «Применить» доступна", () => {
+    const onApply = vi.fn();
+    renderListBoundForm(onApply);
+    const shareInputs = screen.getAllByLabelText("Доля");
+    fireEvent.change(shareInputs[1], { target: { value: "0,5" } });
+    expect(screen.getByRole("button", { name: "Применить" })).not.toBeDisabled();
+  });
+});
+
+describe("RecordForm: граница числового поля из схемы", () => {
+  it("значение на строгой нижней границе — ошибка под полем, «Применить» недоступна", () => {
+    const onApply = vi.fn();
+    renderBoundForm(onApply);
+    fireEvent.change(screen.getByLabelText(/Крепость по Протодьяконову/), { target: { value: "0" } });
+    expect(screen.getByText("Должно быть больше 0")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+  });
+
+  it("значение внутри границы — «Применить» доступна и возвращает payload", () => {
+    const onApply = vi.fn();
+    renderBoundForm(onApply);
+    fireEvent.change(screen.getByLabelText(/Крепость по Протодьяконову/), { target: { value: "2" } });
+    const button = screen.getByRole("button", { name: "Применить" });
+    expect(button).not.toBeDisabled();
+    fireEvent.click(button);
+    expect(onApply.mock.calls[0][0].payload).toEqual({ hardness_f: "2" });
+  });
+});
+
+describe("RecordForm: одна причина — одно сообщение", () => {
+  const SERVER_ISSUE: ReferenceValidationIssue = {
+    level: "error",
+    section: "rocks",
+    code: "ROCK_X",
+    message: "Поле «Крепость по Протодьяконову»: должно быть больше 0.",
+    field: "hardness_f",
+  };
+
+  it("сохранённое значение вне границы и серверная ошибка того же поля — под полем только сообщение границы", () => {
+    const record: DraftItem = { ...BOUND_RECORD, payload: { hardness_f: "0" } };
+    renderBoundForm(() => undefined, record, [SERVER_ISSUE]);
+    const error = screen
+      .getByLabelText(/Крепость по Протодьяконову/)
+      .closest(".ref-field")
+      ?.querySelector(".ref-field-error");
+    expect(error?.textContent).toBe("Должно быть больше 0");
+  });
+
+  it("после ввода значения в границе серверное сообщение снова видно — оно остаётся, пока не перепроверят", () => {
+    const record: DraftItem = { ...BOUND_RECORD, payload: { hardness_f: "0" } };
+    renderBoundForm(() => undefined, record, [SERVER_ISSUE]);
+    fireEvent.change(screen.getByLabelText(/Крепость по Протодьяконову/), { target: { value: "2" } });
+    expect(screen.getByText("Поле «Крепость по Протодьяконову»: должно быть больше 0.")).toBeInTheDocument();
   });
 });

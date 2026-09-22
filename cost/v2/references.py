@@ -7,9 +7,16 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Sequence
 
+from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from cost.v2.models import CostBehavior, CostLayer, ReferenceItem, ReferenceSnapshot
+from cost.v2.models import (
+    FINITE_DECIMAL_MAX_EXPONENT,
+    CostBehavior,
+    CostLayer,
+    ReferenceItem,
+    ReferenceSnapshot,
+)
 from cost.v2.schemas import SECTION_SCHEMAS, field_label, reference_paths
 from cost.v2.packages import (
     DEFAULT_OPERATIONS,
@@ -69,13 +76,21 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
     },
     "positions": {
         "group": "labor", "label": "Должности и ставки",
-        "columns": ["name", "category", "operation_code", "norm_shifts_per_month", "piece_driver"],
+        "columns": ["name", "category", "operation_code", "pay_system", "norm_shifts_per_month"],
     },
     "labor_rates": {
         "group": "labor", "label": "Ставки персонала",
-        "columns": ["name", "position_code", "fixed_monthly_rub", "piece_rate_rub", "condition_code"],
+        "columns": ["name", "position_code", "condition_code", "fixed_monthly_rub", "piece_rate_rub", "scale_type"],
     },
     "crew_templates": {"group": "labor", "label": "Составы бригад", "columns": ["name", "package_code"]},
+    "payroll_params": {
+        "group": "labor", "label": "Параметры года для ФОТ",
+        "columns": ["name", "year", "mrot", "work_days_year", "margin_share_warn"],
+    },
+    "downtime_reasons": {
+        "group": "labor", "label": "Причины простоев",
+        "columns": ["name", "excusable", "planned_maintenance"],
+    },
     "equipment_types": {
         "group": "equipment", "label": "Типы оборудования",
         "columns": ["name", "kind", "norm_shifts_per_month", "maintenance_mode", "capacity"],
@@ -102,6 +117,10 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
         "group": "drilling", "label": "Условия бурения",
         "view": "matrix",
         "columns": ["name", "equipment_type_code", "rock_code", "site_code", "tech_speed_m_per_h", "bit_life_m"],
+    },
+    "drilling_difficulty": {
+        "group": "drilling", "label": "Сложность бурения",
+        "columns": ["name", "hardness", "diameter"],
     },
     "drilling_productivity": {
         "group": "drilling", "label": "Производительность бурения",
@@ -337,6 +356,10 @@ def validate_reference_sections(
 
     issues.extend(_schema_issues(sections))
     issues.extend(_reference_issues(sections))
+    # Локальный импорт: модуль проверок сам берёт `ValidationIssue` отсюда.
+    from cost.v2.payroll_checks import payroll_issues
+
+    issues.extend(payroll_issues(sections))
 
     operations = {item.code for item in sections["operations"] if item.is_active}
     packages = {item.code: item for item in sections["work_packages"] if item.is_active}
@@ -411,7 +434,7 @@ def _schema_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
             continue
         for item in items:
             try:
-                model.model_validate(item.payload)
+                validated = model.model_validate(item.payload)
             except PydanticValidationError as exc:
                 for error in exc.errors():
                     issues.append(
@@ -423,7 +446,167 @@ def _schema_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
                             field=".".join(str(part) for part in error.get("loc", ())),
                         )
                     )
+            else:
+                issues.extend(_out_of_range_issues(section, item.code, validated))
     return issues
+
+
+def _free_form_string_decimal(value: str) -> Decimal | None:
+    """Строку свободного значения (без схемы поля) разобрать как `Decimal`.
+
+    Разбирается только строка из свободного значения — поля без схемы
+    элемента, например `dict` внутри `ResourcePoolPayload.consumption_norms:
+    list[dict]`. Там число вроде `"1e-999999"` остаётся строкой и после
+    `model_validate()`, а не `Decimal`, — и порядок никто не проверяет, пока
+    `cost/model/unit.py` не разделит на него и не упадёт `decimal.Overflow`.
+    Текст объявленного схемой поля (например, `equipment_assets.
+    serial_number`) числом не считается вовсе — вызывающий код
+    (`_out_of_range_issues`) сюда для таких полей не заходит.
+    Запятая как десятичный разделитель не подменяется: то же значение в
+    `cost/model/unit.py:135` разбирается прямым `Decimal(str(...))`, так что
+    поддержка запятой здесь означала бы пропускать то, что расчёт всё равно
+    не примет. Код или текст (`"downhole_nsi"`) не разбирается как число —
+    `None`, как и пустая строка.
+
+    `Decimal` без исключения разбирает "NaN"/"Infinity" — и сигнальный
+    "sNaN" тоже, исключение при сигнальном NaN бросает не парсинг, а
+    первое же сравнение (`_out_of_range_issue` делает `value != 0`), уронив
+    всю публикацию ревизии вместо списка замечаний. Ни одно из них не число
+    справочника, поэтому конечность проверяем сразу здесь, как и
+    `finite_decimal` в `cost/v2/models.py`.
+    """
+
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        result = Decimal(text)
+    except InvalidOperation:
+        return None
+    if not result.is_finite():
+        return None
+    return result
+
+
+def _free_form_number_decimal(value: int | float) -> Decimal | None:
+    """`int`/`float` свободного значения (без схемы поля) — как `Decimal`.
+
+    Тот же случай, что и `_free_form_string_decimal`, только число уже
+    разобрано JSON-парсером, а не осталось строкой: `consumption_norms:
+    [{"units_per_capacity": 1e-320}]` — JSON-число, не строка, но так же не
+    проверялось до сих пор, хотя строка `"1e-320"` в том же свободном месте
+    уже отвергается. `bool` — подкласс `int`, но не число справочника,
+    поэтому вызывающий код (`_out_of_range_issues`) сюда для него не заходит.
+
+    `float("inf")`/`float("nan")` конечны не всегда, и `Decimal(str(...))`
+    их тоже разбирает без исключения ("Infinity"/"NaN") — не числа
+    справочника, отсеиваем так же, как нечисловые строки в
+    `_free_form_string_decimal`.
+    """
+
+    result = Decimal(str(value))
+    if not result.is_finite():
+        return None
+    return result
+
+
+def _out_of_range_issue(
+    section: str, code: str, path: tuple[str, ...], value: Decimal
+) -> ValidationIssue | None:
+    if value.adjusted() > FINITE_DECIMAL_MAX_EXPONENT or (
+        value != 0 and value.adjusted() < -FINITE_DECIMAL_MAX_EXPONENT
+    ):
+        field = ".".join(path)
+        label = field_label(section, path) or field or "запись"
+        return ValidationIssue(
+            "error",
+            section,
+            code,
+            f"Поле «{label}»: число вне допустимого порядка (не больше 10^{FINITE_DECIMAL_MAX_EXPONENT} по модулю).",
+            field=field,
+        )
+    return None
+
+
+def _out_of_range_issues(
+    section: str, code: str, value: Any, path: tuple[str, ...] = (), *, free_form: bool = False
+) -> list[ValidationIssue]:
+    """Числа немыслимого порядка в уже провалидированной модели раздела.
+
+    `UnitField`/pydantic и последующий `finite_decimal` сравнивают `Decimal` с
+    границей, не переполняясь сами по себе, поэтому значение вроде
+    `"1e999999"` проходит схему раздела — и только позже, при арифметике в
+    `cost/model/`, роняет расчёт `decimal.Overflow`. Обходим не
+    `model_dump()`, а саму провалидированную модель (`BaseModel`), чтобы не
+    потерять различие между объявленным схемой полем и свободным значением:
+    `model_dump()` превращает и то, и другое в одинаковый `dict`/`str`.
+
+    - `BaseModel` — обходим по `type(value).model_fields`, значение поля
+      берём через `getattr`; строка в поле модели — объявленный схемой
+      текст (например, `equipment_assets.serial_number`), числом не
+      считается никогда, порядок не проверяется;
+    - `list`/`tuple` — по элементам с индексом в пути; признак «свободное»
+      передаётся от родителя без изменений (типизированный `list[Модель]`
+      остаётся типизированным на уровне элементов — уже `BaseModel`);
+    - простой `dict`/`Mapping` (не модель, то есть без схемы элемента,
+      например `ResourcePoolPayload.consumption_norms: list[dict]`) — сам
+      свободное значение: всё внутри него, включая вложенные списки,
+      обходится с признаком «свободное» дальше;
+    - `Decimal` — типизированные поля (`UnitField`) приходят уже `Decimal`
+      после валидации; порядок проверяется всегда;
+    - `str` — `_free_form_string_decimal` и проверка порядка только при
+      признаке «свободное» (значение внутри нетипизированного `dict`).
+      `bool` строкой не бывает, поэтому под неё не попадает и числом не
+      считается.
+    - `int`/`float` (кроме `bool`, который подкласс `int`) — так же только
+      при признаке «свободное»: `_free_form_number_decimal` и та же проверка
+      порядка. Типизированные `int`/`float` сюда не попадают — они приходят
+      `Decimal` (`UnitField`) или ограничены собственной схемой поля
+      (например, `year: int` с границами), а свободное значение (внутри
+      нетипизированного `dict`) схемы не имеет вовсе.
+    - остальное (`None`, `bool` вне свободного значения, перечисления и
+      т. п.) пропускается.
+    """
+
+    if isinstance(value, BaseModel):
+        issues: list[ValidationIssue] = []
+        for name in type(value).model_fields:
+            issues.extend(
+                _out_of_range_issues(section, code, getattr(value, name), (*path, name), free_form=False)
+            )
+        return issues
+    if isinstance(value, Decimal):
+        issue = _out_of_range_issue(section, code, path, value)
+        return [issue] if issue else []
+    if isinstance(value, str):
+        if not free_form:
+            return []
+        parsed = _free_form_string_decimal(value)
+        if parsed is None:
+            return []
+        issue = _out_of_range_issue(section, code, path, parsed)
+        return [issue] if issue else []
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not free_form:
+            return []
+        parsed = _free_form_number_decimal(value)
+        if parsed is None:
+            return []
+        issue = _out_of_range_issue(section, code, path, parsed)
+        return [issue] if issue else []
+    if isinstance(value, Mapping):
+        issues = []
+        for key, nested in value.items():
+            issues.extend(_out_of_range_issues(section, code, nested, (*path, str(key)), free_form=True))
+        return issues
+    if isinstance(value, (list, tuple)):
+        issues = []
+        for index, nested in enumerate(value):
+            issues.extend(
+                _out_of_range_issues(section, code, nested, (*path, str(index)), free_form=free_form)
+            )
+        return issues
+    return []
 
 
 # Типы ошибок pydantic, которые видит сметчик при опечатке в значении. Текст
@@ -452,6 +635,9 @@ def _humanize(error: Mapping[str, Any], section: str = "") -> str:
     if kind == "missing":
         return f"Не заполнено обязательное поле «{field}»."
     if kind.startswith("greater_than") or kind.startswith("less_than"):
+        bound_phrase = _bound_phrase(kind, error.get("ctx") or {})
+        if bound_phrase is not None:
+            return f"Поле «{field}»: {bound_phrase}."
         return f"Поле «{field}»: значение вне допустимого диапазона."
     if kind == "value_error":
         # Сообщения наших model_validator уже написаны по-русски.
@@ -460,6 +646,35 @@ def _humanize(error: Mapping[str, Any], section: str = "") -> str:
         if marker in kind:
             return f"Поле «{field}»: {message}."
     return f"Поле «{field}»: значение не подходит."
+
+
+# type → (ключ границы в error["ctx"], русская фраза с местом под число).
+_BOUND_PHRASES: dict[str, tuple[str, str]] = {
+    "greater_than": ("gt", "должно быть больше {}"),
+    "greater_than_equal": ("ge", "должно быть не меньше {}"),
+    "less_than": ("lt", "должно быть меньше {}"),
+    "less_than_equal": ("le", "должно быть не больше {}"),
+}
+
+
+def _bound_phrase(kind: str, ctx: Mapping[str, Any]) -> str | None:
+    """Фраза с границей поля (`greater_than` → «должно быть больше 0»).
+
+    `None`, если в типе ошибки или в `ctx` нет числа границы: вызывающий код
+    оставляет прежнюю общую фразу.
+    """
+
+    spec = _BOUND_PHRASES.get(kind)
+    if spec is None or spec[0] not in ctx:
+        return None
+    ctx_key, phrase = spec
+    return phrase.format(_format_number(ctx[ctx_key]))
+
+
+def _format_number(value: Any) -> str:
+    """Число без хвостовых нулей и экспоненты («0», «366», а не «0E+1»)."""
+
+    return format(Decimal(str(value)).normalize(), "f")
 
 
 def _reference_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:

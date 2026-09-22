@@ -78,15 +78,15 @@ share(m) = Σ_{сдельщики экипажа} r(m) × onc × contract_k × k
 | Т5 | `scale` — плоская модель: `scale_type` (`CURVE_POWER` / `CURVE_LINEAR` / `STEP`), необязательные `norm_per_shift`, `rate_norm`, `ceiling_per_shift`, `rate_ceiling`, список `tiers [{upto_per_shift, rate}]`, `model_validator` | Объединение `oneOf` форма не понимает (`schemaFields.ts:51-53`) и затирает строкой `[object Object]`; xlsx пишет Python-repr |
 | Т6 | График кривой — только в `PayrollBreakdown` по рядам точек из ответа превью; в форме справочника — текстовые подсказки γ, p(норма), p(потолок) | Разделоспецифичный компонент в форме нарушает CLAUDE.md |
 | Т7 | Крепость — существующее `rocks.hardness_f`; поле `f` не заводить | `cost/v2/schemas/misc.py:78` |
-| Т8 | Длительность смены — `organization_rates.shift_hours`; `sites.shift_hours: None` переопределяет через один резолвер в `cost/model/inputs.py`. Вахтовая надбавка — `organization_rates.per_diem_rub`; `shift_allowance_per_day` не заводить, payroll-должности исключаются из `_per_diem` | Второй источник разошёлся бы с бурением (`drilling.py:130`) и логистикой (`logistics.py:167`) |
+| Т8 | Длительность смены — `organization_rates.shift_hours`; `sites.shift_hours: None` переопределяет через один резолвер в `cost/model/inputs.py`. Вахтовая надбавка — `organization_rates.per_diem_rub`; `shift_allowance_per_day` не заводить, payroll-должности исключаются из `_per_diem`. `sites.shift_hours` заводится в PR 3a вместе с резолвером (решение владельца 14.09.2026) | Второй источник разошёлся бы с бурением (`drilling.py:130`) и логистикой (`logistics.py:167`) |
 | Т9 | Плановый темп — по строке матрицы условий: `m_план = v_commercial × k_f(hardness_f породы строки) × k_d(Ø коронки строки)`; k блока — только в `M_блока`. Строка без породы или Ø — базовая (k = 1) с предупреждением | Осей f и Ø в матрице нет (`equipment.py:134-138`); умножение на k блока даёт 236 м/смену и `c_var` ×1,94 |
-| Т10 | Сид — идемпотентная функция «опубликованный снимок → дополненные разделы» по образцу `reclassify_positions`; существующие `POSITION_LABOR_*` не меняются | Умолчания создаются только без ревизий (`db_repository.py:370-372`), импорт заменяет раздел целиком (`importDraft.ts:6-23`) |
+| Т10 | Сид — идемпотентная функция «опубликованный снимок → дополненные разделы» по образцу `reclassify_positions`; заданные значения существующих `POSITION_LABOR_*` не меняются. У существующих записей заполняются только пустые ключи payload, заданные значения не меняются; семь должностей файла сопоставлены с `POSITION_LABOR_*` (решение владельца 14.09.2026, план `Docs/plans/2026-09-14-task-010-pr1-references.md`) | Умолчания создаются только без ревизий (`db_repository.py:370-372`), импорт заменяет раздел целиком (`importDraft.ts:6-23`) |
 | Т11 | Постоянная часть экипажа станка — по плановым сменам станка; косвенного персонала — по плановому объёму юнита | CLAUDE.md: постоянные затраты техники — по её плановым сменам |
 | Т12 | Защита входа: Σ часов `excusable` > `shifts × shift_hours` → 422 в превью, ошибка расчёта в модели; `S_эфф ≤ 0` → то же; темп > 1,2 × потолка → флаг | Иначе `DivisionByZero` или молча 45 × M = 90 000 ₽ |
 | Т13 | Предупреждения модели — `context.warn` → `BlockEconomics.warnings`; предупреждения ревизии — канал проверки ревизии | Компонента `CalcWorkspaceNotices` нет |
 | Т14 | Происхождение строк ФОТ — `price_origin = "PAYROLL"` в `ValueOrigin` (4 места: `cost/v2/models.py`, `api/schemas/block_economics.py`, `frontend/src/types/blockEconomics.ts`, `frontend/src/pages/economics/origin.ts`); код строки `LABOR_<position>` сохраняется | Поля `origin` нет; `LaborSection` ищет строки по коду |
 | Т15 | Проверки ревизии: пустой новый раздел — предупреждение, заполненный — ошибка; коронки — через `drilling_conditions.bit_material_code` | Проверяется весь черновик, ошибка блокирует публикацию всей организации (`api/routers/economics.py:321-328`) |
-| Т16 | `maintenance_shifts` объекта против `equipment_types.maintenance_ratio`: расхождение больше 0,5 смены — предупреждение ревизии | Два источника одной величины (0,14 × 13 = 1,84 смены) |
+| Т16 | `maintenance_shifts` объекта против `equipment_types.maintenance_ratio`: расхождение больше 0,5 смены — предупреждение ревизии | Два источника одной величины (из вахты 15 смен на ТОиР уходит 15 × 0,14 / 1,14 = 1,84 смены) |
 | Т17 | `downtime_reasons` — раздел PR 1 с признаками `excusable` и `planned_maintenance` | Нужен флагу 25 % и превью |
 | Т18 | Помесячный ФОТ юнита Cost V2 — отдельная задача | У `ServiceLine` нет станка (`cost/v2/models.py:288-300`) |
 | Т19 | Правка матрицы условий (12 → ~20 м/ч) — правка данных после PR 3a, по цифрам «до/после» для владельца; фикстуру `smeta_2026_01` не трогать | Сменные затраты бурения 157,55 → 94,53 ₽/м |
@@ -122,7 +122,7 @@ PR 0b ротационная численность ─────┼─► PR 
 - **PR 0b — ротационная численность** (Т20). Тест на сумму, осознанное обновление регрессии.
 - **PR 1 — справочники.** Поля `positions`, `labor_rates` (Т1, Т5), `organization_rates` (Т2), `sites`
   (`regional_coefficient`, `northern_pct`, `shift_days_on/off`, `travel_days`, `night_shift_share`, `contract_k`,
-  `maintenance_shifts`, `geology`, `shift_hours: None`); разделы `payroll_params`, `drilling_difficulty`,
+  `maintenance_shifts`, `geology`; `shift_hours: None` — в PR 3a); разделы `payroll_params`, `drilling_difficulty`,
   `downtime_reasons`. Проверки ревизии (Т1, Т15, Т16, узлы и тиры, непрерывность крепости, Σ share = 1, потолок
   выше нормы станка → предупреждение). Сид (Т10). `Docs/REFERENCES_MODEL.md`.
 - **PR 2 — модель и превью.** `cost/model/payroll.py`: `normalized_meters`, `effective_shifts` (Т12, флаги §2.3),
@@ -211,7 +211,7 @@ PR 0b ротационная численность ─────┼─► PR 
   и `S_эфф`.
 
 **Справочники и формы (PR 0, PR 1)**
-- Сид поверх снимка с 7 `POSITION_LABOR_*` идемпотентен, существующие записи не меняет, ревизия проходит проверку.
+- Сид поверх снимка с 7 `POSITION_LABOR_*` идемпотентен, заданные значения существующих записей не меняет, ревизия проходит проверку.
 - Проверки ревизии: `rate_ceiling < rate_norm`, `ceiling ≤ norm`, тиры не возрастают, шкала рядом с
   `condition_code`, разрыв интервалов крепости, Σ share ≠ 1 → ошибка; пустой новый раздел, `maintenance` против
   `maintenance_ratio`, потолок выше нормы станка → предупреждение.

@@ -5,7 +5,9 @@ import re
 from decimal import Decimal
 
 import pytest
-from pydantic import ValidationError
+from pydantic import ValidationError, model_validator
+
+from cost.v2.schemas.base import ReferencePayload, field_error
 
 from cost.v2.models import ReferenceItem
 from cost.v2.references import (
@@ -55,6 +57,33 @@ class TestRegistry:
             for field, target in referenced_sections(section).items():
                 assert target in REFERENCE_SECTION_DEFINITIONS, f"{section}.{field} → {target}"
 
+    def test_forms_get_only_flat_fields_and_lists_of_flat_rows(self):
+        """Форма справочника рисует плоские поля и списки плоских строк.
+
+        Вложенный объект она превратила бы в строку «[object Object]», а флаг
+        или дату в строке списка — в текстовое поле (открытые вопросы после
+        TASK-010 PR 0). Новая схема с такими полями сначала учит форму.
+        """
+
+        problems: list[str] = []
+        for section in SECTION_SCHEMAS:
+            schema = section_json_schema(section)
+            for name, node in (schema.get("properties") or {}).items():
+                if any("$ref" in variant for variant in _variants(node)):
+                    problems.append(f"{section}.{name}: вложенный объект")
+            for model_name, model in (schema.get("$defs") or {}).items():
+                for name, node in (model.get("properties") or {}).items():
+                    if node.get("x-internal"):
+                        continue
+                    if any(
+                        variant.get("type") in {"array", "object", "boolean"}
+                        or "$ref" in variant
+                        or variant.get("format") == "date"
+                        for variant in _variants(node)
+                    ):
+                        problems.append(f"{section}.{model_name}.{name}: подполе строки списка")
+        assert problems == []
+
 
 def _is_numeric(field: dict) -> bool:
     if field.get("x-internal"):
@@ -75,6 +104,37 @@ def _field_containers(section: str):
     yield section, schema.get("properties") or {}
     for name, model in (schema.get("$defs") or {}).items():
         yield f"{section}.{name}", model.get("properties") or {}
+
+
+class _ProbeRow(ReferencePayload):
+    rate: int = 0
+
+
+class _Probe(ReferencePayload):
+    rows: list[_ProbeRow] = []
+
+    @model_validator(mode="after")
+    def _second_row_is_wrong(self) -> "_Probe":
+        if len(self.rows) > 1:
+            field_error(type(self), ("rows", 1, "rate"), "Ошибка во второй строке", self.rows[1].rate)
+        return self
+
+
+class TestFieldErrorPath:
+    def test_error_inside_a_list_row_keeps_the_row_path(self):
+        with pytest.raises(ValidationError) as exc:
+            _Probe.model_validate({"rows": [{}, {"rate": 5}]})
+        error = exc.value.errors()[0]
+        assert (error["loc"], error["msg"]) == (("rows", 1, "rate"), "Ошибка во второй строке")
+
+    def test_plain_field_name_still_works(self):
+        with pytest.raises(ValidationError) as exc:
+            field_error(_Probe, "rows", "Ошибка поля")
+        assert exc.value.errors()[0]["loc"] == ("rows",)
+
+
+def _variants(node: dict) -> list[dict]:
+    return [variant for variant in (node.get("anyOf") or [node]) if isinstance(variant, dict)]
 
 
 class TestPositionSchema:
@@ -297,6 +357,196 @@ class TestValidationThroughSchemas:
         issues = _errors(validate_reference_sections(sections))
         assert [issue for issue in issues if issue.section == "drilling_conditions"] == []
 
+    # Codex к PR #83: "1e999999" проходит и `UnitField`, и `finite_decimal`
+    # (сравнение с границей само не переполняется), а `cost/model/drilling.py`
+    # позже падает `decimal.Overflow` на том же значении — схема должна
+    # отклонять немыслимый порядок сама, без знаний о разделах.
+
+    def test_unthinkable_order_number_is_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (_item("TYPE_JK830", {"kind": "DRILL_RIG"}),)
+        sections["drilling_conditions"] = (
+            _item("COND_HUGE", {"equipment_type_code": "TYPE_JK830", "tech_speed_m_per_h": "1e999999"}),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "tech_speed_m_per_h")
+        assert issue.section == "drilling_conditions"
+        assert "вне допустимого порядка" in issue.message
+
+    def test_unthinkable_order_number_inside_a_list_row_is_reported_with_its_path(self):
+        sections = dict(default_reference_sections())
+        sections["labor_rates"] = (
+            _item("RATE_X", {
+                "position_code": "POSITION_ANY",
+                "scale_type": "STEP",
+                "tiers": [
+                    {"upto_per_shift": "1e999999", "rate": "10"},
+                    {"rate": "20"},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "tiers.0.upto_per_shift")
+        assert issue.section == "labor_rates"
+        assert "вне допустимого порядка" in issue.message
+
+    def test_number_at_the_threshold_is_not_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (_item("TYPE_JK830", {"kind": "DRILL_RIG"}),)
+        sections["drilling_conditions"] = (
+            _item("COND_15", {"equipment_type_code": "TYPE_JK830", "tech_speed_m_per_h": "1e15"}),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "tech_speed_m_per_h"] == []
+
+    def test_zero_is_not_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (_item("TYPE_JK830", {"kind": "DRILL_RIG"}),)
+        sections["drilling_conditions"] = (
+            _item("COND_ZERO", {"equipment_type_code": "TYPE_JK830", "tech_speed_m_per_h": "0"}),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "tech_speed_m_per_h"] == []
+
+    # Codex к PR #83: в свободном списке (`ResourcePoolPayload.consumption_norms:
+    # list[dict]`) pydantic не типизирует значения — число остаётся строкой,
+    # `_out_of_range_issues` проверяла только `Decimal`, а `cost/model/unit.py`
+    # позже падает `decimal.Overflow` на той же строке.
+
+    def test_unthinkable_order_number_as_a_string_in_a_free_form_list_is_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_HUGE", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": "1e-999999"},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity")
+        assert issue.section == "resource_pools"
+        assert issue.level == "error"
+        assert "вне допустимого порядка" in issue.message
+
+    def test_ordinary_numbers_and_codes_in_a_free_form_list_are_not_schema_errors(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_OK", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": "1e15"},
+                    {"driver": "downhole_nsi", "units_per_capacity": "0.5"},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.section == "resource_pools"] == []
+
+    # Codex к голове bc141e2 (PR #83): в свободном значении разбираются
+    # `Decimal` и строки-числа, а JSON-числа (`int`/`float`) проходят без
+    # проверки — тот же порядок, отвергнутый строкой, публикуется как
+    # `float`, и `cost/model/unit.py` позже делит на него.
+
+    def test_unthinkable_order_float_in_a_free_form_list_is_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_HUGE_FLOAT", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": 1e-320},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity")
+        assert issue.section == "resource_pools"
+        assert "вне допустимого порядка" in issue.message
+
+    def test_unthinkable_order_int_in_a_free_form_list_is_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_HUGE_INT", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": 10**16},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        issue = next(issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity")
+        assert issue.section == "resource_pools"
+        assert "вне допустимого порядка" in issue.message
+
+    @pytest.mark.parametrize("value", [0.5, 2, True])
+    def test_ordinary_json_numbers_in_a_free_form_list_are_not_schema_errors(self, value):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_OK_JSON", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": value},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.section == "resource_pools"] == []
+
+    def test_non_finite_float_in_a_free_form_list_does_not_crash_validation(self):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_INF", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": float("inf")},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity"] == []
+
+    # Codex (P1) к голове 76dafc3 (PR #83): обход по `model_dump()` не
+    # отличает типизированное поле схемы от свободного значения — строка
+    # разбиралась как число в любом строковом поле, в том числе в объявленном
+    # схемой тексте вроде `equipment_assets.serial_number`/`inventory_number`.
+
+    def test_a_long_digit_string_in_a_typed_text_field_is_not_a_schema_error(self):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (_item("TYPE_JK830", {"kind": "DRILL_RIG"}),)
+        sections["equipment_assets"] = (
+            _item("ASSET_X", {
+                "equipment_type_code": "TYPE_JK830",
+                "serial_number": "12345678901234567",
+                "inventory_number": "12345678901234567",
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.section == "equipment_assets"] == []
+
+    # Раунд правки 1 к da74c31: "snan"/"sNaN" разбирается в сигнальный
+    # `Decimal('sNaN')` без исключения при парсинге, а `_out_of_range_issue`
+    # сравнивает его с нулём (`value != 0`) — сравнение сигнального NaN
+    # бросает `decimal.InvalidOperation`, и `validate_reference_sections`
+    # падает вместо того, чтобы вернуть список замечаний (API отдал бы 500).
+    # Обычный NaN и Infinity сравниваются без исключения, но по смыслу тоже
+    # не число справочника — тем же путём пропускаем их все.
+
+    @pytest.mark.parametrize("value", ["snan", "sNaN", "NaN", "Infinity"])
+    def test_non_finite_string_in_a_free_form_list_does_not_crash_validation(self, value):
+        sections = dict(default_reference_sections())
+        sections["resource_pools"] = (
+            _item("POOL_NONFINITE", {
+                "consumption_norms": [
+                    {"driver": "downhole_nsi", "units_per_capacity": value},
+                ],
+            }),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "consumption_norms.0.units_per_capacity"] == []
+
+    @pytest.mark.parametrize("value", ["snan", "NaN", "Infinity"])
+    def test_non_finite_string_in_an_ordinary_text_field_does_not_crash_validation(self, value):
+        sections = dict(default_reference_sections())
+        sections["equipment_types"] = (
+            _item("TYPE_JK830", {"kind": "DRILL_RIG", "brand": value}),
+        )
+        issues = _errors(validate_reference_sections(sections))
+        assert [issue for issue in issues if issue.field == "brand"] == []
+
 
 def _errors(issues: list[ValidationIssue]) -> list[ValidationIssue]:
     return [issue for issue in issues if issue.level == "error"]
@@ -387,3 +637,34 @@ class TestNomenclatureRole:
 
         with pytest.raises(ValidationError):
             MaterialPayload.model_validate({"nomenclature_role": "DYNAMITE"})
+
+
+class TestNumericBoundMessages:
+    """Границы `UnitField` (`gt`/`ge`/`le`) — из схемы, а не отдельного правила.
+
+    Крепость породы больше не проверяется валидатором: нижняя граница —
+    строгая (`gt=0`) прямо в поле, и `_humanize` называет её числом из
+    `ctx`, а не общей фразой «вне допустимого диапазона» (решение владельца
+    21.09.2026, TASK-010 PR 1).
+    """
+
+    def test_hardness_schema_declares_a_strict_lower_bound(self):
+        variants = _variants(section_json_schema("rocks")["properties"]["hardness_f"])
+        numeric = next(v for v in variants if v.get("type") == "number")
+        assert numeric.get("exclusiveMinimum") == 0
+        assert "minimum" not in numeric
+
+    @pytest.mark.parametrize("value", ["0", "-1"])
+    def test_non_positive_hardness_is_rejected_with_the_bound_in_the_message(self, value):
+        sections = dict(default_reference_sections())
+        sections["rocks"] = (_item("ROCK_X", {"hardness_f": value}),)
+        issues = _errors(validate_reference_sections(sections))
+        message = next(issue.message for issue in issues if issue.field == "hardness_f")
+        assert message == "Поле «Крепость по Протодьяконову»: должно быть больше 0."
+
+    def test_upper_bound_message_names_the_limit(self):
+        sections = dict(default_reference_sections())
+        sections["sites"] = (_item("SITE_X", {"shift_days_on": "400"}),)
+        issues = _errors(validate_reference_sections(sections))
+        message = next(issue.message for issue in issues if issue.field == "shift_days_on")
+        assert message == "Поле «Дней вахты»: должно быть не больше 366."

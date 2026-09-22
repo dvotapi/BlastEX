@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic_core import InitErrorDetails, PydanticCustomError
@@ -70,16 +70,25 @@ def UnitField(  # noqa: N802
     default: Any = ...,
     ge: float | None = 0,
     le: float | None = None,
+    gt: float | None = None,
     title: str | None = None,
 ) -> Any:
     """Число с единицей измерения.
 
     Единица обязательна: без неё сметчик не понимает, руб/смену перед ним или
     руб/месяц. Для безразмерных величин передаётся пустая строка.
+
+    `gt` — строгая нижняя граница (значение само в диапазон не входит, как у
+    крепости породы: нуль — не «мягкая порода», а незаполненное поле). Когда
+    она задана, умолчание `ge=0` не передаётся в `Field`, иначе pydantic
+    получит обе границы разом и на нуле молчаливо победит менее строгая `ge`.
     """
 
     extra: dict[str, Any] = {"x-unit": unit}
-    return Field(default, description=description, title=title, ge=ge, le=le, json_schema_extra=extra)
+    return Field(
+        default, description=description, title=title, ge=None if gt is not None else ge, gt=gt, le=le,
+        json_schema_extra=extra,
+    )
 
 
 def RateField(  # noqa: N802
@@ -94,22 +103,29 @@ def RateField(  # noqa: N802
     return Field(default, description=description, title=title, ge=0, le=1, json_schema_extra=extra)
 
 
-def field_error(model: type[BaseModel], field: str, message: str, value: Any = None) -> NoReturn:
+def field_error(
+    model: type[BaseModel],
+    field: str | Sequence[str | int],
+    message: str,
+    value: Any = None,
+) -> NoReturn:
     """Ошибка перекрёстной проверки, привязанная к полю.
 
     `raise ValueError` в `model_validator` даёт ошибку без имени поля, и
     интерфейс показывает её общим списком над формой. Сметчику нужно видеть
     ошибку под тем полем, которое он забыл заполнить, поэтому собираем ошибку
-    с явным `loc`.
+    с явным `loc`. Путь внутрь списка — кортеж `("tiers", 1, "rate")`: форма
+    покажет ошибку под подполем нужной строки.
     """
 
+    loc = (field,) if isinstance(field, str) else tuple(field)
     raise ValidationError.from_exception_data(
         model.__name__,
         [
             InitErrorDetails(
                 # Текст подставляется через контекст: шаблон должен быть литералом.
                 type=PydanticCustomError("value_error", "{message}", {"message": message}),
-                loc=(field,),
+                loc=loc,
                 input=value,
             )
         ],

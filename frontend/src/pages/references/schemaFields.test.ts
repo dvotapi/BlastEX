@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  boundError,
+  boundErrors,
   decimalText,
   defaultPayload,
   describeField,
@@ -205,6 +207,25 @@ describe("НДС и форматирование", () => {
     expect(formatFieldValue("21", field).replace(/\s/g, " ")).toBe("21 см/мес");
     expect(formatFieldValue(null, field)).toBe("—");
   });
+
+  it("целое поле схемы показывается без разделителя разрядов", () => {
+    // Фрагмент схемы «Параметров года для ФОТ»: год — integer, МРОТ — Decimal.
+    const year = describeField("year", {
+      type: "integer",
+      minimum: 2000,
+      maximum: 2100,
+      title: "Год",
+      "x-unit": "год",
+    });
+    const mrot = describeField("mrot", {
+      anyOf: [{ minimum: 0, type: "number" }, { pattern: "^\\d+$", type: "string" }],
+      title: "МРОТ",
+      "x-unit": "₽/мес",
+    });
+    expect(formatFieldValue(2026, year)).toBe("2026 год");
+    expect(formatFieldValue("2026", year)).toBe("2026 год");
+    expect(formatFieldValue("27093", mrot).replace(/\s/g, " ")).toBe("27 093 ₽/мес");
+  });
 });
 
 describe("числовые поля раздела", () => {
@@ -406,5 +427,115 @@ describe("fieldErrorShown: путь ошибки, который форма ри
       properties: { items: { type: "array", items: { $ref: "#/$defs/Item" }, title: "Состав" } },
     };
     expect(fieldErrorShown("items.0", sectionFields(internalOnly), { items: [{}] })).toBe(false);
+  });
+});
+
+describe("boundError: граница числового поля из схемы", () => {
+  // Как «Крепость по Протодьяконову» в разделе rocks: gt=0 на сервере даёт
+  // exclusiveMinimum в JSON Schema.
+  const strictlyPositive = describeField("hardness_f", {
+    anyOf: [{ exclusiveMinimum: 0, type: "number" }, { type: "string" }, { type: "null" }],
+    title: "Крепость",
+    "x-unit": "f",
+  });
+
+  it("значение на строгой нижней границе или за ней — ошибка с текстом сервера", () => {
+    expect(boundError(strictlyPositive, "0")).toBe("Должно быть больше 0");
+    expect(boundError(strictlyPositive, "-1")).toBe("Должно быть больше 0");
+  });
+
+  it("значение с запятой внутри границы — не ошибка", () => {
+    expect(boundError(strictlyPositive, "0,5")).toBeNull();
+  });
+
+  it("пустое значение — не ошибка: обязательность проверяет сервер", () => {
+    expect(boundError(strictlyPositive, "")).toBeNull();
+  });
+
+  it("нечисловой ввод — не ошибка: о нём скажет сервер", () => {
+    expect(boundError(strictlyPositive, "полтора")).toBeNull();
+  });
+
+  // Как «Дней вахты» в разделе sites: ge/le обычные, не строгие.
+  const bounded = describeField("shift_days_on", {
+    anyOf: [{ minimum: 0, maximum: 366, type: "number" }, { type: "string" }],
+    title: "Дней вахты",
+    "x-unit": "дн",
+  });
+
+  it("minimum и maximum проверяются нестрого", () => {
+    expect(boundError(bounded, "-1")).toBe("Должно быть не меньше 0");
+    expect(boundError(bounded, "0")).toBeNull();
+    expect(boundError(bounded, "400")).toBe("Должно быть не больше 366");
+    expect(boundError(bounded, "366")).toBeNull();
+  });
+
+  it("нечисловое поле границу не проверяет", () => {
+    const text = describeField("comment", { type: "string", title: "Комментарий" });
+    expect(boundError(text, "что угодно")).toBeNull();
+  });
+});
+
+// Раздел со списком строк геологии: подполе share ограничено долей от 0 до 1,
+// как в перекрёстных проверках ФОТ.
+const GEOLOGY_SCHEMA: JsonSchemaObject = {
+  type: "object",
+  $defs: {
+    GeologyShare: {
+      type: "object",
+      properties: {
+        share: {
+          anyOf: [{ minimum: 0, maximum: 1, type: "number" }, { type: "string" }],
+          default: "0",
+          title: "Доля",
+        },
+      },
+    },
+  },
+  properties: {
+    geology: { type: "array", items: { $ref: "#/$defs/GeologyShare" }, title: "Геология" },
+  },
+};
+
+describe("boundErrors: границы полей верхнего уровня и подполей строк списков", () => {
+  const fields = sectionFields(GEOLOGY_SCHEMA);
+
+  it("подполе строки за верхней границей — ключ поле.индекс.подполе", () => {
+    const errors = boundErrors(fields, { geology: [{ share: "0.5" }, { share: "1,5" }] });
+    expect(errors.get("geology.1.share")).toBe("Должно быть не больше 1");
+    expect(errors.has("geology.0.share")).toBe(false);
+  });
+
+  it("подполе строки за нижней границей", () => {
+    const errors = boundErrors(fields, { geology: [{ share: "-1" }] });
+    expect(errors.get("geology.0.share")).toBe("Должно быть не меньше 0");
+  });
+
+  it("пустое подполе и нечисловой текст — без ошибки", () => {
+    const errors = boundErrors(fields, { geology: [{ share: "" }, { share: "много" }] });
+    expect(errors.size).toBe(0);
+  });
+
+  it("строка списка не-объект пропускается", () => {
+    const errors = boundErrors(fields, { geology: ["не объект", ["a", "b"]] });
+    expect(errors.size).toBe(0);
+  });
+
+  it("границы верхнего уровня и подполей списка живут в одной карте", () => {
+    const schema: JsonSchemaObject = {
+      type: "object",
+      $defs: GEOLOGY_SCHEMA.$defs,
+      properties: {
+        hardness_f: {
+          anyOf: [{ exclusiveMinimum: 0, type: "number" }, { type: "string" }],
+          title: "Крепость",
+        },
+        ...GEOLOGY_SCHEMA.properties,
+      },
+    };
+    const combinedFields = sectionFields(schema);
+    const errors = boundErrors(combinedFields, { hardness_f: "0", geology: [{ share: "1,5" }] });
+    expect(errors.get("hardness_f")).toBe("Должно быть больше 0");
+    expect(errors.get("geology.0.share")).toBe("Должно быть не больше 1");
   });
 });

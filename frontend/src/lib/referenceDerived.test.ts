@@ -77,6 +77,37 @@ describe("подсказки условия бурения", () => {
   });
 });
 
+describe("подсказки шкалы сдельной премии", () => {
+  const ctx = context({});
+  const curve = {
+    scale_type: "CURVE_POWER",
+    norm_per_shift: "115.3846",
+    rate_norm: "45",
+    ceiling_per_shift: "184.6154",
+    rate_ceiling: "168.66",
+  };
+
+  it("степенная кривая: γ и премия за смену на норме и потолке", () => {
+    const hints = derivedHints("labor_rates", "RATE_DRILLER", curve, ctx);
+    expect(hints.map((hint) => hint.label)).toEqual(["Показатель кривой γ", "Премия за смену: норма · потолок"]);
+    expect(hints[0].value).toBe("2,811");
+    expect(hints[1].value.replace(/\s/g, " ")).toBe("5 192,31 ₽ · 12 000,05 ₽");
+  });
+
+  it("линейная кривая: трапеция между узлами, без γ", () => {
+    const hints = derivedHints("labor_rates", "RATE_DRILLER", { ...curve, scale_type: "CURVE_LINEAR" }, ctx);
+    expect(hints).toHaveLength(1);
+    // 12 588,23 × 13 смен = 163 647 ₽ — эталон линейной кривой при 2 400 м (решения, §7).
+    expect(hints[0].value.replace(/\s/g, " ")).toBe("5 192,31 ₽ · 12 588,23 ₽");
+  });
+
+  it("без полного набора узлов, у ступеней и у несогласованной кривой подсказки нет", () => {
+    expect(derivedHints("labor_rates", "R", { ...curve, rate_ceiling: "" }, ctx)).toEqual([]);
+    expect(derivedHints("labor_rates", "R", { scale_type: "STEP", tiers: [] }, ctx)).toEqual([]);
+    expect(derivedHints("labor_rates", "R", { ...curve, ceiling_per_shift: "100" }, ctx)).toEqual([]);
+  });
+});
+
 describe("ставки организации", () => {
   it("НДС и часы смены берутся из активной записи", () => {
     const ctx = context({ organization_rates: [RATES] });

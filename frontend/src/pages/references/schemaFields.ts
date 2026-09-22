@@ -26,6 +26,11 @@ export type FieldDescriptor = {
   internal: boolean;
   minimum?: number;
   maximum?: number;
+  /** Строгие границы (`gt`/`lt` на сервере): значение само в диапазон не входит. */
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
+  /** Схема задаёт целое (`integer`), а не Decimal. */
+  integer: boolean;
   defaultValue: unknown;
   /** Для списков: описание элемента. Объектный элемент раскрывается в подполя. */
   itemKind?: "text" | "object" | "free";
@@ -124,6 +129,9 @@ export function describeField(
     internal: node["x-internal"] === true,
     minimum: pick(node, (variant) => variant.minimum),
     maximum: pick(node, (variant) => variant.maximum),
+    exclusiveMinimum: pick(node, (variant) => variant.exclusiveMinimum),
+    exclusiveMaximum: pick(node, (variant) => variant.exclusiveMaximum),
+    integer: type === "integer",
     defaultValue: node.default,
     ...(kind === "list" ? describeItem(itemsNode, defs) : {}),
   };
@@ -405,9 +413,72 @@ export function parseNumber(value: unknown): number | null {
 }
 
 const NUMBER_FORMAT = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 });
+// Целое поле схемы — год, номер: с разделителем разрядов «2 026 год» читается
+// как опечатка.
+const INTEGER_FORMAT = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3, useGrouping: false });
 
 export function formatNumber(value: number): string {
   return NUMBER_FORMAT.format(value);
+}
+
+/**
+ * Ошибка границы числового поля верхнего уровня — общий механизм вместо
+ * знания о конкретном поле (крепость породы, дни вахты и любое другое число
+ * с `gt`/`ge`/`lt`/`le` в схеме проверяются одинаково).
+ *
+ * Пустое значение и нечисловой ввод не считаются ошибкой границы: об
+ * обязательности и формате числа скажет сервер. Тексты — те же, что
+ * `_humanize` на сервере (`cost/v2/references.py`), но без имени поля: его
+ * уже называет подпись над полем.
+ */
+export function boundError(field: FieldDescriptor, value: unknown): string | null {
+  if (field.kind !== "number") return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const parsed = parseNumber(value);
+  if (parsed === null) return null;
+  if (field.exclusiveMinimum !== undefined && parsed <= field.exclusiveMinimum) {
+    return `Должно быть больше ${formatNumber(field.exclusiveMinimum)}`;
+  }
+  if (field.minimum !== undefined && parsed < field.minimum) {
+    return `Должно быть не меньше ${formatNumber(field.minimum)}`;
+  }
+  if (field.exclusiveMaximum !== undefined && parsed >= field.exclusiveMaximum) {
+    return `Должно быть меньше ${formatNumber(field.exclusiveMaximum)}`;
+  }
+  if (field.maximum !== undefined && parsed > field.maximum) {
+    return `Должно быть не больше ${formatNumber(field.maximum)}`;
+  }
+  return null;
+}
+
+/**
+ * Ошибки границы всех числовых полей формы: верхнего уровня и подполей строк
+ * списков — тот же общий механизм `boundError`, без знания о конкретном поле
+ * или разделе.
+ *
+ * Ключ подполя — `${имя поля}.${индекс строки}.${имя подполя}`: тот же путь,
+ * которым сервер адресует ошибку внутри списка (`listItemErrors` его уже
+ * понимает), поэтому `ListField` показывает ошибку под подполем нужной
+ * строки. Строка не-объект (текстовый список, битое значение) пропускается —
+ * там подполей нет.
+ */
+export function boundErrors(fields: FieldDescriptor[], values: FormValues): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const field of fields) {
+    const message = boundError(field, values[field.name]);
+    if (message) map.set(field.name, message);
+    if (!hasItemFields(field)) continue;
+    const rows = values[field.name];
+    if (!Array.isArray(rows)) continue;
+    rows.forEach((row, index) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return;
+      for (const sub of field.itemFields) {
+        const subMessage = boundError(sub, (row as Record<string, unknown>)[sub.name]);
+        if (subMessage) map.set(`${field.name}.${index}.${sub.name}`, subMessage);
+      }
+    });
+  }
+  return map;
 }
 
 /** Значение поля для списка записей: число с единицей, код ссылки, «да/нет». */
@@ -420,7 +491,8 @@ export function formatFieldValue(value: unknown, field: FieldDescriptor | undefi
     case "number": {
       const parsed = parseNumber(value);
       if (parsed === null) return String(value);
-      return field.unit ? `${formatNumber(parsed)} ${field.unit}` : formatNumber(parsed);
+      const text = field.integer ? INTEGER_FORMAT.format(parsed) : formatNumber(parsed);
+      return field.unit ? `${text} ${field.unit}` : text;
     }
     case "list":
       return Array.isArray(value) ? `${value.length}` : "—";

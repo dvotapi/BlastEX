@@ -53,6 +53,11 @@ from cost.v2.schemas.organization import (
     ProductionUnitPayload,
     SitePayload,
 )
+from cost.v2.schemas.payroll import (
+    DowntimeReasonPayload,
+    DrillingDifficultyPayload,
+    PayrollParamsPayload,
+)
 
 __all__ = [
     "SECTION_SCHEMAS",
@@ -69,20 +74,33 @@ __all__ = [
 # набором в порядке объявления схемы.
 SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "positions": (
-        ("Роль", ("category", "operation_code")),
+        ("Роль", ("category", "department", "operation_code")),
         ("Нормативы", ("norm_shifts_per_month", "norm_operations_per_month")),
         ("Сдельная часть", ("piece_driver", "piece_unit")),
+        ("Оплата труда", ("pay_system", "output_unit", "output_source", "difficulty")),
+        ("Условия труда", (
+            "work_conditions_class", "week_hours_override", "hazard_pct",
+            "extra_vacation_days", "night_hours_per_shift",
+        )),
         ("Прочее", ("per_diem_applies",)),
     ),
     "labor_rates": (
         ("Должность", ("position_code", "condition_code")),
-        ("Постоянная часть", ("fixed_monthly_rub",)),
+        ("Постоянная часть", ("fixed_monthly_rub", "kpi_bonus_pct")),
         ("Сдельная часть", ("piece_rate_rub",)),
+        ("Шкала сдельной премии", (
+            "scale_type", "norm_per_shift", "rate_norm", "ceiling_per_shift", "rate_ceiling", "tiers",
+        )),
+    ),
+    "payroll_params": (
+        ("Календарь", ("year", "work_days_year", "holidays_year", "annual_hours_40", "annual_hours_36")),
+        ("Оплата", ("mrot", "night_pct", "vacation_days_base")),
+        ("Контроль", ("margin_share_warn",)),
     ),
     "organization_rates": (
         ("Налоги и взносы", (
             "income_tax_rate", "social_contribution_rate", "injury_insurance_rate",
-            "vacation_reserve_rate", "salary_basis",
+            "vacation_reserve_rate", "salary_basis", "extra_tariffs",
         )),
         ("Надбавки", ("overhead_rate", "target_margin_rate", "vat_rate")),
         ("Вахта и смена", ("per_diem_rub", "lodging_rub", "shift_hours")),
@@ -111,6 +129,11 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
             "mobilization_rate_rub_per_km", "blocks_per_mobilization",
         )),
         ("Условия", ("diesel_price_ton_rub", "customer_provides_fuel", "is_watered", "is_remote")),
+        ("Вахта и оплата труда", (
+            "shift_days_on", "shift_days_off", "travel_days", "night_shift_share", "maintenance_shifts",
+            "regional_coefficient", "northern_pct", "contract_k",
+        )),
+        ("Геология", ("geology",)),
     ),
     "unit_fixed_costs": (
         ("Отнесение", ("production_unit_code", "scope", "category", "allocation_driver")),
@@ -137,11 +160,14 @@ SECTION_SCHEMAS: dict[str, type[ReferencePayload]] = {
     "positions": PositionPayload,
     "labor_rates": LaborRatePayload,
     "crew_templates": CrewTemplatePayload,
+    "payroll_params": PayrollParamsPayload,
+    "downtime_reasons": DowntimeReasonPayload,
     "equipment_types": EquipmentTypePayload,
     "equipment_assets": EquipmentAssetPayload,
     "resource_pools": ResourcePoolPayload,
     "resource_norms": ResourceNormPayload,
     "drilling_conditions": DrillingConditionPayload,
+    "drilling_difficulty": DrillingDifficultyPayload,
     "rocks": RockPayload,
     "blast_design_parameters": BlastDesignParameterPayload,
     "bench_surface_conditions": BenchSurfaceConditionPayload,

@@ -348,6 +348,28 @@ def test_rejects_file_unignored_by_requested_commit(stand: Stand) -> None:
     assert stand.marker() == ignoring
 
 
+def test_keeps_ignored_server_file_that_requested_commit_tracks(stand: Stand) -> None:
+    # По умолчанию checkout молча перезаписывает игнорируемый файл, если
+    # новый коммит начал его отслеживать, — локальное значение прода
+    # потерялось бы, а проверка после checkout прошла бы.
+    ignoring = stand.commit("ignore local config", {".gitignore": ".env\nlocal.cfg\n"})
+    assert stand.run(ignoring).returncode == 0
+    local = stand.app / "local.cfg"
+    local.write_text("production value\n", encoding="utf-8")
+    tracking = stand.commit(
+        "track local config", {".gitignore": ".env\n", "local.cfg": "from repo\n"}
+    )
+
+    result = stand.run(tracking)
+
+    assert result.returncode == REJECTED, result.stderr
+    assert "local.cfg" in result.stderr
+    assert local.read_text(encoding="utf-8") == "production value\n"
+    assert stand.deployed() == [ignoring]
+    assert stand.head() == ignoring
+    assert stand.marker() == ignoring
+
+
 def test_ignored_runtime_files_do_not_block_deploy(stand: Stand) -> None:
     # .env лежит в рабочей копии сервера и в git не входит.
     sha = stand.commit("second")

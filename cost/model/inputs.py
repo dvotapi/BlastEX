@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from typing import Any, Iterable, Literal, Mapping
 
 from cost.v2.models import (
@@ -134,7 +134,11 @@ def formula_number(value: Decimal) -> str:
     if number.is_zero():
         return "0"
     if abs(number) >= 1:
-        rounded = number.quantize(_CENTS, rounding=ROUND_HALF_UP)
+        # Целая часть вместе с сотыми может не влезть в 28 знаков общего
+        # контекста Decimal: точности даётся ровно столько, сколько нужно.
+        with localcontext() as local:
+            local.prec = max(local.prec, number.adjusted() + 3)
+            rounded = number.quantize(_CENTS, rounding=ROUND_HALF_UP)
     else:
         step = Decimal(1).scaleb(number.adjusted() - _SIGNIFICANT_DIGITS + 1)
         rounded = number.quantize(step, rounding=ROUND_HALF_UP)

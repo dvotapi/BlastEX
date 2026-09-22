@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from cost.model import logistics
 from cost.model.inputs import ModelContext
 from tests import model_fixtures as fx
@@ -62,3 +64,14 @@ def test_package_without_delivery_produces_no_logistics_lines() -> None:
 
     assert "szm_shifts" not in context.values
     assert "vm_tkm" not in context.values
+
+
+@pytest.mark.parametrize(("cartridge_kg", "trips"), [(2200, "1 рейс"), (6000, "2 рейса"), (15000, "5 рейсов")])
+def test_delivery_fuel_formula_declines_the_trips(cartridge_kg: int, trips: str) -> None:
+    """«1 рейс», «2 рейса», «5 рейсов» — а не «рейсов» при любом числе."""
+
+    context = _context(cartridge_kg=cartridge_kg, bulk_kg=42000 - cartridge_kg)
+    logistics.compute(context)
+
+    line = next(row for row in context.lines if row.cost_item_code == "VM_TRANSPORT_FUEL")
+    assert line.formula.startswith(f"{trips} × ")

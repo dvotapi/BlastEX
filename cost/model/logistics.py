@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_CEILING
 
-from cost.model.inputs import ModelContext, formula_number, payload_number
+from cost.model.inputs import ModelContext, formula_number, formula_quantity, payload_number
 from cost.v2.models import CostLayer, ReferenceItem
 
 
@@ -158,7 +158,7 @@ def _vehicle_fuel(
             return
         km = trips * distance_km * Decimal("2")
         litres = km * fuel_l_per_km
-        formula = f"{formula_number(trips)} рейсов × {formula_number(distance_km)} км × 2 × {formula_number(fuel_l_per_km)} л/км × {formula_number(price)} ₽/л"
+        formula = f"{formula_quantity(trips, 'рейс')} × {formula_number(distance_km)} км × 2 × {formula_number(fuel_l_per_km)} л/км × {formula_number(price)} ₽/л"
         context.set_value(f"{cost_item_code.lower()}_km", km, "рейсы × плечо × 2")
     else:
         fuel_l_per_h = payload_number(vehicle, "fuel_l_per_h")

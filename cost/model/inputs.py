@@ -151,6 +151,41 @@ def formula_number(value: Decimal) -> str:
     return f"{sign}{grouped},{fraction}" if fraction else f"{sign}{grouped}"
 
 
+# Единицы-слова склоняются по числу: «1 рейс», «2 рейса», «5 рейсов».
+# Сокращения («см», «шт», «чел») не склоняются и сюда не входят.
+_WORD_UNIT_FORMS: dict[str, tuple[str, str, str]] = {
+    "рейс": ("рейс", "рейса", "рейсов"),
+    "взрыв": ("взрыв", "взрыва", "взрывов"),
+    "доля": ("доля", "доли", "долей"),
+}
+
+
+def formula_quantity(value: Decimal, unit: str) -> str:
+    """Количество с единицей для формулы: «2 рейса», «1 224 шт»; без единицы — одно число."""
+
+    number = formula_number(value)
+    if not unit:
+        return number
+    forms = _WORD_UNIT_FORMS.get(unit)
+    if forms is not None:
+        unit = forms[_plural_form(number)]
+    return f"{number} {unit}"
+
+
+def _plural_form(number: str) -> int:
+    """Форма слова по числу, как оно напечатано; дробь читается «1,5 рейса»."""
+
+    digits = number.lstrip("-").replace(_GROUP_SEPARATOR, "")
+    if not digits.isdigit():
+        return 1
+    count = int(digits)
+    if count % 10 == 1 and count % 100 != 11:
+        return 0
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return 1
+    return 2
+
+
 @dataclass(frozen=True)
 class CrewMember:
     """Строка состава бригады на вкладке.
@@ -684,6 +719,7 @@ __all__ = [
     "ServiceCharge",
     "driver_unit",
     "formula_number",
+    "formula_quantity",
     "find_items",
     "payload_number",
     "payload_text",

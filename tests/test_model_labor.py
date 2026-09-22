@@ -1,3 +1,4 @@
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -86,6 +87,24 @@ def test_empty_piece_driver_warns_instead_of_silent_zero(physical: dict[str, Dec
         "Сдельная часть должности «Водитель-оператор СЗМ» не начислена: количество, "
         "за которое платится сделка (кг), в паспорте блока не задано или равно нулю."
     ) in context.warnings
+
+
+def test_piece_warning_without_a_unit_has_no_empty_brackets() -> None:
+    """Величина без подписи: «сделка не начислена…», а не «сделка ()»."""
+
+    positions = tuple(
+        replace(item, payload={**item.payload, "piece_driver": "moon_phases"})
+        if item.code == "POS_SZM_DRIVER"
+        else item
+        for item in fx.POSITIONS
+    )
+    context = ModelContext(fx.references(positions=positions), fx.parameters(), fx.physical())
+    drilling.compute(context)
+    labor.compute(context)
+
+    warning = next(text for text in context.warnings if "Водитель-оператор СЗМ" in text)
+    assert "()" not in warning
+    assert "за которое платится сделка, в паспорте блока не задано" in warning
 
 
 def test_driller_shifts_follow_rig_and_rotation_follows_plan() -> None:

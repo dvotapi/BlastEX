@@ -18,6 +18,7 @@ from cost.model.inputs import (
     ModelContext,
     driver_unit,
     formula_number,
+    formula_quantity,
     ModelParameters,
     payload_number,
     payload_text,
@@ -229,10 +230,7 @@ def _rule_amount(context: ModelContext, rule: ReferenceItem) -> RuleCharge:
         amount += rate * driver_value
         # Сметчик читает «ткм», а не `vm_tkm`; величина без подписи остаётся
         # голым числом — код драйвера в формуле хуже пустоты.
-        unit_label = driver_unit(driver_name)
-        quantity = formula_number(driver_value)
-        if unit_label:
-            quantity = f"{quantity} {unit_label}"
+        quantity = formula_quantity(driver_value, driver_unit(driver_name))
         parts.append(f"{formula_number(rate)} ₽ × {quantity}")
     if fixed != 0:
         amount += fixed

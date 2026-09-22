@@ -93,6 +93,8 @@
 .kuzram-legend i.open { display:inline-block; width:9px; height:9px; border:2px solid #748079; border-radius:50%; background:#fff; }
 .kuzram-dialog i.fact { display:inline-block; width:8px; height:8px; border-radius:1px; background:#17231d; transform:rotate(45deg); }
 @media (max-width:760px) { .kuzram-summary { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } }
+/* На телефоне SVG графика ужат примерно вдвое — подписи в единицах viewBox увеличены. */
+@media (max-width:760px) { .kuzram-chart text, .kuzram-chart .axis-title { font-size:20px; } }
 .kuzram-breakdown th[scope="row"] { min-width:200px; color:#3b4b43; font-weight:var(--font-weight-body); text-align:left; white-space:normal; }
 .kuzram-breakdown th[scope="row"] small { display:block; color:#7b8982; font-size:10px; }
 .kuzram-breakdown tr.key th, .kuzram-breakdown tr.key td { color:#17231d; font-weight:var(--font-weight-strong); }
@@ -125,7 +127,8 @@
 .kuzram-help dl { display:grid; gap:4px; margin:0 0 8px; }
 .kuzram-help dt { margin-top:6px; color:#17231d; font-weight:var(--font-weight-strong); }
 .kuzram-help dd { margin:0; }
-.kuzram-help .kuzram-table { width:auto; margin:6px 0 10px; }
+.kuzram-help .kuzram-table { width:auto; }
+.kuzram-help .kuzram-table-scroll { margin:6px 0 10px; }
 .kuzram-help .example-note { color:#745014; }
 .kuzram-help details { margin-top:14px; }
 .kuzram-help summary { color:#17231d; cursor:pointer; font-weight:var(--font-weight-strong); }

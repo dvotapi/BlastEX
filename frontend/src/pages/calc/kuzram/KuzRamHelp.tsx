@@ -165,28 +165,30 @@ export function KuzRamHelp() {
         <section aria-labelledby="kuzram-example-calibration">
           <h4 id="kuzram-example-calibration">Подбор C(A) по фактическим взрывам</h4>
           <p className="example-note">Взрывы условные — только для иллюстрации.</p>
-          <table className="kuzram-table">
-            <thead>
-              <tr>
-                <th scope="col">Коронка, мм</th>
-                <th scope="col">q факт, кг/м³</th>
-                <th scope="col">Негабарит факт, %</th>
-                <th scope="col">Kuz-Ram при C(A) = 1, %</th>
-                <th scope="col">C(A) строки</th>
-              </tr>
-            </thead>
-            <tbody>
-              {calibration.facts.map((fact, index) => (
-                <tr key={index}>
-                  <td>{trimmed(fact.crown_mm)}</td>
-                  <td>{ruNumber(fact.q_kg_m3, 2)}</td>
-                  <td>{ruNumber(fact.oversize_pct, 1)}</td>
-                  <td>{ruNumber(calibration.rows[index].model_oversize_pct, 2)}</td>
-                  <td>{trimmed(calibration.rows[index].rock_factor_correction)}</td>
+          <div className="kuzram-table-scroll">
+            <table className="kuzram-table">
+              <thead>
+                <tr>
+                  <th scope="col">Коронка, мм</th>
+                  <th scope="col">q факт, кг/м³</th>
+                  <th scope="col">Негабарит факт, %</th>
+                  <th scope="col">Kuz-Ram при C(A) = 1, %</th>
+                  <th scope="col">C(A) строки</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {calibration.facts.map((fact, index) => (
+                  <tr key={index}>
+                    <td>{trimmed(fact.crown_mm)}</td>
+                    <td>{ruNumber(fact.q_kg_m3, 2)}</td>
+                    <td>{ruNumber(fact.oversize_pct, 1)}</td>
+                    <td>{ruNumber(calibration.rows[index].model_oversize_pct, 2)}</td>
+                    <td>{trimmed(calibration.rows[index].rock_factor_correction)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p>
             Фактический негабарит выше прогноза — порода дробится хуже, чем по формуле, поэтому C(A) больше 1. Итог —
             среднее геометрическое по строкам: C(A) = {trimmed(calibration.rock_factor_correction)}. После подбора коронка{" "}
@@ -197,28 +199,30 @@ export function KuzRamHelp() {
 
         <section aria-labelledby="kuzram-example-methods">
           <h4 id="kuzram-example-methods">Выбор способа расчёта A</h4>
-          <table className="kuzram-table">
-            <thead>
-              <tr>
-                <th scope="col">Способ</th>
-                <th scope="col">RMD или JF</th>
-                <th scope="col">A</th>
-                <th scope="col">q, кг/м³</th>
-                <th scope="col">Сетка a × b, м</th>
-              </tr>
-            </thead>
-            <tbody>
-              {methods.rows.map((row) => (
-                <tr key={row.rock_factor_method}>
-                  <td>{METHOD_NAMES[row.rock_factor_method]}</td>
-                  <td>{trimmed(row.rmd)}</td>
-                  <td>{ruNumber(row.rock_factor_a, 2)}</td>
-                  <td>{ruNumber(row.q_kg_m3, 2)}</td>
-                  <td>{gridText(row.grid_a_m, row.grid_b_m)}</td>
+          <div className="kuzram-table-scroll">
+            <table className="kuzram-table">
+              <thead>
+                <tr>
+                  <th scope="col">Способ</th>
+                  <th scope="col">RMD или JF</th>
+                  <th scope="col">A</th>
+                  <th scope="col">q, кг/м³</th>
+                  <th scope="col">Сетка a × b, м</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {methods.rows.map((row) => (
+                  <tr key={row.rock_factor_method}>
+                    <td>{METHOD_NAMES[row.rock_factor_method]}</td>
+                    <td>{trimmed(row.rmd)}</td>
+                    <td>{ruNumber(row.rock_factor_a, 2)}</td>
+                    <td>{ruNumber(row.q_kg_m3, 2)}</td>
+                    <td>{gridText(row.grid_a_m, row.grid_b_m)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p>
             Коронка {trimmed(methods.crown_mm)} мм, те же исходные данные — а q различается в{" "}
             {trimmed(Math.max(...methodQs) / Math.min(...methodQs), 1)} раза: всё решает оценка массива. Трещиноватость{" "}

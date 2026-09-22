@@ -128,6 +128,9 @@ def formula_number(value: Decimal) -> str:
     """
 
     number = Decimal(value)
+    if not number.is_finite():
+        # Округлять нечего, а формула — пояснение: ронять из-за неё расчёт нельзя.
+        return str(number)
     if number.is_zero():
         return "0"
     if abs(number) >= 1:

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -47,6 +48,42 @@ SCENARIOS = {
     "rules_only": ({}, {}),
     "subcontract": ({}, {"drilling_executor": "SUBCONTRACTOR"}),
     "vm_in_hole": ({}, {"package_code": "VM_IN_HOLE"}),
+    # Ветки, которых нет в остальных сценариях: правило с постоянной частью и
+    # ступенями, услуга за смену, ТОиР техники по месячному бюджету.
+    "extras": (
+        {},
+        {"services": (ServiceCharge("Охрана буровой", Decimal("3500"), operation_code="PRODUCTION_DRILLING", per_shift=True),)},
+    ),
+}
+
+STEP_RULE = fx.item(
+    "RULE_STEMMING_STEPS",
+    "Забойка со ступенями",
+    {
+        "operation_code": "STEMMING",
+        "cost_item_code": "RULE_STEMMING_STEPS",
+        "driver": "holes",
+        "rate_rub": "0.5",
+        "fixed_rub": "1000.5",
+        "step_capacity": "700",
+        "step_cost_rub": "250.25",
+        "estimate_section": "EXPLOSIVES",
+    },
+)
+
+
+def _budget_maintenance(item):
+    if item.code != "SZM_12T":
+        return item
+    payload = {**item.payload, "maintenance_mode": "MONTHLY_BUDGET", "maintenance_monthly_rub": "33333.333"}
+    return replace(item, payload=payload)
+
+
+REFERENCE_OVERRIDES = {
+    "extras": {
+        "cost_rules": (*fx.COST_RULES, STEP_RULE),
+        "equipment_types": tuple(_budget_maintenance(item) for item in fx.EQUIPMENT_TYPES),
+    },
 }
 
 # Латинский идентификатор с подчёркиванием или точкой: `vm_tkm`,
@@ -65,7 +102,9 @@ def service_names(formula: str, known: set[str]) -> set[str]:
 
 def compute(scenario: str):
     drivers, params = SCENARIOS[scenario]
-    references = fx.references(organization_rates=(REMOTE_RATES,))
+    references = fx.references(
+        organization_rates=(REMOTE_RATES,), **REFERENCE_OVERRIDES.get(scenario, {})
+    )
     result = compute_block_economics(
         {"physical": fx.physical(**drivers), "lineage": {}},
         fx.parameters(**params),
@@ -114,6 +153,10 @@ NBSP = "\u00a0"
         ("0E-10", "0"),
         ("1E+3", "1 000"),
         ("-1234.5", "-1 234,5"),
+        # Ровно посередине — от нуля, как Intl в колонках, а не к чётному.
+        ("2.345", "2,35"),
+        ("0.12345", "0,1235"),
+        (3, "3"),
     ],
 )
 def test_formula_number_reads_like_the_columns(value: str, text: str) -> None:
@@ -121,6 +164,13 @@ def test_formula_number_reads_like_the_columns(value: str, text: str) -> None:
     неразрывный пробел, не больше двух знаков; меньше единицы — четыре значащих."""
 
     assert formula_number(Decimal(value)) == text.replace(" ", NBSP)
+
+
+def test_formula_number_does_not_break_the_calculation_on_a_non_finite_value() -> None:
+    """Формула — пояснение: странное число показывается как есть, расчёт не падает."""
+
+    assert formula_number(Decimal("Infinity")) == "Infinity"
+    assert formula_number(Decimal("NaN")) == "NaN"
 
 
 DATE = re.compile(r"\d{2}\.\d{2}\.\d{4}")

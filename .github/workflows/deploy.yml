@@ -17,9 +17,10 @@ on:
 # коммит. Порядок прогонов в группе GitHub не гарантирует, поэтому коммит
 # старше уже выкаченного сервер отклоняет. Проверки PR в эту очередь не встают, иначе они
 # вытесняли бы деплой, а деплой — их: у каждого PR своя группа, и новый push
-# в ветку отменяет её устаревший прогон.
+# в ветку отменяет её устаревший прогон. Ручной запуск на другой ветке не
+# деплоит и тоже идёт в своей группе, чтобы не вытеснить ожидающий деплой.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('blastex-pr-{0}', github.event.pull_request.number) || 'blastex-production' }}
+  group: ${{ github.event_name == 'pull_request' && format('blastex-pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/main' && 'blastex-production' || format('blastex-ref-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

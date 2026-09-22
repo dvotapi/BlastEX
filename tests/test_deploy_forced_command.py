@@ -201,7 +201,7 @@ def test_deploys_tested_commit_when_main_moved_ahead(stand: Stand) -> None:
 @pytest.mark.parametrize(
     "mangle",
     [
-        lambda sha: "",
+        lambda _: "",
         lambda sha: sha[:39],
         lambda sha: sha + "0",
         lambda sha: sha.upper(),
@@ -210,7 +210,7 @@ def test_deploys_tested_commit_when_main_moved_ahead(stand: Stand) -> None:
         lambda sha: sha + "\n",
         lambda sha: sha + ";id",
         lambda sha: f"{sha} {sha}",
-        lambda sha: "main",
+        lambda _: "main",
     ],
     ids=["empty", "short", "long", "upper", "lead-space", "trail-space", "newline",
          "shell", "two-args", "ref-name"],
@@ -367,6 +367,14 @@ def test_workflow_deploys_only_from_main() -> None:
 
     assert "github.event_name != 'pull_request'" in condition
     assert "github.ref == 'refs/heads/main'" in condition
+
+
+def test_workflow_keeps_other_branches_out_of_production_queue() -> None:
+    # Ручной запуск на ветке не деплоит, поэтому в очередь прода вставать не
+    # должен: иначе он вытеснил бы ожидающий деплой main.
+    group = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["concurrency"]["group"]
+
+    assert "github.ref == 'refs/heads/main' && 'blastex-production'" in group
 
 
 def _run_deploy_step(tmp_path: Path, codes: str) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:

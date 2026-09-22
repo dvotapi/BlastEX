@@ -1,7 +1,8 @@
 import { useEffect, useId, useState } from "react";
+import { ruNumber } from "../../../lib/format";
 import type { KuzRamSettings, RockFactorMethod, StrengthExponent } from "../../../types";
-import { trimmed } from "./kuzramFormat";
-import { KUZRAM_DEFAULTS, parseDecimal, sameSettings, settingError, type NumericSetting } from "./kuzramSettings";
+import { Q_MIN_KG_M3, trimmed } from "./kuzramFormat";
+import { KUZRAM_DEFAULTS, numericBounds, parseDecimal, sameSettings, settingError, type NumericSetting } from "./kuzramSettings";
 
 type Option<T> = { value: T; label: string };
 
@@ -134,6 +135,7 @@ export function KuzRamSettingsForm({
     onChange({ ...settings, [key]: value });
   }
   const method = settings.rock_factor_method;
+  const manualBounds = numericBounds("rock_factor_manual");
 
   return (
     <fieldset className="kuzram-settings">
@@ -143,7 +145,7 @@ export function KuzRamSettingsForm({
         <NumberSetting
           field="rock_factor_manual"
           label="A вручную"
-          hint="из опыта или отчёта, от 0,5 до 30"
+          hint={`из опыта или отчёта, от ${trimmed(manualBounds.min)} до ${trimmed(manualBounds.max)}`}
           value={settings.rock_factor_manual}
           onCommit={(value) => set("rock_factor_manual", value)}
         />
@@ -194,7 +196,7 @@ export function KuzRamSettingsForm({
       <NumberSetting
         field="q_max_kg_m3"
         label="Верхняя граница перебора q, кг/м³"
-        hint="перебор идёт от 0,10 с шагом 0,01"
+        hint={`перебор идёт от ${ruNumber(Q_MIN_KG_M3, 2)} с шагом 0,01`}
         value={settings.q_max_kg_m3}
         onCommit={(value) => set("q_max_kg_m3", value)}
       />

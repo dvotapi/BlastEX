@@ -1,6 +1,7 @@
 import { ruNumber } from "../../../lib/format";
 import examples from "./helpExamples.json";
-import { gridText, qDeltaText, trimmed } from "./kuzramFormat";
+import { gridText, Q_MIN_KG_M3, qDeltaText, trimmed } from "./kuzramFormat";
+import { KUZRAM_DEFAULTS, numericBounds } from "./kuzramSettings";
 
 const SOURCE_URL =
   "https://www.smctesting.com/documents/mine-to-mill/The%20kuz%20ram%20fragmentation%20model%2020%20years%20on.pdf";
@@ -37,6 +38,14 @@ export function KuzRamHelp() {
   const { source, basic, calibration, methods, not_reached: notReached, joint_switch: jointSwitch } = examples;
   const methodQs = methods.rows.map((row) => row.q_kg_m3);
   const jf = methods.rows.find((row) => row.rock_factor_method === "joint_factor");
+  // Границы и умолчания — из контракта (`kuzramContract.json`), а не переписаны
+  // в тексте: справка не разойдётся с формой при их изменении.
+  const manualBounds = numericBounds("rock_factor_manual");
+  const correctionBounds = numericBounds("rock_factor_correction");
+  const deviationBounds = numericBounds("drill_deviation_m");
+  const uniformityBounds = numericBounds("uniformity_correction");
+  const qMaxBounds = numericBounds("q_max_kg_m3");
+  const qMaxDefault = ruNumber(KUZRAM_DEFAULTS.q_max_kg_m3, 1);
 
   return (
     <div className="kuzram-help">
@@ -44,7 +53,8 @@ export function KuzRamHelp() {
         <h3 id="kuzram-help-what">Что делает модель</h3>
         <p>
           Для каждой выбранной коронки модель ищет наименьший удельный расход ВВ q, при котором доля негабарита не
-          превышает допустимую. q перебирается с шагом 0,01 кг/м³ от 0,10 до верхней границы перебора (по умолчанию 2,0).
+          превышает допустимую. q перебирается с шагом 0,01 кг/м³ от {ruNumber(Q_MIN_KG_M3, 2)} до верхней границы
+          перебора (по умолчанию {qMaxDefault}).
         </p>
         <p>
           При каждом q считаются заряд скважины Q, объём на скважину V = Q/q и сетка: линия наименьшего сопротивления W и
@@ -77,8 +87,8 @@ export function KuzRamHelp() {
           <dd>
             Насколько порода сопротивляется дроблению: A = 0,06·(RMD + RDI + HF). RDI = 25·ρ − 50 учитывает плотность,
             HF = UCS/5 — прочность на сжатие. RMD описывает массив: 50 — монолитный (трещины реже скважин), 10 —
-            раздробленный; JF — по трещиноватости из справочника пород. «Задать вручную» — A из опыта или отчёта, от 0,5
-            до 30. Умолчание — RMD 50.
+            раздробленный; JF — по трещиноватости из справочника пород. «Задать вручную» — A из опыта или отчёта, от{" "}
+            {trimmed(manualBounds.min)} до {trimmed(manualBounds.max)}. Умолчание — RMD 50.
           </dd>
           <dt>Как выбрать способ A</dt>
           <dd>
@@ -94,17 +104,28 @@ export function KuzRamHelp() {
           </dd>
           <dt>Поправка C(A)</dt>
           <dd>
-            Множитель к A, от 0,1 до 10, умолчание 1 — без поправки. Больше 1 — порода дробится хуже, чем предсказывает
-            формула, и q растёт. Подбирается по фактическим взрывам.
+            Множитель к A, от {trimmed(correctionBounds.min)} до {trimmed(correctionBounds.max)}, умолчание{" "}
+            {trimmed(KUZRAM_DEFAULTS.rock_factor_correction)} — без поправки. Больше 1 — порода дробится хуже, чем
+            предсказывает формула, и q растёт. Подбирается по фактическим взрывам.
           </dd>
           <dt>Показатель при силе ВВ</dt>
           <dd>19/20 — Каннингем, 1987 (умолчание); 19/30 — вариант 1983 года, как в расчёте «до исправления». С 19/30 сила ВВ меньше влияет на средний кусок.</dd>
           <dt>Отклонение бурения σ, м</dt>
-          <dd>Стандартное отклонение забоя скважины от проекта, от 0 до 2 м, умолчание 0. Чем больше σ, тем неоднороднее куски и тем выше q.</dd>
+          <dd>
+            Стандартное отклонение забоя скважины от проекта, от {trimmed(deviationBounds.min)} до{" "}
+            {trimmed(deviationBounds.max)} м, умолчание {trimmed(KUZRAM_DEFAULTS.drill_deviation_m)}. Чем больше σ, тем
+            неоднороднее куски и тем выше q.
+          </dd>
           <dt>Поправка C(n)</dt>
-          <dd>Множитель к индексу равномерности n, от 0,5 до 2, умолчание 1. Меняйте, только если есть данные рассева.</dd>
+          <dd>
+            Множитель к индексу равномерности n, от {trimmed(uniformityBounds.min)} до {trimmed(uniformityBounds.max)},
+            умолчание {trimmed(KUZRAM_DEFAULTS.uniformity_correction)}. Меняйте, только если есть данные рассева.
+          </dd>
           <dt>Верхняя граница перебора q</dt>
-          <dd>От 0,5 до 5 кг/м³, умолчание 2,0. Если порог негабарита не достигнут и на ней, q остаётся на границе, а в таблицах появляется значок «!».</dd>
+          <dd>
+            От {trimmed(qMaxBounds.min)} до {trimmed(qMaxBounds.max)} кг/м³, умолчание {qMaxDefault}. Если порог
+            негабарита не достигнут и на ней, q остаётся на границе, а в таблицах появляется значок «!».
+          </dd>
         </dl>
       </section>
 
@@ -115,7 +136,7 @@ export function KuzRamHelp() {
           <li><b>Таблица</b> — строка на коронку; выбор строки меняет выбранную коронку и на листе.</li>
           <li><b>«До исправления»</b> — прежний расчёт: фактор A по формуле 1983 года, диаметр в индексе n в метрах (n всегда 0,8), перебор q от 0,30 до 1,50. Нужен на переходный период, чтобы видеть, насколько изменились рекомендации.</li>
           <li><b>Значок «!»</b> — порог негабарита не достигнут даже на верхней границе перебора q. Если округлённый негабарит совпал с порогом, вместо числа стоит «{">"} порога».</li>
-          <li><b>«≤ 0,10»</b> — порог выполнен уже при наименьшем q; меньшие значения модель не проверяет.</li>
+          <li><b>«≤ {ruNumber(Q_MIN_KG_M3, 2)}»</b> — порог выполнен уже при наименьшем q; меньшие значения модель не проверяет.</li>
           <li><b>График</b> — q по коронкам обеих моделей; полая точка — порог не достигнут, ромб — фактический взрыв.</li>
           <li><b>Разбор расчёта</b> — промежуточные величины выбранной коронки для обеих моделей. У n два числа «сырое → принятое»: если формула даёт меньше 0,1 (нереальная геометрия или σ не меньше W), принимается 0,1; в расчёте «до исправления» n не бывает меньше 0,8.</li>
           <li><b>W/d</b> — ЛНС к диаметру скважины. Каннингем рекомендует 25–35; выше 35 окно предупреждает, что сетка редкая для этого диаметра и прогноз менее надёжен. Подбор q это не ограничивает, а ниже 25 для крепких пород — обычная сетка.</li>

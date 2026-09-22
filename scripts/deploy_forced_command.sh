@@ -60,12 +60,13 @@ if [[ -n "$deployed" && "$sha" != "$deployed" ]] \
   reject "коммит $sha старше выкаченного $deployed и уже входит в него; откат — revert-коммитом в main"
 fi
 
-# Правка отслеживаемого файла на сервере перенеслась бы в сборку, и на прод
-# ушёл бы не проверенный коммит.
-modified="$(git status --porcelain --untracked-files=no)"
+# Правленый или лишний файл рабочей копии попал бы в контекст сборки, и на
+# прод ушёл бы не проверенный коммит. Игнорируемые файлы (.env) git status не
+# показывает: сборочные среди них отсекают .dockerignore.
+modified="$(git status --porcelain)"
 if [[ -n "$modified" ]]; then
   printf '%s\n' "$modified" >&2
-  reject "в $APP_DIR изменены отслеживаемые файлы, выкатить ровно $sha нельзя"
+  reject "рабочая копия $APP_DIR отличается от коммита, выкатить ровно $sha нельзя"
 fi
 
 git checkout --quiet --detach "$sha"

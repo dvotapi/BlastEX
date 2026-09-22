@@ -1,0 +1,9 @@
+# Контекст сборки — как чистый checkout в CI: игнорируемые git файлы рабочей
+# копии в образ не попадают. Зависимости ставит npm ci, dist собирает сам
+# образ, а устаревший vite.config.js Vite предпочёл бы vite.config.ts.
+node_modules
+dist
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+.env*

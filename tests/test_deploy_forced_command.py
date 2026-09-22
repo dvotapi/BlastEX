@@ -107,7 +107,11 @@ class Stand:
         self.git(self.seed, "remote", "add", "origin", str(self.origin))
         self.initial = self.commit(
             "initial",
-            {"README": "BlastEX\n", "scripts/deploy_vps.sh": DEPLOY_STUB},
+            {
+                "README": "BlastEX\n",
+                ".gitignore": ".env\n",
+                "scripts/deploy_vps.sh": DEPLOY_STUB,
+            },
         )
         self.git(tmp_path, "clone", "-q", str(self.origin), str(self.app))
 
@@ -311,6 +315,33 @@ def test_rejects_modified_tracked_files(stand: Stand) -> None:
     assert readme.read_text(encoding="utf-8") == "hotfix on server\n"
 
 
+def test_rejects_untracked_files(stand: Stand) -> None:
+    # Неотслеживаемый файл в контексте сборки попал бы в образ вместе с
+    # коммитом.
+    sha = stand.commit("second")
+    stray = stand.app / "api" / "hotfix.py"
+    stray.parent.mkdir()
+    stray.write_text("print('hotfix')\n", encoding="utf-8")
+
+    result = stand.run(sha)
+
+    assert result.returncode == REJECTED, result.stderr
+    assert "api/" in result.stderr
+    assert stand.deployed() == []
+    assert stray.exists()
+
+
+def test_ignored_runtime_files_do_not_block_deploy(stand: Stand) -> None:
+    # .env лежит в рабочей копии сервера и в git не входит.
+    sha = stand.commit("second")
+    (stand.app / ".env").write_text("SECRET=1\n", encoding="utf-8")
+
+    result = stand.run(sha)
+
+    assert result.returncode == 0, result.stderr
+    assert stand.deployed() == [sha]
+
+
 def test_refuses_to_run_concurrently(stand: Stand) -> None:
     sha = stand.commit("second")
     fd = os.open(stand.lock, os.O_CREAT | os.O_WRONLY, 0o644)
@@ -343,6 +374,27 @@ def test_no_warning_when_installed_copy_matches(stand: Stand) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "WARNING" not in result.stderr
+
+
+def test_frontend_build_context_skips_ignored_files() -> None:
+    # Контекст образа фронта — `COPY . .` из frontend/. Игнорируемые git
+    # файлы рабочей копии сервера (node_modules, устаревший vite.config.js,
+    # который Vite предпочёл бы vite.config.ts) не должны попасть в сборку.
+    gitignored = [
+        line.removeprefix("frontend/").rstrip("/")
+        for line in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        if line.startswith("frontend/")
+    ]
+    dockerignore = ROOT / "frontend" / ".dockerignore"
+    excluded = {
+        line.strip()
+        for line in dockerignore.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+
+    assert gitignored
+    assert set(gitignored) <= excluded
+    assert ".env*" in excluded
 
 
 def _deploy_job() -> dict:

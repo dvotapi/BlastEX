@@ -36,3 +36,58 @@
 /* Подпись у кнопки окна: чем настройки модели отличаются от умолчаний. */
 .kuzram-caption { overflow:hidden; max-width:180px; color:#6e7c75; font-size:var(--fs-small); white-space:nowrap; text-overflow:ellipsis; }
 @media (max-width:760px) { .kuzram-caption { max-width:110px; } }
+
+/* Карточки результатов: сводка, таблица, график, разбор, фактические взрывы. */
+.kuzram-card { display:grid; gap:10px; min-width:0; padding:12px 14px; border:1px solid #e2e8e5; border-radius:var(--radius-panel); background:#fff; }
+.kuzram-card h3 { margin:0; font-size:12px; font-weight:var(--font-weight-strong); }
+.kuzram-empty { margin:0; color:#6e7c75; }
+.kuzram-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px 20px; }
+.kuzram-stat { display:grid; gap:2px; min-width:0; }
+.kuzram-stat-title { display:inline-flex; align-items:center; gap:6px; color:#6e7c75; font-size:10.5px; }
+.kuzram-stat-q { font-size:22px; letter-spacing:-.3px; font-variant-numeric:tabular-nums; }
+.kuzram-stat small { color:#6e7c75; }
+.kuzram-stat-line { color:#3b4b43; font-size:11px; }
+.kuzram-dialog i.new, .kuzram-dialog i.legacy { display:inline-block; width:14px; height:3px; border-radius:2px; }
+.kuzram-dialog i.new { background:#2d7556; }
+.kuzram-dialog i.legacy { background:repeating-linear-gradient(90deg,#8a99a6 0 5px,transparent 5px 8px); }
+.kuzram-table-scroll { overflow-x:auto; min-width:0; }
+.kuzram-table { width:100%; border-collapse:collapse; font-size:11px; font-variant-numeric:tabular-nums; }
+.kuzram-table caption { padding-bottom:6px; color:#6e7c75; font-size:10.5px; text-align:left; caption-side:top; }
+.kuzram-table th, .kuzram-table td { padding:5px 8px; border-bottom:1px solid #edf1ef; text-align:right; white-space:nowrap; }
+.kuzram-table th:first-child, .kuzram-table td:first-child { text-align:left; }
+.kuzram-table th { color:#748079; font-size:10px; }
+.kuzram-table thead tr.groups th { padding-bottom:2px; border-bottom:0; color:#3b4b43; letter-spacing:.3px; text-transform:uppercase; }
+.kuzram-table .groups .g-new { box-shadow:inset 0 -2px 0 #2d7556; }
+.kuzram-table .groups .g-legacy { box-shadow:inset 0 -2px 0 #8a99a6; }
+.kuzram-table .sep { border-left:1px solid #e2e8e5; }
+.kuzram-table tbody tr[aria-selected] { cursor:pointer; }
+.kuzram-table tbody tr[aria-selected]:hover { background:#f5f9f7; }
+.kuzram-table tbody tr[aria-selected="true"] { background:#edf7f1; }
+.kuzram-table tbody tr:focus-visible { outline:2px solid #2d7556; outline-offset:-2px; }
+/* График q(d): Kuz-Ram — акцентный зелёный, «до исправления» — серо-синий пунктир. */
+.kuzram-chart { position:relative; }
+.kuzram-chart svg { display:block; width:100%; height:auto; }
+.kuzram-chart .grid-line { stroke:#edf1ef; stroke-width:1; }
+.kuzram-chart .axis-line { stroke:#cfd9d4; stroke-width:1; }
+.kuzram-chart text { fill:#748079; font-size:10.5px; }
+.kuzram-chart .axis-title { fill:#3b4b43; font-size:11px; }
+.kuzram-chart polyline { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+.kuzram-chart .series-new polyline { stroke:#2d7556; }
+.kuzram-chart .series-legacy polyline { stroke:#8a99a6; stroke-dasharray:5 4; }
+.kuzram-chart .series-new circle { fill:#2d7556; stroke:#fff; stroke-width:1.5; }
+.kuzram-chart .series-legacy circle { fill:#8a99a6; stroke:#fff; stroke-width:1.5; }
+.kuzram-chart .series-new circle.open { fill:#fff; stroke:#2d7556; stroke-width:2; }
+.kuzram-chart .series-legacy circle.open { fill:#fff; stroke:#8a99a6; stroke-width:2; }
+.kuzram-chart-fact { fill:#17231d; stroke:#fff; stroke-width:1.5; }
+.kuzram-chart-selected { stroke:#2d7556; stroke-width:1; stroke-dasharray:3 3; opacity:.7; }
+.kuzram-chart-hover { stroke:#9aa8a1; stroke-width:1; }
+.kuzram-chart-hit { fill:transparent; cursor:pointer; }
+.kuzram-chart-tip { position:absolute; top:8px; z-index:2; display:grid; gap:3px; min-width:170px; padding:8px 10px; border:1px solid #d9e2dd; border-radius:8px; background:#fff; box-shadow:0 8px 24px rgba(15,35,26,.14); color:#17231d; font-size:11px; pointer-events:none; transform:translateX(12px); }
+.kuzram-chart-tip.left { transform:translateX(calc(-100% - 12px)); }
+.kuzram-chart-tip span { display:flex; align-items:center; gap:6px; }
+.kuzram-chart-tip-flag { color:#745014; }
+.kuzram-legend { display:flex; flex-wrap:wrap; gap:4px 16px; margin:6px 0 0; padding:0; list-style:none; color:#3b4b43; font-size:11px; }
+.kuzram-legend li { display:inline-flex; align-items:center; gap:6px; }
+.kuzram-legend i.open { display:inline-block; width:9px; height:9px; border:2px solid #748079; border-radius:50%; background:#fff; }
+.kuzram-dialog i.fact { display:inline-block; width:8px; height:8px; border-radius:1px; background:#17231d; transform:rotate(45deg); }
+@media (max-width:760px) { .kuzram-summary { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } }

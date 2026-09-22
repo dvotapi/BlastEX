@@ -1,8 +1,10 @@
 import { useEffect, useRef, type MouseEvent } from "react";
-import type { KuzRamSettings } from "../../../types";
+import type { BlastVariant, KuzRamSettings } from "../../../types";
+import { KuzRamChart } from "./KuzRamChart";
+import { KuzRamComparison } from "./KuzRamComparison";
 import { KuzRamSettingsForm } from "./KuzRamSettingsForm";
 import { trimmed } from "./kuzramFormat";
-import type { KuzRamBlock } from "./kuzramSettings";
+import { completeFacts, type KuzRamBlock } from "./kuzramSettings";
 
 /** Исходные данные листа — в окне только строкой, правятся на листе. */
 export type KuzRamSource = {
@@ -26,6 +28,13 @@ export type KuzRamDialogProps = {
   busy: boolean;
   /** Ошибка последнего подбора — та же, что на листе. */
   error: string;
+  /** Варианты последнего подбора: Kuz-Ram, «до исправления» и разбор. */
+  variants: BlastVariant[];
+  /** Выбранная коронка — общая с таблицей листа. */
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  /** Порог негабарита, с которым посчитаны варианты. */
+  thresholdPct: number;
 };
 
 /**
@@ -70,7 +79,8 @@ export function KuzRamDialog(props: KuzRamDialogProps) {
   );
 }
 
-function CalcTab({ block, onSettingsChange, source, busy, error }: KuzRamDialogProps) {
+function CalcTab({ block, onSettingsChange, source, busy, error, variants, selectedIndex, onSelect, thresholdPct }: KuzRamDialogProps) {
+  const chartFacts = completeFacts(block.facts).map((row) => row.fact);
   return (
     <div className="kuzram-body kuzram-calc">
       <aside className="kuzram-side">
@@ -89,6 +99,13 @@ function CalcTab({ block, onSettingsChange, source, busy, error }: KuzRamDialogP
           <div className="page-error" role="alert">
             {error}
           </div>
+        )}
+        <KuzRamComparison variants={variants} selectedIndex={selectedIndex} onSelect={onSelect} thresholdPct={thresholdPct} />
+        {variants.length > 0 && (
+          <section className="kuzram-card" aria-labelledby="kuzram-chart-title">
+            <h3 id="kuzram-chart-title">Удельный расход по диаметрам коронок</h3>
+            <KuzRamChart variants={variants} facts={chartFacts} selectedIndex={selectedIndex} onSelect={onSelect} />
+          </section>
         )}
       </div>
     </div>

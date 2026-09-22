@@ -693,6 +693,10 @@ function FullBvrCalc({
         source={kuzramSource}
         busy={busy || calculatedKuzramRevision < kuzramRevision}
         error={error}
+        variants={variants}
+        selectedIndex={selectedIndex}
+        onSelect={setSelectedIndex}
+        thresholdPct={variantsThresholdPct ?? threshold}
       />
     </div>
   );

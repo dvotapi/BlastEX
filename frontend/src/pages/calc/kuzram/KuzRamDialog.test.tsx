@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { KuzRamDialog, type KuzRamDialogProps } from "./KuzRamDialog";
 import { defaultKuzramBlock } from "./kuzramSettings";
+import { gabbroVariant } from "./testing/fixtures";
 
 afterEach(cleanup);
 
@@ -34,6 +35,10 @@ function renderDialog(overrides: Partial<KuzRamDialogProps> = {}) {
     source: SOURCE,
     busy: false,
     error: "",
+    variants: [],
+    selectedIndex: 0,
+    onSelect: vi.fn(),
+    thresholdPct: 5,
     ...overrides,
   };
   render(<KuzRamDialog {...props} />);
@@ -72,5 +77,15 @@ describe("KuzRamDialog", () => {
     const dialog = screen.getByRole("dialog", { name: "Модель Kuz-Ram" });
     expect(within(dialog).getByRole("status")).toHaveTextContent("Пересчёт…");
     expect(within(dialog).getByRole("alert")).toHaveTextContent("Фактор породы A = −0,5");
+  });
+
+  it("показывает сводку, таблицу и график; выбор строки уходит листу", () => {
+    const props = renderDialog({ variants: [gabbroVariant(110), gabbroVariant(152), gabbroVariant(250)], selectedIndex: 1 });
+    expect(screen.getByRole("region", { name: "Коронка 152 мм" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Удельный расход q по диаметрам коронок/ })).toBeInTheDocument();
+    // Таблиц в окне несколько (разбор, факты) — берём таблицу вариантов по её карточке.
+    const table = within(screen.getByRole("region", { name: "Варианты сетки" })).getByRole("table");
+    fireEvent.click(within(table).getAllByRole("row")[2]);
+    expect(props.onSelect).toHaveBeenCalledWith(0);
   });
 });

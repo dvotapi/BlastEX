@@ -36,10 +36,12 @@ import {
   defaultKuzramBlock,
   kuzramSettingsOf,
   KUZRAM_RECALC_DELAY_MS,
+  optimizeErrorText,
   outdatedHint,
   settingsCaption,
   type KuzRamBlock,
   type KuzRamFact,
+  type OptimizeError,
 } from "./calc/kuzram/kuzramSettings";
 import type { BlastVariant, Explosive, KuzRamFactInput, KuzRamSettings, ProductionUnit, Rock } from "../types";
 
@@ -176,7 +178,15 @@ function FullBvrCalc({
   // объекта или перенесённый фильтр). Ставится после отсечки автосохранения —
   // как обычная правка, иначе он не записался бы и пропал после перезагрузки.
   const pendingUnitRef = useRef<string | null>(null);
-  const [error, setError] = useState("");
+  // Справочники не пришли: держится до перезагрузки страницы — без них объект
+  // не грузится, а повторного запроса нет.
+  const [referencesError, setReferencesError] = useState("");
+  // Настройки листа активного объекта не прочитались; загрузка следующего сбрасывает.
+  const [sheetLoadError, setSheetLoadError] = useState("");
+  // Ошибка подбора — с ревизией настроек модели, на которой он запущен: по
+  // ней видно, ошибка это текущих настроек или прошлого расчёта
+  // (`optimizeErrorText`). Загрузка объекта сбрасывает: ошибка — про его лист.
+  const [optimizeError, setOptimizeError] = useState<OptimizeError | null>(null);
   const [busy, setBusy] = useState(false);
   // Поля вариантов заряда: карточки ведут их у себя, а сюда сообщают об
   // изменениях — из них собираются настройки листа и запросы схем заряда.
@@ -229,7 +239,7 @@ function FullBvrCalc({
       setSelectedCrowns(opts.crown_diameters_mm);
       setNsiLengthOptions(opts.nsi_length_options_m);
       setDetonatorDelayOptions(opts.detonator_delay_ms_options);
-    }).catch((reason) => setError(reason instanceof Error ? reason.message : "Не удалось загрузить справочники."));
+    }).catch((reason) => setReferencesError(reason instanceof Error ? reason.message : "Не удалось загрузить справочники."));
     // Отдельно от справочников расчёта: без юнитов лист работает, поле просто
     // не показывается.
     api.productionUnits().then((data) => setUnits(data.items)).catch(() => setUnits([]));
@@ -360,14 +370,17 @@ function FullBvrCalc({
    * запросом или пока он летит откатился бы к прежней коронке.
    * `isStale` — автозапуск для объекта, который успели сменить: его результат
    * выбрасываем, иначе он затрёт варианты нового объекта.
-   * Исход: `"done"` — ответ или ошибка показаны; `"stale"` — ответ выброшен
-   * как устаревший (или запуск устарел ещё до запроса); `"skipped"` — считать
-   * нечего (нет породы, ВВ или коронок), запроса не было. */
+   * Возвращает `false`, только если ответ выброшен как устаревший (или запуск
+   * устарел ещё до запроса); ответ, ошибка или «считать нечего» — `true`.
+   * Считать нечего (нет породы, ВВ или коронок) бывает только у пересчёта по
+   * правке настроек модели: ручной запуск без них недоступен, а загруженный
+   * лист их всегда подставляет. Ошибку прошлого расчёта это не трогает —
+   * она помечена своей ревизией настроек. */
   async function runOptimize(
     source: SheetState,
     preferredCrownMm: () => number | null,
     isStale: () => boolean = () => false,
-  ): Promise<"done" | "stale" | "skipped"> {
+  ): Promise<boolean> {
     const sheetRock = rocks.find((r) => r.name === source.rockName);
     const sheetExplosive = explosives.find((e) => e.key === source.explosiveKey);
     // Лист и ревизия настроек меняются вместе, поэтому ответ по этому листу —
@@ -375,16 +388,16 @@ function FullBvrCalc({
     const revisionAtStart = kuzramRevisionRef.current;
     const markCalculated = () => setCalculatedKuzramRevision((done) => Math.max(done, revisionAtStart));
     // Считать нечего — варианты на экране остались прежними, ревизию не двигаем.
-    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return "skipped";
+    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return true;
     // Страховка (из #96): устаревший запуск не отправляем — иначе он стал бы
     // «последним» подбором, держал бы флаг расчёта и стёр бы ошибку уже нового
     // листа. Сейчас не срабатывает: все вызовы берут счётчик поколения прямо
     // перед вызовом. Нужна тому, кто возьмёт его раньше (например, в момент
     // постановки таймера, как было до пересчёта по свежему листу).
-    if (isStale()) return "stale";
+    if (isStale()) return false;
     const run = ++optimizeRunRef.current;
     setBusy(true);
-    setError("");
+    setOptimizeError(null);
     try {
       const result = await api.optimize({
         rock: sheetRock,
@@ -398,7 +411,7 @@ function FullBvrCalc({
         crownDiametersMm: source.selectedCrownsMm,
         kuzram: kuzramSettingsOf(source.kuzram),
       });
-      if (isStale()) return "stale";
+      if (isStale()) return false;
       setVariants(result.variants);
       setVariantsThresholdPct(result.max_oversize_threshold_pct);
       const preferredValue = preferredCrownMm();
@@ -406,11 +419,11 @@ function FullBvrCalc({
       const preferred = result.variants.findIndex((v) => v.crown_mm === 152);
       setSelectedIndex(restored >= 0 ? restored : preferred >= 0 ? preferred : 0);
       markCalculated();
-      return "done";
+      return true;
     } catch (reason) {
-      if (isStale()) return "stale";
-      setError(reason instanceof Error ? reason.message : "Ошибка расчёта.");
-      return "done";
+      if (isStale()) return false;
+      setOptimizeError({ message: reason instanceof Error ? reason.message : "Ошибка расчёта.", revision: revisionAtStart });
+      return true;
     } finally {
       // Параллельный подбор (правка настроек модели, пока летел прошлый) сам
       // снимет флаг — ранний ответ не должен гасить «идёт расчёт».
@@ -465,7 +478,7 @@ function FullBvrCalc({
         try {
           for (let attempt = 0; attempt < KUZRAM_RECALC_ATTEMPTS && current(); attempt += 1) {
             const startedGeneration = optimizeGenerationRef.current;
-            const outcome = await runOptimize(sheetRef.current, () => selectedCrownRef.current, () =>
+            const applied = await runOptimize(sheetRef.current, () => selectedCrownRef.current, () =>
               isOptimizationResultStale(
                 startedGeneration,
                 optimizeGenerationRef.current,
@@ -473,13 +486,7 @@ function FullBvrCalc({
                 objectNameRef.current,
               ),
             );
-            // Считать нечего: ошибка на экране — от прежних настроек, а по новым
-            // расчёта не было. Стираем её, иначе, когда вернут коронки, она
-            // выдавала бы себя за ошибку текущих настроек. Только здесь, а не в
-            // runOptimize: там «нечего считать» бывает и без справочников, чью
-            // ошибку загрузки стирать нельзя.
-            if (outcome === "skipped") setError("");
-            if (outcome !== "stale") break;
+            if (applied) break;
           }
         } finally {
           // Новая правка настроек сама ведёт свою паузу и попытки.
@@ -509,6 +516,8 @@ function FullBvrCalc({
     setLoadedObjectName(null);
     setLoadedCrownMm(null);
     setVariants([]);
+    setOptimizeError(null);
+    setSheetLoadError("");
     // Перенесённый фильтр читается здесь, а очищается только после применения
     // листа: если смена объекта откатится, эффект запустится ещё раз (для
     // прежнего объекта), и фильтр должен дожить до этого запуска.
@@ -561,7 +570,7 @@ function FullBvrCalc({
         // то, что мы не смогли прочитать.
         // Лист «не готов», автосохранения не будет — юнит только на экран.
         applySheet(withUnit(defaultCalcSheet(catalogs, referenceDefaults), false));
-        setError(
+        setSheetLoadError(
           "Не удалось загрузить настройки листа — открыты значения по умолчанию, " +
             "автосохранение выключено до перезагрузки страницы.",
         );
@@ -604,10 +613,17 @@ function FullBvrCalc({
   // помечать нечего. Счётчики ревизий общие для всех объектов, но при смене
   // объекта варианты сбрасываются — пометка к ним не переходит.
   const kuzramOutdated = ready && variants.length > 0 && calculatedKuzramRevision < kuzramRevision && !kuzramBusy;
-  // Совет к пометке — одинаковый на листе и в окне.
+  // Совет к пометке — одинаковый на листе и в окне. К сообщению об ошибке он
+  // ведёт, только если это ошибка текущих настроек модели.
   const kuzramOutdatedHint = kuzramOutdated
-    ? outdatedHint(error, { crowns: !selectedCrowns.length, rock: !rock, explosive: !explosive })
+    ? outdatedHint(optimizeError?.revision === kuzramRevision, {
+        crowns: !selectedCrowns.length,
+        rock: !rock,
+        explosive: !explosive,
+      })
     : null;
+  const optimizeErrorMessage = optimizeErrorText(optimizeError, kuzramRevision);
+  const sheetErrors = [referencesError, sheetLoadError, optimizeErrorMessage, workspaceError].filter(Boolean);
   const kuzramSource: KuzRamSource = {
     rockName,
     explosiveName: explosive?.name ?? explosiveKey,
@@ -649,10 +665,10 @@ function FullBvrCalc({
     <div className="calc-sheet">
       {topbarSlot ? createPortal(topStrip, topbarSlot) : topStrip}
       <CalcHelp />
-      {(error || workspaceError) && (
+      {sheetErrors.length > 0 && (
         <div className="calc-errors">
-          {error && <div className="page-error" role="alert">{error}</div>}
-          {workspaceError && <div className="page-error" role="alert">{workspaceError}</div>}
+          {/* Тексты разных ошибок могут совпасть (сообщение сети) — ключ по месту. */}
+          {sheetErrors.map((message, index) => <div key={index} className="page-error" role="alert">{message}</div>)}
         </div>
       )}
       <div className="calc-top-row">
@@ -833,7 +849,7 @@ function FullBvrCalc({
         source={kuzramSource}
         busy={kuzramBusy}
         outdatedHint={kuzramOutdatedHint}
-        error={error}
+        error={optimizeErrorMessage}
         variants={variants}
         selectedIndex={selectedIndex}
         onSelect={setSelectedIndex}

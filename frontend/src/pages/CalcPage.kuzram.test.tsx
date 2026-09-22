@@ -392,21 +392,45 @@ describe("CalcPage: модель Kuz-Ram", () => {
     fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
     fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,3" } });
     await recalcWindow();
-    // Запроса нет (коронок нет); ошибка была про C(A) 1,2 — пропущенный
-    // пересчёт её стирает, иначе она выдавала бы себя за ошибку C(A) 1,3.
+    // Запроса нет (коронок нет); ошибка была про C(A) 1,2 — она видна, но как
+    // прошлый расчёт, а не как ошибка C(A) 1,3.
     expect(api.optimize).toHaveBeenCalledTimes(2);
     expect(outdatedBadge()).toHaveTextContent("выберите коронки");
     expect(outdatedBadge()).not.toHaveTextContent("причина в сообщении об ошибке");
     expect(within(dialog()).getByRole("status")).toHaveTextContent("выберите коронки");
-    expect(within(dialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(dialog()).getByRole("alert")).toHaveTextContent(
+      "Прошлый расчёт, до правки настроек модели: Фактор породы A = −0,06",
+    );
     // Коронку вернули — пересчёт это не запускает (он по правке настроек), и
     // совет не должен выдавать старую ошибку за ошибку текущих настроек.
     fireEvent.click(within(dialog()).getByRole("button", { name: "Закрыть" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "152" }));
+    await recalcWindow();
     expect(api.optimize).toHaveBeenCalledTimes(2);
     expect(outdatedBadge()).toHaveTextContent("пересчитайте их кнопкой «Рассчитать варианты»");
     expect(outdatedBadge()).not.toHaveTextContent("причина в сообщении об ошибке");
-    expect(screen.queryByText(/Фактор породы A = −0,06/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Фактор породы A = −0,06/)).toHaveTextContent(/^Прошлый расчёт, до правки настроек модели: /);
+  });
+
+  it("ошибка ручного расчёта остаётся на экране, когда правка настроек модели пересчитать не может", async () => {
+    renderSheet();
+    await loaded();
+    api.optimize.mockRejectedValueOnce(new Error("Высота уступа — от 5 до 25 м."));
+    fireEvent.click(screen.getByRole("button", { name: "Рассчитать варианты" }));
+    await waitFor(() => expect(screen.getByText(/Высота уступа — от 5 до 25 м/)).toBeInTheDocument(), SLOW);
+    for (const crown of ["110", "152", "250"]) fireEvent.click(screen.getByRole("checkbox", { name: crown }));
+    editCorrectionAndClose("1,2");
+    await recalcWindow();
+    // Считать нечего — запроса нет. Ошибка про поле листа верна и сейчас:
+    // пропадать ей нельзя, но она от расчёта до правки настроек модели.
+    expect(api.optimize).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/Высота уступа — от 5 до 25 м/)).toHaveTextContent(
+      "Прошлый расчёт, до правки настроек модели: Высота уступа — от 5 до 25 м.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    expect(within(dialog()).getByRole("alert")).toHaveTextContent(
+      "Прошлый расчёт, до правки настроек модели: Высота уступа — от 5 до 25 м.",
+    );
   });
 
   it("у объекта без вариантов ошибка пересчёта по настройкам не даёт пометки «по прежним настройкам»", async () => {
@@ -443,6 +467,48 @@ describe("CalcPage: модель Kuz-Ram", () => {
     // Новый объект: умолчания, вариантов нет, считать его ещё не просили.
     await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
     expect(outdatedBadge()).toBeEmptyDOMElement();
+  });
+
+  it("ошибка пересчёта не переезжает на другой объект — ни на лист, ни в окно", async () => {
+    api.calcInputs.mockImplementation(async (name: string) =>
+      name === OBJECT_2.name
+        ? { work_object_name: name, inputs: null, updated_at: null }
+        : { work_object_name: name, inputs: savedInputs(), updated_at: "then" },
+    );
+    const { rerender } = renderSheet();
+    await loaded();
+    api.optimize.mockRejectedValueOnce(new Error("Фактор породы A = −0,06 — он должен быть больше нуля."));
+    editCorrectionAndClose("1,2");
+    await waitFor(() => expect(screen.getByText(/Фактор породы A = −0,06/)).toBeInTheDocument(), SLOW);
+    rerender(
+      <Workspace objectName={OBJECT_2.name}>
+        <CalcPage />
+      </Workspace>,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
+    // Ошибка — про лист прежнего объекта; новый объект считать ещё не просили.
+    expect(screen.queryByText(/Фактор породы A = −0,06/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
+    expect(within(dialog()).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("«не удалось загрузить настройки листа» не переезжает на объект, чей лист прочитан", async () => {
+    // У второго объекта сохранённого листа нет: автозапуска, который стёр бы
+    // прежнее сообщение заодно с ошибкой подбора, тоже нет.
+    api.calcInputs.mockImplementation(async (name: string) => {
+      if (name === OBJECT.name) throw new Error("Сервер недоступен.");
+      return { work_object_name: name, inputs: null, updated_at: null };
+    });
+    const { rerender } = renderSheet();
+    await waitFor(() => expect(screen.getByText(/Не удалось загрузить настройки листа/)).toBeInTheDocument(), SLOW);
+    rerender(
+      <Workspace objectName={OBJECT_2.name}>
+        <CalcPage />
+      </Workspace>,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Рассчитать варианты" })).toBeEnabled(), SLOW);
+    // Лист нового объекта прочитан, автосохранение у него работает.
+    expect(screen.queryByText(/Не удалось загрузить настройки листа/)).not.toBeInTheDocument();
   });
 
   it("возврат к тому же объекту в паузе перед пересчётом не оживляет прежний таймер", async () => {

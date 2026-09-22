@@ -360,13 +360,14 @@ function FullBvrCalc({
    * запросом или пока он летит откатился бы к прежней коронке.
    * `isStale` — автозапуск для объекта, который успели сменить: его результат
    * выбрасываем, иначе он затрёт варианты нового объекта.
-   * Возвращает `false`, только если ответ выброшен как устаревший; ответ,
-   * ошибка или «считать нечего» (нет породы, ВВ или коронок) — `true`. */
+   * Исход: `"done"` — ответ или ошибка показаны; `"stale"` — ответ выброшен
+   * как устаревший (или запуск устарел ещё до запроса); `"skipped"` — считать
+   * нечего (нет породы, ВВ или коронок), запроса не было. */
   async function runOptimize(
     source: SheetState,
     preferredCrownMm: () => number | null,
     isStale: () => boolean = () => false,
-  ): Promise<boolean> {
+  ): Promise<"done" | "stale" | "skipped"> {
     const sheetRock = rocks.find((r) => r.name === source.rockName);
     const sheetExplosive = explosives.find((e) => e.key === source.explosiveKey);
     // Лист и ревизия настроек меняются вместе, поэтому ответ по этому листу —
@@ -374,13 +375,13 @@ function FullBvrCalc({
     const revisionAtStart = kuzramRevisionRef.current;
     const markCalculated = () => setCalculatedKuzramRevision((done) => Math.max(done, revisionAtStart));
     // Считать нечего — варианты на экране остались прежними, ревизию не двигаем.
-    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return true;
+    if (!sheetRock || !sheetExplosive || !source.selectedCrownsMm.length) return "skipped";
     // Страховка (из #96): устаревший запуск не отправляем — иначе он стал бы
     // «последним» подбором, держал бы флаг расчёта и стёр бы ошибку уже нового
     // листа. Сейчас не срабатывает: все вызовы берут счётчик поколения прямо
     // перед вызовом. Нужна тому, кто возьмёт его раньше (например, в момент
     // постановки таймера, как было до пересчёта по свежему листу).
-    if (isStale()) return false;
+    if (isStale()) return "stale";
     const run = ++optimizeRunRef.current;
     setBusy(true);
     setError("");
@@ -397,7 +398,7 @@ function FullBvrCalc({
         crownDiametersMm: source.selectedCrownsMm,
         kuzram: kuzramSettingsOf(source.kuzram),
       });
-      if (isStale()) return false;
+      if (isStale()) return "stale";
       setVariants(result.variants);
       setVariantsThresholdPct(result.max_oversize_threshold_pct);
       const preferredValue = preferredCrownMm();
@@ -405,11 +406,11 @@ function FullBvrCalc({
       const preferred = result.variants.findIndex((v) => v.crown_mm === 152);
       setSelectedIndex(restored >= 0 ? restored : preferred >= 0 ? preferred : 0);
       markCalculated();
-      return true;
+      return "done";
     } catch (reason) {
-      if (isStale()) return false;
+      if (isStale()) return "stale";
       setError(reason instanceof Error ? reason.message : "Ошибка расчёта.");
-      return true;
+      return "done";
     } finally {
       // Параллельный подбор (правка настроек модели, пока летел прошлый) сам
       // снимет флаг — ранний ответ не должен гасить «идёт расчёт».
@@ -464,7 +465,7 @@ function FullBvrCalc({
         try {
           for (let attempt = 0; attempt < KUZRAM_RECALC_ATTEMPTS && current(); attempt += 1) {
             const startedGeneration = optimizeGenerationRef.current;
-            const applied = await runOptimize(sheetRef.current, () => selectedCrownRef.current, () =>
+            const outcome = await runOptimize(sheetRef.current, () => selectedCrownRef.current, () =>
               isOptimizationResultStale(
                 startedGeneration,
                 optimizeGenerationRef.current,
@@ -472,7 +473,13 @@ function FullBvrCalc({
                 objectNameRef.current,
               ),
             );
-            if (applied) break;
+            // Считать нечего: ошибка на экране — от прежних настроек, а по новым
+            // расчёта не было. Стираем её, иначе, когда вернут коронки, она
+            // выдавала бы себя за ошибку текущих настроек. Только здесь, а не в
+            // runOptimize: там «нечего считать» бывает и без справочников, чью
+            // ошибку загрузки стирать нельзя.
+            if (outcome === "skipped") setError("");
+            if (outcome !== "stale") break;
           }
         } finally {
           // Новая правка настроек сама ведёт свою паузу и попытки.

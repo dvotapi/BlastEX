@@ -392,11 +392,21 @@ describe("CalcPage: модель Kuz-Ram", () => {
     fireEvent.click(screen.getByRole("button", { name: "Модель Kuz-Ram" }));
     fireEvent.change(within(dialog()).getByLabelText("Поправка C(A)"), { target: { value: "1,3" } });
     await recalcWindow();
-    // Запроса нет (коронок нет), ошибка — от прошлой попытки.
+    // Запроса нет (коронок нет); ошибка была про C(A) 1,2 — пропущенный
+    // пересчёт её стирает, иначе она выдавала бы себя за ошибку C(A) 1,3.
     expect(api.optimize).toHaveBeenCalledTimes(2);
     expect(outdatedBadge()).toHaveTextContent("выберите коронки");
     expect(outdatedBadge()).not.toHaveTextContent("причина в сообщении об ошибке");
     expect(within(dialog()).getByRole("status")).toHaveTextContent("выберите коронки");
+    expect(within(dialog()).queryByRole("alert")).not.toBeInTheDocument();
+    // Коронку вернули — пересчёт это не запускает (он по правке настроек), и
+    // совет не должен выдавать старую ошибку за ошибку текущих настроек.
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Закрыть" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "152" }));
+    expect(api.optimize).toHaveBeenCalledTimes(2);
+    expect(outdatedBadge()).toHaveTextContent("пересчитайте их кнопкой «Рассчитать варианты»");
+    expect(outdatedBadge()).not.toHaveTextContent("причина в сообщении об ошибке");
+    expect(screen.queryByText(/Фактор породы A = −0,06/)).not.toBeInTheDocument();
   });
 
   it("у объекта без вариантов ошибка пересчёта по настройкам не даёт пометки «по прежним настройкам»", async () => {

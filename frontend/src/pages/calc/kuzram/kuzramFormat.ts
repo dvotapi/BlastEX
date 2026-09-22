@@ -13,6 +13,9 @@ export const Q_MIN_KG_M3: number = contract.q_min_kg_m3;
 /** Перебор «до исправления» начинается с 0,30 (`Blast.py::optimize_blast_legacy`). */
 export const LEGACY_Q_MIN_KG_M3 = 0.3;
 
+/** Перебор «до исправления» заканчивается на 1,50 (`Blast.py::optimize_blast_legacy`). */
+export const LEGACY_Q_MAX_KG_M3 = 1.5;
+
 function fixed(value: number, digits: number, decimal: Decimal): string {
   return decimal === "," ? ruNumber(value, digits) : value.toFixed(digits);
 }

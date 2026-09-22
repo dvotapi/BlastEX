@@ -48,6 +48,15 @@ describe("KuzRamComparison", () => {
     expect(screen.getByText(/Нет расчёта/)).toBeInTheDocument();
   });
 
+  it("«!» в строке легенды советует верно: легенда — про верхнюю границу прежнего перебора, Kuz-Ram — про окно настроек", () => {
+    render(<KuzRamComparison variants={VARIANTS} selectedIndex={2} onSelect={vi.fn()} thresholdPct={5} />);
+    const summary = screen.getByRole("region", { name: "Коронка 250 мм" });
+    const flags = within(summary).getAllByRole("img", FLAG);
+    expect(flags).toHaveLength(2);
+    expect(flags[0]).toHaveAttribute("title", expect.stringContaining("Поднимите границу"));
+    expect(flags[1]).toHaveAttribute("title", expect.stringContaining("прежнего перебора"));
+  });
+
   it("под таблицей — коронки с W/d выше 35", () => {
     const wide = gabbroVariant(110);
     wide.details.burden_to_diameter = 40.9;

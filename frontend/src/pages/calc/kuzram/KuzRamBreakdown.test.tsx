@@ -22,6 +22,15 @@ describe("KuzRamBreakdown", () => {
     expect(screen.queryByText(/Каннингем рекомендует 25–35/)).not.toBeInTheDocument();
   });
 
+  it("«!» у q «до исправления» советует про фиксированную верхнюю границу прежнего перебора", () => {
+    const variant = gabbroVariant(250);
+    render(<KuzRamBreakdown variant={variant} thresholdPct={5} />);
+    const flags = within(rowOf(/^Удельный расход q/)).getAllByRole("img", { name: "Порог негабарита не достигнут" });
+    expect(flags).toHaveLength(2);
+    expect(flags[0]).toHaveAttribute("title", expect.stringContaining("Поднимите границу"));
+    expect(flags[1]).toHaveAttribute("title", expect.stringContaining("прежнего перебора"));
+  });
+
   it("W/d выше 35 — предупреждение, подбор при этом не ограничен", () => {
     const variant = gabbroVariant(152);
     variant.details.burden_to_diameter = 40.9;

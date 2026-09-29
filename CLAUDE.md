@@ -33,8 +33,10 @@
 
 Лист «Расчёт» подбирает q по Каннингему: формулы —
 `simulation/fragmentation/cunningham.py`, подбор — `Blast.py::optimize_blast`,
-окно «Модель Kuz-Ram» — `frontend/src/pages/calc/kuzram/`. «Проектирование»,
-отчёты и ML пока на `simulation/fragmentation/kuzram.py`; подробности —
+окно «Модель Kuz-Ram» — `frontend/src/pages/calc/kuzram/`.
+Прогноз одной точки собирает `cunningham.predict_point` — единственное место,
+где формулы складываются вместе. «Проектирование», отчёты и ML пока на
+`simulation/fragmentation/kuzram.py`; подробности —
 `Docs/KUZRAM_MODEL.md`.
 
 ## Интерфейс

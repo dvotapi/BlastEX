@@ -5,8 +5,10 @@ on», EFEE 2005: фактор породы A = 0,06·(RMD + RDI + HF), сред�
 Кузнецову с показателем 19/20 (или 19/30, вариант 1983 года), индекс
 равномерности n по варианту 1987 года с диаметром в миллиметрах.
 
-Модуль применяется только к подбору q в Blast.py. Прогнозы вкладки
-«Проектирование» по-прежнему считает simulation.fragmentation.kuzram.
+Полный прогноз одной точки собирает predict_point — её зовёт подбор q в
+Blast.py. Прогнозы вкладки «Проектирование» пока считает
+simulation.fragmentation.kuzram; перевод движка — PR 2, см.
+Docs/plans/2026-09-29-fragmentation-engine-cunningham-design.md.
 """
 from __future__ import annotations
 
@@ -261,3 +263,103 @@ def solve_rock_factor_correction(
         else:
             lo = mid
     return min(high, max(low, math.exp((lo + hi) / 2.0)))
+
+
+@dataclass(frozen=True)
+class KuzRamPoint:
+    """Прогноз одной точки: фактор породы, средний кусок, равномерность, негабарит."""
+
+    rock: RockFactorBreakdown
+    x50_mm: float
+    uniformity: Uniformity
+    characteristic_size_mm: float
+    oversize_pct: float
+    warnings: tuple[str, ...] = ()
+
+
+def _positive(value: float) -> bool:
+    """Конечное число строго больше нуля (NaN и inf не проходят)."""
+    return math.isfinite(value) and value > 0
+
+
+def predict_point(
+    settings: KuzRamSettings,
+    *,
+    ucs_mpa: float,
+    density_t_m3: float,
+    fissuring_per_m: float,
+    burden_m: float,
+    spacing_m: float,
+    hole_diameter_mm: float,
+    powder_factor_kg_m3: float,
+    charge_mass_kg: float,
+    re_weight: float,
+    charge_length_m: float,
+    bench_height_m: float,
+    lump_size_mm: float,
+) -> KuzRamPoint:
+    """Полный прогноз Kuz-Ram по Каннингему для одной точки.
+
+    Единственное место, где формулы модуля собираются в прогноз: её зовёт
+    подбор q на листе «Расчёт» (Blast.py), а в PR 2 позовёт и движок
+    «Проектирования», поэтому разделы не смогут разойтись незаметно.
+    Неполные или нечисловые данные (нуль, минус, NaN, inf) отклоняются
+    ValueError с русским текстом, а не превращаются в молчаливый мусор.
+    """
+    if not _positive(ucs_mpa):
+        raise ValueError("Прочность породы для прогноза Kuz-Ram должна быть больше нуля.")
+    if not _positive(density_t_m3):
+        raise ValueError("Плотность породы для прогноза Kuz-Ram должна быть больше нуля.")
+    if not (math.isfinite(fissuring_per_m) and fissuring_per_m >= 0):
+        raise ValueError("Трещиноватость для прогноза Kuz-Ram должна быть числом не меньше нуля.")
+    if not _positive(lump_size_mm):
+        raise ValueError("Размер негабарита для прогноза Kuz-Ram должен быть больше нуля.")
+    if not _positive(burden_m):
+        raise ValueError("ЛНС для прогноза Kuz-Ram должна быть больше нуля.")
+    if not _positive(spacing_m):
+        raise ValueError("Расстояние между скважинами для прогноза Kuz-Ram должно быть больше нуля.")
+    if not _positive(powder_factor_kg_m3):
+        raise ValueError("Удельный расход для прогноза Kuz-Ram должен быть больше нуля.")
+    if not _positive(charge_mass_kg):
+        raise ValueError("Масса заряда для прогноза Kuz-Ram должна быть больше нуля.")
+    if not _positive(re_weight):
+        raise ValueError("Относительная сила ВВ для прогноза Kuz-Ram должна быть больше нуля.")
+
+    rock = rock_factor(
+        settings,
+        ucs_mpa=ucs_mpa,
+        density_t_m3=density_t_m3,
+        fissuring_per_m=fissuring_per_m,
+        burden_m=burden_m,
+        spacing_m=spacing_m,
+    )
+    x50_mm = mean_fragment_mm(
+        rock.value, powder_factor_kg_m3, charge_mass_kg, re_weight, settings.exponent
+    )
+    warnings: list[str] = []
+    length_m, height_m = charge_length_m, bench_height_m
+    if not (_positive(length_m) and _positive(height_m)):
+        # Неполный паспорт: множитель L/H обнулил бы n или дал деление на
+        # ноль. Берём 1 — заряд на всю высоту уступа — и говорим об этом
+        # вслух.
+        length_m = height_m = 1.0
+        warnings.append("Длина заряда или высота уступа не заданы или не больше нуля: множитель L/H не применён.")
+
+    uniformity = uniformity_index(
+        burden_m=burden_m,
+        hole_diameter_mm=hole_diameter_mm,
+        spacing_to_burden=spacing_m / burden_m,
+        drill_deviation_m=settings.drill_deviation_m,
+        charge_length_m=length_m,
+        bench_height_m=height_m,
+        correction=settings.uniformity_correction,
+    )
+    characteristic_size_mm, oversize_pct = oversize(x50_mm, uniformity.value, lump_size_mm)
+    return KuzRamPoint(
+        rock=rock,
+        x50_mm=x50_mm,
+        uniformity=uniformity,
+        characteristic_size_mm=characteristic_size_mm,
+        oversize_pct=oversize_pct,
+        warnings=tuple(warnings),
+    )

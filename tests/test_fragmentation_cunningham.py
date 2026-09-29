@@ -207,5 +207,154 @@ class SolveCorrectionTests(unittest.TestCase):
         self.assertAlmostEqual(result, 10.0, places=6)
 
 
+class PredictPointTests(unittest.TestCase):
+    """predict_point — это те же четыре функции модуля в фиксированном порядке."""
+
+    ARGS = dict(
+        ucs_mpa=120.0,
+        density_t_m3=2.9,
+        fissuring_per_m=0.3,
+        burden_m=3.5,
+        spacing_m=4.375,
+        hole_diameter_mm=159.6,
+        powder_factor_kg_m3=1.26,
+        charge_mass_kg=105.0,
+        re_weight=0.9,
+        charge_length_m=8.8,
+        bench_height_m=10.0,
+        lump_size_mm=800.0,
+    )
+
+    def test_matches_step_by_step_calls(self):
+        settings = kr.KuzRamSettings()
+        args = dict(self.ARGS)
+        rock = kr.rock_factor(
+            settings,
+            ucs_mpa=args["ucs_mpa"],
+            density_t_m3=args["density_t_m3"],
+            fissuring_per_m=args["fissuring_per_m"],
+            burden_m=args["burden_m"],
+            spacing_m=args["spacing_m"],
+        )
+        x50 = kr.mean_fragment_mm(
+            rock.value, args["powder_factor_kg_m3"], args["charge_mass_kg"],
+            args["re_weight"], settings.exponent,
+        )
+        n = kr.uniformity_index(
+            burden_m=args["burden_m"],
+            hole_diameter_mm=args["hole_diameter_mm"],
+            spacing_to_burden=args["spacing_m"] / args["burden_m"],
+            drill_deviation_m=settings.drill_deviation_m,
+            charge_length_m=args["charge_length_m"],
+            bench_height_m=args["bench_height_m"],
+            correction=settings.uniformity_correction,
+        )
+        xc, oversize_pct = kr.oversize(x50, n.value, args["lump_size_mm"])
+
+        point = kr.predict_point(settings, **args)
+
+        self.assertEqual(point.rock, rock)
+        self.assertEqual(point.x50_mm, x50)
+        self.assertEqual(point.uniformity, n)
+        self.assertEqual(point.characteristic_size_mm, xc)
+        self.assertEqual(point.oversize_pct, oversize_pct)
+        self.assertEqual(point.warnings, ())
+
+    def test_missing_charge_length_keeps_uniformity_and_warns(self):
+        args = dict(self.ARGS, charge_length_m=0.0)
+
+        point = kr.predict_point(kr.KuzRamSettings(), **args)
+
+        self.assertEqual(point.uniformity.charge_to_bench, 1.0)
+        full = kr.predict_point(
+            kr.KuzRamSettings(), **dict(self.ARGS, charge_length_m=self.ARGS["bench_height_m"])
+        )
+        self.assertEqual(point.uniformity.value, full.uniformity.value)
+        self.assertEqual(len(point.warnings), 1)
+        self.assertIn("L/H", point.warnings[0])
+
+    def test_negative_or_nan_charge_length_falls_back_with_one_warning(self):
+        for bad in (-2.0, float("nan"), float("inf")):
+            with self.subTest(charge_length_m=bad):
+                point = kr.predict_point(kr.KuzRamSettings(), **dict(self.ARGS, charge_length_m=bad))
+                self.assertEqual(point.uniformity.charge_to_bench, 1.0)
+                self.assertEqual(len(point.warnings), 1)
+                self.assertIn("L/H", point.warnings[0])
+
+    def test_both_length_and_height_zero_warn_once(self):
+        args = dict(self.ARGS, charge_length_m=0.0, bench_height_m=0.0)
+
+        point = kr.predict_point(kr.KuzRamSettings(), **args)
+
+        self.assertEqual(len(point.warnings), 1)
+
+    def test_bad_inputs_are_rejected_with_russian_message(self):
+        cases = [
+            ("burden_m", 0.0, "ЛНС"),
+            ("burden_m", -1.0, "ЛНС"),
+            ("burden_m", float("nan"), "ЛНС"),
+            ("burden_m", float("inf"), "ЛНС"),
+            ("powder_factor_kg_m3", 0.0, "Удельный расход"),
+            ("powder_factor_kg_m3", float("nan"), "Удельный расход"),
+            ("charge_mass_kg", 0.0, "Масса заряда"),
+            ("charge_mass_kg", float("nan"), "Масса заряда"),
+            ("re_weight", 0.0, "Относительная сила ВВ"),
+            ("re_weight", -0.5, "Относительная сила ВВ"),
+            ("re_weight", float("nan"), "Относительная сила ВВ"),
+            ("spacing_m", 0.0, "Расстояние между скважинами"),
+            ("spacing_m", -1.0, "Расстояние между скважинами"),
+            ("spacing_m", float("nan"), "Расстояние между скважинами"),
+            ("ucs_mpa", 0.0, "Прочность породы"),
+            ("ucs_mpa", -5.0, "Прочность породы"),
+            ("ucs_mpa", float("nan"), "Прочность породы"),
+            ("ucs_mpa", float("inf"), "Прочность породы"),
+            ("density_t_m3", 0.0, "Плотность породы"),
+            ("density_t_m3", -1.0, "Плотность породы"),
+            ("density_t_m3", float("nan"), "Плотность породы"),
+            ("density_t_m3", float("inf"), "Плотность породы"),
+            ("fissuring_per_m", -0.1, "Трещиноватость"),
+            ("fissuring_per_m", float("nan"), "Трещиноватость"),
+            ("fissuring_per_m", float("inf"), "Трещиноватость"),
+            ("lump_size_mm", 0.0, "Размер негабарита"),
+            ("lump_size_mm", -800.0, "Размер негабарита"),
+            ("lump_size_mm", float("nan"), "Размер негабарита"),
+            ("lump_size_mm", float("inf"), "Размер негабарита"),
+        ]
+        for name, value, text in cases:
+            with self.subTest(name=name, value=value):
+                with self.assertRaises(ValueError) as ctx:
+                    kr.predict_point(kr.KuzRamSettings(), **dict(self.ARGS, **{name: value}))
+                self.assertIn(text, str(ctx.exception))
+
+    def test_missing_bench_height_keeps_uniformity_and_warns(self):
+        args = dict(self.ARGS, bench_height_m=0.0)
+
+        point = kr.predict_point(kr.KuzRamSettings(), **args)
+
+        self.assertEqual(point.uniformity.charge_to_bench, 1.0)
+        self.assertEqual(len(point.warnings), 1)
+
+    def test_charge_longer_than_bench_does_not_raise_uniformity(self):
+        args = dict(self.ARGS, charge_length_m=15.0, bench_height_m=10.0)
+
+        point = kr.predict_point(kr.KuzRamSettings(), **args)
+
+        self.assertEqual(point.uniformity.charge_to_bench, 1.0)
+        self.assertEqual(point.warnings, ())
+
+    def test_zero_fissuring_is_legal_massive_rock(self):
+        point = kr.predict_point(kr.KuzRamSettings(), **dict(self.ARGS, fissuring_per_m=0.0))
+
+        self.assertTrue(math.isfinite(point.x50_mm))
+
+    def test_diameter_in_metres_is_rejected(self):
+        args = dict(self.ARGS, hole_diameter_mm=0.1596)
+
+        with self.assertRaises(ValueError) as ctx:
+            kr.predict_point(kr.KuzRamSettings(), **args)
+
+        self.assertIn("миллиметрах", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

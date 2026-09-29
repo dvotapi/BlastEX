@@ -160,36 +160,38 @@ class BlastEngine:
     # --- Kuz-Ram по Каннингему ---
 
     def kuzram_point(self, diameter_mm: float, q: float, settings: kr.KuzRamSettings) -> BlastPoint:
-        """Расчёт коронки при заданном q по Kuz-Ram (Каннингем, EFEE 2005)."""
+        """Расчёт коронки при заданном q по Kuz-Ram (Каннингем, EFEE 2005).
+
+        Формулы не вызываются по отдельности: прогноз считает
+        cunningham.predict_point — та же функция, что и у движка
+        «Проектирования».
+        """
         d_m, charge_length, charge_mass, v_hole, W, m = self._hole(diameter_mm, q)
-        rock = kr.rock_factor(
+        re_weight = self._get_re_weight()
+        point = kr.predict_point(
             settings,
             ucs_mpa=self.rock.ucs_mpa,
             density_t_m3=self.rock.density_t_m3,
             fissuring_per_m=self.rock.fissuring_ff,
             burden_m=W,
             spacing_m=m * W,
-        )
-        re_weight = self._get_re_weight()
-        x50_mm = kr.mean_fragment_mm(rock.value, q, charge_mass, re_weight, settings.exponent)
-        n = kr.uniformity_index(
-            burden_m=W,
             hole_diameter_mm=d_m * 1000,
-            spacing_to_burden=m,
-            drill_deviation_m=settings.drill_deviation_m,
+            powder_factor_kg_m3=q,
+            charge_mass_kg=charge_mass,
+            re_weight=re_weight,
             charge_length_m=charge_length,
             bench_height_m=self.target.bench_height_m,
-            correction=settings.uniformity_correction,
+            lump_size_mm=self.target.lump_size_mm,
         )
-        xc, oversize_pct = kr.oversize(x50_mm, n.value, self.target.lump_size_mm)
         return BlastPoint(
             q_kg_m3=q, hole_diameter_mm=d_m * 1000, charge_length_m=charge_length,
             charge_mass_kg=charge_mass, volume_per_hole_m3=v_hole, burden_m=W, spacing_m=m * W,
             burden_to_diameter=W / d_m,
-            rock_factor_a=rock.value, rock_factor=rock, re_weight=re_weight,
-            strength_exponent=settings.strength_exponent, x50_mm=x50_mm,
-            uniformity_n_raw=n.raw, uniformity_n=n.value, charge_to_bench=n.charge_to_bench,
-            characteristic_size_mm=xc, oversize_pct=oversize_pct,
+            rock_factor_a=point.rock.value, rock_factor=point.rock, re_weight=re_weight,
+            strength_exponent=settings.strength_exponent, x50_mm=point.x50_mm,
+            uniformity_n_raw=point.uniformity.raw, uniformity_n=point.uniformity.value,
+            charge_to_bench=point.uniformity.charge_to_bench,
+            characteristic_size_mm=point.characteristic_size_mm, oversize_pct=point.oversize_pct,
         )
 
     def optimize_blast(

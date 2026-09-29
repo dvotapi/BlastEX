@@ -80,6 +80,42 @@ class KuzRamOptimizerTests(unittest.TestCase):
         ("rock_factor_a", "rock_factor_a"),
     ]
 
+    def test_point_matches_predict_point(self):
+        """kuzram_point обязан быть той же функцией прогноза, что и у движка.
+
+        Тест переживёт PR 2: движок «Проектирования» зовёт predict_point, и
+        расхождение разделов ловится здесь.
+        """
+        cases = [
+            (_gabbro(), 152, 1.26, kr.KuzRamSettings()),
+            (_gabbro(), 110, 0.8, kr.KuzRamSettings(rock_factor_method="rmd10")),
+            (_gabbro(), 250, 1.5, kr.KuzRamSettings(rock_factor_correction=1.3)),
+            (_gabbro(), 152, 1.1, kr.KuzRamSettings(strength_exponent="19/30", drill_deviation_m=0.2)),
+        ]
+        for engine, crown_mm, q, settings in cases:
+            with self.subTest(crown=crown_mm, q=q):
+                point = engine.kuzram_point(crown_mm, q, settings)
+                expected = kr.predict_point(
+                    settings,
+                    ucs_mpa=engine.rock.ucs_mpa,
+                    density_t_m3=engine.rock.density_t_m3,
+                    fissuring_per_m=engine.rock.fissuring_ff,
+                    burden_m=point.burden_m,
+                    spacing_m=point.spacing_m,
+                    hole_diameter_mm=point.hole_diameter_mm,
+                    powder_factor_kg_m3=q,
+                    charge_mass_kg=point.charge_mass_kg,
+                    re_weight=point.re_weight,
+                    charge_length_m=point.charge_length_m,
+                    bench_height_m=engine.target.bench_height_m,
+                    lump_size_mm=engine.target.lump_size_mm,
+                )
+                self.assertAlmostEqual(point.x50_mm, expected.x50_mm, places=9)
+                self.assertAlmostEqual(point.uniformity_n, expected.uniformity.value, places=9)
+                self.assertAlmostEqual(point.oversize_pct, expected.oversize_pct, places=9)
+                self.assertAlmostEqual(point.rock_factor_a, expected.rock.value, places=9)
+                self.assertEqual(point.rock_factor, expected.rock)
+
     def test_matches_reference_implementation(self):
         data = json.loads((FIXTURES / "kuzram_cunningham_golden.json").read_text(encoding="utf-8"))
         for case in data["cases"]:

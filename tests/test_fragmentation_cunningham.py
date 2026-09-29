@@ -266,9 +266,47 @@ class PredictPointTests(unittest.TestCase):
         point = kr.predict_point(kr.KuzRamSettings(), **args)
 
         self.assertEqual(point.uniformity.charge_to_bench, 1.0)
-        self.assertGreater(point.uniformity.value, 0.5)
+        full = kr.predict_point(
+            kr.KuzRamSettings(), **dict(self.ARGS, charge_length_m=self.ARGS["bench_height_m"])
+        )
+        self.assertEqual(point.uniformity.value, full.uniformity.value)
         self.assertEqual(len(point.warnings), 1)
         self.assertIn("L/H", point.warnings[0])
+
+    def test_negative_or_nan_charge_length_falls_back_with_one_warning(self):
+        for bad in (-2.0, float("nan"), float("inf")):
+            with self.subTest(charge_length_m=bad):
+                point = kr.predict_point(kr.KuzRamSettings(), **dict(self.ARGS, charge_length_m=bad))
+                self.assertEqual(point.uniformity.charge_to_bench, 1.0)
+                self.assertEqual(len(point.warnings), 1)
+                self.assertIn("L/H", point.warnings[0])
+
+    def test_both_length_and_height_zero_warn_once(self):
+        args = dict(self.ARGS, charge_length_m=0.0, bench_height_m=0.0)
+
+        point = kr.predict_point(kr.KuzRamSettings(), **args)
+
+        self.assertEqual(len(point.warnings), 1)
+
+    def test_bad_inputs_are_rejected_with_russian_message(self):
+        cases = [
+            ("burden_m", -1.0, "ЛНС"),
+            ("burden_m", float("nan"), "ЛНС"),
+            ("burden_m", float("inf"), "ЛНС"),
+            ("powder_factor_kg_m3", float("nan"), "Удельный расход"),
+            ("charge_mass_kg", float("nan"), "Масса заряда"),
+            ("re_weight", 0.0, "Относительная сила ВВ"),
+            ("re_weight", -0.5, "Относительная сила ВВ"),
+            ("re_weight", float("nan"), "Относительная сила ВВ"),
+            ("spacing_m", 0.0, "Расстояние между скважинами"),
+            ("spacing_m", -1.0, "Расстояние между скважинами"),
+            ("spacing_m", float("nan"), "Расстояние между скважинами"),
+        ]
+        for name, value, text in cases:
+            with self.subTest(name=name, value=value):
+                with self.assertRaises(ValueError) as ctx:
+                    kr.predict_point(kr.KuzRamSettings(), **dict(self.ARGS, **{name: value}))
+                self.assertIn(text, str(ctx.exception))
 
     def test_missing_bench_height_keeps_uniformity_and_warns(self):
         args = dict(self.ARGS, bench_height_m=0.0)

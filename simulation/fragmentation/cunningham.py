@@ -277,6 +277,11 @@ class KuzRamPoint:
     warnings: tuple[str, ...] = ()
 
 
+def _positive(value: float) -> bool:
+    """Конечное число строго больше нуля (NaN и inf не проходят)."""
+    return math.isfinite(value) and value > 0
+
+
 def predict_point(
     settings: KuzRamSettings,
     *,
@@ -295,16 +300,22 @@ def predict_point(
 ) -> KuzRamPoint:
     """Полный прогноз Kuz-Ram по Каннингему для одной точки.
 
-    Единственное место, где формулы модуля собираются в прогноз: её зовут и
-    подбор q на листе «Расчёт» (Blast.py), и движок «Проектирования», поэтому
-    разделы не могут разойтись незаметно.
+    Единственное место, где формулы модуля собираются в прогноз: её зовёт
+    подбор q на листе «Расчёт» (Blast.py), а в PR 2 позовёт и движок
+    «Проектирования», поэтому разделы не смогут разойтись незаметно.
+    Неполные или нечисловые данные (нуль, минус, NaN, inf) отклоняются
+    ValueError с русским текстом, а не превращаются в молчаливый мусор.
     """
-    if burden_m <= 0:
+    if not _positive(burden_m):
         raise ValueError("ЛНС для прогноза Kuz-Ram должна быть больше нуля.")
-    if powder_factor_kg_m3 <= 0:
+    if not _positive(spacing_m):
+        raise ValueError("Расстояние между скважинами для прогноза Kuz-Ram должно быть больше нуля.")
+    if not _positive(powder_factor_kg_m3):
         raise ValueError("Удельный расход для прогноза Kuz-Ram должен быть больше нуля.")
-    if charge_mass_kg <= 0:
+    if not _positive(charge_mass_kg):
         raise ValueError("Масса заряда для прогноза Kuz-Ram должна быть больше нуля.")
+    if not _positive(re_weight):
+        raise ValueError("Относительная сила ВВ для прогноза Kuz-Ram должна быть больше нуля.")
 
     rock = rock_factor(
         settings,
@@ -319,12 +330,12 @@ def predict_point(
     )
     warnings: list[str] = []
     length_m, height_m = charge_length_m, bench_height_m
-    if length_m <= 0 or height_m <= 0:
+    if not (_positive(length_m) and _positive(height_m)):
         # Неполный паспорт: множитель L/H обнулил бы n или дал деление на
         # ноль. Берём 1 — заряд на всю высоту уступа — и говорим об этом
         # вслух.
         length_m = height_m = 1.0
-        warnings.append("Длина заряда или высота уступа не заданы: множитель L/H не применён.")
+        warnings.append("Длина заряда или высота уступа не заданы или не больше нуля: множитель L/H не применён.")
 
     uniformity = uniformity_index(
         burden_m=burden_m,

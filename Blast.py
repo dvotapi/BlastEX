@@ -163,8 +163,8 @@ class BlastEngine:
         """Расчёт коронки при заданном q по Kuz-Ram (Каннингем, EFEE 2005).
 
         Формулы не вызываются по отдельности: прогноз считает
-        cunningham.predict_point — та же функция, что и у движка
-        «Проектирования».
+        cunningham.predict_point; ту же функцию в PR 2 позовёт и
+        движок «Проектирования».
         """
         d_m, charge_length, charge_mass, v_hole, W, m = self._hole(diameter_mm, q)
         re_weight = self._get_re_weight()

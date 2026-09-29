@@ -83,8 +83,8 @@ class KuzRamOptimizerTests(unittest.TestCase):
     def test_point_matches_predict_point(self):
         """kuzram_point обязан быть той же функцией прогноза, что и у движка.
 
-        Тест переживёт PR 2: движок «Проектирования» зовёт predict_point, и
-        расхождение разделов ловится здесь.
+        Тест переживёт PR 2: движок «Проектирования» будет звать
+        predict_point, и расхождение разделов ловится здесь.
         """
         cases = [
             (_gabbro(), 152, 1.26, kr.KuzRamSettings()),

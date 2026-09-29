@@ -306,6 +306,14 @@ def predict_point(
     Неполные или нечисловые данные (нуль, минус, NaN, inf) отклоняются
     ValueError с русским текстом, а не превращаются в молчаливый мусор.
     """
+    if not _positive(ucs_mpa):
+        raise ValueError("Прочность породы для прогноза Kuz-Ram должна быть больше нуля.")
+    if not _positive(density_t_m3):
+        raise ValueError("Плотность породы для прогноза Kuz-Ram должна быть больше нуля.")
+    if not (math.isfinite(fissuring_per_m) and fissuring_per_m >= 0):
+        raise ValueError("Трещиноватость для прогноза Kuz-Ram должна быть числом не меньше нуля.")
+    if not _positive(lump_size_mm):
+        raise ValueError("Размер негабарита для прогноза Kuz-Ram должен быть больше нуля.")
     if not _positive(burden_m):
         raise ValueError("ЛНС для прогноза Kuz-Ram должна быть больше нуля.")
     if not _positive(spacing_m):

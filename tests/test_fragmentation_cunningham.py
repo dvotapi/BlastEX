@@ -290,10 +290,13 @@ class PredictPointTests(unittest.TestCase):
 
     def test_bad_inputs_are_rejected_with_russian_message(self):
         cases = [
+            ("burden_m", 0.0, "ЛНС"),
             ("burden_m", -1.0, "ЛНС"),
             ("burden_m", float("nan"), "ЛНС"),
             ("burden_m", float("inf"), "ЛНС"),
+            ("powder_factor_kg_m3", 0.0, "Удельный расход"),
             ("powder_factor_kg_m3", float("nan"), "Удельный расход"),
+            ("charge_mass_kg", 0.0, "Масса заряда"),
             ("charge_mass_kg", float("nan"), "Масса заряда"),
             ("re_weight", 0.0, "Относительная сила ВВ"),
             ("re_weight", -0.5, "Относительная сила ВВ"),
@@ -301,6 +304,21 @@ class PredictPointTests(unittest.TestCase):
             ("spacing_m", 0.0, "Расстояние между скважинами"),
             ("spacing_m", -1.0, "Расстояние между скважинами"),
             ("spacing_m", float("nan"), "Расстояние между скважинами"),
+            ("ucs_mpa", 0.0, "Прочность породы"),
+            ("ucs_mpa", -5.0, "Прочность породы"),
+            ("ucs_mpa", float("nan"), "Прочность породы"),
+            ("ucs_mpa", float("inf"), "Прочность породы"),
+            ("density_t_m3", 0.0, "Плотность породы"),
+            ("density_t_m3", -1.0, "Плотность породы"),
+            ("density_t_m3", float("nan"), "Плотность породы"),
+            ("density_t_m3", float("inf"), "Плотность породы"),
+            ("fissuring_per_m", -0.1, "Трещиноватость"),
+            ("fissuring_per_m", float("nan"), "Трещиноватость"),
+            ("fissuring_per_m", float("inf"), "Трещиноватость"),
+            ("lump_size_mm", 0.0, "Размер негабарита"),
+            ("lump_size_mm", -800.0, "Размер негабарита"),
+            ("lump_size_mm", float("nan"), "Размер негабарита"),
+            ("lump_size_mm", float("inf"), "Размер негабарита"),
         ]
         for name, value, text in cases:
             with self.subTest(name=name, value=value):
@@ -324,29 +342,10 @@ class PredictPointTests(unittest.TestCase):
         self.assertEqual(point.uniformity.charge_to_bench, 1.0)
         self.assertEqual(point.warnings, ())
 
-    def test_zero_burden_is_rejected(self):
-        args = dict(self.ARGS, burden_m=0.0)
+    def test_zero_fissuring_is_legal_massive_rock(self):
+        point = kr.predict_point(kr.KuzRamSettings(), **dict(self.ARGS, fissuring_per_m=0.0))
 
-        with self.assertRaises(ValueError) as ctx:
-            kr.predict_point(kr.KuzRamSettings(), **args)
-
-        self.assertIn("ЛНС", str(ctx.exception))
-
-    def test_zero_powder_factor_is_rejected(self):
-        args = dict(self.ARGS, powder_factor_kg_m3=0.0)
-
-        with self.assertRaises(ValueError) as ctx:
-            kr.predict_point(kr.KuzRamSettings(), **args)
-
-        self.assertIn("Удельный расход", str(ctx.exception))
-
-    def test_zero_charge_mass_is_rejected(self):
-        args = dict(self.ARGS, charge_mass_kg=0.0)
-
-        with self.assertRaises(ValueError) as ctx:
-            kr.predict_point(kr.KuzRamSettings(), **args)
-
-        self.assertIn("Масса заряда", str(ctx.exception))
+        self.assertTrue(math.isfinite(point.x50_mm))
 
     def test_diameter_in_metres_is_rejected(self):
         args = dict(self.ARGS, hole_diameter_mm=0.1596)

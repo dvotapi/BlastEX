@@ -107,7 +107,7 @@ export function SurfacePanel({
               оно лишний шум, а именно с него и начинается работа. */}
           {holeCount > 0 && (
             <small className="drawing-import-warning">
-              Импорт заменит контур и очистит {holeCount} скв., заряды и сеть.
+              «Построить блок» заменит контур и очистит {holeCount} скв., заряды и сеть.
             </small>
           )}
           <input

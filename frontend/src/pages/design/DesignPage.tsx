@@ -626,7 +626,6 @@ export function DesignPage({
   /** Шаг 1: читаем чертежи и размечаем слои. Блок пока не меняется. */
   async function importDrawings(files: File[]) {
     if (rejectLocked("designed")) return;
-    if (document.holes.length && !window.confirm("Импорт заменит контур и очистит скважины, заряды и сеть. Продолжить?")) return;
     setSurfaceBusy(true);
     setError("");
     setDrawingError("");
@@ -647,6 +646,9 @@ export function DesignPage({
 
   /** Шаг 2: инженер выбрал бровки — только теперь перестраиваем блок. */
   async function applyBenchPolylines(choice: CadBuildChoice) {
+    // Загрузка и разметка слоёв блок не меняют — спрашиваем только перед построением.
+    if (rejectLocked("designed")) return;
+    if (document.holes.length && !window.confirm("Построение заменит контур и очистит скважины, заряды и сеть. Продолжить?")) return;
     setDrawingBusy(true);
     setDrawingError("");
     const points = (entity: CadBuildChoice["crest"]) => entity.points.map(([x, y, z]) => ({ x, y, z }));

@@ -8,9 +8,9 @@ from unittest.mock import patch
 from api.schemas.design import BlastDesignSchema
 from api.schemas.reporting import PassportBuildRequest
 from api.services import reporting_service
+from cost.v2.repository import InMemoryEconomicsRepository
 from design.models import ROLE_DESIGNED, ROLE_PREDICTED
 from design.persistence import save_design
-from cost.v2.repository import InMemoryEconomicsRepository
 from tests.scenario_fixtures import charged_design
 
 TEAM_ID = "passport-api-team"

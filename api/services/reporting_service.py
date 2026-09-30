@@ -5,16 +5,12 @@ from typing import Any
 
 from api.exceptions import DesignNotFoundError, InvalidDesignError
 from api.schemas.reporting import PassportBuildRequest, PassportDocumentSchema, PassportRolesResponse
+from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
 from design.models import BlastDesign
 from design.reporting.engine import build_passport
 from design.reporting.html import passport_html, render_passport_html
 from design.reporting.types import roles_payload
-from cost.v2.repository import EconomicsRepository
-
-
-def list_roles() -> PassportRolesResponse:
-    return PassportRolesResponse(**roles_payload())
 
 
 def list_roles() -> PassportRolesResponse:

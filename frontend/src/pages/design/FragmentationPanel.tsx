@@ -1,4 +1,5 @@
 import { ruNumber } from "../../lib/format";
+import { settingsSourceLabel } from "./fragmentationSettings";
 import {
   FRAGMENTATION_MODELS,
   type FragmentationModelId,
@@ -86,6 +87,7 @@ export function FragmentationPanel({
               <b>{viewLabel}</b>
               <span>{result.model} v{result.model_version}</span>
             </div>
+            <small className="frag-settings">{settingsSourceLabel(result)}</small>
             <div className="metrics-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
               <Metric label="X20" value={view.prediction.x20_mm} unit="мм" digits={0} />
               <Metric label="X50" value={view.prediction.x50_mm} unit="мм" digits={0} />

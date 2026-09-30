@@ -1894,9 +1894,26 @@ export const FRAGMENTATION_MODELS: { value: FragmentationModelId; label: string 
   { value: "kuznetsov", label: "Кузнецов" },
   { value: "kuzram", label: "Kuz-Ram" },
   { value: "swebrec", label: "Swebrec" },
+  { value: "kuznetsov_legacy", label: "Кузнецов (старая)" },
+  { value: "kuzram_legacy", label: "Kuz-Ram (старая)" },
+  { value: "swebrec_legacy", label: "Swebrec (старая)" },
 ];
 
-export type FragmentationModelId = "kuznetsov" | "kuzram" | "swebrec";
+export type FragmentationModelId =
+  | "kuznetsov"
+  | "kuzram"
+  | "swebrec"
+  | "kuznetsov_legacy"
+  | "kuzram_legacy"
+  | "swebrec_legacy";
+
+/** Откуда взяты настройки Kuz-Ram прогноза. Значения настроек интерфейс не показывает. */
+export type FragmentationSettingsSnapshot = {
+  source: "request" | "work_object" | "defaults";
+  work_object_name: string;
+  values: Record<string, unknown>;
+  warnings: string[];
+};
 
 export type DistributionPoint = {
   size_mm: number;
@@ -1909,6 +1926,7 @@ export type ModelProvenance = {
   inputs: Record<string, unknown>;
   parameters: Record<string, unknown>;
   calibration: Record<string, unknown>;
+  settings?: Partial<FragmentationSettingsSnapshot>;
 };
 
 export type PredictedFragmentation = {
@@ -1920,6 +1938,7 @@ export type PredictedFragmentation = {
   powder_factor_kg_m3: number;
   curve: DistributionPoint[];
   provenance: ModelProvenance;
+  warnings?: string[];
 };
 
 export type MeasuredFragmentation = {
@@ -1959,6 +1978,9 @@ export type FragmentationInputs = {
   lump_size_mm: number;
   hole_oversize_coeff: number;
   influence_volume_m3: number;
+  /** Необязательные: сохранённые прогнозы до PR 2 их не несут. */
+  charge_length_m?: number;
+  hole_length_m?: number;
 };
 
 export type FragmentationRegion = {
@@ -2001,6 +2023,7 @@ export type FragmentationPredictResponse = {
   warnings: string[];
   measured: MeasuredFragmentation[];
   calibration: Record<string, unknown>;
+  settings: FragmentationSettingsSnapshot;
 };
 
 export function isFragmentationMapMetric(metric: string): metric is FragmentationMapMetric {
@@ -2488,6 +2511,8 @@ export type OutcomePanelResponse = {
 };
 
 export type DesignScenarioParams = {
+  work_object_name?: string;
+  kuzram_settings?: Partial<FragmentationSettingsSnapshot>;
   diameter_mm?: number | null;
   spacing_a_m?: number | null;
   burden_b_m?: number | null;

@@ -8,6 +8,7 @@ from api.exceptions import InvalidDesignScenarioError
 from api.schemas.design import BlastDesignSchema
 from api.schemas.scenarios import ScenarioCompareRequest, ScenarioCreateRequest, ScenarioParamsSchema
 from api.services import scenario_service
+from cost.v2.repository import InMemoryEconomicsRepository
 from design.persistence import save_design
 from tests.scenario_fixtures import charged_design
 
@@ -156,6 +157,73 @@ class ScenarioApiTests(unittest.TestCase):
         self.assertIsNotNone(created.outcomes.x50_mm)
         reloaded = load_design(TEAM_ID, design.design_id)
         self.assertEqual([hole.to_dict() for hole in reloaded.holes], holes_before)
+
+    def _repository(self, *, active: bool = False) -> InMemoryEconomicsRepository:
+        repository = InMemoryEconomicsRepository()
+        repository.save_calc_inputs(TEAM_ID, "tester", "Карьер-1", {"kuzram": {"rock_factor_correction": 1.6}})
+        if active:
+            repository.import_legacy_workspace(
+                TEAM_ID, "tester", team_name="Команда", active_scenario_id="drill_blast", active_work_object_name="Карьер-1"
+            )
+        return repository
+
+    def test_scenario_uses_work_object_settings_and_records_snapshot(self):
+        payload = BlastDesignSchema(**self._plan().to_dict())
+        repository = self._repository()
+
+        tuned = scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(
+                design=payload, name="Объект", persist=False, params=ScenarioParamsSchema(work_object_name="Карьер-1")
+            ),
+            repository=repository,
+        )
+        plain = scenario_service.create_scenario(
+            TEAM_ID, ScenarioCreateRequest(design=payload, name="Умолчания", persist=False), repository=repository
+        )
+
+        self.assertEqual(tuned.params.kuzram_settings["source"], "work_object")
+        self.assertEqual(tuned.params.kuzram_settings["values"]["rock_factor_correction"], 1.6)
+        self.assertEqual(plain.params.kuzram_settings["source"], "defaults")
+        self.assertGreater(tuned.outcomes.x50_mm, plain.outcomes.x50_mm)
+
+    def test_client_snapshot_is_overwritten(self):
+        payload = BlastDesignSchema(**self._plan().to_dict())
+
+        created = scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(
+                design=payload,
+                name="Подмена",
+                persist=False,
+                params=ScenarioParamsSchema(
+                    kuzram_settings={"source": "request", "values": {"rock_factor_correction": 9.0}}
+                ),
+            ),
+        )
+
+        self.assertEqual(created.params.kuzram_settings["source"], "defaults")
+        self.assertEqual(created.params.kuzram_settings["values"]["rock_factor_correction"], 1.0)
+
+    def test_compare_baseline_uses_active_work_object(self):
+        design = self._plan()
+        repository = self._repository(active=True)
+        scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(design=BlastDesignSchema(**design.to_dict()), name="A", params=ScenarioParamsSchema()),
+            repository=repository,
+        )
+
+        with patch.object(
+            scenario_service, "_baseline_scenario", wraps=scenario_service._baseline_scenario
+        ) as baseline:
+            scenario_service.compare_plan_scenarios(
+                TEAM_ID, ScenarioCompareRequest(design_id=design.design_id, include_baseline=True), repository=repository
+            )
+
+        params = baseline.call_args.args[2]
+        self.assertEqual(params.kuzram_settings["source"], "work_object")
+        self.assertEqual(params.kuzram_settings["work_object_name"], "Карьер-1")
 
 
 if __name__ == "__main__":

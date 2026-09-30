@@ -80,6 +80,13 @@ class ScenarioParams:
     use_production_overlays: bool = False
     outcome_model_ids: dict[str, str] = field(default_factory=dict)
     calibration_model_ids: dict[str, str] = field(default_factory=dict)
+    # Объект работ, чьи настройки Kuz-Ram брать (пусто — активный объект).
+    work_object_name: str = ""
+    # Явные настройки Kuz-Ram из запроса (значения KuzRamSettings); пусто — не заданы.
+    kuzram: dict[str, Any] = field(default_factory=dict)
+    # Снимок применённых настроек; заполняет только сервер
+    # (api/services/fragmentation_settings.py), присланный клиентом затирается.
+    kuzram_settings: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -102,6 +109,11 @@ class ScenarioParams:
             "use_production_overlays": self.use_production_overlays,
             "outcome_model_ids": dict(self.outcome_model_ids),
             "calibration_model_ids": dict(self.calibration_model_ids),
+            "work_object_name": self.work_object_name,
+            # None, а не {}: схема API превратила бы {} в полный набор умолчаний,
+            # и сервер принял бы их за явные настройки из запроса.
+            "kuzram": dict(self.kuzram) or None,
+            "kuzram_settings": dict(self.kuzram_settings),
         }
 
     @classmethod
@@ -129,6 +141,9 @@ class ScenarioParams:
             use_production_overlays=bool(data.get("use_production_overlays", False)),
             outcome_model_ids={str(key): str(value) for key, value in dict(outcome_ids).items()},
             calibration_model_ids={str(key): str(value) for key, value in dict(calibration_ids).items()},
+            work_object_name=str(data.get("work_object_name") or ""),
+            kuzram=dict(data.get("kuzram") or {}),
+            kuzram_settings=dict(data.get("kuzram_settings") or {}),
         )
 
 

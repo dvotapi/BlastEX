@@ -12,7 +12,9 @@ from api.schemas.recommendation import (
 )
 from api.schemas.scenarios import ScenarioCreateResponse
 from api.security import require_internal_access
+from api.services.economics_service import get_economics_repository
 from api.services import recommendation_service
+from cost.v2.repository import EconomicsRepository
 from design.recommendation.types import PROFILES
 
 router = APIRouter(prefix="/design", tags=["design-recommendation"])
@@ -31,16 +33,18 @@ def list_profiles(session: dict = Depends(require_internal_access)) -> Recommend
 def run_recommendation(
     request: RecommendationRequest,
     session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> DesignRecommendationSchema:
-    return recommendation_service.run_recommendation(session["org"], request)
+    return recommendation_service.run_recommendation(session["org"], request, repository=repository)
 
 
 @router.post("/recommend/promote", response_model=ScenarioCreateResponse, status_code=201)
 def promote_recommendation(
     request: RecommendationPromoteRequest,
     session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> ScenarioCreateResponse:
-    return recommendation_service.promote_recommendation(session["org"], request)
+    return recommendation_service.promote_recommendation(session["org"], request, repository=repository)
 
 
 @router.get("/plans/{design_id}/recommendations", response_model=RecommendationListResponse)

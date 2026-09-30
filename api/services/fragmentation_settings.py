@@ -8,7 +8,7 @@ calc_object_inputs) для объекта из запроса, а без нег�
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pydantic import ValidationError
@@ -16,10 +16,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.schemas.blast import KuzRamSettingsSchema
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
+from design.scenarios.types import ScenarioParams
 from simulation.fragmentation.base import (
     SETTINGS_SOURCE_DEFAULTS,
     SETTINGS_SOURCE_REQUEST,
     SETTINGS_SOURCE_WORK_OBJECT,
+    settings_snapshot,
 )
 from simulation.fragmentation.cunningham import KuzRamSettings
 
@@ -82,3 +84,24 @@ def resolve_kuzram_settings(
         reason = "; ".join(str(error["msg"]) for error in exc.errors())
         return _defaults(name, f"Настройки модели объекта работ «{name}» не прочитаны ({reason}). Взяты умолчания.")
     return ResolvedSettings(settings, SETTINGS_SOURCE_WORK_OBJECT, name)
+
+
+def with_scenario_settings(
+    params: ScenarioParams,
+    *,
+    organization_id: str | None,
+    repository: EconomicsRepository | None,
+) -> ScenarioParams:
+    """Параметры сценария со снимком применённых настроек Kuz-Ram.
+
+    Снимок всегда пересчитывается: присланному клиентом сервер не доверяет,
+    явные настройки клиент передаёт полем kuzram.
+    """
+    explicit = KuzRamSettingsSchema(**params.kuzram).to_settings() if params.kuzram else None
+    resolved = resolve_kuzram_settings(
+        explicit=explicit,
+        work_object_name=params.work_object_name,
+        organization_id=organization_id,
+        repository=repository,
+    )
+    return replace(params, kuzram_settings=settings_snapshot(resolved.settings, resolved.source_payload()))

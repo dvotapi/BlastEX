@@ -20,7 +20,9 @@ from api.schemas.scenarios import (
     ScenarioSummarySchema,
 )
 from api.services.design_service import estimate_design_cost
+from api.services.fragmentation_settings import with_scenario_settings
 from cost.v2.legacy_adapter import default_legacy_references
+from cost.v2.repository import EconomicsRepository
 from design.models import BlastDesign
 from design.persistence import DesignNotFoundError as StoreDesignNotFound
 from design.persistence import load_design
@@ -236,13 +238,17 @@ def _build_scenario(
     return scenario, overlay
 
 
-def create_scenario(team_id: str, request: ScenarioCreateRequest) -> ScenarioCreateResponse:
+def create_scenario(
+    team_id: str, request: ScenarioCreateRequest, *, repository: EconomicsRepository | None = None
+) -> ScenarioCreateResponse:
     design = _design_from_schema(request.design)
     if not design.holes:
         raise InvalidDesignScenarioError("В паспорте нет скважин — сценарий строить не из чего.")
     approved_before = holes_loads_payload(design)
     source_hash = revision_sha256(design)
-    params = ScenarioParams.from_dict(request.params.model_dump())
+    params = with_scenario_settings(
+        ScenarioParams.from_dict(request.params.model_dump()), organization_id=team_id, repository=repository
+    )
     try:
         scenario, _overlay = _build_scenario(
             team_id=team_id,
@@ -317,7 +323,9 @@ def _baseline_scenario(team_id: str, design: BlastDesign, params: ScenarioParams
     )
 
 
-def compare_plan_scenarios(team_id: str, request: ScenarioCompareRequest) -> ScenarioCompareResponse:
+def compare_plan_scenarios(
+    team_id: str, request: ScenarioCompareRequest, *, repository: EconomicsRepository | None = None
+) -> ScenarioCompareResponse:
     design = _design_from_schema(request.design) if request.design is not None else None
     design_id = (request.design_id or (design.design_id if design else "")).strip()
     approved_before = holes_loads_payload(design) if design is not None else None
@@ -345,7 +353,12 @@ def compare_plan_scenarios(team_id: str, request: ScenarioCompareRequest) -> Sce
             except StoreDesignNotFound as exc:
                 raise DesignNotFoundError(design_id) from exc
         if design is not None:
-            scenarios = [_baseline_scenario(team_id, design)] + scenarios
+            baseline_params = with_scenario_settings(
+                ScenarioParams(work_object_name=request.work_object_name),
+                organization_id=team_id,
+                repository=repository,
+            )
+            scenarios = [_baseline_scenario(team_id, design, baseline_params)] + scenarios
 
     if not scenarios:
         raise InvalidDesignScenarioError("Нет сценариев для сравнения.")

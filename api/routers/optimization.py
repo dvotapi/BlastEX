@@ -11,7 +11,9 @@ from api.schemas.optimization import (
 )
 from api.schemas.scenarios import DesignScenarioSchema, ScenarioCreateResponse
 from api.security import require_internal_access
+from api.services.economics_service import get_economics_repository
 from api.services import optimization_service
+from cost.v2.repository import EconomicsRepository
 
 router = APIRouter(prefix="/design", tags=["design-optimization"])
 
@@ -20,16 +22,18 @@ router = APIRouter(prefix="/design", tags=["design-optimization"])
 def run_optimization(
     request: OptimizationRequest,
     session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> OptimizationResultSchema:
-    return optimization_service.run_optimization(session["org"], request)
+    return optimization_service.run_optimization(session["org"], request, repository=repository)
 
 
 @router.post("/optimize/promote", response_model=ScenarioCreateResponse, status_code=201)
 def promote_candidate(
     request: OptimizationPromoteRequest,
     session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> DesignScenarioSchema:
-    return optimization_service.promote_candidate(session["org"], request)
+    return optimization_service.promote_candidate(session["org"], request, repository=repository)
 
 
 @router.get("/plans/{design_id}/optimizations", response_model=OptimizationListResponse)

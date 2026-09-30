@@ -66,5 +66,30 @@ class ScenarioModelTests(unittest.TestCase):
         self.assertEqual(restored.kind, KIND_OVERLAY)
 
 
+class ScenarioParamsSettingsTests(unittest.TestCase):
+    def test_settings_fields_round_trip(self):
+        params = ScenarioParams(
+            work_object_name="Карьер-1",
+            kuzram={"rock_factor_correction": 1.4},
+            kuzram_settings={"source": "request", "values": {"rock_factor_correction": 1.4}},
+        )
+
+        restored = ScenarioParams.from_dict(params.to_dict())
+
+        self.assertEqual(restored.work_object_name, "Карьер-1")
+        self.assertEqual(restored.kuzram, {"rock_factor_correction": 1.4})
+        self.assertEqual(restored.kuzram_settings["source"], "request")
+
+    def test_empty_explicit_settings_stay_empty(self):
+        # Пустые явные настройки не должны превратиться в «умолчания из запроса»
+        # после круга to_dict → схема API → from_dict (продвижение кандидата).
+        self.assertIsNone(ScenarioParams().to_dict()["kuzram"])
+
+    def test_old_params_read_without_settings(self):
+        restored = ScenarioParams.from_dict({"diameter_mm": 165.0})
+
+        self.assertEqual((restored.work_object_name, restored.kuzram, restored.kuzram_settings), ("", {}, {}))
+
+
 if __name__ == "__main__":
     unittest.main()

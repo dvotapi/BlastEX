@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.blast import KuzRamSettingsSchema
 from api.schemas.design import BlastDesignSchema
 
 
@@ -30,6 +31,9 @@ class ScenarioParamsSchema(BaseModel):
     use_production_overlays: bool = False
     outcome_model_ids: dict[str, str] = Field(default_factory=dict)
     calibration_model_ids: dict[str, str] = Field(default_factory=dict)
+    work_object_name: str = Field("", max_length=300)
+    kuzram: KuzRamSettingsSchema | None = None
+    kuzram_settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class ScenarioOutcomesSchema(BaseModel):
@@ -116,6 +120,7 @@ class ScenarioCompareRequest(BaseModel):
     include_baseline: bool = True
     design: BlastDesignSchema | None = None
     inline: list[DesignScenarioSchema] = Field(default_factory=list)
+    work_object_name: str = Field("", max_length=300)
 
 
 class ScenarioCompareColumnSchema(BaseModel):

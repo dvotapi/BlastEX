@@ -19,8 +19,10 @@ from api.schemas.optimization import (
 )
 from api.schemas.scenarios import ScenarioCreateRequest, ScenarioCreateResponse, ScenarioParamsSchema
 from api.services.design_service import estimate_design_cost
+from api.services.fragmentation_settings import with_scenario_settings
 from api.services.scenario_service import create_scenario
 from cost.v2.legacy_adapter import default_legacy_references
+from cost.v2.repository import EconomicsRepository
 from design.models import BlastDesign
 from design.optimization.engine import OptimizationError, optimize
 from design.optimization.persistence import (
@@ -70,14 +72,18 @@ def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: Scenario
     outcomes.cost_source = "engineering"
 
 
-def run_optimization(team_id: str, request: OptimizationRequest) -> OptimizationResultSchema:
+def run_optimization(
+    team_id: str, request: OptimizationRequest, *, repository: EconomicsRepository | None = None
+) -> OptimizationResultSchema:
     design = _design_from_schema(request.design)
     if not design.holes:
         raise InvalidOptimizationError("В паспорте нет скважин — оптимизировать нечего.")
     approved_before = holes_loads_payload(design)
     source_hash = revision_sha256(design)
     bounds = [VariableBound.from_dict(item.model_dump()) for item in request.variables]
-    params = ScenarioParams.from_dict(request.params.model_dump())
+    params = with_scenario_settings(
+        ScenarioParams.from_dict(request.params.model_dump()), organization_id=team_id, repository=repository
+    )
     constraints = {
         "max_ppv_mm_s": request.constraints.max_ppv_mm_s,
         "max_oversize_pct": request.constraints.max_oversize_pct,
@@ -124,6 +130,7 @@ def run_optimization(team_id: str, request: OptimizationRequest) -> Optimization
                     params=ScenarioParamsSchema(**candidate.params.to_dict()),
                     persist=True,
                 ),
+                repository=repository,
             )
         _assert_unchanged(approved_before, design, "Сохранение Парето как сценариев")
 
@@ -150,7 +157,9 @@ def get_plan_run(team_id: str, design_id: str, run_id: str) -> OptimizationResul
     return OptimizationResultSchema(**result.to_dict())
 
 
-def promote_candidate(team_id: str, request: OptimizationPromoteRequest) -> ScenarioCreateResponse:
+def promote_candidate(
+    team_id: str, request: OptimizationPromoteRequest, *, repository: EconomicsRepository | None = None
+) -> ScenarioCreateResponse:
     """Save one overlay as a named scenario. Does not apply it to the passport."""
     created = create_scenario(
         team_id,
@@ -160,5 +169,6 @@ def promote_candidate(team_id: str, request: OptimizationPromoteRequest) -> Scen
             params=request.params,
             persist=request.persist,
         ),
+        repository=repository,
     )
     return created

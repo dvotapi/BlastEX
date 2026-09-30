@@ -203,13 +203,14 @@ def _charge_length_m(load: HoleLoad | None, hole: Hole, stemming_m: float) -> fl
 
     Воздушный промежуток между деками зарядом не считается: для множителя
     L/H в n по Каннингему нужна длина ВВ, а не «скважина минус забойка».
+    Если у части дек масса задана, незаряженной считается дека с нулём; если
+    массы нет ни у одной (импорт хранит только total_charge_kg), считаются
+    все взрывчатые деки.
     """
     if load is not None:
-        length = sum(
-            max(0.0, deck.to_m - deck.from_m)
-            for deck in load.decks
-            if is_explosive_deck_kind(deck.kind) and deck.mass_kg > 0
-        )
+        explosive = [deck for deck in load.decks if is_explosive_deck_kind(deck.kind)]
+        charged = [deck for deck in explosive if deck.mass_kg > 0] or explosive
+        length = sum(max(0.0, deck.to_m - deck.from_m) for deck in charged)
         if length > 0:
             return length
     return max(0.0, hole.length_m - stemming_m)

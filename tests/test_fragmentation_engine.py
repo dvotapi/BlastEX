@@ -266,6 +266,18 @@ class RegionLengthTests(unittest.TestCase):
 
         self.assertAlmostEqual(self._hole_region(holes, design.loads[0].hole_id).inputs.charge_length_m, 6.0)
 
+    def test_decks_without_mass_still_give_charge_length(self):
+        # Импортированная загрузка: масса только в total_charge_kg, у дек 0.
+        design = _design_with_charges()
+        charge = next(deck for deck in design.loads[0].decks if deck.kind == "charge")
+        charge.to_m = 9.0  # заряд 3–9 м, ниже — пустота
+        for deck in design.loads[0].decks:
+            deck.mass_kg = 0.0
+
+        holes, *_ = self._regions(design)
+
+        self.assertAlmostEqual(self._hole_region(holes, design.loads[0].hole_id).inputs.charge_length_m, 6.0)
+
     def test_zero_lengths_do_not_drag_block_lengths(self):
         design = _design_with_charges()
         holes, *_ = self._regions(design)

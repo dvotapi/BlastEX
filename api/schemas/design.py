@@ -1248,6 +1248,7 @@ class ModelProvenanceSchema(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     parameters: dict[str, Any] = Field(default_factory=dict)
     calibration: dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class PredictedFragmentationSchema(BaseModel):
@@ -1259,6 +1260,7 @@ class PredictedFragmentationSchema(BaseModel):
     powder_factor_kg_m3: float
     curve: list[DistributionPointSchema] = Field(default_factory=list)
     provenance: ModelProvenanceSchema
+    warnings: list[str] = Field(default_factory=list)
 
 
 class MeasuredFragmentationSchema(BaseModel):
@@ -1301,6 +1303,8 @@ class FragmentationInputsSchema(BaseModel):
     lump_size_mm: float = 0.0
     hole_oversize_coeff: float = 1.05
     influence_volume_m3: float = 0.0
+    charge_length_m: float = 0.0
+    hole_length_m: float = 0.0
 
 
 class FragmentationRegionSchema(BaseModel):

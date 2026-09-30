@@ -153,8 +153,9 @@ def _auto_layer_role(name: str, members: list[CadEntity]) -> str:
     lines = [item for item in members if item.geometry_type == "line"]
     points = [item for item in members if item.geometry_type == "point"]
 
-    if _BLOCK.search(key) and _BLOCK_MARK.search(key) and any(item.closed for item in lines):
-        return ROLE_BLOCK_CONTOUR
+    if _BLOCK.search(key) and _BLOCK_MARK.search(key) and lines:
+        # Замкнутая линия — готовый контур; одни открытые — его участки.
+        return ROLE_BLOCK_CONTOUR if any(item.closed for item in lines) else ROLE_DESIGN_LINE
     if _CREST.search(key) and _TOP.search(key):
         return ROLE_CREST_TOP
     if _CREST.search(key) and _BOTTOM.search(key):

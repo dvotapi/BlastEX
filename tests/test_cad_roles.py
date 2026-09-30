@@ -259,3 +259,14 @@ def test_lines_without_elevation_are_not_crests(layer):
 
     assert _roles(entities) == {"L": ("crest_bottom", "z"), "U": ("crest_top", "z"), "F": ("feature_line", "auto")}
     assert any(item.code == "crest_without_z" and layer in item.message for item in result.warnings)
+
+
+def test_block_layer_of_open_lines_gives_design_lines():
+    """Контур, присланный открытыми участками, — проектные линии, а не ситуация (§1, §2)."""
+
+    entities = [_line("A", "блок 67", [419.8, 419.8]), _line("B", "блок 67", [419.8, 419.8])]
+
+    result = assign_roles(entities, {}, RoleParams())
+
+    assert _layers(result)["блок 67"] == ("design_line", "auto")
+    assert _roles(entities) == {"A": ("design_line", "auto"), "B": ("design_line", "auto")}

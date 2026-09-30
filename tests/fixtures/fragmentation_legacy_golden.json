@@ -1,0 +1,2512 @@
+{
+ "cases": {
+  "base": {},
+  "tight_burden": {
+   "burden_m": 2.5,
+   "spacing_m": 3.0
+  },
+  "soft_rock": {
+   "rock_ucs_mpa": 40.0,
+   "rock_density_t_m3": 2.2,
+   "powder_factor_kg_m3": 0.4
+  },
+  "big_hole": {
+   "diameter_mm": 250.0,
+   "charge_mass_kg": 400.0,
+   "burden_m": 7.0,
+   "spacing_m": 8.0
+  }
+ },
+ "calibrations": {
+  "none": {},
+  "overrides": {
+   "rock_factor_A": 7.5,
+   "uniformity_n": 1.4,
+   "swebrec_b": 2.5,
+   "xmax_mm": 3000.0,
+   "drill_deviation_m": 0.3
+  }
+ },
+ "rows": [
+  {
+   "model": "kuznetsov",
+   "case": "base",
+   "calibration": "none",
+   "x20_mm": 24.4,
+   "x50_mm": 75.9,
+   "x80_mm": 176.2,
+   "oversize_pct": 2.59,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.909
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 1.811
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 3.588
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 7.048
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 13.599
+    },
+    {
+     "size_mm": 24.426,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 20.419
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 30.61
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 36.668
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 47.244
+    },
+    {
+     "size_mm": 75.873,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 59.891
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 74.598
+    },
+    {
+     "size_mm": 176.171,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 83.913
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 93.547
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 97.412
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 98.962
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 99.833
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.989
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 2.5349999999999997,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.0,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuznetsov",
+   "case": "base",
+   "calibration": "overrides",
+   "x20_mm": 99.9,
+   "x50_mm": 224.5,
+   "x80_mm": 409.7,
+   "oversize_pct": 21.09,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.035
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 0.093
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 0.246
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 0.649
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 1.703
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 3.158
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 6.007
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 8.119
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 12.683
+    },
+    {
+     "size_mm": 99.9,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 20.025
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 32.578
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 44.551
+    },
+    {
+     "size_mm": 224.475,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 64.665
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 78.907
+    },
+    {
+     "size_mm": 409.722,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 88.079
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 96.685
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.635
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.995
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.4,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuznetsov",
+   "case": "tight_burden",
+   "calibration": "none",
+   "x20_mm": 24.4,
+   "x50_mm": 75.9,
+   "x80_mm": 176.2,
+   "oversize_pct": 2.59,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.909
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 1.811
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 3.588
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 7.048
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 13.599
+    },
+    {
+     "size_mm": 24.426,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 20.419
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 30.61
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 36.668
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 47.244
+    },
+    {
+     "size_mm": 75.873,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 59.891
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 74.598
+    },
+    {
+     "size_mm": 176.171,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 83.913
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 93.547
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 97.412
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 98.962
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 99.833
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.989
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 2.5349999999999997,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.0,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuznetsov",
+   "case": "tight_burden",
+   "calibration": "overrides",
+   "x20_mm": 99.9,
+   "x50_mm": 224.5,
+   "x80_mm": 409.7,
+   "oversize_pct": 21.09,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.035
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 0.093
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 0.246
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 0.649
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 1.703
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 3.158
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 6.007
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 8.119
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 12.683
+    },
+    {
+     "size_mm": 99.9,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 20.025
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 32.578
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 44.551
+    },
+    {
+     "size_mm": 224.475,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 64.665
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 78.907
+    },
+    {
+     "size_mm": 409.722,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 88.079
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 96.685
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.635
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.995
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.4,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuznetsov",
+   "case": "soft_rock",
+   "calibration": "none",
+   "x20_mm": 26.2,
+   "x50_mm": 81.5,
+   "x80_mm": 189.2,
+   "oversize_pct": 3.33,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.847
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 1.687
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 3.345
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 6.579
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 12.724
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 19.157
+    },
+    {
+     "size_mm": 26.233,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 28.841
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 34.643
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 44.868
+    },
+    {
+     "size_mm": 81.487,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 57.285
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 72.083
+    },
+    {
+     "size_mm": 189.206,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 81.755
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 92.206
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 96.671
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 98.578
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 99.741
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.98
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 1.74,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.0,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuznetsov",
+   "case": "soft_rock",
+   "calibration": "overrides",
+   "x20_mm": 156.3,
+   "x50_mm": 351.2,
+   "x80_mm": 641.1,
+   "oversize_pct": 43.54,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.019
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 0.05
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 0.132
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 0.347
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 0.914
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 1.7
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 3.256
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 4.423
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 6.99
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 11.254
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 18.992
+    },
+    {
+     "size_mm": 156.314,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 27.027
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 42.641
+    },
+    {
+     "size_mm": 351.236,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 56.461
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 67.904
+    },
+    {
+     "size_mm": 641.091,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 83.801
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 95.017
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.496
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.4,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuznetsov",
+   "case": "big_hole",
+   "calibration": "none",
+   "x20_mm": 31.3,
+   "x50_mm": 97.3,
+   "x80_mm": 225.9,
+   "oversize_pct": 5.78,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.71
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 1.415
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 2.81
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 5.54
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 10.774
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 16.316
+    },
+    {
+     "size_mm": 31.319,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 24.798
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 29.969
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 39.27
+    },
+    {
+     "size_mm": 97.287,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 50.957
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 65.655
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 75.948
+    },
+    {
+     "size_mm": 225.893,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 88.204
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 94.215
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 97.163
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 99.318
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.92
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.998
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 2.5349999999999997,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.0,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuznetsov",
+   "case": "big_hole",
+   "calibration": "overrides",
+   "x20_mm": 128.1,
+   "x50_mm": 287.8,
+   "x80_mm": 525.4,
+   "oversize_pct": 33.33,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.025
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 0.066
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 0.174
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 0.459
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 1.206
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 2.24
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 4.28
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 5.803
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 9.132
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 14.596
+    },
+    {
+     "size_mm": 128.096,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 24.295
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 34.056
+    },
+    {
+     "size_mm": 287.831,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 52.026
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 66.673
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 77.725
+    },
+    {
+     "size_mm": 525.362,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 90.976
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 98.1
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.908
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.4,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuzram",
+   "case": "base",
+   "calibration": "none",
+   "x20_mm": 18.4,
+   "x50_mm": 75.9,
+   "x80_mm": 217.5,
+   "oversize_pct": 7.28,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 2.148
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 3.71
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 6.371
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 10.829
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 18.09
+    },
+    {
+     "size_mm": 18.399,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 24.812
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 33.989
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 39.135
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 47.789
+    },
+    {
+     "size_mm": 75.873,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 57.873
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 69.751
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 77.802
+    },
+    {
+     "size_mm": 217.468,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 87.53
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 92.724
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 95.64
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 98.344
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.572
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.947
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 2.5349999999999997,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 0.8,
+    "diameter_m": 0.1596,
+    "spacing_to_burden": 1.25,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuzram",
+   "case": "base",
+   "calibration": "overrides",
+   "x20_mm": 99.9,
+   "x50_mm": 224.5,
+   "x80_mm": 409.7,
+   "oversize_pct": 21.09,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.035
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 0.093
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 0.246
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 0.649
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 1.703
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 3.158
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 6.007
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 8.119
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 12.683
+    },
+    {
+     "size_mm": 99.9,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 20.025
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 32.578
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 44.551
+    },
+    {
+     "size_mm": 224.475,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 64.665
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 78.907
+    },
+    {
+     "size_mm": 409.722,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 88.079
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 96.685
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.635
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.995
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.4,
+    "diameter_m": 0.1596,
+    "spacing_to_burden": 1.25,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuzram",
+   "case": "tight_burden",
+   "calibration": "none",
+   "x20_mm": 18.4,
+   "x50_mm": 75.9,
+   "x80_mm": 217.5,
+   "oversize_pct": 7.28,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 2.148
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 3.71
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 6.371
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 10.829
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 18.09
+    },
+    {
+     "size_mm": 18.399,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 24.812
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 33.989
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 39.135
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 47.789
+    },
+    {
+     "size_mm": 75.873,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 57.873
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 69.751
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 77.802
+    },
+    {
+     "size_mm": 217.468,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 87.53
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 92.724
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 95.64
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 98.344
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.572
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.947
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 2.5349999999999997,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 0.8,
+    "diameter_m": 0.1596,
+    "spacing_to_burden": 1.2,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuzram",
+   "case": "tight_burden",
+   "calibration": "overrides",
+   "x20_mm": 99.9,
+   "x50_mm": 224.5,
+   "x80_mm": 409.7,
+   "oversize_pct": 21.09,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.035
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 0.093
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 0.246
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 0.649
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 1.703
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 3.158
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 6.007
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 8.119
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 12.683
+    },
+    {
+     "size_mm": 99.9,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 20.025
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 32.578
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 44.551
+    },
+    {
+     "size_mm": 224.475,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 64.665
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 78.907
+    },
+    {
+     "size_mm": 409.722,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 88.079
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 96.685
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.635
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.995
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.4,
+    "diameter_m": 0.1596,
+    "spacing_to_burden": 1.2,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuzram",
+   "case": "soft_rock",
+   "calibration": "none",
+   "x20_mm": 19.8,
+   "x50_mm": 81.5,
+   "x80_mm": 233.6,
+   "oversize_pct": 8.41,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 2.03
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 3.508
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 6.028
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 10.26
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 17.178
+    },
+    {
+     "size_mm": 19.76,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 23.612
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 32.449
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 37.434
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 45.872
+    },
+    {
+     "size_mm": 81.487,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 55.802
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 67.676
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 75.867
+    },
+    {
+     "size_mm": 233.56,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 86.003
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 91.585
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 94.812
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 97.92
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 99.421
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.92
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 1.74,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 0.8,
+    "diameter_m": 0.1596,
+    "spacing_to_burden": 1.25,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuzram",
+   "case": "soft_rock",
+   "calibration": "overrides",
+   "x20_mm": 156.3,
+   "x50_mm": 351.2,
+   "x80_mm": 641.1,
+   "oversize_pct": 43.54,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.019
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 0.05
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 0.132
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 0.347
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 0.914
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 1.7
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 3.256
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 4.423
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 6.99
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 11.254
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 18.992
+    },
+    {
+     "size_mm": 156.314,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 27.027
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 42.641
+    },
+    {
+     "size_mm": 351.236,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 56.461
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 67.904
+    },
+    {
+     "size_mm": 641.091,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 83.801
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 95.017
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.496
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.4,
+    "diameter_m": 0.1596,
+    "spacing_to_burden": 1.25,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuzram",
+   "case": "big_hole",
+   "calibration": "none",
+   "x20_mm": 23.6,
+   "x50_mm": 97.3,
+   "x80_mm": 278.8,
+   "oversize_pct": 11.67,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 1.764
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 3.051
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 5.253
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 8.966
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 15.088
+    },
+    {
+     "size_mm": 23.591,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 20.843
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 28.854
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 33.433
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 41.297
+    },
+    {
+     "size_mm": 97.287,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 50.765
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 62.471
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 70.878
+    },
+    {
+     "size_mm": 278.847,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 81.848
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 88.328
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 92.329
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 96.53
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 98.856
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.794
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 2.5349999999999997,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 0.8,
+    "diameter_m": 0.2625,
+    "spacing_to_burden": 1.1428571428571428,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "kuzram",
+   "case": "big_hole",
+   "calibration": "overrides",
+   "x20_mm": 128.1,
+   "x50_mm": 287.8,
+   "x80_mm": 525.4,
+   "oversize_pct": 33.33,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 0.025
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 0.066
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 0.174
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 0.459
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 1.206
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 2.24
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 4.28
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 5.803
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 9.132
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 14.596
+    },
+    {
+     "size_mm": 128.096,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 24.295
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 34.056
+    },
+    {
+     "size_mm": 287.831,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 52.026
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 66.673
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 77.725
+    },
+    {
+     "size_mm": 525.362,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 90.976
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 98.1
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 99.908
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "uniformity_n": 1.4,
+    "diameter_m": 0.2625,
+    "spacing_to_burden": 1.1428571428571428,
+    "distribution": "rosin_rammler"
+   }
+  },
+  {
+   "model": "swebrec",
+   "case": "base",
+   "calibration": "none",
+   "x20_mm": 2.2,
+   "x50_mm": 75.9,
+   "x80_mm": 514.5,
+   "oversize_pct": 24.09,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 16.641
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 19.488
+    },
+    {
+     "size_mm": 2.234,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 23.005
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 27.37
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 32.798
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 36.964
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 41.997
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 44.634
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 48.919
+    },
+    {
+     "size_mm": 75.873,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 53.863
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 59.946
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 64.509
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 71.159
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 75.915
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 79.543
+    },
+    {
+     "size_mm": 514.483,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 84.769
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 89.761
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 94.427
+    },
+    {
+     "size_mm": 5000.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 2.5349999999999997,
+    "re_weight": 0.9082217973231357,
+    "swebrec_b": 2.27,
+    "xmax_mm": 5000.0,
+    "distribution": "swebrec"
+   }
+  },
+  {
+   "model": "swebrec",
+   "case": "base",
+   "calibration": "overrides",
+   "x20_mm": 32.9,
+   "x50_mm": 224.5,
+   "x80_mm": 676.8,
+   "oversize_pct": 34.75,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 5.631
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 6.962
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 8.757
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 11.234
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 14.727
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 17.75
+    },
+    {
+     "size_mm": 32.864,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 21.84
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 24.189
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 28.334
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 33.656
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 41.064
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 47.28
+    },
+    {
+     "size_mm": 224.475,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 57.36
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 65.254
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 71.579
+    },
+    {
+     "size_mm": 676.754,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 80.902
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 89.534
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 96.436
+    },
+    {
+     "size_mm": 3000.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "swebrec_b": 2.5,
+    "xmax_mm": 3000.0,
+    "distribution": "swebrec"
+   }
+  },
+  {
+   "model": "swebrec",
+   "case": "tight_burden",
+   "calibration": "none",
+   "x20_mm": 3.4,
+   "x50_mm": 75.9,
+   "x80_mm": 407.4,
+   "oversize_pct": 20.33,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 14.602
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 17.356
+    },
+    {
+     "size_mm": 3.434,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 20.84
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 25.284
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 30.977
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 35.46
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 40.992
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 43.934
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 48.77
+    },
+    {
+     "size_mm": 75.873,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 54.418
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 61.428
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 66.697
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 74.321
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 79.668
+    },
+    {
+     "size_mm": 407.361,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 83.646
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 89.131
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 93.949
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 97.786
+    },
+    {
+     "size_mm": 3000.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 2.5349999999999997,
+    "re_weight": 0.9082217973231357,
+    "swebrec_b": 2.27,
+    "xmax_mm": 3000.0,
+    "distribution": "swebrec"
+   }
+  },
+  {
+   "model": "swebrec",
+   "case": "tight_burden",
+   "calibration": "overrides",
+   "x20_mm": 32.9,
+   "x50_mm": 224.5,
+   "x80_mm": 676.8,
+   "oversize_pct": 34.75,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 5.631
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 6.962
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 8.757
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 11.234
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 14.727
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 17.75
+    },
+    {
+     "size_mm": 32.864,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 21.84
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 24.189
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 28.334
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 33.656
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 41.064
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 47.28
+    },
+    {
+     "size_mm": 224.475,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 57.36
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 65.254
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 71.579
+    },
+    {
+     "size_mm": 676.754,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 80.902
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 89.534
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 96.436
+    },
+    {
+     "size_mm": 3000.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "swebrec_b": 2.5,
+    "xmax_mm": 3000.0,
+    "distribution": "swebrec"
+   }
+  },
+  {
+   "model": "swebrec",
+   "case": "soft_rock",
+   "calibration": "none",
+   "x20_mm": 2.5,
+   "x50_mm": 81.5,
+   "x80_mm": 534.8,
+   "oversize_pct": 24.81,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 16.106
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 18.883
+    },
+    {
+     "size_mm": 2.548,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 22.321
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 26.601
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 31.944
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 36.06
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 41.05
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 43.672
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 47.944
+    },
+    {
+     "size_mm": 81.487,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 52.892
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 59.005
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 63.61
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 70.352
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 75.194
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 78.901
+    },
+    {
+     "size_mm": 534.816,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 84.258
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 89.397
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 94.218
+    },
+    {
+     "size_mm": 5000.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 1.74,
+    "re_weight": 0.9082217973231357,
+    "swebrec_b": 2.27,
+    "xmax_mm": 5000.0,
+    "distribution": "swebrec"
+   }
+  },
+  {
+   "model": "swebrec",
+   "case": "soft_rock",
+   "calibration": "overrides",
+   "x20_mm": 71.7,
+   "x50_mm": 351.2,
+   "x80_mm": 875.2,
+   "oversize_pct": 46.1,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 3.582
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 4.451
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 5.638
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 7.303
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 9.708
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 11.844
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 14.818
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 16.572
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 19.752
+    },
+    {
+     "size_mm": 71.655,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 24.002
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 30.254
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 35.828
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 45.578
+    },
+    {
+     "size_mm": 351.236,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 53.9
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 61.058
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 72.507
+    },
+    {
+     "size_mm": 875.19,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 84.193
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 94.396
+    },
+    {
+     "size_mm": 3000.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "swebrec_b": 2.5,
+    "xmax_mm": 3000.0,
+    "distribution": "swebrec"
+   }
+  },
+  {
+   "model": "swebrec",
+   "case": "big_hole",
+   "calibration": "none",
+   "x20_mm": 2.4,
+   "x50_mm": 97.3,
+   "x80_mm": 729.9,
+   "oversize_pct": 29.37,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 16.571
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 19.246
+    },
+    {
+     "size_mm": 2.378,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 22.513
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 26.523
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 31.455
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 35.212
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 39.728
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 42.088
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 45.923
+    },
+    {
+     "size_mm": 97.287,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 50.355
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 55.838
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 59.991
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 66.137
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 70.631
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 74.14
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 79.363
+    },
+    {
+     "size_mm": 729.935,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 84.635
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 90.013
+    },
+    {
+     "size_mm": 8000.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 2.5349999999999997,
+    "re_weight": 0.9082217973231357,
+    "swebrec_b": 2.27,
+    "xmax_mm": 8000.0,
+    "distribution": "swebrec"
+   }
+  },
+  {
+   "model": "swebrec",
+   "case": "big_hole",
+   "calibration": "overrides",
+   "x20_mm": 50.7,
+   "x50_mm": 287.8,
+   "x80_mm": 780.6,
+   "oversize_pct": 40.66,
+   "curve": [
+    {
+     "size_mm": 1.0,
+     "passing_pct": 4.432
+    },
+    {
+     "size_mm": 2.0,
+     "passing_pct": 5.496
+    },
+    {
+     "size_mm": 4.0,
+     "passing_pct": 6.942
+    },
+    {
+     "size_mm": 8.0,
+     "passing_pct": 8.955
+    },
+    {
+     "size_mm": 16.0,
+     "passing_pct": 11.835
+    },
+    {
+     "size_mm": 25.0,
+     "passing_pct": 14.364
+    },
+    {
+     "size_mm": 40.0,
+     "passing_pct": 17.843
+    },
+    {
+     "size_mm": 50.0,
+     "passing_pct": 19.871
+    },
+    {
+     "size_mm": 50.665,
+     "passing_pct": 20.0
+    },
+    {
+     "size_mm": 70.0,
+     "passing_pct": 23.505
+    },
+    {
+     "size_mm": 100.0,
+     "passing_pct": 28.279
+    },
+    {
+     "size_mm": 150.0,
+     "passing_pct": 35.13
+    },
+    {
+     "size_mm": 200.0,
+     "passing_pct": 41.073
+    },
+    {
+     "size_mm": 287.831,
+     "passing_pct": 50.0
+    },
+    {
+     "size_mm": 300.0,
+     "passing_pct": 51.114
+    },
+    {
+     "size_mm": 400.0,
+     "passing_pct": 59.344
+    },
+    {
+     "size_mm": 500.0,
+     "passing_pct": 66.187
+    },
+    {
+     "size_mm": 700.0,
+     "passing_pct": 76.703
+    },
+    {
+     "size_mm": 780.627,
+     "passing_pct": 80.0
+    },
+    {
+     "size_mm": 1000.0,
+     "passing_pct": 86.927
+    },
+    {
+     "size_mm": 1500.0,
+     "passing_pct": 95.461
+    },
+    {
+     "size_mm": 3000.0,
+     "passing_pct": 100.0
+    }
+   ],
+   "parameters": {
+    "rock_factor_A": 7.5,
+    "re_weight": 0.9082217973231357,
+    "swebrec_b": 2.5,
+    "xmax_mm": 3000.0,
+    "distribution": "swebrec"
+   }
+  }
+ ]
+}

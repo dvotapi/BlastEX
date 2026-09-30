@@ -276,7 +276,10 @@ class ScenarioApiTests(unittest.TestCase):
 
         create("Свой объект", ScenarioParamsSchema())
         create("Чужой объект", ScenarioParamsSchema(work_object_name="Карьер-2"))
-        create("Явные", ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.6}))
+        # Те же значения, что у активного объекта, но из другого источника —
+        # числа сопоставимы, предупреждения нет.
+        create("Явные как у объекта", ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.6}))
+        create("Явные", ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.3}))
         create("Старая модель", ScenarioParamsSchema(fragmentation_model="kuzram_legacy", work_object_name="Карьер-2"))
         scenario_service.create_scenario(
             TEAM_ID, ScenarioCreateRequest(design=payload, name="Без объекта", params=ScenarioParamsSchema())

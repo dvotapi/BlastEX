@@ -418,12 +418,13 @@ def compare_plan_scenarios(
     return ScenarioCompareResponse(**payload)
 
 
-_SNAPSHOT_KEYS = ("source", "work_object_name", "values")
-
-
 def _same_settings(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    """Одинаковы ли настройки двух снимков; предупреждения снимка не сравниваются."""
-    return all(left.get(key) == right.get(key) for key in _SNAPSHOT_KEYS)
+    """Одинаковы ли применённые значения настроек двух снимков.
+
+    Источник и имя объекта на числа не влияют: одинаковые значения из запроса
+    и из объекта работ дают сопоставимые x50 и негабарит.
+    """
+    return left.get("values") == right.get("values")
 
 
 def _describe_settings(snapshot: dict[str, Any]) -> str:

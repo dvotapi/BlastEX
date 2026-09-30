@@ -50,8 +50,6 @@ from api.schemas.design import (
     BenchDxfImportRequest,
     BenchDxfImportResponse,
     BenchFromPolylinesRequest,
-    DrawingPolylineSchema,
-    DrawingScanResponse,
     Point3Schema,
     SurfaceSampleRequest,
     SurfaceSampleResponse,
@@ -116,7 +114,6 @@ from design.models import (
 )
 from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
-from design.spatial.drawing import DrawingError, read_drawing
 from design.spatial.io import (
     SurveyImportError,
     build_bench_from_polylines,
@@ -171,34 +168,6 @@ def import_surface(request: SurfaceImportRequest) -> SurfaceImportResponse:
     return SurfaceImportResponse(
         surface=SurfaceModel.from_dict(surface.to_dict()).to_dict(),
         stats=SurfaceStatsSchema(**surface.stats()),
-    )
-
-
-def scan_drawing(content: bytes, filename: str) -> DrawingScanResponse:
-    """Разбирает загруженный чертёж на полилинии для ручного выбора бровок."""
-
-    try:
-        scan = read_drawing(content, filename)
-    except DrawingError as exc:
-        raise InvalidSurveyError(str(exc)) from exc
-    return DrawingScanResponse(
-        polylines=[
-            DrawingPolylineSchema(
-                id=item.id,
-                layer=item.layer,
-                entity=item.entity,
-                closed=item.closed,
-                points=[Point3Schema(x=p.x, y=p.y, z=p.z) for p in item.points],
-                length_m=item.length_m,
-                area_m2=item.area_m2,
-                z_min=item.z_min,
-                z_max=item.z_max,
-            )
-            for item in scan.polylines
-        ],
-        source_name=scan.source_name,
-        converted_from=scan.converted_from,
-        truncated=scan.truncated,
     )
 
 

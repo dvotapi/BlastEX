@@ -19,7 +19,7 @@ from pydantic import ValidationError
 
 from api import config
 from api.exceptions import BlastExError
-from api.routers import auth, blast, block_economics, cost, calibration, datasets, design, drift, economics, learning, mass_blast, optimization, outcomes, recommendation, references, registry, scenarios, spatial, workspace
+from api.routers import auth, blast, block_economics, cad, cost, calibration, datasets, design, drift, economics, learning, mass_blast, optimization, outcomes, recommendation, references, registry, scenarios, spatial, workspace
 from api.security import require_internal_access
 
 API_PREFIX = "/api/v1"
@@ -185,6 +185,8 @@ app.include_router(cost.router, prefix=API_PREFIX, dependencies=_internal_depend
 app.include_router(economics.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(block_economics.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(design.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
+# Импорт чертежа — всегда включён (роутер `spatial` ниже — ML-слой).
+app.include_router(cad.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(mass_blast.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(scenarios.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(workspace.router, prefix=API_PREFIX, dependencies=_internal_dependencies)

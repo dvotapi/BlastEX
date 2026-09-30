@@ -131,5 +131,30 @@ class ScenarioResidualGuardTests(unittest.TestCase):
         self.assertEqual(outcomes.ppv_mm_s, 7.0)
         self.assertFalse(any("Калибровочный оверлей пропущен" in item for item in outcomes.warnings))
 
+    def test_failed_lookup_of_skipped_residual_keeps_ppv_calibration(self):
+        ppv_model = object()
+
+        def production(team_id, site_id, model_type):
+            if model_type == "ppv_residual":
+                return ppv_model
+            raise RuntimeError("хранилище калибровок недоступно")
+
+        outcomes = ScenarioOutcomes(
+            x50_mm=200.0, x50_engineering_mm=200.0, ppv_mm_s=10.0, ppv_engineering_mm_s=10.0
+        )
+        params = ScenarioParams(fragmentation_model="kuzram", use_production_overlays=True, site_id="quarry-1")
+        with patch("intelligence.calibration.persistence.production_model", side_effect=production), patch(
+            "intelligence.calibration.prediction.apply_residual", return_value=SimpleNamespace(calibrated=7.0)
+        ) as apply:
+            scenario_service._apply_ml_overlays("team-ml", charged_design("ml-guard"), params, outcomes)
+
+        apply.assert_called_once()
+        self.assertIs(apply.call_args.args[0], ppv_model)
+        self.assertEqual(outcomes.ppv_mm_s, 7.0)
+        self.assertEqual(outcomes.x50_mm, 200.0)
+        self.assertFalse(any("Калибровочный оверлей пропущен" in item for item in outcomes.warnings))
+        self.assertTrue(any("Не удалось проверить калибровки кусковатости" in item for item in outcomes.warnings))
+
+
 if __name__ == "__main__":
     unittest.main()

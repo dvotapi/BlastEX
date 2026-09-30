@@ -188,17 +188,23 @@ def _apply_ml_overlays(
         )
         fragmentation_residuals = {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}
         skipped_residuals = False
+        lookup_errors: list[str] = []
+
+        def has_production(model_type: str) -> bool:
+            # Калибровку, которую всё равно не накладываем, ищем только ради
+            # предупреждения: сбой поиска не должен снимать поправку PPV.
+            try:
+                return production_model(team_id, site_id, model_type) is not None
+            except Exception as exc:  # noqa: BLE001 — любой сбой хранилища
+                lookup_errors.append(str(exc))
+                return False
+
         for model_type, field, baseline_field in mapping:
             model_id = str(params.calibration_model_ids.get(model_type) or "").strip()
             if new_base and model_type in fragmentation_residuals:
                 # Предупреждаем, только если калибровка правда была бы наложена.
                 skipped_residuals = skipped_residuals or bool(
-                    model_id
-                    or (
-                        params.use_production_overlays
-                        and site_id
-                        and production_model(team_id, site_id, model_type) is not None
-                    )
+                    model_id or (params.use_production_overlays and site_id and has_production(model_type))
                 )
                 continue
             model = None
@@ -228,6 +234,10 @@ def _apply_ml_overlays(
             outcomes.warnings.append(
                 "Калибровки кусковатости обучены на старой модели Kuz-Ram 1.0.0 и к новой модели "
                 "не применяются — их нужно переобучить."
+            )
+        elif lookup_errors:
+            outcomes.warnings.append(
+                f"Не удалось проверить калибровки кусковатости объекта: {lookup_errors[0]}."
             )
     except Exception as exc:
         outcomes.warnings.append(f"Калибровочный оверлей пропущен: {exc}")

@@ -360,26 +360,40 @@ def get_passport_roles() -> PassportRolesResponse:
 
 
 @router.post("/passport", response_model=PassportDocumentSchema)
-def post_passport(request: PassportBuildRequest) -> PassportDocumentSchema:
-    return reporting_service.build_from_request(request)
+def post_passport(
+    request: PassportBuildRequest,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> PassportDocumentSchema:
+    return reporting_service.build_from_request(request, organization_id=organization_id, repository=repository)
 
 
 @router.post("/passport.html")
-def post_passport_html(request: PassportBuildRequest) -> Response:
-    html_text = reporting_service.render_from_request(request)
+def post_passport_html(
+    request: PassportBuildRequest,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> Response:
+    html_text = reporting_service.render_from_request(
+        request, organization_id=organization_id, repository=repository
+    )
     return Response(content=html_text, media_type="text/html")
 
 
 @router.get("/plans/{design_id}/passport", response_model=PassportDocumentSchema)
 def get_plan_passport(
-    design_id: str, session: dict = Depends(require_internal_access)
+    design_id: str,
+    session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> PassportDocumentSchema:
-    return reporting_service.get_plan_passport(session["org"], design_id)
+    return reporting_service.get_plan_passport(session["org"], design_id, repository=repository)
 
 
 @router.get("/plans/{design_id}/passport.html")
 def export_plan_passport(
-    design_id: str, session: dict = Depends(require_internal_access)
+    design_id: str,
+    session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> Response:
-    html_text = reporting_service.export_plan_passport_html(session["org"], design_id)
+    html_text = reporting_service.export_plan_passport_html(session["org"], design_id, repository=repository)
     return Response(content=html_text, media_type="text/html")

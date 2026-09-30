@@ -28,6 +28,7 @@ from design.reporting.types import (
     PlannedCostSnapshot,
     PredictedOutcomes,
 )
+from simulation.fragmentation.cunningham import KuzRamSettings
 from simulation.fragmentation.models import MODEL_KUZRAM
 
 DEFAULT_LUMP_SIZE_MM = 400.0
@@ -189,6 +190,8 @@ def _collect_predicted(
     lump_size_mm: float,
     max_oversize_pct: float,
     fragmentation_model: str,
+    kuzram_settings: KuzRamSettings | None,
+    kuzram_settings_source: dict[str, Any] | None,
     predicted_cost: PlannedCostSnapshot | None,
     warnings: list[str],
 ) -> PredictedOutcomes:
@@ -211,6 +214,7 @@ def _collect_predicted(
         predicted.oversize_pct = stored_frag.oversize_pct
         predicted.fragmentation_model = getattr(stored_frag.provenance, "model", "") or ""
         predicted.fragmentation_model_version = getattr(stored_frag.provenance, "model_version", "") or ""
+        predicted.fragmentation_settings = dict(getattr(stored_frag.provenance, "settings", {}) or {})
     elif design.loads:
         try:
             from simulation.fragmentation.engine import predict_design as predict_fragmentation
@@ -221,6 +225,8 @@ def _collect_predicted(
                 lump_size_mm=lump_size_mm,
                 max_oversize_pct=max_oversize_pct,
                 hole_oversize_coeff=(design.charge_rules or {}).get("hole_oversize_coeff"),
+                settings=kuzram_settings,
+                settings_source=kuzram_settings_source,
             )
             site = (payload.get("site") or {}).get("prediction") or {}
             predicted.x20_mm = _opt_float(site.get("x20_mm"))
@@ -229,6 +235,7 @@ def _collect_predicted(
             predicted.oversize_pct = _opt_float(site.get("oversize_pct"))
             predicted.fragmentation_model = str(payload.get("model") or "")
             predicted.fragmentation_model_version = str(payload.get("model_version") or "")
+            predicted.fragmentation_settings = dict(payload.get("settings") or {})
             for warning in payload.get("warnings") or []:
                 warnings.append(str(warning))
         except (ValueError, Exception) as exc:
@@ -486,6 +493,8 @@ def build_passport(
     include_predictions: bool = True,
     planned_cost: Any = None,
     predicted_cost: Any = None,
+    kuzram_settings: KuzRamSettings | None = None,
+    kuzram_settings_source: dict[str, Any] | None = None,
 ) -> BlastPassport:
     """Build the official document. Never writes the design and never approves it."""
     if lump_size_mm <= 0:
@@ -509,6 +518,8 @@ def build_passport(
             lump_size_mm=lump_size_mm,
             max_oversize_pct=max_oversize_pct,
             fragmentation_model=fragmentation_model,
+            kuzram_settings=kuzram_settings,
+            kuzram_settings_source=kuzram_settings_source,
             predicted_cost=predicted_cost_snapshot,
             warnings=warnings,
         )

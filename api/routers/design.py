@@ -1,7 +1,7 @@
 """REST-роутер проектирования БВР: раскладка сетки и паспорта блока."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, Response, status
 
 from api.schemas.cost import AggregatedCostResultSchema
 from api.schemas.design import (
@@ -33,7 +33,6 @@ from api.schemas.design import (
     BenchDxfImportRequest,
     BenchDxfImportResponse,
     BenchFromPolylinesRequest,
-    DrawingScanResponse,
     SurfaceSampleRequest,
     SurfaceSampleResponse,
     TieGenerateRequest,
@@ -78,10 +77,6 @@ from cost.v2.legacy_adapter import LegacyReferences
 from cost.v2.repository import EconomicsRepository
 
 router = APIRouter(prefix="/design", tags=["design"])
-
-# Чертёж уступа с одними бровками весит килобайты; десятки мегабайт — это
-# полная подложка карьера, разбирать её онлайн смысла нет.
-MAX_DRAWING_BYTES = 40 * 1024 * 1024
 
 
 @router.post("/pattern", response_model=PatternGenerateResponse)
@@ -138,20 +133,6 @@ def post_surface_import(request: SurfaceImportRequest) -> SurfaceImportResponse:
 @router.post("/contour/import-dxf", response_model=BenchDxfImportResponse)
 def post_bench_dxf_import(request: BenchDxfImportRequest) -> BenchDxfImportResponse:
     return design_service.import_bench_dxf(request)
-
-
-@router.post("/drawing/polylines", response_model=DrawingScanResponse)
-async def post_drawing_polylines(file: UploadFile = File(...)) -> DrawingScanResponse:
-    content = await file.read()
-    if len(content) > MAX_DRAWING_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Файл больше {MAX_DRAWING_BYTES // (1024 * 1024)} МБ. Оставьте в чертеже только бровки блока.",
-        )
-    try:
-        return design_service.scan_drawing(content, file.filename or "drawing.dxf")
-    finally:
-        await file.close()
 
 
 @router.post("/contour/from-polylines", response_model=BenchDxfImportResponse)

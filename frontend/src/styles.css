@@ -638,15 +638,15 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
   .cost-structure-section-head em { display:none; }
 }
 
-/* Справки вкладки «Экономика блока» и листа «Расчёт»: содержание вводного текста, только по клику. */
-.economics-help, .calc-help { width:min(620px,calc(100% - 32px)); max-height:min(680px,calc(100% - 64px)); padding:0; border:1px solid #d9e2dd; border-radius:16px; box-shadow:0 30px 80px rgba(15,35,26,.18); }
-.economics-help::backdrop, .calc-help::backdrop { background:rgba(15,26,20,.45); }
-.economics-help header, .calc-help header { position:sticky; top:0; display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #e2e8e5; background:#fff; }
-.economics-help header b, .calc-help header b { font-size:15px; }
-.economics-help header button, .calc-help header button { width:28px; height:28px; border:0; border-radius:8px; background:transparent; color:#6e7c75; font-size:16px; line-height:1; }
-.economics-help header button:hover, .calc-help header button:hover { background:#f0f4f2; }
-.economics-help-body, .calc-help-body { padding:16px 20px 22px; overflow-y:auto; color:#3b4b43; font-size:13px; line-height:1.6; }
-.economics-help-body p, .calc-help-body p { margin:0 0 10px; }
-.economics-help-body h4, .calc-help-body h4 { margin:18px 0 8px; color:#17231d; font-size:13px; }
-.economics-help-body ul, .calc-help-body ul { margin:0 0 10px; padding-left:18px; display:grid; gap:8px; }
-.economics-help-body li b, .calc-help-body li b { color:#17231d; }
+/* Справки вкладки «Экономика блока», листа «Расчёт» и окна «Импорт чертежа»: текст только по клику. */
+.economics-help, .calc-help, .cad-help { width:min(620px,calc(100% - 32px)); max-height:min(680px,calc(100% - 64px)); padding:0; border:1px solid #d9e2dd; border-radius:16px; box-shadow:0 30px 80px rgba(15,35,26,.18); }
+.economics-help::backdrop, .calc-help::backdrop, .cad-help::backdrop { background:rgba(15,26,20,.45); }
+.economics-help header, .calc-help header, .cad-help header { position:sticky; top:0; display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #e2e8e5; background:#fff; }
+.economics-help header b, .calc-help header b, .cad-help header b { font-size:15px; }
+.economics-help header button, .calc-help header button, .cad-help header button { width:28px; height:28px; border:0; border-radius:8px; background:transparent; color:#6e7c75; font-size:16px; line-height:1; }
+.economics-help header button:hover, .calc-help header button:hover, .cad-help header button:hover { background:#f0f4f2; }
+.economics-help-body, .calc-help-body, .cad-help-body { padding:16px 20px 22px; overflow-y:auto; color:#3b4b43; font-size:13px; line-height:1.6; }
+.economics-help-body p, .calc-help-body p, .cad-help-body p { margin:0 0 10px; }
+.economics-help-body h4, .calc-help-body h4, .cad-help-body h4 { margin:18px 0 8px; color:#17231d; font-size:13px; }
+.economics-help-body ul, .calc-help-body ul, .cad-help-body ul { margin:0 0 10px; padding-left:18px; display:grid; gap:8px; }
+.economics-help-body li b, .calc-help-body li b, .cad-help-body li b { color:#17231d; }

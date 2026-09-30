@@ -67,7 +67,7 @@ export function SurfacePanel({
   onBenchChange: (patch: Partial<BenchSurface>) => void;
   onCoordinateSystemChange: (patch: Partial<CoordinateSystem>) => void;
   onImport: (kind: SurfaceKind, file: File) => void;
-  onImportBlock: (file: File) => void;
+  onImportBlock: (files: File[]) => void;
   onClear: (kind: SurfaceKind) => void;
   busy: boolean;
 }) {
@@ -91,8 +91,8 @@ export function SurfacePanel({
         <div className="drawing-import">
           <div className="drawing-import-row">
             <span>
-              <b>Чертёж блока</b>
-              <small>DXF или DWG · бровки</small>
+              <b>Импорт чертежа</b>
+              <small>DXF или DWG · один или несколько файлов</small>
             </span>
             <button
               type="button"
@@ -107,18 +107,19 @@ export function SurfacePanel({
               оно лишний шум, а именно с него и начинается работа. */}
           {holeCount > 0 && (
             <small className="drawing-import-warning">
-              Импорт заменит контур и очистит {holeCount} скв., заряды и сеть.
+              «Построить блок» заменит контур и очистит {holeCount} скв., заряды и сеть.
             </small>
           )}
           <input
             ref={blockInputRef}
             type="file"
             accept={DRAWING_ACCEPT}
+            multiple
             hidden
             disabled={busy}
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onImportBlock(file);
+              const files = [...(e.target.files ?? [])];
+              if (files.length) onImportBlock(files);
               if (blockInputRef.current) blockInputRef.current.value = "";
             }}
           />

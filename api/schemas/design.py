@@ -394,27 +394,6 @@ class BenchDxfImportResponse(BaseModel):
     vertex_count: int
 
 
-class DrawingPolylineSchema(BaseModel):
-    """Одна линия чертежа — кандидат в бровку."""
-
-    id: str
-    layer: str
-    entity: str = ""
-    closed: bool = False
-    points: list[Point3Schema] = Field(default_factory=list)
-    length_m: float = 0.0
-    area_m2: float = 0.0
-    z_min: float = 0.0
-    z_max: float = 0.0
-
-
-class DrawingScanResponse(BaseModel):
-    polylines: list[DrawingPolylineSchema] = Field(default_factory=list)
-    source_name: str = ""
-    converted_from: str = ""
-    truncated: bool = False
-
-
 class BenchFromPolylinesRequest(BaseModel):
     """Бровки, выбранные инженером вручную в диалоге чертежа."""
 

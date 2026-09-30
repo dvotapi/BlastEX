@@ -20,14 +20,14 @@ from pathlib import Path
 __all__ = ["DwgConversionError", "find_converter", "dwg_to_dxf"]
 
 CONVERTER_TIMEOUT_S = 120
-# `-m` — минимальный DXF: только $ACADVER, HANDSEED и ENTITIES.
-#
-# Не оптимизация, а необходимость: полный DXF от LibreDWG содержит нулевые и
+# По умолчанию просим полный DXF: только в нём есть $INSUNITS и таблица слоёв
+# с цветами. На части чертежей полный вывод LibreDWG содержит нулевые и
 # повторяющиеся дескрипторы объектов, на которых ezdxf падает («Invalid handle
-# 0») даже в режиме восстановления. Минимальный вывод читается штатно, а слои,
-# отметки и координаты у примитивов сохраняются полностью — для выбора бровок
-# этого достаточно.
-CONVERTER_ARGS = ("-y", "-m")
+# 0») даже в режиме восстановления. Тогда вызывающий повторяет конвертацию с
+# `-m` — минимальным DXF (только $ACADVER, HANDSEED и ENTITIES): он читается
+# штатно, слои, отметки и координаты примитивов в нём сохраняются полностью.
+CONVERTER_ARGS = ("-y",)
+MINIMAL_ARG = "-m"
 NO_CONVERTER_MESSAGE = (
     "На сервере не установлен конвертер DWG. "
     "Сохраните чертёж как DXF (Файл → Сохранить как → AutoCAD DXF) и загрузите его."
@@ -47,8 +47,8 @@ def find_converter() -> str | None:
     return shutil.which("dwg2dxf")
 
 
-def dwg_to_dxf(data: bytes, filename: str = "drawing.dwg") -> bytes:
-    """Конвертирует байты DWG в байты DXF."""
+def dwg_to_dxf(data: bytes, filename: str = "drawing.dwg", *, minimal: bool = False) -> bytes:
+    """Конвертирует байты DWG в байты DXF (минимальный DXF — по запросу)."""
 
     converter = find_converter()
     if not converter:
@@ -65,7 +65,7 @@ def dwg_to_dxf(data: bytes, filename: str = "drawing.dwg") -> bytes:
 
         try:
             completed = subprocess.run(  # noqa: S603 — путь берётся из конфигурации сервера
-                [converter, *CONVERTER_ARGS, "-o", str(target), str(source)],
+                [converter, *CONVERTER_ARGS, *((MINIMAL_ARG,) if minimal else ()), "-o", str(target), str(source)],
                 capture_output=True,
                 timeout=CONVERTER_TIMEOUT_S,
                 check=False,

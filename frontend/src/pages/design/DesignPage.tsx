@@ -3,6 +3,7 @@ import { api } from "../../api/endpoints";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import { collarZFromSurfaces, surfaceElevation } from "../../lib/surfaces";
 import type { BlastVariant, Explosive, User } from "../../types";
+import type { CadSource } from "../../types/cad";
 import {
   DEFAULT_CHARGE_RULES,
   DEFAULT_PATTERN_PARAMS,
@@ -68,8 +69,6 @@ import {
   type ScenarioCompareResponse,
   type SchemeType,
   type SurfaceConnector,
-  type DrawingPolyline,
-  type DrawingScan,
   type SurfaceKind,
   type TieParams,
   type LearningModel,
@@ -116,7 +115,7 @@ import { VisibilityPanel } from "./VisibilityPanel";
 import { MapStatusBar } from "./MapStatusBar";
 import { HoleContextMenu, type HoleContextMenuState } from "./HoleContextMenu";
 import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCommand } from "./CommandPalette";
-import { DrawingImportDialog } from "./DrawingImportDialog";
+import { CadImportDialog, type CadBuildChoice } from "./cadImport/CadImportDialog";
 import { computeAllHoleHealth, healthColor, summarizeHealth } from "./holeHealth";
 import {
   applyPresetToState,
@@ -221,7 +220,7 @@ export function DesignPage({
   const [plans, setPlans] = useState<DesignSummary[]>([]);
   const [patternBusy, setPatternBusy] = useState(false);
   const [surfaceBusy, setSurfaceBusy] = useState(false);
-  const [drawingScan, setDrawingScan] = useState<DrawingScan | null>(null);
+  const [cadSources, setCadSources] = useState<CadSource[] | null>(null);
   const [drawingBusy, setDrawingBusy] = useState(false);
   const [drawingError, setDrawingError] = useState("");
   const [geologyBusy, setGeologyBusy] = useState(false);
@@ -620,16 +619,21 @@ export function DesignPage({
     }
   }
 
-  /** Шаг 1: читаем чертёж и показываем, что в нём нашлось. Ничего не меняем. */
-  async function importBenchDxf(file: File) {
+  /** Шаг 1: читаем чертежи и размечаем слои. Блок пока не меняется. */
+  async function importDrawings(files: File[]) {
     if (rejectLocked("designed")) return;
-    if (document.holes.length && !window.confirm("Импорт заменит контур и очистит скважины, заряды и сеть. Продолжить?")) return;
     setSurfaceBusy(true);
     setError("");
     setDrawingError("");
+    const { crest_z_m: crest, toe_z_m: toe } = document.contour.bench;
+    const benchHeight = crest - toe;
     try {
-      const scan = await api.design.scanDrawing(file);
-      setDrawingScan(scan);
+      // Объект работ (шаблон слоёв маркшейдера) сервер берёт сам — активный
+      // объект организации, как и для «Кусковатости».
+      const imported = await api.cad.upload(files, {
+        benchHeightM: Number.isFinite(benchHeight) && benchHeight > 0 ? benchHeight : undefined,
+      });
+      setCadSources(imported.sources);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось прочитать чертёж.");
     } finally {
@@ -638,16 +642,20 @@ export function DesignPage({
   }
 
   /** Шаг 2: инженер выбрал бровки — только теперь перестраиваем блок. */
-  async function applyBenchPolylines(choice: { crest: DrawingPolyline; toe: DrawingPolyline }) {
+  async function applyBenchPolylines(choice: CadBuildChoice) {
+    // Загрузка и разметка слоёв блок не меняют — спрашиваем только перед построением.
+    if (rejectLocked("designed")) return;
+    if (document.holes.length && !window.confirm("Построение заменит контур и очистит скважины, заряды и сеть. Продолжить?")) return;
     setDrawingBusy(true);
     setDrawingError("");
+    const points = (entity: CadBuildChoice["crest"]) => entity.points.map(([x, y, z]) => ({ x, y, z }));
     try {
       const result = await api.design.benchFromPolylines({
-        crest: choice.crest.points,
-        toe: choice.toe.points,
+        crest: points(choice.crest),
+        toe: points(choice.toe),
         crest_layer: choice.crest.layer,
         toe_layer: choice.toe.layer,
-        filename: drawingScan?.source_name || "block.dxf",
+        filename: choice.fileName,
         coordinate_system: document.coordinate_system,
       });
       dispatch({ type: "SET_BENCH", bench: result.contour.bench });
@@ -658,7 +666,7 @@ export function DesignPage({
       dispatch({ type: "SET_HOLES", holes: [] });
       setSelected(new Set());
       setPendingFit(true);
-      setDrawingScan(null);
+      setCadSources(null);
     } catch (reason) {
       setDrawingError(reason instanceof Error ? reason.message : "Не удалось построить блок по выбранным линиям.");
     } finally {
@@ -2709,7 +2717,7 @@ export function DesignPage({
                 onBenchChange={(bench) => dispatch({ type: "SET_BENCH", bench })}
                 onCoordinateSystemChange={(patch) => dispatch({ type: "SET_COORDINATE_SYSTEM", patch })}
                 onImport={importSurface}
-                onImportBlock={importBenchDxf}
+                onImportBlock={importDrawings}
                 onClear={(kind) => dispatch({ type: "CLEAR_SURFACE", kind })}
                 busy={surfaceBusy}
               />
@@ -3258,13 +3266,14 @@ export function DesignPage({
             enabled={holeMenu ? (document.holes.find((h) => h.id === holeMenu.holeId)?.enabled ?? true) : true}
           />
           <CommandPalette open={commandOpen} commands={designCommands} onClose={() => setCommandOpen(false)} />
-          {drawingScan && (
-            <DrawingImportDialog
-              scan={drawingScan}
+          {cadSources && (
+            <CadImportDialog
+              sources={cadSources}
               busy={drawingBusy}
               error={drawingError}
-              onCancel={() => { setDrawingScan(null); setDrawingError(""); }}
-              onApply={applyBenchPolylines}
+              onSourcesChange={setCadSources}
+              onCancel={() => { setCadSources(null); setDrawingError(""); }}
+              onBuild={applyBenchPolylines}
             />
           )}
           {inspectHole && (

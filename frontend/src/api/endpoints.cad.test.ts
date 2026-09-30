@@ -17,14 +17,15 @@ describe("api.cad: импорт чертежа", () => {
     const first = new File(["a"], "блок 66.dwg");
     const second = new File(["b"], "ситуация.dxf");
 
-    await api.cad.upload([first, second], { workObjectName: "Жуков камень", benchHeightM: 12, floorZM: null });
+    await api.cad.upload([first, second], { benchHeightM: 12, floorZM: null });
 
     const [path, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
     expect(path).toBe("/api/v1/design/cad/sources");
     expect(init.method).toBe("POST");
     const form = init.body as FormData;
     expect(form.getAll("files").map((file) => (file as File).name)).toEqual(["блок 66.dwg", "ситуация.dxf"]);
-    expect(form.get("work_object_name")).toBe("Жуков камень");
+    // Объект работ берёт сервер (активный объект организации), клиент его не шлёт.
+    expect(form.has("work_object_name")).toBe(false);
     expect(form.get("bench_height_m")).toBe("12");
     // Пустая подошва не отправляется: сервер ищет её в имени слоя.
     expect(form.has("floor_z_m")).toBe(false);
@@ -39,7 +40,7 @@ describe("api.cad: импорт чертежа", () => {
         }),
     );
 
-    await expect(api.cad.upload([new File(["x"], "битый.dxf")], { workObjectName: "" })).rejects.toThrow(
+    await expect(api.cad.upload([new File(["x"], "битый.dxf")], {})).rejects.toThrow(
       "«битый.dxf»: Не удалось прочитать DXF.",
     );
   });

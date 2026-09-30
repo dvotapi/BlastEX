@@ -44,17 +44,21 @@ def repository() -> InMemoryCadRepository:
     return InMemoryCadRepository()
 
 
-def _client(repository: InMemoryCadRepository, session: dict = SESSION_A) -> TestClient:
+def _client(
+    repository: InMemoryCadRepository, session: dict = SESSION_A, work_object: str = "Жуков камень"
+) -> TestClient:
     app = FastAPI()
     app.include_router(cad.router, prefix="/api/v1")
     app.dependency_overrides[require_internal_access] = lambda: session
     app.dependency_overrides[get_cad_repository] = lambda: repository
     app.dependency_overrides[current_reference_snapshot] = lambda: SNAPSHOT
+    # Активный объект организации сервер берёт сам, а не из запроса (как «Кусковатость», #101).
+    app.dependency_overrides[cad.current_work_object_name] = lambda: work_object
     return TestClient(app)
 
 
 def _upload(client: TestClient, *files: tuple[str, bytes], **form) -> dict:
-    data = {"work_object_name": "Жуков камень", **{key: str(value) for key, value in form.items()}}
+    data = {key: str(value) for key, value in form.items()}
     response = client.post(
         f"{BASE}/sources",
         files=[("files", (name, content, "application/octet-stream")) for name, content in files],
@@ -155,7 +159,7 @@ def test_unreadable_file_saves_nothing_from_the_request(repository):
 
 
 def test_without_a_work_object_the_template_is_not_saved(repository):
-    source = _upload(_client(repository), ("a.dxf", _dxf()), work_object_name="")["sources"][0]
+    source = _upload(_client(repository, work_object=""), ("a.dxf", _dxf()))["sources"][0]
 
     assert source["template_saved"] is False
     assert any(item["code"] == "template_not_saved" for item in source["warnings"])
@@ -374,3 +378,25 @@ def test_explicit_entity_role_survives_layer_changes_and_reparse(repository):
     by_handle = {item["handle"]: item for item in reparsed["entities"]}
     assert (by_handle[road]["role"], by_handle[road]["role_override"]) == ("feature_line", True)
     assert (by_handle[point]["role"], by_handle[point]["role_override"]) == ("ignore", False)
+
+
+def test_work_object_comes_from_the_server_not_from_the_request(repository):
+    """Имя объекта из запроса не используется: у клиента оно могло устареть."""
+
+    source = _upload(_client(repository), ("a.dxf", _dxf()), work_object_name="Чужой карьер")["sources"][0]
+
+    assert (source["work_object_name"], source["site_code"]) == ("Жуков камень", "SITE_ZK")
+
+
+def test_active_work_object_is_read_from_the_organization_workspace():
+    from cost.v2.repository import InMemoryEconomicsRepository
+
+    economics = InMemoryEconomicsRepository()
+    assert cad_service.active_work_object_name(economics, "org-a") == ""
+
+    economics.import_legacy_workspace(
+        "org-a", "u@example.ru", team_name="Команда", active_scenario_id="s", active_work_object_name=" Жуков камень "
+    )
+
+    assert cad_service.active_work_object_name(economics, "org-a") == "Жуков камень"
+    assert cad_service.active_work_object_name(economics, "org-b") == ""

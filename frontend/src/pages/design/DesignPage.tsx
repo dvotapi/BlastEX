@@ -4,7 +4,6 @@ import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import { collarZFromSurfaces, surfaceElevation } from "../../lib/surfaces";
 import type { BlastVariant, Explosive, User } from "../../types";
 import type { CadSource } from "../../types/cad";
-import { useWorkspace } from "../../app/useWorkspace";
 import {
   DEFAULT_CHARGE_RULES,
   DEFAULT_PATTERN_PARAMS,
@@ -221,9 +220,6 @@ export function DesignPage({
   const [plans, setPlans] = useState<DesignSummary[]>([]);
   const [patternBusy, setPatternBusy] = useState(false);
   const [surfaceBusy, setSurfaceBusy] = useState(false);
-  // Объект работ из верхней панели: на нём хранится шаблон слоёв маркшейдера.
-  const { state: workspaceState } = useWorkspace();
-  const workObjectName = workspaceState?.settings.active_work_object_name ?? "";
   const [cadSources, setCadSources] = useState<CadSource[] | null>(null);
   const [drawingBusy, setDrawingBusy] = useState(false);
   const [drawingError, setDrawingError] = useState("");
@@ -632,8 +628,9 @@ export function DesignPage({
     const { crest_z_m: crest, toe_z_m: toe } = document.contour.bench;
     const benchHeight = crest - toe;
     try {
+      // Объект работ (шаблон слоёв маркшейдера) сервер берёт сам — активный
+      // объект организации, как и для «Кусковатости».
       const imported = await api.cad.upload(files, {
-        workObjectName,
         benchHeightM: Number.isFinite(benchHeight) && benchHeight > 0 ? benchHeight : undefined,
       });
       setCadSources(imported.sources);

@@ -21,8 +21,10 @@ from api.schemas.cad import (
 from api.security import require_internal_access
 from api.services import cad_service
 from api.services.cad_service import CadImportError, get_cad_repository
+from api.services.economics_service import get_economics_repository
 from api.services.legacy_references import current_reference_snapshot
 from cost.v2.models import ReferenceSnapshot
+from cost.v2.repository import EconomicsRepository
 from design.spatial.cad.repository import CadRepository, CadSourceNotFound
 
 router = APIRouter(prefix="/design/cad", tags=["cad"])
@@ -42,6 +44,16 @@ def _http(exc: Exception) -> HTTPException:
     raise exc
 
 
+def current_work_object_name(
+    session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> str:
+    """Активный объект организации: сервер берёт его сам, клиент имя не передаёт."""
+
+    organization_id, _ = _identity(session)
+    return cad_service.active_work_object_name(repository, organization_id)
+
+
 @router.get("/meta", response_model=CadMetaResponse)
 def get_meta() -> CadMetaResponse:
     return cad_service.meta()
@@ -50,7 +62,6 @@ def get_meta() -> CadMetaResponse:
 @router.post("/sources", response_model=CadImportResponse, status_code=status.HTTP_201_CREATED)
 async def post_sources(
     files: list[UploadFile] = File(...),
-    work_object_name: str = Form(""),
     scale: float = Form(1.0),
     label_radius_m: float = Form(3.0),
     floor_z_m: float | None = Form(None),
@@ -59,6 +70,7 @@ async def post_sources(
     session: dict = Depends(require_internal_access),
     repository: CadRepository = Depends(get_cad_repository),
     snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
+    work_object_name: str = Depends(current_work_object_name),
 ) -> CadImportResponse:
     organization_id, actor = _identity(session)
     try:

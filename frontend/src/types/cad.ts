@@ -99,8 +99,8 @@ export type CadSource = {
 
 export type CadImportResponse = { sources: CadSource[] };
 
+/** Объекта работ здесь нет: его берёт сервер — активный объект организации. */
 export type CadUploadParams = {
-  workObjectName: string;
   benchHeightM?: number;
   scale?: number;
   labelRadiusM?: number;

@@ -29,7 +29,10 @@ from api.schemas.cad import (
     CadSourceSchema,
     CadWarningSchema,
 )
+from sqlalchemy.exc import SQLAlchemyError
+
 from cost.v2.models import ReferenceSnapshot
+from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design.spatial.cad.model import (
     LAYER_ONLY_ROLES,
     LAYER_ROLE_CODES,
@@ -99,6 +102,21 @@ def meta() -> CadMetaResponse:
             max_files=MAX_FILES,
         ),
     )
+
+
+def active_work_object_name(repository: EconomicsRepository, organization_id: str) -> str:
+    """Активный объект работ организации.
+
+    Как у «Кусковатости» «Проектирования» (#101): объект берёт сервер, а не
+    шапка клиента — имя из закэшированного состояния могло устареть. Ошибка
+    хранилища — не отказ импорта: шаблон просто не сохранится, с предупреждением.
+    """
+
+    try:
+        workspace = repository.get_legacy_workspace(organization_id)
+    except (EconomicsRepositoryError, SQLAlchemyError):
+        return ""
+    return (workspace.active_work_object_name if workspace else "").strip()
 
 
 def resolve_site_code(snapshot: ReferenceSnapshot | None, work_object_name: str) -> str:

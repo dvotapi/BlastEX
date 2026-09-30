@@ -440,7 +440,6 @@ export const api = {
     upload: (files: File[], params: CadUploadParams) => {
       const form = new FormData();
       for (const file of files) form.append("files", file);
-      form.append("work_object_name", params.workObjectName);
       if (params.benchHeightM !== undefined) form.append("bench_height_m", String(params.benchHeightM));
       if (params.scale !== undefined) form.append("scale", String(params.scale));
       if (params.labelRadiusM !== undefined) form.append("label_radius_m", String(params.labelRadiusM));

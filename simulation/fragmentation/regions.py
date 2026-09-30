@@ -393,7 +393,7 @@ def aggregate_region(
     )
 
 
-def collect_regions(
+def collect_hole_regions_with_warnings(
     design: BlastDesign,
     *,
     lump_size_mm: float,
@@ -401,8 +401,8 @@ def collect_regions(
     default_explosive: ExplosiveSpec,
     explosives: dict[str, ExplosiveSpec] | None = None,
     hole_oversize_coeff: float | None = None,
-) -> tuple[list[InfluenceRegion], list[InfluenceRegion], InfluenceRegion | None, list[str]]:
-    """Hole regions, domain regions, site region, and skip warnings."""
+) -> tuple[list[InfluenceRegion], list[str]]:
+    """Регионы скважин и предупреждения о пропусках — без доменов и блока."""
     holes = collect_hole_regions(
         design,
         lump_size_mm=lump_size_mm,
@@ -416,7 +416,27 @@ def collect_regions(
     skipped = enabled_ids - {hid for region in holes for hid in region.hole_ids}
     if skipped:
         warnings.append(f"Пропущено скважин без входов: {len(skipped)}.")
+    return holes, warnings
 
+
+def collect_regions(
+    design: BlastDesign,
+    *,
+    lump_size_mm: float,
+    default_rock: RockSpec,
+    default_explosive: ExplosiveSpec,
+    explosives: dict[str, ExplosiveSpec] | None = None,
+    hole_oversize_coeff: float | None = None,
+) -> tuple[list[InfluenceRegion], list[InfluenceRegion], InfluenceRegion | None, list[str]]:
+    """Hole regions, domain regions, site region, and skip warnings."""
+    holes, warnings = collect_hole_regions_with_warnings(
+        design,
+        lump_size_mm=lump_size_mm,
+        default_rock=default_rock,
+        default_explosive=default_explosive,
+        explosives=explosives,
+        hole_oversize_coeff=hole_oversize_coeff,
+    )
     domains, site = group_regions(design, holes, lump_size_mm=lump_size_mm)
     return holes, domains, site, warnings
 

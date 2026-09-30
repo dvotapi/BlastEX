@@ -41,7 +41,7 @@ from simulation.fragmentation.regions import (
     ExplosiveSpec,
     InfluenceRegion,
     RockSpec,
-    collect_regions,
+    collect_hole_regions_with_warnings,
     group_regions,
 )
 
@@ -223,7 +223,7 @@ def predict_design(
         density_t_m3=DEFAULT_EXPLOSIVE_DENSITY_T_M3,
         power_mj_kg=DEFAULT_EXPLOSIVE_ENERGY_MJ_KG,
     )
-    holes, _domains, site_region, warnings = collect_regions(
+    holes, warnings = collect_hole_regions_with_warnings(
         design,
         lump_size_mm=lump_size_mm,
         default_rock=rock,
@@ -231,7 +231,7 @@ def predict_design(
         explosives=explosives,
         hole_oversize_coeff=hole_oversize_coeff,
     )
-    if site_region is None:
+    if not holes:
         raise ValueError("Недостаточно данных для прогноза дробления: нет скважин с массой заряда и сеткой.")
 
     # Старые модели настроек не применяют: ни снимка, ни предупреждений резолвера.
@@ -247,10 +247,11 @@ def predict_design(
     # пропущенной скважины не должны попадать в средние.
     hole_errors: list[str] = []
     hole_rows, predicted_holes = _predict_rows(holes, predict, warnings, "Скважина", hole_errors)
+    if not predicted_holes:
+        # Скважины были, но ни одна не посчитана: каждая оставила причину.
+        raise ValueError(f"Прогноз кусковатости по блоку не посчитан: {hole_errors[0]}")
+    # Непустой список посчитанных скважин всегда даёт регион блока.
     domains, site_region = group_regions(design, predicted_holes, lump_size_mm=lump_size_mm)
-    if site_region is None:
-        reason = hole_errors[0] if hole_errors else "нет посчитанных скважин"
-        raise ValueError(f"Прогноз кусковатости по блоку не посчитан: {reason}")
     domain_rows, _ = _predict_rows(domains, predict, warnings, "Домен")
     try:
         site_prediction = predict(site_region)

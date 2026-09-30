@@ -414,6 +414,31 @@ class EngineSettingsTests(unittest.TestCase):
         self.assertTrue(str(ctx.exception).startswith("Прогноз кусковатости по блоку не посчитан: "))
         self.assertIn("сила ВВ", str(ctx.exception))
 
+    def test_domains_and_block_are_grouped_once(self):
+        from unittest.mock import patch
+
+        from simulation.fragmentation import engine as engine_module
+        from simulation.fragmentation import regions as regions_module
+
+        spy = patch.object(regions_module, "group_regions", wraps=regions_module.group_regions)
+        with spy as grouped, patch.object(engine_module, "group_regions", grouped):
+            predict_design(_design_with_charges(), model="kuzram", **KW)
+
+        self.assertEqual(grouped.call_count, 1)
+
+    def test_design_without_holes_keeps_error(self):
+        design = _design_with_charges()
+        for hole in design.holes:
+            hole.enabled = False
+
+        with self.assertRaises(ValueError) as ctx:
+            predict_design(design, model="kuzram", **KW)
+
+        self.assertEqual(
+            str(ctx.exception),
+            "Недостаточно данных для прогноза дробления: нет скважин с массой заряда и сеткой.",
+        )
+
     def test_whole_block_failure_is_russian_error(self):
         with self.assertRaises(ValueError) as ctx:
             predict_design(

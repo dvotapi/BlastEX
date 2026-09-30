@@ -70,6 +70,9 @@ async def post_sources(
 
     uploads: list[tuple[str, bytes]] = []
     try:
+        # Число файлов — до чтения: иначе сотня загрузок по 40 МБ легла бы в память.
+        if len(files) > cad_service.MAX_FILES:
+            raise CadImportError(f"За один раз можно загрузить не больше {cad_service.MAX_FILES} файлов.")
         for upload in files:
             name = upload.filename or "drawing.dxf"
             # Читаем на байт больше предела: сам предел — ещё допустимый размер.

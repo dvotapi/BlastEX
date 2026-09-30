@@ -2,7 +2,7 @@
 // чертёж, справа шаги; пока есть шаг «Слои», построение — прежнее, полосой
 // между двумя линиями. Роли и повторный разбор сохраняются на сервере сразу:
 // шаблон слоёв объекта должен пережить закрытие окна.
-import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { api } from "../../../api/endpoints";
 import { ruNumber } from "../../../lib/format";
 import type { CadEntity, CadLayerRoleCode, CadMeta, CadParams, CadRoleCode, CadRolesPayload, CadSource } from "../../../types/cad";
@@ -11,7 +11,7 @@ import { CadCanvas, type CanvasTarget } from "./CadCanvas";
 import { CadImportHelp } from "./CadImportHelp";
 import { LayersStep } from "./LayersStep";
 import { LegacyBuildBlock } from "./LegacyBuildBlock";
-import { defaultBenchPair } from "./legacyBuild";
+import { defaultBenchPair, withLineChains } from "./legacyBuild";
 
 export type CadBuildChoice = { crest: CadEntity; toe: CadEntity; fileName: string };
 
@@ -40,7 +40,9 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
   const [pending, setPending] = useState(false);
   const [requestError, setRequestError] = useState("");
   const active = sources.find((source) => source.id === activeId) ?? sources[0];
-  const [pair, setPair] = useState(() => defaultBenchPair(active?.entities ?? []));
+  // Для построения по-старому отрезки LINE склеены в цепочки (как в прежнем диалоге).
+  const build = useMemo(() => withLineChains(active?.entities ?? []), [active?.entities]);
+  const [pair, setPair] = useState(() => defaultBenchPair(build.entities));
   const [floorText, setFloorText] = useState("");
   const [radiusText, setRadiusText] = useState("");
 
@@ -63,11 +65,13 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
   // Другой файл — своя пара бровок, свой выбор и свои параметры разбора.
   useEffect(() => {
     if (!active) return;
-    setPair(defaultBenchPair(active.entities));
+    setPair(defaultBenchPair(withLineChains(active.entities).entities));
     setHover(null);
     setSelected(null);
     setExpanded(new Set());
-    setFloorText(active.floor_z_m === null ? "" : String(active.floor_z_m));
+    // В поле — только явно заданная подошва. Найденная в имени слоя — подсказка:
+    // у каждого слоя «Горизонт …» она своя, и одна явная отметка их бы сравняла.
+    setFloorText(active.params.floor_z_m === null ? "" : String(active.params.floor_z_m));
     setRadiusText(String(active.params.label_radius_m));
     // Пересчёт ролей того же файла не сбрасывает выбор: ключ — файл и масштаб.
   }, [active?.id, active?.params.scale]);
@@ -136,7 +140,7 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
   const radiusValue = numberOrNull(radiusText);
   const paramsChanged =
     params !== undefined &&
-    (floorValue !== active?.floor_z_m || (radiusValue !== null && radiusValue !== params.label_radius_m));
+    (floorValue !== params.floor_z_m || (radiusValue !== null && radiusValue !== params.label_radius_m));
 
   return (
     <dialog
@@ -163,7 +167,7 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
             fitKey={`${active.id}:${active.params.scale}`}
             hover={hover}
             selected={selected}
-            emphasized={[pair.crest, pair.toe].filter(Boolean)}
+            emphasized={[pair.crest, pair.toe].filter(Boolean).flatMap((handle) => build.members.get(handle) ?? [handle])}
             onHover={setHover}
             onSelect={select}
           />
@@ -219,7 +223,11 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
                 <input
                   inputMode="decimal"
                   value={floorText}
-                  placeholder="из имени слоя"
+                  placeholder={
+                    active.floor_z_m !== null && active.params.floor_z_m === null
+                      ? `из имени слоя: ${ruNumber(active.floor_z_m, 1)}`
+                      : "из имени слоя"
+                  }
                   disabled={pending}
                   onChange={(event) => setFloorText(event.target.value)}
                 />
@@ -273,7 +281,7 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
               )}
             </div>
             <LegacyBuildBlock
-              entities={active.entities}
+              entities={build.entities}
               crest={pair.crest}
               toe={pair.toe}
               busy={busy}

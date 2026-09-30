@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CadEntity } from "../../../types/cad";
-import { benchCandidates, defaultBenchPair } from "./legacyBuild";
+import { benchCandidates, defaultBenchPair, withLineChains } from "./legacyBuild";
 
 function line(handle: string, zs: number[], length: number, role: CadEntity["role"] = "situation"): CadEntity {
   return {
@@ -59,5 +59,52 @@ describe("benchCandidates: линии в списках «Верх» и «Низ
     expect(candidates[0]).toBe("L299");
     expect(candidates).toContain("crest");
     expect(candidates).toContain("L3");
+  });
+});
+
+function segment(handle: string, layer: string, a: [number, number, number], b: [number, number, number], role: CadEntity["role"]): CadEntity {
+  return {
+    ...line(handle, [a[2], b[2]], Math.hypot(b[0] - a[0], b[1] - a[1]), role),
+    layer,
+    kind: "LINE",
+    points: [a, b],
+  };
+}
+
+describe("withLineChains: бровка, начерченная отрезками LINE", () => {
+  // Прежний диалог склеивал отрезки слоя в цепочки; построение по-старому берёт
+  // одну линию, поэтому без склейки бровка из отрезков давала бы полоску.
+  const crest = [
+    segment("A", "верх", [0, 0, 420], [10, 0, 420.2], "crest_top"),
+    segment("C", "верх", [20, 5, 420.6], [10, 0, 420.2], "crest_top"), // развёрнут
+    segment("B", "верх", [20, 5, 420.6], [30, 5, 421], "crest_top"),
+  ];
+  const toe = [
+    segment("D", "низ", [0, -10, 410], [15, -10, 410.4], "crest_bottom"),
+    segment("E", "низ", [15, -10, 410.4], [30, -12, 410.8], "crest_bottom"),
+  ];
+  const stray = segment("F", "низ", [100, 100, 410], [110, 100, 410], "crest_bottom");
+
+  it("склеивает связные отрезки слоя в одну линию с общей длиной и ролью", () => {
+    const { entities, members } = withLineChains([...crest, ...toe, stray]);
+    const chains = entities.filter((item) => members.has(item.handle));
+
+    expect(chains).toHaveLength(2);
+    const top = chains.find((item) => item.layer === "верх");
+    expect(top?.points.map((point) => point[0])).toEqual([0, 10, 20, 30]);
+    expect(top?.role).toBe("crest_top");
+    expect(top?.length_m).toBeCloseTo(10 + Math.hypot(10, 5) + 10, 6);
+    expect(members.get(top?.handle ?? "")).toEqual(["A", "C", "B"]);
+    // Несвязный отрезок цепочкой не становится, исходные отрезки на месте.
+    expect(entities.filter((item) => item.kind === "LINE" && !members.has(item.handle))).toHaveLength(6);
+  });
+
+  it("построение по-старому по умолчанию берёт цепочки бровок", () => {
+    const { entities, members } = withLineChains([...crest, ...toe, stray]);
+    const pair = defaultBenchPair(entities);
+
+    expect(members.get(pair.crest)).toEqual(["A", "C", "B"]);
+    expect(members.get(pair.toe)).toEqual(["D", "E"]);
+    expect(benchCandidates(entities, []).map((item) => item.handle)).toContain(pair.crest);
   });
 });

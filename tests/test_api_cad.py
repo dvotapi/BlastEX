@@ -313,3 +313,27 @@ def test_import_runs_outside_the_event_loop(repository, monkeypatch):
     _upload(_client(repository), ("a.dxf", _dxf()))
 
     assert seen == {"on_loop": False}
+
+
+def test_too_many_files_are_refused_before_reading_them(repository, monkeypatch):
+    """Лимит числа файлов — до чтения: сотня файлов по 40 МБ не должна оказаться в памяти."""
+
+    from starlette.datastructures import UploadFile
+
+    reads: list[str] = []
+    original = UploadFile.read
+
+    async def counting_read(self, *args, **kwargs):
+        reads.append(self.filename)
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(UploadFile, "read", counting_read)
+    monkeypatch.setattr(cad_service, "MAX_FILES", 2)
+    response = _client(repository).post(
+        f"{BASE}/sources",
+        files=[("files", (f"{index}.dxf", _dxf(), "application/octet-stream")) for index in range(3)],
+    )
+
+    assert response.status_code == 422
+    assert "не больше 2" in response.json()["detail"]
+    assert reads == []

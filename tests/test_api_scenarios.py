@@ -226,5 +226,19 @@ class ScenarioApiTests(unittest.TestCase):
         self.assertEqual(params.kuzram_settings["work_object_name"], "Карьер-1")
 
 
+    def test_foreign_snapshot_gives_warning_not_crash(self):
+        from design.scenarios.engine import _fragmentation_outcomes
+        from design.scenarios.types import ScenarioOutcomes, ScenarioParams
+
+        outcomes = ScenarioOutcomes()
+
+        _fragmentation_outcomes(
+            charged_design("foreign"), ScenarioParams(kuzram_settings={"values": {"bogus": 1}}), outcomes
+        )
+
+        self.assertTrue(any("Снимок настроек модели не прочитан" in warning for warning in outcomes.warnings))
+        self.assertIsNone(outcomes.x50_mm)
+
+
 if __name__ == "__main__":
     unittest.main()

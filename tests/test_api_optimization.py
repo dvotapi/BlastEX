@@ -97,5 +97,33 @@ class OptimizationApiTests(unittest.TestCase):
             )
 
 
+    def test_persisted_pareto_uses_work_object_settings(self):
+        from cost.v2.repository import InMemoryEconomicsRepository
+        from api.services import scenario_service
+
+        repository = InMemoryEconomicsRepository()
+        repository.save_calc_inputs(TEAM_ID, "tester", "Карьер-1", {"kuzram": {"rock_factor_correction": 1.6}})
+        design = self._plan()
+
+        optimization_service.run_optimization(
+            TEAM_ID,
+            OptimizationRequest(
+                design=BlastDesignSchema(**design.to_dict()),
+                variables=[VariableBoundSchema(name="diameter_mm", values=[152, 165])],
+                max_candidates=4,
+                persist=False,
+                persist_pareto_as_scenarios=True,
+                params=ScenarioParamsSchema(work_object_name="Карьер-1"),
+            ),
+            repository=repository,
+        )
+
+        items = scenario_service.list_plan_scenarios(TEAM_ID, design.design_id).items
+        self.assertTrue(items)
+        stored = scenario_service.get_plan_scenario(TEAM_ID, design.design_id, items[0].scenario_id)
+        self.assertEqual(stored.params.kuzram_settings["source"], "work_object")
+        self.assertEqual(stored.params.kuzram_settings["values"]["rock_factor_correction"], 1.6)
+
+
 if __name__ == "__main__":
     unittest.main()

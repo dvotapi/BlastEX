@@ -250,6 +250,10 @@ def _fragmentation_outcomes(overlay: BlastDesign, params: ScenarioParams, outcom
 
     try:
         settings, settings_source = settings_from_snapshot(params.kuzram_settings)
+    except (TypeError, ValueError) as exc:
+        outcomes.warnings.append(f"Снимок настроек модели не прочитан: {exc}")
+        return
+    try:
         payload = predict_design(
             overlay,
             model=params.fragmentation_model or MODEL_KUZRAM,
@@ -258,9 +262,6 @@ def _fragmentation_outcomes(overlay: BlastDesign, params: ScenarioParams, outcom
             settings=settings,
             settings_source=settings_source,
         )
-    except TypeError as exc:
-        outcomes.warnings.append(f"Снимок настроек модели не прочитан: {exc}")
-        return
     except ValueError as exc:
         outcomes.warnings.append(str(exc))
         return

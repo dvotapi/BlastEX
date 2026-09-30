@@ -61,6 +61,13 @@ export async function postFile<T>(path: string, file: File, field = "file"): Pro
   return response.json() as Promise<T>;
 }
 
+/** Отправка формы (несколько файлов и поля) — как `postFile`, но форму собирает вызывающий. */
+export async function postForm<T>(path: string, form: FormData): Promise<T> {
+  const response = await fetch(path, { method: "POST", credentials: "include", body: form });
+  if (!response.ok) throw new Error(await errorMessage(response, "Не удалось загрузить файл."));
+  return response.json() as Promise<T>;
+}
+
 export const get = <T,>(path: string) => request<T>(path);
 export const post = <T,>(path: string, body: unknown) =>
   request<T>(path, { method: "POST", body: JSON.stringify(body) });

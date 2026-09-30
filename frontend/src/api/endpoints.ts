@@ -1,4 +1,4 @@
-import { del, errorMessage, get, post, postFile, put, requestSvg } from "./client";
+import { del, errorMessage, get, post, postFile, postForm, put, requestSvg } from "./client";
 import type {
   AggregatedCostResult,
   BlastGeometryResponse,
@@ -148,6 +148,14 @@ import type {
   VariantsResponse,
 } from "../types/blockEconomics";
 import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
+import type {
+  CadImportResponse,
+  CadMeta,
+  CadParams,
+  CadRolesPayload,
+  CadSource,
+  CadUploadParams,
+} from "../types/cad";
 
 const V1 = "/api/v1";
 
@@ -426,6 +434,27 @@ export const api = {
   },
 
   // --- проектирование БВР ---
+  // --- импорт чертежа маркшейдера (TASK-013) ---
+  cad: {
+    meta: () => get<CadMeta>(`${V1}/design/cad/meta`),
+    upload: (files: File[], params: CadUploadParams) => {
+      const form = new FormData();
+      for (const file of files) form.append("files", file);
+      form.append("work_object_name", params.workObjectName);
+      if (params.benchHeightM !== undefined) form.append("bench_height_m", String(params.benchHeightM));
+      if (params.scale !== undefined) form.append("scale", String(params.scale));
+      if (params.labelRadiusM !== undefined) form.append("label_radius_m", String(params.labelRadiusM));
+      // Пустая подошва не отправляется: сервер берёт её из имени слоя.
+      if (params.floorZM !== undefined && params.floorZM !== null) form.append("floor_z_m", String(params.floorZM));
+      if (params.surveyDate) form.append("survey_date", params.surveyDate);
+      return postForm<CadImportResponse>(`${V1}/design/cad/sources`, form);
+    },
+    source: (id: string) => get<CadSource>(`${V1}/design/cad/sources/${encodeURIComponent(id)}`),
+    reparse: (id: string, params: CadParams) =>
+      post<CadSource>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/reparse`, params),
+    saveRoles: (id: string, payload: CadRolesPayload) =>
+      put<CadSource>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/roles`, payload),
+  },
   design: {
     pattern: (
       contour: BlockContour,

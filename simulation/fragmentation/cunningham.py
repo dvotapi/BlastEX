@@ -5,10 +5,10 @@ on», EFEE 2005: фактор породы A = 0,06·(RMD + RDI + HF), сред�
 Кузнецову с показателем 19/20 (или 19/30, вариант 1983 года), индекс
 равномерности n по варианту 1987 года с диаметром в миллиметрах.
 
-Полный прогноз одной точки собирает predict_point — её зовёт подбор q в
-Blast.py. Прогнозы вкладки «Проектирование» пока считает
-simulation.fragmentation.kuzram; перевод движка — PR 2, см.
-Docs/plans/2026-09-29-fragmentation-engine-cunningham-design.md.
+Полный прогноз одной точки собирает predict_point — её зовут подбор q в
+Blast.py и все три модели движка «Проектирования» через
+simulation.fragmentation.base.region_point. Прежние формулы движка —
+simulation.fragmentation.legacy.
 """
 from __future__ import annotations
 

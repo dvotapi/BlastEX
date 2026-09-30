@@ -78,18 +78,10 @@ def read_cad(data: bytes, filename: str = "", options: ReadOptions | None = None
     collector.collect()
     entities = collector.entities
     if not entities:
+        if collector.skipped:
+            listed = ", ".join(f"{kind} × {count}" for kind, count in sorted(collector.skipped.items()))
+            raise CadReadError(f"В чертеже нет объектов, которые читает импорт: {listed}.")
         raise CadReadError("В чертеже нет объектов: пространство модели пустое.")
-    if len(entities) > MAX_ENTITIES:
-        raise CadReadError(
-            f"В чертеже {len(entities)} объектов — больше предела {MAX_ENTITIES}. "
-            "Оставьте в файле блок и ближайшую ситуацию."
-        )
-    vertices = sum(item.vertex_count for item in entities)
-    if vertices > MAX_VERTICES:
-        raise CadReadError(
-            f"В чертеже {vertices} вершин — больше предела {MAX_VERTICES}. "
-            "Оставьте в файле блок и ближайшую ситуацию."
-        )
 
     attach_labels(entities, options.label_radius_m)
 
@@ -221,12 +213,19 @@ class _Collector:
         self.skipped: Counter[str] = Counter()
         self.degenerate = 0
         self.duplicates = 0
+        self.vertex_total = 0
         self._handles: Counter[str] = Counter()
         self.layer_colors = self._layer_colors()
 
     def collect(self) -> None:
         for entity in self.doc.modelspace():
             self._append(entity, handle=str(entity.dxf.handle), layer=None, block_color=None)
+
+    @property
+    def sagitta(self) -> float:
+        """Допуск спрямления в единицах чертежа: после масштаба он — CURVE_SAGITTA_M."""
+
+        return CURVE_SAGITTA_M / self.options.scale
 
     def notes(self) -> list[CadWarning]:
         notes: list[CadWarning] = []
@@ -255,7 +254,23 @@ class _Collector:
         return notes
 
     def _add(self, entity: CadEntity) -> None:
-        """Добавляет сущность с уникальным handle — он ключ хранения."""
+        """Добавляет сущность с уникальным handle — он ключ хранения.
+
+        Пределы файла проверяются здесь, по ходу чтения: раскрытие огромного
+        блока не должно успеть съесть память до проверки.
+        """
+
+        if len(self.entities) >= MAX_ENTITIES:
+            raise CadReadError(
+                f"В чертеже больше {MAX_ENTITIES} объектов — это предел одного файла. "
+                "Оставьте в файле блок и ближайшую ситуацию."
+            )
+        self.vertex_total += entity.vertex_count
+        if self.vertex_total > MAX_VERTICES:
+            raise CadReadError(
+                f"В чертеже больше {MAX_VERTICES} вершин — это предел одного файла. "
+                "Оставьте в файле блок и ближайшую ситуацию."
+            )
 
         self._handles[entity.handle] += 1
         seen = self._handles[entity.handle]
@@ -290,6 +305,14 @@ class _Collector:
         return _hex(colors.aci2rgb(aci)) if 0 < aci < 256 else None
 
     def _append(self, entity, *, handle: str, layer: str | None, block_color: str | None) -> None:
+        try:
+            self._append_entity(entity, handle=handle, layer=layer, block_color=block_color)
+        except CadReadError:
+            raise
+        except Exception:  # одна битая сущность не должна ронять весь чертёж
+            self.skipped[f"{entity.dxftype()} (повреждён)"] += 1
+
+    def _append_entity(self, entity, *, handle: str, layer: str | None, block_color: str | None) -> None:
         kind = entity.dxftype()
         own_layer = str(entity.dxf.get("layer", "0") or "0")
         # Слой «0» внутри блока берёт слой вставки — как в AutoCAD.
@@ -326,7 +349,7 @@ class _Collector:
                 raw = [entity_vertex.dxf.location for entity_vertex in entity.vertices]
             else:
                 kind = "POLYLINE2D"
-                raw = list(ezpath.make_path(entity).flattening(CURVE_SAGITTA_M))
+                raw = list(ezpath.make_path(entity).flattening(self.sagitta))
         elif kind == "LINE":
             raw = [entity.dxf.start, entity.dxf.end]
         else:
@@ -339,11 +362,11 @@ class _Collector:
                 closed_flag = math.isclose(span, math.tau, abs_tol=1e-6) or span < 1e-9
             elif kind == "SPLINE":
                 closed_flag = bool(entity.closed)
-            raw = list(ezpath.make_path(entity).flattening(CURVE_SAGITTA_M))
+            raw = list(ezpath.make_path(entity).flattening(self.sagitta))
 
         points = _dedup([self._scaled(value) for value in raw])
         closed, by_gap = False, False
-        if len(points) >= 4 and _near(points[0], points[-1]):
+        if len(points) >= 4 and _near(points[0], points[-1]) and _distinct(points) >= 3:
             points.pop()
             closed, by_gap = True, not closed_flag
         elif closed_flag and len(points) >= 3:
@@ -354,7 +377,7 @@ class _Collector:
         line = CadEntity(
             handle=handle, layer=layer, kind=kind, points=points, closed=closed, closed_by_gap=by_gap, color=color
         )
-        if not line.closed and len(points) >= 3:
+        if not line.closed and _distinct(points) >= 3:
             gap = math.dist(points[0][:2], points[-1][:2])
             if gap <= self.options.closure_tolerance_m and gap <= CLOSURE_MAX_GAP_SHARE * line.length_m:
                 line.closed = True
@@ -391,8 +414,13 @@ class _Collector:
         self._add(label)
 
     def _insert(self, entity, handle: str, layer: str, color: str | None) -> None:
+        if entity.mcount > 1:
+            # MINSERT — массив копий блока: каждая копия как отдельная вставка.
+            for index, single in enumerate(entity.multi_insert(), start=1):
+                self._insert(single, f"{handle}/{index}", layer, color)
+            return
         attributes = [str(attrib.dxf.get("text", "") or "") for attrib in entity.attribs]
-        if attributes or self._block_size(entity) <= SIGN_BLOCK_SIZE_M:
+        if attributes or self._block_size(entity) * self.options.scale <= SIGN_BLOCK_SIZE_M:
             location = entity.ocs().to_wcs(entity.dxf.insert)
             label = next((text for text in attributes if parse_elevation(text) is not None), "")
             sign = self._push_point(handle, layer, "INSERT", location, color, text=label)
@@ -432,6 +460,12 @@ class _Collector:
 
 def _near(a: Point, b: Point) -> bool:
     return math.dist(a, b) <= DUPLICATE_TOLERANCE_M
+
+
+def _distinct(points: list[Point]) -> int:
+    """Сколько различных вершин в плане: линия A–B–A замкнутой не бывает."""
+
+    return len({(round(x, 3), round(y, 3)) for x, y, _ in points})
 
 
 def _dedup(points: list[Point]) -> list[Point]:

@@ -334,7 +334,8 @@ def test_too_many_entities_is_an_error_not_a_truncation(monkeypatch):
 
     with pytest.raises(CadReadError) as exc:
         read_cad(_dxf_bytes(build), "a.dxf")
-    assert "11" in str(exc.value) and "10" in str(exc.value)
+    # Предел проверяется по ходу чтения: раскрытие огромного блока не успеет съесть память.
+    assert "больше 10 объектов" in str(exc.value)
 
 
 def test_too_many_vertices_is_an_error(monkeypatch):
@@ -438,3 +439,78 @@ def test_duplicate_handles_get_a_suffix_and_a_note():
 
     assert [item.handle for item in drawing.entities] == [first, f"{first}~2"]
     assert any(item.code == "duplicate_handles" for item in drawing.warnings)
+
+
+def test_broken_curve_is_skipped_with_a_note_and_the_rest_is_read():
+    def build(doc):
+        msp = doc.modelspace()
+        spline = msp.add_spline([(0, 0), (10, 5), (20, 0), (30, 5)])
+        spline.control_points = [(0, 0, 0), (10, 5, 0)]  # степень 3 и две точки — битый сплайн
+        msp.add_point((1, 1, 405))
+
+    drawing = read_cad(_dxf_bytes(build), "a.dxf")
+
+    assert [item.kind for item in drawing.entities] == ["POINT"]
+    note = next(item for item in drawing.warnings if item.code == "skipped")
+    assert "SPLINE (повреждён) × 1" in note.message
+
+
+def test_curve_tolerances_are_in_metres_after_scaling():
+    """Окружность 10 м в миллиметровом чертеже спрямляется так же, как в метровом."""
+
+    def metres(doc):
+        doc.modelspace().add_circle((0, 0), radius=10)
+
+    def millimetres(doc):
+        doc.modelspace().add_circle((0, 0), radius=10_000)
+
+    in_metres = _only(read_cad(_dxf_bytes(metres), "m.dxf").entities, "CIRCLE")
+    in_mm = _only(read_cad(_dxf_bytes(millimetres), "mm.dxf", ReadOptions(scale=0.001)).entities, "CIRCLE")
+
+    assert abs(in_mm.vertex_count - in_metres.vertex_count) <= 2
+
+
+def test_sign_size_is_measured_in_metres_after_scaling():
+    """Знак 3 м в миллиметровом чертеже — знак, а не объект в линиях."""
+
+    def build(doc):
+        block = doc.blocks.new("ЗНАК")
+        block.add_circle((0, 0), radius=1500)
+        doc.modelspace().add_blockref("ЗНАК", (100_000, 200_000, 415_000))
+
+    sign = _only(read_cad(_dxf_bytes(build), "mm.dxf", ReadOptions(scale=0.001)).entities, "INSERT")
+
+    assert sign.points == [pytest.approx((100.0, 200.0, 415.0))]
+
+
+def test_minsert_expands_every_copy():
+    def build(doc):
+        block = doc.blocks.new("СКЛАД")
+        block.add_lwpolyline([(0, 0), (20, 0), (20, 10)])
+        doc.modelspace().add_blockref(
+            "СКЛАД", (0, 0), dxfattribs={"column_count": 3, "column_spacing": 50}
+        )
+
+    lines = [item for item in read_cad(_dxf_bytes(build), "a.dxf").entities if item.geometry_type == "line"]
+
+    assert sorted(round(item.points[0][0]) for item in lines) == [0, 50, 100]
+    assert len({item.handle for item in lines}) == 3
+
+
+def test_back_and_forth_line_is_not_closed():
+    def build(doc):
+        doc.modelspace().add_lwpolyline([(0, 0), (10, 0), (0, 0)])
+
+    entity = _only(read_cad(_dxf_bytes(build), "a.dxf").entities, "LWPOLYLINE")
+
+    assert entity.closed is False
+    assert entity.area_m2 == 0
+
+
+def test_drawing_of_only_unsupported_entities_names_them():
+    def build(doc):
+        hatch = doc.modelspace().add_hatch()
+        hatch.paths.add_polyline_path([(0, 0), (1, 0), (1, 1)], is_closed=True)
+
+    with pytest.raises(CadReadError, match="HATCH"):
+        read_cad(_dxf_bytes(build), "a.dxf")

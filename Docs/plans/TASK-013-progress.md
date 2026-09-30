@@ -153,7 +153,8 @@ MINSERT без предела. Добавлен бюджет обхода с у�
   - Роли `block_contour`, `design_line`, `crest_top`/`crest_bottom` уже
     проставлены на сущностях в `cad_entities`, handle стабильны.
   - Фрагменты бровок не сшиты: сшивка — задача PR 2.
-  - `LegacyBuildBlock.tsx`, `legacyBuild.ts`, `/design/contour/from-polylines`
+  - `LegacyBuildBlock.tsx`, `legacyBuild.ts` (вместе со склейкой отрезков LINE
+    `withLineChains` — после ревью Codex), `/design/contour/from-polylines`
     и `io.build_bench_from_polylines` удалить вместе с режимом «полоса между
     бровками».
   - Шаг «Контур» — новая вкладка в `.cad-steps` окна.

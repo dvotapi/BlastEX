@@ -158,7 +158,6 @@ import { DriftPanel } from "./DriftPanel";
 import { SpatialPanel } from "./SpatialPanel";
 import { MovementPanel } from "./MovementPanel";
 import { PassportPanel } from "./PassportPanel";
-import { useWorkspace } from "../../app/useWorkspace";
 import { MassBlastPanel } from "./MassBlastPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
@@ -254,11 +253,6 @@ export function DesignPage({
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const animationFrameRef = useRef<number | null>(null);
-
-  // Настройки модели Kuz-Ram «Проектирование» берёт у объекта работ из шапки —
-  // там же, где их берёт лист «Расчёт».
-  const { state: workspaceState } = useWorkspace();
-  const workObjectName = workspaceState?.settings.active_work_object_name ?? "";
 
   const [scenarioId, setScenarioId] = useState<CostScenarioId>("drill_blast");
   const [costResult, setCostResult] = useState<DesignCostResult | null>(null);
@@ -739,6 +733,8 @@ export function DesignPage({
     setFragBusy(true);
     setError("");
     try {
+      // Настройки модели Kuz-Ram сервер берёт у активного объекта работ
+      // организации сам — как и для паспорта, сценариев и подбора.
       const result = await api.design.fragmentation({
         design: {
           ...document,
@@ -758,7 +754,6 @@ export function DesignPage({
           power_mj_kg: item.power_mj_kg,
         })),
         hole_oversize_coeff: chargeRules.hole_oversize_coeff,
-        work_object_name: workObjectName,
       });
       setFragResult(result);
     } catch (reason) {
@@ -1999,7 +1994,6 @@ export function DesignPage({
           cost_scenario_id: scenarioId,
           site_id: datasetSiteId.trim(),
           use_production_overlays: scenarioUseOverlays,
-          work_object_name: workObjectName,
         },
       });
       if (document.design_id) {
@@ -2067,7 +2061,7 @@ export function DesignPage({
         max_candidates: optMaxCandidates,
         include_baseline: true,
         persist: Boolean(document.design_id),
-        params: { cost_scenario_id: scenarioId, site_id: datasetSiteId.trim(), work_object_name: workObjectName },
+        params: { cost_scenario_id: scenarioId, site_id: datasetSiteId.trim() },
       });
       setOptResult(result);
     } catch (reason) {
@@ -2138,7 +2132,6 @@ export function DesignPage({
           cost_scenario_id: scenarioId,
           site_id: datasetSiteId.trim(),
           use_production_overlays: recUseOverlays,
-          work_object_name: workObjectName,
         },
       });
       setRecResult(result);
@@ -2200,7 +2193,6 @@ export function DesignPage({
         include_baseline: true,
         design: designPayload(),
         inline: document.design_id ? [] : scenarioInline,
-        work_object_name: workObjectName,
       });
       setScenarioCompare(table);
     } catch (reason) {
@@ -2230,7 +2222,6 @@ export function DesignPage({
       const result = await api.design.buildPassport({
         design: currentDesignPayload(),
         lump_size_mm: lumpSizeMm,
-        work_object_name: workObjectName,
         planned_cost: costResult
           ? {
               total_amount_rub: costResult.total_amount_rub,

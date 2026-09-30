@@ -62,7 +62,9 @@ class CadSourceRecord:
 
 
 class CadRepository(Protocol):
-    def create_source(self, organization_id: str, record: CadSourceRecord, entities: list[CadEntity]) -> None: ...
+    def create_sources(
+        self, organization_id: str, items: list[tuple[CadSourceRecord, list[CadEntity]]]
+    ) -> None: ...
 
     def get_source(self, organization_id: str, source_id: str, *, with_file: bool = False) -> CadSourceRecord | None: ...
 
@@ -212,30 +214,35 @@ class PostgresCadRepository:
         self.engine = create_engine(database_url, pool_pre_ping=True, future=True)
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False, future=True)
 
-    def create_source(self, organization_id: str, record: CadSourceRecord, entities: list[CadEntity]) -> None:
+    def create_sources(
+        self, organization_id: str, items: list[tuple[CadSourceRecord, list[CadEntity]]]
+    ) -> None:
+        """Все файлы одной загрузки — одной транзакцией: либо все, либо ни одного."""
+
         with self.session_factory() as session, session.begin():
-            session.add(
-                CadSourceRow(
-                    id=record.id,
-                    organization_id=organization_id,
-                    site_code=record.site_code,
-                    work_object_name=record.work_object_name,
-                    file_name=record.file_name,
-                    file_format=record.file_format,
-                    file_size=record.file_size,
-                    file_sha256=record.file_sha256,
-                    file_data=record.file_data or b"",
-                    survey_date=record.survey_date,
-                    coordinate_system=record.coordinate_system,
-                    params=record.params,
-                    summary=record.summary,
-                    uploaded_by=record.uploaded_by,
-                    uploaded_at=record.uploaded_at,
+            for record, entities in items:
+                session.add(
+                    CadSourceRow(
+                        id=record.id,
+                        organization_id=organization_id,
+                        site_code=record.site_code,
+                        work_object_name=record.work_object_name,
+                        file_name=record.file_name,
+                        file_format=record.file_format,
+                        file_size=record.file_size,
+                        file_sha256=record.file_sha256,
+                        file_data=record.file_data or b"",
+                        survey_date=record.survey_date,
+                        coordinate_system=record.coordinate_system,
+                        params=record.params,
+                        summary=record.summary,
+                        uploaded_by=record.uploaded_by,
+                        uploaded_at=record.uploaded_at,
+                    )
                 )
-            )
-            session.flush()
-            if entities:
-                session.execute(insert(CadEntityRow), _entity_rows(organization_id, record.id, entities))
+                session.flush()
+                if entities:
+                    session.execute(insert(CadEntityRow), _entity_rows(organization_id, record.id, entities))
 
     def get_source(self, organization_id: str, source_id: str, *, with_file: bool = False) -> CadSourceRecord | None:
         with self.session_factory() as session:
@@ -387,9 +394,12 @@ class InMemoryCadRepository:
         self._entities: dict[tuple[str, str], list[CadEntity]] = {}
         self._templates: dict[tuple[str, str], dict[str, tuple[str, str]]] = {}
 
-    def create_source(self, organization_id: str, record: CadSourceRecord, entities: list[CadEntity]) -> None:
-        self._sources[(organization_id, record.id)] = copy.deepcopy(record)
-        self._entities[(organization_id, record.id)] = copy.deepcopy(entities)
+    def create_sources(
+        self, organization_id: str, items: list[tuple[CadSourceRecord, list[CadEntity]]]
+    ) -> None:
+        for record, entities in items:
+            self._sources[(organization_id, record.id)] = copy.deepcopy(record)
+            self._entities[(organization_id, record.id)] = copy.deepcopy(entities)
 
     def get_source(self, organization_id: str, source_id: str, *, with_file: bool = False) -> CadSourceRecord | None:
         record = self._sources.get((organization_id, source_id))

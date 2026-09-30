@@ -220,6 +220,8 @@ class _Collector:
         self.entities: list[CadEntity] = []
         self.skipped: Counter[str] = Counter()
         self.degenerate = 0
+        self.duplicates = 0
+        self._handles: Counter[str] = Counter()
         self.layer_colors = self._layer_colors()
 
     def collect(self) -> None:
@@ -231,6 +233,17 @@ class _Collector:
         if self.skipped:
             listed = ", ".join(f"{kind} × {count}" for kind, count in sorted(self.skipped.items()))
             notes.append(CadWarning(code="skipped", message=f"Не читаются: {listed}.", level="info"))
+        if self.duplicates:
+            notes.append(
+                CadWarning(
+                    code="duplicate_handles",
+                    message=(
+                        f"У {self.duplicates} объектов handle повторял чужой — к нему добавлен "
+                        "суффикс «~2», «~3»…"
+                    ),
+                    level="info",
+                )
+            )
         if self.degenerate:
             notes.append(
                 CadWarning(
@@ -240,6 +253,17 @@ class _Collector:
                 )
             )
         return notes
+
+    def _add(self, entity: CadEntity) -> None:
+        """Добавляет сущность с уникальным handle — он ключ хранения."""
+
+        self._handles[entity.handle] += 1
+        seen = self._handles[entity.handle]
+        if seen > 1:
+            self.duplicates += 1
+            entity.handle = f"{entity.handle}~{seen}"
+            self._handles[entity.handle] += 1
+        self.entities.append(entity)
 
     def _layer_colors(self) -> dict[str, str | None]:
         from ezdxf import colors
@@ -335,7 +359,7 @@ class _Collector:
             if gap <= self.options.closure_tolerance_m and gap <= CLOSURE_MAX_GAP_SHARE * line.length_m:
                 line.closed = True
                 line.closed_by_gap = True
-        self.entities.append(line)
+        self._add(line)
 
     # --- точки, знаки, подписи -----------------------------------------
 
@@ -343,7 +367,7 @@ class _Collector:
         point = CadEntity(
             handle=handle, layer=layer, kind=kind, points=[self._scaled(location)], text=text, color=color
         )
-        self.entities.append(point)
+        self._add(point)
         return point
 
     def _text(self, entity, kind: str, handle: str, layer: str, color: str | None) -> None:
@@ -364,7 +388,7 @@ class _Collector:
             text_height=height * self.options.scale,
             color=color,
         )
-        self.entities.append(label)
+        self._add(label)
 
     def _insert(self, entity, handle: str, layer: str, color: str | None) -> None:
         attributes = [str(attrib.dxf.get("text", "") or "") for attrib in entity.attribs]

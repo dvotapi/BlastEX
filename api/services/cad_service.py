@@ -154,7 +154,8 @@ def import_files(
         except CadReadError as exc:
             raise CadImportError(f"«{name}»: {exc}") from exc
 
-    sources: list[CadSourceSchema] = []
+    items: list[tuple[CadSourceRecord, list[CadEntity]]] = []
+    new_layers: dict[str, str] = {}
     for name, content, drawing in drawings:
         assignment = assign_roles(drawing.entities, template, _role_params(params))
         summary = _summary(drawing, assignment, manual_layers={}, site_code=site_code, work_object_name=work_object_name)
@@ -173,12 +174,17 @@ def import_files(
             survey_date=survey_date,
             file_data=content,
         )
-        repository.create_source(organization_id, record, drawing.entities)
+        items.append((record, drawing.entities))
         if site_code:
-            layer_roles = {layer.name: layer.role for layer in assignment.layers}
-            repository.add_missing_layer_roles(organization_id, site_code, layer_roles, actor)
-            template = repository.get_layer_template(organization_id, site_code)
-        sources.append(_source_schema(record, drawing.entities))
+            # Следующий файл той же загрузки размечается уже с этими слоями.
+            for layer in assignment.layers:
+                new_layers.setdefault(layer.name, layer.role)
+                template.setdefault(layer_key(layer.name), layer.role)
+
+    repository.create_sources(organization_id, items)
+    if site_code and new_layers:
+        repository.add_missing_layer_roles(organization_id, site_code, new_layers, actor)
+    sources = [_source_schema(record, entities) for record, entities in items]
     return CadImportResponse(sources=sources)
 
 

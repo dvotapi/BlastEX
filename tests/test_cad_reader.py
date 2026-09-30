@@ -419,3 +419,22 @@ def test_missing_dwg_converter_asks_for_dxf(monkeypatch):
 
     with pytest.raises(CadReadError, match="DXF"):
         read_cad(b"AC1032 dwg bytes", "block.dwg")
+
+
+def test_duplicate_handles_get_a_suffix_and_a_note():
+    """LibreDWG и битые выгрузки дают повторяющиеся handle — хранилищу нужны уникальные."""
+
+    def build(doc):
+        msp = doc.modelspace()
+        msp.add_point((0, 0, 400))
+        msp.add_point((5, 5, 401))
+
+    text = _dxf_bytes(build).decode("utf-8")
+    doc = ezdxf.read(io.StringIO(text))
+    first, second = (entity.dxf.handle for entity in doc.modelspace())
+    duplicated = text.replace(f"\n  5\n{second}\n", f"\n  5\n{first}\n", 1)
+
+    drawing = read_cad(duplicated.encode("utf-8"), "a.dxf")
+
+    assert [item.handle for item in drawing.entities] == [first, f"{first}~2"]
+    assert any(item.code == "duplicate_handles" for item in drawing.warnings)

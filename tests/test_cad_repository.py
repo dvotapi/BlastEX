@@ -92,7 +92,7 @@ def _entities() -> list[CadEntity]:
 
 
 def test_source_round_trip_keeps_entities_in_order(repository) -> None:
-    repository.create_source(ORG_A, _record(), _entities())
+    repository.create_sources(ORG_A, [(_record(), _entities())])
 
     source = repository.get_source(ORG_A, "src-1")
     assert source is not None
@@ -110,7 +110,7 @@ def test_source_round_trip_keeps_entities_in_order(repository) -> None:
 
 
 def test_other_organization_sees_nothing(repository) -> None:
-    repository.create_source(ORG_A, _record(), _entities())
+    repository.create_sources(ORG_A, [(_record(), _entities())])
 
     assert repository.get_source(ORG_B, "src-1") is None
     assert repository.list_entities(ORG_B, "src-1") == []
@@ -122,7 +122,7 @@ def test_other_organization_sees_nothing(repository) -> None:
 
 
 def test_update_roles_changes_only_named_entities(repository) -> None:
-    repository.create_source(ORG_A, _record(), _entities())
+    repository.create_sources(ORG_A, [(_record(), _entities())])
 
     repository.update_roles(ORG_A, "src-1", {"51C": ("ignore", "manual")}, {"layers": {"x": 1}})
 
@@ -136,7 +136,7 @@ def test_update_roles_changes_only_named_entities(repository) -> None:
 
 
 def test_replace_entities_swaps_geometry_params_and_summary(repository) -> None:
-    repository.create_source(ORG_A, _record(), _entities())
+    repository.create_sources(ORG_A, [(_record(), _entities())])
     scaled = _entities()[:1]
     scaled[0].points = [(0.0, 0.0, 0.4), (0.04, 0.0, 0.4), (0.04, 0.03, 0.4)]
 
@@ -172,10 +172,23 @@ def test_template_of_another_organization_is_untouched(repository) -> None:
 
 
 @requires_pg
+def test_several_sources_are_saved_together_or_not_at_all(public_db) -> None:
+    repository = PostgresCadRepository(TEST_DATABASE_URL)
+    broken = _entities()
+    broken[1].handle = broken[0].handle  # нарушает первичный ключ (source_id, handle)
+    try:
+        with pytest.raises(Exception):
+            repository.create_sources(ORG_A, [(_record("src-1"), _entities()), (_record("src-2"), broken)])
+        assert repository.get_source(ORG_A, "src-1") is None
+    finally:
+        repository.engine.dispose()
+
+
+@requires_pg
 def test_deleting_a_source_cascades_to_entities(public_db) -> None:
     repository = PostgresCadRepository(TEST_DATABASE_URL)
     try:
-        repository.create_source(ORG_A, _record(), _entities())
+        repository.create_sources(ORG_A, [(_record(), _entities())])
         with repository.engine.begin() as connection:
             connection.execute(text("DELETE FROM blastex.cad_sources WHERE id = 'src-1'"))
             left = connection.execute(text("SELECT count(*) FROM blastex.cad_entities")).scalar_one()

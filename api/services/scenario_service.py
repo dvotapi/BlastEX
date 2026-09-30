@@ -160,6 +160,17 @@ def _apply_ml_overlays(
     except Exception as exc:
         outcomes.warnings.append(f"ML-оверлей исходов пропущен: {exc}")
 
+    # Поправки кусковатости обучены на Kuz-Ram 1.0.0; к новой модели их
+    # не применяем, пока PR 3 не научит артефакт помнить свою базу.
+    # Считается вне общего try: неизвестное имя модели не должно снимать
+    # поправку PPV. Такое имя — не старая модель; его отклонит движок.
+    from simulation.fragmentation.engine import is_legacy_model
+
+    try:
+        new_base = not is_legacy_model(params.fragmentation_model)
+    except ValueError:
+        new_base = True
+
     try:
         from intelligence.calibration.persistence import load_model, production_model
         from intelligence.calibration.prediction import apply_residual, features_from_design
@@ -169,26 +180,27 @@ def _apply_ml_overlays(
             MODEL_PPV_RESIDUAL,
         )
 
-        from simulation.fragmentation.engine import is_legacy_model
-
         features = features_from_design(overlay, site_id=site_id or "unknown")
         mapping = (
             (MODEL_KUZRAM_RESIDUAL, "x50_mm", "x50_engineering_mm"),
             (MODEL_OVERSIZE_RESIDUAL, "oversize_pct", "oversize_engineering_pct"),
             (MODEL_PPV_RESIDUAL, "ppv_mm_s", "ppv_engineering_mm_s"),
         )
-        # Поправки кусковатости обучены на Kuz-Ram 1.0.0; к новой модели их
-        # не применяем, пока PR 3 не научит артефакт помнить свою базу.
-        new_base = not is_legacy_model(params.fragmentation_model)
         fragmentation_residuals = {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}
         skipped_residuals = False
         for model_type, field, baseline_field in mapping:
+            model_id = str(params.calibration_model_ids.get(model_type) or "").strip()
             if new_base and model_type in fragmentation_residuals:
+                # Предупреждаем, только если калибровка правда была бы наложена.
                 skipped_residuals = skipped_residuals or bool(
-                    params.calibration_model_ids.get(model_type) or params.use_production_overlays
+                    model_id
+                    or (
+                        params.use_production_overlays
+                        and site_id
+                        and production_model(team_id, site_id, model_type) is not None
+                    )
                 )
                 continue
-            model_id = str(params.calibration_model_ids.get(model_type) or "").strip()
             model = None
             if model_id:
                 model = load_model(team_id, model_id)

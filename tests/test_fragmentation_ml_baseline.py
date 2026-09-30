@@ -81,5 +81,55 @@ class ScenarioResidualGuardTests(unittest.TestCase):
         self.assertEqual(outcomes.x50_mm, 150.0)
 
 
+    def _overlays(self, params: ScenarioParams, *, production=None):
+        outcomes = ScenarioOutcomes(
+            x50_mm=200.0,
+            x50_engineering_mm=200.0,
+            oversize_pct=5.0,
+            oversize_engineering_pct=5.0,
+            ppv_mm_s=10.0,
+            ppv_engineering_mm_s=10.0,
+        )
+        with patch("intelligence.calibration.persistence.load_model", return_value=object()), patch(
+            "intelligence.calibration.persistence.production_model", return_value=production
+        ), patch(
+            "intelligence.calibration.prediction.apply_residual", return_value=SimpleNamespace(calibrated=7.0)
+        ) as apply:
+            scenario_service._apply_ml_overlays("team-ml", charged_design("ml-guard"), params, outcomes)
+        return outcomes, apply
+
+    def _retrain(self, outcomes) -> bool:
+        return any("переобучить" in item for item in outcomes.warnings)
+
+    def test_production_overlays_without_site_do_not_warn(self):
+        outcomes, _ = self._overlays(ScenarioParams(fragmentation_model="kuzram", use_production_overlays=True))
+
+        self.assertFalse(self._retrain(outcomes))
+
+    def test_production_overlays_without_production_model_do_not_warn(self):
+        outcomes, _ = self._overlays(
+            ScenarioParams(fragmentation_model="kuzram", use_production_overlays=True, site_id="quarry-1")
+        )
+
+        self.assertFalse(self._retrain(outcomes))
+
+    def test_production_calibration_on_new_model_warns(self):
+        outcomes, _ = self._overlays(
+            ScenarioParams(fragmentation_model="kuzram", use_production_overlays=True, site_id="quarry-1"),
+            production=object(),
+        )
+
+        self.assertTrue(self._retrain(outcomes))
+        self.assertEqual(outcomes.x50_mm, 200.0)
+
+    def test_unknown_model_keeps_ppv_calibration(self):
+        outcomes, apply = self._overlays(
+            ScenarioParams(fragmentation_model="ml-magic", calibration_model_ids={"ppv_residual": "cal-ppv"})
+        )
+
+        apply.assert_called_once()
+        self.assertEqual(outcomes.ppv_mm_s, 7.0)
+        self.assertFalse(any("Калибровочный оверлей пропущен" in item for item in outcomes.warnings))
+
 if __name__ == "__main__":
     unittest.main()

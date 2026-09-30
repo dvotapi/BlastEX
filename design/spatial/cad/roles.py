@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from design.spatial.cad.labels import parse_elevation
@@ -55,6 +56,19 @@ _LINE_ROLES_FOR_POINTS = frozenset({ROLE_SITUATION, ROLE_IGNORE})
 
 
 @dataclass(frozen=True)
+class TemplateEntry:
+    """Роль слоя в шаблоне объекта. `manual` — роль подтверждена человеком.
+
+    Загрузка пополняет шаблон догадками «авто»; такая роль из шаблона ведёт
+    себя как «авто» (точки с отметкой на «Ситуации» остаются отметками), а
+    подтверждённая — как ручная.
+    """
+
+    role: str
+    manual: bool = False
+
+
+@dataclass(frozen=True)
 class RoleParams:
     floor_z_m: float | None = None
     bench_height_m: float = DEFAULT_BENCH_HEIGHT_M
@@ -65,6 +79,8 @@ class LayerRole:
     name: str
     role: str
     origin: str
+    # Роль выбрана человеком: вручную в этом файле или подтверждена в шаблоне.
+    confirmed: bool = False
 
 
 @dataclass
@@ -92,7 +108,7 @@ def floor_from_layer_name(name: str) -> float | None:
 
 def assign_roles(
     entities: list[CadEntity],
-    template: dict[str, str],
+    template: Mapping[str, TemplateEntry | str],
     params: RoleParams,
     manual_layers: dict[str, str] | None = None,
     manual_entities: dict[str, str] | None = None,
@@ -109,17 +125,19 @@ def assign_roles(
     for name in sorted(by_layer, key=layer_key):
         members = by_layer[name]
         manual_role = manual_layers.get(name) or ""
-        template_role = template.get(layer_key(name)) or ""
+        entry = template.get(layer_key(name))
+        if isinstance(entry, str):
+            entry = TemplateEntry(entry)
         if manual_role in LAYER_ROLE_CODES:
-            role, origin = manual_role, ORIGIN_MANUAL
-        elif template_role in LAYER_ROLE_CODES:
-            role, origin = template_role, ORIGIN_TEMPLATE
+            role, origin, confirmed = manual_role, ORIGIN_MANUAL, True
+        elif entry is not None and entry.role in LAYER_ROLE_CODES:
+            role, origin, confirmed = entry.role, ORIGIN_TEMPLATE, entry.manual
         else:
-            role, origin = _auto_layer_role(name, members), ORIGIN_AUTO
-        result.layers.append(LayerRole(name=name, role=role, origin=origin))
+            role, origin, confirmed = _auto_layer_role(name, members), ORIGIN_AUTO, False
+        result.layers.append(LayerRole(name=name, role=role, origin=origin, confirmed=confirmed))
 
         for item in members:
-            item.role, item.role_origin = _entity_role(item, role, origin)
+            item.role, item.role_origin = _entity_role(item, role, origin, confirmed)
         if role == ROLE_CRESTS_BY_Z:
             _split_crests(name, members, params, result)
 
@@ -152,7 +170,7 @@ def _auto_layer_role(name: str, members: list[CadEntity]) -> str:
     return ROLE_SITUATION
 
 
-def _entity_role(item: CadEntity, layer_role: str, origin: str) -> tuple[str, str]:
+def _entity_role(item: CadEntity, layer_role: str, origin: str, confirmed: bool) -> tuple[str, str]:
     """Роль слоя, приведённая к геометрии сущности."""
 
     kind = item.geometry_type
@@ -165,7 +183,8 @@ def _entity_role(item: CadEntity, layer_role: str, origin: str) -> tuple[str, st
 
     if kind == "point":
         has_z = item.z_kind != "zero"
-        if layer_role == ROLE_IGNORE or (layer_role == ROLE_SITUATION and origin != ORIGIN_AUTO):
+        # «Ситуация», выбранная человеком, забирает и точки слоя; догадка — нет.
+        if layer_role == ROLE_IGNORE or (layer_role == ROLE_SITUATION and confirmed):
             return layer_role, origin
         # Точки и знаки с отметкой — поверхность (§2); без отметки им там не место.
         return (ROLE_SPOT_HEIGHTS if has_z else ROLE_SITUATION), origin

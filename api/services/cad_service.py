@@ -48,7 +48,14 @@ from design.spatial.cad.repository import (
     CadSourceRecord,
     PostgresCadRepository,
 )
-from design.spatial.cad.roles import DEFAULT_BENCH_HEIGHT_M, RoleAssignment, RoleParams, assign_roles, layer_key
+from design.spatial.cad.roles import (
+    DEFAULT_BENCH_HEIGHT_M,
+    RoleAssignment,
+    RoleParams,
+    TemplateEntry,
+    assign_roles,
+    layer_key,
+)
 
 # Чертёж блока с ситуацией весит сотни килобайт; десятки мегабайт — уже
 # подложка всего карьера, разбирать её онлайн смысла нет.
@@ -179,7 +186,7 @@ def import_files(
             # Следующий файл той же загрузки размечается уже с этими слоями.
             for layer in assignment.layers:
                 new_layers.setdefault(layer.name, layer.role)
-                template.setdefault(layer_key(layer.name), layer.role)
+                template.setdefault(layer_key(layer.name), TemplateEntry(layer.role))
 
     repository.create_sources(organization_id, items)
     if site_code and new_layers:
@@ -261,7 +268,7 @@ def save_roles(
     summary = dict(record.summary)
     summary["manual_layers"] = manual_layers
     summary["layer_roles"] = [
-        {"name": layer.name, "role": layer.role, "origin": layer.origin} for layer in assignment.layers
+        _layer_entry(layer) for layer in assignment.layers
     ]
     summary["floor_z_m"] = assignment.floor_z_m
     summary["role_warnings"] = [item.to_dict() for item in assignment.warnings]
@@ -288,7 +295,11 @@ def _role_params(params: CadParamsSchema) -> RoleParams:
     return RoleParams(floor_z_m=params.floor_z_m, bench_height_m=params.bench_height_m)
 
 
-def _source_template(summary: dict) -> dict[str, str]:
+def _layer_entry(layer) -> dict:
+    return {"name": layer.name, "role": layer.role, "origin": layer.origin, "confirmed": layer.confirmed}
+
+
+def _source_template(summary: dict) -> dict[str, TemplateEntry]:
     """Шаблон объекта в том виде, каким он был при импорте этого файла.
 
     Загрузка сама пополняет шаблон объекта ролями «авто»; если пересчитывать
@@ -297,7 +308,7 @@ def _source_template(summary: dict) -> dict[str, str]:
     """
 
     return {
-        layer_key(entry["name"]): entry["role"]
+        layer_key(entry["name"]): TemplateEntry(entry["role"], bool(entry.get("confirmed")))
         for entry in summary.get("layer_roles") or []
         if entry.get("origin") == ORIGIN_TEMPLATE
     }
@@ -342,7 +353,7 @@ def _summary(
         "read_warnings": [item.to_dict() for item in [*drawing.warnings, *template_warnings]],
         "role_warnings": [item.to_dict() for item in assignment.warnings],
         "layer_roles": [
-            {"name": layer.name, "role": layer.role, "origin": layer.origin} for layer in assignment.layers
+            _layer_entry(layer) for layer in assignment.layers
         ],
         "manual_layers": manual_layers,
         "floor_z_m": assignment.floor_z_m,

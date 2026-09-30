@@ -28,6 +28,8 @@ BASE = "/api/v1/design/cad"
 def _dxf(shift: float = 0.0) -> bytes:
     doc = ezdxf.new("R2010")
     msp = doc.modelspace()
+    msp.add_line((70, 0, 412.0), (90, 0, 412.5), dxfattribs={"layer": "Дорога"})
+    msp.add_point((80, 2, 412.3), dxfattribs={"layer": "Дорога"})
     msp.add_polyline3d([(0, 0, 410.5), (30, 0, 411.0)], dxfattribs={"layer": "Горизонт +410"})
     msp.add_polyline3d([(0, 20, 420.5), (30, 20 + shift, 421.0)], dxfattribs={"layer": "Горизонт +410"})
     msp.add_polyline3d([(50, 0, 421.5), (60, 0, 421.8)], dxfattribs={"layer": "Отвал вскрышных пород"})
@@ -103,6 +105,7 @@ def test_upload_of_two_files_creates_two_sources(repository):
     assert source["site_code"] == "SITE_ZK"
     assert source["template_saved"] is True
     assert _layers(source) == {
+        "Дорога": ("situation", "auto"),
         "Горизонт +410": ("crests_by_z", "auto"),
         "Отвал вскрышных пород": ("situation", "auto"),
         "Отметка": ("spot_heights", "auto"),
@@ -115,7 +118,7 @@ def test_upload_of_two_files_creates_two_sources(repository):
     line = next(item for item in source["entities"] if item["kind"] == "POLYLINE3D")
     assert line["points"][0] == [0.0, 0.0, 410.5]
     assert line["geometry_type"] == "line"
-    assert repository.get_layer_template("org-a", "SITE_ZK")["горизонт +410"] == "crests_by_z"
+    assert repository.get_layer_template("org-a", "SITE_ZK")["горизонт +410"].role == "crests_by_z"
 
 
 def test_source_is_read_back(repository):
@@ -168,6 +171,7 @@ def test_second_file_is_labelled_by_the_site_template(repository):
     second = _upload(client, ("b.dxf", _dxf(0.5)))["sources"][0]
 
     assert _layers(second) == {
+        "Дорога": ("situation", "template"),
         "Горизонт +410": ("crests_by_z", "template"),
         "Отвал вскрышных пород": ("ignore", "template"),
         "Отметка": ("spot_heights", "template"),
@@ -175,10 +179,31 @@ def test_second_file_is_labelled_by_the_site_template(repository):
     assert {role for role, _ in _roles(second).values()} >= {"crest_top", "crest_bottom"}
 
 
+def test_repeat_import_keeps_every_entity_role(repository):
+    client = _client(repository)
+    first = _upload(client, ("a.dxf", _dxf()))["sources"][0]
+    second = _upload(client, ("a.dxf", _dxf()))["sources"][0]
+
+    assert {handle: role for handle, (role, _) in _roles(second).items()} == {
+        handle: role for handle, (role, _) in _roles(first).items()
+    }
+
+
+def test_manual_situation_keeps_points_out_of_the_surface_in_the_next_file(repository):
+    client = _client(repository)
+    first = _upload(client, ("a.dxf", _dxf()))["sources"][0]
+    client.put(f"{BASE}/sources/{first['id']}/roles", json={"layers": {"Дорога": "situation"}}).raise_for_status()
+
+    second = _upload(client, ("b.dxf", _dxf(0.5)))["sources"][0]
+
+    point = next(item for item in second["entities"] if item["layer"] == "Дорога" and item["kind"] == "POINT")
+    assert (point["role"], point["role_origin"]) == ("situation", "template")
+
+
 def test_manual_roles_are_saved_and_can_be_reset(repository):
     client = _client(repository)
     source = _upload(client, ("a.dxf", _dxf()))["sources"][0]
-    point = next(item["handle"] for item in source["entities"] if item["kind"] == "POINT")
+    point = next(item["handle"] for item in source["entities"] if item["layer"] == "Отметка")
 
     changed = client.put(
         f"{BASE}/sources/{source['id']}/roles",
@@ -187,7 +212,7 @@ def test_manual_roles_are_saved_and_can_be_reset(repository):
 
     assert _layers(changed)["Отвал вскрышных пород"] == ("ignore", "manual")
     assert _roles(changed)[point] == ("situation", "manual")
-    assert repository.get_layer_template("org-a", "SITE_ZK")["отвал вскрышных пород"] == "ignore"
+    assert repository.get_layer_template("org-a", "SITE_ZK")["отвал вскрышных пород"].role == "ignore"
 
     reset = client.put(f"{BASE}/sources/{source['id']}/roles", json={"entities": {point: None}}).json()
 
@@ -210,7 +235,7 @@ def test_unknown_role_or_layer_is_rejected(repository):
 def test_reparse_rescales_and_keeps_manual_roles(repository):
     client = _client(repository)
     source = _upload(client, ("a.dxf", _dxf()))["sources"][0]
-    point = next(item["handle"] for item in source["entities"] if item["kind"] == "POINT")
+    point = next(item["handle"] for item in source["entities"] if item["layer"] == "Отметка")
     client.put(f"{BASE}/sources/{source['id']}/roles", json={"entities": {point: "ignore"}}).raise_for_status()
 
     reparsed = client.post(

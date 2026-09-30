@@ -36,7 +36,7 @@ from sqlalchemy.orm import Mapped, deferred, mapped_column, sessionmaker
 
 from cost.v2.db_repository import SCHEMA, Base, JsonType
 from design.spatial.cad.model import CadEntity
-from design.spatial.cad.roles import layer_key
+from design.spatial.cad.roles import TemplateEntry, layer_key
 
 
 class CadSourceNotFound(LookupError):
@@ -87,7 +87,7 @@ class CadRepository(Protocol):
         summary: dict[str, Any],
     ) -> None: ...
 
-    def get_layer_template(self, organization_id: str, site_code: str) -> dict[str, str]: ...
+    def get_layer_template(self, organization_id: str, site_code: str) -> dict[str, TemplateEntry]: ...
 
     def add_missing_layer_roles(self, organization_id: str, site_code: str, roles: dict[str, str], actor: str) -> None: ...
 
@@ -168,6 +168,7 @@ class CadLayerRoleRow(Base):
     layer_key: Mapped[str] = mapped_column(String(255), primary_key=True)
     layer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
+    manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -327,14 +328,14 @@ class PostgresCadRepository:
                 .values(summary=summary)
             )
 
-    def get_layer_template(self, organization_id: str, site_code: str) -> dict[str, str]:
+    def get_layer_template(self, organization_id: str, site_code: str) -> dict[str, TemplateEntry]:
         with self.session_factory() as session:
             rows = session.execute(
                 select(CadLayerRoleRow).where(
                     CadLayerRoleRow.organization_id == organization_id, CadLayerRoleRow.site_code == site_code
                 )
             ).scalars()
-            return {row.layer_key: row.role for row in rows}
+            return {row.layer_key: TemplateEntry(row.role, row.manual) for row in rows}
 
     def add_missing_layer_roles(self, organization_id: str, site_code: str, roles: dict[str, str], actor: str) -> None:
         self._write_template(organization_id, site_code, roles, actor, overwrite=False)
@@ -352,6 +353,8 @@ class PostgresCadRepository:
                 "layer_key": key,
                 "layer_name": name,
                 "role": role,
+                # Пополнение при загрузке — догадка; ручная правка — подтверждение.
+                "manual": overwrite,
                 "updated_by": actor,
                 "updated_at": _now(),
             }
@@ -367,6 +370,7 @@ class PostgresCadRepository:
                 set_={
                     "layer_name": statement.excluded.layer_name,
                     "role": statement.excluded.role,
+                    "manual": statement.excluded.manual,
                     "updated_by": statement.excluded.updated_by,
                     "updated_at": statement.excluded.updated_at,
                 },
@@ -392,7 +396,7 @@ class InMemoryCadRepository:
     def __init__(self) -> None:
         self._sources: dict[tuple[str, str], CadSourceRecord] = {}
         self._entities: dict[tuple[str, str], list[CadEntity]] = {}
-        self._templates: dict[tuple[str, str], dict[str, tuple[str, str]]] = {}
+        self._templates: dict[tuple[str, str], dict[str, tuple[str, TemplateEntry]]] = {}
 
     def create_sources(
         self, organization_id: str, items: list[tuple[CadSourceRecord, list[CadEntity]]]
@@ -436,16 +440,18 @@ class InMemoryCadRepository:
                 item.role, item.role_origin = roles[item.handle]
         record.summary = copy.deepcopy(summary)
 
-    def get_layer_template(self, organization_id: str, site_code: str) -> dict[str, str]:
-        return {key: role for key, (_, role) in self._templates.get((organization_id, site_code), {}).items()}
+    def get_layer_template(self, organization_id: str, site_code: str) -> dict[str, TemplateEntry]:
+        return {key: entry for key, (_, entry) in self._templates.get((organization_id, site_code), {}).items()}
 
     def add_missing_layer_roles(self, organization_id: str, site_code: str, roles: dict[str, str], actor: str) -> None:
         template = self._templates.setdefault((organization_id, site_code), {})
-        for key, value in _template_rows(roles).items():
-            template.setdefault(key, value)
+        for key, (name, role) in _template_rows(roles).items():
+            template.setdefault(key, (name, TemplateEntry(role)))
 
     def upsert_layer_roles(self, organization_id: str, site_code: str, roles: dict[str, str], actor: str) -> None:
-        self._templates.setdefault((organization_id, site_code), {}).update(_template_rows(roles))
+        template = self._templates.setdefault((organization_id, site_code), {})
+        for key, (name, role) in _template_rows(roles).items():
+            template[key] = (name, TemplateEntry(role, manual=True))
 
     def _require(self, organization_id: str, source_id: str) -> CadSourceRecord:
         record = self._sources.get((organization_id, source_id))

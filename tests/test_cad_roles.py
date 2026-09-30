@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from design.spatial.cad.model import CadEntity
-from design.spatial.cad.roles import RoleParams, assign_roles, layer_key
+from design.spatial.cad.roles import RoleParams, TemplateEntry, assign_roles, layer_key
 
 
 def _line(handle: str, layer: str, zs: list[float], closed: bool = False) -> CadEntity:
@@ -225,3 +225,21 @@ def test_unknown_template_role_is_ignored():
     result = assign_roles(entities, {"отвал": "no_such_role"}, RoleParams())
 
     assert _layers(result)["Отвал"] == ("situation", "auto")
+
+
+def test_unconfirmed_template_role_treats_points_like_the_rules_do():
+    """Шаблон, пополненный догадкой «авто», не должен менять роли при повторном импорте."""
+
+    entities = [_line("R", "Дорога", [412.0, 412.5]), _point("P", "Дорога", 412.3)]
+
+    assign_roles(entities, {"дорога": TemplateEntry("situation")}, RoleParams())
+
+    assert _roles(entities) == {"R": ("situation", "template"), "P": ("spot_heights", "template")}
+
+
+def test_confirmed_template_situation_keeps_points_out_of_the_surface():
+    entities = [_line("R", "ЛЭП", [412.0, 412.5]), _point("P", "ЛЭП", 425.0)]
+
+    assign_roles(entities, {"лэп": TemplateEntry("situation", manual=True)}, RoleParams())
+
+    assert _roles(entities)["P"] == ("situation", "template")

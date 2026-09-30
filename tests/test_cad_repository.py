@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import text
 
 from design.spatial.cad.model import CadEntity
+from design.spatial.cad.roles import TemplateEntry
 from design.spatial.cad.repository import (
     CadSourceNotFound,
     CadSourceRecord,
@@ -152,14 +153,15 @@ def test_layer_template_adds_missing_and_upserts(repository) -> None:
     repository.add_missing_layer_roles(ORG_A, "SITE_ZK", {" горизонт  +410": "ignore", "Отметка": "spot_heights"}, USER)
 
     assert repository.get_layer_template(ORG_A, "SITE_ZK") == {
-        "горизонт +410": "crests_by_z",
-        "отвал": "situation",
-        "отметка": "spot_heights",
+        "горизонт +410": TemplateEntry("crests_by_z"),
+        "отвал": TemplateEntry("situation"),
+        "отметка": TemplateEntry("spot_heights"),
     }
 
     repository.upsert_layer_roles(ORG_A, "SITE_ZK", {"ОТВАЛ": "ignore"}, USER)
 
-    assert repository.get_layer_template(ORG_A, "SITE_ZK")["отвал"] == "ignore"
+    # Ручная правка помечает роль подтверждённой.
+    assert repository.get_layer_template(ORG_A, "SITE_ZK")["отвал"] == TemplateEntry("ignore", manual=True)
     assert repository.get_layer_template(ORG_A, "OTHER_SITE") == {}
     assert repository.get_layer_template(ORG_B, "SITE_ZK") == {}
 
@@ -168,7 +170,7 @@ def test_template_of_another_organization_is_untouched(repository) -> None:
     repository.upsert_layer_roles(ORG_A, "SITE_ZK", {"Отвал": "situation"}, USER)
     repository.upsert_layer_roles(ORG_B, "SITE_ZK", {"Отвал": "ignore"}, USER)
 
-    assert repository.get_layer_template(ORG_A, "SITE_ZK") == {"отвал": "situation"}
+    assert repository.get_layer_template(ORG_A, "SITE_ZK") == {"отвал": TemplateEntry("situation", manual=True)}
 
 
 @requires_pg

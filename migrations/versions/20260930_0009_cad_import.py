@@ -87,6 +87,8 @@ def upgrade() -> None:
         sa.Column("layer_key", sa.String(length=255), nullable=False),
         sa.Column("layer_name", sa.String(length=255), nullable=False),
         sa.Column("role", sa.String(length=32), nullable=False),
+        # Роль подтверждена человеком (ручная правка), а не догадка импорта.
+        sa.Column("manual", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("updated_by", sa.String(length=320), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("organization_id", "site_code", "layer_key", name="pk_cad_layer_roles"),

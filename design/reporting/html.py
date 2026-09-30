@@ -11,6 +11,7 @@ from design.reporting.types import (
     ROLE_LABELS_RU,
     BlastPassport,
     MetricRow,
+    PredictedOutcomes,
 )
 
 from design.models import ROLE_DESIGNED, ROLE_EXECUTED, ROLE_MEASURED, ROLE_PREDICTED
@@ -79,6 +80,37 @@ def _hole_rows(document: BlastPassport) -> str:
             "</tr>"
         )
     return "".join(chunks)
+
+
+def _settings_source_label(model: str, settings: dict[str, Any]) -> str:
+    """Откуда настройки модели дробления — те же слова, что во фронте.
+
+    Зеркало settingsSourceLabel (frontend/src/pages/design/fragmentationSettings.ts).
+    Старый паспорт без снимка настроек строки не получает.
+    """
+    if model.endswith("_legacy"):
+        return "Старая модель: настройки объекта не применяются"
+    if not settings:
+        return ""
+    source = settings.get("source")
+    name = str(settings.get("work_object_name") or "")
+    if source == "request":
+        return "Настройки модели: заданы в запросе"
+    if source == "work_object":
+        return f"Настройки модели: объект работ «{name}»"
+    if name:
+        if settings.get("warnings"):
+            return f"Настройки модели: умолчания — настройки объекта «{name}» не прочитаны"
+        return f"Настройки модели: умолчания — у объекта «{name}» они не сохранены"
+    return "Настройки модели: умолчания"
+
+
+def _model_version_line(predicted: PredictedOutcomes) -> str:
+    parts = [
+        predicted.fragmentation_model_version,
+        _settings_source_label(predicted.fragmentation_model, predicted.fragmentation_settings),
+    ]
+    return " · ".join(part for part in parts if part) or "—"
 
 
 def render_passport_html(document: BlastPassport) -> str:
@@ -156,6 +188,7 @@ def render_passport_html(document: BlastPassport) -> str:
     <div><span>X50 / X80</span><strong>{_fmt(predicted.x50_mm, 0)} / {_fmt(predicted.x80_mm, 0)} мм</strong></div>
     <div><span>Негабарит</span><strong>{_fmt(predicted.oversize_pct, 2)} %</strong></div>
     <div><span>Модель дробления</span><strong>{_esc(predicted.fragmentation_model or "—")}</strong></div>
+    <div><span>Версия модели / настройки</span><strong>{_esc(_model_version_line(predicted))}</strong></div>
     <div><span>MIC / PPV</span><strong>{_fmt(predicted.mic_kg, 1)} кг / {_fmt(predicted.ppv_mm_s, 2)} мм/с</strong></div>
     <div><span>Отброс / вывал</span><strong>{_fmt(predicted.throw_m, 2)} / {_fmt(predicted.heave_m, 2)} м</strong></div>
     <div><span>Развал (оценка)</span><strong>{_esc(predicted.movement_label or "оценка")}</strong></div>

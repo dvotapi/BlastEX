@@ -263,6 +263,46 @@ class ScenarioApiTests(unittest.TestCase):
         self.assertEqual(reloaded.outcomes.x50_mm, x50_before)
         self.assertEqual(reloaded.params.kuzram_settings, {})
 
+    def test_compare_warns_about_scenarios_with_other_settings(self):
+        design = self._plan()
+        payload = BlastDesignSchema(**design.to_dict())
+        repository = self._repository(active=True)
+        repository.save_calc_inputs(TEAM_ID, "tester", "Карьер-2", {"kuzram": {"rock_factor_correction": 1.2}})
+
+        def create(name: str, params: ScenarioParamsSchema) -> None:
+            scenario_service.create_scenario(
+                TEAM_ID, ScenarioCreateRequest(design=payload, name=name, params=params), repository=repository
+            )
+
+        create("Свой объект", ScenarioParamsSchema())
+        create("Чужой объект", ScenarioParamsSchema(work_object_name="Карьер-2"))
+        create("Явные", ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.6}))
+        create("Старая модель", ScenarioParamsSchema(fragmentation_model="kuzram_legacy", work_object_name="Карьер-2"))
+        scenario_service.create_scenario(
+            TEAM_ID, ScenarioCreateRequest(design=payload, name="Без объекта", params=ScenarioParamsSchema())
+        )
+
+        with_baseline = scenario_service.compare_plan_scenarios(
+            TEAM_ID, ScenarioCompareRequest(design_id=design.design_id, include_baseline=True), repository=repository
+        )
+        without_baseline = scenario_service.compare_plan_scenarios(
+            TEAM_ID, ScenarioCompareRequest(design_id=design.design_id, include_baseline=False), repository=repository
+        )
+
+        tail = " — x50 и негабарит несопоставимы с базовым; пересоздайте сценарий."
+        self.assertEqual(
+            sorted(with_baseline.warnings),
+            sorted(
+                [
+                    "Сценарий «Чужой объект» посчитан с другими настройками модели кусковатости "
+                    f"(объект работ «Карьер-2»){tail}",
+                    f"Сценарий «Явные» посчитан с другими настройками модели кусковатости (заданы в запросе){tail}",
+                    f"Сценарий «Без объекта» посчитан с другими настройками модели кусковатости (умолчания){tail}",
+                ]
+            ),
+        )
+        self.assertEqual(without_baseline.warnings, [])
+
     def test_foreign_snapshot_gives_warning_not_crash(self):
         from design.scenarios.engine import _fragmentation_outcomes
         from design.scenarios.types import ScenarioOutcomes, ScenarioParams

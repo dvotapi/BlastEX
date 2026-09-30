@@ -374,6 +374,7 @@ def compare_plan_scenarios(
     inline = [DesignScenario.from_dict(item.model_dump()) for item in request.inline]
     scenarios = stored + inline
 
+    baseline_snapshot: dict[str, Any] | None = None
     if request.include_baseline:
         if design is None and design_id:
             try:
@@ -388,6 +389,7 @@ def compare_plan_scenarios(
                 repository=repository,
             )
             scenarios = [_baseline_scenario(team_id, design, baseline_params)] + scenarios
+            baseline_snapshot = baseline_params.kuzram_settings
 
     if not scenarios:
         raise InvalidDesignScenarioError("Нет сценариев для сравнения.")
@@ -402,16 +404,39 @@ def compare_plan_scenarios(
             except StoreDesignNotFound:
                 pass
     payload["approved_unchanged"] = True
-    payload["warnings"] = _stale_model_warnings(stored)
+    payload["warnings"] = _stale_model_warnings(stored, baseline_snapshot)
     return ScenarioCompareResponse(**payload)
 
 
-def _stale_model_warnings(scenarios: list[DesignScenario]) -> list[str]:
-    """Сохранённые сценарии, чьи исходы посчитаны ещё Kuz-Ram 1.0.0.
+_SNAPSHOT_KEYS = ("source", "work_object_name", "values")
+
+
+def _same_settings(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Одинаковы ли настройки двух снимков; предупреждения снимка не сравниваются."""
+    return all(left.get(key) == right.get(key) for key in _SNAPSHOT_KEYS)
+
+
+def _describe_settings(snapshot: dict[str, Any]) -> str:
+    from simulation.fragmentation.base import SETTINGS_SOURCE_REQUEST, SETTINGS_SOURCE_WORK_OBJECT
+
+    source = snapshot.get("source")
+    if source == SETTINGS_SOURCE_REQUEST:
+        return "заданы в запросе"
+    if source == SETTINGS_SOURCE_WORK_OBJECT:
+        return f"объект работ «{snapshot.get('work_object_name') or ''}»"
+    return "умолчания"
+
+
+def _stale_model_warnings(
+    scenarios: list[DesignScenario], baseline_snapshot: dict[str, Any] | None = None
+) -> list[str]:
+    """Сохранённые сценарии, чьи исходы нельзя сравнивать с базовым.
 
     Сценарий новой модели без снимка настроек сохранён до перевода модели
-    кусковатости: его исходы не пересчитываются, сравнивать их с новыми
-    нельзя — пользователь пересоздаёт сценарий сам.
+    кусковатости (Kuz-Ram 1.0.0). Сценарий со снимком, отличным от снимка
+    базового проекта, посчитан с настройками другого объекта работ (или
+    других настроек). Исходы не пересчитываются — пользователь пересоздаёт
+    сценарий сам. baseline_snapshot — None, когда базового проекта нет.
     """
     from simulation.fragmentation.engine import is_legacy_model
 
@@ -421,10 +446,19 @@ def _stale_model_warnings(scenarios: list[DesignScenario]) -> list[str]:
             legacy = is_legacy_model(scenario.params.fragmentation_model)
         except ValueError:
             continue
-        if legacy or scenario.params.kuzram_settings:
+        if legacy:
             continue
-        warnings.append(
-            f"Сценарий «{scenario.name}» посчитан до перевода модели кусковатости (Kuz-Ram 1.0.0) — "
-            "пересоздайте его для сравнения."
-        )
+        snapshot = scenario.params.kuzram_settings
+        if not snapshot:
+            warnings.append(
+                f"Сценарий «{scenario.name}» посчитан до перевода модели кусковатости (Kuz-Ram 1.0.0) — "
+                "пересоздайте его для сравнения."
+            )
+            continue
+        if baseline_snapshot is not None and not _same_settings(snapshot, baseline_snapshot):
+            warnings.append(
+                f"Сценарий «{scenario.name}» посчитан с другими настройками модели кусковатости "
+                f"({_describe_settings(snapshot)}) — x50 и негабарит несопоставимы с базовым; "
+                "пересоздайте сценарий."
+            )
     return warnings

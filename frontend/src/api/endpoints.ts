@@ -442,7 +442,9 @@ export const api = {
         domains,
       }),
     maps: (design: BlastDesign) => post<EngineeringMaps>(`${V1}/design/maps`, { design }),
-    fragmentationModels: () => get<{ models: Array<{ id: string; version: string; label: string; distribution: string }> }>(
+    fragmentationModels: () => get<{
+      models: Array<{ id: string; version: string; label: string; distribution: string; legacy?: boolean }>;
+    }>(
       `${V1}/design/fragmentation/models`,
     ),
     fragmentation: (payload: {

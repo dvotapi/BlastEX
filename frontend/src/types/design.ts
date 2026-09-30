@@ -1,5 +1,7 @@
 // Поля 1:1 с api/schemas/design.py — сервер остаётся источником истины.
 
+import type { KuzRamSettings } from "../types";
+
 export type Point3 = { x: number; y: number; z: number };
 
 export type MassBlastResponsibility = {
@@ -1926,7 +1928,8 @@ export type ModelProvenance = {
   inputs: Record<string, unknown>;
   parameters: Record<string, unknown>;
   calibration: Record<string, unknown>;
-  settings?: Partial<FragmentationSettingsSnapshot>;
+  /** Снимок настроек (dict на сервере): у старых прогнозов и моделей его нет. */
+  settings?: Record<string, unknown>;
 };
 
 export type PredictedFragmentation = {
@@ -2515,7 +2518,10 @@ export type OutcomePanelResponse = {
 
 export type DesignScenarioParams = {
   work_object_name?: string;
-  kuzram_settings?: Partial<FragmentationSettingsSnapshot>;
+  /** Явные настройки Kuz-Ram сценария — важнее настроек объекта работ. */
+  kuzram?: KuzRamSettings | null;
+  /** Снимок применённых настроек (dict на сервере); пишет только сервер. */
+  kuzram_settings?: Record<string, unknown>;
   diameter_mm?: number | null;
   spacing_a_m?: number | null;
   burden_b_m?: number | null;

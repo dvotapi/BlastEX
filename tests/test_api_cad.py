@@ -277,3 +277,26 @@ def test_other_organization_gets_404(repository):
         == 404
     )
     assert repository.get_layer_template("org-b", "SITE_ZK") == {}
+
+
+def test_import_runs_outside_the_event_loop(repository, monkeypatch):
+    """Конвертация DWG и разбор синхронные: в цикле событий они остановили бы весь API."""
+
+    import asyncio
+
+    original = cad_service.import_files
+    seen: dict[str, bool] = {}
+
+    def spy(*args, **kwargs):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            seen["on_loop"] = False
+        else:
+            seen["on_loop"] = True
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(cad_service, "import_files", spy)
+    _upload(_client(repository), ("a.dxf", _dxf()))
+
+    assert seen == {"on_loop": False}

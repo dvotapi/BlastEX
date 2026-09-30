@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
 from api.schemas.cad import CadImportResponse, CadMetaResponse, CadParamsSchema, CadRolesRequest, CadSourceSchema
@@ -68,7 +69,10 @@ async def post_sources(
             content = await upload.read(cad_service.MAX_FILE_BYTES + 1)
             cad_service.check_file_size(name, len(content))
             uploads.append((name, content))
-        return cad_service.import_files(
+        # Конвертация DWG (до двух минут), разбор и запись синхронные — вне
+        # цикла событий, иначе на это время замер бы весь API.
+        return await run_in_threadpool(
+            cad_service.import_files,
             repository,
             organization_id,
             actor,

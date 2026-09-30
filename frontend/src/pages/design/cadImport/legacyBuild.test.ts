@@ -109,3 +109,39 @@ describe("withLineChains: бровка, начерченная отрезкам�
     expect(benchCandidates(entities, []).map((item) => item.handle)).toContain(pair.crest);
   });
 });
+
+describe("withLineChains: роли и объём", () => {
+  it("отрезки с разными ролями в одну цепочку не попадают", () => {
+    // Отросток съёмки выключен вручную («Не использовать») — в бровку он не идёт.
+    const parts = [
+      segment("A", "верх", [0, 0, 420], [10, 0, 420.2], "crest_top"),
+      segment("B", "верх", [10, 0, 420.2], [20, 0, 420.4], "crest_top"),
+      segment("X", "верх", [20, 0, 420.4], [25, 8, 420.5], "ignore"),
+    ];
+
+    const { entities, members } = withLineChains(parts);
+    const chains = entities.filter((item) => members.has(item.handle));
+
+    expect(chains).toHaveLength(1);
+    expect(members.get(chains[0].handle)).toEqual(["A", "B"]);
+    expect(chains[0].role).toBe("crest_top");
+  });
+
+  it("тысячи отрезков одного слоя склеиваются быстро", () => {
+    const count = 20_000;
+    // Отрезки перемешаны: цепочка растёт с обоих концов.
+    const parts = Array.from({ length: count }, (_, index) =>
+      segment(`S${index}`, "съёмка", [index, 0, 400], [index + 1, 0, 400], "crest_top"),
+    ).sort((a, b) => ((a.points[0][0] * 7919) % count) - ((b.points[0][0] * 7919) % count));
+
+    const started = performance.now();
+    const { entities, members } = withLineChains(parts);
+    const elapsed = performance.now() - started;
+
+    const chains = entities.filter((item) => members.has(item.handle));
+    expect(chains).toHaveLength(1);
+    expect(chains[0].points).toHaveLength(count + 1);
+    expect(chains[0].points[0][0]).toBe(0);
+    expect(elapsed).toBeLessThan(1000);
+  });
+});

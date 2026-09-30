@@ -73,6 +73,11 @@ function chainOf(layer: string, index: number, parts: CadEntity[], points: Chain
   };
 }
 
+/** Ключ ячейки индекса концов: сосед ищется в своей и восьми соседних ячейках. */
+function cell(x: number, y: number): [number, number] {
+  return [Math.floor(x / CHAIN_TOLERANCE_M), Math.floor(y / CHAIN_TOLERANCE_M)];
+}
+
 /**
  * Отрезки LINE одного слоя, склеенные в цепочки, — для построения по-старому.
  *
@@ -80,47 +85,76 @@ function chainOf(layer: string, index: number, parts: CadEntity[], points: Chain
  * бровка, начерченная отрезками, дала бы полоску из одного отрезка. Импорт
  * хранит отрезки как есть (у каждого свой handle), поэтому цепочки — только
  * здесь и только до шага «Контур» (PR 2 сшивает фрагменты на сервере).
- * `members` — handle отрезков каждой цепочки, по порядку.
+ *
+ * Склеиваются только отрезки одного слоя с одной ролью: отросток, выключенный
+ * вручную, в цепочку бровки не попадёт. Концы ищутся по индексу ячеек, цепочка
+ * растёт с обоих концов без копирования — десятки тысяч отрезков не заморозят
+ * окно. `members` — handle отрезков каждой цепочки в порядке склейки.
  */
 export function withLineChains(entities: CadEntity[]): { entities: CadEntity[]; members: Map<string, string[]> } {
-  const byLayer = new Map<string, CadEntity[]>();
+  const groups = new Map<string, CadEntity[]>();
   for (const entity of entities) {
     if (entity.kind !== "LINE" || entity.points.length !== 2) continue;
-    const list = byLayer.get(entity.layer);
+    const key = `${entity.layer}\u0000${entity.role}`;
+    const list = groups.get(key);
     if (list) list.push(entity);
-    else byLayer.set(entity.layer, [entity]);
+    else groups.set(key, [entity]);
   }
 
   const chains: CadEntity[] = [];
   const members = new Map<string, string[]>();
-  for (const [layer, segments] of byLayer) {
-    const pending = [...segments];
-    let index = 0;
-    while (pending.length) {
-      const first = pending.shift()!;
-      const parts = [first];
-      let points: ChainPoint[] = [...first.points];
-      let merged = true;
-      while (merged) {
-        merged = false;
-        for (let at = 0; at < pending.length; at += 1) {
-          const [a, b] = pending[at].points;
-          const head = points[0];
-          const tail = points[points.length - 1];
-          if (same(tail, a)) points = [...points, b];
-          else if (same(tail, b)) points = [...points, a];
-          else if (same(head, b)) points = [a, ...points];
-          else if (same(head, a)) points = [b, ...points];
-          else continue;
-          parts.push(pending[at]);
-          pending.splice(at, 1);
-          merged = true;
-          break;
+  const counters = new Map<string, number>();
+  for (const segments of groups.values()) {
+    const layer = segments[0].layer;
+    const index = new Map<string, number[]>();
+    const register = (point: ChainPoint, at: number) => {
+      const [cx, cy] = cell(point[0], point[1]);
+      const key = `${cx}:${cy}`;
+      const list = index.get(key);
+      if (list) list.push(at);
+      else index.set(key, [at]);
+    };
+    segments.forEach((segment, at) => {
+      register(segment.points[0], at);
+      register(segment.points[1], at);
+    });
+    const used = new Uint8Array(segments.length);
+    const next = (point: ChainPoint): [number, ChainPoint] | null => {
+      const [cx, cy] = cell(point[0], point[1]);
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (const at of index.get(`${cx + dx}:${cy + dy}`) ?? []) {
+            if (used[at]) continue;
+            const [a, b] = segments[at].points;
+            if (same(point, a)) return [at, b];
+            if (same(point, b)) return [at, a];
+          }
         }
       }
-      if (parts.length < 2) continue;
-      index += 1;
-      const chain = chainOf(layer, index, parts, points);
+      return null;
+    };
+
+    for (let start = 0; start < segments.length; start += 1) {
+      if (used[start]) continue;
+      used[start] = 1;
+      const order = [start];
+      const tail: ChainPoint[] = [...segments[start].points];
+      const head: ChainPoint[] = []; // растёт от начала цепочки наружу
+      for (let found = next(tail[tail.length - 1]); found; found = next(tail[tail.length - 1])) {
+        used[found[0]] = 1;
+        order.push(found[0]);
+        tail.push(found[1]);
+      }
+      for (let found = next(tail[0]); found; found = next(head.length ? head[head.length - 1] : tail[0])) {
+        used[found[0]] = 1;
+        order.push(found[0]);
+        head.push(found[1]);
+      }
+      if (order.length < 2) continue;
+      const parts = order.map((at) => segments[at]);
+      const number = (counters.get(layer) ?? 0) + 1;
+      counters.set(layer, number);
+      const chain = chainOf(layer, number, parts, head.reverse().concat(tail));
       chains.push(chain);
       members.set(chain.handle, parts.map((part) => part.handle));
     }

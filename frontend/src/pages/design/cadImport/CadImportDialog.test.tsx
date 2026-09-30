@@ -45,10 +45,8 @@ async function ready() {
   await screen.findByRole("table", { name: "Слои чертежа" });
 }
 
-function line(handle: string): Element {
-  const found = document.querySelector(`.cad-line[data-handle="${handle}"]`);
-  if (!found) throw new Error(`нет линии ${handle}`);
-  return found;
+function highlight(handle: string): Element | null {
+  return document.querySelector(`.cad-highlight[data-handle="${handle}"]`);
 }
 
 function hit(handle: string): Element {
@@ -73,8 +71,8 @@ describe("CadImportDialog", () => {
     await ready();
 
     fireEvent.mouseEnter(screen.getByRole("row", { name: /Горизонт \+410/ }));
-    expect(line("6C3").classList.contains("is-hovered")).toBe(true);
-    expect(line("769").classList.contains("is-hovered")).toBe(false);
+    expect(highlight("6C3")?.classList.contains("is-hovered")).toBe(true);
+    expect(highlight("769")).toBeNull();
 
     fireEvent.mouseLeave(screen.getByRole("row", { name: /Горизонт \+410/ }));
     fireEvent.mouseEnter(hit("769"));
@@ -89,21 +87,37 @@ describe("CadImportDialog", () => {
 
     const row = await screen.findByRole("row", { name: /733/ });
     expect(row.classList.contains("is-selected")).toBe(true);
-    expect(line("733").classList.contains("is-selected")).toBe(true);
+    expect(highlight("733")?.classList.contains("is-selected")).toBe(true);
   });
 
-  it("смена роли слоя сохраняется на сервере и заменяет источник", async () => {
-    const updated = cadSource({ template_saved: true });
-    api.cad.saveRoles.mockResolvedValue(updated);
-    const props = renderDialog();
+  it("смена роли слоя сохраняется на сервере, ответ без геометрии сливается в источник", async () => {
+    const source = cadSource();
+    const layers = source.layers.map((layer) =>
+      layer.name === "Горизонт +410" ? { ...layer, role: "ignore" as const, origin: "manual" as const } : layer,
+    );
+    api.cad.saveRoles.mockResolvedValue({
+      id: "src-1",
+      template_saved: true,
+      floor_z_m: 410,
+      warnings: [],
+      layers,
+      roles: { "6C3": ["ignore", "manual"], "733": ["ignore", "manual"] },
+    });
+    const props = renderDialog({ sources: [source] });
     await ready();
 
     fireEvent.change(within(screen.getByRole("row", { name: /Горизонт \+410/ })).getByRole("combobox"), {
       target: { value: "ignore" },
     });
 
-    await waitFor(() => expect(props.onSourcesChange).toHaveBeenCalledWith([updated]));
+    await waitFor(() => expect(props.onSourcesChange).toHaveBeenCalled());
     expect(api.cad.saveRoles).toHaveBeenCalledWith("src-1", { layers: { "Горизонт +410": "ignore" } });
+    const [merged] = (props.onSourcesChange as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const crest = merged.entities.find((item: { handle: string }) => item.handle === "6C3");
+    expect([crest.role, crest.role_origin]).toEqual(["ignore", "manual"]);
+    expect(crest.points).toEqual(source.entities[0].points);
+    expect(merged.layers).toEqual(layers);
+    expect(merged.warnings).toEqual([]);
   });
 
   it("ошибка сохранения видна в окне", async () => {

@@ -187,6 +187,28 @@ def test_several_sources_are_saved_together_or_not_at_all(public_db) -> None:
 
 
 @requires_pg
+def test_role_update_is_one_statement_not_one_per_entity(public_db) -> None:
+    from sqlalchemy import event
+
+    repository = PostgresCadRepository(TEST_DATABASE_URL)
+    many = [
+        CadEntity(handle=f"P{index}", layer="Отметка", kind="POINT", points=[(index, 0.0, 410.0)], role="spot_heights", role_origin="auto")
+        for index in range(60)
+    ]
+    try:
+        repository.create_sources(ORG_A, [(_record(), many)])
+        statements: list[str] = []
+        event.listen(repository.engine, "before_cursor_execute", lambda *args: statements.append(args[2]))
+
+        repository.update_roles(ORG_A, "src-1", {item.handle: ("ignore", "manual") for item in many}, {})
+
+        assert sum(1 for sql in statements if sql.lstrip().upper().startswith("UPDATE BLASTEX.CAD_ENTITIES")) == 1
+        assert {item.role for item in repository.list_entities(ORG_A, "src-1")} == {"ignore"}
+    finally:
+        repository.engine.dispose()
+
+
+@requires_pg
 def test_deleting_a_source_cascades_to_entities(public_db) -> None:
     repository = PostgresCadRepository(TEST_DATABASE_URL)
     try:

@@ -107,3 +107,18 @@ class CadRolesRequest(BaseModel):
 
     layers: dict[str, str] = Field(default_factory=dict)
     entities: dict[str, str | None] = Field(default_factory=dict)
+
+
+class CadRolesResponse(BaseModel):
+    """Ответ на правку ролей — без геометрии: слои и только изменившиеся роли.
+
+    На чертеже с десятками тысяч объектов полный источник весит десятки
+    мегабайт, а смена роли в списке случается часто.
+    """
+
+    id: str
+    template_saved: bool = False
+    floor_z_m: float | None = None
+    warnings: list[CadWarningSchema] = Field(default_factory=list)
+    layers: list[CadLayerSchema] = Field(default_factory=list)
+    roles: dict[str, list[str]] = Field(default_factory=dict)

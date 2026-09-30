@@ -105,6 +105,10 @@ export function LayersStep(props: LayersStepProps) {
         {source.layers.map((layer) => {
           const isOpen = expanded.has(layer.name);
           const members = byLayer.get(layer.name) ?? [];
+          const visible = members.slice(0, MAX_ROWS_PER_LAYER);
+          // Объект, выбранный на чертеже, показываем и за пределами первых строк.
+          const picked = selected?.handle ? members.find((entity) => entity.handle === selected.handle) : undefined;
+          if (picked && !visible.includes(picked)) visible.push(picked);
           const layerHovered = hover?.layer === layer.name;
           const layerSelected = selected?.layer === layer.name && selected.handle === null;
           return [
@@ -154,7 +158,7 @@ export function LayersStep(props: LayersStepProps) {
               </td>
             </tr>,
             ...(isOpen
-              ? members.slice(0, MAX_ROWS_PER_LAYER).map((entity) => {
+              ? visible.map((entity) => {
                   const manual = entity.role_origin === "manual";
                   const choices = meta.roles.filter((role) => role.applies_to.includes(entity.geometry_type));
                   return (
@@ -206,7 +210,7 @@ export function LayersStep(props: LayersStepProps) {
               ? [
                   <tr key={`more:${layer.name}`} className="cad-more-row">
                     <td colSpan={3}>
-                      Показаны первые {MAX_ROWS_PER_LAYER} из {members.length}. Остальные выбирайте на чертеже.
+                      Показаны первые {MAX_ROWS_PER_LAYER} из {members.length}. Остальные — щелчком по линии на чертеже.
                     </td>
                   </tr>,
                 ]

@@ -10,7 +10,14 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
-from api.schemas.cad import CadImportResponse, CadMetaResponse, CadParamsSchema, CadRolesRequest, CadSourceSchema
+from api.schemas.cad import (
+    CadImportResponse,
+    CadMetaResponse,
+    CadParamsSchema,
+    CadRolesRequest,
+    CadRolesResponse,
+    CadSourceSchema,
+)
 from api.security import require_internal_access
 from api.services import cad_service
 from api.services.cad_service import CadImportError, get_cad_repository
@@ -116,13 +123,13 @@ def post_reparse(
         raise _http(exc) from exc
 
 
-@router.put("/sources/{source_id}/roles", response_model=CadSourceSchema)
+@router.put("/sources/{source_id}/roles", response_model=CadRolesResponse)
 def put_roles(
     source_id: str,
     request: CadRolesRequest,
     session: dict = Depends(require_internal_access),
     repository: CadRepository = Depends(get_cad_repository),
-) -> CadSourceSchema:
+) -> CadRolesResponse:
     organization_id, actor = _identity(session)
     try:
         return cad_service.save_roles(repository, organization_id, actor, source_id, request)

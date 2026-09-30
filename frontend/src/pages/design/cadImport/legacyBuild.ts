@@ -25,3 +25,21 @@ export function defaultBenchPair(entities: CadEntity[]): { crest: string; toe: s
   const below = candidates.filter((entity) => entity !== top && meanZ(entity) < meanZ(top));
   return { crest: top.handle, toe: below[0]?.handle ?? "" };
 }
+
+/** Сколько самых длинных линий предлагать в «Верх» и «Низ» помимо бровок. */
+const LONGEST_CANDIDATES = 100;
+
+/**
+ * Линии для списков «Верх» и «Низ»: бровки по ролям, уже выбранные и сотня
+ * самых длинных. На чертеже карьера линий десятки тысяч — список из них всех
+ * не выбрать глазами и дорого перерисовывать.
+ */
+export function benchCandidates(entities: CadEntity[], keep: string[]): CadEntity[] {
+  const lines = entities.filter((entity) => entity.geometry_type === "line");
+  const sorted = [...lines].sort((a, b) => b.length_m - a.length_m);
+  const chosen = new Set(sorted.slice(0, LONGEST_CANDIDATES));
+  for (const entity of lines) {
+    if (entity.role === "crest_top" || entity.role === "crest_bottom" || keep.includes(entity.handle)) chosen.add(entity);
+  }
+  return sorted.filter((entity) => chosen.has(entity));
+}

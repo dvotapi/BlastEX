@@ -152,6 +152,7 @@ import type {
   CadMeta,
   CadParams,
   CadRolesPayload,
+  CadRolesResponse,
   CadSource,
   CadUploadParams,
 } from "../types/cad";
@@ -452,7 +453,7 @@ export const api = {
     reparse: (id: string, params: CadParams) =>
       post<CadSource>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/reparse`, params),
     saveRoles: (id: string, payload: CadRolesPayload) =>
-      put<CadSource>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/roles`, payload),
+      put<CadRolesResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/roles`, payload),
   },
   design: {
     pattern: (

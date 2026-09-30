@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CadEntity } from "../../../types/cad";
-import { defaultBenchPair } from "./legacyBuild";
+import { benchCandidates, defaultBenchPair } from "./legacyBuild";
 
 function line(handle: string, zs: number[], length: number, role: CadEntity["role"] = "situation"): CadEntity {
   return {
@@ -45,5 +45,19 @@ describe("defaultBenchPair: пара линий для построения по
   it("служебные линии на Z = 0 не участвуют, одна линия — только верх", () => {
     expect(defaultBenchPair([line("a", [0, 0], 500), line("h", [420, 421], 100)])).toEqual({ crest: "h", toe: "" });
     expect(defaultBenchPair([])).toEqual({ crest: "", toe: "" });
+  });
+});
+
+describe("benchCandidates: линии в списках «Верх» и «Низ»", () => {
+  it("бровки по ролям, выбранные и сотня самых длинных — не все линии чертежа", () => {
+    const lines = Array.from({ length: 300 }, (_, index) => line(`L${index}`, [400, 401], index));
+    lines.push(line("crest", [420, 421], 0.5, "crest_top"));
+
+    const candidates = benchCandidates(lines, ["L3"]).map((item) => item.handle);
+
+    expect(candidates).toHaveLength(102);
+    expect(candidates[0]).toBe("L299");
+    expect(candidates).toContain("crest");
+    expect(candidates).toContain("L3");
   });
 });

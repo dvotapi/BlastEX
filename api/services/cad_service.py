@@ -25,6 +25,7 @@ from api.schemas.cad import (
     CadParamsSchema,
     CadRoleSchema,
     CadRolesRequest,
+    CadRolesResponse,
     CadSourceSchema,
     CadWarningSchema,
 )
@@ -61,6 +62,8 @@ from design.spatial.cad.roles import (
 # подложка всего карьера, разбирать её онлайн смысла нет.
 MAX_FILE_BYTES = 40 * 1024 * 1024
 MAX_FILES = 10
+
+GEOMETRY_NAMES = {"line": "линия", "point": "точка или знак", "text": "подпись"}
 
 
 class CadImportError(Exception):
@@ -235,7 +238,7 @@ def save_roles(
     actor: str,
     source_id: str,
     request: CadRolesRequest,
-) -> CadSourceSchema:
+) -> CadRolesResponse:
     record = _require(repository, organization_id, source_id)
     entities = repository.list_entities(organization_id, source_id)
     layer_names = {item.layer for item in entities}
@@ -246,11 +249,19 @@ def save_roles(
             raise CadImportError(f"Слоя «{name}» нет в этом чертеже.")
         if role not in LAYER_ROLE_CODES:
             raise CadImportError(f"Роль «{role}» неизвестна.")
+    geometry = {item.handle: item.geometry_type for item in entities}
     for handle, role in request.entities.items():
         if handle not in handles:
             raise CadImportError(f"Объекта {handle} нет в этом чертеже.")
-        if role is not None and role not in ROLE_CODES:
+        if role is None:
+            continue
+        if role not in ROLE_CODES:
             raise CadImportError(f"Роль «{role}» неизвестна.")
+        info = next(item for item in ROLES if item.code == role)
+        if geometry[handle] not in info.applies_to:
+            raise CadImportError(
+                f"Роль «{info.label}» не подходит объекту {handle} ({GEOMETRY_NAMES[geometry[handle]]})."
+            )
 
     before = {item.handle: (item.role, item.role_origin) for item in entities}
     manual_layers = {**(record.summary.get("manual_layers") or {}), **request.layers}
@@ -280,8 +291,14 @@ def save_roles(
     repository.update_roles(organization_id, source_id, changed, summary)
     if record.site_code and request.layers:
         repository.upsert_layer_roles(organization_id, record.site_code, request.layers, actor)
-    record.summary = summary
-    return _source_schema(record, entities)
+    return CadRolesResponse(
+        id=record.id,
+        template_saved=bool(record.site_code),
+        floor_z_m=summary.get("floor_z_m"),
+        warnings=_warnings(summary),
+        layers=_layer_schemas(summary, entities),
+        roles={handle: [role, origin] for handle, (role, origin) in changed.items()},
+    )
 
 
 # --- сборка ответа ------------------------------------------------------
@@ -405,9 +422,13 @@ def _entity_schema(item: CadEntity) -> CadEntitySchema:
     )
 
 
+def _warnings(summary: dict) -> list[CadWarningSchema]:
+    raw = [*(summary.get("read_warnings") or []), *(summary.get("role_warnings") or [])]
+    return [CadWarningSchema(**item) for item in raw]
+
+
 def _source_schema(record: CadSourceRecord, entities: list[CadEntity]) -> CadSourceSchema:
     summary = record.summary or {}
-    warnings = [*(summary.get("read_warnings") or []), *(summary.get("role_warnings") or [])]
     return CadSourceSchema(
         id=record.id,
         file_name=record.file_name,
@@ -423,7 +444,7 @@ def _source_schema(record: CadSourceRecord, entities: list[CadEntity]) -> CadSou
         extent=summary.get("extent"),
         floor_z_m=summary.get("floor_z_m"),
         template_saved=bool(record.site_code),
-        warnings=[CadWarningSchema(**item) for item in warnings],
+        warnings=_warnings(summary),
         layers=_layer_schemas(summary, entities),
         entities=[_entity_schema(item) for item in entities],
     )

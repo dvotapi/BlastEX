@@ -50,7 +50,6 @@ from api.schemas.design import (
     BenchDxfImportRequest,
     BenchDxfImportResponse,
     BenchFromPolylinesRequest,
-    Point3Schema,
     SurfaceSampleRequest,
     SurfaceSampleResponse,
     SurfaceStatsSchema,

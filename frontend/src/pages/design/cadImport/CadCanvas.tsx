@@ -2,7 +2,20 @@
 // масштаб колесом. Наведение и щелчок сообщают слой и объект — таблица
 // слоёв подсвечивает ту же строку. Подписи не рисуются: их сотни, а отметку
 // точки таблица показывает текстом.
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+//
+// Чертёж карьера — десятки тысяч линий, поэтому пути считаются только при
+// смене камеры, а базовый слой не перерисовывается на наведение: подсветка —
+// отдельный слой поверх него из одних подсвеченных линий.
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+  type WheelEvent,
+} from "react";
 import {
   fitCamera,
   niceStep,
@@ -38,6 +51,39 @@ function matches(target: CanvasTarget | null, entity: CadEntity): boolean {
   if (!target || target.layer !== entity.layer) return false;
   return target.handle === null || target.handle === entity.handle;
 }
+
+type LinePath = { entity: CadEntity; d: string };
+type PointGroup = { key: string; layer: string; role: string; d: string; hit: string };
+
+/** Базовый слой: перерисовывается только при смене камеры или данных. */
+const LineLayer = memo(function LineLayer({
+  paths,
+  onHover,
+  onSelect,
+}: {
+  paths: LinePath[];
+  onHover: (target: CanvasTarget | null) => void;
+  onSelect: (target: CanvasTarget) => void;
+}) {
+  return (
+    <g>
+      {paths.map(({ entity, d }) => (
+        <g key={entity.handle}>
+          <path className={`cad-line role-${entity.role}`} data-handle={entity.handle} d={d} style={{ stroke: roleColor(entity.role) }} />
+          <path
+            className="cad-hit"
+            data-handle={entity.handle}
+            d={d}
+            strokeWidth={HIT_WIDTH_PX}
+            onMouseEnter={() => onHover({ layer: entity.layer, handle: entity.handle })}
+            onMouseLeave={() => onHover(null)}
+            onClick={() => onSelect({ layer: entity.layer, handle: entity.handle })}
+          />
+        </g>
+      ))}
+    </g>
+  );
+});
 
 export function CadCanvas({
   entities,
@@ -88,15 +134,45 @@ export function CadCanvas({
         .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)),
     [entities],
   );
-  const pointGroups = useMemo(() => {
+  const paths = useMemo<LinePath[]>(
+    () => lines.map((entity) => ({ entity, d: linePath(entity.points, entity.closed, cam, viewport) })),
+    // Камера и вьюпорт — по значениям: вписанная камера пересоздаётся на каждой отрисовке.
+    [lines, cam.x, cam.y, cam.scale, viewport.width, viewport.height],
+  );
+  const pointGroups = useMemo<PointGroup[]>(() => {
     const groups = new Map<string, CadEntity[]>();
     for (const entity of entities) {
       if (entity.geometry_type !== "point") continue;
       const key = `${entity.layer}\u0000${entity.role}`;
-      groups.set(key, [...(groups.get(key) ?? []), entity]);
+      const group = groups.get(key);
+      if (group) group.push(entity);
+      else groups.set(key, [entity]);
     }
-    return [...groups.values()];
-  }, [entities]);
+    return [...groups.entries()].map(([key, group]) => {
+      const points = group.map((entity) => entity.points[0]);
+      return {
+        key,
+        layer: group[0].layer,
+        role: group[0].role,
+        d: pointsPath(points, cam, viewport, POINT_RADIUS_PX),
+        hit: pointsPath(points, cam, viewport, POINT_RADIUS_PX + 3),
+      };
+    });
+  }, [entities, cam.x, cam.y, cam.scale, viewport.width, viewport.height]);
+  const highlighted = paths.filter(
+    ({ entity }) =>
+      matches(hover, entity) || (selected?.handle === entity.handle) || emphasized.includes(entity.handle),
+  );
+
+  // Обработчики базового слоя стабильны — иначе memo не спасёт от перерисовки.
+  const latest = useRef({ onHover, onSelect });
+  latest.current = { onHover, onSelect };
+  const hoverStable = useCallback((target: CanvasTarget | null) => latest.current.onHover(target), []);
+  const selectStable = useCallback((target: CanvasTarget) => {
+    // Отпускание после панорамы — не щелчок по линии.
+    if (dragMoved.current) return;
+    latest.current.onSelect(target);
+  }, []);
 
   function local(event: { clientX: number; clientY: number }): Vec2 {
     const rect = wrapRef.current?.getBoundingClientRect();
@@ -128,12 +204,6 @@ export function CadCanvas({
     });
   }
 
-  function select(target: CanvasTarget) {
-    // Отпускание после панорамы — не щелчок по линии.
-    if (dragMoved.current) return;
-    onSelect(target);
-  }
-
   const scaleMeters = niceStep(90 / cam.scale);
   const scalePx = scaleMeters * cam.scale;
 
@@ -151,50 +221,37 @@ export function CadCanvas({
         onPointerUp={() => setPanFrom(null)}
         onPointerCancel={() => setPanFrom(null)}
       >
-        {lines.map((entity) => {
-          const d = linePath(entity.points, entity.closed, cam, viewport);
-          const state = `${matches(hover, entity) ? " is-hovered" : ""}${matches(selected, entity) && selected?.handle ? " is-selected" : ""}${emphasized.includes(entity.handle) ? " is-emphasized" : ""}`;
-          return (
-            <g key={entity.handle}>
-              <path
-                className={`cad-line role-${entity.role}${state}`}
-                data-handle={entity.handle}
-                d={d}
-                style={{ stroke: roleColor(entity.role) }}
-              />
-              <path
-                className="cad-hit"
-                data-handle={entity.handle}
-                d={d}
-                strokeWidth={HIT_WIDTH_PX}
-                onMouseEnter={() => onHover({ layer: entity.layer, handle: entity.handle })}
-                onMouseLeave={() => onHover(null)}
-                onClick={() => select({ layer: entity.layer, handle: entity.handle })}
-              />
-            </g>
-          );
-        })}
+        <LineLayer paths={paths} onHover={hoverStable} onSelect={selectStable} />
         {pointGroups.map((group) => {
-          const first = group[0];
-          const target = { layer: first.layer, handle: null };
-          const hovered = hover?.layer === first.layer;
+          const target = { layer: group.layer, handle: null };
           return (
-            <g key={`${first.layer}:${first.role}`}>
+            <g key={group.key}>
               <path
-                className={`cad-points${hovered ? " is-hovered" : ""}`}
-                d={pointsPath(group.map((entity) => entity.points[0]), cam, viewport, POINT_RADIUS_PX)}
-                style={{ fill: roleColor(first.role) }}
+                className={`cad-points${hover?.layer === group.layer ? " is-hovered" : ""}`}
+                d={group.d}
+                style={{ fill: roleColor(group.role) }}
               />
               <path
                 className="cad-hit cad-hit-points"
-                d={pointsPath(group.map((entity) => entity.points[0]), cam, viewport, POINT_RADIUS_PX + 3)}
-                onMouseEnter={() => onHover(target)}
-                onMouseLeave={() => onHover(null)}
-                onClick={() => select(target)}
+                d={group.hit}
+                onMouseEnter={() => hoverStable(target)}
+                onMouseLeave={() => hoverStable(null)}
+                onClick={() => selectStable(target)}
               />
             </g>
           );
         })}
+        <g className="cad-highlights">
+          {highlighted.map(({ entity, d }) => (
+            <path
+              key={entity.handle}
+              className={`cad-highlight${matches(hover, entity) ? " is-hovered" : ""}${selected?.handle === entity.handle ? " is-selected" : ""}${emphasized.includes(entity.handle) ? " is-emphasized" : ""}`}
+              data-handle={entity.handle}
+              d={d}
+              style={{ stroke: roleColor(entity.role) }}
+            />
+          ))}
+        </g>
         <g className="cad-scale" transform={`translate(14 ${viewport.height - 16})`}>
           <path d={`M0 -4V0H${scalePx.toFixed(1)}V-4`} />
           <text x={scalePx + 6} y={0}>

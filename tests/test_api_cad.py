@@ -210,20 +210,33 @@ def test_manual_roles_are_saved_and_can_be_reset(repository):
         json={"layers": {"Отвал вскрышных пород": "ignore"}, "entities": {point: "situation"}},
     ).json()
 
+    # Ответ без геометрии: слои и только изменившиеся роли объектов.
+    assert "entities" not in changed
     assert _layers(changed)["Отвал вскрышных пород"] == ("ignore", "manual")
-    assert _roles(changed)[point] == ("situation", "manual")
+    assert changed["roles"][point] == ["situation", "manual"]
+    dump = next(item["handle"] for item in source["entities"] if item["layer"] == "Отвал вскрышных пород")
+    assert changed["roles"][dump] == ["ignore", "manual"]
+    assert len(changed["roles"]) == 2
     assert repository.get_layer_template("org-a", "SITE_ZK")["отвал вскрышных пород"].role == "ignore"
 
     reset = client.put(f"{BASE}/sources/{source['id']}/roles", json={"entities": {point: None}}).json()
 
-    assert _roles(reset)[point] == ("spot_heights", "auto")
+    assert reset["roles"] == {point: ["spot_heights", "auto"]}
     assert _layers(reset)["Отвал вскрышных пород"] == ("ignore", "manual")
+    stored = client.get(f"{BASE}/sources/{source['id']}").json()
+    assert _roles(stored)[point] == ("spot_heights", "auto")
 
 
 def test_unknown_role_or_layer_is_rejected(repository):
     client = _client(repository)
     source = _upload(client, ("a.dxf", _dxf()))["sources"][0]
 
+    point = next(item["handle"] for item in source["entities"] if item["layer"] == "Отметка")
+    not_for_points = client.put(
+        f"{BASE}/sources/{source['id']}/roles", json={"entities": {point: "block_contour"}}
+    )
+    assert not_for_points.status_code == 422
+    assert "точк" in not_for_points.json()["detail"]
     bad_role = client.put(f"{BASE}/sources/{source['id']}/roles", json={"layers": {"Отметка": "boss"}})
     bad_layer = client.put(f"{BASE}/sources/{source['id']}/roles", json={"layers": {"Нет такого": "ignore"}})
 

@@ -111,3 +111,13 @@ export type CadRolesPayload = {
   layers?: Record<string, CadLayerRoleCode>;
   entities?: Record<string, CadRoleCode | null>;
 };
+
+/** Ответ на правку ролей: без геометрии — слои и только изменившиеся роли объектов. */
+export type CadRolesResponse = {
+  id: string;
+  template_saved: boolean;
+  floor_z_m: number | null;
+  warnings: CadWarning[];
+  layers: CadLayer[];
+  roles: Record<string, [CadRoleCode, CadOrigin]>;
+};

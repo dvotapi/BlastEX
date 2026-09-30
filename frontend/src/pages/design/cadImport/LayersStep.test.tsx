@@ -84,6 +84,19 @@ describe("LayersStep", () => {
     expect(options).toEqual(["По слою: Отметки поверхности", "Отметки поверхности", "Ситуация", "Не использовать"]);
   });
 
+  it("выбранный на чертеже объект виден и за пределами первых 200 строк", () => {
+    const many = Array.from({ length: 205 }, (_, index) => cadEntity(`P${index}`, "Отметка", { kind: "POINT", geometry_type: "point" }));
+    const source = cadSource();
+    renderStep({
+      source: { ...source, entities: many, layers: [{ ...source.layers[2], entity_count: 205, kinds: { POINT: 205 } }] },
+      expanded: new Set(["Отметка"]),
+      selected: { layer: "Отметка", handle: "P204" },
+    });
+
+    expect(screen.getByRole("row", { name: /P204/ }).classList.contains("is-selected")).toBe(true);
+    expect(screen.queryByRole("row", { name: /P203/ })).toBeNull();
+  });
+
   it("наведение и выбор строки сообщают слой", () => {
     const props = renderStep();
 

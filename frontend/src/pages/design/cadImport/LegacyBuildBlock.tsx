@@ -3,6 +3,7 @@
 // самые длинные верхняя и нижняя бровки по ролям слоёв.
 import { ruNumber } from "../../../lib/format";
 import type { CadEntity } from "../../../types/cad";
+import { benchCandidates } from "./legacyBuild";
 
 const meanZ = (entity: CadEntity) => (entity.z_min + entity.z_max) / 2;
 
@@ -29,9 +30,7 @@ export function LegacyBuildBlock({
   onCancel: () => void;
   onBuild: (pair: { crest: CadEntity; toe: CadEntity }) => void;
 }) {
-  const lines = entities
-    .filter((entity) => entity.geometry_type === "line")
-    .sort((a, b) => b.length_m - a.length_m);
+  const lines = benchCandidates(entities, [crest, toe]);
   const crestLine = lines.find((entity) => entity.handle === crest);
   const toeLine = lines.find((entity) => entity.handle === toe);
   const inverted = crestLine && toeLine && meanZ(crestLine) <= meanZ(toeLine);

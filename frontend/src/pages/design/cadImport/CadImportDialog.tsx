@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } fro
 import { api } from "../../../api/endpoints";
 import { ruNumber } from "../../../lib/format";
 import type { CadEntity, CadLayerRoleCode, CadMeta, CadParams, CadRoleCode, CadRolesPayload, CadSource } from "../../../types/cad";
+import { applyRoleChanges } from "./cadRoles";
 import { CadCanvas, type CanvasTarget } from "./CadCanvas";
 import { CadImportHelp } from "./CadImportHelp";
 import { LayersStep } from "./LayersStep";
@@ -99,7 +100,9 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
 
   function saveRoles(payload: CadRolesPayload) {
     if (!active) return;
-    void run(() => api.cad.saveRoles(active.id, payload));
+    // Ответ — без геометрии: роли сливаются в уже загруженный источник.
+    const source = active;
+    void run(async () => applyRoleChanges(source, await api.cad.saveRoles(source.id, payload)));
   }
 
   function reparse(patch: Partial<CadParams>) {
@@ -242,7 +245,7 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
             <p className="cad-template">
               {active.template_saved
                 ? `Роли слоёв сохраняются в шаблон объекта «${active.work_object_name}».`
-                : "Шаблон объекта не сохранится — выберите объект работ."}
+                : "Роли слоёв не сохранятся в шаблон объекта — причина в предупреждении выше."}
               {pending && " Сохраняю…"}
             </p>
             {(requestError || metaError) && (

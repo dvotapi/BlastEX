@@ -312,15 +312,16 @@ class PostgresCadRepository:
     ) -> None:
         with self.session_factory() as session, session.begin():
             self._require(session, organization_id, source_id)
-            for handle, (role, origin) in roles.items():
+            if roles:
+                # Одна массовая операция по первичному ключу: смена роли слоя
+                # из десятков тысяч точек — не десятки тысяч запросов. Источник
+                # уже проверен на принадлежность организации.
                 session.execute(
-                    update(CadEntityRow)
-                    .where(
-                        CadEntityRow.organization_id == organization_id,
-                        CadEntityRow.source_id == source_id,
-                        CadEntityRow.handle == handle,
-                    )
-                    .values(role=role, role_origin=origin)
+                    update(CadEntityRow),
+                    [
+                        {"source_id": source_id, "handle": handle, "role": role, "role_origin": origin}
+                        for handle, (role, origin) in roles.items()
+                    ],
                 )
             session.execute(
                 update(CadSourceRow)

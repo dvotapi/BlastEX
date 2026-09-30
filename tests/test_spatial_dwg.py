@@ -10,11 +10,22 @@ import pytest
 from design.spatial import dwg
 
 
+# Разбор аргументов dwg2dxf: `-o <выход>` и последний аргумент — входной DWG.
+# Позиции зависят от флага `-m`, поэтому скрипт ищет их, а не берёт $4/$5.
+_ARGS_PRELUDE = (
+    'OUT=""; IN=""\n'
+    'while [ $# -gt 0 ]; do\n'
+    '  if [ "$1" = "-o" ]; then OUT="$2"; shift; fi\n'
+    '  IN="$1"; shift\n'
+    'done\n'
+)
+
+
 def _fake_converter(tmp_path: Path, body: str) -> str:
     """Пишет исполняемый скрипт, изображающий dwg2dxf."""
 
     script = tmp_path / "fake-dwg2dxf"
-    script.write_text("#!/bin/sh\n" + body)
+    script.write_text("#!/bin/sh\n" + _ARGS_PRELUDE + body)
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     return str(script)
 
@@ -31,14 +42,13 @@ def test_missing_configured_converter_is_reported_as_absent(monkeypatch):
 
 
 def test_conversion_returns_the_produced_dxf(tmp_path, monkeypatch):
-    # Аргументы: -y -m -o <out> <in>; скрипт кладёт содержимое по пути из $4.
-    path = _fake_converter(tmp_path, 'printf "DXF PAYLOAD" > "$4"\nexit 0\n')
+    path = _fake_converter(tmp_path, 'printf "DXF PAYLOAD" > "$OUT"\nexit 0\n')
     monkeypatch.setenv("BLASTEX_DWG_CONVERTER", path)
     assert dwg.dwg_to_dxf(b"AC1032", "block.dwg") == b"DXF PAYLOAD"
 
 
 def test_conversion_passes_the_source_bytes(tmp_path, monkeypatch):
-    path = _fake_converter(tmp_path, 'cat "$5" > "$4"\nexit 0\n')
+    path = _fake_converter(tmp_path, 'cat "$IN" > "$OUT"\nexit 0\n')
     monkeypatch.setenv("BLASTEX_DWG_CONVERTER", path)
     assert dwg.dwg_to_dxf(b"original bytes", "block.dwg") == b"original bytes"
 
@@ -61,7 +71,7 @@ def test_without_a_converter_the_user_is_told_to_save_as_dxf(monkeypatch):
 
 
 def test_temporary_files_are_cleaned_up(tmp_path, monkeypatch):
-    path = _fake_converter(tmp_path, 'printf "DXF" > "$4"\nexit 0\n')
+    path = _fake_converter(tmp_path, 'printf "DXF" > "$OUT"\nexit 0\n')
     monkeypatch.setenv("BLASTEX_DWG_CONVERTER", path)
     before = set(os.listdir(tmp_path.parent))
     dwg.dwg_to_dxf(b"AC1032", "block.dwg")
@@ -69,12 +79,31 @@ def test_temporary_files_are_cleaned_up(tmp_path, monkeypatch):
     assert leftovers == []
 
 
-def test_minimal_dxf_output_is_requested(tmp_path, monkeypatch):
-    """LibreDWG обязан звать с -m: полный DXF ezdxf не читает."""
-
+def _recorded_args(tmp_path: Path, monkeypatch, **kwargs) -> list[str]:
     recorded = tmp_path / "args.txt"
-    path = _fake_converter(tmp_path, f'printf "%s" "$*" > "{recorded}"\nprintf "DXF" > "$4"\nexit 0\n')
-    monkeypatch.setenv("BLASTEX_DWG_CONVERTER", path)
-    dwg.dwg_to_dxf(b"AC1032", "block.dwg")
-    args = recorded.read_text().split()
+    script = tmp_path / "record-dwg2dxf"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s" "$*" > "{recorded}"\n'
+        + _ARGS_PRELUDE
+        + 'printf "DXF" > "$OUT"\nexit 0\n'
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("BLASTEX_DWG_CONVERTER", str(script))
+    dwg.dwg_to_dxf(b"AC1032", "block.dwg", **kwargs)
+    return recorded.read_text().split()
+
+
+def test_full_dxf_is_requested_by_default(tmp_path, monkeypatch):
+    """Полный DXF несёт $INSUNITS и таблицу слоёв с цветами."""
+
+    args = _recorded_args(tmp_path, monkeypatch)
+    assert args[:2] == ["-y", "-o"]
+    assert "-m" not in args
+
+
+def test_minimal_dxf_is_requested_on_demand(tmp_path, monkeypatch):
+    """Минимальный DXF — запасной путь, когда ezdxf не читает полный."""
+
+    args = _recorded_args(tmp_path, monkeypatch, minimal=True)
     assert args[:3] == ["-y", "-m", "-o"]

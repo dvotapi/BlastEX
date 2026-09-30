@@ -70,10 +70,12 @@ from api.schemas.design import (
 )
 from api.schemas.movement import MovementModelsResponse, MovementPredictRequest, MovementPredictResponse
 from api.schemas.reporting import PassportBuildRequest, PassportDocumentSchema, PassportRolesResponse
-from api.security import require_internal_access
+from api.security import current_team_id, require_internal_access
 from api.services import design_service, reporting_service
+from api.services.economics_service import get_economics_repository
 from api.services.legacy_references import current_legacy_references
 from cost.v2.legacy_adapter import LegacyReferences
+from cost.v2.repository import EconomicsRepository
 
 router = APIRouter(prefix="/design", tags=["design"])
 
@@ -98,8 +100,14 @@ def get_fragmentation_models() -> FragmentationModelsResponse:
 
 
 @router.post("/fragmentation", response_model=FragmentationPredictResponse)
-def post_fragmentation(request: FragmentationPredictRequest) -> FragmentationPredictResponse:
-    return design_service.predict_fragmentation(request)
+def post_fragmentation(
+    request: FragmentationPredictRequest,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> FragmentationPredictResponse:
+    return design_service.predict_fragmentation(
+        request, organization_id=organization_id, repository=repository
+    )
 
 
 @router.get("/movement/models", response_model=MovementModelsResponse)

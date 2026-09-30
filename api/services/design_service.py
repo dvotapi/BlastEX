@@ -126,6 +126,7 @@ from design.spatial.io import (
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
 from cost.v2.legacy_adapter import LegacyReferences
+from cost.v2.repository import EconomicsRepository
 
 
 def _surfaces_from_request(payload) -> SurfaceSet | None:
@@ -634,7 +635,13 @@ def list_fragmentation_models() -> FragmentationModelsResponse:
     return FragmentationModelsResponse(models=list_models())
 
 
-def predict_fragmentation(request: FragmentationPredictRequest) -> FragmentationPredictResponse:
+def predict_fragmentation(
+    request: FragmentationPredictRequest,
+    *,
+    organization_id: str | None = None,
+    repository: EconomicsRepository | None = None,
+) -> FragmentationPredictResponse:
+    from api.services.fragmentation_settings import resolve_kuzram_settings
     from simulation.fragmentation.engine import predict_design
     from simulation.fragmentation.models import Calibration, DistributionPoint, MeasuredFragmentation
     from simulation.fragmentation.regions import ExplosiveSpec, RockSpec
@@ -671,6 +678,12 @@ def predict_fragmentation(request: FragmentationPredictRequest) -> Fragmentation
         )
         for item in request.measured
     ]
+    resolved = resolve_kuzram_settings(
+        explicit=request.kuzram.to_settings() if request.kuzram is not None else None,
+        work_object_name=request.work_object_name or "",
+        organization_id=organization_id,
+        repository=repository,
+    )
     try:
         payload = predict_design(
             design,
@@ -683,6 +696,8 @@ def predict_fragmentation(request: FragmentationPredictRequest) -> Fragmentation
             explosives=catalog or None,
             hole_oversize_coeff=request.hole_oversize_coeff,
             measured=measured,
+            settings=resolved.settings,
+            settings_source=resolved.source_payload(),
         )
     except ValueError as exc:
         raise InvalidDesignError(str(exc)) from exc

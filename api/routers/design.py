@@ -69,10 +69,12 @@ from api.schemas.design import (
 )
 from api.schemas.movement import MovementModelsResponse, MovementPredictRequest, MovementPredictResponse
 from api.schemas.reporting import PassportBuildRequest, PassportDocumentSchema, PassportRolesResponse
-from api.security import require_internal_access
+from api.security import current_team_id, require_internal_access
 from api.services import design_service, reporting_service
+from api.services.economics_service import get_economics_repository
 from api.services.legacy_references import current_legacy_references
 from cost.v2.legacy_adapter import LegacyReferences
+from cost.v2.repository import EconomicsRepository
 
 router = APIRouter(prefix="/design", tags=["design"])
 
@@ -93,8 +95,14 @@ def get_fragmentation_models() -> FragmentationModelsResponse:
 
 
 @router.post("/fragmentation", response_model=FragmentationPredictResponse)
-def post_fragmentation(request: FragmentationPredictRequest) -> FragmentationPredictResponse:
-    return design_service.predict_fragmentation(request)
+def post_fragmentation(
+    request: FragmentationPredictRequest,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> FragmentationPredictResponse:
+    return design_service.predict_fragmentation(
+        request, organization_id=organization_id, repository=repository
+    )
 
 
 @router.get("/movement/models", response_model=MovementModelsResponse)
@@ -333,26 +341,40 @@ def get_passport_roles() -> PassportRolesResponse:
 
 
 @router.post("/passport", response_model=PassportDocumentSchema)
-def post_passport(request: PassportBuildRequest) -> PassportDocumentSchema:
-    return reporting_service.build_from_request(request)
+def post_passport(
+    request: PassportBuildRequest,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> PassportDocumentSchema:
+    return reporting_service.build_from_request(request, organization_id=organization_id, repository=repository)
 
 
 @router.post("/passport.html")
-def post_passport_html(request: PassportBuildRequest) -> Response:
-    html_text = reporting_service.render_from_request(request)
+def post_passport_html(
+    request: PassportBuildRequest,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> Response:
+    html_text = reporting_service.render_from_request(
+        request, organization_id=organization_id, repository=repository
+    )
     return Response(content=html_text, media_type="text/html")
 
 
 @router.get("/plans/{design_id}/passport", response_model=PassportDocumentSchema)
 def get_plan_passport(
-    design_id: str, session: dict = Depends(require_internal_access)
+    design_id: str,
+    session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> PassportDocumentSchema:
-    return reporting_service.get_plan_passport(session["org"], design_id)
+    return reporting_service.get_plan_passport(session["org"], design_id, repository=repository)
 
 
 @router.get("/plans/{design_id}/passport.html")
 def export_plan_passport(
-    design_id: str, session: dict = Depends(require_internal_access)
+    design_id: str,
+    session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> Response:
-    html_text = reporting_service.export_plan_passport_html(session["org"], design_id)
+    html_text = reporting_service.export_plan_passport_html(session["org"], design_id, repository=repository)
     return Response(content=html_text, media_type="text/html")

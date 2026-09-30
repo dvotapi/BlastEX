@@ -19,8 +19,10 @@ from api.schemas.recommendation import (
 )
 from api.schemas.scenarios import ScenarioCreateRequest, ScenarioCreateResponse, ScenarioParamsSchema
 from api.services.design_service import estimate_design_cost
+from api.services.fragmentation_settings import with_scenario_settings
 from api.services.scenario_service import create_scenario
 from cost.v2.legacy_adapter import default_legacy_references
+from cost.v2.repository import EconomicsRepository
 from design.models import BlastDesign
 from design.optimization.types import VariableBound
 from design.persistence import DesignNotFoundError as StoreDesignNotFound
@@ -130,7 +132,9 @@ def collect_assessments(team_id: str, overlay: BlastDesign, params: ScenarioPara
     return collected
 
 
-def run_recommendation(team_id: str, request: RecommendationRequest) -> DesignRecommendationSchema:
+def run_recommendation(
+    team_id: str, request: RecommendationRequest, *, repository: EconomicsRepository | None = None
+) -> DesignRecommendationSchema:
     design = _design_from_schema(request.design)
     if not design.holes:
         raise InvalidRecommendationError("В паспорте нет скважин — рекомендовать нечего.")
@@ -142,7 +146,9 @@ def run_recommendation(team_id: str, request: RecommendationRequest) -> DesignRe
     approved_before = holes_loads_payload(design)
     source_hash = revision_sha256(design)
     bounds = [VariableBound.from_dict(item.model_dump()) for item in request.variables]
-    params = ScenarioParams.from_dict(request.params.model_dump())
+    params = with_scenario_settings(
+        ScenarioParams.from_dict(request.params.model_dump()), organization_id=team_id, repository=repository
+    )
     constraints = {
         "max_ppv_mm_s": request.constraints.max_ppv_mm_s,
         "max_oversize_pct": request.constraints.max_oversize_pct,
@@ -201,6 +207,7 @@ def run_recommendation(team_id: str, request: RecommendationRequest) -> DesignRe
                 params=ScenarioParamsSchema(**result.suggested.params.to_dict()),
                 persist=True,
             ),
+            repository=repository,
         )
         _assert_unchanged(approved_before, design, "Сохранение рекомендации как сценария")
 
@@ -230,7 +237,9 @@ def get_plan_recommendation(team_id: str, design_id: str, recommendation_id: str
     return DesignRecommendationSchema(**result.to_dict())
 
 
-def promote_recommendation(team_id: str, request: RecommendationPromoteRequest) -> ScenarioCreateResponse:
+def promote_recommendation(
+    team_id: str, request: RecommendationPromoteRequest, *, repository: EconomicsRepository | None = None
+) -> ScenarioCreateResponse:
     """Save the suggested overlay as a named scenario. Does not apply it to the passport."""
     return create_scenario(
         team_id,
@@ -240,4 +249,5 @@ def promote_recommendation(team_id: str, request: RecommendationPromoteRequest) 
             params=request.params,
             persist=request.persist,
         ),
+        repository=repository,
     )

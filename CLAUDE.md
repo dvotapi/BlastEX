@@ -35,8 +35,13 @@
 `simulation/fragmentation/cunningham.py`, подбор — `Blast.py::optimize_blast`,
 окно «Модель Kuz-Ram» — `frontend/src/pages/calc/kuzram/`.
 Прогноз одной точки собирает `cunningham.predict_point` — единственное место,
-где формулы складываются вместе. «Проектирование», отчёты и ML пока на
-`simulation/fragmentation/kuzram.py`; подробности —
+где формулы складываются вместе. Движок «Проектирования»
+(`simulation/fragmentation/engine.py`) зовёт её во всех трёх моделях через
+`simulation/fragmentation/base.py::region_point`; прежние формулы —
+`simulation/fragmentation/legacy/` под именами `*_legacy`. Настройки модели
+«Проектирование» берёт из объекта работ
+(`api/services/fragmentation_settings.py`). ML-калибровки и пространственные
+признаки до PR 3 считают базу старой моделью `kuzram_legacy`; подробности —
 `Docs/KUZRAM_MODEL.md`.
 
 ## Импорт чертежа маркшейдера (TASK-013)

@@ -1,17 +1,29 @@
-"""Run a named fragmentation model on a blast design or a single region."""
+"""Прогноз кусковатости по проекту: реестр моделей и расчёт по регионам влияния.
+
+Три модели (kuznetsov, kuzram, swebrec) считают на общей базе Каннингема
+(simulation/fragmentation/base.py) и различаются только кривой. Прежние
+формулы доступны под именами *_legacy.
+"""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Callable
 
 from design.models import BlastDesign
-from simulation.fragmentation.kuznetsov import MODEL_ID as KUZNETSOV_ID
-from simulation.fragmentation.kuznetsov import MODEL_VERSION as KUZNETSOV_VERSION
-from simulation.fragmentation.kuznetsov import predict_kuznetsov
-from simulation.fragmentation.kuzram import MODEL_ID as KUZRAM_ID
-from simulation.fragmentation.kuzram import MODEL_VERSION as KUZRAM_VERSION
-from simulation.fragmentation.kuzram import predict_kuzram
+from simulation.fragmentation import kuznetsov as kuznetsov_model
+from simulation.fragmentation import kuzram as kuzram_model
+from simulation.fragmentation import swebrec as swebrec_model
+from simulation.fragmentation.base import settings_snapshot
+from simulation.fragmentation.cunningham import KuzRamSettings
+from simulation.fragmentation.legacy import kuznetsov as kuznetsov_legacy
+from simulation.fragmentation.legacy import kuzram as kuzram_legacy
+from simulation.fragmentation.legacy import swebrec as swebrec_legacy
 from simulation.fragmentation.maps import fragmentation_maps
 from simulation.fragmentation.models import (
+    LEGACY_MODEL_SUFFIX,
+    MODEL_KUZNETSOV,
+    MODEL_KUZRAM,
+    MODEL_SWEBREC,
     ROLE_MEASURED,
     ROLE_PREDICTED,
     Calibration,
@@ -29,70 +41,111 @@ from simulation.fragmentation.regions import (
     ExplosiveSpec,
     InfluenceRegion,
     RockSpec,
-    collect_regions,
+    collect_hole_regions_with_warnings,
+    group_regions,
 )
-from simulation.fragmentation.swebrec import MODEL_ID as SWEBREC_ID
-from simulation.fragmentation.swebrec import MODEL_VERSION as SWEBREC_VERSION
-from simulation.fragmentation.swebrec import predict_swebrec
 
-PredictFn = Callable[[FragmentationInputs, Calibration | None], PredictedFragmentation]
+PredictFn = Callable[[FragmentationInputs, Calibration | None, KuzRamSettings | None], PredictedFragmentation]
+LegacyPredictFn = Callable[[FragmentationInputs, Calibration | None], PredictedFragmentation]
 
-FRAGMENTATION_MODELS: dict[str, dict[str, str]] = {
-    KUZNETSOV_ID: {
-        "id": KUZNETSOV_ID,
-        "version": KUZNETSOV_VERSION,
-        "label": "Кузнецов",
-        "distribution": "rosin_rammler",
-    },
-    KUZRAM_ID: {
-        "id": KUZRAM_ID,
-        "version": KUZRAM_VERSION,
-        "label": "Kuz-Ram",
-        "distribution": "rosin_rammler",
-    },
-    SWEBREC_ID: {
-        "id": SWEBREC_ID,
-        "version": SWEBREC_VERSION,
-        "label": "Swebrec",
-        "distribution": "swebrec",
-    },
+
+def _ignoring_settings(predict: LegacyPredictFn) -> PredictFn:
+    """Старые модели настроек Каннингема не знают и считают ровно как до PR 2."""
+
+    def run(
+        inputs: FragmentationInputs,
+        calibration: Calibration | None,
+        settings: KuzRamSettings | None,
+    ) -> PredictedFragmentation:
+        return predict(inputs, calibration)
+
+    return run
+
+
+# (модуль, подпись, распределение, предиктор, старая ли модель). Версию и
+# идентификатор реестр читает из модуля — тот же источник, что у provenance.
+_MODELS = (
+    (kuznetsov_model, "Кузнецов", "rosin_rammler", kuznetsov_model.predict_kuznetsov, False),
+    (kuzram_model, "Kuz-Ram", "rosin_rammler", kuzram_model.predict_kuzram, False),
+    (swebrec_model, "Swebrec", "swebrec", swebrec_model.predict_swebrec, False),
+    (kuznetsov_legacy, "Кузнецов (старая)", "rosin_rammler", _ignoring_settings(kuznetsov_legacy.predict_kuznetsov), True),
+    (kuzram_legacy, "Kuz-Ram (старая)", "rosin_rammler", _ignoring_settings(kuzram_legacy.predict_kuzram), True),
+    (swebrec_legacy, "Swebrec (старая)", "swebrec", _ignoring_settings(swebrec_legacy.predict_swebrec), True),
+)
+
+FRAGMENTATION_MODELS: dict[str, dict[str, Any]] = {
+    module.MODEL_ID: {
+        "id": module.MODEL_ID,
+        "version": module.MODEL_VERSION,
+        "label": label,
+        "distribution": distribution,
+        "legacy": legacy,
+    }
+    for module, label, distribution, _predict, legacy in _MODELS
 }
 
-_PREDICTORS: dict[str, PredictFn] = {
-    KUZNETSOV_ID: predict_kuznetsov,
-    KUZRAM_ID: predict_kuzram,
-    SWEBREC_ID: predict_swebrec,
+_PREDICTORS: dict[str, PredictFn] = {module.MODEL_ID: predict for module, _l, _d, predict, _legacy in _MODELS}
+
+_ALIASES = {
+    "kuz": MODEL_KUZNETSOV,
+    "kuznetcov": MODEL_KUZNETSOV,
+    "kuznetsov": MODEL_KUZNETSOV,
+    "kuzram": MODEL_KUZRAM,
+    "kuz_ram": MODEL_KUZRAM,
+    "swebrec": MODEL_SWEBREC,
+    "swebeck": MODEL_SWEBREC,
 }
 
 
-def list_models() -> list[dict[str, str]]:
+def list_models() -> list[dict[str, Any]]:
     return [dict(item) for item in FRAGMENTATION_MODELS.values()]
 
 
 def resolve_model(model: str) -> str:
-    key = str(model or KUZRAM_ID).strip().lower().replace("kuz-ram", "kuzram")
-    if key in {"kuz", "kuznetcov", "kuznetsov"}:
-        return KUZNETSOV_ID
-    if key in {"kuzram", "kuz_ram"}:
-        return KUZRAM_ID
-    if key in {"swebrec", "swebeck"}:
-        return SWEBREC_ID
-    raise ValueError(f"Неизвестная модель дробления: {model}. Доступны: kuznetsov, kuzram, swebrec.")
+    """Имя модели из запроса → идентификатор реестра; пусто — kuzram."""
+    key = str(model or MODEL_KUZRAM).strip().lower().replace("kuz-ram", "kuzram")
+    legacy = key.endswith(LEGACY_MODEL_SUFFIX)
+    base = key[: -len(LEGACY_MODEL_SUFFIX)] if legacy else key
+    model_id = _ALIASES.get(base)
+    if model_id is None:
+        raise ValueError(f"Неизвестная модель дробления: {model}. Доступны: {', '.join(FRAGMENTATION_MODELS)}.")
+    return model_id + LEGACY_MODEL_SUFFIX if legacy else model_id
+
+
+def is_legacy_model(model: str) -> bool:
+    """Модель считает прежними формулами (до перевода на Каннингема)."""
+    return bool(FRAGMENTATION_MODELS[resolve_model(model)]["legacy"])
 
 
 def predict_region(
     inputs: FragmentationInputs,
-    model: str = KUZRAM_ID,
+    model: str = MODEL_KUZRAM,
     calibration: Calibration | None = None,
+    settings: KuzRamSettings | None = None,
+    settings_source: Mapping[str, Any] | None = None,
 ) -> PredictedFragmentation:
-    """Predict one region. Always returns role=predicted."""
-    predictor = _PREDICTORS[resolve_model(model)]
-    prediction = predictor(inputs, calibration)
+    """Прогноз одного региона (role=predicted).
+
+    Новые модели кладут в provenance снимок применённых настроек; старые
+    настроек не знают, и снимка у них нет.
+    """
+    model_id = resolve_model(model)
+    prediction = _PREDICTORS[model_id](inputs, calibration, settings)
     prediction.role = ROLE_PREDICTED
+    if not FRAGMENTATION_MODELS[model_id]["legacy"]:
+        prediction.provenance.settings = settings_snapshot(settings, settings_source)
     return prediction
 
 
+def _merge_warnings(target: list[str], items: list[str] | tuple[str, ...]) -> None:
+    for item in items:
+        if item not in target:
+            target.append(item)
+
+
 def _region_payload(region: InfluenceRegion, prediction: PredictedFragmentation) -> dict[str, Any]:
+    warnings = list(region.warnings)
+    _merge_warnings(warnings, prediction.warnings)
     return {
         "id": region.id,
         "kind": region.kind,
@@ -102,14 +155,44 @@ def _region_payload(region: InfluenceRegion, prediction: PredictedFragmentation)
         "hole_kind": region.hole_kind,
         "inputs": region.inputs.to_dict(),
         "prediction": prediction.to_dict(),
-        "warnings": list(region.warnings),
+        "warnings": warnings,
     }
+
+
+def _predict_rows(
+    regions: list[InfluenceRegion],
+    predict: Callable[[InfluenceRegion], PredictedFragmentation],
+    warnings: list[str],
+    label: str,
+    errors: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[InfluenceRegion]]:
+    """Строки посчитанных регионов и сами эти регионы.
+
+    Регион с неполными данными пропускается с предупреждением: паспорт
+    пишет пустые величины нулём, и одна такая скважина не должна ронять
+    прогноз всего блока. Текст ошибки пропущенного региона попадает в errors.
+    """
+    rows: list[dict[str, Any]] = []
+    predicted: list[InfluenceRegion] = []
+    for region in regions:
+        try:
+            prediction = predict(region)
+        except ValueError as exc:
+            name = region.id.split(":", 1)[-1]
+            _merge_warnings(warnings, [f"{label} {name}: прогноз не посчитан — {exc}"])
+            if errors is not None:
+                errors.append(str(exc))
+            continue
+        _merge_warnings(warnings, prediction.warnings)
+        rows.append(_region_payload(region, prediction))
+        predicted.append(region)
+    return rows, predicted
 
 
 def predict_design(
     design: BlastDesign,
     *,
-    model: str = KUZRAM_ID,
+    model: str = MODEL_KUZRAM,
     lump_size_mm: float = 400.0,
     max_oversize_pct: float = 5.0,
     calibration: Calibration | None = None,
@@ -118,6 +201,8 @@ def predict_design(
     explosives: dict[str, ExplosiveSpec] | None = None,
     hole_oversize_coeff: float | None = None,
     measured: list[MeasuredFragmentation] | None = None,
+    settings: KuzRamSettings | None = None,
+    settings_source: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Site / hole / domain predictions plus a heatmap payload.
 
@@ -138,7 +223,7 @@ def predict_design(
         density_t_m3=DEFAULT_EXPLOSIVE_DENSITY_T_M3,
         power_mj_kg=DEFAULT_EXPLOSIVE_ENERGY_MJ_KG,
     )
-    holes, domains, site_region, warnings = collect_regions(
+    holes, warnings = collect_hole_regions_with_warnings(
         design,
         lump_size_mm=lump_size_mm,
         default_rock=rock,
@@ -146,12 +231,33 @@ def predict_design(
         explosives=explosives,
         hole_oversize_coeff=hole_oversize_coeff,
     )
-    if site_region is None:
+    if not holes:
         raise ValueError("Недостаточно данных для прогноза дробления: нет скважин с массой заряда и сеткой.")
 
-    hole_rows = [_region_payload(region, predict_region(region.inputs, model_id, calibration)) for region in holes]
-    domain_rows = [_region_payload(region, predict_region(region.inputs, model_id, calibration)) for region in domains]
-    site_prediction = predict_region(site_region.inputs, model_id, calibration)
+    # Старые модели настроек не применяют: ни снимка, ни предупреждений резолвера.
+    snapshot: dict[str, Any] = {}
+    if not FRAGMENTATION_MODELS[model_id]["legacy"]:
+        snapshot = settings_snapshot(settings, settings_source)
+        _merge_warnings(warnings, snapshot["warnings"])
+
+    def predict(region: InfluenceRegion) -> PredictedFragmentation:
+        return predict_region(region.inputs, model_id, calibration, settings, settings_source)
+
+    # Домены и блок собираются только из посчитанных скважин: входы
+    # пропущенной скважины не должны попадать в средние.
+    hole_errors: list[str] = []
+    hole_rows, predicted_holes = _predict_rows(holes, predict, warnings, "Скважина", hole_errors)
+    if not predicted_holes:
+        # Скважины были, но ни одна не посчитана: каждая оставила причину.
+        raise ValueError(f"Прогноз кусковатости по блоку не посчитан: {hole_errors[0]}")
+    # Непустой список посчитанных скважин всегда даёт регион блока.
+    domains, site_region = group_regions(design, predicted_holes, lump_size_mm=lump_size_mm)
+    domain_rows, _ = _predict_rows(domains, predict, warnings, "Домен")
+    try:
+        site_prediction = predict(site_region)
+    except ValueError as exc:
+        raise ValueError(f"Прогноз кусковатости по блоку не посчитан: {exc}") from exc
+    _merge_warnings(warnings, site_prediction.warnings)
     measured_rows = [item.to_dict() for item in (measured or [])]
     if any(row.get("role") != ROLE_MEASURED for row in measured_rows):
         raise ValueError("Измеренная кусковатость должна иметь role=measured.")
@@ -169,4 +275,5 @@ def predict_design(
         "warnings": warnings,
         "measured": measured_rows,
         "calibration": calibration.to_dict(),
+        "settings": snapshot,
     }

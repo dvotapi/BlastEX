@@ -1,8 +1,6 @@
-"""Swebrec (Оухтерлони) поверх x50 общей базы Каннингема."""
+"""Swebrec size distribution (Ouchterlony) on top of a Kuznetsov median."""
 from __future__ import annotations
 
-from simulation.fragmentation.base import base_parameters, calibration_warnings, region_point
-from simulation.fragmentation.cunningham import KuzRamSettings
 from simulation.fragmentation.distributions import (
     DEFAULT_SWEBREC_B,
     default_xmax_mm,
@@ -11,26 +9,25 @@ from simulation.fragmentation.distributions import (
     swebrec_passing,
     swebrec_size_mm,
 )
+from simulation.fragmentation.legacy.kuznetsov import kuznetsov_x50_mm, rock_factor_A
 from simulation.fragmentation.models import (
     Calibration,
     FragmentationInputs,
     ModelProvenance,
     PredictedFragmentation,
 )
+from simulation.fragmentation.units import relative_weight_strength
 
-MODEL_ID = "swebrec"
-MODEL_VERSION = "2.0.0"
+MODEL_ID = "swebrec_legacy"
+MODEL_VERSION = "1.0.0"
 
 
-def predict_swebrec(
-    inputs: FragmentationInputs,
-    calibration: Calibration | None = None,
-    settings: KuzRamSettings | None = None,
-) -> PredictedFragmentation:
-    """Кривая Swebrec с x50 общей базы; xmax — наибольший размер призмы ЛНС × шаг."""
+def predict_swebrec(inputs: FragmentationInputs, calibration: Calibration | None = None) -> PredictedFragmentation:
+    """Swebrec prediction for one influence region."""
     calibration = calibration or Calibration()
-    point = region_point(inputs, settings)
-    x50_mm = point.x50_mm
+    factor_A = calibration.rock_factor_A or rock_factor_A(inputs.rock_ucs_mpa, inputs.rock_density_t_m3)
+    re_weight = relative_weight_strength(inputs.explosive_energy_mj_kg)
+    x50_mm = kuznetsov_x50_mm(factor_A, inputs.powder_factor_kg_m3, inputs.charge_mass_kg, re_weight)
     xmax_mm = calibration.xmax_mm or default_xmax_mm(inputs.burden_m, inputs.spacing_m, x50_mm)
     if xmax_mm <= x50_mm:
         xmax_mm = default_xmax_mm(inputs.burden_m, inputs.spacing_m, x50_mm)
@@ -54,12 +51,12 @@ def predict_swebrec(
             model_version=MODEL_VERSION,
             inputs=inputs.to_dict(),
             parameters={
-                **base_parameters(point, inputs),
+                "rock_factor_A": factor_A,
+                "re_weight": re_weight,
                 "swebrec_b": b,
                 "xmax_mm": xmax_mm,
                 "distribution": "swebrec",
             },
             calibration=calibration.to_dict(),
         ),
-        warnings=[*point.warnings, *calibration_warnings(calibration)],
     )

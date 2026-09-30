@@ -8,6 +8,7 @@ from api.exceptions import InvalidDesignScenarioError
 from api.schemas.design import BlastDesignSchema
 from api.schemas.scenarios import ScenarioCompareRequest, ScenarioCreateRequest, ScenarioParamsSchema
 from api.services import scenario_service
+from cost.v2.repository import InMemoryEconomicsRepository
 from design.persistence import save_design
 from tests.scenario_fixtures import charged_design
 
@@ -156,6 +157,210 @@ class ScenarioApiTests(unittest.TestCase):
         self.assertIsNotNone(created.outcomes.x50_mm)
         reloaded = load_design(TEAM_ID, design.design_id)
         self.assertEqual([hole.to_dict() for hole in reloaded.holes], holes_before)
+
+    def _repository(self, *, active: bool = False) -> InMemoryEconomicsRepository:
+        repository = InMemoryEconomicsRepository()
+        repository.save_calc_inputs(TEAM_ID, "tester", "Карьер-1", {"kuzram": {"rock_factor_correction": 1.6}})
+        if active:
+            repository.import_legacy_workspace(
+                TEAM_ID, "tester", team_name="Команда", active_scenario_id="drill_blast", active_work_object_name="Карьер-1"
+            )
+        return repository
+
+    def test_scenario_uses_work_object_settings_and_records_snapshot(self):
+        payload = BlastDesignSchema(**self._plan().to_dict())
+        repository = self._repository()
+
+        tuned = scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(
+                design=payload, name="Объект", persist=False, params=ScenarioParamsSchema(work_object_name="Карьер-1")
+            ),
+            repository=repository,
+        )
+        plain = scenario_service.create_scenario(
+            TEAM_ID, ScenarioCreateRequest(design=payload, name="Умолчания", persist=False), repository=repository
+        )
+
+        self.assertEqual(tuned.params.kuzram_settings["source"], "work_object")
+        self.assertEqual(tuned.params.kuzram_settings["values"]["rock_factor_correction"], 1.6)
+        self.assertEqual(plain.params.kuzram_settings["source"], "defaults")
+        self.assertGreater(tuned.outcomes.x50_mm, plain.outcomes.x50_mm)
+
+    def test_client_snapshot_is_overwritten(self):
+        payload = BlastDesignSchema(**self._plan().to_dict())
+
+        created = scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(
+                design=payload,
+                name="Подмена",
+                persist=False,
+                params=ScenarioParamsSchema(
+                    kuzram_settings={"source": "request", "values": {"rock_factor_correction": 9.0}}
+                ),
+            ),
+        )
+
+        self.assertEqual(created.params.kuzram_settings["source"], "defaults")
+        self.assertEqual(created.params.kuzram_settings["values"]["rock_factor_correction"], 1.0)
+
+    def test_compare_baseline_uses_active_work_object(self):
+        design = self._plan()
+        repository = self._repository(active=True)
+        scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(design=BlastDesignSchema(**design.to_dict()), name="A", params=ScenarioParamsSchema()),
+            repository=repository,
+        )
+
+        with patch.object(
+            scenario_service, "_baseline_scenario", wraps=scenario_service._baseline_scenario
+        ) as baseline:
+            scenario_service.compare_plan_scenarios(
+                TEAM_ID, ScenarioCompareRequest(design_id=design.design_id, include_baseline=True), repository=repository
+            )
+
+        params = baseline.call_args.args[2]
+        self.assertEqual(params.kuzram_settings["source"], "work_object")
+        self.assertEqual(params.kuzram_settings["work_object_name"], "Карьер-1")
+
+
+    def test_compare_warns_about_scenarios_saved_before_new_model(self):
+        from dataclasses import replace
+
+        from design.scenarios.persistence import load_scenario, save_scenario
+
+        design = self._plan()
+        payload = BlastDesignSchema(**design.to_dict())
+        created = {
+            name: scenario_service.create_scenario(
+                TEAM_ID,
+                ScenarioCreateRequest(
+                    design=payload, name=name, params=ScenarioParamsSchema(fragmentation_model=model)
+                ),
+            )
+            for name, model in (("Старый", "kuzram"), ("Свежий", "kuzram"), ("Старая модель", "kuzram_legacy"))
+        }
+        # Сценарии, сохранённые до PR 2, снимка настроек модели не несут.
+        for name in ("Старый", "Старая модель"):
+            stored = load_scenario(TEAM_ID, design.design_id, created[name].scenario_id)
+            save_scenario(TEAM_ID, replace(stored, params=replace(stored.params, kuzram_settings={})))
+        x50_before = load_scenario(TEAM_ID, design.design_id, created["Старый"].scenario_id).outcomes.x50_mm
+
+        table = scenario_service.compare_plan_scenarios(
+            TEAM_ID, ScenarioCompareRequest(design_id=design.design_id, include_baseline=True)
+        )
+
+        self.assertEqual(
+            table.warnings,
+            [
+                "Сценарий «Старый» посчитан до перевода модели кусковатости (Kuz-Ram 1.0.0) — "
+                "пересоздайте его для сравнения."
+            ],
+        )
+        reloaded = load_scenario(TEAM_ID, design.design_id, created["Старый"].scenario_id)
+        self.assertEqual(reloaded.outcomes.x50_mm, x50_before)
+        self.assertEqual(reloaded.params.kuzram_settings, {})
+
+    def test_compare_checks_inline_scenarios_too(self):
+        design = self._plan()
+        payload = BlastDesignSchema(**design.to_dict())
+        repository = self._repository(active=True)
+        created = scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(design=payload, name="Черновик", params=ScenarioParamsSchema()),
+            repository=repository,
+        )
+        other = scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(
+                design=payload, name="Явный", params=ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.3})
+            ),
+            repository=repository,
+        )
+        old = created.model_copy(update={"name": "Старый черновик"}, deep=True)
+        old.params.kuzram_settings = {}
+
+        table = scenario_service.compare_plan_scenarios(
+            TEAM_ID,
+            ScenarioCompareRequest(design=payload, include_baseline=True, inline=[old]),
+            repository=repository,
+        )
+
+        self.assertEqual(
+            table.warnings,
+            [
+                "Сценарий «Явный» посчитан с другими настройками модели кусковатости (заданы в запросе) — "
+                "x50 и негабарит несопоставимы с базовым; пересоздайте сценарий.",
+                "Сценарий «Старый черновик» посчитан до перевода модели кусковатости (Kuz-Ram 1.0.0) — "
+                "пересоздайте его для сравнения.",
+            ],
+        )
+
+    def test_compare_warns_about_scenarios_with_other_settings(self):
+        design = self._plan()
+        payload = BlastDesignSchema(**design.to_dict())
+        repository = self._repository(active=True)
+        repository.save_calc_inputs(TEAM_ID, "tester", "Карьер-2", {"kuzram": {"rock_factor_correction": 1.2}})
+
+        def create(name: str, params: ScenarioParamsSchema) -> None:
+            scenario_service.create_scenario(
+                TEAM_ID, ScenarioCreateRequest(design=payload, name=name, params=params), repository=repository
+            )
+
+        create("Свой объект", ScenarioParamsSchema())
+        create("Чужой объект", ScenarioParamsSchema(work_object_name="Карьер-2"))
+        # Те же значения, что у активного объекта, но из другого источника —
+        # числа сопоставимы, предупреждения нет.
+        create("Явные как у объекта", ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.6}))
+        # q_max нужен только подбору q, ручной A — только способу «manual»:
+        # на прогноз они не влияют.
+        create(
+            "Другой q_max",
+            ScenarioParamsSchema(
+                kuzram={"rock_factor_correction": 1.6, "q_max_kg_m3": 5.0, "rock_factor_manual": 9.0}
+            ),
+        )
+        create("Явные", ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.3}))
+        create("Старая модель", ScenarioParamsSchema(fragmentation_model="kuzram_legacy", work_object_name="Карьер-2"))
+        scenario_service.create_scenario(
+            TEAM_ID, ScenarioCreateRequest(design=payload, name="Без объекта", params=ScenarioParamsSchema())
+        )
+
+        with_baseline = scenario_service.compare_plan_scenarios(
+            TEAM_ID, ScenarioCompareRequest(design_id=design.design_id, include_baseline=True), repository=repository
+        )
+        without_baseline = scenario_service.compare_plan_scenarios(
+            TEAM_ID, ScenarioCompareRequest(design_id=design.design_id, include_baseline=False), repository=repository
+        )
+
+        tail = " — x50 и негабарит несопоставимы с базовым; пересоздайте сценарий."
+        self.assertEqual(
+            sorted(with_baseline.warnings),
+            sorted(
+                [
+                    "Сценарий «Чужой объект» посчитан с другими настройками модели кусковатости "
+                    f"(объект работ «Карьер-2»){tail}",
+                    f"Сценарий «Явные» посчитан с другими настройками модели кусковатости (заданы в запросе){tail}",
+                    f"Сценарий «Без объекта» посчитан с другими настройками модели кусковатости (умолчания){tail}",
+                ]
+            ),
+        )
+        self.assertEqual(without_baseline.warnings, [])
+
+    def test_foreign_snapshot_gives_warning_not_crash(self):
+        from design.scenarios.engine import _fragmentation_outcomes
+        from design.scenarios.types import ScenarioOutcomes, ScenarioParams
+
+        outcomes = ScenarioOutcomes()
+
+        _fragmentation_outcomes(
+            charged_design("foreign"), ScenarioParams(kuzram_settings={"values": {"bogus": 1}}), outcomes
+        )
+
+        self.assertTrue(any("Снимок настроек модели не прочитан" in warning for warning in outcomes.warnings))
+        self.assertIsNone(outcomes.x50_mm)
 
 
 if __name__ == "__main__":

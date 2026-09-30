@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from simulation.fragmentation.models import MODEL_KUZRAM
+
 KIND_APPROVED = "approved"
 KIND_OVERLAY = "overlay"
 APPLIED_AS = "scenario_overlay"
@@ -70,7 +72,7 @@ class ScenarioParams:
     inclination_deg: float | None = None
     delay_interval_ms: float | None = None
     cost_scenario_id: str = "drill_blast"
-    fragmentation_model: str = "kuzram"
+    fragmentation_model: str = MODEL_KUZRAM
     lump_size_mm: float = 400.0
     mic_window_ms: float = 8.0
     vibration_model_id: str = ""
@@ -78,6 +80,13 @@ class ScenarioParams:
     use_production_overlays: bool = False
     outcome_model_ids: dict[str, str] = field(default_factory=dict)
     calibration_model_ids: dict[str, str] = field(default_factory=dict)
+    # Объект работ, чьи настройки Kuz-Ram брать (пусто — активный объект).
+    work_object_name: str = ""
+    # Явные настройки Kuz-Ram из запроса (значения KuzRamSettings); пусто — не заданы.
+    kuzram: dict[str, Any] = field(default_factory=dict)
+    # Снимок применённых настроек; заполняет только сервер
+    # (api/services/fragmentation_settings.py), присланный клиентом затирается.
+    kuzram_settings: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,6 +109,11 @@ class ScenarioParams:
             "use_production_overlays": self.use_production_overlays,
             "outcome_model_ids": dict(self.outcome_model_ids),
             "calibration_model_ids": dict(self.calibration_model_ids),
+            "work_object_name": self.work_object_name,
+            # None, а не {}: схема API превратила бы {} в полный набор умолчаний,
+            # и сервер принял бы их за явные настройки из запроса.
+            "kuzram": dict(self.kuzram) or None,
+            "kuzram_settings": dict(self.kuzram_settings),
         }
 
     @classmethod
@@ -119,7 +133,7 @@ class ScenarioParams:
             inclination_deg=_opt_float(data, "inclination_deg"),
             delay_interval_ms=_opt_float(data, "delay_interval_ms"),
             cost_scenario_id=str(data.get("cost_scenario_id") or "drill_blast"),
-            fragmentation_model=str(data.get("fragmentation_model") or "kuzram"),
+            fragmentation_model=str(data.get("fragmentation_model") or MODEL_KUZRAM),
             lump_size_mm=float(data.get("lump_size_mm") or 400.0),
             mic_window_ms=float(data.get("mic_window_ms") or 8.0),
             vibration_model_id=str(data.get("vibration_model_id") or ""),
@@ -127,6 +141,9 @@ class ScenarioParams:
             use_production_overlays=bool(data.get("use_production_overlays", False)),
             outcome_model_ids={str(key): str(value) for key, value in dict(outcome_ids).items()},
             calibration_model_ids={str(key): str(value) for key, value in dict(calibration_ids).items()},
+            work_object_name=str(data.get("work_object_name") or ""),
+            kuzram=dict(data.get("kuzram") or {}),
+            kuzram_settings=dict(data.get("kuzram_settings") or {}),
         )
 
 

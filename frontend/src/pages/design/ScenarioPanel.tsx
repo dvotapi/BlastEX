@@ -137,6 +137,7 @@ export function ScenarioPanel({
                 ))}
               </tbody>
             </table>
+            {compare.warnings.length > 0 && <small className="frag-warnings">{compare.warnings.join(" ")}</small>}
             <small>Это таблица сравнения, не оптимизатор. Лучшие значения по затратам и негативу лишь подсвечены.</small>
           </div>
         )}

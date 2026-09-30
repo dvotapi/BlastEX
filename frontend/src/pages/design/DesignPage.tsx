@@ -744,6 +744,8 @@ export function DesignPage({
     setFragBusy(true);
     setError("");
     try {
+      // Настройки модели Kuz-Ram сервер берёт у активного объекта работ
+      // организации сам — как и для паспорта, сценариев и подбора.
       const result = await api.design.fragmentation({
         design: {
           ...document,

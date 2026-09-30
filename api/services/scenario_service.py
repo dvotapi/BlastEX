@@ -20,7 +20,9 @@ from api.schemas.scenarios import (
     ScenarioSummarySchema,
 )
 from api.services.design_service import estimate_design_cost
+from api.services.fragmentation_settings import with_scenario_settings
 from cost.v2.legacy_adapter import default_legacy_references
+from cost.v2.repository import EconomicsRepository
 from design.models import BlastDesign
 from design.persistence import DesignNotFoundError as StoreDesignNotFound
 from design.persistence import load_design
@@ -158,6 +160,17 @@ def _apply_ml_overlays(
     except Exception as exc:
         outcomes.warnings.append(f"ML-оверлей исходов пропущен: {exc}")
 
+    # Поправки кусковатости обучены на Kuz-Ram 1.0.0; к новой модели их
+    # не применяем, пока PR 3 не научит артефакт помнить свою базу.
+    # Считается вне общего try: неизвестное имя модели не должно снимать
+    # поправку PPV. Такое имя — не старая модель; его отклонит движок.
+    from simulation.fragmentation.engine import is_legacy_model
+
+    try:
+        new_base = not is_legacy_model(params.fragmentation_model)
+    except ValueError:
+        new_base = True
+
     try:
         from intelligence.calibration.persistence import load_model, production_model
         from intelligence.calibration.prediction import apply_residual, features_from_design
@@ -173,8 +186,27 @@ def _apply_ml_overlays(
             (MODEL_OVERSIZE_RESIDUAL, "oversize_pct", "oversize_engineering_pct"),
             (MODEL_PPV_RESIDUAL, "ppv_mm_s", "ppv_engineering_mm_s"),
         )
+        fragmentation_residuals = {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}
+        skipped_residuals = False
+        lookup_errors: list[str] = []
+
+        def has_production(model_type: str) -> bool:
+            # Калибровку, которую всё равно не накладываем, ищем только ради
+            # предупреждения: сбой поиска не должен снимать поправку PPV.
+            try:
+                return production_model(team_id, site_id, model_type) is not None
+            except Exception as exc:  # noqa: BLE001 — любой сбой хранилища
+                lookup_errors.append(str(exc))
+                return False
+
         for model_type, field, baseline_field in mapping:
             model_id = str(params.calibration_model_ids.get(model_type) or "").strip()
+            if new_base and model_type in fragmentation_residuals:
+                # Предупреждаем, только если калибровка правда была бы наложена.
+                skipped_residuals = skipped_residuals or bool(
+                    model_id or (params.use_production_overlays and site_id and has_production(model_type))
+                )
+                continue
             model = None
             if model_id:
                 model = load_model(team_id, model_id)
@@ -198,6 +230,15 @@ def _apply_ml_overlays(
                 outcomes.fragmentation_source = SOURCE_CALIBRATION
             if field == "ppv_mm_s":
                 outcomes.vibration_source = SOURCE_CALIBRATION
+        if skipped_residuals:
+            outcomes.warnings.append(
+                "Калибровки кусковатости обучены на старой модели Kuz-Ram 1.0.0 и к новой модели "
+                "не применяются — их нужно переобучить."
+            )
+        elif lookup_errors:
+            outcomes.warnings.append(
+                f"Не удалось проверить калибровки кусковатости объекта: {lookup_errors[0]}."
+            )
     except Exception as exc:
         outcomes.warnings.append(f"Калибровочный оверлей пропущен: {exc}")
 
@@ -236,13 +277,17 @@ def _build_scenario(
     return scenario, overlay
 
 
-def create_scenario(team_id: str, request: ScenarioCreateRequest) -> ScenarioCreateResponse:
+def create_scenario(
+    team_id: str, request: ScenarioCreateRequest, *, repository: EconomicsRepository | None = None
+) -> ScenarioCreateResponse:
     design = _design_from_schema(request.design)
     if not design.holes:
         raise InvalidDesignScenarioError("В паспорте нет скважин — сценарий строить не из чего.")
     approved_before = holes_loads_payload(design)
     source_hash = revision_sha256(design)
-    params = ScenarioParams.from_dict(request.params.model_dump())
+    params = with_scenario_settings(
+        ScenarioParams.from_dict(request.params.model_dump()), organization_id=team_id, repository=repository
+    )
     try:
         scenario, _overlay = _build_scenario(
             team_id=team_id,
@@ -317,7 +362,9 @@ def _baseline_scenario(team_id: str, design: BlastDesign, params: ScenarioParams
     )
 
 
-def compare_plan_scenarios(team_id: str, request: ScenarioCompareRequest) -> ScenarioCompareResponse:
+def compare_plan_scenarios(
+    team_id: str, request: ScenarioCompareRequest, *, repository: EconomicsRepository | None = None
+) -> ScenarioCompareResponse:
     design = _design_from_schema(request.design) if request.design is not None else None
     design_id = (request.design_id or (design.design_id if design else "")).strip()
     approved_before = holes_loads_payload(design) if design is not None else None
@@ -337,6 +384,7 @@ def compare_plan_scenarios(team_id: str, request: ScenarioCompareRequest) -> Sce
     inline = [DesignScenario.from_dict(item.model_dump()) for item in request.inline]
     scenarios = stored + inline
 
+    baseline_snapshot: dict[str, Any] | None = None
     if request.include_baseline:
         if design is None and design_id:
             try:
@@ -345,7 +393,13 @@ def compare_plan_scenarios(team_id: str, request: ScenarioCompareRequest) -> Sce
             except StoreDesignNotFound as exc:
                 raise DesignNotFoundError(design_id) from exc
         if design is not None:
-            scenarios = [_baseline_scenario(team_id, design)] + scenarios
+            baseline_params = with_scenario_settings(
+                ScenarioParams(work_object_name=request.work_object_name),
+                organization_id=team_id,
+                repository=repository,
+            )
+            scenarios = [_baseline_scenario(team_id, design, baseline_params)] + scenarios
+            baseline_snapshot = baseline_params.kuzram_settings
 
     if not scenarios:
         raise InvalidDesignScenarioError("Нет сценариев для сравнения.")
@@ -360,5 +414,68 @@ def compare_plan_scenarios(team_id: str, request: ScenarioCompareRequest) -> Sce
             except StoreDesignNotFound:
                 pass
     payload["approved_unchanged"] = True
-    payload["warnings"] = []
+    # Присланные в запросе сценарии проверяются так же, как сохранённые.
+    payload["warnings"] = _stale_model_warnings(stored + inline, baseline_snapshot)
     return ScenarioCompareResponse(**payload)
+
+
+def _same_settings(left: dict[str, Any], right: dict[str, Any], model_id: str) -> bool:
+    """Одинаковы ли настройки двух снимков в той части, что меняет прогноз.
+
+    Источник и имя объекта на числа не влияют, как и настройки, которые
+    модель model_id не читает (q_max, поля неактивного способа фактора породы).
+    """
+    from simulation.fragmentation.base import predictive_settings
+
+    return predictive_settings(left.get("values") or {}, model_id) == predictive_settings(
+        right.get("values") or {}, model_id
+    )
+
+
+def _describe_settings(snapshot: dict[str, Any]) -> str:
+    from simulation.fragmentation.base import SETTINGS_SOURCE_REQUEST, SETTINGS_SOURCE_WORK_OBJECT
+
+    source = snapshot.get("source")
+    if source == SETTINGS_SOURCE_REQUEST:
+        return "заданы в запросе"
+    if source == SETTINGS_SOURCE_WORK_OBJECT:
+        return f"объект работ «{snapshot.get('work_object_name') or ''}»"
+    return "умолчания"
+
+
+def _stale_model_warnings(
+    scenarios: list[DesignScenario], baseline_snapshot: dict[str, Any] | None = None
+) -> list[str]:
+    """Сохранённые сценарии, чьи исходы нельзя сравнивать с базовым.
+
+    Сценарий новой модели без снимка настроек сохранён до перевода модели
+    кусковатости (Kuz-Ram 1.0.0). Сценарий со снимком, отличным от снимка
+    базового проекта, посчитан с настройками другого объекта работ (или
+    других настроек). Исходы не пересчитываются — пользователь пересоздаёт
+    сценарий сам. baseline_snapshot — None, когда базового проекта нет.
+    """
+    from simulation.fragmentation.engine import is_legacy_model, resolve_model
+
+    warnings: list[str] = []
+    for scenario in scenarios:
+        try:
+            legacy = is_legacy_model(scenario.params.fragmentation_model)
+            model_id = resolve_model(scenario.params.fragmentation_model)
+        except ValueError:
+            continue
+        if legacy:
+            continue
+        snapshot = scenario.params.kuzram_settings
+        if not snapshot:
+            warnings.append(
+                f"Сценарий «{scenario.name}» посчитан до перевода модели кусковатости (Kuz-Ram 1.0.0) — "
+                "пересоздайте его для сравнения."
+            )
+            continue
+        if baseline_snapshot is not None and not _same_settings(snapshot, baseline_snapshot, model_id):
+            warnings.append(
+                f"Сценарий «{scenario.name}» посчитан с другими настройками модели кусковатости "
+                f"({_describe_settings(snapshot)}) — x50 и негабарит несопоставимы с базовым; "
+                "пересоздайте сценарий."
+            )
+    return warnings

@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.blast import KuzRamSettingsSchema
 from api.schemas.design import BlastDesignSchema
 
 
@@ -28,6 +29,8 @@ class PassportBuildRequest(BaseModel):
     include_predictions: bool = True
     planned_cost: PlannedCostInputSchema | None = None
     predicted_cost: PlannedCostInputSchema | None = None
+    work_object_name: str | None = Field(None, max_length=300)
+    kuzram: KuzRamSettingsSchema | None = None
 
 
 class PassportRolesResponse(BaseModel):

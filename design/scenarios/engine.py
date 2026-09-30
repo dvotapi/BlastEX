@@ -21,6 +21,7 @@ from design.scenarios.types import (
     ScenarioParams,
 )
 from design.timing import TimingExprError, build_template_network, resolve_network
+from simulation.fragmentation.models import MODEL_KUZRAM
 
 DEFAULT_EXPLOSIVE = ExplosiveProperties("Гранулит-РП", 0.85, 3.76)
 
@@ -244,14 +245,22 @@ def _rebuild_network(overlay: BlastDesign, delay_interval_ms: float | None = Non
 
 
 def _fragmentation_outcomes(overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes) -> None:
+    from simulation.fragmentation.base import settings_from_snapshot
     from simulation.fragmentation.engine import predict_design
 
     try:
+        settings, settings_source = settings_from_snapshot(params.kuzram_settings)
+    except (TypeError, ValueError) as exc:
+        outcomes.warnings.append(f"Снимок настроек модели не прочитан: {exc}")
+        return
+    try:
         payload = predict_design(
             overlay,
-            model=params.fragmentation_model or "kuzram",
+            model=params.fragmentation_model or MODEL_KUZRAM,
             lump_size_mm=params.lump_size_mm,
             hole_oversize_coeff=(overlay.charge_rules or {}).get("hole_oversize_coeff"),
+            settings=settings,
+            settings_source=settings_source,
         )
     except ValueError as exc:
         outcomes.warnings.append(str(exc))

@@ -267,6 +267,7 @@ def attach_physics_predictions(design: BlastDesign, observations: list[HoleObser
     """Kuz-Ram hole regions as ROLE_PREDICTED context, never as measured labels."""
     try:
         from simulation.fragmentation.engine import predict_region
+        from simulation.fragmentation.models import MODEL_KUZRAM_LEGACY
         from simulation.fragmentation.regions import (
             DEFAULT_EXPLOSIVE_DENSITY_T_M3,
             DEFAULT_EXPLOSIVE_ENERGY_MJ_KG,
@@ -302,7 +303,9 @@ def attach_physics_predictions(design: BlastDesign, observations: list[HoleObser
         if region.kind != "hole" or not region.hole_ids:
             continue
         try:
-            prediction = predict_region(region.inputs, model="kuzram")
+            # Пространственные модели обучены на признаках старой базы;
+            # переход на новую — вместе с проверкой базы в PR 3.
+            prediction = predict_region(region.inputs, model=MODEL_KUZRAM_LEGACY)
         except Exception:
             continue
         by_hole[region.hole_ids[0]] = prediction

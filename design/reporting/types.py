@@ -240,6 +240,8 @@ class PredictedOutcomes:
     oversize_pct: float | None = None
     fragmentation_model: str = ""
     fragmentation_model_version: str = ""
+    # Снимок настроек Kuz-Ram, с которыми посчитан прогноз кусковатости.
+    fragmentation_settings: dict[str, Any] = field(default_factory=dict)
     mic_kg: float | None = None
     ppv_mm_s: float | None = None
     vibration_convention: str = ""
@@ -265,6 +267,7 @@ class PredictedOutcomes:
             "oversize_pct": _round_opt(self.oversize_pct),
             "fragmentation_model": self.fragmentation_model,
             "fragmentation_model_version": self.fragmentation_model_version,
+            "fragmentation_settings": dict(self.fragmentation_settings),
             "mic_kg": _round_opt(self.mic_kg, 2),
             "ppv_mm_s": _round_opt(self.ppv_mm_s, 4),
             "vibration_convention": self.vibration_convention,
@@ -288,6 +291,7 @@ class PredictedOutcomes:
             oversize_pct=_opt_float(data, "oversize_pct"),
             fragmentation_model=str(data.get("fragmentation_model", "") or ""),
             fragmentation_model_version=str(data.get("fragmentation_model_version", "") or ""),
+            fragmentation_settings=dict(data.get("fragmentation_settings") or {}),
             mic_kg=_opt_float(data, "mic_kg"),
             ppv_mm_s=_opt_float(data, "ppv_mm_s"),
             vibration_convention=str(data.get("vibration_convention", "") or ""),

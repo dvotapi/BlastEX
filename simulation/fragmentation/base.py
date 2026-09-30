@@ -131,6 +131,22 @@ def settings_source_label(model: str, snapshot: Mapping[str, Any] | None) -> str
     return "Настройки модели: умолчания"
 
 
+# Настройки, от которых зависит прогноз при заданном q: q_max нужен только
+# подбору q на листе «Расчёт», поля способа фактора породы — только своему
+# способу, поля n — только Kuz-Ram (Кузнецов и Swebrec берут свою кривую).
+_UNIFORMITY_FIELDS = ("drill_deviation_m", "uniformity_correction")
+_METHOD_FIELDS = {"manual": ("rock_factor_manual",), "joint_factor": ("joint_condition", "joint_angle")}
+
+
+def predictive_settings(values: Mapping[str, Any], model_id: str) -> dict[str, Any]:
+    """Значения настроек, которые меняют прогноз модели model_id (без *_legacy)."""
+    method = values.get("rock_factor_method")
+    keep = ["rock_factor_method", "rock_factor_correction", "strength_exponent", *_METHOD_FIELDS.get(method, ())]
+    if model_id == "kuzram":
+        keep.extend(_UNIFORMITY_FIELDS)
+    return {key: values.get(key) for key in keep}
+
+
 def settings_from_snapshot(snapshot: Mapping[str, Any] | None) -> tuple[KuzRamSettings | None, dict[str, Any]]:
     """Снимок → настройки и источник. Пустой снимок — умолчания движка."""
     if not snapshot:

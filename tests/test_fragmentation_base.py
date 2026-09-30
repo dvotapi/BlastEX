@@ -5,12 +5,14 @@
 сравнивает прогноз до 1e-9.
 """
 import unittest
+from dataclasses import asdict, replace
 
 from Blast import BlastEngine, ExplosiveProperties, RockProperties, TargetParams
 from simulation.fragmentation.base import (
     base_parameters,
     calibration_warnings,
     charged_diameter_mm,
+    predictive_settings,
     region_point,
     settings_source_label,
 )
@@ -150,6 +152,45 @@ class SettingsSourceLabelTests(unittest.TestCase):
         for model, snapshot, label in cases:
             with self.subTest(model=model, snapshot=snapshot):
                 self.assertEqual(settings_source_label(model, snapshot), label)
+
+
+class PredictiveSettingsTests(unittest.TestCase):
+    """Для сравнения прогнозов важны только настройки, которые их меняют."""
+
+    def _values(self, **changes):
+        return asdict(replace(KuzRamSettings(), **changes))
+
+    def test_q_max_does_not_affect_prediction(self):
+        self.assertEqual(
+            predictive_settings(self._values(q_max_kg_m3=0.5), "kuzram"),
+            predictive_settings(self._values(q_max_kg_m3=5.0), "kuzram"),
+        )
+
+    def test_inactive_method_fields_are_ignored(self):
+        self.assertEqual(
+            predictive_settings(self._values(rock_factor_manual=9.0, joint_angle=40), "kuzram"),
+            predictive_settings(self._values(), "kuzram"),
+        )
+        manual = self._values(rock_factor_method="manual", rock_factor_manual=9.0)
+        self.assertNotEqual(
+            predictive_settings(manual, "kuzram"),
+            predictive_settings(dict(manual, rock_factor_manual=7.0), "kuzram"),
+        )
+
+    def test_uniformity_fields_matter_only_for_kuzram(self):
+        tuned = self._values(drill_deviation_m=0.5, uniformity_correction=1.2)
+        self.assertNotEqual(predictive_settings(tuned, "kuzram"), predictive_settings(self._values(), "kuzram"))
+        for model in ("kuznetsov", "swebrec"):
+            with self.subTest(model=model):
+                self.assertEqual(predictive_settings(tuned, model), predictive_settings(self._values(), model))
+
+    def test_correction_and_exponent_always_matter(self):
+        for changes in ({"rock_factor_correction": 1.3}, {"strength_exponent": "19/30"}):
+            with self.subTest(changes=changes):
+                self.assertNotEqual(
+                    predictive_settings(self._values(**changes), "swebrec"),
+                    predictive_settings(self._values(), "swebrec"),
+                )
 
 
 if __name__ == "__main__":

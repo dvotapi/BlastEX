@@ -279,6 +279,14 @@ class ScenarioApiTests(unittest.TestCase):
         # Те же значения, что у активного объекта, но из другого источника —
         # числа сопоставимы, предупреждения нет.
         create("Явные как у объекта", ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.6}))
+        # q_max нужен только подбору q, ручной A — только способу «manual»:
+        # на прогноз они не влияют.
+        create(
+            "Другой q_max",
+            ScenarioParamsSchema(
+                kuzram={"rock_factor_correction": 1.6, "q_max_kg_m3": 5.0, "rock_factor_manual": 9.0}
+            ),
+        )
         create("Явные", ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.3}))
         create("Старая модель", ScenarioParamsSchema(fragmentation_model="kuzram_legacy", work_object_name="Карьер-2"))
         scenario_service.create_scenario(

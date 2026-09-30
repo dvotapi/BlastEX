@@ -418,13 +418,17 @@ def compare_plan_scenarios(
     return ScenarioCompareResponse(**payload)
 
 
-def _same_settings(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    """Одинаковы ли применённые значения настроек двух снимков.
+def _same_settings(left: dict[str, Any], right: dict[str, Any], model_id: str) -> bool:
+    """Одинаковы ли настройки двух снимков в той части, что меняет прогноз.
 
-    Источник и имя объекта на числа не влияют: одинаковые значения из запроса
-    и из объекта работ дают сопоставимые x50 и негабарит.
+    Источник и имя объекта на числа не влияют, как и настройки, которые
+    модель model_id не читает (q_max, поля неактивного способа фактора породы).
     """
-    return left.get("values") == right.get("values")
+    from simulation.fragmentation.base import predictive_settings
+
+    return predictive_settings(left.get("values") or {}, model_id) == predictive_settings(
+        right.get("values") or {}, model_id
+    )
 
 
 def _describe_settings(snapshot: dict[str, Any]) -> str:
@@ -449,12 +453,13 @@ def _stale_model_warnings(
     других настроек). Исходы не пересчитываются — пользователь пересоздаёт
     сценарий сам. baseline_snapshot — None, когда базового проекта нет.
     """
-    from simulation.fragmentation.engine import is_legacy_model
+    from simulation.fragmentation.engine import is_legacy_model, resolve_model
 
     warnings: list[str] = []
     for scenario in scenarios:
         try:
             legacy = is_legacy_model(scenario.params.fragmentation_model)
+            model_id = resolve_model(scenario.params.fragmentation_model)
         except ValueError:
             continue
         if legacy:
@@ -466,7 +471,7 @@ def _stale_model_warnings(
                 "пересоздайте его для сравнения."
             )
             continue
-        if baseline_snapshot is not None and not _same_settings(snapshot, baseline_snapshot):
+        if baseline_snapshot is not None and not _same_settings(snapshot, baseline_snapshot, model_id):
             warnings.append(
                 f"Сценарий «{scenario.name}» посчитан с другими настройками модели кусковатости "
                 f"({_describe_settings(snapshot)}) — x50 и негабарит несопоставимы с базовым; "

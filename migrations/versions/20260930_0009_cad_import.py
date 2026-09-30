@@ -37,6 +37,8 @@ def upgrade() -> None:
         sa.Column("summary", JSONB, nullable=False),
         sa.Column("uploaded_by", sa.String(length=320), nullable=False),
         sa.Column("uploaded_at", sa.DateTime(timezone=True), nullable=False),
+        # Номер правки источника: запись с устаревшим номером отклоняется.
+        sa.Column("revision", sa.Integer(), nullable=False, server_default="1"),
         sa.PrimaryKeyConstraint("id", name="pk_cad_sources"),
         schema=SCHEMA,
     )

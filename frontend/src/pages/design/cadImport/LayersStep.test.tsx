@@ -115,8 +115,10 @@ describe("LayersStep", () => {
       selected: { layer: "Отметка", handle: "P204" },
     });
 
-    expect(screen.getByRole("row", { name: /P204/ }).classList.contains("is-selected")).toBe(true);
-    expect(screen.queryByRole("row", { name: /P203/ })).toBeNull();
+    // Поиск по data-handle: вычислять доступные имена 200 строк со списками долго.
+    expect(document.querySelector('[data-handle="P204"]')?.classList.contains("is-selected")).toBe(true);
+    expect(document.querySelector('[data-handle="P203"]')).toBeNull();
+    expect(document.querySelectorAll(".cad-entity-row")).toHaveLength(201);
   });
 
   it("наведение и выбор строки сообщают слой", () => {

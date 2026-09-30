@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from api.routers import cad
 from api.security import require_internal_access
 from api.services import cad_service
+from api.schemas.cad import CadRolesRequest
 from api.services.cad_service import get_cad_repository
 from api.services.legacy_references import current_reference_snapshot
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
@@ -400,3 +401,46 @@ def test_active_work_object_is_read_from_the_organization_workspace():
 
     assert cad_service.active_work_object_name(economics, "org-a") == "Жуков камень"
     assert cad_service.active_work_object_name(economics, "org-b") == ""
+
+
+def test_concurrent_role_edits_both_survive(repository):
+    """Правка, прочитавшая источник до чужой правки, применяется заново поверх неё."""
+
+    client = _client(repository)
+    source = _upload(client, ("a.dxf", _dxf()))["sources"][0]
+    original = repository.update_roles
+    raced = {"done": False}
+
+    def racing_update(organization_id, source_id, roles, summary, *, expected_revision):
+        if not raced["done"]:
+            raced["done"] = True
+            # Между чтением и записью этой правки другое окно меняет другой слой.
+            cad_service.save_roles(
+                repository, organization_id, "b@example.ru", source_id, CadRolesRequest(layers={"Дорога": "ignore"})
+            )
+        return original(organization_id, source_id, roles, summary, expected_revision=expected_revision)
+
+    repository.update_roles = racing_update
+    response = client.put(f"{BASE}/sources/{source['id']}/roles", json={"layers": {"Отвал вскрышных пород": "ignore"}})
+
+    assert response.status_code == 200, response.text
+    stored = client.get(f"{BASE}/sources/{source['id']}").json()
+    assert _layers(stored)["Дорога"] == ("ignore", "manual")
+    assert _layers(stored)["Отвал вскрышных пород"] == ("ignore", "manual")
+    assert {item["role"] for item in stored["entities"] if item["layer"] in ("Дорога", "Отвал вскрышных пород")} == {"ignore"}
+
+
+def test_endless_conflicts_end_with_a_readable_409(repository):
+    from design.spatial.cad.repository import CadSourceConflict
+
+    client = _client(repository)
+    source = _upload(client, ("a.dxf", _dxf()))["sources"][0]
+
+    def always_conflicts(*args, **kwargs):
+        raise CadSourceConflict("busy")
+
+    repository.update_roles = always_conflicts
+    response = client.put(f"{BASE}/sources/{source['id']}/roles", json={"layers": {"Дорога": "ignore"}})
+
+    assert response.status_code == 409
+    assert "другом окне" in response.json()["detail"]

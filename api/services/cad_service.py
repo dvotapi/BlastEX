@@ -47,6 +47,7 @@ from design.spatial.cad.model import (
 from design.spatial.cad.reader import CLOSURE_TOLERANCE_M, CadReadError, ReadOptions, read_cad
 from design.spatial.cad.repository import (
     CadRepository,
+    CadSourceConflict,
     CadSourceNotFound,
     CadSourceRecord,
     PostgresCadRepository,
@@ -64,6 +65,12 @@ from design.spatial.cad.roles import (
 # подложка всего карьера, разбирать её онлайн смысла нет.
 MAX_FILE_BYTES = 40 * 1024 * 1024
 MAX_FILES = 10
+
+# Сколько раз повторить правку, если источник изменили между чтением и записью.
+WRITE_ATTEMPTS = 3
+CONFLICT_MESSAGE = (
+    "Этот чертёж одновременно правят в другом окне. Закройте импорт и откройте чертёж заново."
+)
 
 GEOMETRY_NAMES = {"line": "линия", "point": "точка или знак", "text": "подпись"}
 
@@ -229,24 +236,62 @@ def reparse(
     except CadReadError as exc:
         raise CadImportError(f"«{record.file_name}»: {exc}") from exc
 
-    manual_entities = dict(record.summary.get("manual_entities") or {})
-    manual_layers = dict(record.summary.get("manual_layers") or {})
-    template = _source_template(record.summary)
-    assignment = assign_roles(drawing.entities, template, _role_params(params), manual_layers, manual_entities)
-    summary = _summary(
-        drawing,
-        assignment,
-        manual_layers=manual_layers,
-        manual_entities=manual_entities,
-        site_code=record.site_code,
-        work_object_name=record.work_object_name,
-    )
-    repository.replace_entities(organization_id, source_id, drawing.entities, params.model_dump(), summary)
-    record.params, record.summary = params.model_dump(), summary
-    return _source_schema(record, drawing.entities)
+    for attempt in range(WRITE_ATTEMPTS):
+        if attempt:
+            # Источник изменили между чтением и записью — ручные роли берём свежие.
+            record = _require(repository, organization_id, source_id)
+        manual_entities = dict(record.summary.get("manual_entities") or {})
+        manual_layers = dict(record.summary.get("manual_layers") or {})
+        template = _source_template(record.summary)
+        assignment = assign_roles(drawing.entities, template, _role_params(params), manual_layers, manual_entities)
+        summary = _summary(
+            drawing,
+            assignment,
+            manual_layers=manual_layers,
+            manual_entities=manual_entities,
+            site_code=record.site_code,
+            work_object_name=record.work_object_name,
+        )
+        try:
+            repository.replace_entities(
+                organization_id,
+                source_id,
+                drawing.entities,
+                params.model_dump(),
+                summary,
+                expected_revision=record.revision,
+            )
+        except CadSourceConflict:
+            continue
+        record.params, record.summary = params.model_dump(), summary
+        return _source_schema(record, drawing.entities)
+    raise CadImportError(CONFLICT_MESSAGE, status_code=409)
 
 
 def save_roles(
+    repository: CadRepository,
+    organization_id: str,
+    actor: str,
+    source_id: str,
+    request: CadRolesRequest,
+) -> CadRolesResponse:
+    """Правка ролей — разница к текущему состоянию.
+
+    Две правки одного источника из разных окон не должны затирать друг друга:
+    запись проходит, только если ревизия источника не сменилась с чтения, а
+    иначе правка применяется заново к свежему состоянию — она разница, поэтому
+    повтор безопасен.
+    """
+
+    for _ in range(WRITE_ATTEMPTS):
+        try:
+            return _save_roles_once(repository, organization_id, actor, source_id, request)
+        except CadSourceConflict:
+            continue
+    raise CadImportError(CONFLICT_MESSAGE, status_code=409)
+
+
+def _save_roles_once(
     repository: CadRepository,
     organization_id: str,
     actor: str,
@@ -306,7 +351,7 @@ def save_roles(
         for item in entities
         if before[item.handle] != (item.role, item.role_origin)
     }
-    repository.update_roles(organization_id, source_id, changed, summary)
+    repository.update_roles(organization_id, source_id, changed, summary, expected_revision=record.revision)
     if record.site_code and request.layers:
         repository.upsert_layer_roles(organization_id, record.site_code, request.layers, actor)
     return CadRolesResponse(

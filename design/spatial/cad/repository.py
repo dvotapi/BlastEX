@@ -43,6 +43,10 @@ class CadSourceNotFound(LookupError):
     """Источника нет в этой организации."""
 
 
+class CadSourceConflict(RuntimeError):
+    """Источник изменили после того, как его прочитали: запись с устаревшей ревизией."""
+
+
 @dataclass
 class CadSourceRecord:
     id: str
@@ -59,6 +63,8 @@ class CadSourceRecord:
     survey_date: date | None = None
     coordinate_system: dict[str, Any] | None = None
     file_data: bytes | None = field(default=None, repr=False)
+    # Номер правки: запись роли или разбора проходит, только если он не сменился.
+    revision: int = 1
 
 
 class CadRepository(Protocol):
@@ -77,6 +83,8 @@ class CadRepository(Protocol):
         entities: list[CadEntity],
         params: dict[str, Any],
         summary: dict[str, Any],
+        *,
+        expected_revision: int,
     ) -> None: ...
 
     def update_roles(
@@ -85,6 +93,8 @@ class CadRepository(Protocol):
         source_id: str,
         roles: dict[str, tuple[str, str]],
         summary: dict[str, Any],
+        *,
+        expected_revision: int,
     ) -> None: ...
 
     def get_layer_template(self, organization_id: str, site_code: str) -> dict[str, TemplateEntry]: ...
@@ -130,6 +140,7 @@ class CadSourceRow(Base):
     summary: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     uploaded_by: Mapped[str] = mapped_column(String(320), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
 class CadEntityRow(Base):
@@ -269,6 +280,7 @@ class PostgresCadRepository:
                 survey_date=row.survey_date,
                 coordinate_system=row.coordinate_system,
                 file_data=bytes(row.file_data) if with_file else None,
+                revision=row.revision,
             )
 
     def list_entities(self, organization_id: str, source_id: str) -> list[CadEntity]:
@@ -287,9 +299,11 @@ class PostgresCadRepository:
         entities: list[CadEntity],
         params: dict[str, Any],
         summary: dict[str, Any],
+        *,
+        expected_revision: int,
     ) -> None:
         with self.session_factory() as session, session.begin():
-            self._require(session, organization_id, source_id)
+            self._bump(session, organization_id, source_id, expected_revision, params=params, summary=summary)
             session.execute(
                 delete(CadEntityRow).where(
                     CadEntityRow.organization_id == organization_id, CadEntityRow.source_id == source_id
@@ -297,11 +311,6 @@ class PostgresCadRepository:
             )
             if entities:
                 session.execute(insert(CadEntityRow), _entity_rows(organization_id, source_id, entities))
-            session.execute(
-                update(CadSourceRow)
-                .where(CadSourceRow.organization_id == organization_id, CadSourceRow.id == source_id)
-                .values(params=params, summary=summary)
-            )
 
     def update_roles(
         self,
@@ -309,9 +318,11 @@ class PostgresCadRepository:
         source_id: str,
         roles: dict[str, tuple[str, str]],
         summary: dict[str, Any],
+        *,
+        expected_revision: int,
     ) -> None:
         with self.session_factory() as session, session.begin():
-            self._require(session, organization_id, source_id)
+            self._bump(session, organization_id, source_id, expected_revision, summary=summary)
             if roles:
                 # Одна массовая операция по первичному ключу: смена роли слоя
                 # из десятков тысяч точек — не десятки тысяч запросов. Источник
@@ -325,11 +336,6 @@ class PostgresCadRepository:
                     # Объекты строк в сессию не загружались — синхронизировать нечего.
                     execution_options={"synchronize_session": None},
                 )
-            session.execute(
-                update(CadSourceRow)
-                .where(CadSourceRow.organization_id == organization_id, CadSourceRow.id == source_id)
-                .values(summary=summary)
-            )
 
     def get_layer_template(self, organization_id: str, site_code: str) -> dict[str, TemplateEntry]:
         with self.session_factory() as session:
@@ -383,6 +389,27 @@ class PostgresCadRepository:
         with self.session_factory() as session, session.begin():
             session.execute(statement)
 
+    @classmethod
+    def _bump(cls, session, organization_id: str, source_id: str, expected_revision: int, **values: Any) -> None:
+        """Обновляет источник и ревизию, если её никто не сменил с момента чтения.
+
+        Проверка и запись — один UPDATE: параллельная транзакция ждёт блокировку
+        строки и после неё уже не находит прежнюю ревизию.
+        """
+
+        result = session.execute(
+            update(CadSourceRow)
+            .where(
+                CadSourceRow.organization_id == organization_id,
+                CadSourceRow.id == source_id,
+                CadSourceRow.revision == expected_revision,
+            )
+            .values(revision=CadSourceRow.revision + 1, **values)
+        )
+        if result.rowcount == 0:
+            cls._require(session, organization_id, source_id)
+            raise CadSourceConflict(source_id)
+
     @staticmethod
     def _require(session, organization_id: str, source_id: str) -> None:
         found = session.execute(
@@ -424,8 +451,10 @@ class InMemoryCadRepository:
         entities: list[CadEntity],
         params: dict[str, Any],
         summary: dict[str, Any],
+        *,
+        expected_revision: int,
     ) -> None:
-        record = self._require(organization_id, source_id)
+        record = self._bump(organization_id, source_id, expected_revision)
         record.params = copy.deepcopy(params)
         record.summary = copy.deepcopy(summary)
         self._entities[(organization_id, source_id)] = copy.deepcopy(entities)
@@ -436,8 +465,10 @@ class InMemoryCadRepository:
         source_id: str,
         roles: dict[str, tuple[str, str]],
         summary: dict[str, Any],
+        *,
+        expected_revision: int,
     ) -> None:
-        record = self._require(organization_id, source_id)
+        record = self._bump(organization_id, source_id, expected_revision)
         for item in self._entities.get((organization_id, source_id), []):
             if item.handle in roles:
                 item.role, item.role_origin = roles[item.handle]
@@ -460,4 +491,11 @@ class InMemoryCadRepository:
         record = self._sources.get((organization_id, source_id))
         if record is None:
             raise CadSourceNotFound(source_id)
+        return record
+
+    def _bump(self, organization_id: str, source_id: str, expected_revision: int) -> CadSourceRecord:
+        record = self._require(organization_id, source_id)
+        if record.revision != expected_revision:
+            raise CadSourceConflict(source_id)
+        record.revision += 1
         return record

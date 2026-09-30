@@ -15,6 +15,7 @@ from sqlalchemy import text
 from design.spatial.cad.model import CadEntity
 from design.spatial.cad.roles import TemplateEntry
 from design.spatial.cad.repository import (
+    CadSourceConflict,
     CadSourceNotFound,
     CadSourceRecord,
     InMemoryCadRepository,
@@ -116,16 +117,16 @@ def test_other_organization_sees_nothing(repository) -> None:
     assert repository.get_source(ORG_B, "src-1") is None
     assert repository.list_entities(ORG_B, "src-1") == []
     with pytest.raises(CadSourceNotFound):
-        repository.update_roles(ORG_B, "src-1", {"769": ("ignore", "manual")}, {})
+        repository.update_roles(ORG_B, "src-1", {"769": ("ignore", "manual")}, {}, expected_revision=1)
     with pytest.raises(CadSourceNotFound):
-        repository.replace_entities(ORG_B, "src-1", [], {}, {})
+        repository.replace_entities(ORG_B, "src-1", [], {}, {}, expected_revision=1)
     assert repository.list_entities(ORG_A, "src-1")[0].role == "block_contour"
 
 
 def test_update_roles_changes_only_named_entities(repository) -> None:
     repository.create_sources(ORG_A, [(_record(), _entities())])
 
-    repository.update_roles(ORG_A, "src-1", {"51C": ("ignore", "manual")}, {"layers": {"x": 1}})
+    repository.update_roles(ORG_A, "src-1", {"51C": ("ignore", "manual")}, {"layers": {"x": 1}}, expected_revision=1)
 
     roles = {item.handle: (item.role, item.role_origin) for item in repository.list_entities(ORG_A, "src-1")}
     assert roles == {
@@ -141,11 +142,31 @@ def test_replace_entities_swaps_geometry_params_and_summary(repository) -> None:
     scaled = _entities()[:1]
     scaled[0].points = [(0.0, 0.0, 0.4), (0.04, 0.0, 0.4), (0.04, 0.03, 0.4)]
 
-    repository.replace_entities(ORG_A, "src-1", scaled, {"scale": 0.001}, {"warnings": []})
+    repository.replace_entities(ORG_A, "src-1", scaled, {"scale": 0.001}, {"warnings": []}, expected_revision=1)
 
     source = repository.get_source(ORG_A, "src-1")
     assert source.params == {"scale": 0.001}
     assert [item.points for item in repository.list_entities(ORG_A, "src-1")] == [scaled[0].points]
+
+
+def test_writes_with_a_stale_revision_are_refused(repository) -> None:
+    """Две правки одного источника: вторая, прочитанная до первой, не затирает её."""
+
+    repository.create_sources(ORG_A, [(_record(), _entities())])
+    assert repository.get_source(ORG_A, "src-1").revision == 1
+
+    repository.update_roles(ORG_A, "src-1", {"51C": ("ignore", "manual")}, {"first": True}, expected_revision=1)
+    assert repository.get_source(ORG_A, "src-1").revision == 2
+
+    with pytest.raises(CadSourceConflict):
+        repository.update_roles(ORG_A, "src-1", {"769": ("ignore", "manual")}, {"second": True}, expected_revision=1)
+    with pytest.raises(CadSourceConflict):
+        repository.replace_entities(ORG_A, "src-1", [], {"scale": 2}, {"third": True}, expected_revision=1)
+
+    source = repository.get_source(ORG_A, "src-1")
+    assert (source.revision, source.summary, source.params) == (2, {"first": True}, {"scale": 1.0, "label_radius_m": 3.0})
+    roles = {item.handle: item.role for item in repository.list_entities(ORG_A, "src-1")}
+    assert roles["769"] == "block_contour"
 
 
 def test_layer_template_adds_missing_and_upserts(repository) -> None:
@@ -200,7 +221,7 @@ def test_role_update_is_one_statement_not_one_per_entity(public_db) -> None:
         statements: list[str] = []
         event.listen(repository.engine, "before_cursor_execute", lambda *args: statements.append(args[2]))
 
-        repository.update_roles(ORG_A, "src-1", {item.handle: ("ignore", "manual") for item in many}, {})
+        repository.update_roles(ORG_A, "src-1", {item.handle: ("ignore", "manual") for item in many}, {}, expected_revision=1)
 
         assert sum(1 for sql in statements if sql.lstrip().upper().startswith("UPDATE BLASTEX.CAD_ENTITIES")) == 1
         assert {item.role for item in repository.list_entities(ORG_A, "src-1")} == {"ignore"}

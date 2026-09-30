@@ -23,7 +23,7 @@ from simulation.fragmentation.models import (
     DesignedFragmentationTarget,
     MeasuredFragmentation,
 )
-from simulation.fragmentation.regions import ExplosiveSpec, RockSpec
+from simulation.fragmentation.regions import ExplosiveSpec, RockSpec, collect_regions
 
 
 def _contour() -> BlockContour:
@@ -188,6 +188,52 @@ class FragmentationEngineTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             predict_region(_inputs(), model="ml-magic")
+
+
+class RegionLengthTests(unittest.TestCase):
+    """Длина заряда нужна множителю L/H: без неё n новой модели берёт 1."""
+
+    def _regions(self, design):
+        return collect_regions(
+            design,
+            lump_size_mm=400.0,
+            default_rock=RockSpec("Гранит", 2.65, 150.0, 2.0),
+            default_explosive=ExplosiveSpec("АНФО", 0.82, 3.8),
+        )
+
+    def _hole_region(self, holes, hole_id):
+        return next(region for region in holes if region.hole_ids == [hole_id])
+
+    def test_charge_length_is_sum_of_explosive_decks(self):
+        design = _design_with_charges()
+        holes, _domains, site, _warnings = self._regions(design)
+
+        region = self._hole_region(holes, design.loads[0].hole_id)
+
+        # Скважина 11 м (уступ 10 + перебур 1), забойка 3 м, заряд 3–11 м.
+        self.assertAlmostEqual(region.inputs.charge_length_m, 8.0)
+        self.assertAlmostEqual(region.inputs.hole_length_m, 11.0)
+        self.assertAlmostEqual(site.inputs.charge_length_m, 8.0)
+        self.assertAlmostEqual(site.inputs.hole_length_m, 11.0)
+
+    def test_air_gap_is_not_charge(self):
+        design = _design_with_charges()
+        charge = next(deck for deck in design.loads[0].decks if deck.kind == "charge")
+        charge.to_m = 9.0  # заряд 3–9 м, ниже — пустота
+
+        holes, *_ = self._regions(design)
+
+        self.assertAlmostEqual(self._hole_region(holes, design.loads[0].hole_id).inputs.charge_length_m, 6.0)
+
+    def test_without_decks_charge_is_hole_minus_stemming(self):
+        design = _design_with_charges()
+        hole_id = design.holes[0].id
+        design.loads = []
+        design.charge_rules = dict(design.charge_rules, stemming_m=2.5)
+
+        holes, *_ = self._regions(design)
+
+        self.assertAlmostEqual(self._hole_region(holes, hole_id).inputs.charge_length_m, 8.5)
 
 
 class BlastEngineRegressionTests(unittest.TestCase):

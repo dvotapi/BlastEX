@@ -198,6 +198,23 @@ def _estimate_charge_kg(
     return capacity_kg_per_m * charge_length
 
 
+def _charge_length_m(load: HoleLoad | None, hole: Hole, stemming_m: float) -> float:
+    """Длина заряда, м: сумма взрывчатых дек, без дек — скважина минус забойка.
+
+    Воздушный промежуток между деками зарядом не считается: для множителя
+    L/H в n по Каннингему нужна длина ВВ, а не «скважина минус забойка».
+    """
+    if load is not None:
+        length = sum(
+            max(0.0, deck.to_m - deck.from_m)
+            for deck in load.decks
+            if is_explosive_deck_kind(deck.kind) and deck.mass_kg > 0
+        )
+        if length > 0:
+            return length
+    return max(0.0, hole.length_m - stemming_m)
+
+
 def _influence_volume_m3(burden_m: float, spacing_m: float, bench_height_m: float, load: HoleLoad | None) -> float:
     if load is not None and load.influence_volume_m3 > 0:
         return load.influence_volume_m3
@@ -285,6 +302,8 @@ def collect_hole_regions(
             lump_size_mm=lump_size_mm,
             hole_oversize_coeff=oversize,
             influence_volume_m3=volume,
+            charge_length_m=_charge_length_m(load, hole, stemming),
+            hole_length_m=hole.length_m,
         )
         regions.append(
             InfluenceRegion(
@@ -354,6 +373,8 @@ def aggregate_region(
         lump_size_mm=lump_size_mm,
         hole_oversize_coeff=template.hole_oversize_coeff,
         influence_volume_m3=volume,
+        charge_length_m=avg(lambda inp: inp.charge_length_m),
+        hole_length_m=avg(lambda inp: inp.hole_length_m),
     )
     xs = [item.x for item in members]
     ys = [item.y for item in members]

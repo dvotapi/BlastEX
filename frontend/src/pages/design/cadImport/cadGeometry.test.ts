@@ -22,6 +22,7 @@ function entity(handle: string, layer: string, points: CadEntity["points"], extr
     color: null,
     role: "situation",
     role_origin: "auto",
+    role_override: false,
     ...extra,
   };
 }

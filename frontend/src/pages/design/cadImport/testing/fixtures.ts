@@ -26,6 +26,7 @@ export function cadEntity(handle: string, layer: string, extra: Partial<CadEntit
     color: null,
     role: "situation",
     role_origin: "auto",
+    role_override: false,
     ...extra,
   };
 }

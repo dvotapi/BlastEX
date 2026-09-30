@@ -64,6 +64,8 @@ class CadEntitySchema(BaseModel):
     color: str | None = None
     role: str
     role_origin: str
+    # Роль задана этому объекту явно (а не унаследована от слоя).
+    role_override: bool = False
 
 
 class CadLayerSchema(BaseModel):
@@ -122,3 +124,5 @@ class CadRolesResponse(BaseModel):
     warnings: list[CadWarningSchema] = Field(default_factory=list)
     layers: list[CadLayerSchema] = Field(default_factory=list)
     roles: dict[str, list[str]] = Field(default_factory=dict)
+    # Все объекты с явной ролью после правки — чтобы фронт знал, где «По слою».
+    overrides: list[str] = Field(default_factory=list)

@@ -161,7 +161,9 @@ export function LayersStep(props: LayersStepProps) {
             </tr>,
             ...(isOpen
               ? visible.map((entity) => {
-                  const manual = entity.role_origin === "manual";
+                  // «Вручную» бывает и у роли, унаследованной от слоя, заданного вручную;
+                  // выбранной в списке показываем только явную роль объекта.
+                  const manual = entity.role_override;
                   const choices = meta.roles.filter((role) => role.applies_to.includes(entity.geometry_type));
                   return (
                     <tr

@@ -33,7 +33,6 @@ from cost.v2.models import ReferenceSnapshot
 from design.spatial.cad.model import (
     LAYER_ONLY_ROLES,
     LAYER_ROLE_CODES,
-    ORIGIN_MANUAL,
     ORIGIN_TEMPLATE,
     ORIGINS,
     ROLE_CODES,
@@ -212,11 +211,7 @@ def reparse(
     except CadReadError as exc:
         raise CadImportError(f"«{record.file_name}»: {exc}") from exc
 
-    manual_entities = {
-        item.handle: item.role
-        for item in repository.list_entities(organization_id, source_id)
-        if item.role_origin == ORIGIN_MANUAL
-    }
+    manual_entities = dict(record.summary.get("manual_entities") or {})
     manual_layers = dict(record.summary.get("manual_layers") or {})
     template = _source_template(record.summary)
     assignment = assign_roles(drawing.entities, template, _role_params(params), manual_layers, manual_entities)
@@ -224,6 +219,7 @@ def reparse(
         drawing,
         assignment,
         manual_layers=manual_layers,
+        manual_entities=manual_entities,
         site_code=record.site_code,
         work_object_name=record.work_object_name,
     )
@@ -265,7 +261,10 @@ def save_roles(
 
     before = {item.handle: (item.role, item.role_origin) for item in entities}
     manual_layers = {**(record.summary.get("manual_layers") or {}), **request.layers}
-    manual_entities = {item.handle: item.role for item in entities if item.role_origin == ORIGIN_MANUAL}
+    # Явные роли объектов хранятся отдельно: происхождение «вручную» есть и у
+    # объектов, унаследовавших роль от слоя, заданного вручную, — их повторная
+    # правка слоя должна перекрасить, а явные — нет.
+    manual_entities = dict(record.summary.get("manual_entities") or {})
     for handle, role in request.entities.items():
         if role is None:
             manual_entities.pop(handle, None)
@@ -278,6 +277,7 @@ def save_roles(
 
     summary = dict(record.summary)
     summary["manual_layers"] = manual_layers
+    summary["manual_entities"] = manual_entities
     summary["layer_roles"] = [
         _layer_entry(layer) for layer in assignment.layers
     ]
@@ -298,6 +298,7 @@ def save_roles(
         warnings=_warnings(summary),
         layers=_layer_schemas(summary, entities),
         roles={handle: [role, origin] for handle, (role, origin) in changed.items()},
+        overrides=sorted(manual_entities),
     )
 
 
@@ -345,6 +346,7 @@ def _summary(
     assignment: RoleAssignment,
     *,
     manual_layers: dict[str, str],
+    manual_entities: dict[str, str] | None = None,
     site_code: str,
     work_object_name: str,
 ) -> dict:
@@ -373,6 +375,7 @@ def _summary(
             _layer_entry(layer) for layer in assignment.layers
         ],
         "manual_layers": manual_layers,
+        "manual_entities": dict(manual_entities or {}),
         "floor_z_m": assignment.floor_z_m,
     }
 
@@ -403,7 +406,7 @@ def _layer_schemas(summary: dict, entities: list[CadEntity]) -> list[CadLayerSch
     return layers
 
 
-def _entity_schema(item: CadEntity) -> CadEntitySchema:
+def _entity_schema(item: CadEntity, overrides: frozenset[str] = frozenset()) -> CadEntitySchema:
     return CadEntitySchema(
         handle=item.handle,
         layer=item.layer,
@@ -423,6 +426,7 @@ def _entity_schema(item: CadEntity) -> CadEntitySchema:
         color=item.color,
         role=item.role,
         role_origin=item.role_origin,
+        role_override=item.handle in overrides,
     )
 
 
@@ -433,6 +437,7 @@ def _warnings(summary: dict) -> list[CadWarningSchema]:
 
 def _source_schema(record: CadSourceRecord, entities: list[CadEntity]) -> CadSourceSchema:
     summary = record.summary or {}
+    overrides = frozenset(summary.get("manual_entities") or {})
     return CadSourceSchema(
         id=record.id,
         file_name=record.file_name,
@@ -450,5 +455,5 @@ def _source_schema(record: CadSourceRecord, entities: list[CadEntity]) -> CadSou
         template_saved=bool(record.site_code),
         warnings=_warnings(summary),
         layers=_layer_schemas(summary, entities),
-        entities=[_entity_schema(item) for item in entities],
+        entities=[_entity_schema(item, overrides) for item in entities],
     )

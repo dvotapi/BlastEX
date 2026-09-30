@@ -102,6 +102,7 @@ describe("CadImportDialog", () => {
       warnings: [],
       layers,
       roles: { "6C3": ["ignore", "manual"], "733": ["ignore", "manual"] },
+      overrides: ["51C"],
     });
     const props = renderDialog({ sources: [source] });
     await ready();
@@ -117,6 +118,8 @@ describe("CadImportDialog", () => {
     expect([crest.role, crest.role_origin]).toEqual(["ignore", "manual"]);
     expect(crest.points).toEqual(source.entities[0].points);
     expect(merged.layers).toEqual(layers);
+    // Признак явной роли — из ответа: унаследованные от слоя роли явными не считаются.
+    expect(merged.entities.filter((item: { role_override: boolean }) => item.role_override).map((item: { handle: string }) => item.handle)).toEqual(["51C"]);
     expect(merged.warnings).toEqual([]);
   });
 

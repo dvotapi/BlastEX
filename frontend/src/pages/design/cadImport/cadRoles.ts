@@ -29,6 +29,7 @@ export const ORIGIN_TITLES: Record<string, string> = {
 
 /** Источник после правки ролей: геометрия прежняя, роли и слои — из ответа сервера. */
 export function applyRoleChanges(source: CadSource, response: CadRolesResponse): CadSource {
+  const overrides = new Set(response.overrides);
   return {
     ...source,
     template_saved: response.template_saved,
@@ -37,7 +38,11 @@ export function applyRoleChanges(source: CadSource, response: CadRolesResponse):
     layers: response.layers,
     entities: source.entities.map((entity) => {
       const change = response.roles[entity.handle];
-      return change ? { ...entity, role: change[0], role_origin: change[1] } : entity;
+      const override = overrides.has(entity.handle);
+      if (!change && override === entity.role_override) return entity;
+      return change
+        ? { ...entity, role: change[0], role_origin: change[1], role_override: override }
+        : { ...entity, role_override: override };
     }),
   };
 }

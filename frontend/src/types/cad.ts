@@ -61,6 +61,8 @@ export type CadEntity = {
   color: string | null;
   role: CadRoleCode;
   role_origin: CadOrigin;
+  /** Роль задана этому объекту явно, а не унаследована от слоя. */
+  role_override: boolean;
 };
 
 export type CadLayer = {
@@ -120,4 +122,6 @@ export type CadRolesResponse = {
   warnings: CadWarning[];
   layers: CadLayer[];
   roles: Record<string, [CadRoleCode, CadOrigin]>;
+  /** Все объекты с явной ролью после правки. */
+  overrides: string[];
 };

@@ -22,6 +22,7 @@ function line(handle: string, zs: number[], length: number, role: CadEntity["rol
     color: null,
     role,
     role_origin: "auto",
+    role_override: false,
   };
 }
 

@@ -65,6 +65,28 @@ describe("LayersStep", () => {
     expect(within(bottom).getByRole("option", { name: "По слою: Бровка нижняя" })).toBeTruthy();
   });
 
+  it("роль, унаследованная от ручной роли слоя, показывается как «По слою»", () => {
+    const source = cadSource();
+    source.entities = source.entities.map((item) =>
+      item.handle === "733" ? { ...item, role: "ignore", role_origin: "manual", role_override: false } : item,
+    );
+    renderStep({ source, expanded: new Set(["Горизонт +410"]) });
+
+    const select = within(screen.getByRole("row", { name: /733/ })).getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(within(select).getByRole("option", { name: "По слою: Не использовать" })).toBeTruthy();
+  });
+
+  it("явная роль объекта выбрана в списке", () => {
+    const source = cadSource();
+    source.entities = source.entities.map((item) =>
+      item.handle === "733" ? { ...item, role: "feature_line", role_origin: "manual", role_override: true } : item,
+    );
+    renderStep({ source, expanded: new Set(["Горизонт +410"]) });
+
+    expect((within(screen.getByRole("row", { name: /733/ })).getByRole("combobox") as HTMLSelectElement).value).toBe("feature_line");
+  });
+
   it("смена роли слоя и сущности уходит наверх", () => {
     const props = renderStep({ expanded: new Set(["Горизонт +410"]) });
 

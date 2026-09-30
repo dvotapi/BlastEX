@@ -337,3 +337,40 @@ def test_too_many_files_are_refused_before_reading_them(repository, monkeypatch)
     assert response.status_code == 422
     assert "не больше 2" in response.json()["detail"]
     assert reads == []
+
+
+def test_second_layer_change_reaches_every_entity_of_the_layer(repository):
+    """Роль, унаследованная от ручной роли слоя, — не ручная роль объекта."""
+
+    client = _client(repository)
+    source = _upload(client, ("a.dxf", _dxf()))["sources"][0]
+    roles = f"{BASE}/sources/{source['id']}/roles"
+    client.put(roles, json={"layers": {"Отвал вскрышных пород": "situation"}}).raise_for_status()
+
+    changed = client.put(roles, json={"layers": {"Отвал вскрышных пород": "ignore"}}).json()
+
+    stored = client.get(f"{BASE}/sources/{source['id']}").json()
+    dump = [item for item in stored["entities"] if item["layer"] == "Отвал вскрышных пород"]
+    assert {item["role"] for item in dump} == {"ignore"}
+    assert all(changed["roles"][item["handle"]][0] == "ignore" for item in dump)
+    assert not any(item["role_override"] for item in dump)
+
+
+def test_explicit_entity_role_survives_layer_changes_and_reparse(repository):
+    client = _client(repository)
+    source = _upload(client, ("a.dxf", _dxf()))["sources"][0]
+    roles = f"{BASE}/sources/{source['id']}/roles"
+    road = next(item["handle"] for item in source["entities"] if item["layer"] == "Дорога" and item["kind"] == "LINE")
+    point = next(item["handle"] for item in source["entities"] if item["layer"] == "Дорога" and item["kind"] == "POINT")
+
+    changed = client.put(roles, json={"entities": {road: "feature_line"}}).json()
+    assert changed["overrides"] == [road]
+    client.put(roles, json={"layers": {"Дорога": "ignore"}}).raise_for_status()
+    reparsed = client.post(
+        f"{BASE}/sources/{source['id']}/reparse",
+        json={"scale": 1, "label_radius_m": 3, "floor_z_m": None, "bench_height_m": 10},
+    ).json()
+
+    by_handle = {item["handle"]: item for item in reparsed["entities"]}
+    assert (by_handle[road]["role"], by_handle[road]["role_override"]) == ("feature_line", True)
+    assert (by_handle[point]["role"], by_handle[point]["role_override"]) == ("ignore", False)

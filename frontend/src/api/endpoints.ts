@@ -113,7 +113,6 @@ import type {
   MassBlastRevision,
   MassBlastValidation,
   BenchDxfImport,
-  DrawingScan,
   Point3,
 } from "../types/design";
 import type {
@@ -520,7 +519,6 @@ export const api = {
       post<{ surface: SurfaceModel; stats: SurfaceStats }>(`${V1}/design/surfaces/import`, payload),
     importBenchDxf: (payload: { content: string; filename: string; coordinate_system?: CoordinateSystem }) =>
       post<BenchDxfImport>(`${V1}/design/contour/import-dxf`, payload),
-    scanDrawing: (file: File) => postFile<DrawingScan>(`${V1}/design/drawing/polylines`, file),
     benchFromPolylines: (payload: {
       crest: Point3[];
       toe: Point3[];

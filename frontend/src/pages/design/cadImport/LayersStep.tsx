@@ -172,8 +172,10 @@ export function LayersStep(props: LayersStepProps) {
                       <td className="cad-entity-name">
                         <i className="cad-swatch" style={{ background: roleColor(entity.role) }} aria-hidden="true" />
                         <span>
-                          <b>{entity.handle}</b> {KIND_LABELS[entity.kind] ?? entity.kind}
-                          <small>{entityDetails(entity)}</small>
+                          <b>{entity.handle}</b>
+                          <small>
+                            {KIND_LABELS[entity.kind] ?? entity.kind} · {entityDetails(entity)}
+                          </small>
                         </span>
                       </td>
                       <td>

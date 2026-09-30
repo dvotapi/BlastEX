@@ -163,6 +163,17 @@ describe("CadImportDialog", () => {
     expect((screen.getByRole("dialog", { name: "Импорт чертежа: справка" }) as HTMLDialogElement).open).toBe(true);
   });
 
+  it("закрытие справки не закрывает окно импорта", async () => {
+    const props = renderDialog();
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Справка по импорту чертежа" }));
+
+    // Esc или «×» справки дают событие close у её собственного dialog.
+    fireEvent(screen.getByRole("dialog", { name: "Импорт чертежа: справка" }), new Event("close"));
+
+    expect(props.onCancel).not.toHaveBeenCalled();
+  });
+
   it("Отмена закрывает окно", async () => {
     const props = renderDialog();
     await ready();

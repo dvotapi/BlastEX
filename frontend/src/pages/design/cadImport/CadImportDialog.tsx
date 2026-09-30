@@ -2,7 +2,7 @@
 // чертёж, справа шаги; пока есть шаг «Слои», построение — прежнее, полосой
 // между двумя линиями. Роли и повторный разбор сохраняются на сервере сразу:
 // шаблон слоёв объекта должен пережить закрытие окна.
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { api } from "../../../api/endpoints";
 import { ruNumber } from "../../../lib/format";
 import type { CadEntity, CadLayerRoleCode, CadMeta, CadParams, CadRoleCode, CadRolesPayload, CadSource } from "../../../types/cad";
@@ -75,6 +75,12 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
     if (event.target === ref.current) onCancel();
   }
 
+  // React проводит `close` вложенного окна (справки) через родителей — окно
+  // импорта закрывается только своим событием: Esc или «×» справки его не трогают.
+  function onDialogClose(event: SyntheticEvent<HTMLDialogElement>) {
+    if (event.target === ref.current) onCancel();
+  }
+
   function replace(updated: CadSource) {
     onSourcesChange(sources.map((source) => (source.id === updated.id ? updated : source)));
   }
@@ -134,7 +140,7 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
       ref={ref}
       className="cad-dialog"
       aria-labelledby="cad-dialog-title"
-      onClose={onCancel}
+      onClose={onDialogClose}
       onClick={onBackdropClick}
     >
       <header>

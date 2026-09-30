@@ -6,8 +6,8 @@ from simulation.fragmentation.distributions import (
     rosin_rammler_characteristic_mm,
     rosin_rammler_oversize_pct,
 )
-from simulation.fragmentation.kuznetsov import kuznetsov_x50_mm, rock_factor_A
-from simulation.fragmentation.kuzram import cunningham_uniformity_n
+from simulation.fragmentation.legacy.kuznetsov import kuznetsov_x50_mm, rock_factor_A
+from simulation.fragmentation.legacy.kuzram import cunningham_uniformity_n
 from simulation.fragmentation.units import relative_weight_strength
 
 # --- БЛОК ОПИСАНИЯ ДАННЫХ Классов ---
@@ -45,7 +45,7 @@ def _legacy_uniformity_raw(burden_m: float, diameter_m: float, spacing_to_burden
     """Нераскэмпленный индекс равномерности n для расчёта «до исправления».
 
     Выражение должно оставаться идентичным нераскэмпленной части внутри
-    simulation/fragmentation/kuzram.py::cunningham_uniformity_n (при
+    simulation/fragmentation/legacy/kuzram.py::cunningham_uniformity_n (при
     drill_deviation_m = 0) — так расчёт «до исправления» и клэмпнутое n,
     которое он же использует для самого прогноза, не расходятся незаметно
     при будущей правке одной из формул. Результат может быть отрицательным

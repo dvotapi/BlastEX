@@ -13,7 +13,7 @@ from design.models import (
     RockPropertySet,
 )
 from design.pattern import generate_pattern
-from simulation.fragmentation.engine import predict_design, predict_region
+from simulation.fragmentation.engine import is_legacy_model, list_models, predict_design, predict_region, resolve_model
 from simulation.fragmentation.maps import FRAGMENTATION_MAP_METRICS
 from simulation.fragmentation.models import (
     ROLE_DESIGNED,
@@ -100,19 +100,55 @@ class FragmentationEngineTests(unittest.TestCase):
             self.assertIn(metric, sample)
             self.assertIn(metric, result["maps"]["stats"])
 
-    def test_three_models_differ_in_distribution(self):
-        design = _design_with_charges()
-        kwargs = dict(
+    def _kwargs(self):
+        return dict(
             lump_size_mm=400.0,
             default_rock=RockSpec("Гранит", 2.65, 150.0, 2.0),
             default_explosive=ExplosiveSpec("АНФО", 0.82, 3.8),
         )
-        kuz = predict_design(design, model="kuznetsov", **kwargs)
-        ram = predict_design(design, model="kuzram", **kwargs)
-        sweb = predict_design(design, model="swebrec", **kwargs)
-        self.assertEqual(kuz["holes"][0]["prediction"]["x50_mm"], ram["holes"][0]["prediction"]["x50_mm"])
-        self.assertNotEqual(kuz["holes"][0]["prediction"]["x80_mm"], ram["holes"][0]["prediction"]["x80_mm"])
-        self.assertEqual(sweb["holes"][0]["prediction"]["provenance"]["parameters"]["distribution"], "swebrec")
+
+    def test_new_models_share_cunningham_base(self):
+        design = _design_with_charges()
+        rows = {
+            model: predict_design(design, model=model, **self._kwargs())["holes"][0]["prediction"]
+            for model in ("kuznetsov", "kuzram", "swebrec")
+        }
+        self.assertEqual(len({row["x50_mm"] for row in rows.values()}), 1)
+        self.assertEqual(len({row["provenance"]["parameters"]["rock_factor_A"] for row in rows.values()}), 1)
+        self.assertNotEqual(rows["kuznetsov"]["x80_mm"], rows["kuzram"]["x80_mm"])
+        self.assertEqual(rows["swebrec"]["provenance"]["parameters"]["distribution"], "swebrec")
+        self.assertEqual({row["provenance"]["model_version"] for row in rows.values()}, {"2.0.0"})
+
+    def test_legacy_models_keep_old_base(self):
+        design = _design_with_charges()
+        legacy = {
+            model: predict_design(design, model=model, **self._kwargs())["holes"][0]["prediction"]
+            for model in ("kuznetsov_legacy", "kuzram_legacy", "swebrec_legacy")
+        }
+        new = predict_design(design, model="kuzram", **self._kwargs())["holes"][0]["prediction"]
+        self.assertEqual(len({row["x50_mm"] for row in legacy.values()}), 1)
+        self.assertEqual({row["provenance"]["model_version"] for row in legacy.values()}, {"1.0.0"})
+        self.assertNotEqual(legacy["kuzram_legacy"]["x50_mm"], new["x50_mm"])
+
+    def test_model_version_has_one_source(self):
+        design = _design_with_charges()
+        for info in list_models():
+            with self.subTest(model=info["id"]):
+                result = predict_design(design, model=info["id"], **self._kwargs())
+                self.assertEqual(result["model"], info["id"])
+                self.assertEqual(result["model_version"], info["version"])
+                self.assertEqual(result["site"]["prediction"]["provenance"]["model_version"], info["version"])
+
+    def test_resolve_model_aliases(self):
+        self.assertEqual(resolve_model("Kuz-Ram"), "kuzram")
+        self.assertEqual(resolve_model(""), "kuzram")
+        self.assertEqual(resolve_model("kuz-ram_legacy"), "kuzram_legacy")
+        self.assertEqual(resolve_model("swebeck_legacy"), "swebrec_legacy")
+        self.assertTrue(is_legacy_model("kuznetsov_legacy"))
+        self.assertFalse(is_legacy_model("kuzram"))
+        with self.assertRaises(ValueError) as ctx:
+            resolve_model("ml-magic")
+        self.assertIn("kuzram_legacy", str(ctx.exception))
 
     def test_measured_is_echoed_never_overwritten(self):
         design = _design_with_charges()

@@ -28,10 +28,11 @@ from design.reporting.types import (
     PlannedCostSnapshot,
     PredictedOutcomes,
 )
+from simulation.fragmentation.models import MODEL_KUZRAM
 
 DEFAULT_LUMP_SIZE_MM = 400.0
 DEFAULT_MAX_OVERSIZE_PCT = 5.0
-DEFAULT_FRAG_MODEL = "kuzram"
+DEFAULT_FRAG_MODEL = MODEL_KUZRAM
 
 
 def _utc_now_iso() -> str:

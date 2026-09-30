@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from simulation.fragmentation.models import MODEL_KUZRAM
+
 KIND_APPROVED = "approved"
 KIND_OVERLAY = "overlay"
 APPLIED_AS = "scenario_overlay"
@@ -70,7 +72,7 @@ class ScenarioParams:
     inclination_deg: float | None = None
     delay_interval_ms: float | None = None
     cost_scenario_id: str = "drill_blast"
-    fragmentation_model: str = "kuzram"
+    fragmentation_model: str = MODEL_KUZRAM
     lump_size_mm: float = 400.0
     mic_window_ms: float = 8.0
     vibration_model_id: str = ""
@@ -119,7 +121,7 @@ class ScenarioParams:
             inclination_deg=_opt_float(data, "inclination_deg"),
             delay_interval_ms=_opt_float(data, "delay_interval_ms"),
             cost_scenario_id=str(data.get("cost_scenario_id") or "drill_blast"),
-            fragmentation_model=str(data.get("fragmentation_model") or "kuzram"),
+            fragmentation_model=str(data.get("fragmentation_model") or MODEL_KUZRAM),
             lump_size_mm=float(data.get("lump_size_mm") or 400.0),
             mic_window_ms=float(data.get("mic_window_ms") or 8.0),
             vibration_model_id=str(data.get("vibration_model_id") or ""),

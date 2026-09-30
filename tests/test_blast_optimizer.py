@@ -6,8 +6,8 @@ from pathlib import Path
 
 from Blast import BlastEngine, ExplosiveProperties, RockProperties, TargetParams, _legacy_uniformity_raw
 from simulation.fragmentation import cunningham as kr
-from simulation.fragmentation.kuzram import MIN_UNIFORMITY_N as LEGACY_MIN_UNIFORMITY_N
-from simulation.fragmentation.kuzram import cunningham_uniformity_n
+from simulation.fragmentation.legacy.kuzram import MIN_UNIFORMITY_N as LEGACY_MIN_UNIFORMITY_N
+from simulation.fragmentation.legacy.kuzram import cunningham_uniformity_n
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

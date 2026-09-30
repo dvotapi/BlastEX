@@ -5,6 +5,7 @@ import math
 from collections.abc import Callable
 
 from simulation.fragmentation.models import DistributionPoint
+from simulation.fragmentation.units import length_mm_from_m
 
 # Default uniformity for the Kuznetsov-only model (Cunningham n is Kuz-Ram).
 DEFAULT_KUZNETSOV_N = 1.0
@@ -95,6 +96,16 @@ def swebrec_size_mm(passing: float, x50_mm: float, xmax_mm: float, b: float) -> 
 
 def swebrec_oversize_pct(lump_size_mm: float, x50_mm: float, xmax_mm: float, b: float) -> float:
     return (1.0 - swebrec_passing(lump_size_mm, x50_mm, xmax_mm, b)) * 100.0
+
+
+def default_xmax_mm(burden_m: float, spacing_m: float, x50_mm: float) -> float:
+    """Largest free dimension of the burden prism, millimetres.
+
+    Falls back to 2 × x50 when the prism is degenerate so x50 < xmax.
+    """
+    prism_mm = length_mm_from_m(max(burden_m, spacing_m, 0.0))
+    floor = max(x50_mm * 2.0, x50_mm + 1.0)
+    return max(prism_mm, floor)
 
 
 def distribution_curve(

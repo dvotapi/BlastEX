@@ -1,4 +1,4 @@
-"""Kuz-Ram: Cunningham n and Rosin–Rammler percentiles."""
+"""Старая модель Kuz-Ram (kuzram_legacy): n по Каннингему с диаметром в метрах."""
 import unittest
 
 from simulation.fragmentation.distributions import (
@@ -6,7 +6,7 @@ from simulation.fragmentation.distributions import (
     rosin_rammler_passing,
     rosin_rammler_size_mm,
 )
-from simulation.fragmentation.kuzram import cunningham_uniformity_n, predict_kuzram
+from simulation.fragmentation.legacy.kuzram import cunningham_uniformity_n, predict_kuzram
 from simulation.fragmentation.models import ROLE_PREDICTED, Calibration, FragmentationInputs
 
 
@@ -51,7 +51,7 @@ class KuzRamTests(unittest.TestCase):
         self.assertLess(prediction.x20_mm, prediction.x50_mm)
         self.assertLess(prediction.x50_mm, prediction.x80_mm)
         self.assertEqual(prediction.role, ROLE_PREDICTED)
-        self.assertEqual(prediction.provenance.model, "kuzram")
+        self.assertEqual(prediction.provenance.model, "kuzram_legacy")
         self.assertTrue(prediction.provenance.model_version)
         self.assertIn("uniformity_n", prediction.provenance.parameters)
         self.assertEqual(prediction.provenance.inputs["burden_m"], 4.0)

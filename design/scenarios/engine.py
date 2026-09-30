@@ -21,6 +21,7 @@ from design.scenarios.types import (
     ScenarioParams,
 )
 from design.timing import TimingExprError, build_template_network, resolve_network
+from simulation.fragmentation.models import MODEL_KUZRAM
 
 DEFAULT_EXPLOSIVE = ExplosiveProperties("Гранулит-РП", 0.85, 3.76)
 
@@ -249,7 +250,7 @@ def _fragmentation_outcomes(overlay: BlastDesign, params: ScenarioParams, outcom
     try:
         payload = predict_design(
             overlay,
-            model=params.fragmentation_model or "kuzram",
+            model=params.fragmentation_model or MODEL_KUZRAM,
             lump_size_mm=params.lump_size_mm,
             hole_oversize_coeff=(overlay.charge_rules or {}).get("hole_oversize_coeff"),
         )

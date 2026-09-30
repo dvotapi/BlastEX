@@ -1341,6 +1341,7 @@ class FragmentationModelInfoSchema(BaseModel):
     version: str
     label: str
     distribution: str
+    legacy: bool = False
 
 
 class FragmentationModelsResponse(BaseModel):

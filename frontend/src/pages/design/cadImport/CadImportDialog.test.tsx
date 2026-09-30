@@ -154,6 +154,15 @@ describe("CadImportDialog", () => {
     expect(screen.getByRole("alert").textContent).toContain("Контур не построен.");
   });
 
+  it("кнопка «?» открывает справку окна", async () => {
+    renderDialog();
+    await ready();
+
+    fireEvent.click(screen.getByRole("button", { name: "Справка по импорту чертежа" }));
+
+    expect((screen.getByRole("dialog", { name: "Импорт чертежа: справка" }) as HTMLDialogElement).open).toBe(true);
+  });
+
   it("Отмена закрывает окно", async () => {
     const props = renderDialog();
     await ready();

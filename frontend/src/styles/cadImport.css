@@ -6,7 +6,8 @@
 .cad-dialog > header { display:flex; align-items:center; gap:12px; padding:8px 12px; border-bottom:1px solid #e2e8e5; background:#fff; }
 .cad-dialog > header b { font-size:13px; font-weight:var(--font-weight-title); white-space:nowrap; }
 .cad-files { min-width:0; overflow:hidden; color:#6e7c75; white-space:nowrap; text-overflow:ellipsis; }
-.cad-close { flex:none; width:28px; height:28px; margin-left:auto; border:0; border-radius:7px; background:transparent; color:#6e7c75; font-size:16px; line-height:1; cursor:pointer; }
+.cad-header-actions { display:flex; gap:6px; margin-left:auto; }
+.cad-close { flex:none; width:28px; height:28px; border:0; border-radius:7px; background:transparent; color:#6e7c75; font-size:16px; line-height:1; cursor:pointer; }
 .cad-close:hover { background:#f0f4f2; }
 .cad-dialog-body { flex:1 1 auto; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 380px; }
 

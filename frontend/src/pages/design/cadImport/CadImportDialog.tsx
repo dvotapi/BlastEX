@@ -7,6 +7,7 @@ import { api } from "../../../api/endpoints";
 import { ruNumber } from "../../../lib/format";
 import type { CadEntity, CadLayerRoleCode, CadMeta, CadParams, CadRoleCode, CadRolesPayload, CadSource } from "../../../types/cad";
 import { CadCanvas, type CanvasTarget } from "./CadCanvas";
+import { CadImportHelp } from "./CadImportHelp";
 import { LayersStep } from "./LayersStep";
 import { LegacyBuildBlock } from "./LegacyBuildBlock";
 import { defaultBenchPair } from "./legacyBuild";
@@ -139,6 +140,9 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
       <header>
         <b id="cad-dialog-title">Импорт чертежа</b>
         <span className="cad-files">{sources.map((source) => source.file_name).join(", ")}</span>
+        <span className="cad-header-actions">
+          <CadImportHelp meta={meta} />
+        </span>
         <button type="button" className="cad-close" aria-label="Закрыть" onClick={onCancel}>
           ×
         </button>

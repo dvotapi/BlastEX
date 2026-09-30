@@ -1,6 +1,7 @@
 // «Построить блок» до шага «Контур» (TASK-013, PR 2): блок строится, как
 // раньше, полосой между двумя выбранными линиями. Пара по умолчанию —
 // самые длинные верхняя и нижняя бровки по ролям слоёв.
+import { useMemo } from "react";
 import { ruNumber } from "../../../lib/format";
 import type { CadEntity } from "../../../types/cad";
 import { benchCandidates } from "./legacyBuild";
@@ -30,7 +31,8 @@ export function LegacyBuildBlock({
   onCancel: () => void;
   onBuild: (pair: { crest: CadEntity; toe: CadEntity }) => void;
 }) {
-  const lines = benchCandidates(entities, [crest, toe]);
+  // Сортировка всех линий — только при смене источника или выбора, не на наведение.
+  const lines = useMemo(() => benchCandidates(entities, [crest, toe]), [entities, crest, toe]);
   const crestLine = lines.find((entity) => entity.handle === crest);
   const toeLine = lines.find((entity) => entity.handle === toe);
   const inverted = crestLine && toeLine && meanZ(crestLine) <= meanZ(toeLine);

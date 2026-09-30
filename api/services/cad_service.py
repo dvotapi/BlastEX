@@ -379,9 +379,13 @@ def _summary(
 
 def _layer_schemas(summary: dict, entities: list[CadEntity]) -> list[CadLayerSchema]:
     colors = summary.get("layer_colors") or {}
+    # Один проход по объектам: слоёв бывают сотни, объектов — десятки тысяч.
+    by_layer: dict[str, list[CadEntity]] = {}
+    for item in entities:
+        by_layer.setdefault(item.layer, []).append(item)
     layers: list[CadLayerSchema] = []
     for entry in summary.get("layer_roles") or []:
-        members = [item for item in entities if item.layer == entry["name"]]
+        members = by_layer.get(entry["name"], [])
         measured = [item for item in members if item.geometry_type != "text"]
         layers.append(
             CadLayerSchema(

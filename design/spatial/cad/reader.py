@@ -11,11 +11,13 @@ DWG конвертируется `dwg2dxf` в полный DXF: только в 
 """
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
+from itertools import islice
 
 from design.spatial.cad.labels import attach_labels, parse_elevation
 from design.spatial.cad.model import (
@@ -43,6 +45,12 @@ SIGN_BLOCK_SIZE_M = 5.0
 # Пределы одного файла: больше — ошибка с числами, а не молчаливая обрезка.
 MAX_ENTITIES = 50_000
 MAX_VERTICES = 1_000_000
+# Обход с учётом вставок блоков и нечитаемых объектов: MINSERT или блок из
+# одних штриховок не должны занимать сервер часами, ничего не добавив.
+VISIT_BUDGET_FACTOR = 5
+# Handle — ключ хранения (`cad_entities.handle`, до 64 символов). Handle
+# вложенных вставок `H/1/2/…` длиннее сжимаются с хэшем — уникальность та же.
+MAX_HANDLE_LENGTH = 64
 
 _CURVE_KINDS = frozenset({"ARC", "CIRCLE", "ELLIPSE", "SPLINE"})
 _BY_LAYER, _BY_BLOCK = 256, 0
@@ -214,12 +222,26 @@ class _Collector:
         self.degenerate = 0
         self.duplicates = 0
         self.vertex_total = 0
+        self.visited = 0
         self._handles: Counter[str] = Counter()
         self.layer_colors = self._layer_colors()
 
     def collect(self) -> None:
         for entity in self.doc.modelspace():
             self._append(entity, handle=str(entity.dxf.handle), layer=None, block_color=None)
+
+    def _bounded(self, vertices) -> list:
+        """Вершины кривой, но не больше остатка предела: окружность радиусом
+        10¹⁰ м не должна успеть занять гигабайты до проверки."""
+
+        remaining = MAX_VERTICES - self.vertex_total
+        taken = list(islice(vertices, remaining + 2))
+        if len(taken) > remaining + 1:
+            raise CadReadError(
+                f"В чертеже больше {MAX_VERTICES} вершин — это предел одного файла. "
+                "Оставьте в файле блок и ближайшую ситуацию."
+            )
+        return taken
 
     @property
     def sagitta(self) -> float:
@@ -272,11 +294,12 @@ class _Collector:
                 "Оставьте в файле блок и ближайшую ситуацию."
             )
 
+        entity.handle = _compact_handle(entity.handle)
         self._handles[entity.handle] += 1
         seen = self._handles[entity.handle]
         if seen > 1:
             self.duplicates += 1
-            entity.handle = f"{entity.handle}~{seen}"
+            entity.handle = _compact_handle(f"{entity.handle}~{seen}")
             self._handles[entity.handle] += 1
         self.entities.append(entity)
 
@@ -305,6 +328,12 @@ class _Collector:
         return _hex(colors.aci2rgb(aci)) if 0 < aci < 256 else None
 
     def _append(self, entity, *, handle: str, layer: str | None, block_color: str | None) -> None:
+        self.visited += 1
+        if self.visited > MAX_ENTITIES * VISIT_BUDGET_FACTOR:
+            raise CadReadError(
+                f"В чертеже с учётом вставок блоков больше {MAX_ENTITIES * VISIT_BUDGET_FACTOR} "
+                "объектов — это предел одного файла. Оставьте в файле блок и ближайшую ситуацию."
+            )
         try:
             self._append_entity(entity, handle=handle, layer=layer, block_color=block_color)
         except CadReadError:
@@ -346,10 +375,10 @@ class _Collector:
             closed_flag = bool(entity.is_closed)
             if entity.is_3d_polyline:
                 kind = "POLYLINE3D"
-                raw = [entity_vertex.dxf.location for entity_vertex in entity.vertices]
+                raw = self._bounded(entity_vertex.dxf.location for entity_vertex in entity.vertices)
             else:
                 kind = "POLYLINE2D"
-                raw = list(ezpath.make_path(entity).flattening(self.sagitta))
+                raw = self._bounded(ezpath.make_path(entity).flattening(self.sagitta))
         elif kind == "LINE":
             raw = [entity.dxf.start, entity.dxf.end]
         else:
@@ -362,14 +391,14 @@ class _Collector:
                 closed_flag = math.isclose(span, math.tau, abs_tol=1e-6) or span < 1e-9
             elif kind == "SPLINE":
                 closed_flag = bool(entity.closed)
-            raw = list(ezpath.make_path(entity).flattening(self.sagitta))
+            raw = self._bounded(ezpath.make_path(entity).flattening(self.sagitta))
 
         points = _dedup([self._scaled(value) for value in raw])
         closed, by_gap = False, False
         if len(points) >= 4 and _near(points[0], points[-1]) and _distinct(points) >= 3:
             points.pop()
             closed, by_gap = True, not closed_flag
-        elif closed_flag and len(points) >= 3:
+        elif closed_flag and _distinct(points) >= 3:
             closed = True
         if len(points) < 2:
             self.degenerate += 1
@@ -414,6 +443,11 @@ class _Collector:
         self._add(label)
 
     def _insert(self, entity, handle: str, layer: str, color: str | None) -> None:
+        if entity.mcount > MAX_ENTITIES:
+            raise CadReadError(
+                f"Массив блоков «{entity.dxf.name}» из {entity.mcount} копий — больше предела "
+                f"{MAX_ENTITIES} объектов одного файла."
+            )
         if entity.mcount > 1:
             # MINSERT — массив копий блока: каждая копия как отдельная вставка.
             for index, single in enumerate(entity.multi_insert(), start=1):
@@ -460,6 +494,13 @@ class _Collector:
 
 def _near(a: Point, b: Point) -> bool:
     return math.dist(a, b) <= DUPLICATE_TOLERANCE_M
+
+
+def _compact_handle(handle: str) -> str:
+    if len(handle) <= MAX_HANDLE_LENGTH:
+        return handle
+    digest = hashlib.sha1(handle.encode("utf-8")).hexdigest()[:12]
+    return f"{handle[:40]}…{digest}"
 
 
 def _distinct(points: list[Point]) -> int:

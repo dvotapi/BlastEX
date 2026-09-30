@@ -317,11 +317,13 @@ class PostgresCadRepository:
                 # из десятков тысяч точек — не десятки тысяч запросов. Источник
                 # уже проверен на принадлежность организации.
                 session.execute(
-                    update(CadEntityRow),
+                    update(CadEntityRow).where(CadEntityRow.organization_id == organization_id),
                     [
                         {"source_id": source_id, "handle": handle, "role": role, "role_origin": origin}
                         for handle, (role, origin) in roles.items()
                     ],
+                    # Объекты строк в сессию не загружались — синхронизировать нечего.
+                    execution_options={"synchronize_session": None},
                 )
             session.execute(
                 update(CadSourceRow)

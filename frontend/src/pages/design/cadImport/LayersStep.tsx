@@ -1,6 +1,7 @@
 // Шаг «Слои» импорта чертежа: слои с ролью и бейджем происхождения,
 // раскрытие до отдельных объектов. Фрагменты слоя свёрнуты в одну строку —
 // «Горизонт +410» из 23 кусков бровок остаётся одной строкой, пока её не раскрыть.
+import { useMemo } from "react";
 import { ruNumber } from "../../../lib/format";
 import { plural } from "../../../lib/plural";
 import type { CadEntity, CadLayer, CadLayerRoleCode, CadMeta, CadRoleCode, CadSource } from "../../../types/cad";
@@ -84,7 +85,8 @@ function OriginBadge({ origin, label }: { origin: string; label: string }) {
 
 export function LayersStep(props: LayersStepProps) {
   const { source, meta, hover, selected, expanded, disabled } = props;
-  const byLayer = entitiesByLayer(source.entities);
+  // Таблица перерисовывается на каждое наведение — группировку считаем раз на источник.
+  const byLayer = useMemo(() => entitiesByLayer(source.entities), [source.entities]);
   const roleLabel = (code: string) =>
     [...meta.roles, ...meta.layer_roles].find((item) => item.code === code)?.label ?? code;
   const originLabel = (code: string) => meta.origins.find((item) => item.code === code)?.label ?? code;

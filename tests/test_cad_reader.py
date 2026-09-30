@@ -514,3 +514,84 @@ def test_drawing_of_only_unsupported_entities_names_them():
 
     with pytest.raises(CadReadError, match="HATCH"):
         read_cad(_dxf_bytes(build), "a.dxf")
+
+
+def _hatch_block(doc, name: str) -> None:
+    block = doc.blocks.new(name)
+    hatch = block.add_hatch()
+    hatch.paths.add_polyline_path([(0, 0), (100, 0), (100, 100)], is_closed=True)
+
+
+def test_huge_minsert_is_refused_quickly():
+    """MINSERT 1000 × 1000 блока без читаемых объектов не должен занимать сервер часами."""
+
+    import time
+
+    def build(doc):
+        _hatch_block(doc, "ШТРИХ")
+        doc.modelspace().add_blockref(
+            "ШТРИХ", (0, 0), dxfattribs={"row_count": 1000, "column_count": 1000, "row_spacing": 200, "column_spacing": 200}
+        )
+
+    started = time.monotonic()
+    with pytest.raises(CadReadError, match="больше"):
+        read_cad(_dxf_bytes(build), "a.dxf")
+    assert time.monotonic() - started < 3
+
+
+def test_unreadable_contents_count_against_the_budget(monkeypatch):
+    """Вложенные вставки с нечитаемым содержимым тоже тратят бюджет обхода."""
+
+    monkeypatch.setattr(reader, "MAX_ENTITIES", 10)
+
+    def build(doc):
+        # Блок больше знака, но без читаемых объектов: две линии нулевой длины.
+        block = doc.blocks.new("ПУСТО")
+        block.add_line((0, 0), (0, 0))
+        block.add_line((100, 100), (100, 100))
+        for index in range(60):
+            doc.modelspace().add_blockref("ПУСТО", (index * 200, 0))
+
+    with pytest.raises(CadReadError, match="больше"):
+        read_cad(_dxf_bytes(build), "a.dxf")
+
+
+def test_huge_curve_is_refused_without_flattening_it_whole(monkeypatch):
+    import time
+
+    monkeypatch.setattr(reader, "MAX_VERTICES", 10_000)
+
+    def build(doc):
+        doc.modelspace().add_circle((0, 0), radius=4e10)
+
+    started = time.monotonic()
+    with pytest.raises(CadReadError, match="вершин"):
+        read_cad(_dxf_bytes(build), "a.dxf")
+    assert time.monotonic() - started < 3
+
+
+def test_closed_two_vertex_polyline_is_not_closed():
+    def build(doc):
+        doc.modelspace().add_lwpolyline([(0, 0), (10, 0)], close=True)
+
+    entity = _only(read_cad(_dxf_bytes(build), "a.dxf").entities, "LWPOLYLINE")
+
+    assert entity.closed is False
+    assert entity.area_m2 == 0
+
+
+def test_long_nested_handles_fit_the_storage_key():
+    def build(doc):
+        inner = doc.blocks.new("ВНУТРИ")
+        inner.add_lwpolyline([(0, 0), (20, 0), (20, 10)])
+        name = "ВНУТРИ"
+        for depth in range(30):
+            outer = doc.blocks.new(f"УРОВЕНЬ{depth}")
+            outer.add_blockref(name, (0, 0))
+            name = f"УРОВЕНЬ{depth}"
+        doc.modelspace().add_blockref(name, (0, 0))
+
+    lines = [item for item in read_cad(_dxf_bytes(build), "a.dxf").entities if item.geometry_type == "line"]
+
+    assert len(lines) == 1
+    assert len(lines[0].handle) <= reader.MAX_HANDLE_LENGTH

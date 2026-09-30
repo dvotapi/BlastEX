@@ -341,6 +341,10 @@ def aggregate_region(
     def avg(getter) -> float:
         return _weighted_mean([(getter(item.inputs), w) for item, w in pairs])
 
+    def avg_positive(getter) -> float:
+        # Паспорт пишет пустую длину нулём: такая скважина не тянет L и H блока вниз.
+        return _weighted_mean([(getter(item.inputs), w) for item, w in pairs if getter(item.inputs) > 0])
+
     charge_total = sum(item.inputs.charge_mass_kg for item in members)
     volume = sum(item.inputs.influence_volume_m3 for item in members)
     powder = charge_total / volume if volume > 0 else avg(lambda inp: inp.powder_factor_kg_m3)
@@ -358,7 +362,7 @@ def aggregate_region(
     inputs = FragmentationInputs(
         burden_m=avg(lambda inp: inp.burden_m),
         spacing_m=avg(lambda inp: inp.spacing_m),
-        bench_height_m=avg(lambda inp: inp.bench_height_m),
+        bench_height_m=avg_positive(lambda inp: inp.bench_height_m),
         diameter_mm=avg(lambda inp: inp.diameter_mm),
         charge_mass_kg=mean_charge,
         powder_factor_kg_m3=powder,
@@ -373,7 +377,7 @@ def aggregate_region(
         lump_size_mm=lump_size_mm,
         hole_oversize_coeff=template.hole_oversize_coeff,
         influence_volume_m3=volume,
-        charge_length_m=avg(lambda inp: inp.charge_length_m),
+        charge_length_m=avg_positive(lambda inp: inp.charge_length_m),
         hole_length_m=avg(lambda inp: inp.hole_length_m),
     )
     xs = [item.x for item in members]
@@ -413,6 +417,17 @@ def collect_regions(
     if skipped:
         warnings.append(f"Пропущено скважин без входов: {len(skipped)}.")
 
+    domains, site = group_regions(design, holes, lump_size_mm=lump_size_mm)
+    return holes, domains, site, warnings
+
+
+def group_regions(
+    design: BlastDesign,
+    holes: list[InfluenceRegion],
+    *,
+    lump_size_mm: float,
+) -> tuple[list[InfluenceRegion], InfluenceRegion | None]:
+    """Регионы доменов и блока из заданных регионов скважин."""
     by_domain: dict[str, list[InfluenceRegion]] = {}
     hole_by_id = {hole.id: hole for hole in design.holes}
     for region in holes:
@@ -428,4 +443,4 @@ def collect_regions(
             domains.append(aggregated)
 
     site = aggregate_region("site", "site", holes, lump_size_mm)
-    return holes, domains, site, warnings
+    return domains, site

@@ -26,7 +26,9 @@ from simulation.fragmentation.models import (
     DesignedFragmentationTarget,
     MeasuredFragmentation,
 )
-from simulation.fragmentation.regions import ExplosiveSpec, RockSpec, collect_regions
+from dataclasses import replace
+
+from simulation.fragmentation.regions import ExplosiveSpec, RockSpec, aggregate_region, collect_regions
 
 
 def _contour() -> BlockContour:
@@ -264,6 +266,16 @@ class RegionLengthTests(unittest.TestCase):
 
         self.assertAlmostEqual(self._hole_region(holes, design.loads[0].hole_id).inputs.charge_length_m, 6.0)
 
+    def test_zero_lengths_do_not_drag_block_lengths(self):
+        design = _design_with_charges()
+        holes, *_ = self._regions(design)
+        broken = replace(holes[0], inputs=replace(holes[0].inputs, charge_length_m=0.0, bench_height_m=0.0))
+
+        site = aggregate_region("site", "site", [broken, *holes[1:]], 400.0)
+
+        self.assertAlmostEqual(site.inputs.charge_length_m, 8.0)
+        self.assertAlmostEqual(site.inputs.bench_height_m, 10.0)
+
     def test_without_decks_charge_is_hole_minus_stemming(self):
         design = _design_with_charges()
         hole_id = design.holes[0].id
@@ -325,6 +337,18 @@ class EngineSettingsTests(unittest.TestCase):
         self.assertEqual(tuned["site"]["prediction"]["x50_mm"], plain["site"]["prediction"]["x50_mm"])
         self.assertEqual(tuned["site"]["prediction"]["provenance"]["settings"], {})
 
+    def test_legacy_model_returns_no_settings_snapshot(self):
+        result = predict_design(
+            _design_with_charges(),
+            model="kuzram_legacy",
+            settings=KuzRamSettings(rock_factor_correction=1.5),
+            settings_source={"source": "work_object", "work_object_name": "Карьер-3", "warnings": ["Настройки не прочитаны."]},
+            **KW,
+        )
+
+        self.assertEqual(result["settings"], {})
+        self.assertNotIn("Настройки не прочитаны.", result["warnings"])
+
     def test_resolution_warnings_reach_payload(self):
         result = predict_design(
             _design_with_charges(),
@@ -354,6 +378,41 @@ class EngineSettingsTests(unittest.TestCase):
                 for item in result["warnings"]
             )
         )
+
+    def test_skipped_hole_does_not_feed_block_and_domain(self):
+        design = _design_with_charges()
+        bad_id = design.loads[0].hole_id
+        for deck in design.loads[0].decks:
+            if deck.kind == "charge":
+                deck.explosive_key = "Пустышка"
+        explosives = {"Пустышка": ExplosiveSpec("Пустышка", 0.82, 0.0)}
+        holes, *_ = collect_regions(design, explosives=explosives, **KW)
+        survivors = [region for region in holes if region.hole_ids != [bad_id]]
+        expected_site = predict_region(aggregate_region("site", "site", survivors, 400.0).inputs, "kuzram")
+        expected_domain = predict_region(aggregate_region("domain:unassigned", "domain", survivors, 400.0).inputs, "kuzram")
+
+        result = predict_design(design, model="kuzram", explosives=explosives, **KW)
+
+        self.assertNotIn(bad_id, result["site"]["hole_ids"])
+        self.assertEqual(result["site"]["prediction"]["x50_mm"], expected_site.x50_mm)
+        self.assertEqual(result["site"]["inputs"]["explosive_energy_mj_kg"], 3.8)
+        (domain,) = result["regions"]
+        self.assertNotIn(bad_id, domain["hole_ids"])
+        self.assertEqual(domain["prediction"]["x50_mm"], expected_domain.x50_mm)
+
+    def test_block_failure_when_no_hole_survives_names_reason(self):
+        with self.assertRaises(ValueError) as ctx:
+            predict_design(
+                _design_with_charges(),
+                model="kuzram",
+                lump_size_mm=400.0,
+                default_rock=RockSpec("Гранит", 2.65, 150.0, 2.0),
+                default_explosive=ExplosiveSpec("АНФО", 0.82, 0.0),
+                explosives={"АНФО": ExplosiveSpec("АНФО", 0.82, 0.0)},
+            )
+
+        self.assertTrue(str(ctx.exception).startswith("Прогноз кусковатости по блоку не посчитан: "))
+        self.assertIn("сила ВВ", str(ctx.exception))
 
     def test_whole_block_failure_is_russian_error(self):
         with self.assertRaises(ValueError) as ctx:

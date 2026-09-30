@@ -42,6 +42,7 @@ from simulation.fragmentation.regions import (
     InfluenceRegion,
     RockSpec,
     collect_regions,
+    group_regions,
 )
 
 PredictFn = Callable[[FragmentationInputs, Calibration | None, KuzRamSettings | None], PredictedFragmentation]
@@ -163,23 +164,29 @@ def _predict_rows(
     predict: Callable[[InfluenceRegion], PredictedFragmentation],
     warnings: list[str],
     label: str,
-) -> list[dict[str, Any]]:
-    """Регион с неполными данными пропускается с предупреждением.
+    errors: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[InfluenceRegion]]:
+    """Строки посчитанных регионов и сами эти регионы.
 
-    Паспорт пишет пустые величины нулём; одна такая скважина не должна
-    ронять прогноз всего блока.
+    Регион с неполными данными пропускается с предупреждением: паспорт
+    пишет пустые величины нулём, и одна такая скважина не должна ронять
+    прогноз всего блока. Текст ошибки пропущенного региона попадает в errors.
     """
     rows: list[dict[str, Any]] = []
+    predicted: list[InfluenceRegion] = []
     for region in regions:
         try:
             prediction = predict(region)
         except ValueError as exc:
             name = region.id.split(":", 1)[-1]
             _merge_warnings(warnings, [f"{label} {name}: прогноз не посчитан — {exc}"])
+            if errors is not None:
+                errors.append(str(exc))
             continue
         _merge_warnings(warnings, prediction.warnings)
         rows.append(_region_payload(region, prediction))
-    return rows
+        predicted.append(region)
+    return rows, predicted
 
 
 def predict_design(
@@ -216,7 +223,7 @@ def predict_design(
         density_t_m3=DEFAULT_EXPLOSIVE_DENSITY_T_M3,
         power_mj_kg=DEFAULT_EXPLOSIVE_ENERGY_MJ_KG,
     )
-    holes, domains, site_region, warnings = collect_regions(
+    holes, _domains, site_region, warnings = collect_regions(
         design,
         lump_size_mm=lump_size_mm,
         default_rock=rock,
@@ -227,14 +234,24 @@ def predict_design(
     if site_region is None:
         raise ValueError("Недостаточно данных для прогноза дробления: нет скважин с массой заряда и сеткой.")
 
-    snapshot = settings_snapshot(settings, settings_source)
-    _merge_warnings(warnings, snapshot["warnings"])
+    # Старые модели настроек не применяют: ни снимка, ни предупреждений резолвера.
+    snapshot: dict[str, Any] = {}
+    if not FRAGMENTATION_MODELS[model_id]["legacy"]:
+        snapshot = settings_snapshot(settings, settings_source)
+        _merge_warnings(warnings, snapshot["warnings"])
 
     def predict(region: InfluenceRegion) -> PredictedFragmentation:
         return predict_region(region.inputs, model_id, calibration, settings, settings_source)
 
-    hole_rows = _predict_rows(holes, predict, warnings, "Скважина")
-    domain_rows = _predict_rows(domains, predict, warnings, "Домен")
+    # Домены и блок собираются только из посчитанных скважин: входы
+    # пропущенной скважины не должны попадать в средние.
+    hole_errors: list[str] = []
+    hole_rows, predicted_holes = _predict_rows(holes, predict, warnings, "Скважина", hole_errors)
+    domains, site_region = group_regions(design, predicted_holes, lump_size_mm=lump_size_mm)
+    if site_region is None:
+        reason = hole_errors[0] if hole_errors else "нет посчитанных скважин"
+        raise ValueError(f"Прогноз кусковатости по блоку не посчитан: {reason}")
+    domain_rows, _ = _predict_rows(domains, predict, warnings, "Домен")
     try:
         site_prediction = predict(site_region)
     except ValueError as exc:

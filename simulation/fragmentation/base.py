@@ -8,6 +8,7 @@ cunningham.predict_point, той же функции, что считает ли
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict
 from typing import Any
 
@@ -80,3 +81,42 @@ def calibration_warnings(calibration: Calibration) -> list[str]:
         f"Поправки калибровки ({', '.join(ignored)}) новая модель не применяет: "
         "их задают настройки модели объекта работ."
     ]
+
+
+SETTINGS_SOURCE_REQUEST = "request"
+SETTINGS_SOURCE_WORK_OBJECT = "work_object"
+SETTINGS_SOURCE_DEFAULTS = "defaults"
+
+
+def settings_snapshot(
+    settings: KuzRamSettings | None,
+    source: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Применённые настройки и откуда они взяты — для ответа и provenance.
+
+    source — {"source", "work_object_name", "warnings"} от API; без него
+    явные настройки считаются заданными в запросе, а их отсутствие —
+    умолчаниями.
+    """
+    meta = dict(source or {})
+    fallback = SETTINGS_SOURCE_DEFAULTS if settings is None else SETTINGS_SOURCE_REQUEST
+    return {
+        "source": str(meta.get("source") or fallback),
+        "work_object_name": str(meta.get("work_object_name") or ""),
+        "values": asdict(settings or KuzRamSettings()),
+        "warnings": [str(item) for item in meta.get("warnings") or ()],
+    }
+
+
+def settings_from_snapshot(snapshot: Mapping[str, Any] | None) -> tuple[KuzRamSettings | None, dict[str, Any]]:
+    """Снимок → настройки и источник. Пустой снимок — умолчания движка."""
+    if not snapshot:
+        return None, {}
+    values = dict(snapshot.get("values") or {})
+    settings = KuzRamSettings(**values) if values else None
+    source = {
+        "source": snapshot.get("source") or "",
+        "work_object_name": snapshot.get("work_object_name") or "",
+        "warnings": list(snapshot.get("warnings") or []),
+    }
+    return settings, source

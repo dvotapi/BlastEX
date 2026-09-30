@@ -6,12 +6,14 @@
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Callable
 
 from design.models import BlastDesign
 from simulation.fragmentation import kuznetsov as kuznetsov_model
 from simulation.fragmentation import kuzram as kuzram_model
 from simulation.fragmentation import swebrec as swebrec_model
+from simulation.fragmentation.base import settings_snapshot
 from simulation.fragmentation.cunningham import KuzRamSettings
 from simulation.fragmentation.legacy import kuznetsov as kuznetsov_legacy
 from simulation.fragmentation.legacy import kuzram as kuzram_legacy
@@ -119,15 +121,30 @@ def predict_region(
     model: str = MODEL_KUZRAM,
     calibration: Calibration | None = None,
     settings: KuzRamSettings | None = None,
+    settings_source: Mapping[str, Any] | None = None,
 ) -> PredictedFragmentation:
-    """Predict one region. Always returns role=predicted."""
-    predictor = _PREDICTORS[resolve_model(model)]
-    prediction = predictor(inputs, calibration, settings)
+    """Прогноз одного региона (role=predicted).
+
+    Новые модели кладут в provenance снимок применённых настроек; старые
+    настроек не знают, и снимка у них нет.
+    """
+    model_id = resolve_model(model)
+    prediction = _PREDICTORS[model_id](inputs, calibration, settings)
     prediction.role = ROLE_PREDICTED
+    if not FRAGMENTATION_MODELS[model_id]["legacy"]:
+        prediction.provenance.settings = settings_snapshot(settings, settings_source)
     return prediction
 
 
+def _merge_warnings(target: list[str], items: list[str] | tuple[str, ...]) -> None:
+    for item in items:
+        if item not in target:
+            target.append(item)
+
+
 def _region_payload(region: InfluenceRegion, prediction: PredictedFragmentation) -> dict[str, Any]:
+    warnings = list(region.warnings)
+    _merge_warnings(warnings, prediction.warnings)
     return {
         "id": region.id,
         "kind": region.kind,
@@ -137,8 +154,32 @@ def _region_payload(region: InfluenceRegion, prediction: PredictedFragmentation)
         "hole_kind": region.hole_kind,
         "inputs": region.inputs.to_dict(),
         "prediction": prediction.to_dict(),
-        "warnings": list(region.warnings),
+        "warnings": warnings,
     }
+
+
+def _predict_rows(
+    regions: list[InfluenceRegion],
+    predict: Callable[[InfluenceRegion], PredictedFragmentation],
+    warnings: list[str],
+    label: str,
+) -> list[dict[str, Any]]:
+    """Регион с неполными данными пропускается с предупреждением.
+
+    Паспорт пишет пустые величины нулём; одна такая скважина не должна
+    ронять прогноз всего блока.
+    """
+    rows: list[dict[str, Any]] = []
+    for region in regions:
+        try:
+            prediction = predict(region)
+        except ValueError as exc:
+            name = region.id.split(":", 1)[-1]
+            _merge_warnings(warnings, [f"{label} {name}: прогноз не посчитан — {exc}"])
+            continue
+        _merge_warnings(warnings, prediction.warnings)
+        rows.append(_region_payload(region, prediction))
+    return rows
 
 
 def predict_design(
@@ -154,6 +195,7 @@ def predict_design(
     hole_oversize_coeff: float | None = None,
     measured: list[MeasuredFragmentation] | None = None,
     settings: KuzRamSettings | None = None,
+    settings_source: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Site / hole / domain predictions plus a heatmap payload.
 
@@ -185,9 +227,19 @@ def predict_design(
     if site_region is None:
         raise ValueError("Недостаточно данных для прогноза дробления: нет скважин с массой заряда и сеткой.")
 
-    hole_rows = [_region_payload(region, predict_region(region.inputs, model_id, calibration, settings)) for region in holes]
-    domain_rows = [_region_payload(region, predict_region(region.inputs, model_id, calibration, settings)) for region in domains]
-    site_prediction = predict_region(site_region.inputs, model_id, calibration, settings)
+    snapshot = settings_snapshot(settings, settings_source)
+    _merge_warnings(warnings, snapshot["warnings"])
+
+    def predict(region: InfluenceRegion) -> PredictedFragmentation:
+        return predict_region(region.inputs, model_id, calibration, settings, settings_source)
+
+    hole_rows = _predict_rows(holes, predict, warnings, "Скважина")
+    domain_rows = _predict_rows(domains, predict, warnings, "Домен")
+    try:
+        site_prediction = predict(site_region)
+    except ValueError as exc:
+        raise ValueError(f"Прогноз кусковатости по блоку не посчитан: {exc}") from exc
+    _merge_warnings(warnings, site_prediction.warnings)
     measured_rows = [item.to_dict() for item in (measured or [])]
     if any(row.get("role") != ROLE_MEASURED for row in measured_rows):
         raise ValueError("Измеренная кусковатость должна иметь role=measured.")
@@ -205,4 +257,5 @@ def predict_design(
         "warnings": warnings,
         "measured": measured_rows,
         "calibration": calibration.to_dict(),
+        "settings": snapshot,
     }

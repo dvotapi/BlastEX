@@ -1,5 +1,6 @@
 """Spatial fragmentation engine: regions, roles, heatmaps, Blast.py facade."""
 import unittest
+from dataclasses import asdict
 
 from Blast import BlastEngine, ExplosiveProperties, RockProperties, TargetParams
 from design.charging import apply_charge_rules
@@ -13,6 +14,8 @@ from design.models import (
     RockPropertySet,
 )
 from design.pattern import generate_pattern
+from simulation.fragmentation.base import settings_from_snapshot, settings_snapshot
+from simulation.fragmentation.cunningham import KuzRamSettings
 from simulation.fragmentation.engine import is_legacy_model, list_models, predict_design, predict_region, resolve_model
 from simulation.fragmentation.maps import FRAGMENTATION_MAP_METRICS
 from simulation.fragmentation.models import (
@@ -270,6 +273,122 @@ class RegionLengthTests(unittest.TestCase):
         holes, *_ = self._regions(design)
 
         self.assertAlmostEqual(self._hole_region(holes, hole_id).inputs.charge_length_m, 8.5)
+
+
+KW = dict(
+    lump_size_mm=400.0,
+    default_rock=RockSpec("Гранит", 2.65, 150.0, 2.0),
+    default_explosive=ExplosiveSpec("АНФО", 0.82, 3.8),
+)
+
+
+class EngineSettingsTests(unittest.TestCase):
+    def test_defaults_snapshot(self):
+        result = predict_design(_design_with_charges(), model="kuzram", **KW)
+
+        self.assertEqual(result["settings"]["source"], "defaults")
+        self.assertEqual(result["settings"]["values"], asdict(KuzRamSettings()))
+        self.assertEqual(result["site"]["prediction"]["provenance"]["settings"], result["settings"])
+
+    def test_settings_change_prediction_and_are_recorded(self):
+        design = _design_with_charges()
+        plain = predict_design(design, model="kuzram", **KW)
+        tuned = predict_design(
+            design,
+            model="kuzram",
+            settings=KuzRamSettings(rock_factor_correction=1.5),
+            settings_source={"source": "work_object", "work_object_name": "Карьер-1"},
+            **KW,
+        )
+
+        self.assertGreater(tuned["site"]["prediction"]["x50_mm"], plain["site"]["prediction"]["x50_mm"])
+        snapshot = tuned["holes"][0]["prediction"]["provenance"]["settings"]
+        self.assertEqual(snapshot["source"], "work_object")
+        self.assertEqual(snapshot["work_object_name"], "Карьер-1")
+        self.assertEqual(snapshot["values"]["rock_factor_correction"], 1.5)
+
+    def test_settings_reach_holes_domains_and_block(self):
+        design = _design_with_charges()
+        plain = predict_design(design, model="kuzram", **KW)
+        tuned = predict_design(design, model="kuzram", settings=KuzRamSettings(rock_factor_correction=1.5), **KW)
+
+        self.assertGreater(tuned["holes"][0]["prediction"]["x50_mm"], plain["holes"][0]["prediction"]["x50_mm"])
+        self.assertGreater(tuned["site"]["prediction"]["x50_mm"], plain["site"]["prediction"]["x50_mm"])
+        for tuned_row, plain_row in zip(tuned["regions"], plain["regions"]):
+            self.assertGreater(tuned_row["prediction"]["x50_mm"], plain_row["prediction"]["x50_mm"])
+
+    def test_legacy_model_ignores_settings(self):
+        design = _design_with_charges()
+        plain = predict_design(design, model="kuzram_legacy", **KW)
+        tuned = predict_design(design, model="kuzram_legacy", settings=KuzRamSettings(rock_factor_correction=1.5), **KW)
+
+        self.assertEqual(tuned["site"]["prediction"]["x50_mm"], plain["site"]["prediction"]["x50_mm"])
+        self.assertEqual(tuned["site"]["prediction"]["provenance"]["settings"], {})
+
+    def test_resolution_warnings_reach_payload(self):
+        result = predict_design(
+            _design_with_charges(),
+            model="kuzram",
+            settings_source={"source": "defaults", "work_object_name": "Карьер-3", "warnings": ["Настройки не прочитаны."]},
+            **KW,
+        )
+
+        self.assertIn("Настройки не прочитаны.", result["warnings"])
+
+    def test_bad_hole_is_skipped_with_warning(self):
+        design = _design_with_charges()
+        load = design.loads[0]
+        for deck in load.decks:
+            if deck.kind == "charge":
+                deck.explosive_key = "Пустышка"
+
+        result = predict_design(
+            design, model="kuzram", explosives={"Пустышка": ExplosiveSpec("Пустышка", 0.82, 0.0)}, **KW
+        )
+
+        self.assertNotIn(load.hole_id, [row["hole_ids"][0] for row in result["holes"]])
+        self.assertEqual(len(result["holes"]), len(design.holes) - 1)
+        self.assertTrue(
+            any(
+                item.startswith(f"Скважина {load.hole_id}: прогноз не посчитан") and "сила ВВ" in item
+                for item in result["warnings"]
+            )
+        )
+
+    def test_whole_block_failure_is_russian_error(self):
+        with self.assertRaises(ValueError) as ctx:
+            predict_design(
+                _design_with_charges(),
+                model="kuzram",
+                lump_size_mm=400.0,
+                default_rock=RockSpec("Гранит", 2.65, 150.0, 2.0),
+                default_explosive=ExplosiveSpec("АНФО", 0.82, 0.0),
+                explosives={"АНФО": ExplosiveSpec("АНФО", 0.82, 0.0)},
+            )
+
+        self.assertIn("по блоку не посчитан", str(ctx.exception))
+
+    def test_missing_bench_height_warns_once(self):
+        design = _design_with_charges()
+        for hole in design.holes:
+            hole.subdrill_m = hole.length_m  # паспорт без высоты уступа: H = 0
+
+        result = predict_design(design, model="kuzram", **KW)
+
+        lh = [item for item in result["warnings"] if "L/H" in item]
+        self.assertEqual(len(lh), 1)
+        self.assertIn(lh[0], result["holes"][0]["warnings"])
+
+    def test_snapshot_round_trip(self):
+        snapshot = settings_snapshot(
+            KuzRamSettings(rock_factor_method="rmd10"), {"source": "work_object", "work_object_name": "Карьер-1"}
+        )
+
+        settings, source = settings_from_snapshot(snapshot)
+
+        self.assertEqual(settings, KuzRamSettings(rock_factor_method="rmd10"))
+        self.assertEqual(source, {"source": "work_object", "work_object_name": "Карьер-1", "warnings": []})
+        self.assertEqual(settings_from_snapshot({}), (None, {}))
 
 
 class BlastEngineRegressionTests(unittest.TestCase):

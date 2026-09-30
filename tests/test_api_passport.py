@@ -16,6 +16,13 @@ from tests.scenario_fixtures import charged_design
 TEAM_ID = "passport-api-team"
 
 
+class _UntouchableRepository:
+    """Хранилище, чтение из которого — ошибка теста."""
+
+    def __getattr__(self, name):
+        raise AssertionError(f"Паспорт не должен читать хранилище настроек: {name}")
+
+
 class PassportApiTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -56,6 +63,40 @@ class PassportApiTests(unittest.TestCase):
 
         settings = document.predicted["fragmentation_settings"]
         self.assertEqual((settings["source"], settings["work_object_name"]), ("work_object", "Карьер-1"))
+
+    def test_legacy_model_does_not_read_work_object_settings(self):
+        payload = BlastDesignSchema(**charged_design("api-passport-legacy").to_dict())
+
+        document = reporting_service.build_from_request(
+            PassportBuildRequest(design=payload, fragmentation_model="kuzram_legacy", work_object_name="Карьер-1"),
+            organization_id=TEAM_ID,
+            repository=_UntouchableRepository(),
+        )
+
+        self.assertEqual(document.predicted["fragmentation_model"], "kuzram_legacy")
+        self.assertIsNotNone(document.predicted["x50_mm"])
+
+    def test_stored_prediction_does_not_read_work_object_settings(self):
+        from tests.dataset_fixtures import closed_design
+
+        design = save_design(TEAM_ID, closed_design("api-passport-stored"))
+        repository = _UntouchableRepository()
+
+        document = reporting_service.get_plan_passport(TEAM_ID, design.design_id, repository=repository)
+        html_text = reporting_service.export_plan_passport_html(TEAM_ID, design.design_id, repository=repository)
+
+        self.assertEqual(document.predicted["x50_mm"], 150.0)
+        self.assertIn("Паспорт БВР", html_text)
+
+    def test_new_model_without_stored_prediction_reads_settings(self):
+        payload = BlastDesignSchema(**charged_design("api-passport-reads").to_dict())
+
+        with self.assertRaises(AssertionError):
+            reporting_service.build_from_request(
+                PassportBuildRequest(design=payload, work_object_name="Карьер-1"),
+                organization_id=TEAM_ID,
+                repository=_UntouchableRepository(),
+            )
 
     def test_lists_roles_without_approval(self):
         response = reporting_service.list_roles()

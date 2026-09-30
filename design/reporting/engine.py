@@ -184,6 +184,29 @@ def _clone_design(design: BlastDesign) -> BlastDesign:
     return BlastDesign.from_dict(design.to_dict())
 
 
+def stored_fragmentation(design: BlastDesign) -> Any:
+    """Сохранённый прогноз кусковатости, который паспорт берёт вместо пересчёта."""
+    basis = getattr(design.blast_result, "basis", None) if design.blast_result is not None else None
+    return getattr(basis, "predicted_fragmentation", None) if basis else None
+
+
+def needs_kuzram_settings(design: BlastDesign, fragmentation_model: str) -> bool:
+    """Нужны ли паспорту настройки модели Kuz-Ram объекта работ.
+
+    Не нужны, когда кусковатость берётся из сохранённого прогноза или
+    считается старой моделью: ни то, ни другое настроек не читает.
+    Неизвестное имя модели — не старая модель; его отклонит движок.
+    """
+    if stored_fragmentation(design) is not None:
+        return False
+    from simulation.fragmentation.engine import is_legacy_model
+
+    try:
+        return not is_legacy_model(fragmentation_model or DEFAULT_FRAG_MODEL)
+    except ValueError:
+        return True
+
+
 def _collect_predicted(
     design: BlastDesign,
     *,
@@ -204,7 +227,7 @@ def _collect_predicted(
     basis = None
     if design.blast_result is not None:
         basis = getattr(design.blast_result, "basis", None)
-    stored_frag = getattr(basis, "predicted_fragmentation", None) if basis else None
+    stored_frag = stored_fragmentation(design)
     stored_vib = list(getattr(basis, "predicted_vibration", []) or []) if basis else []
 
     if stored_frag is not None:

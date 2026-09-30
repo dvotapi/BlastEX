@@ -243,3 +243,19 @@ def test_confirmed_template_situation_keeps_points_out_of_the_surface():
     assign_roles(entities, {"лэп": TemplateEntry("situation", manual=True)}, RoleParams())
 
     assert _roles(entities)["P"] == ("situation", "template")
+
+
+def _flat(handle: str, layer: str) -> CadEntity:
+    return CadEntity(handle=handle, layer=layer, kind="POLYLINE2D", points=[(0.0, 0.0, 0.0), (20.0, 5.0, 0.0)])
+
+
+@pytest.mark.parametrize("layer", ["Горизонт +410", "бровки"])
+def test_lines_without_elevation_are_not_crests(layer):
+    """Линия на Z = 0 на слое бровок — не нижняя бровка: иначе уступ 420 м «построится»."""
+
+    entities = [_line("L", layer, [410.0, 411.0]), _line("U", layer, [420.0, 421.0]), _flat("F", layer)]
+
+    result = assign_roles(entities, {}, RoleParams())
+
+    assert _roles(entities) == {"L": ("crest_bottom", "z"), "U": ("crest_top", "z"), "F": ("feature_line", "auto")}
+    assert any(item.code == "crest_without_z" and layer in item.message for item in result.warnings)

@@ -196,13 +196,28 @@ def _entity_role(item: CadEntity, layer_role: str, origin: str, confirmed: bool)
     if layer_role == ROLE_SPOT_HEIGHTS and item.z_kind != "variable":
         return ROLE_FEATURE_LINE, origin
     if layer_role == ROLE_CRESTS_BY_Z:
+        # Линия без отметки бровкой быть не может: по Z её не разделить, а
+        # нижней бровкой на нуле она «построила» бы уступ в сотни метров.
+        if item.z_kind == "zero":
+            return ROLE_FEATURE_LINE, origin
         # Верх/низ проставит _split_crests; до него — верхняя.
         return ROLE_CREST_TOP, ORIGIN_Z
     return layer_role, origin
 
 
 def _split_crests(name: str, members: list[CadEntity], params: RoleParams, result: RoleAssignment) -> None:
-    crests = [item for item in members if item.geometry_type == "line"]
+    crests = [item for item in members if item.geometry_type == "line" and item.z_kind != "zero"]
+    flat = sum(1 for item in members if item.geometry_type == "line" and item.z_kind == "zero")
+    if flat:
+        result.warnings.append(
+            CadWarning(
+                code="crest_without_z",
+                message=(
+                    f"На слое «{name}» линий без отметки: {flat}. Бровками они не считаются — "
+                    "отнесены к характерным линиям."
+                ),
+            )
+        )
     if not crests:
         return
 

@@ -402,5 +402,29 @@ def compare_plan_scenarios(
             except StoreDesignNotFound:
                 pass
     payload["approved_unchanged"] = True
-    payload["warnings"] = []
+    payload["warnings"] = _stale_model_warnings(stored)
     return ScenarioCompareResponse(**payload)
+
+
+def _stale_model_warnings(scenarios: list[DesignScenario]) -> list[str]:
+    """Сохранённые сценарии, чьи исходы посчитаны ещё Kuz-Ram 1.0.0.
+
+    Сценарий новой модели без снимка настроек сохранён до перевода модели
+    кусковатости: его исходы не пересчитываются, сравнивать их с новыми
+    нельзя — пользователь пересоздаёт сценарий сам.
+    """
+    from simulation.fragmentation.engine import is_legacy_model
+
+    warnings: list[str] = []
+    for scenario in scenarios:
+        try:
+            legacy = is_legacy_model(scenario.params.fragmentation_model)
+        except ValueError:
+            continue
+        if legacy or scenario.params.kuzram_settings:
+            continue
+        warnings.append(
+            f"Сценарий «{scenario.name}» посчитан до перевода модели кусковатости (Kuz-Ram 1.0.0) — "
+            "пересоздайте его для сравнения."
+        )
+    return warnings

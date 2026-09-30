@@ -226,6 +226,43 @@ class ScenarioApiTests(unittest.TestCase):
         self.assertEqual(params.kuzram_settings["work_object_name"], "Карьер-1")
 
 
+    def test_compare_warns_about_scenarios_saved_before_new_model(self):
+        from dataclasses import replace
+
+        from design.scenarios.persistence import load_scenario, save_scenario
+
+        design = self._plan()
+        payload = BlastDesignSchema(**design.to_dict())
+        created = {
+            name: scenario_service.create_scenario(
+                TEAM_ID,
+                ScenarioCreateRequest(
+                    design=payload, name=name, params=ScenarioParamsSchema(fragmentation_model=model)
+                ),
+            )
+            for name, model in (("Старый", "kuzram"), ("Свежий", "kuzram"), ("Старая модель", "kuzram_legacy"))
+        }
+        # Сценарии, сохранённые до PR 2, снимка настроек модели не несут.
+        for name in ("Старый", "Старая модель"):
+            stored = load_scenario(TEAM_ID, design.design_id, created[name].scenario_id)
+            save_scenario(TEAM_ID, replace(stored, params=replace(stored.params, kuzram_settings={})))
+        x50_before = load_scenario(TEAM_ID, design.design_id, created["Старый"].scenario_id).outcomes.x50_mm
+
+        table = scenario_service.compare_plan_scenarios(
+            TEAM_ID, ScenarioCompareRequest(design_id=design.design_id, include_baseline=True)
+        )
+
+        self.assertEqual(
+            table.warnings,
+            [
+                "Сценарий «Старый» посчитан до перевода модели кусковатости (Kuz-Ram 1.0.0) — "
+                "пересоздайте его для сравнения."
+            ],
+        )
+        reloaded = load_scenario(TEAM_ID, design.design_id, created["Старый"].scenario_id)
+        self.assertEqual(reloaded.outcomes.x50_mm, x50_before)
+        self.assertEqual(reloaded.params.kuzram_settings, {})
+
     def test_foreign_snapshot_gives_warning_not_crash(self):
         from design.scenarios.engine import _fragmentation_outcomes
         from design.scenarios.types import ScenarioOutcomes, ScenarioParams

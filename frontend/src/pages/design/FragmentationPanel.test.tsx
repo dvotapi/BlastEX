@@ -127,6 +127,10 @@ describe("settingsSourceLabel", () => {
       "Настройки модели: умолчания — настройки объекта «Карьер-3» не прочитаны",
     ],
     [result({ model: "kuzram_legacy", model_version: "1.0.0" }), "Старая модель: настройки объекта не применяются"],
+    [
+      result({ model: "kuzram_legacy", model_version: "1.0.0", settings: null }),
+      "Старая модель: настройки объекта не применяются",
+    ],
   ])("вариант %#", (value, label) => {
     expect(settingsSourceLabel(value)).toBe(label);
   });

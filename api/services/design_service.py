@@ -642,7 +642,7 @@ def predict_fragmentation(
     repository: EconomicsRepository | None = None,
 ) -> FragmentationPredictResponse:
     from api.services.fragmentation_settings import resolve_kuzram_settings
-    from simulation.fragmentation.engine import predict_design
+    from simulation.fragmentation.engine import is_legacy_model, predict_design
     from simulation.fragmentation.models import Calibration, DistributionPoint, MeasuredFragmentation
     from simulation.fragmentation.regions import ExplosiveSpec, RockSpec
 
@@ -678,12 +678,22 @@ def predict_fragmentation(
         )
         for item in request.measured
     ]
-    resolved = resolve_kuzram_settings(
-        explicit=request.kuzram.to_settings() if request.kuzram is not None else None,
-        work_object_name=request.work_object_name or "",
-        organization_id=organization_id,
-        repository=repository,
-    )
+    try:
+        legacy = is_legacy_model(request.model)
+    except ValueError:
+        legacy = False  # неизвестное имя отклонит predict_design
+    settings = None
+    settings_source = None
+    if not legacy:
+        # Старые модели настроек не применяют — объект работ не читается.
+        resolved = resolve_kuzram_settings(
+            explicit=request.kuzram.to_settings() if request.kuzram is not None else None,
+            work_object_name=request.work_object_name or "",
+            organization_id=organization_id,
+            repository=repository,
+        )
+        settings = resolved.settings
+        settings_source = resolved.source_payload()
     try:
         payload = predict_design(
             design,
@@ -696,12 +706,12 @@ def predict_fragmentation(
             explosives=catalog or None,
             hole_oversize_coeff=request.hole_oversize_coeff,
             measured=measured,
-            settings=resolved.settings,
-            settings_source=resolved.source_payload(),
+            settings=settings,
+            settings_source=settings_source,
         )
     except ValueError as exc:
         raise InvalidDesignError(str(exc)) from exc
-    return FragmentationPredictResponse(**payload)
+    return FragmentationPredictResponse(**{**payload, "settings": payload["settings"] or None})
 
 
 def list_movement_models():

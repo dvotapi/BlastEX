@@ -1385,7 +1385,9 @@ class FragmentationPredictResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     measured: list[MeasuredFragmentationSchema] = Field(default_factory=list)
     calibration: dict[str, Any] = Field(default_factory=dict)
-    settings: FragmentationSettingsSnapshotSchema = Field(default_factory=FragmentationSettingsSnapshotSchema)
+    # Снимок применённых настроек; у старых моделей (*_legacy) его нет — они
+    # настроек Каннингема не применяют.
+    settings: FragmentationSettingsSnapshotSchema | None = None
 
 
 class ReceptorAttachRequest(BaseModel):

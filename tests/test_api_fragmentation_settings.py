@@ -142,6 +142,23 @@ class PredictFragmentationSettingsTests(unittest.TestCase):
         self.assertEqual(tuned.site.prediction.provenance.settings["work_object_name"], OBJECT)
 
 
+    def test_legacy_model_has_no_settings_snapshot(self):
+        response = design_service.predict_fragmentation(
+            FragmentationPredictRequest(
+                design=_design(),
+                model="kuzram_legacy",
+                lump_size_mm=400.0,
+                rock=ROCK,
+                explosive=EXPLOSIVE,
+                work_object_name=OBJECT,
+            ),
+            organization_id=ORG,
+            repository=_repository(),
+        )
+
+        self.assertIsNone(response.settings)
+        self.assertEqual(response.site.prediction.provenance.settings, {})
+
 class FragmentationRouteTests(unittest.TestCase):
     def test_route_reads_organization_work_object(self):
         # Сервисный API-ключ даёт организацию «default».

@@ -2023,7 +2023,8 @@ export type FragmentationPredictResponse = {
   warnings: string[];
   measured: MeasuredFragmentation[];
   calibration: Record<string, unknown>;
-  settings: FragmentationSettingsSnapshot;
+  /** У старых моделей (*_legacy) снимка нет: настройки они не применяют. */
+  settings: FragmentationSettingsSnapshot | null;
 };
 
 export function isFragmentationMapMetric(metric: string): metric is FragmentationMapMetric {

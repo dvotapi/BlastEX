@@ -77,5 +77,54 @@ class PassportHtmlTests(unittest.TestCase):
         self.assertIn("<html", html_text)
 
 
+
+class PassportModelSettingsTests(unittest.TestCase):
+    def _html(self, model: str, version: str, settings: dict) -> str:
+        from design.reporting.html import render_passport_html
+        from design.reporting.types import BlastPassport, PredictedOutcomes
+
+        predicted = PredictedOutcomes(
+            fragmentation_model=model, fragmentation_model_version=version, fragmentation_settings=settings
+        )
+        return render_passport_html(BlastPassport(design_id="p", name="Паспорт", predicted=predicted))
+
+    def test_work_object_settings_and_version(self):
+        html_text = self._html("kuzram", "2.0.0", {"source": "work_object", "work_object_name": "Карьер-1"})
+
+        self.assertIn("2.0.0 · Настройки модели: объект работ «Карьер-1»", html_text)
+
+    def test_other_sources_mirror_frontend_wording(self):
+        cases = (
+            ({"source": "request"}, "Настройки модели: заданы в запросе"),
+            ({"source": "defaults"}, "Настройки модели: умолчания"),
+            (
+                {"source": "defaults", "work_object_name": "Карьер-2", "warnings": []},
+                "Настройки модели: умолчания — у объекта «Карьер-2» они не сохранены",
+            ),
+            (
+                {"source": "defaults", "work_object_name": "Карьер-3", "warnings": ["x"]},
+                "Настройки модели: умолчания — настройки объекта «Карьер-3» не прочитаны",
+            ),
+        )
+        for settings, label in cases:
+            with self.subTest(label=label):
+                self.assertIn(label, self._html("kuzram", "2.0.0", settings))
+
+    def test_legacy_model_wording(self):
+        html_text = self._html("kuzram_legacy", "1.0.0", {})
+
+        self.assertIn("1.0.0 · Старая модель: настройки объекта не применяются", html_text)
+
+    def test_old_passport_without_snapshot_shows_no_settings(self):
+        html_text = self._html("kuzram", "1.0.0", {})
+
+        self.assertIn("<strong>1.0.0</strong>", html_text)
+        self.assertNotIn("Настройки модели", html_text)
+
+    def test_escapes_work_object_name(self):
+        html_text = self._html("kuzram", "2.0.0", {"source": "work_object", "work_object_name": "<b>К</b>"})
+
+        self.assertIn("«&lt;b&gt;К&lt;/b&gt;»", html_text)
+
 if __name__ == "__main__":
     unittest.main()

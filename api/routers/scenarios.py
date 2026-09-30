@@ -12,7 +12,9 @@ from api.schemas.scenarios import (
     ScenarioListResponse,
 )
 from api.security import require_internal_access
+from api.services.economics_service import get_economics_repository
 from api.services import scenario_service
+from cost.v2.repository import EconomicsRepository
 
 router = APIRouter(prefix="/design", tags=["design-scenarios"])
 
@@ -21,16 +23,18 @@ router = APIRouter(prefix="/design", tags=["design-scenarios"])
 def create_scenario(
     request: ScenarioCreateRequest,
     session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> ScenarioCreateResponse:
-    return scenario_service.create_scenario(session["org"], request)
+    return scenario_service.create_scenario(session["org"], request, repository=repository)
 
 
 @router.post("/scenarios/compare", response_model=ScenarioCompareResponse)
 def compare_scenarios(
     request: ScenarioCompareRequest,
     session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> ScenarioCompareResponse:
-    return scenario_service.compare_plan_scenarios(session["org"], request)
+    return scenario_service.compare_plan_scenarios(session["org"], request, repository=repository)
 
 
 @router.get("/plans/{design_id}/scenarios", response_model=ScenarioListResponse)

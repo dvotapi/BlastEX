@@ -408,6 +408,7 @@
 
 .frag-caption { display:flex; justify-content:space-between; gap:8px; align-items:baseline; font-size:11px; color:#5c6a63; }
 .frag-caption b { color:#173125; font-size:12px; }
+.frag-settings { font-size:11px; color:#5c6a63; }
 .frag-curve { width:100%; height:88px; background:#f7faf8; border:1px solid #d9e2dd; border-radius:9px; }
 .frag-curve line { stroke:#d9e2dd; stroke-width:1; }
 .frag-curve path { fill:none; stroke:#2d7556; stroke-width:2; }

@@ -49,10 +49,14 @@ class FragmentationApiTests(unittest.TestCase):
             "explosive_key": "АНФО",
         }
 
-    def test_lists_three_models(self):
+    def test_lists_six_models(self):
         response = design_service.list_fragmentation_models()
         ids = [item.id for item in response.models]
-        self.assertEqual(ids, ["kuznetsov", "kuzram", "swebrec"])
+        self.assertEqual(
+            ids, ["kuznetsov", "kuzram", "swebrec", "kuznetsov_legacy", "kuzram_legacy", "swebrec_legacy"]
+        )
+        self.assertEqual([item.legacy for item in response.models], [False, False, False, True, True, True])
+        self.assertEqual({item.version for item in response.models if not item.legacy}, {"2.0.0"})
 
     def test_predict_kuzram_on_design(self):
         response = design_service.predict_fragmentation(

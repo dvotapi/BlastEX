@@ -1,7 +1,7 @@
 """Kuznetsov median size matches the historical BlastEX centimetre formula."""
 import unittest
 
-from simulation.fragmentation.kuznetsov import kuznetsov_x50_mm, rock_factor_A
+from simulation.fragmentation.legacy.kuznetsov import kuznetsov_x50_mm, rock_factor_A
 from simulation.fragmentation.units import relative_weight_strength
 
 

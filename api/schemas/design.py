@@ -1,11 +1,11 @@
 """Pydantic-схемы проекта БВР — поля 1:1 со словарями `design.models.*.to_dict()`."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.blast import ExplosivePropertiesSchema, RockPropertiesSchema
+from api.schemas.blast import ExplosivePropertiesSchema, KuzRamSettingsSchema, RockPropertiesSchema
 from api.schemas.cost import CalculationContextInputSchema, MaterialsSelectionSchema
 
 
@@ -1248,6 +1248,7 @@ class ModelProvenanceSchema(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     parameters: dict[str, Any] = Field(default_factory=dict)
     calibration: dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class PredictedFragmentationSchema(BaseModel):
@@ -1259,6 +1260,7 @@ class PredictedFragmentationSchema(BaseModel):
     powder_factor_kg_m3: float
     curve: list[DistributionPointSchema] = Field(default_factory=list)
     provenance: ModelProvenanceSchema
+    warnings: list[str] = Field(default_factory=list)
 
 
 class MeasuredFragmentationSchema(BaseModel):
@@ -1301,6 +1303,8 @@ class FragmentationInputsSchema(BaseModel):
     lump_size_mm: float = 0.0
     hole_oversize_coeff: float = 1.05
     influence_volume_m3: float = 0.0
+    charge_length_m: float = 0.0
+    hole_length_m: float = 0.0
 
 
 class FragmentationRegionSchema(BaseModel):
@@ -1337,10 +1341,20 @@ class FragmentationModelInfoSchema(BaseModel):
     version: str
     label: str
     distribution: str
+    legacy: bool = False
 
 
 class FragmentationModelsResponse(BaseModel):
     models: list[FragmentationModelInfoSchema]
+
+
+class FragmentationSettingsSnapshotSchema(BaseModel):
+    """Какие настройки Kuz-Ram применены к прогнозу и откуда они взяты."""
+
+    source: Literal["request", "work_object", "defaults"] = "defaults"
+    work_object_name: str = ""
+    values: KuzRamSettingsSchema = Field(default_factory=KuzRamSettingsSchema)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class FragmentationPredictRequest(BaseModel):
@@ -1354,6 +1368,10 @@ class FragmentationPredictRequest(BaseModel):
     explosives: list[ExplosivePropertiesSchema] = Field(default_factory=list)
     hole_oversize_coeff: float | None = Field(None, ge=1.0, le=1.5)
     measured: list[MeasuredFragmentationSchema] = Field(default_factory=list)
+    # Объект работ, чьи настройки модели брать; пусто — активный объект
+    # организации. Явные настройки kuzram важнее объекта.
+    work_object_name: str | None = Field(None, max_length=300)
+    kuzram: KuzRamSettingsSchema | None = None
 
 
 class FragmentationPredictResponse(BaseModel):
@@ -1367,6 +1385,11 @@ class FragmentationPredictResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     measured: list[MeasuredFragmentationSchema] = Field(default_factory=list)
     calibration: dict[str, Any] = Field(default_factory=dict)
+    # Снимок применённых настроек; у старых моделей (*_legacy) его нет — они
+    # настроек Каннингема не применяют.
+    settings: FragmentationSettingsSnapshotSchema | None = None
+    # Подпись «откуда настройки модели» — готовая строка для панели.
+    settings_label: str = ""
 
 
 class ReceptorAttachRequest(BaseModel):

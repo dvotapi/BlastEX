@@ -3,7 +3,7 @@ import unittest
 
 from simulation.fragmentation.distributions import swebrec_passing, swebrec_size_mm
 from simulation.fragmentation.models import ROLE_PREDICTED, Calibration
-from simulation.fragmentation.swebrec import default_xmax_mm, predict_swebrec
+from simulation.fragmentation.legacy.swebrec import default_xmax_mm, predict_swebrec
 from tests.test_fragmentation_kuzram import _inputs
 
 
@@ -24,7 +24,7 @@ class SwebrecTests(unittest.TestCase):
     def test_predict_exposes_curve_and_provenance(self):
         prediction = predict_swebrec(_inputs())
         self.assertEqual(prediction.role, ROLE_PREDICTED)
-        self.assertEqual(prediction.provenance.model, "swebrec")
+        self.assertEqual(prediction.provenance.model, "swebrec_legacy")
         self.assertLess(prediction.x20_mm, prediction.x50_mm)
         self.assertLess(prediction.x50_mm, prediction.x80_mm)
         self.assertTrue(prediction.curve)

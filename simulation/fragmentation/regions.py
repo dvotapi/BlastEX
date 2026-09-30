@@ -198,6 +198,24 @@ def _estimate_charge_kg(
     return capacity_kg_per_m * charge_length
 
 
+def _charge_length_m(load: HoleLoad | None, hole: Hole, stemming_m: float) -> float:
+    """Длина заряда, м: сумма взрывчатых дек, без дек — скважина минус забойка.
+
+    Воздушный промежуток между деками зарядом не считается: для множителя
+    L/H в n по Каннингему нужна длина ВВ, а не «скважина минус забойка».
+    Если у части дек масса задана, незаряженной считается дека с нулём; если
+    массы нет ни у одной (импорт хранит только total_charge_kg), считаются
+    все взрывчатые деки.
+    """
+    if load is not None:
+        explosive = [deck for deck in load.decks if is_explosive_deck_kind(deck.kind)]
+        charged = [deck for deck in explosive if deck.mass_kg > 0] or explosive
+        length = sum(max(0.0, deck.to_m - deck.from_m) for deck in charged)
+        if length > 0:
+            return length
+    return max(0.0, hole.length_m - stemming_m)
+
+
 def _influence_volume_m3(burden_m: float, spacing_m: float, bench_height_m: float, load: HoleLoad | None) -> float:
     if load is not None and load.influence_volume_m3 > 0:
         return load.influence_volume_m3
@@ -285,6 +303,8 @@ def collect_hole_regions(
             lump_size_mm=lump_size_mm,
             hole_oversize_coeff=oversize,
             influence_volume_m3=volume,
+            charge_length_m=_charge_length_m(load, hole, stemming),
+            hole_length_m=hole.length_m,
         )
         regions.append(
             InfluenceRegion(
@@ -322,6 +342,10 @@ def aggregate_region(
     def avg(getter) -> float:
         return _weighted_mean([(getter(item.inputs), w) for item, w in pairs])
 
+    def avg_positive(getter) -> float:
+        # Паспорт пишет пустую длину нулём: такая скважина не тянет L и H блока вниз.
+        return _weighted_mean([(getter(item.inputs), w) for item, w in pairs if getter(item.inputs) > 0])
+
     charge_total = sum(item.inputs.charge_mass_kg for item in members)
     volume = sum(item.inputs.influence_volume_m3 for item in members)
     powder = charge_total / volume if volume > 0 else avg(lambda inp: inp.powder_factor_kg_m3)
@@ -339,7 +363,7 @@ def aggregate_region(
     inputs = FragmentationInputs(
         burden_m=avg(lambda inp: inp.burden_m),
         spacing_m=avg(lambda inp: inp.spacing_m),
-        bench_height_m=avg(lambda inp: inp.bench_height_m),
+        bench_height_m=avg_positive(lambda inp: inp.bench_height_m),
         diameter_mm=avg(lambda inp: inp.diameter_mm),
         charge_mass_kg=mean_charge,
         powder_factor_kg_m3=powder,
@@ -354,6 +378,8 @@ def aggregate_region(
         lump_size_mm=lump_size_mm,
         hole_oversize_coeff=template.hole_oversize_coeff,
         influence_volume_m3=volume,
+        charge_length_m=avg_positive(lambda inp: inp.charge_length_m),
+        hole_length_m=avg(lambda inp: inp.hole_length_m),
     )
     xs = [item.x for item in members]
     ys = [item.y for item in members]
@@ -368,7 +394,7 @@ def aggregate_region(
     )
 
 
-def collect_regions(
+def collect_hole_regions_with_warnings(
     design: BlastDesign,
     *,
     lump_size_mm: float,
@@ -376,8 +402,8 @@ def collect_regions(
     default_explosive: ExplosiveSpec,
     explosives: dict[str, ExplosiveSpec] | None = None,
     hole_oversize_coeff: float | None = None,
-) -> tuple[list[InfluenceRegion], list[InfluenceRegion], InfluenceRegion | None, list[str]]:
-    """Hole regions, domain regions, site region, and skip warnings."""
+) -> tuple[list[InfluenceRegion], list[str]]:
+    """Регионы скважин и предупреждения о пропусках — без доменов и блока."""
     holes = collect_hole_regions(
         design,
         lump_size_mm=lump_size_mm,
@@ -391,7 +417,38 @@ def collect_regions(
     skipped = enabled_ids - {hid for region in holes for hid in region.hole_ids}
     if skipped:
         warnings.append(f"Пропущено скважин без входов: {len(skipped)}.")
+    return holes, warnings
 
+
+def collect_regions(
+    design: BlastDesign,
+    *,
+    lump_size_mm: float,
+    default_rock: RockSpec,
+    default_explosive: ExplosiveSpec,
+    explosives: dict[str, ExplosiveSpec] | None = None,
+    hole_oversize_coeff: float | None = None,
+) -> tuple[list[InfluenceRegion], list[InfluenceRegion], InfluenceRegion | None, list[str]]:
+    """Hole regions, domain regions, site region, and skip warnings."""
+    holes, warnings = collect_hole_regions_with_warnings(
+        design,
+        lump_size_mm=lump_size_mm,
+        default_rock=default_rock,
+        default_explosive=default_explosive,
+        explosives=explosives,
+        hole_oversize_coeff=hole_oversize_coeff,
+    )
+    domains, site = group_regions(design, holes, lump_size_mm=lump_size_mm)
+    return holes, domains, site, warnings
+
+
+def group_regions(
+    design: BlastDesign,
+    holes: list[InfluenceRegion],
+    *,
+    lump_size_mm: float,
+) -> tuple[list[InfluenceRegion], InfluenceRegion | None]:
+    """Регионы доменов и блока из заданных регионов скважин."""
     by_domain: dict[str, list[InfluenceRegion]] = {}
     hole_by_id = {hole.id: hole for hole in design.holes}
     for region in holes:
@@ -407,4 +464,4 @@ def collect_regions(
             domains.append(aggregated)
 
     site = aggregate_region("site", "site", holes, lump_size_mm)
-    return holes, domains, site, warnings
+    return domains, site

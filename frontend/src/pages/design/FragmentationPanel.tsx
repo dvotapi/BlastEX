@@ -86,6 +86,7 @@ export function FragmentationPanel({
               <b>{viewLabel}</b>
               <span>{result.model} v{result.model_version}</span>
             </div>
+            {result.settings_label && <small className="frag-settings">{result.settings_label}</small>}
             <div className="metrics-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
               <Metric label="X20" value={view.prediction.x20_mm} unit="мм" digits={0} />
               <Metric label="X50" value={view.prediction.x50_mm} unit="мм" digits={0} />

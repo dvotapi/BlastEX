@@ -442,7 +442,9 @@ export const api = {
         domains,
       }),
     maps: (design: BlastDesign) => post<EngineeringMaps>(`${V1}/design/maps`, { design }),
-    fragmentationModels: () => get<{ models: Array<{ id: string; version: string; label: string; distribution: string }> }>(
+    fragmentationModels: () => get<{
+      models: Array<{ id: string; version: string; label: string; distribution: string; legacy?: boolean }>;
+    }>(
       `${V1}/design/fragmentation/models`,
     ),
     fragmentation: (payload: {
@@ -455,6 +457,7 @@ export const api = {
       explosive?: ChargeExplosive;
       explosives?: ChargeExplosive[];
       hole_oversize_coeff?: number;
+      work_object_name?: string;
     }) => post<FragmentationPredictResponse>(`${V1}/design/fragmentation`, payload),
     movementModels: () => get<{
       models: Array<{ id: string; version: string; label: string }>;
@@ -790,6 +793,7 @@ export const api = {
       include_baseline?: boolean;
       design?: BlastDesign;
       inline?: DesignScenario[];
+      work_object_name?: string;
     }) => post<ScenarioCompareResponse>(`${V1}/design/scenarios/compare`, payload),
     optimize: (payload: {
       design: BlastDesign;
@@ -859,6 +863,7 @@ export const api = {
       max_oversize_pct?: number;
       fragmentation_model?: string;
       include_predictions?: boolean;
+      work_object_name?: string;
       planned_cost?: {
         total_amount_rub?: number;
         cost_per_m3?: number;

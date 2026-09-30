@@ -29,6 +29,7 @@ from intelligence.explainability.explain import explain_estimator
 from intelligence.explainability.types import empty_explanation
 from intelligence.uncertainty.assess import assess_vector, unavailable
 from design.models import BlastDesign
+from simulation.fragmentation.models import LEGACY_MODEL_SUFFIX, MODEL_KUZRAM_LEGACY, ModelProvenance
 
 
 def clamp_calibrated(model_type: str, value: float) -> float:
@@ -189,13 +190,24 @@ def empirical_baseline(design: BlastDesign, model_type: str) -> tuple[float | No
     return None, ""
 
 
+# Калибровки обучены на прогнозах Kuz-Ram 1.0.0 (формулы до перевода на
+# Каннингема). Пока артефакт не хранит свою базу (PR 3), baseline для них
+# считается той же старой моделью — иначе поправка ляжет на чужую формулу.
+CALIBRATION_BASELINE_MODEL = MODEL_KUZRAM_LEGACY
+
+
+def _old_base(provenance: ModelProvenance) -> bool:
+    """Прогноз посчитан старой базой — той, на которой обучены калибровки."""
+    return provenance.model.endswith(LEGACY_MODEL_SUFFIX) or not provenance.model_version.startswith("2.")
+
+
 def _stored_predicted(design: BlastDesign, model_type: str) -> float | None:
     result = design.blast_result
     if result is None or result.basis is None:
         return None
     if model_type in {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}:
         predicted = result.basis.predicted_fragmentation
-        if predicted is None:
+        if predicted is None or not _old_base(predicted.provenance):
             return None
         if model_type == MODEL_KUZRAM_RESIDUAL:
             return float(predicted.x50_mm) if predicted.x50_mm is not None else None
@@ -210,7 +222,7 @@ def _compute_empirical(design: BlastDesign, model_type: str) -> float | None:
         from simulation.fragmentation.engine import predict_design
 
         try:
-            payload = predict_design(design, model="kuzram")
+            payload = predict_design(design, model=CALIBRATION_BASELINE_MODEL)
         except ValueError:
             return None
         site = payload.get("site") or {}

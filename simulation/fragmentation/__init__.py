@@ -1,14 +1,16 @@
-"""Fragmentation prediction for a spatial blast design (phase BDX-006).
+"""Прогноз кусковатости по пространственному проекту.
 
-Three empirical models share the same Kuznetsov median and then differ in
-how they turn that median into a size-distribution curve:
+Три модели считают на общей базе Каннингема — фактор A, x50 и n дают
+cunningham.predict_point, та же функция, что у листа «Расчёт» — и
+различаются только кривой распределения:
 
-* ``kuznetsov`` — Kuznetsov x50 + Rosin–Rammler with a default n
-* ``kuzram`` — Kuznetsov x50 + Cunningham n + Rosin–Rammler (Kuz-Ram)
-* ``swebrec`` — Kuznetsov x50 + Swebrec function (Ouchterlony)
+* ``kuznetsov`` — Розин — Раммлер с фиксированным n;
+* ``kuzram`` — Розин — Раммлер с n по Каннингему;
+* ``swebrec`` — функция Swebrec (Оухтерлони).
 
-Predictions always carry role ``predicted``. Measured sieve data is a
-separate type and is never written by this package (BDX-010).
+Прежние формулы доступны как ``kuznetsov_legacy``, ``kuzram_legacy`` и
+``swebrec_legacy`` (simulation/fragmentation/legacy/). Прогноз всегда несёт
+роль ``predicted``; измеренную кусковатость пакет не пишет (BDX-010).
 """
 
 from simulation.fragmentation.engine import (

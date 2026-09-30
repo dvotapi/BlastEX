@@ -13,7 +13,20 @@ FRAGMENTATION_ROLES = (ROLE_DESIGNED, ROLE_PREDICTED, ROLE_MEASURED)
 MODEL_KUZNETSOV = "kuznetsov"
 MODEL_KUZRAM = "kuzram"
 MODEL_SWEBREC = "swebrec"
-FRAGMENTATION_MODEL_IDS = (MODEL_KUZNETSOV, MODEL_KUZRAM, MODEL_SWEBREC)
+# Прежние формулы (до PR 2 — Кузнецов с фактором A по Лилли) живут в
+# simulation/fragmentation/legacy/ под этими именами.
+LEGACY_MODEL_SUFFIX = "_legacy"
+MODEL_KUZNETSOV_LEGACY = MODEL_KUZNETSOV + LEGACY_MODEL_SUFFIX
+MODEL_KUZRAM_LEGACY = MODEL_KUZRAM + LEGACY_MODEL_SUFFIX
+MODEL_SWEBREC_LEGACY = MODEL_SWEBREC + LEGACY_MODEL_SUFFIX
+FRAGMENTATION_MODEL_IDS = (
+    MODEL_KUZNETSOV,
+    MODEL_KUZRAM,
+    MODEL_SWEBREC,
+    MODEL_KUZNETSOV_LEGACY,
+    MODEL_KUZRAM_LEGACY,
+    MODEL_SWEBREC_LEGACY,
+)
 
 
 def _opt_float(data: dict[str, Any], key: str) -> float | None:
@@ -75,6 +88,10 @@ class FragmentationInputs:
     lump_size_mm: float
     hole_oversize_coeff: float = 1.05
     influence_volume_m3: float = 0.0
+    # Длина заряда нужна множителю L/H в n по Каннингему; 0 — не задана
+    # (старые записи, неполный паспорт). Длина скважины — для справки.
+    charge_length_m: float = 0.0
+    hole_length_m: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -100,6 +117,8 @@ class FragmentationInputs:
             lump_size_mm=float(data.get("lump_size_mm", 0.0) or 0.0),
             hole_oversize_coeff=float(data.get("hole_oversize_coeff", 1.05) or 1.05),
             influence_volume_m3=float(data.get("influence_volume_m3", 0.0) or 0.0),
+            charge_length_m=float(data.get("charge_length_m", 0.0) or 0.0),
+            hole_length_m=float(data.get("hole_length_m", 0.0) or 0.0),
         )
 
 
@@ -112,6 +131,9 @@ class ModelProvenance:
     inputs: dict[str, Any] = field(default_factory=dict)
     parameters: dict[str, Any] = field(default_factory=dict)
     calibration: dict[str, Any] = field(default_factory=dict)
+    # Снимок применённых настроек Kuz-Ram и их источник; у старых моделей и
+    # у прогнозов до PR 2 пусто.
+    settings: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -120,6 +142,7 @@ class ModelProvenance:
             "inputs": dict(self.inputs),
             "parameters": dict(self.parameters),
             "calibration": dict(self.calibration),
+            "settings": dict(self.settings),
         }
 
     @classmethod
@@ -131,6 +154,7 @@ class ModelProvenance:
             inputs=dict(data.get("inputs", {}) or {}),
             parameters=dict(data.get("parameters", {}) or {}),
             calibration=dict(data.get("calibration", {}) or {}),
+            settings=dict(data.get("settings", {}) or {}),
         )
 
 
@@ -190,6 +214,7 @@ class PredictedFragmentation:
     powder_factor_kg_m3: float
     curve: list[DistributionPoint] = field(default_factory=list)
     provenance: ModelProvenance = field(default_factory=ModelProvenance)
+    warnings: list[str] = field(default_factory=list)
     role: str = ROLE_PREDICTED
 
     def __post_init__(self) -> None:
@@ -205,6 +230,7 @@ class PredictedFragmentation:
             "powder_factor_kg_m3": self.powder_factor_kg_m3,
             "curve": [point.to_dict() for point in self.curve],
             "provenance": self.provenance.to_dict(),
+            "warnings": list(self.warnings),
         }
 
     @classmethod
@@ -218,6 +244,7 @@ class PredictedFragmentation:
             powder_factor_kg_m3=float(data.get("powder_factor_kg_m3", 0.0) or 0.0),
             curve=[DistributionPoint.from_dict(item) for item in data.get("curve", [])],
             provenance=ModelProvenance.from_dict(data.get("provenance")),
+            warnings=[str(item) for item in data.get("warnings", []) or []],
             role=ROLE_PREDICTED,
         )
 

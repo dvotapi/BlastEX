@@ -159,9 +159,11 @@ export function CadCanvas({
       };
     });
   }, [entities, cam.x, cam.y, cam.scale, viewport.width, viewport.height]);
+  // Выделенная цепочка — это тысячи отрезков: поиск по множеству, а не по массиву.
+  const emphasizedSet = useMemo(() => new Set(emphasized), [emphasized]);
   const highlighted = paths.filter(
     ({ entity }) =>
-      matches(hover, entity) || (selected?.handle === entity.handle) || emphasized.includes(entity.handle),
+      matches(hover, entity) || (selected?.handle === entity.handle) || emphasizedSet.has(entity.handle),
   );
 
   // Обработчики базового слоя стабильны — иначе memo не спасёт от перерисовки.
@@ -245,7 +247,7 @@ export function CadCanvas({
           {highlighted.map(({ entity, d }) => (
             <path
               key={entity.handle}
-              className={`cad-highlight${matches(hover, entity) ? " is-hovered" : ""}${selected?.handle === entity.handle ? " is-selected" : ""}${emphasized.includes(entity.handle) ? " is-emphasized" : ""}`}
+              className={`cad-highlight${matches(hover, entity) ? " is-hovered" : ""}${selected?.handle === entity.handle ? " is-selected" : ""}${emphasizedSet.has(entity.handle) ? " is-emphasized" : ""}`}
               data-handle={entity.handle}
               d={d}
               style={{ stroke: roleColor(entity.role) }}

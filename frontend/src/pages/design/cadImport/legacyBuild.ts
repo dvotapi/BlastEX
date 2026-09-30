@@ -38,9 +38,12 @@ export function benchCandidates(entities: CadEntity[], keep: string[]): CadEntit
   const lines = entities.filter((entity) => entity.geometry_type === "line");
   const sorted = [...lines].sort((a, b) => b.length_m - a.length_m);
   const chosen = new Set(sorted.slice(0, LONGEST_CANDIDATES));
-  for (const entity of lines) {
-    if (entity.role === "crest_top" || entity.role === "crest_bottom" || keep.includes(entity.handle)) chosen.add(entity);
-  }
+  // Бровок по ролям тоже не больше сотни самых длинных: несвязных фрагментов
+  // бывают тысячи, а список из тысяч вариантов не выбрать глазами.
+  const crests = sorted.filter((entity) => entity.role === "crest_top" || entity.role === "crest_bottom");
+  for (const entity of crests.slice(0, LONGEST_CANDIDATES)) chosen.add(entity);
+  const kept = new Set(keep);
+  for (const entity of lines) if (kept.has(entity.handle)) chosen.add(entity);
   return sorted.filter((entity) => chosen.has(entity));
 }
 
@@ -90,6 +93,9 @@ function cell(x: number, y: number): [number, number] {
  * вручную, в цепочку бровки не попадёт. Концы ищутся по индексу ячеек, цепочка
  * растёт с обоих концов без копирования — десятки тысяч отрезков не заморозят
  * окно. `members` — handle отрезков каждой цепочки в порядке склейки.
+ *
+ * Отрезки, вошедшие в цепочку, в `entities` заменены ею: в «Верх» и «Низ»
+ * предлагается собранная бровка, а не тысяча её фрагментов.
  */
 export function withLineChains(entities: CadEntity[]): { entities: CadEntity[]; members: Map<string, string[]> } {
   const groups = new Map<string, CadEntity[]>();
@@ -159,5 +165,7 @@ export function withLineChains(entities: CadEntity[]): { entities: CadEntity[]; 
       members.set(chain.handle, parts.map((part) => part.handle));
     }
   }
-  return { entities: [...entities, ...chains], members };
+  const chained = new Set<string>();
+  for (const handles of members.values()) for (const handle of handles) chained.add(handle);
+  return { entities: [...entities.filter((entity) => !chained.has(entity.handle)), ...chains], members };
 }

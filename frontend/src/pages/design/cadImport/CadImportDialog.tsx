@@ -43,6 +43,11 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
   // Для построения по-старому отрезки LINE склеены в цепочки (как в прежнем диалоге).
   const build = useMemo(() => withLineChains(active?.entities ?? []), [active?.entities]);
   const [pair, setPair] = useState(() => defaultBenchPair(build.entities));
+  // Стабильный список подсвеченных отрезков: иначе холст пересчитывал бы его на каждое наведение.
+  const emphasized = useMemo(
+    () => [pair.crest, pair.toe].filter(Boolean).flatMap((handle) => build.members.get(handle) ?? [handle]),
+    [pair.crest, pair.toe, build],
+  );
   const [floorText, setFloorText] = useState("");
   const [radiusText, setRadiusText] = useState("");
 
@@ -167,7 +172,7 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
             fitKey={`${active.id}:${active.params.scale}`}
             hover={hover}
             selected={selected}
-            emphasized={[pair.crest, pair.toe].filter(Boolean).flatMap((handle) => build.members.get(handle) ?? [handle])}
+            emphasized={emphasized}
             onHover={setHover}
             onSelect={select}
           />

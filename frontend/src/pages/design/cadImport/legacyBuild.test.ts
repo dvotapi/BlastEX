@@ -96,8 +96,8 @@ describe("withLineChains: бровка, начерченная отрезкам�
     expect(top?.role).toBe("crest_top");
     expect(top?.length_m).toBeCloseTo(10 + Math.hypot(10, 5) + 10, 6);
     expect(members.get(top?.handle ?? "")).toEqual(["A", "C", "B"]);
-    // Несвязный отрезок цепочкой не становится, исходные отрезки на месте.
-    expect(entities.filter((item) => item.kind === "LINE" && !members.has(item.handle))).toHaveLength(6);
+    // Отрезки, вошедшие в цепочки, для построения заменены цепочками; несвязный остаётся.
+    expect(entities.filter((item) => item.kind === "LINE" && !members.has(item.handle)).map((item) => item.handle)).toEqual(["F"]);
   });
 
   it("построение по-старому по умолчанию берёт цепочки бровок", () => {
@@ -143,5 +143,31 @@ describe("withLineChains: роли и объём", () => {
     expect(chains[0].points).toHaveLength(count + 1);
     expect(chains[0].points[0][0]).toBe(0);
     expect(elapsed).toBeLessThan(1000);
+  });
+});
+
+describe("кандидаты «Верх/Низ» после склейки", () => {
+  it("вместо тысяч фрагментов бровки — одна цепочка", () => {
+    const parts = Array.from({ length: 3000 }, (_, index) =>
+      segment(`S${index}`, "верх", [index, 0, 420], [index + 1, 0, 420], "crest_top"),
+    );
+
+    const { entities, members } = withLineChains(parts);
+    const candidates = benchCandidates(entities, []);
+
+    expect(candidates.map((item) => item.handle)).toEqual([...members.keys()]);
+  });
+
+  it("несвязных фрагментов бровок — не больше сотни самых длинных", () => {
+    const parts = Array.from({ length: 3000 }, (_, index) =>
+      segment(`S${index}`, "верх", [index * 10, 0, 420], [index * 10 + 1 + index / 1000, 0, 420], "crest_top"),
+    );
+
+    const { entities } = withLineChains(parts);
+    const candidates = benchCandidates(entities, ["S5"]);
+
+    expect(candidates.length).toBeLessThanOrEqual(101);
+    expect(candidates[0].handle).toBe("S2999");
+    expect(candidates.map((item) => item.handle)).toContain("S5");
   });
 });

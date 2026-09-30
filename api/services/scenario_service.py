@@ -414,7 +414,8 @@ def compare_plan_scenarios(
             except StoreDesignNotFound:
                 pass
     payload["approved_unchanged"] = True
-    payload["warnings"] = _stale_model_warnings(stored, baseline_snapshot)
+    # Присланные в запросе сценарии проверяются так же, как сохранённые.
+    payload["warnings"] = _stale_model_warnings(stored + inline, baseline_snapshot)
     return ScenarioCompareResponse(**payload)
 
 

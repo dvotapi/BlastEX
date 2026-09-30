@@ -263,6 +263,41 @@ class ScenarioApiTests(unittest.TestCase):
         self.assertEqual(reloaded.outcomes.x50_mm, x50_before)
         self.assertEqual(reloaded.params.kuzram_settings, {})
 
+    def test_compare_checks_inline_scenarios_too(self):
+        design = self._plan()
+        payload = BlastDesignSchema(**design.to_dict())
+        repository = self._repository(active=True)
+        created = scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(design=payload, name="Черновик", params=ScenarioParamsSchema()),
+            repository=repository,
+        )
+        other = scenario_service.create_scenario(
+            TEAM_ID,
+            ScenarioCreateRequest(
+                design=payload, name="Явный", params=ScenarioParamsSchema(kuzram={"rock_factor_correction": 1.3})
+            ),
+            repository=repository,
+        )
+        old = created.model_copy(update={"name": "Старый черновик"}, deep=True)
+        old.params.kuzram_settings = {}
+
+        table = scenario_service.compare_plan_scenarios(
+            TEAM_ID,
+            ScenarioCompareRequest(design=payload, include_baseline=True, inline=[old]),
+            repository=repository,
+        )
+
+        self.assertEqual(
+            table.warnings,
+            [
+                "Сценарий «Явный» посчитан с другими настройками модели кусковатости (заданы в запросе) — "
+                "x50 и негабарит несопоставимы с базовым; пересоздайте сценарий.",
+                "Сценарий «Старый черновик» посчитан до перевода модели кусковатости (Kuz-Ram 1.0.0) — "
+                "пересоздайте его для сравнения.",
+            ],
+        )
+
     def test_compare_warns_about_scenarios_with_other_settings(self):
         design = self._plan()
         payload = BlastDesignSchema(**design.to_dict())

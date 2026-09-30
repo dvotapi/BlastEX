@@ -12,6 +12,7 @@ from simulation.fragmentation.base import (
     calibration_warnings,
     charged_diameter_mm,
     region_point,
+    settings_source_label,
 )
 from simulation.fragmentation.cunningham import KuzRamSettings
 from simulation.fragmentation.models import Calibration, FragmentationInputs
@@ -119,6 +120,36 @@ class RegionPointTests(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("фактор породы A", warnings[0])
         self.assertIn("отклонение бурения σ", warnings[0])
+
+
+class SettingsSourceLabelTests(unittest.TestCase):
+    def test_labels(self):
+        def snap(source: str, name: str = "", warnings: list[str] | None = None) -> dict:
+            return {"source": source, "work_object_name": name, "values": {}, "warnings": warnings or []}
+
+        cases = (
+            ("kuzram", snap("work_object", "Карьер-1"), "Настройки модели: объект работ «Карьер-1»"),
+            ("kuzram", snap("request"), "Настройки модели: заданы в запросе"),
+            ("kuzram", snap("defaults"), "Настройки модели: умолчания"),
+            (
+                "kuzram",
+                snap("defaults", "Карьер-2"),
+                "Настройки модели: умолчания — у объекта «Карьер-2» они не сохранены",
+            ),
+            (
+                "kuzram",
+                snap("defaults", "Карьер-3", ["x"]),
+                "Настройки модели: умолчания — настройки объекта «Карьер-3» не прочитаны",
+            ),
+            ("kuzram_legacy", snap("work_object", "Карьер-1"), "Старая модель: настройки объекта не применяются"),
+            ("kuzram_legacy", None, "Старая модель: настройки объекта не применяются"),
+            # Старый паспорт без снимка настроек строки не получает.
+            ("kuzram", {}, ""),
+            ("kuzram", None, ""),
+        )
+        for model, snapshot, label in cases:
+            with self.subTest(model=model, snapshot=snapshot):
+                self.assertEqual(settings_source_label(model, snapshot), label)
 
 
 if __name__ == "__main__":

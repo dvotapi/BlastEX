@@ -2025,6 +2025,8 @@ export type FragmentationPredictResponse = {
   calibration: Record<string, unknown>;
   /** У старых моделей (*_legacy) снимка нет: настройки они не применяют. */
   settings: FragmentationSettingsSnapshot | null;
+  /** Готовая подпись «откуда настройки модели» — слова задаёт сервер. */
+  settings_label: string;
 };
 
 export function isFragmentationMapMetric(metric: string): metric is FragmentationMapMetric {

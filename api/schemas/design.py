@@ -1388,6 +1388,8 @@ class FragmentationPredictResponse(BaseModel):
     # Снимок применённых настроек; у старых моделей (*_legacy) его нет — они
     # настроек Каннингема не применяют.
     settings: FragmentationSettingsSnapshotSchema | None = None
+    # Подпись «откуда настройки модели» — готовая строка для панели.
+    settings_label: str = ""
 
 
 class ReceptorAttachRequest(BaseModel):

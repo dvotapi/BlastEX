@@ -3,7 +3,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FragmentationPredictResponse, FragmentationRegion } from "../../types/design";
 import { FragmentationPanel } from "./FragmentationPanel";
-import { settingsSourceLabel } from "./fragmentationSettings";
 
 afterEach(cleanup);
 
@@ -67,6 +66,7 @@ function result(overrides: Partial<FragmentationPredictResponse> = {}): Fragment
     measured: [],
     calibration: {},
     settings: { source: "work_object", work_object_name: "Карьер-1", values: {}, warnings: [] },
+    settings_label: "Настройки модели: объект работ «Карьер-1»",
     ...overrides,
   };
 }
@@ -74,7 +74,7 @@ function result(overrides: Partial<FragmentationPredictResponse> = {}): Fragment
 const noop = () => undefined;
 
 function renderPanel(value: FragmentationPredictResponse | null) {
-  render(
+  return render(
     <FragmentationPanel
       model="kuzram"
       onModelChange={noop}
@@ -101,37 +101,13 @@ describe("FragmentationPanel", () => {
     ]);
   });
 
-  it("строка источника настроек рядом с моделью", () => {
-    renderPanel(result());
-    expect(screen.getByText("Настройки модели: объект работ «Карьер-1»")).toBeTruthy();
+  it("строка источника настроек рядом с моделью — подпись сервера", () => {
+    renderPanel(result({ settings_label: "Подпись от сервера" }));
+    expect(screen.getByText("Подпись от сервера")).toBeTruthy();
   });
-});
 
-describe("settingsSourceLabel", () => {
-  it.each([
-    [result(), "Настройки модели: объект работ «Карьер-1»"],
-    [
-      result({ settings: { source: "request", work_object_name: "", values: {}, warnings: [] } }),
-      "Настройки модели: заданы в запросе",
-    ],
-    [
-      result({ settings: { source: "defaults", work_object_name: "", values: {}, warnings: [] } }),
-      "Настройки модели: умолчания",
-    ],
-    [
-      result({ settings: { source: "defaults", work_object_name: "Карьер-2", values: {}, warnings: [] } }),
-      "Настройки модели: умолчания — у объекта «Карьер-2» они не сохранены",
-    ],
-    [
-      result({ settings: { source: "defaults", work_object_name: "Карьер-3", values: {}, warnings: ["x"] } }),
-      "Настройки модели: умолчания — настройки объекта «Карьер-3» не прочитаны",
-    ],
-    [result({ model: "kuzram_legacy", model_version: "1.0.0" }), "Старая модель: настройки объекта не применяются"],
-    [
-      result({ model: "kuzram_legacy", model_version: "1.0.0", settings: null }),
-      "Старая модель: настройки объекта не применяются",
-    ],
-  ])("вариант %#", (value, label) => {
-    expect(settingsSourceLabel(value)).toBe(label);
+  it("без подписи сервера строки нет", () => {
+    const { container } = renderPanel(result({ settings_label: "" }));
+    expect(container.querySelector(".frag-settings")).toBeNull();
   });
 });

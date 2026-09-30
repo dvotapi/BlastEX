@@ -140,6 +140,9 @@ class PredictFragmentationSettingsTests(unittest.TestCase):
         self.assertEqual(tuned.site.prediction.x50_mm, explicit.site.prediction.x50_mm)
         self.assertNotEqual(tuned.site.prediction.x50_mm, plain.site.prediction.x50_mm)
         self.assertEqual(tuned.site.prediction.provenance.settings["work_object_name"], OBJECT)
+        self.assertEqual(tuned.settings_label, f"Настройки модели: объект работ «{OBJECT}»")
+        self.assertEqual(explicit.settings_label, "Настройки модели: заданы в запросе")
+        self.assertEqual(plain.settings_label, "Настройки модели: умолчания")
 
 
     def test_legacy_model_has_no_settings_snapshot(self):
@@ -158,6 +161,7 @@ class PredictFragmentationSettingsTests(unittest.TestCase):
 
         self.assertIsNone(response.settings)
         self.assertEqual(response.site.prediction.provenance.settings, {})
+        self.assertEqual(response.settings_label, "Старая модель: настройки объекта не применяются")
 
 class FragmentationRouteTests(unittest.TestCase):
     def test_route_reads_organization_work_object(self):

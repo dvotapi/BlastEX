@@ -108,6 +108,29 @@ def settings_snapshot(
     }
 
 
+def settings_source_label(model: str, snapshot: Mapping[str, Any] | None) -> str:
+    """Подпись «откуда настройки модели» для панели «Кусковатость» и паспорта.
+
+    Единственное место с этими словами: фронт показывает settings_label из
+    ответа API. Старый паспорт без снимка настроек строки не получает.
+    """
+    if model.endswith("_legacy"):
+        return "Старая модель: настройки объекта не применяются"
+    if not snapshot:
+        return ""
+    source = snapshot.get("source")
+    name = str(snapshot.get("work_object_name") or "")
+    if source == SETTINGS_SOURCE_REQUEST:
+        return "Настройки модели: заданы в запросе"
+    if source == SETTINGS_SOURCE_WORK_OBJECT:
+        return f"Настройки модели: объект работ «{name}»"
+    if name:
+        if snapshot.get("warnings"):
+            return f"Настройки модели: умолчания — настройки объекта «{name}» не прочитаны"
+        return f"Настройки модели: умолчания — у объекта «{name}» они не сохранены"
+    return "Настройки модели: умолчания"
+
+
 def settings_from_snapshot(snapshot: Mapping[str, Any] | None) -> tuple[KuzRamSettings | None, dict[str, Any]]:
     """Снимок → настройки и источник. Пустой снимок — умолчания движка."""
     if not snapshot:

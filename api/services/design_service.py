@@ -642,6 +642,7 @@ def predict_fragmentation(
     repository: EconomicsRepository | None = None,
 ) -> FragmentationPredictResponse:
     from api.services.fragmentation_settings import resolve_kuzram_settings
+    from simulation.fragmentation.base import settings_source_label
     from simulation.fragmentation.engine import is_legacy_model, predict_design
     from simulation.fragmentation.models import Calibration, DistributionPoint, MeasuredFragmentation
     from simulation.fragmentation.regions import ExplosiveSpec, RockSpec
@@ -711,7 +712,10 @@ def predict_fragmentation(
         )
     except ValueError as exc:
         raise InvalidDesignError(str(exc)) from exc
-    return FragmentationPredictResponse(**{**payload, "settings": payload["settings"] or None})
+    label = settings_source_label(payload["model"], payload["settings"])
+    return FragmentationPredictResponse(
+        **{**payload, "settings": payload["settings"] or None, "settings_label": label}
+    )
 
 
 def list_movement_models():

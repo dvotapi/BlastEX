@@ -4,6 +4,10 @@
 import { ruNumber } from "../../../lib/format";
 import type { CadContourResult } from "../../../types/cad";
 
+function area(value: number | null | undefined): string {
+  return value === null || value === undefined ? "—" : `${ruNumber(value, 1)} м²`;
+}
+
 export function BuildFooter({
   result,
   pending,
@@ -24,8 +28,7 @@ export function BuildFooter({
     <footer className="cad-build">
       {result?.top ? (
         <p className="cad-build-summary">
-          S верх {ruNumber(result.top.area_m2, 1)} м² · S низ {ruNumber(result.bottom?.area_m2, 1)} м² · S ср{" "}
-          {ruNumber(result.mean_area_m2, 1)} м²
+          S верх {area(result.top.area_m2)} · S низ {area(result.bottom?.area_m2)} · S ср {area(result.mean_area_m2)}
           {height !== null && ` · уступ ${ruNumber(height, 1)} м`}
         </p>
       ) : (

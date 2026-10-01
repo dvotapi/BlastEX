@@ -106,6 +106,7 @@ export class SnapIndex {
   private readonly ends: Array<{ point: XY; handle: string; m: number }> = [];
   private readonly vertices: Array<{ point: XY; handle: string; m: number }> = [];
   private readonly crossings: XY[];
+  private readonly polylines = new Map<string, XY[]>();
 
   constructor(lines: CadEntity[], intersections: number[][], cell = 5) {
     this.cell = cell;
@@ -113,6 +114,7 @@ export class SnapIndex {
     for (const entity of lines) {
       if (entity.geometry_type !== "line" || entity.points.length < 2) continue;
       const points = polylineXY(entity);
+      this.polylines.set(entity.handle, points);
       let walked = 0;
       points.forEach((point, index) => {
         const isEnd = !entity.closed && (index === 0 || index === points.length - 1);
@@ -173,22 +175,32 @@ export class SnapIndex {
       return best;
     };
 
-    const end = closest(this.ends);
-    if (end) return { point: end.point, kind: "end", handle: end.handle, m: end.m };
-    const crossing = closest(this.crossings.map((point) => ({ point })));
-    if (crossing) return { point: crossing.point, kind: "intersection" };
-    const vertex = closest(this.vertices);
-    if (vertex) return { point: vertex.point, kind: "vertex", handle: vertex.handle, m: vertex.m };
-
-    let best: Snap | null = null;
-    let bestDistance = aperture;
+    // Ближайшая линия под курсором — и для привязки «ближайшая точка», и как
+    // линия пересечения: «Участок» рядом с узлом должен знать, по какой линии щёлкнули.
+    let nearest: { segment: Segment; point: XY; distance: number; m: number } | null = null;
     for (const segment of this.nearSegments(p, aperture)) {
       const hit = projectOnPolyline([segment.a, segment.b], p);
-      if (hit.distance <= bestDistance) {
-        bestDistance = hit.distance;
-        best = { point: hit.point, kind: "nearest", handle: segment.handle, m: segment.startM + hit.m };
+      if (hit.distance <= aperture && (!nearest || hit.distance < nearest.distance)) {
+        nearest = { segment, point: hit.point, distance: hit.distance, m: segment.startM + hit.m };
       }
     }
-    return best;
+
+    // Привязка уточняет точку, а линию задаёт курсор: в общем узле двух бровок
+    // конец «чужой» линии не должен подменять ту, по которой щёлкнули.
+    const onLine = (point: XY, kind: SnapKind, fallback?: { handle: string; m: number }): Snap => {
+      if (nearest) {
+        const handle = nearest.segment.handle;
+        return { point, kind, handle, m: projectOnPolyline(this.polylines.get(handle) ?? [nearest.segment.a, nearest.segment.b], point).m };
+      }
+      return fallback ? { point, kind, ...fallback } : { point, kind };
+    };
+
+    const end = closest(this.ends);
+    if (end) return onLine(end.point, "end", { handle: end.handle, m: end.m });
+    const crossing = closest(this.crossings.map((point) => ({ point })));
+    if (crossing) return onLine(crossing.point, "intersection");
+    const vertex = closest(this.vertices);
+    if (vertex) return onLine(vertex.point, "vertex", { handle: vertex.handle, m: vertex.m });
+    return nearest ? { point: nearest.point, kind: "nearest", handle: nearest.segment.handle, m: nearest.m } : null;
   }
 }

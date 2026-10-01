@@ -99,7 +99,7 @@
 /* Шаг «Контур»: панель */
 .cad-contour-wrap { flex:1 1 auto; min-height:0; overflow:auto; }
 .cad-contour { display:grid; gap:8px; }
-.cad-methods, .cad-tools { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:4px; }
+.cad-methods, .cad-tools { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px; }
 .cad-tools { grid-template-columns:repeat(3, minmax(0,1fr)); }
 .cad-methods [role="radio"], .cad-tools [role="radio"] { height:var(--control-h); padding:0 6px; border:1px solid #cfd9d4; border-radius:7px; background:#fff; color:#3b4b43; font-size:var(--fs-label); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; }
 .cad-methods [role="radio"][aria-checked="true"], .cad-tools [role="radio"][aria-checked="true"] { border-color:#2d7556; background:#e3f1e9; color:#14462f; font-weight:var(--font-weight-strong); }

@@ -95,6 +95,12 @@ describe("SnapIndex: привязка курсора", () => {
     expect(index.snap([5.3, 0.4], 1)).toMatchObject({ kind: "intersection", point: [5, 0] });
   });
 
+  it("у пересечения есть ближайшая линия — щелчок «Участок» рядом с узлом не теряется", () => {
+    const snap = index.snap([5.6, 0.1], 1);
+    expect(snap).toMatchObject({ kind: "intersection", handle: "A" });
+    expect(snap?.m).toBeCloseTo(5);
+  });
+
   it("вершина в середине линии", () => {
     expect(index.snap([5.4, 5.3], 1)).toMatchObject({ kind: "vertex", point: [5, 5], handle: "B" });
   });
@@ -104,6 +110,21 @@ describe("SnapIndex: привязка курсора", () => {
     expect(snap).toMatchObject({ kind: "nearest", handle: "A" });
     expect(snap?.point[0]).toBeCloseTo(2.5);
     expect(snap?.m).toBeCloseTo(2.5);
+  });
+
+  it("в общем узле двух линий привязка относится к линии под курсором", () => {
+    const left = line("L", [
+      [0, 0],
+      [10, 0],
+    ]);
+    const up = line("U", [
+      [10, 0],
+      [10, 10],
+    ]);
+    const shared = new SnapIndex([up, left], []);
+    // Курсор у узла (10; 0), но ближе к телу вертикальной линии.
+    const snap = shared.snap([10.1, 0.6], 1);
+    expect(snap).toMatchObject({ kind: "end", point: [10, 0], handle: "U", m: 0 });
   });
 
   it("вне апертуры — привязки нет", () => {

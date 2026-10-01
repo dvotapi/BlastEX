@@ -315,7 +315,11 @@ export function ContourStep(props: ContourStepProps) {
           </label>
         ))}
       </div>
-      <p className="cad-hint">Какую площадь маркшейдер называет площадью блока — выбор хранится на объекте работ.</p>
+      <p className="cad-hint">
+        {source.site_code
+          ? "Какую площадь маркшейдер называет площадью блока — выбор хранится на объекте работ."
+          : "Объект работ не определён — выбор площади блока действует только в этом окне."}
+      </p>
       {reached.length > 0 && (
         <p className="cad-hint">
           Фланги продлены до нижней бровки: {reached.map((flank) => ruNumber(flank.length_m, 1)).join(" и ")} м.

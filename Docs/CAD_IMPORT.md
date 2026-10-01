@@ -26,7 +26,7 @@
 | Четыре способа контура | `design/spatial/cad/contour.py` |
 | Два контура, свободная поверхность, отметки уступа | `design/spatial/cad/two_contours.py` |
 | Хранилище (Postgres и InMemory) | `design/spatial/cad/repository.py` |
-| Миграция | `migrations/versions/20260930_0009_cad_import.py` |
+| Миграции | `migrations/versions/20260930_0009_cad_import.py`, `migrations/versions/20261001_0010_cad_site_settings.py` |
 | Сервис и API | `api/services/cad_service.py`, `api/services/cad_contour_service.py`, `api/routers/cad.py`, `api/schemas/cad.py` |
 | Контур в паспорте | `BlockContour.cad` в `design/models.py`, `CadContourInfoSchema` в `api/schemas/design.py` |
 | Окно | `frontend/src/pages/design/cadImport/` |
@@ -178,6 +178,9 @@
   min/max, `attributes` (цвет, замыкание по разрыву, отметка из подписи).
 - **`cad_layer_roles`**: PK `(organization_id, site_code, layer_key)`, роль и
   признак `manual` (роль подтверждена человеком).
+- **`cad_site_settings`** (миграция `20261001_0010`): PK `(organization_id,
+  site_code)`, `area_basis` (`top`, `bottom`, `mean`, по умолчанию `mean`) —
+  какую площадь маркшейдер объекта называет площадью блока.
 
 Каждый метод репозитория принимает `organization_id` первым аргументом (тест
 `test_every_repository_method_takes_organization_first`). Чужой источник для
@@ -190,7 +193,7 @@ API не существует — ответ 404.
 
 | Метод | Путь | Что делает |
 | --- | --- | --- |
-| GET | `/meta` | роли, роль слоя «Бровки (по Z)», происхождения, умолчания |
+| GET | `/meta` | роли, роль слоя «Бровки (по Z)», происхождения, умолчания, способы площади блока `area_bases` |
 | POST | `/sources` | multipart `files[]` + `scale`, `label_radius_m`, `floor_z_m`, `bench_height_m`, `survey_date`; 201 и `{sources}`. Разбор идёт вне цикла событий. Все файлы сохраняются одной транзакцией: нечитаемый файл — 422, и ничего из запроса не сохраняется |
 | GET | `/sources/{id}` | источник: слои, сущности, предупреждения |
 | POST | `/sources/{id}/reparse` | перечитать сохранённый файл с новыми параметрами; ручные роли сохраняются |

@@ -68,6 +68,8 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const [areaError, setAreaError] = useState("");
+  const areaSave = useRef<Promise<unknown>>(Promise.resolve());
   const active = sources.find((source) => source.id === activeId) ?? sources[0];
   const [tab, setTab] = useState<Tab>("layers");
   const [contour, setContour] = useState<ContourState>(() => (sources[0] ? initialContour(sources[0]) : initialContour({ entities: [] } as unknown as CadSource)));
@@ -175,10 +177,19 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   function changeContour(next: ContourState) {
     if (active && next.areaBasis !== contour.areaBasis) {
       const source = active;
-      onSourcesChange(sources.map((item) => (item.id === source.id ? { ...item, area_basis: next.areaBasis } : item)));
-      api.cad
-        .saveAreaBasis(source.id, next.areaBasis)
-        .catch((reason) => setRequestError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока."));
+      const basis = next.areaBasis;
+      // Выбор — соглашение объекта: его получают и другие файлы того же объекта.
+      const sameObject = (item: CadSource) =>
+        item.id === source.id || (source.site_code !== "" && item.site_code === source.site_code);
+      onSourcesChange(sources.map((item) => (sameObject(item) ? { ...item, area_basis: basis } : item)));
+      // Сохранения — по очереди: иначе при быстрых щелчках на объекте могло
+      // остаться не последнее значение (запросы обрабатываются параллельно).
+      areaSave.current = areaSave.current
+        .then(() => api.cad.saveAreaBasis(source.id, basis))
+        .then(
+          () => setAreaError(""),
+          (reason) => setAreaError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока."),
+        );
     }
     setContour(next);
   }
@@ -234,7 +245,15 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
 
   function reparse(patch: Partial<CadParams>) {
     if (!active) return;
-    void run(() => api.cad.reparse(active.id, { ...active.params, ...patch }));
+    const source = active;
+    const basis = contour.areaBasis;
+    void run(async () => {
+      // Повторный разбор ждёт сохранения площади блока: ответ несёт выбор объекта.
+      await areaSave.current;
+      const updated = await api.cad.reparse(source.id, { ...source.params, ...patch });
+      // Без объекта выбор живёт только в окне — сервер его не знает.
+      return updated.site_code ? updated : { ...updated, area_basis: basis };
+    });
   }
 
   function select(target: CanvasTarget) {
@@ -403,9 +422,9 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
                 </p>
               </>
             )}
-            {(requestError || metaError) && (
+            {(requestError || metaError || areaError) && (
               <p className="cad-request-error" role="alert">
-                {requestError || metaError}
+                {requestError || metaError || areaError}
               </p>
             )}
             {tab === "layers" ? (

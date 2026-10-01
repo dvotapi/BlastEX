@@ -215,6 +215,58 @@ describe("CadImportDialog", () => {
     });
   });
 
+  it("выбор площади блока доходит до другого файла того же объекта", async () => {
+    const second = cadSource({ id: "src-2", file_name: "ситуация.dxf" });
+    const props = renderDialog({ sources: [cadSource(), second] });
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+
+    const updated = (props.onSourcesChange as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
+    expect(updated.map((source: { area_basis: string }) => source.area_basis)).toEqual(["top", "top"]);
+  });
+
+  it("сохранения площади блока уходят по порядку щелчков", async () => {
+    const resolvers: Array<() => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(
+      (_id: string, basis: string) => new Promise((resolve) => resolvers.push(() => resolve({ area_basis: basis, saved: true }))),
+    );
+    renderDialog();
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S низ/ }));
+
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(1));
+    expect(api.cad.saveAreaBasis).toHaveBeenLastCalledWith("src-1", "top");
+    resolvers[0]();
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(2));
+    expect(api.cad.saveAreaBasis).toHaveBeenLastCalledWith("src-1", "bottom");
+  });
+
+  it("без объекта работ выбор площади действует только в окне и переживает повторный разбор", async () => {
+    const orphan = cadSource({ site_code: "", template_saved: false, suggested_scale: 0.001 });
+    api.cad.reparse.mockResolvedValue(cadSource({ site_code: "", template_saved: false, params: { scale: 0.001, label_radius_m: 3, floor_z_m: null, bench_height_m: 10 } }));
+    const props = renderDialog({ sources: [orphan] });
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    expect(await screen.findByText(/действует только в этом окне/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Слои" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /масштаб 0,001/ }));
+
+    await waitFor(() => expect(api.cad.reparse).toHaveBeenCalled());
+    await waitFor(() => {
+      const last = (props.onSourcesChange as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
+      expect(last[0].params.scale).toBe(0.001);
+      expect(last[0].area_basis).toBe("top");
+    });
+  });
+
   it("выбор площади блока сохраняется на объекте и уходит в паспорт", async () => {
     const props = renderDialog();
     await ready();

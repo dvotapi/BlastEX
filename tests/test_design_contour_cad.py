@@ -63,3 +63,16 @@ def test_cad_survives_the_api_round_trip():
 
 def test_building_from_a_drawing_is_a_design_change():
     assert designed_sha256(_design(CAD)) != designed_sha256(_design())
+
+
+def test_revision_of_a_passport_keeps_the_drawing_contour(tmp_path):
+    from unittest.mock import patch
+
+    from design.persistence import fork_design, load_design, save_design
+
+    with patch("cost.persistence.data_root", return_value=tmp_path):
+        saved = save_design("cad-team", _design(CAD))
+        forked = fork_design("cad-team", saved.design_id, name="Новая версия", actor="lead@mine")
+
+        assert forked.contour.cad == CAD
+        assert load_design("cad-team", saved.design_id).contour.cad == CAD

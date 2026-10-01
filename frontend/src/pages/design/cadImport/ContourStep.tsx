@@ -132,7 +132,10 @@ export function ContourStep(props: ContourStepProps) {
 
       {state.method === "click" && (
         <div className="cad-contour-panel">
-          <p className="cad-hint">Щёлкните внутри области на чертеже — как штриховка в AutoCAD.</p>
+          <p className="cad-hint">
+            Щёлкните внутри области на чертеже — как штриховка в AutoCAD. Область дробится лишними линиями — снимите их
+            роль ниже.
+          </p>
           <RoleChecks meta={meta} state={state} onChange={onChange} disabled={disabled} />
           {linesNote}
           <label className="cad-contour-field">

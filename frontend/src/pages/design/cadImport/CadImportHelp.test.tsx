@@ -76,5 +76,8 @@ describe("CadImportHelp: контур блока (PR 2)", () => {
     expect(dialog.textContent).toContain("свободная поверхность");
     // Старого построения «полосой между линиями» в справке больше нет.
     expect(dialog.textContent).not.toContain("полосой между");
+    // Область «Щелчка внутри» дробят лишние линии — справка подсказывает, что делать.
+    expect(dialog.textContent).toContain("снимите их роль");
+    expect(dialog.textContent).not.toContain("блок 66 вар 2");
   });
 });

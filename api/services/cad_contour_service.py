@@ -118,24 +118,29 @@ def lines(
 
 
 def _draft(
-    repository: CadRepository, organization_id: str, source_id: str, request: CadContourRequest
-) -> tuple[ContourDraft, list[CadEntity]]:
-    """Черновик контура выбранным способом и сущности бровок для двух контуров."""
+    repository: CadRepository,
+    organization_id: str,
+    source_id: str,
+    request: CadContourRequest,
+    crests: list[CadEntity],
+    tops: list[StitchedLine],
+    bottoms: list[StitchedLine],
+) -> ContourDraft:
+    """Черновик контура выбранным способом."""
 
-    crests = repository.list_entities(organization_id, source_id, roles=CREST_ROLES)
     method = request.method
     if method == "ready":
         found = _lines(repository.list_entities(organization_id, source_id, handles={request.handle}))
         if not found:
             raise CadImportError(f"Линии {request.handle or '—'} нет в этом чертеже.")
-        return ready_contour(found[0], request.tolerance_m), crests
+        return ready_contour(found[0], request.tolerance_m)
 
     if method == "click":
         if request.point is None:
             raise CadImportError("Укажите точку внутри контура.")
         roles = _line_roles(request.roles)
         entities = _lines(repository.list_entities(organization_id, source_id, roles=roles))
-        return click_contour(entities, (request.point[0], request.point[1]), request.tolerance_m, request.bridge_m), crests
+        return click_contour(entities, (request.point[0], request.point[1]), request.tolerance_m, request.bridge_m)
 
     items = [_item(item) for item in request.items]
     if method == "assembly":
@@ -144,14 +149,13 @@ def _draft(
         missing = sorted(handles - set(entities))
         if missing:
             raise CadImportError(f"Объекта {missing[0]} нет среди линий этого чертежа.")
-        return assemble(items, entities, request.tolerance_m), crests
+        return assemble(items, entities, request.tolerance_m)
 
     if request.crest is None:
         raise CadImportError("Отметьте начало и конец блока на верхней бровке и задайте ширину.")
-    tops, bottoms, _, _ = _crests(crests)
     by_handle = {item.handle: item for item in _lines(crests)}
     crest = request.crest
-    draft = crest_block(
+    return crest_block(
         tops,
         bottoms,
         by_handle,
@@ -161,7 +165,6 @@ def _draft(
         crest.side,
         request.tolerance_m,
     )
-    return draft, crests
 
 
 def _item(schema: CadContourItemSchema) -> ContourItem:
@@ -180,8 +183,12 @@ def contour(
     repository: CadRepository, organization_id: str, source_id: str, request: CadContourRequest
 ) -> CadContourResponse:
     record = _require(repository, organization_id, source_id)
+    # Бровки читаются и сшиваются один раз за запрос: они нужны и «блоку по
+    # бровке», и обоим контурам.
+    crests = repository.list_entities(organization_id, source_id, roles=CREST_ROLES)
+    tops, bottoms, _, _ = _crests(crests)
     try:
-        draft, crest_entities = _draft(repository, organization_id, source_id, request)
+        draft = _draft(repository, organization_id, source_id, request, crests, tops, bottoms)
     except ContourInputError as exc:
         raise CadImportError(str(exc)) from exc
 
@@ -204,7 +211,6 @@ def contour(
     if not draft.ok:
         return response
 
-    tops, bottoms, _, _ = _crests(crest_entities)
     face_lines = [StitchedLine(points=[(x, y, 0.0) for x, y in draft.crest_line])] if draft.crest_line else None
     two = two_contours(draft.ring, tops, bottoms, face_lines=face_lines)
     floor_z = record.params.get("floor_z_m")

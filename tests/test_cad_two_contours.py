@@ -188,3 +188,26 @@ def test_toe_with_a_wide_gap_between_flanks_is_reported_as_such():
     assert codes(result) == ["toe_gap"]
     assert result.warnings[0].level == "warning"
     assert "не учтён" in result.warnings[0].message
+
+
+def test_far_away_crests_do_not_slow_the_preview():
+    import time
+
+    # Свободная грань 300 м и тысяча бровок по 20 отрезков вдали — чертёж карьера.
+    block = [(0.0, 0.0), (300.0, 0.0), (300.0, 20.0), (0.0, 20.0)]
+    top = [crest("T", [(x, 20.0) for x in range(-10, 311, 10)], 420.0)]
+    far = [
+        crest(f"F{k}", [(2000 + (k % 40) * 30 + i, (k // 40) * 30.0) for i in range(21)], 425.0) for k in range(1000)
+    ]
+    bottom = [crest("B", [(x, 24.0) for x in range(-10, 311, 10)], 410.0)]
+    tops = stitched(*top, *far)
+    bottoms = stitched(*bottom)
+
+    started = time.perf_counter()
+    result = two_contours(block, tops, bottoms)
+    levels = bench_levels(block, result.free_faces, tops, bottoms, floor_z=410.0)
+    elapsed = time.perf_counter() - started
+
+    assert result.free_faces == [(2, 3)]
+    assert levels.crest_z_m == pytest.approx(420.0)
+    assert elapsed < 0.5, f"{elapsed:.2f} с"

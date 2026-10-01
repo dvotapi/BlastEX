@@ -97,6 +97,27 @@ def _xy(line: StitchedLine) -> list[XY]:
     return [(point[0], point[1]) for point in line.points]
 
 
+def _near(lines: Sequence[StitchedLine], ring: Sequence[XY], buffer_m: float) -> list[StitchedLine]:
+    """Линии, чей габарит подходит к габариту контура ближе `buffer_m`.
+
+    На чертеже карьера бровок тысячи, а для контура блока нужны только
+    соседние: без отбора каждый предпросмотр обходил бы все вершины файла.
+    """
+
+    if not ring:
+        return []
+    xs = [point[0] for point in ring]
+    ys = [point[1] for point in ring]
+    x0, x1, y0, y1 = min(xs) - buffer_m, max(xs) + buffer_m, min(ys) - buffer_m, max(ys) + buffer_m
+    near: list[StitchedLine] = []
+    for line in lines:
+        lx = [point[0] for point in line.points]
+        ly = [point[1] for point in line.points]
+        if min(lx) <= x1 and max(lx) >= x0 and min(ly) <= y1 and max(ly) >= y0:
+            near.append(line)
+    return near
+
+
 def _union(lines: Sequence[StitchedLine], frame: LocalFrame):
     geoms = [LineString(frame.to_local(_xy(line))) for line in lines if len(line.points) >= 2]
     return shapely.unary_union(geoms) if geoms else None
@@ -227,7 +248,8 @@ def two_contours(
     """
 
     top = list(ring)
-    free = free_face_edges(top, top_lines if face_lines is None else face_lines)
+    face = _near(top_lines if face_lines is None else face_lines, top, FREE_FACE_DISTANCE_M + 0.01)
+    free = free_face_edges(top, face)
     result = TwoContours(top=top, bottom=top, free_faces=free)
     if not free:
         result.warnings.append(
@@ -248,7 +270,9 @@ def two_contours(
 
     frame = LocalFrame.of(top)
     local = frame.to_local(top)
-    bottoms = [LineString(frame.to_local(_xy(line))) for line in bottom_lines if len(line.points) >= 2]
+    # Нижняя бровка дальше предела продления фланга до контура всё равно не достанется.
+    near_bottom = _near(bottom_lines, top, FLANK_MAX_EXTENSION_M)
+    bottoms = [LineString(frame.to_local(_xy(line))) for line in near_bottom if len(line.points) >= 2]
     runs = _runs(len(local), {edge for edge, _ in free})
 
     pieces: list[tuple[int, int, list[XY] | None]] = []
@@ -375,6 +399,8 @@ def bench_levels(
     levels = BenchLevels(crest_z_m=None, toe_z_m=None)
     frame = LocalFrame.of(ring)
     local = frame.to_local(ring)
+    top_lines = _near(top_lines, ring, CREST_NEAR_CONTOUR_M)
+    bottom_lines = _near(bottom_lines, ring, TOE_NEAR_CONTOUR_M)
 
     # Отметка бровки — по самой бровке у откоса: точки свободных рёбер через
     # 1 м проецируются на ближайшую верхнюю бровку, Z интерполируется по ней.
@@ -443,11 +469,14 @@ def _z_at_samples(
     lines: Sequence[StitchedLine], frame: LocalFrame, samples: Sequence[XY], distance_m: float
 ) -> list[float]:
     prepared = [(line.points, frame.to_local(_xy(line))) for line in lines if len(line.points) >= 2]
+    if not prepared:
+        return []
+    tree = shapely.STRtree([LineString(xy) for _, xy in prepared])
     values: list[float] = []
     for sample in samples:
         best: tuple[float, float, int] | None = None
-        for number, (_, xy) in enumerate(prepared):
-            m, _, distance = project_on_polyline(xy, sample)
+        for number in tree.query(Point(sample), predicate="dwithin", distance=distance_m).tolist():
+            m, _, distance = project_on_polyline(prepared[number][1], sample)
             if distance <= distance_m and (best is None or distance < best[0]):
                 best = (distance, m, number)
         if best is not None:

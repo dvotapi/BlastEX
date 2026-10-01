@@ -410,22 +410,32 @@ class BlockContour:
     free_faces: list[list[int]] = field(default_factory=list)
     bench: BenchSurface = field(default_factory=BenchSurface)
     name: str = "Блок"
+    # Контур из чертежа маркшейдера (TASK-013): источник, способ, участки, оба
+    # контура и площади — паспорт не зависит от повторного импорта.
+    cad: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "vertices": [v.to_dict() for v in self.vertices],
             "free_faces": [list(edge) for edge in self.free_faces],
             "bench": self.bench.to_dict(),
             "name": self.name,
         }
+        # Ключ — только когда поле есть: контур входит в хэш утверждённого
+        # паспорта, и `"cad": null` сменил бы хэш у всех старых паспортов.
+        if self.cad is not None:
+            data["cad"] = dict(self.cad)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BlockContour:
+        cad = data.get("cad")
         return cls(
             vertices=[Point3.from_dict(v) for v in data.get("vertices", [])],
             free_faces=[list(edge) for edge in data.get("free_faces", [])],
             bench=BenchSurface.from_dict(data.get("bench", {})),
             name=str(data.get("name", "Блок")),
+            cad=dict(cad) if isinstance(cad, dict) else None,
         )
 
     @property

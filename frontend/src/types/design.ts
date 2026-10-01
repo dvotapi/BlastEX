@@ -169,11 +169,43 @@ export type SurfaceStats = {
   } | null;
 };
 
+/** Участок контура из чертежа: кусок линии, прямой отрезок или построенная линия. */
+export type CadContourItem = {
+  kind: "part" | "segment" | "polyline";
+  handle: string;
+  start_m: number;
+  end_m: number;
+  points: number[][];
+  flip: boolean;
+  label: string;
+};
+
+/**
+ * Контур из чертежа маркшейдера (TASK-013): источник, способ, участки, контуры
+ * по верхней и нижней бровке, площади — паспорт не зависит от повторного импорта.
+ */
+export type CadContourInfo = {
+  source_id: string;
+  file_name: string;
+  method: string;
+  items: CadContourItem[];
+  top: number[][];
+  bottom: number[][] | null;
+  area_top_m2: number | null;
+  area_bottom_m2: number | null;
+  area_mean_m2: number | null;
+  map_area_m2: number | null;
+  built_at: string;
+  /** Вершины правили после построения: контур уже не совпадает с чертежом. */
+  edited: boolean;
+};
+
 export type BlockContour = {
   vertices: Point3[];
   free_faces: number[][];
   bench: BenchSurface;
   name: string;
+  cad?: CadContourInfo | null;
 };
 
 export type HoleKind =

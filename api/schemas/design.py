@@ -25,6 +25,25 @@ class BenchSurfaceSchema(BaseModel):
     face_angle_deg: float = Field(90.0, gt=0, le=90)
 
 
+class CadContourInfoSchema(BaseModel):
+    """Контур из чертежа маркшейдера (TASK-013): откуда он и каким способом
+    построен, участки сборки, контуры по верхней и нижней бровке, площади."""
+
+    source_id: str = ""
+    file_name: str = ""
+    method: str = ""
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    top: list[list[float]] = Field(default_factory=list)
+    bottom: list[list[float]] | None = None
+    area_top_m2: float | None = None
+    area_bottom_m2: float | None = None
+    area_mean_m2: float | None = None
+    map_area_m2: float | None = None
+    built_at: str = ""
+    # Вершины контура правили после построения: контур уже не совпадает с чертежом.
+    edited: bool = False
+
+
 class BlockContourSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -32,6 +51,7 @@ class BlockContourSchema(BaseModel):
     free_faces: list[list[int]] = Field(default_factory=list)
     bench: BenchSurfaceSchema = Field(default_factory=BenchSurfaceSchema)
     name: str = "Блок"
+    cad: CadContourInfoSchema | None = None
 
 
 class DataProvenanceSchema(BaseModel):

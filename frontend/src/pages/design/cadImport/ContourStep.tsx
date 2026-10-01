@@ -166,6 +166,7 @@ export function ContourStep(props: ContourStepProps) {
           <p className="cad-hint">
             {TOOLS.find((tool) => tool.code === state.tool)?.hint} Направление участка выбирается по ближайшему концу.
             {state.pending && " Первая точка отмечена."}
+            {splitsError && state.tool === "piece" && " Без разрезов «Участок» не работает — выберите «По точкам» или «Отрезок»."}
             {linesLoading && " Загружаю линии контура…"}
           </p>
           <RoleChecks meta={meta} state={state} onChange={onChange} disabled={disabled} />

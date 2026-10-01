@@ -197,11 +197,12 @@ export function applyPick(state: ContourState, pick: Pick, context: PickContext)
       if (!line || !state.roles.includes(line.role)) return state;
       if (state.tool === "piece") {
         // Разрезы ещё грузятся (сменились роли): по старым кусок вышел бы не тем.
-        if (!context.lines) return state;
+        // Не посчитаны (линий слишком много) — без них «кусок» был бы всей линией.
+        if (!context.lines || context.lines.splits_error) return state;
         // Кусок выбирает сам курсор, а не привязка: привязка к узлу дала бы
         // m ровно на разрезе, и добавился бы кусок за узлом.
         const raw = projectOnPolyline(polylineXY(line), pick.world).m;
-        const piece = pieceAt(line, raw, context.lines?.splits[line.handle]);
+        const piece = pieceAt(line, raw, context.lines.splits[line.handle]);
         return withItem(state, part(line.handle, piece.start_m, piece.end_m));
       }
       const m = pick.snap?.handle === line.handle && pick.snap.m !== undefined ? pick.snap.m : projectOnPolyline(polylineXY(line), at).m;

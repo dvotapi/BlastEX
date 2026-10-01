@@ -136,6 +136,14 @@ describe("ContourStep: слишком много линий для разрез�
     expect(screen.getByText(note)).toBeTruthy();
   });
 
+  it("«Участок» без разрезов не работает — подсказка ведёт к «По точкам»", () => {
+    renderStep({ state: { ...initialContour(SOURCE), method: "assembly", tool: "piece" }, splitsError: note });
+    expect(screen.getByText(/«Участок» не работает — выберите «По точкам» или «Отрезок»/)).toBeTruthy();
+    cleanup();
+    renderStep({ state: { ...initialContour(SOURCE), method: "assembly", tool: "points" }, splitsError: note });
+    expect(screen.queryByText(/«Участок» не работает/)).toBeNull();
+  });
+
   it("не мешает готовому контуру и блоку по бровке", () => {
     renderStep({ splitsError: note });
     expect(screen.queryByText(note)).toBeNull();

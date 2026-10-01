@@ -382,6 +382,58 @@ describe("CadImportDialog", () => {
     expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["mean"]);
   });
 
+  it("смена файла, пока площадь сохраняется, не сдвигает точку отката", async () => {
+    // S ср на сервере → S верх (сохранение висит) → другой файл того же объекта → сохранение падает.
+    const rejects: Array<(error: Error) => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)));
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([cadSource(), cadSource({ id: "src-2", file_name: "ситуация.dxf" })]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+    await waitFor(() => expect(rejects).toHaveLength(1));
+    fireEvent.change(screen.getByRole("combobox", { name: "Файл" }), { target: { value: "src-2" } });
+    rejects[0](new Error("Нет связи с сервером."));
+
+    const group = screen.getByRole("radiogroup", { name: "Площадь блока" });
+    await waitFor(() => expect((within(group).getByRole("radio", { name: /S ср/ }) as HTMLInputElement).checked).toBe(true));
+    expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["mean", "mean"]);
+    expect(screen.getByText("Нет связи с сервером.")).toBeTruthy();
+  });
+
+  it("откат площади одного объекта не трогает выбор файла другого объекта", async () => {
+    const rejects: Array<(error: Error) => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)));
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([
+        cadSource(),
+        cadSource({ id: "src-2", file_name: "другой.dxf", site_code: "SITE_OTHER", area_basis: "bottom" }),
+      ]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+
+    // Первый объект: S ср → S низ (сохранение висит), затем файл другого объекта, где тоже S низ.
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S низ/ }));
+    await waitFor(() => expect(rejects).toHaveLength(1));
+    fireEvent.change(screen.getByRole("combobox", { name: "Файл" }), { target: { value: "src-2" } });
+    rejects[0](new Error("Нет связи с сервером."));
+
+    await waitFor(() => expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["mean", "bottom"]));
+    const group = screen.getByRole("radiogroup", { name: "Площадь блока" });
+    expect((within(group).getByRole("radio", { name: /S низ/ }) as HTMLInputElement).checked).toBe(true);
+  });
+
   it("самопересечение видно у кнопки, и кнопка неактивна", async () => {
     api.cad.contour.mockResolvedValue(
       contourResult({ ok: false, issues: [{ code: "self_intersection", message: "Контур пересекает сам себя в точке (1,00; 2,00).", point: [1, 2] }], bottom: null }),

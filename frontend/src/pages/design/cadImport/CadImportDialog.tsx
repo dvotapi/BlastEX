@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent, type SyntheticEv
 import { api } from "../../../api/endpoints";
 import { ruNumber } from "../../../lib/format";
 import type {
+  CadAreaBasis,
   CadBench,
   CadContourLines,
   CadContourResult,
@@ -58,6 +59,11 @@ export type CadImportDialogProps = {
 
 type Tab = "layers" | "contour";
 
+/** Чьё соглашение о площади блока: объекта работ, а без объекта — самого файла. */
+function areaKey(source: CadSource): string {
+  return source.site_code !== "" ? `site:${source.site_code}` : `file:${source.id}`;
+}
+
 export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, onBuild }: CadImportDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const [meta, setMeta] = useState<CadMeta | null>(null);
@@ -70,13 +76,21 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   const [requestError, setRequestError] = useState("");
   const [areaError, setAreaError] = useState("");
   const [areaSaving, setAreaSaving] = useState(0);
-  // Последний выбор площади блока, подтверждённый сервером, — точка отката.
-  const confirmedArea = useRef(sources[0]?.area_basis ?? "mean");
+  // Последний выбор площади блока, подтверждённый сервером, по объектам —
+  // точка отката. Берётся из ответа сервера, пока выбор в окне не меняли:
+  // смена файла не должна подменять его ещё не сохранённым выбором.
+  const confirmedArea = useRef(new Map<string, CadAreaBasis>());
+  for (const source of sources) {
+    if (!confirmedArea.current.has(areaKey(source))) confirmedArea.current.set(areaKey(source), source.area_basis);
+  }
   // Актуальный список источников для откатов из асинхронных ответов.
   const latestSources = useRef(sources);
   latestSources.current = sources;
   const areaSave = useRef<Promise<unknown>>(Promise.resolve());
   const active = sources.find((source) => source.id === activeId) ?? sources[0];
+  // Объект открытого файла — для откатов из асинхронных ответов.
+  const activeArea = useRef("");
+  activeArea.current = active ? areaKey(active) : "";
   const [tab, setTab] = useState<Tab>("layers");
   const [contour, setContour] = useState<ContourState>(() => (sources[0] ? initialContour(sources[0]) : initialContour({ entities: [] } as unknown as CadSource)));
   // Растёт, когда сервер пересчитал роли источника: тот же запрос контура даёт новый ответ.
@@ -108,7 +122,6 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   useEffect(() => {
     if (!active) return;
     setContour(initialContour(active));
-    confirmedArea.current = active.area_basis;
     setLines(null);
     setHover(null);
     setSelected(null);
@@ -186,11 +199,11 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   /** Смена способа площади блока сохраняется на объекте работ — для следующих файлов. */
   function changeContour(next: ContourState) {
     if (active && next.areaBasis !== contour.areaBasis) {
+      const key = areaKey(active);
       const source = active;
       const basis = next.areaBasis;
       // Выбор — соглашение объекта: его получают и другие файлы того же объекта.
-      const sameObject = (item: CadSource) =>
-        item.id === source.id || (source.site_code !== "" && item.site_code === source.site_code);
+      const sameObject = (item: CadSource) => areaKey(item) === key;
       onSourcesChange(sources.map((item) => (sameObject(item) ? { ...item, area_basis: basis } : item)));
       // Сохранения — по очереди: иначе при быстрых щелчках на объекте могло
       // остаться не последнее значение (запросы обрабатываются параллельно).
@@ -201,16 +214,19 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
         .then(() => api.cad.saveAreaBasis(source.id, basis))
         .then(
           () => {
-            confirmedArea.current = basis;
+            confirmedArea.current.set(key, basis);
             setAreaError("");
           },
           (reason) => {
             // Объект не принял выбор — возвращаем последний подтверждённый сервером
             // (не «прошлый» щелчок: он тоже мог не сохраниться), чтобы паспорт
             // с объектом не разошёлся.
-            const previous = confirmedArea.current;
+            const previous = confirmedArea.current.get(key) ?? basis;
             setAreaError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока.");
-            setContour((current) => (current.areaBasis === basis ? { ...current, areaBasis: previous } : current));
+            // Открыт файл другого объекта — его выбор не трогаем.
+            if (activeArea.current === key) {
+              setContour((current) => (current.areaBasis === basis ? { ...current, areaBasis: previous } : current));
+            }
             // Откатываются только файлы, где ещё стоит упавший выбор: более
             // поздний выбор (уже в очереди или сохранённый) не затирается.
             const stale = (item: CadSource) => sameObject(item) && item.area_basis === basis;

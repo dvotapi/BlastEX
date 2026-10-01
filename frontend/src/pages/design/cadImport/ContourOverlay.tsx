@@ -13,6 +13,11 @@ function path(points: number[][], toScreen: ScreenProjector, closed: boolean): s
   return parts.join("") + (closed && points.length > 2 ? "Z" : "");
 }
 
+/** Те же вершины — нижний контур не отличается от верхнего (подошвы нет или откос не учтён). */
+function sameRing(a: number[][], b: number[][]): boolean {
+  return a.length === b.length && a.every((point, index) => point[0] === b[index][0] && point[1] === b[index][1]);
+}
+
 export function ContourOverlay({
   toScreen,
   result,
@@ -30,7 +35,9 @@ export function ContourOverlay({
 }) {
   const top = result?.top?.points ?? null;
   const bottom = result?.bottom?.points ?? null;
-  const showBottom = Boolean(bottom && top && result && result.bottom && result.top && result.bottom.area_m2 !== result.top.area_m2);
+  // Сравнивается форма, а не площадь: подошва могла уйти наружу с одной
+  // стороны и внутрь с другой при той же площади.
+  const showBottom = Boolean(bottom && top && !sameRing(top, bottom));
   return (
     <>
       {showBottom && bottom && <path className="cad-contour-bottom" d={path(bottom, toScreen, true)} />}

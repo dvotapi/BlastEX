@@ -122,6 +122,15 @@ describe("щелчки сборки", () => {
     expect(next.items).toEqual([]);
   });
 
+  it("«Участок» не берёт всю линию, когда разрезы не посчитаны (слишком много линий)", () => {
+    const lines = { ...LINES, splits: {}, splits_error: "Линий выбранных ролей слишком много." };
+    const next = applyPick(assembly, { world: [120, 203], snap: null, handle: "6C3" }, { entities: ENTITIES, lines });
+    expect(next.items).toEqual([]);
+    // «По точкам» разрезы не нужны — он работает.
+    const points = applyPick({ ...assembly, tool: "points" }, { world: [100, 200], snap: null, handle: "6C3" }, { entities: ENTITIES, lines });
+    expect(points.pending).toMatchObject({ handle: "6C3" });
+  });
+
   it("линия роли, снятой во флажках «Линии контура», участком не становится", () => {
     // 733 — нижняя бровка, её роли нет среди ролей по умолчанию.
     expect(applyPick(assembly, { world: [110, 181], snap: null, handle: "733" }, CTX).items).toEqual([]);

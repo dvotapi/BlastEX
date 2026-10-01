@@ -356,6 +356,32 @@ describe("CadImportDialog", () => {
     expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["bottom", "bottom"]);
   });
 
+  it("два упавших сохранения подряд возвращают последний подтверждённый выбор", async () => {
+    // S ср (на сервере) → S верх → S низ, оба сохранения падают.
+    const rejects: Array<(error: Error) => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)));
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([cadSource()]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S низ/ }));
+    await waitFor(() => expect(rejects).toHaveLength(1));
+    rejects[0](new Error("Нет связи с сервером."));
+    await waitFor(() => expect(rejects).toHaveLength(2));
+    rejects[1](new Error("Нет связи с сервером."));
+
+    await waitFor(() => expect((within(group).getByRole("radio", { name: /S ср/ }) as HTMLInputElement).checked).toBe(true));
+    expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["mean"]);
+  });
+
   it("самопересечение видно у кнопки, и кнопка неактивна", async () => {
     api.cad.contour.mockResolvedValue(
       contourResult({ ok: false, issues: [{ code: "self_intersection", message: "Контур пересекает сам себя в точке (1,00; 2,00).", point: [1, 2] }], bottom: null }),

@@ -167,6 +167,12 @@ describe("блок по бровке и прочие способы", () => {
     expect(third.crestEnd).toBeNull();
   });
 
+  it("привязка не к верхней бровке (пересечение, контур) точку блока по бровке не ставит", () => {
+    const crest = state({ method: "crest" });
+    expect(applyPick(crest, { world: [500, 900], snap: { point: [500, 900], kind: "intersection" }, handle: null }, CTX)).toEqual(crest);
+    expect(applyPick(crest, { world: [140, 200], snap: { point: [140, 200], kind: "vertex", handle: "769" }, handle: null }, CTX)).toEqual(crest);
+  });
+
   it("щелчок далеко от бровки (вне привязки) точку не ставит", () => {
     const crest = state({ method: "crest" });
     expect(applyPick(crest, { world: [500, 900], snap: null, handle: null }, CTX)).toEqual(crest);

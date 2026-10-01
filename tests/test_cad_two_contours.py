@@ -274,3 +274,10 @@ def test_closed_toe_arc_follows_the_free_face_not_the_shortest_way():
     result = two_contours(square, stitched(top), stitched(ring))
 
     assert result.area_bottom_m2 == pytest.approx(28 * 24)
+
+
+def test_toe_level_from_a_long_line_whose_vertices_are_far_away():
+    # Нижняя бровка — одна длинная линия: вершины в 200 м, сама линия — в 4 м от блока.
+    toe = crest("B", [(44, -200), (44, 200)], 410.0)
+    levels = bench_levels(BLOCK, [(1, 2)], stitched(EAST_TOP), stitched(toe), floor_z=None)
+    assert (levels.toe_z_m, levels.toe_source) == (pytest.approx(410.0), "crest_bottom")

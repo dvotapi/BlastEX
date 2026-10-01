@@ -440,8 +440,11 @@ def bench_levels(
     if floor_z is not None:
         levels.toe_z_m, levels.toe_source = float(floor_z), "floor"
     else:
+        # Как и у бровки — по самой линии, а не по вершинам: длинная линия с
+        # далёкими вершинами может идти прямо у блока.
+        samples = [point for index in range(len(local)) for point in _samples(local[index], local[(index + 1) % len(local)])]
         toe_z = (
-            _z_near(bottom_lines, frame, shapely.Polygon(local).exterior, TOE_NEAR_CONTOUR_M)
+            _z_at_samples(bottom_lines, frame, samples, TOE_NEAR_CONTOUR_M)
             if bottom_lines and len(local) >= 3
             else []
         )
@@ -504,11 +507,3 @@ def _z_at_samples(
     return values
 
 
-def _z_near(lines: Sequence[StitchedLine], frame: LocalFrame, target, distance_m: float) -> list[float]:
-    values: list[float] = []
-    for line in lines:
-        local = frame.to_local(_xy(line))
-        for (x, y), point in zip(local, line.points):
-            if target.distance(Point(x, y)) <= distance_m:
-                values.append(point[2])
-    return values

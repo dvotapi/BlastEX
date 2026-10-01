@@ -173,9 +173,11 @@ export function applyPick(state: ContourState, pick: Pick, context: PickContext)
     case "click":
       return { ...state, point: pick.world };
     case "crest": {
-      // Только щелчок у самой бровки (в пределах привязки): далёкий щелчок,
-      // спроецированный на «ближайшую» бровку, мог бы поставить блок не там.
-      if (!pick.snap) return state;
+      // Только щелчок у самой верхней бровки (привязка к ней): далёкий щелчок
+      // или привязка к пересечению других линий, спроецированные на
+      // «ближайшую» бровку, могли бы поставить блок не там.
+      const snapped = pick.snap?.handle ? context.entities.get(pick.snap.handle) : undefined;
+      if (!pick.snap || snapped?.role !== "crest_top") return state;
       const crests = context.lines?.crests_top ?? [];
       let best: { point: XY; distance: number } | null = null;
       for (const crest of crests) {

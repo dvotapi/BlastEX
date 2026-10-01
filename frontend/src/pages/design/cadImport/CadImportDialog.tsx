@@ -70,6 +70,8 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   const [requestError, setRequestError] = useState("");
   const [areaError, setAreaError] = useState("");
   const [areaSaving, setAreaSaving] = useState(0);
+  // Последний выбор площади блока, подтверждённый сервером, — точка отката.
+  const confirmedArea = useRef(sources[0]?.area_basis ?? "mean");
   // Актуальный список источников для откатов из асинхронных ответов.
   const latestSources = useRef(sources);
   latestSources.current = sources;
@@ -106,6 +108,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   useEffect(() => {
     if (!active) return;
     setContour(initialContour(active));
+    confirmedArea.current = active.area_basis;
     setLines(null);
     setHover(null);
     setSelected(null);
@@ -152,7 +155,8 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
     if (tab !== "contour" || !active) return null;
     const roles: string[] = contour.method === "crest" ? ["crest_top"] : contour.roles;
     const candidates = active.entities.filter((entity) => entity.geometry_type === "line" && roles.includes(entity.role));
-    return new SnapIndex(candidates, lines?.intersections ?? []);
+    // Пересечения — линий ролей контура; для «Блока по бровке» они не нужны.
+    return new SnapIndex(candidates, contour.method === "crest" ? [] : lines?.intersections ?? []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, active?.entities, contour.method, rolesKey, lines]);
 
@@ -188,7 +192,6 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
       const sameObject = (item: CadSource) =>
         item.id === source.id || (source.site_code !== "" && item.site_code === source.site_code);
       onSourcesChange(sources.map((item) => (sameObject(item) ? { ...item, area_basis: basis } : item)));
-      const previous = contour.areaBasis;
       // Сохранения — по очереди: иначе при быстрых щелчках на объекте могло
       // остаться не последнее значение (запросы обрабатываются параллельно).
       // Пока очередь не пуста, «Построить блок» неактивна: паспорт и объект
@@ -197,9 +200,15 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
       areaSave.current = areaSave.current
         .then(() => api.cad.saveAreaBasis(source.id, basis))
         .then(
-          () => setAreaError(""),
+          () => {
+            confirmedArea.current = basis;
+            setAreaError("");
+          },
           (reason) => {
-            // Объект не принял выбор — возвращаем прежний, чтобы паспорт с ним не разошёлся.
+            // Объект не принял выбор — возвращаем последний подтверждённый сервером
+            // (не «прошлый» щелчок: он тоже мог не сохраниться), чтобы паспорт
+            // с объектом не разошёлся.
+            const previous = confirmedArea.current;
             setAreaError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока.");
             setContour((current) => (current.areaBasis === basis ? { ...current, areaBasis: previous } : current));
             // Откатываются только файлы, где ещё стоит упавший выбор: более

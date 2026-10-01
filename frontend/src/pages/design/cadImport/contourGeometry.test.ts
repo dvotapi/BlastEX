@@ -135,3 +135,21 @@ describe("SnapIndex: привязка курсора", () => {
     expect(index.snap([2.5, 3], 1)).toBeNull();
   });
 });
+
+describe("SnapIndex: длинные линии карьера", () => {
+  it("диагональ в километры не раздувает индекс и привязывается посередине", () => {
+    const diagonals = Array.from({ length: 10 }, (_, k) =>
+      line(`D${k}`, [
+        [0, k * 100],
+        [5000, 5000 + k * 100],
+      ]),
+    );
+    const started = performance.now();
+    const index = new SnapIndex(diagonals, []);
+    const elapsed = performance.now() - started;
+
+    expect(elapsed).toBeLessThan(300);
+    const snap = index.snap([2500.3, 2499.6], 2);
+    expect(snap).toMatchObject({ kind: "nearest", handle: "D0" });
+  });
+});

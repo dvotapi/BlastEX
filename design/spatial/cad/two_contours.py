@@ -25,7 +25,7 @@ import numpy as np
 import shapely
 from shapely.geometry import LineString, Point
 
-from design.spatial.cad.contour import arc_between, project_on_polyline
+from design.spatial.cad.contour import polyline_length, project_on_polyline, ring_arcs
 from design.spatial.cad.model import CadWarning, ru_number
 from design.spatial.cad.rings import XY, LocalFrame, check_ring, normalize_ring, point_label, ring_area, ring_perimeter
 from design.spatial.cad.stitch import StitchedLine
@@ -194,14 +194,34 @@ def _points(geometry) -> list[XY]:
     return [point for part in getattr(geometry, "geoms", []) for point in _points(part)]
 
 
-def _along(line: LineString, start: XY, end: XY) -> list[XY]:
-    """Кусок линии от точки `start` до точки `end` (обе на линии), по ходу от
-    start; у кольцевой бровки — через шов, если так короче."""
+def _along(line: LineString, start: XY, end: XY, near: LineString | None = None) -> list[XY]:
+    """Кусок линии от точки `start` до точки `end` (обе на линии), по ходу от start.
+
+    У кольцевой бровки два пути; берётся тот, что ближе к откосу `near` (серии
+    свободных рёбер), а не более короткий: откос может охватывать больше
+    половины кольца.
+    """
 
     coords = [(x, y) for x, y in line.coords]
     m_start = project_on_polyline(coords, start)[0]
     m_end = project_on_polyline(coords, end)[0]
-    return arc_between(coords, m_start, m_end)[0]
+    arcs = ring_arcs(coords, m_start, m_end)
+    if len(arcs) == 1 or near is None:
+        return min(arcs, key=lambda arc: polyline_length(arc[0]))[0]
+    return min(
+        arcs, key=lambda arc: shapely.hausdorff_distance(LineString(arc[0]), near) if len(arc[0]) > 1 else math.inf
+    )[0]
+
+
+def _run_line(local: Sequence[XY], first: int, last: int) -> LineString:
+    """Серия свободных рёбер от вершины `first` до `last` — линия откоса."""
+
+    points = [local[first]]
+    vertex = first
+    while vertex != last:
+        vertex = (vertex + 1) % len(local)
+        points.append(local[vertex])
+    return LineString(points)
 
 
 def _nearest_hit(origin: XY, direction: XY, lines: Sequence[LineString]) -> tuple[XY, LineString] | None:
@@ -338,7 +358,8 @@ def two_contours(
             pieces.append((first, last, None))
             continue
         _, hit_first, hit_last, line = best
-        pieces.append((first, last, [hit_first, *_along(line, hit_first, hit_last), hit_last]))
+        face = _run_line(local, first, last)
+        pieces.append((first, last, [hit_first, *_along(line, hit_first, hit_last, face), hit_last]))
         for vertex, hit in ((first, hit_first), (last, hit_last)):
             result.flanks.append(
                 Flank(frame.point_to_world(local[vertex]), frame.point_to_world(hit), math.dist(hit, local[vertex]))

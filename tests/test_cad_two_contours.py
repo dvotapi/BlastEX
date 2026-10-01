@@ -256,3 +256,21 @@ def test_several_toe_gaps_between_flanks_are_described_honestly():
     assert codes(result) == ["toe_gap"]
     assert "больше чем на 5 м" not in result.warnings[0].message
     assert "несколько разрывов" in result.warnings[0].message
+
+
+def test_closed_toe_arc_follows_the_free_face_not_the_shortest_way():
+    # Откос с трёх сторон блока: верная дуга кольцевой нижней бровки — длинная
+    # (вокруг откоса), а короткая идёт с тыла.
+    square = [(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)]
+    top = crest("T", [(20, -5), (20, 20), (0, 20), (0, -5)], 420.0)
+    ring = CadEntity(
+        handle="RING",
+        layer="Бровки",
+        kind="LWPOLYLINE",
+        points=[(x, y, 410.0) for x, y in [(24, -10), (24, 24), (-4, 24), (-4, -10)]],
+        closed=True,
+    )
+
+    result = two_contours(square, stitched(top), stitched(ring))
+
+    assert result.area_bottom_m2 == pytest.approx(28 * 24)

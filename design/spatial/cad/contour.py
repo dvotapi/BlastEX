@@ -187,31 +187,39 @@ def cut_polyline(points: Sequence[XY], from_m: float, to_m: float) -> list[XY]:
     return _dedupe(result)
 
 
-def arc_between(points: Sequence[XY], m_from: float, m_to: float) -> tuple[list[XY], list[tuple[float, float]]]:
-    """Путь по линии от `m_from` до `m_to` и его куски по длине в порядке хода.
+def ring_arcs(
+    points: Sequence[XY], m_from: float, m_to: float
+) -> list[tuple[list[XY], list[tuple[float, float]]]]:
+    """Пути по линии от `m_from` до `m_to` с кусками по длине в порядке хода.
 
-    У замкнутой линии (первая точка = последняя) путь идёт через шов, если так
-    короче: блок у шва кольцевой бровки иначе обошёл бы всё кольцо.
+    У незамкнутой линии путь один. У замкнутой (первая точка = последняя) —
+    два: прямой и через шов; какой из них нужен, решает вызывающий.
     """
 
     direct = cut_polyline(points, m_from, m_to)
     if m_from > m_to:
         direct.reverse()
-    intervals = [(m_from, m_to)]
+    arcs = [(direct, [(m_from, m_to)])]
     if len(points) > 3 and math.dist(points[0], points[-1]) <= 1e-9:
         total = polyline_length(points)
-        if total - abs(m_to - m_from) < abs(m_to - m_from):
-            # Ход назад через начало (m_from < m_to) или вперёд через конец.
-            if m_from < m_to:
-                first = cut_polyline(points, 0.0, m_from)[::-1]
-                second = cut_polyline(points, m_to, total)[::-1]
-                intervals = [(m_from, 0.0), (total, m_to)]
-            else:
-                first = cut_polyline(points, m_from, total)
-                second = cut_polyline(points, 0.0, m_to)
-                intervals = [(m_from, total), (0.0, m_to)]
-            return _dedupe([*first, *second]), intervals
-    return direct, intervals
+        # Ход назад через начало (m_from < m_to) или вперёд через конец.
+        if m_from < m_to:
+            first = cut_polyline(points, 0.0, m_from)[::-1]
+            second = cut_polyline(points, m_to, total)[::-1]
+            intervals = [(m_from, 0.0), (total, m_to)]
+        else:
+            first = cut_polyline(points, m_from, total)
+            second = cut_polyline(points, 0.0, m_to)
+            intervals = [(m_from, total), (0.0, m_to)]
+        arcs.append((_dedupe([*first, *second]), intervals))
+    return arcs
+
+
+def arc_between(points: Sequence[XY], m_from: float, m_to: float) -> tuple[list[XY], list[tuple[float, float]]]:
+    """Путь по линии от `m_from` до `m_to`; у замкнутой — более короткий из двух
+    (блок по бровке: начало и конец блока на кольцевой бровке рядом)."""
+
+    return min(ring_arcs(points, m_from, m_to), key=lambda arc: polyline_length(arc[0]))
 
 
 def project_on_polyline(points: Sequence[XY], point: XY) -> tuple[float, XY, float]:

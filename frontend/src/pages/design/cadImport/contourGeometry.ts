@@ -141,17 +141,43 @@ export class SnapIndex {
     return `${cx}:${cy}`;
   }
 
+  /** Ячейки, которые отрезок действительно пересекает (обход сетки Amanatides–Woo), —
+   * а не весь его габарит: диагональ в 5 км иначе дала бы миллион ячеек. */
+  private cellsOf(a: XY, b: XY): Array<[number, number]> {
+    let cx = Math.floor(a[0] / this.cell);
+    let cy = Math.floor(a[1] / this.cell);
+    const ex = Math.floor(b[0] / this.cell);
+    const ey = Math.floor(b[1] / this.cell);
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const stepX = Math.sign(dx);
+    const stepY = Math.sign(dy);
+    const tDeltaX = dx ? this.cell / Math.abs(dx) : Infinity;
+    const tDeltaY = dy ? this.cell / Math.abs(dy) : Infinity;
+    let tMaxX = dx ? ((stepX > 0 ? (cx + 1) * this.cell - a[0] : a[0] - cx * this.cell) / Math.abs(dx)) : Infinity;
+    let tMaxY = dy ? ((stepY > 0 ? (cy + 1) * this.cell - a[1] : a[1] - cy * this.cell) / Math.abs(dy)) : Infinity;
+    const cells: Array<[number, number]> = [[cx, cy]];
+    const limit = Math.abs(ex - cx) + Math.abs(ey - cy);
+    for (let step = 0; step < limit && (cx !== ex || cy !== ey); step += 1) {
+      if (tMaxX < tMaxY) {
+        cx += stepX;
+        tMaxX += tDeltaX;
+      } else {
+        cy += stepY;
+        tMaxY += tDeltaY;
+      }
+      cells.push([cx, cy]);
+    }
+    return cells;
+  }
+
   private add(segment: Segment) {
     const at = this.segments.push(segment) - 1;
-    const [x0, x1] = [Math.min(segment.a[0], segment.b[0]), Math.max(segment.a[0], segment.b[0])];
-    const [y0, y1] = [Math.min(segment.a[1], segment.b[1]), Math.max(segment.a[1], segment.b[1])];
-    for (let cx = Math.floor(x0 / this.cell); cx <= Math.floor(x1 / this.cell); cx += 1) {
-      for (let cy = Math.floor(y0 / this.cell); cy <= Math.floor(y1 / this.cell); cy += 1) {
-        const key = this.key(cx, cy);
-        const list = this.grid.get(key);
-        if (list) list.push(at);
-        else this.grid.set(key, [at]);
-      }
+    for (const [cx, cy] of this.cellsOf(segment.a, segment.b)) {
+      const key = this.key(cx, cy);
+      const list = this.grid.get(key);
+      if (list) list.push(at);
+      else this.grid.set(key, [at]);
     }
   }
 

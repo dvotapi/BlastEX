@@ -207,3 +207,50 @@ def test_nearly_closed_line_from_the_reader_closes_without_a_tiny_edge(last):
     assert len(ready.ring) == 4
     again = assemble(ready.items, {entity.handle: entity}, 0.5)
     assert again.ok, again.issues
+
+
+@pytest.mark.parametrize("overlap", [0.03, 0.3])
+def test_click_and_assembly_agree_when_lines_overlap_at_corners(overlap):
+    # Маркшейдер часто чертит углы с перехлёстом: линии пересекаются, концы торчат.
+    o = overlap
+    lines = [
+        line("B", [(-o, 0), (40 + o, 0)]),
+        line("R", [(40, -o), (40, 20 + o)]),
+        line("T", [(40 + o, 20), (-o, 20)]),
+        line("L", [(0, 20 + o), (0, -o)]),
+    ]
+    by_handle = {item.handle: item for item in lines}
+    splits, _ = split_lines(lines)
+    pieces = [part(handle, splits[handle][0], splits[handle][-1]) for handle in ("B", "R", "T", "L")]
+
+    assembled = assemble(pieces, by_handle, 0.5)
+    clicked = click_contour(lines, (20, 10), 0.5, 5.0)
+
+    assert assembled.ok and clicked.ok, (assembled.issues, clicked.issues)
+    assert ring_area(assembled.ring) == pytest.approx(800.0, abs=0.01)
+    assert ring_area(clicked.ring) == pytest.approx(800.0, abs=0.01)
+
+
+def test_click_closes_micro_gaps_without_short_edges():
+    lines = [
+        line("B", [(0, 0), (40, 0)]),
+        line("R", [(40.02, 0.01), (40, 20)]),
+        line("T", [(40, 20.03), (0, 20)]),
+        line("L", [(0, 20), (0.0, 0.02)]),
+    ]
+    draft = click_contour(lines, (20, 10), 0.5, 5.0)
+    assert draft.ok, draft.issues
+    assert ring_area(draft.ring) == pytest.approx(800.0, abs=1.0)
+
+
+def test_click_pulls_an_undershooting_end_onto_the_line_without_a_bridge():
+    lines = [
+        line("B", [(-5, 0), (45, 0)]),
+        line("R", [(40, -5), (40, 20)]),
+        line("T", [(40, 20), (0, 20)]),
+        line("L", [(0, 20), (0, 0.3)]),  # не дотянута до B на 0,3 м
+    ]
+    draft = click_contour(lines, (20, 10), 0.5, 0.0)
+    assert draft.ok, draft.issues
+    assert ring_area(draft.ring) == pytest.approx(800.0, abs=0.01)
+    assert draft.closings == []

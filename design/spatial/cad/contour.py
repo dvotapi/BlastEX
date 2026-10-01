@@ -393,46 +393,6 @@ def assemble(
 # --- щелчок внутри -------------------------------------------------------
 
 
-def _cluster_ends(coords: list[list[XY]], closed: list[bool], tolerance_m: float) -> None:
-    """Концы открытых линий ближе допуска сводятся в их среднюю точку."""
-
-    ends = [(line, index) for line in range(len(coords)) if not closed[line] for index in (0, -1)]
-    parent = list(range(len(ends)))
-
-    def find(item: int) -> int:
-        while parent[item] != item:
-            parent[item] = parent[parent[item]]
-            item = parent[item]
-        return item
-
-    cell = max(tolerance_m, 1e-6)
-    grid: dict[tuple[int, int], list[int]] = {}
-    for number, (line, index) in enumerate(ends):
-        x, y = coords[line][index]
-        grid.setdefault((math.floor(x / cell), math.floor(y / cell)), []).append(number)
-    for number, (line, index) in enumerate(ends):
-        x, y = coords[line][index]
-        cx, cy = math.floor(x / cell), math.floor(y / cell)
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                for other in grid.get((cx + dx, cy + dy), ()):
-                    if other > number and math.dist(coords[line][index], coords[ends[other][0]][ends[other][1]]) <= tolerance_m:
-                        parent[find(other)] = find(number)
-
-    groups: dict[int, list[int]] = {}
-    for number in range(len(ends)):
-        groups.setdefault(find(number), []).append(number)
-    for members in groups.values():
-        if len(members) < 2:
-            continue
-        xs = [coords[ends[m][0]][ends[m][1]][0] for m in members]
-        ys = [coords[ends[m][0]][ends[m][1]][1] for m in members]
-        center = (sum(xs) / len(xs), sum(ys) / len(ys))
-        for m in members:
-            line, index = ends[m]
-            coords[line][index] = center
-
-
 def _segments(geometry) -> list[LineString]:
     if geometry.is_empty:
         return []
@@ -441,50 +401,100 @@ def _segments(geometry) -> list[LineString]:
     return [part for item in getattr(geometry, "geoms", []) for part in _segments(item)]
 
 
-def _bridges(segments: list[LineString], tolerance_m: float, bridge_m: float) -> list[tuple[XY, XY]]:
-    """Мосты: висячий конец — к ближайшему висячему концу не дальше `bridge_m`,
-    оставшийся — к ближайшей линии не дальше допуска (недотянутый стык «Т»)."""
+def _dangles(segments: Sequence[LineString]) -> dict[XY, tuple[int, int]]:
+    """Висячие концы сети: точка → (отрезок, 0 — начало / -1 — конец)."""
 
     degree: Counter[XY] = Counter()
-    for segment in segments:
+    owner: dict[XY, tuple[int, int]] = {}
+    for number, segment in enumerate(segments):
         coords = list(segment.coords)
-        degree[coords[0]] += 1
-        degree[coords[-1]] += 1
-    dangles = [point for point, count in degree.items() if count == 1]
+        for index in (0, -1):
+            point = (coords[index][0], coords[index][1])
+            degree[point] += 1
+            owner[point] = (number, index)
+    return {point: owner[point] for point, count in degree.items() if count == 1}
 
-    pairs = sorted(
-        (math.dist(a, b), i, j)
-        for i, a in enumerate(dangles)
-        for j, b in enumerate(dangles)
-        if i < j and math.dist(a, b) <= bridge_m
-    ) if len(dangles) <= 2000 else []
+
+def _pairs_within(points: Sequence[XY], distance_m: float) -> list[tuple[float, int, int]]:
+    """Пары точек не дальше `distance_m` по сетке ячеек — без перебора всех пар."""
+
+    if distance_m <= 0 or len(points) < 2:
+        return []
+    cell = distance_m
+    grid: dict[tuple[int, int], list[int]] = {}
+    for index, (x, y) in enumerate(points):
+        grid.setdefault((math.floor(x / cell), math.floor(y / cell)), []).append(index)
+    pairs: list[tuple[float, int, int]] = []
+    for index, (x, y) in enumerate(points):
+        cx, cy = math.floor(x / cell), math.floor(y / cell)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for other in grid.get((cx + dx, cy + dy), ()):
+                    if other > index:
+                        distance = math.dist(points[index], points[other])
+                        if distance <= distance_m:
+                            pairs.append((distance, index, other))
+    return sorted(pairs)
+
+
+def _move_end(segment: LineString, index: int, point: XY) -> LineString:
+    coords = [(c[0], c[1]) for c in segment.coords]
+    coords[index] = point
+    return LineString(coords)
+
+
+def _close_network(
+    segments: list[LineString], tolerance_m: float, bridge_m: float
+) -> tuple[list[LineString], list[tuple[XY, XY]]]:
+    """Замыкание сети линий после узлов: только висячие концы.
+
+    Узлы строятся до свода концов: настоящее пересечение на перехлёсте углов
+    не должно пропасть. Висячие концы ближе допуска сводятся в их среднюю
+    точку, оставшиеся ближе допуска к линии притягиваются к ней (недотянутый
+    стык «Т») — без коротких рёбер. Остальные соединяются мостом с ближайшим
+    висячим концом не дальше `bridge_m`.
+    """
+
+    dangles = _dangles(segments)
+    points = list(dangles)
     used: set[int] = set()
-    bridges: list[tuple[XY, XY]] = []
-    for _, i, j in pairs:
-        if i in used or j in used:
+    for _, a, b in _pairs_within(points, tolerance_m):
+        if a in used or b in used:
             continue
-        used.update((i, j))
-        bridges.append((dangles[i], dangles[j]))
+        used.update((a, b))
+        middle = _mid(points[a], points[b])
+        for point in (points[a], points[b]):
+            number, index = dangles[point]
+            segments[number] = _move_end(segments[number], index, middle)
 
-    if len(used) < len(dangles):
-        tree = shapely.STRtree(segments)
-        for index, point in enumerate(dangles):
-            if index in used:
+    tree = shapely.STRtree(segments)
+    for position, point in enumerate(points):
+        if position in used:
+            continue
+        number, index = dangles[point]
+        probe = Point(point)
+        best: tuple[float, XY] | None = None
+        for candidate in tree.query(probe, predicate="dwithin", distance=tolerance_m).tolist():
+            if candidate == number:
                 continue
-            probe = Point(point)
-            best: tuple[float, XY] | None = None
-            for candidate in tree.query(probe.buffer(tolerance_m)).tolist():
-                segment = segments[candidate]
-                coords = list(segment.coords)
-                if coords[0] == point or coords[-1] == point:
-                    continue
-                distance = segment.distance(probe)
-                if distance <= tolerance_m and (best is None or distance < best[0]):
-                    foot = segment.interpolate(segment.project(probe))
-                    best = (distance, (foot.x, foot.y))
-            if best is not None and best[0] > _ON_LINE_M:
-                bridges.append((point, best[1]))
-    return bridges
+            segment = segments[candidate]
+            distance = segment.distance(probe)
+            if best is None or distance < best[0]:
+                foot = segment.interpolate(segment.project(probe))
+                best = (distance, (foot.x, foot.y))
+        if best is not None and best[0] > _ON_LINE_M:
+            segments[number] = _move_end(segments[number], index, best[1])
+
+    noded = _segments(shapely.unary_union(segments))
+    remaining = list(_dangles(noded))
+    bridges: list[tuple[XY, XY]] = []
+    taken: set[int] = set()
+    for _, a, b in _pairs_within(remaining, bridge_m):
+        if a in taken or b in taken:
+            continue
+        taken.update((a, b))
+        bridges.append((remaining[a], remaining[b]))
+    return noded, bridges
 
 
 def click_contour(
@@ -508,12 +518,9 @@ def click_contour(
         )
 
     frame = LocalFrame.of([*(p for item in usable for p in line_xy(item)), point])
-    coords = [frame.to_local(line_xy(item)) for item in usable]
-    closed = [is_ring(c) for c in coords]
-    _cluster_ends(coords, closed, tolerance_m)
-    snapped = [LineString(c) if len(set(c)) > 1 else None for c in coords]
-    noded = _segments(shapely.unary_union([line for line in snapped if line is not None]))
-    bridges = _bridges(noded, tolerance_m, bridge_m)
+    originals = [LineString(frame.to_local(line_xy(item))) for item in usable]
+    segments = _segments(shapely.unary_union(originals))
+    noded, bridges = _close_network(segments, tolerance_m, bridge_m)
     network = shapely.unary_union([*noded, *(LineString(bridge) for bridge in bridges)])
     faces = list(shapely.polygonize(_segments(network)).geoms)
     probe = Point(frame.to_local([point])[0])
@@ -536,7 +543,7 @@ def click_contour(
         bridge for bridge in bridges if LineString(bridge).distance(boundary) <= _ON_LINE_M
         and boundary.distance(Point(_mid(*bridge))) <= _ON_LINE_M
     ]
-    items = _boundary_items(exterior, usable, snapped, used_bridges, frame, tolerance_m)
+    items = _boundary_items(exterior, usable, originals, used_bridges, frame, tolerance_m)
     ring = normalize_ring(frame.to_world(exterior))
     return ContourDraft(
         ring=ring,
@@ -550,7 +557,7 @@ def click_contour(
 def _boundary_items(
     exterior: list[XY],
     usable: Sequence[CadEntity],
-    snapped: Sequence[LineString | None],
+    originals: Sequence[LineString],
     bridges: Sequence[tuple[XY, XY]],
     frame: LocalFrame,
     tolerance_m: float,
@@ -570,12 +577,11 @@ def _boundary_items(
                 source = ("bridge", number)
                 break
         else:
+            # Концы линий сдвинуты сводом в пределах допуска — ищем линию с тем же запасом.
             best = None
-            for number, line in enumerate(snapped):
-                if line is None:
-                    continue
+            for number, line in enumerate(originals):
                 distance = line.distance(middle)
-                if distance <= _ON_LINE_M and (best is None or distance < best[0]):
+                if distance <= tolerance_m + _ON_LINE_M and (best is None or distance < best[0]):
                     best = (distance, number)
             if best is not None:
                 source = ("line", best[1])

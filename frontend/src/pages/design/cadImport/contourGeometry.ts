@@ -19,10 +19,20 @@ export type Snap = {
   m?: number;
 };
 
-/** Точки линии в плане; у замкнутой — с возвратом в начало. */
+/** Ребро короче — не ребро контура (сервер: `rings.MIN_EDGE_M`). */
+const MIN_EDGE_M = 0.05;
+
+/**
+ * Точки линии в плане; у замкнутой — с возвратом в начало, если ребро возврата
+ * не короче 5 см. Так же, как `contour.line_xy` на сервере: зазор в сантиметры
+ * у «замкнутой по разрыву» линии сводит допуск, а не ребро-щель.
+ */
 export function polylineXY(entity: CadEntity): XY[] {
   const points = entity.points.map(([x, y]) => [x, y] as XY);
-  if (entity.closed && points.length > 2) points.push(points[0]);
+  if (entity.closed && points.length > 2) {
+    const [first, last] = [points[0], points[points.length - 1]];
+    if (Math.hypot(last[0] - first[0], last[1] - first[1]) >= MIN_EDGE_M) points.push(first);
+  }
   return points;
 }
 

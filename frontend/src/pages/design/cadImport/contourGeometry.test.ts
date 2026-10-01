@@ -59,6 +59,10 @@ describe("projectOnPolyline и subPolyline", () => {
   it("у замкнутой линии есть ребро возврата в начало", () => {
     expect(polylineXY(line("C", [[0, 0], [10, 0], [10, 10]], true))).toHaveLength(4);
   });
+
+  it("зазор концов короче 5 см — не ребро возврата (как на сервере)", () => {
+    expect(polylineXY(line("G", [[0, 0], [10, 0], [10, 10], [0.02, 0.02]], true))).toHaveLength(4);
+  });
 });
 
 describe("pieceAt: участок между соседними разрезами", () => {

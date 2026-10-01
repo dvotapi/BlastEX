@@ -1,7 +1,7 @@
 // Состояние шага «Контур»: способ по умолчанию, запрос предпросмотра,
 // щелчки инструментов сборки и блока по бровке (TASK-013, PR 2).
 import { describe, expect, it } from "vitest";
-import type { CadContourLines, CadContourResult } from "../../../types/cad";
+import type { CadContourLines, CadContourResult, CadEntity } from "../../../types/cad";
 import {
   applyPick,
   asAssembly,
@@ -40,9 +40,16 @@ describe("способ по умолчанию", () => {
     expect(initialContour(source)).toMatchObject({ method: "assembly", handle: "" });
   });
 
+  it("в списке готовых — и линия с разрывом концов в пределах допуска", () => {
+    const gap = cadEntity("GAP", "Проект", { points: [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0], [0, 0.8, 0]] });
+    expect(readyCandidates([gap], 0.5).map((entity) => entity.handle)).toEqual([]);
+    expect(readyCandidates([gap], 1).map((entity) => entity.handle)).toEqual(["GAP"]);
+  });
+
   it("в списке готовых сначала контуры блока, затем по площади", () => {
-    const big = cadEntity("BIG", "Ситуация", { closed: true, area_m2: 9000 });
-    const contour = cadEntity("C", "блок", { closed: true, area_m2: 100, role: "block_contour" });
+    const triangle: CadEntity["points"] = [[0, 0, 0], [10, 0, 0], [10, 10, 0]];
+    const big = cadEntity("BIG", "Ситуация", { closed: true, area_m2: 9000, points: triangle });
+    const contour = cadEntity("C", "блок", { closed: true, area_m2: 100, role: "block_contour", points: triangle });
     expect(readyCandidates([big, contour, cadEntity("OPEN", "x")]).map((entity) => entity.handle)).toEqual(["C", "BIG"]);
   });
 });

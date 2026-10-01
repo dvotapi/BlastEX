@@ -174,3 +174,36 @@ def test_too_many_segments_is_an_input_error(monkeypatch):
     monkeypatch.setattr(contour_module, "MAX_CONTOUR_SEGMENTS", 3)
     with pytest.raises(ContourInputError, match="3"):
         split_lines([line("H", [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)])])
+
+
+# --- правки ревью ---------------------------------------------------------
+
+
+def _read_lwpolyline(points, *, closed: bool = False):
+    import io
+
+    import ezdxf
+
+    from design.spatial.cad.reader import read_cad
+
+    doc = ezdxf.new("R2010")
+    doc.modelspace().add_lwpolyline(points, close=closed, dxfattribs={"layer": "блок 1"})
+    buffer = io.StringIO()
+    doc.write(buffer)
+    return read_cad(buffer.getvalue().encode("utf-8"), "t.dxf").entities[0]
+
+
+@pytest.mark.parametrize("last", [(0.02, 0.02), (0.03, 0.0), (0.0, 0.4)])
+def test_nearly_closed_line_from_the_reader_closes_without_a_tiny_edge(last):
+    # Reader сам ставит closed_by_gap при разрыве до 0,5 м и точки не трогает.
+    entity = _read_lwpolyline([(0, 0), (10, 0), (10, 10), (0, 10), last])
+    assert entity.closed and entity.closed_by_gap
+
+    ready = ready_contour(entity, 0.5)
+    clicked = click_contour([entity], (5, 5), 0.5, 5.0)
+
+    assert ready.ok, ready.issues
+    assert clicked.ok, clicked.issues
+    assert len(ready.ring) == 4
+    again = assemble(ready.items, {entity.handle: entity}, 0.5)
+    assert again.ok, again.issues

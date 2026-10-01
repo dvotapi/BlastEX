@@ -47,10 +47,19 @@ export function parseNumber(text: string): number | null {
   return text.trim() && Number.isFinite(value) ? value : null;
 }
 
+/** Линия замкнута или почти: разрыв концов не больше допуска — её замкнёт «Готовый». */
+function closable(entity: CadEntity, tolerance: number): boolean {
+  if (entity.geometry_type !== "line" || entity.points.length < 3) return false;
+  if (entity.closed || entity.closed_by_gap) return true;
+  const first = entity.points[0];
+  const last = entity.points[entity.points.length - 1];
+  return Math.hypot(last[0] - first[0], last[1] - first[1]) <= tolerance;
+}
+
 /** Замкнутые линии для «Готового»: сначала контуры блока, затем по площади. */
-export function readyCandidates(entities: CadEntity[]): CadEntity[] {
+export function readyCandidates(entities: CadEntity[], tolerance = DEFAULT_TOLERANCE_M): CadEntity[] {
   return entities
-    .filter((entity) => entity.geometry_type === "line" && (entity.closed || entity.closed_by_gap))
+    .filter((entity) => closable(entity, tolerance))
     .sort(
       (a, b) =>
         Number(b.role === "block_contour") - Number(a.role === "block_contour") || b.area_m2 - a.area_m2,
@@ -138,7 +147,7 @@ export function applyPick(state: ContourState, pick: Pick, context: PickContext)
 
   switch (state.method) {
     case "ready":
-      return line && (line.closed || line.closed_by_gap) ? { ...state, handle: line.handle } : state;
+      return line && closable(line, toleranceOf(state)) ? { ...state, handle: line.handle } : state;
     case "click":
       return { ...state, point: pick.world };
     case "crest": {

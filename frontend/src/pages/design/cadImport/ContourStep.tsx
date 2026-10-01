@@ -11,6 +11,7 @@ import {
   parseNumber,
   readyCandidates,
   removeItem,
+  toleranceOf,
   undoItem,
   widthMeters,
   type AssemblyTool,
@@ -111,7 +112,7 @@ export function ContourStep(props: ContourStepProps) {
             <span>Замкнутая линия</span>
             <select value={state.handle} disabled={disabled} onChange={(event) => set({ handle: event.target.value })}>
               <option value="">— не выбрана —</option>
-              {readyCandidates(source.entities).map((entity) => (
+              {readyCandidates(source.entities, toleranceOf(state)).map((entity) => (
                 <option key={entity.handle} value={entity.handle}>
                   {`${entity.layer} · ${entity.handle} · ${ruNumber(entity.area_m2, 0)} м²`}
                 </option>

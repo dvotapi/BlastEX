@@ -31,7 +31,7 @@ from shapely.geometry import LineString, Point
 
 from design.spatial.cad.model import CadEntity, CadWarning, ru_number
 from design.spatial.cad.reader import CLOSURE_TOLERANCE_M
-from design.spatial.cad.rings import XY, LocalFrame, RingIssue, check_ring, normalize_ring
+from design.spatial.cad.rings import MIN_EDGE_M, XY, LocalFrame, RingIssue, check_ring, normalize_ring
 from design.spatial.cad.stitch import StitchedLine
 
 DEFAULT_TOLERANCE_M = CLOSURE_TOLERANCE_M
@@ -125,12 +125,22 @@ class ContourDraft:
 
 
 def line_xy(entity: CadEntity) -> list[XY]:
-    """Точки линии в плане; у замкнутой — с возвратом в начало."""
+    """Точки линии в плане; у замкнутой — с возвратом в начало.
+
+    Возврат добавляется, только если ребро возврата не короче 0,05 м. Reader
+    считает линию замкнутой и при зазоре концов до 0,5 м, не трогая точек; зазор
+    в сантиметры — не ребро контура, а щель, которую сводит допуск (иначе —
+    ложное «ребро короче 0,05 м» и самопересечение на ровном месте).
+    """
 
     points = [(float(point[0]), float(point[1])) for point in entity.points]
-    if entity.closed and len(points) > 2:
+    if entity.closed and len(points) > 2 and math.dist(points[-1], points[0]) >= MIN_EDGE_M:
         points.append(points[0])
     return points
+
+
+def is_ring(points: Sequence[XY]) -> bool:
+    return len(points) > 3 and points[0] == points[-1]
 
 
 def polyline_length(points: Sequence[XY]) -> float:
@@ -195,7 +205,7 @@ def project_on_polyline(points: Sequence[XY], point: XY) -> tuple[float, XY, flo
 
 
 def _check_size(lines: Sequence[CadEntity]) -> None:
-    count = sum(max(len(item.points) - 1 + (1 if item.closed else 0), 0) for item in lines)
+    count = sum(max(len(line_xy(item)) - 1, 0) for item in lines)
     if count > MAX_CONTOUR_SEGMENTS:
         raise ContourInputError(
             f"Линий выбранных ролей слишком много: {count} отрезков, предел {MAX_CONTOUR_SEGMENTS}. "
@@ -268,11 +278,12 @@ def split_lines(lines: Sequence[CadEntity]) -> tuple[dict[str, list[float]], lis
 def ready_contour(entity: CadEntity, tolerance_m: float = DEFAULT_TOLERANCE_M) -> ContourDraft:
     if entity.geometry_type != "line" or len(entity.points) < 2:
         raise ContourInputError(f"Объект {entity.handle} — не линия.")
-    item = ContourItem(kind="part", handle=entity.handle, start_m=0.0, end_m=entity.length_m)
+    xy = line_xy(entity)
+    item = ContourItem(kind="part", handle=entity.handle, start_m=0.0, end_m=polyline_length(xy))
     points = _dedupe([(float(point[0]), float(point[1])) for point in entity.points])
-    if entity.closed:
-        ring = normalize_ring(points)
-        info = ItemInfo("part", entity.handle, entity.layer, entity.length_m, False)
+    if is_ring(xy):
+        ring = normalize_ring(xy)
+        info = ItemInfo("part", entity.handle, entity.layer, polyline_length(xy), False)
         return ContourDraft(ring=ring, items=[item], item_info=[info], issues=check_ring(ring))
     gap = math.dist(points[0], points[-1])
     if gap <= tolerance_m and len(points) >= 3:
@@ -498,7 +509,7 @@ def click_contour(
 
     frame = LocalFrame.of([*(p for item in usable for p in line_xy(item)), point])
     coords = [frame.to_local(line_xy(item)) for item in usable]
-    closed = [item.closed or math.dist(c[0], c[-1]) <= _ON_LINE_M for item, c in zip(usable, coords)]
+    closed = [is_ring(c) for c in coords]
     _cluster_ends(coords, closed, tolerance_m)
     snapped = [LineString(c) if len(set(c)) > 1 else None for c in coords]
     noded = _segments(shapely.unary_union([line for line in snapped if line is not None]))
@@ -591,8 +602,8 @@ def _boundary_items(
             entity = usable[number]
             original = line_xy(entity)
             run_length = polyline_length(world)
-            if len(runs) == 1 and entity.closed:
-                items.append(ContourItem(kind="part", handle=entity.handle, start_m=0.0, end_m=entity.length_m))
+            if len(runs) == 1 and is_ring(original):
+                items.append(ContourItem(kind="part", handle=entity.handle, start_m=0.0, end_m=polyline_length(original)))
                 continue
             start_m = project_on_polyline(original, world[0])[0]
             end_m = project_on_polyline(original, world[-1])[0]

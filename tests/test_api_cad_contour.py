@@ -69,7 +69,8 @@ def test_assembly_of_crest_and_fragment_shows_the_self_intersection(loaded):
         for handle in ("6C3", "733")
     ]
 
-    body = _contour(client, source["id"], method="assembly", items=items).json()
+    roles = ["block_contour", "design_line", "crest_top", "crest_bottom"]
+    body = _contour(client, source["id"], method="assembly", items=items, roles=roles).json()
 
     assert body["ok"] is False
     assert [issue["code"] for issue in body["issues"]] == ["self_intersection"]
@@ -197,3 +198,16 @@ def test_area_basis_without_an_object_is_not_saved():
     response = client.put(f"{BASE}/sources/{source['id']}/area-basis", json={"area_basis": "top"})
 
     assert response.json() == {"area_basis": "top", "saved": False}
+
+
+def test_assembly_part_of_an_unchecked_role_is_a_visible_issue(loaded):
+    # Участок добавили, потом роль его линии сняли во флажках «Линии контура».
+    _, client, source = loaded
+    items = [{"kind": "part", "handle": "6C3", "start_m": 0, "end_m": _entity(source, "6C3")["length_m"]}]
+
+    body = _contour(client, source["id"], method="assembly", items=items, roles=["design_line"]).json()
+
+    assert body["ok"] is False
+    excluded = [issue for issue in body["issues"] if issue["code"] == "role_excluded"]
+    assert len(excluded) == 1
+    assert "6C3" in excluded[0]["message"] and "Бровка верхняя" in excluded[0]["message"]

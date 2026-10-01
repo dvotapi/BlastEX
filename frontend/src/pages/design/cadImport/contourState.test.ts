@@ -83,6 +83,14 @@ describe("запрос предпросмотра", () => {
     expect(contourRequest({ ...crest, widthMode: "meters", width: "" }, 4)).toBeNull();
   });
 
+  it("сборка передаёт роли «Линий контура» — сервер сверит с ними участки", () => {
+    const items = [{ kind: "part" as const, handle: "6C3", start_m: 0, end_m: 10, points: [], flip: false, label: "" }];
+    expect(contourRequest(state({ method: "assembly", items }), 4)).toMatchObject({
+      method: "assembly",
+      roles: ["block_contour", "design_line", "crest_top"],
+    });
+  });
+
   it("пустая сборка не запрашивается", () => {
     expect(contourRequest(state({ method: "assembly", items: [] }), 4)).toBeNull();
   });

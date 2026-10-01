@@ -153,3 +153,22 @@ describe("SnapIndex: длинные линии карьера", () => {
     expect(snap).toMatchObject({ kind: "nearest", handle: "D0" });
   });
 });
+
+describe("SnapIndex: тысячи вершин", () => {
+  it("движение мыши не перебирает все вершины чертежа", () => {
+    // 2000 полилиний по 100 вершин — 200 тысяч вершин и концов.
+    const lines = Array.from({ length: 2000 }, (_, k) =>
+      line(
+        `P${k}`,
+        Array.from({ length: 100 }, (__, i) => [i * 2, k * 3] as [number, number]),
+      ),
+    );
+    const index = new SnapIndex(lines, Array.from({ length: 5000 }, (_, k) => [k, -10]));
+    const started = performance.now();
+    for (let move = 0; move < 500; move += 1) index.snap([50 + (move % 7), 300 + (move % 11)], 1);
+    const elapsed = performance.now() - started;
+
+    expect(elapsed).toBeLessThan(150);
+    expect(index.snap([50.2, 300.3], 1)).toMatchObject({ kind: "vertex", point: [50, 300] });
+  });
+});

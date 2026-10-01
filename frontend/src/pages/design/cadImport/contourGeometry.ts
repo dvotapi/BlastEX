@@ -104,6 +104,48 @@ export function pieceAt(entity: CadEntity, m: number, splits: number[] | undefin
 
 type Segment = { handle: string; a: XY; b: XY; startM: number };
 
+/** Точки привязки (концы, вершины, пересечения) по ячейкам: движение мыши над
+ * чертежом с сотнями тысяч вершин смотрит только ячейки в пределах апертуры. */
+class PointCells<T extends { point: XY }> {
+  cell = 5;
+  private readonly items: T[] = [];
+  private readonly grid = new Map<string, number[]>();
+
+  add(item: T) {
+    const at = this.items.push(item) - 1;
+    const key = `${Math.floor(item.point[0] / this.cell)}:${Math.floor(item.point[1] / this.cell)}`;
+    const list = this.grid.get(key);
+    if (list) list.push(at);
+    else this.grid.set(key, [at]);
+  }
+
+  /** Ближайшая точка не дальше `radius` или `undefined`. */
+  nearest(p: XY, radius: number): T | undefined {
+    const x0 = Math.floor((p[0] - radius) / this.cell);
+    const x1 = Math.floor((p[0] + radius) / this.cell);
+    const y0 = Math.floor((p[1] - radius) / this.cell);
+    const y1 = Math.floor((p[1] + radius) / this.cell);
+    let best: T | undefined;
+    let bestDistance = radius;
+    const consider = (item: T) => {
+      const d = Math.hypot(item.point[0] - p[0], item.point[1] - p[1]);
+      if (d <= bestDistance) {
+        best = item;
+        bestDistance = d;
+      }
+    };
+    // Очень мелкий масштаб: ячеек больше, чем точек, — проще перебрать все.
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > this.items.length) {
+      for (const item of this.items) consider(item);
+      return best;
+    }
+    for (let cx = x0; cx <= x1; cx += 1) {
+      for (let cy = y0; cy <= y1; cy += 1) for (const at of this.grid.get(`${cx}:${cy}`) ?? []) consider(this.items[at]);
+    }
+    return best;
+  }
+}
+
 /**
  * Привязка курсора: конец линии, пересечение, вершина, ближайшая точка — в
  * таком порядке важности (как объектная привязка САПР). Сегменты разложены по
@@ -113,14 +155,15 @@ export class SnapIndex {
   private readonly cell: number;
   private readonly segments: Segment[] = [];
   private readonly grid = new Map<string, number[]>();
-  private readonly ends: Array<{ point: XY; handle: string; m: number }> = [];
-  private readonly vertices: Array<{ point: XY; handle: string; m: number }> = [];
-  private readonly crossings: XY[];
+  private readonly ends = new PointCells<{ point: XY; handle: string; m: number }>();
+  private readonly vertices = new PointCells<{ point: XY; handle: string; m: number }>();
+  private readonly crossings = new PointCells<{ point: XY }>();
   private readonly polylines = new Map<string, XY[]>();
 
   constructor(lines: CadEntity[], intersections: number[][], cell = 5) {
     this.cell = cell;
-    this.crossings = intersections.map(([x, y]) => [x, y] as XY);
+    for (const points of [this.ends, this.vertices, this.crossings]) points.cell = cell;
+    for (const [x, y] of intersections) this.crossings.add({ point: [x, y] });
     for (const entity of lines) {
       if (entity.geometry_type !== "line" || entity.points.length < 2) continue;
       const points = polylineXY(entity);
@@ -128,7 +171,7 @@ export class SnapIndex {
       let walked = 0;
       points.forEach((point, index) => {
         const isEnd = !entity.closed && (index === 0 || index === points.length - 1);
-        (isEnd ? this.ends : this.vertices).push({ point, handle: entity.handle, m: walked });
+        (isEnd ? this.ends : this.vertices).add({ point, handle: entity.handle, m: walked });
         if (index === points.length - 1) return;
         const next = points[index + 1];
         this.add({ handle: entity.handle, a: point, b: next, startM: walked });
@@ -197,19 +240,7 @@ export class SnapIndex {
 
   /** Точка привязки не дальше `aperture` метров от курсора или `null`. */
   snap(p: XY, aperture: number): Snap | null {
-    const distance = (q: XY) => Math.hypot(q[0] - p[0], q[1] - p[1]);
-    const closest = <T extends { point: XY }>(items: T[]): T | undefined => {
-      let best: T | undefined;
-      let bestDistance = aperture;
-      for (const item of items) {
-        const d = distance(item.point);
-        if (d <= bestDistance) {
-          best = item;
-          bestDistance = d;
-        }
-      }
-      return best;
-    };
+    const closest = <T extends { point: XY }>(cells: PointCells<T>): T | undefined => cells.nearest(p, aperture);
 
     // Ближайшая линия под курсором — и для привязки «ближайшая точка», и как
     // линия пересечения: «Участок» рядом с узлом должен знать, по какой линии щёлкнули.
@@ -233,7 +264,7 @@ export class SnapIndex {
 
     const end = closest(this.ends);
     if (end) return onLine(end.point, "end", { handle: end.handle, m: end.m });
-    const crossing = closest(this.crossings.map((point) => ({ point })));
+    const crossing = closest(this.crossings);
     if (crossing) return onLine(crossing.point, "intersection");
     const vertex = closest(this.vertices);
     if (vertex) return onLine(vertex.point, "vertex", { handle: vertex.handle, m: vertex.m });

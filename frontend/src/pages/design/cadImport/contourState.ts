@@ -142,7 +142,8 @@ export function contourRequest(state: ContourState, burden: number | null): CadC
       };
     }
     case "assembly":
-      return state.items.length ? { method: "assembly", items: state.items, tolerance_m } : null;
+      // Роли «Линий контура» — сервер сверит с ними роли участков.
+      return state.items.length ? { method: "assembly", items: state.items, roles: state.roles, tolerance_m } : null;
     case "crest": {
       const width_m = widthMeters(state, burden);
       if (!state.crestStart || !state.crestEnd || width_m === null) return null;

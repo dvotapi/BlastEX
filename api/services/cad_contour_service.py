@@ -43,7 +43,7 @@ from design.spatial.cad.contour import (
 )
 from design.spatial.cad.model import ROLE_CREST_BOTTOM, ROLE_CREST_TOP, ROLES, CadEntity
 from design.spatial.cad.repository import CadRepository, CadSourceNotFound, CadSourceRecord
-from design.spatial.cad.rings import ring_area, ring_perimeter
+from design.spatial.cad.rings import RingIssue, ring_area, ring_perimeter
 from design.spatial.cad.stitch import StitchedLine, StitchGap, stitch_lines
 from design.spatial.cad.two_contours import BenchLevels, TwoContours, bench_levels, two_contours
 
@@ -149,7 +149,22 @@ def _draft(
         missing = sorted(handles - set(entities))
         if missing:
             raise CadImportError(f"Объекта {missing[0]} нет среди линий этого чертежа.")
-        return assemble(items, entities, request.tolerance_m)
+        draft = assemble(items, entities, request.tolerance_m)
+        # Участок, чью роль потом сняли во флажках «Линии контура» (или сменили
+        # на «Не использовать»), молча в контур не идёт: ошибка у кнопки.
+        roles = _line_roles(request.roles)
+        labels = {item.code: item.label for item in ROLES}
+        for number, item in enumerate(items, start=1):
+            entity = entities.get(item.handle) if item.kind == "part" else None
+            if entity is not None and entity.role not in roles:
+                draft.issues.append(
+                    RingIssue(
+                        "role_excluded",
+                        f"Участок {number} (линия {entity.handle}): роль «{labels.get(entity.role, entity.role)}» "
+                        "не отмечена в «Линии контура» — отметьте её или удалите участок.",
+                    )
+                )
+        return draft
 
     if request.crest is None:
         raise CadImportError("Отметьте начало и конец блока на верхней бровке и задайте ширину.")

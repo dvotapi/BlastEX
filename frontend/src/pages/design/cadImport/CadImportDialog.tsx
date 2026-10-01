@@ -69,6 +69,10 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   const [pending, setPending] = useState(false);
   const [requestError, setRequestError] = useState("");
   const [areaError, setAreaError] = useState("");
+  const [areaSaving, setAreaSaving] = useState(0);
+  // Актуальный список источников для откатов из асинхронных ответов.
+  const latestSources = useRef(sources);
+  latestSources.current = sources;
   const areaSave = useRef<Promise<unknown>>(Promise.resolve());
   const active = sources.find((source) => source.id === activeId) ?? sources[0];
   const [tab, setTab] = useState<Tab>("layers");
@@ -184,14 +188,26 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
       const sameObject = (item: CadSource) =>
         item.id === source.id || (source.site_code !== "" && item.site_code === source.site_code);
       onSourcesChange(sources.map((item) => (sameObject(item) ? { ...item, area_basis: basis } : item)));
+      const previous = contour.areaBasis;
       // Сохранения — по очереди: иначе при быстрых щелчках на объекте могло
       // остаться не последнее значение (запросы обрабатываются параллельно).
+      // Пока очередь не пуста, «Построить блок» неактивна: паспорт и объект
+      // не должны разойтись.
+      setAreaSaving((count) => count + 1);
       areaSave.current = areaSave.current
         .then(() => api.cad.saveAreaBasis(source.id, basis))
         .then(
           () => setAreaError(""),
-          (reason) => setAreaError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока."),
-        );
+          (reason) => {
+            // Объект не принял выбор — возвращаем прежний, чтобы паспорт с ним не разошёлся.
+            setAreaError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока.");
+            setContour((current) => (current.areaBasis === basis ? { ...current, areaBasis: previous } : current));
+            onSourcesChange(
+              latestSources.current.map((item) => (sameObject(item) ? { ...item, area_basis: previous } : item)),
+            );
+          },
+        )
+        .finally(() => setAreaSaving((count) => count - 1));
     }
     setContour(next);
   }
@@ -473,7 +489,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
             <BuildFooter
               result={preview.result}
               pending={preview.pending}
-              busy={pending}
+              busy={pending || areaSaving > 0}
               error={preview.error}
               areaLabel={meta?.area_bases.find((basis) => basis.code === contour.areaBasis)?.label ?? ""}
               onCancel={onCancel}

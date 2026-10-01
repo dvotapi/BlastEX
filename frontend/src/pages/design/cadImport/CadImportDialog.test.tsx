@@ -297,6 +297,34 @@ describe("CadImportDialog", () => {
     await waitFor(() => expect(button.disabled).toBe(true));
   });
 
+  it("пока выбор площади блока сохраняется на объекте, «Построить блок» неактивна", async () => {
+    api.cad.saveAreaBasis.mockReturnValue(new Promise(() => {}));
+    renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+
+    await waitFor(() => expect(button.disabled).toBe(true));
+  });
+
+  it("ошибка сохранения площади блока возвращает прежний выбор и видна в окне", async () => {
+    api.cad.saveAreaBasis.mockRejectedValue(new Error("Нет связи с сервером."));
+    renderDialog();
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+
+    expect(await screen.findByText("Нет связи с сервером.")).toBeTruthy();
+    await waitFor(() => expect((within(group).getByRole("radio", { name: /S ср/ }) as HTMLInputElement).checked).toBe(true));
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
   it("самопересечение видно у кнопки, и кнопка неактивна", async () => {
     api.cad.contour.mockResolvedValue(
       contourResult({ ok: false, issues: [{ code: "self_intersection", message: "Контур пересекает сам себя в точке (1,00; 2,00).", point: [1, 2] }], bottom: null }),

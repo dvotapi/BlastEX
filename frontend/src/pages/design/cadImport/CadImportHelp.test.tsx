@@ -56,3 +56,25 @@ describe("CadImportHelp", () => {
     expect(badges.map((item) => item.querySelector("b")?.textContent)).toEqual(["шаблон.", "авто.", "по Z.", "вручную."]);
   });
 });
+
+describe("CadImportHelp: контур блока (PR 2)", () => {
+  it("описывает четыре способа, два контура и замыкающий отрезок", () => {
+    render(<CadImportHelp meta={CAD_META} />);
+    fireEvent.click(screen.getByRole("button", { name: "Справка по импорту чертежа" }));
+    const dialog = screen.getByRole("dialog", { name: "Импорт чертежа: справка" });
+
+    expect(within(dialog).getByRole("heading", { name: "Контур блока" })).toBeTruthy();
+    const methods = within(within(dialog).getByRole("list", { name: "Способы контура" })).getAllByRole("listitem");
+    expect(methods.map((item) => item.querySelector("b")?.textContent)).toEqual([
+      "Готовый.",
+      "Щелчок внутри.",
+      "Сборка.",
+      "Блок по бровке.",
+    ]);
+    expect(within(dialog).getByRole("heading", { name: "Два контура и площади" })).toBeTruthy();
+    expect(dialog.textContent).toContain("Замыкающий отрезок");
+    expect(dialog.textContent).toContain("свободная поверхность");
+    // Старого построения «полосой между линиями» в справке больше нет.
+    expect(dialog.textContent).not.toContain("полосой между");
+  });
+});

@@ -112,6 +112,9 @@ class ContourDraft:
     closings: list[tuple[XY, XY]] = field(default_factory=list)
     issues: list[RingIssue] = field(default_factory=list)
     warnings: list[CadWarning] = field(default_factory=list)
+    # Блок по бровке: участок бровки, выбранный инженером. Свободная
+    # поверхность — только вдоль него, а не вдоль любых бровок у тыла.
+    crest_line: list[XY] | None = None
 
     @property
     def ok(self) -> bool:
@@ -722,7 +725,9 @@ def crest_block(
     items.append(ContourItem(kind="segment", points=[sub[-1], back_world[-1]], label="Фланг"))
     items.append(ContourItem(kind="polyline", points=list(reversed(back_world)), label="Тыл"))
     items.append(ContourItem(kind="segment", points=[back_world[0], sub[0]], label="Фланг"))
-    return assemble(items, lines, tolerance_m)
+    draft = assemble(items, lines, tolerance_m)
+    draft.crest_line = sub
+    return draft
 
 
 def _crest_parts(chain: StitchedLine, m_start: float, m_end: float) -> list[ContourItem]:

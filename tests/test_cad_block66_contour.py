@@ -108,3 +108,77 @@ def test_crest_29_points_with_fragment_6_points_is_rejected_as_self_intersecting
     assert not draft.ok
     assert [issue.code for issue in draft.issues] == ["self_intersection"]
     assert draft.issues[0].point is not None
+
+
+# --- два контура, свободная поверхность, отметки уступа -------------------
+
+
+def _crests(entities):
+    from design.spatial.cad.stitch import stitch_lines
+
+    tops = stitch_lines([item for item in entities.values() if item.role == "crest_top"])[0]
+    bottoms = stitch_lines([item for item in entities.values() if item.role == "crest_bottom"])[0]
+    return tops, bottoms
+
+
+def test_east_side_of_block_66_is_the_free_face(entities):
+    from design.spatial.cad.two_contours import two_contours
+
+    ring = ready_contour(entities["769"]).ring
+    tops, bottoms = _crests(entities)
+
+    result = two_contours(ring, tops, bottoms)
+
+    free = {edge for edge, _ in result.free_faces}
+    fixed = [index for index in range(len(ring)) if index not in free]
+    assert (len(free), len(fixed)) == (27, 6)
+    fixed_length = sum(math.dist(ring[index], ring[(index + 1) % len(ring)]) for index in fixed)
+    assert fixed_length == pytest.approx(186.45, abs=0.05)
+    # Тыл и фланги — на западе: все несвободные рёбра западнее свободных.
+    east = min(min(ring[edge][0], ring[(edge + 1) % len(ring)][0]) for edge in free)
+    west = min(ring[index][0] for index in fixed)
+    assert west < east
+
+
+def test_block_66_flanks_reach_the_toe_and_the_bench_is_10_metres(entities):
+    from design.spatial.cad.two_contours import bench_levels, two_contours
+
+    ring = ready_contour(entities["769"]).ring
+    tops, bottoms = _crests(entities)
+
+    result = two_contours(ring, tops, bottoms)
+
+    assert sorted(flank.length_m for flank in result.flanks) == [
+        pytest.approx(5.29, abs=0.2),
+        pytest.approx(16.92, abs=0.2),
+    ]
+    assert result.warnings == []
+    assert result.area_bottom_m2 > result.area_top_m2
+    assert result.area_top_m2 == pytest.approx(CONTOUR_AREA_M2, abs=0.05)
+
+    levels = bench_levels(ring, result.free_faces, tops, bottoms, floor_z=410.0)
+    assert levels.crest_z_m == pytest.approx(420.0, abs=0.7)
+    assert levels.toe_z_m == 410.0
+    assert levels.warnings == []
+
+
+def test_block_66_by_crest_has_both_contours(entities):
+    from design.spatial.cad.contour import crest_block
+    from design.spatial.cad.two_contours import two_contours
+
+    tops, bottoms = _crests(entities)
+    main = next(line for line in tops if {"6C3", "6BE", "72E"} <= set(line.handles))
+    xy = [(x, y) for x, y, _ in main.points]
+    start, end = cut_polyline(xy, 0, 30)[-1], cut_polyline(xy, 0, 90)[-1]
+
+    draft = crest_block(tops, bottoms, entities, start, end, 20.0)
+    # Свободная поверхность блока по бровке — только вдоль выбранного участка:
+    # тыл в 20 м проходит у чужих фрагментов бровки на западе блока 66.
+    from design.spatial.cad.stitch import StitchedLine
+
+    chosen = StitchedLine(points=[(x, y, 0.0) for x, y in draft.crest_line])
+    result = two_contours(draft.ring, tops, bottoms, face_lines=[chosen])
+
+    assert draft.ok, draft.issues
+    assert len(result.flanks) == 2 and all(flank.end is not None for flank in result.flanks)
+    assert result.area_bottom_m2 > result.area_top_m2

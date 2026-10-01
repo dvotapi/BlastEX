@@ -26,11 +26,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import shapely
+import shapely.ops
 from shapely.geometry import LineString, Point
 
 from design.spatial.cad.model import CadEntity, CadWarning, ru_number
 from design.spatial.cad.reader import CLOSURE_TOLERANCE_M
 from design.spatial.cad.rings import XY, LocalFrame, RingIssue, check_ring, normalize_ring
+from design.spatial.cad.stitch import StitchedLine
 
 DEFAULT_TOLERANCE_M = CLOSURE_TOLERANCE_M
 DEFAULT_BRIDGE_M = 5.0
@@ -597,4 +599,144 @@ def _boundary_items(
                 )
                 continue
         items.append(ContourItem(kind="polyline", points=world))
+    return items
+
+
+# --- блок по бровке -------------------------------------------------------
+
+# Изломы бровки сглаживаются (§2 «Блок по бровке»): дрожь съёмки до 5 см
+# убирается упрощением, углы — круглыми стыками смещения. Упрощение грубее
+# сдвигает тыл внутрь: 0,5 м на дуге R = 100 м дали бы +2 % площади, а
+# упрощение самого тыла на 0,2 м — ещё +0,6 %.
+CREST_SMOOTHING_M = 0.05
+BACK_SIMPLIFY_M = 0.05
+MIN_CREST_SPAN_M = 1.0
+
+
+def _side_of(line: LineString, probe: Point) -> float:
+    """Знак стороны точки относительно линии: > 0 — слева по ходу, < 0 — справа."""
+
+    m = line.project(probe)
+    a = line.interpolate(max(m - 0.5, 0.0))
+    b = line.interpolate(min(m + 0.5, line.length))
+    foot = line.interpolate(m)
+    return (b.x - a.x) * (probe.y - foot.y) - (b.y - a.y) * (probe.x - foot.x)
+
+
+def crest_block(
+    top: Sequence[StitchedLine],
+    bottom: Sequence[StitchedLine],
+    lines: Mapping[str, CadEntity],
+    start: XY,
+    end: XY,
+    width_m: float,
+    side: str = "auto",
+    tolerance_m: float = DEFAULT_TOLERANCE_M,
+) -> ContourDraft:
+    """Блок по верхней бровке: начало, конец и ширина (§2, способ 4).
+
+    Тыл — смещение участка бровки на ширину в сторону от нижней бровки,
+    фланги — по нормали к бровке в концах участка. Результат — обычная
+    сборка: участки бровки, два отрезка-фланга и построенный тыл.
+    """
+
+    if width_m <= 0:
+        raise ContourInputError("Ширина блока должна быть больше нуля.")
+    if not top:
+        return ContourDraft(
+            ring=None,
+            issues=[RingIssue("not_on_crest", "Верхней бровки нет — блок по бровке строится только по ней.")],
+        )
+
+    best: tuple[float, StitchedLine, float, float] | None = None
+    for candidate in top:
+        xy = [(point[0], point[1]) for point in candidate.points]
+        m_start, _, d_start = project_on_polyline(xy, start)
+        m_end, _, d_end = project_on_polyline(xy, end)
+        worst = max(d_start, d_end)
+        if best is None or worst < best[0]:
+            best = (worst, candidate, m_start, m_end)
+    assert best is not None
+    worst, chain, m_start, m_end = best
+    if worst > tolerance_m:
+        return ContourDraft(
+            ring=None,
+            issues=[
+                RingIssue(
+                    "not_on_crest",
+                    "Начало и конец блока должны лежать на одной верхней бровке "
+                    f"(не дальше {ru_number(tolerance_m, 2)} м от неё).",
+                    start,
+                )
+            ],
+        )
+    if abs(m_end - m_start) < MIN_CREST_SPAN_M:
+        return ContourDraft(
+            ring=None,
+            issues=[RingIssue("not_on_crest", "Начало и конец блока на бровке слишком близко.", start)],
+        )
+
+    chain_xy = [(point[0], point[1]) for point in chain.points]
+    frame = LocalFrame.of(chain_xy)
+    sub = cut_polyline(chain_xy, m_start, m_end)
+    if m_start > m_end:
+        sub.reverse()
+    sub_line = LineString(frame.to_local(sub))
+
+    if side == "auto":
+        bottoms = [LineString(frame.to_local([(p[0], p[1]) for p in line.points])) for line in bottom]
+        if not bottoms:
+            return ContourDraft(
+                ring=None,
+                issues=[
+                    RingIssue(
+                        "side_required",
+                        "Нижней бровки нет — укажите сторону блока: слева или справа по ходу от начала к концу.",
+                        start,
+                    )
+                ],
+            )
+        union = shapely.unary_union(bottoms)
+        votes = 0.0
+        for fraction in (0.25, 0.5, 0.75):
+            probe = sub_line.interpolate(fraction, normalized=True)
+            nearest = shapely.ops.nearest_points(probe, union)[1]
+            votes += math.copysign(1.0, _side_of(sub_line, nearest))
+        # Блок — по другую сторону бровки от нижней бровки (там откос).
+        side = "right" if votes > 0 else "left"
+    if side not in ("left", "right"):
+        raise ContourInputError(f"Сторона блока «{side}» неизвестна.")
+
+    smooth = sub_line.simplify(CREST_SMOOTHING_M)
+    back_geometry = smooth.offset_curve(width_m if side == "left" else -width_m, quad_segs=4, join_style="round")
+    if back_geometry.geom_type != "LineString":
+        merged = shapely.line_merge(back_geometry)
+        back_geometry = max(_segments(merged), key=lambda item: item.length)
+    back = list(back_geometry.simplify(BACK_SIMPLIFY_M).coords)
+    smooth_start = smooth.coords[0]
+    if math.dist(back[-1], smooth_start) < math.dist(back[0], smooth_start):
+        back.reverse()
+    back_world = frame.to_world(back)
+
+    items = _crest_parts(chain, m_start, m_end)
+    items.append(ContourItem(kind="segment", points=[sub[-1], back_world[-1]], label="Фланг"))
+    items.append(ContourItem(kind="polyline", points=list(reversed(back_world)), label="Тыл"))
+    items.append(ContourItem(kind="segment", points=[back_world[0], sub[0]], label="Фланг"))
+    return assemble(items, lines, tolerance_m)
+
+
+def _crest_parts(chain: StitchedLine, m_start: float, m_end: float) -> list[ContourItem]:
+    """Участок сшитой бровки — участками её фрагментов, от начала к концу блока."""
+
+    low, high = sorted((m_start, m_end))
+    items: list[ContourItem] = []
+    for part in chain.parts:
+        part_low, part_high = part.chain_start_m, part.chain_start_m + part.length_m
+        overlap_low, overlap_high = max(low, part_low), min(high, part_high)
+        if overlap_high - overlap_low <= 1e-6:
+            continue
+        a, b = part.entity_m(overlap_low), part.entity_m(overlap_high)
+        items.append(ContourItem(kind="part", handle=part.handle, start_m=min(a, b), end_m=max(a, b)))
+    if m_start > m_end:
+        items.reverse()
     return items

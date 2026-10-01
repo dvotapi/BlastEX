@@ -202,9 +202,14 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
             // Объект не принял выбор — возвращаем прежний, чтобы паспорт с ним не разошёлся.
             setAreaError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока.");
             setContour((current) => (current.areaBasis === basis ? { ...current, areaBasis: previous } : current));
-            onSourcesChange(
-              latestSources.current.map((item) => (sameObject(item) ? { ...item, area_basis: previous } : item)),
-            );
+            // Откатываются только файлы, где ещё стоит упавший выбор: более
+            // поздний выбор (уже в очереди или сохранённый) не затирается.
+            const stale = (item: CadSource) => sameObject(item) && item.area_basis === basis;
+            if (latestSources.current.some(stale)) {
+              onSourcesChange(
+                latestSources.current.map((item) => (stale(item) ? { ...item, area_basis: previous } : item)),
+              );
+            }
           },
         )
         .finally(() => setAreaSaving((count) => count - 1));

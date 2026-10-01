@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import type { CadSource } from "../../../types/cad";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CadImportDialog, type CadImportDialogProps } from "./CadImportDialog";
 import { CAD_META, cadSource, contourResult } from "./testing/fixtures";
@@ -323,6 +325,35 @@ describe("CadImportDialog", () => {
     await waitFor(() => expect((within(group).getByRole("radio", { name: /S ср/ }) as HTMLInputElement).checked).toBe(true));
     const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
     await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
+  it("неудачное раннее сохранение площади не затирает более поздний выбор", async () => {
+    // S ср → S верх → S низ: сохранение «S верх» падает, «S низ» проходит.
+    let failTop: (error: Error) => void = () => {};
+    api.cad.saveAreaBasis.mockImplementation((_id: string, basis: string) =>
+      basis === "top"
+        ? new Promise((_, reject) => (failTop = reject))
+        : Promise.resolve({ area_basis: basis, saved: true }),
+    );
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([cadSource(), cadSource({ id: "src-2", file_name: "ситуация.dxf" })]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S низ/ }));
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(1));
+    failTop(new Error("Нет связи с сервером."));
+
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((within(group).getByRole("radio", { name: /S низ/ }) as HTMLInputElement).checked).toBe(true));
+    expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["bottom", "bottom"]);
   });
 
   it("самопересечение видно у кнопки, и кнопка неактивна", async () => {

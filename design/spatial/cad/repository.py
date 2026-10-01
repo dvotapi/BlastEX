@@ -74,7 +74,14 @@ class CadRepository(Protocol):
 
     def get_source(self, organization_id: str, source_id: str, *, with_file: bool = False) -> CadSourceRecord | None: ...
 
-    def list_entities(self, organization_id: str, source_id: str) -> list[CadEntity]: ...
+    def list_entities(
+        self,
+        organization_id: str,
+        source_id: str,
+        *,
+        roles: set[str] | None = None,
+        handles: set[str] | None = None,
+    ) -> list[CadEntity]: ...
 
     def replace_entities(
         self,
@@ -283,13 +290,27 @@ class PostgresCadRepository:
                 revision=row.revision,
             )
 
-    def list_entities(self, organization_id: str, source_id: str) -> list[CadEntity]:
+    def list_entities(
+        self,
+        organization_id: str,
+        source_id: str,
+        *,
+        roles: set[str] | None = None,
+        handles: set[str] | None = None,
+    ) -> list[CadEntity]:
+        # Контур читает только линии нужных ролей: на чертеже карьера объектов
+        # десятки тысяч, а предпросмотр контура зовётся на каждое действие.
+        if roles is not None and not roles or handles is not None and not handles:
+            return []
+        query = select(CadEntityRow).where(
+            CadEntityRow.organization_id == organization_id, CadEntityRow.source_id == source_id
+        )
+        if roles is not None:
+            query = query.where(CadEntityRow.role.in_(sorted(roles)))
+        if handles is not None:
+            query = query.where(CadEntityRow.handle.in_(sorted(handles)))
         with self.session_factory() as session:
-            rows = session.execute(
-                select(CadEntityRow)
-                .where(CadEntityRow.organization_id == organization_id, CadEntityRow.source_id == source_id)
-                .order_by(CadEntityRow.seq)
-            ).scalars()
+            rows = session.execute(query.order_by(CadEntityRow.seq)).scalars()
             return [_entity(row) for row in rows]
 
     def replace_entities(
@@ -441,8 +462,21 @@ class InMemoryCadRepository:
             return None
         return copy.deepcopy(record if with_file else replace(record, file_data=None))
 
-    def list_entities(self, organization_id: str, source_id: str) -> list[CadEntity]:
-        return copy.deepcopy(self._entities.get((organization_id, source_id), []))
+    def list_entities(
+        self,
+        organization_id: str,
+        source_id: str,
+        *,
+        roles: set[str] | None = None,
+        handles: set[str] | None = None,
+    ) -> list[CadEntity]:
+        return copy.deepcopy(
+            [
+                item
+                for item in self._entities.get((organization_id, source_id), [])
+                if (roles is None or item.role in roles) and (handles is None or item.handle in handles)
+            ]
+        )
 
     def replace_entities(
         self,

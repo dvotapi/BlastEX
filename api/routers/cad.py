@@ -11,6 +11,10 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
 from api.schemas.cad import (
+    CadContourLinesRequest,
+    CadContourLinesResponse,
+    CadContourRequest,
+    CadContourResponse,
     CadImportResponse,
     CadMetaResponse,
     CadParamsSchema,
@@ -19,7 +23,7 @@ from api.schemas.cad import (
     CadSourceSchema,
 )
 from api.security import require_internal_access
-from api.services import cad_service
+from api.services import cad_contour_service, cad_service
 from api.services.cad_service import CadImportError, get_cad_repository
 from api.services.economics_service import get_economics_repository
 from api.services.legacy_references import current_reference_snapshot
@@ -148,5 +152,37 @@ def put_roles(
     organization_id, actor = _identity(session)
     try:
         return cad_service.save_roles(repository, organization_id, actor, source_id, request)
+    except (CadImportError, CadSourceNotFound) as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/sources/{source_id}/contour/lines", response_model=CadContourLinesResponse)
+def post_contour_lines(
+    source_id: str,
+    request: CadContourLinesRequest,
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+) -> CadContourLinesResponse:
+    """Линии для контура: места разреза в пересечениях и сшитые бровки."""
+
+    organization_id, _ = _identity(session)
+    try:
+        return cad_contour_service.lines(repository, organization_id, source_id, request)
+    except (CadImportError, CadSourceNotFound) as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/sources/{source_id}/contour", response_model=CadContourResponse)
+def post_contour(
+    source_id: str,
+    request: CadContourRequest,
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+) -> CadContourResponse:
+    """Предпросмотр контура блока: ошибки контура — в ответе, а не HTTP-кодом."""
+
+    organization_id, _ = _identity(session)
+    try:
+        return cad_contour_service.contour(repository, organization_id, source_id, request)
     except (CadImportError, CadSourceNotFound) as exc:
         raise _http(exc) from exc

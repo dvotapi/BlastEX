@@ -100,7 +100,7 @@ describe("щелчки сборки", () => {
   });
 
   it("«Участок» у узла берёт кусок со стороны щелчка, а не за узлом", () => {
-    const long = cadEntity("A", "Проект", { points: [[0, 0, 0], [100, 0, 0]] });
+    const long = cadEntity("A", "Проект", { role: "design_line", points: [[0, 0, 0], [100, 0, 0]] });
     const context = { entities: new Map([["A", long]]), lines: { ...LINES, splits: { A: [50] } } };
     const pick = { world: [48.5, 0.3] as [number, number], snap: { point: [50, 0] as [number, number], kind: "intersection" as const, handle: "A", m: 50 }, handle: null };
 
@@ -112,6 +112,13 @@ describe("щелчки сборки", () => {
   it("«Участок» не режет по устаревшим разрезам: пока линии загружаются, щелчок не добавляет участок", () => {
     const next = applyPick(assembly, { world: [120, 203], snap: null, handle: "6C3" }, { entities: ENTITIES, lines: null });
     expect(next.items).toEqual([]);
+  });
+
+  it("линия роли, снятой во флажках «Линии контура», участком не становится", () => {
+    // 733 — нижняя бровка, её роли нет среди ролей по умолчанию.
+    expect(applyPick(assembly, { world: [110, 181], snap: null, handle: "733" }, CTX).items).toEqual([]);
+    const points = applyPick({ ...assembly, tool: "points" }, { world: [110, 181], snap: null, handle: "733" }, CTX);
+    expect(points.pending).toBeNull();
   });
 
   it("«По точкам» — два щелчка на одной линии", () => {
@@ -131,7 +138,8 @@ describe("щелчки сборки", () => {
   });
 
   it("отмена, разворот и удаление участка", () => {
-    const two = applyPick(applyPick(assembly, { world: [120, 203], snap: null, handle: "6C3" }, CTX), { world: [110, 181], snap: null, handle: "733" }, CTX);
+    const withToe = { ...assembly, roles: [...assembly.roles, "crest_bottom" as const] };
+    const two = applyPick(applyPick(withToe, { world: [120, 203], snap: null, handle: "6C3" }, CTX), { world: [110, 181], snap: null, handle: "733" }, CTX);
     expect(two.items.map((item) => item.handle)).toEqual(["6C3", "733"]);
     expect(flipItem(two, 0).items[0].flip).toBe(true);
     expect(removeItem(two, 0).items.map((item) => item.handle)).toEqual(["733"]);
@@ -142,12 +150,18 @@ describe("щелчки сборки", () => {
 describe("блок по бровке и прочие способы", () => {
   it("две точки ложатся на сшитую верхнюю бровку", () => {
     const crest = state({ method: "crest" });
-    const first = applyPick(crest, { world: [110, 210], snap: null, handle: null }, CTX);
+    const near = (point: [number, number]) => ({ point, kind: "nearest" as const, handle: "6C3" });
+    const first = applyPick(crest, { world: [110, 210], snap: near([111.35, 201.9]), handle: null }, CTX);
     expect(first.crestStart?.[0]).toBeCloseTo(111.35, 1);
-    const second = applyPick(first, { world: [125, 200], snap: null, handle: null }, CTX);
+    const second = applyPick(first, { world: [125, 200], snap: near([124.6, 204.1]), handle: null }, CTX);
     expect(second.crestEnd).not.toBeNull();
-    const third = applyPick(second, { world: [101, 200], snap: null, handle: null }, CTX);
+    const third = applyPick(second, { world: [101, 200], snap: near([101, 200.2]), handle: null }, CTX);
     expect(third.crestEnd).toBeNull();
+  });
+
+  it("щелчок далеко от бровки (вне привязки) точку не ставит", () => {
+    const crest = state({ method: "crest" });
+    expect(applyPick(crest, { world: [500, 900], snap: null, handle: null }, CTX)).toEqual(crest);
   });
 
   it("щелчок внутри запоминает точку", () => {

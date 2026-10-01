@@ -172,10 +172,13 @@ export function applyPick(state: ContourState, pick: Pick, context: PickContext)
     case "click":
       return { ...state, point: pick.world };
     case "crest": {
+      // Только щелчок у самой бровки (в пределах привязки): далёкий щелчок,
+      // спроецированный на «ближайшую» бровку, мог бы поставить блок не там.
+      if (!pick.snap) return state;
       const crests = context.lines?.crests_top ?? [];
       let best: { point: XY; distance: number } | null = null;
       for (const crest of crests) {
-        const hit = projectOnPolyline(crest.points.map(([x, y]) => [x, y] as XY), pick.world);
+        const hit = projectOnPolyline(crest.points.map(([x, y]) => [x, y] as XY), pick.snap.point);
         if (!best || hit.distance < best.distance) best = hit;
       }
       if (!best) return state;
@@ -187,7 +190,8 @@ export function applyPick(state: ContourState, pick: Pick, context: PickContext)
         if (!state.pending) return { ...state, pending: { point: at } };
         return withItem(state, { kind: "segment", handle: "", start_m: 0, end_m: 0, points: [state.pending.point, at], flip: false, label: "" });
       }
-      if (!line) return state;
+      // Участком становится только линия отмеченных ролей «Линии контура».
+      if (!line || !state.roles.includes(line.role)) return state;
       if (state.tool === "piece") {
         // Разрезы ещё грузятся (сменились роли): по старым кусок вышел бы не тем.
         if (!context.lines) return state;

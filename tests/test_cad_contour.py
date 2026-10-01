@@ -1,6 +1,8 @@
 """Способы контура блока: готовый, сборка, щелчок внутри (TASK-013, PR 2)."""
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from design.spatial.cad import contour as contour_module
@@ -264,7 +266,9 @@ def test_bridges_still_work_with_thousands_of_dangling_ends_far_away():
         line("T", [(41, 21), (0, 21)]),
         line("L", [(0, 20), (0, 1)]),
     ]
-    noise = [line(f"N{k}", [(1000 + (k % 50) * 3, (k // 50) * 3), (1000.5 + (k % 50) * 3, (k // 50) * 3)]) for k in range(2500)]
+    # Отрезки 2 м — длиннее допуска: их концы не сводятся друг с другом и
+    # остаются висячими (5000 концов).
+    noise = [line(f"N{k}", [(1000 + (k % 50) * 4, (k // 50) * 4), (1002 + (k % 50) * 4, (k // 50) * 4)]) for k in range(2500)]
 
     draft = click_contour([*block, *noise], (20, 10), 0.5, 5.0)
 
@@ -274,3 +278,47 @@ def test_bridges_still_work_with_thousands_of_dangling_ends_far_away():
 
 def test_split_lines_without_lines_is_empty():
     assert split_lines([]) == ({}, [])
+
+
+
+def _rotated(points, degrees, origin=(0.0, 0.0)):
+    angle = math.radians(degrees)
+    c, s_ = math.cos(angle), math.sin(angle)
+    return [(origin[0] + x * c - y * s_, origin[1] + x * s_ + y * c) for x, y in points]
+
+
+@pytest.mark.parametrize("degrees", [7.37, 31.7, 58.0])
+@pytest.mark.parametrize("short", [0.05, 0.1, 0.3, 0.45])
+def test_undershooting_end_joins_a_slanted_line(degrees, short):
+    lines = [
+        line("B", _rotated([(-5, 0), (45, 0)], degrees)),
+        line("R", _rotated([(40, -5), (40, 20)], degrees)),
+        line("T", _rotated([(40, 20), (0, 20)], degrees)),
+        line("L", _rotated([(0, 20), (0, short)], degrees)),
+    ]
+    inside = _rotated([(20, 10)], degrees)[0]
+
+    draft = click_contour(lines, inside, 0.5, 0.0)
+
+    assert draft.ok, draft.issues
+    assert ring_area(draft.ring) == pytest.approx(800.0, abs=0.05)
+
+
+@pytest.mark.parametrize("overlap", [0.41, 0.45, 0.49])
+def test_slanted_overlap_gives_no_zero_length_bridges(overlap):
+    o = overlap
+    lines = [
+        line("B", _rotated([(-o, 0), (40 + o, 0)], 31.7)),
+        line("R", _rotated([(40, -o), (40, 20 + o)], 31.7)),
+        line("T", _rotated([(40 + o, 20), (-o, 20)], 31.7)),
+        line("L", _rotated([(0, 20 + o), (0, -o)], 31.7)),
+    ]
+    by_handle = {item.handle: item for item in lines}
+
+    draft = click_contour(lines, _rotated([(20, 10)], 31.7)[0], 0.5, 5.0)
+
+    assert draft.ok, draft.issues
+    assert ring_area(draft.ring) == pytest.approx(800.0, abs=0.05)
+    assert all(math.dist(a, b) >= 0.05 for a, b in draft.closings)
+    again = assemble(draft.items, by_handle, 0.5)
+    assert again.ok, again.issues

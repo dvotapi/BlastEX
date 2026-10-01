@@ -445,6 +445,31 @@ def _move_end(segment: LineString, index: int, point: XY) -> LineString:
     return LineString(coords)
 
 
+def _insert_foot(segment: LineString, point: XY) -> tuple[LineString, XY]:
+    """Линия с вершиной в основании перпендикуляра из `point` и само основание.
+
+    Основание ближе 1 мм к вершине линии — это сама вершина: иначе рядом с
+    узлом появилось бы ребро в доли миллиметра.
+    """
+
+    coords = [(c[0], c[1]) for c in segment.coords]
+    best: tuple[float, int, XY] | None = None
+    for index, (a, b) in enumerate(zip(coords, coords[1:])):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length2 = dx * dx + dy * dy
+        t = 0.0 if not length2 else max(0.0, min(1.0, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / length2))
+        foot = (a[0] + dx * t, a[1] + dy * t)
+        distance = math.dist(foot, point)
+        if best is None or distance < best[0]:
+            best = (distance, index, foot)
+    assert best is not None
+    _, index, foot = best
+    for vertex in (coords[index], coords[index + 1]):
+        if math.dist(vertex, foot) <= 1e-3:
+            return segment, vertex
+    return LineString([*coords[: index + 1], foot, *coords[index + 1 :]]), foot
+
+
 def _close_network(
     segments: list[LineString], tolerance_m: float, bridge_m: float
 ) -> tuple[list[LineString], list[tuple[XY, XY]]]:
@@ -475,27 +500,34 @@ def _close_network(
             continue
         number, index = dangles[point]
         probe = Point(point)
-        best: tuple[float, XY] | None = None
+        best: tuple[float, int] | None = None
         for candidate in tree.query(probe, predicate="dwithin", distance=tolerance_m).tolist():
             if candidate == number:
                 continue
-            segment = segments[candidate]
-            distance = segment.distance(probe)
+            distance = segments[candidate].distance(probe)
             if best is None or distance < best[0]:
-                foot = segment.interpolate(segment.project(probe))
-                best = (distance, (foot.x, foot.y))
-        if best is not None and best[0] > _ON_LINE_M:
-            segments[number] = _move_end(segments[number], index, best[1])
+                best = (distance, candidate)
+        if best is None or best[0] <= _ON_LINE_M:
+            continue
+        # Основание перпендикуляра вставляется вершиной в саму линию: точка,
+        # посчитанная на наклонном отрезке, лежит на нём лишь приблизительно, и
+        # без общей вершины узел не построился бы (стык «Т» не замкнулся бы).
+        target, foot = _insert_foot(segments[best[1]], point)
+        segments[best[1]] = target
+        segments[number] = _move_end(segments[number], index, foot)
 
     noded = _segments(shapely.unary_union(segments))
     remaining = list(_dangles(noded))
     bridges: list[tuple[XY, XY]] = []
     taken: set[int] = set()
-    for _, a, b in _pairs_within(remaining, bridge_m):
+    for distance, a, b in _pairs_within(remaining, bridge_m):
         if a in taken or b in taken:
             continue
         taken.update((a, b))
-        bridges.append((remaining[a], remaining[b]))
+        # Мост короче ребра контура — не мост, а остаток свода: он дал бы
+        # участок нулевой длины при «Править как сборку».
+        if distance >= MIN_EDGE_M:
+            bridges.append((remaining[a], remaining[b]))
     return noded, bridges
 
 

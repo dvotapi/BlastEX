@@ -30,9 +30,6 @@ from api.schemas.design import (
     PatternGenerateResponse,
     SurfaceImportRequest,
     SurfaceImportResponse,
-    BenchDxfImportRequest,
-    BenchDxfImportResponse,
-    BenchFromPolylinesRequest,
     SurfaceSampleRequest,
     SurfaceSampleResponse,
     TieGenerateRequest,
@@ -128,16 +125,6 @@ def post_hole_insert(request: HoleInsertRequest) -> HoleInsertResponse:
 @router.post("/surfaces/import", response_model=SurfaceImportResponse)
 def post_surface_import(request: SurfaceImportRequest) -> SurfaceImportResponse:
     return design_service.import_surface(request)
-
-
-@router.post("/contour/import-dxf", response_model=BenchDxfImportResponse)
-def post_bench_dxf_import(request: BenchDxfImportRequest) -> BenchDxfImportResponse:
-    return design_service.import_bench_dxf(request)
-
-
-@router.post("/contour/from-polylines", response_model=BenchDxfImportResponse)
-def post_bench_from_polylines(request: BenchFromPolylinesRequest) -> BenchDxfImportResponse:
-    return design_service.bench_from_polylines(request)
 
 
 @router.post("/surfaces/sample", response_model=SurfaceSampleResponse)

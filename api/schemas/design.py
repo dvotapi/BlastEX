@@ -398,33 +398,6 @@ class SurfaceImportResponse(BaseModel):
     stats: SurfaceStatsSchema
 
 
-class BenchDxfImportRequest(BaseModel):
-    content: str
-    filename: str = ""
-    coordinate_system: CoordinateSystemSchema = Field(default_factory=CoordinateSystemSchema)
-
-
-class BenchDxfImportResponse(BaseModel):
-    contour: BlockContourSchema
-    surfaces: SurfaceSetSchema
-    crest_layer: str
-    toe_layer: str
-    crest_z_m: float
-    toe_z_m: float
-    vertex_count: int
-
-
-class BenchFromPolylinesRequest(BaseModel):
-    """Бровки, выбранные инженером вручную в диалоге чертежа."""
-
-    crest: list[Point3Schema] = Field(default_factory=list)
-    toe: list[Point3Schema] = Field(default_factory=list)
-    crest_layer: str = ""
-    toe_layer: str = ""
-    filename: str = ""
-    coordinate_system: CoordinateSystemSchema = Field(default_factory=CoordinateSystemSchema)
-
-
 class SurfaceSampleRequest(BaseModel):
     surface: SurfaceModelSchema
     points: list[list[float]] = Field(default_factory=list)

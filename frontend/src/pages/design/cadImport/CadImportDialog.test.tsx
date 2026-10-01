@@ -5,7 +5,7 @@ import { CadImportDialog, type CadImportDialogProps } from "./CadImportDialog";
 import { CAD_META, cadSource, contourResult } from "./testing/fixtures";
 
 const api = vi.hoisted(() => ({
-  cad: { meta: vi.fn(), saveRoles: vi.fn(), reparse: vi.fn(), contourLines: vi.fn(), contour: vi.fn() },
+  cad: { meta: vi.fn(), saveRoles: vi.fn(), reparse: vi.fn(), contourLines: vi.fn(), contour: vi.fn(), saveAreaBasis: vi.fn() },
 }));
 vi.mock("../../../api/endpoints", () => ({ api }));
 
@@ -27,6 +27,7 @@ beforeEach(() => {
   api.cad.reparse.mockReset();
   api.cad.contourLines.mockReset().mockResolvedValue({ splits: {}, intersections: [], crests_top: [], crests_bottom: [], gaps: [] });
   api.cad.contour.mockReset().mockResolvedValue(contourResult());
+  api.cad.saveAreaBasis.mockReset().mockResolvedValue({ area_basis: "top", saved: true });
 });
 
 function renderDialog(extra: Partial<CadImportDialogProps> = {}) {
@@ -208,8 +209,26 @@ describe("CadImportDialog", () => {
       area_top_m2: 2789.93,
       area_bottom_m2: 4120.92,
       map_area_m2: null,
+      area_basis: "mean",
+      area_m2: 3455.42,
       edited: false,
     });
+  });
+
+  it("выбор площади блока сохраняется на объекте и уходит в паспорт", async () => {
+    const props = renderDialog();
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledWith("src-1", "top"));
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(choice.cad).toMatchObject({ area_basis: "top", area_m2: 2789.93 });
   });
 
   it("самопересечение видно у кнопки, и кнопка неактивна", async () => {

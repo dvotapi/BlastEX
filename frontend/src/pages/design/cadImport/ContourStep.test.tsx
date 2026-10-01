@@ -161,3 +161,17 @@ it("пока предпросмотр считается, сведения уч�
   });
   expect(screen.queryByText("замыкающий 75,30 м")).toBeNull();
 });
+
+
+describe("ContourStep: площадь блока по соглашению маркшейдера", () => {
+  it("по умолчанию площадь блока — S ср, её можно сменить", () => {
+    const props = renderStep();
+
+    const group = screen.getByRole("radiogroup", { name: "Площадь блока" });
+    expect((within(group).getByRole("radio", { name: /S ср/ }) as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+
+    expect(lastState(props).areaBasis).toBe("top");
+  });
+});

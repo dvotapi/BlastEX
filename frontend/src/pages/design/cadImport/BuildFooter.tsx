@@ -12,11 +12,14 @@ export function BuildFooter({
   result,
   pending,
   error,
+  areaLabel = "",
   onCancel,
   onBuild,
 }: {
   result: CadContourResult | null;
   pending: boolean;
+  /** Какая из площадей — площадь блока (соглашение маркшейдера объекта). */
+  areaLabel?: string;
   /** Ошибка запроса предпросмотра (сеть, 422). */
   error: string;
   onCancel: () => void;
@@ -30,6 +33,7 @@ export function BuildFooter({
         <p className="cad-build-summary">
           S верх {area(result.top.area_m2)} · S низ {area(result.bottom?.area_m2)} · S ср {area(result.mean_area_m2)}
           {height !== null && ` · уступ ${ruNumber(height, 1)} м`}
+          {areaLabel && ` · площадь блока — ${areaLabel}`}
         </p>
       ) : (
         <p className="cad-build-summary">{pending ? "Считаю контур…" : "Контур не задан — шаг «Контур»."}</p>

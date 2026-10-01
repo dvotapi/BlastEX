@@ -36,6 +36,11 @@ describe("способ по умолчанию", () => {
     expect(initialContour(SOURCE)).toMatchObject({ method: "ready", handle: "769" });
   });
 
+  it("площадь блока — из соглашения объекта", () => {
+    expect(initialContour(SOURCE).areaBasis).toBe("mean");
+    expect(initialContour(cadSource({ area_basis: "top" })).areaBasis).toBe("top");
+  });
+
   it("без контура блока — сборка", () => {
     const source = cadSource({ entities: SOURCE.entities.filter((entity) => entity.role !== "block_contour") });
     expect(initialContour(source)).toMatchObject({ method: "assembly", handle: "" });

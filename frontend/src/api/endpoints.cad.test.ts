@@ -74,6 +74,17 @@ describe("api.cad: контур блока (PR 2)", () => {
     expect(JSON.parse(init.body as string)).toMatchObject({ method: "ready", handle: "769" });
   });
 
+  it("площадь блока сохраняется на объекте — PUT на источник", async () => {
+    fetchMock.mockImplementation(async () => new Response('{"area_basis":"top","saved":true}', { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    await api.cad.saveAreaBasis("src 1", "top");
+
+    const [path, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+    expect(path).toBe("/api/v1/design/cad/sources/src%201/area-basis");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ area_basis: "top" });
+  });
+
   it("построения «полосой между бровками» в клиенте больше нет", () => {
     expect("benchFromPolylines" in api.design).toBe(false);
     expect("importBenchDxf" in api.design).toBe(false);

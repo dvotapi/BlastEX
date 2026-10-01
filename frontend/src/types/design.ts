@@ -185,6 +185,9 @@ export type CadContourInfo = {
   area_bottom_m2: number | null;
   area_mean_m2: number | null;
   map_area_m2: number | null;
+  /** Какая площадь — площадь блока (top, bottom, mean) и её значение. */
+  area_basis: string;
+  area_m2: number | null;
   built_at: string;
   /** Вершины правили после построения: контур уже не совпадает с чертежом. */
   edited: boolean;

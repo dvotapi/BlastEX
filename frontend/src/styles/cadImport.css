@@ -127,6 +127,9 @@
 .cad-assembly-actions { display:flex; flex-wrap:wrap; gap:4px; }
 .cad-width { display:grid; grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:6px; }
 .cad-width label { display:inline-flex; align-items:center; gap:4px; color:#3b4b43; font-size:var(--fs-label); white-space:nowrap; }
+.cad-area-basis { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; font-size:var(--fs-label); }
+.cad-area-basis > span { color:#6e7c75; }
+.cad-area-basis label { display:inline-flex; align-items:center; gap:4px; cursor:pointer; }
 .cad-areas { display:grid; grid-template-columns:110px minmax(0,1fr); gap:3px 8px; margin:0; padding:8px; border-radius:8px; background:#f7f9f8; }
 .cad-areas dt { color:#6e7c75; font-size:var(--fs-label); align-self:center; }
 .cad-areas dd { margin:0; font-variant-numeric:tabular-nums; align-self:center; }

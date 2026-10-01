@@ -50,7 +50,12 @@ export const CAD_META: CadMeta = {
     { code: "z", label: "по Z" },
     { code: "manual", label: "вручную" },
   ],
-  defaults: { label_radius_m: 3, closure_tolerance_m: 0.5, bench_height_m: 10, max_file_mb: 40, max_files: 10 },
+  defaults: { label_radius_m: 3, closure_tolerance_m: 0.5, bench_height_m: 10, max_file_mb: 40, max_files: 10, area_basis: "mean" },
+  area_bases: [
+    { code: "top", label: "S верх", description: "площадь контура по верхней бровке" },
+    { code: "bottom", label: "S низ", description: "площадь контура по нижней бровке" },
+    { code: "mean", label: "S ср", description: "(S верх + S низ) / 2 — способ горизонтальных сечений" },
+  ],
 };
 
 export function cadSource(extra: Partial<CadSource> = {}): CadSource {
@@ -108,6 +113,7 @@ export function cadSource(extra: Partial<CadSource> = {}): CadSource {
     extent: [90, 170, 140, 215],
     floor_z_m: 410,
     template_saved: true,
+    area_basis: "mean",
     warnings: [
       { code: "units_declared", message: "В файле указаны единицы «миллиметры», но размеры похожи на метры — читаем в метрах.", level: "info" },
     ],

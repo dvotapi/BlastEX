@@ -23,6 +23,8 @@ const CAD: CadContourInfo = {
   area_bottom_m2: 880,
   area_mean_m2: 840,
   map_area_m2: null,
+  area_basis: "mean",
+  area_m2: 840,
   built_at: "2026-10-01T10:00:00Z",
   edited: false,
 };

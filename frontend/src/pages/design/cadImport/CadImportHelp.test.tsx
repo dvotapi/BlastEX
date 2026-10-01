@@ -79,5 +79,8 @@ describe("CadImportHelp: контур блока (PR 2)", () => {
     // Область «Щелчка внутри» дробят лишние линии — справка подсказывает, что делать.
     expect(dialog.textContent).toContain("снимите их роль");
     expect(dialog.textContent).not.toContain("блок 66 вар 2");
+    // Какую площадь маркшейдер называет площадью блока — выбор на объекте.
+    expect(dialog.textContent).toContain("«Площадь блока»");
+    expect(dialog.textContent).toContain("хранится на объекте работ");
   });
 });

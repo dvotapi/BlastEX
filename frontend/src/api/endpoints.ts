@@ -147,6 +147,8 @@ import type {
 } from "../types/blockEconomics";
 import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
 import type {
+  CadAreaBasis,
+  CadAreaBasisResponse,
   CadContourLines,
   CadContourRequest,
   CadContourResult,
@@ -460,6 +462,8 @@ export const api = {
       post<CadContourLines>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/contour/lines`, { roles }),
     contour: (id: string, payload: CadContourRequest) =>
       post<CadContourResult>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/contour`, payload),
+    saveAreaBasis: (id: string, areaBasis: CadAreaBasis) =>
+      put<CadAreaBasisResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/area-basis`, { area_basis: areaBasis }),
   },
   design: {
     pattern: (

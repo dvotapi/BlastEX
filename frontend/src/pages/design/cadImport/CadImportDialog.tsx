@@ -25,7 +25,16 @@ import { CadCanvas, type CanvasTarget } from "./CadCanvas";
 import { CadImportHelp } from "./CadImportHelp";
 import { polylineXY, SnapIndex, subPolyline, type XY } from "./contourGeometry";
 import { ContourOverlay } from "./ContourOverlay";
-import { applyPick, contourRequest, initialContour, parseNumber, toleranceOf, type ContourState, type Pick } from "./contourState";
+import {
+  applyPick,
+  blockArea,
+  contourRequest,
+  initialContour,
+  parseNumber,
+  toleranceOf,
+  type ContourState,
+  type Pick,
+} from "./contourState";
 import { ContourStep } from "./ContourStep";
 import { LayersStep } from "./LayersStep";
 import { useContourPreview } from "./useContourPreview";
@@ -162,6 +171,18 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
     setContour((current) => applyPick(current, target, { entities, lines }));
   }
 
+  /** Смена способа площади блока сохраняется на объекте работ — для следующих файлов. */
+  function changeContour(next: ContourState) {
+    if (active && next.areaBasis !== contour.areaBasis) {
+      const source = active;
+      onSourcesChange(sources.map((item) => (item.id === source.id ? { ...item, area_basis: next.areaBasis } : item)));
+      api.cad
+        .saveAreaBasis(source.id, next.areaBasis)
+        .catch((reason) => setRequestError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока."));
+    }
+    setContour(next);
+  }
+
   function build(result: CadContourResult) {
     if (!active || !result.top) return;
     onBuild({
@@ -179,6 +200,8 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
         area_bottom_m2: result.bottom?.area_m2 ?? null,
         area_mean_m2: result.mean_area_m2,
         map_area_m2: parseNumber(contour.mapArea),
+        area_basis: contour.areaBasis,
+        area_m2: blockArea(result, contour.areaBasis),
         built_at: new Date().toISOString(),
         edited: false,
       },
@@ -412,7 +435,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
                     source={active}
                     meta={meta}
                     state={contour}
-                    onChange={setContour}
+                    onChange={changeContour}
                     result={preview.result}
                     pending={preview.pending}
                     error={linesError}
@@ -425,7 +448,14 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
                 )}
               </div>
             )}
-            <BuildFooter result={preview.result} pending={preview.pending} error={preview.error} onCancel={onCancel} onBuild={build} />
+            <BuildFooter
+              result={preview.result}
+              pending={preview.pending}
+              error={preview.error}
+              areaLabel={meta?.area_bases.find((basis) => basis.code === contour.areaBasis)?.label ?? ""}
+              onCancel={onCancel}
+              onBuild={build}
+            />
           </aside>
         </div>
       )}

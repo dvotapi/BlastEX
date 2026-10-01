@@ -21,6 +21,9 @@ export type CadWarning = { code: string; message: string; level: "info" | "warni
 
 export type CadRoleInfo = { code: CadLayerRoleCode; label: string; applies_to: string[] };
 
+/** Какая площадь — площадь блока: S верх, S низ или S ср (соглашение маркшейдера объекта). */
+export type CadAreaBasis = "top" | "bottom" | "mean";
+
 export type CadMeta = {
   roles: CadRoleInfo[];
   layer_roles: CadRoleInfo[];
@@ -31,7 +34,9 @@ export type CadMeta = {
     bench_height_m: number;
     max_file_mb: number;
     max_files: number;
+    area_basis: CadAreaBasis;
   };
+  area_bases: Array<{ code: CadAreaBasis; label: string; description: string }>;
 };
 
 export type CadParams = {
@@ -93,6 +98,8 @@ export type CadSource = {
   extent: [number, number, number, number] | null;
   floor_z_m: number | null;
   template_saved: boolean;
+  /** Площадь блока по соглашению маркшейдера объекта (по умолчанию S ср). */
+  area_basis: CadAreaBasis;
   warnings: CadWarning[];
   layers: CadLayer[];
   entities: CadEntity[];
@@ -204,3 +211,5 @@ export type CadContourResult = {
   bench: CadBench;
   crest_line: number[][] | null;
 };
+
+export type CadAreaBasisResponse = { area_basis: CadAreaBasis; saved: boolean };

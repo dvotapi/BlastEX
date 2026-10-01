@@ -1,7 +1,17 @@
 // Состояние шага «Контур» (TASK-013, PR 2): выбранный способ, его входные
 // данные и запрос предпросмотра. Только чистые функции — их проверяют тесты
 // без DOM, а `ContourStep` лишь показывает состояние и зовёт их.
-import type { CadContourLines, CadContourMethod, CadContourRequest, CadContourResult, CadCrestSide, CadEntity, CadRoleCode, CadSource } from "../../../types/cad";
+import type {
+  CadAreaBasis,
+  CadContourLines,
+  CadContourMethod,
+  CadContourRequest,
+  CadContourResult,
+  CadCrestSide,
+  CadEntity,
+  CadRoleCode,
+  CadSource,
+} from "../../../types/cad";
 import type { CadContourItem } from "../../../types/design";
 import { pieceAt, polylineXY, projectOnPolyline, type Snap, type XY } from "./contourGeometry";
 
@@ -31,6 +41,8 @@ export type ContourState = {
   side: CadCrestSide;
   /** Площадь с блоковой карты — для сверки S верх, S низ и S ср. */
   mapArea: string;
+  /** Какая площадь — площадь блока (соглашение маркшейдера объекта). */
+  areaBasis: CadAreaBasis;
   selected: number | null;
 };
 
@@ -85,8 +97,17 @@ export function initialContour(source: CadSource): ContourState {
     rows: "5",
     side: "auto",
     mapArea: "",
+    areaBasis: source.area_basis ?? "mean",
     selected: null,
   };
+}
+
+/** Площадь блока выбранным способом: S верх, S низ или S ср. */
+export function blockArea(result: CadContourResult | null, basis: CadAreaBasis): number | null {
+  if (!result?.top) return null;
+  if (basis === "top") return result.top.area_m2;
+  if (basis === "bottom") return result.bottom?.area_m2 ?? null;
+  return result.mean_area_m2;
 }
 
 /** Ширина блока по бровке в метрах: число или «рядов × W» (W — между рядами из паспорта). */

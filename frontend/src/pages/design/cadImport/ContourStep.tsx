@@ -300,6 +300,22 @@ export function ContourStep(props: ContourStepProps) {
           />
         </dd>
       </dl>
+      <div className="cad-area-basis" role="radiogroup" aria-label="Площадь блока">
+        <span>Площадь блока</span>
+        {meta.area_bases.map((basis) => (
+          <label key={basis.code} title={basis.description}>
+            <input
+              type="radio"
+              name="cad-area-basis"
+              checked={state.areaBasis === basis.code}
+              disabled={disabled}
+              onChange={() => set({ areaBasis: basis.code })}
+            />
+            {basis.label}
+          </label>
+        ))}
+      </div>
+      <p className="cad-hint">Какую площадь маркшейдер называет площадью блока — выбор хранится на объекте работ.</p>
       {reached.length > 0 && (
         <p className="cad-hint">
           Фланги продлены до нижней бровки: {reached.map((flank) => ruNumber(flank.length_m, 1)).join(" и ")} м.

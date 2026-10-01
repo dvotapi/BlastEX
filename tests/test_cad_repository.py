@@ -136,6 +136,18 @@ def test_entities_are_filtered_by_role_and_handle(repository) -> None:
     assert repository.list_entities(ORG_B, "src-1", roles={"block_contour"}) == []
 
 
+def test_area_basis_is_kept_on_the_site(repository) -> None:
+    # Какую площадь маркшейдер объекта называет площадью блока (TASK-013, PR 2).
+    assert repository.get_area_basis(ORG_A, "SITE_ZK") is None
+
+    repository.set_area_basis(ORG_A, "SITE_ZK", "top", USER)
+    repository.set_area_basis(ORG_A, "SITE_ZK", "bottom", USER)
+
+    assert repository.get_area_basis(ORG_A, "SITE_ZK") == "bottom"
+    assert repository.get_area_basis(ORG_A, "SITE_OTHER") is None
+    assert repository.get_area_basis(ORG_B, "SITE_ZK") is None
+
+
 def test_update_roles_changes_only_named_entities(repository) -> None:
     repository.create_sources(ORG_A, [(_record(), _entities())])
 

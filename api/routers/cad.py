@@ -11,6 +11,8 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
 from api.schemas.cad import (
+    CadAreaBasisRequest,
+    CadAreaBasisResponse,
     CadContourLinesRequest,
     CadContourLinesResponse,
     CadContourRequest,
@@ -184,5 +186,21 @@ def post_contour(
     organization_id, _ = _identity(session)
     try:
         return cad_contour_service.contour(repository, organization_id, source_id, request)
+    except (CadImportError, CadSourceNotFound) as exc:
+        raise _http(exc) from exc
+
+
+@router.put("/sources/{source_id}/area-basis", response_model=CadAreaBasisResponse)
+def put_area_basis(
+    source_id: str,
+    request: CadAreaBasisRequest,
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+) -> CadAreaBasisResponse:
+    """Какую площадь маркшейдер объекта называет площадью блока — хранится на объекте."""
+
+    organization_id, actor = _identity(session)
+    try:
+        return cad_service.save_area_basis(repository, organization_id, actor, source_id, request.area_basis)
     except (CadImportError, CadSourceNotFound) as exc:
         raise _http(exc) from exc

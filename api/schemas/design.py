@@ -39,6 +39,9 @@ class CadContourInfoSchema(BaseModel):
     area_bottom_m2: float | None = None
     area_mean_m2: float | None = None
     map_area_m2: float | None = None
+    # Какая площадь — площадь блока (top/bottom/mean) и её значение.
+    area_basis: str = ""
+    area_m2: float | None = None
     built_at: str = ""
     # Вершины контура правили после построения: контур уже не совпадает с чертежом.
     edited: bool = False

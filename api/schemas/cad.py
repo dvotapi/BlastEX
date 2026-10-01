@@ -29,6 +29,15 @@ class CadDefaultsSchema(BaseModel):
     bench_height_m: float
     max_file_mb: int
     max_files: int
+    area_basis: str = "mean"
+
+
+class CadAreaBasisInfoSchema(BaseModel):
+    """Какая площадь считается площадью блока: S верх, S низ или S ср."""
+
+    code: str
+    label: str
+    description: str
 
 
 class CadMetaResponse(BaseModel):
@@ -36,6 +45,7 @@ class CadMetaResponse(BaseModel):
     layer_roles: list[CadRoleSchema]
     origins: list[CadOriginSchema]
     defaults: CadDefaultsSchema
+    area_bases: list[CadAreaBasisInfoSchema] = Field(default_factory=list)
 
 
 class CadParamsSchema(BaseModel):
@@ -97,6 +107,8 @@ class CadSourceSchema(BaseModel):
     extent: list[float] | None = None
     floor_z_m: float | None = None
     template_saved: bool = False
+    # Площадь блока по соглашению маркшейдера объекта (по умолчанию S ср).
+    area_basis: str = "mean"
     warnings: list[CadWarningSchema] = Field(default_factory=list)
     layers: list[CadLayerSchema] = Field(default_factory=list)
     entities: list[CadEntitySchema] = Field(default_factory=list)
@@ -258,3 +270,13 @@ class CadContourResponse(BaseModel):
     bench: CadBenchSchema = Field(default_factory=CadBenchSchema)
     # Блок по бровке: выбранный участок верхней бровки.
     crest_line: list[list[float]] | None = None
+
+
+class CadAreaBasisRequest(BaseModel):
+    area_basis: Literal["top", "bottom", "mean"]
+
+
+class CadAreaBasisResponse(BaseModel):
+    area_basis: str
+    # Сохранено на объекте работ; без объекта выбор действует только в окне.
+    saved: bool

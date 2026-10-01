@@ -9,7 +9,7 @@ from sqlalchemy import inspect
 
 from tests.pg_public import _REPO_ROOT, TEST_DATABASE_URL, public_db, requires_pg  # noqa: F401 — фикстура
 
-CAD_TABLES = {"cad_sources", "cad_entities", "cad_layer_roles"}
+CAD_TABLES = {"cad_sources", "cad_entities", "cad_layer_roles", "cad_site_settings"}
 PREVIOUS_HEAD = "20260910_0008"
 
 
@@ -31,4 +31,16 @@ def test_cad_migration_is_reversible(public_db) -> None:
     assert _cad_tables(public_db) == set()
 
     _alembic("upgrade", "20260930_0009")
+    assert _cad_tables(public_db) == CAD_TABLES - {"cad_site_settings"}
+
+    _alembic("upgrade", "20261001_0010")
+    assert _cad_tables(public_db) == CAD_TABLES
+
+
+@requires_pg
+def test_site_settings_migration_is_reversible(public_db) -> None:
+    _alembic("downgrade", "20260930_0009")
+    assert _cad_tables(public_db) == CAD_TABLES - {"cad_site_settings"}
+
+    _alembic("upgrade", "20261001_0010")
     assert _cad_tables(public_db) == CAD_TABLES

@@ -144,3 +144,56 @@ def test_too_many_contour_lines_still_return_crests_for_the_crest_method(loaded,
     assert body["splits"] == {}
     assert "предел 5" in body["splits_error"]
     assert body["crests_top"] and body["crests_bottom"]
+
+
+
+# --- площадь блока: соглашение маркшейдера объекта -------------------------
+
+
+def test_meta_lists_area_bases():
+    from tests.test_api_cad import _client as client_for
+
+    meta = client_for(InMemoryCadRepository()).get(f"{BASE}/meta").json()
+
+    assert [(item["code"], item["label"]) for item in meta["area_bases"]] == [
+        ("top", "S верх"),
+        ("bottom", "S низ"),
+        ("mean", "S ср"),
+    ]
+    assert meta["defaults"]["area_basis"] == "mean"
+
+
+def test_area_basis_is_remembered_for_the_next_file_of_the_object():
+    repository = InMemoryCadRepository()
+    client = _client(repository)
+    first = _upload(client, ("block66.dxf", FIXTURE.read_bytes()))["sources"][0]
+    assert first["area_basis"] == "mean"
+
+    saved = client.put(f"{BASE}/sources/{first['id']}/area-basis", json={"area_basis": "top"})
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json() == {"area_basis": "top", "saved": True}
+    second = _upload(client, ("block66 копия.dxf", FIXTURE.read_bytes() + b"\n"))["sources"][0]
+    assert second["area_basis"] == "top"
+    assert client.get(f"{BASE}/sources/{first['id']}").json()["area_basis"] == "top"
+
+
+def test_area_basis_of_another_organization_and_bad_values():
+    repository = InMemoryCadRepository()
+    client = _client(repository)
+    source = _upload(client, ("block66.dxf", FIXTURE.read_bytes()))["sources"][0]
+
+    assert client.put(f"{BASE}/sources/{source['id']}/area-basis", json={"area_basis": "max"}).status_code == 422
+    stranger = _client(repository, session=SESSION_B)
+    assert stranger.put(f"{BASE}/sources/{source['id']}/area-basis", json={"area_basis": "top"}).status_code == 404
+    assert client.get(f"{BASE}/sources/{source['id']}").json()["area_basis"] == "mean"
+
+
+def test_area_basis_without_an_object_is_not_saved():
+    repository = InMemoryCadRepository()
+    client = _client(repository, work_object="")
+    source = _upload(client, ("block66.dxf", FIXTURE.read_bytes()))["sources"][0]
+
+    response = client.put(f"{BASE}/sources/{source['id']}/area-basis", json={"area_basis": "top"})
+
+    assert response.json() == {"area_basis": "top", "saved": False}

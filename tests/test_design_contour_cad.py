@@ -21,6 +21,8 @@ CAD = {
     "area_bottom_m2": 880.0,
     "area_mean_m2": 840.0,
     "map_area_m2": 2772.49,
+    "area_basis": "mean",
+    "area_m2": 840.0,
     "built_at": "2026-10-01T10:00:00+00:00",
     "edited": False,
 }

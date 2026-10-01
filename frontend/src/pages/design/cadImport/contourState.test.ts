@@ -23,6 +23,7 @@ const LINES: CadContourLines = {
   crests_top: [{ points: [[100, 200, 420], [130, 205, 421]], parts: [{ handle: "6C3", reversed: false, length_m: 30.4, chain_start_m: 0 }], length_m: 30.4 }],
   crests_bottom: [],
   gaps: [],
+  splits_error: "",
 };
 const CTX = { entities: ENTITIES, lines: LINES };
 

@@ -254,3 +254,23 @@ def test_click_pulls_an_undershooting_end_onto_the_line_without_a_bridge():
     assert draft.ok, draft.issues
     assert ring_area(draft.ring) == pytest.approx(800.0, abs=0.01)
     assert draft.closings == []
+
+
+def test_bridges_still_work_with_thousands_of_dangling_ends_far_away():
+    # Раньше при > 2000 висячих концов мосты молча не строились («увеличьте мост»).
+    block = [
+        line("B", [(0, 0), (40, 0)]),
+        line("R", [(41, 0), (41, 20)]),
+        line("T", [(41, 21), (0, 21)]),
+        line("L", [(0, 20), (0, 1)]),
+    ]
+    noise = [line(f"N{k}", [(1000 + (k % 50) * 3, (k // 50) * 3), (1000.5 + (k % 50) * 3, (k // 50) * 3)]) for k in range(2500)]
+
+    draft = click_contour([*block, *noise], (20, 10), 0.5, 5.0)
+
+    assert draft.ok, draft.issues
+    assert len(draft.closings) == 4
+
+
+def test_split_lines_without_lines_is_empty():
+    assert split_lines([]) == ({}, [])

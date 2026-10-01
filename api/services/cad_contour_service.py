@@ -98,13 +98,15 @@ def lines(
     _require(repository, organization_id, source_id)
     roles = _line_roles(request.roles)
     entities = repository.list_entities(organization_id, source_id, roles=roles | CREST_ROLES)
+    splits_error = ""
     try:
         splits, crossings = split_lines([item for item in _lines(entities) if item.role in roles])
     except ContourInputError as exc:
-        raise CadImportError(str(exc)) from exc
+        splits, crossings, splits_error = {}, [], str(exc)
     tops, bottoms, top_gaps, bottom_gaps = _crests(entities)
     return CadContourLinesResponse(
         splits=splits,
+        splits_error=splits_error,
         intersections=[list(point) for point in crossings],
         crests_top=[_stitched_schema(line) for line in tops],
         crests_bottom=[_stitched_schema(line) for line in bottoms],

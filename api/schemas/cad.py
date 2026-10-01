@@ -170,6 +170,9 @@ class CadContourLinesResponse(BaseModel):
     crests_top: list[CadStitchedLineSchema] = Field(default_factory=list)
     crests_bottom: list[CadStitchedLineSchema] = Field(default_factory=list)
     gaps: list[CadGapSchema] = Field(default_factory=list)
+    # Разрезы не посчитаны (слишком много линий выбранных ролей): щелчок внутри
+    # и сборка без них не работают, а бровки для «блока по бровке» — есть.
+    splits_error: str = ""
 
 
 class CadContourItemSchema(BaseModel):

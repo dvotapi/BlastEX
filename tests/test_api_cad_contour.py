@@ -118,3 +118,29 @@ def test_other_organization_gets_404(loaded):
 
     assert stranger.post(f"{BASE}/sources/{source['id']}/contour/lines", json={}).status_code == 404
     assert _contour(stranger, source["id"], method="ready", handle="769").status_code == 404
+
+
+@pytest.mark.parametrize("roles", [[], ["contour_line"]])
+def test_lines_for_roles_without_lines_still_return_crests(loaded, roles):
+    _, client, source = loaded
+
+    response = client.post(f"{BASE}/sources/{source['id']}/contour/lines", json={"roles": roles})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["splits"] == {}
+    assert response.json()["crests_top"]
+
+
+def test_too_many_contour_lines_still_return_crests_for_the_crest_method(loaded, monkeypatch):
+    from design.spatial.cad import contour as contour_module
+
+    _, client, source = loaded
+    monkeypatch.setattr(contour_module, "MAX_CONTOUR_SEGMENTS", 5)
+
+    response = client.post(f"{BASE}/sources/{source['id']}/contour/lines", json={})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["splits"] == {}
+    assert "предел 5" in body["splits_error"]
+    assert body["crests_top"] and body["crests_bottom"]

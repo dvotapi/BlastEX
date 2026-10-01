@@ -244,6 +244,8 @@ def split_lines(lines: Sequence[CadEntity]) -> tuple[dict[str, list[float]], lis
 
     usable = _usable(lines)
     _check_size(usable)
+    if not usable:
+        return {}, []
     frame = LocalFrame.of(point for item in usable for point in line_xy(item))
     geoms = [LineString(frame.to_local(line_xy(item))) for item in usable]
     tree = shapely.STRtree(geoms)

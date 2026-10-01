@@ -29,6 +29,8 @@ export type ContourStepProps = {
   /** Расстояние между рядами W из паспорта — для ширины «рядов × W». */
   burden: number | null;
   disabled: boolean;
+  /** Разрезы линий не посчитаны: мешает только щелчку внутри и сборке. */
+  splitsError?: string;
 };
 
 const METHODS: Array<{ code: ContourState["method"]; label: string }> = [
@@ -84,7 +86,12 @@ function RoleChecks({ meta, state, onChange, disabled }: Pick<ContourStepProps, 
 }
 
 export function ContourStep(props: ContourStepProps) {
-  const { source, meta, state, onChange, result, pending, error, burden, disabled } = props;
+  const { source, meta, state, onChange, result, pending, error, burden, disabled, splitsError = "" } = props;
+  const linesNote = splitsError && (state.method === "click" || state.method === "assembly") ? (
+    <p className="cad-request-error" role="alert">
+      {splitsError}
+    </p>
+  ) : null;
   const set = (patch: Partial<ContourState>) => onChange({ ...state, ...patch });
   const map = parseNumber(state.mapArea);
   const reached = result?.flanks.filter((flank) => flank.length_m !== null) ?? [];
@@ -127,6 +134,7 @@ export function ContourStep(props: ContourStepProps) {
         <div className="cad-contour-panel">
           <p className="cad-hint">Щёлкните внутри области на чертеже — как штриховка в AutoCAD.</p>
           <RoleChecks meta={meta} state={state} onChange={onChange} disabled={disabled} />
+          {linesNote}
           <label className="cad-contour-field">
             <span>Мост до, м</span>
             <input inputMode="decimal" value={state.bridge} disabled={disabled} onChange={(event) => set({ bridge: event.target.value })} />
@@ -155,6 +163,7 @@ export function ContourStep(props: ContourStepProps) {
             {state.pending && " Первая точка отмечена."}
           </p>
           <RoleChecks meta={meta} state={state} onChange={onChange} disabled={disabled} />
+          {linesNote}
           <div className="cad-assembly-wrap">
             {state.items.length ? (
               <AssemblyList

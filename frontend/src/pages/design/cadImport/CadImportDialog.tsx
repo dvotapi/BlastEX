@@ -418,6 +418,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
                     error={linesError}
                     burden={burden}
                     disabled={pending}
+                    splitsError={lines?.splits_error ?? ""}
                   />
                 ) : (
                   !metaError && <p className="cad-loading">Загружаю роли слоёв…</p>

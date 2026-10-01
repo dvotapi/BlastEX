@@ -144,6 +144,8 @@ export type CadContourLines = {
   crests_top: CadStitchedLine[];
   crests_bottom: CadStitchedLine[];
   gaps: CadGap[];
+  /** Разрезы не посчитаны (слишком много линий): «Щелчок внутри» и «Сборка» без них не работают. */
+  splits_error: string;
 };
 
 export type CadContourMethod = "ready" | "click" | "assembly" | "crest";

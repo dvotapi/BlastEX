@@ -127,3 +127,20 @@ describe("ContourStep", () => {
     expect(lastState(props).bridge).toBe("3");
   });
 });
+
+describe("ContourStep: слишком много линий для разрезов", () => {
+  const note = "Линий выбранных ролей слишком много: 30000 отрезков, предел 20000. Снимите лишние роли.";
+
+  it("видно в сборке и щелчке внутри", () => {
+    renderStep({ state: { ...initialContour(SOURCE), method: "assembly" }, splitsError: note });
+    expect(screen.getByText(note)).toBeTruthy();
+  });
+
+  it("не мешает готовому контуру и блоку по бровке", () => {
+    renderStep({ splitsError: note });
+    expect(screen.queryByText(note)).toBeNull();
+    cleanup();
+    renderStep({ state: { ...initialContour(SOURCE), method: "crest" }, splitsError: note });
+    expect(screen.queryByText(note)).toBeNull();
+  });
+});

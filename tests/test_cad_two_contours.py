@@ -9,6 +9,7 @@ import pytest
 from design.spatial.cad.contour import crest_block
 from design.spatial.cad.model import CadEntity
 from design.spatial.cad.stitch import stitch_lines
+from design.spatial.cad.rings import ring_area
 from design.spatial.cad.two_contours import bench_levels, free_face_edges, two_contours
 
 BLOCK = [(0.0, 0.0), (40.0, 0.0), (40.0, 20.0), (0.0, 20.0)]
@@ -211,3 +212,47 @@ def test_far_away_crests_do_not_slow_the_preview():
     assert result.free_faces == [(2, 3)]
     assert levels.crest_z_m == pytest.approx(420.0)
     assert elapsed < 0.5, f"{elapsed:.2f} с"
+
+
+def test_closed_toe_ring_with_its_seam_between_the_flanks():
+    # Нижняя бровка — замкнутое кольцо вокруг выемки, шов (начало кольца) — у откоса блока.
+    ring = CadEntity(
+        handle="RING",
+        layer="Бровки",
+        kind="LWPOLYLINE",
+        points=[(x, y, 410.0) for x, y in [(44, 10), (44, 50), (-100, 50), (-100, -50), (44, -50)]],
+        closed=True,
+    )
+
+    result = two_contours(BLOCK, stitched(EAST_TOP), stitched(ring))
+
+    assert result.area_bottom_m2 == pytest.approx(880.0)
+
+
+def test_crest_block_across_the_seam_of_a_closed_crest():
+    top = CadEntity(
+        handle="TOP",
+        layer="Бровки",
+        kind="LWPOLYLINE",
+        points=[(x, y, 420.0) for x, y in [(50, 0), (100, 0), (100, 100), (0, 100), (0, 0)]],
+        closed=True,
+    )
+    bottom = crest("B", [(-5, -4), (105, -4)], 410.0)
+    tops, bottoms = stitched(top), stitched(bottom)
+
+    draft = crest_block(tops, bottoms, {"TOP": top, "B": bottom}, (40, 0), (60, 0), 10.0)
+
+    assert draft.ok, draft.issues
+    assert ring_area(draft.ring) == pytest.approx(200.0, abs=0.5)
+
+
+def test_several_toe_gaps_between_flanks_are_described_honestly():
+    bottoms = stitched(
+        crest("B1", [(44, -10), (44, 5)], 410.0),
+        crest("B2", [(44, 7), (44, 13)], 410.0),
+        crest("B3", [(44, 15), (44, 30)], 410.0),
+    )
+    result = two_contours(BLOCK, stitched(EAST_TOP), bottoms)
+    assert codes(result) == ["toe_gap"]
+    assert "больше чем на 5 м" not in result.warnings[0].message
+    assert "несколько разрывов" in result.warnings[0].message

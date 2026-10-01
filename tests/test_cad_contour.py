@@ -322,3 +322,15 @@ def test_slanted_overlap_gives_no_zero_length_bridges(overlap):
     assert all(math.dist(a, b) >= 0.05 for a, b in draft.closings)
     again = assemble(draft.items, by_handle, 0.5)
     assert again.ok, again.issues
+
+
+def test_click_on_a_nearly_closed_line_returns_the_whole_line_as_a_part():
+    entity = _read_lwpolyline([(0, 0), (10, 0), (10, 10), (0, 10), (0.02, 0.02)])
+    draft = click_contour([entity], (5, 5), 0.5, 5.0)
+    assert [(item.kind, item.handle) for item in draft.items] == [("part", entity.handle)]
+
+
+def test_closed_line_with_a_centimetre_gap_is_ready_even_with_a_tiny_tolerance():
+    entity = line("C", [(0, 0), (10, 0), (10, 10), (0, 10), (0.03, 0)], closed=True)
+    draft = ready_contour(entity, 0.01)
+    assert draft.ok, draft.issues

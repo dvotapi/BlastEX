@@ -25,7 +25,7 @@ import numpy as np
 import shapely
 from shapely.geometry import LineString, Point
 
-from design.spatial.cad.contour import cut_polyline, project_on_polyline
+from design.spatial.cad.contour import arc_between, project_on_polyline
 from design.spatial.cad.model import CadWarning, ru_number
 from design.spatial.cad.rings import XY, LocalFrame, check_ring, normalize_ring, point_label, ring_area, ring_perimeter
 from design.spatial.cad.stitch import StitchedLine
@@ -195,15 +195,13 @@ def _points(geometry) -> list[XY]:
 
 
 def _along(line: LineString, start: XY, end: XY) -> list[XY]:
-    """Кусок линии от точки `start` до точки `end` (обе на линии), по ходу от start."""
+    """Кусок линии от точки `start` до точки `end` (обе на линии), по ходу от
+    start; у кольцевой бровки — через шов, если так короче."""
 
     coords = [(x, y) for x, y in line.coords]
     m_start = project_on_polyline(coords, start)[0]
     m_end = project_on_polyline(coords, end)[0]
-    piece = cut_polyline(coords, m_start, m_end)
-    if m_start > m_end:
-        piece.reverse()
-    return piece
+    return arc_between(coords, m_start, m_end)[0]
 
 
 def _nearest_hit(origin: XY, direction: XY, lines: Sequence[LineString]) -> tuple[XY, LineString] | None:
@@ -326,7 +324,7 @@ def two_contours(
                     CadWarning(
                         "toe_gap",
                         f"Откос у точки {point_label(where)} не учтён: нижняя бровка между флангами разорвана "
-                        f"больше чем на {ru_number(TOE_GAP_BRIDGE_M, 0)} м.",
+                        f"(несколько разрывов или разрыв больше {ru_number(TOE_GAP_BRIDGE_M, 0)} м).",
                     )
                 )
             else:

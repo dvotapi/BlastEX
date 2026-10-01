@@ -187,6 +187,33 @@ def cut_polyline(points: Sequence[XY], from_m: float, to_m: float) -> list[XY]:
     return _dedupe(result)
 
 
+def arc_between(points: Sequence[XY], m_from: float, m_to: float) -> tuple[list[XY], list[tuple[float, float]]]:
+    """Путь по линии от `m_from` до `m_to` и его куски по длине в порядке хода.
+
+    У замкнутой линии (первая точка = последняя) путь идёт через шов, если так
+    короче: блок у шва кольцевой бровки иначе обошёл бы всё кольцо.
+    """
+
+    direct = cut_polyline(points, m_from, m_to)
+    if m_from > m_to:
+        direct.reverse()
+    intervals = [(m_from, m_to)]
+    if len(points) > 3 and math.dist(points[0], points[-1]) <= 1e-9:
+        total = polyline_length(points)
+        if total - abs(m_to - m_from) < abs(m_to - m_from):
+            # Ход назад через начало (m_from < m_to) или вперёд через конец.
+            if m_from < m_to:
+                first = cut_polyline(points, 0.0, m_from)[::-1]
+                second = cut_polyline(points, m_to, total)[::-1]
+                intervals = [(m_from, 0.0), (total, m_to)]
+            else:
+                first = cut_polyline(points, m_from, total)
+                second = cut_polyline(points, 0.0, m_to)
+                intervals = [(m_from, total), (0.0, m_to)]
+            return _dedupe([*first, *second]), intervals
+    return direct, intervals
+
+
 def project_on_polyline(points: Sequence[XY], point: XY) -> tuple[float, XY, float]:
     """Ближайшая точка полилинии: расстояние по линии, точка и удаление от неё."""
 
@@ -288,8 +315,10 @@ def ready_contour(entity: CadEntity, tolerance_m: float = DEFAULT_TOLERANCE_M) -
         info = ItemInfo("part", entity.handle, entity.layer, polyline_length(xy), False)
         return ContourDraft(ring=ring, items=[item], item_info=[info], issues=check_ring(ring))
     gap = math.dist(points[0], points[-1])
-    if gap <= tolerance_m and len(points) >= 3:
-        return assemble([item], {entity.handle: entity}, tolerance_m)
+    # Замкнутую в файле линию с зазором в сантиметры замыкаем при любом допуске.
+    closing = max(tolerance_m, MIN_EDGE_M) if entity.closed else tolerance_m
+    if gap <= closing and len(points) >= 3:
+        return assemble([item], {entity.handle: entity}, closing)
     return ContourDraft(
         ring=None,
         items=[item],
@@ -642,7 +671,8 @@ def _boundary_items(
             entity = usable[number]
             original = line_xy(entity)
             run_length = polyline_length(world)
-            if len(runs) == 1 and is_ring(original):
+            if len(runs) == 1:
+                # Вся граница — одна линия (замкнутая или почти): участок — она целиком.
                 items.append(ContourItem(kind="part", handle=entity.handle, start_m=0.0, end_m=polyline_length(original)))
                 continue
             start_m = project_on_polyline(original, world[0])[0]
@@ -732,9 +762,7 @@ def crest_block(
 
     chain_xy = [(point[0], point[1]) for point in chain.points]
     frame = LocalFrame.of(chain_xy)
-    sub = cut_polyline(chain_xy, m_start, m_end)
-    if m_start > m_end:
-        sub.reverse()
+    sub, intervals = arc_between(chain_xy, m_start, m_end)
     sub_line = LineString(frame.to_local(sub))
 
     if side == "auto":
@@ -772,7 +800,7 @@ def crest_block(
         back.reverse()
     back_world = frame.to_world(back)
 
-    items = _crest_parts(chain, m_start, m_end)
+    items = [item for low, high in intervals for item in _crest_parts(chain, low, high)]
     items.append(ContourItem(kind="segment", points=[sub[-1], back_world[-1]], label="Фланг"))
     items.append(ContourItem(kind="polyline", points=list(reversed(back_world)), label="Тыл"))
     items.append(ContourItem(kind="segment", points=[back_world[0], sub[0]], label="Фланг"))

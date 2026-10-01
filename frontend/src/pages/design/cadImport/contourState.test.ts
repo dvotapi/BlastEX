@@ -109,6 +109,11 @@ describe("щелчки сборки", () => {
     expect(next.items[0]).toMatchObject({ handle: "A", start_m: 0, end_m: 50 });
   });
 
+  it("«Участок» не режет по устаревшим разрезам: пока линии загружаются, щелчок не добавляет участок", () => {
+    const next = applyPick(assembly, { world: [120, 203], snap: null, handle: "6C3" }, { entities: ENTITIES, lines: null });
+    expect(next.items).toEqual([]);
+  });
+
   it("«По точкам» — два щелчка на одной линии", () => {
     const first = applyPick({ ...assembly, tool: "points" }, { world: [100, 200], snap: null, handle: "6C3" }, CTX);
     expect(first.items).toHaveLength(0);

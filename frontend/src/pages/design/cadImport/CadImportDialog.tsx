@@ -129,6 +129,8 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
     if (!active) return;
     let alive = true;
     setLinesError("");
+    // Прежние разрезы — для прежних ролей: до ответа их не используем.
+    setLines(null);
     api.cad
       .contourLines(active.id, contour.roles)
       .then((loaded) => alive && setLines(loaded))
@@ -461,6 +463,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
                     burden={burden}
                     disabled={pending}
                     splitsError={lines?.splits_error ?? ""}
+                    linesLoading={lines === null && !linesError}
                   />
                 ) : (
                   !metaError && <p className="cad-loading">Загружаю роли слоёв…</p>
@@ -470,6 +473,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
             <BuildFooter
               result={preview.result}
               pending={preview.pending}
+              busy={pending}
               error={preview.error}
               areaLabel={meta?.area_bases.find((basis) => basis.code === contour.areaBasis)?.label ?? ""}
               onCancel={onCancel}

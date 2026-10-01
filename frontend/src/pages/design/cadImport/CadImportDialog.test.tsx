@@ -283,6 +283,20 @@ describe("CadImportDialog", () => {
     expect(choice.cad).toMatchObject({ area_basis: "top", area_m2: 2789.93 });
   });
 
+  it("пока сохраняются роли, «Построить блок» неактивна", async () => {
+    api.cad.saveRoles.mockReturnValue(new Promise(() => {}));
+    renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.change(within(screen.getByRole("row", { name: /Отметка/ })).getByRole("combobox"), {
+      target: { value: "ignore" },
+    });
+
+    await waitFor(() => expect(button.disabled).toBe(true));
+  });
+
   it("самопересечение видно у кнопки, и кнопка неактивна", async () => {
     api.cad.contour.mockResolvedValue(
       contourResult({ ok: false, issues: [{ code: "self_intersection", message: "Контур пересекает сам себя в точке (1,00; 2,00).", point: [1, 2] }], bottom: null }),

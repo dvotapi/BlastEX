@@ -791,10 +791,23 @@ def crest_block(
 
     smooth = sub_line.simplify(CREST_SMOOTHING_M)
     back_geometry = smooth.offset_curve(width_m if side == "left" else -width_m, quad_segs=4, join_style="round")
-    if back_geometry.geom_type != "LineString":
-        merged = shapely.line_merge(back_geometry)
-        back_geometry = max(_segments(merged), key=lambda item: item.length)
-    back = list(back_geometry.simplify(BACK_SIMPLIFY_M).coords)
+    if not back_geometry.is_empty and back_geometry.geom_type != "LineString":
+        parts = _segments(shapely.line_merge(back_geometry))
+        back_geometry = max(parts, key=lambda item: item.length) if parts else LineString()
+    back = [] if back_geometry.is_empty else list(back_geometry.simplify(BACK_SIMPLIFY_M).coords)
+    if len(back) < 2:
+        # Ширина больше радиуса изгиба бровки: смещение «схлопывается» в пустоту.
+        return ContourDraft(
+            ring=None,
+            issues=[
+                RingIssue(
+                    "back_failed",
+                    f"Тыл блока не построен: ширина {ru_number(width_m, 1)} м больше радиуса изгиба бровки "
+                    "на этом участке. Уменьшите ширину или соберите контур вручную.",
+                    start,
+                )
+            ],
+        )
     smooth_start = smooth.coords[0]
     if math.dist(back[-1], smooth_start) < math.dist(back[0], smooth_start):
         back.reverse()

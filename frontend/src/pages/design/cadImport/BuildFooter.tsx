@@ -12,12 +12,15 @@ export function BuildFooter({
   result,
   pending,
   error,
+  busy = false,
   areaLabel = "",
   onCancel,
   onBuild,
 }: {
   result: CadContourResult | null;
   pending: boolean;
+  /** Сохраняются роли или идёт повторный разбор: контур вот-вот сменится. */
+  busy?: boolean;
   /** Какая из площадей — площадь блока (соглашение маркшейдера объекта). */
   areaLabel?: string;
   /** Ошибка запроса предпросмотра (сеть, 422). */
@@ -25,7 +28,7 @@ export function BuildFooter({
   onCancel: () => void;
   onBuild: (result: CadContourResult) => void;
 }) {
-  const ready = Boolean(result?.ok) && !pending && !error;
+  const ready = Boolean(result?.ok) && !pending && !busy && !error;
   const height = result?.bench.height_m ?? null;
   return (
     <footer className="cad-build">

@@ -102,3 +102,16 @@ def test_block_66_by_its_top_crest():
 
     assert draft.ok, draft.issues
     assert 900 < ring_area(draft.ring) < 1500
+
+
+def test_back_line_that_cannot_be_offset_is_a_visible_issue():
+    # Тугая дуга R = 5 м, тыл на 20 м внутрь: смещение пустое (Codex P2).
+    top = crest("T", arc(5, 30, 150, 5.0), 420.0)
+    bottom = crest("B", arc(9, 20, 160, 5.0), 410.0)
+    start = (5 * math.cos(math.radians(45)), 5 * math.sin(math.radians(45)))
+    end = (5 * math.cos(math.radians(135)), 5 * math.sin(math.radians(135)))
+
+    draft = build([top], [bottom], start, end, 20.0)
+
+    assert not draft.ok
+    assert [issue.code for issue in draft.issues] == ["back_failed"]

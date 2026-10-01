@@ -31,6 +31,8 @@ export type ContourStepProps = {
   disabled: boolean;
   /** Разрезы линий не посчитаны: мешает только щелчку внутри и сборке. */
   splitsError?: string;
+  /** Линии для контура перечитываются (сменились роли). */
+  linesLoading?: boolean;
 };
 
 const METHODS: Array<{ code: ContourState["method"]; label: string }> = [
@@ -86,7 +88,7 @@ function RoleChecks({ meta, state, onChange, disabled }: Pick<ContourStepProps, 
 }
 
 export function ContourStep(props: ContourStepProps) {
-  const { source, meta, state, onChange, result, pending, error, burden, disabled, splitsError = "" } = props;
+  const { source, meta, state, onChange, result, pending, error, burden, disabled, splitsError = "", linesLoading = false } = props;
   const linesNote = splitsError && (state.method === "click" || state.method === "assembly") ? (
     <p className="cad-request-error" role="alert">
       {splitsError}
@@ -164,6 +166,7 @@ export function ContourStep(props: ContourStepProps) {
           <p className="cad-hint">
             {TOOLS.find((tool) => tool.code === state.tool)?.hint} Направление участка выбирается по ближайшему концу.
             {state.pending && " Первая точка отмечена."}
+            {linesLoading && " Загружаю линии контура…"}
           </p>
           <RoleChecks meta={meta} state={state} onChange={onChange} disabled={disabled} />
           {linesNote}

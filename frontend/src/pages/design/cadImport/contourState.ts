@@ -167,11 +167,14 @@ export function applyPick(state: ContourState, pick: Pick, context: PickContext)
         return withItem(state, { kind: "segment", handle: "", start_m: 0, end_m: 0, points: [state.pending.point, at], flip: false, label: "" });
       }
       if (!line) return state;
-      const m = pick.snap?.handle === line.handle && pick.snap.m !== undefined ? pick.snap.m : projectOnPolyline(polylineXY(line), at).m;
       if (state.tool === "piece") {
-        const piece = pieceAt(line, m, context.lines?.splits[line.handle]);
+        // Кусок выбирает сам курсор, а не привязка: привязка к узлу дала бы
+        // m ровно на разрезе, и добавился бы кусок за узлом.
+        const raw = projectOnPolyline(polylineXY(line), pick.world).m;
+        const piece = pieceAt(line, raw, context.lines?.splits[line.handle]);
         return withItem(state, part(line.handle, piece.start_m, piece.end_m));
       }
+      const m = pick.snap?.handle === line.handle && pick.snap.m !== undefined ? pick.snap.m : projectOnPolyline(polylineXY(line), at).m;
       if (state.pending?.handle === line.handle && state.pending.m !== undefined) {
         return withItem(state, part(line.handle, Math.min(state.pending.m, m), Math.max(state.pending.m, m)));
       }

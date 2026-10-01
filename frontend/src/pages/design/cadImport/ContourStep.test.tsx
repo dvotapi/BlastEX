@@ -144,3 +144,20 @@ describe("ContourStep: слишком много линий для разрез�
     expect(screen.queryByText(note)).toBeNull();
   });
 });
+
+it("пока предпросмотр считается, сведения участков не показываются (они от прошлого списка)", () => {
+  const state: ContourState = {
+    ...initialContour(SOURCE),
+    method: "assembly",
+    items: [{ kind: "part", handle: "6C3", start_m: 0, end_m: 30, points: [], flip: false, label: "" }],
+  };
+  renderStep({
+    state,
+    pending: true,
+    result: contourResult({
+      method: "assembly",
+      item_info: [{ kind: "part", handle: "733", layer: "Горизонт +410", length_m: 42.4, reversed: true, gap_to_next_m: 75.3, link: "closing" }],
+    }),
+  });
+  expect(screen.queryByText("замыкающий 75,30 м")).toBeNull();
+});

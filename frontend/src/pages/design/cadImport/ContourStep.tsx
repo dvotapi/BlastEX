@@ -168,7 +168,7 @@ export function ContourStep(props: ContourStepProps) {
             {state.items.length ? (
               <AssemblyList
                 items={state.items}
-                info={result?.method === "assembly" ? result.item_info : []}
+                info={result?.method === "assembly" && !pending ? result.item_info : []}
                 selected={state.selected}
                 onSelect={(index) => set({ selected: index })}
               />

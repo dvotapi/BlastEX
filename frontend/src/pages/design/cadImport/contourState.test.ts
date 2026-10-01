@@ -94,6 +94,16 @@ describe("щелчки сборки", () => {
     expect(next.selected).toBe(0);
   });
 
+  it("«Участок» у узла берёт кусок со стороны щелчка, а не за узлом", () => {
+    const long = cadEntity("A", "Проект", { points: [[0, 0, 0], [100, 0, 0]] });
+    const context = { entities: new Map([["A", long]]), lines: { ...LINES, splits: { A: [50] } } };
+    const pick = { world: [48.5, 0.3] as [number, number], snap: { point: [50, 0] as [number, number], kind: "intersection" as const, handle: "A", m: 50 }, handle: null };
+
+    const next = applyPick(assembly, pick, context);
+
+    expect(next.items[0]).toMatchObject({ handle: "A", start_m: 0, end_m: 50 });
+  });
+
   it("«По точкам» — два щелчка на одной линии", () => {
     const first = applyPick({ ...assembly, tool: "points" }, { world: [100, 200], snap: null, handle: "6C3" }, CTX);
     expect(first.items).toHaveLength(0);

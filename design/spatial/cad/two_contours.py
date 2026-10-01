@@ -34,6 +34,9 @@ FREE_FACE_DISTANCE_M = 1.0
 FREE_FACE_SAMPLE_M = 1.0
 FLANK_BACKSTEP_M = 5.0
 FLANK_MAX_EXTENSION_M = 100.0
+# Разрыв нижней бровки между флангами до этого закрывается прямой для S низ —
+# как подсвеченные разрывы сшивки (stitch.GAP_REPORT_M).
+TOE_GAP_BRIDGE_M = 5.0
 BENCH_HEIGHT_RANGE_M = (2.0, 25.0)
 # Без свободной поверхности отметка бровки берётся по верхним бровкам у контура.
 CREST_NEAR_CONTOUR_M = 5.0
@@ -170,6 +173,44 @@ def _points(geometry) -> list[XY]:
     return [point for part in getattr(geometry, "geoms", []) for point in _points(part)]
 
 
+def _along(line: LineString, start: XY, end: XY) -> list[XY]:
+    """Кусок линии от точки `start` до точки `end` (обе на линии), по ходу от start."""
+
+    coords = [(x, y) for x, y in line.coords]
+    m_start = project_on_polyline(coords, start)[0]
+    m_end = project_on_polyline(coords, end)[0]
+    piece = cut_polyline(coords, m_start, m_end)
+    if m_start > m_end:
+        piece.reverse()
+    return piece
+
+
+def _nearest_hit(origin: XY, direction: XY, lines: Sequence[LineString]) -> tuple[XY, LineString] | None:
+    best: tuple[XY, LineString] | None = None
+    for line in lines:
+        hit = _ray_hit(origin, direction, line)
+        if hit is not None and (best is None or math.dist(hit, origin) < math.dist(best[0], origin)):
+            best = (hit, line)
+    return best
+
+
+def _join_across_gap(
+    hit_first: XY, line_first: LineString, hit_last: XY, line_last: LineString
+) -> tuple[list[XY], float, XY] | None:
+    """Путь по нижней бровке от фланга до фланга через один разрыв не больше
+    `TOE_GAP_BRIDGE_M` между двумя кусками: (путь, длина разрыва, середина разрыва)."""
+
+    first_ends = [tuple(line_first.coords[0])[:2], tuple(line_first.coords[-1])[:2]]
+    last_ends = [tuple(line_last.coords[0])[:2], tuple(line_last.coords[-1])[:2]]
+    gap, end_first, end_last = min(
+        ((math.dist(a, b), a, b) for a in first_ends for b in last_ends), key=lambda item: item[0]
+    )
+    if gap > TOE_GAP_BRIDGE_M:
+        return None
+    path = [hit_first, *_along(line_first, hit_first, end_first), *_along(line_last, end_last, hit_last), hit_last]
+    return path, gap, ((end_first[0] + end_last[0]) / 2, (end_first[1] + end_last[1]) / 2)
+
+
 def two_contours(
     ring: Sequence[XY],
     top_lines: Sequence[StitchedLine],
@@ -226,9 +267,12 @@ def two_contours(
             if best is None or total < best[0]:
                 best = (total, hit_first, hit_last, line)
         if best is None:
-            for vertex, direction in ((first, direction_first), (last, direction_last)):
-                hits = [_ray_hit(local[vertex], direction, line) for line in bottoms]
-                hit = min((item for item in hits if item), key=lambda item: math.dist(item, local[vertex]), default=None)
+            nearest = [
+                _nearest_hit(local[vertex], direction, bottoms)
+                for vertex, direction in ((first, direction_first), (last, direction_last))
+            ]
+            for vertex, found in zip((first, last), nearest):
+                hit = found[0] if found else None
                 result.flanks.append(
                     Flank(
                         frame.point_to_world(local[vertex]),
@@ -237,23 +281,42 @@ def two_contours(
                     )
                 )
             where = frame.point_to_world(local[first])
-            result.warnings.append(
-                CadWarning(
-                    "flank_miss",
-                    f"Откос у точки {point_label(where)} не учтён: фланг не доходит до нижней бровки "
-                    f"(ищем в пределах {ru_number(FLANK_MAX_EXTENSION_M, 0)} м).",
+            if nearest[0] and nearest[1]:
+                # Оба фланга дошли, но до разных кусков нижней бровки: она
+                # разорвана между ними (разрыв больше 1 м по §2 не сшивается).
+                (hit_first, line_first), (hit_last, line_last) = nearest
+                joined = _join_across_gap(hit_first, line_first, hit_last, line_last)
+                if joined is not None:
+                    path, gap_m, gap_at = joined
+                    pieces.append((first, last, path))
+                    result.warnings.append(
+                        CadWarning(
+                            "toe_gap",
+                            f"Нижняя бровка между флангами разорвана ({ru_number(gap_m, 1)} м у точки "
+                            f"{point_label(frame.point_to_world(gap_at))}) — для S низ разрыв закрыт прямой.",
+                            level="info",
+                        )
+                    )
+                    continue
+                result.warnings.append(
+                    CadWarning(
+                        "toe_gap",
+                        f"Откос у точки {point_label(where)} не учтён: нижняя бровка между флангами разорвана "
+                        f"больше чем на {ru_number(TOE_GAP_BRIDGE_M, 0)} м.",
+                    )
                 )
-            )
+            else:
+                result.warnings.append(
+                    CadWarning(
+                        "flank_miss",
+                        f"Откос у точки {point_label(where)} не учтён: фланг не доходит до нижней бровки "
+                        f"(ищем в пределах {ru_number(FLANK_MAX_EXTENSION_M, 0)} м).",
+                    )
+                )
             pieces.append((first, last, None))
             continue
         _, hit_first, hit_last, line = best
-        coords = [(x, y) for x, y in line.coords]
-        m_first = project_on_polyline(coords, hit_first)[0]
-        m_last = project_on_polyline(coords, hit_last)[0]
-        piece = cut_polyline(coords, m_first, m_last)
-        if m_first > m_last:
-            piece.reverse()
-        pieces.append((first, last, [hit_first, *piece, hit_last]))
+        pieces.append((first, last, [hit_first, *_along(line, hit_first, hit_last), hit_last]))
         for vertex, hit in ((first, hit_first), (last, hit_last)):
             result.flanks.append(
                 Flank(frame.point_to_world(local[vertex]), frame.point_to_world(hit), math.dist(hit, local[vertex]))

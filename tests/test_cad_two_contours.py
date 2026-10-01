@@ -165,3 +165,26 @@ def test_face_lines_limit_the_free_face():
     only_east = stitched(crest("E", [(40, -10), (40, 30)], 420.0))
     result = two_contours(BLOCK, tops, stitched(EAST_BOTTOM), face_lines=only_east)
     assert result.free_faces == [(1, 2)]
+
+
+def test_toe_broken_between_flanks_is_bridged_for_the_bottom_contour():
+    # Нижняя бровка разорвана на 3 м между флангами: разрывы > 1 м не сшиваются (§2).
+    bottoms = stitched(crest("B1", [(44, -10), (44, 8.5)], 410.0), crest("B2", [(44, 11.5), (44, 30)], 410.0))
+
+    result = two_contours(BLOCK, stitched(EAST_TOP), bottoms)
+
+    assert result.area_bottom_m2 == pytest.approx(880.0)
+    assert codes(result) == ["toe_gap"]
+    assert result.warnings[0].level == "info"
+    assert "разорвана" in result.warnings[0].message and "3,0 м" in result.warnings[0].message
+
+
+def test_toe_with_a_wide_gap_between_flanks_is_reported_as_such():
+    bottoms = stitched(crest("B1", [(44, -10), (44, 6)], 410.0), crest("B2", [(44, 14), (44, 30)], 410.0))
+
+    result = two_contours(BLOCK, stitched(EAST_TOP), bottoms)
+
+    assert result.area_bottom_m2 == pytest.approx(result.area_top_m2)
+    assert codes(result) == ["toe_gap"]
+    assert result.warnings[0].level == "warning"
+    assert "не учтён" in result.warnings[0].message

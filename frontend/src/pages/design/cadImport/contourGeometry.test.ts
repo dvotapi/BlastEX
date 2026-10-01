@@ -1,0 +1,112 @@
+// Геометрия шага «Контур»: проекция на линию, участок по щелчку, привязка курсора.
+import { describe, expect, it } from "vitest";
+import type { CadEntity } from "../../../types/cad";
+import { pieceAt, polylineXY, projectOnPolyline, SnapIndex, subPolyline } from "./contourGeometry";
+
+function line(handle: string, points: Array<[number, number]>, closed = false): CadEntity {
+  return {
+    handle,
+    layer: "Проект",
+    kind: "LWPOLYLINE",
+    geometry_type: "line",
+    points: points.map(([x, y]) => [x, y, 0]),
+    closed,
+    closed_by_gap: false,
+    vertex_count: points.length,
+    length_m: 0,
+    area_m2: 0,
+    z_kind: "zero",
+    z_min: 0,
+    z_max: 0,
+    z_from_label: false,
+    text: "",
+    color: null,
+    role: "design_line",
+    role_origin: "auto",
+    role_override: false,
+  };
+}
+
+const ZIGZAG: Array<[number, number]> = [
+  [0, 0],
+  [10, 0],
+  [10, 10],
+  [20, 10],
+];
+
+describe("projectOnPolyline и subPolyline", () => {
+  it("длина по линии в плане — как на сервере", () => {
+    expect(projectOnPolyline(ZIGZAG, [10, 5])).toMatchObject({ m: 15, distance: 0 });
+    const off = projectOnPolyline(ZIGZAG, [5, 2]);
+    expect(off.m).toBeCloseTo(5);
+    expect(off.distance).toBeCloseTo(2);
+    expect(off.point).toEqual([5, 0]);
+  });
+
+  it("кусок линии между двумя расстояниями", () => {
+    expect(subPolyline(ZIGZAG, 5, 15)).toEqual([
+      [5, 0],
+      [10, 0],
+      [10, 5],
+    ]);
+    expect(subPolyline(ZIGZAG, 15, 5)).toEqual([
+      [5, 0],
+      [10, 0],
+      [10, 5],
+    ]);
+  });
+
+  it("у замкнутой линии есть ребро возврата в начало", () => {
+    expect(polylineXY(line("C", [[0, 0], [10, 0], [10, 10]], true))).toHaveLength(4);
+  });
+});
+
+describe("pieceAt: участок между соседними разрезами", () => {
+  const entity = line("Z", ZIGZAG);
+  it("между двумя пересечениями", () => {
+    expect(pieceAt(entity, 12, [8, 18])).toEqual({ start_m: 8, end_m: 18 });
+  });
+  it("от начала линии до первого разреза и от последнего до конца", () => {
+    expect(pieceAt(entity, 3, [8, 18])).toEqual({ start_m: 0, end_m: 8 });
+    expect(pieceAt(entity, 25, [8, 18])).toEqual({ start_m: 18, end_m: 30 });
+  });
+  it("без разрезов — вся линия", () => {
+    expect(pieceAt(entity, 25, undefined)).toEqual({ start_m: 0, end_m: 30 });
+  });
+});
+
+describe("SnapIndex: привязка курсора", () => {
+  const a = line("A", [
+    [0, 0],
+    [10, 0],
+  ]);
+  const b = line("B", [
+    [5, -5],
+    [5, 5],
+    [8, 5],
+  ]);
+  const index = new SnapIndex([a, b], [[5, 0]]);
+
+  it("конец линии важнее ближайшей точки", () => {
+    expect(index.snap([0.5, 0.2], 1)).toMatchObject({ kind: "end", point: [0, 0], handle: "A" });
+  });
+
+  it("пересечение важнее вершины и ближайшей точки", () => {
+    expect(index.snap([5.3, 0.4], 1)).toMatchObject({ kind: "intersection", point: [5, 0] });
+  });
+
+  it("вершина в середине линии", () => {
+    expect(index.snap([5.4, 5.3], 1)).toMatchObject({ kind: "vertex", point: [5, 5], handle: "B" });
+  });
+
+  it("ближайшая точка на линии с длиной по ней", () => {
+    const snap = index.snap([2.5, 0.3], 1);
+    expect(snap).toMatchObject({ kind: "nearest", handle: "A" });
+    expect(snap?.point[0]).toBeCloseTo(2.5);
+    expect(snap?.m).toBeCloseTo(2.5);
+  });
+
+  it("вне апертуры — привязки нет", () => {
+    expect(index.snap([2.5, 3], 1)).toBeNull();
+  });
+});

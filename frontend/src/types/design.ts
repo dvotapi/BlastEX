@@ -139,16 +139,6 @@ export type SurfaceSet = {
   post_blast: SurfaceModel | null;
 };
 
-export type BenchDxfImport = {
-  contour: BlockContour;
-  surfaces: SurfaceSet;
-  crest_layer: string;
-  toe_layer: string;
-  crest_z_m: number;
-  toe_z_m: number;
-  vertex_count: number;
-};
-
 export type SurfaceStats = {
   kind: SurfaceKind;
   name: string;

@@ -6,6 +6,10 @@
 // Чертёж карьера — десятки тысяч линий, поэтому пути считаются только при
 // смене камеры, а базовый слой не перерисовывается на наведение: подсветка —
 // отдельный слой поверх него из одних подсвеченных линий.
+//
+// На шаге «Контур» холст работает инструментом (`tool`): щелчок отдаёт точку
+// чертежа, линию под курсором и привязку (конец, пересечение, вершина,
+// ближайшая точка), а слой-наложение рисует контуры и участки сборки.
 import {
   memo,
   useCallback,
@@ -13,12 +17,16 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent,
   type PointerEvent,
+  type ReactNode,
   type WheelEvent,
 } from "react";
 import {
   fitCamera,
   niceStep,
+  screenToWorld,
+  worldToScreen,
   zoomAt,
   type Camera,
   type Vec2,
@@ -27,6 +35,8 @@ import {
 import type { CadEntity } from "../../../types/cad";
 import { drawingBounds, linePath, pointsPath } from "./cadGeometry";
 import { roleColor } from "./cadRoles";
+import type { Snap, SnapIndex } from "./contourGeometry";
+import type { Pick } from "./contourState";
 
 export type CanvasTarget = { layer: string; handle: string | null };
 
@@ -34,6 +44,8 @@ export type CanvasTarget = { layer: string; handle: string | null };
 const DRAG_THRESHOLD_PX = 4;
 const POINT_RADIUS_PX = 2.2;
 const HIT_WIDTH_PX = 10;
+/** Апертура привязки курсора на экране (как объектная привязка САПР). */
+export const SNAP_APERTURE_PX = 10;
 // Порядок слоёв рисования: ситуация под бровками, контур — сверху.
 const ROLE_ORDER = [
   "ignore",
@@ -85,6 +97,24 @@ const LineLayer = memo(function LineLayer({
   );
 });
 
+export type ScreenProjector = (point: number[]) => Vec2;
+
+function SnapMarker({ snap, toScreen }: { snap: Snap; toScreen: ScreenProjector }) {
+  const { x, y } = toScreen(snap.point);
+  const r = 5;
+  const shape =
+    snap.kind === "intersection" ? (
+      <path d={`M${x - r} ${y - r}L${x + r} ${y + r}M${x - r} ${y + r}L${x + r} ${y - r}`} />
+    ) : snap.kind === "nearest" ? (
+      <circle cx={x} cy={y} r={r - 1} />
+    ) : snap.kind === "vertex" ? (
+      <path d={`M${x} ${y - r}L${x + r} ${y}L${x} ${y + r}L${x - r} ${y}Z`} />
+    ) : (
+      <rect x={x - r} y={y - r} width={2 * r} height={2 * r} />
+    );
+  return <g className={`cad-snap kind-${snap.kind}`}>{shape}</g>;
+}
+
 export function CadCanvas({
   entities,
   fitKey,
@@ -93,6 +123,11 @@ export function CadCanvas({
   emphasized,
   onHover,
   onSelect,
+  tool = false,
+  snapIndex = null,
+  snapMinM = 0,
+  onPick,
+  overlay,
 }: {
   entities: CadEntity[];
   /** Смена ключа (другой файл, другой масштаб) заново вписывает чертёж. */
@@ -102,12 +137,23 @@ export function CadCanvas({
   emphasized: string[];
   onHover: (target: CanvasTarget | null) => void;
   onSelect: (target: CanvasTarget) => void;
+  /** Инструмент шага «Контур»: щелчок — точка чертежа, а не выбор строки. */
+  tool?: boolean;
+  snapIndex?: SnapIndex | null;
+  /** Апертура привязки в метрах не меньше этого (допуск стыковки). */
+  snapMinM?: number;
+  onPick?: (pick: Pick) => void;
+  overlay?: (toScreen: ScreenProjector) => ReactNode;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 600 });
   const [camera, setCamera] = useState<Camera | null>(null);
   const [panFrom, setPanFrom] = useState<{ screen: Vec2; camera: Camera } | null>(null);
   const dragMoved = useRef(false);
+  // Линия под курсором при щелчке инструментом: её сообщает зона попадания,
+  // а точку щелчка — сам холст, куда событие всплывает следом.
+  const hitHandle = useRef<string | null>(null);
+  const [snapMarker, setSnapMarker] = useState<Snap | null>(null);
   const bounds = useMemo(() => drawingBounds(entities), [entities]);
 
   useEffect(() => {
@@ -167,14 +213,34 @@ export function CadCanvas({
   );
 
   // Обработчики базового слоя стабильны — иначе memo не спасёт от перерисовки.
-  const latest = useRef({ onHover, onSelect });
-  latest.current = { onHover, onSelect };
+  const latest = useRef({ onHover, onSelect, tool });
+  latest.current = { onHover, onSelect, tool };
   const hoverStable = useCallback((target: CanvasTarget | null) => latest.current.onHover(target), []);
   const selectStable = useCallback((target: CanvasTarget) => {
     // Отпускание после панорамы — не щелчок по линии.
     if (dragMoved.current) return;
+    if (latest.current.tool) {
+      hitHandle.current = target.handle;
+      return;
+    }
     latest.current.onSelect(target);
   }, []);
+
+  const toScreen: ScreenProjector = (point) => worldToScreen(cam, viewport, { x: point[0], y: point[1] });
+
+  function snapAt(screen: Vec2): { world: Vec2; snap: Snap | null } {
+    const world = screenToWorld(cam, viewport, screen);
+    const aperture = Math.max(SNAP_APERTURE_PX / cam.scale, snapMinM);
+    return { world, snap: snapIndex ? snapIndex.snap([world.x, world.y], aperture) : null };
+  }
+
+  function onCanvasClick(event: MouseEvent<SVGSVGElement>) {
+    const handle = hitHandle.current;
+    hitHandle.current = null;
+    if (!tool || dragMoved.current || !onPick) return;
+    const { world, snap } = snapAt(local(event));
+    onPick({ world: [world.x, world.y], snap, handle });
+  }
 
   function local(event: { clientX: number; clientY: number }): Vec2 {
     const rect = wrapRef.current?.getBoundingClientRect();
@@ -193,6 +259,7 @@ export function CadCanvas({
   }
 
   function onPointerMove(event: PointerEvent<SVGSVGElement>) {
+    if (tool && (!panFrom || !dragMoved.current)) setSnapMarker(snapAt(local(event)).snap);
     if (!panFrom) return;
     const point = local(event);
     const dx = point.x - panFrom.screen.x;
@@ -212,7 +279,7 @@ export function CadCanvas({
   return (
     <div className="cad-canvas-wrap" ref={wrapRef}>
       <svg
-        className="cad-canvas"
+        className={`cad-canvas${tool ? " is-picking" : ""}`}
         role="img"
         aria-label="Чертёж: линии в цвете роли"
         width={viewport.width}
@@ -222,6 +289,8 @@ export function CadCanvas({
         onPointerMove={onPointerMove}
         onPointerUp={() => setPanFrom(null)}
         onPointerCancel={() => setPanFrom(null)}
+        onPointerLeave={() => setSnapMarker(null)}
+        onClick={onCanvasClick}
       >
         <LineLayer paths={paths} onHover={hoverStable} onSelect={selectStable} />
         {pointGroups.map((group) => {
@@ -254,6 +323,8 @@ export function CadCanvas({
             />
           ))}
         </g>
+        {overlay && <g className="cad-overlay">{overlay(toScreen)}</g>}
+        {tool && snapMarker && <SnapMarker snap={snapMarker} toScreen={toScreen} />}
         <g className="cad-scale" transform={`translate(14 ${viewport.height - 16})`}>
           <path d={`M0 -4V0H${scalePx.toFixed(1)}V-4`} />
           <text x={scalePx + 6} y={0}>

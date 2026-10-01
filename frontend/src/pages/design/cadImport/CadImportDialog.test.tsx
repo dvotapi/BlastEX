@@ -2,10 +2,10 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CadImportDialog, type CadImportDialogProps } from "./CadImportDialog";
-import { CAD_META, cadEntity, cadSource } from "./testing/fixtures";
+import { CAD_META, cadSource, contourResult } from "./testing/fixtures";
 
 const api = vi.hoisted(() => ({
-  cad: { meta: vi.fn(), saveRoles: vi.fn(), reparse: vi.fn() },
+  cad: { meta: vi.fn(), saveRoles: vi.fn(), reparse: vi.fn(), contourLines: vi.fn(), contour: vi.fn() },
 }));
 vi.mock("../../../api/endpoints", () => ({ api }));
 
@@ -25,13 +25,14 @@ beforeEach(() => {
   api.cad.meta.mockReset().mockResolvedValue(CAD_META);
   api.cad.saveRoles.mockReset();
   api.cad.reparse.mockReset();
+  api.cad.contourLines.mockReset().mockResolvedValue({ splits: {}, intersections: [], crests_top: [], crests_bottom: [], gaps: [] });
+  api.cad.contour.mockReset().mockResolvedValue(contourResult());
 });
 
 function renderDialog(extra: Partial<CadImportDialogProps> = {}) {
   const props: CadImportDialogProps = {
     sources: [cadSource()],
-    busy: false,
-    error: "",
+    burden: 4,
     onSourcesChange: vi.fn(),
     onCancel: vi.fn(),
     onBuild: vi.fn(),
@@ -179,50 +180,73 @@ describe("CadImportDialog", () => {
     expect(api.cad.reparse).toHaveBeenCalledWith("src-1", { scale: 1, label_radius_m: 3, floor_z_m: 412.5, bench_height_m: 10 });
   });
 
-  it("построение по-старому берёт бровки по ролям", async () => {
+  it("без ручных действий: готовый контур блока выбран, площади у кнопки", async () => {
+    renderDialog();
+    await ready();
+
+    await waitFor(() => expect(api.cad.contour).toHaveBeenCalledWith("src-1", { method: "ready", handle: "769", tolerance_m: 0.5 }));
+    expect(await screen.findByText(/S верх 2789,9 м²/)).toBeTruthy();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("«Построить блок» отдаёт контур, свободные рёбра, отметки уступа и данные чертежа", async () => {
     const props = renderDialog();
     await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
 
-    fireEvent.click(screen.getByRole("button", { name: "Построить блок" }));
-
-    expect(props.onBuild).toHaveBeenCalledWith(
-      expect.objectContaining({ fileName: "блок 66.dwg", crest: expect.objectContaining({ handle: "6C3" }), toe: expect.objectContaining({ handle: "733" }) }),
-    );
-  });
-
-  it("бровки, начерченные отрезками LINE, строятся цепочкой, а не одним отрезком", async () => {
-    const piece = (handle: string, layer: string, a: [number, number, number], b: [number, number, number], role: "crest_top" | "crest_bottom") =>
-      cadEntity(handle, layer, { kind: "LINE", role, points: [a, b], length_m: Math.hypot(b[0] - a[0], b[1] - a[1]) });
-    const source = cadSource({
-      entities: [
-        piece("A", "верхняя бровка", [0, 0, 420], [10, 0, 420.2], "crest_top"),
-        piece("B", "верхняя бровка", [10, 0, 420.2], [20, 5, 420.6], "crest_top"),
-        piece("D", "нижняя бровка", [0, -10, 410], [15, -10, 410.4], "crest_bottom"),
-        piece("E", "нижняя бровка", [15, -10, 410.4], [30, -12, 410.8], "crest_bottom"),
-      ],
-      layers: [],
-    });
-    const props = renderDialog({ sources: [source] });
-    await ready();
-
-    fireEvent.click(screen.getByRole("button", { name: "Построить блок" }));
+    fireEvent.click(button);
 
     const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(choice.crest.points).toHaveLength(3);
-    expect(choice.toe.points).toHaveLength(3);
-    // На чертеже подсвечены все отрезки выбранных цепочек.
-    expect(["A", "B", "D", "E"].every((handle) => highlight(handle)?.classList.contains("is-emphasized"))).toBe(true);
+    expect(choice.vertices).toEqual([[90, 170], [140, 170], [140, 215]]);
+    expect(choice.free_faces).toEqual([[1, 2]]);
+    expect(choice.bench).toMatchObject({ crest_z_m: 420.3, toe_z_m: 410 });
+    expect(choice.cad).toMatchObject({
+      source_id: "src-1",
+      file_name: "блок 66.dwg",
+      method: "ready",
+      area_top_m2: 2789.93,
+      area_bottom_m2: 4120.92,
+      map_area_m2: null,
+      edited: false,
+    });
   });
 
-  it("без пары бровок кнопка неактивна, ошибка построения видна у кнопки", async () => {
-    const source = cadSource();
-    renderDialog({ sources: [{ ...source, entities: source.entities.filter((item) => item.handle !== "733") }], error: "Контур не построен." });
+  it("самопересечение видно у кнопки, и кнопка неактивна", async () => {
+    api.cad.contour.mockResolvedValue(
+      contourResult({ ok: false, issues: [{ code: "self_intersection", message: "Контур пересекает сам себя в точке (1,00; 2,00).", point: [1, 2] }], bottom: null }),
+    );
+    renderDialog();
     await ready();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Низ" }), { target: { value: "" } });
-
+    expect((await screen.findByRole("alert")).textContent).toContain("пересекает сам себя");
     expect((screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole("alert").textContent).toContain("Контур не построен.");
+  });
+
+  it("предупреждение о высоте уступа видно у кнопки", async () => {
+    api.cad.contour.mockResolvedValue(
+      contourResult({ warnings: [{ code: "bench_height", message: "Высота уступа 0,6 м вне 2–25 м — проверьте подошву и роли бровок.", level: "warning" }] }),
+    );
+    renderDialog();
+    await ready();
+
+    expect(await screen.findByText(/Высота уступа 0,6 м вне 2–25 м/)).toBeTruthy();
+  });
+
+  it("на шаге «Контур» щелчок по линии в сборке добавляет её участок", async () => {
+    renderDialog();
+    await ready();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Сборка" }));
+    fireEvent.click(hit("6C3"));
+
+    await waitFor(() =>
+      expect(api.cad.contour).toHaveBeenLastCalledWith(
+        "src-1",
+        expect.objectContaining({ method: "assembly", items: [expect.objectContaining({ kind: "part", handle: "6C3" })] }),
+      ),
+    );
   });
 
   it("кнопка «?» открывает справку окна", async () => {

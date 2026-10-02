@@ -6,28 +6,36 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
 from api.schemas.cad import (
+    MAX_SITUATION_REFERENCES,
     CadAreaBasisRequest,
     CadAreaBasisResponse,
     CadContourLinesRequest,
     CadContourLinesResponse,
     CadContourRequest,
     CadContourResponse,
+    CadCrsResponse,
+    CadCrsSchema,
     CadImportResponse,
     CadMetaResponse,
     CadParamsSchema,
     CadRolesRequest,
     CadRolesResponse,
+    CadSiteSourcesResponse,
+    CadSituationCatalogueResponse,
+    CadSituationGeometryResponse,
+    CadSourceMetaRequest,
+    CadSourceMetaResponse,
     CadSourceSchema,
     CadSurfaceRequest,
     CadSurfaceResponse,
 )
 from api.security import require_internal_access
-from api.services import cad_contour_service, cad_service, cad_surface_service
+from api.services import cad_contour_service, cad_service, cad_situation_service, cad_surface_service
 from api.services.cad_service import CadImportError, get_cad_repository
 from api.services.economics_service import get_economics_repository
 from api.services.legacy_references import current_reference_snapshot
@@ -119,6 +127,66 @@ async def post_sources(
             await upload.close()
 
 
+@router.get("/sources", response_model=CadSiteSourcesResponse)
+def get_site_sources(
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+    snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
+    work_object_name: str = Depends(current_work_object_name),
+) -> CadSiteSourcesResponse:
+    """«Чертежи объекта»: загруженные файлы активного объекта работ."""
+
+    organization_id, _ = _identity(session)
+    site_code = cad_service.resolve_site_code(snapshot, work_object_name)
+    return cad_situation_service.list_sources(repository, organization_id, site_code)
+
+
+@router.get("/situation", response_model=CadSituationCatalogueResponse)
+def get_situation(
+    source_ids: list[str] = Query(default_factory=list, max_length=MAX_SITUATION_REFERENCES),
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+    snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
+    work_object_name: str = Depends(current_work_object_name),
+) -> CadSituationCatalogueResponse:
+    """Серии ситуации объекта паспорта: по источникам ссылки, иначе активного объекта."""
+
+    organization_id, _ = _identity(session)
+    site_code = cad_service.resolve_site_code(snapshot, work_object_name)
+    return cad_situation_service.catalogue(repository, organization_id, site_code, source_ids)
+
+
+@router.get("/sources/{source_id}/situation", response_model=CadSituationGeometryResponse)
+def get_source_situation(
+    source_id: str,
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+) -> CadSituationGeometryResponse:
+    """Геометрия ситуации одного источника по слоям."""
+
+    organization_id, _ = _identity(session)
+    try:
+        return cad_situation_service.source_situation(repository, organization_id, source_id)
+    except CadSourceNotFound as exc:
+        raise _http(exc) from exc
+
+
+@router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_source(
+    source_id: str,
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+) -> Response:
+    """Удалить загруженный чертёж насовсем: паспорта сохраняют контур и кровлю."""
+
+    organization_id, _ = _identity(session)
+    try:
+        cad_situation_service.delete_source(repository, organization_id, source_id)
+    except CadSourceNotFound as exc:
+        raise _http(exc) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/sources/{source_id}", response_model=CadSourceSchema)
 def get_source(
     source_id: str,
@@ -128,6 +196,38 @@ def get_source(
     organization_id, _ = _identity(session)
     try:
         return cad_service.get_source(repository, organization_id, source_id)
+    except (CadImportError, CadSourceNotFound) as exc:
+        raise _http(exc) from exc
+
+
+@router.patch("/sources/{source_id}", response_model=CadSourceMetaResponse)
+def patch_source(
+    source_id: str,
+    request: CadSourceMetaRequest,
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+) -> CadSourceMetaResponse:
+    """Название и дата съёмки источника: по ним он попадает в серию ситуации."""
+
+    organization_id, _ = _identity(session)
+    try:
+        return cad_service.update_meta(repository, organization_id, source_id, request)
+    except (CadImportError, CadSourceNotFound) as exc:
+        raise _http(exc) from exc
+
+
+@router.put("/sources/{source_id}/crs", response_model=CadCrsResponse)
+def put_crs(
+    source_id: str,
+    request: CadCrsSchema,
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+) -> CadCrsResponse:
+    """СК объекта источника: задаётся один раз, следующие файлы её наследуют."""
+
+    organization_id, actor = _identity(session)
+    try:
+        return cad_service.save_crs(repository, organization_id, actor, source_id, request)
     except (CadImportError, CadSourceNotFound) as exc:
         raise _http(exc) from exc
 

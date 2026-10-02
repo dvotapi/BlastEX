@@ -10,18 +10,25 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import PurePath
 from typing import Protocol, TypeVar
 
 from design.spatial.cad.model import (
+    ORIGIN_AUTO,
+    ORIGIN_MANUAL,
+    ORIGIN_TEMPLATE,
+    ROLE_SITUATION,
     SITUATION_KIND_BUILDING,
+    SITUATION_KIND_CODES,
     SITUATION_KIND_OTHER,
     SITUATION_KIND_PIT,
     SITUATION_KIND_POWER_LINE,
     SITUATION_KIND_ROAD,
     SITUATION_KIND_STOCKPILE,
+    CadEntity,
 )
 from design.spatial.cad.roles import layer_key
 
@@ -111,3 +118,42 @@ def order_versions(versions: Iterable[V]) -> list[V]:
 
     return sorted(versions, key=key, reverse=True)
 
+
+
+@dataclass(frozen=True)
+class LayerKind:
+    """Вид объектов ситуации слоя и его происхождение (вручную / шаблон / авто)."""
+
+    name: str
+    kind: str
+    origin: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "kind": self.kind, "origin": self.origin}
+
+
+def assign_kinds(
+    entities: Iterable[CadEntity],
+    template: Mapping[str, str],
+    manual: Mapping[str, str] | None = None,
+) -> list[LayerKind]:
+    """Вид слоям, где есть объекты ситуации: вручную → шаблон объекта → по имени.
+
+    `template` — вид по ключу слоя (только заданные человеком), `manual` — по
+    имени слоя в этом файле. Вид — свойство слоя: все его объекты ситуации
+    получают один вид.
+    """
+
+    manual = manual or {}
+    names = sorted({item.layer for item in entities if item.role == ROLE_SITUATION}, key=layer_key)
+    result: list[LayerKind] = []
+    for name in names:
+        chosen = manual.get(name)
+        stored = template.get(layer_key(name))
+        if chosen in SITUATION_KIND_CODES:
+            result.append(LayerKind(name, chosen, ORIGIN_MANUAL))
+        elif stored in SITUATION_KIND_CODES:
+            result.append(LayerKind(name, stored, ORIGIN_TEMPLATE))
+        else:
+            result.append(LayerKind(name, situation_kind_for_layer(name), ORIGIN_AUTO))
+    return result

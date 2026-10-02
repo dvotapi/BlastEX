@@ -26,6 +26,8 @@ from api.schemas.design import (
     HoleGeometryEditResponse,
     HoleInsertRequest,
     HoleInsertResponse,
+    HoleRecomputeRequest,
+    HoleRecomputeResponse,
     PatternGenerateRequest,
     PatternGenerateResponse,
     SurfaceImportRequest,
@@ -115,6 +117,12 @@ def post_movement(request: MovementPredictRequest) -> MovementPredictResponse:
 @router.post("/holes/geometry", response_model=HoleGeometryEditResponse)
 def post_hole_geometry(request: HoleGeometryEditRequest) -> HoleGeometryEditResponse:
     return design_service.edit_hole_geometry(request)
+
+
+@router.post("/holes/recompute", response_model=HoleRecomputeResponse)
+def post_holes_recompute(request: HoleRecomputeRequest) -> HoleRecomputeResponse:
+    """Устья и длины скважин по кровле и подошве (TASK-013, PR 3)."""
+    return design_service.recompute_holes(request)
 
 
 @router.post("/holes/insert", response_model=HoleInsertResponse)

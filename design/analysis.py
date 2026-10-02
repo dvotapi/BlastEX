@@ -9,7 +9,8 @@ from typing import Any
 from collections import Counter
 
 from design.editing import spacing_report
-from design.geometry import block_volume, ensure_ccw, point_in_polygon, true_burden
+from design.geometry import block_volume, collar_on_roof, ensure_ccw, point_in_polygon, true_burden
+from design.hole_recompute import SHORT_BENCH_M
 from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind
 from design.timing import resolve_network
 
@@ -240,6 +241,26 @@ def validate(
                         "message": f"Скважина {h.id} находится вне контура блока.",
                     }
                 )
+
+    # Кровля и подошва (TASK-013, PR 3): устье вне кровли, уступ у скважины ниже 1 м.
+    has_roof = getattr(design.surfaces.top, "has_tin", False) if design.surfaces is not None else False
+    for h in enabled:
+        if has_roof and collar_on_roof(h.collar.x, h.collar.y, design.contour, design.surfaces)[1]:
+            warnings.append(
+                {
+                    "code": "hole_outside_surface",
+                    "hole_id": h.id,
+                    "message": f"Устье скважины {h.id} вне кровли: отметка взята по ближайшей точке поверхности.",
+                }
+            )
+        if h.collar.z - design.contour.bench.toe_z_m < SHORT_BENCH_M:
+            warnings.append(
+                {
+                    "code": "hole_short_bench",
+                    "hole_id": h.id,
+                    "message": f"У скважины {h.id} высота уступа меньше {SHORT_BENCH_M:g} м — проверьте кровлю и подошву.",
+                }
+            )
 
     pattern_params = design.pattern_params or {}
     expected_a = pattern_params.get("spacing_a_m")

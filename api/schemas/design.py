@@ -1054,6 +1054,29 @@ class HoleGeometryEditResponse(BaseModel):
     hole: HoleSchema
 
 
+# Скважин в одном пересчёте не больше этого (TASK-013, PR 3).
+MAX_RECOMPUTE_HOLES = 20_000
+
+
+class HoleRecomputeRequest(BaseModel):
+    """Устья и длины по кровле и подошве паспорта: скважины, контур, поверхности, параметры сетки."""
+
+    holes: list[HoleSchema] = Field(default_factory=list, max_length=MAX_RECOMPUTE_HOLES)
+    contour: BlockContourSchema
+    surfaces: SurfaceSetSchema | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class HoleRecomputeResponse(BaseModel):
+    holes: list[HoleSchema]
+    # Флаги по скважинам: `outside_surface` — устье вне кровли, `short_bench` —
+    # высота уступа у скважины меньше 1 м. Только у скважин с флагами.
+    flags: dict[str, list[str]] = Field(default_factory=dict)
+    block_volume_m3: float
+    # Погонаж — сумма длин включённых скважин.
+    drilling_m: float
+
+
 class HoleInsertRequest(BaseModel):
     contour: BlockContourSchema
     x: float

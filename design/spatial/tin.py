@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Any, Iterable
+
+import numpy as np
+from scipy.spatial import cKDTree
 
 from design.models import Point3
 
@@ -29,6 +32,7 @@ class TIN:
     _cols: int = field(default=0, repr=False, compare=False)
     _rows: int = field(default=0, repr=False, compare=False)
     _buckets: list[list[int]] = field(default_factory=list, repr=False, compare=False)
+    _xy: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self._rebuild_index()
@@ -70,6 +74,15 @@ class TIN:
             return None
         i, j, k = self.triangles[tri]
         return _barycentric_z(self.vertices[i], self.vertices[j], self.vertices[k], x, y)
+
+    def nearest_vertex(self, x: float, y: float) -> Point3 | None:
+        """Ближайшая к (x, y) вершина сети в плане — для точек вне сети."""
+        if not self.vertices:
+            return None
+        if self._xy is None or self._xy.n != len(self.vertices):
+            self._xy = cKDTree(np.array([(v.x, v.y) for v in self.vertices], dtype=float))
+        _, index = self._xy.query((x, y))
+        return self.vertices[int(index)]
 
     def vertical_intersection(self, x: float, y: float) -> Point3 | None:
         z = self.elevation_at(x, y)

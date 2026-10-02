@@ -187,14 +187,28 @@ def _volume_from_surfaces(contour: BlockContour, top: object, floor: object | No
     return volume
 
 
-def collar_elevation(x: float, y: float, contour: BlockContour, surfaces: object | None = None) -> float:
-    """Отметка устья: TIN кровли, иначе плоскость бровки."""
+def collar_on_roof(
+    x: float, y: float, contour: BlockContour, surfaces: object | None = None
+) -> tuple[float, bool]:
+    """Отметка устья и признак «вне поверхности» (TASK-013, PR 3).
+
+    Устье на TIN кровли; вне сети — отметка ближайшей вершины TIN и признак;
+    без кровли — плоскость бровки.
+    """
     top = getattr(surfaces, "top", None) if surfaces is not None else None
-    if top is not None:
+    if top is not None and getattr(top, "has_tin", False):
         z = top.elevation_at(x, y)
         if z is not None:
-            return z
-    return contour.bench.crest_z_m
+            return z, False
+        nearest = top.tin.nearest_vertex(x, y)
+        if nearest is not None:
+            return nearest.z, True
+    return contour.bench.crest_z_m, False
+
+
+def collar_elevation(x: float, y: float, contour: BlockContour, surfaces: object | None = None) -> float:
+    """Отметка устья: TIN кровли (вне неё — ближайшая вершина), иначе плоскость бровки."""
+    return collar_on_roof(x, y, contour, surfaces)[0]
 
 
 def hole_depth_m(
@@ -206,7 +220,12 @@ def hole_depth_m(
     surfaces: object | None = None,
     depth_m: float | None = None,
 ) -> float:
-    """Глубина по оси: явный параметр, иначе пересечение с подошвой + перебур."""
+    """Глубина по оси: явный параметр, иначе до подошвы + перебур вдоль оси.
+
+    Без TIN подошвы — проектная отметка подошвы: L = (S − Z)/cos α + Δ, где S —
+    отметка устья (кровля), Z — подошва, α — угол от вертикали, Δ — перебур
+    (решение владельца 02.10.2026, TASK-013 PR 3).
+    """
     if depth_m is not None:
         return max(0.0, float(depth_m))
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
@@ -223,7 +242,11 @@ def hole_depth_m(
             if abs(cos_a) < 1e-9:
                 return max(0.0, vertical) + subdrill_m
             return max(0.0, vertical / cos_a) + subdrill_m
-    return contour.bench.height_m + subdrill_m
+    vertical = max(0.0, collar.z - contour.bench.toe_z_m)
+    cos_a = math.cos(math.radians(angle_deg))
+    if abs(cos_a) < 1e-9:
+        return vertical + subdrill_m
+    return vertical / cos_a + subdrill_m
 
 
 def drape_collar(

@@ -41,6 +41,8 @@ from api.schemas.design import (
     HoleGeometryEditResponse,
     HoleInsertRequest,
     HoleInsertResponse,
+    HoleRecomputeRequest,
+    HoleRecomputeResponse,
     MicSchema,
     PatternGenerateRequest,
     PatternGenerateResponse,
@@ -94,6 +96,7 @@ from design.export import holes_csv
 from design.reporting.html import passport_html
 from design.geometry import block_volume
 from design.geology import apply_domains_to_holes, assign_domain_polygon
+from design.hole_recompute import recompute_holes as run_recompute_holes
 from design.maps import engineering_maps
 from design.models import (
     AsChargedHole,
@@ -676,6 +679,21 @@ def edit_hole_geometry(request: HoleGeometryEditRequest) -> HoleGeometryEditResp
     surfaces = _surfaces_from_request(request.surfaces)
     updated = apply_hole_geometry(hole, request.patch, contour, surfaces)
     return HoleGeometryEditResponse(hole=updated.to_dict())
+
+
+def recompute_holes(request: HoleRecomputeRequest) -> HoleRecomputeResponse:
+    """Устья на кровле и длины до подошвы с перебуром; ручные правки не трогаются."""
+
+    contour = BlockContour.from_dict(request.contour.model_dump())
+    surfaces = _surfaces_from_request(request.surfaces)
+    holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
+    result = run_recompute_holes(holes, contour, surfaces, request.params)
+    return HoleRecomputeResponse(
+        holes=[item.hole.to_dict() for item in result],
+        flags={item.hole.id: item.flags for item in result if item.flags},
+        block_volume_m3=round(block_volume(contour, surfaces), 2),
+        drilling_m=round(sum(item.hole.length_m for item in result if item.hole.enabled), 3),
+    )
 
 
 def insert_hole(request: HoleInsertRequest) -> HoleInsertResponse:

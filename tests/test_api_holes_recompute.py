@@ -102,3 +102,22 @@ def test_mean_bench_height_comes_with_the_volume(client):
     # Кровля z = 420 + 0,01·x покрывает контур до x = 30 (в среднем 10,15),
     # остальные 200 м² — по отметке бровки, как в объёме: 10.
     assert body["mean_height_m"] == pytest.approx((600 * 10.15 + 200 * 10.0) / 800, abs=1e-3)
+
+
+def test_surface_meshes_are_bounded(client, monkeypatch):
+    # Ревью Codex #104: поверхности пересчёта были без пределов — большие сети
+    # строились и индексировались до любой проверки.
+    monkeypatch.setattr("api.schemas.design.MAX_RECOMPUTE_TIN_VERTICES", 3)
+    response = client.post(PATH, json={"holes": [], "contour": CONTOUR, "surfaces": ROOF})
+
+    assert response.status_code == 422
+    assert "вершин" in response.text
+
+
+def test_triangle_indices_are_checked_before_the_tin_is_built(client):
+    broken = {"top": {**ROOF["top"], "tin": {**ROOF["top"]["tin"], "triangles": [[0, 1, 7]]}}}
+
+    response = client.post(PATH, json={"holes": [], "contour": CONTOUR, "surfaces": broken})
+
+    assert response.status_code == 422
+    assert "треугольник" in response.text

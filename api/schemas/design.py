@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.schemas.blast import ExplosivePropertiesSchema, KuzRamSettingsSchema, RockPropertiesSchema
 from api.schemas.cost import CalculationContextInputSchema, MaterialsSelectionSchema
@@ -1058,6 +1058,9 @@ class HoleGeometryEditResponse(BaseModel):
 
 # Скважин в одном пересчёте не больше этого (TASK-013, PR 3).
 MAX_RECOMPUTE_HOLES = 20_000
+# Вершин (и точек, и вершин полилиний) у поверхности пересчёта — кровля из
+# чертежа строится не больше чем по 50 000 точкам; треугольников — вдвое.
+MAX_RECOMPUTE_TIN_VERTICES = 100_000
 
 
 class HoleRecomputeRequest(BaseModel):
@@ -1067,6 +1070,28 @@ class HoleRecomputeRequest(BaseModel):
     contour: BlockContourSchema
     surfaces: SurfaceSetSchema | None = None
     params: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _bounded_surfaces(self) -> HoleRecomputeRequest:
+        """Пределы сетей и индексы треугольников — до построения TIN."""
+
+        if self.surfaces is None:
+            return self
+        limit = MAX_RECOMPUTE_TIN_VERTICES
+        names = {"top": "кровля", "floor": "подошва", "face": "откос", "post_blast": "после взрыва"}
+        for key, name in names.items():
+            model = getattr(self.surfaces, key)
+            if model is None:
+                continue
+            tin = model.tin
+            sizes = (len(tin.vertices), len(model.points), sum(len(line) for line in model.polylines))
+            if max(sizes) > limit or len(tin.triangles) > 2 * limit:
+                raise ValueError(f"Поверхность «{name}» слишком большая: больше {limit} вершин или {2 * limit} треугольников.")
+            count = len(tin.vertices)
+            for triangle in tin.triangles:
+                if len(triangle) != 3 or min(triangle) < 0 or max(triangle) >= count:
+                    raise ValueError(f"Поверхность «{name}»: треугольник {triangle} ссылается на несуществующую вершину.")
+        return self
 
 
 class HoleRecomputeResponse(BaseModel):

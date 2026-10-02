@@ -120,6 +120,20 @@ function samePoint(a: Hole["collar"], b: Hole["collar"]): boolean {
   return a.x === b.x && a.y === b.y && a.z === b.z;
 }
 
+/** Ось скважины та же: геологию, посчитанную по `b`, можно ставить скважине `a`. */
+export function sameAxis(a: Hole, b: Hole): boolean {
+  return samePoint(a.collar, b.collar) && samePoint(a.toe, b.toe);
+}
+
+/** Сколько скважин ответа геологии уже с другой осью в документе. */
+export function changedAxes(holes: Hole[], response: Hole[]): number {
+  const byId = new Map(holes.map((hole) => [hole.id, hole]));
+  return response.filter((item) => {
+    const hole = byId.get(item.id);
+    return hole !== undefined && !sameAxis(hole, item);
+  }).length;
+}
+
 function normalizeHole(hole: Hole): Hole {
   return { ...emptyHoleGeology(), ...hole };
 }
@@ -442,7 +456,9 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         ...document,
         holes: document.holes.map((h) => {
           const next = byId.get(h.id);
-          if (!next) return h;
+          // Ось сменилась, пока пересекалась геология (пересчёт по кровле,
+          // правка) — интервалы старой оси не ставим.
+          if (!next || !sameAxis(h, next)) return h;
           return {
             ...h,
             intervals: next.intervals ?? [],

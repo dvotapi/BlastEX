@@ -103,7 +103,7 @@ import { LifecyclePanel } from "./LifecyclePanel";
 import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
-import { designReducer, initDesignState } from "./designReducer";
+import { changedAxes, designReducer, initDesignState } from "./designReducer";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -224,10 +224,12 @@ export function DesignPage({
     apply: !designedLocked,
     dispatch,
   });
-  // Скважины на момент ответа расчёта зарядов: пересчёт по кровле мог сменить
-  // длины, пока запрос шёл.
+  // Скважины и пересчёт на момент ответа зарядов и геологии: пересчёт по
+  // кровле мог сменить длины или ждать ответа, пока запрос шёл.
   const holesRef = useRef(document.holes);
   holesRef.current = document.holes;
+  const recomputePendingRef = useRef(recompute.pending);
+  recomputePendingRef.current = recompute.pending;
   const [blockVolumeM3, setBlockVolumeM3] = useState<number | null>(null);
   const [plans, setPlans] = useState<DesignSummary[]>([]);
   const [patternBusy, setPatternBusy] = useState(false);
@@ -878,8 +880,9 @@ export function DesignPage({
         contour: document.contour,
         explosives: catalog,
       });
-      if (holesRef.current !== holes) {
-        // Заряды посчитаны по старым длинам — не ставим их к новым скважинам.
+      if (holesRef.current !== holes || recomputePendingRef.current) {
+        // Заряды посчитаны по старым длинам (или кровлю, подошву, сетку
+        // сменили и пересчёт ещё идёт) — не ставим их к новым скважинам.
         setError("Скважины изменились, пока считались заряды, — рассчитайте заряды заново.");
         return;
       }
@@ -1069,7 +1072,11 @@ export function DesignPage({
     setError("");
     try {
       const result = await api.design.interceptGeology(holes, domains, waterTable);
+      // Скважинам со сменившейся за время запроса осью редьюсер геологию не ставит.
       dispatch({ type: "SET_HOLE_GEOLOGY", holes: result.holes });
+      if (changedAxes(holesRef.current, result.holes) > 0) {
+        setError("Скважины изменились, пока пересекалась геология, — у изменённых пересеките её заново.");
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось пересечь скважины с доменами.");
     } finally {

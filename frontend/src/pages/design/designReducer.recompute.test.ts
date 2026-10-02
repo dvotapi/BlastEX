@@ -2,7 +2,7 @@
 // применяется вне истории отмены — отмена правки сама вызывает пересчёт.
 import { describe, expect, it } from "vitest";
 import { emptyDesign, emptyHoleGeology, type Hole } from "../../types/design";
-import { designReducer, initDesignState } from "./designReducer";
+import { changedAxes, designReducer, initDesignState } from "./designReducer";
 
 function hole(id: string, z: number, length: number, extra: Partial<Hole> = {}): Hole {
   return {
@@ -94,5 +94,30 @@ describe("MOVE_HOLES и ручная отметка устья", () => {
 
     expect(moved.present.holes[0].collar).toEqual({ x: 11, y: 5, z: 425 });
     expect(moved.present.holes[0].toe.z).toBe(413);
+  });
+});
+
+describe("SET_HOLE_GEOLOGY после пересчёта", () => {
+  // Ревью Codex #104: ответ геологии, посчитанный по старой оси, приходил
+  // после пересчёта и ставил интервалы новой оси.
+  it("интервалы ставятся только скважинам, ось которых не сменилась", () => {
+    const start = initDesignState({ ...emptyDesign(), holes: [hole("a", 420.1, 11.1), hole("b", 420, 12)] });
+
+    const next = designReducer(start, {
+      type: "SET_HOLE_GEOLOGY",
+      holes: [hole("a", 420, 12, { intervals: [INTERVAL] }), hole("b", 420, 12, { intervals: [INTERVAL] })],
+    });
+
+    expect(next.present.holes[0].intervals).toEqual([]);
+    expect(next.present.holes[1].intervals).toEqual([INTERVAL]);
+  });
+});
+
+describe("changedAxes", () => {
+  it("считает скважины ответа, ось которых в документе уже другая", () => {
+    const current = [hole("a", 420.1, 11.1), hole("b", 420, 12)];
+    // Копия тех же скважин (как после SET_HOLES) — не изменение.
+    expect(changedAxes(current, current.map((item) => ({ ...item, collar: { ...item.collar }, toe: { ...item.toe } })))).toBe(0);
+    expect(changedAxes(current, [hole("a", 420, 12), hole("b", 420, 12), hole("c", 420, 12)])).toBe(1);
   });
 });

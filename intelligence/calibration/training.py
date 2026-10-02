@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from intelligence.calibration.algorithms import DEFAULT_ALGORITHM, get_algorithm
+from intelligence.calibration.base import BASELINE_FIELDS, FRAGMENTATION_RESIDUALS, snapshot_base
 from intelligence.calibration.features import residual_table
 from intelligence.calibration.types import (
     MIN_TRAINING_SAMPLES,
@@ -21,6 +22,12 @@ from intelligence.datasets.builder import DatasetSnapshot
 from intelligence.datasets.features import FEATURE_SCHEMA_VERSION
 from intelligence.uncertainty.domain import compute_feature_ranges
 from intelligence.uncertainty.types import ranges_to_dict
+
+
+OLD_SNAPSHOT_MESSAGE = (
+    "Снимок собран до перехода на новую модель кусковатости: в нём только прогнозы старой "
+    "формулы — соберите новый снимок."
+)
 
 
 def next_model_version(existing_versions: list[int]) -> int:
@@ -95,23 +102,20 @@ def train_from_snapshot(
     if snapshot.site_id and site != snapshot.site_id:
         raise ValueError("site_id модели не совпадает с площадкой снимка датасета.")
 
-    table = residual_table(snapshot, model_type)
+    base = None
+    baseline_field = spec["baseline_field"]
+    if model_type in FRAGMENTATION_RESIDUALS:
+        base = snapshot_base(snapshot.fragmentation_base)
+        if base is None:
+            raise ValueError(OLD_SNAPSHOT_MESSAGE)
+        baseline_field = BASELINE_FIELDS[model_type]
+
+    table = residual_table(snapshot, model_type, baseline_field=baseline_field)
     if len(table.y) < MIN_TRAINING_SAMPLES:
-        message = (
+        raise ValueError(
             f"Для обучения «{model_type}» нужно не меньше {MIN_TRAINING_SAMPLES} образцов "
             f"с базовым прогнозом и замером, в снимке {len(table.y)}."
         )
-        if table.excluded_new_base:
-            message += (
-                f" Исключено образцов с прогнозом новой модели: {table.excluded_new_base} — "
-                "калибровки кусковатости учатся на прогнозах старой модели Kuz-Ram 1.0.0."
-            )
-        if table.excluded_other_curve:
-            message += (
-                f" Исключено образцов с прогнозом не по кривой Kuz-Ram: {table.excluded_other_curve} — "
-                "негабарит калибруется только на ней."
-            )
-        raise ValueError(message)
 
     algo = get_algorithm(algorithm)
     X = np.asarray(table.X, dtype=float)
@@ -134,7 +138,9 @@ def train_from_snapshot(
         algorithm=algo.name,
         feature_names=list(table.feature_names),
         target_name=spec["measured_field"],
-        baseline_field=spec["baseline_field"],
+        baseline_field=baseline_field,
+        baseline_model=base.model if base is not None else "",
+        baseline_model_version=base.model_version if base is not None else "",
         measured_field=spec["measured_field"],
         sample_count=len(table.y),
         source_blast_ids=list(table.source_blast_ids),

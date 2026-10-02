@@ -233,11 +233,6 @@ class ResidualTable:
     baselines: list[float]
     measured: list[float]
     source_blast_ids: list[str]
-    # Строки с замером и прогнозом, не взятые в обучение: прогноз сохранён
-    # новой моделью кусковатости, а калибровки учатся на старой базе...
-    excluded_new_base: int = 0
-    # ...а негабарит — ещё и на кривой Kuz-Ram: прогноз другой старой модели не подходит.
-    excluded_other_curve: int = 0
 
 
 @dataclass

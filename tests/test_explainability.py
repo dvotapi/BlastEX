@@ -24,7 +24,7 @@ from intelligence.explainability.shap_values import local_shap_values, tree_path
 from intelligence.explainability.types import METHOD_NONE, METHOD_TREE_PATH, empty_explanation
 from intelligence.outcomes.prediction import apply_model, empty_prediction
 from intelligence.outcomes.training import train_from_snapshot as train_outcome
-from tests.calibration_fixtures import synthetic_snapshot
+from tests.calibration_fixtures import synthetic_snapshot, with_current_base
 from tests.outcome_fixtures import synthetic_outcome_snapshot
 
 BURDEN = "GEOMETRY.mean_burden_m"
@@ -160,16 +160,18 @@ def explained_calibration_snapshot(*, n: int = 27, site_id: str = "quarry-1") ->
                 break
         if index >= n:
             break
-    return DatasetSnapshot(
-        dataset_id="snap-explain-cal",
-        dataset_version=1,
-        feature_schema_version=FEATURE_SCHEMA_VERSION,
-        source_blast_ids=[sample.source_blast_id for sample in samples],
-        created_at="2024-06-04T00:00:00+00:00",
-        site_id=site_id,
-        name="explained-calibration",
-        samples=samples,
-        immutable=True,
+    return with_current_base(
+        DatasetSnapshot(
+            dataset_id="snap-explain-cal",
+            dataset_version=1,
+            feature_schema_version=FEATURE_SCHEMA_VERSION,
+            source_blast_ids=[sample.source_blast_id for sample in samples],
+            created_at="2024-06-04T00:00:00+00:00",
+            site_id=site_id,
+            name="explained-calibration",
+            samples=samples,
+            immutable=True,
+        )
     )
 
 

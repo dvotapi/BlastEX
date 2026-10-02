@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from intelligence.calibration.persistence import save_model
 from intelligence.calibration.prediction import apply_residual
-from intelligence.calibration.training import train_from_snapshot
+from intelligence.calibration.training import OLD_SNAPSHOT_MESSAGE, train_from_snapshot
 from intelligence.calibration.types import STATUS_CANDIDATE
 from tests.calibration_fixtures import synthetic_snapshot
 
@@ -72,8 +72,8 @@ def _mark_predictions(snapshot, marks: dict[int, tuple[str, str]]):
     return snapshot
 
 
-class CalibrationTrainingBaseTests(unittest.TestCase):
-    """Калибровки кусковатости учатся только на прогнозах старой базы Kuz-Ram 1.0.0."""
+class CalibrationTrainingStoredPredictionTests(unittest.TestCase):
+    """Новый снимок учит калибровки кусковатости на baseline: модель сохранённого прогноза не важна."""
 
     def _snapshot(self):
         return _mark_predictions(
@@ -86,97 +86,52 @@ class CalibrationTrainingBaseTests(unittest.TestCase):
                 4: ("kuzram", ""),
                 5: ("kuzram_legacy", "1.0.0"),
                 6: ("kuzram", "1.0.0"),
-                7: ("", ""),
-                # строки 8-11 без полей модели: снимки, собранные до появления полей
+                7: ("swebrec_legacy", "1.0.0"),
+                8: ("kuznetsov_legacy", "1.0.0"),
+                9: ("", ""),
+                # строки 10-11 без полей модели прогноза
             },
         )
 
-    def test_rows_with_new_model_predictions_are_excluded(self):
-        for model_type in ("kuzram_residual", "oversize_residual"):
+    def test_rows_with_any_stored_prediction_model_stay_in_training(self):
+        for model_type in ("kuzram_residual", "oversize_residual", "ppv_residual"):
             with self.subTest(model_type=model_type):
                 model = train_from_snapshot(self._snapshot(), model_type=model_type)
 
-                self.assertEqual(model.sample_count, 7)
+                self.assertEqual(model.sample_count, 12)
                 self.assertEqual(
                     sorted(model.source_blast_ids),
-                    sorted(f"blast-{index}" for index in (5, 6, 7, 8, 9, 10, 11)),
+                    sorted(f"blast-{index}" for index in range(12)),
                 )
 
-    def test_ppv_training_keeps_all_rows(self):
-        model = train_from_snapshot(self._snapshot(), model_type="ppv_residual")
-
-        self.assertEqual(model.sample_count, 12)
-
-    def test_snapshot_without_model_fields_trains_on_all_rows(self):
-        model = train_from_snapshot(synthetic_snapshot(n=8), model_type="kuzram_residual")
-
-        self.assertEqual(model.sample_count, 8)
-
-    def test_error_names_excluded_rows_of_new_model(self):
+    def test_old_snapshot_is_refused_whatever_the_stored_predictions(self):
         snapshot = _mark_predictions(
-            synthetic_snapshot(n=6),
-            {0: ("kuzram", "2.0.0"), 1: ("kuzram", "2.0.0"), 2: ("kuzram", "2.0.0")},
+            synthetic_snapshot(n=12, legacy=True),
+            {0: ("kuzram", "1.0.0"), 1: ("kuzram_legacy", "1.0.0"), 2: ("kuzram", "2.0.0")},
         )
 
-        with self.assertRaises(ValueError) as caught:
-            train_from_snapshot(snapshot, model_type="kuzram_residual")
+        for model_type in ("kuzram_residual", "oversize_residual"):
+            with self.subTest(model_type=model_type), self.assertRaises(ValueError) as caught:
+                train_from_snapshot(snapshot, model_type=model_type)
 
-        self.assertIn("новой модели: 3", str(caught.exception))
+            self.assertEqual(str(caught.exception), OLD_SNAPSHOT_MESSAGE)
 
-    def _legacy_curves_snapshot(self):
-        return _mark_predictions(
-            synthetic_snapshot(n=12),
-            {
-                0: ("swebrec_legacy", "1.0.0"),
-                1: ("swebrec_legacy", "1.0.0"),
-                2: ("kuznetsov_legacy", "1.0.0"),
-                3: ("kuznetsov_legacy", "1.0.0"),
-                4: ("kuzram_legacy", "1.0.0"),
-                5: ("kuzram", "1.0.0"),
-                6: ("", ""),
-                # строки 7-11 без полей модели
-            },
-        )
-
-    def test_oversize_training_keeps_only_kuzram_curve(self):
-        model = train_from_snapshot(self._legacy_curves_snapshot(), model_type="oversize_residual")
-
-        self.assertEqual(model.sample_count, 8)
-        self.assertEqual(
-            sorted(model.source_blast_ids),
-            sorted(f"blast-{index}" for index in range(4, 12)),
-        )
-
-    def test_x50_training_keeps_rows_of_every_old_model(self):
-        # x50 всех старых моделей одинаков, поэтому строки swebrec_legacy и kuznetsov_legacy годятся.
-        model = train_from_snapshot(self._legacy_curves_snapshot(), model_type="kuzram_residual")
-
-        self.assertEqual(model.sample_count, 12)
-
-    def test_ppv_training_ignores_prediction_curve(self):
-        model = train_from_snapshot(self._legacy_curves_snapshot(), model_type="ppv_residual")
-
-        self.assertEqual(model.sample_count, 12)
-
-    def test_oversize_error_names_rows_of_other_curve(self):
+    def test_old_snapshot_trains_ppv_on_all_rows(self):
         snapshot = _mark_predictions(
-            synthetic_snapshot(n=6),
-            {0: ("swebrec_legacy", "1.0.0"), 1: ("swebrec_legacy", "1.0.0"), 2: ("kuznetsov_legacy", "1.0.0")},
+            synthetic_snapshot(n=12, legacy=True),
+            {0: ("kuzram", "2.0.0"), 1: ("swebrec_legacy", "1.0.0")},
         )
 
-        with self.assertRaises(ValueError) as caught:
-            train_from_snapshot(snapshot, model_type="oversize_residual")
+        model = train_from_snapshot(snapshot, model_type="ppv_residual")
 
-        self.assertIn("не по кривой Kuz-Ram: 3", str(caught.exception))
-        self.assertNotIn("новой модели", str(caught.exception))
-        self.assertEqual(train_from_snapshot(snapshot, model_type="kuzram_residual").sample_count, 6)
+        self.assertEqual(model.sample_count, 12)
 
-    def test_error_without_excluded_rows_is_unchanged(self):
+    def test_too_few_samples_error_has_no_exclusion_phrases(self):
         with self.assertRaises(ValueError) as caught:
             train_from_snapshot(synthetic_snapshot(n=2), model_type="kuzram_residual")
 
-        self.assertNotIn("новой модели", str(caught.exception))
-        self.assertNotIn("Kuz-Ram:", str(caught.exception))
+        self.assertIn("не меньше", str(caught.exception))
+        self.assertNotIn("Исключено", str(caught.exception))
 
 
 class CalibrationPredictionTests(unittest.TestCase):

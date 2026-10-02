@@ -7,6 +7,20 @@ from intelligence.datasets.validation import SampleValidation
 from tests.dataset_fixtures import closed_design
 
 
+CURRENT_BASE_FIELDS = {"baseline_model": "kuzram", "baseline_model_version": "2.0.0"}
+
+
+def with_current_base(snapshot: DatasetSnapshot) -> DatasetSnapshot:
+    """Снимок как после PR 3: baseline текущей базы рядом с сохранённым прогнозом."""
+    for sample in snapshot.samples:
+        frag = sample.targets.setdefault("FRAGMENTATION", {})
+        frag.setdefault("baseline_x50_mm", frag.get("predicted_x50_mm"))
+        frag.setdefault("baseline_oversize_pct", frag.get("predicted_oversize_pct"))
+        frag.update(CURRENT_BASE_FIELDS)
+    snapshot.fragmentation_base = {"model": "kuzram", "model_version": "2.0.0"}
+    return snapshot
+
+
 def _features(index: int, *, ucs: float, powder: float, k: float = 500.0) -> dict:
     return {
         "SITE": {"site_id": "quarry-1", "design_id": f"blast-{index}"},
@@ -45,6 +59,7 @@ def synthetic_snapshot(
     dataset_id: str = "snap-ml",
     dataset_version: int = 1,
     model_type: str = "kuzram_residual",
+    legacy: bool = False,
 ) -> DatasetSnapshot:
     samples: list[TrainingSample] = []
     for index in range(n):
@@ -79,7 +94,7 @@ def synthetic_snapshot(
                 validation=SampleValidation(ok=True, closed=True, complete_target_groups=["FRAGMENTATION", "VIBRATION"]),
             )
         )
-    return DatasetSnapshot(
+    snapshot = DatasetSnapshot(
         dataset_id=dataset_id,
         dataset_version=dataset_version,
         feature_schema_version=FEATURE_SCHEMA_VERSION,
@@ -90,6 +105,7 @@ def synthetic_snapshot(
         samples=samples,
         immutable=True,
     )
+    return snapshot if legacy else with_current_base(snapshot)
 
 
 def varied_closed_designs(n: int = 6):

@@ -131,8 +131,8 @@ class ProvidedBaselineTests(unittest.TestCase):
         self.assertTrue(result.calibration_applied)
 
 
-class TrainOnOldBaseTests(unittest.TestCase):
-    """Снимок из закрытых взрывов: прогнозы новой модели не идут в обучение кусковатости."""
+class TrainOnCurrentBaseTests(unittest.TestCase):
+    """Снимок из закрытых взрывов: калибровки кусковатости учатся на baseline текущей базы."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -141,37 +141,42 @@ class TrainOnOldBaseTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _snapshot_with_new_predictions(self, total: int, new_count: int):
+    def _snapshot_with_new_predictions(self, total: int, new_count: int, *, old_snapshot: bool = False):
         designs = varied_closed_designs(total)
         for design in designs[:new_count]:
             design.blast_result.basis.predicted_fragmentation.provenance = ModelProvenance(
                 model="kuzram", model_version="2.0.0"
             )
-        return save_snapshot(
-            TEAM_ID,
-            build_snapshot(designs, site_id="quarry-1", dataset_id="from-closed-new", dataset_version=1),
+        snapshot = build_snapshot(designs, site_id="quarry-1", dataset_id="from-closed-new", dataset_version=1)
+        if old_snapshot:
+            snapshot.fragmentation_base = {}  # как снимок, собранный до PR 3
+        return save_snapshot(TEAM_ID, snapshot)
+
+    def _train(self, snapshot, model_type: str):
+        return calibration_service.train_calibration(
+            TEAM_ID, CalibrationTrainRequest(dataset_id=snapshot.dataset_id, model_type=model_type)
         )
 
-    def test_new_model_rows_are_left_out_of_fragmentation_training(self):
+    def test_rows_with_new_model_predictions_stay_in_training(self):
         snapshot = self._snapshot_with_new_predictions(total=8, new_count=3)
 
-        for model_type, expected in (("kuzram_residual", 5), ("oversize_residual", 5), ("ppv_residual", 8)):
+        for model_type in ("kuzram_residual", "oversize_residual", "ppv_residual"):
             with self.subTest(model_type=model_type):
-                trained = calibration_service.train_calibration(
-                    TEAM_ID, CalibrationTrainRequest(dataset_id=snapshot.dataset_id, model_type=model_type)
-                )
+                self.assertEqual(self._train(snapshot, model_type).sample_count, 8)
 
-                self.assertEqual(trained.sample_count, expected)
+    def test_old_snapshot_is_refused_for_fragmentation(self):
+        snapshot = self._snapshot_with_new_predictions(total=8, new_count=0, old_snapshot=True)
 
-    def test_too_few_old_rows_gives_invalid_calibration(self):
-        snapshot = self._snapshot_with_new_predictions(total=6, new_count=4)
+        for model_type in ("kuzram_residual", "oversize_residual"):
+            with self.subTest(model_type=model_type), self.assertRaises(InvalidCalibrationError) as caught:
+                self._train(snapshot, model_type)
 
-        with self.assertRaises(InvalidCalibrationError) as caught:
-            calibration_service.train_calibration(
-                TEAM_ID, CalibrationTrainRequest(dataset_id=snapshot.dataset_id, model_type="kuzram_residual")
-            )
+            self.assertIn("соберите новый снимок", str(caught.exception))
 
-        self.assertIn("новой модели", str(caught.exception))
+    def test_old_snapshot_still_trains_ppv(self):
+        snapshot = self._snapshot_with_new_predictions(total=8, new_count=0, old_snapshot=True)
+
+        self.assertEqual(self._train(snapshot, "ppv_residual").sample_count, 8)
 
 
 if __name__ == "__main__":

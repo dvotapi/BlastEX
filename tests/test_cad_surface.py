@@ -360,3 +360,32 @@ def test_bottom_crest_of_another_bench_is_not_a_threshold(factory):
     roof = build_roof([*grid(lambda x, y: 420.0), upper_toe, toe], BLOCK, bottom, floor_z=410.0, builder=factory())
 
     assert roof.thresholds == []
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_noisy_fifty_thousand_points_on_a_large_block_in_under_five_seconds(factory):
+    # Блок 200 × 200 м, отметки с шумом 1 м — выбросов больше предела списка.
+    rng = np.random.default_rng(3)
+    xy = rng.uniform(-19.0, 219.0, size=(49_000, 2))
+    z = 420.0 + 0.01 * xy[:, 0] + 0.3 * np.sin(xy[:, 1] / 3) + rng.normal(0.0, 1.0, len(xy))
+    entities = [point(f"R{k}", x, y, value) for k, ((x, y), value) in enumerate(zip(xy, z))]
+    block = [(0.0, 0.0), (200.0, 0.0), (200.0, 200.0), (0.0, 200.0)]
+
+    started = time.perf_counter()
+    roof = build_roof(entities, block, None, floor_z=410.0, builder=factory())
+    elapsed = time.perf_counter() - started
+
+    assert len(roof.outliers) == 500
+    assert "outliers_capped" in [warning.code for warning in roof.warnings]
+    assert elapsed < 5.0, f"{elapsed:.2f} с"
+
+
+def test_outliers_are_found_from_the_strongest_one_by_one():
+    # Два соседних пика: после исключения сильного слабый остаётся выбросом
+    # относительно ровной площадки, а соседи пиков — нет.
+    entities = [*grid(lambda x, y: 420.0), point("BIG", 22.0, 12.0, 428.0), point("SMALL", 24.5, 13.0, 423.0)]
+
+    roof = build_roof(entities, BLOCK, None, floor_z=410.0, builder=ScipyBuilder())
+
+    assert [item.id for item in roof.outliers] == ["BIG", "SMALL"]
+    assert roof.outliers[0].deviation_m > roof.outliers[1].deviation_m > 1.5

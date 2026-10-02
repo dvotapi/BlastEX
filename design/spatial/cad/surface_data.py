@@ -503,22 +503,33 @@ def _assemble(
     if len(xyz) > 1:
         for a, b in cKDTree(xyz[:, :2]).query_pairs(MERGE_M):
             union.union(int(a), int(b))
+    # Группы по порядку первого члена; почти все — из одной вершины, их
+    # переносим разом, по одной разбираем только слившиеся.
+    roots = np.array([union.find(index) for index in range(len(xyz))], dtype=int)
+    _, new_index = np.unique(roots, return_inverse=True)
+    new_index = new_index.reshape(-1)
+    count = int(new_index.max()) + 1 if len(xyz) else 0
+    sizes = np.bincount(new_index, minlength=count)
+    out_xy = np.empty((count, 2))
+    out_z = np.empty(count)
+    out_priority = np.empty(count, dtype=int)
+    out_line = np.empty(count, dtype=int)
+    out_id = [""] * count
+    single = np.flatnonzero(sizes[new_index] == 1)
+    target = new_index[single]
+    out_xy[target] = xyz[single, :2]
+    out_z[target] = xyz[single, 2]
+    out_priority[target] = priority[single]
+    out_line[target] = line_of[single]
+    for index, number in zip(single.tolist(), target.tolist()):
+        if line_of[index] < 0:
+            out_id[number] = point_id[index]
     groups: dict[int, list[int]] = {}
-    for index in range(len(xyz)):
-        groups.setdefault(union.find(index), []).append(index)
-
-    new_index = np.empty(len(xyz), dtype=int)
-    out_xy: list[tuple[float, float]] = []
-    out_z: list[float] = []
-    out_priority: list[int] = []
-    out_line: list[int] = []
-    out_id: list[str] = []
+    for index in np.flatnonzero(sizes[new_index] > 1).tolist():
+        groups.setdefault(int(new_index[index]), []).append(index)
     conflicts: list[Conflict] = []
     snapped: list[Snapped] = []
-    for members in groups.values():
-        number = len(out_xy)
-        for member in members:
-            new_index[member] = number
+    for number, members in groups.items():
         line_members = [m for m in members if line_of[m] >= 0]
         point_members = [m for m in members if line_of[m] < 0]
         rep = max(line_members or members, key=lambda m: (priority[m], np.isfinite(xyz[m, 2]), -m))
@@ -557,11 +568,11 @@ def _assemble(
                     snapped.append(
                         Snapped(point_id[m], frame.point_to_world((float(xyz[m, 0]), float(xyz[m, 1]))), float(xyz[m, 2]), z)
                     )
-        out_xy.append((float(xyz[rep, 0]), float(xyz[rep, 1])))
-        out_z.append(z)
-        out_priority.append(int(max(priority[m] for m in members)))
-        out_line.append(int(line_of[rep]))
-        out_id.append("" if line_members else point_id[rep])
+        out_xy[number] = xyz[rep, :2]
+        out_z[number] = z
+        out_priority[number] = int(max(priority[m] for m in members))
+        out_line[number] = int(line_of[rep])
+        out_id[number] = "" if line_members else point_id[rep]
 
     remapped: dict[tuple[int, int], int] = {}
     for (a, b), number in zip(edges, edge_line):
@@ -573,10 +584,10 @@ def _assemble(
     return SurfaceData(
         frame=frame,
         region=region,
-        xy=np.asarray(out_xy, dtype=float).reshape(-1, 2),
-        z=np.asarray(out_z, dtype=float),
-        priority=np.asarray(out_priority, dtype=int),
-        line_of=np.asarray(out_line, dtype=int),
+        xy=out_xy,
+        z=out_z,
+        priority=out_priority,
+        line_of=out_line,
         point_id=out_id,
         edges=np.asarray(list(remapped), dtype=int).reshape(-1, 2),
         edge_line=np.asarray(list(remapped.values()), dtype=int),

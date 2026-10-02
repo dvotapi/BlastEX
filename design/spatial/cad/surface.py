@@ -23,6 +23,7 @@ breakline в Civil 3D), и затем входят ограничителями.
 """
 from __future__ import annotations
 
+import heapq
 import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -232,7 +233,19 @@ def _volume_local(
         shapely.prepare(shape)
         tri = vertices[triangles]
         polys = shapely.polygons(tri[:, :, :2])
-        mask = shapely.intersects(polys, shape)
+        # Треугольник целиком внутри — площадь и Z центра тяжести напрямую;
+        # обрезаются только пересекающие границу.
+        inside = shapely.contains_properly(shape, polys)
+        if np.any(inside):
+            whole = tri[inside]
+            d1 = whole[:, 1, :2] - whole[:, 0, :2]
+            d2 = whole[:, 2, :2] - whole[:, 0, :2]
+            areas = np.abs(d1[:, 0] * d2[:, 1] - d1[:, 1] * d2[:, 0]) / 2
+            heights = whole[:, :, 2].mean(axis=1) - floor_z
+            covered += float(np.sum(areas))
+            integral += float(np.sum(areas * heights))
+            volume += float(np.sum(areas * np.maximum(heights, 0.0)))
+        mask = ~inside & shapely.intersects(shape, polys)
         if np.any(mask):
             pieces = shapely.intersection(polys[mask], shape)
             areas = shapely.area(pieces)
@@ -240,9 +253,9 @@ def _volume_local(
             if np.any(keep):
                 centres = shapely.get_coordinates(shapely.centroid(pieces[keep]))
                 heights = _plane_z(tri[mask][keep], centres) - floor_z
-                covered = float(np.sum(areas[keep]))
-                integral = float(np.sum(areas[keep] * heights))
-                volume = float(np.sum(areas[keep] * np.maximum(heights, 0.0)))
+                covered += float(np.sum(areas[keep]))
+                integral += float(np.sum(areas[keep] * heights))
+                volume += float(np.sum(areas[keep] * np.maximum(heights, 0.0)))
     uncovered = max(0.0, area - covered)
     if fallback_z is not None:
         volume += uncovered * max(0.0, fallback_z - floor_z)
@@ -421,57 +434,99 @@ def _plane(data: SurfaceData, crest_z: float | None) -> tuple[np.ndarray, np.nda
 # --- качество -------------------------------------------------------------------
 
 
-def _neighbours(triangles: np.ndarray, count: int) -> list[np.ndarray]:
-    if not len(triangles):
-        return [np.zeros(0, dtype=int) for _ in range(count)]
-    edges = np.vstack([triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]])
-    edges = np.unique(np.sort(edges, axis=1), axis=0)
-    both = np.vstack([edges, edges[:, ::-1]])
-    order = np.argsort(both[:, 0], kind="stable")
-    both = both[order]
-    starts = np.searchsorted(both[:, 0], np.arange(count + 1))
-    return [both[starts[v] : starts[v + 1], 1] for v in range(count)]
+class _PlaneFits:
+    """Плоскости МНК по соседям вершин TIN — суммами, чтобы исключение вершины
+    обновляло подгонку её соседей за O(1), а не заново по всем отметкам.
+
+    Для вершины v: z ≈ c0 + c1·dx + c2·dy по соседям (dx, dy — от v), оценка
+    в самой v — c0. Соседи на одной прямой — среднее их Z.
+    """
+
+    def __init__(self, vertices: np.ndarray, triangles: np.ndarray) -> None:
+        self.xy = vertices[:, :2]
+        self.z = vertices[:, 2]
+        count = len(vertices)
+        edges = np.vstack([triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]) if len(triangles) else np.zeros((0, 2), int)
+        edges = np.unique(np.sort(edges, axis=1), axis=0)
+        src = np.concatenate([edges[:, 0], edges[:, 1]])
+        dst = np.concatenate([edges[:, 1], edges[:, 0]])
+        order = np.argsort(src, kind="stable")
+        self.dst = dst[order]
+        self.starts = np.searchsorted(src[order], np.arange(count + 1))
+        self.sums = np.zeros((count, 9))
+        np.add.at(self.sums, src, self._terms(src, dst))
+
+    def _terms(self, at: np.ndarray, other: np.ndarray) -> np.ndarray:
+        d = self.xy[other] - self.xy[at]
+        z = self.z[other]
+        dx, dy = d[:, 0], d[:, 1]
+        return np.column_stack([np.ones(len(at)), dx, dy, dx * dx, dx * dy, dy * dy, z, z * dx, z * dy])
+
+    def neighbours(self, vertex: int) -> np.ndarray:
+        return self.dst[self.starts[vertex] : self.starts[vertex + 1]]
+
+    def remove(self, removed: int, vertex: int) -> None:
+        self.sums[vertex] -= self._terms(np.array([vertex]), np.array([removed]))[0]
+
+    def deviation(self, vertices: np.ndarray) -> np.ndarray:
+        """Отклонение Z вершин от плоскости по соседям; без соседей — NaN."""
+
+        n, sx, sy, sxx, sxy, syy, sz, szx, szy = self.sums[vertices].T
+        matrix = np.stack(
+            [np.stack([n, sx, sy], axis=-1), np.stack([sx, sxx, sxy], axis=-1), np.stack([sy, sxy, syy], axis=-1)],
+            axis=1,
+        )
+        det = np.linalg.det(matrix)
+        spread = np.maximum(sxx * syy, 1e-12)
+        solvable = (n >= 3) & (np.abs(det) > 1e-9 * n * spread)
+        estimate = np.divide(sz, n, out=np.full(len(vertices), np.nan), where=n > 0)
+        if np.any(solvable):
+            rhs = np.stack([sz, szx, szy], axis=-1)[solvable]
+            estimate[solvable] = np.linalg.solve(matrix[solvable], rhs[..., None])[:, 0, 0]
+        return self.z[vertices] - estimate
 
 
-def _fit_deviation(vertices: np.ndarray, vertex: int, around: np.ndarray) -> float | None:
-    """Отклонение Z вершины от плоскости по её соседям (среднее, если соседи на одной прямой)."""
+def _outliers(vertices: np.ndarray, triangles: np.ndarray, ids: list[str]) -> tuple[list[tuple[int, float]], bool]:
+    """Жадно: самый сильный выброс помечается и выпадает из соседей остальных.
 
-    if not len(around):
-        return None
-    d = vertices[around, :2] - vertices[vertex, :2]
-    zs = vertices[around, 2]
-    if len(around) >= 3:
-        matrix = np.column_stack([np.ones(len(around)), d])
-        if np.linalg.matrix_rank(matrix, tol=1e-6 * max(1.0, float(np.abs(d).max()))) == 3:
-            coef, *_ = np.linalg.lstsq(matrix, zs, rcond=None)
-            return float(vertices[vertex, 2] - coef[0])
-    return float(vertices[vertex, 2] - zs.mean())
+    Возвращает выбросы (вершина, отклонение) и признак, что список обрезан
+    пределом `MAX_OUTLIERS`.
+    """
 
-
-def _outliers(vertices: np.ndarray, triangles: np.ndarray, ids: list[str]) -> list[tuple[int, float]]:
-    """Жадно: самый сильный выброс помечается и выпадает из соседей остальных."""
-
-    candidates = [i for i, item in enumerate(ids) if item]
-    if not candidates:
-        return []
-    around = _neighbours(triangles, len(vertices))
-    deviation = {i: _fit_deviation(vertices, i, around[i]) for i in candidates}
+    candidates = np.array([i for i, item in enumerate(ids) if item], dtype=int)
+    if not len(candidates) or not len(triangles):
+        return [], False
+    fits = _PlaneFits(vertices, triangles)
+    deviation = np.full(len(vertices), np.nan)
+    deviation[candidates] = fits.deviation(candidates)
+    is_candidate = np.zeros(len(vertices), dtype=bool)
+    is_candidate[candidates] = True
+    version = np.zeros(len(vertices), dtype=int)
+    heap = [(-abs(value), 0, int(v)) for v, value in zip(candidates.tolist(), deviation[candidates].tolist()) if np.isfinite(value)]
+    heapq.heapify(heap)
+    removed = np.zeros(len(vertices), dtype=bool)
     flagged: list[tuple[int, float]] = []
-    removed: set[int] = set()
-    while len(flagged) < MAX_OUTLIERS:
-        live = [(abs(value), i) for i, value in deviation.items() if value is not None and i not in removed]
-        if not live:
+    while heap:
+        size, stamp, vertex = heapq.heappop(heap)
+        if removed[vertex] or stamp != version[vertex]:
+            continue
+        if -size <= OUTLIER_M:
             break
-        size, worst = max(live)
-        if size <= OUTLIER_M:
-            break
-        flagged.append((worst, float(deviation[worst])))
-        removed.add(worst)
-        for other in around[worst].tolist():
-            if other in deviation and other not in removed:
-                keep = np.array([n for n in around[other].tolist() if n not in removed], dtype=int)
-                deviation[other] = _fit_deviation(vertices, other, keep)
-    return flagged
+        if len(flagged) == MAX_OUTLIERS:
+            return flagged, True
+        flagged.append((vertex, float(deviation[vertex])))
+        removed[vertex] = True
+        around = [int(v) for v in fits.neighbours(vertex).tolist() if not removed[v]]
+        for other in around:
+            fits.remove(vertex, other)
+        changed = np.array([v for v in around if is_candidate[v]], dtype=int)
+        if len(changed):
+            deviation[changed] = fits.deviation(changed)
+            for v, value in zip(changed.tolist(), deviation[changed].tolist()):
+                version[v] += 1
+                if np.isfinite(value):
+                    heapq.heappush(heap, (-abs(value), int(version[v]), v))
+    return flagged, False
 
 
 def _ring_samples(local: Sequence[XY]) -> np.ndarray:
@@ -609,10 +664,18 @@ def build_roof(
     roof.max_gap_m, roof.max_gap_point = _max_gap(data, [top_local, *([bottom_local] if bottom_local else [])])
 
     ids = [data.point_id[i] if i >= 0 else "" for i in source.tolist()]
+    found, capped = _outliers(vertices, triangles, ids)
     roof.outliers = [
         Outlier(ids[i], (*frame.point_to_world((float(vertices[i, 0]), float(vertices[i, 1]))), float(vertices[i, 2])), value)
-        for i, value in _outliers(vertices, triangles, ids)
+        for i, value in found
     ]
+    if capped:
+        warnings.append(
+            CadWarning(
+                "outliers_capped",
+                f"Выбросов больше {MAX_OUTLIERS}: в списке — самые сильные. Проверьте отметки: похоже, шум данных, а не отдельные точки.",
+            )
+        )
 
     polygon = bottom_local or top_local
     if floor_z is None:

@@ -208,6 +208,33 @@ describe("recomputeKey: содержимое поверхностей", () => {
   });
 });
 
+describe("recomputeKey: контур из чертежа", () => {
+  // Ревью Codex #104: объём считается по координатам нижнего контура, S ср и
+  // признаку кровли-плоскости — ключ видел только число вершин нижнего контура.
+  function withCad(bottom: number[][], areaMean = 840, plane = false): BlastDesign {
+    const base = design();
+    const top = { ...emptyDesign().surfaces.top, kind: "top", name: "Кровля", created_at: "t", tin: { vertices: [], triangles: [] }, cad: { plane } };
+    return {
+      ...base,
+      contour: {
+        ...base.contour,
+        cad: { top: [], bottom, area_mean_m2: areaMean, edited: false } as unknown as BlastDesign["contour"]["cad"],
+      },
+      surfaces: { ...base.surfaces, top } as unknown as BlastDesign["surfaces"],
+    };
+  }
+
+  const bottom = [[0, 0], [44, 0], [44, 20], [0, 20]];
+
+  it("меняется от координат нижнего контура при том же числе вершин, от S ср и плоскости", () => {
+    const key = recomputeKey(withCad(bottom), {});
+    expect(recomputeKey(withCad([[0, 0], [46, 0], [46, 20], [0, 20]]), {})).not.toBe(key);
+    expect(recomputeKey(withCad(bottom, 850), {})).not.toBe(key);
+    expect(recomputeKey(withCad(bottom, 840, true), {})).not.toBe(key);
+    expect(recomputeKey(withCad(bottom.map((point) => [...point])), {})).toBe(key);
+  });
+});
+
 describe("useHoleRecompute: правки по ревью", () => {
   it("включение и выключение скважины открытого паспорта — только флаги и объём, длины не трогаются", async () => {
     const dispatch = vi.fn();

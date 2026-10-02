@@ -103,15 +103,21 @@ export function applyKey(design: BlastDesign, params: Record<string, unknown>): 
 }
 
 /**
- * Всё, от чего зависят флаги и объём ответа: триггеры и ещё контур.
+ * Всё, от чего зависят флаги и объём ответа: триггеры и ещё контур — и то, из
+ * чего `geometry.block_volume` берёт объём контура из чертежа: нижний контур,
+ * S ср, правка после построения, кровля-плоскость.
  * Включение скважин ответа не меняет (флаги — у всех скважин, погонаж страница
  * считает сама) — запрос со всей кровлей на каждое включение не нужен.
  */
 export function recomputeKey(design: BlastDesign, params: Record<string, unknown>): string {
+  const cad = design.contour.cad;
   return JSON.stringify({
     apply: applyKey(design, params),
     contour: design.contour.vertices.map((vertex) => [round(vertex.x, 3), round(vertex.y, 3)]),
-    cad: design.contour.cad ? [design.contour.cad.edited, design.contour.cad.bottom?.length ?? 0] : null,
+    cad: cad
+      ? [cad.edited, (cad.bottom ?? []).map((point) => [round(point[0], 3), round(point[1], 3)]), cad.area_mean_m2 ?? null]
+      : null,
+    plane: design.surfaces.top?.cad?.plane ?? false,
   });
 }
 

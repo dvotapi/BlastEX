@@ -43,6 +43,7 @@ import type {
   LifecycleState,
   WorkstationMeta,
   Hole,
+  HoleRecomputeResponse,
   EngineeringMaps,
   PatternGenerateResponse,
   PpvRequest,
@@ -159,6 +160,8 @@ import type {
   CadRolesPayload,
   CadRolesResponse,
   CadSource,
+  CadSurfaceRequest,
+  CadSurfaceResult,
   CadUploadParams,
 } from "../types/cad";
 
@@ -464,6 +467,8 @@ export const api = {
       post<CadContourResult>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/contour`, payload),
     saveAreaBasis: (id: string, areaBasis: CadAreaBasis) =>
       put<CadAreaBasisResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/area-basis`, { area_basis: areaBasis }),
+    surface: (id: string, payload: CadSurfaceRequest) =>
+      post<CadSurfaceResult>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/surface`, payload),
   },
   design: {
     pattern: (
@@ -522,6 +527,12 @@ export const api = {
       existing_holes?: Hole[];
       surfaces?: SurfaceSet;
     }) => post<{ hole: Hole }>(`${V1}/design/holes/insert`, payload),
+    recomputeHoles: (payload: {
+      holes: Hole[];
+      contour: BlockContour;
+      surfaces: SurfaceSet;
+      params: Record<string, unknown>;
+    }) => post<HoleRecomputeResponse>(`${V1}/design/holes/recompute`, payload),
     importSurface: (payload: {
       content: string;
       filename: string;

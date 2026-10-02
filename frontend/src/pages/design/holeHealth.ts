@@ -5,6 +5,7 @@ import type {
   BlockContour,
   Hole,
   HoleLoad,
+  HoleRecomputeFlag,
   InitiationNetwork,
   Point3,
   ValidationWarning,
@@ -18,6 +19,8 @@ export type HoleHealthCode =
   | "missing_charge"
   | "extra_hole"
   | "outside_contour"
+  | "outside_surface"
+  | "short_bench"
   | "actual_unmatched";
 
 export const HEALTH_LABELS: Record<HoleHealthCode, string> = {
@@ -27,6 +30,8 @@ export const HEALTH_LABELS: Record<HoleHealthCode, string> = {
   missing_charge: "нет заряда",
   extra_hole: "лишняя скважина",
   outside_contour: "вне контура",
+  outside_surface: "вне поверхности",
+  short_bench: "H < 1 м",
   actual_unmatched: "факт без проекта",
 };
 
@@ -37,6 +42,9 @@ export const HEALTH_COLORS: Record<HoleHealthCode, string> = {
   missing_charge: "#c43a5c",
   extra_hole: "#8a8f94",
   outside_contour: "#9b59b6",
+  // Кровля (TASK-013, PR 3): устье вне поверхности и уступ ниже 1 м — красным.
+  outside_surface: "#c0392b",
+  short_bench: "#c0392b",
   actual_unmatched: "#3d6ea8",
 };
 
@@ -49,6 +57,8 @@ const WARNING_CODE_TO_HEALTH: Record<string, HoleHealthCode> = {
   no_primer: "missing_primer",
   extra_hole: "extra_hole",
   outside_contour: "outside_contour",
+  hole_outside_surface: "outside_surface",
+  hole_short_bench: "short_bench",
 };
 
 export type HoleHealthMap = Record<string, HoleHealthCode>;
@@ -138,6 +148,8 @@ function severity(code: HoleHealthCode): number {
     case "unconnected": return 5;
     case "missing_charge": return 4;
     case "missing_primer": return 4;
+    case "outside_surface": return 4;
+    case "short_bench": return 3;
     case "outside_contour": return 3;
     case "actual_unmatched": return 3;
     case "extra_hole": return 2;
@@ -158,6 +170,8 @@ export function computeHoleHealth(
     warnings?: ValidationWarning[];
     contour: BlockContour;
     asDrilled?: AsDrilledHole[];
+    /** Флаги пересчёта по кровле. */
+    surfaceFlags?: HoleRecomputeFlag[];
   },
 ): HoleHealthCode {
   let code: HoleHealthCode = "ok";
@@ -170,6 +184,7 @@ export function computeHoleHealth(
   if (context.contour.vertices.length >= 3 && !pointInPolygon(hole.collar, context.contour.vertices)) {
     code = pickWorst(code, "outside_contour");
   }
+  for (const flag of context.surfaceFlags ?? []) code = pickWorst(code, flag);
 
   const load = context.load;
   const charged = (load?.total_charge_kg ?? 0) > 0;
@@ -199,6 +214,8 @@ export function computeAllHoleHealth(input: {
   contour: BlockContour;
   asDrilled?: AsDrilledHole[];
   designHoleIds?: Set<string>;
+  /** Флаги пересчёта по кровле по скважинам. */
+  surfaceFlags?: Record<string, HoleRecomputeFlag[]>;
 }): HoleHealthMap {
   const warnings = input.analysis?.validation_warnings ?? [];
   const timesMs = input.analysis?.times_ms ?? null;
@@ -211,6 +228,7 @@ export function computeAllHoleHealth(input: {
       warnings,
       contour: input.contour,
       asDrilled: input.asDrilled,
+      surfaceFlags: input.surfaceFlags?.[hole.id],
     });
   }
   for (const item of input.asDrilled ?? []) {
@@ -229,6 +247,8 @@ export function summarizeHealth(health: HoleHealthMap, holes: Hole[]): HealthSum
     missing_charge: [] as string[],
     extra_hole: [] as string[],
     outside_contour: [] as string[],
+    outside_surface: [] as string[],
+    short_bench: [] as string[],
     actual_unmatched: [] as string[],
   };
   const holeIds = new Set(holes.map((h) => h.id));

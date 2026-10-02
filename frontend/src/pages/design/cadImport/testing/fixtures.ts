@@ -1,6 +1,6 @@
 // Источник импорта для тестов: «Горизонт +410» с верхней и нижней бровкой,
 // контур блока, точка отметки и подпись — как в ответе `/design/cad/sources`.
-import type { CadContourResult, CadEntity, CadMeta, CadSource } from "../../../../types/cad";
+import type { CadContourResult, CadEntity, CadMeta, CadSource, CadSurfaceResult } from "../../../../types/cad";
 
 export function cadEntity(handle: string, layer: string, extra: Partial<CadEntity> = {}): CadEntity {
   const points = extra.points ?? [
@@ -177,6 +177,66 @@ export function contourResult(extra: Partial<CadContourResult> = {}): CadContour
     item_info: [{ kind: "part", handle: "769", layer: "блок 66 вар 2", length_m: 341.08, reversed: false, gap_to_next_m: 0, link: "joined" }],
     bench: { crest_z_m: 420.3, toe_z_m: 410, height_m: 10.3, crest_source: "crest_top", toe_source: "floor" },
     crest_line: null,
+    ...extra,
+  };
+}
+
+/** Ответ предпросмотра кровли — как у `/design/cad/sources/{id}/surface`. */
+export function surfaceResult(extra: Partial<CadSurfaceResult> = {}): CadSurfaceResult {
+  return {
+    ok: true,
+    builder: "cdt",
+    plane: false,
+    issues: [],
+    warnings: [],
+    tin: {
+      vertices: [
+        [90, 170, 420],
+        [145, 170, 410],
+        [145, 215, 410],
+        [90, 215, 420.6],
+      ],
+      triangles: [
+        [0, 1, 2],
+        [0, 2, 3],
+      ],
+    },
+    quality: {
+      spot_count: 206,
+      coverage_pct: 99.93,
+      max_gap_m: 10.91,
+      max_gap_point: [120, 171],
+      outlier_count: 1,
+      conflict_count: 1,
+      snapped_count: 0,
+      vertex_count: 4,
+      triangle_count: 2,
+      flat_fixed: 0,
+    },
+    outliers: [{ id: "51C", handle: "51C", point: [110, 190, 410.84], deviation_m: 9.2 }],
+    excluded_points: [],
+    conflicts: [
+      {
+        kind: "crossing",
+        point: [130, 182],
+        values: [
+          { role: "crest_top", handle: "6C3", z: 420.4 },
+          { role: "feature_line", handle: "7A1", z: 419.9 },
+        ],
+        accepted_z: 420.4,
+      },
+    ],
+    snapped: [],
+    thresholds: [{ segments: [[[100, 180], [130, 182]]], excess_m: 1.7 }],
+    bench: { floor_z_m: 410, mean_height_m: 10.5, needs_confirmation: false },
+    volume: {
+      volume_m3: 36939,
+      basis: "bottom",
+      area_top_m2: 2789.93,
+      area_bottom_m2: 4120.92,
+      area_mean_m2: 3455.42,
+      mean_area_volume_m3: 36281.9,
+    },
     ...extra,
   };
 }

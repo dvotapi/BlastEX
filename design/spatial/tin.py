@@ -8,13 +8,41 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Any, Iterable
+
+import numpy as np
+from scipy.spatial import cKDTree
 
 from design.models import Point3
 
 _EPS = 1e-12
 _LOCATE_EPS = 1e-9
 _MAX_TIN_POINTS = 2500
+# Записей сеточного индекса у сети из запроса не больше этого: треугольник
+# ложится во все ячейки своей рамки, тысячи треугольников во весь участок дали
+# бы сотни миллионов записей (ревью Codex #104). У настоящей сети — единицы на
+# треугольник.
+MAX_INDEX_ENTRIES = 4_000_000
+
+
+def _index_grid(min_x: float, min_y: float, max_x: float, max_y: float, triangle_count: int) -> tuple[float, int]:
+    """Размер ячейки и число ячеек по стороне сеточного индекса TIN."""
+    span = max(max_x - min_x, max_y - min_y, 1.0)
+    cells = max(4, min(40, int(math.sqrt(triangle_count) * 1.5) or 4))
+    return span / cells, cells
+
+
+def index_entries(xy: np.ndarray, triangles: np.ndarray) -> int:
+    """Сколько записей даст сеточный индекс (`TIN._rebuild_index`) — без его построения."""
+    if not len(xy) or not len(triangles):
+        return 0
+    lo_xy = xy.min(axis=0)
+    hi_xy = xy.max(axis=0)
+    cell, cells = _index_grid(float(lo_xy[0]), float(lo_xy[1]), float(hi_xy[0]), float(hi_xy[1]), len(triangles))
+    tri = xy[np.asarray(triangles, dtype=int)]
+    lo = np.clip(((tri.min(axis=1) - lo_xy) / cell).astype(int), 0, cells - 1)
+    hi = np.clip(((tri.max(axis=1) - lo_xy) / cell).astype(int), 0, cells - 1)
+    return int(np.sum((hi[:, 0] - lo[:, 0] + 1) * (hi[:, 1] - lo[:, 1] + 1)))
 
 
 @dataclass
@@ -29,6 +57,7 @@ class TIN:
     _cols: int = field(default=0, repr=False, compare=False)
     _rows: int = field(default=0, repr=False, compare=False)
     _buckets: list[list[int]] = field(default_factory=list, repr=False, compare=False)
+    _xy: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self._rebuild_index()
@@ -71,6 +100,15 @@ class TIN:
         i, j, k = self.triangles[tri]
         return _barycentric_z(self.vertices[i], self.vertices[j], self.vertices[k], x, y)
 
+    def nearest_vertex(self, x: float, y: float) -> Point3 | None:
+        """Ближайшая к (x, y) вершина сети в плане — для точек вне сети."""
+        if not self.vertices:
+            return None
+        if self._xy is None or self._xy.n != len(self.vertices):
+            self._xy = cKDTree(np.array([(v.x, v.y) for v in self.vertices], dtype=float))
+        _, index = self._xy.query((x, y))
+        return self.vertices[int(index)]
+
     def vertical_intersection(self, x: float, y: float) -> Point3 | None:
         z = self.elevation_at(x, y)
         if z is None:
@@ -82,7 +120,8 @@ class TIN:
         direction = (p1.x - p0.x, p1.y - p0.y, p1.z - p0.z)
         best_t = 1.0 + 1e-9
         best: Point3 | None = None
-        for i, j, k in self.triangles:
+        for idx in self._candidates(min(p0.x, p1.x), min(p0.y, p1.y), max(p0.x, p1.x), max(p0.y, p1.y)):
+            i, j, k = self.triangles[idx]
             hit = _segment_triangle(p0, direction, self.vertices[i], self.vertices[j], self.vertices[k])
             if hit is None:
                 continue
@@ -128,9 +167,7 @@ class TIN:
         ys = [v.y for v in self.vertices]
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
-        span = max(max_x - min_x, max_y - min_y, 1.0)
-        cells = max(4, min(40, int(math.sqrt(len(self.triangles)) * 1.5) or 4))
-        self._cell = span / cells
+        self._cell, cells = _index_grid(min_x, min_y, max_x, max_y, len(self.triangles))
         self._origin = (min_x, min_y)
         self._cols = cells
         self._rows = cells
@@ -151,6 +188,23 @@ class TIN:
         col = int((x - self._origin[0]) / self._cell) if self._cell else 0
         row = int((y - self._origin[1]) / self._cell) if self._cell else 0
         return max(0, min(self._cols - 1, col)), max(0, min(self._rows - 1, row))
+
+    def _candidates(self, min_x: float, min_y: float, max_x: float, max_y: float) -> list[int]:
+        """Треугольники, рамка которых может пересекать рамку [min, max] в плане.
+
+        Ячейки берутся с запасом в одну — как соседние ячейки в `_locate_xy`.
+        """
+        if not self._buckets:
+            return []
+        c0, r0 = self._cell_of(min_x, min_y)
+        c1, r1 = self._cell_of(max_x, max_y)
+        if (c1 - c0 + 3) * (r1 - r0 + 3) >= self._cols * self._rows:
+            return list(range(len(self.triangles)))
+        seen: set[int] = set()
+        for row in range(max(0, r0 - 1), min(self._rows - 1, r1 + 1) + 1):
+            for col in range(max(0, c0 - 1), min(self._cols - 1, c1 + 1) + 1):
+                seen.update(self._buckets[row * self._cols + col])
+        return sorted(seen)
 
     def _locate_xy(self, x: float, y: float) -> int | None:
         if not self._buckets:

@@ -134,7 +134,29 @@
 .cad-areas dt { color:#6e7c75; font-size:var(--fs-label); align-self:center; }
 .cad-areas dd { margin:0; font-variant-numeric:tabular-nums; align-self:center; }
 
+/* Шаги «Поверхность» и «Итог»: наложение и панель (TASK-013, PR 3) */
+.cad-tin { fill:none; stroke:#7c8b84; stroke-width:.6; stroke-opacity:.35; }
+.cad-threshold { fill:none; stroke:#8e44ad; stroke-width:3.2; stroke-linecap:round; stroke-opacity:.8; }
+.cad-conflict { fill:#fdf3e1; stroke:#e5941c; stroke-width:1.8; pointer-events:all; }
+.cad-outlier { fill:rgba(192,57,43,.25); stroke:#c0392b; stroke-width:1.8; pointer-events:all; }
+.cad-excluded-point { fill:#fff; stroke:#8a8f94; stroke-width:1.4; stroke-dasharray:2 2; pointer-events:all; }
+.cad-surface-focus circle, .cad-surface-focus path { fill:none; stroke:#1f5f8b; stroke-width:3; stroke-opacity:.7; }
+.cad-surface, .cad-summary { display:grid; gap:8px; }
+.cad-surface-roles { display:grid; gap:2px; margin:0; padding:4px 8px 6px; border:1px solid #e2e8e5; border-radius:8px; }
+.cad-surface-roles legend { padding:0 4px; color:#6e7c75; font-size:var(--fs-label); }
+.cad-surface-roles label { display:flex; align-items:center; gap:6px; font-size:var(--fs-label); }
+.cad-surface-roles span { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 6px; }
+.cad-surface-roles small { color:#6e7c75; font-size:var(--fs-small); }
+.cad-surface-levels { display:grid; gap:6px; }
+.cad-surface-list { display:grid; gap:4px; }
+.cad-surface-list h4 { margin:0; color:#6e7c75; font-size:var(--fs-label); font-weight:var(--font-weight-strong); }
+.cad-surface-list ul { display:grid; gap:2px; max-height:160px; margin:0; padding:0; overflow:auto; list-style:none; }
+.cad-surface-list li { display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:var(--control-h); padding:0 6px; border-radius:6px; font-size:var(--fs-label); font-variant-numeric:tabular-nums; }
+.cad-surface-list li:hover { background:#f2f7f4; }
+.cad-confirm-height { display:flex; align-items:center; gap:6px; padding:5px 8px; border-radius:7px; background:#fdf3e1; color:#7a4e0c; font-size:var(--fs-label); font-weight:var(--font-weight-strong); }
+
 .cad-build { display:grid; gap:6px; padding-top:8px; border-top:1px solid #e2e8e5; }
+.cad-build-blocker { margin:0; padding:4px 8px; border-radius:7px; background:#fdf3e1; color:#7a4e0c; font-size:var(--fs-label); }
 .cad-build-summary { margin:0; color:#3b4b43; font-size:var(--fs-label); font-variant-numeric:tabular-nums; }
 .cad-build-error { padding:5px 8px; border-radius:7px; background:#fce9e7; color:#9e3025; font-size:var(--fs-label); font-weight:var(--font-weight-strong); }
 .cad-build-error p { margin:0; }

@@ -43,6 +43,8 @@ export type DesignAction =
       free_faces: number[][];
       bench: Partial<BenchSurface>;
       cad: CadContourInfo;
+      /** Кровля из чертежа (TASK-013, PR 3): ставится в `surfaces.top`, подошва — числом. */
+      surface: SurfaceModel;
     }
   | { type: "SET_BENCH"; bench: Partial<BenchSurface> }
   | { type: "SET_COORDINATE_SYSTEM"; patch: Partial<CoordinateSystem> }
@@ -50,6 +52,8 @@ export type DesignAction =
   | { type: "CLEAR_SURFACE"; kind: SurfaceKind }
   | { type: "SET_PATTERN_PARAMS"; params: Partial<PatternParams> }
   | { type: "SET_HOLES"; holes: Hole[] }
+  /** Ответ пересчёта по кровле и подошве: новые устья и забои, вне истории отмены. */
+  | { type: "RECOMPUTE_HOLES"; holes: Hole[] }
   | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number }
   | { type: "UPDATE_HOLE"; id: string; patch: Partial<Hole> }
   | { type: "ADD_HOLE"; hole: Hole }
@@ -103,12 +107,31 @@ function edgeKey(index: number, total: number): number[] {
 function moveHole(hole: Hole, dx: number, dy: number, document: BlastDesign): Hole {
   const x = hole.collar.x + dx;
   const y = hole.collar.y + dy;
-  const z = collarZFromSurfaces(document.surfaces, x, y, hole.collar.z);
+  // Отметку устья, заданную руками, сдвиг в плане не трогает (TASK-013, PR 3).
+  const z = hole.manual?.includes("collar_z") ? hole.collar.z : collarZFromSurfaces(document.surfaces, x, y, hole.collar.z);
   return {
     ...hole,
     collar: { ...hole.collar, x, y, z },
     toe: { ...hole.toe, x: hole.toe.x + dx, y: hole.toe.y + dy, z: hole.toe.z + (z - hole.collar.z) },
   };
+}
+
+function samePoint(a: Hole["collar"], b: Hole["collar"]): boolean {
+  return a.x === b.x && a.y === b.y && a.z === b.z;
+}
+
+/** Ось скважины та же: геологию, посчитанную по `b`, можно ставить скважине `a`. */
+export function sameAxis(a: Hole, b: Hole): boolean {
+  return samePoint(a.collar, b.collar) && samePoint(a.toe, b.toe);
+}
+
+/** Сколько скважин ответа геологии уже с другой осью в документе. */
+export function changedAxes(holes: Hole[], response: Hole[]): number {
+  const byId = new Map(holes.map((hole) => [hole.id, hole]));
+  return response.filter((item) => {
+    const hole = byId.get(item.id);
+    return hole !== undefined && !sameAxis(hole, item);
+  }).length;
 }
 
 function normalizeHole(hole: Hole): Hole {
@@ -203,7 +226,9 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     }
     case "APPLY_CAD_CONTOUR": {
       // Построение блока из чертежа — одна правка: контур, откосы, отметки
-      // уступа и данные чертежа; скважины, заряды и сеть прежнего контура очищаются.
+      // уступа, данные чертежа и кровля; поверхность подошвы снимается
+      // (подошва — проектная отметка числом); скважины, заряды и сеть прежнего
+      // контура очищаются.
       const cleared = reduceDocument(document, { type: "SET_HOLES", holes: [] });
       return {
         ...cleared,
@@ -214,6 +239,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
           bench: { ...cleared.contour.bench, ...action.bench },
           cad: action.cad,
         },
+        surfaces: { ...cleared.surfaces, top: action.surface, floor: null },
       };
     }
     case "TOGGLE_FREE_FACE": {
@@ -247,6 +273,19 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         as_fired_holes: [],
         blast_result: null,
       };
+    case "RECOMPUTE_HOLES": {
+      // Только геометрия: устье и забой. Прочие поля скважины (диаметр, вид,
+      // ручные флаги) — как в документе; геология старой оси сбрасывается.
+      const byId = new Map(action.holes.map((item) => [item.id, item]));
+      let changed = false;
+      const holes = document.holes.map((h) => {
+        const next = byId.get(h.id);
+        if (!next || (samePoint(h.collar, next.collar) && samePoint(h.toe, next.toe))) return h;
+        changed = true;
+        return { ...h, collar: next.collar, toe: next.toe, intervals: [], water_intervals: [] };
+      });
+      return changed ? { ...document, holes } : document;
+    }
     case "MOVE_HOLES": {
       const ids = new Set(action.ids);
       return {
@@ -417,7 +456,9 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         ...document,
         holes: document.holes.map((h) => {
           const next = byId.get(h.id);
-          if (!next) return h;
+          // Ось сменилась, пока пересекалась геология (пересчёт по кровле,
+          // правка) — интервалы старой оси не ставим.
+          if (!next || !sameAxis(h, next)) return h;
           return {
             ...h,
             intervals: next.intervals ?? [],

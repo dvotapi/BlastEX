@@ -120,6 +120,24 @@ export type TIN = {
   triangles: number[][];
 };
 
+/**
+ * Кровля из чертежа маркшейдера (TASK-013, PR 3): источник, роли линий и
+ * исключённые отметки, путь построения и качество — паспорт не зависит от
+ * повторного импорта.
+ */
+export type CadSurfaceInfo = {
+  source_id: string;
+  file_name: string;
+  roles: string[];
+  excluded: string[];
+  builder: string;
+  /** Отметок не было — кровля-плоскость по бровке: объём блока — S ср × H. */
+  plane: boolean;
+  floor_z_m: number | null;
+  quality: Record<string, number | null>;
+  built_at: string;
+};
+
 export type SurfaceModel = {
   kind: SurfaceKind;
   name: string;
@@ -130,6 +148,7 @@ export type SurfaceModel = {
   points: Point3[];
   polylines: Point3[][];
   tin: TIN;
+  cad?: CadSurfaceInfo | null;
 };
 
 export type SurfaceSet = {
@@ -191,6 +210,8 @@ export type CadContourInfo = {
   built_at: string;
   /** Вершины правили после построения: контур уже не совпадает с чертежом. */
   edited: boolean;
+  /** Объём с блоковой карты — для сверки с объёмом по поверхностям. */
+  map_volume_m3?: number | null;
 };
 
 export type BlockContour = {
@@ -270,6 +291,9 @@ export type WaterInterval = {
   notes: string;
 };
 
+/** Что инженер задал руками: отметку устья и/или длину — пересчёт их не трогает. */
+export type HoleManualFlag = "collar_z" | "length";
+
 export type Hole = {
   id: string;
   row: number;
@@ -285,6 +309,22 @@ export type Hole = {
   water_intervals: WaterInterval[];
   measured_intervals: HoleInterval[];
   measured_water_intervals: WaterInterval[];
+  manual?: HoleManualFlag[];
+};
+
+/** Флаги пересчёта: устье вне кровли, высота уступа у скважины меньше 1 м. */
+export type HoleRecomputeFlag = "outside_surface" | "short_bench";
+
+/** Ответ `/design/holes/recompute`: устья на кровле, длины до подошвы с перебуром. */
+export type HoleRecomputeResponse = {
+  holes: Hole[];
+  /** Только у скважин с флагами. */
+  flags: Record<string, HoleRecomputeFlag[]>;
+  block_volume_m3: number;
+  /** Погонаж — сумма длин включённых скважин. */
+  drilling_m: number;
+  /** Средняя высота уступа (кровля − подошва) по контуру блока. */
+  mean_height_m: number;
 };
 
 export type DeckKind =

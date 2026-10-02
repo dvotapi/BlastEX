@@ -292,3 +292,116 @@ class CadAreaBasisResponse(BaseModel):
     area_basis: str
     # Сохранено на объекте работ; без объекта выбор действует только в окне.
     saved: bool
+
+
+# --- кровля блока (PR 3) ----------------------------------------------------
+
+DEFAULT_SURFACE_ROLES = ["crest_top", "crest_bottom", "feature_line", "contour_line", "spot_heights"]
+# Точек контура из окна — не больше, чем может дать сам предпросмотр контура.
+MAX_RING_POINTS = MAX_CONTOUR_SEGMENTS
+MAX_EXCLUDED_POINTS = 50_000
+
+
+class CadSurfaceRequest(BaseModel):
+    """Предпросмотр кровли: контур по верхней и нижней бровке, роли в поверхности,
+    исключённые отметки, подошва и отметка бровки (для части вне кровли)."""
+
+    top: list[list[float]] = Field(min_length=3, max_length=MAX_RING_POINTS)
+    bottom: list[list[float]] | None = Field(default=None, max_length=MAX_RING_POINTS)
+    roles: list[str] = Field(default_factory=lambda: list(DEFAULT_SURFACE_ROLES))
+    excluded: list[str] = Field(default_factory=list, max_length=MAX_EXCLUDED_POINTS)
+    floor_z_m: float | None = None
+    crest_z_m: float | None = None
+
+
+class CadTinSchema(BaseModel):
+    vertices: list[list[float]] = Field(default_factory=list)
+    triangles: list[list[int]] = Field(default_factory=list)
+
+
+class CadSurfaceQualitySchema(BaseModel):
+    spot_count: int = 0
+    coverage_pct: float = 0.0
+    # Наибольшее расстояние от точки контура до ближайшей отметки и где оно.
+    max_gap_m: float | None = None
+    max_gap_point: list[float] | None = None
+    outlier_count: int = 0
+    conflict_count: int = 0
+    snapped_count: int = 0
+    vertex_count: int = 0
+    triangle_count: int = 0
+    # Сколько плоских треугольников горизонталей получили точку в центре.
+    flat_fixed: int = 0
+
+
+class CadOutlierSchema(BaseModel):
+    id: str
+    handle: str
+    point: list[float]
+    deviation_m: float
+
+
+class CadExcludedPointSchema(BaseModel):
+    id: str
+    point: list[float]
+
+
+class CadConflictValueSchema(BaseModel):
+    role: str
+    handle: str
+    z: float
+
+
+class CadConflictSchema(BaseModel):
+    # `crossing` — пересечение ограничителей, `duplicate` — дубль отметки.
+    kind: str
+    point: list[float]
+    values: list[CadConflictValueSchema]
+    accepted_z: float
+
+
+class CadSnappedSchema(BaseModel):
+    id: str
+    point: list[float]
+    from_z: float
+    to_z: float
+
+
+class CadThresholdSchema(BaseModel):
+    segments: list[list[list[float]]]
+    excess_m: float
+
+
+class CadSurfaceBenchSchema(BaseModel):
+    floor_z_m: float | None = None
+    mean_height_m: float | None = None
+    # Высота вне 2–25 м: блок строится только после подтверждения.
+    needs_confirmation: bool = False
+
+
+class CadSurfaceVolumeSchema(BaseModel):
+    volume_m3: float | None = None
+    # Как посчитан объём: `bottom` — в контуре по нижней бровке, `top` — по
+    # верхней, `mean` — S ср × H (кровля-плоскость не описывает откос).
+    basis: str = "top"
+    area_top_m2: float = 0.0
+    area_bottom_m2: float = 0.0
+    area_mean_m2: float = 0.0
+    mean_area_volume_m3: float | None = None
+
+
+class CadSurfaceResponse(BaseModel):
+    ok: bool
+    builder: str
+    plane: bool = False
+    issues: list[CadContourIssueSchema] = Field(default_factory=list)
+    warnings: list[CadWarningSchema] = Field(default_factory=list)
+    tin: CadTinSchema = Field(default_factory=CadTinSchema)
+    quality: CadSurfaceQualitySchema = Field(default_factory=CadSurfaceQualitySchema)
+    outliers: list[CadOutlierSchema] = Field(default_factory=list)
+    excluded_points: list[CadExcludedPointSchema] = Field(default_factory=list)
+    conflicts: list[CadConflictSchema] = Field(default_factory=list)
+    snapped: list[CadSnappedSchema] = Field(default_factory=list)
+    thresholds: list[CadThresholdSchema] = Field(default_factory=list)
+    bench: CadSurfaceBenchSchema = Field(default_factory=CadSurfaceBenchSchema)
+    volume: CadSurfaceVolumeSchema = Field(default_factory=CadSurfaceVolumeSchema)

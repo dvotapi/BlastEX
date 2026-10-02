@@ -191,23 +191,25 @@ def empirical_baseline(
     base: FragmentationBase = CURRENT_BASE,
     fallback_settings: Any = None,
     fallback_source: dict[str, Any] | None = None,
-) -> tuple[float | None, str]:
-    """Baseline для калибровки по паспорту, не меняя его.
+) -> tuple[float | None, str, FragmentationBase | None]:
+    """Baseline для калибровки по паспорту, его источник и база; паспорт не меняется.
 
     Кусковатость — базой артефакта: сохранённый прогноз берётся, только если
     посчитан совместимой моделью, иначе пересчёт той же функцией, что строит
-    baseline снимка датасета.
+    baseline снимка датасета. Пересчёт идёт текущей версией модели движка,
+    поэтому база значения возвращается — её сверяют с базой артефакта. У PPV
+    базы нет (None).
     """
     model_type = normalize_model_type(model_type)
     if model_type in FRAGMENTATION_RESIDUALS:
         return _fragmentation_baseline(design, model_type, base, fallback_settings, fallback_source)
     stored = _stored_ppv(design)
     if stored is not None:
-        return stored, "stored_predicted"
+        return stored, "stored_predicted", None
     computed = _compute_ppv(design)
     if computed is not None:
-        return computed, MODEL_SPECS[model_type]["baseline_source"]
-    return None, ""
+        return computed, MODEL_SPECS[model_type]["baseline_source"], None
+    return None, "", None
 
 
 def _fragmentation_baseline(
@@ -216,7 +218,7 @@ def _fragmentation_baseline(
     base: FragmentationBase,
     fallback_settings: Any,
     fallback_source: dict[str, Any] | None,
-) -> tuple[float | None, str]:
+) -> tuple[float | None, str, FragmentationBase | None]:
     key = "x50_mm" if model_type == MODEL_KUZRAM_RESIDUAL else "oversize_pct"
     stored = stored_prediction(design)
     if stored is not None and getattr(stored, key) is not None:
@@ -225,12 +227,15 @@ def _fragmentation_baseline(
         except ValueError:
             stored_base = None
         if stored_base is not None and compatible(model_type, base, stored_base):
-            return float(getattr(stored, key)), "stored_predicted"
+            return float(getattr(stored, key)), "stored_predicted", stored_base
     computed = fragmentation_baseline(
         design, model=base.model, fallback_settings=fallback_settings, fallback_source=fallback_source
     )
     value = computed[f"baseline_{key}"]
-    return (float(value), base.model) if value is not None else (None, "")
+    if value is None:
+        return None, "", None
+    computed_base = prediction_base(computed["baseline_model"], computed["baseline_model_version"])
+    return float(value), base.model, computed_base
 
 
 def _stored_ppv(design: BlastDesign) -> float | None:

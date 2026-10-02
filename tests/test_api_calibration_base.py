@@ -54,7 +54,14 @@ class CalibrationBaseApiTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.snapshot = synthetic_snapshot()
 
-    def _artifact(self, model_type: str = X50, *, legacy: bool = False, baseline_model: str = "") -> str:
+    def _artifact(
+        self,
+        model_type: str = X50,
+        *,
+        legacy: bool = False,
+        baseline_model: str = "",
+        baseline_model_version: str = "",
+    ) -> str:
         model = train_from_snapshot(self.snapshot, model_type=model_type, model_id=new_model_id())
         if legacy:
             # Артефакт до PR 3: без базы, baseline — сохранённый прогноз.
@@ -63,6 +70,8 @@ class CalibrationBaseApiTests(unittest.TestCase):
             model.baseline_field = MODEL_SPECS[model_type]["baseline_field"]
         if baseline_model:
             model.baseline_model = baseline_model
+        if baseline_model_version:
+            model.baseline_model_version = baseline_model_version
         return save_model(TEAM_ID, model).model_id
 
     def _predict(self, model_id: str, model_type: str = X50, *, repository=None, **fields):
@@ -127,6 +136,24 @@ class CalibrationBaseApiTests(unittest.TestCase):
         expected = fragmentation_baseline(design, fallback_settings=settings)["baseline_x50_mm"]
         self.assertAlmostEqual(result.baseline, expected, places=6)
         self.assertNotAlmostEqual(result.baseline, fragmentation_baseline(design)["baseline_x50_mm"], places=3)
+
+    def test_recomputed_baseline_of_other_version_is_refused(self):
+        """Движок пересчитывает текущей версией модели; артефакт другой версии к ней не применяется."""
+        model_id = self._artifact(baseline_model_version="2.5.0")
+        without_stored = closed_design("cal-other-version")
+        without_stored.blast_result.basis.predicted_fragmentation = None
+        stored_current = _with_stored_model(closed_design("cal-other-version-stored"), "kuzram", "2.0.0")
+        for name, design in (("без прогноза", without_stored), ("прогноз 2.0.0", stored_current)):
+            with self.subTest(design=name):
+                result = self._predict(model_id, design=design.to_dict())
+
+                expected = fragmentation_baseline(design)["baseline_x50_mm"]
+                self.assertAlmostEqual(result.baseline, expected, places=6)
+                self.assertEqual(result.calibrated, result.baseline)
+                self.assertFalse(result.calibration_applied)
+                self.assertIn("переобучить", result.warnings[0])
+                self.assertIn("Kuz-Ram 2.5.0", result.warnings[0])
+                self.assertIn("Kuz-Ram 2.0.0", result.warnings[0])
 
     def test_unknown_artifact_base_is_refused_not_error(self):
         model_id = self._artifact(baseline_model="no_such_model")

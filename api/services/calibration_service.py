@@ -219,11 +219,10 @@ def predict_calibration(
 
     baseline = request.baseline
     baseline_source = "provided" if baseline is not None else ""
+    value_base: FragmentationBase | None = None
     if baseline is not None:
         if model is not None and fragmentation and not refusal:
-            provided, refusal = _provided_base(request)
-            if provided is not None:
-                refusal = refusal_reason(model_type, base, provided)
+            value_base, refusal = _provided_base(request)
     elif design is not None:
         fallback_settings, fallback_source = None, None
         if fragmentation and not base.legacy:
@@ -231,7 +230,7 @@ def predict_calibration(
                 explicit=None, work_object_name="", organization_id=team_id, repository=repository
             )
             fallback_settings, fallback_source = resolved.settings, resolved.source_payload()
-        baseline, baseline_source = empirical_baseline(
+        baseline, baseline_source, value_base = empirical_baseline(
             design,
             model_type,
             base=base,
@@ -242,6 +241,11 @@ def predict_calibration(
         raise InvalidCalibrationError(
             "Для прогноза калибровки нужен baseline (Kuz-Ram / PPV) или паспорт с эмпирическим прогнозом."
         )
+    # Присланный и посчитанный сервером baseline сверяются с базой артефакта
+    # одним правилом: пересчёт идёт текущей версией модели движка, а
+    # артефакт мог быть обучен на другой.
+    if model is not None and fragmentation and not refusal:
+        refusal = refusal_reason(model_type, base, value_base)
 
     features: dict[str, Any] = dict(request.features or {})
     if not features and design is not None:

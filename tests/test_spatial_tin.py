@@ -155,3 +155,21 @@ class LineIntersectionIndexTests(unittest.TestCase):
                 self.assertAlmostEqual(got.x, expected.x, places=9)
                 self.assertAlmostEqual(got.y, expected.y, places=9)
                 self.assertAlmostEqual(got.z, expected.z, places=9)
+
+
+class IndexEntriesTests(unittest.TestCase):
+    def test_index_entries_match_the_built_index(self):
+        import numpy as np
+
+        from design.spatial.tin import index_entries
+
+        for tin in (
+            _grid_tin(30, lambda x, y: 400.0),
+            build_tin(_plane_points(lambda x, y: 100.0)),
+            TIN(
+                vertices=[Point3(x=0, y=0, z=0), Point3(x=50, y=0, z=0), Point3(x=0, y=50, z=0)],
+                triangles=[(0, 1, 2)] * 7,
+            ),
+        ):
+            xy = np.array([(v.x, v.y) for v in tin.vertices])
+            self.assertEqual(index_entries(xy, np.asarray(tin.triangles)), sum(len(bucket) for bucket in tin._buckets))

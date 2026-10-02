@@ -18,6 +18,31 @@ from design.models import Point3
 _EPS = 1e-12
 _LOCATE_EPS = 1e-9
 _MAX_TIN_POINTS = 2500
+# Записей сеточного индекса у сети из запроса не больше этого: треугольник
+# ложится во все ячейки своей рамки, тысячи треугольников во весь участок дали
+# бы сотни миллионов записей (ревью Codex #104). У настоящей сети — единицы на
+# треугольник.
+MAX_INDEX_ENTRIES = 4_000_000
+
+
+def _index_grid(min_x: float, min_y: float, max_x: float, max_y: float, triangle_count: int) -> tuple[float, int]:
+    """Размер ячейки и число ячеек по стороне сеточного индекса TIN."""
+    span = max(max_x - min_x, max_y - min_y, 1.0)
+    cells = max(4, min(40, int(math.sqrt(triangle_count) * 1.5) or 4))
+    return span / cells, cells
+
+
+def index_entries(xy: np.ndarray, triangles: np.ndarray) -> int:
+    """Сколько записей даст сеточный индекс (`TIN._rebuild_index`) — без его построения."""
+    if not len(xy) or not len(triangles):
+        return 0
+    lo_xy = xy.min(axis=0)
+    hi_xy = xy.max(axis=0)
+    cell, cells = _index_grid(float(lo_xy[0]), float(lo_xy[1]), float(hi_xy[0]), float(hi_xy[1]), len(triangles))
+    tri = xy[np.asarray(triangles, dtype=int)]
+    lo = np.clip(((tri.min(axis=1) - lo_xy) / cell).astype(int), 0, cells - 1)
+    hi = np.clip(((tri.max(axis=1) - lo_xy) / cell).astype(int), 0, cells - 1)
+    return int(np.sum((hi[:, 0] - lo[:, 0] + 1) * (hi[:, 1] - lo[:, 1] + 1)))
 
 
 @dataclass
@@ -142,9 +167,7 @@ class TIN:
         ys = [v.y for v in self.vertices]
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
-        span = max(max_x - min_x, max_y - min_y, 1.0)
-        cells = max(4, min(40, int(math.sqrt(len(self.triangles)) * 1.5) or 4))
-        self._cell = span / cells
+        self._cell, cells = _index_grid(min_x, min_y, max_x, max_y, len(self.triangles))
         self._origin = (min_x, min_y)
         self._cols = cells
         self._rows = cells

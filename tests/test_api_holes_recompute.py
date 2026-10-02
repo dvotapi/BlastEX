@@ -121,3 +121,14 @@ def test_triangle_indices_are_checked_before_the_tin_is_built(client):
 
     assert response.status_code == 422
     assert "треугольник" in response.text
+
+
+def test_full_span_triangles_do_not_blow_up_the_index(client):
+    # Ревью Codex #104: 200 000 треугольников во весь участок проходили предел
+    # числа, а индекс клал каждый во все 1600 ячеек — сотни миллионов записей.
+    span = {"top": {**ROOF["top"], "tin": {**ROOF["top"]["tin"], "triangles": [[0, 1, 2]] * 4000}}}
+
+    response = client.post(PATH, json={"holes": [], "contour": CONTOUR, "surfaces": span})
+
+    assert response.status_code == 422
+    assert "индекс" in response.text

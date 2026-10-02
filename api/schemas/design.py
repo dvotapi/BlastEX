@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.schemas.blast import ExplosivePropertiesSchema, KuzRamSettingsSchema, RockPropertiesSchema
 from api.schemas.cost import CalculationContextInputSchema, MaterialsSelectionSchema
+from design.spatial.tin import MAX_INDEX_ENTRIES, index_entries
 
 
 class Point3Schema(BaseModel):
@@ -1091,6 +1093,12 @@ class HoleRecomputeRequest(BaseModel):
             for triangle in tin.triangles:
                 if len(triangle) != 3 or min(triangle) < 0 or max(triangle) >= count:
                     raise ValueError(f"Поверхность «{name}»: треугольник {triangle} ссылается на несуществующую вершину.")
+            xy = np.array([(v.x, v.y) for v in tin.vertices], dtype=float).reshape(-1, 2)
+            if index_entries(xy, np.asarray(tin.triangles, dtype=int).reshape(-1, 3)) > MAX_INDEX_ENTRIES:
+                raise ValueError(
+                    f"Поверхность «{name}»: треугольники слишком крупные для индекса — "
+                    "похоже, сеть повреждена (треугольники во весь участок)."
+                )
         return self
 
 

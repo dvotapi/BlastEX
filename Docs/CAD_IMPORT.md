@@ -472,7 +472,8 @@ constraints) → BuildResult(vertices, triangles, origins)`):
   та же проверка паспорта — `hole_short_bench`;
 - `POST /design/holes/recompute` (`holes` до 20 000, `contour`, `surfaces` —
   у каждой поверхности до 100 000 вершин и 200 000 треугольников, индексы
-  треугольников проверяются до построения TIN, иначе 422,
+  треугольников и размер сеточного индекса (`tin.index_entries` ≤ 4 млн
+  записей) проверяются до построения TIN, иначе 422,
   `params`) → `holes`, `flags` (только непустые), `block_volume_m3`,
   `drilling_m` (включённые), `mean_height_m` (`geometry.mean_bench_height`:
   среднее «кровля − подошва» по контуру паспорта, часть вне кровли — по

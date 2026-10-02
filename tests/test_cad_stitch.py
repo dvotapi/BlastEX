@@ -119,3 +119,37 @@ def test_block_66_crests_are_stitched_into_the_expected_lines():
     assert len(bottom_lines) == 1
     assert {part.handle for part in bottom_lines[0].parts} == {"73B", "733", "753", "75A"}
     assert bottom_lines[0].length_m == pytest.approx(239.9, abs=0.1)
+
+
+def test_fragments_of_different_benches_are_not_stitched():
+    # Конец в конец в плане, направление продолжается, но бровки на 420 и 410 м.
+    upper = CadEntity(handle="U", layer="Бровка", kind="POLYLINE3D", points=[(0.0, 0.0, 420.0), (20.0, 0.0, 420.0)])
+    lower = CadEntity(handle="L", layer="Бровка", kind="POLYLINE3D", points=[(20.3, 0.0, 410.0), (40.0, 0.0, 410.0)])
+
+    lines, _ = stitch_lines([upper, lower])
+
+    assert sorted(line.handles for line in lines) == [["L"], ["U"]]
+
+
+def test_flat_drawing_without_elevations_still_stitches():
+    flat = [
+        CadEntity(handle="A", layer="Бровка", kind="LWPOLYLINE", points=[(0.0, 0.0, 0.0), (20.0, 0.0, 0.0)]),
+        CadEntity(handle="B", layer="Бровка", kind="POLYLINE3D", points=[(20.3, 0.0, 420.0), (40.0, 0.0, 420.0)]),
+    ]
+    # Линия без отметок (Z = 0) отметкой не мешает: её Z неизвестен.
+    lines, _ = stitch_lines(flat)
+    assert [line.handles for line in lines] == [["A", "B"]]
+
+
+def test_many_ends_at_one_junction_stitch_quickly():
+    import time
+
+    # 400 лучей из одной точки — узел, где сходятся сотни концов (дубли, обрывки).
+    rays = [
+        line(f"R{k:03d}", [(0.0, 0.0), (30 * math.cos(2 * math.pi * k / 400), 30 * math.sin(2 * math.pi * k / 400))])
+        for k in range(400)
+    ]
+    started = time.perf_counter()
+    stitch_lines(rays)
+    elapsed = time.perf_counter() - started
+    assert elapsed < 2.0, f"{elapsed:.2f} с"

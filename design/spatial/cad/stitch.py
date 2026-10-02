@@ -7,6 +7,8 @@
 сшиваются при любом повороте, если в этой точке сходятся ровно два конца:
 это угол одной линии, а не встреча разных (у блока 66 нижняя бровка 733 → 73B
 поворачивает на 95°). Больший разрыв остаётся разрывом и подсвечивается.
+Концы с перепадом отметок больше 1 м не сшиваются: это бровки разных уступов,
+сошедшиеся в плане (линия без отметок, Z = 0, отметкой не мешает).
 
 Сшитая линия помнит свои фрагменты и где каждый начинается по её длине: так
 участок сшитой линии переводится обратно в участки исходных объектов.
@@ -27,6 +29,9 @@ STITCH_MAX_TURN_DEG = 60.0
 COINCIDENT_M = 0.01
 # Разрывы между концами линий до этого расстояния показываются пользователю.
 GAP_REPORT_M = 5.0
+# Перепад отметок на стыке больше этого — бровки разных уступов (высота
+# уступа не меньше 2 м), а не дрожь съёмки.
+STITCH_MAX_DZ_M = 1.0
 # Направление конца линии — по её последним метрам, а не по последнему
 # звену: съёмка дрожит на сантиметрах.
 TANGENT_WINDOW_M = 2.0
@@ -152,17 +157,22 @@ def stitch_lines(lines: Sequence[CadEntity]) -> tuple[list[StitchedLine], list[S
     # Концы: индекс конца = 2 * линия + сторона (0 — начало, 1 — конец).
     end_points: list[XYZ] = []
     outward: list[XY] = []
+    flat: list[bool] = []
     for item in open_lines:
         end_points.extend((item.points[0], item.points[-1]))
         outward.extend((_outward(item.points, 0), _outward(item.points, 1)))
+        flat.append(item.z_kind == "zero")
 
     grid = _Grid(STITCH_GAP_M)
     for index, point in enumerate(end_points):
         grid.add(point, index)
 
-    def degree(index: int) -> int:
-        point = end_points[index]
-        return sum(1 for other in grid.near(point) if math.dist(end_points[other][:2], point[:2]) <= COINCIDENT_M)
+    # Сколько концов совпадает с каждым — один раз: в узле из k концов пересчёт
+    # для каждой пары давал бы k³ сравнений.
+    degree = [
+        sum(1 for other in grid.near(point) if math.dist(end_points[other][:2], point[:2]) <= COINCIDENT_M)
+        for point in end_points
+    ]
 
     accepted: list[tuple[float, float, int, int]] = []
     for a in range(len(end_points)):
@@ -172,8 +182,10 @@ def stitch_lines(lines: Sequence[CadEntity]) -> tuple[list[StitchedLine], list[S
             distance = math.dist(end_points[a][:2], end_points[b][:2])
             if distance > STITCH_GAP_M:
                 continue
+            if not (flat[a // 2] or flat[b // 2]) and abs(end_points[a][2] - end_points[b][2]) > STITCH_MAX_DZ_M:
+                continue
             turn = _turn_deg(outward[a], outward[b])
-            corner = distance <= COINCIDENT_M and degree(a) == 2 and degree(b) == 2
+            corner = distance <= COINCIDENT_M and degree[a] == 2 and degree[b] == 2
             if turn <= STITCH_MAX_TURN_DEG or corner:
                 accepted.append((distance if distance > COINCIDENT_M else 0.0, turn, a, b))
 

@@ -334,3 +334,19 @@ def test_closed_line_with_a_centimetre_gap_is_ready_even_with_a_tiny_tolerance()
     entity = line("C", [(0, 0), (10, 0), (10, 10), (0, 10), (0.03, 0)], closed=True)
     draft = ready_contour(entity, 0.01)
     assert draft.ok, draft.issues
+
+
+def test_mutually_crossing_lines_are_refused_before_materializing_all_pairs():
+    from design.spatial.cad.contour import MAX_CROSSING_PAIRS
+
+    # Пучок отрезков через одну точку: каждая пара пересекается.
+    count = int(math.isqrt(2 * MAX_CROSSING_PAIRS)) + 20
+    star = [
+        line(f"S{k}", [(-50 * math.cos(math.pi * k / count), -50 * math.sin(math.pi * k / count)),
+                       (50 * math.cos(math.pi * k / count), 50 * math.sin(math.pi * k / count))])
+        for k in range(count)
+    ]
+    with pytest.raises(ContourInputError, match="Пересечений"):
+        split_lines(star)
+    with pytest.raises(ContourInputError, match="Пересечений"):
+        click_contour(star, (10.0, 1.0), 0.5, 5.0)

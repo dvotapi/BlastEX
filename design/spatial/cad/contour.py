@@ -271,6 +271,32 @@ def _points_of(geometry) -> list[Point]:
 # --- разрезы линий -------------------------------------------------------
 
 
+# Пар пересекающихся линий не больше этого. Предел отрезков не спасает: тысячи
+# отрезков, пересекающих друг друга (наложенные копии, штриховка), дали бы сотни
+# миллионов пар и гигабайты памяти ещё до разрезов.
+MAX_CROSSING_PAIRS = 50_000
+# Линий в одном запросе к STRtree: пары набираются частями, а не все сразу.
+_QUERY_CHUNK = 128
+
+
+def _crossing_pairs(geoms: Sequence[LineString]) -> list[tuple[int, int]]:
+    """Пары пересекающихся линий (i < j); слишком много — ошибка ввода."""
+
+    tree = shapely.STRtree(geoms)
+    pairs: list[tuple[int, int]] = []
+    for start in range(0, len(geoms), _QUERY_CHUNK):
+        left, right = tree.query(geoms[start : start + _QUERY_CHUNK], predicate="intersects")
+        left = left + start
+        keep = left < right
+        pairs.extend(zip(left[keep].tolist(), right[keep].tolist()))
+        if len(pairs) > MAX_CROSSING_PAIRS:
+            raise ContourInputError(
+                f"Пересечений линий выбранных ролей слишком много: больше {MAX_CROSSING_PAIRS} пар. "
+                "Снимите лишние роли."
+            )
+    return pairs
+
+
 def split_lines(lines: Sequence[CadEntity]) -> tuple[dict[str, list[float]], list[XY]]:
     """Где линии выбранных ролей пересекаются: места по длине каждой и точки.
 
@@ -283,13 +309,9 @@ def split_lines(lines: Sequence[CadEntity]) -> tuple[dict[str, list[float]], lis
         return {}, []
     frame = LocalFrame.of(point for item in usable for point in line_xy(item))
     geoms = [LineString(frame.to_local(line_xy(item))) for item in usable]
-    tree = shapely.STRtree(geoms)
     raw: dict[int, list[float]] = {}
     crossings: dict[tuple[float, float], XY] = {}
-    left, right = tree.query(geoms, predicate="intersects")
-    for i, j in zip(left.tolist(), right.tolist()):
-        if i >= j:
-            continue
+    for i, j in _crossing_pairs(geoms):
         for point in _points_of(geoms[i].intersection(geoms[j])):
             raw.setdefault(i, []).append(geoms[i].project(point))
             raw.setdefault(j, []).append(geoms[j].project(point))
@@ -590,6 +612,7 @@ def click_contour(
 
     frame = LocalFrame.of([*(p for item in usable for p in line_xy(item)), point])
     originals = [LineString(frame.to_local(line_xy(item))) for item in usable]
+    _crossing_pairs(originals)
     segments = _segments(shapely.unary_union(originals))
     noded, bridges = _close_network(segments, tolerance_m, bridge_m)
     network = shapely.unary_union([*noded, *(LineString(bridge) for bridge in bridges)])

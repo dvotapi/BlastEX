@@ -55,6 +55,12 @@
 `stitch`, `contour`, `two_contours`, shapely ≥ 2), предпросмотр —
 `POST /design/cad/sources/{id}/contour`; в паспорте — `contour.cad`, ключ
 пишется только когда поле есть (иначе сменится хэш утверждённых паспортов).
+Кровля (PR 3) — `design/spatial/cad/surface*.py`: CDT через PythonCDT
+(запасной путь scipy — `BLASTEX_SURFACE_BUILDER`), предпросмотр —
+`POST /design/cad/sources/{id}/surface`. Длина скважины — одна формула
+L = (S − Z)/cos α + Δ (`geometry.hole_depth_m`), пересчёт —
+`design/hole_recompute.py` и `POST /design/holes/recompute`; `surfaces.top.cad`,
+`Hole.manual` и `contour.cad.map_volume_m3` пишутся только когда заданы.
 Подробности — `Docs/CAD_IMPORT.md`; справка «?» окна обновляется в каждом PR
 задачи.
 

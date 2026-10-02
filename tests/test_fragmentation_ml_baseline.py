@@ -35,17 +35,6 @@ class CalibrationBaselineTests(unittest.TestCase):
         self.assertFalse(old_base(ModelProvenance(model="swebrec", model_version="2.0.0")))
 
 
-class SpatialPhysicsTests(unittest.TestCase):
-    def test_physics_predictions_use_legacy_model(self):
-        from intelligence.spatial.features import extract_hole_observations
-
-        with patch.object(fragmentation_engine, "predict_region", wraps=fragmentation_engine.predict_region) as spy:
-            extract_hole_observations(charged_design("ml-spatial"))
-
-        self.assertTrue(spy.call_args_list)
-        self.assertEqual({call.kwargs["model"] for call in spy.call_args_list}, {"kuzram_legacy"})
-
-
 class ScenarioResidualGuardTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

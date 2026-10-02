@@ -173,6 +173,11 @@ def target_group_has_values(group: dict[str, Any]) -> bool:
         *(
             value
             for key, value in group.items()
-            if key not in skip and not str(key).endswith("_role") and not str(key).endswith("_count")
+            if key not in skip
+            and not str(key).endswith("_role")
+            and not str(key).endswith("_count")
+            # Baseline текущей базы — контекст для калибровки, а не цель:
+            # взрыв без замеров от него заполненным не становится.
+            and not str(key).startswith("baseline_")
         )
     )

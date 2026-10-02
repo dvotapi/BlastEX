@@ -7,25 +7,43 @@ from __future__ import annotations
 
 import copy
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from design.models import ROLE_EXECUTED, ROLE_MEASURED, BlastDesign
 
+from intelligence.datasets.baseline import BASELINE_MODEL, baseline_settings, fragmentation_baseline
 from intelligence.datasets.features import FEATURE_SCHEMA_VERSION, extract_features
 from intelligence.datasets.targets import extract_targets
 from intelligence.datasets.validation import SampleValidation, validate_sample
+from simulation.fragmentation.engine import FRAGMENTATION_MODELS
 
 DATASET_KIND = "training_snapshot"
 
 
-def _extract_snapshot_holes(design: BlastDesign, *, site_id: str) -> list[dict[str, Any]]:
+def _extract_snapshot_holes(
+    design: BlastDesign,
+    *,
+    site_id: str,
+    settings: Any = None,
+    settings_source: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Freeze hole-level rows at snapshot time. Training never rereads the live design."""
     try:
         from intelligence.spatial.features import extract_hole_observations, snapshot_hole_payload
 
-        return snapshot_hole_payload(extract_hole_observations(design, site_id=site_id, include_physics=True))
+        return snapshot_hole_payload(
+            extract_hole_observations(
+                design,
+                site_id=site_id,
+                include_physics=True,
+                physics_model=BASELINE_MODEL,
+                settings=settings,
+                settings_source=settings_source,
+            )
+        )
     except Exception:
         return []
 
@@ -112,19 +130,31 @@ class TrainingSample:
         )
 
 
-def build_sample(design: BlastDesign, *, site_id: str) -> TrainingSample:
+def build_sample(
+    design: BlastDesign,
+    *,
+    site_id: str,
+    fallback_settings: Any = None,
+    fallback_source: Mapping[str, Any] | None = None,
+) -> TrainingSample:
     """Extract a candidate sample. Inclusion is decided by validate_sample."""
     features = extract_features(design, site_id=site_id)
     fired_coverage = (features.get("EXECUTION") or {}).get("fired_coverage")
     targets = extract_targets(design.blast_result, fired_coverage=fired_coverage)
     provenance = sample_provenance(design, site_id=site_id)
-    holes = _extract_snapshot_holes(design, site_id=site_id)
+    settings, source = baseline_settings(design, fallback_settings, fallback_source)
+    holes = _extract_snapshot_holes(design, site_id=site_id, settings=settings, settings_source=source)
     validation = validate_sample(
         design=design,
         features=features,
         targets=targets,
         provenance=provenance,
         site_id=site_id,
+    )
+    # Baseline текущей базы — после проверки: это контекст для калибровки,
+    # а не цель, и на допуск образца он не влияет.
+    targets["FRAGMENTATION"].update(
+        fragmentation_baseline(design, fallback_settings=fallback_settings, fallback_source=fallback_source)
     )
     return TrainingSample(
         source_blast_id=design.design_id,
@@ -153,6 +183,9 @@ class DatasetSnapshot:
     samples: list[TrainingSample] = field(default_factory=list)
     rejected: list[dict[str, Any]] = field(default_factory=list)
     immutable: bool = True
+    # Модель и версия, которыми посчитаны baseline_* строк и физика скважин.
+    # Пусто — снимок собран до PR 3: там только сохранённые прогнозы старой базы.
+    fragmentation_base: dict[str, str] = field(default_factory=dict)
 
     @property
     def sample_count(self) -> int:
@@ -177,6 +210,7 @@ class DatasetSnapshot:
             "samples": [sample.to_dict() for sample in self.samples],
             "rejected": _copy(self.rejected),
             "immutable": True,
+            "fragmentation_base": dict(self.fragmentation_base),
         }
 
     @classmethod
@@ -196,6 +230,7 @@ class DatasetSnapshot:
             samples=[TrainingSample.from_dict(item) for item in data.get("samples", [])],
             rejected=_copy(data.get("rejected") or []),
             immutable=True,
+            fragmentation_base={str(k): str(v) for k, v in (data.get("fragmentation_base") or {}).items()},
         )
 
     def summary(self) -> dict[str, Any]:
@@ -211,6 +246,7 @@ class DatasetSnapshot:
             "sample_count": self.sample_count,
             "rejected_count": self.rejected_count,
             "immutable": True,
+            "fragmentation_base": dict(self.fragmentation_base),
         }
 
 
@@ -227,6 +263,8 @@ def build_snapshot(
     dataset_version: int,
     name: str = "",
     created_at: str = "",
+    fallback_settings: Any = None,
+    fallback_source: Mapping[str, Any] | None = None,
 ) -> DatasetSnapshot:
     """Build an immutable snapshot. Incomplete blasts are listed, not included."""
     if not site_id:
@@ -238,7 +276,9 @@ def build_snapshot(
     samples: list[TrainingSample] = []
     rejected: list[dict[str, Any]] = []
     for design in designs:
-        candidate = build_sample(design, site_id=site_id)
+        candidate = build_sample(
+            design, site_id=site_id, fallback_settings=fallback_settings, fallback_source=fallback_source
+        )
         if candidate.validation.ok:
             samples.append(candidate)
         else:
@@ -261,5 +301,9 @@ def build_snapshot(
         samples=samples,
         rejected=rejected,
         immutable=True,
+        fragmentation_base={
+            "model": BASELINE_MODEL,
+            "model_version": str(FRAGMENTATION_MODELS[BASELINE_MODEL]["version"]),
+        },
     )
     return DatasetSnapshot.from_dict(snapshot.to_dict())

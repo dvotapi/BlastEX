@@ -53,6 +53,7 @@ class DatasetSnapshotSchema(BaseModel):
     samples: list[TrainingSampleSchema] = Field(default_factory=list)
     rejected: list[RejectedSampleSchema] = Field(default_factory=list)
     immutable: bool = True
+    fragmentation_base: dict[str, str] = Field(default_factory=dict)
 
 
 class DatasetSummarySchema(BaseModel):

@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from design.geometry import angle_azimuth, collar_on_roof, hole_depth_m, hole_from_collar
+from design.geometry import angle_azimuth, collar_on_roof, floor_elevation, hole_depth_m, hole_from_collar
 from design.models import BlockContour, Hole, Point3
 
 MANUAL_COLLAR_Z = "collar_z"
@@ -72,7 +72,7 @@ def recompute_hole(hole: Hole, contour: BlockContour, surfaces: object | None, p
     flags = []
     if outside:
         flags.append(FLAG_OUTSIDE_SURFACE)
-    if collar.z - contour.bench.toe_z_m < SHORT_BENCH_M:
+    if collar.z - floor_elevation(collar.x, collar.y, contour, surfaces) < SHORT_BENCH_M:
         flags.append(FLAG_SHORT_BENCH)
     return RecomputedHole(updated, flags)
 

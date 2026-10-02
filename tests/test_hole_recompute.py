@@ -175,3 +175,44 @@ def test_validation_lists_holes_outside_the_roof_and_on_a_short_bench():
     assert ("hole_short_bench", low.id) in codes
     assert ("hole_outside_surface", outside.id) in codes
     assert ("hole_outside_surface", low.id) not in codes
+
+
+def floor_tin(z: float) -> SurfaceModel:
+    """Подошва из TIN на отметке z — не отметка подошвы уступа (410)."""
+
+    tin = TIN(
+        vertices=[Point3(-10, -10, z), Point3(60, -10, z), Point3(60, 40, z), Point3(-10, 40, z)],
+        triangles=[(0, 1, 2), (0, 2, 3)],
+    )
+    return SurfaceModel(kind="floor", tin=tin)
+
+
+def test_short_bench_uses_the_floor_tin():
+    # Ревью Codex #104: длина берёт подошву из TIN, флаг — отметку подошвы.
+    # Устье 420,1 над подошвой 419,5 — уступ 0,6 м, хотя 420,1 − 410 = 10,1.
+    shallow = plane_roof()
+    shallow.floor = floor_tin(419.5)
+    deep = BlockContour(vertices=contour().vertices, bench=BenchSurface(crest_z_m=420.0, toe_z_m=419.5))
+    deep_floor = plane_roof()
+    deep_floor.floor = floor_tin(410.0)
+
+    (on_shallow,) = recompute_holes([hole(10.0, 5.0)], contour(), shallow, {})
+    (on_deep,) = recompute_holes([hole(10.0, 5.0)], deep, deep_floor, {})
+
+    assert on_shallow.hole.length_m == pytest.approx(0.6 + 1.0)
+    assert on_shallow.flags == ["short_bench"]
+    assert on_deep.flags == []
+
+
+def test_validation_short_bench_uses_the_floor_tin():
+    from design.analysis import validate
+    from design.models import BlastDesign
+
+    surfaces = plane_roof()
+    surfaces.floor = floor_tin(419.5)
+    collar = hole(10.0, 5.0, z=420.1)
+    design = BlastDesign(design_id="d", contour=contour(), holes=[collar], surfaces=surfaces)
+
+    codes = {(item["code"], item["hole_id"]) for item in validate(design)}
+
+    assert ("hole_short_bench", collar.id) in codes

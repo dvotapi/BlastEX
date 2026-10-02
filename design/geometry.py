@@ -248,6 +248,11 @@ def _floor_z(contour: BlockContour, floor: object | None, x: float, y: float) ->
     return contour.bench.toe_z_m if z_floor is None else z_floor
 
 
+def floor_elevation(x: float, y: float, contour: BlockContour, surfaces: object | None = None) -> float:
+    """Отметка подошвы под точкой: TIN подошвы, вне неё и без неё — отметка подошвы уступа."""
+    return _floor_z(contour, getattr(surfaces, "floor", None) if surfaces is not None else None, x, y)
+
+
 def _volume_from_surfaces(
     contour: BlockContour, top: object, floor: object | None, polygon: list[Point2] | None = None
 ) -> float:

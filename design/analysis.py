@@ -9,7 +9,7 @@ from typing import Any
 from collections import Counter
 
 from design.editing import spacing_report
-from design.geometry import block_volume, collar_on_roof, ensure_ccw, point_in_polygon, true_burden
+from design.geometry import block_volume, collar_on_roof, ensure_ccw, floor_elevation, point_in_polygon, true_burden
 from design.hole_recompute import SHORT_BENCH_M
 from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind
 from design.timing import resolve_network
@@ -253,7 +253,7 @@ def validate(
                     "message": f"Устье скважины {h.id} вне кровли: отметка взята по ближайшей точке поверхности.",
                 }
             )
-        if h.collar.z - design.contour.bench.toe_z_m < SHORT_BENCH_M:
+        if h.collar.z - floor_elevation(h.collar.x, h.collar.y, design.contour, design.surfaces) < SHORT_BENCH_M:
             warnings.append(
                 {
                     "code": "hole_short_bench",

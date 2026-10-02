@@ -464,7 +464,9 @@ constraints) → BuildResult(vertices, triangles, origins)`):
   `presplit_depth_m`, `trim_depth_m`, `satellite_depth_m`, иначе `depth_m`)
   сохраняют длину, устье ложится на кровлю; отключённые — так же;
   ничего не сменилось — скважина как была (без дрожи округления);
-- флаг `short_bench` — S − Z < 1 м;
+- флаг `short_bench` — S − Z < 1 м, Z — подошва под устьем
+  (`geometry.floor_elevation`: TIN подошвы, вне неё и без неё — `bench.toe_z_m`);
+  та же проверка паспорта — `hole_short_bench`;
 - `POST /design/holes/recompute` (`holes` до 20 000, `contour`, `surfaces`,
   `params`) → `holes`, `flags` (только непустые), `block_volume_m3`,
   `drilling_m` (включённые), `mean_height_m` (`geometry.mean_bench_height`:

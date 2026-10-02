@@ -100,3 +100,35 @@ def test_local_frame_round_trip():
     local = frame.to_local([(7_000_010.0, 500_020.0)])
     assert local == [(10.0, 20.0)]
     assert frame.to_world(local) == [(7_000_010.0, 500_020.0)]
+
+
+def test_dense_arc_keeps_every_original_point_within_a_centimetre():
+    # Круг R = 100 м с вершинами через 0,25 м: каждая вершина «на прямой» со
+    # своими соседями, но убирать их подряд можно, только пока все исходные
+    # точки остаются в 1 см от нового контура (раньше круг терял 0,1 % площади).
+    import math as m
+
+    from shapely.geometry import LinearRing, Point
+
+    count = 2500
+    circle = [(100 * m.cos(2 * m.pi * k / count), 100 * m.sin(2 * m.pi * k / count)) for k in range(count)]
+    ring = normalize_ring(circle)
+
+    outline = LinearRing(ring)
+    assert max(outline.distance(Point(point)) for point in circle) <= 0.01 + 1e-9
+    assert ring_area(ring) == pytest.approx(ring_area(circle), rel=2e-4)
+    assert len(ring) < count
+
+
+def test_long_ring_is_normalized_in_linear_time():
+    import time
+
+    # 20 000 вершин: первая половина — зубцы (не убираются), вторая — прямая.
+    teeth = [(0.5 * k, 0.2 * (k % 2)) for k in range(10_000)]
+    straight = [(5000.0 - 0.5 * k, -10.0) for k in range(10_000)]
+    started = time.perf_counter()
+    ring = normalize_ring([*teeth, *straight])
+    elapsed = time.perf_counter() - started
+
+    assert len(ring) == 10_002
+    assert elapsed < 2.0, f"{elapsed:.2f} с"

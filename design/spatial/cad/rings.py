@@ -127,17 +127,87 @@ def _between(prev: XY, point: XY, nxt: XY) -> bool:
 
 
 def _drop_collinear(points: list[XY]) -> list[XY]:
-    ring = list(points)
+    """Вершины на прямой в пределах 1 см — прочь, за линейное время.
+
+    Убирать можно, только пока все исходные точки остаются в 1 см от новой
+    хорды. Сравнение вершины лишь с текущими соседями копит сдвиг: на дуге с
+    частыми вершинами каждая «на прямой» со своими соседями, а круг R = 100 м
+    с шагом 0,25 м уходил внутрь на 8 см и терял 0,1 % площади.
+    """
+
+    count = len(points)
+    if count <= 3:
+        return list(points)
+    # Начало — крайняя точка: она на выпуклой оболочке, шов реже приходится на прямую.
+    first = min(range(count), key=lambda index: points[index])
+    order = [*points[first:], *points[:first], points[first]]
+    ring: list[XY] = [order[0]]
+    # gaps[i] — исходные точки, убранные между ring[i] и ring[i + 1] (по кругу).
+    gaps: list[list[XY]] = []
+    anchor = 0
+    while anchor < count:
+        end = _furthest_end(order, anchor)
+        ring.append(order[end])
+        gaps.append(order[anchor + 1 : end])
+        anchor = end
+    ring.pop()  # последняя — снова первая точка
+    if len(ring) < 3:
+        # Все точки на одной прямой: проверка контура скажет «площадь 0».
+        return list(points)
+
+    # Шов: первая точка не проверялась, а убранная на шве меняет соседей у
+    # новых крайних — проверяем их, пока убирается.
     changed = True
     while changed and len(ring) > 3:
         changed = False
-        for index in range(len(ring)):
-            prev, point, nxt = ring[index - 1], ring[index], ring[(index + 1) % len(ring)]
-            if _between(prev, point, nxt):
+        for index in (0, len(ring) - 1):
+            inner = [*gaps[index - 1], ring[index], *gaps[index]]
+            if all(_between(ring[index - 1], item, ring[(index + 1) % len(ring)]) for item in inner):
+                gaps[index - 1] = inner
                 del ring[index]
+                del gaps[index]
                 changed = True
                 break
     return ring
+
+
+def _furthest_end(order: Sequence[XY], anchor: int) -> int:
+    """Самая дальняя вершина, до которой хорда от `anchor` проходит не дальше
+    1 см от всех промежуточных точек (как `_between`).
+
+    Допустимые направления хорды — пересечение «конусов» промежуточных точек:
+    точка на расстоянии r от начала допускает отклонение asin(1 см / r).
+    """
+
+    ax, ay = order[anchor]
+    base: float | None = None
+    low, high = -math.pi, math.pi
+    farthest = 0.0
+    end = anchor + 1
+    for candidate in range(anchor + 2, len(order)):
+        px, py = order[candidate - 1][0] - ax, order[candidate - 1][1] - ay
+        radius = math.hypot(px, py)
+        if base is None:
+            base = math.atan2(py, px)
+        angle = _turn(math.atan2(py, px) - base)
+        spread = math.pi / 2 if radius <= DEDUP_TOLERANCE_M else math.asin(DEDUP_TOLERANCE_M / radius)
+        low, high = max(low, angle - spread), min(high, angle + spread)
+        farthest = max(farthest, radius)
+        qx, qy = order[candidate][0] - ax, order[candidate][1] - ay
+        reach = math.hypot(qx, qy)
+        if low > high or reach == 0 or not low <= _turn(math.atan2(qy, qx) - base) <= high:
+            break
+        # Хорда короче самой дальней точки — путь вернулся назад: проверяем точно.
+        if reach < farthest and not all(
+            _between(order[anchor], order[index], order[candidate]) for index in range(anchor + 1, candidate)
+        ):
+            break
+        end = candidate
+    return end
+
+
+def _turn(angle: float) -> float:
+    return (angle + math.pi) % (2 * math.pi) - math.pi
 
 
 def normalize_ring(points: Sequence[XY]) -> list[XY]:

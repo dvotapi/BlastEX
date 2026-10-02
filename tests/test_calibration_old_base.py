@@ -1,7 +1,7 @@
 """Единое правило «прогноз посчитан старой базой Kuz-Ram 1.0.0»."""
 import unittest
 
-from intelligence.calibration.old_base import is_old_base, version_major
+from intelligence.calibration.old_base import is_kuzram_curve, is_old_base, version_major
 
 
 class OldBaseRuleTests(unittest.TestCase):
@@ -37,6 +37,23 @@ class OldBaseRuleTests(unittest.TestCase):
         for model, version, expected in cases:
             with self.subTest(model=model, version=version):
                 self.assertIs(is_old_base(model, version), expected)
+
+    def test_kuzram_curve(self):
+        cases = (
+            ("kuzram", True),
+            ("kuzram_legacy", True),
+            ("Kuz-Ram", True),
+            ("KUZRAM_LEGACY", True),
+            ("swebrec", False),
+            ("swebrec_legacy", False),
+            ("kuznetsov", False),
+            ("kuznetsov_legacy", False),
+            ("abc", False),
+            ("", False),
+        )
+        for model, expected in cases:
+            with self.subTest(model=model):
+                self.assertIs(is_kuzram_curve(model), expected)
 
 
 if __name__ == "__main__":

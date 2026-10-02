@@ -121,14 +121,62 @@ class CalibrationTrainingBaseTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             train_from_snapshot(snapshot, model_type="kuzram_residual")
 
-        self.assertIn("новой модели", str(caught.exception))
-        self.assertIn("3", str(caught.exception))
+        self.assertIn("новой модели: 3", str(caught.exception))
+
+    def _legacy_curves_snapshot(self):
+        return _mark_predictions(
+            synthetic_snapshot(n=12),
+            {
+                0: ("swebrec_legacy", "1.0.0"),
+                1: ("swebrec_legacy", "1.0.0"),
+                2: ("kuznetsov_legacy", "1.0.0"),
+                3: ("kuznetsov_legacy", "1.0.0"),
+                4: ("kuzram_legacy", "1.0.0"),
+                5: ("kuzram", "1.0.0"),
+                6: ("", ""),
+                # строки 7-11 без полей модели
+            },
+        )
+
+    def test_oversize_training_keeps_only_kuzram_curve(self):
+        model = train_from_snapshot(self._legacy_curves_snapshot(), model_type="oversize_residual")
+
+        self.assertEqual(model.sample_count, 8)
+        self.assertEqual(
+            sorted(model.source_blast_ids),
+            sorted(f"blast-{index}" for index in range(4, 12)),
+        )
+
+    def test_x50_training_keeps_rows_of_every_old_model(self):
+        # x50 всех старых моделей одинаков, поэтому строки swebrec_legacy и kuznetsov_legacy годятся.
+        model = train_from_snapshot(self._legacy_curves_snapshot(), model_type="kuzram_residual")
+
+        self.assertEqual(model.sample_count, 12)
+
+    def test_ppv_training_ignores_prediction_curve(self):
+        model = train_from_snapshot(self._legacy_curves_snapshot(), model_type="ppv_residual")
+
+        self.assertEqual(model.sample_count, 12)
+
+    def test_oversize_error_names_rows_of_other_curve(self):
+        snapshot = _mark_predictions(
+            synthetic_snapshot(n=6),
+            {0: ("swebrec_legacy", "1.0.0"), 1: ("swebrec_legacy", "1.0.0"), 2: ("kuznetsov_legacy", "1.0.0")},
+        )
+
+        with self.assertRaises(ValueError) as caught:
+            train_from_snapshot(snapshot, model_type="oversize_residual")
+
+        self.assertIn("не по кривой Kuz-Ram: 3", str(caught.exception))
+        self.assertNotIn("новой модели", str(caught.exception))
+        self.assertEqual(train_from_snapshot(snapshot, model_type="kuzram_residual").sample_count, 6)
 
     def test_error_without_excluded_rows_is_unchanged(self):
         with self.assertRaises(ValueError) as caught:
             train_from_snapshot(synthetic_snapshot(n=2), model_type="kuzram_residual")
 
         self.assertNotIn("новой модели", str(caught.exception))
+        self.assertNotIn("Kuz-Ram:", str(caught.exception))
 
 
 class CalibrationPredictionTests(unittest.TestCase):

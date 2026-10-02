@@ -23,7 +23,7 @@ from api.schemas.calibration import (
     CalibrationTrainRequest,
 )
 from intelligence.calibration.algorithms import DEFAULT_ALGORITHM, available_algorithms
-from intelligence.calibration.old_base import is_old_base, version_major
+from intelligence.calibration.old_base import is_kuzram_curve, is_old_base, version_major
 from intelligence.calibration.persistence import (
     CalibrationNotFoundError as StoreNotFound,
     ImmutableCalibrationError as StoreImmutable,
@@ -52,7 +52,6 @@ from intelligence.calibration.types import (
 )
 from intelligence.datasets import persistence as dataset_persistence
 from simulation.fragmentation.engine import resolve_model
-from simulation.fragmentation.models import MODEL_KUZRAM, MODEL_KUZRAM_LEGACY
 
 
 def _model_schema(model) -> CalibrationModelSchema:
@@ -168,7 +167,7 @@ def _provided_base_refusal(request: CalibrationPredictRequest, model_type: str) 
             "Калибровка обучена на старой модели Kuz-Ram 1.0.0 и к прогнозу новой модели "
             "не применяется — её нужно переобучить."
         )
-    if model_type == MODEL_OVERSIZE_RESIDUAL and model_id not in {MODEL_KUZRAM, MODEL_KUZRAM_LEGACY}:
+    if model_type == MODEL_OVERSIZE_RESIDUAL and not is_kuzram_curve(model_id):
         return f"Калибровка негабарита обучена на кривой Kuz-Ram и к прогнозу модели «{model_id}» не применяется."
     return ""
 

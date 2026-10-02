@@ -106,6 +106,11 @@ def train_from_snapshot(
                 f" Исключено образцов с прогнозом новой модели: {table.excluded_new_base} — "
                 "калибровки кусковатости учатся на прогнозах старой модели Kuz-Ram 1.0.0."
             )
+        if table.excluded_other_curve:
+            message += (
+                f" Исключено образцов с прогнозом не по кривой Kuz-Ram: {table.excluded_other_curve} — "
+                "негабарит калибруется только на ней."
+            )
         raise ValueError(message)
 
     algo = get_algorithm(algorithm)

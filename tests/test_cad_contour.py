@@ -350,3 +350,13 @@ def test_mutually_crossing_lines_are_refused_before_materializing_all_pairs():
         split_lines(star)
     with pytest.raises(ContourInputError, match="Пересечений"):
         click_contour(star, (10.0, 1.0), 0.5, 5.0)
+
+
+def test_dense_dangling_ends_are_refused_before_materializing_all_pairs():
+    from design.spatial.cad.contour import MAX_END_PAIRS
+
+    # Сотни коротких параллельных штрихов в метре: все концы в пределах допуска друг от друга.
+    count = int(math.isqrt(MAX_END_PAIRS)) + 20
+    hatch = [line(f"H{k}", [(0.0, 0.001 * k), (0.1, 0.001 * k)]) for k in range(count)]
+    with pytest.raises(ContourInputError, match="Концов линий"):
+        click_contour(hatch, (0.05, 0.5), 0.5, 5.0)

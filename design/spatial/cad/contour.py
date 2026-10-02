@@ -476,6 +476,11 @@ def _dangles(segments: Sequence[LineString]) -> dict[XY, tuple[int, int]]:
     return {point: owner[point] for point, count in degree.items() if count == 1}
 
 
+# Пар близких концов (в пределах допуска или моста) не больше этого: тысячи
+# коротких штрихов рядом дали бы сотни миллионов пар ещё до сведения концов.
+MAX_END_PAIRS = 50_000
+
+
 def _pairs_within(points: Sequence[XY], distance_m: float) -> list[tuple[float, int, int]]:
     """Пары точек не дальше `distance_m` по сетке ячеек — без перебора всех пар."""
 
@@ -495,6 +500,11 @@ def _pairs_within(points: Sequence[XY], distance_m: float) -> list[tuple[float, 
                         distance = math.dist(points[index], points[other])
                         if distance <= distance_m:
                             pairs.append((distance, index, other))
+                            if len(pairs) > MAX_END_PAIRS:
+                                raise ContourInputError(
+                                    f"Концов линий рядом друг с другом слишком много: больше {MAX_END_PAIRS} пар "
+                                    f"ближе {ru_number(distance_m, 1)} м. Уменьшите мост или снимите лишние роли."
+                                )
     return sorted(pairs)
 
 

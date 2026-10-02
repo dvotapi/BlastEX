@@ -15,7 +15,7 @@ import { api } from "../../api/endpoints";
 import { ruNumber } from "../../lib/format";
 import { angleAzimuth, holeLength } from "../../lib/geometry2d";
 import { plural } from "../../lib/plural";
-import type { BlastDesign, Hole, HoleRecomputeFlag, HoleRecomputeResponse } from "../../types/design";
+import type { BlastDesign, Hole, HoleRecomputeFlag, HoleRecomputeResponse, TIN } from "../../types/design";
 import type { DesignAction } from "./designReducer";
 
 export const RECOMPUTE_DELAY_MS = 300;
@@ -42,6 +42,33 @@ function round(value: number, digits: number): number {
   return Math.round(value * scale) / scale;
 }
 
+// Отпечаток TIN по содержимому (вершины до 1 мм и треугольники): время и
+// число вершин не отличают поверхность, заменённую в ту же секунду. Кэш по
+// объекту — правки, не трогающие поверхность, отпечаток не пересчитывают.
+const tinFingerprints = new WeakMap<TIN, string>();
+
+export function tinFingerprint(tin: TIN): string {
+  const cached = tinFingerprints.get(tin);
+  if (cached !== undefined) return cached;
+  let h1 = 0xdeadbeef ^ tin.vertices.length;
+  let h2 = 0x41c6ce57 ^ tin.triangles.length;
+  const mix = (value: number) => {
+    h1 = Math.imul(h1 ^ value, 2654435761);
+    h2 = Math.imul(h2 ^ value, 1597334677);
+  };
+  for (const vertex of tin.vertices) {
+    mix(Math.round(vertex.x * 1000) | 0);
+    mix(Math.round(vertex.y * 1000) | 0);
+    mix(Math.round(vertex.z * 1000) | 0);
+  }
+  for (const triangle of tin.triangles) for (const index of triangle) mix(index);
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const value = `${tin.vertices.length}:${tin.triangles.length}:${(h2 >>> 0).toString(36)}${(h1 >>> 0).toString(36)}`;
+  tinFingerprints.set(tin, value);
+  return value;
+}
+
 /**
  * Триггеры пересчёта скважин (план, задача 12): кровля, подошва, перебур и
  * сетка — положение, вид, ось, ручные пометки, параметры глубины. Того, что
@@ -51,8 +78,8 @@ export function applyKey(design: BlastDesign, params: Record<string, unknown>): 
   const top = design.surfaces.top;
   const { bench } = design.contour;
   return JSON.stringify({
-    roof: top ? [top.name, top.created_at, top.tin.vertices.length, top.tin.triangles.length] : null,
-    floor: design.surfaces.floor ? [design.surfaces.floor.created_at, design.surfaces.floor.tin.vertices.length] : null,
+    roof: top ? tinFingerprint(top.tin) : null,
+    floor: design.surfaces.floor ? tinFingerprint(design.surfaces.floor.tin) : null,
     bench: [bench.crest_z_m, bench.toe_z_m],
     depth: DEPTH_PARAMS.map((name) => params[name] ?? null),
     holes: design.holes.map((hole) => {

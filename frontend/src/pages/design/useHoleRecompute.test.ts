@@ -172,6 +172,42 @@ describe("recomputeKey", () => {
   });
 });
 
+describe("recomputeKey: содержимое поверхностей", () => {
+  // Ревью Codex #104: замена поверхности в ту же секунду с тем же числом
+  // вершин (правка Z внутри) не меняла ключ — длины оставались по старой.
+  function surface(kind: "top" | "floor", z: number) {
+    return {
+      ...emptyDesign().surfaces.top,
+      kind,
+      name: "Съёмка",
+      created_at: "2026-10-02T12:00:00",
+      tin: {
+        vertices: [
+          { x: 0, y: 0, z: 420 },
+          { x: 40, y: 0, z: 420 },
+          { x: 20, y: 20, z },
+        ],
+        triangles: [[0, 1, 2]],
+      },
+    };
+  }
+
+  function withSurfaces(top: number, floor: number): BlastDesign {
+    const base = design();
+    return { ...base, surfaces: { ...base.surfaces, top: surface("top", top), floor: surface("floor", floor) } as BlastDesign["surfaces"] };
+  }
+
+  it("меняется от отметок кровли и подошвы при тех же имени, времени и числе вершин", () => {
+    const key = recomputeKey(withSurfaces(421, 410), {});
+    expect(recomputeKey(withSurfaces(421.5, 410), {})).not.toBe(key);
+    expect(recomputeKey(withSurfaces(421, 409.5), {})).not.toBe(key);
+  });
+
+  it("не меняется от копии той же поверхности", () => {
+    expect(recomputeKey(withSurfaces(421, 410), {})).toBe(recomputeKey(withSurfaces(421, 410), {}));
+  });
+});
+
 describe("useHoleRecompute: правки по ревью", () => {
   it("включение и выключение скважины открытого паспорта — только флаги и объём, длины не трогаются", async () => {
     const dispatch = vi.fn();

@@ -6,9 +6,10 @@ import { HoleDrawingDefs } from "../../components/holeDrawing/defs";
 import { Primer } from "../../components/holeDrawing/Primer";
 import { barrelWidthPx, makeAxis } from "../../components/holeDrawing/geometry";
 import { ruNumber } from "../../lib/format";
-import { angleAzimuth, holeFromCollar, holeLength } from "../../lib/geometry2d";
+import { angleAzimuth, holeLength } from "../../lib/geometry2d";
 import type { Hole, HoleKind, HoleLoad, HoleManualFlag, HoleRecomputeFlag } from "../../types/design";
 import { HOLE_KIND_LABELS } from "../../types/design";
+import { axisPatch, collarZPatch, toePatch } from "./holeEdits";
 
 /** Флаги пересчёта по кровле — для пользователя. */
 export const RECOMPUTE_FLAG_LABELS: Record<HoleRecomputeFlag, string> = {
@@ -18,12 +19,6 @@ export const RECOMPUTE_FLAG_LABELS: Record<HoleRecomputeFlag, string> = {
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
-}
-
-/** Ручные пометки скважины с новой: пересчёт по кровле их не затирает (TASK-013, PR 3). */
-function withManual(hole: Hole, flag: HoleManualFlag): HoleManualFlag[] {
-  const current = hole.manual ?? [];
-  return current.includes(flag) ? current : [...current, flag];
 }
 
 function ManualMark({ hole, flag }: { hole: Hole; flag: HoleManualFlag }) {
@@ -60,27 +55,15 @@ export function HoleInspector({
   const { angleDeg, azimuthDeg } = angleAzimuth(hole.collar, hole.toe);
 
   function patchAxis(next: { depth?: number; angle?: number; azimuth?: number }) {
-    const current = angleAzimuth(hole.collar, hole.toe);
-    const depth = next.depth ?? holeLength(hole.collar, hole.toe);
-    const angle = next.angle ?? current.angleDeg;
-    const azimuth = next.azimuth ?? current.azimuthDeg;
-    // Своя длина — ручная правка; угол и азимут пересчёт сохраняет сам.
-    const manual = next.depth !== undefined ? { manual: withManual(hole, "length") } : {};
-    onUpdateHole(hole.id, { toe: holeFromCollar(hole.collar, depth, angle, azimuth), ...manual });
+    onUpdateHole(hole.id, axisPatch(hole, next));
   }
 
-  /** Отметка устья руками: скважина сдвигается по вертикали целиком, ось та же. */
   function patchCollarZ(z: number) {
-    const dz = z - hole.collar.z;
-    onUpdateHole(hole.id, {
-      collar: { ...hole.collar, z },
-      toe: { ...hole.toe, z: hole.toe.z + dz },
-      manual: withManual(hole, "collar_z"),
-    });
+    onUpdateHole(hole.id, collarZPatch(hole, z));
   }
 
   function patchToe(axis: "x" | "y" | "z", value: number) {
-    onUpdateHole(hole.id, { toe: { ...hole.toe, [axis]: value }, manual: withManual(hole, "length") });
+    onUpdateHole(hole.id, toePatch(hole, axis, value));
   }
 
   useEffect(() => {

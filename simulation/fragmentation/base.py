@@ -13,7 +13,7 @@ from dataclasses import asdict
 from typing import Any
 
 from simulation.fragmentation.cunningham import KuzRamPoint, KuzRamSettings, predict_point
-from simulation.fragmentation.models import Calibration, FragmentationInputs
+from simulation.fragmentation.models import Calibration, FragmentationInputs, is_old_model
 from simulation.fragmentation.units import anfo_weight_strength_pct, length_m_from_mm, length_mm_from_m
 
 # Поправки калибровки, которые новая база не применяет: фактор породы и
@@ -108,13 +108,14 @@ def settings_snapshot(
     }
 
 
-def settings_source_label(model: str, snapshot: Mapping[str, Any] | None) -> str:
+def settings_source_label(model: str, model_version: str, snapshot: Mapping[str, Any] | None) -> str:
     """Подпись «откуда настройки модели» для панели «Кусковатость» и паспорта.
 
     Единственное место с этими словами: фронт показывает settings_label из
-    ответа API. Старый паспорт без снимка настроек строки не получает.
+    ответа API. Прогноз старой модели — *_legacy или сохранённый до PR 2
+    с версией 1.0.0 — помечается «старая модель».
     """
-    if model.endswith("_legacy"):
+    if is_old_model(model, model_version):
         return "Старая модель: настройки объекта не применяются"
     if not snapshot:
         return ""

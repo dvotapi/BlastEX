@@ -29,6 +29,18 @@ FRAGMENTATION_MODEL_IDS = (
 )
 
 
+def is_old_model(model: str, version: str) -> bool:
+    """Прогноз посчитан прежними формулами (до перевода на Каннингема).
+
+    Старые — модели *_legacy и любая модель версии ниже 2.0.0. Пустая или
+    нечитаемая версия — тоже старая: так записаны прогнозы до PR 2.
+    """
+    if str(model or "").endswith(LEGACY_MODEL_SUFFIX):
+        return True
+    major = str(version or "").strip().split(".", 1)[0]
+    return not major.isdigit() or int(major) < 2
+
+
 def _opt_float(data: dict[str, Any], key: str) -> float | None:
     raw = data.get(key)
     if raw is None or raw == "":

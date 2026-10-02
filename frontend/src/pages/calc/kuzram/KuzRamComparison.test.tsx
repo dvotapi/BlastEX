@@ -13,11 +13,11 @@ describe("KuzRamComparison", () => {
   it("сводка выбранной коронки: обе модели и разница q", () => {
     render(<KuzRamComparison variants={VARIANTS} selectedIndex={1} onSelect={vi.fn()} thresholdPct={5} />);
     const summary = screen.getByRole("region", { name: "Коронка 152 мм" });
-    expect(within(summary).getByText("1,26")).toBeInTheDocument();
+    expect(within(summary).getByText("1,33")).toBeInTheDocument();
     expect(within(summary).getByText("1,34")).toBeInTheDocument();
-    expect(summary).toHaveTextContent("сетка 4,42 × 3,54 м · негабарит 4,98 %");
+    expect(summary).toHaveTextContent("сетка 4,30 × 3,44 м · негабарит 4,83 %");
     expect(summary).toHaveTextContent("сетка 4,29 × 3,43 м · негабарит 5,00 %");
-    expect(summary).toHaveTextContent("−6 %");
+    expect(summary).toHaveTextContent("−1 %");
   });
 
   it("таблица: строка на коронку, «!» у обеих моделей, выбор мышью и клавиатурой", () => {

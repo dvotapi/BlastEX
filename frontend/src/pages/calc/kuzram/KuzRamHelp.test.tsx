@@ -22,8 +22,8 @@ describe("KuzRamHelp", () => {
     render(<KuzRamHelp />);
     const basic = screen.getByRole("region", { name: "Базовый расчёт" });
     expect(basic).toHaveTextContent(`q ${ruNumber(examples.basic.kuzram.q_kg_m3, 2)} кг/м³`);
-    expect(basic).toHaveTextContent("q 1,26 кг/м³, сетка 4,42 × 3,54 м");
-    expect(basic).toHaveTextContent("−6 %");
+    expect(basic).toHaveTextContent("q 1,33 кг/м³, сетка 4,30 × 3,44 м");
+    expect(basic).toHaveTextContent("−1 %");
 
     const calibration = screen.getByRole("region", { name: "Подбор C(A) по фактическим взрывам" });
     expect(calibration).toHaveTextContent("условные");
@@ -32,15 +32,15 @@ describe("KuzRamHelp", () => {
 
     const methods = screen.getByRole("region", { name: "Выбор способа расчёта A" });
     expect(methods).toHaveTextContent("По трещиноватости (JF)");
-    expect(methods).toHaveTextContent("1,98");
+    expect(methods).toHaveTextContent("1,95");
 
     const notReached = screen.getByRole("region", { name: "Порог не достигнут" });
-    expect(notReached).toHaveTextContent("негабарит 5,40 %");
-    expect(notReached).toHaveTextContent("q 1,53 и негабарит 4,93 %");
+    expect(notReached).toHaveTextContent("негабарит 6,66 %");
+    expect(notReached).toHaveTextContent("q 1,61 и негабарит 4,86 %");
 
     const jointSwitch = screen.getByRole("region", { name: "Скачок при способе JF" });
-    expect(jointSwitch).toHaveTextContent("11,48 %");
-    expect(jointSwitch).toHaveTextContent("4,00 %");
+    expect(jointSwitch).toHaveTextContent("13,17 %");
+    expect(jointSwitch).toHaveTextContent("4,90 %");
     expect(jointSwitch).toHaveTextContent("JPS падает до 50");
   });
 });

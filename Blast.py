@@ -8,7 +8,7 @@ from simulation.fragmentation.distributions import (
 )
 from simulation.fragmentation.legacy.kuznetsov import kuznetsov_x50_mm, rock_factor_A
 from simulation.fragmentation.legacy.kuzram import cunningham_uniformity_n
-from simulation.fragmentation.units import relative_weight_strength
+from simulation.fragmentation.units import anfo_weight_strength_pct, relative_weight_strength
 
 # --- БЛОК ОПИСАНИЯ ДАННЫХ Классов ---
 
@@ -23,7 +23,7 @@ class RockProperties:
 class ExplosiveProperties:
     name: str                     # Название взрывчатки (например, "ЭВЕРСИН-100")
     density_t_m3: float           # Плотность заряжания (г/см³ или т/м³)
-    power_mj_kg: float            # Теплота взрыва Q_exp (МДж/кг). RE_weight = Q_exp/4,184 — сила ВВ относительно тротила
+    power_mj_kg: float            # Теплота взрыва Q_exp (МДж/кг). RWS = 100·Q_exp/3,8 — сила ВВ относительно ANFO, %
 
 @dataclass
 class TargetParams:
@@ -68,7 +68,8 @@ class BlastPoint:
     burden_to_diameter: float  # W/d — ЛНС к диаметру скважины (обе величины в метрах)
     rock_factor_a: float
     rock_factor: kr.RockFactorBreakdown | None  # None — расчёт «до исправления»
-    re_weight: float
+    re_weight: float | None  # сила ВВ к тротилу — только в расчёте «до исправления»
+    rws_anfo_pct: float | None  # сила ВВ к ANFO, % — только в Kuz-Ram по Каннингему
     strength_exponent: str
     x50_mm: float
     uniformity_n_raw: float
@@ -140,7 +141,7 @@ class BlastEngine:
             q_kg_m3=q, hole_diameter_mm=d_m * 1000, charge_length_m=charge_length,
             charge_mass_kg=charge_mass, volume_per_hole_m3=v_hole, burden_m=W, spacing_m=m * W,
             burden_to_diameter=W / d_m,
-            rock_factor_a=A, rock_factor=None, re_weight=re_weight, strength_exponent="19/30",
+            rock_factor_a=A, rock_factor=None, re_weight=re_weight, rws_anfo_pct=None, strength_exponent="19/30",
             x50_mm=x50_mm, uniformity_n_raw=n_raw, uniformity_n=n, charge_to_bench=None,
             characteristic_size_mm=rosin_rammler_characteristic_mm(x50_mm, n),
             oversize_pct=rosin_rammler_oversize_pct(x50_mm, n, self.target.lump_size_mm),
@@ -167,7 +168,7 @@ class BlastEngine:
         движок «Проектирования».
         """
         d_m, charge_length, charge_mass, v_hole, W, m = self._hole(diameter_mm, q)
-        re_weight = self._get_re_weight()
+        rws_anfo_pct = anfo_weight_strength_pct(self.explosive.power_mj_kg)
         point = kr.predict_point(
             settings,
             ucs_mpa=self.rock.ucs_mpa,
@@ -178,7 +179,7 @@ class BlastEngine:
             hole_diameter_mm=d_m * 1000,
             powder_factor_kg_m3=q,
             charge_mass_kg=charge_mass,
-            re_weight=re_weight,
+            rws_anfo_pct=rws_anfo_pct,
             charge_length_m=charge_length,
             bench_height_m=self.target.bench_height_m,
             lump_size_mm=self.target.lump_size_mm,
@@ -187,7 +188,7 @@ class BlastEngine:
             q_kg_m3=q, hole_diameter_mm=d_m * 1000, charge_length_m=charge_length,
             charge_mass_kg=charge_mass, volume_per_hole_m3=v_hole, burden_m=W, spacing_m=m * W,
             burden_to_diameter=W / d_m,
-            rock_factor_a=point.rock.value, rock_factor=point.rock, re_weight=re_weight,
+            rock_factor_a=point.rock.value, rock_factor=point.rock, re_weight=None, rws_anfo_pct=point.rws_anfo_pct,
             strength_exponent=settings.strength_exponent, x50_mm=point.x50_mm,
             uniformity_n_raw=point.uniformity.raw, uniformity_n=point.uniformity.value,
             charge_to_bench=point.uniformity.charge_to_bench,

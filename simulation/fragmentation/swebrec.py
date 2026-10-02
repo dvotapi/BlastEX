@@ -19,7 +19,7 @@ from simulation.fragmentation.models import (
 )
 
 MODEL_ID = "swebrec"
-MODEL_VERSION = "2.0.0"
+MODEL_VERSION = "2.1.0"
 
 
 def predict_swebrec(

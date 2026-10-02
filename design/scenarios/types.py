@@ -172,6 +172,9 @@ class ScenarioOutcomes:
     oversize_engineering_pct: float | None = None
     ppv_engineering_mm_s: float | None = None
     fragmentation_source: str = SOURCE_ENGINEERING
+    # Версия модели кусковатости, посчитавшей x50 и негабарит; пусто — сценарий
+    # сохранён до того, как версия стала записываться (Kuz-Ram 2.0.0 и раньше).
+    fragmentation_model_version: str = ""
     vibration_source: str = SOURCE_ENGINEERING
     cost_source: str = SOURCE_ENGINEERING
     ml_overlay_applied: bool = False
@@ -200,6 +203,7 @@ class ScenarioOutcomes:
             "oversize_engineering_pct": self.oversize_engineering_pct,
             "ppv_engineering_mm_s": self.ppv_engineering_mm_s,
             "fragmentation_source": self.fragmentation_source,
+            "fragmentation_model_version": self.fragmentation_model_version,
             "vibration_source": self.vibration_source,
             "cost_source": self.cost_source,
             "ml_overlay_applied": self.ml_overlay_applied,
@@ -231,6 +235,7 @@ class ScenarioOutcomes:
             oversize_engineering_pct=_opt_float(data, "oversize_engineering_pct"),
             ppv_engineering_mm_s=_opt_float(data, "ppv_engineering_mm_s"),
             fragmentation_source=str(data.get("fragmentation_source") or SOURCE_ENGINEERING),
+            fragmentation_model_version=str(data.get("fragmentation_model_version") or ""),
             vibration_source=str(data.get("vibration_source") or SOURCE_ENGINEERING),
             cost_source=str(data.get("cost_source") or SOURCE_ENGINEERING),
             ml_overlay_applied=bool(data.get("ml_overlay_applied", False)),

@@ -61,18 +61,23 @@ def _optimize(**extra) -> dict:
 class OptimizeEndpointTests(unittest.TestCase):
     def test_defaults_to_massive_rock_model(self):
         body = _optimize(crown_diameters_mm=[152])
-        self.assertEqual(body["model_version"], "kuzram-cunningham-1.0")
+        self.assertEqual(body["model_version"], "kuzram-cunningham-1.1")
         self.assertEqual(body["kuzram"]["rock_factor_method"], "rmd50")
         self.assertEqual(body["kuzram"]["q_max_kg_m3"], 2.0)
         variant = body["variants"][0]
-        self.assertEqual(variant["specific_q_kg_m3"], 1.26)
-        self.assertEqual(variant["grid_label"], "4.42 × 3.54")
+        self.assertEqual(variant["specific_q_kg_m3"], 1.33)
+        self.assertEqual(variant["grid_label"], "4.3 × 3.44")
         self.assertTrue(variant["reached"])
-        self.assertEqual(variant["target_q_kg_m3"], 1.26)
+        self.assertEqual(variant["target_q_kg_m3"], 1.33)
         self.assertAlmostEqual(variant["details"]["rock_factor"]["value"], 6.366)
         self.assertAlmostEqual(variant["details"]["rock_factor"]["rdi"], 22.5)
         self.assertEqual(variant["details"]["strength_exponent"], "19/20")
         self.assertIn("burden_to_diameter", variant["details"])
+        # Сила ВВ по Каннингему — к ANFO: 100·2,99/3,8; тротиловая RE — только в «до исправления».
+        self.assertAlmostEqual(variant["details"]["rws_anfo_pct"], 100 * 2.99 / 3.8)
+        self.assertIsNone(variant["details"]["re_weight"])
+        self.assertAlmostEqual(variant["legacy"]["details"]["re_weight"], 2.99 / 4.184)
+        self.assertIsNone(variant["legacy"]["details"]["rws_anfo_pct"])
 
     def test_legacy_block_matches_old_response(self):
         legacy = _optimize(crown_diameters_mm=[152])["variants"][0]["legacy"]
@@ -86,7 +91,7 @@ class OptimizeEndpointTests(unittest.TestCase):
 
     def test_settings_change_the_result(self):
         body = _optimize(crown_diameters_mm=[152], kuzram={"rock_factor_method": "rmd10"})
-        self.assertEqual(body["variants"][0]["specific_q_kg_m3"], 0.74)
+        self.assertEqual(body["variants"][0]["specific_q_kg_m3"], 0.78)
         self.assertEqual(body["kuzram"]["rock_factor_method"], "rmd10")
 
     def test_not_reached_has_no_target_q(self):
@@ -250,7 +255,7 @@ class CalibrateEndpointTests(unittest.TestCase):
         self.assertEqual(body["used"], 3)
         self.assertEqual(body["skipped"], 1)
         self.assertAlmostEqual(body["rock_factor_correction"], 1.2, places=3)
-        self.assertEqual(body["model_version"], "kuzram-cunningham-1.0")
+        self.assertEqual(body["model_version"], "kuzram-cunningham-1.1")
         self.assertAlmostEqual(body["rows"][0]["rock_factor_correction"], 1.2, places=3)
         self.assertGreater(body["rows"][0]["legacy_oversize_pct"], 0)
         self.assertIsNone(body["rows"][3]["rock_factor_correction"])

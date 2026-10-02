@@ -2,7 +2,9 @@
 import unittest
 
 from simulation.fragmentation.units import (
+    ANFO_ENERGY_MJ_KG,
     TNT_ENERGY_MJ_KG,
+    anfo_weight_strength_pct,
     density_kg_m3_from_t_m3,
     density_t_m3_from_kg_m3,
     fragment_mm_from_cm,
@@ -27,6 +29,11 @@ class UnitConversionTests(unittest.TestCase):
     def test_tnt_reference_is_explicit(self):
         self.assertEqual(TNT_ENERGY_MJ_KG, 4.184)
         self.assertAlmostEqual(relative_weight_strength(4.184), 1.0)
+
+    def test_anfo_reference_is_explicit(self):
+        self.assertEqual(ANFO_ENERGY_MJ_KG, 3.8)
+        self.assertAlmostEqual(anfo_weight_strength_pct(3.8), 100.0)
+        self.assertAlmostEqual(anfo_weight_strength_pct(2.99), 78.684, places=3)
 
 
 if __name__ == "__main__":

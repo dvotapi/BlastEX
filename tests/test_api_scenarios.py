@@ -263,6 +263,39 @@ class ScenarioApiTests(unittest.TestCase):
         self.assertEqual(reloaded.outcomes.x50_mm, x50_before)
         self.assertEqual(reloaded.params.kuzram_settings, {})
 
+    def test_compare_warns_about_scenarios_of_previous_model_version(self):
+        from dataclasses import replace
+
+        from design.scenarios.persistence import load_scenario, save_scenario
+        from simulation.fragmentation.engine import FRAGMENTATION_MODELS
+
+        design = self._plan()
+        payload = BlastDesignSchema(**design.to_dict())
+        created = {
+            name: scenario_service.create_scenario(
+                TEAM_ID, ScenarioCreateRequest(design=payload, name=name, params=ScenarioParamsSchema())
+            )
+            for name in ("До версии", "Свежий")
+        }
+        current = FRAGMENTATION_MODELS["kuzram"]["version"]
+        fresh = load_scenario(TEAM_ID, design.design_id, created["Свежий"].scenario_id)
+        self.assertEqual(fresh.outcomes.fragmentation_model_version, current)
+        # Сценарий, сохранённый на Kuz-Ram 2.0.0, версии в исходах не несёт.
+        stored = load_scenario(TEAM_ID, design.design_id, created["До версии"].scenario_id)
+        save_scenario(TEAM_ID, replace(stored, outcomes=replace(stored.outcomes, fragmentation_model_version="")))
+
+        table = scenario_service.compare_plan_scenarios(
+            TEAM_ID, ScenarioCompareRequest(design_id=design.design_id, include_baseline=True)
+        )
+
+        self.assertEqual(
+            table.warnings,
+            [
+                f"Сценарий «До версии» посчитан прежней версией модели кусковатости (2.0.0, сейчас {current}) — "
+                "пересоздайте его для сравнения."
+            ],
+        )
+
     def test_compare_checks_inline_scenarios_too(self):
         design = self._plan()
         payload = BlastDesignSchema(**design.to_dict())

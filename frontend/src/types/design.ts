@@ -2610,6 +2610,7 @@ export type DesignScenarioOutcomes = {
   oversize_engineering_pct: number | null;
   ppv_engineering_mm_s: number | null;
   fragmentation_source: string;
+  fragmentation_model_version?: string;
   vibration_source: string;
   cost_source: string;
   ml_overlay_applied: boolean;

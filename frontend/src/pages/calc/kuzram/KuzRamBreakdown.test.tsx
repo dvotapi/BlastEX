@@ -14,7 +14,8 @@ describe("KuzRamBreakdown", () => {
   it("величины обеих моделей для выбранной коронки", () => {
     render(<KuzRamBreakdown variant={gabbroVariant(152)} thresholdPct={5} />);
     expect(screen.getByText("Коронка 152 мм — каждая модель на своём подобранном q.")).toBeInTheDocument();
-    expect(cellsOf(/^Удельный расход q/)).toEqual(["1,26", "1,34"]);
+    expect(cellsOf(/^Удельный расход q/)).toEqual(["1,33", "1,34"]);
+    expect(cellsOf(/^Сила ВВ/)).toEqual(["RWS 78,7 % к ANFO · 19/20", "RE 0,715 к тротилу · 19/30"]);
     expect(rowOf(/^Фактор породы A/)).toHaveTextContent("0,06·(RMD 50 + RDI 22,5 + HF 33,6)");
     expect(cellsOf(/^Фактор породы A/)).toEqual(["6,37", "2,72"]);
     expect(rowOf(/^Индекс равномерности n/)).toHaveTextContent("→ принято 0,80");
@@ -23,9 +24,9 @@ describe("KuzRamBreakdown", () => {
   });
 
   it("сетка в разборе — та же, что в сводке и таблице: сервер считает a от округлённой W", () => {
-    // Коронка 110 мм: a/W · W без округления = 3,3949 → «3,39», а сервер от W = 2,72 даёт a = 3,40.
+    // Коронка 110 мм: a/W · W без округления = 3,3215 → «3,32», а сервер от W = 2,66 даёт a = 3,33.
     render(<KuzRamBreakdown variant={gabbroVariant(110)} thresholdPct={5} />);
-    expect(cellsOf(/^ЛНС W · сетка a × b/)).toEqual(["2,72 · 3,40 × 2,72", "2,65 · 3,31 × 2,65"]);
+    expect(cellsOf(/^ЛНС W · сетка a × b/)).toEqual(["2,66 · 3,33 × 2,66", "2,65 · 3,31 × 2,65"]);
   });
 
   it("«!» у q «до исправления» советует про фиксированную верхнюю границу прежнего перебора", () => {
@@ -72,7 +73,7 @@ describe("KuzRamBreakdown", () => {
 
   it("n: сырое → принятое и L/H", () => {
     const variant = gabbroVariant(152);
-    expect(uniformityText(variant.details)).toBe("1,78 (L/H 0,88)");
+    expect(uniformityText(variant.details)).toBe("1,79 (L/H 0,88)");
     // Фикстура (crown 152, legacy): uniformity_n_raw = -336.1106.
     expect(uniformityText(variant.legacy.details)).toMatch(/^-336,11 → принято 0,80$/);
   });

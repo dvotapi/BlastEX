@@ -87,6 +87,9 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   const latestSources = useRef(sources);
   latestSources.current = sources;
   const areaSave = useRef<Promise<unknown>>(Promise.resolve());
+  // Окно на экране. Ответы, пришедшие после закрытия, не трогают список
+  // источников: страница по нему открыла бы окно снова.
+  const open = useRef(true);
   const active = sources.find((source) => source.id === activeId) ?? sources[0];
   // Объект открытого файла — для откатов из асинхронных ответов.
   const activeArea = useRef("");
@@ -105,6 +108,13 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   useEffect(() => {
     const dialog = ref.current;
     if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -218,6 +228,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
             setAreaError("");
           },
           (reason) => {
+            if (!open.current) return;
             // Объект не принял выбор — возвращаем последний подтверждённый сервером
             // (не «прошлый» щелчок: он тоже мог не сохраниться), чтобы паспорт
             // с объектом не разошёлся.
@@ -276,7 +287,8 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
     setPending(true);
     setRequestError("");
     try {
-      replace(await action());
+      const updated = await action();
+      if (open.current) replace(updated);
     } catch (reason) {
       setRequestError(reason instanceof Error ? reason.message : "Не удалось сохранить изменения.");
     } finally {

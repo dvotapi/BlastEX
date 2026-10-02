@@ -500,3 +500,51 @@ describe("CadImportDialog", () => {
     expect(props.onCancel).toHaveBeenCalled();
   });
 });
+
+describe("CadImportDialog: ответы после закрытия окна", () => {
+  // Как на странице «Проектирование»: окно открыто, пока список источников не null.
+  function Page() {
+    const [sources, setSources] = useState<CadSource[] | null>([cadSource()]);
+    return sources ? (
+      <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={() => setSources(null)} onBuild={vi.fn()} />
+    ) : (
+      <p>Окно закрыто</p>
+    );
+  }
+
+  it("упавшее сохранение площади блока не открывает окно снова", async () => {
+    const rejects: Array<(error: Error) => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)));
+    render(<Page />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+    await waitFor(() => expect(rejects).toHaveLength(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    rejects[0](new Error("Нет связи с сервером."));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Окно закрыто")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("ответ сохранения ролей после закрытия не открывает окно снова", async () => {
+    const source = cadSource();
+    let resolveRoles: (value: unknown) => void = () => {};
+    api.cad.saveRoles.mockReturnValue(new Promise((resolve) => (resolveRoles = resolve)));
+    render(<Page />);
+    await ready();
+    fireEvent.change(within(screen.getByRole("row", { name: /Горизонт \+410/ })).getByRole("combobox"), {
+      target: { value: "ignore" },
+    });
+    await waitFor(() => expect(api.cad.saveRoles).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    resolveRoles({ id: "src-1", template_saved: true, floor_z_m: 410, warnings: [], layers: source.layers, roles: {}, overrides: [] });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Окно закрыто")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});

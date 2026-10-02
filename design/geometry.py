@@ -201,19 +201,20 @@ def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> 
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
     if top is not None and top.has_tin and len(contour.vertices) >= 3:
         if floor is not None and getattr(floor, "has_tin", False):
+            # Как интеграл без TIN подошвы — со знаком: кровля ниже подошвы
+            # уменьшает среднюю высоту.
             heights = [
-                max(0.0, z_top - _floor_z(contour, floor, x, y))
+                z_top - _floor_z(contour, floor, x, y)
                 for x, y in _grid_cells(contour.points_xy)[0]
                 if (z_top := top.elevation_at(x, y)) is not None
             ]
             if heights:
                 return sum(heights) / len(heights)
-        else:
-            from design.spatial.cad.surface import tin_volume_in_polygon
+        from design.spatial.cad.surface import tin_volume_in_polygon
 
-            result = tin_volume_in_polygon(top.tin, contour.points_xy, contour.bench.toe_z_m)
-            if result.covered_m2 > 0:
-                return result.integral_m3 / result.covered_m2
+        result = tin_volume_in_polygon(top.tin, contour.points_xy, contour.bench.toe_z_m)
+        if result.covered_m2 > 0:
+            return result.integral_m3 / result.covered_m2
     return contour.bench.height_m
 
 

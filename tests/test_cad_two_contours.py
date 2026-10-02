@@ -281,3 +281,42 @@ def test_toe_level_from_a_long_line_whose_vertices_are_far_away():
     toe = crest("B", [(44, -200), (44, 200)], 410.0)
     levels = bench_levels(BLOCK, [(1, 2)], stitched(EAST_TOP), stitched(toe), floor_z=None)
     assert (levels.toe_z_m, levels.toe_source) == (pytest.approx(410.0), "crest_bottom")
+
+
+def test_drawing_in_millimetres_keeps_the_sampling_bounded(monkeypatch):
+    # Блок 1 × 0,5 км в миллиметрах: масштаб 0,001 только предложен, а готовый
+    # контур уже в предпросмотре. Шаг выборки 1 «метр» дал бы 3 млн точек.
+    from design.spatial.cad import two_contours as module
+
+    k = 1000.0
+    ring = [(0.0, 0.0), (1000 * k, 0.0), (1000 * k, 500 * k), (0.0, 500 * k)]
+    tops = stitched(crest("T", [(1000 * k, -100 * k), (1000 * k, 600 * k)], 420_000.0))
+    bottoms = stitched(crest("B", [(1000 * k + 30, -100 * k), (1000 * k + 30, 600 * k)], 410_000.0))
+
+    shapely_points = module.shapely.points
+    made: list[int] = []
+    monkeypatch.setattr(module.shapely, "points", lambda *args: made.append(len(args[0])) or shapely_points(*args))
+    z_at_samples = module._z_at_samples
+    asked: list[int] = []
+    monkeypatch.setattr(
+        module,
+        "_z_at_samples",
+        lambda lines, frame, samples, distance: asked.append(len(samples)) or z_at_samples(lines, frame, samples, distance),
+    )
+
+    bound = module.MAX_RING_SAMPLES + 2 * len(ring)
+    free = free_face_edges(ring, tops)
+    assert free == [(1, 2)]
+    assert sum(made) <= bound
+
+    levels = bench_levels(ring, free, tops, bottoms, floor_z=None)
+    assert levels.crest_z_m == pytest.approx(420_000.0)
+    assert levels.toe_z_m == pytest.approx(410_000.0)
+    assert asked and max(asked) <= bound
+
+
+def test_metre_blocks_are_still_sampled_every_metre():
+    from design.spatial.cad import two_contours as module
+
+    # Периметр до MAX_RING_SAMPLES метров — шаг 1 м, как раньше.
+    assert module._sample_step(BLOCK) == pytest.approx(module.FREE_FACE_SAMPLE_M)

@@ -155,6 +155,27 @@ describe("SnapIndex: длинные линии карьера", () => {
   });
 });
 
+describe("SnapIndex: чертёж в миллиметрах", () => {
+  it("ячейки растут с длиной линий — масштаб ещё не применён, а окно не виснет", () => {
+    // Диагонали по 1 км в миллиметрах: ячейка 5 «м» дала бы почти 3 млн ячеек.
+    const diagonals = Array.from({ length: 10 }, (_, k) =>
+      line(`M${k}`, [
+        [0, k * 100_000],
+        [707_000, 707_000 + k * 100_000],
+      ]),
+    );
+    const index = new SnapIndex(diagonals, []);
+
+    expect(index.cell).toBeGreaterThan(5);
+    const snap = index.snap([353_500.3, 353_499.6], 2000);
+    expect(snap).toMatchObject({ kind: "nearest", handle: "M0" });
+  });
+
+  it("у обычного чертежа ячейка прежняя — 5 м", () => {
+    expect(new SnapIndex([line("A", [[0, 0], [300, 0]])], []).cell).toBe(5);
+  });
+});
+
 describe("SnapIndex: тысячи вершин", () => {
   it("движение мыши не перебирает все вершины чертежа", () => {
     // 1000 полилиний по 60 вершин — 60 тысяч вершин и концов.

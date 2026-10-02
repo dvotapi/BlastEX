@@ -151,8 +151,14 @@ class PointCells<T extends { point: XY }> {
  * таком порядке важности (как объектная привязка САПР). Сегменты разложены по
  * ячейкам, чтобы движение мыши над чертежом с тысячами линий не перебирало все.
  */
+// Ячеек сетки на все отрезки — порядка этого числа: ячейка 5 м растёт с общей
+// длиной линий. Чертёж в миллиметрах, где масштаб 0,001 ещё не применён,
+// иначе дал бы миллионы ячеек, и окно зависло бы.
+const MAX_SNAP_CELLS = 200_000;
+
 export class SnapIndex {
-  private readonly cell: number;
+  /** Сторона ячейки: не меньше заданной, у длинных линий — больше. */
+  readonly cell: number;
   private readonly segments: Segment[] = [];
   private readonly grid = new Map<string, number[]>();
   private readonly ends = new PointCells<{ point: XY; handle: string; m: number }>();
@@ -161,13 +167,22 @@ export class SnapIndex {
   private readonly polylines = new Map<string, XY[]>();
 
   constructor(lines: CadEntity[], intersections: number[][], cell = 5) {
-    this.cell = cell;
-    for (const points of [this.ends, this.vertices, this.crossings]) points.cell = cell;
-    for (const [x, y] of intersections) this.crossings.add({ point: [x, y] });
     for (const entity of lines) {
       if (entity.geometry_type !== "line" || entity.points.length < 2) continue;
-      const points = polylineXY(entity);
-      this.polylines.set(entity.handle, points);
+      this.polylines.set(entity.handle, polylineXY(entity));
+    }
+    let total = 0;
+    for (const points of this.polylines.values()) {
+      for (let index = 1; index < points.length; index += 1) {
+        total += Math.hypot(points[index][0] - points[index - 1][0], points[index][1] - points[index - 1][1]);
+      }
+    }
+    this.cell = Math.max(cell, total / MAX_SNAP_CELLS);
+    for (const points of [this.ends, this.vertices, this.crossings]) points.cell = this.cell;
+    for (const [x, y] of intersections) this.crossings.add({ point: [x, y] });
+    for (const entity of lines) {
+      const points = this.polylines.get(entity.handle);
+      if (!points) continue;
       let walked = 0;
       points.forEach((point, index) => {
         const isEnd = !entity.closed && (index === 0 || index === points.length - 1);

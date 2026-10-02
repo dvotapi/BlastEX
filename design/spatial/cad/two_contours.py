@@ -32,6 +32,10 @@ from design.spatial.cad.stitch import StitchedLine
 
 FREE_FACE_DISTANCE_M = 1.0
 FREE_FACE_SAMPLE_M = 1.0
+# Точек выборки на контур не больше этого: шаг 1 м растёт, когда периметр
+# длиннее. Чертёж в миллиметрах, где масштаб 0,001 ещё не применён, иначе дал
+# бы миллионы точек, и предпросмотр положил бы API.
+MAX_RING_SAMPLES = 5000
 FLANK_BACKSTEP_M = 5.0
 FLANK_MAX_EXTENSION_M = 100.0
 # Разрыв нижней бровки между флангами до этого закрывается прямой для S низ —
@@ -133,10 +137,11 @@ def free_face_edges(ring: Sequence[XY], top_lines: Sequence[StitchedLine]) -> li
     if crest is None:
         return []
     local = frame.to_local(ring)
+    step = _sample_step(local)
     free: list[tuple[int, int]] = []
     for index in range(len(local)):
         a, b = local[index], local[(index + 1) % len(local)]
-        count = max(2, math.ceil(math.dist(a, b) / FREE_FACE_SAMPLE_M) + 1)
+        count = max(2, math.ceil(math.dist(a, b) / step) + 1)
         t = np.linspace(0.0, 1.0, count)
         samples = shapely.points(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
         if float(np.max(shapely.distance(samples, crest))) <= FREE_FACE_DISTANCE_M:
@@ -423,13 +428,14 @@ def bench_levels(
 
     # Отметка бровки — по самой бровке у откоса: точки свободных рёбер через
     # 1 м проецируются на ближайшую верхнюю бровку, Z интерполируется по ней.
+    step = _sample_step(local)
+    around = [point for index in range(len(local)) for point in _samples(local[index], local[(index + 1) % len(local)], step)]
     crest_z: list[float] = []
     if free_faces and top_lines:
-        samples = [point for a, b in free_faces for point in _samples(local[a], local[b])]
+        samples = [point for a, b in free_faces for point in _samples(local[a], local[b], step)]
         crest_z = _z_at_samples(top_lines, frame, samples, FREE_FACE_DISTANCE_M)
     if not crest_z and top_lines and len(local) >= 3:
-        samples = [point for index in range(len(local)) for point in _samples(local[index], local[(index + 1) % len(local)])]
-        crest_z = _z_at_samples(top_lines, frame, samples, CREST_NEAR_CONTOUR_M)
+        crest_z = _z_at_samples(top_lines, frame, around, CREST_NEAR_CONTOUR_M)
     if crest_z:
         levels.crest_z_m, levels.crest_source = float(median(crest_z)), "crest_top"
     else:
@@ -442,9 +448,8 @@ def bench_levels(
     else:
         # Как и у бровки — по самой линии, а не по вершинам: длинная линия с
         # далёкими вершинами может идти прямо у блока.
-        samples = [point for index in range(len(local)) for point in _samples(local[index], local[(index + 1) % len(local)])]
         toe_z = (
-            _z_at_samples(bottom_lines, frame, samples, TOE_NEAR_CONTOUR_M)
+            _z_at_samples(bottom_lines, frame, around, TOE_NEAR_CONTOUR_M)
             if bottom_lines and len(local) >= 3
             else []
         )
@@ -468,8 +473,14 @@ def bench_levels(
     return levels
 
 
-def _samples(a: XY, b: XY) -> list[XY]:
-    count = max(2, math.ceil(math.dist(a, b) / FREE_FACE_SAMPLE_M) + 1)
+def _sample_step(local: Sequence[XY]) -> float:
+    """Шаг выборки по контуру: 1 м, а у длинного контура — периметр / MAX_RING_SAMPLES."""
+
+    return max(FREE_FACE_SAMPLE_M, ring_perimeter(local) / MAX_RING_SAMPLES)
+
+
+def _samples(a: XY, b: XY, step: float) -> list[XY]:
+    count = max(2, math.ceil(math.dist(a, b) / step) + 1)
     return [(a[0] + (b[0] - a[0]) * k / (count - 1), a[1] + (b[1] - a[1]) * k / (count - 1)) for k in range(count)]
 
 

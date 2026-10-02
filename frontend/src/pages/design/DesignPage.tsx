@@ -136,7 +136,8 @@ import {
 } from "./workflowStatus";
 import { PlansPanel } from "./PlansPanel";
 import { SectionView } from "./SectionView";
-import { SummaryPanel } from "./SummaryPanel";
+import { SummaryPanel, volumeDetails } from "./SummaryPanel";
+import { useHoleRecompute } from "./useHoleRecompute";
 import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
 import { TimingPanel } from "./TimingPanel";
@@ -217,6 +218,12 @@ export function DesignPage({
   const [pendingFit, setPendingFit] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [patternParams, setPatternParams] = useState<PatternParams>(DEFAULT_PATTERN_PARAMS);
+  // Устья по кровле и длины до подошвы (TASK-013, PR 3): пересчёт на каждое
+  // изменение кровли, подошвы, перебура и сетки; утверждённый паспорт — только чтение.
+  const recompute = useHoleRecompute(document, patternParams as unknown as Record<string, unknown>, {
+    apply: !designedLocked,
+    dispatch,
+  });
   const [blockVolumeM3, setBlockVolumeM3] = useState<number | null>(null);
   const [plans, setPlans] = useState<DesignSummary[]>([]);
   const [patternBusy, setPatternBusy] = useState(false);
@@ -2483,8 +2490,9 @@ export function DesignPage({
       contour: document.contour,
       asDrilled: document.as_drilled_holes,
       designHoleIds: new Set(document.holes.map((h) => h.id)),
+      surfaceFlags: recompute.flags,
     }),
-    [document.holes, document.network, document.contour, document.as_drilled_holes, loadsById, analysis],
+    [document.holes, document.network, document.contour, document.as_drilled_holes, loadsById, analysis, recompute.flags],
   );
   const healthSummary = useMemo(
     () => summarizeHealth(holeHealthMap, document.holes),
@@ -2649,7 +2657,8 @@ export function DesignPage({
           <div className="map-chrome-metrics">
             <SummaryPanel
               holes={document.holes}
-              blockVolumeM3={blockVolumeM3}
+              blockVolumeM3={recompute.blockVolumeM3 ?? blockVolumeM3}
+              volumeTitle={volumeDetails(document.contour.cad, recompute.meanHeightM, recompute.blockVolumeM3 ?? blockVolumeM3)}
               loads={document.loads.length ? document.loads : undefined}
               holesSource={holeSourceLabel(document)}
               volumeSource={volumeSourceLabel(document.surfaces, document.contour.vertices.length >= 3)}
@@ -3272,6 +3281,7 @@ export function DesignPage({
               hole={inspectHole}
               load={loadsById[inspectHole.id]}
               locked={designedLocked}
+              flags={recompute.flags[inspectHole.id] ?? []}
               onClose={() => setInspectHoleId(null)}
               onUpdateHole={onUpdateHole}
               onSetEnabled={setHolesEnabled}

@@ -1,5 +1,28 @@
 import { ruNumber } from "../../lib/format";
-import type { Hole, HoleLoad } from "../../types/design";
+import type { CadContourInfo, Hole, HoleLoad } from "../../types/design";
+
+/**
+ * Подробности объёма блока из чертежа (TASK-013, PR 3) — подсказка по
+ * наведению: площади, S ср × H (способ горизонтальных сечений), объём с
+ * блоковой карты и расхождение.
+ */
+export function volumeDetails(cad: CadContourInfo | null | undefined, meanHeightM: number | null, volumeM3: number | null): string | null {
+  if (!cad) return null;
+  const lines = [
+    `S верх ${ruNumber(cad.area_top_m2, 1)} м² · S низ ${ruNumber(cad.area_bottom_m2, 1)} м² · S ср ${ruNumber(cad.area_mean_m2, 1)} м²`,
+  ];
+  if (cad.area_mean_m2 !== null && meanHeightM !== null) {
+    lines.push(`S ср × H = ${ruNumber(cad.area_mean_m2, 1)} × ${ruNumber(meanHeightM, 2)} = ${ruNumber(cad.area_mean_m2 * meanHeightM, 0)} м³`);
+  }
+  const map = cad.map_volume_m3 ?? null;
+  if (map !== null && map > 0 && volumeM3 !== null) {
+    const diff = ((volumeM3 - map) / map) * 100;
+    lines.push(`Объём с карты ${ruNumber(map, 0)} м³: расхождение ${diff > 0 ? "+" : ""}${ruNumber(diff, 1)} %`);
+  }
+  const byBottom = !cad.edited && (cad.bottom?.length ?? 0) >= 3;
+  lines.push(byBottom ? "Объём — в контуре по нижней бровке" : "Объём — в контуре паспорта (контур правили после построения)");
+  return lines.join("\n");
+}
 
 export function SummaryPanel({
   holes,
@@ -7,12 +30,15 @@ export function SummaryPanel({
   loads,
   holesSource,
   volumeSource,
+  volumeTitle,
 }: {
   holes: Hole[];
   blockVolumeM3: number | null;
   loads?: HoleLoad[];
   holesSource: string;
   volumeSource: string;
+  /** Подробности объёма по наведению. */
+  volumeTitle?: string | null;
 }) {
   const production = holes.filter((h) => h.kind === "production" && h.enabled);
   const contourHoles = holes.filter((h) => (h.kind === "contour" || h.kind === "presplit" || h.kind === "trim") && h.enabled);
@@ -33,7 +59,7 @@ export function SummaryPanel({
       <div><span>Контурные скважины</span><strong>{contourHoles.length}</strong><small>шт.</small></div>
       {extraHoles.length > 0 && <div><span>Буфер / добор</span><strong>{extraHoles.length}</strong><small>шт.</small></div>}
       <div><span>Погонаж бурения</span><strong>{ruNumber(footage, 1)} м</strong><small>{holesSource}</small></div>
-      <div>
+      <div title={volumeTitle ?? undefined}>
         <span>Объём блока</span>
         <strong>{blockVolumeM3 !== null ? `${ruNumber(blockVolumeM3, 0)} м³` : "—"}</strong>
         <small>{volumeSource}</small>

@@ -310,6 +310,21 @@ export type Hole = {
   manual?: HoleManualFlag[];
 };
 
+/** Флаги пересчёта: устье вне кровли, высота уступа у скважины меньше 1 м. */
+export type HoleRecomputeFlag = "outside_surface" | "short_bench";
+
+/** Ответ `/design/holes/recompute`: устья на кровле, длины до подошвы с перебуром. */
+export type HoleRecomputeResponse = {
+  holes: Hole[];
+  /** Только у скважин с флагами. */
+  flags: Record<string, HoleRecomputeFlag[]>;
+  block_volume_m3: number;
+  /** Погонаж — сумма длин включённых скважин. */
+  drilling_m: number;
+  /** Средняя высота уступа (кровля − подошва) по контуру блока. */
+  mean_height_m: number;
+};
+
 export type DeckKind =
   | "stemming"
   | "charge"

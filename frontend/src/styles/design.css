@@ -135,6 +135,8 @@
 .hole-inspector > header small { display:block; color:#6e7c75; }
 .hole-inspector-grid { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(220px,.9fr); gap:12px; padding:0 14px 14px; }
 .hole-inspector-fields { display:grid; gap:8px; }
+.hole-manual-mark { margin-left:4px; padding:0 5px; border-radius:6px; background:#fdf3e1; color:#7a4e0c; font-size:var(--fs-small); }
+.hole-surface-flag { padding:3px 6px; border-radius:6px; background:#fce9e7; color:#9e3025; font-size:var(--fs-small); }
 .hole-charge-sketch { display:grid; gap:4px; justify-items:center; }
 .hole-charge-sketch b { font-size:12px; }
 .hole-charge-sketch small { color:#6e7c75; font-size:11px; }
@@ -594,6 +596,8 @@
 .hole-marker.health-issue .health-ring.code-unconnected { stroke:#d8455a; }
 .hole-marker.health-issue .health-ring.code-missing_charge { stroke:#c43a5c; }
 .hole-marker.health-issue .health-ring.code-missing_primer { stroke:#e07b2d; }
+/* Кровля из чертежа (TASK-013, PR 3): устье вне поверхности, уступ ниже 1 м — красный маркер. */
+.hole-marker.health-issue .health-ring.code-outside_surface, .hole-marker.health-issue .health-ring.code-short_bench { stroke:#c0392b; stroke-width:2.6px; }
 .measure-line line { stroke:#173125; stroke-width:1.5; stroke-dasharray:4 3; }
 .measure-line text, .measure-point { fill:#173125; font-size:10px; font-weight:var(--font-weight-strong); }
 .measure-point { fill:#c45a2c; stroke:#fff; stroke-width:1.5; }

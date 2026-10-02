@@ -7,11 +7,27 @@ import { Primer } from "../../components/holeDrawing/Primer";
 import { barrelWidthPx, makeAxis } from "../../components/holeDrawing/geometry";
 import { ruNumber } from "../../lib/format";
 import { angleAzimuth, holeFromCollar, holeLength } from "../../lib/geometry2d";
-import type { Hole, HoleKind, HoleLoad } from "../../types/design";
+import type { Hole, HoleKind, HoleLoad, HoleManualFlag, HoleRecomputeFlag } from "../../types/design";
 import { HOLE_KIND_LABELS } from "../../types/design";
+
+/** Флаги пересчёта по кровле — для пользователя. */
+export const RECOMPUTE_FLAG_LABELS: Record<HoleRecomputeFlag, string> = {
+  outside_surface: "вне поверхности — отметка по ближайшей точке кровли",
+  short_bench: "H < 1 м — проверьте кровлю и подошву",
+};
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+/** Ручные пометки скважины с новой: пересчёт по кровле их не затирает (TASK-013, PR 3). */
+function withManual(hole: Hole, flag: HoleManualFlag): HoleManualFlag[] {
+  const current = hole.manual ?? [];
+  return current.includes(flag) ? current : [...current, flag];
+}
+
+function ManualMark({ hole, flag }: { hole: Hole; flag: HoleManualFlag }) {
+  return hole.manual?.includes(flag) ? <small className="hole-manual-mark">вручную</small> : null;
 }
 
 function geologySummary(hole: Hole): string {
@@ -24,6 +40,7 @@ export function HoleInspector({
   hole,
   load,
   locked = false,
+  flags = [],
   onClose,
   onUpdateHole,
   onSetEnabled,
@@ -32,6 +49,8 @@ export function HoleInspector({
   hole: Hole;
   load?: HoleLoad;
   locked?: boolean;
+  /** Флаги пересчёта по кровле: устье вне поверхности, H < 1 м. */
+  flags?: HoleRecomputeFlag[];
   onClose: () => void;
   onUpdateHole: (id: string, patch: Partial<Hole>) => void;
   onSetEnabled: (ids: string[], enabled: boolean) => void;
@@ -45,7 +64,23 @@ export function HoleInspector({
     const depth = next.depth ?? holeLength(hole.collar, hole.toe);
     const angle = next.angle ?? current.angleDeg;
     const azimuth = next.azimuth ?? current.azimuthDeg;
-    onUpdateHole(hole.id, { toe: holeFromCollar(hole.collar, depth, angle, azimuth) });
+    // Своя длина — ручная правка; угол и азимут пересчёт сохраняет сам.
+    const manual = next.depth !== undefined ? { manual: withManual(hole, "length") } : {};
+    onUpdateHole(hole.id, { toe: holeFromCollar(hole.collar, depth, angle, azimuth), ...manual });
+  }
+
+  /** Отметка устья руками: скважина сдвигается по вертикали целиком, ось та же. */
+  function patchCollarZ(z: number) {
+    const dz = z - hole.collar.z;
+    onUpdateHole(hole.id, {
+      collar: { ...hole.collar, z },
+      toe: { ...hole.toe, z: hole.toe.z + dz },
+      manual: withManual(hole, "collar_z"),
+    });
+  }
+
+  function patchToe(axis: "x" | "y" | "z", value: number) {
+    onUpdateHole(hole.id, { toe: { ...hole.toe, [axis]: value }, manual: withManual(hole, "length") });
   }
 
   useEffect(() => {
@@ -92,14 +127,20 @@ export function HoleInspector({
               <label>X устья, м<input value={ruNumber(hole.collar.x, 2)} readOnly /></label>
               <label>Y устья, м<input value={ruNumber(hole.collar.y, 2)} readOnly /></label>
             </div>
-            <label>Z устья, м<input value={ruNumber(hole.collar.z, 2)} readOnly /></label>
+            <label>
+              <span>Z устья, м <ManualMark hole={hole} flag="collar_z" /></span>
+              <input type="number" step="0.01" value={round3(hole.collar.z)} onChange={(e) => patchCollarZ(Number(e.target.value))} />
+            </label>
             <div className="field-pair">
-              <label>Забой X<input type="number" step="0.1" value={round3(hole.toe.x)} onChange={(e) => onUpdateHole(hole.id, { toe: { ...hole.toe, x: Number(e.target.value) } })} /></label>
-              <label>Забой Y<input type="number" step="0.1" value={round3(hole.toe.y)} onChange={(e) => onUpdateHole(hole.id, { toe: { ...hole.toe, y: Number(e.target.value) } })} /></label>
+              <label>Забой X<input type="number" step="0.1" value={round3(hole.toe.x)} onChange={(e) => patchToe("x", Number(e.target.value))} /></label>
+              <label>Забой Y<input type="number" step="0.1" value={round3(hole.toe.y)} onChange={(e) => patchToe("y", Number(e.target.value))} /></label>
             </div>
-            <label>Забой Z<input type="number" step="0.1" value={round3(hole.toe.z)} onChange={(e) => onUpdateHole(hole.id, { toe: { ...hole.toe, z: Number(e.target.value) } })} /></label>
+            <label>Забой Z<input type="number" step="0.1" value={round3(hole.toe.z)} onChange={(e) => patchToe("z", Number(e.target.value))} /></label>
             <div className="field-pair">
-              <label>Глубина, м<input type="number" step="0.1" value={round3(length)} onChange={(e) => patchAxis({ depth: Number(e.target.value) })} /></label>
+              <label>
+                <span>Глубина, м <ManualMark hole={hole} flag="length" /></span>
+                <input type="number" step="0.1" value={round3(length)} onChange={(e) => patchAxis({ depth: Number(e.target.value) })} />
+              </label>
               <label>Угол, °<input type="number" step="0.5" value={round3(angleDeg)} onChange={(e) => patchAxis({ angle: Number(e.target.value) })} /></label>
             </div>
             <div className="field-pair">
@@ -107,6 +148,16 @@ export function HoleInspector({
               <label>Ø, мм<input type="number" value={hole.diameter_mm} onChange={(e) => onUpdateHole(hole.id, { diameter_mm: Number(e.target.value) })} /></label>
             </div>
             <label>Перебур, м<input type="number" step="0.1" value={hole.subdrill_m} onChange={(e) => onUpdateHole(hole.id, { subdrill_m: Number(e.target.value) })} /></label>
+            {(hole.manual?.length ?? 0) > 0 && (
+              <button type="button" className="secondary-button" onClick={() => onUpdateHole(hole.id, { manual: [] })}>
+                Вернуть расчётное
+              </button>
+            )}
+            {flags.map((flag) => (
+              <small key={flag} className="hole-surface-flag">
+                Устье: {RECOMPUTE_FLAG_LABELS[flag]}
+              </small>
+            ))}
             <small>Геология: {geologySummary(hole)}</small>
             <button type="button" className="danger-button" onClick={() => onDelete(hole.id)}>Удалить скважину</button>
           </fieldset>

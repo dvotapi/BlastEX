@@ -43,6 +43,7 @@ import type {
   LifecycleState,
   WorkstationMeta,
   Hole,
+  HoleRecomputeResponse,
   EngineeringMaps,
   PatternGenerateResponse,
   PpvRequest,
@@ -526,6 +527,12 @@ export const api = {
       existing_holes?: Hole[];
       surfaces?: SurfaceSet;
     }) => post<{ hole: Hole }>(`${V1}/design/holes/insert`, payload),
+    recomputeHoles: (payload: {
+      holes: Hole[];
+      contour: BlockContour;
+      surfaces: SurfaceSet;
+      params: Record<string, unknown>;
+    }) => post<HoleRecomputeResponse>(`${V1}/design/holes/recompute`, payload),
     importSurface: (payload: {
       content: string;
       filename: string;

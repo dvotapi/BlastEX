@@ -49,6 +49,7 @@ export function holeSourceLabel(document: BlastDesign): string {
 }
 
 export function volumeSourceLabel(surfaces: SurfaceSet, hasContour: boolean): string {
+  if (surfaces.top?.source_format === "cad") return "по чертежу";
   const imported = [surfaces.top, surfaces.floor, surfaces.face].some(
     (item) => item && (item.source_format === "dxf" || /dxf/i.test(item.source_name || "")),
   );

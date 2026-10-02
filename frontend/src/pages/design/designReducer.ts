@@ -52,6 +52,8 @@ export type DesignAction =
   | { type: "CLEAR_SURFACE"; kind: SurfaceKind }
   | { type: "SET_PATTERN_PARAMS"; params: Partial<PatternParams> }
   | { type: "SET_HOLES"; holes: Hole[] }
+  /** Ответ пересчёта по кровле и подошве: новые устья и забои, вне истории отмены. */
+  | { type: "RECOMPUTE_HOLES"; holes: Hole[] }
   | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number }
   | { type: "UPDATE_HOLE"; id: string; patch: Partial<Hole> }
   | { type: "ADD_HOLE"; hole: Hole }
@@ -111,6 +113,10 @@ function moveHole(hole: Hole, dx: number, dy: number, document: BlastDesign): Ho
     collar: { ...hole.collar, x, y, z },
     toe: { ...hole.toe, x: hole.toe.x + dx, y: hole.toe.y + dy, z: hole.toe.z + (z - hole.collar.z) },
   };
+}
+
+function samePoint(a: Hole["collar"], b: Hole["collar"]): boolean {
+  return a.x === b.x && a.y === b.y && a.z === b.z;
 }
 
 function normalizeHole(hole: Hole): Hole {
@@ -252,6 +258,19 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         as_fired_holes: [],
         blast_result: null,
       };
+    case "RECOMPUTE_HOLES": {
+      // Только геометрия: устье и забой. Прочие поля скважины (диаметр, вид,
+      // ручные флаги) — как в документе; геология старой оси сбрасывается.
+      const byId = new Map(action.holes.map((item) => [item.id, item]));
+      let changed = false;
+      const holes = document.holes.map((h) => {
+        const next = byId.get(h.id);
+        if (!next || (samePoint(h.collar, next.collar) && samePoint(h.toe, next.toe))) return h;
+        changed = true;
+        return { ...h, collar: next.collar, toe: next.toe, intervals: [], water_intervals: [] };
+      });
+      return changed ? { ...document, holes } : document;
+    }
     case "MOVE_HOLES": {
       const ids = new Set(action.ids);
       return {

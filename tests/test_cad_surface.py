@@ -233,8 +233,9 @@ def test_quality_counts_marks_and_the_largest_gap(factory):
 def test_bottom_crest_above_the_floor_is_a_possible_threshold(factory):
     toe = line("B", "crest_bottom", [(44, -5, 410.2), (44, 5, 410.2), (44, 6, 411.0), (44, 10, 411.2), (44, 11, 410.2), (44, 25, 410.2)])
     entities = [*grid(lambda x, y: 420.0), toe]
+    bottom = [(0.0, 0.0), (44.0, 0.0), (44.0, 20.0), (0.0, 20.0)]
 
-    roof = build_roof(entities, BLOCK, None, floor_z=410.0, builder=factory())
+    roof = build_roof(entities, BLOCK, bottom, floor_z=410.0, builder=factory())
 
     assert len(roof.thresholds) == 1
     threshold = roof.thresholds[0]
@@ -291,3 +292,71 @@ def test_fifty_thousand_points_build_in_under_five_seconds(factory):
 
     assert roof.ok
     assert elapsed < 5.0, f"{elapsed:.2f} с"
+
+
+# --- правки по ревью ---------------------------------------------------------
+
+
+def _flat_count(roof, level):
+    z = roof.vertices[:, 2]
+    tri = roof.triangles
+    return int(np.sum(np.all(np.abs(z[tri] - level) < 1e-6, axis=1)))
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_wide_bend_of_a_horizontal_keeps_no_flat_triangles(factory):
+    # Изгиб 16 м: горизонталь уплотнена через 2 м, и все ближайшие к центру
+    # вершины — той же отметки; соседняя отметка — в 17 м.
+    bend = line("H415", "contour_line", [(12, 19, 415), (12, 3, 415), (28, 3, 415), (28, 19, 415)], kind="LWPOLYLINE")
+    lower = line("H410", "contour_line", [(-15, -14, 410), (55, -14, 410)], kind="LWPOLYLINE")
+    upper = line("H420", "contour_line", [(-15, 36, 420), (55, 36, 420)], kind="LWPOLYLINE")
+
+    roof = build_roof([bend, lower, upper], BLOCK, None, floor_z=405.0, builder=factory())
+
+    assert roof.flat_fixed > 0
+    assert _flat_count(roof, 415.0) == 0
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_pieces_of_one_horizontal_cut_by_the_buffer_are_still_protected(factory):
+    # U выходит за буфер 20 м и режется на два куска одной отметки.
+    bend = line("H415", "contour_line", [(12, 60, 415), (12, 3, 415), (28, 3, 415), (28, 60, 415)], kind="LWPOLYLINE")
+    lower = line("H410", "contour_line", [(-15, -14, 410), (55, -14, 410)], kind="LWPOLYLINE")
+
+    roof = build_roof([bend, lower], BLOCK, None, floor_z=405.0, builder=factory())
+
+    assert _flat_count(roof, 415.0) == 0
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_2d_horizontals_alone_are_no_marks(factory):
+    flat = line("H", "contour_line", [(-15, 10, 0.0), (55, 10, 0.0)], kind="LWPOLYLINE")
+    crest = line("T", "crest_top", [(40, -5, 420.0), (40, 25, 420.0)])
+
+    roof = build_roof([flat, crest], BLOCK, None, floor_z=410.0, builder=factory())
+
+    assert roof.plane
+    assert roof.mean_height_m == pytest.approx(10.0)
+    assert all(np.isfinite(roof.vertices[:, 2]))
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_marks_on_one_line_give_no_roof_and_an_issue(factory):
+    marks = [point(f"P{k}", 5.0 + 5 * k, 10.0, 420.0) for k in range(4)]
+
+    roof = build_roof(marks, BLOCK, None, floor_z=410.0, builder=factory())
+
+    assert not roof.ok
+    assert [issue.code for issue in roof.issues] == ["no_triangles"]
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_bottom_crest_of_another_bench_is_not_a_threshold(factory):
+    # Нижняя бровка вышележащего уступа (420) за тылом блока — не порог этого блока.
+    upper_toe = line("U", "crest_bottom", [(-15, -5, 420.0), (-15, 25, 420.0)])
+    toe = line("B", "crest_bottom", [(44, -5, 410.2), (44, 25, 410.2)])
+    bottom = [(0.0, 0.0), (44.0, 0.0), (44.0, 20.0), (0.0, 20.0)]
+
+    roof = build_roof([*grid(lambda x, y: 420.0), upper_toe, toe], BLOCK, bottom, floor_z=410.0, builder=factory())
+
+    assert roof.thresholds == []

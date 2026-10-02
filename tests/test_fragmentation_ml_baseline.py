@@ -1,8 +1,4 @@
-"""До PR 3 ML-калибровки и пространственные признаки живут на старой базе Kuz-Ram 1.0.0.
-
-Калибровки обучены на прогнозах старой модели; поправка, наложенная на
-новую формулу, противоречит решению владельца № 3 из спеки.
-"""
+"""Сценарии накладывают калибровки только на прогноз той же базы."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,106 +18,78 @@ class ScenarioResidualGuardTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _run(self, fragmentation_model: str):
-        outcomes = ScenarioOutcomes(
-            x50_mm=200.0, x50_engineering_mm=200.0, oversize_pct=5.0, oversize_engineering_pct=5.0
-        )
-        params = ScenarioParams(
-            fragmentation_model=fragmentation_model, calibration_model_ids={"kuzram_residual": "cal-1"}
-        )
-        with patch("intelligence.calibration.persistence.load_model", return_value=object()), patch(
-            "intelligence.calibration.prediction.apply_residual", return_value=SimpleNamespace(calibrated=150.0)
-        ) as apply:
-            scenario_service._apply_ml_overlays("team-ml", charged_design("ml-guard"), params, outcomes)
-        return outcomes, apply
-
-    def test_new_model_skips_old_residual(self):
-        outcomes, apply = self._run("kuzram")
-
-        apply.assert_not_called()
-        self.assertEqual(outcomes.x50_mm, 200.0)
-        self.assertTrue(any("переобучить" in item for item in outcomes.warnings))
-
-    def test_legacy_model_keeps_residual(self):
-        outcomes, apply = self._run("kuzram_legacy")
-
-        apply.assert_called_once()
-        self.assertEqual(outcomes.x50_mm, 150.0)
-
-
-    def _overlays(self, params: ScenarioParams, *, production=None):
+    def _run(self, fragmentation_model: str, models: dict, *, load_error: str = ""):
         outcomes = ScenarioOutcomes(
             x50_mm=200.0,
             x50_engineering_mm=200.0,
             oversize_pct=5.0,
             oversize_engineering_pct=5.0,
-            ppv_mm_s=10.0,
-            ppv_engineering_mm_s=10.0,
+            ppv_mm_s=4.0,
+            ppv_engineering_mm_s=4.0,
         )
-        with patch("intelligence.calibration.persistence.load_model", return_value=object()), patch(
-            "intelligence.calibration.persistence.production_model", return_value=production
-        ), patch(
-            "intelligence.calibration.prediction.apply_residual", return_value=SimpleNamespace(calibrated=7.0)
-        ) as apply:
+        params = ScenarioParams(
+            fragmentation_model=fragmentation_model,
+            calibration_model_ids={model_type: model_type for model_type in models},
+        )
+
+        def load(team_id, model_id):
+            if model_id == load_error:
+                raise RuntimeError("файл повреждён")
+            base = models[model_id]
+            return SimpleNamespace(model_type=model_id, baseline_model=base[0], baseline_model_version=base[1])
+
+        def apply(model, *, features, baseline, baseline_source):
+            return SimpleNamespace(calibrated=baseline + 1.0)
+
+        with patch("intelligence.calibration.persistence.load_model", side_effect=load), patch(
+            "intelligence.calibration.prediction.apply_residual", side_effect=apply
+        ):
             scenario_service._apply_ml_overlays("team-ml", charged_design("ml-guard"), params, outcomes)
-        return outcomes, apply
+        return outcomes
 
-    def _retrain(self, outcomes) -> bool:
-        return any("переобучить" in item for item in outcomes.warnings)
+    OLD = ("", "")
+    NEW = ("kuzram", "2.0.0")
 
-    def test_production_overlays_without_site_do_not_warn(self):
-        outcomes, _ = self._overlays(ScenarioParams(fragmentation_model="kuzram", use_production_overlays=True))
+    def test_old_calibration_skips_new_model(self):
+        outcomes = self._run("kuzram", {"kuzram_residual": self.OLD})
 
-        self.assertFalse(self._retrain(outcomes))
-
-    def test_production_overlays_without_production_model_do_not_warn(self):
-        outcomes, _ = self._overlays(
-            ScenarioParams(fragmentation_model="kuzram", use_production_overlays=True, site_id="quarry-1")
-        )
-
-        self.assertFalse(self._retrain(outcomes))
-
-    def test_production_calibration_on_new_model_warns(self):
-        outcomes, _ = self._overlays(
-            ScenarioParams(fragmentation_model="kuzram", use_production_overlays=True, site_id="quarry-1"),
-            production=object(),
-        )
-
-        self.assertTrue(self._retrain(outcomes))
         self.assertEqual(outcomes.x50_mm, 200.0)
+        self.assertTrue(any("переобучить" in item for item in outcomes.warnings))
 
-    def test_unknown_model_keeps_ppv_calibration(self):
-        outcomes, apply = self._overlays(
-            ScenarioParams(fragmentation_model="ml-magic", calibration_model_ids={"ppv_residual": "cal-ppv"})
+    def test_old_calibration_keeps_legacy_model(self):
+        outcomes = self._run("kuzram_legacy", {"kuzram_residual": self.OLD})
+
+        self.assertEqual(outcomes.x50_mm, 201.0)
+
+    def test_new_x50_calibration_fits_swebrec(self):
+        outcomes = self._run("swebrec", {"kuzram_residual": self.NEW})
+
+        self.assertEqual(outcomes.x50_mm, 201.0)
+
+    def test_new_oversize_calibration_needs_same_model(self):
+        outcomes = self._run("swebrec", {"oversize_residual": self.NEW})
+
+        self.assertEqual(outcomes.oversize_pct, 5.0)
+        self.assertTrue(any("переобучить" in item for item in outcomes.warnings))
+
+    def test_broken_fragmentation_calibration_keeps_ppv(self):
+        outcomes = self._run(
+            "kuzram", {"oversize_residual": self.NEW, "ppv_residual": self.OLD}, load_error="oversize_residual"
         )
 
-        apply.assert_called_once()
-        self.assertEqual(outcomes.ppv_mm_s, 7.0)
-        self.assertFalse(any("Калибровочный оверлей пропущен" in item for item in outcomes.warnings))
+        self.assertEqual(outcomes.ppv_mm_s, 5.0)
+        self.assertTrue(any("oversize_residual" in item for item in outcomes.warnings))
 
-    def test_failed_lookup_of_skipped_residual_keeps_ppv_calibration(self):
-        ppv_model = object()
 
-        def production(team_id, site_id, model_type):
-            if model_type == "ppv_residual":
-                return ppv_model
-            raise RuntimeError("хранилище калибровок недоступно")
-
-        outcomes = ScenarioOutcomes(
-            x50_mm=200.0, x50_engineering_mm=200.0, ppv_mm_s=10.0, ppv_engineering_mm_s=10.0
+    def test_artifact_with_unknown_model_is_skipped_keeping_ppv(self):
+        outcomes = self._run(
+            "kuzram", {"oversize_residual": ("ml-magic", "2.0.0"), "ppv_residual": self.OLD}
         )
-        params = ScenarioParams(fragmentation_model="kuzram", use_production_overlays=True, site_id="quarry-1")
-        with patch("intelligence.calibration.persistence.production_model", side_effect=production), patch(
-            "intelligence.calibration.prediction.apply_residual", return_value=SimpleNamespace(calibrated=7.0)
-        ) as apply:
-            scenario_service._apply_ml_overlays("team-ml", charged_design("ml-guard"), params, outcomes)
 
-        apply.assert_called_once()
-        self.assertIs(apply.call_args.args[0], ppv_model)
-        self.assertEqual(outcomes.ppv_mm_s, 7.0)
-        self.assertEqual(outcomes.x50_mm, 200.0)
+        self.assertEqual(outcomes.oversize_pct, 5.0)
+        self.assertEqual(outcomes.ppv_mm_s, 5.0)
+        self.assertTrue(any("oversize_residual" in item for item in outcomes.warnings))
         self.assertFalse(any("Калибровочный оверлей пропущен" in item for item in outcomes.warnings))
-        self.assertTrue(any("Не удалось проверить калибровки кусковатости" in item for item in outcomes.warnings))
 
 
 if __name__ == "__main__":

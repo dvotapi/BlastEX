@@ -160,16 +160,22 @@ def _apply_ml_overlays(
     except Exception as exc:
         outcomes.warnings.append(f"ML-оверлей исходов пропущен: {exc}")
 
-    # Поправки кусковатости обучены на Kuz-Ram 1.0.0; к новой модели их
-    # не применяем, пока PR 3 не научит артефакт помнить свою базу.
-    # Считается вне общего try: неизвестное имя модели не должно снимать
-    # поправку PPV. Такое имя — не старая модель; его отклонит движок.
-    from simulation.fragmentation.engine import is_legacy_model
+    from intelligence.calibration.base import (
+        FRAGMENTATION_RESIDUALS,
+        artifact_base,
+        prediction_base,
+        refusal_reason,
+    )
+    from simulation.fragmentation.engine import FRAGMENTATION_MODELS, resolve_model
 
+    # База прогноза сценария: калибровка кусковатости накладывается, только
+    # если обучена на ней. Неизвестное имя модели отклонит движок; здесь
+    # поправки кусковатости тогда просто не накладываются.
     try:
-        new_base = not is_legacy_model(params.fragmentation_model)
+        scenario_model = resolve_model(params.fragmentation_model)
+        scenario_base = prediction_base(scenario_model, str(FRAGMENTATION_MODELS[scenario_model]["version"]))
     except ValueError:
-        new_base = True
+        scenario_base = None
 
     try:
         from intelligence.calibration.persistence import load_model, production_model
@@ -186,34 +192,39 @@ def _apply_ml_overlays(
             (MODEL_OVERSIZE_RESIDUAL, "oversize_pct", "oversize_engineering_pct"),
             (MODEL_PPV_RESIDUAL, "ppv_mm_s", "ppv_engineering_mm_s"),
         )
-        fragmentation_residuals = {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}
-        skipped_residuals = False
-        lookup_errors: list[str] = []
-
-        def has_production(model_type: str) -> bool:
-            # Калибровку, которую всё равно не накладываем, ищем только ради
-            # предупреждения: сбой поиска не должен снимать поправку PPV.
-            try:
-                return production_model(team_id, site_id, model_type) is not None
-            except Exception as exc:  # noqa: BLE001 — любой сбой хранилища
-                lookup_errors.append(str(exc))
-                return False
-
         for model_type, field, baseline_field in mapping:
-            model_id = str(params.calibration_model_ids.get(model_type) or "").strip()
-            if new_base and model_type in fragmentation_residuals:
-                # Предупреждаем, только если калибровка правда была бы наложена.
-                skipped_residuals = skipped_residuals or bool(
-                    model_id or (params.use_production_overlays and site_id and has_production(model_type))
-                )
+            calibration_id = str(params.calibration_model_ids.get(model_type) or "").strip()
+            fragmentation = model_type in FRAGMENTATION_RESIDUALS
+            if fragmentation and scenario_base is None:
                 continue
-            model = None
-            if model_id:
-                model = load_model(team_id, model_id)
-            elif params.use_production_overlays and site_id:
-                model = production_model(team_id, site_id, model_type)
+            # Сбой загрузки одной калибровки снимает только её.
+            try:
+                model = None
+                if calibration_id:
+                    model = load_model(team_id, calibration_id)
+                elif params.use_production_overlays and site_id:
+                    model = production_model(team_id, site_id, model_type)
+            except Exception as exc:  # noqa: BLE001 — любой сбой хранилища
+                outcomes.warnings.append(f"Калибровка «{model_type}» пропущена: {exc}")
+                continue
             if model is None:
                 continue
+            if fragmentation:
+                try:
+                    reason = refusal_reason(
+                        model_type,
+                        artifact_base(model.baseline_model, model.baseline_model_version),
+                        scenario_base,
+                    )
+                except ValueError as exc:
+                    # В артефакте записана неизвестная модель: калибровку снимаем,
+                    # остальные слои (PPV) остаются.
+                    outcomes.warnings.append(f"Калибровка «{model_type}» пропущена: {exc}")
+                    continue
+                if reason:
+                    if reason not in outcomes.warnings:
+                        outcomes.warnings.append(reason)
+                    continue
             baseline = getattr(outcomes, baseline_field)
             if baseline is None:
                 continue
@@ -230,15 +241,6 @@ def _apply_ml_overlays(
                 outcomes.fragmentation_source = SOURCE_CALIBRATION
             if field == "ppv_mm_s":
                 outcomes.vibration_source = SOURCE_CALIBRATION
-        if skipped_residuals:
-            outcomes.warnings.append(
-                "Калибровки кусковатости обучены на старой модели Kuz-Ram 1.0.0 и к новой модели "
-                "не применяются — их нужно переобучить."
-            )
-        elif lookup_errors:
-            outcomes.warnings.append(
-                f"Не удалось проверить калибровки кусковатости объекта: {lookup_errors[0]}."
-            )
     except Exception as exc:
         outcomes.warnings.append(f"Калибровочный оверлей пропущен: {exc}")
 

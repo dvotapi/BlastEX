@@ -97,10 +97,16 @@ def train_from_snapshot(
 
     table = residual_table(snapshot, model_type)
     if len(table.y) < MIN_TRAINING_SAMPLES:
-        raise ValueError(
+        message = (
             f"Для обучения «{model_type}» нужно не меньше {MIN_TRAINING_SAMPLES} образцов "
             f"с базовым прогнозом и замером, в снимке {len(table.y)}."
         )
+        if table.excluded_new_base:
+            message += (
+                f" Исключено образцов с прогнозом новой модели: {table.excluded_new_base} — "
+                "калибровки кусковатости учатся на прогнозах старой модели Kuz-Ram 1.0.0."
+            )
+        raise ValueError(message)
 
     algo = get_algorithm(algorithm)
     X = np.asarray(table.X, dtype=float)

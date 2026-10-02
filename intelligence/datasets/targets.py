@@ -38,6 +38,10 @@ def extract_fragmentation_targets(result: BlastResult | None) -> dict[str, Any]:
         "method": measured.method if measured else "",
         "predicted_x50_mm": predicted.x50_mm if predicted else None,
         "predicted_oversize_pct": predicted.oversize_pct if predicted else None,
+        # Какой моделью посчитан сохранённый прогноз: калибровка кусковатости
+        # учится только на прогнозах старой базы.
+        "predicted_model": predicted.provenance.model if predicted else "",
+        "predicted_model_version": predicted.provenance.model_version if predicted else "",
         "designed_lump_size_mm": designed.lump_size_mm if designed else None,
         "designed_max_oversize_pct": designed.max_oversize_pct if designed else None,
         "predicted_role": ROLE_PREDICTED if predicted else "",
@@ -156,6 +160,8 @@ def target_group_has_values(group: dict[str, Any]) -> bool:
         "method",
         "receptor_id",
         "predicted_role",
+        "predicted_model",
+        "predicted_model_version",
         "designed_role",
         "planned_role",
         "secondary_breaking_method",

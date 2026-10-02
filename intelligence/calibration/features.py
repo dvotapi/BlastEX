@@ -3,7 +3,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from intelligence.calibration.types import MODEL_SPECS, ResidualRow, ResidualTable, normalize_model_type
+from intelligence.calibration.old_base import is_old_base
+from intelligence.calibration.types import (
+    MODEL_KUZRAM_RESIDUAL,
+    MODEL_OVERSIZE_RESIDUAL,
+    MODEL_SPECS,
+    ResidualRow,
+    ResidualTable,
+    normalize_model_type,
+)
 from intelligence.datasets.builder import DatasetSnapshot, TrainingSample
 
 NUMERIC_FEATURE_KEYS: tuple[tuple[str, str], ...] = (
@@ -66,6 +74,17 @@ def measured_and_baseline(sample: TrainingSample, model_type: str) -> tuple[floa
     return measured, baseline
 
 
+def _stored_prediction_is_old_base(sample: TrainingSample, model_type: str) -> bool:
+    """Сохранённый прогноз кусковатости посчитан старой базой (для остальных типов — всегда).
+
+    Снимки, собранные до появления полей модели, их не несут — это старая база.
+    """
+    if model_type not in {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}:
+        return True
+    group = sample.targets.get(MODEL_SPECS[model_type]["target_group"]) or {}
+    return is_old_base(str(group.get("predicted_model") or ""), str(group.get("predicted_model_version") or ""))
+
+
 def residual_value(measured: float, baseline: float) -> float:
     """Engineering residual: measured minus empirical/physics baseline."""
     return float(measured) - float(baseline)
@@ -83,9 +102,13 @@ def residual_table(snapshot: DatasetSnapshot, model_type: str) -> ResidualTable:
     names = feature_column_names()
     raw_rows: list[dict[str, float | None]] = []
     kept: list[tuple[TrainingSample, float, float, float]] = []
+    excluded_new_base = 0
     for sample in snapshot.samples:
         measured, baseline = measured_and_baseline(sample, model_type)
         if measured is None or baseline is None:
+            continue
+        if not _stored_prediction_is_old_base(sample, model_type):
+            excluded_new_base += 1
             continue
         residual = residual_value(measured, baseline)
         flat = flatten_features(sample.features)
@@ -126,6 +149,7 @@ def residual_table(snapshot: DatasetSnapshot, model_type: str) -> ResidualTable:
         baselines=baselines,
         measured=measured_values,
         source_blast_ids=source_ids,
+        excluded_new_base=excluded_new_base,
     )
 
 

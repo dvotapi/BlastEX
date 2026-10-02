@@ -8,10 +8,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from api.exceptions import InvalidCalibrationError
 from api.schemas.calibration import CalibrationPredictRequest, CalibrationTrainRequest
 from api.services import calibration_service
+from intelligence.datasets.builder import build_snapshot
 from intelligence.datasets.persistence import save_snapshot
-from tests.calibration_fixtures import synthetic_snapshot
+from simulation.fragmentation.models import ModelProvenance
+from tests.calibration_fixtures import synthetic_snapshot, varied_closed_designs
 
 TEAM_ID = "api-cal-provided"
 
@@ -126,6 +129,49 @@ class ProvidedBaselineTests(unittest.TestCase):
         result = self._predict("ppv_residual")
 
         self.assertTrue(result.calibration_applied)
+
+
+class TrainOnOldBaseTests(unittest.TestCase):
+    """Снимок из закрытых взрывов: прогнозы новой модели не идут в обучение кусковатости."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        patcher = patch("cost.persistence.data_root", return_value=Path(self._tmp.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _snapshot_with_new_predictions(self, total: int, new_count: int):
+        designs = varied_closed_designs(total)
+        for design in designs[:new_count]:
+            design.blast_result.basis.predicted_fragmentation.provenance = ModelProvenance(
+                model="kuzram", model_version="2.0.0"
+            )
+        return save_snapshot(
+            TEAM_ID,
+            build_snapshot(designs, site_id="quarry-1", dataset_id="from-closed-new", dataset_version=1),
+        )
+
+    def test_new_model_rows_are_left_out_of_fragmentation_training(self):
+        snapshot = self._snapshot_with_new_predictions(total=8, new_count=3)
+
+        for model_type, expected in (("kuzram_residual", 5), ("oversize_residual", 5), ("ppv_residual", 8)):
+            with self.subTest(model_type=model_type):
+                trained = calibration_service.train_calibration(
+                    TEAM_ID, CalibrationTrainRequest(dataset_id=snapshot.dataset_id, model_type=model_type)
+                )
+
+                self.assertEqual(trained.sample_count, expected)
+
+    def test_too_few_old_rows_gives_invalid_calibration(self):
+        snapshot = self._snapshot_with_new_predictions(total=6, new_count=4)
+
+        with self.assertRaises(InvalidCalibrationError) as caught:
+            calibration_service.train_calibration(
+                TEAM_ID, CalibrationTrainRequest(dataset_id=snapshot.dataset_id, model_type="kuzram_residual")
+            )
+
+        self.assertIn("новой модели", str(caught.exception))
 
 
 if __name__ == "__main__":

@@ -56,3 +56,31 @@ describe("CadImportHelp", () => {
     expect(badges.map((item) => item.querySelector("b")?.textContent)).toEqual(["шаблон.", "авто.", "по Z.", "вручную."]);
   });
 });
+
+describe("CadImportHelp: контур блока (PR 2)", () => {
+  it("описывает четыре способа, два контура и замыкающий отрезок", () => {
+    render(<CadImportHelp meta={CAD_META} />);
+    fireEvent.click(screen.getByRole("button", { name: "Справка по импорту чертежа" }));
+    const dialog = screen.getByRole("dialog", { name: "Импорт чертежа: справка" });
+
+    expect(within(dialog).getByRole("heading", { name: "Контур блока" })).toBeTruthy();
+    const methods = within(within(dialog).getByRole("list", { name: "Способы контура" })).getAllByRole("listitem");
+    expect(methods.map((item) => item.querySelector("b")?.textContent)).toEqual([
+      "Готовый.",
+      "Щелчок внутри.",
+      "Сборка.",
+      "Блок по бровке.",
+    ]);
+    expect(within(dialog).getByRole("heading", { name: "Два контура и площади" })).toBeTruthy();
+    expect(dialog.textContent).toContain("Замыкающий отрезок");
+    expect(dialog.textContent).toContain("свободная поверхность");
+    // Старого построения «полосой между линиями» в справке больше нет.
+    expect(dialog.textContent).not.toContain("полосой между");
+    // Область «Щелчка внутри» дробят лишние линии — справка подсказывает, что делать.
+    expect(dialog.textContent).toContain("снимите их роль");
+    expect(dialog.textContent).not.toContain("блок 66 вар 2");
+    // Какую площадь маркшейдер называет площадью блока — выбор на объекте.
+    expect(dialog.textContent).toContain("«Площадь блока»");
+    expect(dialog.textContent).toContain("хранится на объекте работ");
+  });
+});

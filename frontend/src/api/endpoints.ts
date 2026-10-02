@@ -112,7 +112,6 @@ import type {
   MassBlastProjectInput,
   MassBlastRevision,
   MassBlastValidation,
-  BenchDxfImport,
   Point3,
 } from "../types/design";
 import type {
@@ -148,9 +147,15 @@ import type {
 } from "../types/blockEconomics";
 import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
 import type {
+  CadAreaBasis,
+  CadAreaBasisResponse,
+  CadContourLines,
+  CadContourRequest,
+  CadContourResult,
   CadImportResponse,
   CadMeta,
   CadParams,
+  CadRoleCode,
   CadRolesPayload,
   CadRolesResponse,
   CadSource,
@@ -453,6 +458,12 @@ export const api = {
       post<CadSource>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/reparse`, params),
     saveRoles: (id: string, payload: CadRolesPayload) =>
       put<CadRolesResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/roles`, payload),
+    contourLines: (id: string, roles: CadRoleCode[]) =>
+      post<CadContourLines>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/contour/lines`, { roles }),
+    contour: (id: string, payload: CadContourRequest) =>
+      post<CadContourResult>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/contour`, payload),
+    saveAreaBasis: (id: string, areaBasis: CadAreaBasis) =>
+      put<CadAreaBasisResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/area-basis`, { area_basis: areaBasis }),
   },
   design: {
     pattern: (
@@ -520,16 +531,6 @@ export const api = {
       coordinate_system?: CoordinateSystem;
     }) =>
       post<{ surface: SurfaceModel; stats: SurfaceStats }>(`${V1}/design/surfaces/import`, payload),
-    importBenchDxf: (payload: { content: string; filename: string; coordinate_system?: CoordinateSystem }) =>
-      post<BenchDxfImport>(`${V1}/design/contour/import-dxf`, payload),
-    benchFromPolylines: (payload: {
-      crest: Point3[];
-      toe: Point3[];
-      crest_layer?: string;
-      toe_layer?: string;
-      filename?: string;
-      coordinate_system?: CoordinateSystem;
-    }) => post<BenchDxfImport>(`${V1}/design/contour/from-polylines`, payload),
     sampleSurface: (surface: SurfaceModel, points: Array<[number, number]>) =>
       post<{ elevations: Array<number | null> }>(`${V1}/design/surfaces/sample`, { surface, points }),
     assignDomain: (domain: BlastDomain, polygon: BlastDomain["polygon"]) =>

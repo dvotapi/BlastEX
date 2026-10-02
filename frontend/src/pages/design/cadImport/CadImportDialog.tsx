@@ -1,35 +1,73 @@
 // Окно «Импорт чертежа» (TASK-013) — замена «Бровок из чертежа». Слева
-// чертёж, справа шаги; пока есть шаг «Слои», построение — прежнее, полосой
-// между двумя линиями. Роли и повторный разбор сохраняются на сервере сразу:
-// шаблон слоёв объекта должен пережить закрытие окна.
+// чертёж, справа шаги «Слои» и «Контур», внизу — «Построить блок» с ошибками
+// и предупреждениями контура. Роли и повторный разбор сохраняются на сервере
+// сразу: шаблон слоёв объекта должен пережить закрытие окна. Контур
+// (кольцо, проверки, площади, свободную поверхность) считает сервер, окно
+// показывает предпросмотр на каждое изменение.
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { api } from "../../../api/endpoints";
 import { ruNumber } from "../../../lib/format";
-import type { CadEntity, CadLayerRoleCode, CadMeta, CadParams, CadRoleCode, CadRolesPayload, CadSource } from "../../../types/cad";
+import type {
+  CadAreaBasis,
+  CadBench,
+  CadContourLines,
+  CadContourResult,
+  CadLayerRoleCode,
+  CadMeta,
+  CadParams,
+  CadPassportBench,
+  CadRoleCode,
+  CadRolesPayload,
+  CadSource,
+} from "../../../types/cad";
+import type { CadContourInfo } from "../../../types/design";
+import { BuildFooter } from "./BuildFooter";
 import { applyRoleChanges } from "./cadRoles";
 import { CadCanvas, type CanvasTarget } from "./CadCanvas";
 import { CadImportHelp } from "./CadImportHelp";
+import { polylineXY, SnapIndex, subPolyline, type XY } from "./contourGeometry";
+import { ContourOverlay } from "./ContourOverlay";
+import {
+  applyPick,
+  blockArea,
+  contourRequest,
+  initialContour,
+  parseNumber,
+  toleranceOf,
+  type ContourState,
+  type Pick,
+} from "./contourState";
+import { ContourStep } from "./ContourStep";
 import { LayersStep } from "./LayersStep";
-import { LegacyBuildBlock } from "./LegacyBuildBlock";
-import { defaultBenchPair, withLineChains } from "./legacyBuild";
+import { useContourPreview } from "./useContourPreview";
 
-export type CadBuildChoice = { crest: CadEntity; toe: CadEntity; fileName: string };
+/** Что уходит в паспорт по «Построить блок»: контур по верхней бровке и данные чертежа. */
+export type CadBuildChoice = {
+  vertices: XY[];
+  free_faces: number[][];
+  bench: CadBench;
+  cad: CadContourInfo;
+};
 
 export type CadImportDialogProps = {
   sources: CadSource[];
-  busy: boolean;
-  error: string;
+  /** Расстояние между рядами W паспорта — ширина блока «рядов × W». */
+  burden: number | null;
+  /** Отметки уступа паспорта: сервер проверит высоту по итоговой паре (чертёж + паспорт). */
+  passportBench?: CadPassportBench | null;
   onSourcesChange: (sources: CadSource[]) => void;
   onCancel: () => void;
   onBuild: (choice: CadBuildChoice) => void;
 };
 
-function numberOrNull(text: string): number | null {
-  const value = Number(text.replace(",", ".").trim());
-  return text.trim() && Number.isFinite(value) ? value : null;
+type Tab = "layers" | "contour";
+
+/** Чьё соглашение о площади блока: объекта работ, а без объекта — самого файла. */
+function areaKey(source: CadSource): string {
+  return source.site_code !== "" ? `site:${source.site_code}` : `file:${source.id}`;
 }
 
-export function CadImportDialog({ sources, busy, error, onSourcesChange, onCancel, onBuild }: CadImportDialogProps) {
+export function CadImportDialog({ sources, burden, passportBench = null, onSourcesChange, onCancel, onBuild }: CadImportDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const [meta, setMeta] = useState<CadMeta | null>(null);
   const [metaError, setMetaError] = useState("");
@@ -39,21 +77,58 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const [areaError, setAreaError] = useState("");
+  const [areaSaving, setAreaSaving] = useState(0);
+  // Последний выбор площади блока, подтверждённый сервером, по объектам —
+  // точка отката. Заполняется из ответа сервера при первой встрече объекта,
+  // дальше его меняют только успешные сохранения: смена файла не должна
+  // подменять его ещё не сохранённым выбором.
+  const confirmedArea = useRef(new Map<string, CadAreaBasis>());
+  for (const source of sources) {
+    if (!confirmedArea.current.has(areaKey(source))) confirmedArea.current.set(areaKey(source), source.area_basis);
+  }
+  // Актуальный список источников для откатов из асинхронных ответов.
+  const latestSources = useRef(sources);
+  latestSources.current = sources;
+  /** Новый список источников: от последнего, а не от снимка рендера, где был запрос. */
+  function commit(next: CadSource[]) {
+    latestSources.current = next;
+    onSourcesChange(next);
+  }
+  const areaSave = useRef<Promise<unknown>>(Promise.resolve());
+  // Номер последнего щелчка площади по объекту: упавшее сохранение откатывает
+  // выбор, только если после него щелчков не было (тот же выбор, сделанный
+  // снова, по значению от упавшего не отличить).
+  const areaClicks = useRef(0);
+  const lastAreaClick = useRef(new Map<string, number>());
+  // Окно на экране. Ответы, пришедшие после закрытия, не трогают список
+  // источников: страница по нему открыла бы окно снова.
+  const open = useRef(true);
   const active = sources.find((source) => source.id === activeId) ?? sources[0];
-  // Для построения по-старому отрезки LINE склеены в цепочки (как в прежнем диалоге).
-  const build = useMemo(() => withLineChains(active?.entities ?? []), [active?.entities]);
-  const [pair, setPair] = useState(() => defaultBenchPair(build.entities));
-  // Стабильный список подсвеченных отрезков: иначе холст пересчитывал бы его на каждое наведение.
-  const emphasized = useMemo(
-    () => [pair.crest, pair.toe].filter(Boolean).flatMap((handle) => build.members.get(handle) ?? [handle]),
-    [pair.crest, pair.toe, build],
-  );
+  // Объект открытого файла — для откатов из асинхронных ответов.
+  const activeArea = useRef("");
+  activeArea.current = active ? areaKey(active) : "";
+  const [tab, setTab] = useState<Tab>("layers");
+  const [contour, setContour] = useState<ContourState>(() => (sources[0] ? initialContour(sources[0]) : initialContour({ entities: [] } as unknown as CadSource)));
+  // Растёт, когда сервер пересчитал роли источника: тот же запрос контура даёт новый ответ.
+  const [version, setVersion] = useState(0);
+  const [lines, setLines] = useState<CadContourLines | null>(null);
+  const [linesError, setLinesError] = useState("");
   const [floorText, setFloorText] = useState("");
   const [radiusText, setRadiusText] = useState("");
+  const entities = useMemo(() => new Map((active?.entities ?? []).map((entity) => [entity.handle, entity])), [active?.entities]);
+  const rolesKey = contour.roles.join(",");
 
   useEffect(() => {
     const dialog = ref.current;
     if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -67,10 +142,11 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
     };
   }, []);
 
-  // Другой файл — своя пара бровок, свой выбор и свои параметры разбора.
+  // Другой файл — свой контур, свой выбор и свои параметры разбора.
   useEffect(() => {
     if (!active) return;
-    setPair(defaultBenchPair(withLineChains(active.entities).entities));
+    setContour(initialContour(active));
+    setLines(null);
     setHover(null);
     setSelected(null);
     setExpanded(new Set());
@@ -91,15 +167,155 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
     if (event.target === ref.current) onCancel();
   }
 
+  // Линии для контура: разрезы в пересечениях (участок по щелчку), сшитые
+  // бровки и их разрывы. Зависят от ролей — после правки ролей перечитываются.
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    setLinesError("");
+    // Прежние разрезы — для прежних ролей: до ответа их не используем.
+    setLines(null);
+    api.cad
+      .contourLines(active.id, contour.roles)
+      .then((loaded) => alive && setLines(loaded))
+      .catch((reason) => alive && setLinesError(reason instanceof Error ? reason.message : "Не удалось прочитать линии контура."));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id, rolesKey, version]);
+
+  const passportCrest = passportBench?.crest_z_m;
+  const passportToe = passportBench?.toe_z_m;
+  const request = useMemo(() => {
+    const base = contourRequest(contour, burden);
+    // Отметка, которой нет в чертеже, останется паспортной — проверять высоту
+    // уступа сервер должен по итоговой паре, иначе уступ мог бы выйти «вверх ногами».
+    if (!base || passportCrest === undefined || passportToe === undefined) return base;
+    return { ...base, passport_bench: { crest_z_m: passportCrest, toe_z_m: passportToe } };
+  }, [contour, burden, passportCrest, passportToe]);
+  const preview = useContourPreview(active?.id ?? "", active ? request : null, api.cad.contour, version);
+
+  const snapIndex = useMemo(() => {
+    if (tab !== "contour" || !active) return null;
+    const roles: string[] = contour.method === "crest" ? ["crest_top"] : contour.roles;
+    const candidates = active.entities.filter((entity) => entity.geometry_type === "line" && roles.includes(entity.role));
+    // Пересечения — линий ролей контура; для «Блока по бровке» они не нужны.
+    return new SnapIndex(candidates, contour.method === "crest" ? [] : lines?.intersections ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, active?.entities, contour.method, rolesKey, lines]);
+
+  // Подсветка выбранного на шаге «Контур»: готовая линия или участки сборки.
+  const emphasized = useMemo(() => {
+    if (tab !== "contour") return [];
+    if (contour.method === "ready") return contour.handle ? [contour.handle] : [];
+    if (contour.method === "assembly") return contour.items.filter((item) => item.kind === "part").map((item) => item.handle);
+    return [];
+  }, [tab, contour.method, contour.handle, contour.items]);
+
+  const selectedPath = useMemo(() => {
+    if (contour.method !== "assembly" || contour.selected === null) return null;
+    const item = contour.items[contour.selected];
+    if (!item) return null;
+    if (item.kind !== "part") return item.points;
+    const entity = entities.get(item.handle);
+    return entity ? subPolyline(polylineXY(entity), item.start_m, item.end_m) : null;
+  }, [contour.method, contour.selected, contour.items, entities]);
+
+  const picks = [contour.pending?.point, contour.crestStart, contour.crestEnd].filter((point): point is XY => Boolean(point));
+
+  function pick(target: Pick) {
+    setContour((current) => applyPick(current, target, { entities, lines }));
+  }
+
+  /** Смена способа площади блока сохраняется на объекте работ — для следующих файлов. */
+  function changeContour(next: ContourState) {
+    if (active && next.areaBasis !== contour.areaBasis) {
+      const key = areaKey(active);
+      const source = active;
+      const basis = next.areaBasis;
+      // Выбор — соглашение объекта: его получают и другие файлы того же объекта.
+      const sameObject = (item: CadSource) => areaKey(item) === key;
+      const click = ++areaClicks.current;
+      lastAreaClick.current.set(key, click);
+      commit(latestSources.current.map((item) => (sameObject(item) ? { ...item, area_basis: basis } : item)));
+      // Сохранения — по очереди: иначе при быстрых щелчках на объекте могло
+      // остаться не последнее значение (запросы обрабатываются параллельно).
+      // Пока очередь не пуста, «Построить блок» неактивна: паспорт и объект
+      // не должны разойтись.
+      setAreaSaving((count) => count + 1);
+      areaSave.current = areaSave.current
+        .then(() => api.cad.saveAreaBasis(source.id, basis))
+        .then(
+          () => {
+            confirmedArea.current.set(key, basis);
+            setAreaError("");
+          },
+          (reason) => {
+            if (!open.current) return;
+            // Объект не принял выбор — возвращаем последний подтверждённый сервером
+            // (не «прошлый» щелчок: он тоже мог не сохраниться), чтобы паспорт
+            // с объектом не разошёлся.
+            setAreaError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока.");
+            // Был щелчок позже — выбор решит его сохранение (успех или свой откат).
+            if (lastAreaClick.current.get(key) !== click) return;
+            const previous = confirmedArea.current.get(key) ?? basis;
+            // Открыт файл другого объекта — его выбор не трогаем.
+            if (activeArea.current === key) setContour((current) => ({ ...current, areaBasis: previous }));
+            commit(latestSources.current.map((item) => (sameObject(item) ? { ...item, area_basis: previous } : item)));
+          },
+        )
+        .finally(() => setAreaSaving((count) => count - 1))
+        // Очередь не должна застрять отклонённой: иначе следующие щелчки не
+        // дошли бы до сервера.
+        .catch(() => undefined);
+    }
+    setContour(next);
+  }
+
+  function build(result: CadContourResult) {
+    if (!active || !result.top) return;
+    onBuild({
+      vertices: result.top.points.map(([x, y]) => [x, y] as XY),
+      free_faces: result.free_faces,
+      bench: result.bench,
+      cad: {
+        source_id: active.id,
+        file_name: active.file_name,
+        method: result.method,
+        items: result.items,
+        top: result.top.points,
+        bottom: result.bottom?.points ?? null,
+        area_top_m2: result.top.area_m2,
+        area_bottom_m2: result.bottom?.area_m2 ?? null,
+        area_mean_m2: result.mean_area_m2,
+        map_area_m2: parseNumber(contour.mapArea),
+        area_basis: contour.areaBasis,
+        area_m2: blockArea(result, contour.areaBasis),
+        built_at: new Date().toISOString(),
+        edited: false,
+      },
+    });
+  }
+
   function replace(updated: CadSource) {
-    onSourcesChange(sources.map((source) => (source.id === updated.id ? updated : source)));
+    // Выбор площади блока ведёт своя очередь сохранений: ответ ролей или
+    // разбора его не трогает — в нём мог остаться выбор, который потом откатили,
+    // а у файла без объекта сервер выбора не знает вовсе.
+    commit(
+      latestSources.current.map((source) =>
+        source.id === updated.id ? { ...updated, area_basis: source.area_basis } : source,
+      ),
+    );
+    setVersion((current) => current + 1);
   }
 
   async function run(action: () => Promise<CadSource>) {
     setPending(true);
     setRequestError("");
     try {
-      replace(await action());
+      const updated = await action();
+      if (open.current) replace(updated);
     } catch (reason) {
       setRequestError(reason instanceof Error ? reason.message : "Не удалось сохранить изменения.");
     } finally {
@@ -116,7 +332,8 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
 
   function reparse(patch: Partial<CadParams>) {
     if (!active) return;
-    void run(() => api.cad.reparse(active.id, { ...active.params, ...patch }));
+    const source = active;
+    void run(() => api.cad.reparse(source.id, { ...source.params, ...patch }));
   }
 
   function select(target: CanvasTarget) {
@@ -141,8 +358,8 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
   }
 
   const params = active?.params;
-  const floorValue = numberOrNull(floorText);
-  const radiusValue = numberOrNull(radiusText);
+  const floorValue = parseNumber(floorText);
+  const radiusValue = parseNumber(radiusText);
   const paramsChanged =
     params !== undefined &&
     (floorValue !== params.floor_z_m || (radiusValue !== null && radiusValue !== params.label_radius_m));
@@ -175,11 +392,31 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
             emphasized={emphasized}
             onHover={setHover}
             onSelect={select}
+            tool={tab === "contour"}
+            snapIndex={snapIndex}
+            snapMinM={toleranceOf(contour)}
+            onPick={pick}
+            overlay={
+              tab === "contour"
+                ? (toScreen) => (
+                    <ContourOverlay
+                      toScreen={toScreen}
+                      result={preview.result}
+                      gaps={lines?.gaps ?? []}
+                      picks={picks}
+                      selectedPath={selectedPath}
+                    />
+                  )
+                : undefined
+            }
           />
           <aside className="cad-panel">
             <div className="cad-steps" role="tablist" aria-label="Шаги импорта">
-              <button type="button" role="tab" aria-selected="true">
+              <button type="button" role="tab" aria-selected={tab === "layers"} onClick={() => setTab("layers")}>
                 Слои
+              </button>
+              <button type="button" role="tab" aria-selected={tab === "contour"} onClick={() => setTab("contour")}>
+                Контур
               </button>
             </div>
             {sources.length > 1 && (
@@ -203,97 +440,125 @@ export function CadImportDialog({ sources, busy, error, onSourcesChange, onCance
                 ))}
               </ul>
             )}
-            {(active.suggested_scale !== null || active.params.scale !== 1) && (
-              <div className="cad-scale-actions">
-                {active.suggested_scale !== null && (
+            {tab === "layers" && (
+              <>
+                {(active.suggested_scale !== null || active.params.scale !== 1) && (
+                  <div className="cad-scale-actions">
+                    {active.suggested_scale !== null && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={pending}
+                        onClick={() => reparse({ scale: active.suggested_scale ?? 1 })}
+                      >
+                        Применить масштаб {ruNumber(active.suggested_scale, 3)}
+                      </button>
+                    )}
+                    {active.params.scale !== 1 && (
+                      <button type="button" className="secondary-button" disabled={pending} onClick={() => reparse({ scale: 1 })}>
+                        Вернуть масштаб 1
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="cad-params">
+                  <label>
+                    <span>Подошва, м</span>
+                    <input
+                      inputMode="decimal"
+                      value={floorText}
+                      placeholder={
+                        active.floor_z_m !== null && active.params.floor_z_m === null
+                          ? `из имени слоя: ${ruNumber(active.floor_z_m, 1)}`
+                          : "из имени слоя"
+                      }
+                      disabled={pending}
+                      onChange={(event) => setFloorText(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Радиус подписи, м</span>
+                    <input
+                      inputMode="decimal"
+                      value={radiusText}
+                      disabled={pending}
+                      onChange={(event) => setRadiusText(event.target.value)}
+                    />
+                  </label>
                   <button
                     type="button"
                     className="secondary-button"
-                    disabled={pending}
-                    onClick={() => reparse({ scale: active.suggested_scale ?? 1 })}
+                    disabled={pending || !paramsChanged}
+                    onClick={() => reparse({ floor_z_m: floorValue, label_radius_m: radiusValue ?? params?.label_radius_m ?? 3 })}
                   >
-                    Применить масштаб {ruNumber(active.suggested_scale, 3)}
+                    Пересчитать
                   </button>
+                </div>
+                <p className="cad-template">
+                  {active.template_saved
+                    ? `Роли слоёв сохраняются в шаблон объекта «${active.work_object_name}».`
+                    : "Роли слоёв не сохранятся в шаблон объекта — причина в предупреждении выше."}
+                  {pending && " Сохраняю…"}
+                </p>
+              </>
+            )}
+            {/* Каждая ошибка — своей строкой: упавшее сохранение площади не прячется за ошибкой ролей. */}
+            {[requestError, metaError, areaError]
+              .filter((message, index, all) => message && all.indexOf(message) === index)
+              .map((message) => (
+                <p key={message} className="cad-request-error" role="alert">
+                  {message}
+                </p>
+              ))}
+            {tab === "layers" ? (
+              <div className="cad-layers-wrap">
+                {meta ? (
+                  <LayersStep
+                    source={active}
+                    meta={meta}
+                    hover={hover}
+                    selected={selected}
+                    expanded={expanded}
+                    disabled={pending}
+                    onToggle={toggle}
+                    onHover={setHover}
+                    onSelect={select}
+                    onLayerRole={(layer: string, role: CadLayerRoleCode) => saveRoles({ layers: { [layer]: role } })}
+                    onEntityRole={(handle: string, role: CadRoleCode | null) => saveRoles({ entities: { [handle]: role } })}
+                  />
+                ) : (
+                  !metaError && <p className="cad-loading">Загружаю роли слоёв…</p>
                 )}
-                {active.params.scale !== 1 && (
-                  <button type="button" className="secondary-button" disabled={pending} onClick={() => reparse({ scale: 1 })}>
-                    Вернуть масштаб 1
-                  </button>
+              </div>
+            ) : (
+              <div className="cad-contour-wrap">
+                {meta ? (
+                  <ContourStep
+                    source={active}
+                    meta={meta}
+                    state={contour}
+                    onChange={changeContour}
+                    result={preview.result}
+                    pending={preview.pending}
+                    error={linesError}
+                    burden={burden}
+                    disabled={pending}
+                    splitsError={lines?.splits_error ?? ""}
+                    linesLoading={lines === null && !linesError}
+                  />
+                ) : (
+                  !metaError && <p className="cad-loading">Загружаю роли слоёв…</p>
                 )}
               </div>
             )}
-            <div className="cad-params">
-              <label>
-                <span>Подошва, м</span>
-                <input
-                  inputMode="decimal"
-                  value={floorText}
-                  placeholder={
-                    active.floor_z_m !== null && active.params.floor_z_m === null
-                      ? `из имени слоя: ${ruNumber(active.floor_z_m, 1)}`
-                      : "из имени слоя"
-                  }
-                  disabled={pending}
-                  onChange={(event) => setFloorText(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>Радиус подписи, м</span>
-                <input
-                  inputMode="decimal"
-                  value={radiusText}
-                  disabled={pending}
-                  onChange={(event) => setRadiusText(event.target.value)}
-                />
-              </label>
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={pending || !paramsChanged}
-                onClick={() => reparse({ floor_z_m: floorValue, label_radius_m: radiusValue ?? params?.label_radius_m ?? 3 })}
-              >
-                Пересчитать
-              </button>
-            </div>
-            <p className="cad-template">
-              {active.template_saved
-                ? `Роли слоёв сохраняются в шаблон объекта «${active.work_object_name}».`
-                : "Роли слоёв не сохранятся в шаблон объекта — причина в предупреждении выше."}
-              {pending && " Сохраняю…"}
-            </p>
-            {(requestError || metaError) && (
-              <p className="cad-request-error" role="alert">
-                {requestError || metaError}
-              </p>
-            )}
-            <div className="cad-layers-wrap">
-              {meta ? (
-                <LayersStep
-                  source={active}
-                  meta={meta}
-                  hover={hover}
-                  selected={selected}
-                  expanded={expanded}
-                  disabled={pending}
-                  onToggle={toggle}
-                  onHover={setHover}
-                  onSelect={select}
-                  onLayerRole={(layer: string, role: CadLayerRoleCode) => saveRoles({ layers: { [layer]: role } })}
-                  onEntityRole={(handle: string, role: CadRoleCode | null) => saveRoles({ entities: { [handle]: role } })}
-                />
-              ) : (
-                !metaError && <p className="cad-loading">Загружаю роли слоёв…</p>
-              )}
-            </div>
-            <LegacyBuildBlock
-              entities={build.entities}
-              crest={pair.crest}
-              toe={pair.toe}
-              busy={busy}
-              error={error}
-              onChange={setPair}
+            <BuildFooter
+              result={preview.result}
+              pending={preview.pending}
+              busy={pending || areaSaving > 0}
+              error={preview.error}
+              areaLabel={meta?.area_bases.find((basis) => basis.code === contour.areaBasis)?.label ?? ""}
               onCancel={onCancel}
-              onBuild={({ crest, toe }) => onBuild({ crest, toe, fileName: active.file_name })}
+              onBuild={build}
             />
           </aside>
         </div>

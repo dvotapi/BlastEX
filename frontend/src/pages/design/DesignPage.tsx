@@ -221,8 +221,6 @@ export function DesignPage({
   const [patternBusy, setPatternBusy] = useState(false);
   const [surfaceBusy, setSurfaceBusy] = useState(false);
   const [cadSources, setCadSources] = useState<CadSource[] | null>(null);
-  const [drawingBusy, setDrawingBusy] = useState(false);
-  const [drawingError, setDrawingError] = useState("");
   const [geologyBusy, setGeologyBusy] = useState(false);
   const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
   const [drawingDomain, setDrawingDomain] = useState(false);
@@ -624,7 +622,6 @@ export function DesignPage({
     if (rejectLocked("designed")) return;
     setSurfaceBusy(true);
     setError("");
-    setDrawingError("");
     const { crest_z_m: crest, toe_z_m: toe } = document.contour.bench;
     const benchHeight = crest - toe;
     try {
@@ -641,37 +638,24 @@ export function DesignPage({
     }
   }
 
-  /** Шаг 2: инженер выбрал бровки — только теперь перестраиваем блок. */
-  async function applyBenchPolylines(choice: CadBuildChoice) {
+  /** Шаг 2: инженер построил контур на шаге «Контур» — только теперь меняем блок. */
+  function applyCadContour(choice: CadBuildChoice) {
     // Загрузка и разметка слоёв блок не меняют — спрашиваем только перед построением.
     if (rejectLocked("designed")) return;
     if (document.holes.length && !window.confirm("Построение заменит контур и очистит скважины, заряды и сеть. Продолжить?")) return;
-    setDrawingBusy(true);
-    setDrawingError("");
-    const points = (entity: CadBuildChoice["crest"]) => entity.points.map(([x, y, z]) => ({ x, y, z }));
-    try {
-      const result = await api.design.benchFromPolylines({
-        crest: points(choice.crest),
-        toe: points(choice.toe),
-        crest_layer: choice.crest.layer,
-        toe_layer: choice.toe.layer,
-        filename: choice.fileName,
-        coordinate_system: document.coordinate_system,
-      });
-      dispatch({ type: "SET_BENCH", bench: result.contour.bench });
-      if (result.surfaces.top) dispatch({ type: "SET_SURFACE", surface: result.surfaces.top });
-      if (result.surfaces.floor) dispatch({ type: "SET_SURFACE", surface: result.surfaces.floor });
-      if (result.surfaces.face) dispatch({ type: "SET_SURFACE", surface: result.surfaces.face });
-      dispatch({ type: "SET_CONTOUR_VERTICES", vertices: result.contour.vertices.map((point) => ({ ...point, z: result.crest_z_m })), free_faces: [] });
-      dispatch({ type: "SET_HOLES", holes: [] });
-      setSelected(new Set());
-      setPendingFit(true);
-      setCadSources(null);
-    } catch (reason) {
-      setDrawingError(reason instanceof Error ? reason.message : "Не удалось построить блок по выбранным линиям.");
-    } finally {
-      setDrawingBusy(false);
-    }
+    const { crest_z_m: crest, toe_z_m: toe } = choice.bench;
+    // Z контура — отметка бровки: Z линии чертежа — это отметка вычерчивания, а не рельеф.
+    const z = crest ?? document.contour.bench.crest_z_m;
+    dispatch({
+      type: "APPLY_CAD_CONTOUR",
+      vertices: choice.vertices.map(([x, y]) => ({ x, y, z })),
+      free_faces: choice.free_faces,
+      bench: { ...(crest !== null ? { crest_z_m: crest } : {}), ...(toe !== null ? { toe_z_m: toe } : {}) },
+      cad: choice.cad,
+    });
+    setSelected(new Set());
+    setPendingFit(true);
+    setCadSources(null);
   }
 
   function onToggleFreeFace(edgeIndex: number) {
@@ -3269,11 +3253,11 @@ export function DesignPage({
           {cadSources && (
             <CadImportDialog
               sources={cadSources}
-              busy={drawingBusy}
-              error={drawingError}
+              burden={patternParams.burden_b_m ?? null}
+              passportBench={document.contour.bench}
               onSourcesChange={setCadSources}
-              onCancel={() => { setCadSources(null); setDrawingError(""); }}
-              onBuild={applyBenchPolylines}
+              onCancel={() => setCadSources(null)}
+              onBuild={applyCadContour}
             />
           )}
           {inspectHole && (

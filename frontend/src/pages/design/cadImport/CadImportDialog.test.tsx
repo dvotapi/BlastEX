@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import type { CadSource } from "../../../types/cad";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CadImportDialog, type CadImportDialogProps } from "./CadImportDialog";
-import { CAD_META, cadEntity, cadSource } from "./testing/fixtures";
+import { CAD_META, cadSource, contourResult } from "./testing/fixtures";
 
 const api = vi.hoisted(() => ({
-  cad: { meta: vi.fn(), saveRoles: vi.fn(), reparse: vi.fn() },
+  cad: { meta: vi.fn(), saveRoles: vi.fn(), reparse: vi.fn(), contourLines: vi.fn(), contour: vi.fn(), saveAreaBasis: vi.fn() },
 }));
 vi.mock("../../../api/endpoints", () => ({ api }));
 
@@ -25,13 +27,15 @@ beforeEach(() => {
   api.cad.meta.mockReset().mockResolvedValue(CAD_META);
   api.cad.saveRoles.mockReset();
   api.cad.reparse.mockReset();
+  api.cad.contourLines.mockReset().mockResolvedValue({ splits: {}, intersections: [], crests_top: [], crests_bottom: [], gaps: [] });
+  api.cad.contour.mockReset().mockResolvedValue(contourResult());
+  api.cad.saveAreaBasis.mockReset().mockResolvedValue({ area_basis: "top", saved: true });
 });
 
 function renderDialog(extra: Partial<CadImportDialogProps> = {}) {
   const props: CadImportDialogProps = {
     sources: [cadSource()],
-    busy: false,
-    error: "",
+    burden: 4,
     onSourcesChange: vi.fn(),
     onCancel: vi.fn(),
     onBuild: vi.fn(),
@@ -179,50 +183,391 @@ describe("CadImportDialog", () => {
     expect(api.cad.reparse).toHaveBeenCalledWith("src-1", { scale: 1, label_radius_m: 3, floor_z_m: 412.5, bench_height_m: 10 });
   });
 
-  it("построение по-старому берёт бровки по ролям", async () => {
-    const props = renderDialog();
+  it("без ручных действий: готовый контур блока выбран, площади у кнопки", async () => {
+    renderDialog();
     await ready();
 
-    fireEvent.click(screen.getByRole("button", { name: "Построить блок" }));
+    await waitFor(() => expect(api.cad.contour).toHaveBeenCalledWith("src-1", { method: "ready", handle: "769", tolerance_m: 0.5 }));
+    expect(await screen.findByText(/S верх 2789,9 м²/)).toBeTruthy();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement).disabled).toBe(false));
+  });
 
-    expect(props.onBuild).toHaveBeenCalledWith(
-      expect.objectContaining({ fileName: "блок 66.dwg", crest: expect.objectContaining({ handle: "6C3" }), toe: expect.objectContaining({ handle: "733" }) }),
+  it("«Построить блок» отдаёт контур, свободные рёбра, отметки уступа и данные чертежа", async () => {
+    const props = renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.click(button);
+
+    const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(choice.vertices).toEqual([[90, 170], [140, 170], [140, 215]]);
+    expect(choice.free_faces).toEqual([[1, 2]]);
+    expect(choice.bench).toMatchObject({ crest_z_m: 420.3, toe_z_m: 410 });
+    expect(choice.cad).toMatchObject({
+      source_id: "src-1",
+      file_name: "блок 66.dwg",
+      method: "ready",
+      area_top_m2: 2789.93,
+      area_bottom_m2: 4120.92,
+      map_area_m2: null,
+      area_basis: "mean",
+      area_m2: 3455.42,
+      edited: false,
+    });
+  });
+
+  it("предпросмотр получает отметки паспорта: сервер проверит с ними высоту уступа", async () => {
+    renderDialog({ passportBench: { crest_z_m: 421, toe_z_m: 411 } });
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+
+    await waitFor(() =>
+      expect(api.cad.contour).toHaveBeenCalledWith(
+        "src-1",
+        expect.objectContaining({ method: "ready", passport_bench: { crest_z_m: 421, toe_z_m: 411 } }),
+      ),
     );
   });
 
-  it("бровки, начерченные отрезками LINE, строятся цепочкой, а не одним отрезком", async () => {
-    const piece = (handle: string, layer: string, a: [number, number, number], b: [number, number, number], role: "crest_top" | "crest_bottom") =>
-      cadEntity(handle, layer, { kind: "LINE", role, points: [a, b], length_m: Math.hypot(b[0] - a[0], b[1] - a[1]) });
-    const source = cadSource({
-      entities: [
-        piece("A", "верхняя бровка", [0, 0, 420], [10, 0, 420.2], "crest_top"),
-        piece("B", "верхняя бровка", [10, 0, 420.2], [20, 5, 420.6], "crest_top"),
-        piece("D", "нижняя бровка", [0, -10, 410], [15, -10, 410.4], "crest_bottom"),
-        piece("E", "нижняя бровка", [15, -10, 410.4], [30, -12, 410.8], "crest_bottom"),
-      ],
-      layers: [],
-    });
-    const props = renderDialog({ sources: [source] });
+  it("выбор площади блока доходит до другого файла того же объекта", async () => {
+    const second = cadSource({ id: "src-2", file_name: "ситуация.dxf" });
+    const props = renderDialog({ sources: [cadSource(), second] });
     await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Построить блок" }));
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
 
-    const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(choice.crest.points).toHaveLength(3);
-    expect(choice.toe.points).toHaveLength(3);
-    // На чертеже подсвечены все отрезки выбранных цепочек.
-    expect(["A", "B", "D", "E"].every((handle) => highlight(handle)?.classList.contains("is-emphasized"))).toBe(true);
+    const updated = (props.onSourcesChange as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
+    expect(updated.map((source: { area_basis: string }) => source.area_basis)).toEqual(["top", "top"]);
   });
 
-  it("без пары бровок кнопка неактивна, ошибка построения видна у кнопки", async () => {
+  it("сохранения площади блока уходят по порядку щелчков", async () => {
+    const resolvers: Array<() => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(
+      (_id: string, basis: string) => new Promise((resolve) => resolvers.push(() => resolve({ area_basis: basis, saved: true }))),
+    );
+    renderDialog();
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S низ/ }));
+
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(1));
+    expect(api.cad.saveAreaBasis).toHaveBeenLastCalledWith("src-1", "top");
+    resolvers[0]();
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(2));
+    expect(api.cad.saveAreaBasis).toHaveBeenLastCalledWith("src-1", "bottom");
+  });
+
+  it("без объекта работ выбор площади действует только в окне и переживает повторный разбор", async () => {
+    const orphan = cadSource({ site_code: "", template_saved: false, suggested_scale: 0.001 });
+    api.cad.reparse.mockResolvedValue(cadSource({ site_code: "", template_saved: false, params: { scale: 0.001, label_radius_m: 3, floor_z_m: null, bench_height_m: 10 } }));
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([orphan]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    expect(await screen.findByText(/действует только в этом окне/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Слои" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /масштаб 0,001/ }));
+
+    await waitFor(() => expect(api.cad.reparse).toHaveBeenCalled());
+    await waitFor(() => {
+      const last = seen.at(-1)?.[0];
+      expect(last?.params.scale).toBe(0.001);
+      expect(last?.area_basis).toBe("top");
+    });
+  });
+
+  it("выбор площади блока сохраняется на объекте и уходит в паспорт", async () => {
+    const props = renderDialog();
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledWith("src-1", "top"));
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(choice.cad).toMatchObject({ area_basis: "top", area_m2: 2789.93 });
+  });
+
+  it("пока сохраняются роли, «Построить блок» неактивна", async () => {
+    api.cad.saveRoles.mockReturnValue(new Promise(() => {}));
+    renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.change(within(screen.getByRole("row", { name: /Отметка/ })).getByRole("combobox"), {
+      target: { value: "ignore" },
+    });
+
+    await waitFor(() => expect(button.disabled).toBe(true));
+  });
+
+  it("пока выбор площади блока сохраняется на объекте, «Построить блок» неактивна", async () => {
+    api.cad.saveAreaBasis.mockReturnValue(new Promise(() => {}));
+    renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+
+    await waitFor(() => expect(button.disabled).toBe(true));
+  });
+
+  it("ошибка сохранения площади блока возвращает прежний выбор и видна в окне", async () => {
+    api.cad.saveAreaBasis.mockRejectedValue(new Error("Нет связи с сервером."));
+    renderDialog();
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+
+    expect(await screen.findByText("Нет связи с сервером.")).toBeTruthy();
+    await waitFor(() => expect((within(group).getByRole("radio", { name: /S ср/ }) as HTMLInputElement).checked).toBe(true));
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
+  it("неудачное раннее сохранение площади не затирает более поздний выбор", async () => {
+    // S ср → S верх → S низ: сохранение «S верх» падает, «S низ» проходит.
+    let failTop: (error: Error) => void = () => {};
+    api.cad.saveAreaBasis.mockImplementation((_id: string, basis: string) =>
+      basis === "top"
+        ? new Promise((_, reject) => (failTop = reject))
+        : Promise.resolve({ area_basis: basis, saved: true }),
+    );
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([cadSource(), cadSource({ id: "src-2", file_name: "ситуация.dxf" })]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S низ/ }));
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(1));
+    failTop(new Error("Нет связи с сервером."));
+
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((within(group).getByRole("radio", { name: /S низ/ }) as HTMLInputElement).checked).toBe(true));
+    expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["bottom", "bottom"]);
+  });
+
+  it("два упавших сохранения подряд возвращают последний подтверждённый выбор", async () => {
+    // S ср (на сервере) → S верх → S низ, оба сохранения падают.
+    const rejects: Array<(error: Error) => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)));
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([cadSource()]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S низ/ }));
+    await waitFor(() => expect(rejects).toHaveLength(1));
+    rejects[0](new Error("Нет связи с сервером."));
+    await waitFor(() => expect(rejects).toHaveLength(2));
+    rejects[1](new Error("Нет связи с сервером."));
+
+    await waitFor(() => expect((within(group).getByRole("radio", { name: /S ср/ }) as HTMLInputElement).checked).toBe(true));
+    expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["mean"]);
+  });
+
+  it("тот же выбор, сделанный снова, не откатывается из-за упавшего раннего сохранения", async () => {
+    // S ср → S верх (падает) → S низ (сохранён) → S верх (сохранён): итог — S верх.
+    let call = 0;
+    api.cad.saveAreaBasis.mockImplementation((_id: string, basis: string) => {
+      call += 1;
+      return call === 1 ? Promise.reject(new Error("Нет связи с сервером.")) : Promise.resolve({ area_basis: basis, saved: true });
+    });
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([cadSource()]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S низ/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(3));
+    expect(api.cad.saveAreaBasis.mock.calls.map(([, basis]) => basis)).toEqual(["top", "bottom", "top"]);
+    // Очередь сохранений пуста — кнопка снова активна, а выбор остался последним.
+    const build = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(build.disabled).toBe(false));
+    expect(screen.queryByText("Нет связи с сервером.")).toBeNull();
+    expect((within(group).getByRole("radio", { name: /S верх/ }) as HTMLInputElement).checked).toBe(true);
+    expect(seen.at(-1)?.[0].area_basis).toBe("top");
+  });
+
+  it("ошибка сохранения площади видна и рядом с ошибкой сохранения ролей", async () => {
+    api.cad.saveRoles.mockRejectedValue(new Error("Роль «x» неизвестна."));
+    api.cad.saveAreaBasis.mockRejectedValue(new Error("Нет связи с сервером."));
+    renderDialog();
+    await ready();
+    fireEvent.change(within(screen.getByRole("row", { name: /Горизонт \+410/ })).getByRole("combobox"), {
+      target: { value: "ignore" },
+    });
+    expect(await screen.findByText("Роль «x» неизвестна.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+
+    expect(await screen.findByText("Нет связи с сервером.")).toBeTruthy();
+    expect(screen.getByText("Роль «x» неизвестна.")).toBeTruthy();
+  });
+
+  it("смена файла, пока площадь сохраняется, не сдвигает точку отката", async () => {
+    // S ср на сервере → S верх (сохранение висит) → другой файл того же объекта → сохранение падает.
+    const rejects: Array<(error: Error) => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)));
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([cadSource(), cadSource({ id: "src-2", file_name: "ситуация.dxf" })]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+    await waitFor(() => expect(rejects).toHaveLength(1));
+    fireEvent.change(screen.getByRole("combobox", { name: "Файл" }), { target: { value: "src-2" } });
+    rejects[0](new Error("Нет связи с сервером."));
+
+    const group = screen.getByRole("radiogroup", { name: "Площадь блока" });
+    await waitFor(() => expect((within(group).getByRole("radio", { name: /S ср/ }) as HTMLInputElement).checked).toBe(true));
+    expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["mean", "mean"]);
+    expect(screen.getByText("Нет связи с сервером.")).toBeTruthy();
+  });
+
+  it("ответ сохранения ролей не возвращает откаченный выбор площади", async () => {
+    // S ср на сервере → S верх (висит) → смена роли (висит) → площадь падает → роли сохранены.
+    const rejects: Array<(error: Error) => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)));
+    let resolveRoles: (value: unknown) => void = () => {};
+    api.cad.saveRoles.mockReturnValue(new Promise((resolve) => (resolveRoles = resolve)));
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([cadSource()]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+    await waitFor(() => expect(rejects).toHaveLength(1));
+    fireEvent.click(screen.getByRole("tab", { name: "Слои" }));
+    fireEvent.change(within(screen.getByRole("row", { name: /Горизонт \+410/ })).getByRole("combobox"), {
+      target: { value: "ignore" },
+    });
+    await waitFor(() => expect(api.cad.saveRoles).toHaveBeenCalled());
+
+    rejects[0](new Error("Нет связи с сервером."));
+    await waitFor(() => expect(seen.at(-1)?.[0].area_basis).toBe("mean"));
     const source = cadSource();
-    renderDialog({ sources: [{ ...source, entities: source.entities.filter((item) => item.handle !== "733") }], error: "Контур не построен." });
+    resolveRoles({ id: "src-1", template_saved: true, floor_z_m: 410, warnings: [], layers: source.layers, roles: {}, overrides: [] });
+
+    await waitFor(() => expect(api.cad.contourLines.mock.calls.length).toBeGreaterThan(1));
+    expect(seen.at(-1)?.[0].area_basis).toBe("mean");
+  });
+
+  it("откат площади одного объекта не трогает выбор файла другого объекта", async () => {
+    const rejects: Array<(error: Error) => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)));
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([
+        cadSource(),
+        cadSource({ id: "src-2", file_name: "другой.dxf", site_code: "SITE_OTHER", area_basis: "bottom" }),
+      ]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+
+    // Первый объект: S ср → S низ (сохранение висит), затем файл другого объекта, где тоже S низ.
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S низ/ }));
+    await waitFor(() => expect(rejects).toHaveLength(1));
+    fireEvent.change(screen.getByRole("combobox", { name: "Файл" }), { target: { value: "src-2" } });
+    rejects[0](new Error("Нет связи с сервером."));
+
+    await waitFor(() => expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["mean", "bottom"]));
+    const group = screen.getByRole("radiogroup", { name: "Площадь блока" });
+    expect((within(group).getByRole("radio", { name: /S низ/ }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("самопересечение видно у кнопки, и кнопка неактивна", async () => {
+    api.cad.contour.mockResolvedValue(
+      contourResult({ ok: false, issues: [{ code: "self_intersection", message: "Контур пересекает сам себя в точке (1,00; 2,00).", point: [1, 2] }], bottom: null }),
+    );
+    renderDialog();
     await ready();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Низ" }), { target: { value: "" } });
-
+    expect((await screen.findByRole("alert")).textContent).toContain("пересекает сам себя");
     expect((screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole("alert").textContent).toContain("Контур не построен.");
+  });
+
+  it("предупреждение о высоте уступа видно у кнопки", async () => {
+    api.cad.contour.mockResolvedValue(
+      contourResult({ warnings: [{ code: "bench_height", message: "Высота уступа 0,6 м вне 2–25 м — проверьте подошву и роли бровок.", level: "warning" }] }),
+    );
+    renderDialog();
+    await ready();
+
+    expect(await screen.findByText(/Высота уступа 0,6 м вне 2–25 м/)).toBeTruthy();
+  });
+
+  it("на шаге «Контур» щелчок по линии в сборке добавляет её участок", async () => {
+    renderDialog();
+    await ready();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Сборка" }));
+    fireEvent.click(hit("6C3"));
+
+    await waitFor(() =>
+      expect(api.cad.contour).toHaveBeenLastCalledWith(
+        "src-1",
+        expect.objectContaining({ method: "assembly", items: [expect.objectContaining({ kind: "part", handle: "6C3" })] }),
+      ),
+    );
   });
 
   it("кнопка «?» открывает справку окна", async () => {
@@ -252,5 +597,53 @@ describe("CadImportDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
 
     expect(props.onCancel).toHaveBeenCalled();
+  });
+});
+
+describe("CadImportDialog: ответы после закрытия окна", () => {
+  // Как на странице «Проектирование»: окно открыто, пока список источников не null.
+  function Page() {
+    const [sources, setSources] = useState<CadSource[] | null>([cadSource()]);
+    return sources ? (
+      <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={() => setSources(null)} onBuild={vi.fn()} />
+    ) : (
+      <p>Окно закрыто</p>
+    );
+  }
+
+  it("упавшее сохранение площади блока не открывает окно снова", async () => {
+    const rejects: Array<(error: Error) => void> = [];
+    api.cad.saveAreaBasis.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)));
+    render(<Page />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+    await waitFor(() => expect(rejects).toHaveLength(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    rejects[0](new Error("Нет связи с сервером."));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Окно закрыто")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("ответ сохранения ролей после закрытия не открывает окно снова", async () => {
+    const source = cadSource();
+    let resolveRoles: (value: unknown) => void = () => {};
+    api.cad.saveRoles.mockReturnValue(new Promise((resolve) => (resolveRoles = resolve)));
+    render(<Page />);
+    await ready();
+    fireEvent.change(within(screen.getByRole("row", { name: /Горизонт \+410/ })).getByRole("combobox"), {
+      target: { value: "ignore" },
+    });
+    await waitFor(() => expect(api.cad.saveRoles).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    resolveRoles({ id: "src-1", template_saved: true, floor_z_m: 410, warnings: [], layers: source.layers, roles: {}, overrides: [] });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Окно закрыто")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

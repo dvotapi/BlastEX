@@ -1,6 +1,6 @@
 // Источник импорта для тестов: «Горизонт +410» с верхней и нижней бровкой,
 // контур блока, точка отметки и подпись — как в ответе `/design/cad/sources`.
-import type { CadEntity, CadMeta, CadSource } from "../../../../types/cad";
+import type { CadContourResult, CadEntity, CadMeta, CadSource } from "../../../../types/cad";
 
 export function cadEntity(handle: string, layer: string, extra: Partial<CadEntity> = {}): CadEntity {
   const points = extra.points ?? [
@@ -50,7 +50,12 @@ export const CAD_META: CadMeta = {
     { code: "z", label: "по Z" },
     { code: "manual", label: "вручную" },
   ],
-  defaults: { label_radius_m: 3, closure_tolerance_m: 0.5, bench_height_m: 10, max_file_mb: 40, max_files: 10 },
+  defaults: { label_radius_m: 3, closure_tolerance_m: 0.5, bench_height_m: 10, max_file_mb: 40, max_files: 10, area_basis: "mean" },
+  area_bases: [
+    { code: "top", label: "S верх", description: "площадь контура по верхней бровке" },
+    { code: "bottom", label: "S низ", description: "площадь контура по нижней бровке" },
+    { code: "mean", label: "S ср", description: "(S верх + S низ) / 2 — способ горизонтальных сечений" },
+  ],
 };
 
 export function cadSource(extra: Partial<CadSource> = {}): CadSource {
@@ -108,6 +113,7 @@ export function cadSource(extra: Partial<CadSource> = {}): CadSource {
     extent: [90, 170, 140, 215],
     floor_z_m: 410,
     template_saved: true,
+    area_basis: "mean",
     warnings: [
       { code: "units_declared", message: "В файле указаны единицы «миллиметры», но размеры похожи на метры — читаем в метрах.", level: "info" },
     ],
@@ -147,6 +153,30 @@ export function cadSource(extra: Partial<CadSource> = {}): CadSource {
       },
     ],
     entities,
+    ...extra,
+  };
+}
+
+/** Ответ предпросмотра контура блока 66 — как у `/design/cad/sources/{id}/contour`. */
+export function contourResult(extra: Partial<CadContourResult> = {}): CadContourResult {
+  return {
+    ok: true,
+    method: "ready",
+    issues: [],
+    warnings: [],
+    top: { points: [[90, 170], [140, 170], [140, 215]], area_m2: 2789.93, perimeter_m: 341.08 },
+    bottom: { points: [[90, 170], [145, 170], [145, 215]], area_m2: 4120.92, perimeter_m: 360 },
+    mean_area_m2: 3455.42,
+    free_faces: [[1, 2]],
+    flanks: [
+      { start: [140, 170], end: [145, 170], length_m: 5.29 },
+      { start: [140, 215], end: [145, 215], length_m: 16.92 },
+    ],
+    closings: [],
+    items: [{ kind: "part", handle: "769", start_m: 0, end_m: 341.08, points: [], flip: false, label: "" }],
+    item_info: [{ kind: "part", handle: "769", layer: "блок 66 вар 2", length_m: 341.08, reversed: false, gap_to_next_m: 0, link: "joined" }],
+    bench: { crest_z_m: 420.3, toe_z_m: 410, height_m: 10.3, crest_source: "crest_top", toe_source: "floor" },
+    crest_line: null,
     ...extra,
   };
 }

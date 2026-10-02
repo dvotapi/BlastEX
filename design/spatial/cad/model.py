@@ -60,6 +60,19 @@ LAYER_ONLY_ROLES: tuple[RoleInfo, ...] = (
 ROLE_CODES = frozenset(item.code for item in ROLES)
 LAYER_ROLE_CODES = ROLE_CODES | {item.code for item in LAYER_ONLY_ROLES}
 
+# Какую площадь маркшейдер называет площадью блока — у каждого по-своему.
+# Выбор хранится на объекте работ (cad_site_settings), по умолчанию S ср (§2).
+AREA_BASIS_TOP = "top"
+AREA_BASIS_BOTTOM = "bottom"
+AREA_BASIS_MEAN = "mean"
+AREA_BASES: tuple[tuple[str, str, str], ...] = (
+    (AREA_BASIS_TOP, "S верх", "площадь контура по верхней бровке"),
+    (AREA_BASIS_BOTTOM, "S низ", "площадь контура по нижней бровке"),
+    (AREA_BASIS_MEAN, "S ср", "(S верх + S низ) / 2 — способ горизонтальных сечений"),
+)
+AREA_BASIS_CODES = frozenset(code for code, _, _ in AREA_BASES)
+DEFAULT_AREA_BASIS = AREA_BASIS_MEAN
+
 ORIGIN_TEMPLATE = "template"
 ORIGIN_AUTO = "auto"
 ORIGIN_Z = "z"

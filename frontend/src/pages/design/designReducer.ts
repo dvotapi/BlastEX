@@ -5,6 +5,7 @@ import { collarZFromSurfaces } from "../../lib/surfaces";
 import type {
   BenchSurface,
   BlastDesign,
+  CadContourInfo,
   ChargeRules,
   CoordinateSystem,
   Hole,
@@ -36,6 +37,13 @@ export type DesignAction =
   | { type: "SET_NAME"; name: string }
   | { type: "SET_CONTOUR_VERTICES"; vertices: BlastDesign["contour"]["vertices"]; free_faces?: number[][]; coalesce?: boolean }
   | { type: "TOGGLE_FREE_FACE"; edgeIndex: number }
+  | {
+      type: "APPLY_CAD_CONTOUR";
+      vertices: BlastDesign["contour"]["vertices"];
+      free_faces: number[][];
+      bench: Partial<BenchSurface>;
+      cad: CadContourInfo;
+    }
   | { type: "SET_BENCH"; bench: Partial<BenchSurface> }
   | { type: "SET_COORDINATE_SYSTEM"; patch: Partial<CoordinateSystem> }
   | { type: "SET_SURFACE"; surface: SurfaceModel }
@@ -110,6 +118,7 @@ function normalizeHole(hole: Hole): Hole {
 function normalizeDesign(design: BlastDesign): BlastDesign {
   return {
     ...design,
+    contour: { ...design.contour, cad: design.contour.cad ?? null },
     coordinate_system: { ...emptyCoordinateSystem(), ...design.coordinate_system },
     surfaces: { ...emptySurfaces(), ...design.surfaces },
     domains: (design.domains ?? []).map((domain) => ({
@@ -173,9 +182,38 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       const total = action.vertices.length;
       const source = action.free_faces ?? document.contour.free_faces;
       const free_faces = source.filter(([a, b]) => a >= 0 && a < total && b >= 0 && b < total);
+      // Контур из чертежа, сдвинутый в плане, уже не совпадает с чертежом.
+      // Смена одних отметок (драпировка по поверхности) — не правка контура.
+      const cad = document.contour.cad;
+      const movedInPlan =
+        action.vertices.length !== document.contour.vertices.length ||
+        action.vertices.some((vertex, index) => {
+          const before = document.contour.vertices[index];
+          return vertex.x !== before.x || vertex.y !== before.y;
+        });
       return {
         ...document,
-        contour: { ...document.contour, vertices: action.vertices, free_faces },
+        contour: {
+          ...document.contour,
+          vertices: action.vertices,
+          free_faces,
+          ...(cad && movedInPlan && !cad.edited ? { cad: { ...cad, edited: true } } : {}),
+        },
+      };
+    }
+    case "APPLY_CAD_CONTOUR": {
+      // Построение блока из чертежа — одна правка: контур, откосы, отметки
+      // уступа и данные чертежа; скважины, заряды и сеть прежнего контура очищаются.
+      const cleared = reduceDocument(document, { type: "SET_HOLES", holes: [] });
+      return {
+        ...cleared,
+        contour: {
+          ...cleared.contour,
+          vertices: action.vertices,
+          free_faces: action.free_faces,
+          bench: { ...cleared.contour.bench, ...action.bench },
+          cad: action.cad,
+        },
       };
     }
     case "TOGGLE_FREE_FACE": {
@@ -398,6 +436,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
 const UNDOABLE: DesignAction["type"][] = [
   "SET_NAME",
   "SET_CONTOUR_VERTICES",
+  "APPLY_CAD_CONTOUR",
   "TOGGLE_FREE_FACE",
   "SET_BENCH",
   "SET_SURFACE",

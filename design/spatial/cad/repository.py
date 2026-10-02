@@ -74,7 +74,14 @@ class CadRepository(Protocol):
 
     def get_source(self, organization_id: str, source_id: str, *, with_file: bool = False) -> CadSourceRecord | None: ...
 
-    def list_entities(self, organization_id: str, source_id: str) -> list[CadEntity]: ...
+    def list_entities(
+        self,
+        organization_id: str,
+        source_id: str,
+        *,
+        roles: set[str] | None = None,
+        handles: set[str] | None = None,
+    ) -> list[CadEntity]: ...
 
     def replace_entities(
         self,
@@ -102,6 +109,10 @@ class CadRepository(Protocol):
     def add_missing_layer_roles(self, organization_id: str, site_code: str, roles: dict[str, str], actor: str) -> None: ...
 
     def upsert_layer_roles(self, organization_id: str, site_code: str, roles: dict[str, str], actor: str) -> None: ...
+
+    def get_area_basis(self, organization_id: str, site_code: str) -> str | None: ...
+
+    def set_area_basis(self, organization_id: str, site_code: str, area_basis: str, actor: str) -> None: ...
 
 
 def _now() -> datetime:
@@ -180,6 +191,19 @@ class CadLayerRoleRow(Base):
     layer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CadSiteSettingsRow(Base):
+    """Настройки объекта для импорта чертежа: какая площадь — площадь блока."""
+
+    __tablename__ = "cad_site_settings"
+    __table_args__ = ({"schema": SCHEMA},)
+
+    organization_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    site_code: Mapped[str] = mapped_column(String(80), primary_key=True)
+    area_basis: Mapped[str] = mapped_column(String(16), nullable=False)
     updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -283,13 +307,27 @@ class PostgresCadRepository:
                 revision=row.revision,
             )
 
-    def list_entities(self, organization_id: str, source_id: str) -> list[CadEntity]:
+    def list_entities(
+        self,
+        organization_id: str,
+        source_id: str,
+        *,
+        roles: set[str] | None = None,
+        handles: set[str] | None = None,
+    ) -> list[CadEntity]:
+        # Контур читает только линии нужных ролей: на чертеже карьера объектов
+        # десятки тысяч, а предпросмотр контура зовётся на каждое действие.
+        if roles is not None and not roles or handles is not None and not handles:
+            return []
+        query = select(CadEntityRow).where(
+            CadEntityRow.organization_id == organization_id, CadEntityRow.source_id == source_id
+        )
+        if roles is not None:
+            query = query.where(CadEntityRow.role.in_(sorted(roles)))
+        if handles is not None:
+            query = query.where(CadEntityRow.handle.in_(sorted(handles)))
         with self.session_factory() as session:
-            rows = session.execute(
-                select(CadEntityRow)
-                .where(CadEntityRow.organization_id == organization_id, CadEntityRow.source_id == source_id)
-                .order_by(CadEntityRow.seq)
-            ).scalars()
+            rows = session.execute(query.order_by(CadEntityRow.seq)).scalars()
             return [_entity(row) for row in rows]
 
     def replace_entities(
@@ -351,6 +389,29 @@ class PostgresCadRepository:
 
     def upsert_layer_roles(self, organization_id: str, site_code: str, roles: dict[str, str], actor: str) -> None:
         self._write_template(organization_id, site_code, roles, actor, overwrite=True)
+
+    def get_area_basis(self, organization_id: str, site_code: str) -> str | None:
+        with self.session_factory() as session:
+            return session.execute(
+                select(CadSiteSettingsRow.area_basis).where(
+                    CadSiteSettingsRow.organization_id == organization_id, CadSiteSettingsRow.site_code == site_code
+                )
+            ).scalar_one_or_none()
+
+    def set_area_basis(self, organization_id: str, site_code: str, area_basis: str, actor: str) -> None:
+        values = {
+            "organization_id": organization_id,
+            "site_code": site_code,
+            "area_basis": area_basis,
+            "updated_by": actor,
+            "updated_at": _now(),
+        }
+        statement = pg_insert(CadSiteSettingsRow).values(values).on_conflict_do_update(
+            index_elements=[CadSiteSettingsRow.organization_id, CadSiteSettingsRow.site_code],
+            set_={"area_basis": area_basis, "updated_by": actor, "updated_at": values["updated_at"]},
+        )
+        with self.session_factory() as session, session.begin():
+            session.execute(statement)
 
     def _write_template(
         self, organization_id: str, site_code: str, roles: dict[str, str], actor: str, *, overwrite: bool
@@ -427,6 +488,7 @@ class InMemoryCadRepository:
         self._sources: dict[tuple[str, str], CadSourceRecord] = {}
         self._entities: dict[tuple[str, str], list[CadEntity]] = {}
         self._templates: dict[tuple[str, str], dict[str, tuple[str, TemplateEntry]]] = {}
+        self._area_bases: dict[tuple[str, str], str] = {}
 
     def create_sources(
         self, organization_id: str, items: list[tuple[CadSourceRecord, list[CadEntity]]]
@@ -441,8 +503,21 @@ class InMemoryCadRepository:
             return None
         return copy.deepcopy(record if with_file else replace(record, file_data=None))
 
-    def list_entities(self, organization_id: str, source_id: str) -> list[CadEntity]:
-        return copy.deepcopy(self._entities.get((organization_id, source_id), []))
+    def list_entities(
+        self,
+        organization_id: str,
+        source_id: str,
+        *,
+        roles: set[str] | None = None,
+        handles: set[str] | None = None,
+    ) -> list[CadEntity]:
+        return copy.deepcopy(
+            [
+                item
+                for item in self._entities.get((organization_id, source_id), [])
+                if (roles is None or item.role in roles) and (handles is None or item.handle in handles)
+            ]
+        )
 
     def replace_entities(
         self,
@@ -486,6 +561,12 @@ class InMemoryCadRepository:
         template = self._templates.setdefault((organization_id, site_code), {})
         for key, (name, role) in _template_rows(roles).items():
             template[key] = (name, TemplateEntry(role, manual=True))
+
+    def get_area_basis(self, organization_id: str, site_code: str) -> str | None:
+        return self._area_bases.get((organization_id, site_code))
+
+    def set_area_basis(self, organization_id: str, site_code: str, area_basis: str, actor: str) -> None:
+        self._area_bases[(organization_id, site_code)] = area_basis
 
     def _require(self, organization_id: str, source_id: str) -> CadSourceRecord:
         record = self._sources.get((organization_id, source_id))

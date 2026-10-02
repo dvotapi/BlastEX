@@ -16,6 +16,8 @@ from functools import lru_cache
 
 from api import config
 from api.schemas.cad import (
+    CadAreaBasisInfoSchema,
+    CadAreaBasisResponse,
     CadDefaultsSchema,
     CadEntitySchema,
     CadImportResponse,
@@ -34,6 +36,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from cost.v2.models import ReferenceSnapshot
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design.spatial.cad.model import (
+    AREA_BASES,
+    AREA_BASIS_CODES,
+    DEFAULT_AREA_BASIS,
     LAYER_ONLY_ROLES,
     LAYER_ROLE_CODES,
     ORIGIN_TEMPLATE,
@@ -107,8 +112,33 @@ def meta() -> CadMetaResponse:
             bench_height_m=DEFAULT_BENCH_HEIGHT_M,
             max_file_mb=MAX_FILE_BYTES // (1024 * 1024),
             max_files=MAX_FILES,
+            area_basis=DEFAULT_AREA_BASIS,
         ),
+        area_bases=[
+            CadAreaBasisInfoSchema(code=code, label=label, description=description)
+            for code, label, description in AREA_BASES
+        ],
     )
+
+
+def area_basis_of(repository: CadRepository, organization_id: str, site_code: str) -> str:
+    """Площадь блока по соглашению маркшейдера объекта; без выбора — S ср."""
+
+    if not site_code:
+        return DEFAULT_AREA_BASIS
+    saved = repository.get_area_basis(organization_id, site_code)
+    return saved if saved in AREA_BASIS_CODES else DEFAULT_AREA_BASIS
+
+
+def save_area_basis(
+    repository: CadRepository, organization_id: str, actor: str, source_id: str, area_basis: str
+) -> CadAreaBasisResponse:
+    record = _require(repository, organization_id, source_id)
+    if area_basis not in AREA_BASIS_CODES:
+        raise CadImportError(f"Способ площади «{area_basis}» неизвестен.")
+    if record.site_code:
+        repository.set_area_basis(organization_id, record.site_code, area_basis, actor)
+    return CadAreaBasisResponse(area_basis=area_basis, saved=bool(record.site_code))
 
 
 def active_work_object_name(repository: EconomicsRepository, organization_id: str) -> str:
@@ -218,13 +248,18 @@ def import_files(
     repository.create_sources(organization_id, items)
     if site_code and new_layers:
         repository.add_missing_layer_roles(organization_id, site_code, new_layers, actor)
-    sources = [_source_schema(record, entities) for record, entities in items]
+    area_basis = area_basis_of(repository, organization_id, site_code)
+    sources = [_source_schema(record, entities, area_basis) for record, entities in items]
     return CadImportResponse(sources=sources)
 
 
 def get_source(repository: CadRepository, organization_id: str, source_id: str) -> CadSourceSchema:
     record = _require(repository, organization_id, source_id)
-    return _source_schema(record, repository.list_entities(organization_id, source_id))
+    return _source_schema(
+        record,
+        repository.list_entities(organization_id, source_id),
+        area_basis_of(repository, organization_id, record.site_code),
+    )
 
 
 def reparse(
@@ -264,7 +299,7 @@ def reparse(
         except CadSourceConflict:
             continue
         record.params, record.summary = params.model_dump(), summary
-        return _source_schema(record, drawing.entities)
+        return _source_schema(record, drawing.entities, area_basis_of(repository, organization_id, record.site_code))
     raise CadImportError(CONFLICT_MESSAGE, status_code=409)
 
 
@@ -498,7 +533,7 @@ def _warnings(summary: dict) -> list[CadWarningSchema]:
     return [CadWarningSchema(**item) for item in raw]
 
 
-def _source_schema(record: CadSourceRecord, entities: list[CadEntity]) -> CadSourceSchema:
+def _source_schema(record: CadSourceRecord, entities: list[CadEntity], area_basis: str = DEFAULT_AREA_BASIS) -> CadSourceSchema:
     summary = record.summary or {}
     overrides = frozenset(summary.get("manual_entities") or {})
     return CadSourceSchema(
@@ -516,6 +551,7 @@ def _source_schema(record: CadSourceRecord, entities: list[CadEntity]) -> CadSou
         extent=summary.get("extent"),
         floor_z_m=summary.get("floor_z_m"),
         template_saved=bool(record.site_code),
+        area_basis=area_basis,
         warnings=_warnings(summary),
         layers=_layer_schemas(summary, entities),
         entities=[_entity_schema(item, overrides) for item in entities],

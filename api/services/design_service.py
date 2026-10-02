@@ -47,9 +47,6 @@ from api.schemas.design import (
     SummarySchema,
     SurfaceImportRequest,
     SurfaceImportResponse,
-    BenchDxfImportRequest,
-    BenchDxfImportResponse,
-    BenchFromPolylinesRequest,
     SurfaceSampleRequest,
     SurfaceSampleResponse,
     SurfaceStatsSchema,
@@ -105,7 +102,6 @@ from design.models import (
     BlastDesign,
     BlastDomain,
     BlockContour,
-    BenchSurface,
     Hole,
     Point3,
     Receptor,
@@ -113,12 +109,7 @@ from design.models import (
 )
 from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
-from design.spatial.io import (
-    SurveyImportError,
-    build_bench_from_polylines,
-    import_bench_dxf as import_bench_dxf_source,
-    import_survey,
-)
+from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
 from cost.v2.legacy_adapter import LegacyReferences
@@ -168,51 +159,6 @@ def import_surface(request: SurfaceImportRequest) -> SurfaceImportResponse:
     return SurfaceImportResponse(
         surface=SurfaceModel.from_dict(surface.to_dict()).to_dict(),
         stats=SurfaceStatsSchema(**surface.stats()),
-    )
-
-
-def bench_from_polylines(request: BenchFromPolylinesRequest) -> BenchDxfImportResponse:
-    """Собирает уступ из двух выбранных вручную полилиний."""
-
-    crest = [Point3.from_dict(p.model_dump()) for p in request.crest]
-    toe = [Point3.from_dict(p.model_dump()) for p in request.toe]
-    try:
-        imported = build_bench_from_polylines(crest, toe, request.crest_layer, request.toe_layer)
-    except SurveyImportError as exc:
-        raise InvalidSurveyError(str(exc)) from exc
-    return _bench_response(imported, request.filename or "block.dxf", request.coordinate_system)
-
-
-def import_bench_dxf(request: BenchDxfImportRequest) -> BenchDxfImportResponse:
-    try:
-        imported = import_bench_dxf_source(request.content)
-    except SurveyImportError as exc:
-        raise InvalidSurveyError(str(exc)) from exc
-    return _bench_response(imported, request.filename or "block.dxf", request.coordinate_system)
-
-
-def _bench_response(imported, source_name: str, coordinate_system_schema) -> BenchDxfImportResponse:
-    coordinate_system = CoordinateSystem.from_dict(coordinate_system_schema.model_dump())
-    top = build_surface(
-        "top", imported.crest, polylines=[imported.crest], name="Верхняя бровка",
-        source_format="dxf", source_name=source_name, coordinate_system=coordinate_system,
-    )
-    floor = build_surface(
-        "floor", imported.toe, polylines=[imported.toe], name="Нижняя бровка",
-        source_format="dxf", source_name=source_name, coordinate_system=coordinate_system,
-    )
-    face = build_surface(
-        "face", [*imported.crest, *imported.toe], polylines=[imported.crest, imported.toe], name="Откос блока",
-        source_format="dxf", source_name=source_name, coordinate_system=coordinate_system,
-    )
-    contour = BlockContour(
-        name=source_name.rsplit(".", 1)[0], vertices=imported.contour,
-        bench=BenchSurface(crest_z_m=imported.crest_z_m, toe_z_m=imported.toe_z_m),
-    )
-    return BenchDxfImportResponse(
-        contour=contour.to_dict(), surfaces=SurfaceSet(top=top, floor=floor, face=face).to_dict(),
-        crest_layer=imported.crest_layer, toe_layer=imported.toe_layer,
-        crest_z_m=imported.crest_z_m, toe_z_m=imported.toe_z_m, vertex_count=len(imported.contour),
     )
 
 

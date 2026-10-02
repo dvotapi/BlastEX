@@ -95,6 +95,11 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
     onSourcesChange(next);
   }
   const areaSave = useRef<Promise<unknown>>(Promise.resolve());
+  // Номер последнего щелчка площади по объекту: упавшее сохранение откатывает
+  // выбор, только если после него щелчков не было (тот же выбор, сделанный
+  // снова, по значению от упавшего не отличить).
+  const areaClicks = useRef(0);
+  const lastAreaClick = useRef(new Map<string, number>());
   // Окно на экране. Ответы, пришедшие после закрытия, не трогают список
   // источников: страница по нему открыла бы окно снова.
   const open = useRef(true);
@@ -230,6 +235,8 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
       const basis = next.areaBasis;
       // Выбор — соглашение объекта: его получают и другие файлы того же объекта.
       const sameObject = (item: CadSource) => areaKey(item) === key;
+      const click = ++areaClicks.current;
+      lastAreaClick.current.set(key, click);
       commit(latestSources.current.map((item) => (sameObject(item) ? { ...item, area_basis: basis } : item)));
       // Сохранения — по очереди: иначе при быстрых щелчках на объекте могло
       // остаться не последнее значение (запросы обрабатываются параллельно).
@@ -248,18 +255,13 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
             // Объект не принял выбор — возвращаем последний подтверждённый сервером
             // (не «прошлый» щелчок: он тоже мог не сохраниться), чтобы паспорт
             // с объектом не разошёлся.
-            const previous = confirmedArea.current.get(key) ?? basis;
             setAreaError(reason instanceof Error ? reason.message : "Не удалось сохранить площадь блока.");
+            // Был щелчок позже — выбор решит его сохранение (успех или свой откат).
+            if (lastAreaClick.current.get(key) !== click) return;
+            const previous = confirmedArea.current.get(key) ?? basis;
             // Открыт файл другого объекта — его выбор не трогаем.
-            if (activeArea.current === key) {
-              setContour((current) => (current.areaBasis === basis ? { ...current, areaBasis: previous } : current));
-            }
-            // Откатываются только файлы, где ещё стоит упавший выбор: более
-            // поздний выбор (уже в очереди или сохранённый) не затирается.
-            const stale = (item: CadSource) => sameObject(item) && item.area_basis === basis;
-            if (latestSources.current.some(stale)) {
-              commit(latestSources.current.map((item) => (stale(item) ? { ...item, area_basis: previous } : item)));
-            }
+            if (activeArea.current === key) setContour((current) => ({ ...current, areaBasis: previous }));
+            commit(latestSources.current.map((item) => (sameObject(item) ? { ...item, area_basis: previous } : item)));
           },
         )
         .finally(() => setAreaSaving((count) => count - 1));

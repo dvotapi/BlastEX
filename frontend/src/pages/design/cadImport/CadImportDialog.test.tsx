@@ -401,6 +401,34 @@ describe("CadImportDialog", () => {
     expect(seen.at(-1)?.map((source) => source.area_basis)).toEqual(["mean"]);
   });
 
+  it("тот же выбор, сделанный снова, не откатывается из-за упавшего раннего сохранения", async () => {
+    // S ср → S верх (падает) → S низ (сохранён) → S верх (сохранён): итог — S верх.
+    let call = 0;
+    api.cad.saveAreaBasis.mockImplementation((_id: string, basis: string) => {
+      call += 1;
+      return call === 1 ? Promise.reject(new Error("Нет связи с сервером.")) : Promise.resolve({ area_basis: basis, saved: true });
+    });
+    const seen: CadSource[][] = [];
+    function Stateful() {
+      const [sources, setSources] = useState<CadSource[]>([cadSource()]);
+      seen.push(sources);
+      return <CadImportDialog sources={sources} burden={4} onSourcesChange={setSources} onCancel={vi.fn()} onBuild={vi.fn()} />;
+    }
+    render(<Stateful />);
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    const group = await screen.findByRole("radiogroup", { name: "Площадь блока" });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S низ/ }));
+    fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
+
+    await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByText("Нет связи с сервером.")).toBeNull());
+    expect((within(group).getByRole("radio", { name: /S верх/ }) as HTMLInputElement).checked).toBe(true);
+    expect(seen.at(-1)?.[0].area_basis).toBe("top");
+  });
+
   it("смена файла, пока площадь сохраняется, не сдвигает точку отката", async () => {
     // S ср на сервере → S верх (сохранение висит) → другой файл того же объекта → сохранение падает.
     const rejects: Array<(error: Error) => void> = [];

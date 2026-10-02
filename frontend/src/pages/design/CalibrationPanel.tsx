@@ -101,6 +101,7 @@ export function CalibrationPanel({
                   <small>
                     {statusLabel(item.status)} · {item.algorithm} · {item.sample_count} обр.
                   </small>
+                  {item.base_label && <small className="frag-settings">{item.base_label}</small>}
                 </button>
               </li>
             ))}
@@ -114,6 +115,7 @@ export function CalibrationPanel({
               <div><span>Датасет</span><strong>v{selected.training_dataset_version}</strong></div>
             </div>
             <small>Схема признаков: {selected.feature_schema_version || "—"}</small>
+            {selected.base_label && <small className="frag-settings">{selected.base_label}</small>}
             <small>Обучение: {selected.training_date ? new Date(selected.training_date).toLocaleString("ru-RU") : "—"}</small>
             {selected.metrics?.calibrated_mae != null && (
               <small>

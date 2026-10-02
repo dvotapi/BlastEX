@@ -64,6 +64,7 @@ export function SpatialPanel({
                   <small>
                     {item.status} · {item.hole_count} скв. · снимок v{item.training_dataset_version}
                   </small>
+                  {item.base_label && <small className="frag-settings">{item.base_label}</small>}
                 </button>
               </li>
             ))}
@@ -77,6 +78,7 @@ export function SpatialPanel({
               <div><span>Датасет</span><strong>v{selected.training_dataset_version}</strong></div>
             </div>
             <small>Схема: {selected.feature_schema_version || "spatial-1.0.0"} · роли designed / executed / predicted / measured</small>
+            {selected.base_label && <small className="frag-settings">{selected.base_label}</small>}
             <div className="plans-actions">
               <button type="button" className="secondary-button" onClick={onMarkProduction} disabled={busy || selected.status === "production"}>
                 Пометить как производственную

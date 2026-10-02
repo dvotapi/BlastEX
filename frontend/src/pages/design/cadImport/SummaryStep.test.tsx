@@ -64,7 +64,7 @@ describe("SummaryStep", () => {
     const confirm = screen.getByLabelText(/Подтверждаю высоту уступа 0,6 м/) as HTMLInputElement;
     expect(confirm.checked).toBe(false);
     fireEvent.click(confirm);
-    expect(lastState(props).confirmHeight).toBe(true);
+    expect(lastState(props).confirmHeight).toBe(0.6);
   });
 
   it("кровля-плоскость: объём — S ср × H", () => {

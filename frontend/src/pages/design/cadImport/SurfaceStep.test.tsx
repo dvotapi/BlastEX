@@ -79,6 +79,7 @@ describe("SurfaceStep", () => {
     expect(within(quality).getByText("До ближайшей отметки").nextSibling?.textContent).toBe("до 10,9 м");
     expect(within(quality).getByText("Средняя высота уступа").nextSibling?.textContent).toBe("10,5 м");
     expect(within(quality).getByText("Построение").nextSibling?.textContent).toBe("CDT");
+    expect(within(quality).getByText("Плоских треугольников").nextSibling?.textContent).toBe("нет");
   });
 
   it("выброс исключается, исключённая отметка возвращается, наведение подсвечивает место", () => {

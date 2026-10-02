@@ -63,3 +63,36 @@ describe("RECOMPUTE_HOLES", () => {
     expect(undone.present.contour.bench.toe_z_m).toBe(-10);
   });
 });
+
+describe("MOVE_HOLES и ручная отметка устья", () => {
+  it("сдвиг скважины с ручной Z устья её не затирает", () => {
+    const roof = {
+      kind: "top" as const,
+      name: "Кровля",
+      source_format: "cad",
+      source_name: "",
+      created_at: "",
+      coordinate_system: emptyDesign().coordinate_system,
+      points: [],
+      polylines: [],
+      tin: {
+        vertices: [{ x: 0, y: 0, z: 420 }, { x: 100, y: 0, z: 420 }, { x: 100, y: 100, z: 420 }, { x: 0, y: 100, z: 420 }],
+        triangles: [[0, 1, 2], [0, 2, 3]],
+      },
+    };
+    const base = emptyDesign();
+    const start = initDesignState({
+      ...base,
+      surfaces: { ...base.surfaces, top: roof },
+      holes: [hole("a", 425, 12, { manual: ["collar_z"] }), hole("b", 425, 12)],
+    });
+
+    const moved = designReducer(start, { type: "MOVE_HOLES", ids: ["a", "b"], dx: 1, dy: 0 });
+
+    // Без ручной пометки устье ложится на кровлю — проверка, что кровля работает.
+    expect(moved.present.holes[1].collar.z).toBeCloseTo(420, 9);
+
+    expect(moved.present.holes[0].collar).toEqual({ x: 11, y: 5, z: 425 });
+    expect(moved.present.holes[0].toe.z).toBe(413);
+  });
+});

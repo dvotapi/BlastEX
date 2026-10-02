@@ -51,6 +51,10 @@
 .metrics-strip { display:flex; gap:10px; overflow-x:auto; padding:2px 0; scrollbar-width:thin; }
 .metrics-strip > div { display:flex; align-items:baseline; gap:6px; padding:4px 0; white-space:nowrap; font-size:12px; }
 .metrics-strip span { color:#78857f; font-size:10px; font-weight:var(--font-weight-strong); text-transform:uppercase; letter-spacing:.03em; }
+/* Пересчёт скважин по кровле (TASK-013, PR 3): ошибка и заметка в строке показателей. */
+.metrics-alert, .metrics-note { align-self:center; margin:0; padding:3px 8px; border-radius:6px; white-space:nowrap; font-size:11px; }
+.metrics-alert { background:#fce9e7; color:#9e3025; font-weight:var(--font-weight-strong); }
+.metrics-note { background:#fdf3e1; color:#7a4e0c; }
 .metrics-strip strong { font-size:13px; }
 .metrics-strip small { color:#8a9690; font-size:10px; }
 .map-chrome-metrics { margin-left:auto; min-width:0; max-width:100%; }

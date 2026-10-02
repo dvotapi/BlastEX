@@ -5,7 +5,7 @@
 import { ruNumber } from "../../../lib/format";
 import type { CadContourResult, CadSurfaceResult } from "../../../types/cad";
 import { parseNumber } from "./contourState";
-import { percentDiff, type SurfaceState } from "./surfaceState";
+import { heightConfirmed, percentDiff, type SurfaceState } from "./surfaceState";
 
 export type SummaryStepProps = {
   contour: CadContourResult | null;
@@ -74,9 +74,9 @@ export function SummaryStep({ contour, surface, state, onChange, mapArea, disabl
         <label className="cad-confirm-height">
           <input
             type="checkbox"
-            checked={state.confirmHeight}
+            checked={heightConfirmed(state, height)}
             disabled={disabled}
-            onChange={(event) => onChange({ ...state, confirmHeight: event.target.checked })}
+            onChange={(event) => onChange({ ...state, confirmHeight: event.target.checked ? height : null })}
           />
           Подтверждаю высоту уступа {ruNumber(height, 1)} м
         </label>

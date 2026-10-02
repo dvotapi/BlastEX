@@ -2657,7 +2657,9 @@ export function DesignPage({
           <div className="map-chrome-metrics">
             <SummaryPanel
               holes={document.holes}
-              blockVolumeM3={recompute.blockVolumeM3 ?? blockVolumeM3}
+              blockVolumeM3={recompute.error ? null : recompute.blockVolumeM3 ?? blockVolumeM3}
+              recomputeError={recompute.error}
+              recomputeNotice={recompute.notice}
               volumeTitle={volumeDetails(
                 document.contour.cad,
                 recompute.meanHeightM,

@@ -28,10 +28,10 @@ describe("surfaceState", () => {
     expect(surfaceFloor({ ...state, floor: "409,5" }, contourResult())).toBe(409.5);
   });
 
-  it("явная подошва разбора попадает в поле", () => {
+  it("поле подошвы пустое и при явной подошве разбора: подошва идёт из контура и следует за полем шага «Слои»", () => {
     const source = cadSource({ params: { scale: 1, label_radius_m: 3, floor_z_m: 405, bench_height_m: 10 } });
 
-    expect(initialSurface(source).floor).toBe("405");
+    expect(initialSurface(source).floor).toBe("");
   });
 
   it("запрос — только для построенного контура: оба контура, роли, исключения, подошва и бровка", () => {
@@ -75,7 +75,10 @@ describe("surfaceState", () => {
     expect(buildBlocker(state, contourResult(), surfaceResult(), true)).toMatch(/Считаю/);
     expect(buildBlocker(state, contourResult(), surfaceResult({ ok: false }), false)).toMatch(/Кровля/);
     expect(buildBlocker(state, contourResult(), unsure, false)).toMatch(/Подтвердите высоту/);
-    expect(buildBlocker({ ...state, confirmHeight: true }, contourResult(), unsure, false)).toBeNull();
+    expect(buildBlocker({ ...state, confirmHeight: 0.6 }, contourResult(), unsure, false)).toBeNull();
+    // Подтверждена другая высота (сменилась подошва или роли) — подтверждение не действует.
+    const other = surfaceResult({ bench: { floor_z_m: 380, mean_height_m: 30.6, needs_confirmation: true } });
+    expect(buildBlocker({ ...state, confirmHeight: 0.6 }, contourResult(), other, false)).toMatch(/Подтвердите высоту/);
   });
 
   it("кровля для паспорта: TIN в точках, определение из чертежа", () => {

@@ -121,7 +121,7 @@ describe("useHoleRecompute", () => {
 
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch.mock.calls[0][0].holes[0].collar.z).toBe(422);
-    expect(result.current.drillingM).toBe(13);
+    expect(result.current.blockVolumeM3).toBe(8000);
   });
 
   it("утверждённый паспорт: только флаги и объём, скважины не трогаются", async () => {
@@ -169,5 +169,54 @@ describe("recomputeKey", () => {
     expect(recomputeKey(design({ holes: [hole("a", { collar: { x: 11, y: 5, z: 420 }, toe: { x: 11, y: 5, z: 408 } })] }), {})).not.toBe(key);
     expect(recomputeKey(design({ holes: [hole("a", { manual: ["length"] })] }), {})).not.toBe(key);
     expect(recomputeKey(base, { stab_depth_m: 4 })).not.toBe(key);
+  });
+});
+
+describe("useHoleRecompute: правки по ревью", () => {
+  it("включение и выключение скважины открытого паспорта — только флаги и объём, длины не трогаются", async () => {
+    const dispatch = vi.fn();
+    const fetcher = vi.fn(async () => response(420.1));
+    const { rerender } = renderHook(({ value }) => useHoleRecompute(value, {}, { apply: true, dispatch, fetcher }), {
+      initialProps: { value: design() },
+    });
+    await settle();
+
+    rerender({ value: design({ holes: [hole("a", { enabled: false })] }) });
+    await settle();
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("пересчёт сменил длины при зарядах — заметка с числом скважин и разницей погонажа", async () => {
+    const dispatch = vi.fn();
+    const fetcher = vi.fn(async () => response(421));
+    const charged = (extra: Partial<BlastDesign>) =>
+      design({ loads: [{ hole_id: "a" } as unknown as BlastDesign["loads"][number]], ...extra });
+    const { result, rerender } = renderHook(({ value }) => useHoleRecompute(value, {}, { apply: true, dispatch, fetcher }), {
+      initialProps: { value: charged({}) },
+    });
+    await settle();
+    expect(result.current.notice).toBe("");
+
+    rerender({ value: charged({ holes: [hole("a", { subdrill_m: 1.5 })] }) });
+    await settle();
+
+    expect(result.current.notice).toContain("1 скважина");
+    expect(result.current.notice).toContain("+0,0 м");
+    expect(result.current.notice).toContain("заряды");
+  });
+
+  it("ошибка пересчёта видна, объём сбрасывается", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(response(420.1)).mockRejectedValueOnce(new Error("Нет связи с сервером."));
+    const { result, rerender } = renderHook(({ value }) => useHoleRecompute(value, {}, { apply: true, dispatch: vi.fn(), fetcher }), {
+      initialProps: { value: design() },
+    });
+    await settle();
+    rerender({ value: design({ holes: [hole("a", { subdrill_m: 2 })] }) });
+    await settle();
+
+    expect(result.current.error).toBe("Нет связи с сервером.");
+    expect(result.current.blockVolumeM3).toBeNull();
   });
 });

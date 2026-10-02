@@ -13,8 +13,8 @@ export type SurfaceState = {
   excluded: string[];
   /** Проектная подошва; пустое поле — отметка подошвы шага «Контур». */
   floor: string;
-  /** Высота уступа вне 2–25 м подтверждена инженером. */
-  confirmHeight: boolean;
+  /** Какую высоту уступа вне 2–25 м подтвердил инженер: другая высота требует подтверждения заново. */
+  confirmHeight: number | null;
   /** Объём с блоковой карты — для сверки. */
   mapVolume: string;
 };
@@ -28,14 +28,21 @@ export const SURFACE_ROLES: Array<{ code: CadSurfaceRole; hint: string }> = [
   { code: "spot_heights", hint: "массовые точки: точки, знаки, вершины съёмки" },
 ];
 
-export function initialSurface(source: CadSource): SurfaceState {
+// Поле подошвы пустое и при явной подошве разбора: подошва контура и так её
+// берёт и следует за полем шага «Слои», а скопированное значение отстало бы.
+export function initialSurface(_source: CadSource): SurfaceState {
   return {
     roles: SURFACE_ROLES.map((role) => role.code),
     excluded: [],
-    floor: source.params.floor_z_m === null ? "" : String(source.params.floor_z_m),
-    confirmHeight: false,
+    floor: "",
+    confirmHeight: null,
     mapVolume: "",
   };
+}
+
+/** Подтверждена именно эта высота уступа (с точностью 5 см). */
+export function heightConfirmed(state: SurfaceState, height: number | null): boolean {
+  return state.confirmHeight !== null && height !== null && Math.abs(state.confirmHeight - height) < 0.05;
 }
 
 /** Подошва для кровли: поле, иначе отметка подошвы контура (поле «Подошва», имя слоя или паспорт). */
@@ -84,7 +91,7 @@ export function buildBlocker(
   if (!contour?.ok) return null;
   if (pending) return "Считаю кровлю…";
   if (!surface?.ok) return "Кровля не построена — шаг «Поверхность».";
-  if (surface.bench.needs_confirmation && !state.confirmHeight) {
+  if (surface.bench.needs_confirmation && !heightConfirmed(state, surface.bench.mean_height_m)) {
     return "Подтвердите высоту уступа на шаге «Итог».";
   }
   return null;

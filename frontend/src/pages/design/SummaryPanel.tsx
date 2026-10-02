@@ -44,6 +44,8 @@ export function SummaryPanel({
   holesSource,
   volumeSource,
   volumeTitle,
+  recomputeError = "",
+  recomputeNotice = "",
 }: {
   holes: Hole[];
   blockVolumeM3: number | null;
@@ -52,6 +54,10 @@ export function SummaryPanel({
   volumeSource: string;
   /** Подробности объёма по наведению. */
   volumeTitle?: string | null;
+  /** Пересчёт устьев и длин по кровле не удался — длины и объём не свежие. */
+  recomputeError?: string;
+  /** Что сменил последний пересчёт (заряды и геологию пересчитать). */
+  recomputeNotice?: string;
 }) {
   const production = holes.filter((h) => h.kind === "production" && h.enabled);
   const contourHoles = holes.filter((h) => (h.kind === "contour" || h.kind === "presplit" || h.kind === "trim") && h.enabled);
@@ -77,6 +83,16 @@ export function SummaryPanel({
         <strong>{blockVolumeM3 !== null ? `${ruNumber(blockVolumeM3, 0)} м³` : "—"}</strong>
         <small>{volumeSource}</small>
       </div>
+      {recomputeError && (
+        <p className="metrics-alert" role="alert">
+          Устья и длины не пересчитаны: {recomputeError}
+        </p>
+      )}
+      {!recomputeError && recomputeNotice && (
+        <p className="metrics-note" role="status">
+          {recomputeNotice}
+        </p>
+      )}
       {loads !== undefined && (
         <>
           <div><span>Масса ВВ</span><strong>{ruNumber(totalChargeKg, 0)} кг</strong><small>проектное</small></div>

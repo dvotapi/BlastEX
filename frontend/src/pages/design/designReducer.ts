@@ -107,7 +107,8 @@ function edgeKey(index: number, total: number): number[] {
 function moveHole(hole: Hole, dx: number, dy: number, document: BlastDesign): Hole {
   const x = hole.collar.x + dx;
   const y = hole.collar.y + dy;
-  const z = collarZFromSurfaces(document.surfaces, x, y, hole.collar.z);
+  // Отметку устья, заданную руками, сдвиг в плане не трогает (TASK-013, PR 3).
+  const z = hole.manual?.includes("collar_z") ? hole.collar.z : collarZFromSurfaces(document.surfaces, x, y, hole.collar.z);
   return {
     ...hole,
     collar: { ...hole.collar, x, y, z },

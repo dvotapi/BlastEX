@@ -116,6 +116,8 @@ export function SurfaceStep(props: SurfaceStepProps) {
         <dd>{result?.bench.mean_height_m != null ? `${ruNumber(result.bench.mean_height_m, 1)} м` : "—"}</dd>
         <dt>Точек у ограничителей</dt>
         <dd>{quality ? String(quality.snapped_count) : "—"}</dd>
+        <dt>Плоских треугольников</dt>
+        <dd>{quality ? (quality.flat_fixed ? `исправлено ${quality.flat_fixed}` : "нет") : "—"}</dd>
         <dt>Построение</dt>
         <dd>{result ? BUILDERS[result.builder] ?? result.builder : "—"}</dd>
       </dl>

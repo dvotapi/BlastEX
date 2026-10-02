@@ -61,3 +61,19 @@ describe("SummaryPanel", () => {
     expect(cell.title).toBe("подробности");
   });
 });
+
+describe("SummaryPanel: пересчёт скважин", () => {
+  it("ошибка пересчёта видна в строке показателей", () => {
+    render(
+      <SummaryPanel holes={[]} blockVolumeM3={null} holesSource="—" volumeSource="—" recomputeError="Нет связи с сервером." />,
+    );
+
+    expect(screen.getByRole("alert").textContent).toContain("Устья и длины не пересчитаны: Нет связи с сервером.");
+  });
+
+  it("заметка после пересчёта видна", () => {
+    render(<SummaryPanel holes={[]} blockVolumeM3={1} holesSource="—" volumeSource="—" recomputeNotice="Пересчитано: 3 скважины." />);
+
+    expect(screen.getByRole("status").textContent).toContain("Пересчитано: 3 скважины.");
+  });
+});

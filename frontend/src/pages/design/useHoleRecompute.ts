@@ -6,13 +6,16 @@
 // устаревший ответ отбрасывается. Ответ применяется действием
 // `RECOMPUTE_HOLES` вне истории отмены: отмена правки сама вызывает пересчёт.
 //
-// Открытие паспорта скважины не меняет: первый ответ после загрузки даёт
-// только флаги, объём и погонаж. Утверждённый паспорт (`apply` = false) тоже
-// только читается.
+// Скважины меняются только по триггерам плана (кровля, подошва, перебур,
+// сетка — `applyKey`): открытие паспорта, включение скважины и правка контура
+// дают только флаги и объём. Утверждённый паспорт (`apply` = false) только
+// читается. Если пересчёт сменил длины при зарядах или геологии — заметка.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
+import { ruNumber } from "../../lib/format";
 import { angleAzimuth, holeLength } from "../../lib/geometry2d";
-import type { BlastDesign, HoleRecomputeFlag, HoleRecomputeResponse } from "../../types/design";
+import { plural } from "../../lib/plural";
+import type { BlastDesign, Hole, HoleRecomputeFlag, HoleRecomputeResponse } from "../../types/design";
 import type { DesignAction } from "./designReducer";
 
 export const RECOMPUTE_DELAY_MS = 300;
@@ -22,13 +25,14 @@ type Fetcher = (payload: Parameters<typeof api.design.recomputeHoles>[0]) => Pro
 export type HoleRecomputeView = {
   flags: Record<string, HoleRecomputeFlag[]>;
   blockVolumeM3: number | null;
-  drillingM: number | null;
   meanHeightM: number | null;
   pending: boolean;
   error: string;
+  /** Что сменил последний применённый пересчёт, если пора пересчитать заряды и геологию. */
+  notice: string;
 };
 
-const EMPTY: HoleRecomputeView = { flags: {}, blockVolumeM3: null, drillingM: null, meanHeightM: null, pending: false, error: "" };
+const EMPTY: HoleRecomputeView = { flags: {}, blockVolumeM3: null, meanHeightM: null, pending: false, error: "", notice: "" };
 
 // Параметры сетки, задающие свою глубину видов скважин (как в `hole_recompute.explicit_depth_m`).
 const DEPTH_PARAMS = ["depth_m", "stab_depth_m", "contour_depth_m", "presplit_depth_m", "trim_depth_m", "satellite_depth_m"];
@@ -39,18 +43,17 @@ function round(value: number, digits: number): number {
 }
 
 /**
- * Всё, от чего зависит пересчёт, — и ничего из того, что он сам меняет:
- * отметка устья и забой входят, только когда их задали руками.
+ * Триггеры пересчёта скважин (план, задача 12): кровля, подошва, перебур и
+ * сетка — положение, вид, ось, ручные пометки, параметры глубины. Того, что
+ * пересчёт меняет сам (отметка устья, забой), здесь нет, кроме заданного руками.
  */
-export function recomputeKey(design: BlastDesign, params: Record<string, unknown>): string {
+export function applyKey(design: BlastDesign, params: Record<string, unknown>): string {
   const top = design.surfaces.top;
   const { bench } = design.contour;
   return JSON.stringify({
     roof: top ? [top.name, top.created_at, top.tin.vertices.length, top.tin.triangles.length] : null,
     floor: design.surfaces.floor ? [design.surfaces.floor.created_at, design.surfaces.floor.tin.vertices.length] : null,
     bench: [bench.crest_z_m, bench.toe_z_m],
-    contour: design.contour.vertices.map((vertex) => [round(vertex.x, 3), round(vertex.y, 3)]),
-    cad: design.contour.cad ? [design.contour.cad.edited, design.contour.cad.bottom?.length ?? 0] : null,
     depth: DEPTH_PARAMS.map((name) => params[name] ?? null),
     holes: design.holes.map((hole) => {
       const manual = hole.manual ?? [];
@@ -61,7 +64,6 @@ export function recomputeKey(design: BlastDesign, params: Record<string, unknown
         round(hole.collar.y, 4),
         hole.subdrill_m,
         hole.kind,
-        hole.enabled,
         manual,
         manual.includes("collar_z") ? hole.collar.z : null,
         manual.includes("length") ? round(holeLength(hole.collar, hole.toe), 4) : null,
@@ -70,6 +72,38 @@ export function recomputeKey(design: BlastDesign, params: Record<string, unknown
       ];
     }),
   });
+}
+
+/** Всё, от чего зависят ответ пересчёта (флаги, объём): триггеры и ещё включение скважин и контур. */
+export function recomputeKey(design: BlastDesign, params: Record<string, unknown>): string {
+  return JSON.stringify({
+    apply: applyKey(design, params),
+    enabled: design.holes.map((hole) => hole.enabled),
+    contour: design.contour.vertices.map((vertex) => [round(vertex.x, 3), round(vertex.y, 3)]),
+    cad: design.contour.cad ? [design.contour.cad.edited, design.contour.cad.bottom?.length ?? 0] : null,
+  });
+}
+
+/** Заметка о пересчёте, после которого заряды и геология отстали от новых длин. */
+function changeNotice(design: BlastDesign, holes: Hole[]): string {
+  const before = new Map(design.holes.map((hole) => [hole.id, hole]));
+  let count = 0;
+  let delta = 0;
+  let stale = design.loads.length > 0;
+  for (const hole of holes) {
+    const old = before.get(hole.id);
+    if (!old) continue;
+    const change = holeLength(hole.collar, hole.toe) - holeLength(old.collar, old.toe);
+    if (Math.abs(change) < 1e-6 && Math.abs(hole.collar.z - old.collar.z) < 1e-6) continue;
+    count += 1;
+    if (old.enabled) delta += change;
+    stale ||= (old.intervals?.length ?? 0) > 0;
+  }
+  if (!count || !stale) return "";
+  return (
+    `Пересчитано по кровле и подошве: ${count} ${plural(count, ["скважина", "скважины", "скважин"])}, ` +
+    `погонаж ${delta >= 0 ? "+" : "−"}${ruNumber(Math.abs(delta), 1)} м — пересчитайте заряды и геологию.`
+  );
 }
 
 export function useHoleRecompute(
@@ -81,10 +115,12 @@ export function useHoleRecompute(
   const [view, setView] = useState<HoleRecomputeView>(EMPTY);
   const sequence = useRef(0);
   const key = useMemo(() => recomputeKey(design, params), [design, params]);
-  // Ключ паспорта на момент загрузки: пока он не сменился, скважины не трогаем.
+  // Триггеры на момент загрузки паспорта: пока они не сменились, скважины не
+  // трогаем — открытие, включение скважины или правка контура только читают.
   const identity = `${design.design_id}|${design.updated_at}|${design.revision}`;
-  const baseline = useRef({ identity, key });
-  if (baseline.current.identity !== identity) baseline.current = { identity, key };
+  const triggers = useMemo(() => applyKey(design, params), [design, params]);
+  const baseline = useRef({ identity, triggers });
+  if (baseline.current.identity !== identity) baseline.current = { identity, triggers };
   const latest = useRef(design);
   latest.current = design;
   const latestParams = useRef(params);
@@ -97,26 +133,28 @@ export function useHoleRecompute(
       setView(EMPTY);
       return;
     }
-    const applyHoles = apply && key !== baseline.current.key;
+    const applyHoles = apply && triggers !== baseline.current.triggers;
     setView((previous) => ({ ...previous, pending: true }));
     const timer = window.setTimeout(() => {
       fetcher({ holes: current.holes, contour: current.contour, surfaces: current.surfaces, params: latestParams.current })
         .then((response) => {
           if (number !== sequence.current) return;
-          setView({
+          setView((previous) => ({
             flags: response.flags,
             blockVolumeM3: response.block_volume_m3,
-            drillingM: response.drilling_m,
             meanHeightM: response.mean_height_m,
             pending: false,
             error: "",
-          });
+            notice: applyHoles ? changeNotice(current, response.holes) || previous.notice : previous.notice,
+          }));
           if (applyHoles) dispatch({ type: "RECOMPUTE_HOLES", holes: response.holes });
         })
         .catch((reason) => {
           if (number !== sequence.current) return;
+          // Длины и объём уже не свежие: объём не показываем, ошибку — да.
           setView((previous) => ({
             ...previous,
+            blockVolumeM3: null,
             pending: false,
             error: reason instanceof Error ? reason.message : "Не удалось пересчитать скважины.",
           }));

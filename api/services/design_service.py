@@ -94,7 +94,7 @@ from design.charging import apply_charge_rules
 from design.editing import apply_hole_geometry, insert_manual_hole
 from design.export import holes_csv
 from design.reporting.html import passport_html
-from design.geometry import block_volume
+from design.geometry import block_volume, mean_bench_height
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.hole_recompute import recompute_holes as run_recompute_holes
 from design.maps import engineering_maps
@@ -693,6 +693,7 @@ def recompute_holes(request: HoleRecomputeRequest) -> HoleRecomputeResponse:
         flags={item.hole.id: item.flags for item in result if item.flags},
         block_volume_m3=round(block_volume(contour, surfaces), 2),
         drilling_m=round(sum(item.hole.length_m for item in result if item.hole.enabled), 3),
+        mean_height_m=round(mean_bench_height(contour, surfaces), 3),
     )
 
 

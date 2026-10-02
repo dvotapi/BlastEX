@@ -94,3 +94,10 @@ def test_unknown_manual_flag_is_rejected(client):
     hole["manual"] = ["depth"]
 
     assert client.post(PATH, json={"holes": [hole], "contour": CONTOUR}).status_code == 422
+
+
+def test_mean_bench_height_comes_with_the_volume(client):
+    body = client.post(PATH, json={"holes": [], "contour": CONTOUR, "surfaces": ROOF}).json()
+
+    # Кровля z = 420 + 0,01·x покрывает контур до x = 30: среднее по покрытой части.
+    assert body["mean_height_m"] == pytest.approx(10.15)

@@ -147,18 +147,53 @@ def offset_polygon(poly: list[Point2], distance_m: float) -> list[Point2]:
     return new_vertices
 
 
+def drawing_bottom(contour: BlockContour) -> list[Point2] | None:
+    """Контур по нижней бровке из чертежа, если контур блока после построения не правили."""
+    cad = contour.cad or {}
+    bottom = cad.get("bottom")
+    if cad.get("edited") or not bottom or len(bottom) < 3:
+        return None
+    return [(float(p[0]), float(p[1])) for p in bottom]
+
+
 def block_volume(contour: BlockContour, surfaces: object | None = None) -> float:
-    """Объём блока: площадь × высота плоскости или интеграл между TIN кровли и подошвы."""
+    """Объём блока: площадь × высота плоскости или интеграл между TIN кровли и подошвы.
+
+    Контур из чертежа (TASK-013, решение владельца 02.10.2026) — объём внутри
+    контура по нижней бровке: откос между бровками входит в блок. Кровля из
+    TIN считается точно — треугольники, обрезанные контуром.
+    """
     top = getattr(surfaces, "top", None) if surfaces is not None else None
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
+    bottom = drawing_bottom(contour)
+    has_floor = floor is not None and getattr(floor, "has_tin", False)
+    if bottom is not None and top is not None and top.has_tin and not has_floor:
+        from design.spatial.cad.surface import tin_volume_in_polygon
+
+        return tin_volume_in_polygon(top.tin, bottom, contour.bench.toe_z_m, contour.bench.crest_z_m).volume_m3
+    polygon = bottom if bottom is not None else contour.points_xy
     if top is not None and top.has_tin:
-        return _volume_from_surfaces(contour, top, floor)
-    return polygon_area(contour.points_xy) * contour.bench.height_m
+        return _volume_from_surfaces(contour, top, floor, polygon)
+    return polygon_area(polygon) * contour.bench.height_m
 
 
-def _volume_from_surfaces(contour: BlockContour, top: object, floor: object | None) -> float:
+def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> float:
+    """Средняя высота уступа: среднее (кровля − подошва) по контуру блока, без кровли — H."""
+    top = getattr(surfaces, "top", None) if surfaces is not None else None
+    if top is not None and top.has_tin and len(contour.vertices) >= 3:
+        from design.spatial.cad.surface import tin_volume_in_polygon
+
+        result = tin_volume_in_polygon(top.tin, contour.points_xy, contour.bench.toe_z_m)
+        if result.covered_m2 > 0:
+            return result.integral_m3 / result.covered_m2
+    return contour.bench.height_m
+
+
+def _volume_from_surfaces(
+    contour: BlockContour, top: object, floor: object | None, polygon: list[Point2] | None = None
+) -> float:
     """Численный интеграл (z_top − z_floor) по сетке внутри контура."""
-    verts = contour.points_xy
+    verts = polygon if polygon is not None else contour.points_xy
     if len(verts) < 3:
         return 0.0
     xs = [p[0] for p in verts]

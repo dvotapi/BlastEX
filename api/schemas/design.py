@@ -1075,6 +1075,8 @@ class HoleRecomputeResponse(BaseModel):
     block_volume_m3: float
     # Погонаж — сумма длин включённых скважин.
     drilling_m: float
+    # Средняя высота уступа (кровля − подошва) по контуру блока: для S ср × H.
+    mean_height_m: float
 
 
 class HoleInsertRequest(BaseModel):

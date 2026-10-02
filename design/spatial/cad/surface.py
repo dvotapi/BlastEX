@@ -204,6 +204,16 @@ def volume_in_polygon(
     return _volume_local(local, np.asarray(triangles, dtype=int).reshape(-1, 3), frame.to_local(polygon), floor_z, fallback_z)
 
 
+def tin_volume_in_polygon(
+    tin: object, polygon: Sequence[XY], floor_z: float, fallback_z: float | None = None
+) -> VolumeResult:
+    """`volume_in_polygon` для TIN паспорта (`design.spatial.tin.TIN`)."""
+
+    vertices = np.array([(v.x, v.y, v.z) for v in tin.vertices], dtype=float).reshape(-1, 3)
+    triangles = np.asarray(tin.triangles, dtype=int).reshape(-1, 3)
+    return volume_in_polygon(vertices, triangles, polygon, floor_z, fallback_z)
+
+
 def _volume_local(
     vertices: np.ndarray,
     triangles: np.ndarray,

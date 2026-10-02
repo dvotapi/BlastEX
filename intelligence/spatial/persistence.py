@@ -15,6 +15,7 @@ from typing import Any
 import joblib
 
 from cost.persistence import team_dir
+from intelligence.calibration.base import spatial_base_label
 from intelligence.learning.isolation import CrossTenantError, IsolationError, require_team_id
 from intelligence.spatial.types import (
     STATUS_CANDIDATE,
@@ -54,6 +55,9 @@ class SpatialSummary:
     class_name: str
     hole_count: int
     sample_count: int
+    baseline_model: str = ""
+    baseline_model_version: str = ""
+    base_label: str = ""
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -159,6 +163,12 @@ def list_models(team_id: str, *, site_id: str = "") -> list[SpatialSummary]:
                 class_name=str(data.get("class_name", "")),
                 hole_count=int(data.get("hole_count", 0) or 0),
                 sample_count=int(data.get("sample_count", 0) or 0),
+                baseline_model=str(data.get("baseline_model", "") or ""),
+                baseline_model_version=str(data.get("baseline_model_version", "") or ""),
+                base_label=spatial_base_label(
+                    str(data.get("baseline_model", "") or ""),
+                    str(data.get("baseline_model_version", "") or ""),
+                ),
             )
         )
     summaries.sort(key=lambda item: (item.training_date, item.model_version), reverse=True)

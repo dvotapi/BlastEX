@@ -111,6 +111,16 @@ class LabelTests(unittest.TestCase):
             spatial_base_label("", ""), "Старая база (Kuz-Ram (старая) 1.0.0) — физика считается старой моделью"
         )
 
+    def test_unknown_model_gives_neutral_label_not_error(self):
+        """Список и карточка не падают из-за артефакта с неизвестной моделью базы."""
+        expected = "База: no_such_model 2.0.0 — модель неизвестна"
+
+        self.assertEqual(base_label(X50, "no_such_model", "2.0.0"), expected)
+        self.assertEqual(spatial_base_label("no_such_model", "2.0.0"), expected)
+        self.assertEqual(base_label(PPV, "no_such_model", "2.0.0"), "")
+        with self.assertRaises(ValueError):
+            artifact_base("no_such_model", "2.0.0")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -48,6 +48,10 @@ class SpatialModelSchema(BaseModel):
     status_updated_at: str = ""
     neighbor_k: int = 4
     data_roles: dict[str, str] = Field(default_factory=dict)
+    baseline_model: str = ""
+    baseline_model_version: str = ""
+    # Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …».
+    base_label: str = ""
 
 
 class SpatialSummarySchema(BaseModel):
@@ -67,6 +71,10 @@ class SpatialSummarySchema(BaseModel):
     class_name: str = "SpatialHoleModel"
     hole_count: int = 0
     sample_count: int = 0
+    baseline_model: str = ""
+    baseline_model_version: str = ""
+    # Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …».
+    base_label: str = ""
 
 
 class SpatialListResponse(BaseModel):

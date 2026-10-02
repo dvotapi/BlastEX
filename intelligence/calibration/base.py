@@ -147,19 +147,26 @@ def sample_baseline(group: Mapping[str, Any], model_type: str, artifact: Fragmen
     return None
 
 
+def _label(baseline_model: str, baseline_model_version: str, legacy_note: str) -> str:
+    """Подпись базы артефакта; неизвестная модель в файле не роняет список и карточку."""
+    try:
+        base = artifact_base(baseline_model, baseline_model_version)
+    except ValueError:
+        version = str(baseline_model_version or "").strip()
+        name = f"{str(baseline_model).strip()} {version}".strip()
+        return f"База: {name} — модель неизвестна"
+    if base.legacy:
+        return f"Старая база ({base.label()}) — {legacy_note}"
+    return f"База: {base.label()}"
+
+
 def base_label(model_type: str, baseline_model: str, baseline_model_version: str) -> str:
     """Подпись базы для списка и карточки калибровки; у PPV — пусто."""
     if model_type not in FRAGMENTATION_RESIDUALS:
         return ""
-    base = artifact_base(baseline_model, baseline_model_version)
-    if base.legacy:
-        return f"Старая база ({base.label()}) — только для старых моделей"
-    return f"База: {base.label()}"
+    return _label(baseline_model, baseline_model_version, "только для старых моделей")
 
 
 def spatial_base_label(baseline_model: str, baseline_model_version: str) -> str:
     """Подпись базы пространственной модели: её физика считается этой моделью."""
-    base = artifact_base(baseline_model, baseline_model_version)
-    if base.legacy:
-        return f"Старая база ({base.label()}) — физика считается старой моделью"
-    return f"База: {base.label()}"
+    return _label(baseline_model, baseline_model_version, "физика считается старой моделью")

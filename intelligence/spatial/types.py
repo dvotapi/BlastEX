@@ -390,6 +390,9 @@ class SpatialModel:
     status_updated_at: str = ""
     neighbor_k: int = DEFAULT_NEIGHBOR_K
     data_roles: dict[str, str] = field(default_factory=lambda: dict(DATA_ROLES))
+    # База физики, на которой обучена модель; пусто — до PR 3, kuzram_legacy.
+    baseline_model: str = ""
+    baseline_model_version: str = ""
     estimators: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
@@ -415,6 +418,8 @@ class SpatialModel:
             "status_updated_at": self.status_updated_at,
             "neighbor_k": int(self.neighbor_k),
             "data_roles": _copy(self.data_roles or DATA_ROLES),
+            "baseline_model": self.baseline_model,
+            "baseline_model_version": self.baseline_model_version,
         }
 
     def summary(self) -> dict[str, Any]:
@@ -454,6 +459,8 @@ class SpatialModel:
             status_updated_at=str(data.get("status_updated_at", "") or ""),
             neighbor_k=int(data.get("neighbor_k", DEFAULT_NEIGHBOR_K) or DEFAULT_NEIGHBOR_K),
             data_roles=dict(data.get("data_roles") or DATA_ROLES),
+            baseline_model=str(data.get("baseline_model", "") or ""),
+            baseline_model_version=str(data.get("baseline_model_version", "") or ""),
             estimators=dict(stored),
         )
 

@@ -86,6 +86,10 @@ class CalibrationModelSchema(BaseModel):
     artifact_sha256: str = ""
     status_updated_at: str = ""
     feature_ranges: dict[str, dict[str, float]] = Field(default_factory=dict)
+    baseline_model: str = ""
+    baseline_model_version: str = ""
+    # Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …».
+    base_label: str = ""
 
 
 class CalibrationSummarySchema(BaseModel):
@@ -103,6 +107,10 @@ class CalibrationSummarySchema(BaseModel):
     status: str = "candidate"
     algorithm: str = "random_forest"
     sample_count: int = 0
+    baseline_model: str = ""
+    baseline_model_version: str = ""
+    # Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …».
+    base_label: str = ""
 
 
 class CalibrationListResponse(BaseModel):

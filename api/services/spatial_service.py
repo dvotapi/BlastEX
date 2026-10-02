@@ -28,6 +28,7 @@ from api.schemas.spatial import (
     SpatialTrainRequest,
 )
 from intelligence.calibration.algorithms import DEFAULT_ALGORITHM, available_algorithms
+from intelligence.calibration.base import spatial_base_label
 from intelligence.datasets import persistence as dataset_persistence
 from intelligence.learning.isolation import CrossTenantError, IsolationError
 from intelligence.spatial.persistence import (
@@ -56,6 +57,7 @@ from intelligence.spatial.types import (
 def _model_schema(model) -> SpatialModelSchema:
     payload = model.to_dict()
     payload.pop("estimators", None)
+    payload["base_label"] = spatial_base_label(model.baseline_model, model.baseline_model_version)
     return SpatialModelSchema(**payload)
 
 

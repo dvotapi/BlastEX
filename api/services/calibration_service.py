@@ -23,6 +23,7 @@ from api.schemas.calibration import (
     CalibrationTrainRequest,
 )
 from intelligence.calibration.algorithms import DEFAULT_ALGORITHM, available_algorithms
+from intelligence.calibration.base import base_label
 from intelligence.calibration.old_base import is_kuzram_curve, is_old_base, version_major
 from intelligence.calibration.persistence import (
     CalibrationNotFoundError as StoreNotFound,
@@ -58,6 +59,7 @@ def _model_schema(model) -> CalibrationModelSchema:
     payload = model.to_dict()
     payload.pop("estimator", None)
     payload.pop("training_matrix", None)
+    payload["base_label"] = base_label(model.model_type, model.baseline_model, model.baseline_model_version)
     return CalibrationModelSchema(**payload)
 
 

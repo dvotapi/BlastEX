@@ -131,6 +131,8 @@ export type CadSurfaceInfo = {
   roles: string[];
   excluded: string[];
   builder: string;
+  /** Отметок не было — кровля-плоскость по бровке: объём блока — S ср × H. */
+  plane: boolean;
   floor_z_m: number | null;
   quality: Record<string, number | null>;
   built_at: string;

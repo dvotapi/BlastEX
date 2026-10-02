@@ -2658,7 +2658,12 @@ export function DesignPage({
             <SummaryPanel
               holes={document.holes}
               blockVolumeM3={recompute.blockVolumeM3 ?? blockVolumeM3}
-              volumeTitle={volumeDetails(document.contour.cad, recompute.meanHeightM, recompute.blockVolumeM3 ?? blockVolumeM3)}
+              volumeTitle={volumeDetails(
+                document.contour.cad,
+                recompute.meanHeightM,
+                recompute.blockVolumeM3 ?? blockVolumeM3,
+                document.surfaces.top,
+              )}
               loads={document.loads.length ? document.loads : undefined}
               holesSource={holeSourceLabel(document)}
               volumeSource={volumeSourceLabel(document.surfaces, document.contour.vertices.length >= 3)}

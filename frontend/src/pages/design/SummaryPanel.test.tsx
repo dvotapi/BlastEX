@@ -3,7 +3,7 @@
 // по наведению — S верх, S низ, S ср, S ср × H, объём с карты и расхождение.
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CadContourInfo } from "../../types/design";
+import type { CadContourInfo, SurfaceModel } from "../../types/design";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 
 afterEach(cleanup);
@@ -26,9 +26,11 @@ const CAD: CadContourInfo = {
   map_volume_m3: 28279.39,
 };
 
+const ROOF = { tin: { vertices: [], triangles: [[0, 1, 2]] }, cad: { plane: false } } as unknown as SurfaceModel;
+
 describe("volumeDetails", () => {
   it("площади, S ср × H, объём с карты и расхождение", () => {
-    const text = volumeDetails(CAD, 10.51, 36939);
+    const text = volumeDetails(CAD, 10.51, 36939, ROOF);
 
     expect(text).toContain("S верх 2789,9 м² · S низ 4120,9 м² · S ср 3455,4 м²");
     expect(text).toContain("S ср × H = 3455,4 × 10,51 = 36316 м³");
@@ -36,9 +38,16 @@ describe("volumeDetails", () => {
     expect(text).toContain("в контуре по нижней бровке");
   });
 
-  it("контур правили — объём в контуре паспорта; без чертежа подробностей нет", () => {
-    expect(volumeDetails({ ...CAD, edited: true }, 10, 30000)).toContain("в контуре паспорта");
-    expect(volumeDetails(null, 10, 30000)).toBeNull();
+  it("контур правили или кровли нет — объём в контуре паспорта; без чертежа подробностей нет", () => {
+    expect(volumeDetails({ ...CAD, edited: true }, 10, 30000, ROOF)).toContain("в контуре паспорта");
+    expect(volumeDetails(CAD, 10, 30000, null)).toContain("в контуре паспорта");
+    expect(volumeDetails(null, 10, 30000, ROOF)).toBeNull();
+  });
+
+  it("кровля-плоскость — объём S ср × H", () => {
+    const plane = { tin: { vertices: [], triangles: [[0, 1, 2]] }, cad: { plane: true } } as unknown as SurfaceModel;
+
+    expect(volumeDetails(CAD, 10, 34554, plane)).toContain("Объём — S ср × H: кровля — плоскость");
   });
 });
 

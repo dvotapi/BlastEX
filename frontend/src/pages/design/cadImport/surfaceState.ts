@@ -112,6 +112,7 @@ export function roofSurface(result: CadSurfaceResult, source: CadSource, state: 
       roles: state.roles,
       excluded: state.excluded,
       builder: result.builder,
+      plane: result.plane,
       floor_z_m: result.bench.floor_z_m,
       quality: {
         spot_count: quality.spot_count,

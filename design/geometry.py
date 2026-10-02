@@ -165,16 +165,30 @@ def block_volume(contour: BlockContour, surfaces: object | None = None) -> float
     """
     top = getattr(surfaces, "top", None) if surfaces is not None else None
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
-    bottom = drawing_bottom(contour)
+    has_roof = top is not None and top.has_tin
+    # Нижний контур — только с кровлей, описывающей откос: без кровли (или с
+    # кровлей-плоскостью) плоскость бровки над откосом завысила бы объём на
+    # (S низ − S верх)·H/2.
+    bottom = drawing_bottom(contour) if has_roof else None
+    if bottom is not None and (getattr(top, "cad", None) or {}).get("plane"):
+        # Кровля из чертежа без отметок — плоскость: S ср × H (способ
+        # горизонтальных сечений).
+        return _mean_area(contour) * max(0.0, mean_bench_height(contour, surfaces))
     has_floor = floor is not None and getattr(floor, "has_tin", False)
-    if bottom is not None and top is not None and top.has_tin and not has_floor:
+    if bottom is not None and not has_floor:
         from design.spatial.cad.surface import tin_volume_in_polygon
 
         return tin_volume_in_polygon(top.tin, bottom, contour.bench.toe_z_m, contour.bench.crest_z_m).volume_m3
     polygon = bottom if bottom is not None else contour.points_xy
-    if top is not None and top.has_tin:
+    if has_roof:
         return _volume_from_surfaces(contour, top, floor, polygon)
     return polygon_area(polygon) * contour.bench.height_m
+
+
+def _mean_area(contour: BlockContour) -> float:
+    """S ср контура из чертежа, без неё — площадь контура паспорта."""
+    value = (contour.cad or {}).get("area_mean_m2")
+    return float(value) if value is not None else polygon_area(contour.points_xy)
 
 
 def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> float:

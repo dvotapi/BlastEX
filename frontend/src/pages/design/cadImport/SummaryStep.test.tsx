@@ -67,6 +67,14 @@ describe("SummaryStep", () => {
     expect(lastState(props).confirmHeight).toBe(true);
   });
 
+  it("кровля-плоскость: объём — S ср × H", () => {
+    renderStep({
+      surface: surfaceResult({ plane: true, volume: { ...surfaceResult().volume, basis: "mean", volume_m3: 36281.9 } }),
+    });
+
+    expect(screen.getByText(/кровля — плоскость/)).toBeTruthy();
+  });
+
   it("обычная высота подтверждения не просит", () => {
     renderStep();
 

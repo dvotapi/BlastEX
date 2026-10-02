@@ -50,6 +50,7 @@ const ROOF = surface("top", "Кровля из чертежа", {
   roles: ["crest_top", "spot_heights"],
   excluded: [],
   builder: "cdt",
+  plane: false,
   floor_z_m: 410,
   quality: { spot_count: 206 },
   built_at: "2026-10-02T10:00:00Z",

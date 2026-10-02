@@ -1,12 +1,17 @@
 import { ruNumber } from "../../lib/format";
-import type { CadContourInfo, Hole, HoleLoad } from "../../types/design";
+import type { CadContourInfo, Hole, HoleLoad, SurfaceModel } from "../../types/design";
 
 /**
  * Подробности объёма блока из чертежа (TASK-013, PR 3) — подсказка по
  * наведению: площади, S ср × H (способ горизонтальных сечений), объём с
  * блоковой карты и расхождение.
  */
-export function volumeDetails(cad: CadContourInfo | null | undefined, meanHeightM: number | null, volumeM3: number | null): string | null {
+export function volumeDetails(
+  cad: CadContourInfo | null | undefined,
+  meanHeightM: number | null,
+  volumeM3: number | null,
+  roof: SurfaceModel | null | undefined,
+): string | null {
   if (!cad) return null;
   const lines = [
     `S верх ${ruNumber(cad.area_top_m2, 1)} м² · S низ ${ruNumber(cad.area_bottom_m2, 1)} м² · S ср ${ruNumber(cad.area_mean_m2, 1)} м²`,
@@ -19,8 +24,16 @@ export function volumeDetails(cad: CadContourInfo | null | undefined, meanHeight
     const diff = ((volumeM3 - map) / map) * 100;
     lines.push(`Объём с карты ${ruNumber(map, 0)} м³: расхождение ${diff > 0 ? "+" : ""}${ruNumber(diff, 1)} %`);
   }
-  const byBottom = !cad.edited && (cad.bottom?.length ?? 0) >= 3;
-  lines.push(byBottom ? "Объём — в контуре по нижней бровке" : "Объём — в контуре паспорта (контур правили после построения)");
+  // Как считает `geometry.block_volume`: нижний контур — только с кровлей, описывающей откос.
+  if (!roof || !roof.tin?.triangles?.length) {
+    lines.push("Объём — в контуре паспорта: кровли нет");
+  } else if (cad.edited || (cad.bottom?.length ?? 0) < 3) {
+    lines.push("Объём — в контуре паспорта (контур правили после построения)");
+  } else if (roof.cad?.plane) {
+    lines.push("Объём — S ср × H: кровля — плоскость, откос не описан");
+  } else {
+    lines.push("Объём — в контуре по нижней бровке");
+  }
   return lines.join("\n");
 }
 

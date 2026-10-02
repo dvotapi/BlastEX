@@ -275,8 +275,8 @@ export type CadSurfaceBench = {
 
 export type CadSurfaceVolume = {
   volume_m3: number | null;
-  /** По какому контуру объём: по нижней бровке или по верхней. */
-  basis: "top" | "bottom";
+  /** Как посчитан объём: в контуре по нижней или верхней бровке, или S ср × H (кровля-плоскость). */
+  basis: "top" | "bottom" | "mean";
   area_top_m2: number;
   area_bottom_m2: number;
   area_mean_m2: number;

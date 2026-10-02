@@ -155,6 +155,9 @@ def test_without_marks_the_roof_is_a_plane_at_the_mean_top_crest(factory):
     assert roof.elevation_at(10.0, 10.0) == pytest.approx(420.0)
     assert "no_marks" in [warning.code for warning in roof.warnings]
     assert roof.coverage_pct == pytest.approx(100.0)
+    # Плоскость не описывает откос: объём — S ср × H, а не по нижней бровке.
+    assert roof.volume_basis == "mean"
+    assert roof.volume_m3 == pytest.approx(roof.area_mean_m2 * 10.0)
 
 
 @pytest.mark.parametrize("factory", BUILDERS)

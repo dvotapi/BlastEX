@@ -37,6 +37,7 @@ SURFACE_CAD = {
     "roles": ["crest_top", "spot_heights"],
     "excluded": ["P7"],
     "builder": "cdt",
+    "plane": False,
     "floor_z_m": 410.0,
     "quality": {"spot_count": 206, "coverage_pct": 99.93, "max_gap_m": 10.9, "outlier_count": 0, "conflict_count": 0},
     "built_at": "2026-10-02T10:00:00+00:00",

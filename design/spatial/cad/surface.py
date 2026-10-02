@@ -689,6 +689,11 @@ def build_roof(
         block = _volume_local(vertices, triangles, polygon, floor_z, crest_z)
         roof.coverage_pct = block.coverage_pct
         roof.volume_m3 = block.volume_m3
+        if plane and roof.mean_height_m is not None:
+            # Плоскость не описывает откос: объём по нижнему контуру завысил бы
+            # его на (S низ − S верх)·H/2 — S ср × H.
+            roof.volume_basis = "mean"
+            roof.volume_m3 = roof.area_mean_m2 * max(0.0, roof.mean_height_m)
         _check_height(roof)
     if roof.triangle_count and roof.coverage_pct < FULL_COVERAGE_PCT:
         warnings.append(

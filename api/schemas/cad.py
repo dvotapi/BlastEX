@@ -381,7 +381,8 @@ class CadSurfaceBenchSchema(BaseModel):
 
 class CadSurfaceVolumeSchema(BaseModel):
     volume_m3: float | None = None
-    # По какому контуру объём: `bottom` (по нижней бровке) или `top`.
+    # Как посчитан объём: `bottom` — в контуре по нижней бровке, `top` — по
+    # верхней, `mean` — S ср × H (кровля-плоскость не описывает откос).
     basis: str = "top"
     area_top_m2: float = 0.0
     area_bottom_m2: float = 0.0

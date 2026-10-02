@@ -35,6 +35,7 @@ export function SummaryStep({ contour, surface, state, onChange, mapArea, disabl
   const mapVolume = parseNumber(state.mapVolume);
   const height = surface?.bench.mean_height_m ?? null;
   const basis = surface?.volume.basis === "bottom" ? "в контуре по нижней бровке" : "в контуре по верхней бровке";
+  const plane = surface?.volume.basis === "mean";
   return (
     <div className="cad-summary">
       <dl className="cad-areas" role="group" aria-label="Итоги блока">
@@ -65,8 +66,9 @@ export function SummaryStep({ contour, surface, state, onChange, mapArea, disabl
         </dd>
       </dl>
       <p className="cad-hint">
-        Объём по поверхностям — между кровлей и подошвой {basis}; S ср × H — способ горизонтальных сечений по средней
-        площади.
+        {plane
+          ? "Отметок нет — кровля — плоскость по бровке и откос не описывает: объём по поверхностям равен S ср × H."
+          : `Объём по поверхностям — между кровлей и подошвой ${basis}; S ср × H — способ горизонтальных сечений по средней площади.`}
       </p>
       {surface?.bench.needs_confirmation && height !== null && (
         <label className="cad-confirm-height">

@@ -46,8 +46,21 @@ def test_passport_without_a_drawing_keeps_its_volume():
     assert block_volume(plain, roof()) == _volume_from_surfaces(plain, roof().top, None)
 
 
-def test_drawing_contour_counts_inside_the_bottom_crest():
-    assert block_volume(contour(cad())) == pytest.approx(880.0 * 10.0)
+def test_drawing_contour_without_a_roof_keeps_the_passport_contour_volume():
+    # Без кровли откос не описан: плоскость бровки над ним завысила бы объём
+    # на (S низ − S верх)·H/2 — объём как раньше, по контуру паспорта.
+    assert block_volume(contour(cad())) == pytest.approx(800.0 * 10.0)
+
+
+def test_plane_roof_counts_mean_area_times_height():
+    plane = roof()
+    plane.top.tin = TIN(
+        vertices=[Point3(-10, -10, 420), Point3(60, -10, 420), Point3(60, 40, 420), Point3(-10, 40, 420)],
+        triangles=[(0, 1, 2), (0, 2, 3)],
+    )
+    plane.top.cad = {"plane": True}
+
+    assert block_volume(contour(cad()), plane) == pytest.approx(840.0 * 10.0)
 
 
 def test_drawing_contour_with_a_roof_is_exact_inside_the_bottom_crest():

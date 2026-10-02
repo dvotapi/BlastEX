@@ -98,6 +98,7 @@ describe("surfaceState", () => {
       roles: state.roles,
       excluded: ["51C"],
       builder: "cdt",
+      plane: false,
       floor_z_m: 410,
       quality: {
         spot_count: 206,

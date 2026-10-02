@@ -364,6 +364,8 @@ class CadSurfaceInfoSchema(BaseModel):
     roles: list[str] = Field(default_factory=list)
     excluded: list[str] = Field(default_factory=list)
     builder: str = ""
+    # Отметок не было — кровля-плоскость по бровке: объём блока — S ср × H.
+    plane: bool = False
     floor_z_m: float | None = None
     quality: dict[str, Any] = Field(default_factory=dict)
     built_at: str = ""

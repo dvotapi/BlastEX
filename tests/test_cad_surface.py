@@ -433,3 +433,17 @@ def test_threshold_of_a_block_with_one_contour_is_found_below_the_slope(factory)
     roof = build_roof([*grid(lambda x, y: 420.0), toe], BLOCK, None, floor_z=410.0, builder=factory())
 
     assert len(roof.thresholds) == 1
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_mean_height_counts_the_part_beyond_the_roof_at_the_crest(factory):
+    # Ревью Codex #104: объём берёт часть контура вне кровли по отметке
+    # бровки, средняя высота считалась только по покрытой части.
+    entities = grid(lambda x, y: 420.0, x_range=(-20, 21))
+
+    roof = build_roof(entities, BLOCK, None, floor_z=410.0, crest_z=415.0, builder=factory())
+
+    assert roof.coverage_pct == pytest.approx(50.0)
+    assert roof.volume_m3 == pytest.approx(400 * 10 + 400 * 5)
+    assert roof.mean_height_m == pytest.approx(7.5)
+    assert roof.mean_height_m * roof.area_top_m2 == pytest.approx(roof.volume_m3)

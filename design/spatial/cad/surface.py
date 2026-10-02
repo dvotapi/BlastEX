@@ -94,6 +94,17 @@ class VolumeResult:
     def coverage_pct(self) -> float:
         return 100.0 * self.covered_m2 / self.area_m2 if self.area_m2 > 0 else 0.0
 
+    def mean_height_m(self, fallback_height_m: float | None = None) -> float | None:
+        """Средняя высота по контуру, со знаком.
+
+        Часть вне кровли — `fallback_height_m` (бровка − подошва), как в объёме;
+        без него — по покрытой части.
+        """
+        if fallback_height_m is not None and self.area_m2 > 0:
+            uncovered = max(0.0, self.area_m2 - self.covered_m2)
+            return (self.integral_m3 + uncovered * fallback_height_m) / self.area_m2
+        return self.integral_m3 / self.covered_m2 if self.covered_m2 > 0 else None
+
 
 @dataclass
 class Roof:
@@ -701,8 +712,7 @@ def build_roof(
         warnings.append(CadWarning("floor_missing", "Подошва не задана — высота уступа и объём не считаются."))
     else:
         top_volume = _volume_local(vertices, triangles, top_local, floor_z, None)
-        if top_volume.covered_m2 > 0:
-            roof.mean_height_m = top_volume.integral_m3 / top_volume.covered_m2
+        roof.mean_height_m = top_volume.mean_height_m(None if crest_z is None else crest_z - floor_z)
         # Нижний контур идёт по нижней бровке; без него подножие откоса —
         # в H·ctg α от контура блока, не дальше H при откосе круче 45°.
         reach = THRESHOLD_NEAR_M + (0.0 if bottom_local else max(0.0, roof.mean_height_m or 0.0))

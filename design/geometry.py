@@ -194,8 +194,9 @@ def _mean_area(contour: BlockContour) -> float:
 def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> float:
     """Средняя высота уступа: среднее (кровля − подошва) по контуру блока, без кровли — H.
 
-    Подошва из TIN считается той же сеткой, что и объём (`_volume_from_surfaces`),
-    иначе средняя высота разошлась бы с объёмом.
+    Часть контура вне кровли — по отметке бровки, как в объёме и в окне
+    «Импорт чертежа». Подошва из TIN считается той же сеткой, что и объём
+    (`_volume_from_surfaces`), иначе средняя высота разошлась бы с объёмом.
     """
     top = getattr(surfaces, "top", None) if surfaces is not None else None
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
@@ -212,8 +213,9 @@ def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> 
         from design.spatial.cad.surface import tin_volume_in_polygon
 
         result = tin_volume_in_polygon(top.tin, contour.points_xy, contour.bench.toe_z_m)
-        if result.covered_m2 > 0:
-            return result.integral_m3 / result.covered_m2
+        mean = result.mean_height_m(contour.bench.crest_z_m - contour.bench.toe_z_m)
+        if mean is not None:
+            return mean
     return contour.bench.height_m
 
 

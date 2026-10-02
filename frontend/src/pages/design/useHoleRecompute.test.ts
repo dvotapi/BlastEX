@@ -220,3 +220,60 @@ describe("useHoleRecompute: правки по ревью", () => {
     expect(result.current.blockVolumeM3).toBeNull();
   });
 });
+
+describe("useHoleRecompute: повторное ревью", () => {
+  const withToe = (toe: number, extra: Partial<BlastDesign> = {}) =>
+    design({ contour: { ...design().contour, bench: { crest_z_m: 420, toe_z_m: toe, face_angle_deg: 90 } }, ...extra });
+
+  it("подошва вернулась к значению при открытии — скважины пересчитываются снова", async () => {
+    const dispatch = vi.fn();
+    const fetcher = vi.fn(async () => response(420.1));
+    const { rerender } = renderHook(({ value }) => useHoleRecompute(value, {}, { apply: true, dispatch, fetcher }), {
+      initialProps: { value: withToe(410) },
+    });
+    await settle();
+    rerender({ value: withToe(412) });
+    await settle();
+    rerender({ value: withToe(410) });
+    await settle();
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("заметка — только своего паспорта и до пересчёта зарядов", async () => {
+    const fetcher = vi.fn(async () => response(421));
+    const loads = [{ hole_id: "a" } as unknown as BlastDesign["loads"][number]];
+    const { result, rerender } = renderHook(({ value }) => useHoleRecompute(value, {}, { apply: true, dispatch: vi.fn(), fetcher }), {
+      initialProps: { value: withToe(410, { loads }) },
+    });
+    await settle();
+    rerender({ value: withToe(409, { loads }) });
+    await settle();
+    expect(result.current.notice).toContain("заряды");
+
+    // Заряды пересчитали — заметка ушла.
+    rerender({ value: withToe(409, { loads: [...loads] }) });
+    expect(result.current.notice).toBe("");
+
+    rerender({ value: withToe(408, { loads }) });
+    await settle();
+    expect(result.current.notice).toContain("заряды");
+    // Открыт другой паспорт — заметка прошлого не видна.
+    rerender({ value: withToe(408, { loads, design_id: "d-2" }) });
+    expect(result.current.notice).toBe("");
+  });
+
+  it("ошибка пересчёта — флаги прошлого ответа не показываются", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(response(420.1)).mockRejectedValueOnce(new Error("Нет связи."));
+    const { result, rerender } = renderHook(({ value }) => useHoleRecompute(value, {}, { apply: true, dispatch: vi.fn(), fetcher }), {
+      initialProps: { value: withToe(410) },
+    });
+    await settle();
+    expect(result.current.flags).toEqual({ a: ["outside_surface"] });
+    rerender({ value: withToe(409) });
+    await settle();
+
+    expect(result.current.flags).toEqual({});
+    expect(result.current.meanHeightM).toBeNull();
+  });
+});

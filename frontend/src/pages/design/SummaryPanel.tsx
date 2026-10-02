@@ -27,8 +27,10 @@ export function volumeDetails(
   // Как считает `geometry.block_volume`: нижний контур — только с кровлей, описывающей откос.
   if (!roof || !roof.tin?.triangles?.length) {
     lines.push("Объём — в контуре паспорта: кровли нет");
-  } else if (cad.edited || (cad.bottom?.length ?? 0) < 3) {
+  } else if (cad.edited) {
     lines.push("Объём — в контуре паспорта (контур правили после построения)");
+  } else if ((cad.bottom?.length ?? 0) < 3) {
+    lines.push("Объём — в контуре паспорта: нижнего контура нет");
   } else if (roof.cad?.plane) {
     lines.push("Объём — S ср × H: кровля — плоскость, откос не описан");
   } else {

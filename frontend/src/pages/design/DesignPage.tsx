@@ -2660,12 +2660,11 @@ export function DesignPage({
               blockVolumeM3={recompute.error ? null : recompute.blockVolumeM3 ?? blockVolumeM3}
               recomputeError={recompute.error}
               recomputeNotice={recompute.notice}
-              volumeTitle={volumeDetails(
-                document.contour.cad,
-                recompute.meanHeightM,
-                recompute.blockVolumeM3 ?? blockVolumeM3,
-                document.surfaces.top,
-              )}
+              volumeTitle={
+                recompute.error
+                  ? null
+                  : volumeDetails(document.contour.cad, recompute.meanHeightM, recompute.blockVolumeM3 ?? blockVolumeM3, document.surfaces.top)
+              }
               loads={document.loads.length ? document.loads : undefined}
               holesSource={holeSourceLabel(document)}
               volumeSource={volumeSourceLabel(document.surfaces, document.contour.vertices.length >= 3)}

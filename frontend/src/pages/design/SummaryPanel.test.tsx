@@ -41,6 +41,7 @@ describe("volumeDetails", () => {
   it("контур правили или кровли нет — объём в контуре паспорта; без чертежа подробностей нет", () => {
     expect(volumeDetails({ ...CAD, edited: true }, 10, 30000, ROOF)).toContain("в контуре паспорта");
     expect(volumeDetails(CAD, 10, 30000, null)).toContain("в контуре паспорта");
+    expect(volumeDetails({ ...CAD, bottom: null }, 10, 30000, ROOF)).toContain("нижнего контура нет");
     expect(volumeDetails(null, 10, 30000, ROOF)).toBeNull();
   });
 

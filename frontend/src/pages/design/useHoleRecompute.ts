@@ -115,12 +115,16 @@ export function useHoleRecompute(
   const [view, setView] = useState<HoleRecomputeView>(EMPTY);
   const sequence = useRef(0);
   const key = useMemo(() => recomputeKey(design, params), [design, params]);
-  // Триггеры на момент загрузки паспорта: пока они не сменились, скважины не
-  // трогаем — открытие, включение скважины или правка контура только читают.
+  // Триггеры, под которые посчитаны скважины: при загрузке паспорта — его
+  // собственные, дальше — последнего применённого пересчёта. Пока они не
+  // сменились, скважины не трогаем — открытие, включение скважины или правка
+  // контура только читают; вернули подошву назад — пересчёт снова.
   const identity = `${design.design_id}|${design.updated_at}|${design.revision}`;
   const triggers = useMemo(() => applyKey(design, params), [design, params]);
-  const baseline = useRef({ identity, triggers });
-  if (baseline.current.identity !== identity) baseline.current = { identity, triggers };
+  const applied = useRef({ identity, triggers });
+  if (applied.current.identity !== identity) applied.current = { identity, triggers };
+  // Заметка — своего паспорта и до пересчёта зарядов.
+  const noticeOwner = useRef<{ identity: string; loads: BlastDesign["loads"] } | null>(null);
   const latest = useRef(design);
   latest.current = design;
   const latestParams = useRef(params);
@@ -133,28 +137,36 @@ export function useHoleRecompute(
       setView(EMPTY);
       return;
     }
-    const applyHoles = apply && triggers !== baseline.current.triggers;
+    const applyHoles = apply && triggers !== applied.current.triggers;
+    const requested = { identity, triggers };
     setView((previous) => ({ ...previous, pending: true }));
     const timer = window.setTimeout(() => {
       fetcher({ holes: current.holes, contour: current.contour, surfaces: current.surfaces, params: latestParams.current })
         .then((response) => {
           if (number !== sequence.current) return;
+          const notice = applyHoles ? changeNotice(current, response.holes) : "";
+          if (notice) noticeOwner.current = { identity: requested.identity, loads: current.loads };
           setView((previous) => ({
             flags: response.flags,
             blockVolumeM3: response.block_volume_m3,
             meanHeightM: response.mean_height_m,
             pending: false,
             error: "",
-            notice: applyHoles ? changeNotice(current, response.holes) || previous.notice : previous.notice,
+            notice: notice || previous.notice,
           }));
-          if (applyHoles) dispatch({ type: "RECOMPUTE_HOLES", holes: response.holes });
+          if (applyHoles) {
+            applied.current = requested;
+            dispatch({ type: "RECOMPUTE_HOLES", holes: response.holes });
+          }
         })
         .catch((reason) => {
           if (number !== sequence.current) return;
           // Длины и объём уже не свежие: объём не показываем, ошибку — да.
           setView((previous) => ({
             ...previous,
+            flags: {},
             blockVolumeM3: null,
+            meanHeightM: null,
             pending: false,
             error: reason instanceof Error ? reason.message : "Не удалось пересчитать скважины.",
           }));
@@ -165,5 +177,7 @@ export function useHoleRecompute(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, apply]);
 
-  return view;
+  const owner = noticeOwner.current;
+  const ownNotice = owner !== null && owner.identity === identity && owner.loads === design.loads;
+  return ownNotice ? view : { ...view, notice: "" };
 }

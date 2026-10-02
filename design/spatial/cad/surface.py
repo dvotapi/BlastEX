@@ -6,9 +6,10 @@
 своей Z получают её с поверхности, построенной без них (как proximity
 breakline в Civil 3D), и затем входят ограничителями.
 
-Защита плоских треугольников: треугольник с тремя вершинами одной
-горизонтали получает точку в центре тяжести, Z — обратными расстояниями по
-трём ближайшим вершинам с другой Z; триангуляция строится заново.
+Защита плоских треугольников: треугольник, все три вершины которого —
+горизонтали одной отметки, получает точку в центре тяжести, Z — обратными
+расстояниями по трём ближайшим вершинам с другой Z; триангуляция строится
+заново, до трёх проходов.
 
 Качество (§2): число отметок, покрытие контура кровлей, наибольшее
 расстояние от точки контура до ближайшей отметки, выбросы — отклонение
@@ -53,6 +54,11 @@ FULL_COVERAGE_PCT = 99.9
 IDW_NEIGHBOURS = 3
 # Проходов защиты плоских треугольников не больше этого.
 FLAT_PASSES = 3
+# Соседей центра плоского треугольника сначала берём столько; не хватило
+# вершин другой отметки — ищем по дереву других отметок.
+IDW_FIRST_K = 32
+# Треугольник меньшей площади — вырожденный (три точки на одной прямой).
+MIN_FLAT_AREA_M2 = 1e-6
 # Нижняя бровка дальше этого от контура объёма — чужой уступ, не порог блока.
 THRESHOLD_NEAR_M = 2.0
 _SAME_Z_M = 0.001
@@ -318,25 +324,36 @@ def _trim(vertices: np.ndarray, triangles: np.ndarray, region: Polygon) -> np.nd
     return triangles[inside & (lengths.max(axis=1) <= MAX_EDGE_M)]
 
 
-def _flat_triangles(triangles: np.ndarray, soft: np.ndarray, z: np.ndarray) -> np.ndarray:
+def _flat_triangles(triangles: np.ndarray, soft: np.ndarray, z: np.ndarray, xy: np.ndarray) -> np.ndarray:
     """Треугольники, все три вершины которых — горизонтали одной отметки.
 
     Отметка, а не номер линии: куски одной горизонтали, разрезанные буфером,
-    дают те же плоские треугольники.
+    дают те же плоские треугольники. Вырожденные (три точки на одной прямой у
+    границы) не в счёт: их центр лёг бы на сам ограничитель.
     """
 
     if not len(triangles):
         return triangles
     levels = z[triangles]
     same = (np.abs(levels[:, 0] - levels[:, 1]) <= _SAME_Z_M) & (np.abs(levels[:, 1] - levels[:, 2]) <= _SAME_Z_M)
-    return triangles[soft[triangles].all(axis=1) & same]
+    tri = xy[triangles]
+    d1 = tri[:, 1] - tri[:, 0]
+    d2 = tri[:, 2] - tri[:, 0]
+    area = np.abs(d1[:, 0] * d2[:, 1] - d1[:, 1] * d2[:, 0]) / 2
+    return triangles[soft[triangles].all(axis=1) & same & (area > MIN_FLAT_AREA_M2)]
+
+
+def _idw(distances: np.ndarray, values: np.ndarray) -> np.ndarray:
+    weights = 1.0 / np.maximum(distances, 1e-9)
+    return (weights * values).sum(axis=1) / weights.sum(axis=1)
 
 
 def _idw_centres(vertices: np.ndarray, z: np.ndarray, flat: np.ndarray) -> np.ndarray:
     """Центры плоских треугольников с Z по трём ближайшим вершинам с другой Z.
 
-    Горизонталь уплотнена через 2 м, и десятки ближайших вершин — той же
-    отметки: соседей ищем, наращивая их число, пока не найдутся три с другой Z.
+    Сначала — среди ближайших вершин вообще; где их не хватило (горизонталь
+    уплотнена через 2 м, и десятки ближайших — той же отметки), — по дереву
+    вершин других отметок, своему для каждой отметки. Память — линейная.
     """
 
     centres = vertices[flat][:, :, :2].mean(axis=1)
@@ -345,26 +362,26 @@ def _idw_centres(vertices: np.ndarray, z: np.ndarray, flat: np.ndarray) -> np.nd
     finite = np.flatnonzero(np.isfinite(z))
     if not len(finite) or not len(centres):
         return np.column_stack([centres, out])
-    tree = cKDTree(vertices[finite, :2])
-    pending = np.arange(len(centres))
-    k = 16
-    while len(pending):
-        kk = min(k, len(finite))
-        distances, found = tree.query(centres[pending], k=kk)
-        distances = np.asarray(distances).reshape(len(pending), kk)
-        values = z[finite[np.asarray(found).reshape(len(pending), kk)]]
-        other = np.abs(values - level[pending, None]) > _SAME_Z_M
-        count = np.cumsum(other, axis=1)
-        last = kk == len(finite)
-        done = (count[:, -1] >= IDW_NEIGHBOURS) | (last & (count[:, -1] > 0))
-        weights = np.where(other & (count <= IDW_NEIGHBOURS), 1.0 / np.maximum(distances, 1e-9), 0.0)
-        total = weights.sum(axis=1)
-        estimate = np.divide((weights * values).sum(axis=1), total, out=np.full(len(pending), np.nan), where=total > 0)
-        out[pending[done]] = estimate[done]
-        if last:
-            break
-        pending = pending[~done]
-        k *= 4
+    k = min(IDW_FIRST_K, len(finite))
+    distances, found = cKDTree(vertices[finite, :2]).query(centres, k=k)
+    distances = np.asarray(distances).reshape(len(centres), k)
+    values = z[finite[np.asarray(found).reshape(len(centres), k)]]
+    other = np.abs(values - level[:, None]) > _SAME_Z_M
+    count = np.cumsum(other, axis=1)
+    done = count[:, -1] >= IDW_NEIGHBOURS
+    use = other & (count <= IDW_NEIGHBOURS)
+    weights = np.where(use, 1.0 / np.maximum(distances, 1e-9), 0.0)
+    out[done] = (weights * values).sum(axis=1)[done] / weights.sum(axis=1)[done]
+    rest = np.flatnonzero(~done)
+    for value in np.unique(np.round(level[rest], 3)).tolist():
+        rows = rest[np.abs(level[rest] - value) <= _SAME_Z_M]
+        others = finite[np.abs(z[finite] - value) > _SAME_Z_M]
+        if not len(others):
+            continue
+        kk = min(IDW_NEIGHBOURS, len(others))
+        near, index = cKDTree(vertices[others, :2]).query(centres[rows], k=kk)
+        near = np.asarray(near).reshape(len(rows), kk)
+        out[rows] = _idw(near, z[others[np.asarray(index).reshape(len(rows), kk)]])
     return np.column_stack([centres, out])
 
 
@@ -400,7 +417,7 @@ def _triangulate(data: SurfaceData, builder: SurfaceBuilder) -> tuple[np.ndarray
         if passes == FLAT_PASSES:
             break
         is_soft = np.concatenate([soft, np.zeros(len(result.vertices) - len(soft), dtype=bool)])
-        flat = _flat_triangles(_trim(vertices, result.triangles, data.region), is_soft, full_z)
+        flat = _flat_triangles(_trim(vertices, result.triangles, data.region), is_soft, full_z, result.vertices)
         centres = _idw_centres(vertices, full_z, flat) if len(flat) else np.zeros((0, 3))
         centres = centres[np.isfinite(centres[:, 2])]
         if not len(centres):
@@ -550,10 +567,11 @@ def _max_gap(data: SurfaceData, rings: list[list[XY]]) -> tuple[float | None, XY
     return float(distances[worst]), data.frame.point_to_world((float(samples[worst, 0]), float(samples[worst, 1])))
 
 
-def _thresholds(data: SurfaceData, floor_z: float, polygon: Sequence[XY]) -> list[Threshold]:
+def _thresholds(data: SurfaceData, floor_z: float, polygon: Sequence[XY], reach_m: float) -> list[Threshold]:
     """Участки нижней бровки у контура объёма выше подошвы больше чем на 0,5 м (§2).
 
-    Нижние бровки соседних уступов в буфере 20 м — не пороги этого блока.
+    Нижние бровки соседних уступов в буфере 20 м — не пороги этого блока:
+    берутся только рёбра не дальше `reach_m` от контура объёма.
     """
 
     if not len(data.edges):
@@ -570,7 +588,7 @@ def _thresholds(data: SurfaceData, floor_z: float, polygon: Sequence[XY]) -> lis
             shapely.linestrings(np.stack([data.xy[[a for a, _ in picked]], data.xy[[b for _, b in picked]]], axis=1)),
             Polygon(polygon).buffer(0),
         )
-        picked = [edge for edge, distance in zip(picked, near.tolist()) if distance <= THRESHOLD_NEAR_M]
+        picked = [edge for edge, distance in zip(picked, near.tolist()) if distance <= reach_m]
     if not picked:
         return []
     parent: dict[int, int] = {}
@@ -682,10 +700,13 @@ def build_roof(
         roof.coverage_pct = _volume_local(vertices, triangles, polygon, 0.0, None).coverage_pct
         warnings.append(CadWarning("floor_missing", "Подошва не задана — высота уступа и объём не считаются."))
     else:
-        roof.thresholds = _thresholds(data, floor_z, polygon)
         top_volume = _volume_local(vertices, triangles, top_local, floor_z, None)
         if top_volume.covered_m2 > 0:
             roof.mean_height_m = top_volume.integral_m3 / top_volume.covered_m2
+        # Нижний контур идёт по нижней бровке; без него подножие откоса —
+        # в H·ctg α от контура блока, не дальше H при откосе круче 45°.
+        reach = THRESHOLD_NEAR_M + (0.0 if bottom_local else max(0.0, roof.mean_height_m or 0.0))
+        roof.thresholds = _thresholds(data, floor_z, polygon, reach)
         block = _volume_local(vertices, triangles, polygon, floor_z, crest_z)
         roof.coverage_pct = block.coverage_pct
         roof.volume_m3 = block.volume_m3

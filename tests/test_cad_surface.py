@@ -392,3 +392,44 @@ def test_outliers_are_found_from_the_strongest_one_by_one():
 
     assert [item.id for item in roof.outliers] == ["BIG", "SMALL"]
     assert roof.outliers[0].deviation_m > roof.outliers[1].deviation_m > 1.5
+
+
+def test_flat_protection_without_other_levels_is_bounded():
+    # Десятки горизонталей одной отметки, других отметок нет: соседей другой
+    # отметки искать негде — без квадратичной памяти и за доли секунды.
+    lines = [
+        line(f"H{k}", "contour_line", [(-15, -15 + 0.8 * k, 415), (55, -15 + 0.8 * k + 0.3, 415)], kind="LWPOLYLINE")
+        for k in range(70)
+    ]
+
+    started = time.perf_counter()
+    roof = build_roof(lines, BLOCK, None, floor_z=405.0, builder=ScipyBuilder())
+
+    assert time.perf_counter() - started < 1.0
+    assert roof.flat_fixed == 0
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_hill_of_ring_horizontals_builds(factory):
+    # Холм из замкнутых горизонталей: вырожденные (нулевой площади) «плоские»
+    # треугольники у границы не должны давать центр на самом ограничителе.
+    def ring(radius, level, count=48):
+        angles = np.linspace(0, 2 * np.pi, count, endpoint=False)
+        points = [(20 + radius * np.cos(a), 10 + radius * np.sin(a), level) for a in angles]
+        return points + [points[0]]
+
+    rings = [line(f"R{k}", "contour_line", ring(4 + 6 * k, 420 - 2 * k), kind="LWPOLYLINE") for k in range(5)]
+
+    roof = build_roof(rings, BLOCK, None, floor_z=405.0, builder=factory())
+
+    assert roof.ok, roof.issues
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_threshold_of_a_block_with_one_contour_is_found_below_the_slope(factory):
+    # Нижнего контура нет: подножие откоса лежит в H·ctg α от контура блока.
+    toe = line("B", "crest_bottom", [(44, -5, 410.2), (44, 5, 410.2), (44, 6, 411.0), (44, 10, 411.2), (44, 11, 410.2), (44, 25, 410.2)])
+
+    roof = build_roof([*grid(lambda x, y: 420.0), toe], BLOCK, None, floor_z=410.0, builder=factory())
+
+    assert len(roof.thresholds) == 1

@@ -460,6 +460,13 @@ def collect_surface_data(
         runs.append(dense)
     for number, inserts in enumerate(_crossings(runs)):
         runs[number] = _insert(runs[number], inserts)
+    # Пересечения добавляют вершины в обе линии — предел проверяется ещё раз.
+    vertices = len(mass) + sum(len(run) for run in runs)
+    if vertices > MAX_SURFACE_POINTS:
+        raise SurfaceInputError(
+            f"Данных поверхности у контура слишком много: {vertices} точек вместе с пересечениями линий, "
+            f"предел {MAX_SURFACE_POINTS}. Снимите лишние роли в поверхности."
+        )
 
     if not any(line.role == ROLE_CREST_TOP for line in lines):
         warnings.append(

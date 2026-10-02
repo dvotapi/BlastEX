@@ -192,47 +192,72 @@ def _mean_area(contour: BlockContour) -> float:
 
 
 def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> float:
-    """Средняя высота уступа: среднее (кровля − подошва) по контуру блока, без кровли — H."""
-    top = getattr(surfaces, "top", None) if surfaces is not None else None
-    if top is not None and top.has_tin and len(contour.vertices) >= 3:
-        from design.spatial.cad.surface import tin_volume_in_polygon
+    """Средняя высота уступа: среднее (кровля − подошва) по контуру блока, без кровли — H.
 
-        result = tin_volume_in_polygon(top.tin, contour.points_xy, contour.bench.toe_z_m)
-        if result.covered_m2 > 0:
-            return result.integral_m3 / result.covered_m2
+    Подошва из TIN считается той же сеткой, что и объём (`_volume_from_surfaces`),
+    иначе средняя высота разошлась бы с объёмом.
+    """
+    top = getattr(surfaces, "top", None) if surfaces is not None else None
+    floor = getattr(surfaces, "floor", None) if surfaces is not None else None
+    if top is not None and top.has_tin and len(contour.vertices) >= 3:
+        if floor is not None and getattr(floor, "has_tin", False):
+            heights = [
+                max(0.0, z_top - _floor_z(contour, floor, x, y))
+                for x, y in _grid_cells(contour.points_xy)[0]
+                if (z_top := top.elevation_at(x, y)) is not None
+            ]
+            if heights:
+                return sum(heights) / len(heights)
+        else:
+            from design.spatial.cad.surface import tin_volume_in_polygon
+
+            result = tin_volume_in_polygon(top.tin, contour.points_xy, contour.bench.toe_z_m)
+            if result.covered_m2 > 0:
+                return result.integral_m3 / result.covered_m2
     return contour.bench.height_m
 
 
-def _volume_from_surfaces(
-    contour: BlockContour, top: object, floor: object | None, polygon: list[Point2] | None = None
-) -> float:
-    """Численный интеграл (z_top − z_floor) по сетке внутри контура."""
-    verts = polygon if polygon is not None else contour.points_xy
+def _grid_cells(verts: list[Point2]) -> tuple[list[Point2], float]:
+    """Центры ячеек сетки внутри контура и площадь ячейки."""
     if len(verts) < 3:
-        return 0.0
+        return [], 0.0
     xs = [p[0] for p in verts]
     ys = [p[1] for p in verts]
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
     span = max(max_x - min_x, max_y - min_y, 1.0)
     step = max(span / 40.0, 0.5)
-    volume = 0.0
+    cells: list[Point2] = []
     y = min_y + step * 0.5
     while y <= max_y:
         x = min_x + step * 0.5
         while x <= max_x:
             if point_in_polygon((x, y), verts):
-                z_top = top.elevation_at(x, y)
-                if z_top is None:
-                    z_top = contour.bench.crest_z_m
-                z_floor = None
-                if floor is not None and getattr(floor, "has_tin", False):
-                    z_floor = floor.elevation_at(x, y)
-                if z_floor is None:
-                    z_floor = contour.bench.toe_z_m
-                volume += max(0.0, z_top - z_floor) * step * step
+                cells.append((x, y))
             x += step
         y += step
+    return cells, step * step
+
+
+def _floor_z(contour: BlockContour, floor: object | None, x: float, y: float) -> float:
+    """Отметка подошвы: TIN подошвы, вне неё и без неё — отметка подошвы уступа."""
+    z_floor = None
+    if floor is not None and getattr(floor, "has_tin", False):
+        z_floor = floor.elevation_at(x, y)
+    return contour.bench.toe_z_m if z_floor is None else z_floor
+
+
+def _volume_from_surfaces(
+    contour: BlockContour, top: object, floor: object | None, polygon: list[Point2] | None = None
+) -> float:
+    """Численный интеграл (z_top − z_floor) по сетке внутри контура."""
+    cells, cell_area = _grid_cells(polygon if polygon is not None else contour.points_xy)
+    volume = 0.0
+    for x, y in cells:
+        z_top = top.elevation_at(x, y)
+        if z_top is None:
+            z_top = contour.bench.crest_z_m
+        volume += max(0.0, z_top - _floor_z(contour, floor, x, y)) * cell_area
     return volume
 
 

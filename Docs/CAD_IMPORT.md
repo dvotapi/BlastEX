@@ -373,8 +373,10 @@ S низ или S ср. Выбор инженера (`area_basis`: `top`, `botto
   ограничителю с Z, берёт его Z и попадает в `snapped`.
 - Исключения пользователя — по id отметки; число отметок `spot_count` — все
   отметки у контура без исключённых, включая совпавшие с вершинами бровок.
-- Пределы: 50 000 точек (`MAX_SURFACE_POINTS`, считается до уплотнения),
-  20 000 отрезков ограничителей (`MAX_CONSTRAINT_SEGMENTS`) — иначе 422.
+- Пределы: 50 000 точек (`MAX_SURFACE_POINTS`) — отметки у контура, затем
+  вместе с вершинами уплотнения, затем ещё раз с вершинами пересечений
+  (каждое пересечение — вершина в обеих линиях, до слияния); 20 000 отрезков
+  ограничителей (`MAX_CONSTRAINT_SEGMENTS`) — иначе 422.
 - Верхней бровки нет — предупреждение `no_crest_top` («первый ряд без
   бровки»).
 
@@ -465,7 +467,9 @@ constraints) → BuildResult(vertices, triangles, origins)`):
 - флаг `short_bench` — S − Z < 1 м;
 - `POST /design/holes/recompute` (`holes` до 20 000, `contour`, `surfaces`,
   `params`) → `holes`, `flags` (только непустые), `block_volume_m3`,
-  `drilling_m` (включённые), `mean_height_m`;
+  `drilling_m` (включённые), `mean_height_m` (`geometry.mean_bench_height`:
+  среднее «кровля − подошва» по контуру паспорта; с TIN подошвы — по той же
+  сетке, что и объём, без неё — по отметке подошвы);
 - проверки паспорта (`analysis.validate`): `hole_outside_surface`,
   `hole_short_bench`.
 

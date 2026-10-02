@@ -77,3 +77,26 @@ def test_edited_contour_falls_back_to_the_passport_contour():
 def test_mean_bench_height_over_the_top_contour():
     assert mean_bench_height(contour(cad()), roof()) == pytest.approx(10.2)
     assert mean_bench_height(contour(), None) == pytest.approx(10.0)
+
+
+def floor_tin() -> SurfaceModel:
+    """Подошва z = 408 + 0,1·y — не плоскость отметки подошвы 410."""
+
+    z = lambda y: 408.0 + 0.1 * y  # noqa: E731
+    tin = TIN(
+        vertices=[Point3(-10, -10, z(-10)), Point3(60, -10, z(-10)), Point3(60, 40, z(40)), Point3(-10, 40, z(40))],
+        triangles=[(0, 1, 2), (0, 2, 3)],
+    )
+    return SurfaceModel(kind="floor", tin=tin)
+
+
+def test_mean_bench_height_uses_the_floor_tin():
+    # Ревью Codex #104: при подошве из TIN средняя высота вычитала отметку
+    # подошвы 410, а объём — подошву из TIN; показатели расходились.
+    surfaces = roof()
+    surfaces.floor = floor_tin()
+    plain = contour()
+
+    # Кровля в среднем 420,2, подошва — 408 + 0,1 · 10 = 409.
+    assert mean_bench_height(plain, surfaces) == pytest.approx(11.2)
+    assert block_volume(plain, surfaces) == pytest.approx(800.0 * mean_bench_height(plain, surfaces))

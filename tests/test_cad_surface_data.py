@@ -257,3 +257,20 @@ def test_spot_count_includes_points_merged_into_a_line_but_not_excluded_ones():
     data = collect_surface_data([top, *points], BLOCK, None, excluded={"P3"})
 
     assert data.spot_count == 2
+
+
+def test_crossings_count_towards_the_point_limit(monkeypatch):
+    # Ревью Codex #104: вершины пересечений добавлялись после проверки
+    # предела — вход у самого предела уходил в триангуляцию почти вдвое больше.
+    vertical = [line(f"V{x}", "feature_line", [(x, 0, 420.0), (x, 20, 420.0)]) for x in (5, 13, 21, 29, 37)]
+    horizontal = [line(f"H{y}", "feature_line", [(0, y, 420.0), (40, y, 420.0)]) for y in (3, 7, 11, 15, 19)]
+    entities = vertical + horizontal
+    full = collect_surface_data(entities, BLOCK, None)
+    # 5 × 11 + 5 × 21 вершин уплотнения; каждое из 25 пересечений вставляется
+    # в обе линии (210 вершин до слияния) и сливается в одну.
+    assert len(full.xy) == 160 + 25
+
+    # 160 вершин проходят прежнюю проверку, 210 со вставками — нет.
+    monkeypatch.setattr("design.spatial.cad.surface_data.MAX_SURFACE_POINTS", 200)
+    with pytest.raises(SurfaceInputError, match="пересечени"):
+        collect_surface_data(entities, BLOCK, None)

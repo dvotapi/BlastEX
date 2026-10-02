@@ -1,5 +1,5 @@
 {
- "source": "Независимая реализация Kuz-Ram по Каннингему (EFEE 2005), сила ВВ — (115/RWS)^e, RWS = 100·Q/3,8 к ANFO; seed 20260922",
+ "source": "Независимая реализация Kuz-Ram по Каннингему (EFEE 2005) — scripts/regen_kuzram_cunningham_golden.py; сила ВВ — (115/RWS)^e, RWS = 100·Q/3,8 к ANFO; seed 20260922",
  "cases": [
   {
    "rock": {

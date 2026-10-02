@@ -274,6 +274,7 @@ class KuzRamPoint:
     """Прогноз одной точки: фактор породы, средний кусок, равномерность, негабарит."""
 
     rock: RockFactorBreakdown
+    rws_anfo_pct: float  # сила ВВ к ANFO, %, с которой посчитан x50
     x50_mm: float
     uniformity: Uniformity
     characteristic_size_mm: float
@@ -361,6 +362,7 @@ def predict_point(
     characteristic_size_mm, oversize_pct = oversize(x50_mm, uniformity.value, lump_size_mm)
     return KuzRamPoint(
         rock=rock,
+        rws_anfo_pct=rws_anfo_pct,
         x50_mm=x50_mm,
         uniformity=uniformity,
         characteristic_size_mm=characteristic_size_mm,

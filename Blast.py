@@ -188,7 +188,7 @@ class BlastEngine:
             q_kg_m3=q, hole_diameter_mm=d_m * 1000, charge_length_m=charge_length,
             charge_mass_kg=charge_mass, volume_per_hole_m3=v_hole, burden_m=W, spacing_m=m * W,
             burden_to_diameter=W / d_m,
-            rock_factor_a=point.rock.value, rock_factor=point.rock, re_weight=None, rws_anfo_pct=rws_anfo_pct,
+            rock_factor_a=point.rock.value, rock_factor=point.rock, re_weight=None, rws_anfo_pct=point.rws_anfo_pct,
             strength_exponent=settings.strength_exponent, x50_mm=point.x50_mm,
             uniformity_n_raw=point.uniformity.raw, uniformity_n=point.uniformity.value,
             charge_to_bench=point.uniformity.charge_to_bench,

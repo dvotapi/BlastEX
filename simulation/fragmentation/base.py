@@ -62,7 +62,7 @@ def base_parameters(point: KuzRamPoint, inputs: FragmentationInputs) -> dict[str
     return {
         "rock_factor_A": point.rock.value,
         "rock_factor": asdict(point.rock),
-        "rws_anfo_pct": anfo_weight_strength_pct(inputs.explosive_energy_mj_kg),
+        "rws_anfo_pct": point.rws_anfo_pct,
         "x50_mm": point.x50_mm,
         "uniformity_n_raw": point.uniformity.raw,
         "uniformity_n_cunningham": point.uniformity.value,

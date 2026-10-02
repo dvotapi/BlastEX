@@ -126,6 +126,10 @@ class CalibrationPredictRequest(BaseModel):
     site_id: str = ""
     use_production: bool = False
     baseline: float | None = None
+    # Модель и версия, которыми посчитан присланный baseline кусковатости:
+    # без них сервер не знает, на какую формулу ляжет поправка.
+    baseline_model: str = ""
+    baseline_model_version: str = ""
     features: dict[str, Any] | None = None
     design: BlastDesignSchema | None = None
 

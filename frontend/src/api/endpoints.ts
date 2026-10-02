@@ -650,6 +650,8 @@ export const api = {
       site_id?: string;
       use_production?: boolean;
       baseline?: number | null;
+      baseline_model?: string;
+      baseline_model_version?: string;
       features?: Record<string, unknown>;
       design?: BlastDesign;
     }) => post<CalibrationPredictResponse>(`${V1}/calibration/predict`, payload),

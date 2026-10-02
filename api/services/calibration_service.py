@@ -37,14 +37,22 @@ from intelligence.calibration.persistence import (
     set_status,
 )
 from intelligence.calibration.prediction import (
+    _old_base,
     apply_residual,
     baseline_without_model,
     empirical_baseline,
     features_from_design,
 )
 from intelligence.calibration.training import next_model_version, train_from_snapshot
-from intelligence.calibration.types import STATUS_CANDIDATE, normalize_model_type
+from intelligence.calibration.types import (
+    MODEL_KUZRAM_RESIDUAL,
+    MODEL_OVERSIZE_RESIDUAL,
+    STATUS_CANDIDATE,
+    normalize_model_type,
+)
 from intelligence.datasets import persistence as dataset_persistence
+from simulation.fragmentation.engine import resolve_model
+from simulation.fragmentation.models import ModelProvenance
 
 
 def _model_schema(model) -> CalibrationModelSchema:
@@ -134,6 +142,29 @@ def _design_from_request(request: CalibrationPredictRequest) -> BlastDesign | No
     return BlastDesign.from_dict(request.design.model_dump())
 
 
+def _provided_base_refusal(request: CalibrationPredictRequest, model_type: str) -> str:
+    """Причина не накладывать калибровку на присланный baseline; пусто — можно.
+
+    До PR 3 все калибровки кусковатости обучены на старой базе Kuz-Ram 1.0.0,
+    поэтому присланный baseline принимается, только если он посчитан ею.
+    """
+    if model_type not in {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}:
+        return ""
+    model = request.baseline_model.strip()
+    if not model:
+        return "Не указано, какой моделью посчитан baseline, — калибровка кусковатости не применена."
+    try:
+        model_id = resolve_model(model)
+    except ValueError:
+        return f"Неизвестная модель baseline «{model}» — калибровка кусковатости не применена."
+    if _old_base(ModelProvenance(model=model_id, model_version=request.baseline_model_version.strip())):
+        return ""
+    return (
+        "Калибровка обучена на старой модели Kuz-Ram 1.0.0 и к прогнозу новой модели "
+        "не применяется — её нужно переобучить."
+    )
+
+
 def predict_calibration(team_id: str, request: CalibrationPredictRequest) -> CalibrationPredictResponse:
     try:
         model_type = normalize_model_type(request.model_type)
@@ -190,6 +221,17 @@ def predict_calibration(team_id: str, request: CalibrationPredictRequest) -> Cal
         raise InvalidCalibrationError("site_id запроса не совпадает с площадкой модели.")
     if model.model_type != model_type:
         raise InvalidCalibrationError("Тип модели не совпадает с запросом прогноза.")
+
+    refusal = _provided_base_refusal(request, model_type) if baseline_source == "provided" else ""
+    if refusal:
+        payload = baseline_without_model(
+            baseline=float(baseline),
+            model_type=model_type,
+            site_id=site_id,
+            baseline_source=baseline_source,
+            reason=refusal,
+        )
+        return _predict_schema(payload.to_dict())
 
     try:
         prediction = apply_residual(

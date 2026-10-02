@@ -224,6 +224,10 @@ export function DesignPage({
     apply: !designedLocked,
     dispatch,
   });
+  // Скважины на момент ответа расчёта зарядов: пересчёт по кровле мог сменить
+  // длины, пока запрос шёл.
+  const holesRef = useRef(document.holes);
+  holesRef.current = document.holes;
   const [blockVolumeM3, setBlockVolumeM3] = useState<number | null>(null);
   const [plans, setPlans] = useState<DesignSummary[]>([]);
   const [patternBusy, setPatternBusy] = useState(false);
@@ -857,6 +861,10 @@ export function DesignPage({
       setError("Выберите взрывчатое вещество.");
       return;
     }
+    if (recompute.pending) {
+      setError("Идёт пересчёт скважин по кровле и подошве — рассчитайте заряды после него.");
+      return;
+    }
     setChargeBusy(true);
     setError("");
     try {
@@ -865,10 +873,16 @@ export function DesignPage({
         density_t_m3: item.density_t_m3,
         power_mj_kg: item.power_mj_kg,
       }));
-      const result = await api.design.charge(document.holes, chargeRules, explosive, {
+      const holes = document.holes;
+      const result = await api.design.charge(holes, chargeRules, explosive, {
         contour: document.contour,
         explosives: catalog,
       });
+      if (holesRef.current !== holes) {
+        // Заряды посчитаны по старым длинам — не ставим их к новым скважинам.
+        setError("Скважины изменились, пока считались заряды, — рассчитайте заряды заново.");
+        return;
+      }
       dispatch({ type: "SET_LOADS", loads: result.loads });
       setFragResult(null);
     } catch (reason) {

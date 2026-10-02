@@ -7,9 +7,10 @@
 // `RECOMPUTE_HOLES` вне истории отмены: отмена правки сама вызывает пересчёт.
 //
 // Скважины меняются только по триггерам плана (кровля, подошва, перебур,
-// сетка — `applyKey`): открытие паспорта, включение скважины и правка контура
-// дают только флаги и объём. Утверждённый паспорт (`apply` = false) только
-// читается. Если пересчёт сменил длины при зарядах или геологии — заметка.
+// сетка — `applyKey`): открытие паспорта и правка контура дают только флаги и
+// объём, включение скважины запроса не шлёт. Утверждённый паспорт (`apply` =
+// false) только читается. Если пересчёт сменил длины при зарядах или геологии
+// (на момент ответа) — заметка.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { ruNumber } from "../../lib/format";
@@ -101,11 +102,14 @@ export function applyKey(design: BlastDesign, params: Record<string, unknown>): 
   });
 }
 
-/** Всё, от чего зависят ответ пересчёта (флаги, объём): триггеры и ещё включение скважин и контур. */
+/**
+ * Всё, от чего зависят флаги и объём ответа: триггеры и ещё контур.
+ * Включение скважин ответа не меняет (флаги — у всех скважин, погонаж страница
+ * считает сама) — запрос со всей кровлей на каждое включение не нужен.
+ */
 export function recomputeKey(design: BlastDesign, params: Record<string, unknown>): string {
   return JSON.stringify({
     apply: applyKey(design, params),
-    enabled: design.holes.map((hole) => hole.enabled),
     contour: design.contour.vertices.map((vertex) => [round(vertex.x, 3), round(vertex.y, 3)]),
     cad: design.contour.cad ? [design.contour.cad.edited, design.contour.cad.bottom?.length ?? 0] : null,
   });
@@ -144,8 +148,8 @@ export function useHoleRecompute(
   const key = useMemo(() => recomputeKey(design, params), [design, params]);
   // Триггеры, под которые посчитаны скважины: при загрузке паспорта — его
   // собственные, дальше — последнего применённого пересчёта. Пока они не
-  // сменились, скважины не трогаем — открытие, включение скважины или правка
-  // контура только читают; вернули подошву назад — пересчёт снова.
+  // сменились, скважины не трогаем — открытие или правка контура только
+  // читают; вернули подошву назад — пересчёт снова.
   const identity = `${design.design_id}|${design.updated_at}|${design.revision}`;
   const triggers = useMemo(() => applyKey(design, params), [design, params]);
   const applied = useRef({ identity, triggers });
@@ -171,8 +175,11 @@ export function useHoleRecompute(
       fetcher({ holes: current.holes, contour: current.contour, surfaces: current.surfaces, params: latestParams.current })
         .then((response) => {
           if (number !== sequence.current) return;
-          const notice = applyHoles ? changeNotice(current, response.holes) : "";
-          if (notice) noticeOwner.current = { identity: requested.identity, loads: current.loads };
+          // Заряды и геология — на момент ответа: их могли поставить, пока
+          // запрос шёл, по старым длинам.
+          const now = latest.current;
+          const notice = applyHoles ? changeNotice(now, response.holes) : "";
+          if (notice) noticeOwner.current = { identity: requested.identity, loads: now.loads };
           setView((previous) => ({
             flags: response.flags,
             blockVolumeM3: response.block_volume_m3,

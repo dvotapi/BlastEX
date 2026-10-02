@@ -220,8 +220,37 @@ describe("useHoleRecompute: правки по ревью", () => {
     rerender({ value: design({ holes: [hole("a", { enabled: false })] }) });
     await settle();
 
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    // Ревью Codex #104: включение не меняет ни флагов, ни объёма, ни длин —
+    // запрос со всей кровлей не нужен.
+    expect(fetcher).toHaveBeenCalledTimes(1);
     expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("заряды, поставленные во время запроса, дают заметку о пересчитанных длинах", async () => {
+    // Ревью Codex #104: заметка смотрела на заряды на момент запроса.
+    const dispatch = vi.fn();
+    let resolve: (value: HoleRecomputeResponse) => void = () => undefined;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(420))
+      .mockImplementationOnce(() => new Promise<HoleRecomputeResponse>((done) => (resolve = done)));
+    const { result, rerender } = renderHook(({ value }) => useHoleRecompute(value, {}, { apply: true, dispatch, fetcher }), {
+      initialProps: { value: design() },
+    });
+    await settle();
+
+    const deeper = design({ holes: [hole("a", { subdrill_m: 2 })] });
+    rerender({ value: deeper });
+    await settle();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    rerender({ value: { ...deeper, loads: [{ hole_id: "a" } as unknown as BlastDesign["loads"][number]] } });
+    await act(async () => {
+      resolve(response(421));
+    });
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(result.current.notice).toMatch(/пересчитайте заряды и геологию/);
   });
 
   it("пересчёт сменил длины при зарядах — заметка с числом скважин и разницей погонажа", async () => {

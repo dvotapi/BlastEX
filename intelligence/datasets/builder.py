@@ -142,7 +142,8 @@ def build_sample(
     fired_coverage = (features.get("EXECUTION") or {}).get("fired_coverage")
     targets = extract_targets(design.blast_result, fired_coverage=fired_coverage)
     provenance = sample_provenance(design, site_id=site_id)
-    settings, source = baseline_settings(design, fallback_settings, fallback_source)
+    # Настройки читаются один раз: ими считаются и физика скважин, и baseline строки.
+    settings, source, settings_warnings = baseline_settings(design, fallback_settings, fallback_source)
     holes = _extract_snapshot_holes(design, site_id=site_id, settings=settings, settings_source=source)
     validation = validate_sample(
         design=design,
@@ -154,7 +155,7 @@ def build_sample(
     # Baseline текущей базы — после проверки: это контекст для калибровки,
     # а не цель, и на допуск образца он не влияет.
     targets["FRAGMENTATION"].update(
-        fragmentation_baseline(design, fallback_settings=fallback_settings, fallback_source=fallback_source)
+        fragmentation_baseline(design, resolved_settings=(settings, source, settings_warnings))
     )
     return TrainingSample(
         source_blast_id=design.design_id,

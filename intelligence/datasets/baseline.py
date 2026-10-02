@@ -40,13 +40,26 @@ def baseline_settings(
     design: BlastDesign,
     fallback_settings: KuzRamSettings | None = None,
     fallback_source: Mapping[str, Any] | None = None,
-) -> tuple[KuzRamSettings | None, dict[str, Any]]:
-    """Снимок настроек сохранённого прогноза, иначе запасные (объект работ или умолчания)."""
+) -> tuple[KuzRamSettings | None, dict[str, Any], list[str]]:
+    """Настройки для baseline, их источник и предупреждения о чтении.
+
+    Берётся снимок настроек сохранённого прогноза, иначе запасные (объект
+    работ или умолчания). Нечитаемый снимок (чужие поля, значение вне
+    допустимого) не роняет сборку снимка датасета: берутся запасные настройки,
+    а причина уходит в предупреждения.
+    """
     stored = stored_prediction(design)
     snapshot = stored.provenance.settings if stored is not None else {}
-    if snapshot:
-        return settings_from_snapshot(snapshot)
-    return fallback_settings, dict(fallback_source or {})
+    fallback = (fallback_settings, dict(fallback_source or {}))
+    if not snapshot:
+        return (*fallback, [])
+    try:
+        settings, source = settings_from_snapshot(snapshot)
+    except (TypeError, ValueError, OverflowError, AttributeError) as exc:
+        reason = f": {exc}" if isinstance(exc, ValueError) else ""
+        taken = "настройки объекта работ" if fallback[1].get("source") == "work_object" else "умолчания"
+        return (*fallback, [f"Снимок настроек сохранённого прогноза не прочитан{reason} — взяты {taken}."])
+    return settings, source, []
 
 
 def _positive(value: float, default: float) -> float:
@@ -80,11 +93,14 @@ def fragmentation_baseline(
     model: str = BASELINE_MODEL,
     fallback_settings: KuzRamSettings | None = None,
     fallback_source: Mapping[str, Any] | None = None,
+    resolved_settings: tuple[KuzRamSettings | None, dict[str, Any], list[str]] | None = None,
 ) -> dict[str, Any]:
     """Baseline x50 и негабарита моделью model по паспорту взрыва.
 
     Не посчиталось — значения None и причина в baseline_warnings: один
-    неполный взрыв не должен ронять сборку снимка.
+    неполный взрыв не должен ронять сборку снимка. resolved_settings —
+    уже прочитанный результат baseline_settings: сборщик строки читает
+    настройки один раз и для физики скважин, и для baseline.
     """
     model_id = resolve_model(model)
     out: dict[str, Any] = {
@@ -99,12 +115,20 @@ def fragmentation_baseline(
     stored = stored_prediction(design)
     kwargs: dict[str, Any] = {}
     if stored is not None and stored.provenance.inputs:
-        kwargs = _specs(design, FragmentationInputs.from_dict(stored.provenance.inputs))
+        try:
+            kwargs = _specs(design, FragmentationInputs.from_dict(stored.provenance.inputs))
+        except (TypeError, ValueError, OverflowError, AttributeError):
+            warnings.append(
+                "Входные величины сохранённого прогноза не прочитаны: порода и ВВ для baseline — умолчания."
+            )
     elif stored is not None:
         warnings.append("В сохранённом прогнозе нет входных величин: порода и ВВ для baseline — умолчания.")
     else:
         warnings.append("Сохранённого прогноза нет: порода и ВВ для baseline — умолчания.")
-    settings, source = baseline_settings(design, fallback_settings, fallback_source)
+    if resolved_settings is None:
+        resolved_settings = baseline_settings(design, fallback_settings, fallback_source)
+    settings, source, settings_warnings = resolved_settings
+    warnings.extend(settings_warnings)
     try:
         payload = predict_design(
             design,

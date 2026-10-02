@@ -59,6 +59,9 @@ SKIP_KEYS = frozenset(
 
 PREDICTED_PREFIX = "predicted_"
 DESIGNED_PREFIX = "designed_"
+# Baseline текущей базы кусковатости в строке снимка (включая вложенный
+# baseline_settings.values.*) — контекст модели, а не измеренная цель.
+BASELINE_PREFIX = "baseline_"
 
 
 def _iter_numeric(payload: dict[str, Any], *, prefix: str = "") -> Iterable[tuple[str, float]]:
@@ -102,7 +105,7 @@ def feature_series(snapshots: Iterable[DatasetSnapshot]) -> dict[str, dict[str, 
 
 
 def target_series(snapshots: Iterable[DatasetSnapshot]) -> dict[str, dict[str, Any]]:
-    """Measured targets only. Predicted / designed context columns are skipped."""
+    """Measured targets only. Predicted / designed / baseline context columns are skipped."""
     buckets: dict[str, list[float]] = {}
     for sample in _samples(snapshots):
         for group, payload in (sample.targets or {}).items():
@@ -111,6 +114,9 @@ def target_series(snapshots: Iterable[DatasetSnapshot]) -> dict[str, dict[str, A
             for field, number in _iter_numeric(payload):
                 leaf = field.rsplit(".", 1)[-1]
                 if leaf.startswith(PREDICTED_PREFIX) or leaf.startswith(DESIGNED_PREFIX):
+                    continue
+                # Вложенные поля baseline_settings.* отсекает только верхний сегмент пути.
+                if field.split(".", 1)[0].startswith(BASELINE_PREFIX):
                     continue
                 key = f"{group}.{field}"
                 buckets.setdefault(key, []).append(number)

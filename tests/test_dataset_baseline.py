@@ -7,6 +7,7 @@ from intelligence.datasets.baseline import fragmentation_baseline
 from intelligence.datasets.builder import DatasetSnapshot, build_sample, build_snapshot
 from intelligence.datasets.targets import target_group_has_values
 from simulation.fragmentation import engine as fragmentation_engine
+from simulation.fragmentation.base import settings_from_snapshot
 from simulation.fragmentation.cunningham import KuzRamSettings
 from simulation.fragmentation.engine import predict_design
 from simulation.fragmentation.regions import ExplosiveSpec, RockSpec
@@ -117,6 +118,90 @@ class RowTests(unittest.TestCase):
         self.assertIsNotNone(frag["baseline_x50_mm"])
         self.assertIn("Сохранённого прогноза нет", frag["baseline_warnings"][0])
         self.assertFalse(target_group_has_values(frag))
+
+
+class BrokenStoredDataTests(unittest.TestCase):
+    """Плохие данные сохранённого прогноза не роняют строку и сборку снимка."""
+
+    @staticmethod
+    def _with_settings(design_id: str, settings: dict):
+        design = closed_design(design_id)
+        design.blast_result.basis.predicted_fragmentation.provenance.settings = settings
+        return design
+
+    def _frag(self, design, **kwargs) -> dict:
+        return build_sample(design, site_id="quarry-1", **kwargs).targets["FRAGMENTATION"]
+
+    def test_unknown_settings_key_falls_back_with_warning(self):
+        design = self._with_settings(
+            "x-1",
+            {"source": "work_object", "work_object_name": "Карьер-1", "values": {"bogus": 1}, "warnings": []},
+        )
+
+        frag = self._frag(design, fallback_settings=FALLBACK, fallback_source=FALLBACK_SOURCE)
+
+        self.assertIsNotNone(frag["baseline_x50_mm"])
+        self.assertTrue(any("Снимок настроек сохранённого прогноза не прочитан" in w for w in frag["baseline_warnings"]))
+        self.assertTrue(any("настройки объекта работ" in w for w in frag["baseline_warnings"]))
+        self.assertEqual(frag["baseline_settings"]["values"]["rock_factor_correction"], 0.8)
+        self.assertEqual(frag["baseline_settings"]["work_object_name"], "Карьер-2")
+
+    def test_out_of_range_settings_value_falls_back_to_defaults(self):
+        design = self._with_settings(
+            "x-2",
+            {"source": "work_object", "work_object_name": "Карьер-1", "values": {"joint_angle": 25}, "warnings": []},
+        )
+
+        frag = self._frag(design)
+
+        self.assertIsNotNone(frag["baseline_x50_mm"])
+        self.assertTrue(any("Снимок настроек сохранённого прогноза не прочитан" in w for w in frag["baseline_warnings"]))
+        self.assertTrue(any("умолчания" in w for w in frag["baseline_warnings"]))
+        self.assertEqual(frag["baseline_settings"]["source"], "defaults")
+        self.assertAlmostEqual(frag["baseline_x50_mm"], _site_x50(design), places=9)
+
+    def test_baseline_settings_returns_warning_instead_of_raising(self):
+        from intelligence.datasets.baseline import baseline_settings
+
+        design = self._with_settings("x-3", {"values": {"bogus": 1}})
+
+        settings, source, warnings = baseline_settings(design, FALLBACK, FALLBACK_SOURCE)
+
+        self.assertIs(settings, FALLBACK)
+        self.assertEqual(source["work_object_name"], "Карьер-2")
+        self.assertEqual(len(warnings), 1)
+
+    def test_unreadable_inputs_fall_back_to_defaults_with_warning(self):
+        design = closed_design("x-4")
+        design.blast_result.basis.predicted_fragmentation.provenance.inputs = {"rock_ucs_mpa": "abc"}
+
+        frag = self._frag(design)
+
+        self.assertIsNotNone(frag["baseline_x50_mm"])
+        self.assertAlmostEqual(frag["baseline_x50_mm"], _site_x50(design), places=9)
+        self.assertTrue(any("Входные величины сохранённого прогноза не прочитаны" in w for w in frag["baseline_warnings"]))
+
+    def test_broken_snapshot_does_not_break_dataset_snapshot(self):
+        broken = self._with_settings("x-5", {"values": {"bogus": 1}})
+
+        snapshot = build_snapshot(
+            [broken, closed_design("x-6")], site_id="quarry-1", dataset_id="s", dataset_version=1
+        )
+
+        self.assertEqual(snapshot.sample_count, 2)
+
+    def test_settings_are_read_once_per_sample(self):
+        design = self._with_settings(
+            "x-7", {"source": "work_object", "work_object_name": "Карьер-1", "values": {}, "warnings": []}
+        )
+        design.blast_result.basis.predicted_fragmentation.provenance.settings["values"] = asdict(
+            KuzRamSettings(rock_factor_correction=1.3)
+        )
+
+        with patch("intelligence.datasets.baseline.settings_from_snapshot", wraps=settings_from_snapshot) as spy:
+            self._frag(design)
+
+        self.assertEqual(spy.call_count, 1)
 
 
 class SnapshotTests(unittest.TestCase):

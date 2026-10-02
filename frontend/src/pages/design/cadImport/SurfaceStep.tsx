@@ -34,8 +34,11 @@ function signed(value: number, digits = 1): string {
 export function SurfaceStep(props: SurfaceStepProps) {
   const { source, meta, state, onChange, result, pending, error, contour, subdrill, disabled, onFocus } = props;
   const labels = new Map<string, string>(meta.roles.map((role) => [role.code, role.label]));
+  // Подписи в кровлю не входят: их отметки уже на точках.
   const counts = new Map<string, number>();
-  for (const entity of source.entities) counts.set(entity.role, (counts.get(entity.role) ?? 0) + 1);
+  for (const entity of source.entities) {
+    if (entity.geometry_type !== "text") counts.set(entity.role, (counts.get(entity.role) ?? 0) + 1);
+  }
   const autoFloor = contour?.bench.toe_z_m ?? null;
   const quality = result?.quality;
   const focus = (points: number[][], segments: number[][][] = []) => ({

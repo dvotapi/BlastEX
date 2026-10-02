@@ -50,6 +50,13 @@ describe("SurfaceStep", () => {
     expect(lastState(props).roles).not.toContain("contour_line");
   });
 
+  it("счётчик отметок — точки и линии, без подписей: подписи в кровлю не входят", () => {
+    renderStep();
+
+    const roles = screen.getByRole("group", { name: "Линии в кровле" });
+    expect(within(roles).getByLabelText(/Отметки поверхности/).closest("label")?.textContent).toContain("Отметки поверхности · 1");
+  });
+
   it("подошва предзаполнена из контура, перебур паспорта — только чтение", () => {
     const props = renderStep();
 

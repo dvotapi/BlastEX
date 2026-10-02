@@ -488,6 +488,10 @@ class SpatialOverlay:
     warnings: list[str] = field(default_factory=list)
     role: str = ROLE_PREDICTED
     data_roles: dict[str, str] = field(default_factory=lambda: dict(DATA_ROLES))
+    # Модель, которой посчитана физика скважин, и подпись базы модели.
+    physics_model: str = ""
+    physics_model_version: str = ""
+    base_label: str = ""
 
     def __post_init__(self) -> None:
         self.role = ROLE_PREDICTED
@@ -515,6 +519,9 @@ class SpatialOverlay:
             "warnings": list(self.warnings),
             "role": ROLE_PREDICTED,
             "data_roles": _copy(self.data_roles or DATA_ROLES),
+            "physics_model": self.physics_model,
+            "physics_model_version": self.physics_model_version,
+            "base_label": self.base_label,
             "provenance": {
                 "model_id": self.model_id,
                 "team_id": self.team_id,

@@ -164,6 +164,9 @@ class SpatialPredictResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     role: str = "predicted"
     data_roles: dict[str, str] = Field(default_factory=dict)
+    physics_model: str = ""
+    physics_model_version: str = ""
+    base_label: str = ""
     provenance: SpatialProvenanceSchema = Field(default_factory=SpatialProvenanceSchema)
 
 

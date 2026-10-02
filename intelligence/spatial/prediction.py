@@ -4,12 +4,19 @@ The result never writes designed charges or the approved pattern.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
 
 from design.models import BlastDesign
 from intelligence.calibration.algorithms import get_algorithm
+from intelligence.calibration.base import (
+    CURRENT_BASE,
+    FragmentationBase,
+    artifact_base,
+    spatial_base_label,
+)
 from intelligence.spatial.features import extract_hole_observations, vectorize_hole
 from intelligence.spatial.maps import spatial_maps
 from intelligence.spatial.residuals import apply_residuals, neighborhood_from_holes, physics_residuals
@@ -40,6 +47,25 @@ def _warnings_for(model: SpatialModel | None) -> list[str]:
     if model.status != STATUS_PRODUCTION:
         warnings.append("Пространственная модель не утверждена как production и не подменяет проект БВР.")
     return warnings
+
+
+def physics_base(model: SpatialModel | None) -> tuple[FragmentationBase, list[str]]:
+    """База, которой считается физика скважин, и предупреждения о ней.
+
+    Физика — базой, на которой модель обучена; без модели — текущей.
+    Неизвестное имя модели в файле артефакта не должно ронять прогноз:
+    физика считается текущей базой, а причина уходит в предупреждения.
+    """
+    if model is None:
+        return CURRENT_BASE, []
+    try:
+        return artifact_base(model.baseline_model, model.baseline_model_version), []
+    except ValueError:
+        name = f"{str(model.baseline_model).strip()} {str(model.baseline_model_version or '').strip()}".strip()
+        return CURRENT_BASE, [
+            f"База пространственной модели («{name}») неизвестна — "
+            f"физика скважин посчитана текущей моделью «{CURRENT_BASE.label()}»."
+        ]
 
 
 def _block_from_request(
@@ -77,6 +103,8 @@ def apply_model(
     site_id: str = "",
     block: dict[str, Any] | None = None,
     neighbor_k: int | None = None,
+    settings: Any = None,
+    settings_source: Mapping[str, Any] | None = None,
 ) -> SpatialOverlay:
     """Hole / neighborhood predicted overlay. Design is untouched."""
     k = int(neighbor_k or (model.neighbor_k if model is not None else 4))
@@ -84,11 +112,16 @@ def apply_model(
         [hole.to_dict() for hole in design.holes],
         [load.to_dict() for load in design.loads],
     )
+    # Физика — базой, на которой модель обучена; без модели — текущей.
+    base, base_warnings = physics_base(model)
     observations = extract_hole_observations(
         design,
         site_id=site_id or (model.site_id if model else ""),
         neighbor_k=k,
         include_physics=True,
+        physics_model=base.model,
+        settings=settings,
+        settings_source=settings_source,
     )
     block_pred = _block_from_request(block, observations)
     residuals: dict[str, list[float | None]]
@@ -130,8 +163,11 @@ def apply_model(
         applied_as=APPLIED_AS_OVERLAY,
         modifies_design=False,
         prediction_applied=True,
-        warnings=_warnings_for(model),
+        warnings=[*base_warnings, *_warnings_for(model)],
         role=ROLE_PREDICTED,
+        physics_model=base.model,
+        physics_model_version=base.model_version,
+        base_label=spatial_base_label(model.baseline_model, model.baseline_model_version) if model else "",
     )
 
 

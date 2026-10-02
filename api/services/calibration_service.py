@@ -146,18 +146,20 @@ def _provided_base_refusal(request: CalibrationPredictRequest, model_type: str) 
     """Причина не накладывать калибровку на присланный baseline; пусто — можно.
 
     До PR 3 все калибровки кусковатости обучены на старой базе Kuz-Ram 1.0.0,
-    поэтому присланный baseline принимается, только если он посчитан ею.
+    поэтому присланный baseline принимается, только если указаны и модель, и
+    версия, и посчитан он ею.
     """
     if model_type not in {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}:
         return ""
     model = request.baseline_model.strip()
-    if not model:
-        return "Не указано, какой моделью посчитан baseline, — калибровка кусковатости не применена."
+    version = request.baseline_model_version.strip()
+    if not model or not version:
+        return "Не указано, какой моделью и версией посчитан baseline, — калибровка кусковатости не применена."
     try:
         model_id = resolve_model(model)
     except ValueError:
         return f"Неизвестная модель baseline «{model}» — калибровка кусковатости не применена."
-    if _old_base(ModelProvenance(model=model_id, model_version=request.baseline_model_version.strip())):
+    if _old_base(ModelProvenance(model=model_id, model_version=version)):
         return ""
     return (
         "Калибровка обучена на старой модели Kuz-Ram 1.0.0 и к прогнозу новой модели "

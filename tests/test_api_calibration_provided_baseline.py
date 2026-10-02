@@ -61,7 +61,23 @@ class ProvidedBaselineTests(unittest.TestCase):
         self.assertFalse(result.calibration_applied)
         self.assertEqual(result.calibrated, 150.0)
         self.assertTrue(result.warnings)
-        self.assertIn("abc", result.warnings[0])
+
+    def test_baseline_without_version_is_refused(self):
+        for model in ("kuzram", "kuzram_legacy"):
+            for model_type in ("kuzram_residual", "oversize_residual"):
+                with self.subTest(model=model, model_type=model_type):
+                    result = self._predict(model_type, baseline_model=model, baseline_model_version="")
+
+                    self.assertFalse(result.calibration_applied)
+                    self.assertEqual(result.calibrated, 150.0)
+                    self.assertTrue(result.warnings)
+                    self.assertIn("Не указано", result.warnings[0])
+
+    def test_blank_version_is_refused(self):
+        result = self._predict("kuzram_residual", baseline_model="kuzram", baseline_model_version="   ")
+
+        self.assertFalse(result.calibration_applied)
+        self.assertEqual(result.calibrated, 150.0)
 
     def test_baseline_without_model_is_refused(self):
         result = self._predict("oversize_residual")

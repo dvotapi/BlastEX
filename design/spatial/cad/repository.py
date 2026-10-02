@@ -27,6 +27,7 @@ from sqlalchemy import (
     String,
     create_engine,
     delete,
+    func,
     insert,
     select,
     update,
@@ -35,7 +36,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Mapped, deferred, mapped_column, sessionmaker
 
 from cost.v2.db_repository import SCHEMA, Base, JsonType
-from design.spatial.cad.model import CadEntity
+from design.spatial.cad.model import DEFAULT_AREA_BASIS, ROLE_SITUATION, CadEntity
 from design.spatial.cad.roles import TemplateEntry, layer_key
 
 
@@ -60,6 +61,9 @@ class CadSourceRecord:
     summary: dict[str, Any]
     uploaded_by: str
     uploaded_at: datetime
+    # Название источника (PR 4): источники объекта с одинаковым названием —
+    # версии одной серии ситуации.
+    title: str = ""
     survey_date: date | None = None
     coordinate_system: dict[str, Any] | None = None
     file_data: bytes | None = field(default=None, repr=False)
@@ -114,6 +118,32 @@ class CadRepository(Protocol):
 
     def set_area_basis(self, organization_id: str, site_code: str, area_basis: str, actor: str) -> None: ...
 
+    def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None: ...
+
+    def list_site_sources(self, organization_id: str, site_code: str, *, limit: int) -> list[CadSourceRecord]: ...
+
+    def update_source_meta(
+        self,
+        organization_id: str,
+        source_id: str,
+        *,
+        title: str,
+        survey_date: date | None,
+        expected_revision: int,
+    ) -> None: ...
+
+    def delete_source(self, organization_id: str, source_id: str) -> None: ...
+
+    def get_site_crs(self, organization_id: str, site_code: str) -> dict[str, Any] | None: ...
+
+    def set_site_crs(self, organization_id: str, site_code: str, crs: dict[str, Any], actor: str) -> None: ...
+
+    def count_entities_by_role(self, organization_id: str, source_ids: set[str], role: str) -> dict[str, int]: ...
+
+    def upsert_layer_kinds(
+        self, organization_id: str, site_code: str, kinds: dict[str, str | None], actor: str
+    ) -> None: ...
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
@@ -132,6 +162,7 @@ class CadSourceRow(Base):
     __tablename__ = "cad_sources"
     __table_args__ = (
         Index("ix_cad_sources_org_site_uploaded", "organization_id", "site_code", "uploaded_at"),
+        Index("ix_cad_sources_org_site_sha", "organization_id", "site_code", "file_sha256"),
         {"schema": SCHEMA},
     )
 
@@ -140,6 +171,7 @@ class CadSourceRow(Base):
     site_code: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     work_object_name: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     file_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     file_format: Mapped[str] = mapped_column(String(8), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -191,19 +223,25 @@ class CadLayerRoleRow(Base):
     layer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Вид объекта ситуации, заданный человеком; NULL — по имени слоя.
+    situation_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
     updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class CadSiteSettingsRow(Base):
-    """Настройки объекта для импорта чертежа: какая площадь — площадь блока."""
+    """Настройки объекта для импорта чертежа: площадь блока и система координат."""
 
     __tablename__ = "cad_site_settings"
     __table_args__ = ({"schema": SCHEMA},)
 
     organization_id: Mapped[str] = mapped_column(String(120), primary_key=True)
     site_code: Mapped[str] = mapped_column(String(80), primary_key=True)
-    area_basis: Mapped[str] = mapped_column(String(16), nullable=False)
+    area_basis: Mapped[str] = mapped_column(String(16), nullable=False, default=DEFAULT_AREA_BASIS)
+    # СК объекта (PR 4): «МСК-66 зона 1», высоты «Балтийская 1977», EPSG — если есть.
+    crs_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    height_system: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -230,6 +268,33 @@ def _entity_rows(organization_id: str, source_id: str, entities: list[CadEntity]
         }
         for index, item in enumerate(entities)
     ]
+
+
+def _record(row: CadSourceRow, *, with_file: bool = False) -> CadSourceRecord:
+    return CadSourceRecord(
+        id=row.id,
+        site_code=row.site_code,
+        work_object_name=row.work_object_name,
+        file_name=row.file_name,
+        file_format=row.file_format,
+        file_size=row.file_size,
+        file_sha256=row.file_sha256,
+        params=row.params,
+        summary=row.summary,
+        uploaded_by=row.uploaded_by,
+        uploaded_at=row.uploaded_at,
+        title=row.title,
+        survey_date=row.survey_date,
+        coordinate_system=row.coordinate_system,
+        file_data=bytes(row.file_data) if with_file else None,
+        revision=row.revision,
+    )
+
+
+def _crs(row: CadSiteSettingsRow) -> dict[str, Any] | None:
+    if row.crs_name is None and row.height_system is None and row.epsg is None:
+        return None
+    return {"name": row.crs_name or "", "height_system": row.height_system or "", "epsg": row.epsg}
 
 
 def _entity(row: CadEntityRow) -> CadEntity:
@@ -264,6 +329,7 @@ class PostgresCadRepository:
                         site_code=record.site_code,
                         work_object_name=record.work_object_name,
                         file_name=record.file_name,
+                        title=record.title,
                         file_format=record.file_format,
                         file_size=record.file_size,
                         file_sha256=record.file_sha256,
@@ -287,25 +353,7 @@ class PostgresCadRepository:
                     CadSourceRow.organization_id == organization_id, CadSourceRow.id == source_id
                 )
             ).scalar_one_or_none()
-            if row is None:
-                return None
-            return CadSourceRecord(
-                id=row.id,
-                site_code=row.site_code,
-                work_object_name=row.work_object_name,
-                file_name=row.file_name,
-                file_format=row.file_format,
-                file_size=row.file_size,
-                file_sha256=row.file_sha256,
-                params=row.params,
-                summary=row.summary,
-                uploaded_by=row.uploaded_by,
-                uploaded_at=row.uploaded_at,
-                survey_date=row.survey_date,
-                coordinate_system=row.coordinate_system,
-                file_data=bytes(row.file_data) if with_file else None,
-                revision=row.revision,
-            )
+            return None if row is None else _record(row, with_file=with_file)
 
     def list_entities(
         self,
@@ -382,7 +430,7 @@ class PostgresCadRepository:
                     CadLayerRoleRow.organization_id == organization_id, CadLayerRoleRow.site_code == site_code
                 )
             ).scalars()
-            return {row.layer_key: TemplateEntry(row.role, row.manual) for row in rows}
+            return {row.layer_key: TemplateEntry(row.role, row.manual, row.situation_kind) for row in rows}
 
     def add_missing_layer_roles(self, organization_id: str, site_code: str, roles: dict[str, str], actor: str) -> None:
         self._write_template(organization_id, site_code, roles, actor, overwrite=False)
@@ -409,6 +457,127 @@ class PostgresCadRepository:
         statement = pg_insert(CadSiteSettingsRow).values(values).on_conflict_do_update(
             index_elements=[CadSiteSettingsRow.organization_id, CadSiteSettingsRow.site_code],
             set_={"area_basis": area_basis, "updated_by": actor, "updated_at": values["updated_at"]},
+        )
+        with self.session_factory() as session, session.begin():
+            session.execute(statement)
+
+    def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
+        with self.session_factory() as session:
+            row = session.execute(
+                select(CadSourceRow)
+                .where(
+                    CadSourceRow.organization_id == organization_id,
+                    CadSourceRow.site_code == site_code,
+                    CadSourceRow.file_sha256 == sha256,
+                )
+                .order_by(CadSourceRow.uploaded_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            return None if row is None else _record(row)
+
+    def list_site_sources(self, organization_id: str, site_code: str, *, limit: int) -> list[CadSourceRecord]:
+        with self.session_factory() as session:
+            rows = session.execute(
+                select(CadSourceRow)
+                .where(CadSourceRow.organization_id == organization_id, CadSourceRow.site_code == site_code)
+                .order_by(CadSourceRow.uploaded_at.desc(), CadSourceRow.id)
+                .limit(limit)
+            ).scalars()
+            return [_record(row) for row in rows]
+
+    def update_source_meta(
+        self,
+        organization_id: str,
+        source_id: str,
+        *,
+        title: str,
+        survey_date: date | None,
+        expected_revision: int,
+    ) -> None:
+        with self.session_factory() as session, session.begin():
+            self._bump(session, organization_id, source_id, expected_revision, title=title, survey_date=survey_date)
+
+    def delete_source(self, organization_id: str, source_id: str) -> None:
+        # Сущности уходят каскадом (FK ondelete=CASCADE).
+        with self.session_factory() as session, session.begin():
+            result = session.execute(
+                delete(CadSourceRow).where(
+                    CadSourceRow.organization_id == organization_id, CadSourceRow.id == source_id
+                )
+            )
+            if result.rowcount == 0:
+                raise CadSourceNotFound(source_id)
+
+    def get_site_crs(self, organization_id: str, site_code: str) -> dict[str, Any] | None:
+        with self.session_factory() as session:
+            row = session.execute(
+                select(CadSiteSettingsRow).where(
+                    CadSiteSettingsRow.organization_id == organization_id, CadSiteSettingsRow.site_code == site_code
+                )
+            ).scalar_one_or_none()
+            return None if row is None else _crs(row)
+
+    def set_site_crs(self, organization_id: str, site_code: str, crs: dict[str, Any], actor: str) -> None:
+        columns = {
+            "crs_name": crs.get("name") or "",
+            "height_system": crs.get("height_system") or "",
+            "epsg": crs.get("epsg"),
+            "updated_by": actor,
+            "updated_at": _now(),
+        }
+        statement = pg_insert(CadSiteSettingsRow).values(
+            {"organization_id": organization_id, "site_code": site_code, "area_basis": DEFAULT_AREA_BASIS, **columns}
+        )
+        statement = statement.on_conflict_do_update(
+            index_elements=[CadSiteSettingsRow.organization_id, CadSiteSettingsRow.site_code], set_=columns
+        )
+        with self.session_factory() as session, session.begin():
+            session.execute(statement)
+
+    def count_entities_by_role(self, organization_id: str, source_ids: set[str], role: str) -> dict[str, int]:
+        if not source_ids:
+            return {}
+        with self.session_factory() as session:
+            rows = session.execute(
+                select(CadEntityRow.source_id, func.count())
+                .where(
+                    CadEntityRow.organization_id == organization_id,
+                    CadEntityRow.source_id.in_(sorted(source_ids)),
+                    CadEntityRow.role == role,
+                )
+                .group_by(CadEntityRow.source_id)
+            ).all()
+            return {source_id: int(count) for source_id, count in rows}
+
+    def upsert_layer_kinds(
+        self, organization_id: str, site_code: str, kinds: dict[str, str | None], actor: str
+    ) -> None:
+        rows = [
+            {
+                "organization_id": organization_id,
+                "site_code": site_code,
+                "layer_key": layer_key(name),
+                "layer_name": name,
+                # Слоя ещё нет в шаблоне — вид задают только слою ситуации.
+                "role": ROLE_SITUATION,
+                "manual": False,
+                "situation_kind": kind,
+                "updated_by": actor,
+                "updated_at": _now(),
+            }
+            for name, kind in kinds.items()
+            if layer_key(name)
+        ]
+        if not rows:
+            return
+        statement = pg_insert(CadLayerRoleRow).values(rows)
+        statement = statement.on_conflict_do_update(
+            index_elements=[CadLayerRoleRow.organization_id, CadLayerRoleRow.site_code, CadLayerRoleRow.layer_key],
+            set_={
+                "situation_kind": statement.excluded.situation_kind,
+                "updated_by": statement.excluded.updated_by,
+                "updated_at": statement.excluded.updated_at,
+            },
         )
         with self.session_factory() as session, session.begin():
             session.execute(statement)
@@ -489,6 +658,7 @@ class InMemoryCadRepository:
         self._entities: dict[tuple[str, str], list[CadEntity]] = {}
         self._templates: dict[tuple[str, str], dict[str, tuple[str, TemplateEntry]]] = {}
         self._area_bases: dict[tuple[str, str], str] = {}
+        self._crs: dict[tuple[str, str], dict[str, Any]] = {}
 
     def create_sources(
         self, organization_id: str, items: list[tuple[CadSourceRecord, list[CadEntity]]]
@@ -560,13 +730,81 @@ class InMemoryCadRepository:
     def upsert_layer_roles(self, organization_id: str, site_code: str, roles: dict[str, str], actor: str) -> None:
         template = self._templates.setdefault((organization_id, site_code), {})
         for key, (name, role) in _template_rows(roles).items():
-            template[key] = (name, TemplateEntry(role, manual=True))
+            kind = template[key][1].kind if key in template else None
+            template[key] = (name, TemplateEntry(role, manual=True, kind=kind))
 
     def get_area_basis(self, organization_id: str, site_code: str) -> str | None:
         return self._area_bases.get((organization_id, site_code))
 
     def set_area_basis(self, organization_id: str, site_code: str, area_basis: str, actor: str) -> None:
         self._area_bases[(organization_id, site_code)] = area_basis
+
+    def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
+        found = [
+            record
+            for (org, _), record in self._sources.items()
+            if org == organization_id and record.site_code == site_code and record.file_sha256 == sha256
+        ]
+        if not found:
+            return None
+        return copy.deepcopy(replace(max(found, key=lambda item: item.uploaded_at), file_data=None))
+
+    def list_site_sources(self, organization_id: str, site_code: str, *, limit: int) -> list[CadSourceRecord]:
+        found = [
+            record
+            for (org, _), record in self._sources.items()
+            if org == organization_id and record.site_code == site_code
+        ]
+        found.sort(key=lambda item: item.id)
+        found.sort(key=lambda item: item.uploaded_at, reverse=True)
+        return [copy.deepcopy(replace(item, file_data=None)) for item in found[:limit]]
+
+    def update_source_meta(
+        self,
+        organization_id: str,
+        source_id: str,
+        *,
+        title: str,
+        survey_date: date | None,
+        expected_revision: int,
+    ) -> None:
+        record = self._bump(organization_id, source_id, expected_revision)
+        record.title, record.survey_date = title, survey_date
+
+    def delete_source(self, organization_id: str, source_id: str) -> None:
+        self._require(organization_id, source_id)
+        del self._sources[(organization_id, source_id)]
+        self._entities.pop((organization_id, source_id), None)
+
+    def get_site_crs(self, organization_id: str, site_code: str) -> dict[str, Any] | None:
+        crs = self._crs.get((organization_id, site_code))
+        return copy.deepcopy(crs) if crs is not None else None
+
+    def set_site_crs(self, organization_id: str, site_code: str, crs: dict[str, Any], actor: str) -> None:
+        self._crs[(organization_id, site_code)] = {
+            "name": crs.get("name") or "",
+            "height_system": crs.get("height_system") or "",
+            "epsg": crs.get("epsg"),
+        }
+
+    def count_entities_by_role(self, organization_id: str, source_ids: set[str], role: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for source_id in source_ids:
+            count = sum(1 for item in self._entities.get((organization_id, source_id), []) if item.role == role)
+            if count:
+                counts[source_id] = count
+        return counts
+
+    def upsert_layer_kinds(
+        self, organization_id: str, site_code: str, kinds: dict[str, str | None], actor: str
+    ) -> None:
+        template = self._templates.setdefault((organization_id, site_code), {})
+        for name, kind in kinds.items():
+            key = layer_key(name)
+            if not key:
+                continue
+            stored_name, entry = template.get(key, (name, TemplateEntry(ROLE_SITUATION)))
+            template[key] = (stored_name, replace(entry, kind=kind))
 
     def _require(self, organization_id: str, source_id: str) -> CadSourceRecord:
         record = self._sources.get((organization_id, source_id))

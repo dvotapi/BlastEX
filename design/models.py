@@ -403,11 +403,16 @@ class WaterInterval:
 
 
 # Поля `contour.cad`, которых не было у паспортов PR 2: без значения не пишутся.
-CAD_OPTIONAL_KEYS = ("map_volume_m3",)
+# `situation` (PR 4) — версии ситуации, показанные при «Построить блок».
+CAD_OPTIONAL_KEYS = ("map_volume_m3", "situation")
 
 
 def _cad_without_empty_optional(cad: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in cad.items() if not (key in CAD_OPTIONAL_KEYS and value is None)}
+    return {
+        key: value
+        for key, value in cad.items()
+        if not (key in CAD_OPTIONAL_KEYS and (value is None or value == []))
+    }
 
 
 @dataclass

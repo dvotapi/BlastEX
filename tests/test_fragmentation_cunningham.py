@@ -12,7 +12,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(s.strength_exponent, "19/20")
         self.assertAlmostEqual(s.exponent, 0.95)
         self.assertEqual(s.q_max_kg_m3, 2.0)
-        self.assertEqual(kr.MODEL_VERSION, "kuzram-cunningham-1.0")
+        self.assertEqual(kr.MODEL_VERSION, "kuzram-cunningham-1.1")
 
     def test_out_of_range_value_has_russian_message(self):
         with self.assertRaisesRegex(ValueError, r"Поправка C\(A\) — от 0,1 до 10\."):
@@ -85,11 +85,15 @@ class RockFactorTests(unittest.TestCase):
 
 class MeanFragmentTests(unittest.TestCase):
     def test_formula_and_exponent(self):
-        re = 2.99 / 4.184
-        x = kr.mean_fragment_mm(6.366, 1.0, 197.19, re, 19 / 20)
-        self.assertAlmostEqual(x, 6.366 * 197.19 ** (1 / 6) * re ** (-19 / 20) * 10)
-        older = kr.mean_fragment_mm(6.366, 1.0, 197.19, re, 19 / 30)
-        self.assertLess(older, x)  # RE < 1: чем больше показатель, тем крупнее x50
+        rws = 100 * 2.99 / 3.8  # эмульсия 2,99 МДж/кг к ANFO 3,8 МДж/кг, %
+        x = kr.mean_fragment_mm(6.366, 1.0, 197.19, rws, 19 / 20)
+        self.assertAlmostEqual(x, 6.366 * 197.19 ** (1 / 6) * (115 / rws) ** (19 / 20) * 10)
+        older = kr.mean_fragment_mm(6.366, 1.0, 197.19, rws, 19 / 30)
+        self.assertLess(older, x)  # 115/RWS > 1: чем больше показатель, тем крупнее x50
+
+    def test_tnt_gives_unit_strength_term(self):
+        # Тротил в шкале Кузнецова — 115 % ANFO: множитель силы ВВ равен 1.
+        self.assertAlmostEqual(kr.mean_fragment_mm(6.0, 1.0, 1.0, 115.0, 19 / 20), 60.0)
 
 
 class UniformityTests(unittest.TestCase):
@@ -219,7 +223,7 @@ class PredictPointTests(unittest.TestCase):
         hole_diameter_mm=159.6,
         powder_factor_kg_m3=1.26,
         charge_mass_kg=105.0,
-        re_weight=0.9,
+        rws_anfo_pct=78.7,
         charge_length_m=8.8,
         bench_height_m=10.0,
         lump_size_mm=800.0,
@@ -238,7 +242,7 @@ class PredictPointTests(unittest.TestCase):
         )
         x50 = kr.mean_fragment_mm(
             rock.value, args["powder_factor_kg_m3"], args["charge_mass_kg"],
-            args["re_weight"], settings.exponent,
+            args["rws_anfo_pct"], settings.exponent,
         )
         n = kr.uniformity_index(
             burden_m=args["burden_m"],
@@ -298,9 +302,9 @@ class PredictPointTests(unittest.TestCase):
             ("powder_factor_kg_m3", float("nan"), "Удельный расход"),
             ("charge_mass_kg", 0.0, "Масса заряда"),
             ("charge_mass_kg", float("nan"), "Масса заряда"),
-            ("re_weight", 0.0, "Относительная сила ВВ"),
-            ("re_weight", -0.5, "Относительная сила ВВ"),
-            ("re_weight", float("nan"), "Относительная сила ВВ"),
+            ("rws_anfo_pct", 0.0, "Относительная сила ВВ"),
+            ("rws_anfo_pct", -0.5, "Относительная сила ВВ"),
+            ("rws_anfo_pct", float("nan"), "Относительная сила ВВ"),
             ("spacing_m", 0.0, "Расстояние между скважинами"),
             ("spacing_m", -1.0, "Расстояние между скважинами"),
             ("spacing_m", float("nan"), "Расстояние между скважинами"),

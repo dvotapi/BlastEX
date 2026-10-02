@@ -33,6 +33,13 @@ export function uniformityText(details: FragmentationDetails): string {
   return `${ruNumber(details.uniformity_n_raw, 2)}${accepted}${chargeToBench}`;
 }
 
+/** Сила ВВ в шкале своей модели: Каннингем — RWS к ANFO, «до исправления» — RE к тротилу. */
+export function strengthText(details: FragmentationDetails): string {
+  if (details.rws_anfo_pct !== null) return `RWS ${ruNumber(details.rws_anfo_pct, 1)} % к ANFO`;
+  if (details.re_weight !== null) return `RE ${ruNumber(details.re_weight, 3)} к тротилу`;
+  return "—";
+}
+
 type Row = { label: ReactNode; now: ReactNode; old: ReactNode; key?: boolean };
 
 /**
@@ -96,9 +103,9 @@ export function KuzRamBreakdown({ variant, thresholdPct }: { variant: BlastVaria
       old: ruNumber(old.rock_factor_a, 2),
     },
     {
-      label: "Сила ВВ RE (к тротилу) · показатель",
-      now: `${ruNumber(now.re_weight, 3)} · ${now.strength_exponent}`,
-      old: `${ruNumber(old.re_weight, 3)} · ${old.strength_exponent}`,
+      label: "Сила ВВ · показатель",
+      now: `${strengthText(now)} · ${now.strength_exponent}`,
+      old: `${strengthText(old)} · ${old.strength_exponent}`,
     },
     { label: "Средний кусок x50, мм", now: ruNumber(now.x50_mm, 1), old: ruNumber(old.x50_mm, 1) },
     { label: "Индекс равномерности n", now: uniformityText(now), old: uniformityText(old) },

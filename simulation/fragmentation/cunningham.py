@@ -2,7 +2,8 @@
 
 Формулы — C. V. B. Cunningham, «The Kuz-Ram fragmentation model — 20 years
 on», EFEE 2005: фактор породы A = 0,06·(RMD + RDI + HF), средний кусок по
-Кузнецову с показателем 19/20 (или 19/30, вариант 1983 года), индекс
+Кузнецову с множителем (115/RWS)^e, где RWS — сила ВВ относительно ANFO, %,
+и показатель e = 19/20 (или 19/30, вариант 1983 года), индекс
 равномерности n по варианту 1987 года с диаметром в миллиметрах.
 
 Полный прогноз одной точки собирает predict_point — её зовут подбор q в
@@ -20,9 +21,9 @@ from simulation.fragmentation.distributions import (
     rosin_rammler_characteristic_mm,
     rosin_rammler_oversize_pct,
 )
-from simulation.fragmentation.units import fragment_mm_from_cm
+from simulation.fragmentation.units import KUZNETSOV_TNT_INDEX, fragment_mm_from_cm
 
-MODEL_VERSION = "kuzram-cunningham-1.0"
+MODEL_VERSION = "kuzram-cunningham-1.1"
 
 ROCK_FACTOR_METHODS = ("rmd50", "rmd10", "joint_factor", "manual")
 JOINT_CONDITIONS = (1.0, 1.5, 2.0)
@@ -170,15 +171,18 @@ def mean_fragment_mm(
     rock_factor_a: float,
     powder_factor_kg_m3: float,
     charge_mass_kg: float,
-    re_weight: float,
+    rws_anfo_pct: float,
     exponent: float,
 ) -> float:
-    """x50 = A·q^−0,8·Q^(1/6)·RE^(−e): формула даёт сантиметры, результат — мм."""
+    """x50 = A·q^−0,8·Q^(1/6)·(115/RWS)^e: формула даёт сантиметры, результат — мм.
+
+    RWS — массовая сила ВВ относительно ANFO, %; 115 — тротил в той же шкале.
+    """
     x50_cm = (
         rock_factor_a
         * powder_factor_kg_m3 ** -0.8
         * charge_mass_kg ** (1.0 / 6.0)
-        * re_weight ** (-exponent)
+        * (KUZNETSOV_TNT_INDEX / rws_anfo_pct) ** exponent
     )
     return fragment_mm_from_cm(x50_cm)
 
@@ -293,7 +297,7 @@ def predict_point(
     hole_diameter_mm: float,
     powder_factor_kg_m3: float,
     charge_mass_kg: float,
-    re_weight: float,
+    rws_anfo_pct: float,
     charge_length_m: float,
     bench_height_m: float,
     lump_size_mm: float,
@@ -322,8 +326,8 @@ def predict_point(
         raise ValueError("Удельный расход для прогноза Kuz-Ram должен быть больше нуля.")
     if not _positive(charge_mass_kg):
         raise ValueError("Масса заряда для прогноза Kuz-Ram должна быть больше нуля.")
-    if not _positive(re_weight):
-        raise ValueError("Относительная сила ВВ для прогноза Kuz-Ram должна быть больше нуля.")
+    if not _positive(rws_anfo_pct):
+        raise ValueError("Относительная сила ВВ (к ANFO) для прогноза Kuz-Ram должна быть больше нуля.")
 
     rock = rock_factor(
         settings,
@@ -334,7 +338,7 @@ def predict_point(
         spacing_m=spacing_m,
     )
     x50_mm = mean_fragment_mm(
-        rock.value, powder_factor_kg_m3, charge_mass_kg, re_weight, settings.exponent
+        rock.value, powder_factor_kg_m3, charge_mass_kg, rws_anfo_pct, settings.exponent
     )
     warnings: list[str] = []
     length_m, height_m = charge_length_m, bench_height_m

@@ -443,18 +443,25 @@ def _describe_settings(snapshot: dict[str, Any]) -> str:
     return "умолчания"
 
 
+# Версия модели кусковатости у сценариев, сохранённых до того, как она
+# стала записываться в исходы: Kuz-Ram 2.0.0 считал силу ВВ к тротилу.
+PRE_VERSIONED_MODEL = "2.0.0"
+
+
 def _stale_model_warnings(
     scenarios: list[DesignScenario], baseline_snapshot: dict[str, Any] | None = None
 ) -> list[str]:
     """Сохранённые сценарии, чьи исходы нельзя сравнивать с базовым.
 
     Сценарий новой модели без снимка настроек сохранён до перевода модели
-    кусковатости (Kuz-Ram 1.0.0). Сценарий со снимком, отличным от снимка
-    базового проекта, посчитан с настройками другого объекта работ (или
-    других настроек). Исходы не пересчитываются — пользователь пересоздаёт
-    сценарий сам. baseline_snapshot — None, когда базового проекта нет.
+    кусковатости (Kuz-Ram 1.0.0). Сценарий с x50 другой версии модели
+    (пустая версия — 2.0.0, сила ВВ к тротилу) посчитан прежними формулами.
+    Сценарий со снимком, отличным от снимка базового проекта, посчитан с
+    настройками другого объекта работ (или других настроек). Исходы не
+    пересчитываются — пользователь пересоздаёт сценарий сам.
+    baseline_snapshot — None, когда базового проекта нет.
     """
-    from simulation.fragmentation.engine import is_legacy_model, resolve_model
+    from simulation.fragmentation.engine import FRAGMENTATION_MODELS, is_legacy_model, resolve_model
 
     warnings: list[str] = []
     for scenario in scenarios:
@@ -469,6 +476,14 @@ def _stale_model_warnings(
         if not snapshot:
             warnings.append(
                 f"Сценарий «{scenario.name}» посчитан до перевода модели кусковатости (Kuz-Ram 1.0.0) — "
+                "пересоздайте его для сравнения."
+            )
+            continue
+        current = FRAGMENTATION_MODELS[model_id]["version"]
+        saved = scenario.outcomes.fragmentation_model_version or PRE_VERSIONED_MODEL
+        if scenario.outcomes.x50_engineering_mm is not None and saved != current:
+            warnings.append(
+                f"Сценарий «{scenario.name}» посчитан прежней версией модели кусковатости ({saved}, сейчас {current}) — "
                 "пересоздайте его для сравнения."
             )
             continue

@@ -14,7 +14,7 @@ from typing import Any
 
 from simulation.fragmentation.cunningham import KuzRamPoint, KuzRamSettings, predict_point
 from simulation.fragmentation.models import Calibration, FragmentationInputs
-from simulation.fragmentation.units import length_m_from_mm, length_mm_from_m, relative_weight_strength
+from simulation.fragmentation.units import anfo_weight_strength_pct, length_m_from_mm, length_mm_from_m
 
 # Поправки калибровки, которые новая база не применяет: фактор породы и
 # отклонение бурения задают настройки модели объекта работ.
@@ -50,7 +50,7 @@ def region_point(inputs: FragmentationInputs, settings: KuzRamSettings | None = 
         hole_diameter_mm=charged_diameter_mm(inputs),
         powder_factor_kg_m3=inputs.powder_factor_kg_m3,
         charge_mass_kg=inputs.charge_mass_kg,
-        re_weight=relative_weight_strength(inputs.explosive_energy_mj_kg),
+        rws_anfo_pct=anfo_weight_strength_pct(inputs.explosive_energy_mj_kg),
         charge_length_m=inputs.charge_length_m,
         bench_height_m=inputs.bench_height_m,
         lump_size_mm=inputs.lump_size_mm,
@@ -62,7 +62,7 @@ def base_parameters(point: KuzRamPoint, inputs: FragmentationInputs) -> dict[str
     return {
         "rock_factor_A": point.rock.value,
         "rock_factor": asdict(point.rock),
-        "re_weight": relative_weight_strength(inputs.explosive_energy_mj_kg),
+        "rws_anfo_pct": anfo_weight_strength_pct(inputs.explosive_energy_mj_kg),
         "x50_mm": point.x50_mm,
         "uniformity_n_raw": point.uniformity.raw,
         "uniformity_n_cunningham": point.uniformity.value,

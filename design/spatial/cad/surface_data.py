@@ -197,12 +197,13 @@ def _clip_runs(points: np.ndarray, region: Polygon) -> list[np.ndarray]:
         a, b = starts[k], ends[k]
         length2 = float(np.dot(b[:2] - a[:2], b[:2] - a[:2]))
         pieces = []
-        for part in _linear_parts(shapely.intersection(segments[k], region)):
+        if length2 == 0:
+            # Отрезок нулевой длины (ограничитель из одной точки): его отметка
+            # остаётся вершиной без рёбер.
+            pieces.append((0.0, 1.0))
+        for part in _linear_parts(shapely.intersection(segments[k], region)) if length2 else []:
             coords = np.asarray(part.coords)[:, :2]
-            if length2 == 0:
-                ts = [0.0, 1.0]
-            else:
-                ts = sorted(float(np.dot(c - a[:2], b[:2] - a[:2]) / length2) for c in (coords[0], coords[-1]))
+            ts = sorted(float(np.dot(c - a[:2], b[:2] - a[:2]) / length2) for c in (coords[0], coords[-1]))
             pieces.append((max(0.0, ts[0]), min(1.0, ts[1])))
         for t0, t1 in sorted(pieces):
             p0 = a + (b - a) * t0

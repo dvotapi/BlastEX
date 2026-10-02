@@ -15,8 +15,41 @@ const api = vi.hoisted(() => ({
     contour: vi.fn(),
     saveAreaBasis: vi.fn(),
     surface: vi.fn(),
+    situation: vi.fn(),
+    updateMeta: vi.fn(),
+    saveCrs: vi.fn(),
   },
 }));
+
+const MSK66 = { name: "МСК-66 зона 1", height_system: "Балтийская 1977", epsg: null };
+
+/** Каталог ситуации объекта: файл окна и «Положение горных работ». */
+function catalogue() {
+  const version = (source_id: string, title: string, survey_date: string | null) => ({
+    source_id,
+    title,
+    file_name: `${title}.dxf`,
+    survey_date,
+    uploaded_at: "2026-09-30T10:00:00+00:00",
+    situation_count: 3,
+    revision: 1,
+  });
+  return {
+    site_code: "SITE_ZK",
+    crs: null,
+    missing: [],
+    truncated: false,
+    series: [
+      { key: "блок 66", title: "блок 66", versions: [version("src-1", "блок 66", "2026-09-28")], default_source_id: "src-1" },
+      {
+        key: "положение горных работ",
+        title: "Положение горных работ",
+        versions: [version("src-10", "Положение горных работ", "2026-10-01"), version("src-9", "Положение горных работ", "2026-09-01")],
+        default_source_id: "src-10",
+      },
+    ],
+  };
+}
 vi.mock("../../../api/endpoints", () => ({ api }));
 
 afterEach(cleanup);
@@ -39,6 +72,9 @@ beforeEach(() => {
   api.cad.contour.mockReset().mockResolvedValue(contourResult());
   api.cad.saveAreaBasis.mockReset().mockResolvedValue({ area_basis: "top", saved: true });
   api.cad.surface.mockReset().mockResolvedValue(surfaceResult());
+  api.cad.situation.mockReset().mockResolvedValue(catalogue());
+  api.cad.updateMeta.mockReset();
+  api.cad.saveCrs.mockReset().mockImplementation(async (_id: string, crs: unknown) => ({ crs, saved: true, warnings: [] }));
 });
 
 function renderDialog(extra: Partial<CadImportDialogProps> = {}) {
@@ -266,6 +302,96 @@ describe("CadImportDialog", () => {
     expect(choice.surface).toMatchObject({ kind: "top", source_format: "cad", source_name: "блок 66.dwg" });
     expect(choice.surface.tin.vertices).toHaveLength(4);
     expect(choice.surface.cad).toMatchObject({ source_id: "src-1", floor_z_m: 409.5, builder: "cdt" });
+  });
+
+  it("«Построить блок» запоминает версии ситуации объекта и отдаёт СК объекта", async () => {
+    const props = renderDialog({ sources: [cadSource({ crs: MSK66 })] });
+    await ready();
+    await waitFor(() => expect(api.cad.situation).toHaveBeenCalledWith(["src-1"]));
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.click(button);
+
+    const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(choice.crs).toEqual(MSK66);
+    expect(choice.cad.situation).toEqual([
+      { source_id: "src-1", title: "блок 66", survey_date: "2026-09-28" },
+      { source_id: "src-10", title: "Положение горных работ", survey_date: "2026-10-01" },
+    ]);
+  });
+
+  it("каталог ситуации не загрузился — блок строится без ссылки", async () => {
+    api.cad.situation.mockRejectedValue(new Error("сеть"));
+    const props = renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.click(button);
+
+    const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(choice.cad.situation).toBeUndefined();
+    expect(choice.crs).toBeNull();
+  });
+
+  it("вид объектов слоя ситуации сохраняется правкой ролей", async () => {
+    const source = cadSource();
+    const withRoad = {
+      ...source,
+      layers: [
+        ...source.layers,
+        {
+          name: "Автодорога",
+          role: "situation" as const,
+          origin: "auto" as const,
+          entity_count: 0,
+          kinds: {},
+          z_min: null,
+          z_max: null,
+          color: null,
+          counts_by_role: {},
+          situation_kind: "road" as const,
+          situation_kind_origin: "auto" as const,
+        },
+      ],
+    };
+    api.cad.saveRoles.mockResolvedValue({
+      id: "src-1",
+      template_saved: true,
+      floor_z_m: 410,
+      warnings: [],
+      layers: withRoad.layers,
+      roles: {},
+      overrides: [],
+    });
+    renderDialog({ sources: [withRoad] });
+
+    fireEvent.change(await screen.findByRole("combobox", { name: "Вид объектов слоя Автодорога" }), {
+      target: { value: "power_line" },
+    });
+
+    await waitFor(() => expect(api.cad.saveRoles).toHaveBeenCalledWith("src-1", { kinds: { Автодорога: "power_line" } }));
+  });
+
+  it("СК, заданная в окне, достаётся всем файлам объекта", async () => {
+    const onSourcesChange = vi.fn();
+    const missing = { code: "crs_missing", message: "У объекта не задана система координат.", level: "info" as const };
+    renderDialog({
+      sources: [cadSource({ warnings: [missing] }), cadSource({ id: "src-2", file_name: "ситуация.dxf", warnings: [missing] })],
+      onSourcesChange,
+    });
+    await ready();
+
+    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    fireEvent.change(screen.getByLabelText("Система координат"), { target: { value: "МСК-66 зона 1" } });
+    fireEvent.change(screen.getByLabelText("Система высот"), { target: { value: "Балтийская 1977" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(onSourcesChange).toHaveBeenCalled());
+    const next = onSourcesChange.mock.calls.at(-1)?.[0] as CadSource[];
+    expect(next.map((item) => item.crs)).toEqual([MSK66, MSK66]);
+    expect(next[1].warnings.map((item) => item.code)).not.toContain("crs_missing");
   });
 
   it("высота уступа вне 2–25 м: «Построить блок» неактивна до подтверждения на шаге «Итог»", async () => {

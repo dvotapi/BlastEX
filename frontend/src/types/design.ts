@@ -111,6 +111,8 @@ export type CoordinateSystem = {
   origin_z: number;
   units: string;
   confirmed: boolean;
+  /** Система высот («Балтийская 1977», TASK-013 PR 4); пустая не пишется. */
+  height_system?: string;
 };
 
 export type SurfaceKind = "top" | "floor" | "face" | "post_blast";
@@ -212,7 +214,12 @@ export type CadContourInfo = {
   edited: boolean;
   /** Объём с блоковой карты — для сверки с объёмом по поверхностям. */
   map_volume_m3?: number | null;
+  /** Версии ситуации объекта, показанные при «Построить блок» (PR 4). */
+  situation?: CadSituationRef[];
 };
+
+/** Ссылка паспорта на версию ситуации объекта. */
+export type CadSituationRef = { source_id: string; title: string; survey_date: string | null };
 
 export type BlockContour = {
   vertices: Point3[];

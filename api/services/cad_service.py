@@ -516,7 +516,11 @@ def _save_roles_once(
         id=record.id,
         template_saved=bool(record.site_code),
         floor_z_m=summary.get("floor_z_m"),
-        warnings=_warnings(summary),
+        # Окно заменяет предупреждения этим ответом — подсказки о СК объекта тоже здесь.
+        warnings=[
+            *_warnings(summary),
+            *_crs_warnings(record, site_context(repository, organization_id, record.site_code)),
+        ],
         layers=_layer_schemas(summary, entities),
         roles={handle: [role, origin] for handle, (role, origin) in changed.items()},
         overrides=sorted(manual_entities),

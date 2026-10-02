@@ -658,7 +658,7 @@ export function DesignPage({
     // построением и перечисляем, что сменится.
     if (rejectLocked("designed")) return;
     const { crest_z_m: crest, toe_z_m: toe } = choice.bench;
-    const confirmText = buildConfirmText(document, toe);
+    const confirmText = buildConfirmText(document, toe, choice.crs);
     if (confirmText && !window.confirm(confirmText)) return;
     // Z контура — по кровле, иначе отметка бровки: Z линии чертежа — это
     // отметка вычерчивания, а не рельеф.
@@ -671,6 +671,7 @@ export function DesignPage({
       bench: { ...(crest !== null ? { crest_z_m: crest } : {}), ...(toe !== null ? { toe_z_m: toe } : {}) },
       cad: choice.cad,
       surface: choice.surface,
+      crs: choice.crs,
     });
     setSelected(new Set());
     setPendingFit(true);

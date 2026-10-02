@@ -51,6 +51,19 @@
 .cad-request-error { margin:0; padding:5px 8px; border-radius:7px; background:#fce9e7; color:#9e3025; }
 .cad-loading { margin:8px; color:#6e7c75; }
 
+/* Шапка источника (PR 4): название и дата файла, серия ситуации, СК объекта */
+.cad-source-header { display:grid; gap:4px; padding:6px 8px; border:1px solid #e2e8e5; border-radius:8px; background:#fbfcfb; }
+.cad-source-fields, .cad-crs-form { display:grid; grid-template-columns:minmax(0,1fr) 128px; align-items:end; gap:6px; }
+.cad-crs-form { grid-template-columns:minmax(0,1fr) minmax(0,1fr) 64px; }
+.cad-source-fields label, .cad-crs-form label { display:grid; gap:2px; min-width:0; }
+.cad-source-fields label span, .cad-crs-form label span { color:#6e7c75; font-size:var(--fs-label); }
+.cad-source-fields input, .cad-crs-form input { height:var(--control-h); min-width:0; padding:0 8px; border:1px solid #ced9d3; border-radius:var(--radius-control); background:#fff; color:#17231d; font-size:var(--fs-base); }
+.cad-series { margin:0; color:#6e7c75; font-size:var(--fs-small); }
+.cad-field-error { margin:0; color:#9e3025; font-size:var(--fs-label); }
+.cad-crs { display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:var(--control-h); }
+.cad-crs-text { min-width:0; overflow:hidden; color:#3b4b43; font-size:var(--fs-label); text-overflow:ellipsis; white-space:nowrap; }
+.cad-crs-actions { display:flex; grid-column:1 / -1; gap:6px; }
+
 /* Шаг «Слои» */
 .cad-layers-wrap { flex:1 1 auto; min-height:0; overflow:auto; border:1px solid #e2e8e5; border-radius:8px; }
 .cad-layers { width:100%; border-collapse:collapse; table-layout:fixed; }
@@ -64,6 +77,8 @@
 .cad-layer-row.is-selected, .cad-entity-row.is-selected { background:#e3f1e9; }
 .cad-layer-name, .cad-entity-name { overflow:hidden; white-space:nowrap; }
 .cad-entity-row .cad-entity-name { padding-left:24px; }
+.cad-kind-row td { padding-top:0; border-bottom-color:#edf1ef; }
+.cad-kind-label { padding-left:42px; color:#6e7c75; font-size:var(--fs-small); }
 .cad-layer-name > span, .cad-entity-name > span { display:inline-grid; max-width:calc(100% - 32px); vertical-align:middle; }
 .cad-layer-name b, .cad-entity-name b, .cad-layer-name small, .cad-entity-name small { overflow:hidden; text-overflow:ellipsis; }
 .cad-layer-name small, .cad-entity-name small { color:#6e7c75; font-size:var(--fs-small); white-space:normal; }

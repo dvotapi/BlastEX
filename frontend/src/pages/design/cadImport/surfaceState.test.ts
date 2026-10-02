@@ -144,4 +144,20 @@ describe("buildConfirmText", () => {
     expect(text).toContain("поверхность подошвы «Подошва DXF» снимется: подошва — отметка 410,0 м");
     expect(text).toContain("2 скважины, заряды и сеть очистятся");
   });
+
+  it("называет смену именованной СК паспорта", () => {
+    const named = {
+      ...base,
+      contour: { ...base.contour, vertices },
+      coordinate_system: { ...base.coordinate_system, name: "Карьерная сетка", confirmed: true },
+    };
+    const msk = { name: "МСК-66 зона 1", height_system: "Балтийская 1977", epsg: null };
+
+    expect(buildConfirmText(named, 410, msk)).toContain("система координат «Карьерная сетка» сменится на «МСК-66 зона 1»");
+    expect(buildConfirmText(named, 410, { ...msk, name: "Карьерная сетка", height_system: "" })).not.toContain("система координат");
+  });
+
+  it("смена СК «local» на пустом паспорте подтверждения не требует", () => {
+    expect(buildConfirmText(base, 410, { name: "МСК-66 зона 1", height_system: "", epsg: null })).toBeNull();
+  });
 });

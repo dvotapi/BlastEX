@@ -4,7 +4,15 @@
 import { useMemo } from "react";
 import { ruNumber } from "../../../lib/format";
 import { plural } from "../../../lib/plural";
-import type { CadEntity, CadLayer, CadLayerRoleCode, CadMeta, CadRoleCode, CadSource } from "../../../types/cad";
+import type {
+  CadEntity,
+  CadLayer,
+  CadLayerRoleCode,
+  CadMeta,
+  CadRoleCode,
+  CadSituationKind,
+  CadSource,
+} from "../../../types/cad";
 import { entitiesByLayer, fragmentsLabel } from "./cadGeometry";
 import type { CanvasTarget } from "./CadCanvas";
 import { ORIGIN_TITLES, roleColor } from "./cadRoles";
@@ -40,6 +48,8 @@ export type LayersStepProps = {
   onSelect: (target: CanvasTarget) => void;
   onLayerRole: (layer: string, role: CadLayerRoleCode) => void;
   onEntityRole: (handle: string, role: CadRoleCode | null) => void;
+  /** Вид объектов ситуации слоя; null — по имени слоя (и без вида из шаблона объекта). */
+  onLayerKind: (layer: string, kind: CadSituationKind | null) => void;
 };
 
 function count(kinds: Record<string, number>, names: string[]): number {
@@ -159,6 +169,39 @@ export function LayersStep(props: LayersStepProps) {
                 <OriginBadge origin={layer.origin} label={originLabel(layer.origin)} />
               </td>
             </tr>,
+            // Вид — только у слоёв, где есть объекты ситуации: дорога, ЛЭП, склад…
+            ...(layer.situation_kind
+              ? [
+                  <tr key={`kind:${layer.name}`} className="cad-kind-row">
+                    <td className="cad-kind-label">Вид объектов</td>
+                    <td>
+                      <select
+                        aria-label={`Вид объектов слоя ${layer.name}`}
+                        value={layer.situation_kind}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          props.onLayerKind(layer.name, (event.target.value || null) as CadSituationKind | null)
+                        }
+                      >
+                        <option value="">По имени слоя</option>
+                        {meta.situation_kinds.map((kind) => (
+                          <option key={kind.code} value={kind.code}>
+                            {kind.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      {layer.situation_kind_origin && (
+                        <OriginBadge
+                          origin={layer.situation_kind_origin}
+                          label={originLabel(layer.situation_kind_origin)}
+                        />
+                      )}
+                    </td>
+                  </tr>,
+                ]
+              : []),
             ...(isOpen
               ? visible.map((entity) => {
                   // «Вручную» бывает и у роли, унаследованной от слоя, заданного вручную;

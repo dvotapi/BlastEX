@@ -496,3 +496,13 @@ def test_too_many_references_are_refused(repository):
 
     answer = client.get(f"{BASE}/situation", params=[("source_ids", f"id-{index}") for index in range(51)])
     assert answer.status_code == 422
+
+
+def test_role_edit_keeps_crs_warnings_in_the_answer(repository):
+    # Окно заменяет предупреждения ответом правки ролей — подсказка о СК не должна пропадать.
+    client = _client(repository)
+    source = _upload(client, ("block.dxf", block_dxf()))[0]
+
+    answer = client.put(f"{BASE}/sources/{source['id']}/roles", json={"layers": {"Отметка": "situation"}}).json()
+
+    assert "crs_missing" in {item["code"] for item in answer["warnings"]}

@@ -4,7 +4,9 @@
 // сохраняются на сервере сразу: шаблон слоёв объекта должен пережить закрытие
 // окна. Контур (кольцо, проверки, площади, свободную поверхность) и кровлю
 // (TIN, качество, объёмы) считает сервер, окно показывает предпросмотр на
-// каждое изменение.
+// каждое изменение. Шапка источника (PR 4) — название и дата съёмки файла
+// (серия ситуации) и СК объекта; «Построить блок» запоминает в паспорте
+// версии ситуации объекта и ставит СК объекта.
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { api } from "../../../api/endpoints";
 import { ruNumber } from "../../../lib/format";
@@ -13,15 +15,20 @@ import type {
   CadBench,
   CadContourLines,
   CadContourResult,
+  CadCrs,
+  CadCrsResponse,
   CadLayerRoleCode,
   CadMeta,
   CadParams,
   CadPassportBench,
   CadRoleCode,
   CadRolesPayload,
+  CadSituationCatalogue,
+  CadSituationKind,
   CadSource,
+  CadSourceMetaResponse,
 } from "../../../types/cad";
-import type { CadContourInfo, SurfaceModel } from "../../../types/design";
+import type { CadContourInfo, CadSituationRef, SurfaceModel } from "../../../types/design";
 import { BuildFooter } from "./BuildFooter";
 import { applyRoleChanges } from "./cadRoles";
 import { CadCanvas, type CanvasTarget } from "./CadCanvas";
@@ -40,6 +47,7 @@ import {
 } from "./contourState";
 import { ContourStep } from "./ContourStep";
 import { LayersStep } from "./LayersStep";
+import { SourceHeader } from "./SourceHeader";
 import { SummaryStep } from "./SummaryStep";
 import { SurfaceOverlay } from "./SurfaceOverlay";
 import { SurfaceStep, type SurfaceFocus } from "./SurfaceStep";
@@ -55,7 +63,21 @@ export type CadBuildChoice = {
   cad: CadContourInfo;
   /** Кровля из чертежа — в `surfaces.top`; поверхность подошвы снимается. */
   surface: SurfaceModel;
+  /** СК объекта — ставится в паспорт подтверждённой; null — СК паспорта не меняется. */
+  crs: CadCrs | null;
 };
+
+/**
+ * Версии ситуации, которые запомнит паспорт: по умолчанию каталога объекта.
+ * Каталог запрошен со ссылками на файлы окна — они главнее в своих сериях.
+ */
+export function situationReference(catalogue: CadSituationCatalogue | null): CadSituationRef[] | undefined {
+  if (!catalogue) return undefined;
+  return catalogue.series.flatMap((series) => {
+    const version = series.versions.find((item) => item.source_id === series.default_source_id);
+    return version ? [{ source_id: version.source_id, title: version.title, survey_date: version.survey_date }] : [];
+  });
+}
 
 export type CadImportDialogProps = {
   sources: CadSource[];
@@ -146,6 +168,10 @@ export function CadImportDialog({
   const [linesError, setLinesError] = useState("");
   const [floorText, setFloorText] = useState("");
   const [radiusText, setRadiusText] = useState("");
+  // Ситуация объекта: какие версии запомнит паспорт и какие названия серий уже есть.
+  const [catalogue, setCatalogue] = useState<CadSituationCatalogue | null>(null);
+  const [metaVersion, setMetaVersion] = useState(0);
+  const sourcesKey = sources.map((source) => source.id).join(",");
   const entities = useMemo(() => new Map((active?.entities ?? []).map((entity) => [entity.handle, entity])), [active?.entities]);
   const rolesKey = contour.roles.join(",");
 
@@ -198,6 +224,24 @@ export function CadImportDialog({
   function onDialogClose(event: SyntheticEvent<HTMLDialogElement>) {
     if (event.target === ref.current) onCancel();
   }
+
+  // Каталог ситуации объекта — после правки ролей, видов, названия или даты он
+  // меняется. Ошибка не мешает построению: паспорт без ссылки покажет свежие версии.
+  useEffect(() => {
+    let alive = true;
+    api.cad
+      .situation(sourcesKey ? sourcesKey.split(",") : [])
+      .then((loaded) => alive && setCatalogue(loaded))
+      .catch(() => alive && setCatalogue(null));
+    return () => {
+      alive = false;
+    };
+  }, [sourcesKey, version, metaVersion]);
+
+  const knownTitles = useMemo(
+    () => [...new Set((catalogue?.series ?? []).flatMap((series) => series.versions.map((item) => item.title)))],
+    [catalogue],
+  );
 
   // Линии для контура: разрезы в пересечениях (участок по щелчку), сшитые
   // бровки и их разрывы. Зависят от ролей — после правки ролей перечитываются.
@@ -339,8 +383,38 @@ export function CadImportDialog({
         map_volume_m3: parseNumber(surface.mapVolume),
         built_at: builtAt,
         edited: false,
+        situation: situationReference(catalogue),
       },
+      crs: active.crs,
     });
+  }
+
+  /** Название и дата сохранены: серия файла могла смениться. */
+  function metaSaved(answer: CadSourceMetaResponse) {
+    if (!open.current) return;
+    commit(
+      latestSources.current.map((source) =>
+        source.id === answer.id
+          ? { ...source, title: answer.title, survey_date: answer.survey_date, series: answer.series }
+          : source,
+      ),
+    );
+    setMetaVersion((current) => current + 1);
+  }
+
+  /** СК сохранена на объекте — она у всех файлов этого объекта. */
+  function crsSaved(sourceId: string, answer: CadCrsResponse) {
+    if (!open.current) return;
+    const saved = latestSources.current.find((source) => source.id === sourceId);
+    if (!saved) return;
+    commit(
+      latestSources.current.map((source) => {
+        if (source.id === sourceId) return { ...source, crs: answer.crs, warnings: answer.warnings };
+        if (!saved.site_code || source.site_code !== saved.site_code) return source;
+        const warnings = answer.crs ? source.warnings.filter((item) => item.code !== "crs_missing") : source.warnings;
+        return { ...source, crs: answer.crs, warnings };
+      }),
+    );
   }
 
   function replace(updated: CadSource) {
@@ -491,6 +565,15 @@ export function CadImportDialog({
                 </select>
               </label>
             )}
+            <SourceHeader
+              source={active}
+              knownTitles={knownTitles}
+              disabled={pending}
+              saveMeta={api.cad.updateMeta}
+              saveCrs={api.cad.saveCrs}
+              onMetaSaved={metaSaved}
+              onCrsSaved={crsSaved}
+            />
             {active.warnings.length > 0 && (
               <ul className="cad-warnings">
                 {active.warnings.map((warning) => (
@@ -585,6 +668,7 @@ export function CadImportDialog({
                     onSelect={select}
                     onLayerRole={(layer: string, role: CadLayerRoleCode) => saveRoles({ layers: { [layer]: role } })}
                     onEntityRole={(handle: string, role: CadRoleCode | null) => saveRoles({ entities: { [handle]: role } })}
+                    onLayerKind={(layer: string, kind: CadSituationKind | null) => saveRoles({ kinds: { [layer]: kind } })}
                   />
                 ) : (
                   !metaError && <p className="cad-loading">Загружаю роли слоёв…</p>

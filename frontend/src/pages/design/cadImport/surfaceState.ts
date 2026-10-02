@@ -3,7 +3,7 @@
 // блоковой карты. Только чистые функции — их проверяют тесты без DOM.
 import { ruNumber } from "../../../lib/format";
 import { plural } from "../../../lib/plural";
-import type { CadContourResult, CadSource, CadSurfaceRequest, CadSurfaceResult, CadSurfaceRole } from "../../../types/cad";
+import type { CadContourResult, CadCrs, CadSource, CadSurfaceRequest, CadSurfaceResult, CadSurfaceRole } from "../../../types/cad";
 import { emptyCoordinateSystem, type BlastDesign, type SurfaceModel } from "../../../types/design";
 import { parseNumber } from "./contourState";
 
@@ -134,9 +134,16 @@ export function roofSurface(result: CadSurfaceResult, source: CadSource, state: 
 }
 
 /** Что сменит «Построить блок» в паспорте — текст подтверждения (null — терять нечего). */
-export function buildConfirmText(design: BlastDesign, toe: number | null): string | null {
+export function buildConfirmText(design: BlastDesign, toe: number | null, crs: CadCrs | null = null): string | null {
   const changes: string[] = [];
   if (design.contour.vertices.length) changes.push("контур блока и отметки уступа заменятся контуром из чертежа");
+  // Смену именованной СК паспорта называем; «local» нового паспорта — ожидаемая смена.
+  const current = design.coordinate_system;
+  const named = current.name.trim() !== "" && current.name.trim().toLowerCase() !== "local";
+  const differs =
+    crs !== null &&
+    (crs.name !== current.name || crs.height_system !== (current.height_system ?? "") || crs.epsg !== current.epsg);
+  if (named && differs) changes.push(`система координат «${current.name}» сменится на «${crs?.name}»`);
   const { top, floor } = design.surfaces;
   if (top) changes.push(`кровля «${top.name}» заменится кровлей из чертежа`);
   if (floor) {

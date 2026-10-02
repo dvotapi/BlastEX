@@ -25,6 +25,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import shapely
 import shapely.ops
 from shapely.geometry import LineString, Point
@@ -271,30 +272,68 @@ def _points_of(geometry) -> list[Point]:
 # --- разрезы линий -------------------------------------------------------
 
 
-# Пар пересекающихся линий не больше этого. Предел отрезков не спасает: тысячи
-# отрезков, пересекающих друг друга (наложенные копии, штриховка), дали бы сотни
-# миллионов пар и гигабайты памяти ещё до разрезов.
+# Пар пересекающихся отрезков не больше этого. Предел отрезков не спасает:
+# тысячи отрезков, пересекающих друг друга (наложенные копии, штриховка, две
+# «змейки» поперёк друг друга), дали бы сотни миллионов пар и точек — гигабайты
+# памяти ещё до разрезов. Считаются отрезки, а не линии: одна пара линий может
+# пересекаться миллион раз.
 MAX_CROSSING_PAIRS = 50_000
-# Линий в одном запросе к STRtree: пары набираются частями, а не все сразу.
+# Отрезков в одном запросе к STRtree: пары набираются частями, а не все сразу.
 _QUERY_CHUNK = 128
 
 
-def _crossing_pairs(geoms: Sequence[LineString]) -> list[tuple[int, int]]:
-    """Пары пересекающихся линий (i < j); слишком много — ошибка ввода."""
+@dataclass
+class _Crossings:
+    """Пересекающиеся отрезки линий: чей отрезок и где он начинается по длине линии."""
 
-    tree = shapely.STRtree(geoms)
-    pairs: list[tuple[int, int]] = []
-    for start in range(0, len(geoms), _QUERY_CHUNK):
-        left, right = tree.query(geoms[start : start + _QUERY_CHUNK], predicate="intersects")
-        left = left + start
-        keep = left < right
-        pairs.extend(zip(left[keep].tolist(), right[keep].tolist()))
-        if len(pairs) > MAX_CROSSING_PAIRS:
+    segments: list[LineString]
+    owner: list[int]
+    start_m: list[float]
+    pairs: list[tuple[int, int]]
+
+
+def _crossing_segments(geoms: Sequence[LineString]) -> _Crossings:
+    """Пары пересекающихся отрезков (соседние отрезки одной линии — не пара);
+    слишком много — ошибка ввода."""
+
+    segments: list[LineString] = []
+    owner: list[int] = []
+    order: list[int] = []
+    start_m: list[float] = []
+    counts: list[int] = []
+    rings: list[bool] = []
+    for number, geom in enumerate(geoms):
+        coords = list(geom.coords)
+        walked = 0.0
+        for index, (a, b) in enumerate(zip(coords, coords[1:])):
+            segments.append(LineString([a, b]))
+            owner.append(number)
+            order.append(index)
+            start_m.append(walked)
+            walked += math.dist(a, b)
+        counts.append(len(coords) - 1)
+        rings.append(len(coords) > 3 and coords[0] == coords[-1])
+    found = _Crossings(segments, owner, start_m, [])
+    if not segments:
+        return found
+    owners = np.asarray(owner)
+    orders = np.asarray(order)
+    last = np.asarray(counts)[owners] - 1
+    closed = np.asarray(rings)[owners]
+    tree = shapely.STRtree(segments)
+    for begin in range(0, len(segments), _QUERY_CHUNK):
+        left, right = tree.query(segments[begin : begin + _QUERY_CHUNK], predicate="intersects")
+        left = left + begin
+        step = np.abs(orders[left] - orders[right])
+        neighbours = (owners[left] == owners[right]) & ((step == 1) | (closed[left] & (step == last[left])))
+        keep = (left < right) & ~neighbours
+        found.pairs.extend(zip(left[keep].tolist(), right[keep].tolist()))
+        if len(found.pairs) > MAX_CROSSING_PAIRS:
             raise ContourInputError(
-                f"Пересечений линий выбранных ролей слишком много: больше {MAX_CROSSING_PAIRS} пар. "
+                f"Пересечений линий выбранных ролей слишком много: больше {MAX_CROSSING_PAIRS} пар отрезков. "
                 "Снимите лишние роли."
             )
-    return pairs
+    return found
 
 
 def split_lines(lines: Sequence[CadEntity]) -> tuple[dict[str, list[float]], list[XY]]:
@@ -309,12 +348,18 @@ def split_lines(lines: Sequence[CadEntity]) -> tuple[dict[str, list[float]], lis
         return {}, []
     frame = LocalFrame.of(point for item in usable for point in line_xy(item))
     geoms = [LineString(frame.to_local(line_xy(item))) for item in usable]
+    found = _crossing_segments(geoms)
     raw: dict[int, list[float]] = {}
     crossings: dict[tuple[float, float], XY] = {}
-    for i, j in _crossing_pairs(geoms):
-        for point in _points_of(geoms[i].intersection(geoms[j])):
-            raw.setdefault(i, []).append(geoms[i].project(point))
-            raw.setdefault(j, []).append(geoms[j].project(point))
+    for a, b in found.pairs:
+        i, j = found.owner[a], found.owner[b]
+        if i == j:
+            continue
+        first, second = found.segments[a], found.segments[b]
+        for point in _points_of(first.intersection(second)):
+            # Место — по длине линии до отрезка плюс по самому отрезку.
+            raw.setdefault(i, []).append(found.start_m[a] + first.project(point))
+            raw.setdefault(j, []).append(found.start_m[b] + second.project(point))
             world = frame.point_to_world((point.x, point.y))
             crossings.setdefault((round(world[0], 3), round(world[1], 3)), world)
 
@@ -622,7 +667,7 @@ def click_contour(
 
     frame = LocalFrame.of([*(p for item in usable for p in line_xy(item)), point])
     originals = [LineString(frame.to_local(line_xy(item))) for item in usable]
-    _crossing_pairs(originals)
+    _crossing_segments(originals)
     segments = _segments(shapely.unary_union(originals))
     noded, bridges = _close_network(segments, tolerance_m, bridge_m)
     network = shapely.unary_union([*noded, *(LineString(bridge) for bridge in bridges)])

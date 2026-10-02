@@ -360,3 +360,24 @@ def test_dense_dangling_ends_are_refused_before_materializing_all_pairs():
     hatch = [line(f"H{k}", [(0.0, 0.001 * k), (0.1, 0.001 * k)]) for k in range(count)]
     with pytest.raises(ContourInputError, match="Концов линий"):
         click_contour(hatch, (0.05, 0.5), 0.5, 5.0)
+
+
+def test_two_serpentines_crossing_each_other_thousands_of_times_are_refused():
+    # Одна пара линий, но десятки тысяч пересечений их отрезков (Codex P1).
+    side = 240
+    across = line("H", [(float(k), 0.0 if k % 2 == 0 else float(side)) for k in range(side + 1)])
+    down = line("V", [(0.0 if k % 2 == 0 else float(side), float(k)) for k in range(side + 1)])
+    with pytest.raises(ContourInputError, match="Пересечений"):
+        split_lines([across, down])
+    with pytest.raises(ContourInputError, match="Пересечений"):
+        click_contour([across, down], (10.5, 10.5), 0.5, 5.0)
+
+
+def test_splits_are_measured_along_the_line_by_segment():
+    # Разрезы по длине линии в плане — как раньше, но по отрезку, а не проекцией на всю линию.
+    zigzag = line("Z", [(0, 0), (10, 0), (10, 10), (20, 10)])
+    cross = line("X", [(5, -5), (5, 5)])
+    up = line("U", [(15, 5), (15, 15)])
+    splits, points = split_lines([zigzag, cross, up])
+    assert splits["Z"] == pytest.approx([5.0, 25.0])
+    assert sorted(points) == pytest.approx(sorted([(5.0, 0.0), (15.0, 10.0)]))

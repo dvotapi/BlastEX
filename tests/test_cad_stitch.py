@@ -153,3 +153,25 @@ def test_many_ends_at_one_junction_stitch_quickly():
     stitch_lines(rays)
     elapsed = time.perf_counter() - started
     assert elapsed < 2.0, f"{elapsed:.2f} с"
+
+
+def test_thousands_of_unstitchable_ends_close_together_stay_fast():
+    import time
+
+    # 1500 коротких обрывков разных уступов в пятиметровом пятне: сшить нечего,
+    # а пар концов ближе 5 м — миллионы (Codex P1).
+    rng = random.Random(3)
+    scraps = []
+    for k in range(1500):
+        x, y, angle = rng.uniform(0, 5), rng.uniform(0, 5), rng.uniform(0, 2 * math.pi)
+        z = 2.0 * k  # у каждого обрывка своя отметка: сшить нечего
+        scraps.append(
+            CadEntity(handle=f"S{k:04d}", layer="Бровка", kind="POLYLINE3D",
+                      points=[(x, y, z), (x + 0.3 * math.cos(angle), y + 0.3 * math.sin(angle), z)])
+        )
+    started = time.perf_counter()
+    lines, gaps = stitch_lines(scraps)
+    elapsed = time.perf_counter() - started
+
+    assert lines and len(gaps) <= len(lines)
+    assert elapsed < 3.0, f"{elapsed:.2f} с"

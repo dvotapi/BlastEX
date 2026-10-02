@@ -12,6 +12,8 @@ from api.schemas.datasets import (
 )
 from api.security import require_internal_access
 from api.services import dataset_service
+from api.services.economics_service import get_economics_repository
+from cost.v2.repository import EconomicsRepository
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -25,8 +27,9 @@ def list_datasets(session: dict = Depends(require_internal_access)) -> DatasetLi
 def build_dataset(
     request: DatasetBuildRequest,
     session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> DatasetSnapshotSchema:
-    return dataset_service.build_snapshot_for_team(session["org"], request)
+    return dataset_service.build_snapshot_for_team(session["org"], request, repository=repository)
 
 
 @router.post("/preview", response_model=SampleValidationSchema)

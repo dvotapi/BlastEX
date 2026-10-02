@@ -159,6 +159,8 @@ import type {
   CadRolesPayload,
   CadRolesResponse,
   CadSource,
+  CadSurfaceRequest,
+  CadSurfaceResult,
   CadUploadParams,
 } from "../types/cad";
 
@@ -464,6 +466,8 @@ export const api = {
       post<CadContourResult>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/contour`, payload),
     saveAreaBasis: (id: string, areaBasis: CadAreaBasis) =>
       put<CadAreaBasisResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/area-basis`, { area_basis: areaBasis }),
+    surface: (id: string, payload: CadSurfaceRequest) =>
+      post<CadSurfaceResult>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/surface`, payload),
   },
   design: {
     pattern: (

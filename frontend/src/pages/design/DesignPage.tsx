@@ -85,7 +85,7 @@ import {
   type BlastPassport,
   type DesignLifecycleStatus,
 } from "../../types/design";
-import { emptyHoleGeology } from "../../types/design";
+import { emptyHoleGeology, emptySurfaces } from "../../types/design";
 import {
   canEditDesigned,
   canEditExecution,
@@ -116,6 +116,7 @@ import { MapStatusBar } from "./MapStatusBar";
 import { HoleContextMenu, type HoleContextMenuState } from "./HoleContextMenu";
 import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCommand } from "./CommandPalette";
 import { CadImportDialog, type CadBuildChoice } from "./cadImport/CadImportDialog";
+import { buildConfirmText } from "./cadImport/surfaceState";
 import { computeAllHoleHealth, healthColor, summarizeHealth } from "./holeHealth";
 import {
   applyPresetToState,
@@ -638,20 +639,25 @@ export function DesignPage({
     }
   }
 
-  /** Шаг 2: инженер построил контур на шаге «Контур» — только теперь меняем блок. */
+  /** Шаг 2: инженер построил контур и кровлю в окне — только теперь меняем блок. */
   function applyCadContour(choice: CadBuildChoice) {
-    // Загрузка и разметка слоёв блок не меняют — спрашиваем только перед построением.
+    // Загрузка и разметка слоёв блок не меняют — спрашиваем только перед
+    // построением и перечисляем, что сменится.
     if (rejectLocked("designed")) return;
-    if (document.holes.length && !window.confirm("Построение заменит контур и очистит скважины, заряды и сеть. Продолжить?")) return;
     const { crest_z_m: crest, toe_z_m: toe } = choice.bench;
-    // Z контура — отметка бровки: Z линии чертежа — это отметка вычерчивания, а не рельеф.
+    const confirmText = buildConfirmText(document, toe);
+    if (confirmText && !window.confirm(confirmText)) return;
+    // Z контура — по кровле, иначе отметка бровки: Z линии чертежа — это
+    // отметка вычерчивания, а не рельеф.
     const z = crest ?? document.contour.bench.crest_z_m;
+    const roof = { ...emptySurfaces(), top: choice.surface };
     dispatch({
       type: "APPLY_CAD_CONTOUR",
-      vertices: choice.vertices.map(([x, y]) => ({ x, y, z })),
+      vertices: choice.vertices.map(([x, y]) => ({ x, y, z: collarZFromSurfaces(roof, x, y, z) })),
       free_faces: choice.free_faces,
       bench: { ...(crest !== null ? { crest_z_m: crest } : {}), ...(toe !== null ? { toe_z_m: toe } : {}) },
       cad: choice.cad,
+      surface: choice.surface,
     });
     setSelected(new Set());
     setPendingFit(true);
@@ -3255,6 +3261,7 @@ export function DesignPage({
               sources={cadSources}
               burden={patternParams.burden_b_m ?? null}
               passportBench={document.contour.bench}
+              subdrill={patternParams.subdrill_m ?? null}
               onSourcesChange={setCadSources}
               onCancel={() => setCadSources(null)}
               onBuild={applyCadContour}

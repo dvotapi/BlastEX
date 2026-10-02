@@ -43,6 +43,8 @@ export type DesignAction =
       free_faces: number[][];
       bench: Partial<BenchSurface>;
       cad: CadContourInfo;
+      /** Кровля из чертежа (TASK-013, PR 3): ставится в `surfaces.top`, подошва — числом. */
+      surface: SurfaceModel;
     }
   | { type: "SET_BENCH"; bench: Partial<BenchSurface> }
   | { type: "SET_COORDINATE_SYSTEM"; patch: Partial<CoordinateSystem> }
@@ -203,7 +205,9 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     }
     case "APPLY_CAD_CONTOUR": {
       // Построение блока из чертежа — одна правка: контур, откосы, отметки
-      // уступа и данные чертежа; скважины, заряды и сеть прежнего контура очищаются.
+      // уступа, данные чертежа и кровля; поверхность подошвы снимается
+      // (подошва — проектная отметка числом); скважины, заряды и сеть прежнего
+      // контура очищаются.
       const cleared = reduceDocument(document, { type: "SET_HOLES", holes: [] });
       return {
         ...cleared,
@@ -214,6 +218,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
           bench: { ...cleared.contour.bench, ...action.bench },
           cad: action.cad,
         },
+        surfaces: { ...cleared.surfaces, top: action.surface, floor: null },
       };
     }
     case "TOGGLE_FREE_FACE": {

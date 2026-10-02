@@ -1,7 +1,7 @@
 // Контур из чертежа в паспорте (TASK-013, PR 2): одно построение — один шаг
 // отмены; ручная правка вершин в плане помечает контур «правился».
 import { describe, expect, it } from "vitest";
-import { emptyDesign, type BlastDesign, type CadContourInfo, type Hole } from "../../types/design";
+import { emptyCoordinateSystem, emptyDesign, type BlastDesign, type CadContourInfo, type Hole, type SurfaceModel } from "../../types/design";
 import { designReducer, initDesignState } from "./designReducer";
 
 const CAD: CadContourInfo = {
@@ -29,6 +29,32 @@ const CAD: CadContourInfo = {
   edited: false,
 };
 
+function surface(kind: SurfaceModel["kind"], name: string, cad: SurfaceModel["cad"] = null): SurfaceModel {
+  return {
+    kind,
+    name,
+    source_format: cad ? "cad" : "csv",
+    source_name: "",
+    created_at: "2026-10-02T10:00:00Z",
+    coordinate_system: emptyCoordinateSystem(),
+    points: [],
+    polylines: [],
+    tin: { vertices: [{ x: 0, y: 0, z: 420 }, { x: 40, y: 0, z: 420 }, { x: 40, y: 20, z: 420 }], triangles: [[0, 1, 2]] },
+    cad,
+  };
+}
+
+const ROOF = surface("top", "Кровля из чертежа", {
+  source_id: "src-1",
+  file_name: "блок 66.dwg",
+  roles: ["crest_top", "spot_heights"],
+  excluded: [],
+  builder: "cdt",
+  floor_z_m: 410,
+  quality: { spot_count: 206 },
+  built_at: "2026-10-02T10:00:00Z",
+});
+
 const VERTICES = [
   { x: 0, y: 0, z: 420 },
   { x: 40, y: 0, z: 420 },
@@ -49,6 +75,7 @@ describe("APPLY_CAD_CONTOUR", () => {
       free_faces: [[1, 2]],
       bench: { crest_z_m: 420, toe_z_m: 410 },
       cad: CAD,
+      surface: ROOF,
     });
 
     expect(built.present.contour.vertices).toEqual(VERTICES);
@@ -63,6 +90,31 @@ describe("APPLY_CAD_CONTOUR", () => {
   });
 });
 
+describe("APPLY_CAD_CONTOUR: кровля из чертежа", () => {
+  it("ставит кровлю, снимает поверхность подошвы, объём с карты — и всё одним шагом отмены", () => {
+    const old = { ...withHole(), surfaces: { top: surface("top", "Старая кровля"), floor: surface("floor", "Подошва"), face: null, post_blast: null } };
+    const start = initDesignState(old);
+
+    const built = designReducer(start, {
+      type: "APPLY_CAD_CONTOUR",
+      vertices: VERTICES,
+      free_faces: [[1, 2]],
+      bench: { crest_z_m: 420, toe_z_m: 410 },
+      cad: { ...CAD, map_volume_m3: 28279.39 },
+      surface: ROOF,
+    });
+
+    expect(built.present.surfaces.top).toEqual(ROOF);
+    expect(built.present.surfaces.floor).toBeNull();
+    expect(built.present.contour.cad?.map_volume_m3).toBe(28279.39);
+    expect(built.past).toHaveLength(1);
+
+    const undone = designReducer(built, { type: "UNDO" });
+    expect(undone.present.surfaces.top?.name).toBe("Старая кровля");
+    expect(undone.present.surfaces.floor?.name).toBe("Подошва");
+  });
+});
+
 describe("ручная правка контура из чертежа", () => {
   const built = designReducer(initDesignState(emptyDesign()), {
     type: "APPLY_CAD_CONTOUR",
@@ -70,6 +122,7 @@ describe("ручная правка контура из чертежа", () => {
     free_faces: [],
     bench: {},
     cad: CAD,
+    surface: ROOF,
   });
 
   it("сдвиг вершины в плане помечает контур «правился»", () => {

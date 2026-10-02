@@ -217,3 +217,85 @@ export type CadContourResult = {
 };
 
 export type CadAreaBasisResponse = { area_basis: CadAreaBasis; saved: boolean };
+
+// --- кровля блока (PR 3): `/design/cad/sources/{id}/surface` ---
+
+/** Роли линий, которые могут войти в кровлю. */
+export type CadSurfaceRole = "crest_top" | "crest_bottom" | "feature_line" | "contour_line" | "spot_heights";
+
+export type CadSurfaceRequest = {
+  top: number[][];
+  bottom: number[][] | null;
+  roles: CadSurfaceRole[];
+  /** Исключённые отметки: id точки (handle) или «handle:вершина» линии съёмки. */
+  excluded: string[];
+  floor_z_m: number | null;
+  /** Отметка бровки — для части контура вне кровли и для плоскости без отметок. */
+  crest_z_m: number | null;
+};
+
+export type CadTin = { vertices: number[][]; triangles: number[][] };
+
+export type CadSurfaceQuality = {
+  spot_count: number;
+  coverage_pct: number;
+  /** Наибольшее расстояние от точки контура до ближайшей отметки и где оно. */
+  max_gap_m: number | null;
+  max_gap_point: number[] | null;
+  outlier_count: number;
+  conflict_count: number;
+  snapped_count: number;
+  vertex_count: number;
+  triangle_count: number;
+  flat_fixed: number;
+};
+
+export type CadOutlier = { id: string; handle: string; point: number[]; deviation_m: number };
+
+export type CadExcludedPoint = { id: string; point: number[] };
+
+export type CadConflict = {
+  /** `crossing` — пересечение ограничителей, `duplicate` — дубль отметки. */
+  kind: "crossing" | "duplicate";
+  point: number[];
+  values: Array<{ role: string; handle: string; z: number }>;
+  accepted_z: number;
+};
+
+export type CadSnapped = { id: string; point: number[]; from_z: number; to_z: number };
+
+export type CadThreshold = { segments: number[][][]; excess_m: number };
+
+export type CadSurfaceBench = {
+  floor_z_m: number | null;
+  mean_height_m: number | null;
+  /** Высота вне 2–25 м: блок строится только после подтверждения. */
+  needs_confirmation: boolean;
+};
+
+export type CadSurfaceVolume = {
+  volume_m3: number | null;
+  /** По какому контуру объём: по нижней бровке или по верхней. */
+  basis: "top" | "bottom";
+  area_top_m2: number;
+  area_bottom_m2: number;
+  area_mean_m2: number;
+  mean_area_volume_m3: number | null;
+};
+
+export type CadSurfaceResult = {
+  ok: boolean;
+  builder: string;
+  plane: boolean;
+  issues: CadContourIssue[];
+  warnings: CadWarning[];
+  tin: CadTin;
+  quality: CadSurfaceQuality;
+  outliers: CadOutlier[];
+  excluded_points: CadExcludedPoint[];
+  conflicts: CadConflict[];
+  snapped: CadSnapped[];
+  thresholds: CadThreshold[];
+  bench: CadSurfaceBench;
+  volume: CadSurfaceVolume;
+};

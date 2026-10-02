@@ -10,6 +10,13 @@ from typing import Any
 import numpy as np
 
 from intelligence.calibration.algorithms import get_algorithm
+from intelligence.calibration.base import (
+    CURRENT_BASE,
+    FRAGMENTATION_RESIDUALS,
+    FragmentationBase,
+    compatible,
+    prediction_base,
+)
 from intelligence.calibration.features import flatten_features, vectorize_features
 from intelligence.calibration.types import (
     APPLIED_AS_OVERLAY,
@@ -24,12 +31,12 @@ from intelligence.calibration.types import (
     CalibrationPrediction,
     normalize_model_type,
 )
+from intelligence.datasets.baseline import fragmentation_baseline, stored_prediction
 from intelligence.datasets.features import extract_features
 from intelligence.explainability.explain import explain_estimator
 from intelligence.explainability.types import empty_explanation
 from intelligence.uncertainty.assess import assess_vector, unavailable
 from design.models import BlastDesign
-from simulation.fragmentation.models import LEGACY_MODEL_SUFFIX, MODEL_KUZRAM_LEGACY, ModelProvenance
 
 
 def clamp_calibrated(model_type: str, value: float) -> float:
@@ -177,59 +184,64 @@ def flatten_from_design(design: BlastDesign, *, site_id: str) -> dict[str, float
     return flatten_features(features_from_design(design, site_id=site_id))
 
 
-def empirical_baseline(design: BlastDesign, model_type: str) -> tuple[float | None, str]:
-    """Resolve Kuz-Ram / PPV empirical baseline without touching the design."""
+def empirical_baseline(
+    design: BlastDesign,
+    model_type: str,
+    *,
+    base: FragmentationBase = CURRENT_BASE,
+    fallback_settings: Any = None,
+    fallback_source: dict[str, Any] | None = None,
+) -> tuple[float | None, str]:
+    """Baseline для калибровки по паспорту, не меняя его.
+
+    Кусковатость — базой артефакта: сохранённый прогноз берётся, только если
+    посчитан совместимой моделью, иначе пересчёт той же функцией, что строит
+    baseline снимка датасета.
+    """
     model_type = normalize_model_type(model_type)
-    stored = _stored_predicted(design, model_type)
+    if model_type in FRAGMENTATION_RESIDUALS:
+        return _fragmentation_baseline(design, model_type, base, fallback_settings, fallback_source)
+    stored = _stored_ppv(design)
     if stored is not None:
         return stored, "stored_predicted"
-    computed = _compute_empirical(design, model_type)
+    computed = _compute_ppv(design)
     if computed is not None:
-        spec = MODEL_SPECS[model_type]
-        return computed, spec["baseline_source"]
+        return computed, MODEL_SPECS[model_type]["baseline_source"]
     return None, ""
 
 
-# Калибровки обучены на прогнозах Kuz-Ram 1.0.0 (формулы до перевода на
-# Каннингема). Пока артефакт не хранит свою базу (PR 3), baseline для них
-# считается той же старой моделью — иначе поправка ляжет на чужую формулу.
-CALIBRATION_BASELINE_MODEL = MODEL_KUZRAM_LEGACY
+def _fragmentation_baseline(
+    design: BlastDesign,
+    model_type: str,
+    base: FragmentationBase,
+    fallback_settings: Any,
+    fallback_source: dict[str, Any] | None,
+) -> tuple[float | None, str]:
+    key = "x50_mm" if model_type == MODEL_KUZRAM_RESIDUAL else "oversize_pct"
+    stored = stored_prediction(design)
+    if stored is not None and getattr(stored, key) is not None:
+        try:
+            stored_base = prediction_base(stored.provenance.model, stored.provenance.model_version)
+        except ValueError:
+            stored_base = None
+        if stored_base is not None and compatible(model_type, base, stored_base):
+            return float(getattr(stored, key)), "stored_predicted"
+    computed = fragmentation_baseline(
+        design, model=base.model, fallback_settings=fallback_settings, fallback_source=fallback_source
+    )
+    value = computed[f"baseline_{key}"]
+    return (float(value), base.model) if value is not None else (None, "")
 
 
-def _old_base(provenance: ModelProvenance) -> bool:
-    """Прогноз посчитан старой базой — той, на которой обучены калибровки."""
-    return provenance.model.endswith(LEGACY_MODEL_SUFFIX) or not provenance.model_version.startswith("2.")
-
-
-def _stored_predicted(design: BlastDesign, model_type: str) -> float | None:
+def _stored_ppv(design: BlastDesign) -> float | None:
     result = design.blast_result
     if result is None or result.basis is None:
         return None
-    if model_type in {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}:
-        predicted = result.basis.predicted_fragmentation
-        if predicted is None or not _old_base(predicted.provenance):
-            return None
-        if model_type == MODEL_KUZRAM_RESIDUAL:
-            return float(predicted.x50_mm) if predicted.x50_mm is not None else None
-        return float(predicted.oversize_pct) if predicted.oversize_pct is not None else None
-    predicted = result.basis.predicted_vibration or []
-    values = [item.ppv_mm_s for item in predicted if item.ppv_mm_s is not None]
+    values = [item.ppv_mm_s for item in result.basis.predicted_vibration or [] if item.ppv_mm_s is not None]
     return max(values) if values else None
 
 
-def _compute_empirical(design: BlastDesign, model_type: str) -> float | None:
-    if model_type in {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}:
-        from simulation.fragmentation.engine import predict_design
-
-        try:
-            payload = predict_design(design, model=CALIBRATION_BASELINE_MODEL)
-        except ValueError:
-            return None
-        site = payload.get("site") or {}
-        prediction = site.get("prediction") or {}
-        key = "x50_mm" if model_type == MODEL_KUZRAM_RESIDUAL else "oversize_pct"
-        value = prediction.get(key)
-        return float(value) if value is not None else None
+def _compute_ppv(design: BlastDesign) -> float | None:
     from design.vibration import predict_design as predict_ppv_design
 
     try:

@@ -11,28 +11,7 @@ from unittest.mock import patch
 
 from api.services import scenario_service
 from design.scenarios.types import ScenarioOutcomes, ScenarioParams
-from intelligence.calibration import prediction as calibration_prediction
-from intelligence.calibration.types import MODEL_KUZRAM_RESIDUAL
-from simulation.fragmentation import engine as fragmentation_engine
-from simulation.fragmentation.models import ModelProvenance
 from tests.scenario_fixtures import charged_design
-
-
-class CalibrationBaselineTests(unittest.TestCase):
-    def test_empirical_baseline_uses_legacy_model(self):
-        with patch.object(fragmentation_engine, "predict_design", wraps=fragmentation_engine.predict_design) as spy:
-            value = calibration_prediction._compute_empirical(charged_design("ml-base"), MODEL_KUZRAM_RESIDUAL)
-
-        self.assertIsNotNone(value)
-        self.assertEqual(spy.call_args.kwargs["model"], "kuzram_legacy")
-
-    def test_only_old_base_predictions_are_baselines(self):
-        old_base = calibration_prediction._old_base
-        self.assertTrue(old_base(ModelProvenance(model="kuzram", model_version="1.0.0")))
-        self.assertTrue(old_base(ModelProvenance(model="kuzram", model_version="")))
-        self.assertTrue(old_base(ModelProvenance(model="kuzram_legacy", model_version="1.0.0")))
-        self.assertFalse(old_base(ModelProvenance(model="kuzram", model_version="2.0.0")))
-        self.assertFalse(old_base(ModelProvenance(model="swebrec", model_version="2.0.0")))
 
 
 class ScenarioResidualGuardTests(unittest.TestCase):

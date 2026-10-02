@@ -13,6 +13,7 @@ from intelligence.calibration.base import (
     sample_baseline,
     snapshot_base,
     spatial_base_label,
+    version_major,
 )
 
 X50 = "kuzram_residual"
@@ -47,6 +48,17 @@ class PredictionBaseTests(unittest.TestCase):
     def test_snapshot_base(self):
         self.assertIsNone(snapshot_base({}))
         self.assertEqual(snapshot_base({"model": "kuzram", "model_version": "2.0.0"}), CURRENT_BASE)
+
+
+class VersionMajorTests(unittest.TestCase):
+    def test_version_major(self):
+        cases = {"1.0.0": 1, "2": 2, "3.0.0": 3, "10.1": 10, "v2.0.0": None, "abc": None, "": None, "-1.0": None, "²": None}
+        for version, expected in cases.items():
+            with self.subTest(version=version):
+                self.assertEqual(version_major(version), expected)
+
+    def test_version_major_of_huge_number_is_not_recognized(self):
+        self.assertIsNone(version_major("9" * 5000 + ".0"))
 
 
 class CompatibilityTests(unittest.TestCase):

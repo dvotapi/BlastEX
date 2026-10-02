@@ -1,7 +1,9 @@
-"""Присланный клиентом baseline кусковатости принимается только вместе с моделью.
+"""Присланный клиентом baseline кусковатости принимается, только если посчитан базой калибровки.
 
-Калибровки обучены на Kuz-Ram 1.0.0; x50 модели 2.0.0, наложенный без
-проверки, нарушает решение владельца № 3.
+Калибровка — поправка к конкретной формуле: артефакт помнит модель и версию
+baseline, на котором обучен, а клиент называет модель и версию присланного
+baseline. Решает общее правило совместимости: x50 — любая модель той же
+базы, негабарит — та же модель и версия.
 """
 import tempfile
 import unittest
@@ -11,15 +13,20 @@ from unittest.mock import patch
 from api.exceptions import InvalidCalibrationError
 from api.schemas.calibration import CalibrationPredictRequest, CalibrationTrainRequest
 from api.services import calibration_service
+from intelligence.calibration.persistence import new_model_id, save_model
+from intelligence.calibration.training import train_from_snapshot
+from intelligence.calibration.types import MODEL_SPECS
 from intelligence.datasets.builder import build_snapshot
 from intelligence.datasets.persistence import save_snapshot
 from simulation.fragmentation.models import ModelProvenance
 from tests.calibration_fixtures import synthetic_snapshot, varied_closed_designs
 
 TEAM_ID = "api-cal-provided"
+X50 = "kuzram_residual"
+OVERSIZE = "oversize_residual"
 
 
-class ProvidedBaselineTests(unittest.TestCase):
+class _ProvidedBaselineCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -29,13 +36,16 @@ class ProvidedBaselineTests(unittest.TestCase):
         self.snapshot = save_snapshot(TEAM_ID, synthetic_snapshot())
         self._trained: dict[str, str] = {}
 
+    def _train(self, model_type: str) -> str:
+        trained = calibration_service.train_calibration(
+            TEAM_ID, CalibrationTrainRequest(dataset_id=self.snapshot.dataset_id, model_type=model_type)
+        )
+        return trained.model_id
+
     def _model_id(self, model_type: str) -> str:
         # Калибровка каждого типа обучается один раз за тест, а не на каждый запрос.
         if model_type not in self._trained:
-            trained = calibration_service.train_calibration(
-                TEAM_ID, CalibrationTrainRequest(dataset_id=self.snapshot.dataset_id, model_type=model_type)
-            )
-            self._trained[model_type] = trained.model_id
+            self._trained[model_type] = self._train(model_type)
         return self._trained[model_type]
 
     def _predict(self, model_type: str, **fields):
@@ -51,84 +61,120 @@ class ProvidedBaselineTests(unittest.TestCase):
             ),
         )
 
+    def _assert_applied(self, model_type: str, model: str, version: str):
+        with self.subTest(model_type=model_type, model=model, version=version, applied=True):
+            result = self._predict(model_type, baseline_model=model, baseline_model_version=version)
+
+            self.assertTrue(result.calibration_applied)
+
     def _assert_refused(self, result, reason: str):
         self.assertFalse(result.calibration_applied)
         self.assertEqual(result.calibrated, 150.0)
         self.assertTrue(result.warnings)
         self.assertIn(reason, result.warnings[0])
 
-    def test_new_model_baseline_is_refused(self):
-        result = self._predict("kuzram_residual", baseline_model="kuzram", baseline_model_version="2.0.0")
+
+class NewArtifactProvidedBaselineTests(_ProvidedBaselineCase):
+    """Калибровка обучена на текущей базе Kuz-Ram 2.0.0."""
+
+    def test_current_base_baseline_is_calibrated(self):
+        for model_type in (X50, OVERSIZE):
+            self._assert_applied(model_type, "kuzram", "2.0.0")
+
+    def test_x50_accepts_any_model_of_current_base(self):
+        # x50 трёх моделей одной базы одинаков, поэтому поправка x50 ложится на любую из них.
+        for model in ("swebrec", "kuznetsov"):
+            self._assert_applied(X50, model, "2.0.0")
+
+    def test_oversize_needs_same_model(self):
+        result = self._predict(OVERSIZE, baseline_model="swebrec", baseline_model_version="2.0.0")
 
         self._assert_refused(result, "переобучить")
 
-    def test_new_major_versions_are_refused(self):
+    def test_old_model_baseline_is_refused(self):
+        for model, version in (("kuzram_legacy", "1.0.0"), ("kuzram", "1.0.0")):
+            with self.subTest(model=model, version=version):
+                result = self._predict(X50, baseline_model=model, baseline_model_version=version)
+
+                self._assert_refused(result, "переобучить")
+
+    def test_other_versions_are_refused(self):
         for version in ("2", "3.0.0"):
             with self.subTest(version=version):
-                result = self._predict("kuzram_residual", baseline_model="kuzram", baseline_model_version=version)
+                result = self._predict(X50, baseline_model="kuzram", baseline_model_version=version)
 
                 self._assert_refused(result, "переобучить")
 
     def test_unrecognized_version_is_refused(self):
         huge = "9" * 5000 + ".0"  # длиннее лимита int() — не должно быть 500
-        for model, version in (("kuzram", "v2.0.0"), ("kuzram", "abc"), ("kuzram_legacy", "abc"), ("kuzram", huge)):
+        cases = (("kuzram", "v2.0.0"), ("kuzram", "abc"), ("kuzram", "²"), ("kuzram_legacy", "abc"), ("kuzram", huge))
+        for model, version in cases:
             with self.subTest(model=model, version=version[:12]):
-                result = self._predict("kuzram_residual", baseline_model=model, baseline_model_version=version)
+                result = self._predict(X50, baseline_model=model, baseline_model_version=version)
 
                 self._assert_refused(result, "не распознана")
 
-    def test_old_model_baseline_is_calibrated(self):
-        for model, version in (("kuzram_legacy", "1.0.0"), ("kuzram", "1.0.0")):
-            with self.subTest(model=model):
-                result = self._predict("kuzram_residual", baseline_model=model, baseline_model_version=version)
-
-                self.assertTrue(result.calibration_applied)
-
-    def test_x50_accepts_any_old_model(self):
-        # x50 всех старых моделей одинаков, поэтому поправка кусковатости ложится на любую из них.
-        result = self._predict("kuzram_residual", baseline_model="swebrec_legacy", baseline_model_version="1.0.0")
-
-        self.assertTrue(result.calibration_applied)
-
-    def test_oversize_accepts_only_kuzram_curve(self):
-        for model in ("kuzram_legacy", "kuzram"):
-            with self.subTest(model=model, applied=True):
-                result = self._predict("oversize_residual", baseline_model=model, baseline_model_version="1.0.0")
-
-                self.assertTrue(result.calibration_applied)
-        for model in ("swebrec_legacy", "kuznetsov_legacy"):
-            with self.subTest(model=model, applied=False):
-                result = self._predict("oversize_residual", baseline_model=model, baseline_model_version="1.0.0")
-
-                self._assert_refused(result, "кривой Kuz-Ram")
-
     def test_unknown_model_baseline_is_refused(self):
-        result = self._predict("kuzram_residual", baseline_model="abc", baseline_model_version="1.0.0")
+        result = self._predict(X50, baseline_model="abc", baseline_model_version="2.0.0")
 
         self._assert_refused(result, "Неизвестная модель")
 
     def test_baseline_without_version_is_refused(self):
         for model in ("kuzram", "kuzram_legacy"):
-            for model_type in ("kuzram_residual", "oversize_residual"):
-                with self.subTest(model=model, model_type=model_type):
-                    result = self._predict(model_type, baseline_model=model, baseline_model_version="")
+            for model_type in (X50, OVERSIZE):
+                for version in ("", "   "):
+                    with self.subTest(model=model, model_type=model_type, version=version):
+                        result = self._predict(model_type, baseline_model=model, baseline_model_version=version)
 
-                    self._assert_refused(result, "Не указано")
-
-    def test_blank_version_is_refused(self):
-        result = self._predict("kuzram_residual", baseline_model="kuzram", baseline_model_version="   ")
-
-        self._assert_refused(result, "Не указано")
+                        self._assert_refused(result, "Не указано")
 
     def test_baseline_without_model_is_refused(self):
-        result = self._predict("oversize_residual")
+        for model_type in (X50, OVERSIZE):
+            for fields in ({}, {"baseline_model": "  ", "baseline_model_version": "2.0.0"}):
+                with self.subTest(model_type=model_type, fields=fields):
+                    result = self._predict(model_type, **fields)
 
-        self._assert_refused(result, "Не указано")
+                    self._assert_refused(result, "Не указано")
 
     def test_ppv_needs_no_model(self):
         result = self._predict("ppv_residual")
 
         self.assertTrue(result.calibration_applied)
+
+
+class OldArtifactProvidedBaselineTests(_ProvidedBaselineCase):
+    """Артефакт, обученный до PR 3: базы в нём нет, он считается старой базой Kuz-Ram 1.0.0."""
+
+    def _train(self, model_type: str) -> str:
+        model = train_from_snapshot(self.snapshot, model_type=model_type, model_id=new_model_id())
+        model.baseline_model = ""
+        model.baseline_model_version = ""
+        model.baseline_field = MODEL_SPECS[model_type]["baseline_field"]
+        return save_model(TEAM_ID, model).model_id
+
+    def test_old_model_baseline_is_calibrated(self):
+        for model, version in (("kuzram_legacy", "1.0.0"), ("kuzram", "1.0.0"), ("kuzram", "1")):
+            self._assert_applied(X50, model, version)
+
+    def test_x50_accepts_any_old_model(self):
+        for model in ("swebrec_legacy", "kuznetsov_legacy"):
+            self._assert_applied(X50, model, "1.0.0")
+
+    def test_oversize_accepts_only_kuzram_curve(self):
+        for model in ("kuzram_legacy", "kuzram"):
+            self._assert_applied(OVERSIZE, model, "1.0.0")
+        for model in ("swebrec_legacy", "kuznetsov_legacy"):
+            with self.subTest(model=model, applied=False):
+                result = self._predict(OVERSIZE, baseline_model=model, baseline_model_version="1.0.0")
+
+                self._assert_refused(result, "переобучить")
+
+    def test_new_model_baseline_is_refused(self):
+        result = self._predict(X50, baseline_model="kuzram", baseline_model_version="2.0.0")
+
+        self._assert_refused(result, "переобучить")
+        self.assertIn("Kuz-Ram (старая) 1.0.0", result.warnings[0])
+        self.assertIn("Kuz-Ram 2.0.0", result.warnings[0])
 
 
 class TrainOnCurrentBaseTests(unittest.TestCase):

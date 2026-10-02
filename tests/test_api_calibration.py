@@ -48,8 +48,8 @@ class CalibrationApiTests(unittest.TestCase):
                 model_id=trained.model_id,
                 site_id="quarry-1",
                 baseline=150.0,
-                baseline_model="kuzram_legacy",
-                baseline_model_version="1.0.0",
+                baseline_model="kuzram",
+                baseline_model_version="2.0.0",
                 features=snapshot.samples[-1].features,
             ),
         )
@@ -79,8 +79,8 @@ class CalibrationApiTests(unittest.TestCase):
                 site_id="quarry-1",
                 use_production=True,
                 baseline=150.0,
-                baseline_model="kuzram_legacy",
-                baseline_model_version="1.0.0",
+                baseline_model="kuzram",
+                baseline_model_version="2.0.0",
                 features=snapshot.samples[0].features,
             ),
         )
@@ -100,8 +100,8 @@ class CalibrationApiTests(unittest.TestCase):
                 site_id="quarry-1",
                 use_production=True,
                 baseline=150.0,
-                baseline_model="kuzram_legacy",
-                baseline_model_version="1.0.0",
+                baseline_model="kuzram",
+                baseline_model_version="2.0.0",
                 features=snapshot.samples[0].features,
             ),
         )
@@ -125,8 +125,8 @@ class CalibrationApiTests(unittest.TestCase):
                 site_id="quarry-1",
                 design=design.to_dict(),
                 baseline=150.0,
-                baseline_model="kuzram_legacy",
-                baseline_model_version="1.0.0",
+                baseline_model="kuzram",
+                baseline_model_version="2.0.0",
             ),
         )
         self.assertEqual(design.to_dict(), before)

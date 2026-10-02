@@ -45,6 +45,8 @@ class CadContourInfoSchema(BaseModel):
     built_at: str = ""
     # Вершины контура правили после построения: контур уже не совпадает с чертежом.
     edited: bool = False
+    # Объём с блоковой карты — для сверки с объёмом по поверхностям (PR 3).
+    map_volume_m3: float | None = None
 
 
 class BlockContourSchema(BaseModel):
@@ -140,6 +142,8 @@ class HoleSchema(BaseModel):
     water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
     measured_intervals: list[HoleIntervalSchema] = Field(default_factory=list)
     measured_water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
+    # Ручная правка (TASK-013, PR 3): отметка устья и/или длина не пересчитываются.
+    manual: list[Literal["collar_z", "length"]] = Field(default_factory=list)
 
 
 class DeckSchema(BaseModel):
@@ -351,6 +355,20 @@ class TINSchema(BaseModel):
     triangles: list[list[int]] = Field(default_factory=list)
 
 
+class CadSurfaceInfoSchema(BaseModel):
+    """Кровля из чертежа маркшейдера (TASK-013, PR 3): откуда она, какие линии
+    и отметки в неё вошли, каким путём построена и её качество."""
+
+    source_id: str = ""
+    file_name: str = ""
+    roles: list[str] = Field(default_factory=list)
+    excluded: list[str] = Field(default_factory=list)
+    builder: str = ""
+    floor_z_m: float | None = None
+    quality: dict[str, Any] = Field(default_factory=dict)
+    built_at: str = ""
+
+
 class SurfaceModelSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -363,6 +381,7 @@ class SurfaceModelSchema(BaseModel):
     points: list[Point3Schema] = Field(default_factory=list)
     polylines: list[list[Point3Schema]] = Field(default_factory=list)
     tin: TINSchema = Field(default_factory=TINSchema)
+    cad: CadSurfaceInfoSchema | None = None
 
 
 class SurfaceSetSchema(BaseModel):

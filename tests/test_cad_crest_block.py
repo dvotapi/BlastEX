@@ -115,3 +115,38 @@ def test_back_line_that_cannot_be_offset_is_a_visible_issue():
 
     assert not draft.ok
     assert [issue.code for issue in draft.issues] == ["back_failed"]
+
+
+def test_far_away_toe_of_another_bench_does_not_choose_the_side():
+    # У выбранного участка нижней бровки нет; есть только у другого уступа за 500 м.
+    far_toe = crest("B", [(x, 500.0) for x in range(0, 101, 10)], 400.0)
+    draft = build([STRAIGHT_TOP], [far_toe], (20, 0), (60, 0), 20.0)
+    assert [issue.code for issue in draft.issues] == ["side_required"]
+
+    # Ближняя нижняя бровка по-прежнему решает сама.
+    near = build([STRAIGHT_TOP], [far_toe, STRAIGHT_BOTTOM], (20, 0), (60, 0), 20.0)
+    assert near.ok, near.issues
+    assert min(y for _, y in near.ring) == pytest.approx(0.0)
+
+
+def test_points_across_the_seam_of_a_closed_crest_are_checked_by_the_arc():
+    # Кольцевая бровка: шов в (0, 0). Точки по разные стороны шва в 0,3 м от него —
+    # по расстояниям вдоль линии они «далеко», а дуга между ними — 0,6 м.
+    ring = CadEntity(
+        handle="R", layer="Бровки", kind="POLYLINE3D",
+        points=[(0, 0, 420.0), (100, 0, 420.0), (100, 100, 420.0), (0, 100, 420.0)], closed=True,
+    )
+    toe = CadEntity(
+        handle="B", layer="Бровки", kind="POLYLINE3D",
+        points=[(-4, -4, 410.0), (104, -4, 410.0), (104, 104, 410.0), (-4, 104, 410.0)], closed=True,
+    )
+    draft = build([ring], [toe], (0, 0.3), (0.3, 0), 20.0)
+    assert [issue.code for issue in draft.issues] == ["not_on_crest"]
+    assert "слишком близко" in draft.issues[0].message
+
+
+def test_side_toe_distance_matches_the_flank_limit():
+    from design.spatial.cad.contour import SIDE_TOE_NEAR_M
+    from design.spatial.cad.two_contours import FLANK_MAX_EXTENSION_M
+
+    assert SIDE_TOE_NEAR_M == FLANK_MAX_EXTENSION_M

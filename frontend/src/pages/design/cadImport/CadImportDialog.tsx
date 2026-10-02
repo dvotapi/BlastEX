@@ -86,6 +86,11 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   // Актуальный список источников для откатов из асинхронных ответов.
   const latestSources = useRef(sources);
   latestSources.current = sources;
+  /** Новый список источников: от последнего, а не от снимка рендера, где был запрос. */
+  function commit(next: CadSource[]) {
+    latestSources.current = next;
+    onSourcesChange(next);
+  }
   const areaSave = useRef<Promise<unknown>>(Promise.resolve());
   // Окно на экране. Ответы, пришедшие после закрытия, не трогают список
   // источников: страница по нему открыла бы окно снова.
@@ -214,7 +219,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
       const basis = next.areaBasis;
       // Выбор — соглашение объекта: его получают и другие файлы того же объекта.
       const sameObject = (item: CadSource) => areaKey(item) === key;
-      onSourcesChange(sources.map((item) => (sameObject(item) ? { ...item, area_basis: basis } : item)));
+      commit(latestSources.current.map((item) => (sameObject(item) ? { ...item, area_basis: basis } : item)));
       // Сохранения — по очереди: иначе при быстрых щелчках на объекте могло
       // остаться не последнее значение (запросы обрабатываются параллельно).
       // Пока очередь не пуста, «Построить блок» неактивна: паспорт и объект
@@ -242,9 +247,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
             // поздний выбор (уже в очереди или сохранённый) не затирается.
             const stale = (item: CadSource) => sameObject(item) && item.area_basis === basis;
             if (latestSources.current.some(stale)) {
-              onSourcesChange(
-                latestSources.current.map((item) => (stale(item) ? { ...item, area_basis: previous } : item)),
-              );
+              commit(latestSources.current.map((item) => (stale(item) ? { ...item, area_basis: previous } : item)));
             }
           },
         )
@@ -279,7 +282,14 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   }
 
   function replace(updated: CadSource) {
-    onSourcesChange(sources.map((source) => (source.id === updated.id ? updated : source)));
+    // Выбор площади блока ведёт своя очередь сохранений: ответ ролей или
+    // разбора его не трогает — в нём мог остаться выбор, который потом откатили,
+    // а у файла без объекта сервер выбора не знает вовсе.
+    commit(
+      latestSources.current.map((source) =>
+        source.id === updated.id ? { ...updated, area_basis: source.area_basis } : source,
+      ),
+    );
     setVersion((current) => current + 1);
   }
 
@@ -306,14 +316,7 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
   function reparse(patch: Partial<CadParams>) {
     if (!active) return;
     const source = active;
-    const basis = contour.areaBasis;
-    void run(async () => {
-      // Повторный разбор ждёт сохранения площади блока: ответ несёт выбор объекта.
-      await areaSave.current;
-      const updated = await api.cad.reparse(source.id, { ...source.params, ...patch });
-      // Без объекта выбор живёт только в окне — сервер его не знает.
-      return updated.site_code ? updated : { ...updated, area_basis: basis };
-    });
+    void run(() => api.cad.reparse(source.id, { ...source.params, ...patch }));
   }
 
   function select(target: CanvasTarget) {

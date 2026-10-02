@@ -703,6 +703,10 @@ def _boundary_items(
 CREST_SMOOTHING_M = 0.05
 BACK_SIMPLIFY_M = 0.05
 MIN_CREST_SPAN_M = 1.0
+# Сторону блока решает нижняя бровка не дальше этого от участка — как предел
+# продления фланга (two_contours.FLANK_MAX_EXTENSION_M). Бровка другого уступа
+# вдали сторону не выбирает: фланги до неё всё равно не дойдут.
+SIDE_TOE_NEAR_M = 100.0
 
 
 def _side_of(line: LineString, probe: Point) -> float:
@@ -762,26 +766,32 @@ def crest_block(
                 )
             ],
         )
-    if abs(m_end - m_start) < MIN_CREST_SPAN_M:
+    chain_xy = [(point[0], point[1]) for point in chain.points]
+    frame = LocalFrame.of(chain_xy)
+    sub, intervals = arc_between(chain_xy, m_start, m_end)
+    # По выбранной дуге, а не по расстояниям вдоль линии: у кольцевой бровки
+    # точки по разные стороны шва «далеко» по линии, а дуга между ними короткая.
+    if polyline_length(sub) < MIN_CREST_SPAN_M:
         return ContourDraft(
             ring=None,
             issues=[RingIssue("not_on_crest", "Начало и конец блока на бровке слишком близко.", start)],
         )
-
-    chain_xy = [(point[0], point[1]) for point in chain.points]
-    frame = LocalFrame.of(chain_xy)
-    sub, intervals = arc_between(chain_xy, m_start, m_end)
     sub_line = LineString(frame.to_local(sub))
 
     if side == "auto":
-        bottoms = [LineString(frame.to_local([(p[0], p[1]) for p in line.points])) for line in bottom]
+        bottoms = [
+            geometry
+            for geometry in (LineString(frame.to_local([(p[0], p[1]) for p in line.points])) for line in bottom)
+            if geometry.distance(sub_line) <= SIDE_TOE_NEAR_M
+        ]
         if not bottoms:
             return ContourDraft(
                 ring=None,
                 issues=[
                     RingIssue(
                         "side_required",
-                        "Нижней бровки нет — укажите сторону блока: слева или справа по ходу от начала к концу.",
+                        f"Нижней бровки у участка нет (ближе {ru_number(SIDE_TOE_NEAR_M, 0)} м) — укажите сторону "
+                        "блока: слева или справа по ходу от начала к концу.",
                         start,
                     )
                 ],

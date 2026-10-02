@@ -424,9 +424,29 @@ describe("CadImportDialog", () => {
     fireEvent.click(within(group).getByRole("radio", { name: /S верх/ }));
 
     await waitFor(() => expect(api.cad.saveAreaBasis).toHaveBeenCalledTimes(3));
-    await waitFor(() => expect(screen.queryByText("Нет связи с сервером.")).toBeNull());
+    expect(api.cad.saveAreaBasis.mock.calls.map(([, basis]) => basis)).toEqual(["top", "bottom", "top"]);
+    // Очередь сохранений пуста — кнопка снова активна, а выбор остался последним.
+    const build = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(build.disabled).toBe(false));
+    expect(screen.queryByText("Нет связи с сервером.")).toBeNull();
     expect((within(group).getByRole("radio", { name: /S верх/ }) as HTMLInputElement).checked).toBe(true);
     expect(seen.at(-1)?.[0].area_basis).toBe("top");
+  });
+
+  it("ошибка сохранения площади видна и рядом с ошибкой сохранения ролей", async () => {
+    api.cad.saveRoles.mockRejectedValue(new Error("Роль «x» неизвестна."));
+    api.cad.saveAreaBasis.mockRejectedValue(new Error("Нет связи с сервером."));
+    renderDialog();
+    await ready();
+    fireEvent.change(within(screen.getByRole("row", { name: /Горизонт \+410/ })).getByRole("combobox"), {
+      target: { value: "ignore" },
+    });
+    expect(await screen.findByText("Роль «x» неизвестна.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Площадь блока" })).getByRole("radio", { name: /S верх/ }));
+
+    expect(await screen.findByText("Нет связи с сервером.")).toBeTruthy();
+    expect(screen.getByText("Роль «x» неизвестна.")).toBeTruthy();
   });
 
   it("смена файла, пока площадь сохраняется, не сдвигает точку отката", async () => {

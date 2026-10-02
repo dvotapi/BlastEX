@@ -80,8 +80,9 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
   const [areaError, setAreaError] = useState("");
   const [areaSaving, setAreaSaving] = useState(0);
   // Последний выбор площади блока, подтверждённый сервером, по объектам —
-  // точка отката. Берётся из ответа сервера, пока выбор в окне не меняли:
-  // смена файла не должна подменять его ещё не сохранённым выбором.
+  // точка отката. Заполняется из ответа сервера при первой встрече объекта,
+  // дальше его меняют только успешные сохранения: смена файла не должна
+  // подменять его ещё не сохранённым выбором.
   const confirmedArea = useRef(new Map<string, CadAreaBasis>());
   for (const source of sources) {
     if (!confirmedArea.current.has(areaKey(source))) confirmedArea.current.set(areaKey(source), source.area_basis);
@@ -264,7 +265,10 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
             commit(latestSources.current.map((item) => (sameObject(item) ? { ...item, area_basis: previous } : item)));
           },
         )
-        .finally(() => setAreaSaving((count) => count - 1));
+        .finally(() => setAreaSaving((count) => count - 1))
+        // Очередь не должна застрять отклонённой: иначе следующие щелчки не
+        // дошли бы до сервера.
+        .catch(() => undefined);
     }
     setContour(next);
   }
@@ -498,11 +502,14 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
                 </p>
               </>
             )}
-            {(requestError || metaError || areaError) && (
-              <p className="cad-request-error" role="alert">
-                {requestError || metaError || areaError}
-              </p>
-            )}
+            {/* Каждая ошибка — своей строкой: упавшее сохранение площади не прячется за ошибкой ролей. */}
+            {[requestError, metaError, areaError]
+              .filter((message, index, all) => message && all.indexOf(message) === index)
+              .map((message) => (
+                <p key={message} className="cad-request-error" role="alert">
+                  {message}
+                </p>
+              ))}
             {tab === "layers" ? (
               <div className="cad-layers-wrap">
                 {meta ? (

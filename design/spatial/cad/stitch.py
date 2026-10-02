@@ -19,7 +19,10 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from design.spatial.cad.model import CadEntity
+import numpy as np
+from scipy.spatial import cKDTree
+
+from design.spatial.cad.model import ZERO_Z_TOLERANCE_M, CadEntity
 
 XY = tuple[float, float]
 XYZ = tuple[float, float, float]
@@ -32,6 +35,9 @@ GAP_REPORT_M = 5.0
 # Перепад отметок на стыке больше этого — бровки разных уступов (высота
 # уступа не меньше 2 м), а не дрожь съёмки.
 STITCH_MAX_DZ_M = 1.0
+# Кандидатов у конца — не больше стольких ближайших: в пятне из тысяч обрывков
+# все пары концов дали бы миллионы кортежей (сшивка идёт в каждом предпросмотре).
+NEAREST_ENDS = 8
 # Направление конца линии — по её последним метрам, а не по последнему
 # звену: съёмка дрожит на сантиметрах.
 TANGENT_WINDOW_M = 2.0
@@ -106,26 +112,21 @@ def _turn_deg(out_a: XY, out_b: XY) -> float:
     return math.degrees(math.acos(max(-1.0, min(1.0, cos))))
 
 
-class _Grid:
-    """Индекс точек по ячейкам: соседи ищутся в своей и восьми соседних ячейках."""
+def _near_pairs(points: Sequence[Sequence[float]], radius: float) -> list[tuple[int, int]]:
+    """Пары точек (i < j) ближе `radius` в плане: у каждой — не больше NEAREST_ENDS ближайших."""
 
-    def __init__(self, cell: float) -> None:
-        self.cell = cell
-        self.items: dict[tuple[int, int], list[int]] = {}
-
-    def key(self, point: Sequence[float]) -> tuple[int, int]:
-        return (math.floor(point[0] / self.cell), math.floor(point[1] / self.cell))
-
-    def add(self, point: Sequence[float], index: int) -> None:
-        self.items.setdefault(self.key(point), []).append(index)
-
-    def near(self, point: Sequence[float]) -> list[int]:
-        cx, cy = self.key(point)
-        found: list[int] = []
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                found.extend(self.items.get((cx + dx, cy + dy), ()))
-        return found
+    if len(points) < 2:
+        return []
+    xy = np.asarray([(point[0], point[1]) for point in points], dtype=float)
+    count = min(NEAREST_ENDS + 1, len(points))
+    # Граница с запасом на округление: расстояние ровно `radius` — тоже пара.
+    _, neighbours = cKDTree(xy).query(xy, k=list(range(1, count + 1)), distance_upper_bound=radius * (1 + 1e-9) + 1e-12)
+    found: set[tuple[int, int]] = set()
+    for a, row in enumerate(neighbours.tolist()):
+        for b in row:
+            if b < len(points) and b != a:
+                found.add((min(a, b), max(a, b)))
+    return sorted(found)
 
 
 class _UnionFind:
@@ -163,31 +164,26 @@ def stitch_lines(lines: Sequence[CadEntity]) -> tuple[list[StitchedLine], list[S
         outward.extend((_outward(item.points, 0), _outward(item.points, 1)))
         flat.append(item.z_kind == "zero")
 
-    grid = _Grid(STITCH_GAP_M)
-    for index, point in enumerate(end_points):
-        grid.add(point, index)
-
-    # Сколько концов совпадает с каждым — один раз: в узле из k концов пересчёт
-    # для каждой пары давал бы k³ сравнений.
-    degree = [
-        sum(1 for other in grid.near(point) if math.dist(end_points[other][:2], point[:2]) <= COINCIDENT_M)
-        for point in end_points
-    ]
+    # Сколько концов совпадает с каждым (вместе с ним самим) — один раз: в узле
+    # из k концов пересчёт для каждой пары давал бы k³ сравнений.
+    degree: list[int] = []
+    if end_points:
+        xy = np.asarray([(point[0], point[1]) for point in end_points], dtype=float)
+        degree = cKDTree(xy).query_ball_point(xy, r=COINCIDENT_M, return_length=True).tolist()
 
     accepted: list[tuple[float, float, int, int]] = []
-    for a in range(len(end_points)):
-        for b in grid.near(end_points[a]):
-            if b <= a or a // 2 == b // 2:
-                continue
-            distance = math.dist(end_points[a][:2], end_points[b][:2])
-            if distance > STITCH_GAP_M:
-                continue
-            if not (flat[a // 2] or flat[b // 2]) and abs(end_points[a][2] - end_points[b][2]) > STITCH_MAX_DZ_M:
-                continue
-            turn = _turn_deg(outward[a], outward[b])
-            corner = distance <= COINCIDENT_M and degree[a] == 2 and degree[b] == 2
-            if turn <= STITCH_MAX_TURN_DEG or corner:
-                accepted.append((distance if distance > COINCIDENT_M else 0.0, turn, a, b))
+    for a, b in _near_pairs(end_points, STITCH_GAP_M):
+        if a // 2 == b // 2:
+            continue
+        distance = math.dist(end_points[a][:2], end_points[b][:2])
+        if distance > STITCH_GAP_M:
+            continue
+        if not (flat[a // 2] or flat[b // 2]) and abs(end_points[a][2] - end_points[b][2]) > STITCH_MAX_DZ_M:
+            continue
+        turn = _turn_deg(outward[a], outward[b])
+        corner = distance <= COINCIDENT_M and degree[a] == 2 and degree[b] == 2
+        if turn <= STITCH_MAX_TURN_DEG or corner:
+            accepted.append((distance if distance > COINCIDENT_M else 0.0, turn, a, b))
 
     joins: dict[int, int] = {}
     components = _UnionFind(len(open_lines))
@@ -237,6 +233,9 @@ def _build_chain(
         if points:
             chain_start += math.dist(points[-1][:2], oriented[0][:2])
             if math.dist(points[-1][:2], oriented[0][:2]) <= COINCIDENT_M:
+                # На стыке остаётся точка с отметкой: Z = 0 у 2D-линии — отметки нет.
+                if abs(points[-1][2]) <= ZERO_Z_TOLERANCE_M < abs(oriented[0][2]):
+                    points[-1] = oriented[0]
                 oriented = oriented[1:]
         points.extend(oriented)
         parts.append(StitchPart(item.handle, reversed_, item.length_m, chain_start))
@@ -260,17 +259,13 @@ def _report_gaps(stitched: Sequence[StitchedLine]) -> list[StitchGap]:
         ends.append(((item.points[0][0], item.points[0][1]), number))
         ends.append(((item.points[-1][0], item.points[-1][1]), number))
 
-    grid = _Grid(GAP_REPORT_M)
-    for index, (point, _) in enumerate(ends):
-        grid.add(point, index)
     pairs: list[tuple[float, int, int]] = []
-    for a, (point, line_number) in enumerate(ends):
-        for b in grid.near(point):
-            if b <= a or ends[b][1] == line_number:
-                continue
-            distance = math.dist(point, ends[b][0])
-            if distance <= GAP_REPORT_M:
-                pairs.append((distance, a, b))
+    for a, b in _near_pairs([point for point, _ in ends], GAP_REPORT_M):
+        if ends[a][1] == ends[b][1]:
+            continue
+        distance = math.dist(ends[a][0], ends[b][0])
+        if distance <= GAP_REPORT_M:
+            pairs.append((distance, a, b))
 
     gaps: list[StitchGap] = []
     used: set[int] = set()

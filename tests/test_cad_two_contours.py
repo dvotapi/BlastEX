@@ -345,3 +345,26 @@ def test_metre_blocks_are_still_sampled_every_metre():
 
     # Периметр до MAX_RING_SAMPLES метров — шаг 1 м, как раньше.
     assert module._sample_step(BLOCK) == pytest.approx(module.FREE_FACE_SAMPLE_M)
+
+
+def test_crests_without_elevations_do_not_set_the_bench_levels():
+    # 2D-чертёж: бровки на своих слоях, но Z = 0 — отметки нет, а не «0 м».
+    flat_top = CadEntity(handle="T", layer="Бровки", kind="LWPOLYLINE", points=[(40, -10, 0.0), (40, 30, 0.0)])
+    flat_bottom = CadEntity(handle="B", layer="Бровки", kind="LWPOLYLINE", points=[(44, -10, 0.0), (44, 30, 0.0)])
+
+    levels = bench_levels(BLOCK, [(1, 2)], stitched(flat_top), stitched(flat_bottom), floor_z=None, passport=(420.0, 410.0))
+
+    assert (levels.crest_z_m, levels.crest_source) == (pytest.approx(420.0), "passport")
+    assert (levels.toe_z_m, levels.toe_source) == (pytest.approx(410.0), "passport")
+    assert levels.issues == []
+
+
+def test_flat_fragment_stitched_to_a_3d_one_does_not_pull_the_crest_to_zero():
+    flat = CadEntity(handle="A", layer="Бровки", kind="LWPOLYLINE", points=[(40, -10, 0.0), (40, 10, 0.0)])
+    survey = crest("B", [(40, 10), (40, 30)], 420.0)
+    top = stitched(flat, survey)
+    assert len(top) == 1
+
+    levels = bench_levels(BLOCK, [(1, 2)], top, [], floor_z=410.0)
+
+    assert levels.crest_z_m == pytest.approx(420.0)

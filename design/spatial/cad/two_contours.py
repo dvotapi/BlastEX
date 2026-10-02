@@ -26,7 +26,7 @@ import shapely
 from shapely.geometry import LineString, Point
 
 from design.spatial.cad.contour import polyline_length, project_on_polyline, ring_arcs
-from design.spatial.cad.model import CadWarning, ru_number
+from design.spatial.cad.model import ZERO_Z_TOLERANCE_M, CadWarning, ru_number
 from design.spatial.cad.rings import (
     XY,
     LocalFrame,
@@ -528,24 +528,38 @@ def _samples(a: XY, b: XY, step: float) -> list[XY]:
     return [(a[0] + (b[0] - a[0]) * k / (count - 1), a[1] + (b[1] - a[1]) * k / (count - 1)) for k in range(count)]
 
 
-def _z_on_line(points: Sequence[tuple[float, float, float]], xy: Sequence[XY], m: float) -> float:
-    """Z точки линии на расстоянии `m` от начала (по длине в плане)."""
+def _has_z(z: float) -> bool:
+    """Z = 0 у линии чертежа — отметки нет (2D-линия), а не «0 м» (как `CadEntity.z_kind`)."""
+
+    return abs(z) > ZERO_Z_TOLERANCE_M
+
+
+def _z_on_line(points: Sequence[tuple[float, float, float]], xy: Sequence[XY], m: float) -> float | None:
+    """Z точки линии на расстоянии `m` от начала (по длине в плане); None — на звене без отметок."""
 
     walked = 0.0
     last = len(xy) - 2
     for index in range(last + 1):
         length = math.dist(xy[index], xy[index + 1])
         if walked + length >= m or index == last:
+            za, zb = points[index][2], points[index + 1][2]
+            if not (_has_z(za) and _has_z(zb)):
+                return None
             t = 0.0 if not length else max(0.0, min(1.0, (m - walked) / length))
-            return points[index][2] + (points[index + 1][2] - points[index][2]) * t
+            return za + (zb - za) * t
         walked += length
-    return points[-1][2]
+    return points[-1][2] if _has_z(points[-1][2]) else None
 
 
 def _z_at_samples(
     lines: Sequence[StitchedLine], frame: LocalFrame, samples: Sequence[XY], distance_m: float
 ) -> list[float]:
-    prepared = [(line.points, frame.to_local(_xy(line))) for line in lines if len(line.points) >= 2]
+    # Линии без отметок (2D) отметку не дают: их Z = 0 — не «0 м».
+    prepared = [
+        (line.points, frame.to_local(_xy(line)))
+        for line in lines
+        if len(line.points) >= 2 and any(_has_z(point[2]) for point in line.points)
+    ]
     if not prepared:
         return []
     tree = shapely.STRtree([LineString(xy) for _, xy in prepared])
@@ -558,7 +572,9 @@ def _z_at_samples(
                 best = (distance, m, number)
         if best is not None:
             points, xy = prepared[best[2]]
-            values.append(_z_on_line(points, xy, best[1]))
+            value = _z_on_line(points, xy, best[1])
+            if value is not None:
+                values.append(value)
     return values
 
 

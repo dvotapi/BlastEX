@@ -252,3 +252,26 @@ def test_toe_above_the_crest_blocks_the_build():
     assert [issue["code"] for issue in body["issues"]] == ["bench_inverted"]
     assert body["top"] is not None
     assert (body["bench"]["crest_source"], body["bench"]["toe_z_m"]) == ("passport", 430)
+
+
+def test_assembly_as_long_as_the_preview_can_produce_is_accepted(loaded):
+    # «Править как сборку» отправляет участки ответа обратно: у раздробленной
+    # границы их бывает больше 2000 — запрос должен принять столько, сколько
+    # может дать предпросмотр (до MAX_CONTOUR_SEGMENTS).
+    import math
+    import time
+
+    _, client, source = loaded
+    count = 2500
+    ring = [(100 * math.cos(2 * math.pi * k / count), 100 * math.sin(2 * math.pi * k / count)) for k in range(count)]
+    items = [
+        {"kind": "segment", "points": [list(ring[k]), list(ring[(k + 1) % count])]} for k in range(count)
+    ]
+
+    started = time.perf_counter()
+    response = _contour(client, source["id"], method="assembly", items=items, roles=["design_line"])
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200, response.text[:300]
+    assert response.json()["top"]["area_m2"] == pytest.approx(math.pi * 100**2, rel=0.001)
+    assert elapsed < 5.0, f"{elapsed:.2f} с"

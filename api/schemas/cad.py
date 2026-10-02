@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from design.spatial.cad.contour import MAX_CONTOUR_SEGMENTS
+
 
 class CadWarningSchema(BaseModel):
     code: str
@@ -218,7 +220,9 @@ class CadContourRequest(BaseModel):
     handle: str = ""
     point: list[float] | None = Field(default=None, min_length=2, max_length=3)
     roles: list[str] = Field(default_factory=lambda: list(DEFAULT_CONTOUR_ROLES))
-    items: list[CadContourItemSchema] = Field(default_factory=list, max_length=2000)
+    # Сколько участков может дать сам предпросмотр (граница «Щелчка внутри»):
+    # «Править как сборку» отправляет их обратно.
+    items: list[CadContourItemSchema] = Field(default_factory=list, max_length=MAX_CONTOUR_SEGMENTS)
     crest: CadCrestBlockSchema | None = None
     tolerance_m: float = Field(default=0.5, gt=0, le=10)
     bridge_m: float = Field(default=5.0, ge=0, le=50)

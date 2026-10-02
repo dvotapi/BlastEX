@@ -217,6 +217,19 @@ describe("CadImportDialog", () => {
     });
   });
 
+  it("предпросмотр получает отметки паспорта: сервер проверит с ними высоту уступа", async () => {
+    renderDialog({ passportBench: { crest_z_m: 421, toe_z_m: 411 } });
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
+
+    await waitFor(() =>
+      expect(api.cad.contour).toHaveBeenCalledWith(
+        "src-1",
+        expect.objectContaining({ method: "ready", passport_bench: { crest_z_m: 421, toe_z_m: 411 } }),
+      ),
+    );
+  });
+
   it("выбор площади блока доходит до другого файла того же объекта", async () => {
     const second = cadSource({ id: "src-2", file_name: "ситуация.dxf" });
     const props = renderDialog({ sources: [cadSource(), second] });

@@ -3254,6 +3254,7 @@ export function DesignPage({
             <CadImportDialog
               sources={cadSources}
               burden={patternParams.burden_b_m ?? null}
+              passportBench={document.contour.bench}
               onSourcesChange={setCadSources}
               onCancel={() => setCadSources(null)}
               onBuild={applyCadContour}

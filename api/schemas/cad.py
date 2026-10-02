@@ -206,6 +206,13 @@ class CadCrestBlockSchema(BaseModel):
     side: Literal["auto", "left", "right"] = "auto"
 
 
+class CadPassportBenchSchema(BaseModel):
+    """Отметки уступа паспорта: остаются, если в чертеже их нет, и проверяются вместе с найденными."""
+
+    crest_z_m: float
+    toe_z_m: float
+
+
 class CadContourRequest(BaseModel):
     method: Literal["ready", "click", "assembly", "crest"]
     handle: str = ""
@@ -215,6 +222,7 @@ class CadContourRequest(BaseModel):
     crest: CadCrestBlockSchema | None = None
     tolerance_m: float = Field(default=0.5, gt=0, le=10)
     bridge_m: float = Field(default=5.0, ge=0, le=50)
+    passport_bench: CadPassportBenchSchema | None = None
 
 
 class CadContourIssueSchema(BaseModel):

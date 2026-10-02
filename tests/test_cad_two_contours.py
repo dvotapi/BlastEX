@@ -116,6 +116,31 @@ def test_missing_crest_keeps_the_passport_levels():
     assert [warning.code for warning in levels.warnings] == ["crest_z_missing", "toe_z_missing"]
 
 
+def test_one_level_from_the_drawing_is_checked_together_with_the_passport_one():
+    # Бровка из чертежа 100 м, подошвы в чертеже нет — остаётся подошва паспорта 410 м.
+    low_crest = crest("T", [(40, -10), (40, 30)], 100.0)
+    levels = bench_levels(BLOCK, [(1, 2)], stitched(low_crest), [], floor_z=None, passport=(420.0, 410.0))
+    assert (levels.crest_z_m, levels.toe_z_m) == (pytest.approx(100.0), pytest.approx(410.0))
+    assert (levels.crest_source, levels.toe_source) == ("crest_top", "passport")
+    assert [issue.code for issue in levels.issues] == ["bench_inverted"]
+
+    # Бровка 420 м, подошва паспорта по умолчанию −10 м: уступ 430 м — предупреждение.
+    tall = bench_levels(BLOCK, [(1, 2)], stitched(EAST_TOP), [], floor_z=None, passport=(0.0, -10.0))
+    assert tall.toe_source == "passport" and tall.issues == []
+    assert "bench_height" in [warning.code for warning in tall.warnings]
+
+
+def test_toe_not_below_the_crest_is_an_error_even_from_the_drawing():
+    levels = bench_levels(BLOCK, [(1, 2)], stitched(EAST_TOP), [], floor_z=420.0)
+    assert [issue.code for issue in levels.issues] == ["bench_inverted"]
+    assert "bench_height" not in [warning.code for warning in levels.warnings]
+
+
+def test_without_passport_levels_the_missing_ones_stay_empty():
+    levels = bench_levels(BLOCK, [(1, 2)], stitched(EAST_TOP), [], floor_z=None)
+    assert levels.toe_z_m is None and levels.issues == []
+
+
 # --- блок по бровке: S низ − S верх = полоса откоса (§3) -------------------
 
 

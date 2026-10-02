@@ -211,3 +211,44 @@ def test_assembly_part_of_an_unchecked_role_is_a_visible_issue(loaded):
     excluded = [issue for issue in body["issues"] if issue["code"] == "role_excluded"]
     assert len(excluded) == 1
     assert "6C3" in excluded[0]["message"] and "Бровка верхняя" in excluded[0]["message"]
+
+
+def test_passport_levels_reach_the_bench_check(loaded, monkeypatch):
+    from api.services import cad_contour_service as service
+
+    seen: dict = {}
+    real = service.bench_levels
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(service, "bench_levels", spy)
+    _, client, source = loaded
+
+    response = _contour(
+        client, source["id"], method="ready", handle="769", passport_bench={"crest_z_m": 421.0, "toe_z_m": 411.0}
+    )
+
+    assert response.json()["ok"] is True
+    assert seen["passport"] == (421.0, 411.0)
+
+
+def test_toe_above_the_crest_blocks_the_build():
+    repository = InMemoryCadRepository()
+    client = _client(repository)
+    source = _upload(client, ("block66.dxf", FIXTURE.read_bytes()))["sources"][0]
+    client.post(
+        f"{BASE}/sources/{source['id']}/reparse",
+        json={"scale": 1, "label_radius_m": 3, "floor_z_m": 430, "bench_height_m": 10},
+    ).raise_for_status()
+
+    # Подошва 430 м: все бровки ниже неё — верхней нет, бровка остаётся паспортной (420 м).
+    body = _contour(
+        client, source["id"], method="ready", handle="769", passport_bench={"crest_z_m": 420.0, "toe_z_m": 410.0}
+    ).json()
+
+    assert body["ok"] is False
+    assert [issue["code"] for issue in body["issues"]] == ["bench_inverted"]
+    assert body["top"] is not None
+    assert (body["bench"]["crest_source"], body["bench"]["toe_z_m"]) == ("passport", 430)

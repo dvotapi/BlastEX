@@ -168,7 +168,11 @@ export type CadContourRequest = {
   crest?: { start: number[]; end: number[]; width_m: number; side: CadCrestSide } | null;
   tolerance_m?: number;
   bridge_m?: number;
+  /** Отметки уступа паспорта: остаются, если в чертеже их нет, и проверяются вместе с найденными. */
+  passport_bench?: CadPassportBench;
 };
+
+export type CadPassportBench = { crest_z_m: number; toe_z_m: number };
 
 export type CadContourIssue = { code: string; message: string; point: number[] | null };
 

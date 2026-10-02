@@ -231,7 +231,15 @@ def contour(
     floor_z = record.params.get("floor_z_m")
     if floor_z is None:
         floor_z = record.summary.get("floor_z_m")
-    levels = bench_levels(draft.ring, two.free_faces, tops, bottoms, floor_z)
+    passport = request.passport_bench
+    levels = bench_levels(
+        draft.ring,
+        two.free_faces,
+        tops,
+        bottoms,
+        floor_z,
+        passport=(passport.crest_z_m, passport.toe_z_m) if passport else None,
+    )
     _fill(response, two, levels)
     return response
 
@@ -249,6 +257,9 @@ def _fill(response: CadContourResponse, two: TwoContours, levels: BenchLevels) -
         for flank in two.flanks
     ]
     response.warnings.extend(CadWarningSchema(**warning.to_dict()) for warning in [*two.warnings, *levels.warnings])
+    if levels.issues:
+        response.issues.extend(CadContourIssueSchema(**issue.to_dict()) for issue in levels.issues)
+        response.ok = False
     response.bench = CadBenchSchema(
         crest_z_m=levels.crest_z_m,
         toe_z_m=levels.toe_z_m,

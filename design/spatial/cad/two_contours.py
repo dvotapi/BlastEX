@@ -27,7 +27,16 @@ from shapely.geometry import LineString, Point
 
 from design.spatial.cad.contour import polyline_length, project_on_polyline, ring_arcs
 from design.spatial.cad.model import CadWarning, ru_number
-from design.spatial.cad.rings import XY, LocalFrame, check_ring, normalize_ring, point_label, ring_area, ring_perimeter
+from design.spatial.cad.rings import (
+    XY,
+    LocalFrame,
+    RingIssue,
+    check_ring,
+    normalize_ring,
+    point_label,
+    ring_area,
+    ring_perimeter,
+)
 from design.spatial.cad.stitch import StitchedLine
 
 FREE_FACE_DISTANCE_M = 1.0
@@ -89,6 +98,8 @@ class BenchLevels:
     crest_source: str = ""
     toe_source: str = ""
     warnings: list[CadWarning] = field(default_factory=list)
+    # Ошибки отметок: блок с такими не строится (подошва не ниже бровки).
+    issues: list[RingIssue] = field(default_factory=list)
 
     @property
     def height_m(self) -> float | None:
@@ -416,9 +427,14 @@ def bench_levels(
     top_lines: Sequence[StitchedLine],
     bottom_lines: Sequence[StitchedLine],
     floor_z: float | None,
+    passport: tuple[float, float] | None = None,
 ) -> BenchLevels:
     """Отметки уступа для паспорта: бровка — по верхней бровке у откоса,
-    подошва — проектная отметка, без неё — по нижней бровке."""
+    подошва — проектная отметка, без неё — по нижней бровке.
+
+    `passport` — отметки бровки и подошвы паспорта: не найденная в чертеже
+    остаётся паспортной, и высота уступа проверяется уже по итоговой паре.
+    """
 
     levels = BenchLevels(crest_z_m=None, toe_z_m=None)
     frame = LocalFrame.of(ring)
@@ -442,6 +458,8 @@ def bench_levels(
         levels.warnings.append(
             CadWarning("crest_z_missing", "Отметка бровки не найдена — оставлена отметка паспорта.")
         )
+        if passport is not None:
+            levels.crest_z_m, levels.crest_source = float(passport[0]), "passport"
 
     if floor_z is not None:
         levels.toe_z_m, levels.toe_source = float(floor_z), "floor"
@@ -459,10 +477,24 @@ def bench_levels(
             levels.warnings.append(
                 CadWarning("toe_z_missing", "Отметка подошвы не найдена — оставлена отметка паспорта.")
             )
+            if passport is not None:
+                levels.toe_z_m, levels.toe_source = float(passport[1]), "passport"
 
     height = levels.height_m
     low, high = BENCH_HEIGHT_RANGE_M
-    if height is not None and not low <= height <= high:
+    if height is not None and height <= 0:
+        # Уступ «вверх ногами» паспорт не примет: высота обнулилась бы, и
+        # сетка, объём и заряды посчитались бы от нуля.
+        levels.issues.append(
+            RingIssue(
+                "bench_inverted",
+                f"Подошва {ru_number(levels.toe_z_m, 1)} м {_source_label(levels.toe_source)} не ниже бровки "
+                f"{ru_number(levels.crest_z_m, 1)} м {_source_label(levels.crest_source)} — проверьте роли "
+                "бровок, поле «Подошва» и отметки паспорта.",
+                None,
+            )
+        )
+    elif height is not None and not low <= height <= high:
         levels.warnings.append(
             CadWarning(
                 "bench_height",
@@ -471,6 +503,18 @@ def bench_levels(
             )
         )
     return levels
+
+
+_SOURCE_LABELS = {
+    "crest_top": "(по верхней бровке)",
+    "crest_bottom": "(по нижней бровке)",
+    "floor": "(поле «Подошва»)",
+    "passport": "(из паспорта)",
+}
+
+
+def _source_label(source: str) -> str:
+    return _SOURCE_LABELS.get(source, "")
 
 
 def _sample_step(local: Sequence[XY]) -> float:

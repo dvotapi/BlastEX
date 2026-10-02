@@ -15,6 +15,7 @@ import type {
   CadLayerRoleCode,
   CadMeta,
   CadParams,
+  CadPassportBench,
   CadRoleCode,
   CadRolesPayload,
   CadSource,
@@ -52,6 +53,8 @@ export type CadImportDialogProps = {
   sources: CadSource[];
   /** Расстояние между рядами W паспорта — ширина блока «рядов × W». */
   burden: number | null;
+  /** Отметки уступа паспорта: сервер проверит высоту по итоговой паре (чертёж + паспорт). */
+  passportBench?: CadPassportBench | null;
   onSourcesChange: (sources: CadSource[]) => void;
   onCancel: () => void;
   onBuild: (choice: CadBuildChoice) => void;
@@ -64,7 +67,7 @@ function areaKey(source: CadSource): string {
   return source.site_code !== "" ? `site:${source.site_code}` : `file:${source.id}`;
 }
 
-export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, onBuild }: CadImportDialogProps) {
+export function CadImportDialog({ sources, burden, passportBench = null, onSourcesChange, onCancel, onBuild }: CadImportDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const [meta, setMeta] = useState<CadMeta | null>(null);
   const [metaError, setMetaError] = useState("");
@@ -176,7 +179,15 @@ export function CadImportDialog({ sources, burden, onSourcesChange, onCancel, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id, rolesKey, version]);
 
-  const request = useMemo(() => contourRequest(contour, burden), [contour, burden]);
+  const passportCrest = passportBench?.crest_z_m;
+  const passportToe = passportBench?.toe_z_m;
+  const request = useMemo(() => {
+    const base = contourRequest(contour, burden);
+    // Отметка, которой нет в чертеже, останется паспортной — проверять высоту
+    // уступа сервер должен по итоговой паре, иначе уступ мог бы выйти «вверх ногами».
+    if (!base || passportCrest === undefined || passportToe === undefined) return base;
+    return { ...base, passport_bench: { crest_z_m: passportCrest, toe_z_m: passportToe } };
+  }, [contour, burden, passportCrest, passportToe]);
   const preview = useContourPreview(active?.id ?? "", active ? request : null, api.cad.contour, version);
 
   const snapIndex = useMemo(() => {

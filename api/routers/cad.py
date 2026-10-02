@@ -23,9 +23,11 @@ from api.schemas.cad import (
     CadRolesRequest,
     CadRolesResponse,
     CadSourceSchema,
+    CadSurfaceRequest,
+    CadSurfaceResponse,
 )
 from api.security import require_internal_access
-from api.services import cad_contour_service, cad_service
+from api.services import cad_contour_service, cad_service, cad_surface_service
 from api.services.cad_service import CadImportError, get_cad_repository
 from api.services.economics_service import get_economics_repository
 from api.services.legacy_references import current_reference_snapshot
@@ -186,6 +188,22 @@ def post_contour(
     organization_id, _ = _identity(session)
     try:
         return cad_contour_service.contour(repository, organization_id, source_id, request)
+    except (CadImportError, CadSourceNotFound) as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/sources/{source_id}/surface", response_model=CadSurfaceResponse)
+def post_surface(
+    source_id: str,
+    request: CadSurfaceRequest,
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+) -> CadSurfaceResponse:
+    """Предпросмотр кровли блока: ошибки построения — в ответе, ошибки входа — 422."""
+
+    organization_id, _ = _identity(session)
+    try:
+        return cad_surface_service.surface(repository, organization_id, source_id, request)
     except (CadImportError, CadSourceNotFound) as exc:
         raise _http(exc) from exc
 

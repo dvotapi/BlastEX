@@ -145,6 +145,8 @@ class SurfaceData:
     snapped: list[Snapped] = field(default_factory=list)
     excluded: list[str] = field(default_factory=list)
     warnings: list[CadWarning] = field(default_factory=list)
+    # Отметок у контура без исключённых — и тех, что слились с вершиной линии.
+    spot_count: int = 0
 
     @property
     def mass(self) -> np.ndarray:
@@ -469,6 +471,7 @@ def collect_surface_data(
 
     data = _assemble(frame, region, runs, lines, mass, mass_ids)
     data.excluded = found_excluded
+    data.spot_count = len(mass)
     data.warnings = warnings
     _snap_points(data)
     return data

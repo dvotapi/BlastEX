@@ -75,8 +75,9 @@ def test_block_66_roof_from_marks_and_crests(block, factory):
     assert roof.ok, roof.issues
     assert not roof.plane
     assert elapsed < 1.0
-    # 111 отметок из 207 — у контура, остальные дальше 20 м.
-    assert roof.spot_count == 111
+    # 206 отметок из 207 — у контура; многие совпадают с вершинами бровок
+    # (бровку маркшейдер вёл через точки съёмки).
+    assert roof.spot_count == 206
     # У юго-западного угла нижнего контура данных нет: треугольник с ребром
     # 42 м срезан пределом 30 м — 3 м² из 4121.
     assert roof.coverage_pct > 99.9

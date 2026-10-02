@@ -544,7 +544,7 @@ def build_roof(
         data=data,
         plane=plane,
         flat_fixed=flat_fixed,
-        spot_count=len(data.mass),
+        spot_count=data.spot_count,
         warnings=warnings,
         issues=issues,
         floor_z_m=floor_z,

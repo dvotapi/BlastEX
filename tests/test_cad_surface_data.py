@@ -248,3 +248,12 @@ def test_constraint_of_a_single_point_has_no_edges():
 
     assert len(data.edges) == 0
     assert data.z[vertex_at(data, 5.0, 5.0)] == pytest.approx(421.0)
+
+
+def test_spot_count_includes_points_merged_into_a_line_but_not_excluded_ones():
+    top = line("T", "crest_top", [(10, 0, 420.0), (10, 10, 420.0)])
+    points = [point("P1", 10.0, 3.0, 417.0), point("P2", 5, 5, 420.0), point("P3", 6, 6, 421.0)]
+
+    data = collect_surface_data([top, *points], BLOCK, None, excluded={"P3"})
+
+    assert data.spot_count == 2

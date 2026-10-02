@@ -18,11 +18,25 @@ describe("calibrationBaseline", () => {
   });
 
   it("негабарит — тоже с моделью", () => {
-    expect(calibrationBaseline("oversize_residual", fragmentation, null).baseline).toBe(7.5);
+    expect(calibrationBaseline("oversize_residual", fragmentation, null)).toEqual({
+      baseline: 7.5,
+      baseline_model: "kuzram",
+      baseline_model_version: "2.0.0",
+    });
   });
 
   it("без прогноза кусковатости baseline пустой", () => {
     expect(calibrationBaseline("kuzram_residual", null, null)).toEqual({ baseline: null });
+  });
+
+  it("ответ есть, а прогноза площадки в нём нет — baseline пустой, без модели", () => {
+    const withoutPrediction = {
+      model: "kuzram",
+      model_version: "2.0.0",
+      site: {},
+    } as unknown as FragmentationPredictResponse;
+
+    expect(calibrationBaseline("kuzram_residual", withoutPrediction, null)).toEqual({ baseline: null });
   });
 
   it("PPV — максимум по приёмникам, без модели", () => {

@@ -1,6 +1,7 @@
 """Train and apply residual calibration. Never auto-deploys to production."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from design.models import BlastDesign
@@ -37,7 +38,6 @@ from intelligence.calibration.persistence import (
     set_status,
 )
 from intelligence.calibration.prediction import (
-    _old_base,
     apply_residual,
     baseline_without_model,
     empirical_baseline,
@@ -52,7 +52,7 @@ from intelligence.calibration.types import (
 )
 from intelligence.datasets import persistence as dataset_persistence
 from simulation.fragmentation.engine import resolve_model
-from simulation.fragmentation.models import ModelProvenance
+from simulation.fragmentation.models import LEGACY_MODEL_SUFFIX, MODEL_KUZRAM, MODEL_KUZRAM_LEGACY
 
 
 def _model_schema(model) -> CalibrationModelSchema:
@@ -142,12 +142,23 @@ def _design_from_request(request: CalibrationPredictRequest) -> BlastDesign | No
     return BlastDesign.from_dict(request.design.model_dump())
 
 
+def _version_major(version: str) -> int | None:
+    """Номер основной версии («1.0.0» → 1); None — версия не распознана.
+
+    Длина ограничена: `int()` на очень длинной строке цифр бросает ValueError.
+    """
+    major = version.split(".")[0]
+    return int(major) if re.fullmatch(r"[0-9]{1,6}", major) else None
+
+
 def _provided_base_refusal(request: CalibrationPredictRequest, model_type: str) -> str:
     """Причина не накладывать калибровку на присланный baseline; пусто — можно.
 
     До PR 3 все калибровки кусковатости обучены на старой базе Kuz-Ram 1.0.0,
     поэтому присланный baseline принимается, только если указаны и модель, и
-    версия, и посчитан он ею.
+    версия, и посчитан он старой базой: моделью `*_legacy` или версией ниже 2.
+    Калибровка негабарита к тому же обучена на кривой Kuz-Ram: x50 старых
+    моделей совпадает, а негабарит у них разный.
     """
     if model_type not in {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}:
         return ""
@@ -159,12 +170,17 @@ def _provided_base_refusal(request: CalibrationPredictRequest, model_type: str) 
         model_id = resolve_model(model)
     except ValueError:
         return f"Неизвестная модель baseline «{model}» — калибровка кусковатости не применена."
-    if _old_base(ModelProvenance(model=model_id, model_version=version)):
-        return ""
-    return (
-        "Калибровка обучена на старой модели Kuz-Ram 1.0.0 и к прогнозу новой модели "
-        "не применяется — её нужно переобучить."
-    )
+    major = _version_major(version)
+    if major is None:
+        return f"Версия модели baseline «{version}» не распознана — калибровка кусковатости не применена."
+    if not model_id.endswith(LEGACY_MODEL_SUFFIX) and major >= 2:
+        return (
+            "Калибровка обучена на старой модели Kuz-Ram 1.0.0 и к прогнозу новой модели "
+            "не применяется — её нужно переобучить."
+        )
+    if model_type == MODEL_OVERSIZE_RESIDUAL and model_id not in {MODEL_KUZRAM, MODEL_KUZRAM_LEGACY}:
+        return f"Калибровка негабарита обучена на кривой Kuz-Ram и к прогнозу модели «{model_id}» не применяется."
+    return ""
 
 
 def predict_calibration(team_id: str, request: CalibrationPredictRequest) -> CalibrationPredictResponse:

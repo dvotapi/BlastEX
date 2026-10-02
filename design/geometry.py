@@ -201,12 +201,11 @@ def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> 
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
     if top is not None and top.has_tin and len(contour.vertices) >= 3:
         if floor is not None and getattr(floor, "has_tin", False):
-            # Как интеграл без TIN подошвы — со знаком: кровля ниже подошвы
-            # уменьшает среднюю высоту.
+            # Ячейки вне кровли — по отметке бровки, как в объёме; со знаком,
+            # как интеграл без TIN подошвы: кровля ниже подошвы уменьшает среднюю.
             heights = [
-                z_top - _floor_z(contour, floor, x, y)
+                _roof_z(contour, top, x, y) - _floor_z(contour, floor, x, y)
                 for x, y in _grid_cells(contour.points_xy)[0]
-                if (z_top := top.elevation_at(x, y)) is not None
             ]
             if heights:
                 return sum(heights) / len(heights)
@@ -240,6 +239,12 @@ def _grid_cells(verts: list[Point2]) -> tuple[list[Point2], float]:
     return cells, step * step
 
 
+def _roof_z(contour: BlockContour, top: object, x: float, y: float) -> float:
+    """Отметка кровли: TIN кровли, вне неё — отметка бровки."""
+    z_top = top.elevation_at(x, y)
+    return contour.bench.crest_z_m if z_top is None else z_top
+
+
 def _floor_z(contour: BlockContour, floor: object | None, x: float, y: float) -> float:
     """Отметка подошвы: TIN подошвы, вне неё и без неё — отметка подошвы уступа."""
     z_floor = None
@@ -260,10 +265,7 @@ def _volume_from_surfaces(
     cells, cell_area = _grid_cells(polygon if polygon is not None else contour.points_xy)
     volume = 0.0
     for x, y in cells:
-        z_top = top.elevation_at(x, y)
-        if z_top is None:
-            z_top = contour.bench.crest_z_m
-        volume += max(0.0, z_top - _floor_z(contour, floor, x, y)) * cell_area
+        volume += max(0.0, _roof_z(contour, top, x, y) - _floor_z(contour, floor, x, y)) * cell_area
     return volume
 
 

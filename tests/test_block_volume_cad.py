@@ -121,3 +121,27 @@ def test_mean_bench_height_over_a_floor_tin_keeps_the_sign():
 
     # Высота 5 − 0,5·x на x от 0 до 40: в среднем −5.
     assert mean_bench_height(contour(), surfaces) == pytest.approx(-5.0)
+
+
+def test_mean_bench_height_over_a_floor_tin_counts_cells_beyond_the_roof_at_the_crest():
+    # Ревью Codex #104: объём берёт ячейки вне кровли по отметке бровки,
+    # средняя высота их пропускала — S ср × H и объём расходились.
+    surfaces = roof()
+    z = lambda x: 420.0 + 0.01 * x  # noqa: E731
+    surfaces.top.tin = TIN(
+        vertices=[Point3(-10, -10, z(-10)), Point3(20, -10, z(20)), Point3(20, 40, z(20)), Point3(-10, 40, z(-10))],
+        triangles=[(0, 1, 2), (0, 2, 3)],
+    )
+    flat = 409.0
+    surfaces.floor = SurfaceModel(
+        kind="floor",
+        tin=TIN(
+            vertices=[Point3(-10, -10, flat), Point3(60, -10, flat), Point3(60, 40, flat), Point3(-10, 40, flat)],
+            triangles=[(0, 1, 2), (0, 2, 3)],
+        ),
+    )
+    plain = contour()
+
+    # x < 20: 11 + 0,01·x, дальше бровка 420 − 409 = 11.
+    assert mean_bench_height(plain, surfaces) == pytest.approx(11.05)
+    assert block_volume(plain, surfaces) == pytest.approx(800.0 * mean_bench_height(plain, surfaces))

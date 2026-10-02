@@ -95,7 +95,8 @@ class TIN:
         direction = (p1.x - p0.x, p1.y - p0.y, p1.z - p0.z)
         best_t = 1.0 + 1e-9
         best: Point3 | None = None
-        for i, j, k in self.triangles:
+        for idx in self._candidates(min(p0.x, p1.x), min(p0.y, p1.y), max(p0.x, p1.x), max(p0.y, p1.y)):
+            i, j, k = self.triangles[idx]
             hit = _segment_triangle(p0, direction, self.vertices[i], self.vertices[j], self.vertices[k])
             if hit is None:
                 continue
@@ -164,6 +165,23 @@ class TIN:
         col = int((x - self._origin[0]) / self._cell) if self._cell else 0
         row = int((y - self._origin[1]) / self._cell) if self._cell else 0
         return max(0, min(self._cols - 1, col)), max(0, min(self._rows - 1, row))
+
+    def _candidates(self, min_x: float, min_y: float, max_x: float, max_y: float) -> list[int]:
+        """Треугольники, рамка которых может пересекать рамку [min, max] в плане.
+
+        Ячейки берутся с запасом в одну — как соседние ячейки в `_locate_xy`.
+        """
+        if not self._buckets:
+            return []
+        c0, r0 = self._cell_of(min_x, min_y)
+        c1, r1 = self._cell_of(max_x, max_y)
+        if (c1 - c0 + 3) * (r1 - r0 + 3) >= self._cols * self._rows:
+            return list(range(len(self.triangles)))
+        seen: set[int] = set()
+        for row in range(max(0, r0 - 1), min(self._rows - 1, r1 + 1) + 1):
+            for col in range(max(0, c0 - 1), min(self._cols - 1, c1 + 1) + 1):
+                seen.update(self._buckets[row * self._cols + col])
+        return sorted(seen)
 
     def _locate_xy(self, x: float, y: float) -> int | None:
         if not self._buckets:

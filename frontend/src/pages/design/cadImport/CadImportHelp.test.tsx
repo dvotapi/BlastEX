@@ -130,3 +130,42 @@ describe("CadImportHelp: поверхность и длины скважин (PR
     expect(dialog.textContent).not.toContain("Поверхности паспорта построение не меняет");
   });
 });
+
+describe("CadImportHelp: ситуация и система координат (PR 4)", () => {
+  function openHelp() {
+    render(<CadImportHelp meta={CAD_META} />);
+    fireEvent.click(screen.getByRole("button", { name: "Справка по импорту чертежа" }));
+    return screen.getByRole("dialog", { name: "Импорт чертежа: справка" });
+  }
+
+  it("источник, серии и версии, что видно в других паспортах", () => {
+    const dialog = openHelp();
+
+    expect(within(dialog).getByRole("heading", { name: "Ситуация и система координат" })).toBeTruthy();
+    expect(dialog.textContent).toContain("Название и дата съёмки");
+    expect(dialog.textContent).toContain("серии");
+    expect(dialog.textContent).toContain("самую свежую версию");
+    expect(dialog.textContent).toContain("в других паспортах объекта");
+    expect(dialog.textContent).toContain("«Вид»");
+  });
+
+  it("виды объектов ситуации — из каталога сервера", () => {
+    const dialog = openHelp();
+
+    const kinds = within(within(dialog).getByRole("list", { name: "Виды объектов ситуации" })).getAllByRole("listitem");
+    expect(kinds.map((item) => item.textContent)).toEqual(["Контур карьера", "Дорога", "ЛЭП", "Склад", "Здание", "Прочее"]);
+  });
+
+  it("СК объекта, предупреждение 5 км, повторный файл и удаление", () => {
+    const dialog = openHelp();
+
+    expect(dialog.textContent).toContain("МСК-66 зона 1");
+    expect(dialog.textContent).toContain("дальше 5 км");
+    expect(dialog.textContent).toContain("не пересчитываются");
+    expect(dialog.textContent).toContain("открывает прежний разбор");
+    expect(dialog.textContent).toContain("«Чертежи объекта»");
+    expect(dialog.textContent).toContain("насовсем");
+    // Блок 66 в справке — частный пример заказчика; нужен общий (известная проблема PR 2).
+    expect(dialog.textContent).not.toContain("блока 66");
+  });
+});

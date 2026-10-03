@@ -40,24 +40,40 @@ def baseline_settings(
     design: BlastDesign,
     fallback_settings: KuzRamSettings | None = None,
     fallback_source: Mapping[str, Any] | None = None,
+    *,
+    model: str = BASELINE_MODEL,
 ) -> tuple[KuzRamSettings | None, dict[str, Any], list[str]]:
-    """Настройки для baseline, их источник и предупреждения о чтении.
+    """Настройки для пересчёта моделью model, их источник и предупреждения.
 
     Берётся снимок настроек сохранённого прогноза, иначе запасные (объект
-    работ или умолчания). Нечитаемый снимок (чужие поля, значение вне
-    допустимого) не роняет сборку снимка датасета: берутся запасные настройки,
-    а причина уходит в предупреждения.
+    работ или умолчания). Снимок прогноза другой версии модели не
+    применяется: настройки подобраны под ту формулу (C(A) прогнозов 2.0.0 —
+    под силу ВВ к тротилу), а запасные уже приведены к текущей. Нечитаемый
+    снимок (чужие поля, значение вне допустимого) не роняет сборку снимка
+    датасета. В обоих случаях берутся запасные настройки, а причина уходит в
+    предупреждения.
     """
     stored = stored_prediction(design)
     snapshot = stored.provenance.settings if stored is not None else {}
     fallback = (fallback_settings, dict(fallback_source or {}))
     if not snapshot:
         return (*fallback, [])
+    taken = "настройки объекта работ" if fallback[1].get("source") == "work_object" else "умолчания"
+    entry = FRAGMENTATION_MODELS[resolve_model(model)]
+    stored_version = str(stored.provenance.model_version or "").strip()
+    # Старые формулы настроек не знают: им снимок безразличен.
+    if not entry["legacy"] and stored_version != str(entry["version"]):
+        return (
+            *fallback,
+            [
+                f"Снимок настроек сохранённого прогноза посчитан моделью "
+                f"{stored_version or 'неизвестной версии'} — взяты {taken}."
+            ],
+        )
     try:
         settings, source = settings_from_snapshot(snapshot)
     except (TypeError, ValueError, OverflowError, AttributeError) as exc:
         reason = f": {exc}" if isinstance(exc, ValueError) else ""
-        taken = "настройки объекта работ" if fallback[1].get("source") == "work_object" else "умолчания"
         return (*fallback, [f"Снимок настроек сохранённого прогноза не прочитан{reason} — взяты {taken}."])
     return settings, source, []
 
@@ -126,7 +142,7 @@ def fragmentation_baseline(
     else:
         warnings.append("Сохранённого прогноза нет: порода и ВВ для baseline — умолчания.")
     if resolved_settings is None:
-        resolved_settings = baseline_settings(design, fallback_settings, fallback_source)
+        resolved_settings = baseline_settings(design, fallback_settings, fallback_source, model=model_id)
     settings, source, settings_warnings = resolved_settings
     warnings.extend(settings_warnings)
     try:

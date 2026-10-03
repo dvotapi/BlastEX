@@ -1,5 +1,6 @@
 """Физика пространственного прогноза считается базой своей модели."""
 import unittest
+from dataclasses import asdict
 from unittest.mock import patch
 
 from api.schemas.design import BlastDesignSchema
@@ -11,7 +12,7 @@ from intelligence.spatial.training import train_from_snapshot
 from simulation.fragmentation import engine as fragmentation_engine
 from simulation.fragmentation.base import SETTINGS_SOURCE_WORK_OBJECT
 from simulation.fragmentation.cunningham import KuzRamSettings
-from tests.calibration_fixtures import CURRENT_VERSION  # версия текущей базы — из реестра моделей движка
+from tests.calibration_fixtures import CURRENT_VERSION, PR2_VERSION  # версия текущей базы — из реестра моделей движка
 from tests.spatial_fixtures import multi_hole_design, synthetic_spatial_snapshot
 
 
@@ -62,13 +63,16 @@ class SpatialServiceBaseTests(unittest.TestCase):
     def _request(self, **kwargs):
         return SpatialPredictRequest(design=BlastDesignSchema(**multi_hole_design().to_dict()), **kwargs)
 
-    def _predict(self, model, resolved=None):
+    def _predict(self, model, resolved=None, design=None):
+        request = self._request(model_id="m1" if model else "")
+        if design is not None:
+            request = SpatialPredictRequest(design=BlastDesignSchema(**design.to_dict()), model_id=request.model_id)
         with (
             patch.object(spatial_service, "load_model", return_value=model),
             patch.object(spatial_service, "resolve_kuzram_settings", return_value=resolved) as resolve,
             patch.object(fragmentation_engine, "predict_region", wraps=fragmentation_engine.predict_region) as spy,
         ):
-            response = spatial_service.predict_spatial("sp", self._request(model_id="m1" if model else ""))
+            response = spatial_service.predict_spatial("sp", request)
         return response, resolve, spy
 
     def test_without_model_response_carries_current_base(self):
@@ -106,6 +110,31 @@ class SpatialServiceBaseTests(unittest.TestCase):
         self.assertEqual({call.kwargs["settings"] for call in spy.call_args_list}, {settings})
         self.assertEqual(response.base_label, f"База: Kuz-Ram {CURRENT_VERSION}")
         self.assertIn("Настройки объекта не прочитаны.", response.warnings)
+
+    def test_settings_snapshot_of_other_version_is_not_applied(self):
+        """Снимок настроек прогноза 2.0.0 не прикладывают к физике текущей версии."""
+        model = train_from_snapshot(synthetic_spatial_snapshot(), team_id="sp")
+        model.baseline_model, model.baseline_model_version = "kuzram", CURRENT_VERSION
+        design = multi_hole_design()
+        provenance = design.blast_result.basis.predicted_fragmentation.provenance
+        provenance.model, provenance.model_version = "kuzram", PR2_VERSION
+        provenance.settings = {
+            "source": "work_object",
+            "work_object_name": "Карьер-старый",
+            "values": asdict(KuzRamSettings(rock_factor_correction=1.3)),
+            "warnings": [],
+        }
+        settings = KuzRamSettings(rock_factor_correction=1.1)
+        resolved = ResolvedSettings(settings, SETTINGS_SOURCE_WORK_OBJECT, "Карьер")
+
+        response, _, spy = self._predict(model, resolved, design)
+
+        self.assertEqual({call.kwargs["settings"] for call in spy.call_args_list}, {settings})
+        self.assertIn(
+            f"Снимок настроек сохранённого прогноза посчитан моделью {PR2_VERSION} — "
+            "взяты настройки объекта работ.",
+            response.warnings,
+        )
 
 
 if __name__ == "__main__":

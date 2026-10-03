@@ -198,15 +198,17 @@ def predict_spatial(
         raise InvalidSpatialError("site_id запроса не совпадает с площадкой модели.")
     try:
         settings, settings_source, settings_warnings = None, None, []
-        if not physics_base(model)[0].legacy:
-            # Настройки модели — снимок сохранённого прогноза паспорта, иначе
-            # активный объект работ организации, иначе умолчания. Старая
-            # модель считает прежними формулами: настройки ей не нужны.
+        base = physics_base(model)[0]
+        if not base.legacy:
+            # Настройки модели — снимок сохранённого прогноза паспорта той же
+            # версии модели, иначе активный объект работ организации, иначе
+            # умолчания. Старая модель считает прежними формулами: настройки
+            # ей не нужны.
             resolved = resolve_kuzram_settings(
                 explicit=None, work_object_name="", organization_id=team_id, repository=repository
             )
             settings, settings_source, read_warnings = baseline_settings(
-                design, resolved.settings, resolved.source_payload()
+                design, resolved.settings, resolved.source_payload(), model=base.model
             )
             settings_warnings = [*settings_source.get("warnings", ()), *read_warnings]
         overlay = apply_model(

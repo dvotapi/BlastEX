@@ -141,6 +141,24 @@ class CalibrationBaseApiTests(unittest.TestCase):
         self.assertAlmostEqual(result.baseline, expected, places=6)
         self.assertNotAlmostEqual(result.baseline, fragmentation_baseline(design)["baseline_x50_mm"], places=3)
 
+    def test_recompute_ignores_settings_snapshot_of_other_version(self):
+        """C(A) прогноза PR 2 подобран под другую формулу: пересчёт берёт настройки объекта работ."""
+        design = _with_stored_model(closed_design("cal-pr2-settings"), "kuzram", PR2_VERSION)
+        design.blast_result.basis.predicted_fragmentation.provenance.settings = {
+            "source": "work_object",
+            "work_object_name": OBJECT,
+            "values": asdict(KuzRamSettings(rock_factor_correction=1.3)),
+            "warnings": [],
+        }
+        work_object = KuzRamSettings(rock_factor_correction=1.4)
+        without_snapshot = _with_stored_model(closed_design("cal-pr2-settings"), "kuzram", PR2_VERSION)
+
+        result = self._predict(self._artifact(), design=design.to_dict(), repository=_repository(1.4))
+
+        expected = fragmentation_baseline(without_snapshot, fallback_settings=work_object)["baseline_x50_mm"]
+        self.assertAlmostEqual(result.baseline, expected, places=6)
+        self.assertEqual(result.baseline_source, "kuzram")
+
     def test_recomputed_baseline_of_other_version_is_refused(self):
         """Движок пересчитывает текущей версией модели; артефакт другой версии к ней не применяется."""
         other_version = "2.5.0"  # версия артефакта, заведомо не совпадающая с текущей

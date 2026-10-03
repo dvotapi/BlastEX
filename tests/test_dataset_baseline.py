@@ -12,6 +12,7 @@ from simulation.fragmentation.base import settings_from_snapshot
 from simulation.fragmentation.cunningham import KuzRamSettings
 from simulation.fragmentation.engine import predict_design
 from simulation.fragmentation.regions import ExplosiveSpec, RockSpec
+from tests.calibration_fixtures import CURRENT_VERSION, PR2_VERSION
 from tests.dataset_fixtures import closed_design
 
 ROCK = RockSpec(name="Гранит", density_t_m3=2.65, ucs_mpa=150.0, fissuring_ff=2.0)
@@ -22,6 +23,19 @@ FALLBACK_SOURCE = {"source": "work_object", "work_object_name": "Карьер-2"
 
 def _site_x50(design, **kwargs) -> float:
     return predict_design(design, model="kuzram", **kwargs)["site"]["prediction"]["x50_mm"]
+
+
+def _with_settings_snapshot(design, version: str, rock_factor_correction: float = 1.3):
+    """Сохранённый прогноз kuzram версии version со снимком настроек объекта «Карьер-1»."""
+    provenance = design.blast_result.basis.predicted_fragmentation.provenance
+    provenance.model, provenance.model_version = "kuzram", version
+    provenance.settings = {
+        "source": "work_object",
+        "work_object_name": "Карьер-1",
+        "values": asdict(KuzRamSettings(rock_factor_correction=rock_factor_correction)),
+        "warnings": [],
+    }
+    return design
 
 
 def _with_stored_inputs(design):
@@ -69,18 +83,32 @@ class RowTests(unittest.TestCase):
         self.assertAlmostEqual(result["baseline_x50_mm"], _site_x50(design), places=9)
 
     def test_settings_snapshot_of_stored_prediction_wins(self):
-        design = closed_design("b-4")
-        design.blast_result.basis.predicted_fragmentation.provenance.settings = {
-            "source": "work_object",
-            "work_object_name": "Карьер-1",
-            "values": asdict(KuzRamSettings(rock_factor_correction=1.3)),
-            "warnings": [],
-        }
+        design = _with_settings_snapshot(closed_design("b-4"), CURRENT_VERSION)
 
         result = fragmentation_baseline(design, fallback_settings=FALLBACK, fallback_source=FALLBACK_SOURCE)
 
         self.assertEqual(result["baseline_settings"]["values"]["rock_factor_correction"], 1.3)
         self.assertEqual(result["baseline_settings"]["work_object_name"], "Карьер-1")
+        self.assertFalse(any("Снимок настроек" in item for item in result["baseline_warnings"]))
+
+    def test_settings_snapshot_of_other_model_version_is_not_applied(self):
+        """C(A) прогноза PR 2 подобран под другую формулу силы ВВ: к текущей версии его не прикладывают."""
+        design = _with_settings_snapshot(closed_design("b-4v"), PR2_VERSION)
+
+        result = fragmentation_baseline(design, fallback_settings=FALLBACK, fallback_source=FALLBACK_SOURCE)
+
+        self.assertEqual(result["baseline_settings"]["values"]["rock_factor_correction"], 0.8)
+        self.assertEqual(result["baseline_settings"]["work_object_name"], "Карьер-2")
+        self.assertIn(
+            f"Снимок настроек сохранённого прогноза посчитан моделью {PR2_VERSION} — "
+            "взяты настройки объекта работ.",
+            result["baseline_warnings"],
+        )
+        self.assertAlmostEqual(
+            result["baseline_x50_mm"],
+            _site_x50(design, settings=FALLBACK, settings_source=FALLBACK_SOURCE),
+            places=9,
+        )
 
     def test_fallback_settings_without_snapshot(self):
         result = fragmentation_baseline(
@@ -129,8 +157,11 @@ class BrokenStoredDataTests(unittest.TestCase):
 
     @staticmethod
     def _with_settings(design_id: str, settings: dict):
+        """Снимок настроек у прогноза текущей версии — только такой снимок читается."""
         design = closed_design(design_id)
-        design.blast_result.basis.predicted_fragmentation.provenance.settings = settings
+        provenance = design.blast_result.basis.predicted_fragmentation.provenance
+        provenance.model_version = CURRENT_VERSION
+        provenance.settings = settings
         return design
 
     def _frag(self, design, **kwargs) -> dict:
@@ -163,6 +194,25 @@ class BrokenStoredDataTests(unittest.TestCase):
         self.assertTrue(any("умолчания" in w for w in frag["baseline_warnings"]))
         self.assertEqual(frag["baseline_settings"]["source"], "defaults")
         self.assertAlmostEqual(frag["baseline_x50_mm"], _site_x50(design), places=9)
+
+    def test_baseline_settings_of_other_version_take_fallback(self):
+        from intelligence.datasets.baseline import baseline_settings
+
+        for fallback, source, taken in (
+            (FALLBACK, FALLBACK_SOURCE, "настройки объекта работ"),
+            (None, None, "умолчания"),
+        ):
+            with self.subTest(taken=taken):
+                design = _with_settings_snapshot(closed_design("x-3v"), PR2_VERSION)
+
+                settings, got_source, warnings = baseline_settings(design, fallback, source)
+
+                self.assertIs(settings, fallback)
+                self.assertEqual(got_source, dict(source or {}))
+                self.assertEqual(
+                    warnings,
+                    [f"Снимок настроек сохранённого прогноза посчитан моделью {PR2_VERSION} — взяты {taken}."],
+                )
 
     def test_baseline_settings_returns_warning_instead_of_raising(self):
         from intelligence.datasets.baseline import baseline_settings

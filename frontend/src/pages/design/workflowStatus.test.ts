@@ -43,6 +43,8 @@ describe("isCrsUnconfirmed (TASK-013, PR 4)", () => {
     expect(isCrsUnconfirmed({ ...cs, name: "  " }, true)).toBe(true);
     expect(isCrsUnconfirmed({ ...cs, confirmed: true }, true)).toBe(false);
     expect(isCrsUnconfirmed({ ...cs, epsg: 32641 }, true)).toBe(false);
+    // «По коду EPSG» с пустым полем ставит 0 — это ещё не система координат.
+    expect(isCrsUnconfirmed({ ...cs, epsg: 0 }, true)).toBe(true);
   });
 
   it("без геометрии — никогда", () => {

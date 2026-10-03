@@ -228,4 +228,19 @@ describe("SourceHeader", () => {
     await flush();
     expect(props.saveMeta).toHaveBeenCalledTimes(1);
   });
+
+  it("ответ сохранения, пришедший после смены файла, всё равно доходит до окна", async () => {
+    let release: (value: CadSourceMetaResponse) => void = () => undefined;
+    const saveMeta = vi.fn(() => new Promise<CadSourceMetaResponse>((resolve) => (release = resolve)));
+    const { props, view } = renderHeader({ saveMeta });
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Положение горных работ" } });
+    await flush();
+    expect(saveMeta).toHaveBeenCalledTimes(1);
+
+    view.rerender(<SourceHeader {...props} saveMeta={saveMeta} source={cadSource({ id: "src-2", title: "другой" })} />);
+    await act(async () => release(metaAnswer({ id: "src-1", title: "Положение горных работ" })));
+
+    expect(props.onMetaSaved).toHaveBeenCalledWith(expect.objectContaining({ id: "src-1", title: "Положение горных работ" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });

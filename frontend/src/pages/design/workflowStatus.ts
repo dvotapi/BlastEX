@@ -38,7 +38,9 @@ export function isCrsUnconfirmed(cs: CoordinateSystem, hasGeometry: boolean): bo
   if (!hasGeometry) return false;
   if (cs.confirmed) return false;
   const unnamed = !cs.name.trim() || cs.name.trim().toLowerCase() === "local";
-  return unnamed && cs.epsg == null;
+  // «По коду EPSG» с пустым полем — код 0: системы ещё нет.
+  const noEpsg = cs.epsg == null || cs.epsg <= 0;
+  return unnamed && noEpsg;
 }
 
 export function holeSourceLabel(document: BlastDesign): string {

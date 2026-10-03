@@ -67,8 +67,11 @@ export function SourceHeader({
   // Поля, изменённые после последней отправки, и таймер паузы.
   const pending = useRef<CadSourceMetaPayload>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Номер последней отправки: ответ на более раннюю не применяется.
+  // Номер отправки и последний номер по файлу: ответ на более раннюю отправку
+  // того же файла не применяется, а ответ по файлу, с которого уже ушли, —
+  // применяется (окно обновит название и серию того файла).
   const sent = useRef(0);
+  const lastSent = useRef(new Map<string, number>());
   const sourceId = useRef(source.id);
   sourceId.current = source.id;
   const latest = useRef({ saveMeta, onMetaSaved });
@@ -87,15 +90,11 @@ export function SourceHeader({
     return () => {
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
-      sent.current += 1;
       const payload = pending.current;
       pending.current = {};
-      if (!Object.keys(payload).length) return;
-      latest.current.saveMeta(id, payload).then(
-        (answer) => latest.current.onMetaSaved(answer),
-        () => undefined,
-      );
+      if (Object.keys(payload).length) deliver(id, payload);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source.id]);
 
   function schedule(patch: CadSourceMetaPayload) {
@@ -108,17 +107,22 @@ export function SourceHeader({
     timer.current = null;
     const payload = pending.current;
     pending.current = {};
-    if (!Object.keys(payload).length) return;
-    const id = sourceId.current;
+    if (Object.keys(payload).length) deliver(sourceId.current, payload);
+  }
+
+  function deliver(id: string, payload: CadSourceMetaPayload) {
     const number = ++sent.current;
-    saveMeta(id, payload).then(
+    lastSent.current.set(id, number);
+    const stale = () => lastSent.current.get(id) !== number;
+    latest.current.saveMeta(id, payload).then(
       (answer) => {
-        if (number !== sent.current) return;
-        setMetaError("");
-        onMetaSaved(answer);
+        if (stale()) return;
+        if (id === sourceId.current) setMetaError("");
+        latest.current.onMetaSaved(answer);
       },
       (reason) => {
-        if (number !== sent.current) return;
+        // Ошибку видно только у открытого файла.
+        if (stale() || id !== sourceId.current) return;
         setMetaError(reason instanceof Error ? reason.message : "Не удалось сохранить название и дату.");
       },
     );

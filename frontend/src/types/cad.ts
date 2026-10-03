@@ -195,6 +195,7 @@ export type CadSituationLine = { points: CadPoint[]; closed: boolean };
 export type CadSituationLayer = {
   name: string;
   kind: CadSituationKind;
+  kind_label: string;
   color: string | null;
   lines: CadSituationLine[];
   points: CadPoint[];

@@ -29,7 +29,7 @@ from api.schemas.cad import (
     CadWarningSchema,
 )
 from api.services.cad_service import MAX_SITE_SOURCES, crs_named, layer_kinds, source_title
-from design.spatial.cad.model import ROLE_SITUATION, SITUATION_KIND_OTHER, CadEntity, ru_number
+from design.spatial.cad.model import ROLE_SITUATION, SITUATION_KIND_OTHER, SITUATION_KINDS, CadEntity, ru_number
 from design.spatial.cad.repository import CadRepository, CadSourceNotFound, CadSourceRecord
 from design.spatial.cad.roles import layer_key
 from design.spatial.cad.situation import order_versions, series_key
@@ -38,6 +38,7 @@ from design.spatial.cad.situation import order_versions, series_key
 SITUATION_SIMPLIFY_M = 0.05
 # Предел вершин в ответе геометрии одного источника.
 MAX_SITUATION_VERTICES = 200_000
+KIND_LABELS = dict(SITUATION_KINDS)
 
 
 def _iso(value) -> str | None:
@@ -176,9 +177,11 @@ def source_situation(repository: CadRepository, organization_id: str, source_id:
         ]
         points = [list(item.points[0]) for item in members if item.geometry_type == "point" and item.points]
         count = sum(len(line.points) for line in lines) + len(points)
+        kind = (kinds.get(name) or {}).get("kind") or SITUATION_KIND_OTHER
         layer = CadSituationLayerSchema(
             name=name,
-            kind=(kinds.get(name) or {}).get("kind") or SITUATION_KIND_OTHER,
+            kind=kind,
+            kind_label=KIND_LABELS.get(kind, ""),
             color=_layer_color(members, layer_colors.get(name)),
             vertex_count=count,
         )

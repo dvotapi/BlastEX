@@ -44,8 +44,8 @@ function Section({
 }
 
 function crsSummary(cs: CoordinateSystem): string {
-  if (cs.epsg != null) return `EPSG:${cs.epsg}`;
-  return cs.name.trim() || "локальная";
+  const base = cs.epsg != null ? `EPSG:${cs.epsg}` : cs.name.trim() || "локальная";
+  return cs.height_system ? `${base} · ${cs.height_system}` : base;
 }
 
 export function SurfacePanel({
@@ -58,6 +58,7 @@ export function SurfacePanel({
   onImport,
   onImportBlock,
   onClear,
+  onOpenSources,
   busy,
 }: {
   surfaces: SurfaceSet;
@@ -69,6 +70,8 @@ export function SurfacePanel({
   onImport: (kind: SurfaceKind, file: File) => void;
   onImportBlock: (files: File[]) => void;
   onClear: (kind: SurfaceKind) => void;
+  /** «Чертежи объекта» (TASK-013, PR 4): загруженные файлы — открыть без повторной загрузки или удалить. */
+  onOpenSources: () => void;
   busy: boolean;
 }) {
   const [kind, setKind] = useState<SurfaceKind>("top");
@@ -103,6 +106,9 @@ export function SurfacePanel({
               {busy ? "Читаю…" : "Загрузить"}
             </button>
           </div>
+          <button type="button" className="secondary-button drawing-sources-button" disabled={busy} onClick={onOpenSources}>
+            Чертежи объекта
+          </button>
           {/* Предупреждение только когда есть что терять: на пустом паспорте
               оно лишний шум, а именно с него и начинается работа. */}
           {holeCount > 0 && (
@@ -128,7 +134,8 @@ export function SurfacePanel({
         <Section title="Координаты" summaryRight={crsSummary(coordinateSystem)} defaultOpen={crsWarning}>
           {crsWarning && (
             <div className="crs-banner" role="status">
-              Система координат не подтверждена. Импортированы реальные координаты, но EPSG не задан.
+              Система координат не подтверждена: импортированы реальные координаты, а система не названа.
+              Задайте её название (например, «МСК-66 зона 1») или код EPSG.
             </div>
           )}
           <div className="crs-choice" role="radiogroup" aria-label="Система координат">
@@ -175,6 +182,14 @@ export function SurfacePanel({
               />
             </label>
           )}
+          <label>
+            Система высот
+            <input
+              value={coordinateSystem.height_system ?? ""}
+              onChange={(e) => onCoordinateSystemChange({ height_system: e.target.value })}
+              placeholder="Балтийская 1977"
+            />
+          </label>
           {crsWarning && (
             <button
               type="button"

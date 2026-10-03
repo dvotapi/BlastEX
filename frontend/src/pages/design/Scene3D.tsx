@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { BlockContour, Hole, SurfaceModel, SurfaceSet } from "../../types/design";
+import type { Situation3dLine } from "./situationLayer";
 
 const KIND_COLOR: Record<string, number> = {
   production: 0x2d7556,
@@ -13,6 +14,8 @@ const KIND_COLOR: Record<string, number> = {
   trim: 0x7a6ee0,
 };
 const SELECTED_COLOR = 0xd8455a;
+// Общий пустой список: новый `[]` на каждый рендер перестраивал бы сцену.
+const NO_SITUATION: Situation3dLine[] = [];
 const DISABLED_COLOR = 0xc3cdc7;
 
 type Vec3 = { x: number; y: number; z: number };
@@ -25,6 +28,7 @@ type SceneState = {
   holeGroup: THREE.Group;
   contourGroup: THREE.Group;
   surfaceGroup: THREE.Group;
+  situationGroup: THREE.Group;
   observer: ResizeObserver;
   rafId: number;
   framed: boolean;
@@ -39,6 +43,7 @@ export function Scene3D({
   cameraMode = "collar",
   colorMode = "kind",
   holeColors,
+  situationLines = NO_SITUATION,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -48,6 +53,8 @@ export function Scene3D({
   cameraMode?: "collar" | "shaft" | "toe";
   colorMode?: string;
   holeColors?: Record<string, number>;
+  /** Ситуация карьера (TASK-013, PR 4): линии видимых слоёв, 2D — на отметке бровки. */
+  situationLines?: Situation3dLine[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<SceneState | null>(null);
@@ -83,6 +90,8 @@ export function Scene3D({
     const contourGroup = new THREE.Group();
     const surfaceGroup = new THREE.Group();
     scene.add(surfaceGroup);
+    const situationGroup = new THREE.Group();
+    scene.add(situationGroup);
     scene.add(contourGroup);
     scene.add(holeGroup);
 
@@ -121,7 +130,19 @@ export function Scene3D({
     }
     animate();
 
-    stateRef.current = { scene, camera, renderer, controls, holeGroup, contourGroup, surfaceGroup, observer, rafId, framed: false };
+    stateRef.current = {
+      scene,
+      camera,
+      renderer,
+      controls,
+      holeGroup,
+      contourGroup,
+      surfaceGroup,
+      situationGroup,
+      observer,
+      rafId,
+      framed: false,
+    };
 
     return () => {
       cancelAnimationFrame(rafId);
@@ -138,7 +159,7 @@ export function Scene3D({
   useEffect(() => {
     const state = stateRef.current;
     if (!state) return;
-    const { scene, camera, controls, holeGroup, contourGroup, surfaceGroup } = state;
+    const { scene, camera, controls, holeGroup, contourGroup, surfaceGroup, situationGroup } = state;
 
     const points: Vec3[] = [...contour.vertices];
     for (const h of holes) {
@@ -151,6 +172,7 @@ export function Scene3D({
       clearGroup(holeGroup);
       clearGroup(contourGroup);
       clearGroup(surfaceGroup);
+      clearGroup(situationGroup);
       return;
     }
 
@@ -164,6 +186,12 @@ export function Scene3D({
     addSurfaceMesh(surfaceGroup, surfaces?.floor, toThree, 0x8a8175, 0.32);
     addSurfaceMesh(surfaceGroup, surfaces?.face, toThree, 0xc4a574, 0.4);
     addSurfaceMesh(surfaceGroup, surfaces?.post_blast, toThree, 0x8b5a3c, 0.28);
+
+    // Ситуация — подложкой вокруг блока; центр сцены по-прежнему по блоку.
+    clearGroup(situationGroup);
+    for (const line of situationLines) {
+      if (line.points.length >= 2) addLine(situationGroup, line.points, toThree, new THREE.Color(line.color).getHex(), 1);
+    }
 
     clearGroup(contourGroup);
     if (contour.vertices.length >= 2) {
@@ -229,7 +257,7 @@ export function Scene3D({
       state.framed = true;
     }
 
-  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, colorMode, holeColors]);
+  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, colorMode, holeColors, situationLines]);
 
   return (
     <div className="scene3d-wrap">

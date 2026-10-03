@@ -26,6 +26,8 @@ import { HOLE_KIND_LABELS, RECEPTOR_KIND_LABELS, networkTies } from "../../types
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
 import { healthColor, holeDepthM, type HoleHealthCode, type HoleHealthMap } from "./holeHealth";
 import { DEFAULT_MAP_LAYERS, type MapLayerVisibility } from "./MapLegend";
+import { SituationCanvas } from "./SituationCanvas";
+import { situationStrokes, type SituationShown } from "./situationLayer";
 import {
   holeMarkerRadiusPx,
   labelsVisibleAtScale,
@@ -147,6 +149,7 @@ export function PlanCanvas({
   toePolylines,
   insertKind,
   onInsertKindChange,
+  situation,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -213,6 +216,8 @@ export function PlanCanvas({
   toePolylines?: Point3[][];
   insertKind?: HoleKind;
   onInsertKindChange?: (kind: HoleKind) => void;
+  /** Подложка ситуации карьера (TASK-013, PR 4): показанные версии и скрытые слои. */
+  situation?: { shown: SituationShown[]; hidden: Set<string> };
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -506,6 +511,12 @@ export function PlanCanvas({
       window.removeEventListener("blur", onBlur);
     };
   }, []);
+
+  // Штрихи подложки — только при смене камеры, размера, видимости или данных.
+  const situationStrokesList = useMemo(
+    () => (situation ? situationStrokes(situation.shown, situation.hidden, camera, viewport) : []),
+    [situation, camera, viewport],
+  );
 
   function toScreenPoint(e: { clientX: number; clientY: number }): Vec2 {
     const rect = wrapRef.current!.getBoundingClientRect();
@@ -1299,6 +1310,9 @@ export function PlanCanvas({
         onDoubleClick={handleDoubleClick}
         onContextMenu={(e) => e.preventDefault()}
       >
+      {situationStrokesList.length > 0 && (
+        <SituationCanvas strokes={situationStrokesList} width={viewport.width} height={viewport.height} />
+      )}
       <svg className="plan-canvas">
         <defs>
           <marker id="arrow-connector" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">

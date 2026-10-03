@@ -116,6 +116,9 @@ import { MapStatusBar } from "./MapStatusBar";
 import { HoleContextMenu, type HoleContextMenuState } from "./HoleContextMenu";
 import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCommand } from "./CommandPalette";
 import { CadImportDialog, type CadBuildChoice } from "./cadImport/CadImportDialog";
+import { SourcesDialog } from "./cadImport/SourcesDialog";
+import { situation3dLines, situationPanelSeries } from "./situationLayer";
+import { situationReferenceIds, useSituation } from "./useSituation";
 import { buildConfirmText } from "./cadImport/surfaceState";
 import { computeAllHoleHealth, healthColor, summarizeHealth } from "./holeHealth";
 import {
@@ -235,6 +238,31 @@ export function DesignPage({
   const [patternBusy, setPatternBusy] = useState(false);
   const [surfaceBusy, setSurfaceBusy] = useState(false);
   const [cadSources, setCadSources] = useState<CadSource[] | null>(null);
+  // Ситуация объекта (TASK-013, PR 4): выбор даты версии и флажки слоёв — только вид.
+  const [situationChoice, setSituationChoice] = useState<Record<string, string>>({});
+  const [situationHidden, setSituationHidden] = useState<Set<string>>(() => new Set());
+  const [situationReload, setSituationReload] = useState(0);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const situation = useSituation(situationReferenceIds(document), situationChoice, situationReload);
+  // Окно импорта закрылось — роли, названия и виды могли смениться.
+  const dialogOpen = cadSources !== null;
+  useEffect(() => {
+    if (!dialogOpen) setSituationReload((current) => current + 1);
+  }, [dialogOpen]);
+  const situationPanel = useMemo(
+    () => ({
+      series: situationPanelSeries(situation.catalogue, situation.shown, situation.displayed, situation.passport),
+      hidden: situationHidden,
+      missing: situation.missing.length,
+      error: situation.error,
+    }),
+    [situation, situationHidden],
+  );
+  const situationPlan = useMemo(() => ({ shown: situation.shown, hidden: situationHidden }), [situation.shown, situationHidden]);
+  const situationLines = useMemo(
+    () => situation3dLines(situation.shown, situationHidden, document.contour.bench.crest_z_m),
+    [situation.shown, situationHidden, document.contour.bench.crest_z_m],
+  );
   const [geologyBusy, setGeologyBusy] = useState(false);
   const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
   const [drawingDomain, setDrawingDomain] = useState(false);
@@ -2746,6 +2774,7 @@ export function DesignPage({
                 onImport={importSurface}
                 onImportBlock={importDrawings}
                 onClear={(kind) => dispatch({ type: "CLEAR_SURFACE", kind })}
+                onOpenSources={() => setSourcesOpen(true)}
                 busy={surfaceBusy}
               />
             </fieldset>
@@ -3166,6 +3195,7 @@ export function DesignPage({
                 cameraMode={designView.cameraMode3d}
                 colorMode={designView.colorMode}
                 holeColors={holeColors3d}
+                situationLines={situationLines}
               />
             </Suspense>
           ) : viewMode === "section" ? (
@@ -3257,6 +3287,7 @@ export function DesignPage({
               toePolylines={document.surfaces.floor?.polylines}
               insertKind={insertKind}
               onInsertKindChange={setInsertKind}
+              situation={situationPlan}
             />
           )}
           <VisibilityPanel
@@ -3266,6 +3297,18 @@ export function DesignPage({
             onPresetChange={setViewPreset}
             onLayerChange={(id: LayerId, visible) => setDesignView((prev) => ({ ...prev, layers: { ...prev.layers, [id]: visible } }))}
             onResetLayers={() => setDesignView((prev) => resetLayersToPreset(prev))}
+            situation={situationPanel}
+            onSituationVersion={(seriesKey, sourceId) =>
+              setSituationChoice((current) => ({ ...current, [seriesKey]: sourceId }))
+            }
+            onSituationLayer={(key, visible) =>
+              setSituationHidden((current) => {
+                const next = new Set(current);
+                if (visible) next.delete(key);
+                else next.add(key);
+                return next;
+              })
+            }
           />
           <MapStatusBar
             cursorX={mapCursor?.x ?? null}
@@ -3302,6 +3345,16 @@ export function DesignPage({
               onSourcesChange={setCadSources}
               onCancel={() => setCadSources(null)}
               onBuild={applyCadContour}
+            />
+          )}
+          {sourcesOpen && (
+            <SourcesDialog
+              onClose={() => setSourcesOpen(false)}
+              onOpenSource={(source) => {
+                setSourcesOpen(false);
+                setCadSources([source]);
+              }}
+              onDeleted={() => setSituationReload((current) => current + 1)}
             />
           )}
           {inspectHole && (

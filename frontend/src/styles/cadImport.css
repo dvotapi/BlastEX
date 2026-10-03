@@ -183,3 +183,22 @@
   .cad-dialog-body { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(220px,40vh) minmax(0,1fr); }
   .cad-canvas-wrap { border-right:0; border-bottom:1px solid #e2e8e5; }
 }
+
+/* «Чертежи объекта» (PR 4): загруженные файлы объекта — открыть или удалить */
+.cad-sources-dialog { width:min(860px, calc(100vw - 32px)); max-height:calc(100vh - 32px); padding:0; border:1px solid #d9e2dd; border-radius:12px; color:#17231d; font-size:var(--fs-base); box-shadow:0 30px 80px rgba(15,35,26,.18); }
+.cad-sources-dialog[open] { display:flex; flex-direction:column; gap:8px; padding-bottom:10px; }
+.cad-sources-dialog::backdrop { background:rgba(15,26,20,.45); }
+.cad-sources-dialog > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; border-bottom:1px solid #e2e8e5; }
+.cad-sources-dialog > header b { font-size:13px; font-weight:var(--font-weight-title); }
+.cad-sources-dialog > p { margin:0 12px; }
+.cad-sources-note { color:#6e7c75; }
+.cad-sources { width:calc(100% - 24px); margin:0 12px; border-collapse:collapse; table-layout:fixed; }
+.cad-sources th { padding:5px 6px; border-bottom:1px solid #e2e8e5; color:#6e7c75; font-size:var(--fs-label); text-align:left; }
+.cad-sources th:nth-child(2) { width:86px; }
+.cad-sources th:nth-child(4) { width:170px; }
+.cad-sources th:nth-child(5) { width:64px; }
+.cad-sources th:nth-child(6) { width:156px; }
+.cad-sources td { padding:4px 6px; border-bottom:1px solid #edf1ef; vertical-align:middle; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cad-sources-file { color:#6e7c75; }
+.cad-sources-count { text-align:right; font-variant-numeric:tabular-nums; }
+.cad-sources-actions { display:flex; gap:4px; justify-content:flex-end; }

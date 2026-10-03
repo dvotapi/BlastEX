@@ -509,6 +509,7 @@ class CadSituationLineSchema(BaseModel):
 class CadSituationLayerSchema(BaseModel):
     name: str
     kind: str
+    kind_label: str = ""
     color: str | None = None
     lines: list[CadSituationLineSchema] = Field(default_factory=list)
     points: list[list[float]] = Field(default_factory=list)

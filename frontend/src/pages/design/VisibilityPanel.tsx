@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { SituationPanelSeries } from "./situationLayer";
 import {
   COLOR_MODE_LABELS,
   LABEL_FIELD_LABELS,
@@ -11,6 +12,92 @@ import {
 
 const PRESET_ORDER: ViewPresetId[] = ["survey", "pattern", "charge", "network", "timing", "actual", "review"];
 
+/** Ситуация объекта в «Виде» (TASK-013, PR 4): флажки слоёв — только вид, не паспорт. */
+export type SituationPanelModel = {
+  series: SituationPanelSeries[];
+  hidden: Set<string>;
+  /** Сколько версий из ссылки паспорта удалено. */
+  missing: number;
+  error: string;
+};
+
+function SituationGroup({
+  model,
+  query,
+  onVersion,
+  onLayer,
+}: {
+  model: SituationPanelModel;
+  query: string;
+  onVersion: (seriesKey: string, sourceId: string) => void;
+  onLayer: (key: string, visible: boolean) => void;
+}) {
+  if (!model.series.length && !model.missing && !model.error) return null;
+  const needle = query.trim().toLowerCase();
+  const matches = (text: string) => !needle || text.toLowerCase().includes(needle);
+  return (
+    <section className="visibility-situation" role="group" aria-label="Ситуация">
+      <small>Ситуация</small>
+      {model.error && <p className="visibility-note">{model.error}</p>}
+      {model.missing > 0 && (
+        <p className="visibility-note">Удалено версий, на которые ссылается паспорт: {model.missing}</p>
+      )}
+      {model.series.map((series) => {
+        const passport = series.versions.find((item) => item.sourceId === series.passportId);
+        const layers = (series.layers ?? []).filter(
+          (layer) => matches(layer.name) || matches(layer.kindLabel) || matches(series.title),
+        );
+        if (needle && series.layers && !layers.length) return null;
+        return (
+          <div key={series.key} className="situation-series">
+            <div className="situation-series-head">
+              <b title={series.title}>{series.title}</b>
+              {series.versions.length > 1 ? (
+                <select
+                  aria-label={`Версия «${series.title}»`}
+                  value={series.displayedId}
+                  onChange={(event) => onVersion(series.key, event.target.value)}
+                >
+                  {series.versions.map((item) => (
+                    <option key={item.sourceId} value={item.sourceId}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span>{series.versions[0]?.label}</span>
+              )}
+            </div>
+            {passport && series.passportId !== series.displayedId && (
+              <small className="situation-passport">паспорт: {passport.label}</small>
+            )}
+            {series.layers === null ? (
+              <small className="situation-loading">Загружаю…</small>
+            ) : (
+              layers.map((layer) => (
+                <label key={layer.key} title={layer.omitted ? "Слой не уместился в предел ответа" : undefined}>
+                  <input
+                    type="checkbox"
+                    checked={!model.hidden.has(layer.key) && !layer.omitted}
+                    disabled={layer.omitted}
+                    onChange={(event) => onLayer(layer.key, event.target.checked)}
+                  />
+                  <i className="legend-swatch situation-swatch" style={{ background: layer.color }} aria-hidden="true" />
+                  <span>{layer.name}</span>
+                  <em>
+                    {layer.kindLabel}
+                    {layer.omitted ? " · не уместился" : ""}
+                  </em>
+                </label>
+              ))
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 export function VisibilityPanel({
   viewState,
   onPresetChange,
@@ -18,6 +105,9 @@ export function VisibilityPanel({
   onResetLayers,
   collapsed,
   onToggleCollapsed,
+  situation,
+  onSituationVersion = () => undefined,
+  onSituationLayer = () => undefined,
 }: {
   viewState: DesignViewState;
   onPresetChange: (preset: ViewPresetId) => void;
@@ -25,6 +115,9 @@ export function VisibilityPanel({
   onResetLayers: () => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  situation?: SituationPanelModel;
+  onSituationVersion?: (seriesKey: string, sourceId: string) => void;
+  onSituationLayer?: (key: string, visible: boolean) => void;
 }) {
   const [query, setQuery] = useState("");
   const groups = useMemo(() => layerGroups(query), [query]);
@@ -85,6 +178,9 @@ export function VisibilityPanel({
             ))}
           </section>
         ))}
+        {situation && (
+          <SituationGroup model={situation} query={query} onVersion={onSituationVersion} onLayer={onSituationLayer} />
+        )}
       </div>
 
       <footer>

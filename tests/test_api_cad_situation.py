@@ -399,6 +399,7 @@ def test_situation_geometry_by_layer_with_kind_and_color(repository):
     layers = {item["name"]: item for item in body["layers"]}
     assert set(layers) == {"Автодорога", "ВЛ-6кВ", "Склад негабарита", "Здания", "Граница карьера"}
     assert layers["Автодорога"]["kind"] == "road"
+    assert layers["Автодорога"]["kind_label"] == "Дорога"
     assert layers["Автодорога"]["color"] == "#ffffff"  # цвет DXF как есть: затемняет фронт
     assert layers["ВЛ-6кВ"]["color"] == "#ff0000"
     road = layers["Автодорога"]["lines"][0]

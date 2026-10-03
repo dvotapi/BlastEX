@@ -30,11 +30,15 @@ export function hasSurveyGeometry(document: BlastDesign): boolean {
     || Boolean(document.surfaces.face);
 }
 
+/**
+ * СК не подтверждена: есть геометрия, а система — «local» без EPSG. Именованная
+ * местная система без EPSG («МСК-66 зона 1») — полноценный вариант (TASK-013, PR 4).
+ */
 export function isCrsUnconfirmed(cs: CoordinateSystem, hasGeometry: boolean): boolean {
   if (!hasGeometry) return false;
   if (cs.confirmed) return false;
   const unnamed = !cs.name.trim() || cs.name.trim().toLowerCase() === "local";
-  return unnamed || cs.epsg == null;
+  return unnamed && cs.epsg == null;
 }
 
 export function holeSourceLabel(document: BlastDesign): string {

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from intelligence.calibration.persistence import save_model
 from intelligence.calibration.prediction import apply_residual
-from intelligence.calibration.training import train_from_snapshot
+from intelligence.calibration.training import OLD_SNAPSHOT_MESSAGE, train_from_snapshot
 from intelligence.calibration.types import STATUS_CANDIDATE
 from tests.calibration_fixtures import synthetic_snapshot
 
@@ -61,6 +61,77 @@ class CalibrationTrainingTests(unittest.TestCase):
         model.status = "production"
         saved = save_model(TEAM_ID, model)
         self.assertEqual(saved.status, STATUS_CANDIDATE)
+
+
+def _mark_predictions(snapshot, marks: dict[int, tuple[str, str]]):
+    """Проставить модель сохранённого прогноза строкам снимка (индекс → (модель, версия))."""
+    for index, (model, version) in marks.items():
+        group = snapshot.samples[index].targets["FRAGMENTATION"]
+        group["predicted_model"] = model
+        group["predicted_model_version"] = version
+    return snapshot
+
+
+class CalibrationTrainingStoredPredictionTests(unittest.TestCase):
+    """Новый снимок учит калибровки кусковатости на baseline: модель сохранённого прогноза не важна."""
+
+    def _snapshot(self):
+        return _mark_predictions(
+            synthetic_snapshot(n=12),
+            {
+                0: ("kuzram", "2.0.0"),
+                1: ("kuzram", "2.0.0"),
+                2: ("kuzram", "3.0.0"),
+                3: ("kuzram", "abc"),
+                4: ("kuzram", ""),
+                5: ("kuzram_legacy", "1.0.0"),
+                6: ("kuzram", "1.0.0"),
+                7: ("swebrec_legacy", "1.0.0"),
+                8: ("kuznetsov_legacy", "1.0.0"),
+                9: ("", ""),
+                # строки 10-11 без полей модели прогноза
+            },
+        )
+
+    def test_rows_with_any_stored_prediction_model_stay_in_training(self):
+        for model_type in ("kuzram_residual", "oversize_residual", "ppv_residual"):
+            with self.subTest(model_type=model_type):
+                model = train_from_snapshot(self._snapshot(), model_type=model_type)
+
+                self.assertEqual(model.sample_count, 12)
+                self.assertEqual(
+                    sorted(model.source_blast_ids),
+                    sorted(f"blast-{index}" for index in range(12)),
+                )
+
+    def test_old_snapshot_is_refused_whatever_the_stored_predictions(self):
+        snapshot = _mark_predictions(
+            synthetic_snapshot(n=12, legacy=True),
+            {0: ("kuzram", "1.0.0"), 1: ("kuzram_legacy", "1.0.0"), 2: ("kuzram", "2.0.0")},
+        )
+
+        for model_type in ("kuzram_residual", "oversize_residual"):
+            with self.subTest(model_type=model_type), self.assertRaises(ValueError) as caught:
+                train_from_snapshot(snapshot, model_type=model_type)
+
+            self.assertEqual(str(caught.exception), OLD_SNAPSHOT_MESSAGE)
+
+    def test_old_snapshot_trains_ppv_on_all_rows(self):
+        snapshot = _mark_predictions(
+            synthetic_snapshot(n=12, legacy=True),
+            {0: ("kuzram", "2.0.0"), 1: ("swebrec_legacy", "1.0.0")},
+        )
+
+        model = train_from_snapshot(snapshot, model_type="ppv_residual")
+
+        self.assertEqual(model.sample_count, 12)
+
+    def test_too_few_samples_error_has_no_exclusion_phrases(self):
+        with self.assertRaises(ValueError) as caught:
+            train_from_snapshot(synthetic_snapshot(n=2), model_type="kuzram_residual")
+
+        self.assertIn("не меньше", str(caught.exception))
+        self.assertNotIn("Исключено", str(caught.exception))
 
 
 class CalibrationPredictionTests(unittest.TestCase):

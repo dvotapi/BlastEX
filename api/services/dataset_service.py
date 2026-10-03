@@ -12,6 +12,8 @@ from api.schemas.datasets import (
     DatasetSummarySchema,
     SampleValidationSchema,
 )
+from api.services.fragmentation_settings import resolve_kuzram_settings
+from cost.v2.repository import EconomicsRepository
 from intelligence.datasets.builder import (
     FEATURE_SCHEMA_VERSION,
     build_sample,
@@ -41,7 +43,8 @@ def preview_design(request: DatasetPreviewRequest) -> SampleValidationSchema:
     if not request.site_id.strip():
         raise InvalidDesignError("Для проверки образца нужен site_id.")
     design = _design_from_schema(request.design)
-    sample = build_sample(design, site_id=request.site_id.strip())
+    # Превью только проверяет образец: baseline и настройки модели ему не нужны.
+    sample = build_sample(design, site_id=request.site_id.strip(), with_baseline=False)
     return SampleValidationSchema(**sample.validation.to_dict())
 
 
@@ -60,7 +63,9 @@ def get_snapshot(team_id: str, dataset_id: str) -> DatasetSnapshotSchema:
     return DatasetSnapshotSchema(**snapshot.to_dict())
 
 
-def build_snapshot_for_team(team_id: str, request: DatasetBuildRequest) -> DatasetSnapshotSchema:
+def build_snapshot_for_team(
+    team_id: str, request: DatasetBuildRequest, *, repository: EconomicsRepository | None = None
+) -> DatasetSnapshotSchema:
     site_id = request.site_id.strip()
     if not site_id:
         raise InvalidDesignError("Для снимка датасета нужен site_id.")
@@ -73,12 +78,19 @@ def build_snapshot_for_team(team_id: str, request: DatasetBuildRequest) -> Datas
     if not designs:
         raise InvalidDesignError("Нет паспортов для сборки снимка.")
 
+    # Настройки модели для взрывов, чей прогноз не хранит своего снимка
+    # (прогнозы до PR 2): активный объект работ организации, иначе умолчания.
+    resolved = resolve_kuzram_settings(
+        explicit=None, work_object_name="", organization_id=team_id, repository=repository
+    )
     snapshot = build_snapshot(
         designs,
         site_id=site_id,
         dataset_id=dataset_persistence.new_dataset_id(),
         dataset_version=next_dataset_version(dataset_persistence.existing_versions(team_id, site_id)),
         name=request.name.strip(),
+        fallback_settings=resolved.settings,
+        fallback_source=resolved.source_payload(),
     )
     try:
         saved = dataset_persistence.save_snapshot(team_id, snapshot)

@@ -53,6 +53,7 @@ class DatasetSnapshotSchema(BaseModel):
     samples: list[TrainingSampleSchema] = Field(default_factory=list)
     rejected: list[RejectedSampleSchema] = Field(default_factory=list)
     immutable: bool = True
+    fragmentation_base: dict[str, str] = Field(default_factory=dict)
 
 
 class DatasetSummarySchema(BaseModel):
@@ -68,6 +69,8 @@ class DatasetSummarySchema(BaseModel):
     sample_count: int = 0
     rejected_count: int = 0
     immutable: bool = True
+    # Модель и версия, которыми посчитаны baseline строк; пусто — снимок до PR 3.
+    fragmentation_base: dict[str, str] = Field(default_factory=dict)
 
 
 class DatasetListResponse(BaseModel):

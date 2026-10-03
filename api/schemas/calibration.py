@@ -86,6 +86,10 @@ class CalibrationModelSchema(BaseModel):
     artifact_sha256: str = ""
     status_updated_at: str = ""
     feature_ranges: dict[str, dict[str, float]] = Field(default_factory=dict)
+    baseline_model: str = ""
+    baseline_model_version: str = ""
+    # Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …».
+    base_label: str = ""
 
 
 class CalibrationSummarySchema(BaseModel):
@@ -103,6 +107,10 @@ class CalibrationSummarySchema(BaseModel):
     status: str = "candidate"
     algorithm: str = "random_forest"
     sample_count: int = 0
+    baseline_model: str = ""
+    baseline_model_version: str = ""
+    # Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …».
+    base_label: str = ""
 
 
 class CalibrationListResponse(BaseModel):
@@ -126,6 +134,10 @@ class CalibrationPredictRequest(BaseModel):
     site_id: str = ""
     use_production: bool = False
     baseline: float | None = None
+    # Модель и версия, которыми посчитан присланный baseline кусковатости:
+    # без них сервер не знает, на какую формулу ляжет поправка.
+    baseline_model: str = ""
+    baseline_model_version: str = ""
     features: dict[str, Any] | None = None
     design: BlastDesignSchema | None = None
 

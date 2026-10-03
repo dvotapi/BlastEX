@@ -115,11 +115,18 @@ class PassportModelSettingsTests(unittest.TestCase):
 
         self.assertIn("1.0.0 · Старая модель: настройки объекта не применяются", html_text)
 
-    def test_old_passport_without_snapshot_shows_no_settings(self):
+    def test_passport_saved_before_pr2_is_marked_as_old_model(self):
         html_text = self._html("kuzram", "1.0.0", {})
 
-        self.assertIn("<strong>1.0.0</strong>", html_text)
+        self.assertIn("1.0.0 · Старая модель: настройки объекта не применяются", html_text)
         self.assertNotIn("Настройки модели", html_text)
+
+    def test_new_passport_without_snapshot_shows_no_settings(self):
+        html_text = self._html("kuzram", "2.0.0", {})
+
+        self.assertIn("<strong>2.0.0</strong>", html_text)
+        self.assertNotIn("Настройки модели", html_text)
+        self.assertNotIn("Старая модель", html_text)
 
     def test_escapes_work_object_name(self):
         html_text = self._html("kuzram", "2.0.0", {"source": "work_object", "work_object_name": "<b>К</b>"})

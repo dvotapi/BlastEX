@@ -3,7 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from intelligence.calibration.types import MODEL_SPECS, ResidualRow, ResidualTable, normalize_model_type
+from intelligence.calibration.types import (
+    MODEL_SPECS,
+    ResidualRow,
+    ResidualTable,
+    normalize_model_type,
+)
 from intelligence.datasets.builder import DatasetSnapshot, TrainingSample
 
 NUMERIC_FEATURE_KEYS: tuple[tuple[str, str], ...] = (
@@ -54,7 +59,11 @@ def flatten_features(features: dict[str, dict[str, Any]] | None) -> dict[str, fl
     return flat
 
 
-def measured_and_baseline(sample: TrainingSample, model_type: str) -> tuple[float | None, float | None]:
+def measured_and_baseline(
+    sample: TrainingSample,
+    model_type: str,
+    baseline_field: str | None = None,
+) -> tuple[float | None, float | None]:
     spec = MODEL_SPECS[normalize_model_type(model_type)]
     group = sample.targets.get(spec["target_group"]) or {}
     measured = _as_float(group.get(spec["measured_field"]))
@@ -62,7 +71,7 @@ def measured_and_baseline(sample: TrainingSample, model_type: str) -> tuple[floa
         fallback = spec.get("measured_field_fallback")
         if fallback:
             measured = _as_float(group.get(fallback))
-    baseline = _as_float(group.get(spec["baseline_field"]))
+    baseline = _as_float(group.get(baseline_field or spec["baseline_field"]))
     return measured, baseline
 
 
@@ -77,14 +86,24 @@ def _impute_column(values: list[float | None]) -> list[float]:
     return [fill if item is None else float(item) for item in values]
 
 
-def residual_table(snapshot: DatasetSnapshot, model_type: str) -> ResidualTable:
-    """Build X/y from an immutable snapshot. Live designs are never read."""
+def residual_table(
+    snapshot: DatasetSnapshot,
+    model_type: str,
+    *,
+    baseline_field: str | None = None,
+) -> ResidualTable:
+    """Build X/y from an immutable snapshot. Live designs are never read.
+
+    `baseline_field` — поле строки снимка с baseline; по умолчанию то, что
+    задано в `MODEL_SPECS` (сохранённый прогноз). Калибровки кусковатости
+    передают поле baseline текущей базы.
+    """
     model_type = normalize_model_type(model_type)
     names = feature_column_names()
     raw_rows: list[dict[str, float | None]] = []
     kept: list[tuple[TrainingSample, float, float, float]] = []
     for sample in snapshot.samples:
-        measured, baseline = measured_and_baseline(sample, model_type)
+        measured, baseline = measured_and_baseline(sample, model_type, baseline_field)
         if measured is None or baseline is None:
             continue
         residual = residual_value(measured, baseline)

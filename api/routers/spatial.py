@@ -15,6 +15,8 @@ from api.schemas.spatial import (
 )
 from api.security import require_internal_access
 from api.services import spatial_service
+from api.services.economics_service import get_economics_repository
+from cost.v2.repository import EconomicsRepository
 
 router = APIRouter(prefix="/spatial", tags=["spatial"])
 
@@ -66,5 +68,6 @@ def set_spatial_status(
 def predict_spatial(
     request: SpatialPredictRequest,
     session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> SpatialPredictResponse:
-    return spatial_service.predict_spatial(str(session["org"]), request)
+    return spatial_service.predict_spatial(str(session["org"]), request, repository=repository)

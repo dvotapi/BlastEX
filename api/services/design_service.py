@@ -629,7 +629,7 @@ def predict_fragmentation(
         )
     except ValueError as exc:
         raise InvalidDesignError(str(exc)) from exc
-    label = settings_source_label(payload["model"], payload["settings"])
+    label = settings_source_label(payload["model"], payload["model_version"], payload["settings"])
     return FragmentationPredictResponse(
         **{**payload, "settings": payload["settings"] or None, "settings_label": label}
     )

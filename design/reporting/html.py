@@ -84,10 +84,14 @@ def _hole_rows(document: BlastPassport) -> str:
 
 
 def _model_version_line(predicted: PredictedOutcomes) -> str:
-    parts = [
-        predicted.fragmentation_model_version,
-        settings_source_label(predicted.fragmentation_model, predicted.fragmentation_settings),
-    ]
+    label = ""
+    if predicted.fragmentation_model:
+        label = settings_source_label(
+            predicted.fragmentation_model,
+            predicted.fragmentation_model_version,
+            predicted.fragmentation_settings,
+        )
+    parts = [predicted.fragmentation_model_version, label]
     return " · ".join(part for part in parts if part) or "—"
 
 

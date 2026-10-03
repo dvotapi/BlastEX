@@ -2250,6 +2250,8 @@ export type DatasetSummary = {
   sample_count: number;
   rejected_count: number;
   immutable: boolean;
+  /** Модель и версия baseline строк снимка; пустой объект — снимок собран до PR 3. */
+  fragmentation_base: Record<string, string>;
 };
 
 export type CalibrationModelType = "kuzram_residual" | "oversize_residual" | "ppv_residual";
@@ -2298,6 +2300,10 @@ export type CalibrationModel = {
   source_blast_ids: string[];
   artifact_sha256: string;
   status_updated_at: string;
+  baseline_model: string;
+  baseline_model_version: string;
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
+  base_label: string;
 };
 
 export type CalibrationSummary = {
@@ -2313,6 +2319,10 @@ export type CalibrationSummary = {
   status: CalibrationStatus | string;
   algorithm: string;
   sample_count: number;
+  baseline_model: string;
+  baseline_model_version: string;
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
+  base_label: string;
 };
 
 export type CalibrationProvenance = {
@@ -3161,6 +3171,10 @@ export type SpatialModel = {
   status_updated_at?: string;
   neighbor_k: number;
   data_roles: Record<string, string>;
+  baseline_model: string;
+  baseline_model_version: string;
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
+  base_label: string;
 };
 
 export type SpatialSummary = {
@@ -3178,6 +3192,10 @@ export type SpatialSummary = {
   class_name: string;
   hole_count: number;
   sample_count: number;
+  baseline_model: string;
+  baseline_model_version: string;
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
+  base_label: string;
 };
 
 export type SpatialOverlay = {
@@ -3200,6 +3218,10 @@ export type SpatialOverlay = {
   warnings: string[];
   role: "predicted" | string;
   data_roles: Record<string, string>;
+  physics_model: string;
+  physics_model_version: string;
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
+  base_label: string;
 };
 
 export type PassportRole = DataRole;

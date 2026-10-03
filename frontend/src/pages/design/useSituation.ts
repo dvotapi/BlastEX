@@ -6,13 +6,15 @@
 // в «Виде» (только просмотр), иначе версия по умолчанию: из ссылки паспорта
 // или самая свежая. Геометрия кэшируется по источнику и номеру его правки;
 // удалённая версия отмечается и не запрашивается снова.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import type { CadSituationCatalogue, CadSituationGeometry } from "../../types/cad";
 import type { BlastDesign } from "../../types/design";
 import type { SituationShown } from "./situationLayer";
 
 export const SITUATION_DELAY_MS = 300;
+// Общий пустой выбор: новый `{}` на каждый рендер пересчитывал бы модель «Вида».
+const NO_CHOICE: Record<string, string> = {};
 
 export type SituationFetchers = {
   catalogue: (sourceIds: string[]) => Promise<CadSituationCatalogue>;
@@ -36,6 +38,26 @@ export type SituationState = {
   missing: string[];
   error: string;
 };
+
+/**
+ * Дата версии, выбранная в «Виде», — только у своего паспорта: другой паспорт
+ * открывается со своей ситуацией (из ссылки или самой свежей).
+ */
+export function useSituationChoice(
+  passportKey: string,
+): [Record<string, string>, (seriesKey: string, sourceId: string) => void] {
+  const [state, setState] = useState<{ key: string; choice: Record<string, string> }>({ key: passportKey, choice: {} });
+  const choice = state.key === passportKey ? state.choice : NO_CHOICE;
+  const choose = useCallback(
+    (seriesKey: string, sourceId: string) =>
+      setState((current) => ({
+        key: passportKey,
+        choice: { ...(current.key === passportKey ? current.choice : {}), [seriesKey]: sourceId },
+      })),
+    [passportKey],
+  );
+  return [choice, choose];
+}
 
 /** Ссылка паспорта на ситуацию: запомненные версии, иначе источник контура. */
 export function situationReferenceIds(design: BlastDesign): string[] {

@@ -6,7 +6,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CadSituationCatalogue, CadSituationGeometry } from "../../types/cad";
 import { emptyDesign, type BlastDesign } from "../../types/design";
-import { SITUATION_DELAY_MS, situationReferenceIds, useSituation, type SituationFetchers } from "./useSituation";
+import { SITUATION_DELAY_MS, situationReferenceIds, useSituation, useSituationChoice, type SituationFetchers } from "./useSituation";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -188,5 +188,20 @@ describe("useSituation", () => {
 
     expect(result.current.error).toMatch(/ситуацию объекта/);
     expect(result.current.shown).toEqual([]);
+  });
+});
+
+describe("useSituationChoice", () => {
+  it("выбор даты — только у своего паспорта: другой паспорт открывается со своей ситуацией", () => {
+    const { result, rerender } = renderHook(({ id }) => useSituationChoice(id), { initialProps: { id: "passport-a" } });
+
+    act(() => result.current[1]("положение горных работ", "sep"));
+    expect(result.current[0]).toEqual({ "положение горных работ": "sep" });
+
+    rerender({ id: "passport-a" });
+    expect(result.current[0]).toEqual({ "положение горных работ": "sep" });
+
+    rerender({ id: "passport-b" });
+    expect(result.current[0]).toEqual({});
   });
 });

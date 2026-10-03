@@ -118,7 +118,7 @@ import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCo
 import { CadImportDialog, type CadBuildChoice } from "./cadImport/CadImportDialog";
 import { SourcesDialog } from "./cadImport/SourcesDialog";
 import { situation3dLines, situationPanelSeries } from "./situationLayer";
-import { situationReferenceIds, useSituation } from "./useSituation";
+import { situationReferenceIds, useSituation, useSituationChoice } from "./useSituation";
 import { buildConfirmText } from "./cadImport/surfaceState";
 import { computeAllHoleHealth, healthColor, summarizeHealth } from "./holeHealth";
 import {
@@ -239,7 +239,7 @@ export function DesignPage({
   const [surfaceBusy, setSurfaceBusy] = useState(false);
   const [cadSources, setCadSources] = useState<CadSource[] | null>(null);
   // Ситуация объекта (TASK-013, PR 4): выбор даты версии и флажки слоёв — только вид.
-  const [situationChoice, setSituationChoice] = useState<Record<string, string>>({});
+  const [situationChoice, chooseSituationVersion] = useSituationChoice(document.design_id);
   const [situationHidden, setSituationHidden] = useState<Set<string>>(() => new Set());
   const [situationReload, setSituationReload] = useState(0);
   const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -3299,9 +3299,7 @@ export function DesignPage({
             onLayerChange={(id: LayerId, visible) => setDesignView((prev) => ({ ...prev, layers: { ...prev.layers, [id]: visible } }))}
             onResetLayers={() => setDesignView((prev) => resetLayersToPreset(prev))}
             situation={situationPanel}
-            onSituationVersion={(seriesKey, sourceId) =>
-              setSituationChoice((current) => ({ ...current, [seriesKey]: sourceId }))
-            }
+            onSituationVersion={chooseSituationVersion}
             onSituationLayer={(key, visible) =>
               setSituationHidden((current) => {
                 const next = new Set(current);

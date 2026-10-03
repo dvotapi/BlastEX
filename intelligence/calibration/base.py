@@ -18,7 +18,7 @@ from simulation.fragmentation.models import (
     MODEL_KUZRAM,
     MODEL_KUZRAM_LEGACY,
     is_old_model,
-    version_major,
+    version_major,  # noqa: F401 — реэкспорт: присланную версию сервис проверяет тем же правилом
 )
 
 FRAGMENTATION_RESIDUALS = frozenset({MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL})
@@ -30,7 +30,6 @@ BASELINE_FIELDS = {
     MODEL_OVERSIZE_RESIDUAL: "baseline_oversize_pct",
 }
 _VALUE_FIELDS = {MODEL_KUZRAM_RESIDUAL: "x50_mm", MODEL_OVERSIZE_RESIDUAL: "oversize_pct"}
-
 
 
 @dataclass(frozen=True)

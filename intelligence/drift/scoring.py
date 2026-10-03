@@ -37,6 +37,35 @@ def score_snapshots(
     return {}
 
 
+def is_fragmentation_calibration(family: str, model_type: str) -> bool:
+    """Калибровка кусковатости: её прогнозы сравниваются только на строках её базы.
+
+    Откат на сохранённые прогнозы снимков смешал бы прогнозы разных формул.
+    """
+    from intelligence.calibration.base import FRAGMENTATION_RESIDUALS
+    from intelligence.calibration.types import normalize_model_type
+
+    if normalize_family(family) != FAMILY_CALIBRATION:
+        return False
+    try:
+        return normalize_model_type(model_type) in FRAGMENTATION_RESIDUALS
+    except ValueError:
+        return False
+
+
+def fragmentation_base_label(team_id: str, model_id: str) -> str:
+    """Подпись базы артефакта калибровки кусковатости для предупреждения дрейфа."""
+    from intelligence.calibration.base import artifact_base
+    from intelligence.calibration.persistence import load_model
+
+    model = load_model(team_id, model_id)
+    try:
+        return artifact_base(model.baseline_model, model.baseline_model_version).label()
+    except ValueError:
+        # Неизвестная модель в файле артефакта — подпись как записана.
+        return f"{str(model.baseline_model).strip()} {str(model.baseline_model_version or '').strip()}".strip()
+
+
 def _score_learning(team_id: str, model_id: str, samples: list[Any]) -> dict[str, list[float]]:
     from intelligence.learning.persistence import load_model
     from intelligence.learning.prediction import apply_model

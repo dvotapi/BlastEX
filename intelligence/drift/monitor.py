@@ -11,7 +11,7 @@ from typing import Any, Iterable
 from intelligence.datasets.builder import DatasetSnapshot
 from intelligence.datasets.persistence import DatasetNotFoundError, load_snapshot
 from intelligence.drift.extract import feature_series, prediction_series, stored_prediction_series, target_series
-from intelligence.drift.scoring import score_snapshots
+from intelligence.drift.scoring import fragmentation_base_label, is_fragmentation_calibration, score_snapshots
 from intelligence.drift.statistics import compare_series
 from intelligence.drift.types import (
     ACTION_ALERT_ONLY,
@@ -77,8 +77,14 @@ def compare_windows(
     *,
     baseline_scores: dict[str, list[float]] | None = None,
     current_scores: dict[str, list[float]] | None = None,
+    stored_fallback: bool = True,
 ) -> list[DriftMetric]:
-    """Compare feature / measured-target / prediction series. No unit conversion."""
+    """Compare feature / measured-target / prediction series. No unit conversion.
+
+    Без прогнозов модели в одном из окон сравниваются сохранённые прогнозы
+    снимков; stored_fallback=False этот откат запрещает (калибровка
+    кусковатости: сохранённые прогнозы посчитаны разными формулами).
+    """
     metrics: list[DriftMetric] = []
     channels = (
         (feature_series(baseline_snapshots), feature_series(current_snapshots)),
@@ -107,7 +113,7 @@ def compare_windows(
 
     pred_left = prediction_series(baseline_scores or {})
     pred_right = prediction_series(current_scores or {})
-    if not pred_left or not pred_right:
+    if (not pred_left or not pred_right) and stored_fallback:
         pred_left = stored_prediction_series(baseline_snapshots)
         pred_right = stored_prediction_series(current_snapshots)
     for name in sorted(set(pred_left) | set(pred_right)):
@@ -225,17 +231,32 @@ def check_production_model(
 
     baseline_scores: dict[str, list[float]] = {}
     current_scores: dict[str, list[float]] = {}
+    scored = True
     try:
         baseline_scores = score_snapshots(team, family, model_id, baseline)
         current_scores = score_snapshots(team, family, model_id, [current])
     except Exception as exc:  # scoring is optional; feature/target still run
+        scored = False
         warnings.append(f"Прогнозный канал пропущен: {exc}")
+    # Калибровка кусковатости сравнивается только на строках своей базы:
+    # сохранённые прогнозы снимков посчитаны разными формулами.
+    fragmentation = is_fragmentation_calibration(record.family, record.model_type)
+    if (
+        fragmentation
+        and scored
+        and (not prediction_series(baseline_scores) or not prediction_series(current_scores))
+    ):
+        warnings.append(
+            f"Нет строк снимка, посчитанных базой калибровки «{fragmentation_base_label(team, model_id)}», "
+            "— прогнозный канал дрейфа пропущен."
+        )
 
     metrics = compare_windows(
         baseline,
         [current],
         baseline_scores=baseline_scores,
         current_scores=current_scores,
+        stored_fallback=not fragmentation,
     )
     overall = SEVERITY_OK
     for metric in metrics:

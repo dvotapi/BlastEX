@@ -158,8 +158,13 @@ def sample_baseline(group: Mapping[str, Any], model_type: str, artifact: Fragmen
             base = prediction_base(str(model), str(version or ""))
         except ValueError:
             continue
-        if compatible(model_type, artifact, base):
+        if not compatible(model_type, artifact, base):
+            continue
+        try:
             return float(value)
+        except (TypeError, ValueError):
+            # Нечисловое значение снимает только этого кандидата, а не канал дрейфа.
+            continue
     return None
 
 

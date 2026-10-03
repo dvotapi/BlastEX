@@ -4,6 +4,7 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+import pytest
 
 from design.spatial.cad.crs import CRS_FAR_M, extent_distance_m, far_from_site, robust_extent, robust_extent_of
 from design.spatial.cad.model import CadEntity
@@ -83,3 +84,18 @@ class FarFromSiteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_far_file_with_an_outlier_at_origin_is_still_far():
+    """Польза устойчивого экстента: выброс у (0; 0) не прячет чужой файл.
+
+    Обычный габарит такого файла тянется до начала координат и задевает
+    прежние чертежи — расстояние 0, предупреждения нет.
+    """
+
+    first = robust_extent(_grid(X0, Y0))
+    shifted = robust_extent(np.vstack([_grid(X0 + 50_000, Y0), [[0.0, 0.0]]]))
+
+    distance = far_from_site(shifted, [first])
+    assert distance is not None
+    assert distance == pytest.approx(50_000 - 300, abs=1)

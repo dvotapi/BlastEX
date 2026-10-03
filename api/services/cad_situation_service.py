@@ -144,7 +144,11 @@ def _simplified(points: list[tuple[float, float, float]], closed: bool, origin: 
             shapely.simplify(shapely.linestrings(coords), SITUATION_SIMPLIFY_M, preserve_topology=False),
             include_z=True,
         )
-        if len(kept) < 2:
+        if closed and len(kept) < 4:
+            # Кольцо меньше допуска (опора, колодец) сжалось бы в точку или
+            # отрезок туда-обратно — оставляем его вершины как есть.
+            kept = coords
+        elif len(kept) < 2:
             kept = coords[[0, -1]]
     if closed and len(kept) > 2 and np.allclose(kept[0], kept[-1]):
         kept = kept[:-1]

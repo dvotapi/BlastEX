@@ -427,6 +427,24 @@ def test_situation_geometry_is_simplified(repository):
     assert line["points"][-1][:2] == pytest.approx([X0 + 500, Y0], abs=0.01)
 
 
+def test_tiny_closed_ring_keeps_its_vertices(repository):
+    """Опора ЛЭП в 3 см: упрощение 0,05 м свело бы кольцо к двум одинаковым точкам."""
+
+    import ezdxf
+
+    from tests.cad_situation_fixtures import X0, Y0, _bytes
+
+    doc = ezdxf.new("R2010")
+    square = [(X0, Y0), (X0 + 0.03, Y0), (X0 + 0.03, Y0 + 0.03), (X0, Y0 + 0.03)]
+    doc.modelspace().add_lwpolyline(square, close=True, dxfattribs={"layer": "ЛЭП"})
+    client = _client(repository)
+    source = _upload(client, ("опора.dxf", _bytes(doc)))[0]
+
+    line = client.get(f"{BASE}/sources/{source['id']}/situation").json()["layers"][0]["lines"][0]
+    assert line["closed"] is True
+    assert [point[:2] for point in line["points"]] == [pytest.approx(list(xy), abs=0.001) for xy in square]
+
+
 def test_situation_over_the_vertex_limit_omits_whole_layers(repository, monkeypatch):
     from api.services import cad_situation_service
 

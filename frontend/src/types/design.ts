@@ -2243,6 +2243,8 @@ export type DatasetSummary = {
   sample_count: number;
   rejected_count: number;
   immutable: boolean;
+  /** Модель и версия baseline строк снимка; пустой объект — снимок собран до PR 3. */
+  fragmentation_base: Record<string, string>;
 };
 
 export type CalibrationModelType = "kuzram_residual" | "oversize_residual" | "ppv_residual";

@@ -62,6 +62,40 @@ class DatasetApiTests(unittest.TestCase):
         self.assertEqual(loaded.feature_schema_version, built.feature_schema_version)
         self.assertAlmostEqual(loaded.samples[0].targets["FRAGMENTATION"]["x50_mm"], 170.0)
 
+    def test_list_keeps_fragmentation_base(self):
+        """Список снимков отдаёт базу baseline: по нему видно, какой моделью посчитаны строки."""
+        from intelligence.calibration.base import CURRENT_BASE
+
+        saved = save_design(TEAM_ID, closed_design("list-base"))
+        built = dataset_service.build_snapshot_for_team(
+            TEAM_ID, DatasetBuildRequest(site_id="quarry-1", design_ids=[saved.design_id])
+        )
+
+        listed = dataset_service.list_snapshots(TEAM_ID)
+
+        self.assertEqual(built.fragmentation_base, CURRENT_BASE.to_dict())
+        self.assertEqual(listed.items[0].fragmentation_base, CURRENT_BASE.to_dict())
+        self.assertEqual(listed.model_dump()["items"][0]["fragmentation_base"], CURRENT_BASE.to_dict())
+
+    def test_list_old_snapshot_without_base(self):
+        """Снимок до PR 3 в списке — с пустой базой, а не ошибкой."""
+        import json
+
+        from intelligence.datasets.persistence import dataset_path
+
+        saved = save_design(TEAM_ID, closed_design("list-old"))
+        built = dataset_service.build_snapshot_for_team(
+            TEAM_ID, DatasetBuildRequest(site_id="quarry-1", design_ids=[saved.design_id])
+        )
+        path = dataset_path(TEAM_ID, built.dataset_id)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload.pop("fragmentation_base")
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        listed = dataset_service.list_snapshots(TEAM_ID)
+
+        self.assertEqual(listed.items[0].fragmentation_base, {})
+
     def test_second_snapshot_increments_version(self):
         save_design(TEAM_ID, closed_design("api-blast-2"))
         first = dataset_service.build_snapshot_for_team(TEAM_ID, DatasetBuildRequest(site_id="quarry-1"))

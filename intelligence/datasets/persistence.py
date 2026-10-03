@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +50,8 @@ class DatasetSummary:
     sample_count: int
     rejected_count: int
     immutable: bool = True
+    # Модель и версия baseline строк; пусто — снимок собран до PR 3.
+    fragmentation_base: dict[str, str] = field(default_factory=dict)
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -110,6 +112,7 @@ def list_snapshots(team_id: str) -> list[DatasetSummary]:
                 sample_count=int(data.get("sample_count", len(data.get("samples", []))) or 0),
                 rejected_count=int(data.get("rejected_count", len(data.get("rejected", []))) or 0),
                 immutable=True,
+                fragmentation_base={str(k): str(v) for k, v in (data.get("fragmentation_base") or {}).items()},
             )
         )
     summaries.sort(key=lambda item: (item.created_at, item.dataset_version), reverse=True)

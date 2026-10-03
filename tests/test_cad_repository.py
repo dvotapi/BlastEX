@@ -306,6 +306,25 @@ def test_site_sources_are_listed_newest_upload_first_without_file(repository) ->
     assert [item.id for item in repository.list_site_sources(ORG_A, "SITE_ZK", limit=1)] == ["new"]
 
 
+def test_site_sources_carry_only_requested_summary_keys(repository) -> None:
+    # Проверке «дальше 5 км» нужны экстенты 50 прежних чертежей, а не их
+    # полные сводки со слоями и ролями — те весят мегабайты (/code-review №5).
+    heavy = replace(
+        _site_record("heavy", sha="a" * 64),
+        summary={"robust_extent": [1.0, 2.0, 3.0, 4.0], "layer_roles": [{"layer": "x" * 100}] * 50},
+    )
+    plain = replace(_site_record("plain", sha="b" * 64, day=5), summary={"extent": [5.0, 6.0, 7.0, 8.0]})
+    repository.create_sources(ORG_A, [(heavy, []), (plain, [])])
+
+    listed = repository.list_site_sources(ORG_A, "SITE_ZK", limit=10, summary_keys=("robust_extent", "extent"))
+    assert [(item.id, item.summary) for item in listed] == [
+        ("plain", {"extent": [5.0, 6.0, 7.0, 8.0]}),
+        ("heavy", {"robust_extent": [1.0, 2.0, 3.0, 4.0]}),
+    ]
+    assert all(item.params == {} for item in listed)
+    assert all(item.summary == {} for item in repository.list_site_sources(ORG_A, "SITE_ZK", limit=10))
+
+
 def test_source_meta_update_checks_revision(repository) -> None:
     repository.create_sources(ORG_A, [(_site_record("src-1"), [])])
 

@@ -121,7 +121,9 @@ class CadRepository(Protocol):
 
     def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None: ...
 
-    def list_site_sources(self, organization_id: str, site_code: str, *, limit: int) -> list[CadSourceRecord]: ...
+    def list_site_sources(
+        self, organization_id: str, site_code: str, *, limit: int, summary_keys: tuple[str, ...] = ()
+    ) -> list[CadSourceRecord]: ...
 
     def update_source_meta(
         self,
@@ -298,6 +300,42 @@ def _record(row: CadSourceRow, *, with_file: bool = False) -> CadSourceRecord:
         survey_date=row.survey_date,
         coordinate_system=row.coordinate_system,
         file_data=bytes(row.file_data) if with_file else None,
+        revision=row.revision,
+    )
+
+
+# Лёгкая строка источника: без сводки, параметров и байтов файла.
+_LIGHT_SOURCE_COLUMNS = (
+    CadSourceRow.id,
+    CadSourceRow.site_code,
+    CadSourceRow.work_object_name,
+    CadSourceRow.file_name,
+    CadSourceRow.title,
+    CadSourceRow.file_format,
+    CadSourceRow.file_size,
+    CadSourceRow.file_sha256,
+    CadSourceRow.uploaded_by,
+    CadSourceRow.uploaded_at,
+    CadSourceRow.survey_date,
+    CadSourceRow.revision,
+)
+
+
+def _light_record(row: Any, summary: dict[str, Any] | None = None) -> CadSourceRecord:
+    return CadSourceRecord(
+        id=row.id,
+        site_code=row.site_code,
+        work_object_name=row.work_object_name,
+        file_name=row.file_name,
+        file_format=row.file_format,
+        file_size=row.file_size,
+        file_sha256=row.file_sha256,
+        params={},
+        summary=summary or {},
+        uploaded_by=row.uploaded_by,
+        uploaded_at=row.uploaded_at,
+        title=row.title,
+        survey_date=row.survey_date,
         revision=row.revision,
     )
 
@@ -486,15 +524,35 @@ class PostgresCadRepository:
             ).scalar_one_or_none()
             return None if row is None else _record(row)
 
-    def list_site_sources(self, organization_id: str, site_code: str, *, limit: int) -> list[CadSourceRecord]:
+    def list_site_sources(
+        self, organization_id: str, site_code: str, *, limit: int, summary_keys: tuple[str, ...] = ()
+    ) -> list[CadSourceRecord]:
+        """Источники объекта, свежие первыми; из сводки — только `summary_keys`.
+
+        Полная сводка файла с сотнями слоёв весит мегабайты, а списку нужны
+        название и даты, проверке «дальше 5 км» — экстенты.
+        """
+
+        parts = [CadSourceRow.summary[key].label(f"summary_{index}") for index, key in enumerate(summary_keys)]
+        query = (
+            select(*_LIGHT_SOURCE_COLUMNS, *parts)
+            .where(CadSourceRow.organization_id == organization_id, CadSourceRow.site_code == site_code)
+            .order_by(CadSourceRow.uploaded_at.desc(), CadSourceRow.id)
+            .limit(limit)
+        )
         with self.session_factory() as session:
-            rows = session.execute(
-                select(CadSourceRow)
-                .where(CadSourceRow.organization_id == organization_id, CadSourceRow.site_code == site_code)
-                .order_by(CadSourceRow.uploaded_at.desc(), CadSourceRow.id)
-                .limit(limit)
-            ).scalars()
-            return [_record(row) for row in rows]
+            rows = session.execute(query).all()
+        return [
+            _light_record(
+                row,
+                {
+                    key: value
+                    for index, key in enumerate(summary_keys)
+                    if (value := getattr(row, f"summary_{index}")) is not None
+                },
+            )
+            for row in rows
+        ]
 
     def update_source_meta(
         self,
@@ -585,21 +643,7 @@ class PostgresCadRepository:
             .subquery()
         )
         query = (
-            select(
-                CadSourceRow.id,
-                CadSourceRow.site_code,
-                CadSourceRow.work_object_name,
-                CadSourceRow.file_name,
-                CadSourceRow.title,
-                CadSourceRow.file_format,
-                CadSourceRow.file_size,
-                CadSourceRow.file_sha256,
-                CadSourceRow.uploaded_by,
-                CadSourceRow.uploaded_at,
-                CadSourceRow.survey_date,
-                CadSourceRow.revision,
-                counts.c.situation_count,
-            )
+            select(*_LIGHT_SOURCE_COLUMNS, counts.c.situation_count)
             .join(counts, counts.c.source_id == CadSourceRow.id)
             .where(CadSourceRow.organization_id == organization_id, CadSourceRow.site_code == site_code)
             .order_by(CadSourceRow.uploaded_at.desc(), CadSourceRow.id)
@@ -607,28 +651,7 @@ class PostgresCadRepository:
         )
         with self.session_factory() as session:
             rows = session.execute(query).all()
-        return [
-            (
-                CadSourceRecord(
-                    id=row.id,
-                    site_code=row.site_code,
-                    work_object_name=row.work_object_name,
-                    file_name=row.file_name,
-                    file_format=row.file_format,
-                    file_size=row.file_size,
-                    file_sha256=row.file_sha256,
-                    params={},
-                    summary={},
-                    uploaded_by=row.uploaded_by,
-                    uploaded_at=row.uploaded_at,
-                    title=row.title,
-                    survey_date=row.survey_date,
-                    revision=row.revision,
-                ),
-                int(row.situation_count),
-            )
-            for row in rows
-        ]
+        return [(_light_record(row), int(row.situation_count)) for row in rows]
 
     def upsert_layer_kinds(
         self, organization_id: str, site_code: str, kinds: dict[str, str | None], actor: str
@@ -830,7 +853,9 @@ class InMemoryCadRepository:
             return None
         return copy.deepcopy(replace(max(found, key=lambda item: item.uploaded_at), file_data=None))
 
-    def list_site_sources(self, organization_id: str, site_code: str, *, limit: int) -> list[CadSourceRecord]:
+    def list_site_sources(
+        self, organization_id: str, site_code: str, *, limit: int, summary_keys: tuple[str, ...] = ()
+    ) -> list[CadSourceRecord]:
         found = [
             record
             for (org, _), record in self._sources.items()
@@ -838,7 +863,17 @@ class InMemoryCadRepository:
         ]
         found.sort(key=lambda item: item.id)
         found.sort(key=lambda item: item.uploaded_at, reverse=True)
-        return [copy.deepcopy(replace(item, file_data=None)) for item in found[:limit]]
+        return [
+            copy.deepcopy(
+                replace(
+                    item,
+                    file_data=None,
+                    params={},
+                    summary={key: item.summary[key] for key in summary_keys if item.summary.get(key) is not None},
+                )
+            )
+            for item in found[:limit]
+        ]
 
     def update_source_meta(
         self,

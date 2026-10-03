@@ -91,6 +91,9 @@ MAX_FILE_BYTES = 40 * 1024 * 1024
 MAX_FILES = 10
 # Источников объекта в каталоге ситуации, в серии и при проверке СК.
 MAX_SITE_SOURCES = 50
+# Ключи сводки, по которым чертёж сравнивается с прежними («дальше 5 км»):
+# устойчивый экстент, у файлов до PR 4 — обычный.
+CHECK_EXTENT_KEYS = ("robust_extent", "extent")
 
 # Сколько раз повторить правку, если источник изменили между чтением и записью.
 WRITE_ATTEMPTS = 3
@@ -158,7 +161,9 @@ def site_context(repository: CadRepository, organization_id: str, site_code: str
     return SiteContext(
         area_basis=area_basis_of(repository, organization_id, site_code),
         crs=repository.get_site_crs(organization_id, site_code),
-        sources=repository.list_site_sources(organization_id, site_code, limit=MAX_SITE_SOURCES),
+        sources=repository.list_site_sources(
+            organization_id, site_code, limit=MAX_SITE_SOURCES, summary_keys=CHECK_EXTENT_KEYS
+        ),
     )
 
 
@@ -717,7 +722,7 @@ def source_title(record: CadSourceRecord) -> str:
 
 
 def _check_extent(summary: dict) -> list[float] | None:
-    return summary.get("robust_extent") or summary.get("extent")
+    return summary.get(CHECK_EXTENT_KEYS[0]) or summary.get(CHECK_EXTENT_KEYS[1])
 
 
 def _crs_warnings(record: CadSourceRecord, context: SiteContext) -> list[CadWarningSchema]:

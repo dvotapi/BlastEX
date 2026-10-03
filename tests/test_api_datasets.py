@@ -7,6 +7,7 @@ from api.exceptions import ImmutableDatasetError, InvalidDesignError
 from api.schemas.datasets import DatasetBuildRequest, DatasetPreviewRequest
 from api.services import dataset_service
 from design.persistence import save_design
+from intelligence.datasets.baseline import baseline_settings, fragmentation_baseline
 from tests.dataset_fixtures import closed_design
 
 TEAM_ID = "api-dataset-team"
@@ -27,6 +28,20 @@ class DatasetApiTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.closed)
         self.assertIn("FRAGMENTATION", result.complete_target_groups)
+
+    def test_preview_does_not_compute_baseline(self):
+        with patch(
+            "intelligence.datasets.builder.fragmentation_baseline", wraps=fragmentation_baseline
+        ) as baseline_spy, patch(
+            "intelligence.datasets.builder.baseline_settings", wraps=baseline_settings
+        ) as settings_spy:
+            result = dataset_service.preview_design(
+                DatasetPreviewRequest(site_id="quarry-1", design=closed_design().to_dict())
+            )
+
+        self.assertTrue(result.ok)
+        baseline_spy.assert_not_called()
+        settings_spy.assert_not_called()
 
     def test_build_list_and_get_snapshot(self):
         saved = save_design(TEAM_ID, closed_design("api-blast"))

@@ -43,7 +43,8 @@ def preview_design(request: DatasetPreviewRequest) -> SampleValidationSchema:
     if not request.site_id.strip():
         raise InvalidDesignError("Для проверки образца нужен site_id.")
     design = _design_from_schema(request.design)
-    sample = build_sample(design, site_id=request.site_id.strip())
+    # Превью только проверяет образец: baseline и настройки модели ему не нужны.
+    sample = build_sample(design, site_id=request.site_id.strip(), with_baseline=False)
     return SampleValidationSchema(**sample.validation.to_dict())
 
 

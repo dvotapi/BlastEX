@@ -4,7 +4,7 @@ from dataclasses import asdict
 from unittest.mock import patch
 
 from intelligence.calibration.base import CURRENT_BASE
-from intelligence.datasets.baseline import fragmentation_baseline
+from intelligence.datasets.baseline import baseline_settings, fragmentation_baseline
 from intelligence.datasets.builder import DatasetSnapshot, build_sample, build_snapshot
 from intelligence.datasets.targets import target_group_has_values
 from simulation.fragmentation import engine as fragmentation_engine
@@ -256,6 +256,32 @@ class BrokenStoredDataTests(unittest.TestCase):
             self._frag(design)
 
         self.assertEqual(spy.call_count, 1)
+
+
+class SampleWithoutBaselineTests(unittest.TestCase):
+    """Превью образца только проверяет паспорт: baseline ему не нужен."""
+
+    def test_without_baseline_skips_prediction(self):
+        with patch("intelligence.datasets.builder.baseline_settings", wraps=baseline_settings) as settings_spy, patch(
+            "intelligence.datasets.builder.fragmentation_baseline", wraps=fragmentation_baseline
+        ) as baseline_spy:
+            sample = build_sample(closed_design("nb-1"), site_id="quarry-1", with_baseline=False)
+
+        baseline_spy.assert_not_called()
+        settings_spy.assert_not_called()
+        self.assertNotIn("baseline_x50_mm", sample.targets["FRAGMENTATION"])
+        self.assertTrue(sample.validation.ok)
+        # Физика скважин считается как раньше: запасными настройками или умолчаниями.
+        self.assertTrue(sample.holes)
+
+    def test_snapshot_build_still_computes_baseline(self):
+        with patch(
+            "intelligence.datasets.builder.fragmentation_baseline", wraps=fragmentation_baseline
+        ) as baseline_spy:
+            sample = build_sample(closed_design("nb-2"), site_id="quarry-1")
+
+        self.assertEqual(baseline_spy.call_count, 1)
+        self.assertIsNotNone(sample.targets["FRAGMENTATION"]["baseline_x50_mm"])
 
 
 class SnapshotTests(unittest.TestCase):

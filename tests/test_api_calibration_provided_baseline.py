@@ -87,9 +87,11 @@ class NewArtifactProvidedBaselineTests(_ProvidedBaselineCase):
             self._assert_applied(X50, model, CURRENT_VERSION)
 
     def test_oversize_needs_same_model(self):
+        """Та же база, другая кривая: переобучение не поможет — негабарит учится на kuzram."""
         result = self._predict(OVERSIZE, baseline_model="swebrec", baseline_model_version=CURRENT_VERSION)
 
-        self._assert_refused(result, "переобучить")
+        self._assert_refused(result, "Калибровка негабарита обучена на кривой")
+        self.assertNotIn("переобучить", result.warnings[0])
 
     def test_old_model_baseline_is_refused(self):
         for model, version in (("kuzram_legacy", "1.0.0"), ("kuzram", "1.0.0")):
@@ -170,7 +172,7 @@ class OldArtifactProvidedBaselineTests(_ProvidedBaselineCase):
             with self.subTest(model=model, applied=False):
                 result = self._predict(OVERSIZE, baseline_model=model, baseline_model_version="1.0.0")
 
-                self._assert_refused(result, "переобучить")
+                self._assert_refused(result, "Калибровка негабарита обучена на кривой")
 
     def test_new_model_baseline_is_refused(self):
         result = self._predict(X50, baseline_model="kuzram", baseline_model_version=CURRENT_VERSION)

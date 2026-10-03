@@ -107,6 +107,21 @@ class CompatibilityTests(unittest.TestCase):
         self.assertIn("переобучить", reason)
         self.assertEqual(refusal_reason(X50, CURRENT_BASE, NEW_SWEBREC), "")
 
+    def test_oversize_of_same_base_other_curve_is_refused_without_retrain_advice(self):
+        """Негабарит учится всегда на kuzram: другая кривая той же базы — не повод переобучать."""
+        reason = refusal_reason(OVERSIZE, CURRENT_BASE, NEW_SWEBREC)
+
+        self.assertEqual(
+            reason,
+            f"Калибровка негабарита обучена на кривой «{CURRENT_BASE.label()}» "
+            f"и к прогнозу «{NEW_SWEBREC.label()}» не применяется.",
+        )
+
+    def test_oversize_of_other_base_still_asks_to_retrain(self):
+        reason = refusal_reason(OVERSIZE, LEGACY_BASE, CURRENT_BASE)
+
+        self.assertIn("переобучить", reason)
+
     def test_unknown_prediction_base_is_refused(self):
         self.assertIn("Не указано", refusal_reason(OVERSIZE, CURRENT_BASE, None))
 

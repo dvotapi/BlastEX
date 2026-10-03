@@ -3,7 +3,7 @@ import unittest
 
 from design.reporting.html import _model_version_line
 from design.reporting.types import PredictedOutcomes
-from simulation.fragmentation.models import is_old_model
+from simulation.fragmentation.models import is_old_model, version_major
 
 
 class IsOldModelTests(unittest.TestCase):
@@ -17,10 +17,22 @@ class IsOldModelTests(unittest.TestCase):
             ("kuzram", "abc", True),
             ("kuzram_legacy", "1.0.0", True),
             ("kuzram_legacy", "2.0.0", True),
+            # isdigit() истинно, а int() падает: нечитаемая версия — старая модель.
+            ("kuzram", "²", True),
+            ("kuzram", "9" * 5000 + ".0", True),
         )
         for model, version, old in cases:
             with self.subTest(model=model, version=version):
                 self.assertIs(is_old_model(model, version), old)
+
+
+class VersionMajorTests(unittest.TestCase):
+    def test_one_strict_rule_for_simulation_and_calibration(self):
+        from intelligence.calibration import base
+
+        self.assertIs(base.version_major, version_major)
+        self.assertEqual(version_major("2.1.0"), 2)
+        self.assertIsNone(version_major("²"))
 
 
 class PassportLineTests(unittest.TestCase):
@@ -30,6 +42,15 @@ class PassportLineTests(unittest.TestCase):
         predicted.fragmentation_model_version = "1.0.0"
 
         self.assertIn("Старая модель", _model_version_line(predicted))
+
+    def test_unreadable_version_does_not_break_passport(self):
+        for version in ("²", "9" * 5000):
+            with self.subTest(version=version[:8]):
+                predicted = PredictedOutcomes()
+                predicted.fragmentation_model = "kuzram"
+                predicted.fragmentation_model_version = version
+
+                self.assertIn("Старая модель", _model_version_line(predicted))
 
     def test_new_prediction_without_snapshot_is_not_marked(self):
         predicted = PredictedOutcomes()

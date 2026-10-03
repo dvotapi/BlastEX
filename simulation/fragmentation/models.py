@@ -1,6 +1,7 @@
 """Fragmentation data types. Designed / predicted / measured stay separate."""
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -29,6 +30,22 @@ FRAGMENTATION_MODEL_IDS = (
 )
 
 
+# Основная версия — 1–6 ASCII-цифр. isdigit() пропускает «²», а int() на ней
+# и на очень длинной строке цифр бросает ValueError.
+_MAJOR = re.compile(r"[0-9]{1,6}")
+
+
+def version_major(version: str) -> int | None:
+    """Номер основной версии («1.0.0» → 1); None — версия не распознана.
+
+    Присланную клиентом версию сервер проверяет этим правилом раньше
+    prediction_base: та считает нечитаемую версию старой базой, а «v2.0.0»
+    от клиента — не повод наложить старую поправку.
+    """
+    major = str(version or "").strip().split(".")[0]
+    return int(major) if _MAJOR.fullmatch(major) else None
+
+
 def is_old_model(model: str, version: str) -> bool:
     """Прогноз посчитан прежними формулами (до перевода на Каннингема).
 
@@ -37,8 +54,8 @@ def is_old_model(model: str, version: str) -> bool:
     """
     if str(model or "").endswith(LEGACY_MODEL_SUFFIX):
         return True
-    major = str(version or "").strip().split(".", 1)[0]
-    return not major.isdigit() or int(major) < 2
+    major = version_major(version)
+    return major is None or major < 2
 
 
 def _opt_float(data: dict[str, Any], key: str) -> float | None:

@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -19,6 +18,7 @@ from simulation.fragmentation.models import (
     MODEL_KUZRAM,
     MODEL_KUZRAM_LEGACY,
     is_old_model,
+    version_major,
 )
 
 FRAGMENTATION_RESIDUALS = frozenset({MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL})
@@ -31,9 +31,6 @@ BASELINE_FIELDS = {
 }
 _VALUE_FIELDS = {MODEL_KUZRAM_RESIDUAL: "x50_mm", MODEL_OVERSIZE_RESIDUAL: "oversize_pct"}
 
-# Версий длиннее шести цифр не бывает; ограничение защищает `int()`, который на
-# очень длинной строке цифр бросает ValueError.
-_MAJOR = re.compile(r"[0-9]{1,6}")
 
 
 @dataclass(frozen=True)
@@ -58,17 +55,6 @@ class FragmentationBase:
 
 LEGACY_BASE = FragmentationBase(MODEL_KUZRAM_LEGACY, LEGACY_VERSION)
 CURRENT_BASE = FragmentationBase(MODEL_KUZRAM, str(FRAGMENTATION_MODELS[MODEL_KUZRAM]["version"]))
-
-
-def version_major(version: str) -> int | None:
-    """Номер основной версии («1.0.0» → 1); None — версия не распознана.
-
-    Присланную клиентом версию сервер проверяет этим правилом раньше
-    prediction_base: та считает нечитаемую версию старой базой, а «v2.0.0»
-    от клиента — не повод наложить старую поправку.
-    """
-    major = str(version or "").strip().split(".")[0]
-    return int(major) if _MAJOR.fullmatch(major) else None
 
 
 def prediction_base(model: str, version: str) -> FragmentationBase:
@@ -127,6 +113,17 @@ def refusal_reason(
         return "Не указано, какой моделью посчитан baseline, — калибровка кусковатости не применена."
     if compatible(model_type, artifact, prediction):
         return ""
+    if (
+        model_type == MODEL_OVERSIZE_RESIDUAL
+        and artifact.legacy == prediction.legacy
+        and artifact.model_version == prediction.model_version
+    ):
+        # База та же, другая только кривая: негабарит учится всегда на
+        # kuzram, переобучение под другую модель не поможет.
+        return (
+            f"Калибровка негабарита обучена на кривой «{artifact.label()}» "
+            f"и к прогнозу «{prediction.label()}» не применяется."
+        )
     return (
         f"Калибровка обучена на прогнозах «{artifact.label()}» и к прогнозу «{prediction.label()}» "
         "не применяется — её нужно переобучить."

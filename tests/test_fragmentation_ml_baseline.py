@@ -80,7 +80,7 @@ class ScenarioResidualGuardTests(unittest.TestCase):
         outcomes = self._run("swebrec", {"oversize_residual": self.NEW})
 
         self.assertEqual(outcomes.oversize_pct, 5.0)
-        self.assertTrue(any("переобучить" in item for item in outcomes.warnings))
+        self.assertTrue(any("Калибровка негабарита обучена на кривой" in item for item in outcomes.warnings))
 
     def test_broken_fragmentation_calibration_keeps_ppv(self):
         outcomes = self._run(

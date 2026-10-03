@@ -36,9 +36,14 @@ function crsText(source: CadSource): string {
   return parts.join(" · ");
 }
 
+/** Сколько других версий серии называть в шапке: строка не должна съедать таблицу слоёв. */
+const SERIES_SHOWN = 3;
+
 function seriesText(source: CadSource): string {
   if (!source.series.length) return "";
-  return `Другие версии серии: ${versionLabels(source.series).join(", ")}`;
+  const labels = versionLabels(source.series);
+  const rest = labels.length - SERIES_SHOWN;
+  return `Другие версии серии: ${labels.slice(0, SERIES_SHOWN).join(", ")}${rest > 0 ? ` и ещё ${rest}` : ""}`;
 }
 
 export function SourceHeader({

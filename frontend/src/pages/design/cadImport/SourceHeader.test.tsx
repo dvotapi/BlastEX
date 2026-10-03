@@ -186,4 +186,21 @@ describe("SourceHeader", () => {
       screen.getByText("Другие версии серии: 01.09.2026 · загружен 03.10.2026 03:31, 01.09.2026 · загружен 02.10.2026 18:05"),
     ).toBeTruthy();
   });
+
+  it("больше трёх других версий — первые три и «ещё N»", () => {
+    const dates = ["2026-09-01", "2026-08-01", "2026-07-01", "2026-06-01", "2026-05-01"];
+    renderHeader({
+      source: cadSource({
+        series: dates.map((survey_date, index) => ({
+          id: `v${index}`,
+          title: "Положение горных работ",
+          file_name: "п.dxf",
+          survey_date,
+          uploaded_at: "2026-10-01T10:00:00+00:00",
+        })),
+      }),
+    });
+
+    expect(screen.getByText("Другие версии серии: 01.09.2026, 01.08.2026, 01.07.2026 и ещё 2")).toBeTruthy();
+  });
 });

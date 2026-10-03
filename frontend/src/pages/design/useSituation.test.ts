@@ -6,7 +6,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CadSituationCatalogue, CadSituationGeometry } from "../../types/cad";
 import { emptyDesign, type BlastDesign } from "../../types/design";
-import { SITUATION_DELAY_MS, situationReferenceIds, useSituation, useSituationChoice, type SituationFetchers } from "./useSituation";
+import { SITUATION_DELAY_MS, situationReference, useSituation, useSituationChoice, type SituationFetchers } from "./useSituation";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -65,29 +65,29 @@ async function settle() {
   });
 }
 
-describe("situationReferenceIds", () => {
+describe("situationReference", () => {
   const base = emptyDesign();
   const cad = { source_id: "block", file_name: "блок.dxf" } as NonNullable<BlastDesign["contour"]["cad"]>;
 
   it("ссылка на версии ситуации — главнее источника контура", () => {
     expect(
-      situationReferenceIds({
+      situationReference({
         ...base,
         contour: { ...base.contour, cad: { ...cad, situation: [{ source_id: "sep", title: "", survey_date: null }] } },
       }),
-    ).toEqual(["sep"]);
+    ).toEqual({ ids: ["sep"], pinned: true });
   });
 
-  it("без ссылки — источник контура, без чертежа — ничего", () => {
-    expect(situationReferenceIds({ ...base, contour: { ...base.contour, cad } })).toEqual(["block"]);
-    expect(situationReferenceIds(base)).toEqual([]);
+  it("без ссылки — источник контура (только чтобы найти объект), без чертежа — ничего", () => {
+    expect(situationReference({ ...base, contour: { ...base.contour, cad } })).toEqual({ ids: ["block"], pinned: false });
+    expect(situationReference(base)).toEqual({ ids: [], pinned: false });
   });
 });
 
 describe("useSituation", () => {
   it("каталог по ссылке паспорта, затем геометрия версий по умолчанию", async () => {
     const api = fetchers();
-    const { result } = renderHook(() => useSituation(["block"], {}, 0, api));
+    const { result } = renderHook(() => useSituation({ ids: ["block"], pinned: true }, {}, 0, api));
 
     expect(api.catalogue).not.toHaveBeenCalled();
     await settle();
@@ -105,7 +105,7 @@ describe("useSituation", () => {
 
   it("версия, выбранная в «Виде», заменяет версию по умолчанию", async () => {
     const api = fetchers();
-    const { result } = renderHook(() => useSituation([], { "положение горных работ": "sep" }, 0, api));
+    const { result } = renderHook(() => useSituation({ ids: [], pinned: false }, { "положение горных работ": "sep" }, 0, api));
     await settle();
     await settle();
 
@@ -115,7 +115,7 @@ describe("useSituation", () => {
   });
 
   it("версии из ссылки паспорта видны отдельно — для подписи «паспорт: дата»", async () => {
-    const { result } = renderHook(() => useSituation(["sep", "block"], {}, 0, fetchers()));
+    const { result } = renderHook(() => useSituation({ ids: ["sep", "block"], pinned: true }, {}, 0, fetchers()));
     await settle();
 
     expect(result.current.passport).toEqual({ "положение горных работ": "sep", "блок 70": "block" });
@@ -129,7 +129,7 @@ describe("useSituation", () => {
         .mockImplementationOnce(() => new Promise<CadSituationCatalogue>((resolve) => (releaseFirst = resolve)))
         .mockImplementationOnce(async () => catalogue({ series: [] })),
     });
-    const { result, rerender } = renderHook(({ ids }) => useSituation(ids, {}, 0, api), { initialProps: { ids: ["a"] } });
+    const { result, rerender } = renderHook(({ ids }) => useSituation({ ids, pinned: true }, {}, 0, api), { initialProps: { ids: ["a"] } });
     await settle();
     rerender({ ids: ["b"] });
     await settle();
@@ -140,7 +140,7 @@ describe("useSituation", () => {
 
   it("геометрия кэшируется по номеру правки источника", async () => {
     const api = fetchers();
-    const { rerender } = renderHook(({ reload }) => useSituation([], {}, reload, api), { initialProps: { reload: 0 } });
+    const { rerender } = renderHook(({ reload }) => useSituation({ ids: [], pinned: false }, {}, reload, api), { initialProps: { reload: 0 } });
     await settle();
     await settle();
     expect(api.geometry).toHaveBeenCalledTimes(2);
@@ -162,11 +162,11 @@ describe("useSituation", () => {
     const api = fetchers({
       catalogue: vi.fn(async () => catalogue({ missing: ["gone"] })),
       geometry: vi.fn(async (id: string) => {
-        if (id === "oct") throw new Error("Импорт чертежа не найден.");
+        if (id === "oct") throw Object.assign(new Error("Импорт чертежа не найден."), { status: 404 });
         return geometry(id);
       }),
     });
-    const { result, rerender } = renderHook(({ reload }) => useSituation(["gone"], {}, reload, api), {
+    const { result, rerender } = renderHook(({ reload }) => useSituation({ ids: ["gone"], pinned: true }, {}, reload, api), {
       initialProps: { reload: 0 },
     });
     await settle();
@@ -182,7 +182,7 @@ describe("useSituation", () => {
 
   it("ошибка каталога видна, ситуации нет", async () => {
     const { result } = renderHook(() =>
-      useSituation([], {}, 0, fetchers({ catalogue: vi.fn(async () => Promise.reject(new Error("сеть"))) })),
+      useSituation({ ids: [], pinned: false }, {}, 0, fetchers({ catalogue: vi.fn(async () => Promise.reject(new Error("сеть"))) })),
     );
     await settle();
 
@@ -203,5 +203,65 @@ describe("useSituationChoice", () => {
 
     rerender({ id: "passport-b" });
     expect(result.current[0]).toEqual({});
+  });
+});
+
+describe("useSituation: ошибки геометрии", () => {
+  function httpError(status: number, message = "ошибка") {
+    return Object.assign(new Error(message), { status });
+  }
+
+  it("сбой сервера — не «удалено»: ошибка видна, перезагрузка повторяет запрос", async () => {
+    let fail = true;
+    const api = fetchers({
+      geometry: vi.fn(async (id: string) => {
+        if (id === "oct" && fail) throw httpError(502, "Bad Gateway");
+        return geometry(id);
+      }),
+    });
+    const { result, rerender } = renderHook(({ reload }) => useSituation({ ids: [], pinned: false }, {}, reload, api), {
+      initialProps: { reload: 0 },
+    });
+    await settle();
+    await settle();
+
+    expect(result.current.missing).toEqual([]);
+    expect(result.current.error).toMatch(/Не удалось загрузить ситуацию/);
+
+    fail = false;
+    rerender({ reload: 1 });
+    await settle();
+    await settle();
+    expect(result.current.shown.map((item) => item.geometry.source_id)).toEqual(["oct", "block"]);
+    expect(result.current.error).toBe("");
+  });
+
+  it("404 — удалено, без повторов", async () => {
+    const api = fetchers({
+      geometry: vi.fn(async (id: string) => {
+        if (id === "oct") throw httpError(404, "Импорт чертежа не найден.");
+        return geometry(id);
+      }),
+    });
+    const { result, rerender } = renderHook(({ reload }) => useSituation({ ids: [], pinned: false }, {}, reload, api), {
+      initialProps: { reload: 0 },
+    });
+    await settle();
+    await settle();
+    expect(result.current.missing).toEqual(["oct"]);
+
+    rerender({ reload: 1 });
+    await settle();
+    await settle();
+    expect((api.geometry as ReturnType<typeof vi.fn>).mock.calls.filter(([id]) => id === "oct")).toHaveLength(1);
+  });
+
+  it("паспорт без запомненных версий не считает удалённым источник контура", async () => {
+    const api = fetchers({ catalogue: vi.fn(async () => catalogue({ missing: ["block-gone"] })) });
+    const { result } = renderHook(() => useSituation({ ids: ["block-gone"], pinned: false }, {}, 0, api));
+    await settle();
+    await settle();
+
+    expect(result.current.missing).toEqual([]);
   });
 });

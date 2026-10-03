@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { errorMessage } from "./client";
+import { errorMessage, HttpError, request } from "./client";
 
 const response = (body: unknown, status = 422) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -41,5 +41,20 @@ describe("errorMessage", () => {
     expect(await errorMessage(response({ detail: "Фактор породы A = −0,5." }, 400), "запасной")).toBe("Фактор породы A = −0,5.");
     expect(await errorMessage(response({ detail: { message: "Нет доступа." } }, 403), "запасной")).toBe("Нет доступа.");
     expect(await errorMessage(new Response("oops", { status: 500 }), "запасной")).toBe("запасной");
+  });
+});
+
+describe("request", () => {
+  it("ошибка несёт HTTP-статус: 404 отличается от сбоя сервера", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => response({ detail: "Импорт чертежа не найден." }, 404)) as typeof fetch;
+    try {
+      const failure = (await request("/x").catch((reason: unknown) => reason)) as HttpError;
+      expect(failure).toBeInstanceOf(HttpError);
+      expect(failure.status).toBe(404);
+      expect(failure.message).toBe("Импорт чертежа не найден.");
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });

@@ -59,15 +59,25 @@ export function useSituationChoice(
   return [choice, choose];
 }
 
-/** Ссылка паспорта на ситуацию: запомненные версии, иначе источник контура. */
-export function situationReferenceIds(design: BlastDesign): string[] {
+/**
+ * Ссылка паспорта на ситуацию. `pinned` — версии запомнены «Построить блок»;
+ * иначе источник контура нужен только чтобы найти объект, и его удаление —
+ * не «удалённая версия ситуации».
+ */
+export type SituationReference = { ids: string[]; pinned: boolean };
+
+export function situationReference(design: BlastDesign): SituationReference {
   const cad = design.contour.cad;
-  if (cad?.situation?.length) return cad.situation.map((item) => item.source_id);
-  return cad?.source_id ? [cad.source_id] : [];
+  if (cad?.situation?.length) return { ids: cad.situation.map((item) => item.source_id), pinned: true };
+  return { ids: cad?.source_id ? [cad.source_id] : [], pinned: false };
+}
+
+function notFound(reason: unknown): boolean {
+  return typeof reason === "object" && reason !== null && (reason as { status?: unknown }).status === 404;
 }
 
 export function useSituation(
-  referenceIds: string[],
+  reference: SituationReference,
   choice: Record<string, string>,
   reloadKey: number,
   fetchers: SituationFetchers = DEFAULT_FETCHERS,
@@ -76,14 +86,18 @@ export function useSituation(
   const [error, setError] = useState("");
   const [tick, setTick] = useState(0);
   const sequence = useRef(0);
-  // Геометрия по «источник:правка»; упавшие запросы — там же, чтобы не повторять.
+  // Геометрия по «источник:правка». Удалённые (404) не запрашиваются снова;
+  // сбои (сеть, 5xx) повторяются при следующей перезагрузке каталога.
   const cache = useRef(new Map<string, CadSituationGeometry>());
-  const failed = useRef(new Set<string>());
+  const gone = useRef(new Set<string>());
+  const broken = useRef(new Set<string>());
   const inflight = useRef(new Set<string>());
+  const referenceIds = reference.ids;
   const idsKey = referenceIds.join(",");
 
   useEffect(() => {
     const number = ++sequence.current;
+    broken.current.clear();
     const timer = setTimeout(() => {
       fetchers.catalogue(idsKey ? idsKey.split(",") : []).then(
         (loaded) => {
@@ -125,7 +139,14 @@ export function useSituation(
 
   useEffect(() => {
     for (const { sourceId, cacheKey } of wanted) {
-      if (cache.current.has(cacheKey) || failed.current.has(cacheKey) || inflight.current.has(cacheKey)) continue;
+      if (
+        cache.current.has(cacheKey) ||
+        gone.current.has(cacheKey) ||
+        broken.current.has(cacheKey) ||
+        inflight.current.has(cacheKey)
+      ) {
+        continue;
+      }
       inflight.current.add(cacheKey);
       fetchers.geometry(sourceId).then(
         (loaded) => {
@@ -133,23 +154,27 @@ export function useSituation(
           cache.current.set(cacheKey, loaded);
           setTick((current) => current + 1);
         },
-        () => {
+        (reason) => {
           inflight.current.delete(cacheKey);
-          failed.current.add(cacheKey);
+          (notFound(reason) ? gone : broken).current.add(cacheKey);
           setTick((current) => current + 1);
         },
       );
     }
+    // Перезагрузка каталога (`reloadKey`) повторяет запросы, упавшие сбоем.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantedKey]);
+  }, [wantedKey, reloadKey, catalogue]);
 
   return useMemo(() => {
     const shown: SituationShown[] = [];
-    const missing = [...(catalogue?.missing ?? [])];
+    // Источник контура без запомненных версий нужен только для поиска объекта.
+    const missing = reference.pinned ? [...(catalogue?.missing ?? [])] : [];
+    let failures = 0;
     for (const { seriesKey, sourceId, cacheKey } of wanted) {
       const loaded = cache.current.get(cacheKey);
       if (loaded) shown.push({ seriesKey, geometry: loaded });
-      else if (failed.current.has(cacheKey) && !missing.includes(sourceId)) missing.push(sourceId);
+      else if (gone.current.has(cacheKey) && !missing.includes(sourceId)) missing.push(sourceId);
+      else if (broken.current.has(cacheKey)) failures += 1;
     }
     const references = new Set(referenceIds);
     const passport: Record<string, string> = {};
@@ -157,8 +182,9 @@ export function useSituation(
       const pinned = series.versions.find((item) => references.has(item.source_id));
       if (pinned) passport[series.key] = pinned.source_id;
     }
-    return { catalogue, shown, displayed, passport, missing, error };
+    const geometryError = failures ? `Не удалось загрузить ситуацию: версий — ${failures}. Повторю при обновлении.` : "";
+    return { catalogue, shown, displayed, passport, missing, error: error || geometryError };
     // `tick` — ответ геометрии пришёл в кэш.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalogue, wanted, displayed, error, idsKey, tick]);
+  }, [catalogue, wanted, displayed, error, idsKey, reference.pinned, tick]);
 }

@@ -118,7 +118,7 @@ import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCo
 import { CadImportDialog, type CadBuildChoice } from "./cadImport/CadImportDialog";
 import { SourcesDialog } from "./cadImport/SourcesDialog";
 import { situation3dLines, situationPanelSeries } from "./situationLayer";
-import { situationReferenceIds, useSituation, useSituationChoice } from "./useSituation";
+import { situationReference, useSituation, useSituationChoice } from "./useSituation";
 import { buildConfirmText } from "./cadImport/surfaceState";
 import { computeAllHoleHealth, healthColor, summarizeHealth } from "./holeHealth";
 import {
@@ -243,7 +243,8 @@ export function DesignPage({
   const [situationHidden, setSituationHidden] = useState<Set<string>>(() => new Set());
   const [situationReload, setSituationReload] = useState(0);
   const [sourcesOpen, setSourcesOpen] = useState(false);
-  const situation = useSituation(situationReferenceIds(document), situationChoice, situationReload);
+  const situationRef = situationReference(document);
+  const situation = useSituation(situationRef, situationChoice, situationReload);
   // Окно импорта закрылось — роли, названия и виды могли смениться.
   const dialogOpen = cadSources !== null;
   useEffect(() => {

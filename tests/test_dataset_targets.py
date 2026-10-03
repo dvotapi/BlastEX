@@ -1,7 +1,13 @@
 import unittest
 
 from design.models import ROLE_DESIGNED, ROLE_MEASURED, ROLE_PREDICTED
-from intelligence.datasets.targets import TARGET_GROUPS, extract_targets, target_group_has_values
+from intelligence.datasets.targets import (
+    TARGET_GROUPS,
+    extract_fragmentation_targets,
+    extract_targets,
+    target_group_has_values,
+)
+from simulation.fragmentation.models import ModelProvenance
 from tests.dataset_fixtures import closed_design
 
 
@@ -27,6 +33,30 @@ class DatasetTargetTests(unittest.TestCase):
     def test_empty_result_has_no_complete_groups(self):
         targets = extract_targets(None)
         self.assertFalse(any(target_group_has_values(group) for group in targets.values()))
+
+    def test_fragmentation_targets_carry_model_of_stored_prediction(self):
+        design = closed_design()
+        design.blast_result.basis.predicted_fragmentation.provenance = ModelProvenance(
+            model="kuzram", model_version="2.0.0"
+        )
+
+        group = extract_fragmentation_targets(design.blast_result)
+
+        self.assertEqual(group["predicted_model"], "kuzram")
+        self.assertEqual(group["predicted_model_version"], "2.0.0")
+
+    def test_fragmentation_targets_without_prediction_have_empty_model(self):
+        group = extract_fragmentation_targets(None)
+
+        self.assertEqual(group["predicted_model"], "")
+        self.assertEqual(group["predicted_model_version"], "")
+
+    def test_model_of_prediction_does_not_fill_the_group(self):
+        group = extract_fragmentation_targets(None)
+        group["predicted_model"] = "kuzram"
+        group["predicted_model_version"] = "2.0.0"
+
+        self.assertFalse(target_group_has_values(group))
 
 
 if __name__ == "__main__":

@@ -149,6 +149,7 @@ import { ExecutionComparePanel } from "./ExecutionComparePanel";
 import { PostBlastPanel } from "./PostBlastPanel";
 import { DatasetPanel } from "./DatasetPanel";
 import { CalibrationPanel } from "./CalibrationPanel";
+import { calibrationBaseline } from "./calibrationBaseline";
 import { OutcomePanel } from "./OutcomePanel";
 import { ScenarioPanel } from "./ScenarioPanel";
 import { OptimizationPanel, type OptimizationVariableDraft } from "./OptimizationPanel";
@@ -1518,17 +1519,6 @@ export function DesignPage({
     }
   }
 
-  function overlayBaseline(): number | null {
-    if (calibrationType === "ppv_residual") {
-      const values = (vibResult?.predictions ?? []).map((item) => item.ppv_mm_s).filter((value) => value != null);
-      return values.length ? Math.max(...values) : null;
-    }
-    const prediction = fragResult?.site.prediction;
-    if (!prediction) return null;
-    if (calibrationType === "oversize_residual") return prediction.oversize_pct;
-    return prediction.x50_mm;
-  }
-
   async function applyCalibrationOverlay() {
     if (!calibrationSelected) {
       setError("Выберите модель калибровки, чтобы показать рекомендацию.");
@@ -1541,7 +1531,7 @@ export function DesignPage({
         model_type: calibrationType,
         model_id: calibrationSelected.model_id,
         site_id: datasetSiteId.trim() || calibrationSelected.site_id,
-        baseline: overlayBaseline(),
+        ...calibrationBaseline(calibrationType, fragResult, vibResult),
         design: designPayload(),
       });
       setCalibrationOverlay(overlay);

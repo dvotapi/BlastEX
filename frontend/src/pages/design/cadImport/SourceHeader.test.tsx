@@ -169,4 +169,21 @@ describe("SourceHeader", () => {
 
     expect((screen.getByLabelText("Название") as HTMLInputElement).value).toBe("другой");
   });
+
+  it("версии одной даты в серии различаются временем загрузки", () => {
+    const version = (id: string, uploaded_at: string) => ({
+      id,
+      title: "Положение горных работ",
+      file_name: "п.dxf",
+      survey_date: "2026-09-01",
+      uploaded_at,
+    });
+    renderHeader({
+      source: cadSource({ series: [version("b", "2026-10-03T03:31:14+00:00"), version("a", "2026-10-02T18:05:00+00:00")] }),
+    });
+
+    expect(
+      screen.getByText("Другие версии серии: 01.09.2026 · загружен 03.10.2026 03:31, 01.09.2026 · загружен 02.10.2026 18:05"),
+    ).toBeTruthy();
+  });
 });

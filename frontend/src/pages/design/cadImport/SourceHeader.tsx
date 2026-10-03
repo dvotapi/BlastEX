@@ -3,7 +3,6 @@
 // объекта. Название и дата сохраняются сами после паузы в наборе; СК —
 // настройка всего объекта, поэтому только по кнопке «Сохранить».
 import { useEffect, useRef, useState } from "react";
-import { ruDate } from "../../../lib/format";
 import type {
   CadCrs,
   CadCrsResponse,
@@ -11,6 +10,7 @@ import type {
   CadSourceMetaPayload,
   CadSourceMetaResponse,
 } from "../../../types/cad";
+import { versionLabels } from "../situationLayer";
 
 /** Пауза в наборе, после которой название и дата уходят на сервер. */
 const SAVE_DELAY_MS = 400;
@@ -38,8 +38,7 @@ function crsText(source: CadSource): string {
 
 function seriesText(source: CadSource): string {
   if (!source.series.length) return "";
-  const versions = source.series.map((item) => (item.survey_date ? ruDate(item.survey_date) : item.file_name));
-  return `Другие версии серии: ${versions.join(", ")}`;
+  return `Другие версии серии: ${versionLabels(source.series).join(", ")}`;
 }
 
 export function SourceHeader({

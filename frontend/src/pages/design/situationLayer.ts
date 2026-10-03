@@ -106,7 +106,8 @@ export type SituationPanelSeries = {
   layers: Array<{ key: string; name: string; color: string; kindLabel: string; omitted: boolean }> | null;
 };
 
-type CatalogueVersion = CadSituationCatalogue["series"][number]["versions"][number];
+/** Версия серии: дата съёмки, файл, время загрузки — у каталога и у источника окна. */
+type VersionLike = { survey_date: string | null; file_name: string; uploaded_at: string };
 
 /** «03.10.2026 03:31» из ISO-времени загрузки (время сервера, UTC). */
 function uploadedLabel(iso: string): string {
@@ -114,16 +115,14 @@ function uploadedLabel(iso: string): string {
   return time ? `${ruDate(iso)} ${time}` : ruDate(iso);
 }
 
-/** Подпись версии — дата съёмки; одинаковые даты (повторная выгрузка) различает время загрузки. */
-function versionLabels(versions: CatalogueVersion[]): Array<{ sourceId: string; label: string }> {
+/** Подписи версий — дата съёмки; одинаковые даты (повторная выгрузка) различает время загрузки. */
+export function versionLabels(versions: VersionLike[]): string[] {
   const base = versions.map((item) => (item.survey_date ? ruDate(item.survey_date) : item.file_name));
-  return versions.map((item, index) => ({
-    sourceId: item.source_id,
-    label:
-      base.filter((label) => label === base[index]).length > 1
-        ? `${base[index]} · загружен ${uploadedLabel(item.uploaded_at)}`
-        : base[index],
-  }));
+  return versions.map((item, index) =>
+    base.filter((label) => label === base[index]).length > 1
+      ? `${base[index]} · загружен ${uploadedLabel(item.uploaded_at)}`
+      : base[index],
+  );
 }
 
 /** Модель группы «Ситуация»: серии каталога, показанные версии и их слои. */
@@ -139,7 +138,10 @@ export function situationPanelSeries(
     return {
       key: series.key,
       title: series.title,
-      versions: versionLabels(series.versions),
+      versions: versionLabels(series.versions).map((label, index) => ({
+        sourceId: series.versions[index].source_id,
+        label,
+      })),
       displayedId,
       passportId: passport[series.key] ?? null,
       layers: loaded

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { BlockContour, Hole, SurfaceModel, SurfaceSet } from "../../types/design";
-import type { Situation3dLine } from "./situationLayer";
+import { situationSegments, type Situation3dLine } from "./situationLayer";
 
 const KIND_COLOR: Record<string, number> = {
   production: 0x2d7556,
@@ -29,6 +29,9 @@ type SceneState = {
   contourGroup: THREE.Group;
   surfaceGroup: THREE.Group;
   situationGroup: THREE.Group;
+  /** Центр сцены (мировые координаты) и точка отсчёта линий ситуации — для сдвига группы. */
+  center: Vec3 | null;
+  situationOrigin: Vec3 | null;
   observer: ResizeObserver;
   rafId: number;
   framed: boolean;
@@ -139,6 +142,8 @@ export function Scene3D({
       contourGroup,
       surfaceGroup,
       situationGroup,
+      center: null,
+      situationOrigin: null,
       observer,
       rafId,
       framed: false,
@@ -159,7 +164,7 @@ export function Scene3D({
   useEffect(() => {
     const state = stateRef.current;
     if (!state) return;
-    const { scene, camera, controls, holeGroup, contourGroup, surfaceGroup, situationGroup } = state;
+    const { scene, camera, controls, holeGroup, contourGroup, surfaceGroup } = state;
 
     const points: Vec3[] = [...contour.vertices];
     for (const h of holes) {
@@ -172,7 +177,8 @@ export function Scene3D({
       clearGroup(holeGroup);
       clearGroup(contourGroup);
       clearGroup(surfaceGroup);
-      clearGroup(situationGroup);
+      state.center = null;
+      placeSituation(state);
       return;
     }
 
@@ -180,18 +186,14 @@ export function Scene3D({
     const centerY = points.reduce((s, p) => s + p.y, 0) / points.length;
     const centerZ = points.reduce((s, p) => s + p.z, 0) / points.length;
     const toThree = (p: Vec3) => new THREE.Vector3(p.x - centerX, p.z - centerZ, -(p.y - centerY));
+    state.center = { x: centerX, y: centerY, z: centerZ };
+    placeSituation(state);
 
     clearGroup(surfaceGroup);
     addSurfaceMesh(surfaceGroup, surfaces?.top, toThree, 0x6f9e7a, 0.38);
     addSurfaceMesh(surfaceGroup, surfaces?.floor, toThree, 0x8a8175, 0.32);
     addSurfaceMesh(surfaceGroup, surfaces?.face, toThree, 0xc4a574, 0.4);
     addSurfaceMesh(surfaceGroup, surfaces?.post_blast, toThree, 0x8b5a3c, 0.28);
-
-    // Ситуация — подложкой вокруг блока; центр сцены по-прежнему по блоку.
-    clearGroup(situationGroup);
-    for (const line of situationLines) {
-      if (line.points.length >= 2) addLine(situationGroup, line.points, toThree, new THREE.Color(line.color).getHex(), 1);
-    }
 
     clearGroup(contourGroup);
     if (contour.vertices.length >= 2) {
@@ -257,7 +259,23 @@ export function Scene3D({
       state.framed = true;
     }
 
-  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, colorMode, holeColors, situationLines]);
+  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, colorMode, holeColors]);
+
+  // Ситуация — своим эффектом: правка скважин её не перестраивает. Одна
+  // `LineSegments` на цвет; при смене центра сцены группа только сдвигается.
+  useEffect(() => {
+    const state = stateRef.current;
+    if (!state) return;
+    clearGroup(state.situationGroup);
+    const { origin, batches } = situationSegments(situationLines);
+    state.situationOrigin = origin;
+    for (const batch of batches) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(batch.positions, 3));
+      state.situationGroup.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: batch.color })));
+    }
+    placeSituation(state);
+  }, [situationLines]);
 
   return (
     <div className="scene3d-wrap">
@@ -275,6 +293,13 @@ export function Scene3D({
       <div className="scene3d-hint">Вращение — перетаскивание · зум — колесо · режим: устье / ствол / подошва</div>
     </div>
   );
+}
+
+/** Группа ситуации — в координатах сцены: точка отсчёта линий минус центр блока. */
+function placeSituation(state: SceneState) {
+  const { center, situationOrigin: origin, situationGroup } = state;
+  situationGroup.visible = Boolean(center && origin);
+  if (center && origin) situationGroup.position.set(origin.x - center.x, origin.z - center.z, -(origin.y - center.y));
 }
 
 function clearGroup(group: THREE.Group) {

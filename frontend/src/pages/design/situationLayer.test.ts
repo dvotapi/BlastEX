@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CadSituationGeometry, CadSituationLayer } from "../../types/cad";
-import { situation3dLines, situationColor, situationLayerKey, situationPanelSeries, situationStrokes } from "./situationLayer";
+import { situation3dLines, situationColor, situationLayerKey, situationPanelSeries, situationSegments, situationStrokes } from "./situationLayer";
 
 function layer(name: string, extra: Partial<CadSituationLayer> = {}): CadSituationLayer {
   return {
@@ -222,5 +222,29 @@ describe("situationPanelSeries: версии одной даты", () => {
       "01.09.2026 · загружен 02.10.2026 18:05",
       "01.08.2026",
     ]);
+  });
+});
+
+describe("situationSegments (3D)", () => {
+  it("линии одного цвета — одна пачка отрезков от общей точки отсчёта", () => {
+    const { origin, batches } = situationSegments([
+      { color: "#ff0000", points: [{ x: 100, y: 200, z: 420 }, { x: 110, y: 200, z: 420 }, { x: 110, y: 210, z: 421 }] },
+      { color: "#ff0000", points: [{ x: 100, y: 205, z: 420 }, { x: 105, y: 205, z: 420 }] },
+      { color: "#3a4540", points: [{ x: 90, y: 190, z: 410 }, { x: 95, y: 190, z: 410 }] },
+    ]);
+
+    expect(origin).toEqual({ x: 100, y: 200, z: 420 });
+    expect(batches.map((item) => item.color)).toEqual(["#ff0000", "#3a4540"]);
+    // Три отрезка красных линий — по две вершины (x, высота, −y) на отрезок.
+    expect(Array.from(batches[0].positions)).toEqual([
+      0, 0, -0, 10, 0, -0,
+      10, 0, -0, 10, 1, -10,
+      0, 0, -5, 5, 0, -5,
+    ]);
+    expect(batches[1].positions).toHaveLength(6);
+  });
+
+  it("пусто — без пачек", () => {
+    expect(situationSegments([])).toEqual({ origin: null, batches: [] });
   });
 });

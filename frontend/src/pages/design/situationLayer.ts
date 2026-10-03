@@ -156,3 +156,36 @@ export function situationPanelSeries(
     };
   });
 }
+
+/** Пачка отрезков 3D одного цвета: пары вершин (x, высота, −y) от общей точки отсчёта. */
+export type SituationSegmentBatch = { color: string; positions: Float32Array };
+
+/**
+ * Линии ситуации 3D — по одной пачке отрезков на цвет (`THREE.LineSegments`):
+ * тысячи полилиний карьера — несколько вызовов отрисовки, а не тысячи.
+ * Координаты — от первой точки (float32 на МСК без потери точности); сцена
+ * сдвигает группу целиком при смене центра.
+ */
+export function situationSegments(lines: Situation3dLine[]): {
+  origin: { x: number; y: number; z: number } | null;
+  batches: SituationSegmentBatch[];
+} {
+  const first = lines.find((line) => line.points.length >= 2)?.points[0];
+  if (!first) return { origin: null, batches: [] };
+  const origin = { x: first.x, y: first.y, z: first.z };
+  const byColor = new Map<string, number[]>();
+  for (const line of lines) {
+    if (line.points.length < 2) continue;
+    let target = byColor.get(line.color);
+    if (!target) byColor.set(line.color, (target = []));
+    for (let index = 1; index < line.points.length; index += 1) {
+      const a = line.points[index - 1];
+      const b = line.points[index];
+      target.push(a.x - origin.x, a.z - origin.z, -(a.y - origin.y), b.x - origin.x, b.z - origin.z, -(b.y - origin.y));
+    }
+  }
+  return {
+    origin,
+    batches: [...byColor.entries()].map(([color, positions]) => ({ color, positions: new Float32Array(positions) })),
+  };
+}

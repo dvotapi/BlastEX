@@ -27,8 +27,12 @@ from api.schemas.spatial import (
     SpatialSummarySchema,
     SpatialTrainRequest,
 )
+from api.services.fragmentation_settings import resolve_kuzram_settings
+from cost.v2.repository import EconomicsRepository
 from intelligence.calibration.algorithms import DEFAULT_ALGORITHM, available_algorithms
+from intelligence.calibration.base import spatial_base_label
 from intelligence.datasets import persistence as dataset_persistence
+from intelligence.datasets.baseline import baseline_settings
 from intelligence.learning.isolation import CrossTenantError, IsolationError
 from intelligence.spatial.persistence import (
     ImmutableSpatialError as StoreImmutable,
@@ -42,7 +46,7 @@ from intelligence.spatial.persistence import (
     save_model,
     set_status,
 )
-from intelligence.spatial.prediction import apply_model, empty_overlay
+from intelligence.spatial.prediction import apply_model, empty_overlay, physics_base
 from intelligence.spatial.training import next_model_version, train_from_snapshot
 from intelligence.spatial.types import (
     APPLIED_AS_OVERLAY,
@@ -56,6 +60,7 @@ from intelligence.spatial.types import (
 def _model_schema(model) -> SpatialModelSchema:
     payload = model.to_dict()
     payload.pop("estimators", None)
+    payload["base_label"] = spatial_base_label(model.baseline_model, model.baseline_model_version)
     return SpatialModelSchema(**payload)
 
 
@@ -159,7 +164,12 @@ def update_status(team_id: str, model_id: str, request: SpatialStatusRequest) ->
     return _model_schema(model)
 
 
-def predict_spatial(team_id: str, request: SpatialPredictRequest) -> SpatialPredictResponse:
+def predict_spatial(
+    team_id: str,
+    request: SpatialPredictRequest,
+    *,
+    repository: EconomicsRepository | None = None,
+) -> SpatialPredictResponse:
     design = BlastDesign.from_dict(request.design.model_dump())
     before = (
         [hole.to_dict() for hole in design.holes],
@@ -187,15 +197,32 @@ def predict_spatial(team_id: str, request: SpatialPredictRequest) -> SpatialPred
     if model is not None and site_id and model.site_id and model.site_id != site_id:
         raise InvalidSpatialError("site_id запроса не совпадает с площадкой модели.")
     try:
+        settings, settings_source, settings_warnings = None, None, []
+        base = physics_base(model)[0]
+        if not base.legacy:
+            # Настройки модели — снимок сохранённого прогноза паспорта той же
+            # версии модели, иначе активный объект работ организации, иначе
+            # умолчания. Старая модель считает прежними формулами: настройки
+            # ей не нужны.
+            resolved = resolve_kuzram_settings(
+                explicit=None, work_object_name="", organization_id=team_id, repository=repository
+            )
+            settings, settings_source, read_warnings = baseline_settings(
+                design, resolved.settings, resolved.source_payload(), model=base.model
+            )
+            settings_warnings = [*settings_source.get("warnings", ()), *read_warnings]
         overlay = apply_model(
             design,
             model=model,
             site_id=site_id or (model.site_id if model else ""),
             block=request.block,
             neighbor_k=request.neighbor_k,
+            settings=settings,
+            settings_source=settings_source,
         )
     except Exception as exc:
         raise _translate(exc) from exc
+    overlay.warnings.extend(item for item in dict.fromkeys(settings_warnings) if item not in overlay.warnings)
     after = (
         [hole.to_dict() for hole in design.holes],
         [load.to_dict() for load in design.loads],

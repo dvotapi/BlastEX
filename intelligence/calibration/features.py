@@ -3,10 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from intelligence.calibration.old_base import is_kuzram_curve, is_old_base
 from intelligence.calibration.types import (
-    MODEL_KUZRAM_RESIDUAL,
-    MODEL_OVERSIZE_RESIDUAL,
     MODEL_SPECS,
     ResidualRow,
     ResidualTable,
@@ -62,7 +59,11 @@ def flatten_features(features: dict[str, dict[str, Any]] | None) -> dict[str, fl
     return flat
 
 
-def measured_and_baseline(sample: TrainingSample, model_type: str) -> tuple[float | None, float | None]:
+def measured_and_baseline(
+    sample: TrainingSample,
+    model_type: str,
+    baseline_field: str | None = None,
+) -> tuple[float | None, float | None]:
     spec = MODEL_SPECS[normalize_model_type(model_type)]
     group = sample.targets.get(spec["target_group"]) or {}
     measured = _as_float(group.get(spec["measured_field"]))
@@ -70,32 +71,8 @@ def measured_and_baseline(sample: TrainingSample, model_type: str) -> tuple[floa
         fallback = spec.get("measured_field_fallback")
         if fallback:
             measured = _as_float(group.get(fallback))
-    baseline = _as_float(group.get(spec["baseline_field"]))
+    baseline = _as_float(group.get(baseline_field or spec["baseline_field"]))
     return measured, baseline
-
-
-REASON_NEW_BASE = "new_base"
-REASON_OTHER_CURVE = "other_curve"
-
-
-def _exclusion_reason(sample: TrainingSample, model_type: str) -> str:
-    """Почему сохранённый прогноз не годится для обучения; пусто — годится.
-
-    Калибровки кусковатости учатся на старой базе: прогноз новой модели не берётся.
-    Негабарит — ещё и на кривой Kuz-Ram: прогноз `swebrec_legacy`/`kuznetsov_legacy`
-    даёт другой негабарит (x50 у старых моделей одинаков, поэтому x50 берёт любую).
-    Снимки, собранные до появления полей модели, их не несут — это старая база.
-    """
-    if model_type not in {MODEL_KUZRAM_RESIDUAL, MODEL_OVERSIZE_RESIDUAL}:
-        return ""
-    group = sample.targets.get(MODEL_SPECS[model_type]["target_group"]) or {}
-    model = str(group.get("predicted_model") or "").strip()
-    version = str(group.get("predicted_model_version") or "")
-    if not is_old_base(model, version):
-        return REASON_NEW_BASE
-    if model_type == MODEL_OVERSIZE_RESIDUAL and model and not is_kuzram_curve(model):
-        return REASON_OTHER_CURVE
-    return ""
 
 
 def residual_value(measured: float, baseline: float) -> float:
@@ -109,24 +86,25 @@ def _impute_column(values: list[float | None]) -> list[float]:
     return [fill if item is None else float(item) for item in values]
 
 
-def residual_table(snapshot: DatasetSnapshot, model_type: str) -> ResidualTable:
-    """Build X/y from an immutable snapshot. Live designs are never read."""
+def residual_table(
+    snapshot: DatasetSnapshot,
+    model_type: str,
+    *,
+    baseline_field: str | None = None,
+) -> ResidualTable:
+    """Build X/y from an immutable snapshot. Live designs are never read.
+
+    `baseline_field` — поле строки снимка с baseline; по умолчанию то, что
+    задано в `MODEL_SPECS` (сохранённый прогноз). Калибровки кусковатости
+    передают поле baseline текущей базы.
+    """
     model_type = normalize_model_type(model_type)
     names = feature_column_names()
     raw_rows: list[dict[str, float | None]] = []
     kept: list[tuple[TrainingSample, float, float, float]] = []
-    excluded_new_base = 0
-    excluded_other_curve = 0
     for sample in snapshot.samples:
-        measured, baseline = measured_and_baseline(sample, model_type)
+        measured, baseline = measured_and_baseline(sample, model_type, baseline_field)
         if measured is None or baseline is None:
-            continue
-        reason = _exclusion_reason(sample, model_type)
-        if reason == REASON_NEW_BASE:
-            excluded_new_base += 1
-            continue
-        if reason == REASON_OTHER_CURVE:
-            excluded_other_curve += 1
             continue
         residual = residual_value(measured, baseline)
         flat = flatten_features(sample.features)
@@ -167,8 +145,6 @@ def residual_table(snapshot: DatasetSnapshot, model_type: str) -> ResidualTable:
         baselines=baselines,
         measured=measured_values,
         source_blast_ids=source_ids,
-        excluded_new_base=excluded_new_base,
-        excluded_other_curve=excluded_other_curve,
     )
 
 

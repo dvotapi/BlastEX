@@ -16,6 +16,7 @@ from typing import Any
 import joblib
 
 from cost.persistence import team_dir
+from intelligence.calibration.base import base_label
 from intelligence.calibration.types import (
     STATUS_CANDIDATE,
     STATUS_PRODUCTION,
@@ -48,6 +49,9 @@ class CalibrationSummary:
     status: str
     algorithm: str
     sample_count: int
+    baseline_model: str = ""
+    baseline_model_version: str = ""
+    base_label: str = ""
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -137,6 +141,13 @@ def list_models(team_id: str) -> list[CalibrationSummary]:
                 status=str(data.get("status", STATUS_CANDIDATE) or STATUS_CANDIDATE),
                 algorithm=str(data.get("algorithm", "")),
                 sample_count=int(data.get("sample_count", 0) or 0),
+                baseline_model=str(data.get("baseline_model", "") or ""),
+                baseline_model_version=str(data.get("baseline_model_version", "") or ""),
+                base_label=base_label(
+                    str(data.get("model_type", "")),
+                    str(data.get("baseline_model", "") or ""),
+                    str(data.get("baseline_model_version", "") or ""),
+                ),
             )
         )
     summaries.sort(key=lambda item: (item.training_date, item.model_version), reverse=True)

@@ -137,6 +137,10 @@ class CalibrationModel:
     target_name: str = ""
     baseline_field: str = ""
     measured_field: str = ""
+    # Модель и версия движка, которыми посчитан baseline обучения. Пусто —
+    # артефакт обучен до PR 3 на старой базе Kuz-Ram 1.0.0.
+    baseline_model: str = ""
+    baseline_model_version: str = ""
     sample_count: int = 0
     source_blast_ids: list[str] = field(default_factory=list)
     artifact_sha256: str = ""
@@ -162,6 +166,8 @@ class CalibrationModel:
             "target_name": self.target_name,
             "baseline_field": self.baseline_field,
             "measured_field": self.measured_field,
+            "baseline_model": self.baseline_model,
+            "baseline_model_version": self.baseline_model_version,
             "sample_count": int(self.sample_count),
             "source_blast_ids": list(self.source_blast_ids),
             "artifact_sha256": self.artifact_sha256,
@@ -197,6 +203,8 @@ class CalibrationModel:
             target_name=str(data.get("target_name", "") or ""),
             baseline_field=str(data.get("baseline_field", "") or ""),
             measured_field=str(data.get("measured_field", "") or ""),
+            baseline_model=str(data.get("baseline_model", "") or ""),
+            baseline_model_version=str(data.get("baseline_model_version", "") or ""),
             sample_count=int(data.get("sample_count", 0) or 0),
             source_blast_ids=[str(item) for item in data.get("source_blast_ids", [])],
             artifact_sha256=str(data.get("artifact_sha256", "") or ""),
@@ -225,11 +233,6 @@ class ResidualTable:
     baselines: list[float]
     measured: list[float]
     source_blast_ids: list[str]
-    # Строки с замером и прогнозом, не взятые в обучение: прогноз сохранён
-    # новой моделью кусковатости, а калибровки учатся на старой базе...
-    excluded_new_base: int = 0
-    # ...а негабарит — ещё и на кривой Kuz-Ram: прогноз другой старой модели не подходит.
-    excluded_other_curve: int = 0
 
 
 @dataclass

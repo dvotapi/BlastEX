@@ -14,6 +14,8 @@ from api.schemas.calibration import (
 )
 from api.security import require_internal_access
 from api.services import calibration_service
+from api.services.economics_service import get_economics_repository
+from cost.v2.repository import EconomicsRepository
 
 router = APIRouter(prefix="/calibration", tags=["calibration"])
 
@@ -57,5 +59,6 @@ def set_calibration_status(
 def predict_with_calibration(
     request: CalibrationPredictRequest,
     session: dict = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> CalibrationPredictResponse:
-    return calibration_service.predict_calibration(session["org"], request)
+    return calibration_service.predict_calibration(session["org"], request, repository=repository)

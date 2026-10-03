@@ -38,8 +38,9 @@ def extract_fragmentation_targets(result: BlastResult | None) -> dict[str, Any]:
         "method": measured.method if measured else "",
         "predicted_x50_mm": predicted.x50_mm if predicted else None,
         "predicted_oversize_pct": predicted.oversize_pct if predicted else None,
-        # Какой моделью посчитан сохранённый прогноз: калибровка кусковатости
-        # учится только на прогнозах старой базы.
+        # Какой моделью посчитан сохранённый прогноз. Калибровка кусковатости
+        # учится на baseline_* текущей базы (их добавляет сборщик строки);
+        # поля прогноза — контекст: по ним дрейф и пересчёт сверяют базу.
         "predicted_model": predicted.provenance.model if predicted else "",
         "predicted_model_version": predicted.provenance.model_version if predicted else "",
         "designed_lump_size_mm": designed.lump_size_mm if designed else None,
@@ -173,6 +174,11 @@ def target_group_has_values(group: dict[str, Any]) -> bool:
         *(
             value
             for key, value in group.items()
-            if key not in skip and not str(key).endswith("_role") and not str(key).endswith("_count")
+            if key not in skip
+            and not str(key).endswith("_role")
+            and not str(key).endswith("_count")
+            # Baseline текущей базы — контекст для калибровки, а не цель:
+            # взрыв без замеров от него заполненным не становится.
+            and not str(key).startswith("baseline_")
         )
     )

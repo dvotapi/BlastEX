@@ -7,6 +7,7 @@ layer. Extraction never writes back onto the live design.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import Any
 
 from design.editing import local_burden, local_spacing
@@ -230,6 +231,9 @@ def extract_hole_observations(
     site_id: str = "",
     neighbor_k: int = DEFAULT_NEIGHBOR_K,
     include_physics: bool = True,
+    physics_model: str = "kuzram",
+    settings: Any = None,
+    settings_source: Mapping[str, Any] | None = None,
 ) -> list[HoleObservation]:
     """All enabled holes. The live design is read-only."""
     rows = [extract_hole_observation(design, hole) for hole in _enabled_holes(design)]
@@ -238,7 +242,9 @@ def extract_hole_observations(
     add_relative_features(rows)
     attach_neighborhoods(rows, k=neighbor_k)
     if include_physics:
-        attach_physics_predictions(design, rows)
+        attach_physics_predictions(
+            design, rows, physics_model=physics_model, settings=settings, settings_source=settings_source
+        )
     attach_block_measured(design, rows)
     return rows
 
@@ -263,11 +269,17 @@ def attach_block_measured(design: BlastDesign, observations: list[HoleObservatio
     return observations
 
 
-def attach_physics_predictions(design: BlastDesign, observations: list[HoleObservation]) -> list[HoleObservation]:
+def attach_physics_predictions(
+    design: BlastDesign,
+    observations: list[HoleObservation],
+    *,
+    physics_model: str = "kuzram",
+    settings: Any = None,
+    settings_source: Mapping[str, Any] | None = None,
+) -> list[HoleObservation]:
     """Kuz-Ram hole regions as ROLE_PREDICTED context, never as measured labels."""
     try:
         from simulation.fragmentation.engine import predict_region
-        from simulation.fragmentation.models import MODEL_KUZRAM_LEGACY
         from simulation.fragmentation.regions import (
             DEFAULT_EXPLOSIVE_DENSITY_T_M3,
             DEFAULT_EXPLOSIVE_ENERGY_MJ_KG,
@@ -303,9 +315,14 @@ def attach_physics_predictions(design: BlastDesign, observations: list[HoleObser
         if region.kind != "hole" or not region.hole_ids:
             continue
         try:
-            # Пространственные модели обучены на признаках старой базы;
-            # переход на новую — вместе с проверкой базы в PR 3.
-            prediction = predict_region(region.inputs, model=MODEL_KUZRAM_LEGACY)
+            # Физика считается базой, на которой обучена (или будет обучена)
+            # пространственная модель: снимок — текущей, применение — базой артефакта.
+            prediction = predict_region(
+                region.inputs,
+                model=physics_model,
+                settings=settings,
+                settings_source=settings_source,
+            )
         except Exception:
             continue
         by_hole[region.hole_ids[0]] = prediction

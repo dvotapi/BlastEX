@@ -1,0 +1,344 @@
+"""Строка снимка: сохранённый прогноз как есть и baseline текущей базы рядом."""
+import unittest
+from dataclasses import asdict
+from unittest.mock import patch
+
+from intelligence.calibration.base import CURRENT_BASE
+from intelligence.datasets.baseline import baseline_settings, fragmentation_baseline
+from intelligence.datasets.builder import DatasetSnapshot, build_sample, build_snapshot
+from intelligence.datasets.targets import target_group_has_values
+from simulation.fragmentation import engine as fragmentation_engine
+from simulation.fragmentation.base import settings_from_snapshot
+from simulation.fragmentation.cunningham import KuzRamSettings
+from simulation.fragmentation.engine import predict_design
+from simulation.fragmentation.regions import ExplosiveSpec, RockSpec
+from tests.calibration_fixtures import CURRENT_VERSION, PR2_VERSION
+from tests.dataset_fixtures import closed_design
+
+ROCK = RockSpec(name="Гранит", density_t_m3=2.65, ucs_mpa=150.0, fissuring_ff=2.0)
+EXPLOSIVE = ExplosiveSpec(name="АНФО", density_t_m3=0.82, power_mj_kg=3.8)
+FALLBACK = KuzRamSettings(rock_factor_correction=0.8)
+FALLBACK_SOURCE = {"source": "work_object", "work_object_name": "Карьер-2", "warnings": []}
+
+
+def _site_x50(design, **kwargs) -> float:
+    return predict_design(design, model="kuzram", **kwargs)["site"]["prediction"]["x50_mm"]
+
+
+def _with_settings_snapshot(design, version: str, rock_factor_correction: float = 1.3):
+    """Сохранённый прогноз kuzram версии version со снимком настроек объекта «Карьер-1»."""
+    provenance = design.blast_result.basis.predicted_fragmentation.provenance
+    provenance.model, provenance.model_version = "kuzram", version
+    provenance.settings = {
+        "source": "work_object",
+        "work_object_name": "Карьер-1",
+        "values": asdict(KuzRamSettings(rock_factor_correction=rock_factor_correction)),
+        "warnings": [],
+    }
+    return design
+
+
+def _with_stored_inputs(design):
+    """Сохранённый прогноз с входными величинами — как у панели «Кусковатость»."""
+    site = predict_design(design, model="kuzram_legacy", default_rock=ROCK, default_explosive=EXPLOSIVE)["site"]
+    design.blast_result.basis.predicted_fragmentation.provenance.inputs = dict(site["inputs"])
+    return design
+
+
+class RowTests(unittest.TestCase):
+    def test_stored_prediction_kept_and_current_baseline_added(self):
+        design = closed_design("b-1")
+
+        frag = build_sample(design, site_id="quarry-1").targets["FRAGMENTATION"]
+
+        self.assertEqual(frag["predicted_x50_mm"], 150.0)
+        self.assertEqual((frag["predicted_model"], frag["predicted_model_version"]), ("kuzram", "1"))
+        self.assertEqual(
+            (frag["baseline_model"], frag["baseline_model_version"]),
+            (CURRENT_BASE.model, CURRENT_BASE.model_version),
+        )
+        self.assertAlmostEqual(frag["baseline_x50_mm"], _site_x50(design), places=9)
+        self.assertIn("умолчания", frag["baseline_warnings"][0])
+
+    def test_rock_and_explosive_from_stored_inputs(self):
+        design = _with_stored_inputs(closed_design("b-2"))
+
+        result = fragmentation_baseline(design)
+
+        self.assertAlmostEqual(
+            result["baseline_x50_mm"], _site_x50(design, default_rock=ROCK, default_explosive=EXPLOSIVE), places=9
+        )
+        self.assertFalse(any("умолчания" in item for item in result["baseline_warnings"]))
+
+    def test_zero_stored_inputs_fall_back_to_defaults(self):
+        design = closed_design("b-3")
+        design.blast_result.basis.predicted_fragmentation.provenance.inputs = {
+            "rock_ucs_mpa": 0.0,
+            "rock_density_t_m3": 0.0,
+            "explosive_energy_mj_kg": 0.0,
+        }
+
+        result = fragmentation_baseline(design)
+
+        self.assertAlmostEqual(result["baseline_x50_mm"], _site_x50(design), places=9)
+
+    def test_settings_snapshot_of_stored_prediction_wins(self):
+        design = _with_settings_snapshot(closed_design("b-4"), CURRENT_VERSION)
+
+        result = fragmentation_baseline(design, fallback_settings=FALLBACK, fallback_source=FALLBACK_SOURCE)
+
+        self.assertEqual(result["baseline_settings"]["values"]["rock_factor_correction"], 1.3)
+        self.assertEqual(result["baseline_settings"]["work_object_name"], "Карьер-1")
+        self.assertFalse(any("Снимок настроек" in item for item in result["baseline_warnings"]))
+
+    def test_settings_snapshot_of_other_model_version_is_not_applied(self):
+        """C(A) прогноза PR 2 подобран под другую формулу силы ВВ: к текущей версии его не прикладывают."""
+        design = _with_settings_snapshot(closed_design("b-4v"), PR2_VERSION)
+
+        result = fragmentation_baseline(design, fallback_settings=FALLBACK, fallback_source=FALLBACK_SOURCE)
+
+        self.assertEqual(result["baseline_settings"]["values"]["rock_factor_correction"], 0.8)
+        self.assertEqual(result["baseline_settings"]["work_object_name"], "Карьер-2")
+        self.assertIn(
+            f"Снимок настроек сохранённого прогноза посчитан моделью {PR2_VERSION} — "
+            "взяты настройки объекта работ.",
+            result["baseline_warnings"],
+        )
+        self.assertAlmostEqual(
+            result["baseline_x50_mm"],
+            _site_x50(design, settings=FALLBACK, settings_source=FALLBACK_SOURCE),
+            places=9,
+        )
+
+    def test_fallback_settings_without_snapshot(self):
+        result = fragmentation_baseline(
+            closed_design("b-5"), fallback_settings=FALLBACK, fallback_source=FALLBACK_SOURCE
+        )
+
+        self.assertEqual(result["baseline_settings"]["values"]["rock_factor_correction"], 0.8)
+        self.assertEqual(result["baseline_settings"]["work_object_name"], "Карьер-2")
+
+    def test_engine_failure_keeps_row(self):
+        design = closed_design("b-6")
+        # Без дек движок оценивает заряд по диаметру; нулевой диаметр лишает его и этой оценки.
+        design.loads = []
+        design.holes[0].diameter_mm = 0.0
+
+        frag = build_sample(design, site_id="quarry-1").targets["FRAGMENTATION"]
+
+        self.assertIsNone(frag["baseline_x50_mm"])
+        self.assertIn("не посчитан", frag["baseline_warnings"][-1])
+
+    def test_string_fields_do_not_complete_group(self):
+        group = {
+            "predicted_model": "kuzram",
+            "predicted_model_version": CURRENT_BASE.model_version,
+            "baseline_model": CURRENT_BASE.model,
+            "baseline_model_version": CURRENT_BASE.model_version,
+            "baseline_x50_mm": 150.0,
+            "baseline_settings": {"source": "defaults"},
+            "baseline_warnings": ["x"],
+        }
+        self.assertFalse(target_group_has_values(group))
+
+    def test_baseline_alone_does_not_fill_group_of_unmeasured_blast(self):
+        design = closed_design("b-7")
+        design.blast_result = None
+
+        frag = build_sample(design, site_id="quarry-1").targets["FRAGMENTATION"]
+
+        self.assertIsNotNone(frag["baseline_x50_mm"])
+        self.assertIn("Сохранённого прогноза нет", frag["baseline_warnings"][0])
+        self.assertFalse(target_group_has_values(frag))
+
+
+class BrokenStoredDataTests(unittest.TestCase):
+    """Плохие данные сохранённого прогноза не роняют строку и сборку снимка."""
+
+    @staticmethod
+    def _with_settings(design_id: str, settings: dict):
+        """Снимок настроек у прогноза текущей версии — только такой снимок читается."""
+        design = closed_design(design_id)
+        provenance = design.blast_result.basis.predicted_fragmentation.provenance
+        provenance.model_version = CURRENT_VERSION
+        provenance.settings = settings
+        return design
+
+    def _frag(self, design, **kwargs) -> dict:
+        return build_sample(design, site_id="quarry-1", **kwargs).targets["FRAGMENTATION"]
+
+    def test_unknown_settings_key_falls_back_with_warning(self):
+        design = self._with_settings(
+            "x-1",
+            {"source": "work_object", "work_object_name": "Карьер-1", "values": {"bogus": 1}, "warnings": []},
+        )
+
+        frag = self._frag(design, fallback_settings=FALLBACK, fallback_source=FALLBACK_SOURCE)
+
+        self.assertIsNotNone(frag["baseline_x50_mm"])
+        self.assertTrue(any("Снимок настроек сохранённого прогноза не прочитан" in w for w in frag["baseline_warnings"]))
+        self.assertTrue(any("настройки объекта работ" in w for w in frag["baseline_warnings"]))
+        self.assertEqual(frag["baseline_settings"]["values"]["rock_factor_correction"], 0.8)
+        self.assertEqual(frag["baseline_settings"]["work_object_name"], "Карьер-2")
+
+    def test_out_of_range_settings_value_falls_back_to_defaults(self):
+        design = self._with_settings(
+            "x-2",
+            {"source": "work_object", "work_object_name": "Карьер-1", "values": {"joint_angle": 25}, "warnings": []},
+        )
+
+        frag = self._frag(design)
+
+        self.assertIsNotNone(frag["baseline_x50_mm"])
+        self.assertTrue(any("Снимок настроек сохранённого прогноза не прочитан" in w for w in frag["baseline_warnings"]))
+        self.assertTrue(any("умолчания" in w for w in frag["baseline_warnings"]))
+        self.assertEqual(frag["baseline_settings"]["source"], "defaults")
+        self.assertAlmostEqual(frag["baseline_x50_mm"], _site_x50(design), places=9)
+
+    def test_baseline_settings_of_other_version_take_fallback(self):
+        from intelligence.datasets.baseline import baseline_settings
+
+        for fallback, source, taken in (
+            (FALLBACK, FALLBACK_SOURCE, "настройки объекта работ"),
+            (None, None, "умолчания"),
+        ):
+            with self.subTest(taken=taken):
+                design = _with_settings_snapshot(closed_design("x-3v"), PR2_VERSION)
+
+                settings, got_source, warnings = baseline_settings(design, fallback, source)
+
+                self.assertIs(settings, fallback)
+                self.assertEqual(got_source, dict(source or {}))
+                self.assertEqual(
+                    warnings,
+                    [f"Снимок настроек сохранённого прогноза посчитан моделью {PR2_VERSION} — взяты {taken}."],
+                )
+
+    def test_baseline_settings_returns_warning_instead_of_raising(self):
+        from intelligence.datasets.baseline import baseline_settings
+
+        design = self._with_settings("x-3", {"values": {"bogus": 1}})
+
+        settings, source, warnings = baseline_settings(design, FALLBACK, FALLBACK_SOURCE)
+
+        self.assertIs(settings, FALLBACK)
+        self.assertEqual(source["work_object_name"], "Карьер-2")
+        self.assertEqual(len(warnings), 1)
+
+    def test_unreadable_inputs_fall_back_to_defaults_with_warning(self):
+        design = closed_design("x-4")
+        design.blast_result.basis.predicted_fragmentation.provenance.inputs = {"rock_ucs_mpa": "abc"}
+
+        frag = self._frag(design)
+
+        self.assertIsNotNone(frag["baseline_x50_mm"])
+        self.assertAlmostEqual(frag["baseline_x50_mm"], _site_x50(design), places=9)
+        self.assertTrue(any("Входные величины сохранённого прогноза не прочитаны" in w for w in frag["baseline_warnings"]))
+
+    def test_broken_snapshot_does_not_break_dataset_snapshot(self):
+        broken = self._with_settings("x-5", {"values": {"bogus": 1}})
+
+        snapshot = build_snapshot(
+            [broken, closed_design("x-6")], site_id="quarry-1", dataset_id="s", dataset_version=1
+        )
+
+        self.assertEqual(snapshot.sample_count, 2)
+
+    def test_settings_are_read_once_per_sample(self):
+        design = self._with_settings(
+            "x-7", {"source": "work_object", "work_object_name": "Карьер-1", "values": {}, "warnings": []}
+        )
+        design.blast_result.basis.predicted_fragmentation.provenance.settings["values"] = asdict(
+            KuzRamSettings(rock_factor_correction=1.3)
+        )
+
+        with patch("intelligence.datasets.baseline.settings_from_snapshot", wraps=settings_from_snapshot) as spy:
+            self._frag(design)
+
+        self.assertEqual(spy.call_count, 1)
+
+
+class SampleWithoutBaselineTests(unittest.TestCase):
+    """Превью образца только проверяет паспорт: baseline ему не нужен."""
+
+    def test_without_baseline_skips_prediction(self):
+        with patch("intelligence.datasets.builder.baseline_settings", wraps=baseline_settings) as settings_spy, patch(
+            "intelligence.datasets.builder.fragmentation_baseline", wraps=fragmentation_baseline
+        ) as baseline_spy:
+            sample = build_sample(closed_design("nb-1"), site_id="quarry-1", with_baseline=False)
+
+        baseline_spy.assert_not_called()
+        settings_spy.assert_not_called()
+        self.assertNotIn("baseline_x50_mm", sample.targets["FRAGMENTATION"])
+        self.assertTrue(sample.validation.ok)
+        # Физика скважин считается как раньше: запасными настройками или умолчаниями.
+        self.assertTrue(sample.holes)
+
+    def test_snapshot_build_still_computes_baseline(self):
+        with patch(
+            "intelligence.datasets.builder.fragmentation_baseline", wraps=fragmentation_baseline
+        ) as baseline_spy:
+            sample = build_sample(closed_design("nb-2"), site_id="quarry-1")
+
+        self.assertEqual(baseline_spy.call_count, 1)
+        self.assertIsNotNone(sample.targets["FRAGMENTATION"]["baseline_x50_mm"])
+
+
+class SnapshotTests(unittest.TestCase):
+    def test_snapshot_records_base(self):
+        snapshot = build_snapshot([closed_design("s-1")], site_id="quarry-1", dataset_id="s", dataset_version=1)
+
+        self.assertEqual(snapshot.fragmentation_base, CURRENT_BASE.to_dict())
+        restored = DatasetSnapshot.from_dict(snapshot.to_dict())
+        self.assertEqual(restored.fragmentation_base, snapshot.fragmentation_base)
+
+    def test_old_snapshot_has_no_base(self):
+        payload = build_snapshot([closed_design("s-2")], site_id="quarry-1", dataset_id="s", dataset_version=1).to_dict()
+        payload.pop("fragmentation_base")
+
+        self.assertEqual(DatasetSnapshot.from_dict(payload).fragmentation_base, {})
+
+    def test_hole_physics_uses_current_model(self):
+        with patch.object(
+            fragmentation_engine, "predict_region", wraps=fragmentation_engine.predict_region
+        ) as spy:
+            sample = build_sample(closed_design("s-3"), site_id="quarry-1")
+
+        # Сборщик скважин глотает сбой физики и отдаёт пустой список: проверяем, что физика есть.
+        self.assertTrue(sample.holes)
+        for hole in sample.holes:
+            self.assertIsNotNone(hole["predicted"].get("x50_mm"))
+        # Путь скважин передаёт model именованно; baseline блока идёт через predict_design.
+        hole_models = [call.kwargs["model"] for call in spy.call_args_list if "model" in call.kwargs]
+        self.assertTrue(hole_models)
+        self.assertEqual(set(hole_models), {"kuzram"})
+
+    def test_old_snapshot_file_loads_with_its_hash(self):
+        """Файл снимка до PR 3 (без fragmentation_base) грузится: хэш сходится, база пустая."""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from intelligence.datasets.persistence import dataset_path, integrity_hash, load_snapshot, save_snapshot
+
+        with tempfile.TemporaryDirectory() as tmp, patch("cost.persistence.data_root", return_value=Path(tmp)):
+            saved = save_snapshot(
+                "old-snap",
+                build_snapshot([closed_design("s-4")], site_id="quarry-1", dataset_id="s-old", dataset_version=1),
+            )
+            path = dataset_path("old-snap", saved.dataset_id)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload.pop("fragmentation_base")
+            payload["integrity_sha256"] = integrity_hash(payload)
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            before = path.read_text(encoding="utf-8")
+
+            loaded = load_snapshot("old-snap", saved.dataset_id)
+
+            self.assertEqual(loaded.fragmentation_base, {})
+            self.assertEqual(loaded.sample_count, 1)
+            self.assertEqual(path.read_text(encoding="utf-8"), before)
+
+
+if __name__ == "__main__":
+    unittest.main()

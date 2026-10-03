@@ -127,6 +127,8 @@ def train_from_snapshot(
         source_blast_ids=list(snapshot.source_blast_ids),
         neighbor_k=int(neighbor_k),
         estimators=estimators,
+        baseline_model=str((snapshot.fragmentation_base or {}).get("model") or ""),
+        baseline_model_version=str((snapshot.fragmentation_base or {}).get("model_version") or ""),
     )
 
 

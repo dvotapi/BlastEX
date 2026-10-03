@@ -10,7 +10,7 @@ from api.services import calibration_service
 from design.persistence import save_design
 from intelligence.datasets.builder import build_snapshot
 from intelligence.datasets.persistence import save_snapshot
-from tests.calibration_fixtures import synthetic_snapshot, varied_closed_designs
+from tests.calibration_fixtures import CURRENT_VERSION, synthetic_snapshot, varied_closed_designs
 from tests.dataset_fixtures import closed_design
 
 TEAM_ID = "api-cal-team"
@@ -48,8 +48,8 @@ class CalibrationApiTests(unittest.TestCase):
                 model_id=trained.model_id,
                 site_id="quarry-1",
                 baseline=150.0,
-                baseline_model="kuzram_legacy",
-                baseline_model_version="1.0.0",
+                baseline_model="kuzram",
+                baseline_model_version=CURRENT_VERSION,
                 features=snapshot.samples[-1].features,
             ),
         )
@@ -79,8 +79,8 @@ class CalibrationApiTests(unittest.TestCase):
                 site_id="quarry-1",
                 use_production=True,
                 baseline=150.0,
-                baseline_model="kuzram_legacy",
-                baseline_model_version="1.0.0",
+                baseline_model="kuzram",
+                baseline_model_version=CURRENT_VERSION,
                 features=snapshot.samples[0].features,
             ),
         )
@@ -100,8 +100,8 @@ class CalibrationApiTests(unittest.TestCase):
                 site_id="quarry-1",
                 use_production=True,
                 baseline=150.0,
-                baseline_model="kuzram_legacy",
-                baseline_model_version="1.0.0",
+                baseline_model="kuzram",
+                baseline_model_version=CURRENT_VERSION,
                 features=snapshot.samples[0].features,
             ),
         )
@@ -125,8 +125,8 @@ class CalibrationApiTests(unittest.TestCase):
                 site_id="quarry-1",
                 design=design.to_dict(),
                 baseline=150.0,
-                baseline_model="kuzram_legacy",
-                baseline_model_version="1.0.0",
+                baseline_model="kuzram",
+                baseline_model_version=CURRENT_VERSION,
             ),
         )
         self.assertEqual(design.to_dict(), before)

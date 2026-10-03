@@ -1,8 +1,9 @@
 """Score immutable snapshots with the current production artifact.
 
 Scoring is read-only: the live model is not retrained, promoted or replaced.
-Calibration uses the snapshot's stored predicted baseline (ROLE_PREDICTED),
-never a silent unit conversion.
+Calibration uses the snapshot's stored baseline, never a silent unit
+conversion. Fragmentation calibrations score only rows whose baseline is
+compatible with the artifact's base (intelligence.calibration.base).
 """
 from __future__ import annotations
 
@@ -34,6 +35,41 @@ def score_snapshots(
     if family == FAMILY_CALIBRATION:
         return _score_calibration(team_id, model_id, samples)
     return {}
+
+
+def is_fragmentation_calibration(family: str, model_type: str) -> bool:
+    """Калибровка кусковатости: её прогнозы сравниваются только на строках её базы.
+
+    Откат на сохранённые прогнозы снимков смешал бы прогнозы разных формул.
+    """
+    from intelligence.calibration.base import FRAGMENTATION_RESIDUALS
+    from intelligence.calibration.types import normalize_model_type
+
+    if normalize_family(family) != FAMILY_CALIBRATION:
+        return False
+    try:
+        return normalize_model_type(model_type) in FRAGMENTATION_RESIDUALS
+    except ValueError:
+        return False
+
+
+def fragmentation_base_label(team_id: str, model_id: str) -> str:
+    """Подпись базы артефакта калибровки кусковатости для предупреждения дрейфа.
+
+    Артефакт, который не загрузился, подписывается своим id.
+    """
+    from intelligence.calibration.base import artifact_base, raw_base_name
+    from intelligence.calibration.persistence import load_model
+
+    try:
+        model = load_model(team_id, model_id)
+    except Exception:  # noqa: BLE001 — подпись справочная: сбой загрузки не должен ронять проверку дрейфа
+        return model_id
+    try:
+        return artifact_base(model.baseline_model, model.baseline_model_version).label()
+    except ValueError:
+        # Неизвестная модель в файле артефакта — подпись как записана.
+        return raw_base_name(model.baseline_model, model.baseline_model_version)
 
 
 def _score_learning(team_id: str, model_id: str, samples: list[Any]) -> dict[str, list[float]]:
@@ -75,20 +111,30 @@ def _score_outcomes(team_id: str, model_id: str, samples: list[Any]) -> dict[str
 
 
 def _score_calibration(team_id: str, model_id: str, samples: list[Any]) -> dict[str, list[float]]:
+    from intelligence.calibration.base import FRAGMENTATION_RESIDUALS, artifact_base, sample_baseline
     from intelligence.calibration.persistence import load_model
     from intelligence.calibration.prediction import apply_residual
     from intelligence.calibration.types import MODEL_SPECS, normalize_model_type
 
     model = load_model(team_id, model_id)
-    spec = MODEL_SPECS[normalize_model_type(model.model_type)]
+    model_type = normalize_model_type(model.model_type)
+    spec = MODEL_SPECS[model_type]
     group = spec["target_group"]
     baseline_field = spec["baseline_field"]
+    base = None
+    if model_type in FRAGMENTATION_RESIDUALS:
+        try:
+            base = artifact_base(model.baseline_model, model.baseline_model_version)
+        except ValueError:
+            # Неизвестная модель в файле артефакта: сравнивать нечего, дрейф не падает.
+            return {}
     unit = spec.get("unit") or ""
     buckets: dict[str, list[float]] = {}
     key = f"prediction.calibrated_{spec['measured_field']}"
     for sample in samples:
         payload = (sample.targets or {}).get(group) or {}
-        baseline = payload.get(baseline_field)
+        # Кусковатость — только строки той же базы, что и артефакт.
+        baseline = sample_baseline(payload, model_type, base) if base is not None else payload.get(baseline_field)
         if baseline is None:
             continue
         try:

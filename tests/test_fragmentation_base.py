@@ -130,28 +130,33 @@ class SettingsSourceLabelTests(unittest.TestCase):
             return {"source": source, "work_object_name": name, "values": {}, "warnings": warnings or []}
 
         cases = (
-            ("kuzram", snap("work_object", "Карьер-1"), "Настройки модели: объект работ «Карьер-1»"),
-            ("kuzram", snap("request"), "Настройки модели: заданы в запросе"),
-            ("kuzram", snap("defaults"), "Настройки модели: умолчания"),
+            ("kuzram", "2.0.0", snap("work_object", "Карьер-1"), "Настройки модели: объект работ «Карьер-1»"),
+            ("kuzram", "2.0.0", snap("request"), "Настройки модели: заданы в запросе"),
+            ("kuzram", "2.0.0", snap("defaults"), "Настройки модели: умолчания"),
             (
                 "kuzram",
+                "2.0.0",
                 snap("defaults", "Карьер-2"),
                 "Настройки модели: умолчания — у объекта «Карьер-2» они не сохранены",
             ),
             (
                 "kuzram",
+                "2.0.0",
                 snap("defaults", "Карьер-3", ["x"]),
                 "Настройки модели: умолчания — настройки объекта «Карьер-3» не прочитаны",
             ),
-            ("kuzram_legacy", snap("work_object", "Карьер-1"), "Старая модель: настройки объекта не применяются"),
-            ("kuzram_legacy", None, "Старая модель: настройки объекта не применяются"),
-            # Старый паспорт без снимка настроек строки не получает.
-            ("kuzram", {}, ""),
-            ("kuzram", None, ""),
+            ("kuzram_legacy", "1.0.0", snap("work_object", "Карьер-1"), "Старая модель: настройки объекта не применяются"),
+            ("kuzram_legacy", "1.0.0", None, "Старая модель: настройки объекта не применяются"),
+            # Прогноз, сохранённый до PR 2, — тоже старая модель.
+            ("kuzram", "1.0.0", None, "Старая модель: настройки объекта не применяются"),
+            ("kuzram", "", {}, "Старая модель: настройки объекта не применяются"),
+            # Новый прогноз без снимка строки не получает.
+            ("kuzram", "2.0.0", {}, ""),
+            ("kuzram", "2.0.0", None, ""),
         )
-        for model, snapshot, label in cases:
-            with self.subTest(model=model, snapshot=snapshot):
-                self.assertEqual(settings_source_label(model, snapshot), label)
+        for model, version, snapshot, label in cases:
+            with self.subTest(model=model, version=version, snapshot=snapshot):
+                self.assertEqual(settings_source_label(model, version, snapshot), label)
 
 
 class PredictiveSettingsTests(unittest.TestCase):

@@ -5,6 +5,7 @@ and never treats a candidate model as silent production.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import numpy as np
@@ -37,6 +38,9 @@ from intelligence.explainability.explain import explain_estimator
 from intelligence.explainability.types import empty_explanation
 from intelligence.uncertainty.assess import assess_vector, unavailable
 from design.models import BlastDesign
+
+# Запасные настройки модели и их источник: (настройки, источник) или (None, None) — умолчания.
+FallbackResolver = Callable[[], tuple[Any, Mapping[str, Any] | None]]
 
 
 def clamp_calibrated(model_type: str, value: float) -> float:
@@ -189,8 +193,7 @@ def empirical_baseline(
     model_type: str,
     *,
     base: FragmentationBase = CURRENT_BASE,
-    fallback_settings: Any = None,
-    fallback_source: dict[str, Any] | None = None,
+    resolve_fallback: FallbackResolver | None = None,
 ) -> tuple[float | None, str, FragmentationBase | None, list[str]]:
     """Baseline для калибровки по паспорту, его источник, база и предупреждения.
 
@@ -200,10 +203,14 @@ def empirical_baseline(
     поэтому база значения возвращается — её сверяют с базой артефакта; его
     предупреждения (умолчания породы и ВВ, снимок настроек) идут в ответ.
     У PPV базы нет (None). Паспорт не меняется.
+
+    resolve_fallback отдаёт запасные настройки (объект работ или умолчания)
+    и их источник; зовётся лениво — только когда baseline пересчитывается,
+    а не берётся из сохранённого прогноза, потому что обращается к хранилищу.
     """
     model_type = normalize_model_type(model_type)
     if model_type in FRAGMENTATION_RESIDUALS:
-        return _fragmentation_baseline(design, model_type, base, fallback_settings, fallback_source)
+        return _fragmentation_baseline(design, model_type, base, resolve_fallback)
     stored = _stored_ppv(design)
     if stored is not None:
         return stored, "stored_predicted", None, []
@@ -217,8 +224,7 @@ def _fragmentation_baseline(
     design: BlastDesign,
     model_type: str,
     base: FragmentationBase,
-    fallback_settings: Any,
-    fallback_source: dict[str, Any] | None,
+    resolve_fallback: FallbackResolver | None,
 ) -> tuple[float | None, str, FragmentationBase | None, list[str]]:
     key = "x50_mm" if model_type == MODEL_KUZRAM_RESIDUAL else "oversize_pct"
     stored = stored_prediction(design)
@@ -229,6 +235,7 @@ def _fragmentation_baseline(
             stored_base = None
         if stored_base is not None and compatible(model_type, base, stored_base):
             return float(getattr(stored, key)), "stored_predicted", stored_base, []
+    fallback_settings, fallback_source = resolve_fallback() if resolve_fallback is not None else (None, None)
     computed = fragmentation_baseline(
         design, model=base.model, fallback_settings=fallback_settings, fallback_source=fallback_source
     )

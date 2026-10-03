@@ -141,6 +141,27 @@ class CalibrationBaseApiTests(unittest.TestCase):
         self.assertAlmostEqual(result.baseline, expected, places=6)
         self.assertNotAlmostEqual(result.baseline, fragmentation_baseline(design)["baseline_x50_mm"], places=3)
 
+    def test_settings_not_resolved_when_stored_prediction_fits(self):
+        """Совместимый сохранённый прогноз берётся как есть: запрос к хранилищу настроек не нужен."""
+        design = _with_stored_model(closed_design("cal-lazy-stored"), "swebrec", CURRENT_VERSION)
+        repository = _repository(1.4)
+
+        with patch.object(repository, "get_legacy_workspace", wraps=repository.get_legacy_workspace) as spy:
+            result = self._predict(self._artifact(), design=design.to_dict(), repository=repository)
+
+        self.assertEqual((result.baseline, result.baseline_source), (150.0, "stored_predicted"))
+        spy.assert_not_called()
+
+    def test_settings_resolved_when_baseline_is_recomputed(self):
+        design = _with_stored_model(closed_design("cal-lazy-recompute"), "kuzram", "1")
+        repository = _repository(1.4)
+
+        with patch.object(repository, "get_legacy_workspace", wraps=repository.get_legacy_workspace) as spy:
+            result = self._predict(self._artifact(), design=design.to_dict(), repository=repository)
+
+        self.assertEqual(result.baseline_source, "kuzram")
+        self.assertEqual(spy.call_count, 1)
+
     def test_recompute_ignores_settings_snapshot_of_other_version(self):
         """C(A) прогноза PR 2 подобран под другую формулу: пересчёт берёт настройки объекта работ."""
         design = _with_stored_model(closed_design("cal-pr2-settings"), "kuzram", PR2_VERSION)

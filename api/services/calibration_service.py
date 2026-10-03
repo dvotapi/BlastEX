@@ -225,18 +225,19 @@ def predict_calibration(
         if model is not None and fragmentation and not refusal:
             value_base, refusal = _provided_base(request)
     elif design is not None:
-        fallback_settings, fallback_source = None, None
-        if fragmentation and not base.legacy:
+        # Настройки читаются из хранилища лениво: сохранённый совместимый
+        # прогноз берётся как есть, и пересчёт не нужен.
+        def resolve_fallback() -> tuple[Any, dict[str, Any]]:
             resolved = resolve_kuzram_settings(
                 explicit=None, work_object_name="", organization_id=team_id, repository=repository
             )
-            fallback_settings, fallback_source = resolved.settings, resolved.source_payload()
+            return resolved.settings, resolved.source_payload()
+
         baseline, baseline_source, value_base, baseline_warnings = empirical_baseline(
             design,
             model_type,
             base=base,
-            fallback_settings=fallback_settings,
-            fallback_source=fallback_source,
+            resolve_fallback=resolve_fallback if fragmentation and not base.legacy else None,
         )
     if baseline is None:
         raise InvalidCalibrationError(

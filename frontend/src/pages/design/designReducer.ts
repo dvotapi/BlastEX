@@ -233,6 +233,12 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       // (подошва — проектная отметка числом); скважины, заряды и сеть прежнего
       // контура очищаются.
       const cleared = reduceDocument(document, { type: "SET_HOLES", holes: [] });
+      // СК объекта — и паспорту, и кровле из того же чертежа (кровля
+      // строится в «local»); без СК объекта обе остаются как были.
+      const withCrs = (system: CoordinateSystem): CoordinateSystem =>
+        action.crs
+          ? { ...system, name: action.crs.name, epsg: action.crs.epsg, height_system: action.crs.height_system, confirmed: true }
+          : system;
       return {
         ...cleared,
         contour: {
@@ -242,16 +248,12 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
           bench: { ...cleared.contour.bench, ...action.bench },
           cad: action.cad,
         },
-        surfaces: { ...cleared.surfaces, top: action.surface, floor: null },
-        coordinate_system: action.crs
-          ? {
-              ...cleared.coordinate_system,
-              name: action.crs.name,
-              epsg: action.crs.epsg,
-              height_system: action.crs.height_system,
-              confirmed: true,
-            }
-          : cleared.coordinate_system,
+        surfaces: {
+          ...cleared.surfaces,
+          top: { ...action.surface, coordinate_system: withCrs(action.surface.coordinate_system) },
+          floor: null,
+        },
+        coordinate_system: withCrs(cleared.coordinate_system),
       };
     }
     case "TOGGLE_FREE_FACE": {

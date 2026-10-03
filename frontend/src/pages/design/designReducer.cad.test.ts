@@ -172,6 +172,14 @@ describe("APPLY_CAD_CONTOUR: ситуация и СК объекта (PR 4)", ()
       confirmed: true,
     });
     expect(built.present.contour.cad?.situation).toEqual(SITUATION);
+    // Кровля из того же чертежа — в той же СК, а не «local» (ревью Codex #108).
+    expect(built.present.surfaces.top?.coordinate_system).toEqual({
+      ...ROOF.coordinate_system,
+      name: "МСК-66 зона 1",
+      height_system: "Балтийская 1977",
+      epsg: null,
+      confirmed: true,
+    });
   });
 
   it("без СК объекта система координат паспорта не меняется", () => {
@@ -190,5 +198,6 @@ describe("APPLY_CAD_CONTOUR: ситуация и СК объекта (PR 4)", ()
     });
 
     expect(built.present.coordinate_system.name).toBe("Карьерная сетка");
+    expect(built.present.surfaces.top?.coordinate_system).toEqual(ROOF.coordinate_system);
   });
 });

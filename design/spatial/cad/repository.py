@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from typing import Any, Protocol
@@ -74,8 +75,12 @@ class CadSourceRecord:
 
 class CadRepository(Protocol):
     def create_sources(
-        self, organization_id: str, items: list[tuple[CadSourceRecord, list[CadEntity]]]
-    ) -> None: ...
+        self,
+        organization_id: str,
+        items: list[tuple[CadSourceRecord, list[CadEntity]]],
+        *,
+        reuse_same_file: bool = False,
+    ) -> dict[str, CadSourceRecord]: ...
 
     def get_source(self, organization_id: str, source_id: str, *, with_file: bool = False) -> CadSourceRecord | None: ...
 
@@ -283,6 +288,13 @@ def _entity_rows(organization_id: str, source_id: str, entities: list[CadEntity]
     ]
 
 
+def _same_file_lock_key(organization_id: str, site_code: str, sha256: str) -> int:
+    """Ключ pg_advisory_xact_lock для «тот же файл на том же объекте» (bigint)."""
+
+    digest = hashlib.sha256(f"cad_source\0{organization_id}\0{site_code}\0{sha256}".encode()).digest()
+    return int.from_bytes(digest[:8], "big", signed=True)
+
+
 def _record(row: CadSourceRow, *, with_file: bool = False) -> CadSourceRecord:
     return CadSourceRecord(
         id=row.id,
@@ -365,12 +377,38 @@ class PostgresCadRepository:
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False, future=True)
 
     def create_sources(
-        self, organization_id: str, items: list[tuple[CadSourceRecord, list[CadEntity]]]
-    ) -> None:
-        """Все файлы одной загрузки — одной транзакцией: либо все, либо ни одного."""
+        self,
+        organization_id: str,
+        items: list[tuple[CadSourceRecord, list[CadEntity]]],
+        *,
+        reuse_same_file: bool = False,
+    ) -> dict[str, CadSourceRecord]:
+        """Все файлы одной загрузки — одной транзакцией: либо все, либо ни одного.
 
+        `reuse_same_file`: тот же файл (sha256) на том же объекте второй раз не
+        сохраняется — в ответе прежний источник по sha. Проверка и вставка идут
+        под блокировкой транзакции по (организация, объект, sha): две
+        одновременные загрузки одного файла не создают копию. Уникального
+        индекса нет — копии, загруженные до PR 4, остаются, пока их не удалят.
+        """
+
+        existing: dict[str, CadSourceRecord] = {}
         with self.session_factory() as session, session.begin():
+            if reuse_same_file:
+                # По возрастанию ключа: две загрузки с общими файлами не ждут друг друга по кругу.
+                keys = {
+                    _same_file_lock_key(organization_id, record.site_code, record.file_sha256)
+                    for record, _ in items
+                    if record.site_code
+                }
+                for key in sorted(keys):
+                    session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
             for record, entities in items:
+                if reuse_same_file and record.site_code:
+                    found = self._find_by_sha(session, organization_id, record.site_code, record.file_sha256)
+                    if found is not None:
+                        existing[record.file_sha256] = _record(found)
+                        continue
                 session.add(
                     CadSourceRow(
                         id=record.id,
@@ -394,6 +432,7 @@ class PostgresCadRepository:
                 session.flush()
                 if entities:
                     session.execute(insert(CadEntityRow), _entity_rows(organization_id, record.id, entities))
+        return existing
 
     def get_source(self, organization_id: str, source_id: str, *, with_file: bool = False) -> CadSourceRecord | None:
         with self.session_factory() as session:
@@ -512,17 +551,21 @@ class PostgresCadRepository:
 
     def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
         with self.session_factory() as session:
-            row = session.execute(
-                select(CadSourceRow)
-                .where(
-                    CadSourceRow.organization_id == organization_id,
-                    CadSourceRow.site_code == site_code,
-                    CadSourceRow.file_sha256 == sha256,
-                )
-                .order_by(CadSourceRow.uploaded_at.desc())
-                .limit(1)
-            ).scalar_one_or_none()
+            row = self._find_by_sha(session, organization_id, site_code, sha256)
             return None if row is None else _record(row)
+
+    @staticmethod
+    def _find_by_sha(session: Any, organization_id: str, site_code: str, sha256: str) -> CadSourceRow | None:
+        return session.execute(
+            select(CadSourceRow)
+            .where(
+                CadSourceRow.organization_id == organization_id,
+                CadSourceRow.site_code == site_code,
+                CadSourceRow.file_sha256 == sha256,
+            )
+            .order_by(CadSourceRow.uploaded_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
 
     def list_site_sources(
         self, organization_id: str, site_code: str, *, limit: int, summary_keys: tuple[str, ...] = ()
@@ -765,11 +808,22 @@ class InMemoryCadRepository:
         self._crs: dict[tuple[str, str], dict[str, Any]] = {}
 
     def create_sources(
-        self, organization_id: str, items: list[tuple[CadSourceRecord, list[CadEntity]]]
-    ) -> None:
+        self,
+        organization_id: str,
+        items: list[tuple[CadSourceRecord, list[CadEntity]]],
+        *,
+        reuse_same_file: bool = False,
+    ) -> dict[str, CadSourceRecord]:
+        existing: dict[str, CadSourceRecord] = {}
         for record, entities in items:
+            if reuse_same_file and record.site_code:
+                found = self._latest_by_sha(organization_id, record.site_code, record.file_sha256)
+                if found is not None:
+                    existing[record.file_sha256] = found
+                    continue
             self._sources[(organization_id, record.id)] = copy.deepcopy(record)
             self._entities[(organization_id, record.id)] = copy.deepcopy(entities)
+        return existing
 
     def get_source(self, organization_id: str, source_id: str, *, with_file: bool = False) -> CadSourceRecord | None:
         record = self._sources.get((organization_id, source_id))
@@ -844,6 +898,9 @@ class InMemoryCadRepository:
         self._area_bases[(organization_id, site_code)] = area_basis
 
     def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
+        return self._latest_by_sha(organization_id, site_code, sha256)
+
+    def _latest_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
         found = [
             record
             for (org, _), record in self._sources.items()

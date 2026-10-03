@@ -79,6 +79,23 @@ def test_same_file_on_the_same_site_opens_the_previous_source(repository):
     assert len(repository.list_site_sources("org-a", "SITE_ZK", limit=50)) == 1
 
 
+def test_same_file_uploaded_concurrently_opens_the_source_that_won(repository, monkeypatch):
+    """Ревью Codex (#108): соседняя загрузка того же файла успела сохранить его
+    между проверкой повтора и записью — ответ открывает её источник, копии нет."""
+
+    client = _client(repository)
+    content = situation_dxf()
+    first = _upload(client, ("Положение горных работ на 01.09.2026.dxf", content))[0]
+    # Проверка до разбора ещё не видела соседнюю запись.
+    monkeypatch.setattr(repository, "find_source_by_sha", lambda *args: None)
+
+    again = _upload(client, ("копия.dxf", content))[0]
+
+    assert again["id"] == first["id"]
+    assert "already_loaded" in _codes(again)
+    assert len(repository.list_site_sources("org-a", "SITE_ZK", limit=50)) == 1
+
+
 def test_same_file_twice_in_one_upload_is_one_source(repository):
     content = situation_dxf()
     sources = _upload(_client(repository), ("a.dxf", content), ("b.dxf", content))

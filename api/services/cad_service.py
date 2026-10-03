@@ -324,7 +324,11 @@ def import_files(
                 template.setdefault(layer_key(layer.name), TemplateEntry(layer.role))
 
     if items:
-        repository.create_sources(organization_id, items)
+        # Соседняя загрузка того же файла могла сохранить его после проверки
+        # выше: репозиторий проверяет ещё раз под блокировкой и отдаёт её источник.
+        for sha, record in repository.create_sources(organization_id, items, reuse_same_file=True).items():
+            created.pop(sha, None)
+            reused[sha] = record
     if site_code and new_layers:
         repository.add_missing_layer_roles(organization_id, site_code, new_layers, actor)
 

@@ -325,6 +325,56 @@ def test_site_sources_carry_only_requested_summary_keys(repository) -> None:
     assert all(item.summary == {} for item in repository.list_site_sources(ORG_A, "SITE_ZK", limit=10))
 
 
+def test_same_file_is_stored_once_per_site(repository) -> None:
+    # Ревью Codex (#108): проверка повтора — в той же транзакции, что и вставка.
+    first = _site_record("first", sha="a" * 64)
+    assert repository.create_sources(ORG_A, [(first, _entities())], reuse_same_file=True) == {}
+
+    again = repository.create_sources(ORG_A, [(_site_record("again", sha="a" * 64, day=2), [])], reuse_same_file=True)
+    assert {sha: record.id for sha, record in again.items()} == {"a" * 64: "first"}
+    assert repository.get_source(ORG_A, "again") is None
+
+    # Другой объект, другая организация и файл без объекта — свои записи.
+    other_site = _site_record("other-site", site_code="SITE_OTHER", sha="a" * 64)
+    no_site = _site_record("no-site", site_code="", sha="a" * 64)
+    assert repository.create_sources(ORG_A, [(other_site, []), (no_site, [])], reuse_same_file=True) == {}
+    assert repository.create_sources(ORG_B, [(_site_record("foreign", sha="a" * 64), [])], reuse_same_file=True) == {}
+    assert repository.create_sources(ORG_A, [(_site_record("no-site-2", site_code="", sha="a" * 64), [])], reuse_same_file=True) == {}
+    assert repository.get_source(ORG_A, "no-site-2") is not None
+
+
+@requires_pg
+def test_concurrent_uploads_of_one_file_store_it_once(public_db) -> None:
+    """Две загрузки одного файла одновременно: блокировка по (организация, объект, sha)."""
+
+    import threading
+
+    repository = PostgresCadRepository(TEST_DATABASE_URL)
+    workers = 8
+    barrier = threading.Barrier(workers)
+    errors: list[BaseException] = []
+
+    def upload(index: int) -> None:
+        try:
+            barrier.wait()
+            repository.create_sources(
+                ORG_A, [(_site_record(f"src-{index}", sha="a" * 64), _entities())], reuse_same_file=True
+            )
+        except BaseException as exc:  # noqa: BLE001 — ошибка потока проверяется ниже
+            errors.append(exc)
+
+    threads = [threading.Thread(target=upload, args=(index,)) for index in range(workers)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert len(repository.list_site_sources(ORG_A, "SITE_ZK", limit=50)) == 1
+    finally:
+        repository.engine.dispose()
+
+
 def test_source_meta_update_checks_revision(repository) -> None:
     repository.create_sources(ORG_A, [(_site_record("src-1"), [])])
 

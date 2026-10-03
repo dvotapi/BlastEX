@@ -14,6 +14,8 @@ MM_PER_CM = 10.0
 TNT_ENERGY_MJ_KG = 4.184
 # Kuznetsov energy index: ANFO = 100, TNT = 115.
 KUZNETSOV_TNT_INDEX = 115.0
+# Heat of explosion of ANFO used as the RWS reference (Cunningham), MJ/kg.
+ANFO_ENERGY_MJ_KG = 3.8
 
 
 def density_t_m3_from_kg_m3(density_kg_m3: float) -> float:
@@ -44,3 +46,8 @@ def fragment_mm_from_cm(size_cm: float) -> float:
 def relative_weight_strength(energy_mj_kg: float) -> float:
     """TNT-relative weight strength: RE = Q_exp / 4.184 MJ/kg."""
     return float(energy_mj_kg) / TNT_ENERGY_MJ_KG
+
+
+def anfo_weight_strength_pct(energy_mj_kg: float) -> float:
+    """ANFO-relative weight strength, %: RWS = 100 × Q_exp / 3.8 MJ/kg."""
+    return 100.0 * float(energy_mj_kg) / ANFO_ENERGY_MJ_KG

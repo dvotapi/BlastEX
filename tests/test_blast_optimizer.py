@@ -105,7 +105,7 @@ class KuzRamOptimizerTests(unittest.TestCase):
                     hole_diameter_mm=point.hole_diameter_mm,
                     powder_factor_kg_m3=q,
                     charge_mass_kg=point.charge_mass_kg,
-                    re_weight=point.re_weight,
+                    rws_anfo_pct=point.rws_anfo_pct,
                     charge_length_m=point.charge_length_m,
                     bench_height_m=engine.target.bench_height_m,
                     lump_size_mm=engine.target.lump_size_mm,
@@ -136,8 +136,8 @@ class KuzRamOptimizerTests(unittest.TestCase):
         result = _gabbro().optimize_blast(152, 5.0)
         point = result.point
         self.assertTrue(result.reached)
-        self.assertEqual(round(point.q_kg_m3, 2), 1.26)
-        self.assertEqual(round(point.burden_m, 2), 3.54)
+        self.assertEqual(round(point.q_kg_m3, 2), 1.33)
+        self.assertEqual(round(point.burden_m, 2), 3.44)
         self.assertAlmostEqual(point.rock_factor_a, 6.366)
         self.assertEqual(point.rock_factor.method, "rmd50")
         self.assertEqual(point.strength_exponent, "19/20")
@@ -145,7 +145,7 @@ class KuzRamOptimizerTests(unittest.TestCase):
         # n при умолчаниях: без отклонения бурения и с C(n) = 1.
         expected_n = (2.2 - 14 * point.burden_m / 159.6) * math.sqrt(2.25 / 2) * 1.1 ** 0.1 * 0.88
         self.assertAlmostEqual(point.uniformity_n, expected_n)
-        self.assertEqual(round(point.uniformity_n, 2), 1.78)
+        self.assertEqual(round(point.uniformity_n, 2), 1.79)
         self.assertAlmostEqual(point.hole_diameter_mm, 159.6)
         self.assertAlmostEqual(point.burden_to_diameter, point.burden_m / 0.1596)
 
@@ -157,13 +157,13 @@ class KuzRamOptimizerTests(unittest.TestCase):
         )
         result = soft.optimize_blast(110, 10.0, kr.KuzRamSettings(rock_factor_method="rmd10"))
         self.assertTrue(result.reached)
-        self.assertAlmostEqual(result.point.q_kg_m3, 0.12)
+        self.assertAlmostEqual(result.point.q_kg_m3, 0.13)
 
     def test_not_reached_returns_upper_bound(self):
         result = _gabbro().optimize_blast(250, 5.0, kr.KuzRamSettings(q_max_kg_m3=1.5))
         self.assertFalse(result.reached)
         self.assertEqual(result.point.q_kg_m3, 1.5)
-        self.assertAlmostEqual(result.point.oversize_pct, 5.40, places=2)
+        self.assertAlmostEqual(result.point.oversize_pct, 6.66, places=2)
 
     def test_calibration_round_trip(self):
         engine = _gabbro()
@@ -186,11 +186,11 @@ class KuzRamOptimizerTests(unittest.TestCase):
         self.assertLessEqual(found, 10.0)
 
     def test_upper_bound_is_floored_not_rounded(self):
-        # round(1.527 * 100) = 153 → 1.53 кг/м³; порог впервые достигается
-        # только на 1.53, значит на floor-границе 1.52 «не достигнут».
-        result = _gabbro().optimize_blast(250, 5.0, kr.KuzRamSettings(q_max_kg_m3=1.527))
+        # round(1.607 * 100) = 161 → 1.61 кг/м³; порог впервые достигается
+        # только на 1.61, значит на floor-границе 1.60 «не достигнут».
+        result = _gabbro().optimize_blast(250, 5.0, kr.KuzRamSettings(q_max_kg_m3=1.607))
         self.assertFalse(result.reached)
-        self.assertEqual(result.point.q_kg_m3, 1.52)
+        self.assertEqual(result.point.q_kg_m3, 1.6)
 
 
 if __name__ == "__main__":

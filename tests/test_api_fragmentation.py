@@ -56,7 +56,7 @@ class FragmentationApiTests(unittest.TestCase):
             ids, ["kuznetsov", "kuzram", "swebrec", "kuznetsov_legacy", "kuzram_legacy", "swebrec_legacy"]
         )
         self.assertEqual([item.legacy for item in response.models], [False, False, False, True, True, True])
-        self.assertEqual({item.version for item in response.models if not item.legacy}, {"2.0.0"})
+        self.assertEqual({item.version for item in response.models if not item.legacy}, {"2.1.0"})
 
     def test_predict_kuzram_on_design(self):
         response = design_service.predict_fragmentation(

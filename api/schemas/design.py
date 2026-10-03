@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+import numpy as np
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.schemas.blast import ExplosivePropertiesSchema, KuzRamSettingsSchema, RockPropertiesSchema
 from api.schemas.cost import CalculationContextInputSchema, MaterialsSelectionSchema
+from design.spatial.tin import MAX_INDEX_ENTRIES, index_entries
 
 
 class Point3Schema(BaseModel):
@@ -45,6 +47,8 @@ class CadContourInfoSchema(BaseModel):
     built_at: str = ""
     # Вершины контура правили после построения: контур уже не совпадает с чертежом.
     edited: bool = False
+    # Объём с блоковой карты — для сверки с объёмом по поверхностям (PR 3).
+    map_volume_m3: float | None = None
 
 
 class BlockContourSchema(BaseModel):
@@ -140,6 +144,8 @@ class HoleSchema(BaseModel):
     water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
     measured_intervals: list[HoleIntervalSchema] = Field(default_factory=list)
     measured_water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
+    # Ручная правка (TASK-013, PR 3): отметка устья и/или длина не пересчитываются.
+    manual: list[Literal["collar_z", "length"]] = Field(default_factory=list)
 
 
 class DeckSchema(BaseModel):
@@ -351,6 +357,22 @@ class TINSchema(BaseModel):
     triangles: list[list[int]] = Field(default_factory=list)
 
 
+class CadSurfaceInfoSchema(BaseModel):
+    """Кровля из чертежа маркшейдера (TASK-013, PR 3): откуда она, какие линии
+    и отметки в неё вошли, каким путём построена и её качество."""
+
+    source_id: str = ""
+    file_name: str = ""
+    roles: list[str] = Field(default_factory=list)
+    excluded: list[str] = Field(default_factory=list)
+    builder: str = ""
+    # Отметок не было — кровля-плоскость по бровке: объём блока — S ср × H.
+    plane: bool = False
+    floor_z_m: float | None = None
+    quality: dict[str, Any] = Field(default_factory=dict)
+    built_at: str = ""
+
+
 class SurfaceModelSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -363,6 +385,7 @@ class SurfaceModelSchema(BaseModel):
     points: list[Point3Schema] = Field(default_factory=list)
     polylines: list[list[Point3Schema]] = Field(default_factory=list)
     tin: TINSchema = Field(default_factory=TINSchema)
+    cad: CadSurfaceInfoSchema | None = None
 
 
 class SurfaceSetSchema(BaseModel):
@@ -1033,6 +1056,62 @@ class HoleGeometryEditRequest(BaseModel):
 
 class HoleGeometryEditResponse(BaseModel):
     hole: HoleSchema
+
+
+# Скважин в одном пересчёте не больше этого (TASK-013, PR 3).
+MAX_RECOMPUTE_HOLES = 20_000
+# Вершин (и точек, и вершин полилиний) у поверхности пересчёта — кровля из
+# чертежа строится не больше чем по 50 000 точкам; треугольников — вдвое.
+MAX_RECOMPUTE_TIN_VERTICES = 100_000
+
+
+class HoleRecomputeRequest(BaseModel):
+    """Устья и длины по кровле и подошве паспорта: скважины, контур, поверхности, параметры сетки."""
+
+    holes: list[HoleSchema] = Field(default_factory=list, max_length=MAX_RECOMPUTE_HOLES)
+    contour: BlockContourSchema
+    surfaces: SurfaceSetSchema | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _bounded_surfaces(self) -> HoleRecomputeRequest:
+        """Пределы сетей и индексы треугольников — до построения TIN."""
+
+        if self.surfaces is None:
+            return self
+        limit = MAX_RECOMPUTE_TIN_VERTICES
+        names = {"top": "кровля", "floor": "подошва", "face": "откос", "post_blast": "после взрыва"}
+        for key, name in names.items():
+            model = getattr(self.surfaces, key)
+            if model is None:
+                continue
+            tin = model.tin
+            sizes = (len(tin.vertices), len(model.points), sum(len(line) for line in model.polylines))
+            if max(sizes) > limit or len(tin.triangles) > 2 * limit:
+                raise ValueError(f"Поверхность «{name}» слишком большая: больше {limit} вершин или {2 * limit} треугольников.")
+            count = len(tin.vertices)
+            for triangle in tin.triangles:
+                if len(triangle) != 3 or min(triangle) < 0 or max(triangle) >= count:
+                    raise ValueError(f"Поверхность «{name}»: треугольник {triangle} ссылается на несуществующую вершину.")
+            xy = np.array([(v.x, v.y) for v in tin.vertices], dtype=float).reshape(-1, 2)
+            if index_entries(xy, np.asarray(tin.triangles, dtype=int).reshape(-1, 3)) > MAX_INDEX_ENTRIES:
+                raise ValueError(
+                    f"Поверхность «{name}»: треугольники слишком крупные для индекса — "
+                    "похоже, сеть повреждена (треугольники во весь участок)."
+                )
+        return self
+
+
+class HoleRecomputeResponse(BaseModel):
+    holes: list[HoleSchema]
+    # Флаги по скважинам: `outside_surface` — устье вне кровли, `short_bench` —
+    # высота уступа у скважины меньше 1 м. Только у скважин с флагами.
+    flags: dict[str, list[str]] = Field(default_factory=dict)
+    block_volume_m3: float
+    # Погонаж — сумма длин включённых скважин.
+    drilling_m: float
+    # Средняя высота уступа (кровля − подошва) по контуру блока: для S ср × H.
+    mean_height_m: float
 
 
 class HoleInsertRequest(BaseModel):

@@ -402,6 +402,14 @@ class WaterInterval:
         )
 
 
+# Поля `contour.cad`, которых не было у паспортов PR 2: без значения не пишутся.
+CAD_OPTIONAL_KEYS = ("map_volume_m3",)
+
+
+def _cad_without_empty_optional(cad: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in cad.items() if not (key in CAD_OPTIONAL_KEYS and value is None)}
+
+
 @dataclass
 class BlockContour:
     """Контур блока в плане: замкнутый полигон + помеченные открытые откосы."""
@@ -424,7 +432,7 @@ class BlockContour:
         # Ключ — только когда поле есть: контур входит в хэш утверждённого
         # паспорта, и `"cad": null` сменил бы хэш у всех старых паспортов.
         if self.cad is not None:
-            data["cad"] = dict(self.cad)
+            data["cad"] = _cad_without_empty_optional(self.cad)
         return data
 
     @classmethod
@@ -435,7 +443,7 @@ class BlockContour:
             free_faces=[list(edge) for edge in data.get("free_faces", [])],
             bench=BenchSurface.from_dict(data.get("bench", {})),
             name=str(data.get("name", "Блок")),
-            cad=dict(cad) if isinstance(cad, dict) else None,
+            cad=_cad_without_empty_optional(cad) if isinstance(cad, dict) else None,
         )
 
     @property
@@ -461,9 +469,12 @@ class Hole:
     water_intervals: list[WaterInterval] = field(default_factory=list)
     measured_intervals: list[HoleInterval] = field(default_factory=list)
     measured_water_intervals: list[WaterInterval] = field(default_factory=list)
+    # Что инженер задал руками (TASK-013, PR 3): `collar_z` — отметку устья,
+    # `length` — длину; пересчёт по кровле и подошве их не трогает.
+    manual: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "id": self.id,
             "row": self.row,
             "col": self.col,
@@ -479,6 +490,10 @@ class Hole:
             "measured_intervals": [iv.to_dict() for iv in self.measured_intervals],
             "measured_water_intervals": [iv.to_dict() for iv in self.measured_water_intervals],
         }
+        # Ключ — только у правленой скважины: скважины входят в хэш паспорта.
+        if self.manual:
+            data["manual"] = list(self.manual)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Hole:
@@ -499,6 +514,7 @@ class Hole:
             measured_water_intervals=[
                 WaterInterval.from_dict(iv) for iv in data.get("measured_water_intervals", [])
             ],
+            manual=[str(item) for item in data.get("manual") or []],
         )
 
     @property

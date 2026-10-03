@@ -1,9 +1,10 @@
 // Окно «Импорт чертежа» (TASK-013) — замена «Бровок из чертежа». Слева
-// чертёж, справа шаги «Слои» и «Контур», внизу — «Построить блок» с ошибками
-// и предупреждениями контура. Роли и повторный разбор сохраняются на сервере
-// сразу: шаблон слоёв объекта должен пережить закрытие окна. Контур
-// (кольцо, проверки, площади, свободную поверхность) считает сервер, окно
-// показывает предпросмотр на каждое изменение.
+// чертёж, справа шаги «Слои», «Контур», «Поверхность» и «Итог», внизу —
+// «Построить блок» с ошибками и предупреждениями. Роли и повторный разбор
+// сохраняются на сервере сразу: шаблон слоёв объекта должен пережить закрытие
+// окна. Контур (кольцо, проверки, площади, свободную поверхность) и кровлю
+// (TIN, качество, объёмы) считает сервер, окно показывает предпросмотр на
+// каждое изменение.
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { api } from "../../../api/endpoints";
 import { ruNumber } from "../../../lib/format";
@@ -20,7 +21,7 @@ import type {
   CadRolesPayload,
   CadSource,
 } from "../../../types/cad";
-import type { CadContourInfo } from "../../../types/design";
+import type { CadContourInfo, SurfaceModel } from "../../../types/design";
 import { BuildFooter } from "./BuildFooter";
 import { applyRoleChanges } from "./cadRoles";
 import { CadCanvas, type CanvasTarget } from "./CadCanvas";
@@ -39,14 +40,21 @@ import {
 } from "./contourState";
 import { ContourStep } from "./ContourStep";
 import { LayersStep } from "./LayersStep";
+import { SummaryStep } from "./SummaryStep";
+import { SurfaceOverlay } from "./SurfaceOverlay";
+import { SurfaceStep, type SurfaceFocus } from "./SurfaceStep";
+import { buildBlocker, initialSurface, roofSurface, surfaceRequest, type SurfaceState } from "./surfaceState";
 import { useContourPreview } from "./useContourPreview";
+import { useSurfacePreview } from "./useSurfacePreview";
 
-/** Что уходит в паспорт по «Построить блок»: контур по верхней бровке и данные чертежа. */
+/** Что уходит в паспорт по «Построить блок»: контур по верхней бровке, кровля и данные чертежа. */
 export type CadBuildChoice = {
   vertices: XY[];
   free_faces: number[][];
   bench: CadBench;
   cad: CadContourInfo;
+  /** Кровля из чертежа — в `surfaces.top`; поверхность подошвы снимается. */
+  surface: SurfaceModel;
 };
 
 export type CadImportDialogProps = {
@@ -55,19 +63,36 @@ export type CadImportDialogProps = {
   burden: number | null;
   /** Отметки уступа паспорта: сервер проверит высоту по итоговой паре (чертёж + паспорт). */
   passportBench?: CadPassportBench | null;
+  /** Перебур паспорта — шаг «Поверхность» показывает его только для чтения. */
+  subdrill?: number | null;
   onSourcesChange: (sources: CadSource[]) => void;
   onCancel: () => void;
   onBuild: (choice: CadBuildChoice) => void;
 };
 
-type Tab = "layers" | "contour";
+type Tab = "layers" | "contour" | "surface" | "summary";
+
+const TABS: Array<{ code: Tab; label: string }> = [
+  { code: "layers", label: "Слои" },
+  { code: "contour", label: "Контур" },
+  { code: "surface", label: "Поверхность" },
+  { code: "summary", label: "Итог" },
+];
 
 /** Чьё соглашение о площади блока: объекта работ, а без объекта — самого файла. */
 function areaKey(source: CadSource): string {
   return source.site_code !== "" ? `site:${source.site_code}` : `file:${source.id}`;
 }
 
-export function CadImportDialog({ sources, burden, passportBench = null, onSourcesChange, onCancel, onBuild }: CadImportDialogProps) {
+export function CadImportDialog({
+  sources,
+  burden,
+  passportBench = null,
+  subdrill = null,
+  onSourcesChange,
+  onCancel,
+  onBuild,
+}: CadImportDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const [meta, setMeta] = useState<CadMeta | null>(null);
   const [metaError, setMetaError] = useState("");
@@ -110,6 +135,11 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
   activeArea.current = active ? areaKey(active) : "";
   const [tab, setTab] = useState<Tab>("layers");
   const [contour, setContour] = useState<ContourState>(() => (sources[0] ? initialContour(sources[0]) : initialContour({ entities: [] } as unknown as CadSource)));
+  const [surface, setSurface] = useState<SurfaceState>(() =>
+    initialSurface(sources[0] ?? ({ params: { floor_z_m: null } } as unknown as CadSource)),
+  );
+  // Место на чертеже, на которое наведена строка списков шага «Поверхность».
+  const [focus, setFocus] = useState<SurfaceFocus | null>(null);
   // Растёт, когда сервер пересчитал роли источника: тот же запрос контура даёт новый ответ.
   const [version, setVersion] = useState(0);
   const [lines, setLines] = useState<CadContourLines | null>(null);
@@ -146,6 +176,8 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
   useEffect(() => {
     if (!active) return;
     setContour(initialContour(active));
+    setSurface(initialSurface(active));
+    setFocus(null);
     setLines(null);
     setHover(null);
     setSelected(null);
@@ -195,6 +227,15 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
     return { ...base, passport_bench: { crest_z_m: passportCrest, toe_z_m: passportToe } };
   }, [contour, burden, passportCrest, passportToe]);
   const preview = useContourPreview(active?.id ?? "", active ? request : null, api.cad.contour, version);
+  // Кровля строится вокруг готового контура — и на других шагах: блок с
+  // контуром и отметками в файле строится без ручных действий.
+  const roofRequest = useMemo(
+    () => (active ? surfaceRequest(surface, preview.result) : null),
+    [active, preview.result, surface],
+  );
+  const roof = useSurfacePreview(active?.id ?? "", roofRequest, api.cad.surface, version);
+  const roofPending = roof.pending || (Boolean(preview.result?.ok) && preview.pending);
+  const blocker = buildBlocker(surface, preview.result, roof.error ? null : roof.result, roofPending);
 
   const snapIndex = useMemo(() => {
     if (tab !== "contour" || !active) return null;
@@ -274,11 +315,14 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
   }
 
   function build(result: CadContourResult) {
-    if (!active || !result.top) return;
+    if (!active || !result.top || !roof.result) return;
+    const builtAt = new Date().toISOString();
     onBuild({
       vertices: result.top.points.map(([x, y]) => [x, y] as XY),
       free_faces: result.free_faces,
-      bench: result.bench,
+      // Подошва — проектная отметка шага «Поверхность»; бровка — по чертежу.
+      bench: { ...result.bench, toe_z_m: roof.result.bench.floor_z_m ?? result.bench.toe_z_m },
+      surface: roofSurface(roof.result, active, surface, builtAt),
       cad: {
         source_id: active.id,
         file_name: active.file_name,
@@ -292,7 +336,8 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
         map_area_m2: parseNumber(contour.mapArea),
         area_basis: contour.areaBasis,
         area_m2: blockArea(result, contour.areaBasis),
-        built_at: new Date().toISOString(),
+        map_volume_m3: parseNumber(surface.mapVolume),
+        built_at: builtAt,
         edited: false,
       },
     });
@@ -407,17 +452,32 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
                       selectedPath={selectedPath}
                     />
                   )
-                : undefined
+                : tab === "surface" || tab === "summary"
+                  ? (toScreen) => (
+                      <>
+                        <SurfaceOverlay toScreen={toScreen} result={roof.result} focus={focus} />
+                        <ContourOverlay toScreen={toScreen} result={preview.result} gaps={[]} picks={[]} selectedPath={null} />
+                      </>
+                    )
+                  : undefined
             }
           />
           <aside className="cad-panel">
             <div className="cad-steps" role="tablist" aria-label="Шаги импорта">
-              <button type="button" role="tab" aria-selected={tab === "layers"} onClick={() => setTab("layers")}>
-                Слои
-              </button>
-              <button type="button" role="tab" aria-selected={tab === "contour"} onClick={() => setTab("contour")}>
-                Контур
-              </button>
+              {TABS.map((item) => (
+                <button
+                  key={item.code}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === item.code}
+                  onClick={() => {
+                    setTab(item.code);
+                    setFocus(null);
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
             {sources.length > 1 && (
               <label className="cad-source-picker">
@@ -530,6 +590,37 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
                   !metaError && <p className="cad-loading">Загружаю роли слоёв…</p>
                 )}
               </div>
+            ) : tab === "surface" ? (
+              <div className="cad-contour-wrap">
+                {meta ? (
+                  <SurfaceStep
+                    source={active}
+                    meta={meta}
+                    state={surface}
+                    onChange={setSurface}
+                    result={roof.result}
+                    pending={roofPending}
+                    error={roof.error}
+                    contour={preview.result}
+                    subdrill={subdrill}
+                    disabled={pending}
+                    onFocus={setFocus}
+                  />
+                ) : (
+                  !metaError && <p className="cad-loading">Загружаю роли слоёв…</p>
+                )}
+              </div>
+            ) : tab === "summary" ? (
+              <div className="cad-contour-wrap">
+                <SummaryStep
+                  contour={preview.result}
+                  surface={roof.result}
+                  state={surface}
+                  onChange={setSurface}
+                  mapArea={parseNumber(contour.mapArea)}
+                  disabled={pending}
+                />
+              </div>
             ) : (
               <div className="cad-contour-wrap">
                 {meta ? (
@@ -556,6 +647,9 @@ export function CadImportDialog({ sources, burden, passportBench = null, onSourc
               pending={preview.pending}
               busy={pending || areaSaving > 0}
               error={preview.error}
+              roof={roof.result}
+              roofError={roof.error}
+              blocker={blocker}
               areaLabel={meta?.area_bases.find((basis) => basis.code === contour.areaBasis)?.label ?? ""}
               onCancel={onCancel}
               onBuild={build}

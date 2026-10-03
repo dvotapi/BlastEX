@@ -147,54 +147,152 @@ def offset_polygon(poly: list[Point2], distance_m: float) -> list[Point2]:
     return new_vertices
 
 
+def drawing_bottom(contour: BlockContour) -> list[Point2] | None:
+    """Контур по нижней бровке из чертежа, если контур блока после построения не правили."""
+    cad = contour.cad or {}
+    bottom = cad.get("bottom")
+    if cad.get("edited") or not bottom or len(bottom) < 3:
+        return None
+    return [(float(p[0]), float(p[1])) for p in bottom]
+
+
 def block_volume(contour: BlockContour, surfaces: object | None = None) -> float:
-    """Объём блока: площадь × высота плоскости или интеграл между TIN кровли и подошвы."""
+    """Объём блока: площадь × высота плоскости или интеграл между TIN кровли и подошвы.
+
+    Контур из чертежа (TASK-013, решение владельца 02.10.2026) — объём внутри
+    контура по нижней бровке: откос между бровками входит в блок. Кровля из
+    TIN считается точно — треугольники, обрезанные контуром.
+    """
     top = getattr(surfaces, "top", None) if surfaces is not None else None
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
-    if top is not None and top.has_tin:
-        return _volume_from_surfaces(contour, top, floor)
-    return polygon_area(contour.points_xy) * contour.bench.height_m
+    has_roof = top is not None and top.has_tin
+    # Нижний контур — только с кровлей, описывающей откос: без кровли (или с
+    # кровлей-плоскостью) плоскость бровки над откосом завысила бы объём на
+    # (S низ − S верх)·H/2.
+    bottom = drawing_bottom(contour) if has_roof else None
+    if bottom is not None and (getattr(top, "cad", None) or {}).get("plane"):
+        # Кровля из чертежа без отметок — плоскость: S ср × H (способ
+        # горизонтальных сечений).
+        return _mean_area(contour) * max(0.0, mean_bench_height(contour, surfaces))
+    has_floor = floor is not None and getattr(floor, "has_tin", False)
+    if bottom is not None and not has_floor:
+        from design.spatial.cad.surface import tin_volume_in_polygon
+
+        return tin_volume_in_polygon(top.tin, bottom, contour.bench.toe_z_m, contour.bench.crest_z_m).volume_m3
+    polygon = bottom if bottom is not None else contour.points_xy
+    if has_roof:
+        return _volume_from_surfaces(contour, top, floor, polygon)
+    return polygon_area(polygon) * contour.bench.height_m
 
 
-def _volume_from_surfaces(contour: BlockContour, top: object, floor: object | None) -> float:
-    """Численный интеграл (z_top − z_floor) по сетке внутри контура."""
-    verts = contour.points_xy
+def _mean_area(contour: BlockContour) -> float:
+    """S ср контура из чертежа, без неё — площадь контура паспорта."""
+    value = (contour.cad or {}).get("area_mean_m2")
+    return float(value) if value is not None else polygon_area(contour.points_xy)
+
+
+def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> float:
+    """Средняя высота уступа: среднее (кровля − подошва) по контуру блока, без кровли — H.
+
+    Часть контура вне кровли — по отметке бровки, как в объёме и в окне
+    «Импорт чертежа». Подошва из TIN считается той же сеткой, что и объём
+    (`_volume_from_surfaces`), иначе средняя высота разошлась бы с объёмом.
+    """
+    top = getattr(surfaces, "top", None) if surfaces is not None else None
+    floor = getattr(surfaces, "floor", None) if surfaces is not None else None
+    if top is not None and top.has_tin and len(contour.vertices) >= 3:
+        if floor is not None and getattr(floor, "has_tin", False):
+            # Ячейки вне кровли — по отметке бровки, как в объёме; со знаком,
+            # как интеграл без TIN подошвы: кровля ниже подошвы уменьшает среднюю.
+            heights = [
+                _roof_z(contour, top, x, y) - _floor_z(contour, floor, x, y)
+                for x, y in _grid_cells(contour.points_xy)[0]
+            ]
+            if heights:
+                return sum(heights) / len(heights)
+        from design.spatial.cad.surface import tin_volume_in_polygon
+
+        result = tin_volume_in_polygon(top.tin, contour.points_xy, contour.bench.toe_z_m)
+        mean = result.mean_height_m(contour.bench.crest_z_m - contour.bench.toe_z_m)
+        if mean is not None:
+            return mean
+    return contour.bench.height_m
+
+
+def _grid_cells(verts: list[Point2]) -> tuple[list[Point2], float]:
+    """Центры ячеек сетки внутри контура и площадь ячейки."""
     if len(verts) < 3:
-        return 0.0
+        return [], 0.0
     xs = [p[0] for p in verts]
     ys = [p[1] for p in verts]
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
     span = max(max_x - min_x, max_y - min_y, 1.0)
     step = max(span / 40.0, 0.5)
-    volume = 0.0
+    cells: list[Point2] = []
     y = min_y + step * 0.5
     while y <= max_y:
         x = min_x + step * 0.5
         while x <= max_x:
             if point_in_polygon((x, y), verts):
-                z_top = top.elevation_at(x, y)
-                if z_top is None:
-                    z_top = contour.bench.crest_z_m
-                z_floor = None
-                if floor is not None and getattr(floor, "has_tin", False):
-                    z_floor = floor.elevation_at(x, y)
-                if z_floor is None:
-                    z_floor = contour.bench.toe_z_m
-                volume += max(0.0, z_top - z_floor) * step * step
+                cells.append((x, y))
             x += step
         y += step
+    return cells, step * step
+
+
+def _roof_z(contour: BlockContour, top: object, x: float, y: float) -> float:
+    """Отметка кровли: TIN кровли, вне неё — отметка бровки."""
+    z_top = top.elevation_at(x, y)
+    return contour.bench.crest_z_m if z_top is None else z_top
+
+
+def _floor_z(contour: BlockContour, floor: object | None, x: float, y: float) -> float:
+    """Отметка подошвы: TIN подошвы, вне неё и без неё — отметка подошвы уступа."""
+    z_floor = None
+    if floor is not None and getattr(floor, "has_tin", False):
+        z_floor = floor.elevation_at(x, y)
+    return contour.bench.toe_z_m if z_floor is None else z_floor
+
+
+def floor_elevation(x: float, y: float, contour: BlockContour, surfaces: object | None = None) -> float:
+    """Отметка подошвы под точкой: TIN подошвы, вне неё и без неё — отметка подошвы уступа."""
+    return _floor_z(contour, getattr(surfaces, "floor", None) if surfaces is not None else None, x, y)
+
+
+def _volume_from_surfaces(
+    contour: BlockContour, top: object, floor: object | None, polygon: list[Point2] | None = None
+) -> float:
+    """Численный интеграл (z_top − z_floor) по сетке внутри контура."""
+    cells, cell_area = _grid_cells(polygon if polygon is not None else contour.points_xy)
+    volume = 0.0
+    for x, y in cells:
+        volume += max(0.0, _roof_z(contour, top, x, y) - _floor_z(contour, floor, x, y)) * cell_area
     return volume
 
 
-def collar_elevation(x: float, y: float, contour: BlockContour, surfaces: object | None = None) -> float:
-    """Отметка устья: TIN кровли, иначе плоскость бровки."""
+def collar_on_roof(
+    x: float, y: float, contour: BlockContour, surfaces: object | None = None
+) -> tuple[float, bool]:
+    """Отметка устья и признак «вне поверхности» (TASK-013, PR 3).
+
+    Устье на TIN кровли; вне сети — отметка ближайшей вершины TIN и признак;
+    без кровли — плоскость бровки.
+    """
     top = getattr(surfaces, "top", None) if surfaces is not None else None
-    if top is not None:
+    if top is not None and getattr(top, "has_tin", False):
         z = top.elevation_at(x, y)
         if z is not None:
-            return z
-    return contour.bench.crest_z_m
+            return z, False
+        nearest = top.tin.nearest_vertex(x, y)
+        if nearest is not None:
+            return nearest.z, True
+    return contour.bench.crest_z_m, False
+
+
+def collar_elevation(x: float, y: float, contour: BlockContour, surfaces: object | None = None) -> float:
+    """Отметка устья: TIN кровли (вне неё — ближайшая вершина), иначе плоскость бровки."""
+    return collar_on_roof(x, y, contour, surfaces)[0]
 
 
 def hole_depth_m(
@@ -206,7 +304,12 @@ def hole_depth_m(
     surfaces: object | None = None,
     depth_m: float | None = None,
 ) -> float:
-    """Глубина по оси: явный параметр, иначе пересечение с подошвой + перебур."""
+    """Глубина по оси: явный параметр, иначе до подошвы + перебур вдоль оси.
+
+    Без TIN подошвы — проектная отметка подошвы: L = (S − Z)/cos α + Δ, где S —
+    отметка устья (кровля), Z — подошва, α — угол от вертикали, Δ — перебур
+    (решение владельца 02.10.2026, TASK-013 PR 3).
+    """
     if depth_m is not None:
         return max(0.0, float(depth_m))
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
@@ -223,7 +326,11 @@ def hole_depth_m(
             if abs(cos_a) < 1e-9:
                 return max(0.0, vertical) + subdrill_m
             return max(0.0, vertical / cos_a) + subdrill_m
-    return contour.bench.height_m + subdrill_m
+    vertical = max(0.0, collar.z - contour.bench.toe_z_m)
+    cos_a = math.cos(math.radians(angle_deg))
+    if abs(cos_a) < 1e-9:
+        return vertical + subdrill_m
+    return vertical / cos_a + subdrill_m
 
 
 def drape_collar(

@@ -191,7 +191,7 @@ def test_tracked_migration_head_matches_git_tracked_chain() -> None:
 
     head = tracked_migration_head()
 
-    assert head == "20261001_0010"
+    assert head == "20261002_0011"
     assert head not in down_revisions
 
 

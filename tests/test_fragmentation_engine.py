@@ -122,7 +122,7 @@ class FragmentationEngineTests(unittest.TestCase):
         self.assertEqual(len({row["provenance"]["parameters"]["rock_factor_A"] for row in rows.values()}), 1)
         self.assertNotEqual(rows["kuznetsov"]["x80_mm"], rows["kuzram"]["x80_mm"])
         self.assertEqual(rows["swebrec"]["provenance"]["parameters"]["distribution"], "swebrec")
-        self.assertEqual({row["provenance"]["model_version"] for row in rows.values()}, {"2.0.0"})
+        self.assertEqual({row["provenance"]["model_version"] for row in rows.values()}, {"2.1.0"})
 
     def test_legacy_models_keep_old_base(self):
         design = _design_with_charges()

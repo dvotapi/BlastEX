@@ -85,7 +85,7 @@ import {
   type BlastPassport,
   type DesignLifecycleStatus,
 } from "../../types/design";
-import { emptyHoleGeology } from "../../types/design";
+import { emptyHoleGeology, emptySurfaces } from "../../types/design";
 import {
   canEditDesigned,
   canEditExecution,
@@ -103,7 +103,7 @@ import { LifecyclePanel } from "./LifecyclePanel";
 import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
-import { designReducer, initDesignState } from "./designReducer";
+import { changedAxes, designReducer, initDesignState } from "./designReducer";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -116,6 +116,7 @@ import { MapStatusBar } from "./MapStatusBar";
 import { HoleContextMenu, type HoleContextMenuState } from "./HoleContextMenu";
 import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCommand } from "./CommandPalette";
 import { CadImportDialog, type CadBuildChoice } from "./cadImport/CadImportDialog";
+import { buildConfirmText } from "./cadImport/surfaceState";
 import { computeAllHoleHealth, healthColor, summarizeHealth } from "./holeHealth";
 import {
   applyPresetToState,
@@ -135,7 +136,8 @@ import {
 } from "./workflowStatus";
 import { PlansPanel } from "./PlansPanel";
 import { SectionView } from "./SectionView";
-import { SummaryPanel } from "./SummaryPanel";
+import { SummaryPanel, volumeDetails } from "./SummaryPanel";
+import { useHoleRecompute } from "./useHoleRecompute";
 import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
 import { TimingPanel } from "./TimingPanel";
@@ -217,6 +219,18 @@ export function DesignPage({
   const [pendingFit, setPendingFit] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [patternParams, setPatternParams] = useState<PatternParams>(DEFAULT_PATTERN_PARAMS);
+  // Устья по кровле и длины до подошвы (TASK-013, PR 3): пересчёт на каждое
+  // изменение кровли, подошвы, перебура и сетки; утверждённый паспорт — только чтение.
+  const recompute = useHoleRecompute(document, patternParams as unknown as Record<string, unknown>, {
+    apply: !designedLocked,
+    dispatch,
+  });
+  // Скважины и пересчёт на момент ответа зарядов и геологии: пересчёт по
+  // кровле мог сменить длины или ждать ответа, пока запрос шёл.
+  const holesRef = useRef(document.holes);
+  holesRef.current = document.holes;
+  const recomputePendingRef = useRef(recompute.pending);
+  recomputePendingRef.current = recompute.pending;
   const [blockVolumeM3, setBlockVolumeM3] = useState<number | null>(null);
   const [plans, setPlans] = useState<DesignSummary[]>([]);
   const [patternBusy, setPatternBusy] = useState(false);
@@ -639,20 +653,25 @@ export function DesignPage({
     }
   }
 
-  /** Шаг 2: инженер построил контур на шаге «Контур» — только теперь меняем блок. */
+  /** Шаг 2: инженер построил контур и кровлю в окне — только теперь меняем блок. */
   function applyCadContour(choice: CadBuildChoice) {
-    // Загрузка и разметка слоёв блок не меняют — спрашиваем только перед построением.
+    // Загрузка и разметка слоёв блок не меняют — спрашиваем только перед
+    // построением и перечисляем, что сменится.
     if (rejectLocked("designed")) return;
-    if (document.holes.length && !window.confirm("Построение заменит контур и очистит скважины, заряды и сеть. Продолжить?")) return;
     const { crest_z_m: crest, toe_z_m: toe } = choice.bench;
-    // Z контура — отметка бровки: Z линии чертежа — это отметка вычерчивания, а не рельеф.
+    const confirmText = buildConfirmText(document, toe);
+    if (confirmText && !window.confirm(confirmText)) return;
+    // Z контура — по кровле, иначе отметка бровки: Z линии чертежа — это
+    // отметка вычерчивания, а не рельеф.
     const z = crest ?? document.contour.bench.crest_z_m;
+    const roof = { ...emptySurfaces(), top: choice.surface };
     dispatch({
       type: "APPLY_CAD_CONTOUR",
-      vertices: choice.vertices.map(([x, y]) => ({ x, y, z })),
+      vertices: choice.vertices.map(([x, y]) => ({ x, y, z: collarZFromSurfaces(roof, x, y, z) })),
       free_faces: choice.free_faces,
       bench: { ...(crest !== null ? { crest_z_m: crest } : {}), ...(toe !== null ? { toe_z_m: toe } : {}) },
       cad: choice.cad,
+      surface: choice.surface,
     });
     setSelected(new Set());
     setPendingFit(true);
@@ -845,6 +864,10 @@ export function DesignPage({
       setError("Выберите взрывчатое вещество.");
       return;
     }
+    if (recompute.pending) {
+      setError("Идёт пересчёт скважин по кровле и подошве — рассчитайте заряды после него.");
+      return;
+    }
     setChargeBusy(true);
     setError("");
     try {
@@ -853,10 +876,17 @@ export function DesignPage({
         density_t_m3: item.density_t_m3,
         power_mj_kg: item.power_mj_kg,
       }));
-      const result = await api.design.charge(document.holes, chargeRules, explosive, {
+      const holes = document.holes;
+      const result = await api.design.charge(holes, chargeRules, explosive, {
         contour: document.contour,
         explosives: catalog,
       });
+      if (holesRef.current !== holes || recomputePendingRef.current) {
+        // Заряды посчитаны по старым длинам (или кровлю, подошву, сетку
+        // сменили и пересчёт ещё идёт) — не ставим их к новым скважинам.
+        setError("Скважины изменились, пока считались заряды, — рассчитайте заряды заново.");
+        return;
+      }
       dispatch({ type: "SET_LOADS", loads: result.loads });
       setFragResult(null);
     } catch (reason) {
@@ -1043,7 +1073,11 @@ export function DesignPage({
     setError("");
     try {
       const result = await api.design.interceptGeology(holes, domains, waterTable);
+      // Скважинам со сменившейся за время запроса осью редьюсер геологию не ставит.
       dispatch({ type: "SET_HOLE_GEOLOGY", holes: result.holes });
+      if (changedAxes(holesRef.current, result.holes) > 0) {
+        setError("Скважины изменились, пока пересекалась геология, — у изменённых пересеките её заново.");
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось пересечь скважины с доменами.");
     } finally {
@@ -2467,8 +2501,9 @@ export function DesignPage({
       contour: document.contour,
       asDrilled: document.as_drilled_holes,
       designHoleIds: new Set(document.holes.map((h) => h.id)),
+      surfaceFlags: recompute.flags,
     }),
-    [document.holes, document.network, document.contour, document.as_drilled_holes, loadsById, analysis],
+    [document.holes, document.network, document.contour, document.as_drilled_holes, loadsById, analysis, recompute.flags],
   );
   const healthSummary = useMemo(
     () => summarizeHealth(holeHealthMap, document.holes),
@@ -2633,7 +2668,14 @@ export function DesignPage({
           <div className="map-chrome-metrics">
             <SummaryPanel
               holes={document.holes}
-              blockVolumeM3={blockVolumeM3}
+              blockVolumeM3={recompute.error ? null : recompute.blockVolumeM3 ?? blockVolumeM3}
+              recomputeError={recompute.error}
+              recomputeNotice={recompute.notice}
+              volumeTitle={
+                recompute.error
+                  ? null
+                  : volumeDetails(document.contour.cad, recompute.meanHeightM, recompute.blockVolumeM3 ?? blockVolumeM3, document.surfaces.top)
+              }
               loads={document.loads.length ? document.loads : undefined}
               holesSource={holeSourceLabel(document)}
               volumeSource={volumeSourceLabel(document.surfaces, document.contour.vertices.length >= 3)}
@@ -3245,6 +3287,7 @@ export function DesignPage({
               sources={cadSources}
               burden={patternParams.burden_b_m ?? null}
               passportBench={document.contour.bench}
+              subdrill={patternParams.subdrill_m ?? null}
               onSourcesChange={setCadSources}
               onCancel={() => setCadSources(null)}
               onBuild={applyCadContour}
@@ -3255,6 +3298,7 @@ export function DesignPage({
               hole={inspectHole}
               load={loadsById[inspectHole.id]}
               locked={designedLocked}
+              flags={recompute.flags[inspectHole.id] ?? []}
               onClose={() => setInspectHoleId(null)}
               onUpdateHole={onUpdateHole}
               onSetEnabled={setHolesEnabled}

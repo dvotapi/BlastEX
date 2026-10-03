@@ -60,6 +60,7 @@ class ScenarioOutcomesSchema(BaseModel):
     oversize_engineering_pct: float | None = None
     ppv_engineering_mm_s: float | None = None
     fragmentation_source: str = "engineering"
+    fragmentation_model_version: str = ""
     vibration_source: str = "engineering"
     cost_source: str = "engineering"
     ml_overlay_applied: bool = False

@@ -25,7 +25,7 @@ class NewModelsTests(unittest.TestCase):
         self.assertEqual(prediction.oversize_pct, round(point.oversize_pct, 2))
         self.assertEqual(prediction.provenance.parameters["uniformity_n"], point.uniformity.value)
         self.assertEqual(prediction.provenance.parameters["x50_mm"], point.x50_mm)
-        self.assertEqual((prediction.provenance.model, prediction.provenance.model_version), ("kuzram", "2.0.0"))
+        self.assertEqual((prediction.provenance.model, prediction.provenance.model_version), ("kuzram", "2.1.0"))
         self.assertEqual(prediction.warnings, [])
 
     def test_three_models_share_base(self):
@@ -39,7 +39,7 @@ class NewModelsTests(unittest.TestCase):
             {predictions[0].provenance.parameters["rock_factor_A"]},
         )
         self.assertEqual([item.provenance.model for item in predictions], ["kuznetsov", "kuzram", "swebrec"])
-        self.assertEqual({item.provenance.model_version for item in predictions}, {"2.0.0"})
+        self.assertEqual({item.provenance.model_version for item in predictions}, {"2.1.0"})
 
     def test_kuznetsov_uses_fixed_n(self):
         prediction = predict_kuznetsov(_inputs(charge_length_m=7.0))

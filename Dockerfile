@@ -7,8 +7,9 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+# git — для PythonCDT: колесо собирается из исходников с подмодулями (TASK-013).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    build-essential git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

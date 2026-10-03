@@ -138,7 +138,8 @@ class FragmentationDetailsSchema(BaseModel):
     burden_to_diameter: float
     rock_factor_a: float
     rock_factor: RockFactorBreakdownSchema | None
-    re_weight: float
+    re_weight: float | None
+    rws_anfo_pct: float | None
     strength_exponent: str
     x50_mm: float
     uniformity_n_raw: float

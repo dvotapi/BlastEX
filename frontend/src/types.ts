@@ -226,7 +226,10 @@ export type FragmentationDetails = {
   burden_to_diameter: number;
   rock_factor_a: number;
   rock_factor: RockFactorBreakdown | null;
-  re_weight: number;
+  /** Сила ВВ к тротилу — только в расчёте «до исправления». */
+  re_weight: number | null;
+  /** Сила ВВ к ANFO, % — только в Kuz-Ram по Каннингему. */
+  rws_anfo_pct: number | null;
   strength_exponent: string;
   x50_mm: number;
   uniformity_n_raw: number;

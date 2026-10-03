@@ -1,7 +1,8 @@
-import { angleAzimuth, holeFromCollar, holeLength } from "../../lib/geometry2d";
+import { angleAzimuth, holeLength } from "../../lib/geometry2d";
 import { ruNumber } from "../../lib/format";
 import type { Hole, HoleKind } from "../../types/design";
 import { HOLE_KIND_LABELS } from "../../types/design";
+import { axisPatch, toePatch } from "./holeEdits";
 import { RoleBadge } from "./RoleBadge";
 
 export function HoleTable({
@@ -36,11 +37,7 @@ export function HoleTable({
   }
 
   function patchAxis(hole: Hole, next: { depth?: number; angle?: number; azimuth?: number }) {
-    const current = angleAzimuth(hole.collar, hole.toe);
-    const depth = next.depth ?? holeLength(hole.collar, hole.toe);
-    const angle = next.angle ?? current.angleDeg;
-    const azimuth = next.azimuth ?? current.azimuthDeg;
-    onUpdateHole(hole.id, { toe: holeFromCollar(hole.collar, depth, angle, azimuth) });
+    onUpdateHole(hole.id, axisPatch(hole, next));
   }
 
   const selectedHoles = holes.filter((h) => selected.has(h.id));
@@ -121,13 +118,13 @@ export function HoleTable({
                   <td>{ruNumber(h.collar.y, 2)}</td>
                   <td>{ruNumber(h.collar.z, 2)}</td>
                   <td>
-                    <input type="number" step="0.1" value={round3(h.toe.x)} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { toe: { ...h.toe, x: Number(e.target.value) } })} />
+                    <input type="number" step="0.1" value={round3(h.toe.x)} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, toePatch(h, "x", Number(e.target.value)))} />
                   </td>
                   <td>
-                    <input type="number" step="0.1" value={round3(h.toe.y)} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { toe: { ...h.toe, y: Number(e.target.value) } })} />
+                    <input type="number" step="0.1" value={round3(h.toe.y)} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, toePatch(h, "y", Number(e.target.value)))} />
                   </td>
                   <td>
-                    <input type="number" step="0.1" value={round3(h.toe.z)} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { toe: { ...h.toe, z: Number(e.target.value) } })} />
+                    <input type="number" step="0.1" value={round3(h.toe.z)} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, toePatch(h, "z", Number(e.target.value)))} />
                   </td>
                   <td>
                     <input type="number" step="0.1" value={round3(length)} onClick={(e) => e.stopPropagation()} onChange={(e) => patchAxis(h, { depth: Number(e.target.value) })} />

@@ -84,3 +84,49 @@ describe("CadImportHelp: контур блока (PR 2)", () => {
     expect(dialog.textContent).toContain("хранится на объекте работ");
   });
 });
+
+describe("CadImportHelp: поверхность и длины скважин (PR 3)", () => {
+  function open() {
+    render(<CadImportHelp meta={CAD_META} />);
+    fireEvent.click(screen.getByRole("button", { name: "Справка по импорту чертежа" }));
+    return screen.getByRole("dialog", { name: "Импорт чертежа: справка" });
+  }
+
+  it("роли линий в кровле и почему бровка — ограничитель", () => {
+    const dialog = open();
+
+    expect(within(dialog).getByRole("heading", { name: "Поверхность и длины скважин" })).toBeTruthy();
+    const roles = within(within(dialog).getByRole("list", { name: "Линии в кровле" })).getAllByRole("listitem");
+    expect(roles.map((item) => item.querySelector("b")?.textContent)).toEqual([
+      "Бровки.",
+      "Характерные линии.",
+      "Горизонтали.",
+      "Отметки поверхности.",
+      "Граница.",
+    ]);
+    expect(dialog.textContent).toContain("Почему бровка — ограничитель");
+    expect(dialog.textContent).toContain("первый ряд");
+    expect(dialog.textContent).toContain("выброс");
+  });
+
+  it("формула длины, ручная правка, флаги и объёмы", () => {
+    const dialog = open();
+
+    expect(dialog.textContent).toContain("L = (S − Z) / cos α + Δ");
+    expect(dialog.textContent).toContain("вдоль оси");
+    expect(dialog.textContent).toContain("«Вернуть расчётное»");
+    expect(dialog.textContent).toContain("вне поверхности");
+    expect(dialog.textContent).toContain("H < 1 м");
+    expect(within(dialog).getByRole("heading", { name: "Итог и объёмы" })).toBeTruthy();
+    expect(dialog.textContent).toContain("по нижней бровке");
+    expect(dialog.textContent).toContain("S ср × H");
+    expect(dialog.textContent).toContain("Подтверждаю высоту уступа");
+  });
+
+  it("«Построить блок» ставит кровлю и снимает поверхность подошвы", () => {
+    const dialog = open();
+
+    expect(dialog.textContent).toContain("поверхность подошвы снимается");
+    expect(dialog.textContent).not.toContain("Поверхности паспорта построение не меняет");
+  });
+});

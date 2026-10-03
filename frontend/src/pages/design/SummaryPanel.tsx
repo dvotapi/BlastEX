@@ -1,5 +1,43 @@
 import { ruNumber } from "../../lib/format";
-import type { Hole, HoleLoad } from "../../types/design";
+import type { CadContourInfo, Hole, HoleLoad, SurfaceModel } from "../../types/design";
+
+/**
+ * Подробности объёма блока из чертежа (TASK-013, PR 3) — подсказка по
+ * наведению: площади, S ср × H (способ горизонтальных сечений), объём с
+ * блоковой карты и расхождение.
+ */
+export function volumeDetails(
+  cad: CadContourInfo | null | undefined,
+  meanHeightM: number | null,
+  volumeM3: number | null,
+  roof: SurfaceModel | null | undefined,
+): string | null {
+  if (!cad) return null;
+  const lines = [
+    `S верх ${ruNumber(cad.area_top_m2, 1)} м² · S низ ${ruNumber(cad.area_bottom_m2, 1)} м² · S ср ${ruNumber(cad.area_mean_m2, 1)} м²`,
+  ];
+  if (cad.area_mean_m2 !== null && meanHeightM !== null) {
+    lines.push(`S ср × H = ${ruNumber(cad.area_mean_m2, 1)} × ${ruNumber(meanHeightM, 2)} = ${ruNumber(cad.area_mean_m2 * meanHeightM, 0)} м³`);
+  }
+  const map = cad.map_volume_m3 ?? null;
+  if (map !== null && map > 0 && volumeM3 !== null) {
+    const diff = ((volumeM3 - map) / map) * 100;
+    lines.push(`Объём с карты ${ruNumber(map, 0)} м³: расхождение ${diff > 0 ? "+" : ""}${ruNumber(diff, 1)} %`);
+  }
+  // Как считает `geometry.block_volume`: нижний контур — только с кровлей, описывающей откос.
+  if (!roof || !roof.tin?.triangles?.length) {
+    lines.push("Объём — в контуре паспорта: кровли нет");
+  } else if (cad.edited) {
+    lines.push("Объём — в контуре паспорта (контур правили после построения)");
+  } else if ((cad.bottom?.length ?? 0) < 3) {
+    lines.push("Объём — в контуре паспорта: нижнего контура нет");
+  } else if (roof.cad?.plane) {
+    lines.push("Объём — S ср × H: кровля — плоскость, откос не описан");
+  } else {
+    lines.push("Объём — в контуре по нижней бровке");
+  }
+  return lines.join("\n");
+}
 
 export function SummaryPanel({
   holes,
@@ -7,12 +45,21 @@ export function SummaryPanel({
   loads,
   holesSource,
   volumeSource,
+  volumeTitle,
+  recomputeError = "",
+  recomputeNotice = "",
 }: {
   holes: Hole[];
   blockVolumeM3: number | null;
   loads?: HoleLoad[];
   holesSource: string;
   volumeSource: string;
+  /** Подробности объёма по наведению. */
+  volumeTitle?: string | null;
+  /** Пересчёт устьев и длин по кровле не удался — длины и объём не свежие. */
+  recomputeError?: string;
+  /** Что сменил последний пересчёт (заряды и геологию пересчитать). */
+  recomputeNotice?: string;
 }) {
   const production = holes.filter((h) => h.kind === "production" && h.enabled);
   const contourHoles = holes.filter((h) => (h.kind === "contour" || h.kind === "presplit" || h.kind === "trim") && h.enabled);
@@ -33,11 +80,21 @@ export function SummaryPanel({
       <div><span>Контурные скважины</span><strong>{contourHoles.length}</strong><small>шт.</small></div>
       {extraHoles.length > 0 && <div><span>Буфер / добор</span><strong>{extraHoles.length}</strong><small>шт.</small></div>}
       <div><span>Погонаж бурения</span><strong>{ruNumber(footage, 1)} м</strong><small>{holesSource}</small></div>
-      <div>
+      <div title={volumeTitle ?? undefined}>
         <span>Объём блока</span>
         <strong>{blockVolumeM3 !== null ? `${ruNumber(blockVolumeM3, 0)} м³` : "—"}</strong>
         <small>{volumeSource}</small>
       </div>
+      {recomputeError && (
+        <p className="metrics-alert" role="alert">
+          Устья и длины не пересчитаны: {recomputeError}
+        </p>
+      )}
+      {!recomputeError && recomputeNotice && (
+        <p className="metrics-note" role="status">
+          {recomputeNotice}
+        </p>
+      )}
       {loads !== undefined && (
         <>
           <div><span>Масса ВВ</span><strong>{ruNumber(totalChargeKg, 0)} кг</strong><small>проектное</small></div>

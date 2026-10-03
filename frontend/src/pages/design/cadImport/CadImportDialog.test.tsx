@@ -4,10 +4,18 @@ import { useState } from "react";
 import type { CadSource } from "../../../types/cad";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CadImportDialog, type CadImportDialogProps } from "./CadImportDialog";
-import { CAD_META, cadSource, contourResult } from "./testing/fixtures";
+import { CAD_META, cadSource, contourResult, surfaceResult } from "./testing/fixtures";
 
 const api = vi.hoisted(() => ({
-  cad: { meta: vi.fn(), saveRoles: vi.fn(), reparse: vi.fn(), contourLines: vi.fn(), contour: vi.fn(), saveAreaBasis: vi.fn() },
+  cad: {
+    meta: vi.fn(),
+    saveRoles: vi.fn(),
+    reparse: vi.fn(),
+    contourLines: vi.fn(),
+    contour: vi.fn(),
+    saveAreaBasis: vi.fn(),
+    surface: vi.fn(),
+  },
 }));
 vi.mock("../../../api/endpoints", () => ({ api }));
 
@@ -30,6 +38,7 @@ beforeEach(() => {
   api.cad.contourLines.mockReset().mockResolvedValue({ splits: {}, intersections: [], crests_top: [], crests_bottom: [], gaps: [] });
   api.cad.contour.mockReset().mockResolvedValue(contourResult());
   api.cad.saveAreaBasis.mockReset().mockResolvedValue({ area_basis: "top", saved: true });
+  api.cad.surface.mockReset().mockResolvedValue(surfaceResult());
 });
 
 function renderDialog(extra: Partial<CadImportDialogProps> = {}) {
@@ -215,6 +224,73 @@ describe("CadImportDialog", () => {
       area_m2: 3455.42,
       edited: false,
     });
+  });
+
+  it("кровля строится по контуру без ручных действий: оба контура, роли, подошва и бровка", async () => {
+    renderDialog();
+    await ready();
+
+    await waitFor(() =>
+      expect(api.cad.surface).toHaveBeenCalledWith("src-1", {
+        top: [[90, 170], [140, 170], [140, 215]],
+        bottom: [[90, 170], [145, 170], [145, 215]],
+        roles: ["crest_top", "crest_bottom", "feature_line", "contour_line", "spot_heights"],
+        excluded: [],
+        floor_z_m: 410,
+        crest_z_m: 420.3,
+      }),
+    );
+  });
+
+  it("«Построить блок» ставит кровлю из чертежа, подошву шага «Поверхность» и объём с карты", async () => {
+    // Сервер строит кровлю на присланную подошву.
+    api.cad.surface.mockImplementation(async (_id: string, request: { floor_z_m: number | null }) =>
+      surfaceResult({ bench: { floor_z_m: request.floor_z_m, mean_height_m: 11, needs_confirmation: false } }),
+    );
+    const props = renderDialog({ subdrill: 1.5 });
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "Поверхность" }));
+    expect(((await screen.findByLabelText("Перебур паспорта, м")) as HTMLInputElement).value).toBe("1,5");
+    fireEvent.change(await screen.findByLabelText("Подошва, м"), { target: { value: "409,5" } });
+    await waitFor(() => expect(api.cad.surface).toHaveBeenLastCalledWith("src-1", expect.objectContaining({ floor_z_m: 409.5 })));
+    fireEvent.click(screen.getByRole("tab", { name: "Итог" }));
+    fireEvent.change(screen.getByLabelText("Объём с карты, м³"), { target: { value: "28279,39" } });
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.click(button);
+
+    const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(choice.bench).toMatchObject({ crest_z_m: 420.3, toe_z_m: 409.5 });
+    expect(choice.cad.map_volume_m3).toBe(28279.39);
+    expect(choice.surface).toMatchObject({ kind: "top", source_format: "cad", source_name: "блок 66.dwg" });
+    expect(choice.surface.tin.vertices).toHaveLength(4);
+    expect(choice.surface.cad).toMatchObject({ source_id: "src-1", floor_z_m: 409.5, builder: "cdt" });
+  });
+
+  it("высота уступа вне 2–25 м: «Построить блок» неактивна до подтверждения на шаге «Итог»", async () => {
+    api.cad.surface.mockResolvedValue(surfaceResult({ bench: { floor_z_m: 410, mean_height_m: 0.6, needs_confirmation: true } }));
+    renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    expect(await screen.findByText(/Подтвердите высоту уступа/)).toBeTruthy();
+    expect(button.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Итог" }));
+    fireEvent.click(screen.getByLabelText(/Подтверждаю высоту уступа 0,6 м/));
+
+    await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
+  it("кровля не построена — кнопка неактивна, причина видна", async () => {
+    api.cad.surface.mockResolvedValue(
+      surfaceResult({ ok: false, issues: [{ code: "no_marks", message: "Отметок и верхней бровки нет.", point: null }] }),
+    );
+    renderDialog();
+    await ready();
+
+    expect(await screen.findByText(/Кровля не построена/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("предпросмотр получает отметки паспорта: сервер проверит с ними высоту уступа", async () => {

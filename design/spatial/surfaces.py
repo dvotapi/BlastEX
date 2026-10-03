@@ -36,6 +36,10 @@ class SurfaceModel:
     points: list[Point3] = field(default_factory=list)
     polylines: list[list[Point3]] = field(default_factory=list)
     tin: TIN = field(default_factory=TIN)
+    # Кровля из чертежа маркшейдера (TASK-013, PR 3): источник, роли линий,
+    # исключённые отметки, путь построения, качество — паспорт не зависит от
+    # повторного импорта.
+    cad: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in SURFACE_KINDS:
@@ -46,7 +50,7 @@ class SurfaceModel:
             self.created_at = _utc_now_iso()
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "kind": self.kind,
             "name": self.name,
             "source_format": self.source_format,
@@ -57,6 +61,11 @@ class SurfaceModel:
             "polylines": [[p.to_dict() for p in line] for line in self.polylines],
             "tin": self.tin.to_dict(),
         }
+        # Ключ — только когда поле есть: поверхности входят в хэш утверждённого
+        # паспорта, и `"cad": null` сменил бы его у всех старых паспортов.
+        if self.cad is not None:
+            data["cad"] = dict(self.cad)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> SurfaceModel | None:
@@ -83,6 +92,7 @@ class SurfaceModel:
                 [Point3.from_dict(p) for p in line] for line in data.get("polylines", [])
             ],
             tin=tin,
+            cad=dict(data["cad"]) if isinstance(data.get("cad"), dict) else None,
         )
 
     @property

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyDesign, emptyHoleGeology, emptyNetwork } from "../../types/design";
-import { computeAllHoleHealth, computeHoleHealth, summarizeHealth } from "./holeHealth";
+import { computeAllHoleHealth, computeHoleHealth, HEALTH_LABELS, healthColor, summarizeHealth } from "./holeHealth";
 
 function sampleHole(id: string, x: number, y: number) {
   return {
@@ -74,5 +74,38 @@ describe("holeHealth", () => {
     const summary = summarizeHealth(map, holes);
     expect(summary.issueCount).toBeGreaterThan(0);
     expect(summary.byCode.missing_charge.length).toBe(2);
+  });
+});
+
+describe("holeHealth: флаги кровли (TASK-013, PR 3)", () => {
+  const charged = (id: string) => ({ hole_id: id, decks: [], total_charge_kg: 100, influence_volume_m3: 1, specific_q_kg_m3: 1, primers: [5] });
+
+  it("устье вне поверхности и уступ ниже 1 м — свои коды, красные", () => {
+    const holes = [sampleHole("A", 0, 0), sampleHole("B", 1, 1), sampleHole("C", 2, 2)];
+    const health = computeAllHoleHealth({
+      holes,
+      loadsById: { A: charged("A"), B: charged("B"), C: charged("C") },
+      network: emptyNetwork(),
+      contour: emptyDesign().contour,
+      surfaceFlags: { A: ["outside_surface"], B: ["short_bench", "outside_surface"] },
+    });
+
+    expect(health).toMatchObject({ A: "outside_surface", B: "outside_surface", C: "ok" });
+    expect(HEALTH_LABELS.outside_surface).toBe("вне поверхности");
+    expect(HEALTH_LABELS.short_bench).toBe("H < 1 м");
+    expect(healthColor("outside_surface")).toBe(healthColor("short_bench"));
+    expect(summarizeHealth(health, holes).byCode.outside_surface).toEqual(["A", "B"]);
+  });
+
+  it("H < 1 м без других замечаний", () => {
+    const health = computeAllHoleHealth({
+      holes: [sampleHole("A", 0, 0)],
+      loadsById: { A: charged("A") },
+      network: emptyNetwork(),
+      contour: emptyDesign().contour,
+      surfaceFlags: { A: ["short_bench"] },
+    });
+
+    expect(health.A).toBe("short_bench");
   });
 });

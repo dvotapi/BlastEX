@@ -274,6 +274,7 @@ def _fragmentation_outcomes(overlay: BlastDesign, params: ScenarioParams, outcom
     outcomes.x80_engineering_mm = outcomes.x80_mm
     outcomes.oversize_engineering_pct = outcomes.oversize_pct
     outcomes.fragmentation_source = SOURCE_ENGINEERING
+    outcomes.fragmentation_model_version = str(payload.get("model_version") or "")
     for warning in payload.get("warnings") or []:
         outcomes.warnings.append(str(warning))
 

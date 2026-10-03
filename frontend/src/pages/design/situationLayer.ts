@@ -1,7 +1,7 @@
 // Подложка ситуации карьера (TASK-013, PR 4): дороги, ЛЭП, склады, контур
 // карьера — слоями и цветами из DXF. Здесь только чистая геометрия: штрихи
 // плана в экранных координатах (рисует `SituationCanvas`) и линии 3D.
-import { ruDate } from "../../lib/format";
+import { ruDate, ruDateTime } from "../../lib/format";
 import type { Camera, Viewport } from "../../lib/geometry2d";
 import type { CadSituationCatalogue, CadSituationGeometry } from "../../types/cad";
 
@@ -109,18 +109,12 @@ export type SituationPanelSeries = {
 /** Версия серии: дата съёмки, файл, время загрузки — у каталога и у источника окна. */
 type VersionLike = { survey_date: string | null; file_name: string; uploaded_at: string };
 
-/** «03.10.2026 03:31» из ISO-времени загрузки (время сервера, UTC). */
-function uploadedLabel(iso: string): string {
-  const time = /T(\d{2}:\d{2})/.exec(iso)?.[1];
-  return time ? `${ruDate(iso)} ${time}` : ruDate(iso);
-}
-
 /** Подписи версий — дата съёмки; одинаковые даты (повторная выгрузка) различает время загрузки. */
 export function versionLabels(versions: VersionLike[]): string[] {
   const base = versions.map((item) => (item.survey_date ? ruDate(item.survey_date) : item.file_name));
   return versions.map((item, index) =>
     base.filter((label) => label === base[index]).length > 1
-      ? `${base[index]} · загружен ${uploadedLabel(item.uploaded_at)}`
+      ? `${base[index]} · загружен ${ruDateTime(item.uploaded_at)}`
       : base[index],
   );
 }

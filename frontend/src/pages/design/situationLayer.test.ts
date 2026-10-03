@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CadSituationGeometry, CadSituationLayer } from "../../types/cad";
 import { situation3dLines, situationColor, situationLayerKey, situationPanelSeries, situationSegments, situationStrokes } from "./situationLayer";
 
@@ -188,7 +188,12 @@ describe("situationPanelSeries", () => {
 });
 
 describe("situationPanelSeries: версии одной даты", () => {
-  it("одинаковые даты съёмки различаются временем загрузки", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("одинаковые даты съёмки различаются местным временем загрузки", () => {
+    vi.stubEnv("TZ", "Asia/Yekaterinburg");
     const version = (source_id: string, uploaded_at: string) => ({
       source_id,
       title: "Положение горных работ",
@@ -218,8 +223,8 @@ describe("situationPanelSeries: версии одной даты", () => {
     };
 
     expect(situationPanelSeries(catalogue, [], {}, {})[0].versions.map((item) => item.label)).toEqual([
-      "01.09.2026 · загружен 03.10.2026 03:31",
-      "01.09.2026 · загружен 02.10.2026 18:05",
+      "01.09.2026 · загружен 03.10.2026 08:31",
+      "01.09.2026 · загружен 02.10.2026 23:05",
       "01.08.2026",
     ]);
   });

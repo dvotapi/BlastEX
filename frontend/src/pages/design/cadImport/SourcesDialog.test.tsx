@@ -10,6 +10,7 @@ import { cadSource } from "./testing/fixtures";
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 beforeAll(() => {
@@ -67,8 +68,17 @@ describe("SourcesDialog", () => {
 
     expect(within(row).getByText("01.09.2026")).toBeTruthy();
     expect(within(row).getByText(/Положение горных работ на 01\.09\.2026\.dxf/)).toBeTruthy();
-    expect(within(row).getByText(/02\.09\.2026 · engineer@example\.ru/)).toBeTruthy();
+    expect(within(row).getByText(/02\.09\.2026 \d{2}:\d{2} · engineer@example\.ru/)).toBeTruthy();
     expect(within(row).getByText("120")).toBeTruthy();
+  });
+
+  it("«Загружен» — местные дата и время: вечерняя загрузка по UTC попадает в свой день", async () => {
+    vi.stubEnv("TZ", "Asia/Yekaterinburg");
+    const late = { ...LIST, sources: [{ ...LIST.sources[1], uploaded_at: "2026-09-30T20:00:00+00:00" }] };
+    renderDialog({ list: vi.fn(async () => late) });
+    const row = (await screen.findByText("граница блока 66")).closest("tr") as HTMLElement;
+
+    expect(within(row).getByText("01.10.2026 01:00 · engineer@example.ru")).toBeTruthy();
   });
 
   it("«Открыть» загружает разбор и отдаёт его странице", async () => {

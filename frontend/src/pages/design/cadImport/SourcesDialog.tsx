@@ -4,7 +4,7 @@
 // нему, сохраняют контур и кровлю, но теряют его ситуацию.
 import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { api } from "../../../api/endpoints";
-import { ruDate } from "../../../lib/format";
+import { ruDate, ruDateTime } from "../../../lib/format";
 import type { CadSiteSources, CadSource } from "../../../types/cad";
 
 export type SourcesDialogProps = {
@@ -135,7 +135,7 @@ export function SourcesDialog({
                 <td className="cad-sources-file" title={item.file_name}>
                   {item.file_name}
                 </td>
-                <td>{`${ruDate(item.uploaded_at)} · ${item.uploaded_by}`}</td>
+                <td>{`${ruDateTime(item.uploaded_at)} · ${item.uploaded_by}`}</td>
                 <td className="cad-sources-count">{item.situation_count}</td>
                 <td className="cad-sources-actions">
                   <button type="button" className="secondary-button" disabled={busyId !== ""} onClick={() => void open(item.id)}>

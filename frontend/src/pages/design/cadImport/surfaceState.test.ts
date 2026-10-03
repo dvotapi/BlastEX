@@ -153,8 +153,31 @@ describe("buildConfirmText", () => {
     };
     const msk = { name: "МСК-66 зона 1", height_system: "Балтийская 1977", epsg: null };
 
-    expect(buildConfirmText(named, 410, msk)).toContain("система координат «Карьерная сетка» сменится на «МСК-66 зона 1»");
+    expect(buildConfirmText(named, 410, msk)).toContain(
+      "система координат «Карьерная сетка» сменится на «МСК-66 зона 1, высоты Балтийская 1977»",
+    );
     expect(buildConfirmText(named, 410, { ...msk, name: "Карьерная сетка", height_system: "" })).not.toContain("система координат");
+  });
+
+  it("смена одной системы высот или кода EPSG видна в тексте, а не «МСК-66 сменится на МСК-66»", () => {
+    const named = {
+      ...base,
+      contour: { ...base.contour, vertices },
+      coordinate_system: {
+        ...base.coordinate_system,
+        name: "МСК-66 зона 1",
+        height_system: "Балтийская 1977",
+        epsg: null,
+        confirmed: true,
+      },
+    };
+
+    expect(buildConfirmText(named, 410, { name: "МСК-66 зона 1", height_system: "", epsg: null })).toContain(
+      "система координат «МСК-66 зона 1, высоты Балтийская 1977» сменится на «МСК-66 зона 1»",
+    );
+    expect(
+      buildConfirmText(named, 410, { name: "МСК-66 зона 1", height_system: "Балтийская 1977", epsg: 6838 }),
+    ).toContain("сменится на «МСК-66 зона 1, высоты Балтийская 1977, EPSG 6838»");
   });
 
   it("смена СК «local» на пустом паспорте подтверждения не требует", () => {

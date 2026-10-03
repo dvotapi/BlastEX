@@ -134,6 +134,14 @@ export function roofSurface(result: CadSurfaceResult, source: CadSource, state: 
 }
 
 /** Что сменит «Построить блок» в паспорте — текст подтверждения (null — терять нечего). */
+/** «МСК-66 зона 1, высоты Балтийская 1977, EPSG 6838» — смена одних высот видна в тексте. */
+function crsLabel(crs: { name: string; height_system?: string | null; epsg?: number | null }): string {
+  const parts = [crs.name.trim()];
+  if (crs.height_system?.trim()) parts.push(`высоты ${crs.height_system.trim()}`);
+  if (crs.epsg) parts.push(`EPSG ${crs.epsg}`);
+  return parts.join(", ");
+}
+
 export function buildConfirmText(design: BlastDesign, toe: number | null, crs: CadCrs | null = null): string | null {
   const changes: string[] = [];
   if (design.contour.vertices.length) changes.push("контур блока и отметки уступа заменятся контуром из чертежа");
@@ -143,7 +151,7 @@ export function buildConfirmText(design: BlastDesign, toe: number | null, crs: C
   const differs =
     crs !== null &&
     (crs.name !== current.name || crs.height_system !== (current.height_system ?? "") || crs.epsg !== current.epsg);
-  if (named && differs) changes.push(`система координат «${current.name}» сменится на «${crs?.name}»`);
+  if (named && differs && crs) changes.push(`система координат «${crsLabel(current)}» сменится на «${crsLabel(crs)}»`);
   const { top, floor } = design.surfaces;
   if (top) changes.push(`кровля «${top.name}» заменится кровлей из чертежа`);
   if (floor) {

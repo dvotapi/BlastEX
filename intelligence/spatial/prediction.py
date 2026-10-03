@@ -15,6 +15,7 @@ from intelligence.calibration.base import (
     CURRENT_BASE,
     FragmentationBase,
     artifact_base,
+    raw_base_name,
     spatial_base_label,
 )
 from intelligence.spatial.features import extract_hole_observations, vectorize_hole
@@ -65,7 +66,7 @@ def physics_base(model: SpatialModel | None) -> tuple[FragmentationBase, list[st
     try:
         base = artifact_base(model.baseline_model, model.baseline_model_version)
     except ValueError:
-        name = f"{str(model.baseline_model).strip()} {str(model.baseline_model_version or '').strip()}".strip()
+        name = raw_base_name(model.baseline_model, model.baseline_model_version)
         return CURRENT_BASE, [
             f"База пространственной модели («{name}») неизвестна — "
             f"физика скважин посчитана текущей моделью «{CURRENT_BASE.label()}»."

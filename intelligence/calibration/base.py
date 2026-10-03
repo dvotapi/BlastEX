@@ -169,14 +169,20 @@ def sample_baseline(group: Mapping[str, Any], model_type: str, artifact: Fragmen
     return None
 
 
+def raw_base_name(model: str, version: str) -> str:
+    """Модель и версия неизвестной базы как записаны в файле: «<модель> <версия>».
+
+    Реестр такую модель не знает, подписать её по-человечески нечем.
+    """
+    return f"{str(model or '').strip()} {str(version or '').strip()}".strip()
+
+
 def _label(baseline_model: str, baseline_model_version: str, legacy_note: str) -> str:
     """Подпись базы артефакта; неизвестная модель в файле не роняет список и карточку."""
     try:
         base = artifact_base(baseline_model, baseline_model_version)
     except ValueError:
-        version = str(baseline_model_version or "").strip()
-        name = f"{str(baseline_model).strip()} {version}".strip()
-        return f"База: {name} — модель неизвестна"
+        return f"База: {raw_base_name(baseline_model, baseline_model_version)} — модель неизвестна"
     if base.legacy:
         return f"Старая база ({base.label()}) — {legacy_note}"
     return f"База: {base.label()}"

@@ -58,7 +58,7 @@ def fragmentation_base_label(team_id: str, model_id: str) -> str:
 
     Артефакт, который не загрузился, подписывается своим id.
     """
-    from intelligence.calibration.base import artifact_base
+    from intelligence.calibration.base import artifact_base, raw_base_name
     from intelligence.calibration.persistence import load_model
 
     try:
@@ -69,7 +69,7 @@ def fragmentation_base_label(team_id: str, model_id: str) -> str:
         return artifact_base(model.baseline_model, model.baseline_model_version).label()
     except ValueError:
         # Неизвестная модель в файле артефакта — подпись как записана.
-        return f"{str(model.baseline_model).strip()} {str(model.baseline_model_version or '').strip()}".strip()
+        return raw_base_name(model.baseline_model, model.baseline_model_version)
 
 
 def _score_learning(team_id: str, model_id: str, samples: list[Any]) -> dict[str, list[float]]:

@@ -32,6 +32,7 @@ from intelligence.calibration.base import (
     artifact_base,
     base_label,
     prediction_base,
+    raw_base_name,
     refusal_reason,
     version_major,
 )
@@ -173,7 +174,7 @@ def _artifact_base(model) -> tuple[FragmentationBase, str]:
     try:
         return artifact_base(model.baseline_model, model.baseline_model_version), ""
     except ValueError:
-        name = f"{model.baseline_model} {model.baseline_model_version}".strip()
+        name = raw_base_name(model.baseline_model, model.baseline_model_version)
         return CURRENT_BASE, (
             f"Калибровка обучена на прогнозах неизвестной модели «{name}» и не применяется — её нужно переобучить."
         )

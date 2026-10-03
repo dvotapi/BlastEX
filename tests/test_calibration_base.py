@@ -9,6 +9,7 @@ from intelligence.calibration.base import (
     base_label,
     compatible,
     prediction_base,
+    raw_base_name,
     refusal_reason,
     sample_baseline,
     snapshot_base,
@@ -186,6 +187,12 @@ class SampleBaselineTests(unittest.TestCase):
 
 
 class LabelTests(unittest.TestCase):
+    def test_raw_base_name(self):
+        self.assertEqual(raw_base_name("no_such_model", "2.0.0"), "no_such_model 2.0.0")
+        self.assertEqual(raw_base_name(" no_such_model ", " 2.0.0 "), "no_such_model 2.0.0")
+        self.assertEqual(raw_base_name("no_such_model", ""), "no_such_model")
+        self.assertEqual(raw_base_name("no_such_model", None), "no_such_model")
+
     def test_labels(self):
         self.assertEqual(base_label(X50, "kuzram", CURRENT_VERSION), f"База: Kuz-Ram {CURRENT_VERSION}")
         self.assertEqual(

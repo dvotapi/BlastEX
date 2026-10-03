@@ -389,6 +389,28 @@ def test_passport_of_a_file_without_site_sees_its_own_situation(repository):
     assert _catalogue(client)["series"] == []
 
 
+def test_passport_of_a_file_without_site_ignores_the_active_object(repository):
+    """Codex (#108, круг 2): ситуация файла без объекта — только в его паспорте.
+
+    Объект выбрали после постройки: ссылка паспорта ведёт на файл без
+    объекта, и ситуация активного объекта к нему не подмешивается. Ссылки,
+    которых больше нет, тоже не открывают активный объект.
+    """
+
+    standalone = _upload(_client(repository, work_object=""), ("ситуация.dxf", situation_dxf()))[0]
+    active = _client(repository)
+    on_site = _upload(active, ("Положение горных работ на 01.09.2026.dxf", situation_dxf(roads=2)))[0]
+
+    catalogue = _catalogue(active, standalone["id"])
+    assert [item["default_source_id"] for item in catalogue["series"]] == [standalone["id"]]
+    assert catalogue["site_code"] == ""
+
+    gone = _catalogue(active, "deleted-source")
+    assert gone["series"] == [] and gone["missing"] == ["deleted-source"]
+    # Паспорт без ссылки — по-прежнему активный объект.
+    assert [item["default_source_id"] for item in _catalogue(active)["series"]] == [on_site["id"]]
+
+
 def test_situation_geometry_by_layer_with_kind_and_color(repository):
     client = _client(repository)
     source = _upload(client, ("ситуация.dxf", situation_dxf()))[0]

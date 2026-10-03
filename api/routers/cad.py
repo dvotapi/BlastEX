@@ -149,7 +149,7 @@ def get_situation(
     snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
     work_object_name: str = Depends(current_work_object_name),
 ) -> CadSituationCatalogueResponse:
-    """Серии ситуации объекта паспорта: по источникам ссылки, иначе активного объекта."""
+    """Серии ситуации объекта паспорта: по источникам ссылки, без ссылки — активного объекта."""
 
     organization_id, _ = _identity(session)
     site_code = cad_service.resolve_site_code(snapshot, work_object_name)

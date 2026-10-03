@@ -71,7 +71,7 @@ def catalogue(
     """Серии ситуации объекта паспорта.
 
     Объект — по источникам ссылки паспорта (паспорт мог быть построен на
-    другом объекте), иначе активный. Ссылка на удалённый или чужой источник
+    другом объекте); активный — только когда ссылки нет. Ссылка на удалённый или чужой источник
     попадает в `missing`, остальное отдаётся как обычно. Предел — версии на
     серию, а не файлы объекта: файлов блоков без ситуации сотни, и редкая
     серия (ЛЭП, контур карьера) не должна из-за них пропадать.
@@ -85,7 +85,11 @@ def catalogue(
             missing.append(source_id)
         else:
             referenced[source_id] = record
-    site_code = next((item.site_code for item in referenced.values() if item.site_code), active_site_code)
+    # Активный объект — только у паспорта без ссылки: ссылка на файл без
+    # объекта или на удалённые файлы не подмешивает ситуацию чужого объекта.
+    site_code = (
+        next((item.site_code for item in referenced.values() if item.site_code), "") if source_ids else active_site_code
+    )
 
     scanned = (
         repository.list_situation_sources(organization_id, site_code, limit=MAX_SCANNED_SOURCES + 1) if site_code else []

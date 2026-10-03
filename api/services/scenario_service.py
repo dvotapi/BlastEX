@@ -192,9 +192,12 @@ def _apply_ml_overlays(
             (MODEL_OVERSIZE_RESIDUAL, "oversize_pct", "oversize_engineering_pct"),
             (MODEL_PPV_RESIDUAL, "ppv_mm_s", "ppv_engineering_mm_s"),
         )
+        # Подписи типов калибровок в предупреждениях — без служебных имён.
+        labels = {MODEL_KUZRAM_RESIDUAL: "x50", MODEL_OVERSIZE_RESIDUAL: "негабарит", MODEL_PPV_RESIDUAL: "PPV"}
         for model_type, field, baseline_field in mapping:
             calibration_id = str(params.calibration_model_ids.get(model_type) or "").strip()
             fragmentation = model_type in FRAGMENTATION_RESIDUALS
+            label = labels[model_type]
             if fragmentation and scenario_base is None:
                 continue
             # Сбой загрузки одной калибровки снимает только её.
@@ -205,9 +208,15 @@ def _apply_ml_overlays(
                 elif params.use_production_overlays and site_id:
                     model = production_model(team_id, site_id, model_type)
             except Exception as exc:  # noqa: BLE001 — любой сбой хранилища
-                outcomes.warnings.append(f"Калибровка «{model_type}» пропущена: {exc}")
+                outcomes.warnings.append(f"Калибровка «{label}» пропущена: {exc}")
                 continue
             if model is None:
+                continue
+            # Проверка базы и правка идут по типу слота: артефакт другого типа
+            # (x50 в слоте PPV) обошёл бы проверку базы и правил бы не то.
+            if str(model.model_type or "").strip() != model_type:
+                other = labels.get(str(model.model_type or "").strip(), "другого типа")
+                outcomes.warnings.append(f"Калибровка «{label}» пропущена: выбрана калибровка «{other}».")
                 continue
             if fragmentation:
                 try:
@@ -216,10 +225,10 @@ def _apply_ml_overlays(
                         artifact_base(model.baseline_model, model.baseline_model_version),
                         scenario_base,
                     )
-                except ValueError as exc:
+                except ValueError:
                     # В артефакте записана неизвестная модель: калибровку снимаем,
                     # остальные слои (PPV) остаются.
-                    outcomes.warnings.append(f"Калибровка «{model_type}» пропущена: {exc}")
+                    outcomes.warnings.append(f"Калибровка «{label}» пропущена: в артефакте неизвестная модель базы.")
                     continue
                 if reason:
                     if reason not in outcomes.warnings:

@@ -99,6 +99,7 @@ export function SpatialPanel({
         {overlay && overlay.prediction_applied && (
           <div className="dataset-detail">
             <small>Слой predicted · проект не изменён · {overlay.hole_count} скважин</small>
+            {overlay.base_label && <small className="frag-settings">{overlay.base_label}</small>}
             <div className="metrics-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
               <div><span>X50 блока</span><strong>{formatValue(overlay.block.x50_mm, 1)}</strong><small>мм</small></div>
               <div><span>Негабарит блока</span><strong>{formatValue(overlay.block.oversize_pct, 1)}</strong><small>%</small></div>

@@ -47,6 +47,32 @@ class SpatialBaseTests(unittest.TestCase):
         self.assertEqual(models, {"kuzram"})
         self.assertEqual(overlay.base_label, f"База: Kuz-Ram {CURRENT_VERSION}")
 
+    def test_model_of_other_version_counts_current_physics_and_asks_to_retrain(self):
+        """Модель на физике 2.0.0: движок считает 2.1.0 — подпись ответа не врёт, просим переобучить."""
+        model = train_from_snapshot(synthetic_spatial_snapshot(), team_id="sp")
+        model.baseline_model, model.baseline_model_version = "kuzram", PR2_VERSION
+
+        models, overlay = _physics_models(model)
+
+        self.assertEqual(models, {"kuzram"})
+        self.assertEqual((overlay.physics_model, overlay.physics_model_version), ("kuzram", CURRENT_VERSION))
+        self.assertEqual(overlay.base_label, f"База: Kuz-Ram {PR2_VERSION}")
+        self.assertIn(
+            f"Пространственная модель обучена на физике «Kuz-Ram {PR2_VERSION}», "
+            f"а посчитана «Kuz-Ram {CURRENT_VERSION}» — её нужно переобучить.",
+            overlay.warnings,
+        )
+
+    def test_model_of_current_version_has_no_retrain_warning(self):
+        model = train_from_snapshot(synthetic_spatial_snapshot(), team_id="sp")
+        model.baseline_model, model.baseline_model_version = "swebrec", CURRENT_VERSION
+
+        models, overlay = _physics_models(model)
+
+        self.assertEqual(models, {"swebrec"})
+        self.assertEqual((overlay.physics_model, overlay.physics_model_version), ("swebrec", CURRENT_VERSION))
+        self.assertFalse(any("переобучить" in item for item in overlay.warnings))
+
     def test_unknown_base_falls_back_to_current_physics(self):
         model = train_from_snapshot(synthetic_spatial_snapshot(), team_id="sp")
         model.baseline_model, model.baseline_model_version = "no_such_model", "9.0.0"

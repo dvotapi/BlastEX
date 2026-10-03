@@ -33,6 +33,7 @@ from intelligence.spatial.types import (
     SpatialModel,
     SpatialOverlay,
 )
+from simulation.fragmentation.engine import FRAGMENTATION_MODELS
 
 
 def _warnings_for(model: SpatialModel | None) -> list[str]:
@@ -55,17 +56,28 @@ def physics_base(model: SpatialModel | None) -> tuple[FragmentationBase, list[st
     Физика — базой, на которой модель обучена; без модели — текущей.
     Неизвестное имя модели в файле артефакта не должно ронять прогноз:
     физика считается текущей базой, а причина уходит в предупреждения.
+    Движок считает модель только текущей версией: у модели, обученной на
+    другой версии той же формулы, физика посчитана текущей — так её и
+    подписываем и просим переобучить.
     """
     if model is None:
         return CURRENT_BASE, []
     try:
-        return artifact_base(model.baseline_model, model.baseline_model_version), []
+        base = artifact_base(model.baseline_model, model.baseline_model_version)
     except ValueError:
         name = f"{str(model.baseline_model).strip()} {str(model.baseline_model_version or '').strip()}".strip()
         return CURRENT_BASE, [
             f"База пространственной модели («{name}») неизвестна — "
             f"физика скважин посчитана текущей моделью «{CURRENT_BASE.label()}»."
         ]
+    current_version = str(FRAGMENTATION_MODELS[base.model]["version"])
+    if base.legacy or base.model_version == current_version:
+        return base, []
+    computed = FragmentationBase(base.model, current_version)
+    return computed, [
+        f"Пространственная модель обучена на физике «{base.label()}», "
+        f"а посчитана «{computed.label()}» — её нужно переобучить."
+    ]
 
 
 def _block_from_request(

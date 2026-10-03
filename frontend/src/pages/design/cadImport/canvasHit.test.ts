@@ -35,3 +35,32 @@ describe("CanvasHitIndex", () => {
     expect(new CanvasHitIndex(ENTITIES.filter((entity) => entity.geometry_type === "text")).hit([110.2, 190.3], 1)).toBeNull();
   });
 });
+
+describe("CanvasHitIndex: что сверху на экране", () => {
+  const LINE: [number, number, number][] = [
+    [0, 0, 420],
+    [20, 0, 420],
+  ];
+
+  it("совпадающие линии — выигрывает нарисованная сверху (контур над бровкой), а не порядок в файле", () => {
+    const contour = cadEntity("C", "блок", { role: "block_contour", points: LINE });
+    const crest = cadEntity("T", "Горизонт +410", { role: "crest_top", points: LINE });
+
+    expect(new CanvasHitIndex([contour, crest]).hit([10, 0.05], 0.5)?.handle).toBe("C");
+    expect(new CanvasHitIndex([crest, contour]).hit([10, 0.05], 0.5)?.handle).toBe("C");
+  });
+
+  it("точка отметки рядом с линией наводится, как раньше на SVG (точки поверх линий)", () => {
+    const line = cadEntity("L", "Горизонт +410", { role: "crest_top", points: LINE });
+    const point = cadEntity("P", "Отметка", {
+      kind: "POINT",
+      geometry_type: "point",
+      role: "spot_heights",
+      points: [[10, 0.3, 420]],
+    });
+
+    expect(new CanvasHitIndex([line, point]).hit([10, 0.25], 0.5, 0.5)).toEqual({ layer: "Отметка", handle: null });
+    // Курсор на линии, далеко от точки — линия.
+    expect(new CanvasHitIndex([line, point]).hit([2, 0], 0.5, 0.5)?.handle).toBe("L");
+  });
+});

@@ -15,8 +15,11 @@ export function SituationCanvas({ strokes, width, height }: { strokes: Situation
     const canvas = ref.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
-    canvas.width = Math.round(width * ratio);
-    canvas.height = Math.round(height * ratio);
+    // Размер буфера — только при смене: присваивание пересоздаёт буфер холста.
+    const bufferWidth = Math.round(width * ratio);
+    const bufferHeight = Math.round(height * ratio);
+    if (canvas.width !== bufferWidth) canvas.width = bufferWidth;
+    if (canvas.height !== bufferHeight) canvas.height = bufferHeight;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
     context.lineWidth = 1;

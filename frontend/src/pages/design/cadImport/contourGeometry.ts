@@ -253,6 +253,16 @@ export class SnapIndex {
     return [...found].map((at) => this.segments[at]);
   }
 
+  /** Линии не дальше `radius` от точки: handle → наименьшее расстояние. */
+  linesNear(p: XY, radius: number): Map<string, number> {
+    const found = new Map<string, number>();
+    for (const segment of this.nearSegments(p, radius)) {
+      const { distance } = projectOnPolyline([segment.a, segment.b], p);
+      if (distance <= radius && distance < (found.get(segment.handle) ?? Infinity)) found.set(segment.handle, distance);
+    }
+    return found;
+  }
+
   /** Точка привязки не дальше `aperture` метров от курсора или `null`. */
   snap(p: XY, aperture: number): Snap | null {
     const closest = <T extends { point: XY }>(cells: PointCells<T>): T | undefined => cells.nearest(p, aperture);

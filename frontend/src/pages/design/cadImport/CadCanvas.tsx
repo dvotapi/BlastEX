@@ -34,7 +34,7 @@ import {
 } from "../../../lib/geometry2d";
 import type { CadEntity } from "../../../types/cad";
 import { drawingBounds, linePath, pointsPath } from "./cadGeometry";
-import { roleColor } from "./cadRoles";
+import { inDrawOrder, roleColor } from "./cadRoles";
 import { CanvasHitIndex } from "./canvasHit";
 import type { Snap, SnapIndex } from "./contourGeometry";
 import type { Pick } from "./contourState";
@@ -47,18 +47,6 @@ const POINT_RADIUS_PX = 2.2;
 const HIT_WIDTH_PX = 10;
 /** Апертура привязки курсора на экране (как объектная привязка САПР). */
 export const SNAP_APERTURE_PX = 10;
-// Порядок слоёв рисования: ситуация под бровками, контур — сверху.
-const ROLE_ORDER = [
-  "ignore",
-  "situation",
-  "contour_line",
-  "feature_line",
-  "spot_heights",
-  "design_line",
-  "crest_bottom",
-  "crest_top",
-  "block_contour",
-];
 
 function matches(target: CanvasTarget | null, entity: CadEntity): boolean {
   if (!target || target.layer !== entity.layer) return false;
@@ -83,8 +71,11 @@ function BaseLayer({ lines, points, camera, viewport }: { lines: CadEntity[]; po
     const canvas = ref.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
-    canvas.width = Math.round(viewport.width * ratio);
-    canvas.height = Math.round(viewport.height * ratio);
+    // Размер буфера — только при смене: присваивание пересоздаёт буфер холста.
+    const width = Math.round(viewport.width * ratio);
+    const height = Math.round(viewport.height * ratio);
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, viewport.width, viewport.height);
     const cx = viewport.width / 2;
@@ -200,10 +191,7 @@ export function CadCanvas({
   const cam = camera ?? fitted;
 
   const lines = useMemo(
-    () =>
-      entities
-        .filter((entity) => entity.geometry_type === "line" && entity.points.length >= 2)
-        .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)),
+    () => inDrawOrder(entities.filter((entity) => entity.geometry_type === "line" && entity.points.length >= 2)),
     [entities],
   );
   const points = useMemo(
@@ -229,7 +217,8 @@ export function CadCanvas({
   /** Линия или слой точки под курсором: зона попадания — `HIT_WIDTH_PX` на экране. */
   function targetAt(screen: Vec2): CanvasTarget | null {
     const world = screenToWorld(cam, viewport, screen);
-    return hitIndex.hit([world.x, world.y], HIT_WIDTH_PX / 2 / cam.scale);
+    // Как у SVG-зон: линия — 10 px, точка — свой кружок + 3 px; равными считаем линии в пределах 1 px.
+    return hitIndex.hit([world.x, world.y], HIT_WIDTH_PX / 2 / cam.scale, (POINT_RADIUS_PX + 3) / cam.scale, 1 / cam.scale);
   }
 
   function reportHover(target: CanvasTarget | null) {

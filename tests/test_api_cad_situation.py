@@ -428,6 +428,32 @@ def test_passport_of_a_file_without_site_ignores_the_active_object(repository):
     assert [item["default_source_id"] for item in _catalogue(active)["series"]] == [on_site["id"]]
 
 
+def test_contour_source_only_locates_the_site_without_pinning(repository):
+    """Codex (#108, круг 4): паспорт без запомненных версий (до PR 4) передаёт
+    источник контура лишь чтобы найти объект — серия показывает свежую версию."""
+
+    client = _client(repository)
+    old = _upload(client, ("Положение горных работ на 01.09.2026.dxf", situation_dxf()))[0]
+    new = _upload(client, ("Положение горных работ на 01.10.2026.dxf", situation_dxf(roads=2)))[0]
+
+    def located(source_id: str) -> dict:
+        response = client.get(f"{BASE}/situation", params={"site_source_id": source_id})
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    catalogue = located(old["id"])
+    assert _series(catalogue)["положение горных работ"]["default_source_id"] == new["id"]
+    assert catalogue["site_code"] == "SITE_ZK" and catalogue["missing"] == []
+    # Закреплённая ссылка — по-прежнему своя версия.
+    assert _series(_catalogue(client, old["id"]))["положение горных работ"]["default_source_id"] == old["id"]
+
+    # Файл без объекта находит только себя; удалённый не открывает активный объект.
+    standalone = _upload(_client(repository, work_object=""), ("ситуация.dxf", situation_dxf()))[0]
+    assert [item["default_source_id"] for item in located(standalone["id"])["series"]] == [standalone["id"]]
+    gone = located("deleted-source")
+    assert gone["series"] == [] and gone["missing"] == []
+
+
 def test_situation_geometry_by_layer_with_kind_and_color(repository):
     client = _client(repository)
     source = _upload(client, ("ситуация.dxf", situation_dxf()))[0]

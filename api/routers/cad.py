@@ -144,16 +144,23 @@ def get_site_sources(
 @router.get("/situation", response_model=CadSituationCatalogueResponse)
 def get_situation(
     source_ids: list[str] = Query(default_factory=list, max_length=MAX_SITUATION_REFERENCES),
+    site_source_id: str | None = Query(default=None, max_length=36),
     session: dict = Depends(require_internal_access),
     repository: CadRepository = Depends(get_cad_repository),
     snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
     work_object_name: str = Depends(current_work_object_name),
 ) -> CadSituationCatalogueResponse:
-    """Серии ситуации объекта паспорта: по источникам ссылки, без ссылки — активного объекта."""
+    """Серии ситуации объекта паспорта: по источникам ссылки, без ссылки — активного объекта.
+
+    `site_source_id` — источник, по которому только находится объект (контур
+    паспорта без запомненных версий): его версия не закрепляется.
+    """
 
     organization_id, _ = _identity(session)
     site_code = cad_service.resolve_site_code(snapshot, work_object_name)
-    return cad_situation_service.catalogue(repository, organization_id, site_code, source_ids)
+    return cad_situation_service.catalogue(
+        repository, organization_id, site_code, source_ids, site_source_id=site_source_id
+    )
 
 
 @router.get("/sources/{source_id}/situation", response_model=CadSituationGeometryResponse)

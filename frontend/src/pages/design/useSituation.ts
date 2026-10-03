@@ -1,8 +1,9 @@
 // Ситуация объекта на странице «Проектирование» (TASK-013, PR 4).
 //
-// Каталог серий запрашивается по ссылке паспорта (`contour.cad.situation`,
-// иначе источник контура) через 300 мс после её смены; объект сервер находит
-// сам — по источникам ссылки, активный — только без ссылки. Показывается версия, выбранная
+// Каталог серий запрашивается по ссылке паспорта (`contour.cad.situation`)
+// через 300 мс после её смены; без запомненных версий источник контура только
+// находит объект (`site_source_id`), версия не закрепляется. Объект сервер
+// находит сам — по источникам ссылки, активный — только без ссылки. Показывается версия, выбранная
 // в «Виде» (только просмотр), иначе версия по умолчанию: из ссылки паспорта
 // или самая свежая. Геометрия кэшируется по источнику и номеру его правки;
 // удалённая версия отмечается и не запрашивается снова.
@@ -17,12 +18,12 @@ export const SITUATION_DELAY_MS = 300;
 const NO_CHOICE: Record<string, string> = {};
 
 export type SituationFetchers = {
-  catalogue: (sourceIds: string[]) => Promise<CadSituationCatalogue>;
+  catalogue: (sourceIds: string[], siteSourceId?: string) => Promise<CadSituationCatalogue>;
   geometry: (sourceId: string) => Promise<CadSituationGeometry>;
 };
 
 const DEFAULT_FETCHERS: SituationFetchers = {
-  catalogue: (ids) => api.cad.situation(ids),
+  catalogue: (ids, siteSourceId) => api.cad.situation(ids, siteSourceId),
   geometry: (id) => api.cad.sourceSituation(id),
 };
 
@@ -94,12 +95,15 @@ export function useSituation(
   const inflight = useRef(new Set<string>());
   const referenceIds = reference.ids;
   const idsKey = referenceIds.join(",");
+  const requestKey = `${reference.pinned ? "pinned" : "site"}:${idsKey}`;
 
   useEffect(() => {
     const number = ++sequence.current;
     broken.current.clear();
     const timer = setTimeout(() => {
-      fetchers.catalogue(idsKey ? idsKey.split(",") : []).then(
+      const ids = idsKey ? idsKey.split(",") : [];
+      const request = reference.pinned || !ids.length ? fetchers.catalogue(ids) : fetchers.catalogue([], ids[0]);
+      request.then(
         (loaded) => {
           if (number !== sequence.current) return;
           setCatalogue(loaded);
@@ -114,7 +118,7 @@ export function useSituation(
     }, SITUATION_DELAY_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey, reloadKey]);
+  }, [requestKey, reloadKey]);
 
   const displayed = useMemo(() => {
     const result: Record<string, string> = {};
@@ -176,7 +180,8 @@ export function useSituation(
       else if (gone.current.has(cacheKey) && !missing.includes(sourceId)) missing.push(sourceId);
       else if (broken.current.has(cacheKey)) failures += 1;
     }
-    const references = new Set(referenceIds);
+    // «Паспорт спроектирован по…» — только запомненные версии, не источник контура.
+    const references = new Set(reference.pinned ? referenceIds : []);
     const passport: Record<string, string> = {};
     for (const series of catalogue?.series ?? []) {
       const pinned = series.versions.find((item) => references.has(item.source_id));

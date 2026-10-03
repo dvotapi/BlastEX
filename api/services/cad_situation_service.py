@@ -66,12 +66,19 @@ def _version(record: CadSourceRecord, count: int) -> CadSituationVersionSchema:
 
 
 def catalogue(
-    repository: CadRepository, organization_id: str, active_site_code: str, source_ids: list[str]
+    repository: CadRepository,
+    organization_id: str,
+    active_site_code: str,
+    source_ids: list[str],
+    *,
+    site_source_id: str | None = None,
 ) -> CadSituationCatalogueResponse:
     """Серии ситуации объекта паспорта.
 
     Объект — по источникам ссылки паспорта (паспорт мог быть построен на
-    другом объекте); активный — только когда ссылки нет. Ссылка на удалённый или чужой источник
+    другом объекте); активный — только когда ссылки нет. `site_source_id` —
+    источник контура паспорта без запомненных версий: по нему находится
+    объект, но его версия не закрепляется (серия покажет самую свежую). Ссылка на удалённый или чужой источник
     попадает в `missing`, остальное отдаётся как обычно. Предел — версии на
     серию, а не файлы объекта: файлов блоков без ситуации сотни, и редкая
     серия (ЛЭП, контур карьера) не должна из-за них пропадать.
@@ -85,11 +92,15 @@ def catalogue(
             missing.append(source_id)
         else:
             referenced[source_id] = record
+    locator = repository.get_source(organization_id, site_source_id) if site_source_id and not source_ids else None
     # Активный объект — только у паспорта без ссылки: ссылка на файл без
     # объекта или на удалённые файлы не подмешивает ситуацию чужого объекта.
-    site_code = (
-        next((item.site_code for item in referenced.values() if item.site_code), "") if source_ids else active_site_code
-    )
+    if source_ids:
+        site_code = next((item.site_code for item in referenced.values() if item.site_code), "")
+    elif site_source_id:
+        site_code = locator.site_code if locator is not None else ""
+    else:
+        site_code = active_site_code
 
     scanned = (
         repository.list_situation_sources(organization_id, site_code, limit=MAX_SCANNED_SOURCES + 1) if site_code else []
@@ -101,6 +112,8 @@ def catalogue(
     # Источник ссылки старше просмотренных или без объекта (файл загружен без
     # активного объекта) — всё равно в своём паспорте.
     extra = {source_id: record for source_id, record in referenced.items() if source_id not in candidates}
+    if locator is not None and locator.id not in candidates:
+        extra[locator.id] = locator
     counts.update(repository.count_entities_by_role(organization_id, set(extra), ROLE_SITUATION))
     candidates.update(extra)
 

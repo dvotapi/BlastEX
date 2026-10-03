@@ -256,6 +256,17 @@ describe("useSituation: ошибки геометрии", () => {
     expect((api.geometry as ReturnType<typeof vi.fn>).mock.calls.filter(([id]) => id === "oct")).toHaveLength(1);
   });
 
+  it("паспорт без запомненных версий: источник контура только находит объект и не «паспортная» версия", async () => {
+    // Ревью Codex (#108, круг 4): закреплённым он показывал бы старую версию серии вместо свежей.
+    const api = fetchers();
+    const { result } = renderHook(() => useSituation({ ids: ["block"], pinned: false }, {}, 0, api));
+    await settle();
+    await settle();
+
+    expect(api.catalogue).toHaveBeenCalledWith([], "block");
+    expect(result.current.passport).toEqual({});
+  });
+
   it("паспорт без запомненных версий не считает удалённым источник контура", async () => {
     const api = fetchers({ catalogue: vi.fn(async () => catalogue({ missing: ["block-gone"] })) });
     const { result } = renderHook(() => useSituation({ ids: ["block-gone"], pinned: false }, {}, 0, api));

@@ -483,11 +483,16 @@ export const api = {
     /** «Чертежи объекта» — объект берёт сервер (активный объект организации). */
     siteSources: () => get<CadSiteSources>(`${V1}/design/cad/sources`),
     deleteSource: (id: string) => del<void>(`${V1}/design/cad/sources/${encodeURIComponent(id)}`),
-    /** Серии ситуации объекта паспорта: по ссылкам паспорта, иначе активного объекта. */
-    situation: (sourceIds: string[]) => {
+    /**
+     * Серии ситуации объекта паспорта: по ссылкам паспорта, без ссылки — активного
+     * объекта. `siteSourceId` — источник, по которому только находится объект
+     * (контур паспорта без запомненных версий): его версия не закрепляется.
+     */
+    situation: (sourceIds: string[], siteSourceId?: string) => {
       const query = new URLSearchParams(sourceIds.map((id) => ["source_ids", id]));
-      const suffix = sourceIds.length ? `?${query.toString()}` : "";
-      return get<CadSituationCatalogue>(`${V1}/design/cad/situation${suffix}`);
+      if (siteSourceId) query.set("site_source_id", siteSourceId);
+      const text = query.toString();
+      return get<CadSituationCatalogue>(`${V1}/design/cad/situation${text ? `?${text}` : ""}`);
     },
     sourceSituation: (id: string) =>
       get<CadSituationGeometry>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/situation`),

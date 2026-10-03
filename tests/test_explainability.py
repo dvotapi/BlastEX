@@ -24,7 +24,7 @@ from intelligence.explainability.shap_values import local_shap_values, tree_path
 from intelligence.explainability.types import METHOD_NONE, METHOD_TREE_PATH, empty_explanation
 from intelligence.outcomes.prediction import apply_model, empty_prediction
 from intelligence.outcomes.training import train_from_snapshot as train_outcome
-from tests.calibration_fixtures import synthetic_snapshot, with_current_base
+from tests.calibration_fixtures import CURRENT_VERSION, synthetic_snapshot, with_current_base
 from tests.outcome_fixtures import synthetic_outcome_snapshot
 
 BURDEN = "GEOMETRY.mean_burden_m"
@@ -338,7 +338,7 @@ class ExplainabilityApiTests(unittest.TestCase):
                 site_id="quarry-1",
                 baseline=150.0,
                 baseline_model="kuzram",
-                baseline_model_version="2.0.0",
+                baseline_model_version=CURRENT_VERSION,
                 features=snapshot.samples[-1].features,
             ),
         )

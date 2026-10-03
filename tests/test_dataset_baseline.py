@@ -3,6 +3,7 @@ import unittest
 from dataclasses import asdict
 from unittest.mock import patch
 
+from intelligence.calibration.base import CURRENT_BASE
 from intelligence.datasets.baseline import fragmentation_baseline
 from intelligence.datasets.builder import DatasetSnapshot, build_sample, build_snapshot
 from intelligence.datasets.targets import target_group_has_values
@@ -38,7 +39,10 @@ class RowTests(unittest.TestCase):
 
         self.assertEqual(frag["predicted_x50_mm"], 150.0)
         self.assertEqual((frag["predicted_model"], frag["predicted_model_version"]), ("kuzram", "1"))
-        self.assertEqual((frag["baseline_model"], frag["baseline_model_version"]), ("kuzram", "2.0.0"))
+        self.assertEqual(
+            (frag["baseline_model"], frag["baseline_model_version"]),
+            (CURRENT_BASE.model, CURRENT_BASE.model_version),
+        )
         self.assertAlmostEqual(frag["baseline_x50_mm"], _site_x50(design), places=9)
         self.assertIn("умолчания", frag["baseline_warnings"][0])
 
@@ -100,9 +104,9 @@ class RowTests(unittest.TestCase):
     def test_string_fields_do_not_complete_group(self):
         group = {
             "predicted_model": "kuzram",
-            "predicted_model_version": "2.0.0",
-            "baseline_model": "kuzram",
-            "baseline_model_version": "2.0.0",
+            "predicted_model_version": CURRENT_BASE.model_version,
+            "baseline_model": CURRENT_BASE.model,
+            "baseline_model_version": CURRENT_BASE.model_version,
             "baseline_x50_mm": 150.0,
             "baseline_settings": {"source": "defaults"},
             "baseline_warnings": ["x"],
@@ -208,7 +212,7 @@ class SnapshotTests(unittest.TestCase):
     def test_snapshot_records_base(self):
         snapshot = build_snapshot([closed_design("s-1")], site_id="quarry-1", dataset_id="s", dataset_version=1)
 
-        self.assertEqual(snapshot.fragmentation_base, {"model": "kuzram", "model_version": "2.0.0"})
+        self.assertEqual(snapshot.fragmentation_base, CURRENT_BASE.to_dict())
         restored = DatasetSnapshot.from_dict(snapshot.to_dict())
         self.assertEqual(restored.fragmentation_base, snapshot.fragmentation_base)
 

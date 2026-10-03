@@ -10,10 +10,11 @@ from intelligence.calibration import persistence as calibration_store
 from intelligence.calibration.training import train_from_snapshot
 from intelligence.spatial import persistence as spatial_store
 from intelligence.spatial.training import train_from_snapshot as train_spatial
-from tests.calibration_fixtures import synthetic_snapshot
+from tests.calibration_fixtures import CURRENT_BASE_FIELDS, CURRENT_VERSION, synthetic_snapshot
 from tests.spatial_fixtures import synthetic_spatial_snapshot
 
 TEAM_ID = "artifact-base"
+CURRENT = (CURRENT_BASE_FIELDS["baseline_model"], CURRENT_VERSION)
 
 
 def _strip_base(path: Path, integrity_hash) -> None:
@@ -39,14 +40,14 @@ class ArtifactBaseTests(unittest.TestCase):
         return calibration_store.save_model(TEAM_ID, model)
 
     def test_fields_round_trip(self):
-        saved = self._calibration("cal-new", ("kuzram", "2.0.0"))
+        saved = self._calibration("cal-new", CURRENT)
 
         loaded = calibration_store.load_model(TEAM_ID, saved.model_id)
 
-        self.assertEqual((loaded.baseline_model, loaded.baseline_model_version), ("kuzram", "2.0.0"))
+        self.assertEqual((loaded.baseline_model, loaded.baseline_model_version), CURRENT)
 
     def test_file_before_pr3_loads_and_changes_status(self):
-        saved = self._calibration("cal-old", ("kuzram", "2.0.0"))
+        saved = self._calibration("cal-old", CURRENT)
         _strip_base(calibration_store.metadata_path(TEAM_ID, saved.model_id), calibration_store.integrity_hash)
 
         loaded = calibration_store.load_model(TEAM_ID, saved.model_id)
@@ -56,13 +57,13 @@ class ArtifactBaseTests(unittest.TestCase):
         self.assertEqual(promoted.status, "production")
 
     def test_labels_in_list_and_card(self):
-        self._calibration("cal-new", ("kuzram", "2.0.0"))
+        self._calibration("cal-new", CURRENT)
         self._calibration("cal-old", ("", ""))
 
         labels = {item.model_id: item.base_label for item in calibration_service.list_calibration_models(TEAM_ID).items}
         card = calibration_service.get_calibration_model(TEAM_ID, "cal-old")
 
-        self.assertEqual(labels["cal-new"], "База: Kuz-Ram 2.0.0")
+        self.assertEqual(labels["cal-new"], f"База: Kuz-Ram {CURRENT_VERSION}")
         self.assertIn("Старая база", labels["cal-old"])
         self.assertIn("Старая база", card.base_label)
 

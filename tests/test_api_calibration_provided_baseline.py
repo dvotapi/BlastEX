@@ -19,7 +19,7 @@ from intelligence.calibration.types import MODEL_SPECS
 from intelligence.datasets.builder import build_snapshot
 from intelligence.datasets.persistence import save_snapshot
 from simulation.fragmentation.models import ModelProvenance
-from tests.calibration_fixtures import synthetic_snapshot, varied_closed_designs
+from tests.calibration_fixtures import CURRENT_VERSION, PR2_VERSION, synthetic_snapshot, varied_closed_designs
 
 TEAM_ID = "api-cal-provided"
 X50 = "kuzram_residual"
@@ -75,19 +75,19 @@ class _ProvidedBaselineCase(unittest.TestCase):
 
 
 class NewArtifactProvidedBaselineTests(_ProvidedBaselineCase):
-    """Калибровка обучена на текущей базе Kuz-Ram 2.0.0."""
+    """Калибровка обучена на текущей базе Kuz-Ram (версия — из реестра моделей движка)."""
 
     def test_current_base_baseline_is_calibrated(self):
         for model_type in (X50, OVERSIZE):
-            self._assert_applied(model_type, "kuzram", "2.0.0")
+            self._assert_applied(model_type, "kuzram", CURRENT_VERSION)
 
     def test_x50_accepts_any_model_of_current_base(self):
         # x50 трёх моделей одной базы одинаков, поэтому поправка x50 ложится на любую из них.
         for model in ("swebrec", "kuznetsov"):
-            self._assert_applied(X50, model, "2.0.0")
+            self._assert_applied(X50, model, CURRENT_VERSION)
 
     def test_oversize_needs_same_model(self):
-        result = self._predict(OVERSIZE, baseline_model="swebrec", baseline_model_version="2.0.0")
+        result = self._predict(OVERSIZE, baseline_model="swebrec", baseline_model_version=CURRENT_VERSION)
 
         self._assert_refused(result, "переобучить")
 
@@ -99,7 +99,10 @@ class NewArtifactProvidedBaselineTests(_ProvidedBaselineCase):
                 self._assert_refused(result, "переобучить")
 
     def test_other_versions_are_refused(self):
-        for version in ("2", "3.0.0"):
+        # Версия PR 2 (2.0.0) — не старая модель, но x50 у неё другой, чем у текущей базы.
+        versions = ("2", "3.0.0", PR2_VERSION)
+        self.assertNotIn(CURRENT_VERSION, versions)
+        for version in versions:
             with self.subTest(version=version):
                 result = self._predict(X50, baseline_model="kuzram", baseline_model_version=version)
 
@@ -115,7 +118,7 @@ class NewArtifactProvidedBaselineTests(_ProvidedBaselineCase):
                 self._assert_refused(result, "не распознана")
 
     def test_unknown_model_baseline_is_refused(self):
-        result = self._predict(X50, baseline_model="abc", baseline_model_version="2.0.0")
+        result = self._predict(X50, baseline_model="abc", baseline_model_version=CURRENT_VERSION)
 
         self._assert_refused(result, "Неизвестная модель")
 
@@ -130,7 +133,7 @@ class NewArtifactProvidedBaselineTests(_ProvidedBaselineCase):
 
     def test_baseline_without_model_is_refused(self):
         for model_type in (X50, OVERSIZE):
-            for fields in ({}, {"baseline_model": "  ", "baseline_model_version": "2.0.0"}):
+            for fields in ({}, {"baseline_model": "  ", "baseline_model_version": CURRENT_VERSION}):
                 with self.subTest(model_type=model_type, fields=fields):
                     result = self._predict(model_type, **fields)
 
@@ -170,11 +173,11 @@ class OldArtifactProvidedBaselineTests(_ProvidedBaselineCase):
                 self._assert_refused(result, "переобучить")
 
     def test_new_model_baseline_is_refused(self):
-        result = self._predict(X50, baseline_model="kuzram", baseline_model_version="2.0.0")
+        result = self._predict(X50, baseline_model="kuzram", baseline_model_version=CURRENT_VERSION)
 
         self._assert_refused(result, "переобучить")
         self.assertIn("Kuz-Ram (старая) 1.0.0", result.warnings[0])
-        self.assertIn("Kuz-Ram 2.0.0", result.warnings[0])
+        self.assertIn(f"Kuz-Ram {CURRENT_VERSION}", result.warnings[0])
 
 
 class TrainOnCurrentBaseTests(unittest.TestCase):
@@ -191,7 +194,7 @@ class TrainOnCurrentBaseTests(unittest.TestCase):
         designs = varied_closed_designs(total)
         for design in designs[:new_count]:
             design.blast_result.basis.predicted_fragmentation.provenance = ModelProvenance(
-                model="kuzram", model_version="2.0.0"
+                model="kuzram", model_version=CURRENT_VERSION
             )
         snapshot = build_snapshot(designs, site_id="quarry-1", dataset_id="from-closed-new", dataset_version=1)
         if old_snapshot:

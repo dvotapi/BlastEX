@@ -1,6 +1,7 @@
 """Калибровки кусковатости учатся на baseline текущей базы и запоминают её."""
 import unittest
 
+from intelligence.calibration.base import CURRENT_BASE
 from intelligence.calibration.features import residual_table
 from intelligence.calibration.training import train_from_snapshot
 from intelligence.spatial.training import train_from_snapshot as train_spatial
@@ -14,7 +15,10 @@ class CalibrationTrainingBaseTests(unittest.TestCase):
             with self.subTest(model_type=model_type):
                 model = train_from_snapshot(synthetic_snapshot(), model_type=model_type)
 
-                self.assertEqual((model.baseline_model, model.baseline_model_version), ("kuzram", "2.0.0"))
+                self.assertEqual(
+                    (model.baseline_model, model.baseline_model_version),
+                    (CURRENT_BASE.model, CURRENT_BASE.model_version),
+                )
                 self.assertEqual(model.baseline_field, field)
 
     def test_trains_on_current_baseline_not_stored_prediction(self):
@@ -49,11 +53,13 @@ class CalibrationTrainingBaseTests(unittest.TestCase):
 class SpatialTrainingBaseTests(unittest.TestCase):
     def test_base_from_snapshot(self):
         snapshot = synthetic_spatial_snapshot()
-        snapshot.fragmentation_base = {"model": "kuzram", "model_version": "2.0.0"}
+        snapshot.fragmentation_base = CURRENT_BASE.to_dict()
 
         model = train_spatial(snapshot, team_id="sp-base")
 
-        self.assertEqual((model.baseline_model, model.baseline_model_version), ("kuzram", "2.0.0"))
+        self.assertEqual(
+            (model.baseline_model, model.baseline_model_version), (CURRENT_BASE.model, CURRENT_BASE.model_version)
+        )
 
     def test_old_snapshot_gives_old_base(self):
         model = train_spatial(synthetic_spatial_snapshot(), team_id="sp-base")

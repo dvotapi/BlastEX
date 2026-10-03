@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from api.services import scenario_service
 from design.scenarios.types import ScenarioOutcomes, ScenarioParams
+from intelligence.calibration.base import CURRENT_BASE
+from tests.calibration_fixtures import PR2_VERSION
 from tests.scenario_fixtures import charged_design
 
 
@@ -48,7 +50,8 @@ class ScenarioResidualGuardTests(unittest.TestCase):
         return outcomes
 
     OLD = ("", "")
-    NEW = ("kuzram", "2.0.0")
+    NEW = (CURRENT_BASE.model, CURRENT_BASE.model_version)
+    PR2 = (CURRENT_BASE.model, PR2_VERSION)
 
     def test_old_calibration_skips_new_model(self):
         outcomes = self._run("kuzram", {"kuzram_residual": self.OLD})
@@ -65,6 +68,13 @@ class ScenarioResidualGuardTests(unittest.TestCase):
         outcomes = self._run("swebrec", {"kuzram_residual": self.NEW})
 
         self.assertEqual(outcomes.x50_mm, 201.0)
+
+    def test_pr2_x50_calibration_does_not_fit_current_base(self):
+        """Калибровка на прогнозах PR 2 (2.0.0) — не старая модель, но x50 текущей базы другой."""
+        outcomes = self._run("kuzram", {"kuzram_residual": self.PR2})
+
+        self.assertEqual(outcomes.x50_mm, 200.0)
+        self.assertTrue(any("переобучить" in item for item in outcomes.warnings))
 
     def test_new_oversize_calibration_needs_same_model(self):
         outcomes = self._run("swebrec", {"oversize_residual": self.NEW})
@@ -83,7 +93,7 @@ class ScenarioResidualGuardTests(unittest.TestCase):
 
     def test_artifact_with_unknown_model_is_skipped_keeping_ppv(self):
         outcomes = self._run(
-            "kuzram", {"oversize_residual": ("ml-magic", "2.0.0"), "ppv_residual": self.OLD}
+            "kuzram", {"oversize_residual": ("ml-magic", CURRENT_BASE.model_version), "ppv_residual": self.OLD}
         )
 
         self.assertEqual(outcomes.oversize_pct, 5.0)

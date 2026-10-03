@@ -20,7 +20,7 @@ from intelligence.calibration.training import train_from_snapshot
 from intelligence.calibration.types import MODEL_SPECS
 from intelligence.datasets.baseline import fragmentation_baseline
 from simulation.fragmentation.cunningham import KuzRamSettings
-from tests.calibration_fixtures import synthetic_snapshot
+from tests.calibration_fixtures import CURRENT_VERSION, PR2_VERSION, synthetic_snapshot
 from tests.dataset_fixtures import closed_design
 
 TEAM_ID = "api-cal-base"
@@ -91,16 +91,20 @@ class CalibrationBaseApiTests(unittest.TestCase):
         self.assertTrue(result.calibration_applied)
 
     def test_old_artifact_recomputes_over_new_prediction(self):
-        design = _with_stored_model(closed_design("cal-old-recompute"), "kuzram", "2.0.0")
+        for version in (PR2_VERSION, CURRENT_VERSION):
+            with self.subTest(version=version):
+                design = _with_stored_model(closed_design("cal-old-recompute"), "kuzram", version)
 
-        result = self._predict(self._artifact(legacy=True), design=design.to_dict())
+                result = self._predict(self._artifact(legacy=True), design=design.to_dict())
 
-        expected = fragmentation_baseline(design, model="kuzram_legacy")["baseline_x50_mm"]
-        self.assertAlmostEqual(result.baseline, expected, places=6)
-        self.assertEqual(result.baseline_source, "kuzram_legacy")
+                expected = fragmentation_baseline(design, model="kuzram_legacy")["baseline_x50_mm"]
+                self.assertAlmostEqual(result.baseline, expected, places=6)
+                self.assertEqual(result.baseline_source, "kuzram_legacy")
 
     def test_new_artifact_recomputes_over_old_or_unknown_prediction(self):
-        for model, version in (("kuzram", "1"), ("abc", "2.0.0")):
+        """Прогноз PR 2 (2.0.0) — не старая модель, но x50 у него другой: поправка к нему не подходит."""
+        cases = (("kuzram", "1"), ("abc", CURRENT_VERSION), ("kuzram", PR2_VERSION))
+        for model, version in cases:
             with self.subTest(model=model, version=version):
                 design = _with_stored_model(closed_design("cal-new-design"), model, version)
 
@@ -112,14 +116,14 @@ class CalibrationBaseApiTests(unittest.TestCase):
                 self.assertTrue(result.calibration_applied)
 
     def test_new_artifact_uses_stored_new_prediction(self):
-        design = _with_stored_model(closed_design("cal-new-stored"), "swebrec", "2.0.0")
+        design = _with_stored_model(closed_design("cal-new-stored"), "swebrec", CURRENT_VERSION)
 
         result = self._predict(self._artifact(), design=design.to_dict())
 
         self.assertEqual((result.baseline, result.baseline_source), (150.0, "stored_predicted"))
 
     def test_new_oversize_recomputes_over_other_model(self):
-        design = _with_stored_model(closed_design("cal-new-oversize"), "swebrec", "2.0.0")
+        design = _with_stored_model(closed_design("cal-new-oversize"), "swebrec", CURRENT_VERSION)
 
         result = self._predict(self._artifact(OVERSIZE), OVERSIZE, design=design.to_dict())
 
@@ -139,11 +143,19 @@ class CalibrationBaseApiTests(unittest.TestCase):
 
     def test_recomputed_baseline_of_other_version_is_refused(self):
         """Движок пересчитывает текущей версией модели; артефакт другой версии к ней не применяется."""
-        model_id = self._artifact(baseline_model_version="2.5.0")
+        other_version = "2.5.0"  # версия артефакта, заведомо не совпадающая с текущей
+        self.assertNotEqual(other_version, CURRENT_VERSION)
+        model_id = self._artifact(baseline_model_version=other_version)
         without_stored = closed_design("cal-other-version")
         without_stored.blast_result.basis.predicted_fragmentation = None
-        stored_current = _with_stored_model(closed_design("cal-other-version-stored"), "kuzram", "2.0.0")
-        for name, design in (("без прогноза", without_stored), ("прогноз 2.0.0", stored_current)):
+        stored_current = _with_stored_model(closed_design("cal-other-version-stored"), "kuzram", CURRENT_VERSION)
+        stored_pr2 = _with_stored_model(closed_design("cal-other-version-pr2"), "kuzram", PR2_VERSION)
+        cases = (
+            ("без прогноза", without_stored),
+            (f"прогноз {CURRENT_VERSION}", stored_current),
+            (f"прогноз PR 2 {PR2_VERSION}", stored_pr2),
+        )
+        for name, design in cases:
             with self.subTest(design=name):
                 result = self._predict(model_id, design=design.to_dict())
 
@@ -152,14 +164,14 @@ class CalibrationBaseApiTests(unittest.TestCase):
                 self.assertEqual(result.calibrated, result.baseline)
                 self.assertFalse(result.calibration_applied)
                 self.assertIn("переобучить", result.warnings[0])
-                self.assertIn("Kuz-Ram 2.5.0", result.warnings[0])
-                self.assertIn("Kuz-Ram 2.0.0", result.warnings[0])
+                self.assertIn(f"Kuz-Ram {other_version}", result.warnings[0])
+                self.assertIn(f"Kuz-Ram {CURRENT_VERSION}", result.warnings[0])
 
     def test_unknown_artifact_base_is_refused_not_error(self):
         model_id = self._artifact(baseline_model="no_such_model")
         design = closed_design("cal-unknown-base")
         for fields in (
-            {"baseline": 150.0, "baseline_model": "kuzram", "baseline_model_version": "2.0.0"},
+            {"baseline": 150.0, "baseline_model": "kuzram", "baseline_model_version": CURRENT_VERSION},
             {"design": design.to_dict()},
         ):
             with self.subTest(fields=sorted(fields)):

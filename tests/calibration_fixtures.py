@@ -1,13 +1,19 @@
 """Tiny synthetic snapshots for residual-calibration tests (sklearn RF)."""
 from __future__ import annotations
 
+from intelligence.calibration.base import CURRENT_BASE
 from intelligence.datasets.builder import DatasetSnapshot, TrainingSample
 from intelligence.datasets.features import FEATURE_SCHEMA_VERSION
 from intelligence.datasets.validation import SampleValidation
 from tests.dataset_fixtures import closed_design
 
 
-CURRENT_BASE_FIELDS = {"baseline_model": "kuzram", "baseline_model_version": "2.0.0"}
+# Текущая база кусковатости берётся из реестра моделей движка: при смене версии
+# модели фикстуры следуют за ней, а не за числом в тесте.
+CURRENT_VERSION = CURRENT_BASE.model_version
+# Версия PR 2 (до учёта силы ВВ): не «старая модель», но и не текущая — база другая.
+PR2_VERSION = "2.0.0"
+CURRENT_BASE_FIELDS = {"baseline_model": CURRENT_BASE.model, "baseline_model_version": CURRENT_VERSION}
 
 
 def with_current_base(snapshot: DatasetSnapshot) -> DatasetSnapshot:
@@ -17,7 +23,7 @@ def with_current_base(snapshot: DatasetSnapshot) -> DatasetSnapshot:
         frag.setdefault("baseline_x50_mm", frag.get("predicted_x50_mm"))
         frag.setdefault("baseline_oversize_pct", frag.get("predicted_oversize_pct"))
         frag.update(CURRENT_BASE_FIELDS)
-    snapshot.fragmentation_base = {"model": "kuzram", "model_version": "2.0.0"}
+    snapshot.fragmentation_base = CURRENT_BASE.to_dict()
     return snapshot
 
 

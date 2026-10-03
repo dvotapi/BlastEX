@@ -16,9 +16,15 @@ class CoordinateSystem:
     origin_z: float = 0.0
     units: str = "m"
     confirmed: bool = False
+    # Система высот («Балтийская 1977», TASK-013 PR 4). Пишется, только когда
+    # задана: СК входит в хэш утверждённого паспорта.
+    height_system: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        if not self.height_system:
+            data.pop("height_system")
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> CoordinateSystem:
@@ -33,4 +39,5 @@ class CoordinateSystem:
             origin_z=float(data.get("origin_z", 0.0)),
             units=str(data.get("units") or "m"),
             confirmed=bool(data.get("confirmed", False)),
+            height_system=str(data.get("height_system") or "").strip(),
         )

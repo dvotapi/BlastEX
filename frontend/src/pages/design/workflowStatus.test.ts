@@ -1,7 +1,7 @@
 // Подпись источника объёма в строке показателей.
 import { describe, expect, it } from "vitest";
 import { emptyCoordinateSystem, emptySurfaces, type SurfaceModel } from "../../types/design";
-import { volumeSourceLabel } from "./workflowStatus";
+import { isCrsUnconfirmed, volumeSourceLabel } from "./workflowStatus";
 
 function top(source_format: string): SurfaceModel {
   return {
@@ -26,5 +26,28 @@ describe("volumeSourceLabel", () => {
     expect(volumeSourceLabel(emptySurfaces(), true)).toBe("проектное");
     expect(volumeSourceLabel(emptySurfaces(), false)).toBe("нет данных");
     expect(volumeSourceLabel({ ...emptySurfaces(), top: top("dxf") }, true)).toBe("из DXF");
+  });
+});
+
+
+describe("isCrsUnconfirmed (TASK-013, PR 4)", () => {
+  const cs = emptyCoordinateSystem();
+
+  it("именованная местная СК без EPSG — полноценная, предупреждения нет", () => {
+    expect(isCrsUnconfirmed({ ...cs, name: "МСК-66 зона 1", height_system: "Балтийская 1977" }, true)).toBe(false);
+    expect(isCrsUnconfirmed({ ...cs, name: "Карьерная сетка" }, true)).toBe(false);
+  });
+
+  it("«local» или пустое имя с геометрией — предупреждение, пока не подтверждено", () => {
+    expect(isCrsUnconfirmed(cs, true)).toBe(true);
+    expect(isCrsUnconfirmed({ ...cs, name: "  " }, true)).toBe(true);
+    expect(isCrsUnconfirmed({ ...cs, confirmed: true }, true)).toBe(false);
+    expect(isCrsUnconfirmed({ ...cs, epsg: 32641 }, true)).toBe(false);
+    // «По коду EPSG» с пустым полем ставит 0 — это ещё не система координат.
+    expect(isCrsUnconfirmed({ ...cs, epsg: 0 }, true)).toBe(true);
+  });
+
+  it("без геометрии — никогда", () => {
+    expect(isCrsUnconfirmed(cs, false)).toBe(false);
   });
 });

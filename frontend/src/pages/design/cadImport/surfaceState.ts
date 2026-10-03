@@ -3,7 +3,7 @@
 // блоковой карты. Только чистые функции — их проверяют тесты без DOM.
 import { ruNumber } from "../../../lib/format";
 import { plural } from "../../../lib/plural";
-import type { CadContourResult, CadSource, CadSurfaceRequest, CadSurfaceResult, CadSurfaceRole } from "../../../types/cad";
+import type { CadContourResult, CadCrs, CadSource, CadSurfaceRequest, CadSurfaceResult, CadSurfaceRole } from "../../../types/cad";
 import { emptyCoordinateSystem, type BlastDesign, type SurfaceModel } from "../../../types/design";
 import { parseNumber } from "./contourState";
 
@@ -134,9 +134,24 @@ export function roofSurface(result: CadSurfaceResult, source: CadSource, state: 
 }
 
 /** Что сменит «Построить блок» в паспорте — текст подтверждения (null — терять нечего). */
-export function buildConfirmText(design: BlastDesign, toe: number | null): string | null {
+/** «МСК-66 зона 1, высоты Балтийская 1977, EPSG 6838» — смена одних высот видна в тексте. */
+function crsLabel(crs: { name: string; height_system?: string | null; epsg?: number | null }): string {
+  const parts = [crs.name.trim()];
+  if (crs.height_system?.trim()) parts.push(`высоты ${crs.height_system.trim()}`);
+  if (crs.epsg) parts.push(`EPSG ${crs.epsg}`);
+  return parts.join(", ");
+}
+
+export function buildConfirmText(design: BlastDesign, toe: number | null, crs: CadCrs | null = null): string | null {
   const changes: string[] = [];
   if (design.contour.vertices.length) changes.push("контур блока и отметки уступа заменятся контуром из чертежа");
+  // Смену именованной СК паспорта называем; «local» нового паспорта — ожидаемая смена.
+  const current = design.coordinate_system;
+  const named = current.name.trim() !== "" && current.name.trim().toLowerCase() !== "local";
+  const differs =
+    crs !== null &&
+    (crs.name !== current.name || crs.height_system !== (current.height_system ?? "") || crs.epsg !== current.epsg);
+  if (named && differs && crs) changes.push(`система координат «${crsLabel(current)}» сменится на «${crsLabel(crs)}»`);
   const { top, floor } = design.surfaces;
   if (top) changes.push(`кровля «${top.name}» заменится кровлей из чертежа`);
   if (floor) {

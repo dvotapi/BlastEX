@@ -1,4 +1,4 @@
-import { del, errorMessage, get, post, postFile, postForm, put, requestSvg } from "./client";
+import { del, errorMessage, get, patch, post, postFile, postForm, put, requestSvg } from "./client";
 import type {
   AggregatedCostResult,
   BlastGeometryResponse,
@@ -153,13 +153,20 @@ import type {
   CadContourLines,
   CadContourRequest,
   CadContourResult,
+  CadCrs,
+  CadCrsResponse,
   CadImportResponse,
   CadMeta,
   CadParams,
   CadRoleCode,
   CadRolesPayload,
   CadRolesResponse,
+  CadSiteSources,
+  CadSituationCatalogue,
+  CadSituationGeometry,
   CadSource,
+  CadSourceMetaPayload,
+  CadSourceMetaResponse,
   CadSurfaceRequest,
   CadSurfaceResult,
   CadUploadParams,
@@ -469,6 +476,26 @@ export const api = {
       put<CadAreaBasisResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/area-basis`, { area_basis: areaBasis }),
     surface: (id: string, payload: CadSurfaceRequest) =>
       post<CadSurfaceResult>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/surface`, payload),
+    updateMeta: (id: string, payload: CadSourceMetaPayload) =>
+      patch<CadSourceMetaResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}`, payload),
+    saveCrs: (id: string, crs: CadCrs) =>
+      put<CadCrsResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/crs`, crs),
+    /** «Чертежи объекта» — объект берёт сервер (активный объект организации). */
+    siteSources: () => get<CadSiteSources>(`${V1}/design/cad/sources`),
+    deleteSource: (id: string) => del<void>(`${V1}/design/cad/sources/${encodeURIComponent(id)}`),
+    /**
+     * Серии ситуации объекта паспорта: по ссылкам паспорта, без ссылки — активного
+     * объекта. `siteSourceId` — источник, по которому только находится объект
+     * (контур паспорта без запомненных версий): его версия не закрепляется.
+     */
+    situation: (sourceIds: string[], siteSourceId?: string) => {
+      const query = new URLSearchParams(sourceIds.map((id) => ["source_ids", id]));
+      if (siteSourceId) query.set("site_source_id", siteSourceId);
+      const text = query.toString();
+      return get<CadSituationCatalogue>(`${V1}/design/cad/situation${text ? `?${text}` : ""}`);
+    },
+    sourceSituation: (id: string) =>
+      get<CadSituationGeometry>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/situation`),
   },
   design: {
     pattern: (

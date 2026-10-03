@@ -66,6 +66,8 @@ class TemplateEntry:
 
     role: str
     manual: bool = False
+    # Вид объекта ситуации, заданный человеком (PR 4); None — по имени слоя.
+    kind: str | None = None
 
 
 @dataclass(frozen=True)

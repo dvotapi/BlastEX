@@ -56,6 +56,14 @@ export const CAD_META: CadMeta = {
     { code: "bottom", label: "S низ", description: "площадь контура по нижней бровке" },
     { code: "mean", label: "S ср", description: "(S верх + S низ) / 2 — способ горизонтальных сечений" },
   ],
+  situation_kinds: [
+    { code: "pit", label: "Контур карьера" },
+    { code: "road", label: "Дорога" },
+    { code: "power_line", label: "ЛЭП" },
+    { code: "stockpile", label: "Склад" },
+    { code: "building", label: "Здание" },
+    { code: "other", label: "Прочее" },
+  ],
 };
 
 export function cadSource(extra: Partial<CadSource> = {}): CadSource {
@@ -101,6 +109,7 @@ export function cadSource(extra: Partial<CadSource> = {}): CadSource {
   return {
     id: "src-1",
     file_name: "блок 66.dwg",
+    title: "блок 66",
     format: "dwg",
     site_code: "SITE_ZK",
     work_object_name: "Жуков камень",
@@ -114,6 +123,8 @@ export function cadSource(extra: Partial<CadSource> = {}): CadSource {
     floor_z_m: 410,
     template_saved: true,
     area_basis: "mean",
+    crs: null,
+    series: [],
     warnings: [
       { code: "units_declared", message: "В файле указаны единицы «миллиметры», но размеры похожи на метры — читаем в метрах.", level: "info" },
     ],

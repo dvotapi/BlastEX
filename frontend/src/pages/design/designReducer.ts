@@ -2,6 +2,7 @@
 // useReducer + стек undo/redo. Камера, выделение и режим инструмента — вне
 // документа (не должны попадать в историю правок).
 import { collarZFromSurfaces } from "../../lib/surfaces";
+import type { CadCrs } from "../../types/cad";
 import type {
   BenchSurface,
   BlastDesign,
@@ -45,6 +46,8 @@ export type DesignAction =
       cad: CadContourInfo;
       /** Кровля из чертежа (TASK-013, PR 3): ставится в `surfaces.top`, подошва — числом. */
       surface: SurfaceModel;
+      /** СК объекта (PR 4): ставится в паспорт подтверждённой; null — СК паспорта не меняется. */
+      crs?: CadCrs | null;
     }
   | { type: "SET_BENCH"; bench: Partial<BenchSurface> }
   | { type: "SET_COORDINATE_SYSTEM"; patch: Partial<CoordinateSystem> }
@@ -230,6 +233,12 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       // (подошва — проектная отметка числом); скважины, заряды и сеть прежнего
       // контура очищаются.
       const cleared = reduceDocument(document, { type: "SET_HOLES", holes: [] });
+      // СК объекта — и паспорту, и кровле из того же чертежа (кровля
+      // строится в «local»); без СК объекта обе остаются как были.
+      const withCrs = (system: CoordinateSystem): CoordinateSystem =>
+        action.crs
+          ? { ...system, name: action.crs.name, epsg: action.crs.epsg, height_system: action.crs.height_system, confirmed: true }
+          : system;
       return {
         ...cleared,
         contour: {
@@ -239,7 +248,12 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
           bench: { ...cleared.contour.bench, ...action.bench },
           cad: action.cad,
         },
-        surfaces: { ...cleared.surfaces, top: action.surface, floor: null },
+        surfaces: {
+          ...cleared.surfaces,
+          top: { ...action.surface, coordinate_system: withCrs(action.surface.coordinate_system) },
+          floor: null,
+        },
+        coordinate_system: withCrs(cleared.coordinate_system),
       };
     }
     case "TOGGLE_FREE_FACE": {

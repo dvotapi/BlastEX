@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 from datetime import date, datetime, timezone
 
 import pytest
@@ -252,6 +253,216 @@ def test_role_update_is_one_statement_not_one_per_entity(public_db) -> None:
         assert {item.role for item in repository.list_entities(ORG_A, "src-1")} == {"ignore"}
     finally:
         repository.engine.dispose()
+
+
+def _site_record(
+    source_id: str,
+    *,
+    site_code: str = "SITE_ZK",
+    sha: str = "1" * 64,
+    title: str = "Положение горных работ",
+    day: int = 1,
+    survey: date | None = date(2026, 9, 1),
+) -> CadSourceRecord:
+    return replace(
+        _record(source_id, site_code),
+        file_sha256=sha,
+        title=title,
+        survey_date=survey,
+        uploaded_at=datetime(2026, 9, day, 10, 0, tzinfo=timezone.utc),
+    )
+
+
+def test_source_title_round_trip(repository) -> None:
+    # Название источника (TASK-013, PR 4): серия ситуации держится на нём.
+    repository.create_sources(ORG_A, [(_site_record("src-1"), [])])
+
+    assert repository.get_source(ORG_A, "src-1").title == "Положение горных работ"
+
+
+def test_find_source_by_sha_is_per_site_and_organization(repository) -> None:
+    repository.create_sources(ORG_A, [(_site_record("src-1", sha="a" * 64), [])])
+
+    assert repository.find_source_by_sha(ORG_A, "SITE_ZK", "a" * 64).id == "src-1"
+    assert repository.find_source_by_sha(ORG_A, "SITE_OTHER", "a" * 64) is None
+    assert repository.find_source_by_sha(ORG_B, "SITE_ZK", "a" * 64) is None
+    assert repository.find_source_by_sha(ORG_A, "SITE_ZK", "b" * 64) is None
+
+
+def test_site_sources_are_listed_newest_upload_first_without_file(repository) -> None:
+    repository.create_sources(
+        ORG_A,
+        [
+            (_site_record("old", sha="a" * 64, day=1), []),
+            (_site_record("new", sha="b" * 64, day=5), []),
+            (_site_record("other-site", site_code="SITE_OTHER", sha="c" * 64, day=9), []),
+        ],
+    )
+    repository.create_sources(ORG_B, [(_site_record("foreign", sha="d" * 64, day=7), [])])
+
+    listed = repository.list_site_sources(ORG_A, "SITE_ZK", limit=10)
+    assert [item.id for item in listed] == ["new", "old"]
+    assert all(item.file_data is None for item in listed)
+    assert [item.id for item in repository.list_site_sources(ORG_A, "SITE_ZK", limit=1)] == ["new"]
+
+
+def test_site_sources_carry_only_requested_summary_keys(repository) -> None:
+    # Проверке «дальше 5 км» нужны экстенты 50 прежних чертежей, а не их
+    # полные сводки со слоями и ролями — те весят мегабайты (/code-review №5).
+    heavy = replace(
+        _site_record("heavy", sha="a" * 64),
+        summary={"robust_extent": [1.0, 2.0, 3.0, 4.0], "layer_roles": [{"layer": "x" * 100}] * 50},
+    )
+    plain = replace(_site_record("plain", sha="b" * 64, day=5), summary={"extent": [5.0, 6.0, 7.0, 8.0]})
+    repository.create_sources(ORG_A, [(heavy, []), (plain, [])])
+
+    listed = repository.list_site_sources(ORG_A, "SITE_ZK", limit=10, summary_keys=("robust_extent", "extent"))
+    assert [(item.id, item.summary) for item in listed] == [
+        ("plain", {"extent": [5.0, 6.0, 7.0, 8.0]}),
+        ("heavy", {"robust_extent": [1.0, 2.0, 3.0, 4.0]}),
+    ]
+    assert all(item.params == {} for item in listed)
+    assert all(item.summary == {} for item in repository.list_site_sources(ORG_A, "SITE_ZK", limit=10))
+
+
+def test_same_file_is_stored_once_per_site(repository) -> None:
+    # Ревью Codex (#108): проверка повтора — в той же транзакции, что и вставка.
+    first = _site_record("first", sha="a" * 64)
+    assert repository.create_sources(ORG_A, [(first, _entities())], reuse_same_file=True) == {}
+
+    again = repository.create_sources(ORG_A, [(_site_record("again", sha="a" * 64, day=2), [])], reuse_same_file=True)
+    assert {sha: record.id for sha, record in again.items()} == {"a" * 64: "first"}
+    assert repository.get_source(ORG_A, "again") is None
+
+    # Другой объект, другая организация и файл без объекта — свои записи.
+    other_site = _site_record("other-site", site_code="SITE_OTHER", sha="a" * 64)
+    no_site = _site_record("no-site", site_code="", sha="a" * 64)
+    assert repository.create_sources(ORG_A, [(other_site, []), (no_site, [])], reuse_same_file=True) == {}
+    assert repository.create_sources(ORG_B, [(_site_record("foreign", sha="a" * 64), [])], reuse_same_file=True) == {}
+    assert repository.create_sources(ORG_A, [(_site_record("no-site-2", site_code="", sha="a" * 64), [])], reuse_same_file=True) == {}
+    assert repository.get_source(ORG_A, "no-site-2") is not None
+
+
+@requires_pg
+def test_concurrent_uploads_of_one_file_store_it_once(public_db) -> None:
+    """Две загрузки одного файла одновременно: блокировка по (организация, объект, sha)."""
+
+    import threading
+
+    repository = PostgresCadRepository(TEST_DATABASE_URL)
+    workers = 8
+    barrier = threading.Barrier(workers)
+    errors: list[BaseException] = []
+
+    def upload(index: int) -> None:
+        try:
+            barrier.wait()
+            repository.create_sources(
+                ORG_A, [(_site_record(f"src-{index}", sha="a" * 64), _entities())], reuse_same_file=True
+            )
+        except BaseException as exc:  # noqa: BLE001 — ошибка потока проверяется ниже
+            errors.append(exc)
+
+    threads = [threading.Thread(target=upload, args=(index,)) for index in range(workers)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert len(repository.list_site_sources(ORG_A, "SITE_ZK", limit=50)) == 1
+    finally:
+        repository.engine.dispose()
+
+
+def test_source_meta_update_checks_revision(repository) -> None:
+    repository.create_sources(ORG_A, [(_site_record("src-1"), [])])
+
+    repository.update_source_meta(
+        ORG_A, "src-1", title="Положение работ", survey_date=date(2026, 10, 1), expected_revision=1
+    )
+    source = repository.get_source(ORG_A, "src-1")
+    assert (source.title, source.survey_date, source.revision) == ("Положение работ", date(2026, 10, 1), 2)
+
+    with pytest.raises(CadSourceConflict):
+        repository.update_source_meta(ORG_A, "src-1", title="x", survey_date=None, expected_revision=1)
+    with pytest.raises(CadSourceNotFound):
+        repository.update_source_meta(ORG_B, "src-1", title="x", survey_date=None, expected_revision=2)
+
+
+def test_deleted_source_is_gone_with_its_entities(repository) -> None:
+    repository.create_sources(ORG_A, [(_site_record("src-1"), _entities())])
+
+    with pytest.raises(CadSourceNotFound):
+        repository.delete_source(ORG_B, "src-1")
+    assert repository.get_source(ORG_A, "src-1") is not None
+
+    repository.delete_source(ORG_A, "src-1")
+    assert repository.get_source(ORG_A, "src-1") is None
+    assert repository.list_entities(ORG_A, "src-1") == []
+    with pytest.raises(CadSourceNotFound):
+        repository.delete_source(ORG_A, "src-1")
+
+
+def test_site_crs_does_not_touch_area_basis(repository) -> None:
+    assert repository.get_site_crs(ORG_A, "SITE_ZK") is None
+
+    repository.set_area_basis(ORG_A, "SITE_ZK", "top", USER)
+    crs = {"name": "МСК-66 зона 1", "height_system": "Балтийская 1977", "epsg": None}
+    repository.set_site_crs(ORG_A, "SITE_ZK", crs, USER)
+
+    assert repository.get_site_crs(ORG_A, "SITE_ZK") == crs
+    assert repository.get_area_basis(ORG_A, "SITE_ZK") == "top"
+    assert repository.get_site_crs(ORG_B, "SITE_ZK") is None
+
+    repository.set_area_basis(ORG_A, "SITE_ZK", "bottom", USER)
+    assert repository.get_site_crs(ORG_A, "SITE_ZK") == crs
+
+    repository.set_site_crs(ORG_A, "SITE_NEW", {"name": "МСК-66 зона 2", "height_system": "", "epsg": 0}, USER)
+    assert repository.get_area_basis(ORG_A, "SITE_NEW") in (None, "mean")
+
+
+def test_entities_are_counted_by_role_per_source(repository) -> None:
+    repository.create_sources(
+        ORG_A, [(_site_record("src-1", sha="a" * 64), _entities()), (_site_record("src-2", sha="b" * 64), [])]
+    )
+
+    counts = repository.count_entities_by_role(ORG_A, {"src-1", "src-2"}, "spot_heights")
+    assert counts == {"src-1": 2}
+    assert repository.count_entities_by_role(ORG_B, {"src-1"}, "spot_heights") == {}
+
+
+def test_layer_kinds_live_in_the_template(repository) -> None:
+    repository.add_missing_layer_roles(ORG_A, "SITE_ZK", {"Дороги": "situation"}, USER)
+
+    repository.upsert_layer_kinds(ORG_A, "SITE_ZK", {"Дороги": "road", "Новый слой": "building"}, USER)
+    template = repository.get_layer_template(ORG_A, "SITE_ZK")
+    assert template["дороги"] == TemplateEntry("situation", False, "road")
+    assert template["новый слой"].kind == "building"
+
+    repository.upsert_layer_kinds(ORG_A, "SITE_ZK", {"Дороги": None}, USER)
+    assert repository.get_layer_template(ORG_A, "SITE_ZK")["дороги"] == TemplateEntry("situation", False, None)
+    assert repository.get_layer_template(ORG_B, "SITE_ZK") == {}
+
+
+def test_situation_sources_are_only_those_with_situation(repository) -> None:
+    situation = CadEntity(handle="R1", layer="Дорога", kind="LWPOLYLINE", points=[(0, 0, 0), (5, 0, 0)], role="situation")
+    repository.create_sources(
+        ORG_A,
+        [
+            (_site_record("with", sha="a" * 64, day=1), [situation, *_entities()]),
+            (_site_record("without", sha="b" * 64, day=5), _entities()),
+            (_site_record("newer", sha="c" * 64, day=7), [situation]),
+            (_site_record("other-site", site_code="SITE_OTHER", sha="d" * 64, day=9), [situation]),
+        ],
+    )
+    repository.create_sources(ORG_B, [(_site_record("foreign", sha="e" * 64, day=8), [situation])])
+
+    found = repository.list_situation_sources(ORG_A, "SITE_ZK", limit=10)
+    assert [(record.id, count) for record, count in found] == [("newer", 1), ("with", 1)]
+    assert found[0][0].title == "Положение горных работ"
+    assert found[0][0].file_data is None
+    assert [record.id for record, _ in repository.list_situation_sources(ORG_A, "SITE_ZK", limit=1)] == ["newer"]
 
 
 @requires_pg

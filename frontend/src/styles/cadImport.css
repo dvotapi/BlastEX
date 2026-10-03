@@ -13,20 +13,17 @@
 
 /* Холст */
 .cad-canvas-wrap { position:relative; min-width:0; min-height:0; overflow:hidden; border-right:1px solid #e2e8e5; background:#fbfcfb; touch-action:none; user-select:none; }
-.cad-canvas { display:block; width:100%; height:100%; cursor:grab; }
+/* Базовый слой — canvas (PR 4: десятки тысяч линий карьера), SVG — подсветка и наложения поверх */
+.cad-base { position:absolute; inset:0; pointer-events:none; }
+.cad-canvas { position:relative; display:block; width:100%; height:100%; cursor:grab; }
+.cad-canvas.is-over { cursor:pointer; }
 .cad-canvas:active { cursor:grabbing; }
 .cad-canvas.is-picking { cursor:crosshair; }
-.cad-line { fill:none; stroke-width:1.4; stroke-linejoin:round; pointer-events:none; }
-.cad-line.role-block_contour { stroke-width:2.2; }
-.cad-line.role-ignore { stroke-dasharray:4 3; }
 .cad-highlights { pointer-events:none; }
 .cad-highlight { fill:none; stroke-width:2.6; stroke-linejoin:round; }
 .cad-highlight.is-hovered { stroke-width:3.4; }
 .cad-highlight.is-selected { stroke-width:3.6; }
-.cad-hit { fill:none; stroke:transparent; pointer-events:stroke; cursor:pointer; }
-.cad-hit-points { fill:transparent; stroke:none; pointer-events:fill; }
-.cad-points { stroke:none; pointer-events:none; }
-.cad-points.is-hovered { stroke:#17231d; stroke-width:1; }
+.cad-points.is-hovered { fill:none; stroke:#17231d; stroke-width:1; pointer-events:none; }
 .cad-scale path { fill:none; stroke:#3b4b43; stroke-width:1.2; }
 .cad-scale text { fill:#3b4b43; font-size:var(--fs-small); dominant-baseline:middle; }
 .cad-fit { position:absolute; top:10px; left:10px; }
@@ -51,6 +48,19 @@
 .cad-request-error { margin:0; padding:5px 8px; border-radius:7px; background:#fce9e7; color:#9e3025; }
 .cad-loading { margin:8px; color:#6e7c75; }
 
+/* Шапка источника (PR 4): название и дата файла, серия ситуации, СК объекта */
+.cad-source-header { display:grid; gap:4px; padding:6px 8px; border:1px solid #e2e8e5; border-radius:8px; background:#fbfcfb; }
+.cad-source-fields, .cad-crs-form { display:grid; grid-template-columns:minmax(0,1fr) 128px; align-items:end; gap:6px; }
+.cad-crs-form { grid-template-columns:minmax(0,1fr) minmax(0,1fr) 64px; }
+.cad-source-fields label, .cad-crs-form label { display:grid; gap:2px; min-width:0; }
+.cad-source-fields label span, .cad-crs-form label span { color:#6e7c75; font-size:var(--fs-label); }
+.cad-source-fields input, .cad-crs-form input { height:var(--control-h); min-width:0; padding:0 8px; border:1px solid #ced9d3; border-radius:var(--radius-control); background:#fff; color:#17231d; font-size:var(--fs-base); }
+.cad-series { margin:0; color:#6e7c75; font-size:var(--fs-small); }
+.cad-field-error { margin:0; color:#9e3025; font-size:var(--fs-label); }
+.cad-crs { display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:var(--control-h); }
+.cad-crs-text { min-width:0; overflow:hidden; color:#3b4b43; font-size:var(--fs-label); text-overflow:ellipsis; white-space:nowrap; }
+.cad-crs-actions { display:flex; grid-column:1 / -1; gap:6px; }
+
 /* Шаг «Слои» */
 .cad-layers-wrap { flex:1 1 auto; min-height:0; overflow:auto; border:1px solid #e2e8e5; border-radius:8px; }
 .cad-layers { width:100%; border-collapse:collapse; table-layout:fixed; }
@@ -64,6 +74,8 @@
 .cad-layer-row.is-selected, .cad-entity-row.is-selected { background:#e3f1e9; }
 .cad-layer-name, .cad-entity-name { overflow:hidden; white-space:nowrap; }
 .cad-entity-row .cad-entity-name { padding-left:24px; }
+.cad-kind-row td { padding-top:0; border-bottom-color:#edf1ef; }
+.cad-kind-label { padding-left:42px; color:#6e7c75; font-size:var(--fs-small); }
 .cad-layer-name > span, .cad-entity-name > span { display:inline-grid; max-width:calc(100% - 32px); vertical-align:middle; }
 .cad-layer-name b, .cad-entity-name b, .cad-layer-name small, .cad-entity-name small { overflow:hidden; text-overflow:ellipsis; }
 .cad-layer-name small, .cad-entity-name small { color:#6e7c75; font-size:var(--fs-small); white-space:normal; }
@@ -168,3 +180,22 @@
   .cad-dialog-body { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(220px,40vh) minmax(0,1fr); }
   .cad-canvas-wrap { border-right:0; border-bottom:1px solid #e2e8e5; }
 }
+
+/* «Чертежи объекта» (PR 4): загруженные файлы объекта — открыть или удалить */
+.cad-sources-dialog { width:min(860px, calc(100vw - 32px)); max-height:calc(100vh - 32px); padding:0; border:1px solid #d9e2dd; border-radius:12px; color:#17231d; font-size:var(--fs-base); box-shadow:0 30px 80px rgba(15,35,26,.18); }
+.cad-sources-dialog[open] { display:flex; flex-direction:column; gap:8px; padding-bottom:10px; }
+.cad-sources-dialog::backdrop { background:rgba(15,26,20,.45); }
+.cad-sources-dialog > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; border-bottom:1px solid #e2e8e5; }
+.cad-sources-dialog > header b { font-size:13px; font-weight:var(--font-weight-title); }
+.cad-sources-dialog > p { margin:0 12px; }
+.cad-sources-note { color:#6e7c75; }
+.cad-sources { width:calc(100% - 24px); margin:0 12px; border-collapse:collapse; table-layout:fixed; }
+.cad-sources th { padding:5px 6px; border-bottom:1px solid #e2e8e5; color:#6e7c75; font-size:var(--fs-label); text-align:left; }
+.cad-sources th:nth-child(2) { width:86px; }
+.cad-sources th:nth-child(4) { width:170px; }
+.cad-sources th:nth-child(5) { width:64px; }
+.cad-sources th:nth-child(6) { width:156px; }
+.cad-sources td { padding:4px 6px; border-bottom:1px solid #edf1ef; vertical-align:middle; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cad-sources-file { color:#6e7c75; }
+.cad-sources-count { text-align:right; font-variant-numeric:tabular-nums; }
+.cad-sources-actions { display:flex; gap:4px; justify-content:flex-end; }

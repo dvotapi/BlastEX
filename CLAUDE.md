@@ -64,6 +64,12 @@
 L = (S − Z)/cos α + Δ (`geometry.hole_depth_m`), пересчёт —
 `design/hole_recompute.py` и `POST /design/holes/recompute`; `surfaces.top.cad`,
 `Hole.manual` и `contour.cad.map_volume_m3` пишутся только когда заданы.
+Ситуация и СК (PR 4) — `design/spatial/cad/situation.py`, `crs.py`,
+`api/services/cad_situation_service.py`: серии источников по названию, вид
+объектов слоя, СК объекта в `cad_site_settings`, в паспорте —
+`contour.cad.situation` и `coordinate_system.height_system` (только когда
+заданы); на странице — `useSituation`, подложка `SituationCanvas`, группа
+«Ситуация» в «Виде». Базовый слой холста окна — `<canvas>` (`CanvasHitIndex`).
 Подробности — `Docs/CAD_IMPORT.md`; справка «?» окна обновляется в каждом PR
 задачи.
 

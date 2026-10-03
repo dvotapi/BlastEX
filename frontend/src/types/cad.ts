@@ -24,6 +24,21 @@ export type CadRoleInfo = { code: CadLayerRoleCode; label: string; applies_to: s
 /** Какая площадь — площадь блока: S верх, S низ или S ср (соглашение маркшейдера объекта). */
 export type CadAreaBasis = "top" | "bottom" | "mean";
 
+/** Вид объекта ситуации (PR 4): хранится сразу, чтобы позже повесить охранные зоны. */
+export type CadSituationKind = "pit" | "road" | "power_line" | "stockpile" | "building" | "other";
+
+/** Система координат объекта: местная без EPSG — полноценный вариант. */
+export type CadCrs = { name: string; height_system: string; epsg: number | null };
+
+/** Другая версия той же серии ситуации — источник объекта с тем же названием. */
+export type CadSeriesVersion = {
+  id: string;
+  title: string;
+  file_name: string;
+  survey_date: string | null;
+  uploaded_at: string;
+};
+
 export type CadMeta = {
   roles: CadRoleInfo[];
   layer_roles: CadRoleInfo[];
@@ -37,6 +52,7 @@ export type CadMeta = {
     area_basis: CadAreaBasis;
   };
   area_bases: Array<{ code: CadAreaBasis; label: string; description: string }>;
+  situation_kinds: Array<{ code: CadSituationKind; label: string }>;
 };
 
 export type CadParams = {
@@ -81,11 +97,16 @@ export type CadLayer = {
   z_max: number | null;
   color: string | null;
   counts_by_role: Partial<Record<CadRoleCode, number>>;
+  /** Вид объектов ситуации слоя — только у слоёв, где они есть. */
+  situation_kind?: CadSituationKind | null;
+  situation_kind_origin?: CadOrigin | null;
 };
 
 export type CadSource = {
   id: string;
   file_name: string;
+  /** Название: источники объекта с одинаковым названием — версии одной серии ситуации. */
+  title: string;
   format: "dxf" | "dwg";
   site_code: string;
   work_object_name: string;
@@ -100,6 +121,9 @@ export type CadSource = {
   template_saved: boolean;
   /** Площадь блока по соглашению маркшейдера объекта (по умолчанию S ср). */
   area_basis: CadAreaBasis;
+  /** СК объекта (null — не задана) и другие версии той же серии ситуации. */
+  crs: CadCrs | null;
+  series: CadSeriesVersion[];
   warnings: CadWarning[];
   layers: CadLayer[];
   entities: CadEntity[];
@@ -120,7 +144,87 @@ export type CadUploadParams = {
 export type CadRolesPayload = {
   layers?: Record<string, CadLayerRoleCode>;
   entities?: Record<string, CadRoleCode | null>;
+  /** Вид объектов ситуации слоя; null — по имени слоя. */
+  kinds?: Record<string, CadSituationKind | null>;
 };
+
+/** Название и дата съёмки источника; поле, которого нет, не меняется. */
+export type CadSourceMetaPayload = { title?: string; survey_date?: string | null };
+
+export type CadSourceMetaResponse = {
+  id: string;
+  title: string;
+  survey_date: string | null;
+  series: CadSeriesVersion[];
+};
+
+export type CadCrsResponse = { crs: CadCrs | null; saved: boolean; warnings: CadWarning[] };
+
+// --- ситуация карьера (PR 4): `/design/cad/situation`, `/design/cad/sources/{id}/situation` ---
+
+export type CadSituationVersion = {
+  source_id: string;
+  title: string;
+  file_name: string;
+  survey_date: string | null;
+  uploaded_at: string;
+  situation_count: number;
+  /** Номер правки источника — ключ кэша геометрии. */
+  revision: number;
+};
+
+export type CadSituationSeries = {
+  key: string;
+  title: string;
+  versions: CadSituationVersion[];
+  /** Версия из ссылки паспорта, иначе самая свежая. */
+  default_source_id: string;
+};
+
+export type CadSituationCatalogue = {
+  site_code: string;
+  crs: CadCrs | null;
+  series: CadSituationSeries[];
+  /** Ссылки паспорта, которых больше нет (удалены или чужие). */
+  missing: string[];
+  truncated: boolean;
+};
+
+export type CadSituationLine = { points: CadPoint[]; closed: boolean };
+
+export type CadSituationLayer = {
+  name: string;
+  kind: CadSituationKind;
+  kind_label: string;
+  color: string | null;
+  lines: CadSituationLine[];
+  points: CadPoint[];
+  vertex_count: number;
+  /** Не уместился в предел ответа — геометрии нет. */
+  omitted: boolean;
+};
+
+export type CadSituationGeometry = {
+  source_id: string;
+  revision: number;
+  title: string;
+  survey_date: string | null;
+  layers: CadSituationLayer[];
+  warnings: CadWarning[];
+};
+
+/** Строка списка «Чертежи объекта». */
+export type CadSiteSource = {
+  id: string;
+  title: string;
+  file_name: string;
+  survey_date: string | null;
+  uploaded_at: string;
+  uploaded_by: string;
+  situation_count: number;
+};
+
+export type CadSiteSources = { site_code: string; sources: CadSiteSource[]; truncated: boolean };
 
 /** Ответ на правку ролей: без геометрии — слои и только изменившиеся роли объектов. */
 export type CadRolesResponse = {

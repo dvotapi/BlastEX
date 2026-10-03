@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { BlockContour, Hole, SurfaceModel, SurfaceSet } from "../../types/design";
+import { situationSegments, type Situation3dLine } from "./situationLayer";
 
 const KIND_COLOR: Record<string, number> = {
   production: 0x2d7556,
@@ -13,6 +14,8 @@ const KIND_COLOR: Record<string, number> = {
   trim: 0x7a6ee0,
 };
 const SELECTED_COLOR = 0xd8455a;
+// Общий пустой список: новый `[]` на каждый рендер перестраивал бы сцену.
+const NO_SITUATION: Situation3dLine[] = [];
 const DISABLED_COLOR = 0xc3cdc7;
 
 type Vec3 = { x: number; y: number; z: number };
@@ -25,6 +28,10 @@ type SceneState = {
   holeGroup: THREE.Group;
   contourGroup: THREE.Group;
   surfaceGroup: THREE.Group;
+  situationGroup: THREE.Group;
+  /** Центр сцены (мировые координаты) и точка отсчёта линий ситуации — для сдвига группы. */
+  center: Vec3 | null;
+  situationOrigin: Vec3 | null;
   observer: ResizeObserver;
   rafId: number;
   framed: boolean;
@@ -39,6 +46,7 @@ export function Scene3D({
   cameraMode = "collar",
   colorMode = "kind",
   holeColors,
+  situationLines = NO_SITUATION,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -48,6 +56,8 @@ export function Scene3D({
   cameraMode?: "collar" | "shaft" | "toe";
   colorMode?: string;
   holeColors?: Record<string, number>;
+  /** Ситуация карьера (TASK-013, PR 4): линии видимых слоёв, 2D — на отметке бровки. */
+  situationLines?: Situation3dLine[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<SceneState | null>(null);
@@ -83,6 +93,8 @@ export function Scene3D({
     const contourGroup = new THREE.Group();
     const surfaceGroup = new THREE.Group();
     scene.add(surfaceGroup);
+    const situationGroup = new THREE.Group();
+    scene.add(situationGroup);
     scene.add(contourGroup);
     scene.add(holeGroup);
 
@@ -121,7 +133,21 @@ export function Scene3D({
     }
     animate();
 
-    stateRef.current = { scene, camera, renderer, controls, holeGroup, contourGroup, surfaceGroup, observer, rafId, framed: false };
+    stateRef.current = {
+      scene,
+      camera,
+      renderer,
+      controls,
+      holeGroup,
+      contourGroup,
+      surfaceGroup,
+      situationGroup,
+      center: null,
+      situationOrigin: null,
+      observer,
+      rafId,
+      framed: false,
+    };
 
     return () => {
       cancelAnimationFrame(rafId);
@@ -151,6 +177,8 @@ export function Scene3D({
       clearGroup(holeGroup);
       clearGroup(contourGroup);
       clearGroup(surfaceGroup);
+      state.center = null;
+      placeSituation(state);
       return;
     }
 
@@ -158,6 +186,8 @@ export function Scene3D({
     const centerY = points.reduce((s, p) => s + p.y, 0) / points.length;
     const centerZ = points.reduce((s, p) => s + p.z, 0) / points.length;
     const toThree = (p: Vec3) => new THREE.Vector3(p.x - centerX, p.z - centerZ, -(p.y - centerY));
+    state.center = { x: centerX, y: centerY, z: centerZ };
+    placeSituation(state);
 
     clearGroup(surfaceGroup);
     addSurfaceMesh(surfaceGroup, surfaces?.top, toThree, 0x6f9e7a, 0.38);
@@ -231,6 +261,22 @@ export function Scene3D({
 
   }, [contour, holes, surfaces, selected, reframeTick, cameraMode, colorMode, holeColors]);
 
+  // Ситуация — своим эффектом: правка скважин её не перестраивает. Одна
+  // `LineSegments` на цвет; при смене центра сцены группа только сдвигается.
+  useEffect(() => {
+    const state = stateRef.current;
+    if (!state) return;
+    clearGroup(state.situationGroup);
+    const { origin, batches } = situationSegments(situationLines);
+    state.situationOrigin = origin;
+    for (const batch of batches) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(batch.positions, 3));
+      state.situationGroup.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: batch.color })));
+    }
+    placeSituation(state);
+  }, [situationLines]);
+
   return (
     <div className="scene3d-wrap">
       <div ref={containerRef} className="scene3d-canvas" />
@@ -247,6 +293,13 @@ export function Scene3D({
       <div className="scene3d-hint">Вращение — перетаскивание · зум — колесо · режим: устье / ствол / подошва</div>
     </div>
   );
+}
+
+/** Группа ситуации — в координатах сцены: точка отсчёта линий минус центр блока. */
+function placeSituation(state: SceneState) {
+  const { center, situationOrigin: origin, situationGroup } = state;
+  situationGroup.visible = Boolean(center && origin);
+  if (center && origin) situationGroup.position.set(origin.x - center.x, origin.z - center.z, -(origin.y - center.y));
 }
 
 function clearGroup(group: THREE.Group) {

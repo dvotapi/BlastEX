@@ -13,20 +13,17 @@
 
 /* Холст */
 .cad-canvas-wrap { position:relative; min-width:0; min-height:0; overflow:hidden; border-right:1px solid #e2e8e5; background:#fbfcfb; touch-action:none; user-select:none; }
-.cad-canvas { display:block; width:100%; height:100%; cursor:grab; }
+/* Базовый слой — canvas (PR 4: десятки тысяч линий карьера), SVG — подсветка и наложения поверх */
+.cad-base { position:absolute; inset:0; pointer-events:none; }
+.cad-canvas { position:relative; display:block; width:100%; height:100%; cursor:grab; }
+.cad-canvas.is-over { cursor:pointer; }
 .cad-canvas:active { cursor:grabbing; }
 .cad-canvas.is-picking { cursor:crosshair; }
-.cad-line { fill:none; stroke-width:1.4; stroke-linejoin:round; pointer-events:none; }
-.cad-line.role-block_contour { stroke-width:2.2; }
-.cad-line.role-ignore { stroke-dasharray:4 3; }
 .cad-highlights { pointer-events:none; }
 .cad-highlight { fill:none; stroke-width:2.6; stroke-linejoin:round; }
 .cad-highlight.is-hovered { stroke-width:3.4; }
 .cad-highlight.is-selected { stroke-width:3.6; }
-.cad-hit { fill:none; stroke:transparent; pointer-events:stroke; cursor:pointer; }
-.cad-hit-points { fill:transparent; stroke:none; pointer-events:fill; }
-.cad-points { stroke:none; pointer-events:none; }
-.cad-points.is-hovered { stroke:#17231d; stroke-width:1; }
+.cad-points.is-hovered { fill:none; stroke:#17231d; stroke-width:1; pointer-events:none; }
 .cad-scale path { fill:none; stroke:#3b4b43; stroke-width:1.2; }
 .cad-scale text { fill:#3b4b43; font-size:var(--fs-small); dominant-baseline:middle; }
 .cad-fit { position:absolute; top:10px; left:10px; }

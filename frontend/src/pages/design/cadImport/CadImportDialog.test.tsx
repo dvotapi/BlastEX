@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { useState } from "react";
 import type { CadSource } from "../../../types/cad";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { worldToScreen } from "../../../lib/geometry2d";
+import { fittedCamera } from "./CadCanvas";
 import { CadImportDialog, type CadImportDialogProps } from "./CadImportDialog";
 import { CAD_META, cadSource, contourResult, surfaceResult } from "./testing/fixtures";
 
@@ -21,6 +23,7 @@ const api = vi.hoisted(() => ({
   },
 }));
 
+const VIEWPORT = { width: 800, height: 600 };
 const MSK66 = { name: "МСК-66 зона 1", height_system: "Балтийская 1977", epsg: null };
 
 /** Каталог ситуации объекта: файл окна и «Положение горных работ». */
@@ -98,10 +101,14 @@ function highlight(handle: string): Element | null {
   return document.querySelector(`.cad-highlight[data-handle="${handle}"]`);
 }
 
-function hit(handle: string): Element {
-  const found = document.querySelector(`.cad-hit[data-handle="${handle}"]`);
-  if (!found) throw new Error(`нет зоны попадания ${handle}`);
-  return found;
+/** Холст чертежа и экранная точка мировой — как у холста (вписанная камера, окно 800 × 600 в jsdom). */
+function canvas(): Element {
+  return document.querySelector("svg.cad-canvas") as Element;
+}
+
+function at(x: number, y: number) {
+  const point = worldToScreen(fittedCamera(cadSource().entities, VIEWPORT), VIEWPORT, { x, y });
+  return { clientX: point.x, clientY: point.y };
 }
 
 describe("CadImportDialog", () => {
@@ -124,7 +131,8 @@ describe("CadImportDialog", () => {
     expect(highlight("769")).toBeNull();
 
     fireEvent.mouseLeave(screen.getByRole("row", { name: /Горизонт \+410/ }));
-    fireEvent.mouseEnter(hit("769"));
+    // Нижнее ребро контура 769: (90; 170) → (140; 170).
+    fireEvent.mouseMove(canvas(), at(120, 170));
     expect(screen.getByRole("row", { name: /блок 66 вар 2/ }).classList.contains("is-hovered")).toBe(true);
   });
 
@@ -132,7 +140,8 @@ describe("CadImportDialog", () => {
     renderDialog();
     await ready();
 
-    fireEvent.click(hit("733"));
+    // Нижняя бровка 733: (100; 180) → (130; 182).
+    fireEvent.click(canvas(), at(115, 181));
 
     const row = await screen.findByRole("row", { name: /733/ });
     expect(row.classList.contains("is-selected")).toBe(true);
@@ -762,7 +771,7 @@ describe("CadImportDialog", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
     fireEvent.click(await screen.findByRole("radio", { name: "Сборка" }));
-    fireEvent.click(hit("6C3"));
+    fireEvent.click(canvas(), at(115, 202.5)); // верхняя бровка 6C3: (100; 200) → (130; 205)
 
     await waitFor(() =>
       expect(api.cad.contour).toHaveBeenLastCalledWith(

@@ -106,7 +106,7 @@ type Segment = { handle: string; a: XY; b: XY; startM: number };
 
 /** Точки привязки (концы, вершины, пересечения) по ячейкам: движение мыши над
  * чертежом с сотнями тысяч вершин смотрит только ячейки в пределах апертуры. */
-class PointCells<T extends { point: XY }> {
+export class PointCells<T extends { point: XY }> {
   cell = 5;
   private readonly items: T[] = [];
   private readonly grid = new Map<string, number[]>();

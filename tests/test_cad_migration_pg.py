@@ -11,7 +11,7 @@ from tests.pg_public import _REPO_ROOT, TEST_DATABASE_URL, public_db, requires_p
 
 CAD_TABLES = {"cad_sources", "cad_entities", "cad_layer_roles", "cad_site_settings"}
 PREVIOUS_HEAD = "20260910_0008"
-HEAD = "20261002_0011"
+HEAD = "20261003_0012"
 
 
 def _alembic(*args: str) -> None:
@@ -62,7 +62,8 @@ def _sha_index(engine) -> bool:
 def test_situation_migration_is_reversible_and_titles_old_sources(public_db) -> None:
     """PR 4: название источника, вид слоя ситуации, СК объекта."""
 
-    _alembic("downgrade", "20261001_0010")
+    # Откат только PR 4: предыдущая ревизия — Kuz-Ram (#106), её не трогаем.
+    _alembic("downgrade", "20261002_0011")
     public_db.dispose()
     assert "title" not in _columns(public_db, "cad_sources")
     assert "situation_kind" not in _columns(public_db, "cad_layer_roles")

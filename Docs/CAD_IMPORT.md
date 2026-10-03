@@ -32,7 +32,7 @@
 | Виды объектов ситуации, название и дата из имени файла, серии | `design/spatial/cad/situation.py` |
 | Устойчивый экстент, проверка СК «дальше 5 км» | `design/spatial/cad/crs.py` |
 | Хранилище (Postgres и InMemory) | `design/spatial/cad/repository.py` |
-| Миграции | `migrations/versions/20260930_0009_cad_import.py`, `migrations/versions/20261001_0010_cad_site_settings.py`, `migrations/versions/20261002_0011_cad_situation.py` |
+| Миграции | `migrations/versions/20260930_0009_cad_import.py`, `migrations/versions/20261001_0010_cad_site_settings.py`, `migrations/versions/20261003_0012_cad_situation.py` |
 | Сервис и API | `api/services/cad_service.py`, `api/services/cad_contour_service.py`, `api/services/cad_surface_service.py`, `api/services/cad_situation_service.py`, `api/routers/cad.py`, `api/schemas/cad.py` |
 | Контур в паспорте | `BlockContour.cad` в `design/models.py`, `CadContourInfoSchema` в `api/schemas/design.py` |
 | Кровля и ручная правка в паспорте | `SurfaceModel.cad` в `design/spatial/surfaces.py`, `Hole.manual` в `design/models.py`, `CadSurfaceInfoSchema` |
@@ -166,7 +166,7 @@
 - Объект не выбран или не найден — предупреждение `template_not_saved`, шаблон
   не пишется.
 
-## Хранение (`blastex`, миграции `20260930_0009`, `20261001_0010`, `20261002_0011`)
+## Хранение (`blastex`, миграции `20260930_0009`, `20261001_0010`, `20261003_0012`)
 
 - **`cad_sources`**:
   - объект (`site_code`, `work_object_name`);
@@ -192,7 +192,7 @@
 - **`cad_site_settings`** (миграция `20261001_0010`): PK `(organization_id,
   site_code)`, `area_basis` (`top`, `bottom`, `mean`, по умолчанию `mean`) —
   какую площадь маркшейдер объекта называет площадью блока; `crs_name`,
-  `height_system`, `epsg` (миграция `20261002_0011`) — система координат
+  `height_system`, `epsg` (миграция `20261003_0012`) — система координат
   объекта. Запись СК не трогает площадь блока, и наоборот.
 - Индекс `ix_cad_sources_org_site_sha` по `(organization_id, site_code,
   file_sha256)` — повторный файл того же объекта.

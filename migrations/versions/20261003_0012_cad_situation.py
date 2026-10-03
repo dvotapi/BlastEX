@@ -11,17 +11,17 @@
   объекта («МСК-66 зона 1», «Балтийская 1977»): задаётся один раз, следующие
   файлы её наследуют.
 
-Revision ID: 20261002_0011
-Revises: 20261001_0010
-Create Date: 2026-10-02
+Revision ID: 20261003_0012
+Revises: 20261002_0011
+Create Date: 2026-10-03
 """
 from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "20261002_0011"
-down_revision = "20261001_0010"
+revision = "20261003_0012"
+down_revision = "20261002_0011"
 branch_labels = None
 depends_on = None
 

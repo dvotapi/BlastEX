@@ -565,6 +565,63 @@ def test_rare_situation_series_survives_many_block_files(repository):
     assert catalogue["truncated"] is False
 
 
+def test_catalogue_series_fit_the_reference_limit(repository):
+    """Codex (#108): у каждого файла блока со слоем ситуации своя серия.
+
+    Каталог отдаёт не больше серий, чем `GET /situation` принимает ссылок, —
+    иначе паспорт после «Построить блок» запомнит больше 50 версий и получит
+    422 на всю подложку. Серии ссылки остаются, остальные — свежие.
+    """
+
+    from datetime import timedelta
+
+    from api.schemas.cad import MAX_SITUATION_REFERENCES
+    from design.spatial.cad.model import CadEntity
+    from design.spatial.cad.repository import CadSourceRecord
+
+    client = _client(repository)
+    oldest = _upload(client, ("ЛЭП объекта на 01.06.2026.dxf", situation_dxf()))[0]
+    template = repository.get_source("org-a", oldest["id"])
+    road = CadEntity(handle="R1", layer="Дорога", kind="LWPOLYLINE", points=[(0, 0, 0), (5, 0, 0)], role="situation")
+    total = MAX_SITUATION_REFERENCES + 10
+    for index in range(total):
+        repository.create_sources(
+            "org-a",
+            [
+                (
+                    CadSourceRecord(
+                        id=f"block-{index:03d}",
+                        site_code="SITE_ZK",
+                        work_object_name="Жуков камень",
+                        file_name=f"граница блока {index}.dxf",
+                        file_format="dxf",
+                        file_size=1,
+                        file_sha256=f"{index:064d}",
+                        params=template.params,
+                        summary={},
+                        uploaded_by="a@example.ru",
+                        uploaded_at=template.uploaded_at + timedelta(days=index + 1),
+                        title=f"граница блока {index}",
+                    ),
+                    [road],
+                )
+            ],
+        )
+
+    fresh = _catalogue(client)
+    assert len(fresh["series"]) == MAX_SITUATION_REFERENCES
+    assert fresh["truncated"] is True
+    defaults = {item["default_source_id"] for item in fresh["series"]}
+    assert f"block-{total - 1:03d}" in defaults and oldest["id"] not in defaults
+    # Ссылки «Построить блок» — версии по умолчанию каталога — запрос принимает.
+    _catalogue(client, *sorted(defaults))
+
+    # Серия из ссылки паспорта видна, даже если старше всех.
+    pinned = _catalogue(client, oldest["id"])
+    assert len(pinned["series"]) == MAX_SITUATION_REFERENCES
+    assert oldest["id"] in {item["default_source_id"] for item in pinned["series"]}
+
+
 def test_long_series_keeps_the_newest_versions_and_the_pinned_one(repository, monkeypatch):
     from api.services import cad_situation_service
 

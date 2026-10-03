@@ -45,7 +45,9 @@ function SituationGroup({
         <p className="visibility-note">Удалено версий, на которые ссылается паспорт: {model.missing}</p>
       )}
       {model.truncated && (
-        <p className="visibility-note">У длинных серий показаны последние версии (не больше 12).</p>
+        <p className="visibility-note">
+          Показана не вся ситуация объекта: последние 12 версий серии, не больше 50 свежих серий.
+        </p>
       )}
       {model.series.map((series) => {
         const passport = series.versions.find((item) => item.sourceId === series.passportId);

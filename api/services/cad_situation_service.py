@@ -17,6 +17,7 @@ import numpy as np
 import shapely
 
 from api.schemas.cad import (
+    MAX_SITUATION_REFERENCES,
     CadCrsSchema,
     CadSiteSourceSchema,
     CadSiteSourcesResponse,
@@ -42,6 +43,9 @@ MAX_SITUATION_VERTICES = 200_000
 MAX_VERSIONS_PER_SERIES = 12
 # Сколько источников с ситуацией просматривает каталог: граница запроса, а не версий.
 MAX_SCANNED_SOURCES = 2000
+# Сколько серий отдаёт каталог: «Построить блок» запоминает по версии на серию,
+# а `GET /situation` принимает не больше MAX_SITUATION_REFERENCES ссылок.
+MAX_SITUATION_SERIES = MAX_SITUATION_REFERENCES
 KIND_LABELS = dict(SITUATION_KINDS)
 
 
@@ -101,7 +105,8 @@ def catalogue(
         if counts.get(record.id):
             grouped.setdefault(series_key(source_title(record)), []).append(record)
 
-    truncated = over_limit
+    truncated = over_limit or len(grouped) > MAX_SITUATION_SERIES
+    grouped = _within_series_limit(grouped, referenced)
     series: list[CadSituationSeriesSchema] = []
     for key, records in grouped.items():
         ordered = order_versions(records)
@@ -126,6 +131,24 @@ def catalogue(
         missing=missing,
         truncated=truncated,
     )
+
+
+def _within_series_limit(
+    grouped: dict[str, list[CadSourceRecord]], referenced: dict[str, CadSourceRecord]
+) -> dict[str, list[CadSourceRecord]]:
+    """Не больше MAX_SITUATION_SERIES серий: серии ссылки, затем по свежей загрузке.
+
+    У каждого файла блока со слоем ситуации своя серия (название — из имени
+    файла), так что у объекта их могут быть сотни.
+    """
+
+    if len(grouped) <= MAX_SITUATION_SERIES:
+        return grouped
+    pinned = [key for key, records in grouped.items() if any(item.id in referenced for item in records)]
+    others = sorted(key for key in grouped if key not in pinned)
+    others.sort(key=lambda key: max(item.uploaded_at for item in grouped[key]), reverse=True)
+    kept = set([*pinned, *others][:MAX_SITUATION_SERIES])
+    return {key: records for key, records in grouped.items() if key in kept}
 
 
 def _simplified(points: list[tuple[float, float, float]], closed: bool, origin: np.ndarray) -> list[list[float]]:

@@ -109,9 +109,11 @@ describe("VisibilityPanel: ситуация", () => {
     expect(screen.queryByRole("group", { name: "Ситуация" })).toBeNull();
   });
 
-  it("каталог обрезан — видно, что показаны не все версии", () => {
+  it("каталог обрезан — видно, что показаны не все версии и не все серии", () => {
     renderPanel({ situation: { series: SERIES, hidden: new Set(), missing: 0, error: "", truncated: true } });
 
-    expect(within(screen.getByRole("group", { name: "Ситуация" })).getByText(/показаны последние версии/)).toBeTruthy();
+    const note = within(screen.getByRole("group", { name: "Ситуация" })).getByText(/Показана не вся ситуация объекта/);
+    expect(note.textContent).toContain("последние 12 версий серии");
+    expect(note.textContent).toContain("не больше 50 свежих серий");
   });
 });

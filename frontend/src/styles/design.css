@@ -569,9 +569,9 @@
 .visibility-layers label { display:flex; align-items:center; gap:6px; cursor:pointer; }
 /* Группа «Ситуация» (TASK-013, PR 4): серии ситуации объекта, слои с цветом DXF */
 .visibility-situation .situation-series { display:grid; gap:3px; padding-top:4px; border-top:1px solid #edf1ef; }
-.situation-series-head { display:flex; align-items:center; justify-content:space-between; gap:6px; min-width:0; }
+.situation-series-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:2px 6px; min-width:0; }
 .situation-series-head b { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.situation-series-head select { max-width:96px; border:1px solid #d9e2dd; border-radius:6px; padding:1px 4px; font-size:10.5px; }
+.situation-series-head select { flex:1 1 100%; min-width:0; border:1px solid #d9e2dd; border-radius:6px; padding:1px 4px; font-size:10.5px; }
 .visibility-layers .visibility-situation .situation-passport, .visibility-layers .visibility-situation .situation-loading { color:#6e7c75; text-transform:none; letter-spacing:0; }
 .situation-swatch { flex:none; width:10px; height:3px; border-radius:1px; }
 .visibility-situation label em { margin-left:auto; color:#6e7c75; font-style:normal; font-size:10px; white-space:nowrap; }

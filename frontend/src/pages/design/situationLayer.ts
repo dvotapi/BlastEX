@@ -106,6 +106,26 @@ export type SituationPanelSeries = {
   layers: Array<{ key: string; name: string; color: string; kindLabel: string; omitted: boolean }> | null;
 };
 
+type CatalogueVersion = CadSituationCatalogue["series"][number]["versions"][number];
+
+/** «03.10.2026 03:31» из ISO-времени загрузки (время сервера, UTC). */
+function uploadedLabel(iso: string): string {
+  const time = /T(\d{2}:\d{2})/.exec(iso)?.[1];
+  return time ? `${ruDate(iso)} ${time}` : ruDate(iso);
+}
+
+/** Подпись версии — дата съёмки; одинаковые даты (повторная выгрузка) различает время загрузки. */
+function versionLabels(versions: CatalogueVersion[]): Array<{ sourceId: string; label: string }> {
+  const base = versions.map((item) => (item.survey_date ? ruDate(item.survey_date) : item.file_name));
+  return versions.map((item, index) => ({
+    sourceId: item.source_id,
+    label:
+      base.filter((label) => label === base[index]).length > 1
+        ? `${base[index]} · загружен ${uploadedLabel(item.uploaded_at)}`
+        : base[index],
+  }));
+}
+
 /** Модель группы «Ситуация»: серии каталога, показанные версии и их слои. */
 export function situationPanelSeries(
   catalogue: CadSituationCatalogue | null,
@@ -119,10 +139,7 @@ export function situationPanelSeries(
     return {
       key: series.key,
       title: series.title,
-      versions: series.versions.map((item) => ({
-        sourceId: item.source_id,
-        label: item.survey_date ? ruDate(item.survey_date) : item.file_name,
-      })),
+      versions: versionLabels(series.versions),
       displayedId,
       passportId: passport[series.key] ?? null,
       layers: loaded

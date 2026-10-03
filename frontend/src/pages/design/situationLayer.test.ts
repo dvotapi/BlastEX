@@ -186,3 +186,41 @@ describe("situationPanelSeries", () => {
     expect(situationPanelSeries(catalogue, [], { положение: "src-9" }, {})[0].layers).toBeNull();
   });
 });
+
+describe("situationPanelSeries: версии одной даты", () => {
+  it("одинаковые даты съёмки различаются временем загрузки", () => {
+    const version = (source_id: string, uploaded_at: string) => ({
+      source_id,
+      title: "Положение горных работ",
+      file_name: "п.dxf",
+      survey_date: "2026-09-01",
+      uploaded_at,
+      situation_count: 1,
+      revision: 1,
+    });
+    const catalogue = {
+      site_code: "SITE_ZK",
+      crs: null,
+      missing: [],
+      truncated: false,
+      series: [
+        {
+          key: "положение",
+          title: "Положение горных работ",
+          versions: [
+            version("b", "2026-10-03T03:31:14.5+00:00"),
+            version("a", "2026-10-02T18:05:00+00:00"),
+            { ...version("c", "2026-09-02T10:00:00+00:00"), survey_date: "2026-08-01" },
+          ],
+          default_source_id: "b",
+        },
+      ],
+    };
+
+    expect(situationPanelSeries(catalogue, [], {}, {})[0].versions.map((item) => item.label)).toEqual([
+      "01.09.2026 · загружен 03.10.2026 03:31",
+      "01.09.2026 · загружен 02.10.2026 18:05",
+      "01.08.2026",
+    ]);
+  });
+});

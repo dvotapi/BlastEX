@@ -170,7 +170,7 @@ export function SourceHeader({
   const series = seriesText(source);
   const listId = `cad-known-titles-${source.id}`;
   return (
-    <section className="cad-source-header" aria-label="Файл и система координат">
+    <section className="cad-source-header" aria-label="Файл чертежа и СК объекта">
       <div className="cad-source-fields">
         <label>
           <span>Название</span>

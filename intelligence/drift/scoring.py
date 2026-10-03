@@ -54,11 +54,17 @@ def is_fragmentation_calibration(family: str, model_type: str) -> bool:
 
 
 def fragmentation_base_label(team_id: str, model_id: str) -> str:
-    """Подпись базы артефакта калибровки кусковатости для предупреждения дрейфа."""
+    """Подпись базы артефакта калибровки кусковатости для предупреждения дрейфа.
+
+    Артефакт, который не загрузился, подписывается своим id.
+    """
     from intelligence.calibration.base import artifact_base
     from intelligence.calibration.persistence import load_model
 
-    model = load_model(team_id, model_id)
+    try:
+        model = load_model(team_id, model_id)
+    except Exception:  # noqa: BLE001 — подпись справочная: сбой загрузки не должен ронять проверку дрейфа
+        return model_id
     try:
         return artifact_base(model.baseline_model, model.baseline_model_version).label()
     except ValueError:

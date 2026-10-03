@@ -152,6 +152,41 @@ class DriftWindowBaseTests(unittest.TestCase):
         self.assertFalse([item for item in report.metrics if item.kind == KIND_PREDICTION])
         self.assertIn("Прогнозный канал пропущен: артефакт повреждён", report.warnings)
 
+    def test_label_load_failure_does_not_break_check(self):
+        """Подпись базы в предупреждении — справка: сбой повторной загрузки артефакта не рушит отчёт."""
+        from intelligence.calibration import persistence as calibration_persistence
+        from intelligence.drift import monitor
+
+        model = self._old_production()
+        current = save_snapshot(TEAM_ID, _current_window("now-label"))
+        scoring_calls = []
+        real_load, real_score = calibration_persistence.load_model, monitor.score_snapshots
+
+        def counted_score(*args, **kwargs):
+            result = real_score(*args, **kwargs)
+            scoring_calls.append(1)
+            return result
+
+        def load_model(team_id, model_id):
+            # Окна обучения и текущее считаются двумя вызовами; ломаем загрузку после них.
+            if len(scoring_calls) >= 2:
+                raise OSError("файл артефакта недоступен")
+            return real_load(team_id, model_id)
+
+        with patch("intelligence.drift.monitor.score_snapshots", side_effect=counted_score), patch(
+            "intelligence.calibration.persistence.load_model", side_effect=load_model
+        ):
+            report = check_production_model(
+                TEAM_ID, "calibration", model.model_id, current_dataset_id=current.dataset_id, persist=False
+            )
+
+        self.assertFalse([item for item in report.metrics if item.kind == KIND_PREDICTION])
+        self.assertIn(
+            f"Нет строк снимка, посчитанных базой калибровки «{model.model_id}», "
+            "— прогнозный канал дрейфа пропущен.",
+            report.warnings,
+        )
+
     def test_windows_of_artifact_base_keep_prediction_channel(self):
         model = self._old_production()
         current = save_snapshot(TEAM_ID, _old_window("now-old"))

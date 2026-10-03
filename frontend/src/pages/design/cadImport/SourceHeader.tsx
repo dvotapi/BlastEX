@@ -24,6 +24,12 @@ export type SourceHeaderProps = {
   saveCrs: (id: string, crs: CadCrs) => Promise<CadCrsResponse>;
   onMetaSaved: (meta: CadSourceMetaResponse) => void;
   onCrsSaved: (sourceId: string, answer: CadCrsResponse) => void;
+  /**
+   * Чем занята шапка: набор ждёт паузы или сохраняется, сохраняется или
+   * открыта правка СК; null — ничего. «Построить блок» ждёт, иначе паспорт
+   * запомнил бы прежние серию и СК.
+   */
+  onBusyChange?: (reason: string | null) => void;
 };
 
 function crsText(source: CadSource): string {
@@ -54,6 +60,7 @@ export function SourceHeader({
   saveCrs,
   onMetaSaved,
   onCrsSaved,
+  onBusyChange,
 }: SourceHeaderProps) {
   const [title, setTitle] = useState(source.title);
   const [surveyDate, setSurveyDate] = useState(source.survey_date ?? "");
@@ -64,6 +71,9 @@ export function SourceHeader({
   const [crsEpsg, setCrsEpsg] = useState("");
   const [crsError, setCrsError] = useState("");
   const [crsSaving, setCrsSaving] = useState(false);
+  // Набор ждёт паузы; отправленные и ещё не отвеченные сохранения.
+  const [waiting, setWaiting] = useState(false);
+  const [inFlight, setInFlight] = useState(0);
   // Поля, изменённые после последней отправки, и таймер паузы.
   const pending = useRef<CadSourceMetaPayload>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -90,6 +100,7 @@ export function SourceHeader({
     return () => {
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
+      setWaiting(false);
       const payload = pending.current;
       pending.current = {};
       if (Object.keys(payload).length) deliver(id, payload);
@@ -101,10 +112,12 @@ export function SourceHeader({
     pending.current = { ...pending.current, ...patch };
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(send, SAVE_DELAY_MS);
+    setWaiting(true);
   }
 
   function send() {
     timer.current = null;
+    setWaiting(false);
     const payload = pending.current;
     pending.current = {};
     if (Object.keys(payload).length) deliver(sourceId.current, payload);
@@ -114,13 +127,17 @@ export function SourceHeader({
     const number = ++sent.current;
     lastSent.current.set(id, number);
     const stale = () => lastSent.current.get(id) !== number;
+    setInFlight((count) => count + 1);
+    const settled = () => setInFlight((count) => count - 1);
     latest.current.saveMeta(id, payload).then(
       (answer) => {
+        settled();
         if (stale()) return;
         if (id === sourceId.current) setMetaError("");
         latest.current.onMetaSaved(answer);
       },
       (reason) => {
+        settled();
         // Ошибку видно только у открытого файла.
         if (stale() || id !== sourceId.current) return;
         setMetaError(reason instanceof Error ? reason.message : "Не удалось сохранить название и дату.");
@@ -134,6 +151,11 @@ export function SourceHeader({
       // Пустое название не отправляется: по нему файл попадает в серию.
       const { title: _dropped, ...rest } = pending.current;
       pending.current = rest;
+      if (!Object.keys(rest).length && timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+        setWaiting(false);
+      }
       setMetaError("Название не может быть пустым: по нему файл попадает в серию ситуации.");
       return;
     }
@@ -179,6 +201,19 @@ export function SourceHeader({
       setCrsSaving(false);
     }
   }
+
+  const busy = crsSaving
+    ? "Сохраняю систему координат…"
+    : editingCrs
+      ? "Сохраните или отмените правку СК объекта."
+      : waiting || inFlight > 0
+        ? "Сохраняю название и дату…"
+        : null;
+  const reportBusy = useRef(onBusyChange);
+  reportBusy.current = onBusyChange;
+  useEffect(() => {
+    reportBusy.current?.(busy);
+  }, [busy]);
 
   const series = seriesText(source);
   const listId = `cad-known-titles-${source.id}`;

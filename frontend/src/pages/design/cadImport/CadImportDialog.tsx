@@ -170,7 +170,10 @@ export function CadImportDialog({
   const [radiusText, setRadiusText] = useState("");
   // Ситуация объекта: какие версии запомнит паспорт и какие названия серий уже есть.
   const [catalogue, setCatalogue] = useState<CadSituationCatalogue | null>(null);
+  const [catalogueLoading, setCatalogueLoading] = useState(true);
   const [metaVersion, setMetaVersion] = useState(0);
+  // Чем занята шапка источника (сохранение названия, даты, СК): «Построить блок» ждёт.
+  const [headerBusy, setHeaderBusy] = useState<string | null>(null);
   const sourcesKey = sources.map((source) => source.id).join(",");
   const entities = useMemo(() => new Map((active?.entities ?? []).map((entity) => [entity.handle, entity])), [active?.entities]);
   const rolesKey = contour.roles.join(",");
@@ -227,12 +230,16 @@ export function CadImportDialog({
 
   // Каталог ситуации объекта — после правки ролей, видов, названия или даты он
   // меняется. Ошибка не мешает построению: паспорт без ссылки покажет свежие версии.
+  // Пока каталог перечитывается, «Построить блок» ждёт: паспорт запомнит
+  // версии серий по нему.
   useEffect(() => {
     let alive = true;
+    setCatalogueLoading(true);
     api.cad
       .situation(sourcesKey ? sourcesKey.split(",") : [])
       .then((loaded) => alive && setCatalogue(loaded))
-      .catch(() => alive && setCatalogue(null));
+      .catch(() => alive && setCatalogue(null))
+      .finally(() => alive && setCatalogueLoading(false));
     return () => {
       alive = false;
     };
@@ -573,6 +580,7 @@ export function CadImportDialog({
               saveCrs={api.cad.saveCrs}
               onMetaSaved={metaSaved}
               onCrsSaved={crsSaved}
+              onBusyChange={setHeaderBusy}
             />
             {active.warnings.length > 0 && (
               <ul className="cad-warnings">
@@ -729,11 +737,11 @@ export function CadImportDialog({
             <BuildFooter
               result={preview.result}
               pending={preview.pending}
-              busy={pending || areaSaving > 0}
+              busy={pending || areaSaving > 0 || headerBusy !== null || catalogueLoading}
               error={preview.error}
               roof={roof.result}
               roofError={roof.error}
-              blocker={blocker}
+              blocker={blocker ?? headerBusy ?? (catalogueLoading ? "Обновляю ситуацию объекта…" : null)}
               areaLabel={meta?.area_bases.find((basis) => basis.code === contour.areaBasis)?.label ?? ""}
               onCancel={onCancel}
               onBuild={build}

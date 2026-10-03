@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import type { CadSource } from "../../../types/cad";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -328,6 +328,65 @@ describe("CadImportDialog", () => {
       { source_id: "src-1", title: "блок 66", survey_date: "2026-09-28" },
       { source_id: "src-10", title: "Положение горных работ", survey_date: "2026-10-01" },
     ]);
+  });
+
+  it("«Построить блок» ждёт сохранения названия и обновлённого каталога", async () => {
+    // Ревью Codex (#108, круг 4): иначе паспорт запомнил бы прежнюю серию файла.
+    let answer: (value: unknown) => void = () => undefined;
+    api.cad.updateMeta.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const props = renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    const loads = api.cad.situation.mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Положение горных работ" } });
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText("Сохраняю название и дату…")).toBeTruthy();
+    await waitFor(() => expect(api.cad.updateMeta).toHaveBeenCalled());
+    expect(button.disabled).toBe(true);
+
+    await act(async () =>
+      answer({ id: "src-1", title: "Положение горных работ", survey_date: "2026-09-28", series: [], revision: 2 }),
+    );
+    await waitFor(() => expect(api.cad.situation.mock.calls.length).toBeGreaterThan(loads));
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    expect(props.onBuild).toHaveBeenCalledTimes(1);
+  });
+
+  it("«Построить блок» ждёт сохранения СК объекта; открытая правка СК — тоже", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    api.cad.saveCrs.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText("Сохраните или отмените правку СК объекта.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Система координат"), { target: { value: "МСК-66 зона 1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(screen.getByText("Сохраняю систему координат…")).toBeTruthy();
+
+    await act(async () => answer({ crs: MSK66, saved: true, warnings: [] }));
+    await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
+  it("каталог ситуации ещё грузится — «Построить блок» ждёт", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    api.cad.situation.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    renderDialog();
+    await ready();
+    // Контур и кровля готовы (объём у кнопки) — ждать больше нечего, кроме каталога.
+    await screen.findByText(/V [\d\s]+ м³/);
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText("Обновляю ситуацию объекта…")).toBeTruthy();
+
+    await act(async () => answer(catalogue()));
+    await waitFor(() => expect(button.disabled).toBe(false));
   });
 
   it("каталог ситуации не загрузился — блок строится без ссылки", async () => {

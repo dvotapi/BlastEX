@@ -38,6 +38,10 @@ from design.spatial.cad.situation import order_versions, series_key
 SITUATION_SIMPLIFY_M = 0.05
 # Предел вершин в ответе геометрии одного источника.
 MAX_SITUATION_VERTICES = 200_000
+# Сколько версий серии отдаёт каталог (свежие); версия из ссылки паспорта — всегда.
+MAX_VERSIONS_PER_SERIES = 12
+# Сколько источников с ситуацией просматривает каталог: граница запроса, а не версий.
+MAX_SCANNED_SOURCES = 2000
 KIND_LABELS = dict(SITUATION_KINDS)
 
 
@@ -64,7 +68,9 @@ def catalogue(
 
     Объект — по источникам ссылки паспорта (паспорт мог быть построен на
     другом объекте), иначе активный. Ссылка на удалённый или чужой источник
-    попадает в `missing`, остальное отдаётся как обычно.
+    попадает в `missing`, остальное отдаётся как обычно. Предел — версии на
+    серию, а не файлы объекта: файлов блоков без ситуации сотни, и редкая
+    серия (ЛЭП, контур карьера) не должна из-за них пропадать.
     """
 
     referenced: dict[str, CadSourceRecord] = {}
@@ -77,31 +83,37 @@ def catalogue(
             referenced[source_id] = record
     site_code = next((item.site_code for item in referenced.values() if item.site_code), active_site_code)
 
-    site_sources = (
-        repository.list_site_sources(organization_id, site_code, limit=MAX_SITE_SOURCES) if site_code else []
+    scanned = (
+        repository.list_situation_sources(organization_id, site_code, limit=MAX_SCANNED_SOURCES + 1) if site_code else []
     )
-    candidates = {item.id: item for item in site_sources}
-    # Источник ссылки без объекта (файл загружен без активного объекта) — только
-    # в своём паспорте.
-    for record in referenced.values():
-        candidates.setdefault(record.id, record)
-    counts = repository.count_entities_by_role(organization_id, set(candidates), ROLE_SITUATION)
+    over_limit = len(scanned) > MAX_SCANNED_SOURCES
+    scanned = scanned[:MAX_SCANNED_SOURCES]
+    counts = {record.id: count for record, count in scanned}
+    candidates = {record.id: record for record, _ in scanned}
+    # Источник ссылки старше просмотренных или без объекта (файл загружен без
+    # активного объекта) — всё равно в своём паспорте.
+    extra = {source_id: record for source_id, record in referenced.items() if source_id not in candidates}
+    counts.update(repository.count_entities_by_role(organization_id, set(extra), ROLE_SITUATION))
+    candidates.update(extra)
 
     grouped: dict[str, list[CadSourceRecord]] = {}
     for record in candidates.values():
         if counts.get(record.id):
             grouped.setdefault(series_key(source_title(record)), []).append(record)
 
+    truncated = over_limit
     series: list[CadSituationSeriesSchema] = []
     for key, records in grouped.items():
-        versions = order_versions(records)
-        pinned = next((item for item in versions if item.id in referenced), None)
+        ordered = order_versions(records)
+        kept = [item for index, item in enumerate(ordered) if index < MAX_VERSIONS_PER_SERIES or item.id in referenced]
+        truncated = truncated or len(kept) < len(ordered)
+        pinned = next((item for item in kept if item.id in referenced), None)
         series.append(
             CadSituationSeriesSchema(
                 key=key,
-                title=source_title(versions[0]),
-                versions=[_version(item, counts[item.id]) for item in versions],
-                default_source_id=(pinned or versions[0]).id,
+                title=source_title(ordered[0]),
+                versions=[_version(item, counts[item.id]) for item in kept],
+                default_source_id=(pinned or ordered[0]).id,
             )
         )
     series.sort(key=lambda item: item.key)
@@ -112,7 +124,7 @@ def catalogue(
         crs=CadCrsSchema(**crs) if crs_named(crs) else None,
         series=series,
         missing=missing,
-        truncated=len(site_sources) >= MAX_SITE_SOURCES,
+        truncated=truncated,
     )
 
 
@@ -219,7 +231,8 @@ def list_sources(repository: CadRepository, organization_id: str, site_code: str
 
     if not site_code:
         return CadSiteSourcesResponse()
-    records = repository.list_site_sources(organization_id, site_code, limit=MAX_SITE_SOURCES)
+    # На один больше предела: ровно 50 файлов — ещё не «показаны не все».
+    records = repository.list_site_sources(organization_id, site_code, limit=MAX_SITE_SOURCES + 1)
     counts = repository.count_entities_by_role(organization_id, {item.id for item in records}, ROLE_SITUATION)
     return CadSiteSourcesResponse(
         site_code=site_code,
@@ -233,9 +246,9 @@ def list_sources(repository: CadRepository, organization_id: str, site_code: str
                 uploaded_by=item.uploaded_by,
                 situation_count=counts.get(item.id, 0),
             )
-            for item in records
+            for item in records[:MAX_SITE_SOURCES]
         ],
-        truncated=len(records) >= MAX_SITE_SOURCES,
+        truncated=len(records) > MAX_SITE_SOURCES,
     )
 
 

@@ -42,7 +42,7 @@ function renderPanel(extra: Partial<Parameters<typeof VisibilityPanel>[0]> = {})
     onResetLayers: vi.fn(),
     collapsed: false,
     onToggleCollapsed: vi.fn(),
-    situation: { series: SERIES, hidden: new Set<string>(), missing: 0, error: "" },
+    situation: { series: SERIES, hidden: new Set<string>(), missing: 0, error: "", truncated: false },
     onSituationVersion: vi.fn(),
     onSituationLayer: vi.fn(),
     ...extra,
@@ -79,7 +79,7 @@ describe("VisibilityPanel: ситуация", () => {
 
   it("флажок слоя скрывает и показывает его", () => {
     const key = situationLayerKey("положение горных работ", "Автодорога");
-    const props = renderPanel({ situation: { series: SERIES, hidden: new Set([key]), missing: 0, error: "" } });
+    const props = renderPanel({ situation: { series: SERIES, hidden: new Set([key]), missing: 0, error: "", truncated: false } });
     const road = screen.getByRole("checkbox", { name: /Автодорога/ }) as HTMLInputElement;
 
     expect(road.checked).toBe(false);
@@ -97,7 +97,7 @@ describe("VisibilityPanel: ситуация", () => {
   });
 
   it("удалённые версии и ошибка видны", () => {
-    renderPanel({ situation: { series: [], hidden: new Set(), missing: 2, error: "Не удалось загрузить ситуацию объекта." } });
+    renderPanel({ situation: { series: [], hidden: new Set(), missing: 2, error: "Не удалось загрузить ситуацию объекта.", truncated: false } });
     const group = screen.getByRole("group", { name: "Ситуация" });
 
     expect(within(group).getByText(/Удалено версий, на которые ссылается паспорт: 2/)).toBeTruthy();
@@ -105,7 +105,13 @@ describe("VisibilityPanel: ситуация", () => {
   });
 
   it("без ситуации группы нет", () => {
-    renderPanel({ situation: { series: [], hidden: new Set(), missing: 0, error: "" } });
+    renderPanel({ situation: { series: [], hidden: new Set(), missing: 0, error: "", truncated: false } });
     expect(screen.queryByRole("group", { name: "Ситуация" })).toBeNull();
+  });
+
+  it("каталог обрезан — видно, что показаны не все версии", () => {
+    renderPanel({ situation: { series: SERIES, hidden: new Set(), missing: 0, error: "", truncated: true } });
+
+    expect(within(screen.getByRole("group", { name: "Ситуация" })).getByText(/показаны последние версии/)).toBeTruthy();
   });
 });

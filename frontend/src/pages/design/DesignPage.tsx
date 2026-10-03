@@ -255,6 +255,7 @@ export function DesignPage({
       hidden: situationHidden,
       missing: situation.missing.length,
       error: situation.error,
+      truncated: situation.catalogue?.truncated ?? false,
     }),
     [situation, situationHidden],
   );

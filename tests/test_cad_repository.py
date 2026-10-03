@@ -376,6 +376,26 @@ def test_layer_kinds_live_in_the_template(repository) -> None:
     assert repository.get_layer_template(ORG_B, "SITE_ZK") == {}
 
 
+def test_situation_sources_are_only_those_with_situation(repository) -> None:
+    situation = CadEntity(handle="R1", layer="Дорога", kind="LWPOLYLINE", points=[(0, 0, 0), (5, 0, 0)], role="situation")
+    repository.create_sources(
+        ORG_A,
+        [
+            (_site_record("with", sha="a" * 64, day=1), [situation, *_entities()]),
+            (_site_record("without", sha="b" * 64, day=5), _entities()),
+            (_site_record("newer", sha="c" * 64, day=7), [situation]),
+            (_site_record("other-site", site_code="SITE_OTHER", sha="d" * 64, day=9), [situation]),
+        ],
+    )
+    repository.create_sources(ORG_B, [(_site_record("foreign", sha="e" * 64, day=8), [situation])])
+
+    found = repository.list_situation_sources(ORG_A, "SITE_ZK", limit=10)
+    assert [(record.id, count) for record, count in found] == [("newer", 1), ("with", 1)]
+    assert found[0][0].title == "Положение горных работ"
+    assert found[0][0].file_data is None
+    assert [record.id for record, _ in repository.list_situation_sources(ORG_A, "SITE_ZK", limit=1)] == ["newer"]
+
+
 @requires_pg
 def test_deleting_a_source_cascades_to_entities(public_db) -> None:
     repository = PostgresCadRepository(TEST_DATABASE_URL)

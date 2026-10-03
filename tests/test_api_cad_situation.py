@@ -507,3 +507,61 @@ def test_role_edit_keeps_crs_warnings_in_the_answer(repository):
     answer = client.put(f"{BASE}/sources/{source['id']}/roles", json={"layers": {"Отметка": "situation"}}).json()
 
     assert "crs_missing" in {item["code"] for item in answer["warnings"]}
+
+
+def test_rare_situation_series_survives_many_block_files(repository):
+    """Ревью: предел каталога — не 50 последних файлов объекта, а версии на серию."""
+
+    from design.spatial.cad.repository import CadSourceRecord
+
+    client = _client(repository)
+    situation = _upload(client, ("ЛЭП объекта на 01.06.2026.dxf", situation_dxf()))[0]
+    # Шестьдесят файлов блоков без ситуации загружены позже.
+    template = repository.get_source("org-a", situation["id"])
+    for index in range(60):
+        repository.create_sources(
+            "org-a",
+            [
+                (
+                    CadSourceRecord(
+                        id=f"block-{index}",
+                        site_code="SITE_ZK",
+                        work_object_name="Жуков камень",
+                        file_name=f"блок {index}.dxf",
+                        file_format="dxf",
+                        file_size=1,
+                        file_sha256=f"{index:064d}",
+                        params=template.params,
+                        summary={},
+                        uploaded_by="a@example.ru",
+                        uploaded_at=template.uploaded_at.replace(year=2027),
+                        title=f"блок {index}",
+                    ),
+                    [],
+                )
+            ],
+        )
+
+    catalogue = _catalogue(client)
+    assert [item["default_source_id"] for item in catalogue["series"]] == [situation["id"]]
+    assert catalogue["truncated"] is False
+
+
+def test_long_series_keeps_the_newest_versions_and_the_pinned_one(repository, monkeypatch):
+    from api.services import cad_situation_service
+
+    monkeypatch.setattr(cad_situation_service, "MAX_VERSIONS_PER_SERIES", 3)
+    client = _client(repository)
+    ids = [
+        _upload(client, (f"Положение горных работ на 0{day}.09.2026.dxf", situation_dxf(roads=day)))[0]["id"]
+        for day in range(1, 6)
+    ]
+
+    fresh = _series(_catalogue(client))["положение горных работ"]
+    assert [item["source_id"] for item in fresh["versions"]] == [ids[4], ids[3], ids[2]]
+    assert _catalogue(client)["truncated"] is True
+
+    # Версия из ссылки паспорта видна, даже если старше предела.
+    pinned = _series(_catalogue(client, ids[0]))["положение горных работ"]
+    assert pinned["default_source_id"] == ids[0]
+    assert ids[0] in [item["source_id"] for item in pinned["versions"]]

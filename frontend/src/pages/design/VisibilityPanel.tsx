@@ -19,6 +19,8 @@ export type SituationPanelModel = {
   /** Сколько версий из ссылки паспорта удалено. */
   missing: number;
   error: string;
+  /** Каталог отдал не все версии: у длинных серий — последние. */
+  truncated: boolean;
 };
 
 function SituationGroup({
@@ -41,6 +43,9 @@ function SituationGroup({
       {model.error && <p className="visibility-note">{model.error}</p>}
       {model.missing > 0 && (
         <p className="visibility-note">Удалено версий, на которые ссылается паспорт: {model.missing}</p>
+      )}
+      {model.truncated && (
+        <p className="visibility-note">У длинных серий показаны последние версии (не больше 12).</p>
       )}
       {model.series.map((series) => {
         const passport = series.versions.find((item) => item.sourceId === series.passportId);

@@ -140,6 +140,10 @@ class CadRepository(Protocol):
 
     def count_entities_by_role(self, organization_id: str, source_ids: set[str], role: str) -> dict[str, int]: ...
 
+    def list_situation_sources(
+        self, organization_id: str, site_code: str, *, limit: int
+    ) -> list[tuple[CadSourceRecord, int]]: ...
+
     def upsert_layer_kinds(
         self, organization_id: str, site_code: str, kinds: dict[str, str | None], actor: str
     ) -> None: ...
@@ -549,6 +553,67 @@ class PostgresCadRepository:
             ).all()
             return {source_id: int(count) for source_id, count in rows}
 
+    def list_situation_sources(
+        self, organization_id: str, site_code: str, *, limit: int
+    ) -> list[tuple[CadSourceRecord, int]]:
+        """Источники объекта, где есть объекты ситуации, свежие первыми, и их число.
+
+        Сводка, параметры и байты файла не читаются: каталогу нужны только
+        название, даты и ревизия, а файлов блоков без ситуации у объекта сотни.
+        """
+
+        counts = (
+            select(CadEntityRow.source_id, func.count().label("situation_count"))
+            .where(CadEntityRow.organization_id == organization_id, CadEntityRow.role == ROLE_SITUATION)
+            .group_by(CadEntityRow.source_id)
+            .subquery()
+        )
+        query = (
+            select(
+                CadSourceRow.id,
+                CadSourceRow.site_code,
+                CadSourceRow.work_object_name,
+                CadSourceRow.file_name,
+                CadSourceRow.title,
+                CadSourceRow.file_format,
+                CadSourceRow.file_size,
+                CadSourceRow.file_sha256,
+                CadSourceRow.uploaded_by,
+                CadSourceRow.uploaded_at,
+                CadSourceRow.survey_date,
+                CadSourceRow.revision,
+                counts.c.situation_count,
+            )
+            .join(counts, counts.c.source_id == CadSourceRow.id)
+            .where(CadSourceRow.organization_id == organization_id, CadSourceRow.site_code == site_code)
+            .order_by(CadSourceRow.uploaded_at.desc(), CadSourceRow.id)
+            .limit(limit)
+        )
+        with self.session_factory() as session:
+            rows = session.execute(query).all()
+        return [
+            (
+                CadSourceRecord(
+                    id=row.id,
+                    site_code=row.site_code,
+                    work_object_name=row.work_object_name,
+                    file_name=row.file_name,
+                    file_format=row.file_format,
+                    file_size=row.file_size,
+                    file_sha256=row.file_sha256,
+                    params={},
+                    summary={},
+                    uploaded_by=row.uploaded_by,
+                    uploaded_at=row.uploaded_at,
+                    title=row.title,
+                    survey_date=row.survey_date,
+                    revision=row.revision,
+                ),
+                int(row.situation_count),
+            )
+            for row in rows
+        ]
+
     def upsert_layer_kinds(
         self, organization_id: str, site_code: str, kinds: dict[str, str | None], actor: str
     ) -> None:
@@ -794,6 +859,20 @@ class InMemoryCadRepository:
             if count:
                 counts[source_id] = count
         return counts
+
+    def list_situation_sources(
+        self, organization_id: str, site_code: str, *, limit: int
+    ) -> list[tuple[CadSourceRecord, int]]:
+        found: list[tuple[CadSourceRecord, int]] = []
+        for (org, source_id), record in self._sources.items():
+            if org != organization_id or record.site_code != site_code:
+                continue
+            count = sum(1 for item in self._entities.get((org, source_id), []) if item.role == ROLE_SITUATION)
+            if count:
+                found.append((replace(record, file_data=None, params={}, summary={}), count))
+        found.sort(key=lambda item: item[0].id)
+        found.sort(key=lambda item: item[0].uploaded_at, reverse=True)
+        return copy.deepcopy(found[:limit])
 
     def upsert_layer_kinds(
         self, organization_id: str, site_code: str, kinds: dict[str, str | None], actor: str

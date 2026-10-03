@@ -159,6 +159,29 @@ class CalibrationBaseApiTests(unittest.TestCase):
         self.assertAlmostEqual(result.baseline, expected, places=6)
         self.assertEqual(result.baseline_source, "kuzram")
 
+    def test_recompute_warnings_reach_response(self):
+        """Паспорт без сохранённого прогноза: порода и ВВ пересчёта — умолчания, и ответ об этом говорит."""
+        design = closed_design("cal-no-stored")
+        design.blast_result.basis.predicted_fragmentation = None
+
+        result = self._predict(self._artifact(), design=design.to_dict())
+
+        self.assertTrue(result.calibration_applied)
+        self.assertIn("Сохранённого прогноза нет: порода и ВВ для baseline — умолчания.", result.warnings)
+        self.assertEqual(len(result.warnings), len(set(result.warnings)))
+
+    def test_recompute_warnings_follow_refusal_reason(self):
+        model_id = self._artifact(baseline_model_version="2.5.0")
+        design = closed_design("cal-no-stored-refused")
+        design.blast_result.basis.predicted_fragmentation = None
+
+        result = self._predict(model_id, design=design.to_dict())
+
+        self.assertFalse(result.calibration_applied)
+        self.assertIn("переобучить", result.warnings[0])
+        self.assertIn("Сохранённого прогноза нет: порода и ВВ для baseline — умолчания.", result.warnings[1:])
+        self.assertEqual(len(result.warnings), len(set(result.warnings)))
+
     def test_recomputed_baseline_of_other_version_is_refused(self):
         """Движок пересчитывает текущей версией модели; артефакт другой версии к ней не применяется."""
         other_version = "2.5.0"  # версия артефакта, заведомо не совпадающая с текущей

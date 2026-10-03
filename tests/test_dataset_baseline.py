@@ -276,11 +276,42 @@ class SnapshotTests(unittest.TestCase):
         with patch.object(
             fragmentation_engine, "predict_region", wraps=fragmentation_engine.predict_region
         ) as spy:
-            build_sample(closed_design("s-3"), site_id="quarry-1")
+            sample = build_sample(closed_design("s-3"), site_id="quarry-1")
 
-        self.assertTrue(spy.call_args_list)
-        models = {call.kwargs.get("model", call.args[1] if len(call.args) > 1 else None) for call in spy.call_args_list}
-        self.assertEqual(models, {"kuzram"})
+        # Сборщик скважин глотает сбой физики и отдаёт пустой список: проверяем, что физика есть.
+        self.assertTrue(sample.holes)
+        for hole in sample.holes:
+            self.assertIsNotNone(hole["predicted"].get("x50_mm"))
+        # Путь скважин передаёт model именованно; baseline блока идёт через predict_design.
+        hole_models = [call.kwargs["model"] for call in spy.call_args_list if "model" in call.kwargs]
+        self.assertTrue(hole_models)
+        self.assertEqual(set(hole_models), {"kuzram"})
+
+    def test_old_snapshot_file_loads_with_its_hash(self):
+        """Файл снимка до PR 3 (без fragmentation_base) грузится: хэш сходится, база пустая."""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from intelligence.datasets.persistence import dataset_path, integrity_hash, load_snapshot, save_snapshot
+
+        with tempfile.TemporaryDirectory() as tmp, patch("cost.persistence.data_root", return_value=Path(tmp)):
+            saved = save_snapshot(
+                "old-snap",
+                build_snapshot([closed_design("s-4")], site_id="quarry-1", dataset_id="s-old", dataset_version=1),
+            )
+            path = dataset_path("old-snap", saved.dataset_id)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload.pop("fragmentation_base")
+            payload["integrity_sha256"] = integrity_hash(payload)
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            before = path.read_text(encoding="utf-8")
+
+            loaded = load_snapshot("old-snap", saved.dataset_id)
+
+            self.assertEqual(loaded.fragmentation_base, {})
+            self.assertEqual(loaded.sample_count, 1)
+            self.assertEqual(path.read_text(encoding="utf-8"), before)
 
 
 if __name__ == "__main__":

@@ -220,6 +220,7 @@ def predict_calibration(
     baseline = request.baseline
     baseline_source = "provided" if baseline is not None else ""
     value_base: FragmentationBase | None = None
+    baseline_warnings: list[str] = []
     if baseline is not None:
         if model is not None and fragmentation and not refusal:
             value_base, refusal = _provided_base(request)
@@ -230,7 +231,7 @@ def predict_calibration(
                 explicit=None, work_object_name="", organization_id=team_id, repository=repository
             )
             fallback_settings, fallback_source = resolved.settings, resolved.source_payload()
-        baseline, baseline_source, value_base = empirical_baseline(
+        baseline, baseline_source, value_base, baseline_warnings = empirical_baseline(
             design,
             model_type,
             base=base,
@@ -262,7 +263,7 @@ def predict_calibration(
             baseline_source=baseline_source,
             reason=reason,
         )
-        return _predict_schema(payload.to_dict())
+        return _predict_schema(_with_warnings(payload.to_dict(), baseline_warnings))
 
     if site_id and model.site_id != site_id:
         raise InvalidCalibrationError("site_id запроса не совпадает с площадкой модели.")
@@ -276,7 +277,7 @@ def predict_calibration(
             baseline_source=baseline_source,
             reason=refusal,
         )
-        return _predict_schema(payload.to_dict())
+        return _predict_schema(_with_warnings(payload.to_dict(), baseline_warnings))
 
     try:
         prediction = apply_residual(
@@ -289,4 +290,12 @@ def predict_calibration(
         raise InvalidCalibrationError(str(exc)) from exc
     payload = prediction.to_dict()
     payload["modifies_design"] = False
-    return _predict_schema(payload)
+    return _predict_schema(_with_warnings(payload, baseline_warnings))
+
+
+def _with_warnings(payload: dict[str, Any], baseline_warnings: list[str]) -> dict[str, Any]:
+    """Предупреждения пересчёта baseline — после причины отказа и прочих, без дублей."""
+    warnings = list(payload.get("warnings") or [])
+    warnings.extend(item for item in dict.fromkeys(baseline_warnings) if item not in warnings)
+    payload["warnings"] = warnings
+    return payload

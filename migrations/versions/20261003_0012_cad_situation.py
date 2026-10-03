@@ -5,6 +5,9 @@
   и на 01.10). Старым источникам достаётся имя файла без расширения.
 - Индекс по `(organization_id, site_code, file_sha256)`: тот же файл на том же
   объекте открывает прежний разбор, а не создаёт копию.
+- Частичный индекс `ix_cad_entities_situation` по `(organization_id,
+  source_id)` для `role = 'situation'`: каталог ситуации считает её объекты
+  по источникам объекта, не перебирая сущности сотен файлов блоков.
 - `cad_layer_roles.situation_kind` — вид объекта ситуации, заданный
   человеком (дорога, ЛЭП, склад…); NULL — вид по имени слоя.
 - `cad_site_settings.crs_name`, `height_system`, `epsg` — система координат
@@ -43,6 +46,13 @@ def upgrade() -> None:
         ["organization_id", "site_code", "file_sha256"],
         schema=SCHEMA,
     )
+    op.create_index(
+        "ix_cad_entities_situation",
+        "cad_entities",
+        ["organization_id", "source_id"],
+        schema=SCHEMA,
+        postgresql_where=sa.text("role = 'situation'"),
+    )
     op.add_column(
         "cad_layer_roles",
         sa.Column("situation_kind", sa.String(length=16), nullable=True),
@@ -60,5 +70,6 @@ def downgrade() -> None:
     op.drop_column("cad_site_settings", "height_system", schema=SCHEMA)
     op.drop_column("cad_site_settings", "crs_name", schema=SCHEMA)
     op.drop_column("cad_layer_roles", "situation_kind", schema=SCHEMA)
+    op.drop_index("ix_cad_entities_situation", table_name="cad_entities", schema=SCHEMA)
     op.drop_index("ix_cad_sources_org_site_sha", table_name="cad_sources", schema=SCHEMA)
     op.drop_column("cad_sources", "title", schema=SCHEMA)

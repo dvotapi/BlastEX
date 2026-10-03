@@ -30,6 +30,7 @@ from sqlalchemy import (
     func,
     insert,
     select,
+    text,
     update,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -194,6 +195,12 @@ class CadEntityRow(Base):
     __tablename__ = "cad_entities"
     __table_args__ = (
         Index("ix_cad_entities_org_source_seq", "organization_id", "source_id", "seq"),
+        Index(
+            "ix_cad_entities_situation",
+            "organization_id",
+            "source_id",
+            postgresql_where=text(f"role = '{ROLE_SITUATION}'"),
+        ),
         {"schema": SCHEMA},
     )
 
@@ -562,9 +569,18 @@ class PostgresCadRepository:
         название, даты и ревизия, а файлов блоков без ситуации у объекта сотни.
         """
 
+        # Считаются только источники объекта: частичный индекс по ситуации
+        # не перебирает сущности чужих объектов организации.
+        site_sources = select(CadSourceRow.id).where(
+            CadSourceRow.organization_id == organization_id, CadSourceRow.site_code == site_code
+        )
         counts = (
             select(CadEntityRow.source_id, func.count().label("situation_count"))
-            .where(CadEntityRow.organization_id == organization_id, CadEntityRow.role == ROLE_SITUATION)
+            .where(
+                CadEntityRow.organization_id == organization_id,
+                CadEntityRow.role == ROLE_SITUATION,
+                CadEntityRow.source_id.in_(site_sources),
+            )
             .group_by(CadEntityRow.source_id)
             .subquery()
         )

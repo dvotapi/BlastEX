@@ -58,6 +58,20 @@ def _sha_index(engine) -> bool:
     )
 
 
+def _situation_index(engine) -> str | None:
+    """Условие частичного индекса объектов ситуации или None, если индекса нет."""
+
+    with engine.connect() as connection:
+        return connection.execute(
+            text(
+                "SELECT pg_get_expr(i.indpred, i.indrelid) FROM pg_index i"
+                " JOIN pg_class c ON c.oid = i.indexrelid"
+                " JOIN pg_namespace n ON n.oid = c.relnamespace"
+                " WHERE n.nspname = 'blastex' AND c.relname = 'ix_cad_entities_situation'"
+            )
+        ).scalar_one_or_none()
+
+
 @requires_pg
 def test_situation_migration_is_reversible_and_titles_old_sources(public_db) -> None:
     """PR 4: название источника, вид слоя ситуации, СК объекта."""
@@ -69,6 +83,7 @@ def test_situation_migration_is_reversible_and_titles_old_sources(public_db) -> 
     assert "situation_kind" not in _columns(public_db, "cad_layer_roles")
     assert not {"crs_name", "height_system", "epsg"} & _columns(public_db, "cad_site_settings")
     assert not _sha_index(public_db)
+    assert _situation_index(public_db) is None
     with public_db.begin() as connection:
         connection.execute(
             text(
@@ -86,6 +101,9 @@ def test_situation_migration_is_reversible_and_titles_old_sources(public_db) -> 
     assert "situation_kind" in _columns(public_db, "cad_layer_roles")
     assert {"crs_name", "height_system", "epsg"} <= _columns(public_db, "cad_site_settings")
     assert _sha_index(public_db)
+    # Каталог ситуации считает объекты ситуации по источникам объекта: без
+    # частичного индекса это перебор всех сущностей сотен файлов блоков.
+    assert "situation" in (_situation_index(public_db) or "")
     with public_db.connect() as connection:
         title = connection.execute(text("SELECT title FROM blastex.cad_sources WHERE id = 'old'")).scalar_one()
     assert title == "28.09 граница блока 66.v2"

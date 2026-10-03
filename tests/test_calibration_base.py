@@ -156,6 +156,35 @@ class SampleBaselineTests(unittest.TestCase):
         self.assertIsNone(sample_baseline(row, X50, CURRENT_BASE))
 
 
+    def test_baseline_without_readable_version_is_skipped(self):
+        """baseline_* без версии (или с нечитаемой) — повреждённая строка, а не старая база."""
+        for version in ("", "  ", "abc", "v2.0.0"):
+            with self.subTest(version=version):
+                row = {"baseline_x50_mm": 150.0, "baseline_model": "kuzram", "baseline_model_version": version}
+
+                self.assertIsNone(sample_baseline(row, X50, LEGACY_BASE))
+                self.assertIsNone(sample_baseline(row, X50, CURRENT_BASE))
+
+    def test_unreadable_baseline_falls_back_to_stored_prediction(self):
+        row = {
+            "baseline_x50_mm": 150.0,
+            "baseline_model": "kuzram",
+            "baseline_model_version": "",
+            "predicted_x50_mm": 120.0,
+            "predicted_model": "kuzram",
+            "predicted_model_version": "1.0.0",
+        }
+
+        self.assertEqual(sample_baseline(row, X50, LEGACY_BASE), 120.0)
+
+    def test_stored_prediction_without_version_is_still_old_base(self):
+        """Прогнозы до PR 2 записаны без версии — это старая база, в отличие от baseline_*."""
+        row = {"predicted_x50_mm": 120.0, "predicted_model": "kuzram", "predicted_model_version": ""}
+
+        self.assertEqual(sample_baseline(row, X50, LEGACY_BASE), 120.0)
+        self.assertIsNone(sample_baseline(row, X50, CURRENT_BASE))
+
+
 class LabelTests(unittest.TestCase):
     def test_labels(self):
         self.assertEqual(base_label(X50, "kuzram", CURRENT_VERSION), f"База: Kuz-Ram {CURRENT_VERSION}")

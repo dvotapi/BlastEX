@@ -134,6 +134,9 @@ def sample_baseline(group: Mapping[str, Any], model_type: str, artifact: Fragmen
 
     Сначала baseline текущей базы (строки снимков PR 3), затем сохранённый
     прогноз; строка старого снимка без модели прогноза — старая база.
+    baseline_* без читаемой версии — повреждённая строка: её пропускают, а
+    не считают старой базой (пустая версия старой базой записана только у
+    сохранённых прогнозов до PR 2).
     """
     value_field = _VALUE_FIELDS.get(model_type)
     if value_field is None:
@@ -149,6 +152,8 @@ def sample_baseline(group: Mapping[str, Any], model_type: str, artifact: Fragmen
     for key, model, version in candidates:
         value = group.get(key)
         if value is None or not model:
+            continue
+        if key.startswith("baseline_") and version_major(str(version or "")) is None:
             continue
         try:
             base = prediction_base(str(model), str(version or ""))

@@ -40,9 +40,11 @@
 `simulation/fragmentation/base.py::region_point`; прежние формулы —
 `simulation/fragmentation/legacy/` под именами `*_legacy`. Настройки модели
 «Проектирование» берёт из объекта работ
-(`api/services/fragmentation_settings.py`). ML-калибровки кусковатости и пространственные модели хранят базу (модель и
-версию baseline) и применяются только к прогнозу той же базы —
-`intelligence/calibration/base.py`; подробности — `Docs/KUZRAM_MODEL.md`.
+(`api/services/fragmentation_settings.py`). ML-калибровки кусковатости
+хранят базу (модель и версию baseline) и накладываются только на прогноз
+той же базы, а пространственная модель считает физику скважин своей
+базой — `intelligence/calibration/base.py`; подробности —
+`Docs/KUZRAM_MODEL.md`.
 
 ## Импорт чертежа маркшейдера (TASK-013)
 

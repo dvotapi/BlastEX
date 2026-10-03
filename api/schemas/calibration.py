@@ -88,7 +88,7 @@ class CalibrationModelSchema(BaseModel):
     feature_ranges: dict[str, dict[str, float]] = Field(default_factory=dict)
     baseline_model: str = ""
     baseline_model_version: str = ""
-    # Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …».
+    # Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …».
     base_label: str = ""
 
 
@@ -109,7 +109,7 @@ class CalibrationSummarySchema(BaseModel):
     sample_count: int = 0
     baseline_model: str = ""
     baseline_model_version: str = ""
-    # Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …».
+    # Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …».
     base_label: str = ""
 
 

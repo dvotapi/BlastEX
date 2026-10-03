@@ -2295,7 +2295,7 @@ export type CalibrationModel = {
   status_updated_at: string;
   baseline_model: string;
   baseline_model_version: string;
-  /** Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …». */
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
   base_label: string;
 };
 
@@ -2314,7 +2314,7 @@ export type CalibrationSummary = {
   sample_count: number;
   baseline_model: string;
   baseline_model_version: string;
-  /** Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …». */
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
   base_label: string;
 };
 
@@ -3166,7 +3166,7 @@ export type SpatialModel = {
   data_roles: Record<string, string>;
   baseline_model: string;
   baseline_model_version: string;
-  /** Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …». */
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
   base_label: string;
 };
 
@@ -3187,7 +3187,7 @@ export type SpatialSummary = {
   sample_count: number;
   baseline_model: string;
   baseline_model_version: string;
-  /** Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …». */
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
   base_label: string;
 };
 
@@ -3213,7 +3213,7 @@ export type SpatialOverlay = {
   data_roles: Record<string, string>;
   physics_model: string;
   physics_model_version: string;
-  /** Подпись базы с сервера: «База: Kuz-Ram 2.0.0» или «Старая база …». */
+  /** Подпись базы с сервера: «База: Kuz-Ram <версия>» или «Старая база …». */
   base_label: string;
 };
 

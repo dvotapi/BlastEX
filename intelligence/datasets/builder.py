@@ -154,7 +154,7 @@ def build_sample(
             design, fallback_settings, fallback_source, model=BASELINE_MODEL
         )
     else:
-        settings, source, settings_warnings = fallback_settings, fallback_source, []
+        settings, source, settings_warnings = fallback_settings, dict(fallback_source or {}), []
     holes = _extract_snapshot_holes(design, site_id=site_id, settings=settings, settings_source=source)
     validation = validate_sample(
         design=design,

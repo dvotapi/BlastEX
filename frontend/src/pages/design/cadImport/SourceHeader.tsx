@@ -71,27 +71,32 @@ export function SourceHeader({
   const sent = useRef(0);
   const sourceId = useRef(source.id);
   sourceId.current = source.id;
+  const latest = useRef({ saveMeta, onMetaSaved });
+  latest.current = { saveMeta, onMetaSaved };
 
-  // Другой файл — свои поля; незаконченный набор прежнего файла не отправляется.
+  // Другой файл — свои поля. Набор прежнего файла, не дождавшийся паузы
+  // (переключили файл, закрыли окно, нажали «Построить блок»), отправляется
+  // сразу — правка названия или даты не теряется.
   useEffect(() => {
     setTitle(source.title);
     setSurveyDate(source.survey_date ?? "");
     setMetaError("");
     setEditingCrs(false);
     setCrsError("");
-    pending.current = {};
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    sent.current += 1;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source.id]);
-
-  useEffect(
-    () => () => {
+    const id = source.id;
+    return () => {
       if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
+      timer.current = null;
+      sent.current += 1;
+      const payload = pending.current;
+      pending.current = {};
+      if (!Object.keys(payload).length) return;
+      latest.current.saveMeta(id, payload).then(
+        (answer) => latest.current.onMetaSaved(answer),
+        () => undefined,
+      );
+    };
+  }, [source.id]);
 
   function schedule(patch: CadSourceMetaPayload) {
     pending.current = { ...pending.current, ...patch };

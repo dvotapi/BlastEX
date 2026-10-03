@@ -22,7 +22,9 @@ function renderHeader(extra: Partial<SourceHeaderProps> = {}) {
     source: cadSource(),
     knownTitles: ["Положение горных работ"],
     disabled: false,
-    saveMeta: vi.fn(async (_id, payload) => metaAnswer({ title: payload.title ?? "блок 66", survey_date: payload.survey_date ?? null })),
+    saveMeta: vi.fn(async (id, payload) =>
+      metaAnswer({ id, title: payload.title ?? "блок 66", survey_date: payload.survey_date ?? null }),
+    ),
     saveCrs: vi.fn(async (_id, crs): Promise<CadCrsResponse> => ({ crs, saved: true, warnings: [] })),
     onMetaSaved: vi.fn(),
     onCrsSaved: vi.fn(),
@@ -202,5 +204,28 @@ describe("SourceHeader", () => {
     });
 
     expect(screen.getByText("Другие версии серии: 01.09.2026, 01.08.2026, 01.07.2026 и ещё 2")).toBeTruthy();
+  });
+
+  it("закрытие окна раньше паузы не теряет набор", async () => {
+    const { props, view } = renderHeader();
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Положение горных работ" } });
+
+    view.unmount();
+    await act(async () => undefined);
+
+    expect(props.saveMeta).toHaveBeenCalledWith("src-1", { title: "Положение горных работ" });
+  });
+
+  it("переключение файла раньше паузы сохраняет набор прежнего файла", async () => {
+    const { props, view } = renderHeader();
+    fireEvent.change(screen.getByLabelText("Дата съёмки"), { target: { value: "2026-10-01" } });
+
+    view.rerender(<SourceHeader {...props} source={cadSource({ id: "src-2", title: "другой" })} />);
+    await act(async () => undefined);
+
+    expect(props.saveMeta).toHaveBeenCalledWith("src-1", { survey_date: "2026-10-01" });
+    expect(props.onMetaSaved).toHaveBeenCalledWith(expect.objectContaining({ id: "src-1" }));
+    await flush();
+    expect(props.saveMeta).toHaveBeenCalledTimes(1);
   });
 });

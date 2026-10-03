@@ -9,6 +9,7 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 const MSK66 = { name: "МСК-66 зона 1", height_system: "Балтийская 1977", epsg: null };
@@ -172,7 +173,8 @@ describe("SourceHeader", () => {
     expect((screen.getByLabelText("Название") as HTMLInputElement).value).toBe("другой");
   });
 
-  it("версии одной даты в серии различаются временем загрузки", () => {
+  it("версии одной даты в серии различаются местным временем загрузки", () => {
+    vi.stubEnv("TZ", "Asia/Yekaterinburg");
     const version = (id: string, uploaded_at: string) => ({
       id,
       title: "Положение горных работ",
@@ -185,7 +187,7 @@ describe("SourceHeader", () => {
     });
 
     expect(
-      screen.getByText("Другие версии серии: 01.09.2026 · загружен 03.10.2026 03:31, 01.09.2026 · загружен 02.10.2026 18:05"),
+      screen.getByText("Другие версии серии: 01.09.2026 · загружен 03.10.2026 08:31, 01.09.2026 · загружен 02.10.2026 23:05"),
     ).toBeTruthy();
   });
 

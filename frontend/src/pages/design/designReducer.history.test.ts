@@ -3,7 +3,8 @@
 // паспорта — нет (аудит замечаний Codex к PR #34, BDX-026).
 import { describe, expect, it } from "vitest";
 import { emptyDesign, type BlastDesign } from "../../types/design";
-import { designReducer, initDesignState, type DesignState } from "./designReducer";
+import { designReducer, historyLocked, initDesignState, type DesignState } from "./designReducer";
+import type { AsDrilledHole } from "../../types/design";
 
 function passport(extra: Partial<BlastDesign> = {}): BlastDesign {
   return { ...emptyDesign(), design_id: "a", name: "Блок A", revision: 2, updated_at: "2026-10-01T10:00:00Z", ...extra };
@@ -128,5 +129,24 @@ describe("ответ на действие с паспортом, который
     const a = edited(designReducer(initDesignState(emptyDesign()), { type: "LOAD", design: passport() }), "Блок A, правка");
     const saved = designReducer(a, { type: "SAVED", design: passport({ name: "Блок A, правка", revision: 3 }), base: a.saved });
     expect(saved.present.revision).toBe(3);
+  });
+});
+
+describe("historyLocked — отмена и повтор закрыты только у закрытого паспорта", () => {
+  it("на проверке, утверждён и выполнен правится название, исполнение и замер — их можно отменить", () => {
+    expect(["draft", "in_review", "approved", "executed"].map(historyLocked)).toEqual([false, false, false, false]);
+    expect(historyLocked("closed")).toBe(true);
+  });
+
+  it("утверждённый паспорт: отмена снимает несохранённый факт, проектная часть и статус прежние", () => {
+    const approved = designReducer(initDesignState(emptyDesign()), { type: "LOAD", design: passport({ lifecycle_status: "approved" }) });
+    const withFact = designReducer(approved, { type: "UPSERT_AS_DRILLED", hole: { design_hole_id: "h1" } as AsDrilledHole });
+    const saved = designReducer(withFact, { type: "SAVED", design: { ...withFact.present, revision: 3 }, base: withFact.saved });
+
+    const undone = designReducer(saved, { type: "UNDO" });
+    expect(undone.present.as_drilled_holes).toEqual([]);
+    expect(undone.present.lifecycle_status).toBe("approved");
+    expect(undone.present.revision).toBe(3);
+    expect(undone.present.holes).toBe(approved.present.holes);
   });
 });

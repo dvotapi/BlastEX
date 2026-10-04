@@ -104,7 +104,7 @@ import { LifecyclePanel } from "./LifecyclePanel";
 import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
-import { changedAxes, designReducer, initDesignState } from "./designReducer";
+import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
 import { designWithParams, hasUnsavedChanges, paramsFromDesign } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
@@ -514,7 +514,8 @@ export function DesignPage({
     onVariantConsumed();
   }, [incomingVariant]);
 
-  useUndoHotkeys(dispatch, designedLocked);
+  const undoLocked = historyLocked(document.lifecycle_status);
+  useUndoHotkeys(dispatch, undoLocked);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -2604,8 +2605,8 @@ export function DesignPage({
         <WorkflowNav stage={workflowStage} statuses={stageStatuses} onStageChange={selectStage} />
         <div className="history-controls">
           <button onClick={savePlan} disabled={saveBusy || recordFrozen}>{saveBusy ? "Сохраняю…" : "Сохранить"}</button>
-          <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length || designedLocked} title="Отменить (Ctrl+Z)">↶</button>
-          <button onClick={() => dispatch({ type: "REDO" })} disabled={!state.future.length || designedLocked} title="Повторить (Ctrl+Shift+Z)">↷</button>
+          <button onClick={() => dispatch({ type: "UNDO" })} disabled={!state.past.length || undoLocked} title="Отменить (Ctrl+Z)">↶</button>
+          <button onClick={() => dispatch({ type: "REDO" })} disabled={!state.future.length || undoLocked} title="Повторить (Ctrl+Shift+Z)">↷</button>
         </div>
       </header>
       {error && <div className="page-error" role="alert">{error}</div>}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Ctrl/Cmd+Z и Ctrl/Cmd+Shift+Z на странице «Проектирование»: вне полей ввода,
-// и только пока проектная часть не заморожена — как кнопки ↶ ↷.
+// и только пока история открыта — как кнопки ↶ ↷.
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useUndoHotkeys } from "./useUndoHotkeys";
@@ -28,7 +28,7 @@ describe("useUndoHotkeys", () => {
     expect(dispatch.mock.calls).toEqual([[{ type: "UNDO" }], [{ type: "REDO" }], [{ type: "REDO" }]]);
   });
 
-  it("замороженная проектная часть: клавиши не отменяют и не повторяют", () => {
+  it("закрытая история: клавиши не отменяют и не повторяют", () => {
     const dispatch = vi.fn();
     renderHook(() => useUndoHotkeys(dispatch, true));
 

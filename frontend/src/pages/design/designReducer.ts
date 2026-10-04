@@ -1,6 +1,7 @@
 // Единственный источник истины для документа паспорта БВР на клиенте:
 // useReducer + стек undo/redo. Камера, выделение и режим инструмента — вне
 // документа (не должны попадать в историю правок).
+import { isRecordFrozen } from "../../lib/lifecycle";
 import { collarZFromSurfaces } from "../../lib/surfaces";
 import type { CadCrs } from "../../types/cad";
 import type {
@@ -107,6 +108,16 @@ export type DesignState = {
 };
 
 const HISTORY_LIMIT = 50;
+
+/**
+ * Отмена и повтор закрыты только у закрытого паспорта. История начинается
+ * заново при каждой смене статуса, поэтому в ней лишь правки, которые статус
+ * разрешает (на проверке — название, утверждённому — исполнение и замер), и
+ * отмена не возвращает ни прежний статус, ни проектную часть.
+ */
+export function historyLocked(status: string | undefined | null): boolean {
+  return isRecordFrozen(status);
+}
 
 export function initDesignState(design: BlastDesign): DesignState {
   return { past: [], present: design, future: [], saved: design };

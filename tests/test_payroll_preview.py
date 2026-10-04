@@ -204,3 +204,38 @@ def test_share_is_not_applicable_to_output_without_normalized_meters() -> None:
     assert cents(result.premium.total) == D("45000")
     assert result.margin.status == "NOT_APPLICABLE"
     assert result.flags == ()
+
+
+def test_explicit_crew_member_paid_not_by_normalized_meters_is_left_out() -> None:
+    """Шкалу водителя (км) на темпе бурения не оценить: в долю он не входит."""
+    snapshot = payroll_references(
+        positions=(
+            *payroll_references().sections["positions"],
+            fx.item("P_DRIVER", "Водитель", {"category": "INDIRECT", "pay_system": "PIECE_BONUS", "output_unit": "KM"}),
+        ),
+        labor_rates=(
+            *payroll_references().sections["labor_rates"],
+            fx.item(
+                "LR_DRIVER",
+                "Водитель",
+                {"position_code": "P_DRIVER", "scale_type": "STEP", "tiers": [{"upto_per_shift": None, "rate": "400"}]},
+            ),
+        ),
+    )
+    alone = preview(
+        snapshot,
+        meters_total=D("2000"),
+        price_rub_per_m=D("800"),
+        variable_rub_per_m=D("250"),
+        crew=(("P_DRILLER", D("1")),),
+    )
+    with_driver = preview(
+        snapshot,
+        meters_total=D("2000"),
+        price_rub_per_m=D("800"),
+        variable_rub_per_m=D("250"),
+        crew=(("P_DRILLER", D("1")), ("P_DRIVER", D("1"))),
+    )
+    assert [member.position_code for member in with_driver.margin.crew] == ["P_DRILLER"]
+    assert with_driver.margin.ceiling.crew_share == alone.margin.ceiling.crew_share
+    assert any("Водитель" in warning and "не за приведённые метры" in warning for warning in with_driver.warnings)

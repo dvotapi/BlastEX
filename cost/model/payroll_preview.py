@@ -280,6 +280,13 @@ def _crew(
         if position.scale is None:
             warnings.append(f"Должность «{position.name}» в экипаже без шкалы сдельной премии: в долю в марже не входит.")
             continue
+        if position.difficulty != "NORMALIZED_METERS":
+            # Шкалу за километр или тонну на темпе бурения не оценить.
+            warnings.append(
+                f"Должность «{position.name}» в экипаже получает премию не за приведённые метры: "
+                "в долю в марже не входит."
+            )
+            continue
         factor, _ = premium_cost_factor(PayrollInputs(inputs.calendar, position, inputs.site, inputs.rates))
         crew.append(CrewCost(position.code, position.name, headcount, position.scale, factor))
     return crew, warnings

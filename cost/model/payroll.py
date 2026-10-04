@@ -386,3 +386,105 @@ def scale_series(scale: Scale, pace: Decimal | None = None) -> tuple[ScalePoint,
     if pace is not None:
         paces.add(pace)
     return tuple(ScalePoint(m, scale.rate_at(m), scale.per_shift(m)) for m in sorted(paces))
+
+
+# --- Эффективные смены ------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DowntimeReason:
+    code: str
+    name: str
+    excusable: bool
+    planned_maintenance: bool
+
+
+@dataclass(frozen=True)
+class DowntimeEntry:
+    code: str
+    hours: Decimal
+
+
+@dataclass(frozen=True)
+class EffectiveShifts:
+    shifts: Decimal
+    effective: Decimal
+    excusable_hours: Decimal = ZERO
+    maintenance_hours: Decimal = ZERO
+    # Доля часов вахты, списанных не по вине машиниста, без планового ТОиР.
+    written_off_share: Decimal | None = None
+    flags: tuple[PayrollFlag, ...] = ()
+    lineage: Mapping[str, str] = field(default_factory=dict)
+
+
+def plan_effective_shifts(shift_days_on: Decimal, maintenance_shifts: Decimal) -> EffectiveShifts:
+    """План: S_эфф = смены вахты − плановое ТОиР (решение владельца 13.09: 15 − 2 = 13)."""
+
+    effective = shift_days_on - maintenance_shifts
+    if effective <= 0:
+        raise PayrollInputError("Плановое ТОиР занимает всю вахту: эффективных смен не осталось.")
+    return EffectiveShifts(
+        shifts=shift_days_on,
+        effective=effective,
+        lineage={"effective_shifts": f"{fn(shift_days_on)} см − {fn(maintenance_shifts)} см ТОиР = {fn(effective)} см"},
+    )
+
+
+def effective_shifts(
+    shifts: Decimal,
+    shift_hours: Decimal,
+    downtime: Sequence[DowntimeEntry],
+    reasons: Mapping[str, DowntimeReason],
+) -> EffectiveShifts:
+    """Факт: S_эфф = смены − Σ часов простоя не по вине машиниста / часы смены.
+
+    Простой по вине машиниста не вычитается. Предела списания нет (решение
+    владельца), но вход проверяется: больше часов, чем в вахте, или ноль
+    эффективных смен — ошибка, а не деление на ноль и не премия «45 × M».
+    """
+
+    if shift_hours <= 0:
+        raise PayrollInputError("Продолжительность смены должна быть больше нуля.")
+    excusable = ZERO
+    maintenance = ZERO
+    for entry in downtime:
+        reason = reasons.get(entry.code)
+        if reason is None:
+            raise PayrollInputError(f"Код простоя {entry.code} не найден в справочнике «Причины простоев».")
+        if not reason.excusable:
+            continue
+        excusable += entry.hours
+        if reason.planned_maintenance:
+            maintenance += entry.hours
+    available = shifts * shift_hours
+    if excusable > available:
+        raise PayrollInputError(
+            f"Простоев не по вине машиниста {fn(excusable)} ч — больше часов вахты ({fn(available)} ч)."
+        )
+    effective = shifts - excusable / shift_hours
+    if effective <= 0:
+        raise PayrollInputError("Простои не по вине машиниста заняли всю вахту: эффективных смен не осталось.")
+    # Знаменатель — часы вахты без планового ТОиР: ТОиР списывается всегда и
+    # долю «подозрительных» списаний не должен ни раздувать, ни прятать.
+    base = available - maintenance
+    share = (excusable - maintenance) / base if base > 0 else None
+    flags: list[PayrollFlag] = []
+    if share is not None and share > WRITE_OFF_FLAG_SHARE:
+        flags.append(
+            PayrollFlag(
+                "DOWNTIME_OVER_25",
+                f"Списано {percent(share)} часов вахты не по вине машиниста (без планового ТОиР) — "
+                f"больше {percent(WRITE_OFF_FLAG_SHARE)}: проверьте коды простоев.",
+            )
+        )
+    return EffectiveShifts(
+        shifts=shifts,
+        effective=effective,
+        excusable_hours=excusable,
+        maintenance_hours=maintenance,
+        written_off_share=share,
+        flags=tuple(flags),
+        lineage={
+            "effective_shifts": f"{fn(shifts)} см − {fn(excusable)} ч / {fn(shift_hours)} ч = {fn(effective)} см"
+        },
+    )

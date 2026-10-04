@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from cost.model.payroll import DifficultyTables, HardnessBand, Scale
-from cost.v2.payroll_defaults import HARDNESS_BANDS
+from cost.model.payroll import DifficultyTables, DowntimeReason, HardnessBand, Scale
+from cost.v2.payroll_defaults import DOWNTIME_REASONS, HARDNESS_BANDS
 
 CENT = Decimal("0.01")
 
@@ -47,3 +47,5 @@ CURVE_X = Scale(
     ceiling_per_shift=Decimal("184.6154"),
     rate_ceiling=Decimal("168.66"),
 )
+
+REASONS = {code: DowntimeReason(code, name, excusable, maintenance) for code, name, excusable, maintenance in DOWNTIME_REASONS}

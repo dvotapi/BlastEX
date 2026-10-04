@@ -526,6 +526,8 @@ class PositionPay:
     difficulty: str = "PLAIN"
     kpi_bonus_pct: Decimal = ZERO
     scale: Scale | None = None
+    # Суточные и вахтовая надбавка положены должности (флаг «Суточные и проживание»).
+    per_diem_applies: bool = True
 
 
 @dataclass(frozen=True)
@@ -542,6 +544,9 @@ class SiteSchedule:
     regional_coefficient: Decimal = Decimal("0.15")
     northern_pct: Decimal = ZERO
     contract_k: Decimal = ONE
+    # Вахтовый объект: только на нём платится надбавка за вахту (как суточные в
+    # модели блока); на городском карьере бригада ночует дома.
+    is_remote: bool = False
 
 
 @dataclass(frozen=True)
@@ -689,10 +694,16 @@ def payroll_month(
         f"{fn(gross)} ₽ × {fn(rates.ndfl_rate)}",
     )
     allowance_days = site.shift_days_on + site.travel_days
-    allowance = add(
-        "SHIFT_ALLOWANCE", "Надбавка за вахту", "COST", rates.shift_allowance_per_day * allowance_days,
-        f"{fn(rates.shift_allowance_per_day)} ₽ × ({fn(site.shift_days_on)} + {fn(site.travel_days)}) дн",
-    )
+    if not site.is_remote:
+        allowance_amount, allowance_formula = ZERO, "объект не вахтовый — надбавка не платится"
+    elif not position.per_diem_applies:
+        allowance_amount, allowance_formula = ZERO, "должности суточные не начисляются — надбавка не платится"
+    else:
+        allowance_amount = rates.shift_allowance_per_day * allowance_days
+        allowance_formula = (
+            f"{fn(rates.shift_allowance_per_day)} ₽ × ({fn(site.shift_days_on)} + {fn(site.travel_days)}) дн"
+        )
+    allowance = add("SHIFT_ALLOWANCE", "Надбавка за вахту", "COST", allowance_amount, allowance_formula)
     add("NET", "К выплате на руки", "INFO", gross - ndfl + allowance, f"{fn(gross)} − {fn(ndfl)} + {fn(allowance)} ₽")
     sfr = add("SFR", "Страховые взносы", "COST", gross * rates.sfr_rate, f"{fn(gross)} ₽ × {fn(rates.sfr_rate)}")
     extra_rate, warning = extra_tariff_rate(position, rates)

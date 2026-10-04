@@ -130,3 +130,15 @@ def test_broken_published_record_is_an_input_error_with_its_code() -> None:
     rates = (fx.item("LR_DRILLER", "Машинист", {"position_code": "P_DRILLER", "scale_type": "CURVE_POWER", "rate_norm": "45"}),)
     with pytest.raises(PayrollInputError, match="LR_DRILLER"):
         read(labor_rates=rates)
+
+
+def test_remote_site_and_per_diem_flags_are_read() -> None:
+    inputs, _, _ = read()
+    assert inputs.site.is_remote is True
+    assert inputs.position.per_diem_applies is True
+    positions = (
+        fx.item("P_DRILLER", "Машинист", {"category": "DIRECT", "operation_code": "PRODUCTION_DRILLING", "per_diem_applies": False}),
+    )
+    inputs, _, _ = read(positions=positions, sites=(fx.item("SITE_LOM", "Ломовское", {}),))
+    assert inputs.site.is_remote is False
+    assert inputs.position.per_diem_applies is False

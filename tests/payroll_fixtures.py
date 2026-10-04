@@ -101,7 +101,7 @@ def file_inputs(**position_overrides: Any) -> PayrollInputs:
             margin_share_warn=Decimal("0.70"),
         ),
         position=PositionPay(**position),
-        site=SiteSchedule(code="SITE_LOM", name="Ломовское месторождение"),
+        site=SiteSchedule(code="SITE_LOM", name="Ломовское месторождение", is_remote=True),
         rates=PayrollRates(
             ndfl_rate=Decimal("0.13"),
             sfr_rate=Decimal("0.15"),

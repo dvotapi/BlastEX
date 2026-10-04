@@ -19,9 +19,9 @@
 | Величина | Раздел справочника | Поле |
 |---|---|---|
 | МРОТ, годовые нормы часов, рабочие и праздничные дни, ночные, основной отпуск, порог доли | «Параметры ФОТ» года | `mrot`, `annual_hours_40/36`, `work_days_year`, `holidays_year`, `night_pct`, `vacation_days_base`, `margin_share_warn` |
-| Класс условий, неделя, вредность, ночные часы, доп. отпуск, система оплаты, приведение | «Должности» | `work_conditions_class`, `week_hours_override`, `hazard_pct`, `night_hours_per_shift`, `extra_vacation_days`, `pay_system`, `difficulty` |
+| Класс условий, неделя, вредность, ночные часы, доп. отпуск, система оплаты, приведение | «Должности» | `work_conditions_class`, `week_hours_override`, `hazard_pct`, `night_hours_per_shift`, `extra_vacation_days`, `pay_system`, `difficulty`, `per_diem_applies` |
 | Оклад, КПЭ, шкала | «Ставки персонала» (ставка без условия бурения) | `fixed_monthly_rub`, `kpi_bonus_pct`, `scale_type` и узлы, `tiers` |
-| Вахта, ТОиР, РК, северная, договорной k | «Карьеры и объекты» | `shift_days_on/off`, `travel_days`, `night_shift_share`, `maintenance_shifts`, `regional_coefficient`, `northern_pct`, `contract_k` |
+| Вахта, ТОиР, РК, северная, договорной k | «Карьеры и объекты» | `shift_days_on/off`, `travel_days`, `night_shift_share`, `maintenance_shifts`, `regional_coefficient`, `northern_pct`, `contract_k`, `is_remote` |
 | НДФЛ, СФР, травматизм, доп. тариф, вахтовая надбавка, смена | «Ставки и надбавки организации» | `income_tax_rate`, `social_contribution_rate`, `injury_insurance_rate`, `extra_tariffs`, `per_diem_rub`, `shift_hours` |
 | Коэффициенты крепости и диаметра | «Сложность бурения» | `hardness`, `diameter` |
 | Коды простоев | «Причины простоев» | `excusable`, `planned_maintenance` |
@@ -98,7 +98,8 @@ M = contract_k × Σ mᵢ × k_f(fᵢ) × k_d(Øᵢ)
 5. Сдельная премия, премия КПЭ `оклад × kpi_bonus_pct`.
 6. Районный и северная — от суммы строк 1–5; начислено (gross).
 7. НДФЛ `gross × ставка` и «к выплате» — справочно, в затраты не входят.
-8. Надбавка за вахту `per_diem_rub × (смены + дорога)` — без НДФЛ и взносов.
+8. Надбавка за вахту `per_diem_rub × (смены + дорога)` — без НДФЛ и взносов; только на вахтовом
+   объекте и у должностей с суточными, как суточные в модели блока.
 9. Взносы, доп. тариф по классу (у классов 1–2 нет), травматизм — от gross.
 10. Резервы доп. и основного отпуска `(gross + взносы) × d / (d + рабочих дней)`.
 11. Затраты компании = gross + вахта + взносы + доп. тариф + травматизм + резервы.

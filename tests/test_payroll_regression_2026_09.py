@@ -110,3 +110,16 @@ def test_hazardous_class_without_tariff_row_warns() -> None:
     assert rate == 0
     assert "3.2" in warning
     assert payroll_month(inputs, FILE_PREMIUM).warnings == (warning,)
+
+
+def test_shift_allowance_only_on_a_remote_site_for_positions_with_per_diem() -> None:
+    """Надбавка за вахту — как суточные в модели блока: вахтовый объект и должность с суточными."""
+    remote = payroll_month(file_inputs(), FILE_PREMIUM, work_days_month=D("21.5"))
+    home = file_inputs()
+    home = replace(home, site=replace(home.site, is_remote=False))
+    city = payroll_month(home, FILE_PREMIUM, work_days_month=D("21.5"))
+    assert city.amount("SHIFT_ALLOWANCE") == 0
+    assert cents(city.company_cost) == cents(remote.company_cost - D("11900"))
+    no_per_diem = payroll_month(file_inputs(per_diem_applies=False), FILE_PREMIUM, work_days_month=D("21.5"))
+    assert no_per_diem.amount("SHIFT_ALLOWANCE") == 0
+    assert cents(no_per_diem.amount("NET")) == cents(remote.amount("NET") - D("11900"))

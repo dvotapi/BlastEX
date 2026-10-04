@@ -103,6 +103,7 @@ def payroll_context(snapshot: ReferenceSnapshot, *, site_code: str, year: int) -
         regional_coefficient=site_payload.regional_coefficient,
         northern_pct=site_payload.northern_pct,
         contract_k=site_payload.contract_k,
+        is_remote=site_payload.is_remote,
     )
     lineage["site"] = f"sites.{site.code}"
 
@@ -207,6 +208,7 @@ def position_pay(
             difficulty=position.difficulty,
             kpi_bonus_pct=rate.kpi_bonus_pct if rate is not None else ZERO,
             scale=scale,
+            per_diem_applies=position.per_diem_applies,
         ),
         tuple(warnings),
     )

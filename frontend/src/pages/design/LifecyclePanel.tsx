@@ -27,6 +27,7 @@ export function LifecyclePanel({
   designedSha256,
   events,
   busy,
+  unsaved,
   confirm,
   note,
   onConfirmChange,
@@ -41,6 +42,8 @@ export function LifecyclePanel({
   designedSha256: string;
   events: LifecycleEvent[];
   busy: boolean;
+  /** Есть несохранённые правки: статус меняется у сохранённой версии, переход недоступен. */
+  unsaved: boolean;
   confirm: boolean;
   note: string;
   onConfirmChange: (value: boolean) => void;
@@ -70,6 +73,11 @@ export function LifecyclePanel({
           {designedSha256 && <span>SHA {designedSha256.slice(0, 8)}</span>}
         </div>
         {!designId && <small>Сохраните паспорт, чтобы менять статус.</small>}
+        {designId && unsaved && transitions.length > 0 && (
+          <small className="lifecycle-freeze">
+            Есть несохранённые правки. Статус меняется у сохранённой версии — сначала сохраните паспорт.
+          </small>
+        )}
         {frozen && !closed && (
           <small className="lifecycle-freeze">
             Слой DESIGNED заморожен. Исполнение и замер можно дополнять. Сценарии остаются оверлеями.
@@ -95,7 +103,7 @@ export function LifecyclePanel({
               type="button"
               className={target === "approved" || target === "closed" ? "calculate-button" : "secondary-button"}
               onClick={() => onTransition(target)}
-              disabled={busy || !designId || !confirm}
+              disabled={busy || !designId || !confirm || unsaved}
             >
               {transitionLabel(status, target)}
             </button>

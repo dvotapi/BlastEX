@@ -82,6 +82,7 @@ import {
   type SpatialOverlay,
   type SpatialSummary,
   type MovementPredictResponse,
+  type BlastDesign,
   type BlastPassport,
   type DesignLifecycleStatus,
 } from "../../types/design";
@@ -104,6 +105,7 @@ import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, initDesignState } from "./designReducer";
+import { designWithParams, hasUnsavedChanges, paramsFromDesign } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -141,6 +143,7 @@ import { PlansPanel } from "./PlansPanel";
 import { SectionView } from "./SectionView";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 import { useHoleRecompute } from "./useHoleRecompute";
+import { useUndoHotkeys } from "./useUndoHotkeys";
 import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
 import { TimingPanel } from "./TimingPanel";
@@ -274,8 +277,15 @@ export function DesignPage({
 
   const [explosives, setExplosives] = useState<Explosive[]>([]);
   const [explosiveKey, setExplosiveKey] = useState("");
+  const explosiveKeyRef = useRef(explosiveKey);
+  explosiveKeyRef.current = explosiveKey;
   const [chargeRules, setChargeRules] = useState<ChargeRules>(DEFAULT_CHARGE_RULES);
   const [chargeBusy, setChargeBusy] = useState(false);
+  // Статус меняется у сохранённой версии: с несохранёнными правками переход закрыт.
+  const unsavedChanges = useMemo(
+    () => hasUnsavedChanges(state, { patternParams, chargeRules, explosiveKey }, designedLocked),
+    [state, patternParams, chargeRules, explosiveKey, designedLocked],
+  );
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
 
   const [tieScheme, setTieScheme] = useState<SchemeType>("row");
@@ -498,15 +508,12 @@ export function DesignPage({
     onVariantConsumed();
   }, [incomingVariant]);
 
+  useUndoHotkeys(dispatch, designedLocked);
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
       const typing = target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA";
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !typing) {
-        e.preventDefault();
-        dispatch({ type: e.shiftKey ? "REDO" : "UNDO" });
-        return;
-      }
       // В режиме контура Delete относится к вершинам блока (их обрабатывает
       // сам холст), и выделенные ранее скважины трогать нельзя.
       if ((e.key === "Delete" || e.key === "Backspace") && !typing && mode !== "contour" && selected.size > 0) {
@@ -1213,12 +1220,17 @@ export function DesignPage({
   }
 
   function designPayload() {
-    return {
-      ...document,
-      pattern_params: patternParams as unknown as Record<string, unknown>,
-      charge_rules: chargeRules as unknown as Record<string, unknown>,
-      explosive_key: explosiveKey,
-    };
+    return designWithParams(document, { patternParams, chargeRules, explosiveKey }, designedLocked);
+  }
+
+  // Формы страницы — по паспорту, только что пришедшему с сервера: открытие,
+  // смена статуса, ревизия. Иначе на экране и в «Сохранить» остаются правки,
+  // которых в паспорте нет.
+  function syncDesignParams(design: BlastDesign) {
+    const params = paramsFromDesign(design, explosiveKeyRef.current);
+    setPatternParams(params.patternParams);
+    setChargeRules(params.chargeRules);
+    setExplosiveKey(params.explosiveKey);
   }
 
   async function recordAsDrilled(item: AsDrilledHole) {
@@ -2249,15 +2261,6 @@ export function DesignPage({
     }
   }
 
-  function currentDesignPayload() {
-    return {
-      ...document,
-      pattern_params: patternParams as unknown as Record<string, unknown>,
-      charge_rules: chargeRules as unknown as Record<string, unknown>,
-      explosive_key: explosiveKey,
-    };
-  }
-
   async function assemblePassport() {
     if (!document.holes.length) {
       setError("Сначала постройте сетку скважин.");
@@ -2267,7 +2270,7 @@ export function DesignPage({
     setError("");
     try {
       const result = await api.design.buildPassport({
-        design: currentDesignPayload(),
+        design: designPayload(),
         lump_size_mm: lumpSizeMm,
         planned_cost: costResult
           ? {
@@ -2293,7 +2296,7 @@ export function DesignPage({
     try {
       if (document.holes.length) {
         const htmlText = await api.design.renderPassportHtml({
-          design: currentDesignPayload(),
+          design: designPayload(),
           lump_size_mm: lumpSizeMm,
           planned_cost: costResult
             ? { total_amount_rub: costResult.total_amount_rub, cost_per_m3: costResult.cost_per_m3 }
@@ -2328,6 +2331,10 @@ export function DesignPage({
       setError("Сначала сохраните паспорт.");
       return;
     }
+    if (unsavedChanges) {
+      setError("Есть несохранённые правки: статус меняется у сохранённой версии паспорта. Сначала сохраните паспорт.");
+      return;
+    }
     if (!lifecycleConfirm) {
       setError("Смена статуса требует явного подтверждения.");
       return;
@@ -2342,6 +2349,7 @@ export function DesignPage({
       });
       const design = await api.design.getPlan(document.design_id);
       dispatch({ type: "LOAD", design });
+      syncDesignParams(design);
       setLifecycleConfirm(false);
       setLifecycleNote("");
       await refreshPlans();
@@ -2362,6 +2370,7 @@ export function DesignPage({
     try {
       const forked = await api.design.forkPlan(document.design_id, `${document.name} · ревизия`);
       dispatch({ type: "LOAD", design: forked });
+      syncDesignParams(forked);
       setLifecycleConfirm(false);
       setLifecycleNote("");
       setWorkflowStage("survey");
@@ -2382,14 +2391,9 @@ export function DesignPage({
     setSaveBusy(true);
     setError("");
     try {
-      const toSave = {
-        ...document,
-        pattern_params: patternParams as unknown as Record<string, unknown>,
-        charge_rules: chargeRules as unknown as Record<string, unknown>,
-        explosive_key: explosiveKey,
-      };
+      const toSave = designPayload();
       const saved = document.design_id ? await api.design.savePlan(document.design_id, toSave) : await api.design.createPlan(toSave);
-      dispatch({ type: "LOAD", design: saved });
+      dispatch({ type: "SAVED", design: saved });
       await refreshPlans();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сохранить паспорт.");
@@ -2404,13 +2408,7 @@ export function DesignPage({
     try {
       const design = await api.design.getPlan(id);
       dispatch({ type: "LOAD", design });
-      if (design.pattern_params && Object.keys(design.pattern_params).length) {
-        setPatternParams({ ...DEFAULT_PATTERN_PARAMS, ...(design.pattern_params as Partial<PatternParams>) });
-      }
-      if (design.charge_rules && Object.keys(design.charge_rules).length) {
-        setChargeRules({ ...DEFAULT_CHARGE_RULES, ...(design.charge_rules as Partial<ChargeRules>) });
-      }
-      if (design.explosive_key) setExplosiveKey(design.explosive_key);
+      syncDesignParams(design);
       setBlockVolumeM3(null);
       setPendingFit(true);
       setSelected(new Set());
@@ -2725,6 +2723,7 @@ export function DesignPage({
             designedSha256={document.designed_sha256}
             events={document.lifecycle_events}
             busy={saveBusy}
+            unsaved={unsavedChanges}
             confirm={lifecycleConfirm}
             note={lifecycleNote}
             onConfirmChange={setLifecycleConfirm}

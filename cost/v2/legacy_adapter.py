@@ -33,6 +33,7 @@ from cost.labor import DEFAULT_LABOR_CATALOG, JobPosition
 from cost.rock_data import DEFAULT_ROCKS
 from cost.v2.prices import effective_price, effective_price_lookup
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
+from cost.v2.payroll_params import PayrollParamsChoice, payroll_params_for_year
 
 # Категории номенклатуры Cost V1; «nsi» — старое имя «downhole_nsi».
 _CATALOG_CATEGORIES: dict[str, str] = {
@@ -154,7 +155,12 @@ def legacy_references_from_snapshot(snapshot: ReferenceSnapshot) -> LegacyRefere
     )
     labor = _fallback(
         "Раздел «Должности и ставки» пуст",
-        [_position(item, rates, warnings) for item in snapshot.active_items("positions")],
+        _positions(
+            snapshot.active_items("positions"),
+            rates,
+            payroll_params_for_year(snapshot.sections.get("payroll_params", ()), date.today().year),
+            warnings,
+        ),
         DEFAULT_LABOR_CATALOG,
         warnings,
     )
@@ -351,16 +357,43 @@ def _fixed_cost(item: ReferenceItem) -> FixedCostItem:
     )
 
 
-def _position(item: ReferenceItem, rates: dict[str, ReferenceItem], warnings: list[str]) -> JobPosition:
-    rate = rates.get(item.code)
-    if rate is None:
-        warnings.append(f"Должность «{item.name}»: в разделе «Ставки персонала» нет ставки, принят 0.")
-    return JobPosition(
-        id=_legacy_id(item),
-        name=item.name,
-        fixed_salary_monthly=_number(rate.payload.get("fixed_monthly_rub")) if rate else 0.0,
-        piece_rate_per_m3=_number(rate.payload.get("piece_rate_rub")) if rate else 0.0,
-    )
+def _positions(
+    items: Iterable[ReferenceItem],
+    rates: dict[str, ReferenceItem],
+    params: PayrollParamsChoice | None,
+    warnings: list[str],
+) -> list[JobPosition]:
+    """Должности сметы V1. Без ставки — оклад по МРОТ года (методика ФОТ, TASK-010 §2.2).
+
+    Должности без ставки называются одной строкой, а не строкой на каждую: после
+    сида методики их семь, и предупреждения заслоняли остальные.
+    """
+
+    mrot = float(params.params.mrot) if params is not None else 0.0
+    positions: list[JobPosition] = []
+    without_rate: list[str] = []
+    for item in items:
+        rate = rates.get(item.code)
+        if rate is None:
+            without_rate.append(f"«{item.name}»")
+        positions.append(
+            JobPosition(
+                id=_legacy_id(item),
+                name=item.name,
+                fixed_salary_monthly=_number(rate.payload.get("fixed_monthly_rub")) if rate else mrot,
+                piece_rate_per_m3=_number(rate.payload.get("piece_rate_rub")) if rate else 0.0,
+            )
+        )
+    if without_rate:
+        names = ", ".join(without_rate)
+        if params is None:
+            warnings.append(f"В разделе «Ставки персонала» нет ставки у должностей {names}: оклад принят 0.")
+        else:
+            warnings.append(
+                f"Оклад по МРОТ {params.params.year} года ({_rub(params.params.mrot)} ₽): в разделе "
+                f"«Ставки персонала» нет ставки у должностей {names}."
+            )
+    return positions
 
 
 # --- Вспомогательные --------------------------------------------------------
@@ -387,6 +420,13 @@ def _fallback(reason: str, items: list[T], defaults: Iterable[T], warnings: list
         return tuple(items)
     warnings.append(f"{reason}: используются значения Cost V1 по умолчанию.")
     return tuple(defaults)
+
+
+def _rub(value: Decimal) -> str:
+    """Рубли для текста предупреждения: «27 093», «27 093,50»."""
+
+    text = format(value.quantize(Decimal("0.01")), ",f").replace(",", "\u00a0").replace(".", ",")
+    return text.removesuffix(",00")
 
 
 def _optional_number(value: Any) -> float | None:

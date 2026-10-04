@@ -299,3 +299,47 @@ class TestMaterialPrices:
         )
         assert legacy.catalog[0].price == 10.0
         assert any("НСИ 6 м" in w and "несколько" in w.lower() for w in legacy.warnings)
+
+
+class TestPositionsWithoutRate:
+    """Должность без ставки — оклад по МРОТ года одной строкой (TASK-010 PR 2)."""
+
+    PARAMS = _item(
+        "PAYROLL_PARAMS_2026",
+        "Параметры ФОТ 2026",
+        {"year": "2026", "mrot": "27093", "annual_hours_40": "1972", "annual_hours_36": "1774.4",
+         "work_days_year": "247", "holidays_year": "14"},
+    )
+
+    def _legacy(self, **sections):
+        return legacy_references_from_snapshot(
+            _snapshot(
+                positions=[
+                    _item("POSITION_MASTER", "Мастер", {}),
+                    _item("POSITION_LABOR_STOREKEEPER", "Кладовщик", {}),
+                    _item("POSITION_LABOR_DRIVER", "Водитель", {}),
+                ],
+                labor_rates=[_item("RATE_MASTER", "Ставка", {"position_code": "POSITION_MASTER", "fixed_monthly_rub": "80000"})],
+                **sections,
+            )
+        )
+
+    def test_minimum_wage_and_one_warning(self):
+        legacy = self._legacy(payroll_params=[self.PARAMS])
+        positions = {item.id: item for item in legacy.labor_catalog}
+        assert positions["POSITION_MASTER"].fixed_salary_monthly == 80_000.0
+        assert positions["POSITION_LABOR_STOREKEEPER"].fixed_salary_monthly == 27_093.0
+        assert positions["POSITION_LABOR_DRIVER"].fixed_salary_monthly == 27_093.0
+        about_rates = [warning for warning in legacy.warnings if "Ставки персонала" in warning]
+        assert about_rates == [
+            "Оклад по МРОТ 2026 года (27 093 ₽): в разделе «Ставки персонала» нет ставки у должностей "
+            "«Кладовщик», «Водитель»."
+        ]
+
+    def test_without_payroll_params_salary_stays_zero(self):
+        legacy = self._legacy()
+        positions = {item.id: item for item in legacy.labor_catalog}
+        assert positions["POSITION_LABOR_DRIVER"].fixed_salary_monthly == 0.0
+        assert [warning for warning in legacy.warnings if "Ставки персонала" in warning] == [
+            "В разделе «Ставки персонала» нет ставки у должностей «Кладовщик», «Водитель»: оклад принят 0."
+        ]

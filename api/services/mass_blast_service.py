@@ -81,10 +81,14 @@ def organization_accounts(organization_id: str) -> list[dict[str, str]]:
     ]
 
 
+def _active_emails(organization_id: str) -> set[str]:
+    return {item["email"] for item in organization_accounts(organization_id)}
+
+
 def _bind_accounts(organization_id: str, responsibilities: list[dict[str, Any]]) -> None:
     """Normalize assigned accounts; an empty one is allowed in a draft, a foreign one never."""
 
-    known = {item["email"] for item in organization_accounts(organization_id)}
+    known = _active_emails(organization_id)
     for item in responsibilities:
         email = normalize_account_email(item.get("account_email"))
         if email and email not in known:
@@ -219,7 +223,7 @@ def approve_revision(
 ) -> dict[str, Any]:
     # Сессия живёт до 12 часов: учётку за это время могли отключить или перенести.
     signer = normalize_account_email(actor)
-    if signer not in {item["email"] for item in organization_accounts(organization_id)}:
+    if signer not in _active_emails(organization_id):
         raise MassBlastForbiddenError(f"Учётка {signer} не действует в организации: согласовать роль она не может.")
     return repository.approve_revision(organization_id, actor, revision_id, role_code, decision, comment)
 

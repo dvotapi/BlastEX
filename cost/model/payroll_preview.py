@@ -277,6 +277,10 @@ def _crew(
             # Предупреждения чтения соседа по экипажу (оклад по МРОТ) здесь
             # лишние: долю в марже считает шкала, а не оклад.
             position, _ = position_pay(snapshot, code, inputs.calendar)
+        if position.pay_system not in PIECE_PAY_SYSTEMS:
+            # Повременщику премия по шкале не начисляется, даже если шкала заведена.
+            warnings.append(f"Должность «{position.name}» в экипаже на повременной оплате: в долю в марже не входит.")
+            continue
         if position.scale is None:
             warnings.append(f"Должность «{position.name}» в экипаже без шкалы сдельной премии: в долю в марже не входит.")
             continue

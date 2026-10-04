@@ -488,3 +488,265 @@ def effective_shifts(
             "effective_shifts": f"{fn(shifts)} см − {fn(excusable)} ч / {fn(shift_hours)} ч = {fn(effective)} см"
         },
     )
+
+
+# --- Месячный ФОТ должности -------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PayrollCalendar:
+    """Параметры года из «Параметров ФОТ»."""
+
+    year: int
+    mrot: Decimal
+    annual_hours_40: Decimal
+    annual_hours_36: Decimal
+    work_days_year: Decimal
+    holidays_year: Decimal
+    night_pct: Decimal
+    vacation_days_base: Decimal
+    margin_share_warn: Decimal
+    source: str = "payroll_params"
+
+
+@dataclass(frozen=True)
+class PositionPay:
+    """Должность для методики: нормы из «Должностей», деньги из «Ставок персонала»."""
+
+    code: str
+    name: str
+    salary: Decimal
+    salary_source: str
+    week_hours: int
+    work_conditions_class: str | None = None
+    hazard_pct: Decimal = ZERO
+    night_hours_per_shift: Decimal = ZERO
+    extra_vacation_days: Decimal = ZERO
+    pay_system: str = "TIME_BONUS"
+    difficulty: str = "PLAIN"
+    kpi_bonus_pct: Decimal = ZERO
+    scale: Scale | None = None
+
+
+@dataclass(frozen=True)
+class SiteSchedule:
+    """Вахта и надбавки объекта."""
+
+    code: str
+    name: str
+    shift_days_on: Decimal = Decimal("15")
+    shift_days_off: Decimal = Decimal("15")
+    travel_days: Decimal = Decimal("2")
+    night_shift_share: Decimal = Decimal("0.5")
+    maintenance_shifts: Decimal = Decimal("2")
+    regional_coefficient: Decimal = Decimal("0.15")
+    northern_pct: Decimal = ZERO
+    contract_k: Decimal = ONE
+
+
+@dataclass(frozen=True)
+class PayrollRates:
+    """Ставки организации, которые нужны методике (Т2, Т8)."""
+
+    ndfl_rate: Decimal
+    sfr_rate: Decimal
+    injury_rate: Decimal
+    shift_allowance_per_day: Decimal
+    shift_hours: Decimal
+    extra_tariffs: Mapping[str, Decimal] = field(default_factory=dict)
+    source: str = "organization_rates"
+
+
+@dataclass(frozen=True)
+class PayrollInputs:
+    calendar: PayrollCalendar
+    position: PositionPay
+    site: SiteSchedule
+    rates: PayrollRates
+
+
+@dataclass(frozen=True)
+class PayrollRow:
+    code: str
+    name: str
+    # ACCRUAL — входит в начисленное; SUBTOTAL — итог начисленного; INFO —
+    # справочно, в затраты не входит; COST — затраты сверх начисленного;
+    # TOTAL — затраты компании.
+    kind: str
+    amount: Decimal
+    formula: str
+
+
+@dataclass(frozen=True)
+class PayrollResult:
+    rows: tuple[PayrollRow, ...]
+    warnings: tuple[str, ...] = ()
+
+    def amount(self, code: str) -> Decimal:
+        return next(row.amount for row in self.rows if row.code == code)
+
+    @property
+    def gross(self) -> Decimal:
+        return self.amount("GROSS")
+
+    @property
+    def company_cost(self) -> Decimal:
+        return self.amount("COMPANY_COST")
+
+
+def week_hours_for(work_conditions_class: str | None, override: str | None) -> int:
+    """Рабочая неделя: переопределение, иначе по классу условий труда (ст. 92 ТК РФ)."""
+
+    if override:
+        return int(override)
+    return 36 if work_conditions_class in SHORT_WEEK_CLASSES else 40
+
+
+def extra_tariff_rate(position: PositionPay, rates: PayrollRates) -> tuple[Decimal, str]:
+    """Доп. тариф взносов по классу должности и предупреждение (пусто — нет).
+
+    У классов 1 и 2 тарифа нет (ст. 428 НК РФ); у вредного класса без строки в
+    таблице организации — 0 с предупреждением, как в проверке ревизии.
+    """
+
+    cls = position.work_conditions_class
+    if cls is None or cls in ("1", "2"):
+        return ZERO, ""
+    rate = rates.extra_tariffs.get(cls)
+    if rate is None:
+        return ZERO, (
+            f"Класс условий труда {cls} у должности «{position.name}»: доп. тариф не задан "
+            "в «Ставках и надбавках организации», принят 0."
+        )
+    return rate, ""
+
+
+def payroll_month(
+    inputs: PayrollInputs, premium: Decimal = ZERO, *, work_days_month: Decimal | None = None
+) -> PayrollResult:
+    """Месячный ФОТ должности на объекте — строки файла владельца в его порядке.
+
+    `premium` — сдельная премия за вахту (`piece_premium`). `work_days_month` —
+    делитель межвахтового отдыха; по умолчанию рабочих дней года / 12 (решение
+    владельца 13.09), регрессия по файлу подставляет 21,5.
+
+    Отличие от файла: НДФЛ удерживается из начисленного и в затраты компании не
+    входит (в файле 391 010 ₽ вместо 358 103 ₽). Постоянная часть от простоев
+    не зависит: машинист за чужой простой не платит.
+    """
+
+    calendar, position, site, rates = inputs.calendar, inputs.position, inputs.site, inputs.rates
+    annual_hours = calendar.annual_hours_40 if position.week_hours == 40 else calendar.annual_hours_36
+    hours_month = annual_hours / 12
+    salary = position.salary
+    hour_rate = salary / hours_month
+    rows: list[PayrollRow] = []
+
+    def add(code: str, name: str, kind: str, amount: Decimal, formula: str) -> Decimal:
+        rows.append(PayrollRow(code, name, kind, amount, formula))
+        return amount
+
+    add("SALARY", "Оклад", "ACCRUAL", salary, f"{position.salary_source}: {fn(salary)} ₽")
+    hazard = add(
+        "HAZARD", "Надбавка за вредность", "ACCRUAL", salary * position.hazard_pct,
+        f"{fn(salary)} ₽ × {fn(position.hazard_pct)}",
+    )
+    night_hours = site.shift_days_on * position.night_hours_per_shift * site.night_shift_share
+    night = add(
+        "NIGHT", "Доплата за ночные", "ACCRUAL", night_hours * hour_rate * calendar.night_pct,
+        f"{fn(site.shift_days_on)} см × {fn(position.night_hours_per_shift)} ч × {fn(site.night_shift_share)} "
+        f"× {fn(hour_rate)} ₽/ч × {fn(calendar.night_pct)}",
+    )
+    days = site.shift_days_on + site.shift_days_off
+    holiday_share = site.shift_days_on / days if days > 0 else ZERO
+    holidays = add(
+        "HOLIDAYS", "Оплата праздников", "ACCRUAL",
+        calendar.holidays_year * holiday_share * rates.shift_hours / 12 * hour_rate,
+        f"{fn(calendar.holidays_year)} дн × {fn(holiday_share)} × {fn(rates.shift_hours)} ч / 12 × {fn(hour_rate)} ₽/ч",
+    )
+    divisor = work_days_month if work_days_month is not None else calendar.work_days_year / 12
+    rest = add(
+        "INTERSHIFT_REST", "Межвахтовый отдых", "ACCRUAL", salary / divisor * site.shift_days_off,
+        f"{fn(salary)} ₽ / {fn(divisor)} дн × {fn(site.shift_days_off)} дн",
+    )
+    add("PIECE_PREMIUM", "Сдельная премия", "ACCRUAL", premium, f"{fn(premium)} ₽ по шкале ставки")
+    kpi = add(
+        "KPI_BONUS", "Премия КПЭ", "ACCRUAL", salary * position.kpi_bonus_pct,
+        f"{fn(salary)} ₽ × {fn(position.kpi_bonus_pct)}",
+    )
+    rk_base = salary + hazard + night + holidays + rest + premium + kpi
+    regional = add(
+        "REGIONAL", "Районный коэффициент", "ACCRUAL", rk_base * site.regional_coefficient,
+        f"{fn(rk_base)} ₽ × {fn(site.regional_coefficient)}",
+    )
+    northern = add(
+        "NORTHERN", "Северная надбавка", "ACCRUAL", rk_base * site.northern_pct,
+        f"{fn(rk_base)} ₽ × {fn(site.northern_pct)}",
+    )
+    gross = add("GROSS", "Итого начислено", "SUBTOTAL", rk_base + regional + northern, f"{fn(rk_base)} + {fn(regional)} + {fn(northern)} ₽")
+    ndfl = add(
+        "NDFL", "НДФЛ (удерживается из начисленного)", "INFO", gross * rates.ndfl_rate,
+        f"{fn(gross)} ₽ × {fn(rates.ndfl_rate)}",
+    )
+    allowance_days = site.shift_days_on + site.travel_days
+    allowance = add(
+        "SHIFT_ALLOWANCE", "Надбавка за вахту", "COST", rates.shift_allowance_per_day * allowance_days,
+        f"{fn(rates.shift_allowance_per_day)} ₽ × ({fn(site.shift_days_on)} + {fn(site.travel_days)}) дн",
+    )
+    add("NET", "К выплате на руки", "INFO", gross - ndfl + allowance, f"{fn(gross)} − {fn(ndfl)} + {fn(allowance)} ₽")
+    sfr = add("SFR", "Страховые взносы", "COST", gross * rates.sfr_rate, f"{fn(gross)} ₽ × {fn(rates.sfr_rate)}")
+    extra_rate, warning = extra_tariff_rate(position, rates)
+    extra = add(
+        "EXTRA_TARIFF", "Доп. тариф за класс условий труда", "COST", gross * extra_rate,
+        f"{fn(gross)} ₽ × {fn(extra_rate)}",
+    )
+    injury = add("INJURY", "Взносы на травматизм", "COST", gross * rates.injury_rate, f"{fn(gross)} ₽ × {fn(rates.injury_rate)}")
+    reserve_base = gross + sfr + extra + injury
+    work_days = calendar.work_days_year
+    extra_days = position.extra_vacation_days
+    base_days = calendar.vacation_days_base
+    reserve_extra = add(
+        "RESERVE_EXTRA_VACATION", "Резерв дополнительного отпуска", "COST",
+        reserve_base * extra_days / (extra_days + work_days),
+        f"{fn(reserve_base)} ₽ × {fn(extra_days)} / ({fn(extra_days)} + {fn(work_days)})",
+    )
+    reserve_main = add(
+        "RESERVE_VACATION", "Резерв основного отпуска", "COST",
+        reserve_base * base_days / (base_days + work_days),
+        f"{fn(reserve_base)} ₽ × {fn(base_days)} / ({fn(base_days)} + {fn(work_days)})",
+    )
+    add(
+        "COMPANY_COST", "Затраты компании", "TOTAL",
+        gross + allowance + sfr + extra + injury + reserve_extra + reserve_main,
+        "начислено + вахта + взносы + доп. тариф + травматизм + резервы отпусков (без НДФЛ)",
+    )
+    return PayrollResult(tuple(rows), (warning,) if warning else ())
+
+
+def premium_cost_factor(inputs: PayrollInputs) -> tuple[Decimal, str]:
+    """Затраты компании на рубль сдельной премии: dЗатраты / dПремия.
+
+    Премия входит в базу районного коэффициента, взносы считаются с
+    начисленного, резервы — с начисленного и взносов; вахтовая надбавка от
+    премии не зависит. По параметрам файла — 1,572827209.
+    """
+
+    position, site, rates, calendar = inputs.position, inputs.site, inputs.rates, inputs.calendar
+    extra_rate, _ = extra_tariff_rate(position, rates)
+    accrual = ONE + site.regional_coefficient + site.northern_pct
+    contributions = ONE + rates.sfr_rate + extra_rate + rates.injury_rate
+    work_days = calendar.work_days_year
+    reserves = (
+        ONE
+        + position.extra_vacation_days / (position.extra_vacation_days + work_days)
+        + calendar.vacation_days_base / (calendar.vacation_days_base + work_days)
+    )
+    factor = accrual * contributions * reserves
+    formula = (
+        f"(1 + {fn(site.regional_coefficient)} + {fn(site.northern_pct)}) × "
+        f"(1 + {fn(rates.sfr_rate)} + {fn(extra_rate)} + {fn(rates.injury_rate)}) × "
+        f"(1 + {fn(position.extra_vacation_days)} / {fn(position.extra_vacation_days + work_days)} + "
+        f"{fn(calendar.vacation_days_base)} / {fn(calendar.vacation_days_base + work_days)}) = "
+        f"{format(factor.quantize(Decimal('0.000001')), 'f').replace('.', ',')}"
+    )
+    return factor, formula

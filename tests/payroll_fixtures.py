@@ -6,9 +6,20 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Any
 
-from cost.model.payroll import DifficultyTables, DowntimeReason, HardnessBand, Scale
-from cost.v2.payroll_defaults import DOWNTIME_REASONS, HARDNESS_BANDS
+from cost.model.payroll import (
+    DifficultyTables,
+    DowntimeReason,
+    HardnessBand,
+    PayrollCalendar,
+    PayrollInputs,
+    PayrollRates,
+    PositionPay,
+    Scale,
+    SiteSchedule,
+)
+from cost.v2.payroll_defaults import DOWNTIME_REASONS, EXTRA_TARIFFS, HARDNESS_BANDS
 
 CENT = Decimal("0.01")
 
@@ -49,3 +60,46 @@ CURVE_X = Scale(
 )
 
 REASONS = {code: DowntimeReason(code, name, excusable, maintenance) for code, name, excusable, maintenance in DOWNTIME_REASONS}
+
+
+def file_inputs(**position_overrides: Any) -> PayrollInputs:
+    """Машинист из файла: МРОТ, класс 3.2, вредность 4 %, доп. отпуск 7 дн, 8 ночных часов."""
+
+    position = {
+        "code": "P_DRILLER",
+        "name": "Машинист буровой установки",
+        "salary": Decimal("27093"),
+        "salary_source": "labor_rates.LR_DRILLER",
+        "week_hours": 40,
+        "work_conditions_class": "3.2",
+        "hazard_pct": Decimal("0.04"),
+        "night_hours_per_shift": Decimal("8"),
+        "extra_vacation_days": Decimal("7"),
+        "pay_system": "PIECE_PROGRESSIVE",
+        "difficulty": "NORMALIZED_METERS",
+        "scale": CURVE_X,
+    }
+    position.update(position_overrides)
+    return PayrollInputs(
+        calendar=PayrollCalendar(
+            year=2026,
+            mrot=Decimal("27093"),
+            annual_hours_40=Decimal("1972"),
+            annual_hours_36=Decimal("1774.4"),
+            work_days_year=Decimal("247"),
+            holidays_year=Decimal("14"),
+            night_pct=Decimal("0.20"),
+            vacation_days_base=Decimal("28"),
+            margin_share_warn=Decimal("0.70"),
+        ),
+        position=PositionPay(**position),
+        site=SiteSchedule(code="SITE_LOM", name="Ломовское месторождение"),
+        rates=PayrollRates(
+            ndfl_rate=Decimal("0.13"),
+            sfr_rate=Decimal("0.15"),
+            injury_rate=Decimal("0.021"),
+            shift_allowance_per_day=Decimal("700"),
+            shift_hours=Decimal("11"),
+            extra_tariffs={row["work_conditions_class"]: Decimal(row["rate"]) for row in EXTRA_TARIFFS},
+        ),
+    )

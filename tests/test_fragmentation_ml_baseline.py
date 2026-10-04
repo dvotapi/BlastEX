@@ -39,8 +39,17 @@ class ScenarioResidualGuardTests(unittest.TestCase):
     def _apply(model, *, features, baseline, baseline_source):
         return SimpleNamespace(calibrated=baseline + 1.0)
 
-    def _run(self, fragmentation_model: str, models: dict, *, load_error: str = "", types: dict | None = None):
-        """models: слот → база артефакта; types: слот → тип загруженного артефакта, если он другой."""
+    def _run(
+        self,
+        fragmentation_model: str,
+        models: dict,
+        *,
+        load_error: str = "",
+        apply_error: str = "",
+        types: dict | None = None,
+    ):
+        """models: слот → база артефакта; types: слот → тип загруженного артефакта, если он другой;
+        apply_error: тип калибровки, у которой падает наложение поправки."""
         outcomes = self._outcomes()
         params = ScenarioParams(
             fragmentation_model=fragmentation_model,
@@ -52,8 +61,13 @@ class ScenarioResidualGuardTests(unittest.TestCase):
                 raise RuntimeError("файл повреждён")
             return self._artifact((types or {}).get(model_id, model_id), models[model_id])
 
+        def apply(model, *, features, baseline, baseline_source):
+            if model.model_type == apply_error:
+                raise ValueError("признаки не совпадают со схемой модели")
+            return self._apply(model, features=features, baseline=baseline, baseline_source=baseline_source)
+
         with patch("intelligence.calibration.persistence.load_model", side_effect=load), patch(
-            "intelligence.calibration.prediction.apply_residual", side_effect=self._apply
+            "intelligence.calibration.prediction.apply_residual", side_effect=apply
         ):
             scenario_service._apply_ml_overlays("team-ml", charged_design("ml-guard"), params, outcomes)
         return outcomes
@@ -120,6 +134,22 @@ class ScenarioResidualGuardTests(unittest.TestCase):
 
         self.assertEqual(outcomes.ppv_mm_s, 5.0)
         self.assertIn("Калибровка «негабарит» пропущена: файл повреждён", outcomes.warnings)
+        self._assert_no_service_names(outcomes)
+
+    def test_failed_correction_of_one_calibration_keeps_the_others(self):
+        """Сбой наложения поправки одной калибровки снимает только её, как сбой загрузки."""
+        outcomes = self._run(
+            "kuzram",
+            {"kuzram_residual": self.NEW, "oversize_residual": self.NEW, "ppv_residual": self.OLD},
+            apply_error="kuzram_residual",
+        )
+
+        self.assertEqual(outcomes.x50_mm, 200.0)
+        self.assertEqual(outcomes.oversize_pct, 6.0)
+        self.assertEqual(outcomes.ppv_mm_s, 5.0)
+        self.assertTrue(outcomes.ml_overlay_applied)
+        self.assertIn("Калибровка «x50» пропущена: признаки не совпадают со схемой модели", outcomes.warnings)
+        self.assertFalse(any("Калибровочный оверлей пропущен" in item for item in outcomes.warnings))
         self._assert_no_service_names(outcomes)
 
     def test_artifact_with_unknown_model_is_skipped_keeping_ppv(self):

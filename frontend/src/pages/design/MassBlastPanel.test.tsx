@@ -69,6 +69,17 @@ describe("MassBlastPanel — учётки ответственных", () => {
     ]);
   });
 
+  it("учётка без ФИО не теряется молча: черновик не уходит, есть подсказка", async () => {
+    render(<MassBlastPanel designId="design-1" designName="Блок 1" />);
+    await screen.findAllByRole("option", { name: "Иванов И. И." });
+
+    await userEvent.selectOptions(screen.getByLabelText("Учётка руководителя ВР"), "manager@example.ru");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
+
+    expect(await screen.findByText(/Укажите ФИО: Руководитель ВР/)).toBeTruthy();
+    expect(api.massBlast.create).not.toHaveBeenCalled();
+  });
+
   it("сохранённый проект показывает назначенные учётки", async () => {
     vi.mocked(api.massBlast.list).mockResolvedValue([project()]);
     vi.mocked(api.massBlast.get).mockReset().mockResolvedValue(project());

@@ -35,6 +35,9 @@ class _Repository:
     def approve_revision(self, organization_id, actor, revision_id, role_code, decision, comment):
         raise MassBlastForbiddenError("Согласовать роль «blast_manager» может только назначенная учётка manager@example.ru.")
 
+    def get_project(self, organization_id, project_id):
+        return {**_project(supervisor="retired@example.ru"), "id": project_id, "version": 2, "blocks": []}
+
     def create_project(self, organization_id, actor, payload):
         self.created.append(payload)
         return {
@@ -114,3 +117,10 @@ def test_draft_keeps_accounts_normalized_and_allows_an_empty_one(
     assert [item["account_email"] for item in repository.created[0]["responsibilities"]] == [
         "manager@example.ru", ""
     ]
+
+
+def test_release_rechecks_that_assigned_accounts_are_still_active(client: TestClient) -> None:
+    response = client.post(f"{BASE}/project-1/revisions", json={"expected_version": 2})
+
+    assert response.status_code == 422
+    assert "retired@example.ru" in response.json()["detail"]

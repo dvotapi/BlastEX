@@ -87,6 +87,22 @@ class MassBlastContextTests(unittest.TestCase):
             [issue.code for issue in issues if issue.level == "error"], ["responsibility_distinct"]
         )
 
+    def test_validation_forbids_one_account_on_two_roles_with_one_position_name(self):
+        _, _, context = self._context()
+        for item in context["responsibilities"]:
+            item["position_name"] = "Мастер"
+        context["responsibilities"][1]["account_email"] = "manager@example.ru"
+        issues = validate_project_context(context)
+        self.assertEqual(
+            [issue.code for issue in issues if issue.level == "error"], ["responsibility_distinct"]
+        )
+
+    def test_role_signers_refuse_a_revision_without_a_mandatory_role(self):
+        _, _, context = self._context()
+        del context["responsibilities"][1]
+        with self.assertRaisesRegex(ValueError, "ВМ"):
+            role_signers(context)
+
     def test_validation_forbids_a_role_assigned_twice(self):
         _, _, context = self._context()
         context["responsibilities"].append(

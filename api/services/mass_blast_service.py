@@ -28,6 +28,7 @@ from design.mass_blast import (
     build_document_context,
     content_sha256,
     has_blocking_issues,
+    normalize_account_email,
     validate_project_context,
 )
 from design.mass_blast_rendering import render_pdf, render_xlsx, render_zip
@@ -85,7 +86,7 @@ def _bind_accounts(organization_id: str, responsibilities: list[dict[str, Any]])
 
     known = {item["email"] for item in organization_accounts(organization_id)}
     for item in responsibilities:
-        email = str(item.get("account_email", "")).strip().casefold()
+        email = normalize_account_email(item.get("account_email"))
         if email and email not in known:
             raise ValueError(f"Учётка {email} не найдена среди действующих учёток организации.")
         item["account_email"] = email
@@ -192,6 +193,8 @@ def create_revision(
     project = repository.get_project(organization_id, project_id)
     if project["version"] != expected_version:
         raise MassBlastConflictError("Проект изменён другим пользователем. Обновите данные перед выпуском ревизии.")
+    # Учётку могли отключить после сохранения черновика: подписать за роль будет некому.
+    _bind_accounts(organization_id, list(project.get("responsibilities") or []))
     context, blocks = _context_from_stored(project)
     context["attachments"] = list(repository.list_draft_attachments(organization_id, project_id))
     _assert_sources_current(organization_id, blocks)

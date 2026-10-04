@@ -9,7 +9,7 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, Uniqu
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
 from cost.v2.db_repository import AuditLogRow, Base, JsonType, SCHEMA
-from design.mass_blast import role_signers
+from design.mass_blast import normalize_account_email, role_signers
 
 
 class MassBlastRepositoryError(RuntimeError):
@@ -514,7 +514,7 @@ class PostgresMassBlastRepository:
             signers = self._signers(revision)
             if role_code not in signers:
                 raise MassBlastConflictError(f"Роль «{role_code}» не назначена в этой ревизии.")
-            if actor.strip().casefold() != signers[role_code]:
+            if normalize_account_email(actor) != signers[role_code]:
                 raise MassBlastForbiddenError(
                     f"Согласовать роль «{role_code}» может только назначенная учётка {signers[role_code]}."
                 )
@@ -562,7 +562,7 @@ class PostgresMassBlastRepository:
                 assert revision is not None
                 signers = self._signers(revision)
                 approved = {
-                    (role_code, approver.strip().casefold())
+                    (role_code, normalize_account_email(approver))
                     for role_code, approver in session.execute(
                         select(MassBlastApprovalRow.role_code, MassBlastApprovalRow.actor).where(
                             MassBlastApprovalRow.revision_id == revision.id,

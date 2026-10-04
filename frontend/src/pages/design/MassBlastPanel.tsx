@@ -111,6 +111,15 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
       setMessage("Сначала сохраните технический паспорт БВР, чтобы зафиксировать источник блока.");
       return;
     }
+    // Роль без ФИО в черновик не попадает — вместе с ней пропала бы и учётка.
+    const unnamed = [
+      [blastManager, blastManagerAccount, "Руководитель ВР"],
+      [explosivesSupervisor, explosivesSupervisorAccount, "Ответственный за ВМ"],
+    ].filter(([name, account]) => account && !name.trim()).map(([, , label]) => label);
+    if (unnamed.length) {
+      setMessage(`Укажите ФИО: ${unnamed.join(", ")} — учётка назначается конкретному человеку.`);
+      return;
+    }
     setBusy(true); setMessage("");
     try {
       const saved = project

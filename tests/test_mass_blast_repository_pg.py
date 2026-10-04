@@ -137,3 +137,10 @@ def test_approvals_of_unassigned_accounts_do_not_count(repository) -> None:
 
     with pytest.raises(MassBlastConflictError, match="explosives_supervisor|Ответственный за ВМ"):
         _approve_project(repository, project)
+
+
+def test_revision_without_a_mandatory_role_cannot_be_approved(repository) -> None:
+    project, revision = _released(repository, _responsibilities()[:1])
+
+    with pytest.raises(MassBlastConflictError, match="ВМ"):
+        _approve_project(repository, project)

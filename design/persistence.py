@@ -148,9 +148,11 @@ def _persist(team_id: str, design: BlastDesign) -> BlastDesign:
     return design
 
 
-def _prepare_new(design: BlastDesign, actor: str) -> BlastDesign:
+def _prepare_new(design: BlastDesign, actor: str, *, parent_design_id: str = "") -> BlastDesign:
     if not design.design_id:
         design.design_id = new_design_id()
+    # Родителя ставит только форк: присланная ссылка подделала бы родословную.
+    design.parent_design_id = parent_design_id
     design.lifecycle_status = STATUS_DRAFT
     design.revision = 1
     design.designed_sha256 = designed_sha256(design)
@@ -284,7 +286,6 @@ def fork_design(
     clone = BlastDesign.from_dict(source.to_dict())
     clone.design_id = ""
     clone.name = name.strip() or f"{source.name} (v{source.revision + 1})"
-    clone.parent_design_id = source.design_id
     clone.lifecycle_status = STATUS_DRAFT
     clone.revision = 0
     clone.lifecycle_events = []
@@ -295,7 +296,7 @@ def fork_design(
     clone.blast_result = None
     clone.vibration_measurements = []
     clone.updated_at = ""
-    prepared = _prepare_new(clone, actor)
+    prepared = _prepare_new(clone, actor, parent_design_id=source.design_id)
     if prepared.lifecycle_events:
         prepared.lifecycle_events[0] = make_event(
             kind=KIND_FORK,

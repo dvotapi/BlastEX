@@ -68,7 +68,7 @@ from api.schemas.design import (
 )
 from api.schemas.movement import MovementModelsResponse, MovementPredictRequest, MovementPredictResponse
 from api.schemas.reporting import PassportBuildRequest, PassportDocumentSchema, PassportRolesResponse
-from api.security import current_team_id, require_internal_access
+from api.security import current_team_id, require_human, require_internal_access
 from api.services import design_service, reporting_service
 from api.services.economics_service import get_economics_repository
 from api.services.legacy_references import current_legacy_references
@@ -297,7 +297,7 @@ def get_plan_lifecycle(
 def transition_plan(
     design_id: str,
     request: LifecycleTransitionRequest,
-    session: dict = Depends(require_internal_access),
+    session: dict = Depends(require_human),
 ) -> LifecycleStateSchema:
     return design_service.transition_plan(
         session["org"],

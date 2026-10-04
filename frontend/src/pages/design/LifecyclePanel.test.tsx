@@ -29,17 +29,19 @@ function panel(unsaved: boolean) {
 afterEach(cleanup);
 
 describe("LifecyclePanel: несохранённые правки", () => {
-  it("переход недоступен, панель просит сохранить", () => {
+  it("переход и ревизия недоступны, панель просит сохранить", () => {
     panel(true);
 
     expect(screen.getByRole("button", { name: "На проверку" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Создать ревизию" })).toHaveProperty("disabled", true);
     expect(screen.getByText(/сначала сохраните паспорт/i)).toBeTruthy();
   });
 
-  it("без несохранённых правок переход доступен и подсказки нет", () => {
+  it("без несохранённых правок переход и ревизия доступны, подсказки нет", () => {
     panel(false);
 
     expect(screen.getByRole("button", { name: "На проверку" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Создать ревизию" })).toHaveProperty("disabled", false);
     expect(screen.queryByText(/сначала сохраните паспорт/i)).toBeNull();
   });
 });

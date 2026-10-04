@@ -42,7 +42,7 @@ export function LifecyclePanel({
   designedSha256: string;
   events: LifecycleEvent[];
   busy: boolean;
-  /** Есть несохранённые правки: статус меняется у сохранённой версии, переход недоступен. */
+  /** Есть несохранённые правки: статус и ревизия берутся из сохранённой версии, обе кнопки недоступны. */
   unsaved: boolean;
   confirm: boolean;
   note: string;
@@ -73,9 +73,9 @@ export function LifecyclePanel({
           {designedSha256 && <span>SHA {designedSha256.slice(0, 8)}</span>}
         </div>
         {!designId && <small>Сохраните паспорт, чтобы менять статус.</small>}
-        {designId && unsaved && transitions.length > 0 && (
+        {designId && unsaved && (
           <small className="lifecycle-freeze">
-            Есть несохранённые правки. Статус меняется у сохранённой версии — сначала сохраните паспорт.
+            Есть несохранённые правки. Статус и ревизия берутся из сохранённой версии — сначала сохраните паспорт.
           </small>
         )}
         {frozen && !closed && (
@@ -108,7 +108,7 @@ export function LifecyclePanel({
               {transitionLabel(status, target)}
             </button>
           ))}
-          <button type="button" className="secondary-button" onClick={onFork} disabled={busy || !designId}>
+          <button type="button" className="secondary-button" onClick={onFork} disabled={busy || !designId || unsaved}>
             Создать ревизию
           </button>
         </div>

@@ -34,10 +34,14 @@ import {
 } from "../../types/design";
 
 export type DesignAction =
-  /** Открыт другой документ (паспорт, новый, ревизия, тот же после смены статуса): история с нуля. */
-  | { type: "LOAD"; design: BlastDesign }
+  /**
+   * Открыт другой документ (паспорт, новый, ревизия, тот же после смены
+   * статуса): история с нуля. `base` — `saved` на момент запроса: если с тех
+   * пор открыт другой паспорт, ответ устарел и не применяется.
+   */
+  | { type: "LOAD"; design: BlastDesign; base?: BlastDesign }
   /** Ответ сервера на сохранение открытого паспорта: история правок остаётся. */
-  | { type: "SAVED"; design: BlastDesign }
+  | { type: "SAVED"; design: BlastDesign; base?: BlastDesign }
   | { type: "SET_NAME"; name: string }
   | { type: "SET_CONTOUR_VERTICES"; vertices: BlastDesign["contour"]["vertices"]; free_faces?: number[][]; coalesce?: boolean }
   | { type: "TOGGLE_FREE_FACE"; edgeIndex: number }
@@ -551,6 +555,10 @@ const UNDOABLE: DesignAction["type"][] = [
 ];
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {
+  if ((action.type === "LOAD" || action.type === "SAVED") && action.base && action.base !== state.saved) {
+    // Пока шёл запрос, открыли другой паспорт: ответ о прежнем ему не принадлежит.
+    return state;
+  }
   if (action.type === "LOAD") {
     // Иначе Ctrl+Z вернул бы на экран прежний паспорт с его design_id, и
     // «Сохранить» записало бы его старое состояние.

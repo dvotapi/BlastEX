@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Ctrl/Cmd+Z и Ctrl/Cmd+Shift+Z на странице «Проектирование»: вне полей ввода,
 // и только пока проектная часть не заморожена — как кнопки ↶ ↷.
-import { renderHook } from "@testing-library/react";
+import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useUndoHotkeys } from "./useUndoHotkeys";
 
@@ -12,6 +12,7 @@ function press(init: KeyboardEventInit, target: EventTarget = window): KeyboardE
 }
 
 afterEach(() => {
+  cleanup();
   document.body.replaceChildren();
 });
 

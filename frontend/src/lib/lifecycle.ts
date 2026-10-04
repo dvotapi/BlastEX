@@ -1,5 +1,6 @@
-import type { DataRole, DesignLifecycleStatus, OverlayMetric } from "../types/design";
+import type { BlastDesign, DataRole, DesignLifecycleStatus, OverlayMetric } from "../types/design";
 import { isFragmentationMapMetric, isMovementMapMetric, isSpatialMapMetric } from "../types/design";
+import contract from "./lifecycleContract.json";
 
 export const LIFECYCLE_STATUSES: DesignLifecycleStatus[] = [
   "draft",
@@ -120,6 +121,15 @@ export function canEditMeasured(status: string | undefined | null): boolean {
 
 export function canEditMetadata(status: string | undefined | null): boolean {
   return ALLOWED_MUTATIONS[normalizeLifecycleStatus(status)].has("metadata");
+}
+
+export type MutationKind = "designed" | "execution" | "measured" | "metadata";
+
+/** Поля паспорта по видам правок — как их сравнивает сервер (`design/lifecycle.py`, `*_PAYLOAD_KEYS`). */
+export const MUTATION_PAYLOAD_KEYS = contract.payload_keys as Record<MutationKind, (keyof BlastDesign)[]>;
+
+export function canEdit(status: string | undefined | null, kind: MutationKind): boolean {
+  return ALLOWED_MUTATIONS[normalizeLifecycleStatus(status)].has(kind);
 }
 
 export function canDeletePlan(status: string | undefined | null): boolean {

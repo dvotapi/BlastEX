@@ -277,14 +277,19 @@ export function DesignPage({
 
   const [explosives, setExplosives] = useState<Explosive[]>([]);
   const [explosiveKey, setExplosiveKey] = useState("");
-  const explosiveKeyRef = useRef(explosiveKey);
-  explosiveKeyRef.current = explosiveKey;
+  // Умолчание справочника ВВ: его показывает форма паспорта без своего ВВ.
+  const [defaultExplosiveKey, setDefaultExplosiveKey] = useState("");
+  const defaultExplosiveKeyRef = useRef(defaultExplosiveKey);
+  defaultExplosiveKeyRef.current = defaultExplosiveKey;
+  // Версия сервера на момент ответа: ответ о паспорте, который уже закрыт, не применяется.
+  const savedRef = useRef(state.saved);
+  savedRef.current = state.saved;
   const [chargeRules, setChargeRules] = useState<ChargeRules>(DEFAULT_CHARGE_RULES);
   const [chargeBusy, setChargeBusy] = useState(false);
-  // Статус меняется у сохранённой версии: с несохранёнными правками переход закрыт.
+  // Статус и ревизия берутся из сохранённой версии: с несохранёнными правками обе закрыты.
   const unsavedChanges = useMemo(
-    () => hasUnsavedChanges(state, { patternParams, chargeRules, explosiveKey }, designedLocked),
-    [state, patternParams, chargeRules, explosiveKey, designedLocked],
+    () => hasUnsavedChanges(state, { patternParams, chargeRules, explosiveKey }, defaultExplosiveKey),
+    [state, patternParams, chargeRules, explosiveKey, defaultExplosiveKey],
   );
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
 
@@ -441,6 +446,7 @@ export function DesignPage({
     api.explosives()
       .then((data) => {
         setExplosives(data.items);
+        setDefaultExplosiveKey(data.default_key);
         setExplosiveKey((prev) => prev || data.default_key);
       })
       .catch(() => {
@@ -620,7 +626,7 @@ export function DesignPage({
       setAsFiredResult(null);
       setExecutionResult(null);
       setBlastResultCompare(null);
-      await refreshMaps({ ...document, holes: result.holes, pattern_params: patternParams as unknown as Record<string, unknown> });
+      await refreshMaps({ ...document, holes: result.holes });
       setSelected(new Set());
       setPendingFit(true);
       setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
@@ -737,12 +743,7 @@ export function DesignPage({
       return;
     }
     try {
-      const result = await api.design.maps({
-        ...design,
-        pattern_params: patternParams as unknown as Record<string, unknown>,
-        charge_rules: chargeRules as unknown as Record<string, unknown>,
-        explosive_key: explosiveKey,
-      });
+      const result = await api.design.maps(designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey }));
       setMaps(result);
     } catch {
       setMaps(null);
@@ -758,12 +759,7 @@ export function DesignPage({
     setError("");
     try {
       const result = await api.design.movement({
-        design: {
-          ...document,
-          pattern_params: patternParams as unknown as Record<string, unknown>,
-          charge_rules: chargeRules as unknown as Record<string, unknown>,
-          explosive_key: explosiveKey,
-        },
+        design: designPayload(),
       });
       setMovementResult(result);
     } catch (reason) {
@@ -786,12 +782,7 @@ export function DesignPage({
       // Настройки модели Kuz-Ram сервер берёт у активного объекта работ
       // организации сам — как и для паспорта, сценариев и подбора.
       const result = await api.design.fragmentation({
-        design: {
-          ...document,
-          pattern_params: patternParams as unknown as Record<string, unknown>,
-          charge_rules: chargeRules as unknown as Record<string, unknown>,
-          explosive_key: explosiveKey,
-        },
+        design: designPayload(),
         model: fragModel,
         lump_size_mm: lumpSizeMm,
         max_oversize_pct: 5,
@@ -861,7 +852,7 @@ export function DesignPage({
   }
 
   function deleteHoles(ids: string[]) {
-    if (!ids.length) return;
+    if (!ids.length || rejectLocked("designed")) return;
     dispatch({ type: "DELETE_HOLES", ids });
     setSelected((prev) => {
       const next = new Set(prev);
@@ -871,6 +862,7 @@ export function DesignPage({
   }
 
   function setHolesEnabled(ids: string[], enabled: boolean) {
+    if (rejectLocked("designed")) return;
     dispatch({ type: "SET_HOLES_ENABLED", ids, enabled });
   }
 
@@ -1053,12 +1045,7 @@ export function DesignPage({
     setAnalyzeBusy(true);
     setError("");
     try {
-      const designForAnalysis = {
-        ...document,
-        pattern_params: patternParams as unknown as Record<string, unknown>,
-        charge_rules: chargeRules as unknown as Record<string, unknown>,
-        explosive_key: explosiveKey,
-      };
+      const designForAnalysis = designPayload();
       const result = await api.design.analyze(designForAnalysis, isolineStepMs, micWindowMs, ppv);
       setAnalysis(result);
       if (result.firing_events) {
@@ -1082,12 +1069,7 @@ export function DesignPage({
     setCostBusy(true);
     setError("");
     try {
-      const designForCost = {
-        ...document,
-        pattern_params: patternParams as unknown as Record<string, unknown>,
-        charge_rules: chargeRules as unknown as Record<string, unknown>,
-        explosive_key: explosiveKey,
-      };
+      const designForCost = designPayload();
       const result = await api.design.cost(designForCost, scenarioId);
       setCostResult(result);
     } catch (reason) {
@@ -1200,12 +1182,7 @@ export function DesignPage({
     setError("");
     try {
       const result = await api.design.vibration({
-        design: {
-          ...document,
-          pattern_params: patternParams as unknown as Record<string, unknown>,
-          charge_rules: chargeRules as unknown as Record<string, unknown>,
-          explosive_key: explosiveKey,
-        },
+        design: designPayload(),
         model_id: siteModel().id,
         mic_window_ms: micWindowMs,
         measured: document.vibration_measurements,
@@ -1220,14 +1197,14 @@ export function DesignPage({
   }
 
   function designPayload() {
-    return designWithParams(document, { patternParams, chargeRules, explosiveKey }, designedLocked);
+    return designWithParams(state, { patternParams, chargeRules, explosiveKey });
   }
 
   // Формы страницы — по паспорту, только что пришедшему с сервера: открытие,
   // смена статуса, ревизия. Иначе на экране и в «Сохранить» остаются правки,
   // которых в паспорте нет.
   function syncDesignParams(design: BlastDesign) {
-    const params = paramsFromDesign(design, explosiveKeyRef.current);
+    const params = paramsFromDesign(design, defaultExplosiveKeyRef.current);
     setPatternParams(params.patternParams);
     setChargeRules(params.chargeRules);
     setExplosiveKey(params.explosiveKey);
@@ -2339,6 +2316,7 @@ export function DesignPage({
       setError("Смена статуса требует явного подтверждения.");
       return;
     }
+    const base = state.saved;
     setSaveBusy(true);
     setError("");
     try {
@@ -2348,8 +2326,10 @@ export function DesignPage({
         note: lifecycleNote,
       });
       const design = await api.design.getPlan(document.design_id);
-      dispatch({ type: "LOAD", design });
-      syncDesignParams(design);
+      if (savedRef.current === base) {
+        dispatch({ type: "LOAD", design, base });
+        syncDesignParams(design);
+      }
       setLifecycleConfirm(false);
       setLifecycleNote("");
       await refreshPlans();
@@ -2365,12 +2345,19 @@ export function DesignPage({
       setError("Сначала сохраните паспорт.");
       return;
     }
+    if (unsavedChanges) {
+      setError("Есть несохранённые правки: ревизия создаётся из сохранённой версии паспорта. Сначала сохраните паспорт.");
+      return;
+    }
+    const base = state.saved;
     setSaveBusy(true);
     setError("");
     try {
       const forked = await api.design.forkPlan(document.design_id, `${document.name} · ревизия`);
-      dispatch({ type: "LOAD", design: forked });
-      syncDesignParams(forked);
+      if (savedRef.current === base) {
+        dispatch({ type: "LOAD", design: forked, base });
+        syncDesignParams(forked);
+      }
       setLifecycleConfirm(false);
       setLifecycleNote("");
       setWorkflowStage("survey");
@@ -2392,8 +2379,9 @@ export function DesignPage({
     setError("");
     try {
       const toSave = designPayload();
+      const base = state.saved;
       const saved = document.design_id ? await api.design.savePlan(document.design_id, toSave) : await api.design.createPlan(toSave);
-      dispatch({ type: "SAVED", design: saved });
+      dispatch({ type: "SAVED", design: saved, base });
       await refreshPlans();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось сохранить паспорт.");
@@ -2456,6 +2444,7 @@ export function DesignPage({
       await api.design.deletePlan(id);
       if (id === document.design_id) {
         dispatch({ type: "LOAD", design: emptyDesign() });
+        syncDesignParams(emptyDesign());
         setBlockVolumeM3(null);
         setPendingFit(true);
       }
@@ -2467,9 +2456,8 @@ export function DesignPage({
 
   function newPlan() {
     dispatch({ type: "LOAD", design: emptyDesign() });
+    syncDesignParams(emptyDesign());
     setPendingFit(true);
-    setPatternParams(DEFAULT_PATTERN_PARAMS);
-    setChargeRules(DEFAULT_CHARGE_RULES);
     setTieParams(DEFAULT_TIE_PARAMS);
     setBlockVolumeM3(null);
     setSelected(new Set());

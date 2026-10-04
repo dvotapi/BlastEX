@@ -103,3 +103,30 @@ describe("saved — паспорт, как он лежит на сервере",
     expect(saved.saved).toBe(saved.present);
   });
 });
+
+describe("ответ на действие с паспортом, который уже закрыт", () => {
+  it("сохранение A пришло после открытия B — ответ отбрасывается, история B не получает design_id A", () => {
+    const a = designReducer(initDesignState(emptyDesign()), { type: "LOAD", design: passport() });
+    const base = a.saved;
+    const b = edited(designReducer(a, { type: "LOAD", design: passport({ design_id: "b", name: "Блок B" }) }), "Блок B, правка");
+
+    const late = designReducer(b, { type: "SAVED", design: passport({ revision: 3 }), base });
+
+    expect(late).toBe(b);
+    expect(designReducer(late, { type: "UNDO" }).present.design_id).toBe("b");
+  });
+
+  it("смена статуса A пришла после открытия B — B остаётся на экране", () => {
+    const a = designReducer(initDesignState(emptyDesign()), { type: "LOAD", design: passport() });
+    const b = designReducer(a, { type: "LOAD", design: passport({ design_id: "b" }) });
+
+    const late = designReducer(b, { type: "LOAD", design: passport({ lifecycle_status: "in_review" }), base: a.saved });
+    expect(late.present.design_id).toBe("b");
+  });
+
+  it("ответ на действие с открытым паспортом применяется", () => {
+    const a = edited(designReducer(initDesignState(emptyDesign()), { type: "LOAD", design: passport() }), "Блок A, правка");
+    const saved = designReducer(a, { type: "SAVED", design: passport({ name: "Блок A, правка", revision: 3 }), base: a.saved });
+    expect(saved.present.revision).toBe(3);
+  });
+});

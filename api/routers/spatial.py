@@ -13,7 +13,7 @@ from api.schemas.spatial import (
     SpatialStatusRequest,
     SpatialTrainRequest,
 )
-from api.security import require_internal_access
+from api.security import require_human, require_internal_access
 from api.services import spatial_service
 from api.services.economics_service import get_economics_repository
 from cost.v2.repository import EconomicsRepository
@@ -59,7 +59,7 @@ def get_spatial_model(
 def set_spatial_status(
     model_id: str,
     request: SpatialStatusRequest,
-    session: dict = Depends(require_internal_access),
+    session: dict = Depends(require_human),
 ) -> SpatialModelSchema:
     return spatial_service.update_status(str(session["org"]), model_id, request)
 

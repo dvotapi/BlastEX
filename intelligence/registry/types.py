@@ -62,7 +62,8 @@ DATA_ROLES = {
     "execution": ROLE_EXECUTED,
 }
 
-AUTO_ACTORS = frozenset({"", "auto", "system", "scheduler", "cron", "pipeline", "ci"})
+# "api-key" — внутренний ключ API (api/security.py::SERVICE_ACTOR), не человек.
+AUTO_ACTORS = frozenset({"", "auto", "system", "scheduler", "cron", "pipeline", "ci", "api-key"})
 
 FAMILY_LABELS = {
     FAMILY_CALIBRATION: "Калибровка площадки",

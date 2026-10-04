@@ -12,7 +12,7 @@ from api.schemas.calibration import (
     CalibrationStatusRequest,
     CalibrationTrainRequest,
 )
-from api.security import require_internal_access
+from api.security import require_human, require_internal_access
 from api.services import calibration_service
 from api.services.economics_service import get_economics_repository
 from cost.v2.repository import EconomicsRepository
@@ -50,7 +50,7 @@ def get_calibration_model(
 def set_calibration_status(
     model_id: str,
     request: CalibrationStatusRequest,
-    session: dict = Depends(require_internal_access),
+    session: dict = Depends(require_human),
 ) -> CalibrationModelSchema:
     return calibration_service.update_status(session["org"], model_id, request)
 

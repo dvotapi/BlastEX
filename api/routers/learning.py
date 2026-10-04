@@ -14,7 +14,7 @@ from api.schemas.learning import (
     LearningStatusRequest,
 )
 from api.schemas.outcomes import OutcomeModelTypeListResponse
-from api.security import require_internal_access
+from api.security import require_human, require_internal_access
 from api.services import learning_service
 
 router = APIRouter(prefix="/learning", tags=["learning"])
@@ -70,7 +70,7 @@ def get_learning_model(
 def set_learning_status(
     model_id: str,
     request: LearningStatusRequest,
-    session: dict = Depends(require_internal_access),
+    session: dict = Depends(require_human),
 ) -> LearningModelSchema:
     return learning_service.update_status(session["org"], model_id, request)
 

@@ -12,7 +12,7 @@ from api.schemas.drift import (
     DriftReportListResponse,
     DriftReportSchema,
 )
-from api.security import require_internal_access
+from api.security import require_human, require_internal_access
 from api.services import drift_service
 
 router = APIRouter(prefix="/drift", tags=["drift"])
@@ -75,7 +75,7 @@ def get_alert(
 def acknowledge_alert(
     alert_id: str,
     request: DriftAcknowledgeRequest,
-    session: dict = Depends(require_internal_access),
+    session: dict = Depends(require_human),
 ) -> DriftAlertSchema:
     return drift_service.acknowledge_drift_alert(
         str(session["org"]),

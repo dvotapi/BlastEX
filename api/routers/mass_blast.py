@@ -18,7 +18,7 @@ from api.schemas.mass_blast import (
     MassBlastValidationResponse,
     RevisionCreateSchema,
 )
-from api.security import require_internal_access
+from api.security import require_human, require_internal_access
 from api.services.economics_service import get_economics_repository
 from api.services.mass_blast_service import (
     approve_revision,
@@ -122,7 +122,7 @@ def post_validate(
 def post_revision(
     project_id: str,
     payload: RevisionCreateSchema,
-    session: dict[str, object] = Depends(require_internal_access),
+    session: dict[str, object] = Depends(require_human),
     repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
     economics_repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> MassBlastRevisionSchema:
@@ -155,7 +155,7 @@ def get_revision(
 def post_approval(
     revision_id: str,
     payload: MassBlastApprovalCreateSchema,
-    session: dict[str, object] = Depends(require_internal_access),
+    session: dict[str, object] = Depends(require_human),
     repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
 ) -> MassBlastApprovalSchema:
     organization_id, actor = _identity(session)
@@ -171,7 +171,7 @@ def post_approval(
 def post_lifecycle(
     project_id: str,
     payload: MassBlastLifecycleSchema,
-    session: dict[str, object] = Depends(require_internal_access),
+    session: dict[str, object] = Depends(require_human),
     repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
 ) -> MassBlastProjectSchema:
     organization_id, actor = _identity(session)

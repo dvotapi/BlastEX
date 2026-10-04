@@ -62,6 +62,20 @@ class LifecycleApiTests(unittest.TestCase):
         listed = design_service.list_plans(TEAM_ID)
         self.assertEqual(listed.items[0].lifecycle_status, STATUS_DRAFT)
 
+    def test_create_ignores_client_parent_link(self):
+        # Родителя ставит только форк: присланная ссылка подделала бы родословную.
+        payload = BlastDesignSchema(**charged_design("api-life").to_dict())
+        payload.parent_design_id = "foreign-design"
+        created = design_service.create_plan(TEAM_ID, payload, actor="engineer@mine")
+        self.assertEqual(created.parent_design_id, "")
+        self.assertEqual(load_design(TEAM_ID, created.design_id).parent_design_id, "")
+
+    def test_save_under_new_id_ignores_client_parent_link(self):
+        payload = BlastDesignSchema(**charged_design("api-life-new").to_dict())
+        payload.parent_design_id = "foreign-design"
+        saved = design_service.save_plan(TEAM_ID, "api-life-new", payload, actor="engineer@mine")
+        self.assertEqual(saved.parent_design_id, "")
+
     def test_transition_requires_confirm_and_actor(self):
         created = self._create()
         with self.assertRaises(InvalidLifecycleError):

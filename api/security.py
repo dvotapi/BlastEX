@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 
 from fastapi import Cookie, Depends, Header, HTTPException, status
 
+from cost.auth import ALLOWED_ROLES
+
 SESSION_COOKIE = "blastex_session"
+# От этого имени действует внутренний ключ. Доменные шлюзы «подтверждает
+# человек» держат его в своих AUTO_ACTORS.
+SERVICE_ACTOR = "api-key"
 
 
 def _session_secret() -> str:
@@ -75,7 +80,7 @@ def require_internal_access(
         return session
     expected = os.getenv("BLASTEX_API_KEY", "").strip()
     if expected and x_api_key and hmac.compare_digest(x_api_key, expected):
-        return {"sub": "api-key", "role": "service", "org": "default"}
+        return {"sub": SERVICE_ACTOR, "role": "service", "org": "default"}
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Требуется вход во внутренний сервис.",
@@ -90,6 +95,8 @@ def current_team_id(session: dict[str, object] = Depends(require_internal_access
 
 ADMIN_ROLES = {"admin", "service"}
 REFERENCE_EDITOR_ROLES = {"admin", "reference_editor", "service"}
+# Роли учёток людей; у внутреннего ключа роль service.
+HUMAN_ROLES = frozenset(ALLOWED_ROLES)
 
 
 def is_reference_editor(session: dict[str, object]) -> bool:
@@ -105,6 +112,25 @@ def require_reference_editor(
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Редактирование справочников доступно администратору или редактору.",
+    )
+
+
+def require_human(
+    session: dict[str, object] = Depends(require_internal_access),
+) -> dict[str, object]:
+    """Утверждение, согласование и смену статуса подтверждает вошедший человек.
+
+    Внутренний ключ видит организацию default целиком, но решение, принятое
+    им, ни за кем не числится — поэтому статусы он не меняет.
+    """
+    if str(session.get("role", "")) in HUMAN_ROLES:
+        return session
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Утверждение, согласование и смену статуса подтверждает "
+            "пользователь под своей учётной записью, а не внутренний ключ."
+        ),
     )
 
 

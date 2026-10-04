@@ -66,7 +66,8 @@ ALLOWED_MUTATIONS: dict[str, frozenset[str]] = {
 
 DELETABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_IN_REVIEW})
 
-AUTO_ACTORS = frozenset({"", "auto", "system", "scheduler", "cron", "pipeline", "ci"})
+# "api-key" — внутренний ключ API (api/security.py::SERVICE_ACTOR), не человек.
+AUTO_ACTORS = frozenset({"", "auto", "system", "scheduler", "cron", "pipeline", "ci", "api-key"})
 
 STATUS_LABELS = {
     STATUS_DRAFT: "черновик",

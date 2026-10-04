@@ -9,7 +9,7 @@ from api.schemas.registry import (
     RegistryPromoteRequest,
     RegistryRecordSchema,
 )
-from api.security import require_internal_access
+from api.security import require_human, require_internal_access
 from api.services import registry_service
 
 router = APIRouter(prefix="/registry", tags=["registry"])
@@ -46,7 +46,7 @@ def promote_registry_model(
     family: str,
     model_id: str,
     request: RegistryPromoteRequest,
-    session: dict = Depends(require_internal_access),
+    session: dict = Depends(require_human),
 ) -> RegistryRecordSchema:
     return registry_service.promote_registry_model(
         str(session["org"]),

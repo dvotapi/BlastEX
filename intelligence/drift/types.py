@@ -35,7 +35,8 @@ DATA_ROLES = {
 ACTION_ALERT_ONLY = "alert_only"
 ACTION_HUMAN_PROMOTE = "human_promote_via_registry"
 
-AUTO_ACTORS = frozenset({"", "auto", "system", "scheduler", "cron", "pipeline", "ci"})
+# "api-key" — внутренний ключ API (api/security.py::SERVICE_ACTOR), не человек.
+AUTO_ACTORS = frozenset({"", "auto", "system", "scheduler", "cron", "pipeline", "ci", "api-key"})
 
 KIND_LABELS = {
     KIND_FEATURE: "Признаки",

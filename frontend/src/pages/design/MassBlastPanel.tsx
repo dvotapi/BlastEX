@@ -1,8 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/endpoints";
-import type { MassBlastAttachment, MassBlastDocument, MassBlastProject, MassBlastProjectInput, MassBlastValidation } from "../../types/design";
+import type { MassBlastAccount, MassBlastAttachment, MassBlastDocument, MassBlastProject, MassBlastProjectInput, MassBlastValidation } from "../../types/design";
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Учётка, которой одной разрешено согласовать роль. Назначенная ранее, но
+// уже не действующая учётка остаётся в списке, чтобы сохранение её не стёрло.
+function AccountSelect({ label, value, accounts, onChange, disabled }: {
+  label: string; value: string; accounts: MassBlastAccount[]; onChange: (value: string) => void; disabled: boolean;
+}) {
+  const missing = value && !accounts.some((account) => account.email === value);
+  return (
+    <label>{label}
+      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
+        <option value="">— не назначена —</option>
+        {accounts.map((account) => <option key={account.email} value={account.email}>{account.display_name}</option>)}
+        {missing && <option value={value}>{value} (нет среди действующих)</option>}
+      </select>
+    </label>
+  );
+}
 
 export function MassBlastPanel({ designId, designName }: { designId: string; designName: string }) {
   const [project, setProject] = useState<MassBlastProject | null>(null);
@@ -21,6 +38,9 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
   const [signalProfile, setSignalProfile] = useState("THREE_SIGNALS");
   const [blastManager, setBlastManager] = useState("");
   const [explosivesSupervisor, setExplosivesSupervisor] = useState("");
+  const [blastManagerAccount, setBlastManagerAccount] = useState("");
+  const [explosivesSupervisorAccount, setExplosivesSupervisorAccount] = useState("");
+  const [accounts, setAccounts] = useState<MassBlastAccount[]>([]);
   const [guardLocation, setGuardLocation] = useState("");
   const [additionalDesignIds, setAdditionalDesignIds] = useState("");
 
@@ -35,15 +55,15 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
     blocks: Array.from(new Set([designId, ...additionalDesignIds.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean)])).filter(Boolean)
       .map((id, index) => ({ design_id: id, code: id === designId ? (designName || "Блок") : `Блок ${index + 1}`, horizon: "" })),
     responsibilities: [
-      { role_code: "blast_manager", employee_code: blastManager.trim(), employee_name: blastManager.trim(), position_name: "Руководитель взрывных работ" },
-      { role_code: "explosives_supervisor", employee_code: explosivesSupervisor.trim(), employee_name: explosivesSupervisor.trim(), position_name: "Ответственный за ВМ" },
+      { role_code: "blast_manager", employee_code: blastManager.trim(), employee_name: blastManager.trim(), position_name: "Руководитель взрывных работ", account_email: blastManagerAccount },
+      { role_code: "explosives_supervisor", employee_code: explosivesSupervisor.trim(), employee_name: explosivesSupervisor.trim(), position_name: "Ответственный за ВМ", account_email: explosivesSupervisorAccount },
     ].filter((item) => item.employee_code),
     safety_plan: { danger_zone_radius_m: Number(dangerZone) || 0 },
     charging_schedule: [],
     signal_plan: { profile_code: signalProfile.trim() },
     guard_posts: guardLocation.trim() ? [{ code: "POST-1", location: guardLocation.trim(), responsible_employee_code: "", notes: "" }] : [],
     notifications: [],
-  }), [additionalDesignIds, blastDate, blastManager, blastTime, dangerZone, designId, designName, explosivesSupervisor, guardLocation, objectName, projectName, signalProfile, siteCode]);
+  }), [additionalDesignIds, blastDate, blastManager, blastManagerAccount, blastTime, dangerZone, designId, designName, explosivesSupervisor, explosivesSupervisorAccount, guardLocation, objectName, projectName, signalProfile, siteCode]);
 
   async function refreshDocuments(id: string) {
     setDocuments(await api.massBlast.documents(id));
@@ -51,6 +71,12 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
   async function refreshAttachments(id: string) {
     setAttachments(await api.massBlast.attachments(id));
   }
+
+  useEffect(() => {
+    let active = true;
+    api.massBlast.accounts().then((items) => { if (active) setAccounts(items); }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -69,6 +95,8 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
         setSignalProfile(String(full.signal_plan?.profile_code ?? "THREE_SIGNALS"));
         setBlastManager(full.responsibilities.find((item) => item.role_code === "blast_manager")?.employee_name || "");
         setExplosivesSupervisor(full.responsibilities.find((item) => item.role_code === "explosives_supervisor")?.employee_name || "");
+        setBlastManagerAccount(full.responsibilities.find((item) => item.role_code === "blast_manager")?.account_email || "");
+        setExplosivesSupervisorAccount(full.responsibilities.find((item) => item.role_code === "explosives_supervisor")?.account_email || "");
         setGuardLocation(full.guard_posts[0]?.location || "");
         setAdditionalDesignIds((full.blocks || []).map((block) => String(block.design_id || "")).filter((id) => id && id !== designId).join(", "));
         void refreshDocuments(full.id).catch(() => undefined);
@@ -198,7 +226,9 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
           <label>Опасная зона, м<input type="number" min="0" value={dangerZone} onChange={(event) => setDangerZone(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
           <label>Профиль сигналов<input value={signalProfile} onChange={(event) => setSignalProfile(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
           <label>Руководитель ВР<input value={blastManager} onChange={(event) => setBlastManager(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
+          <AccountSelect label="Учётка руководителя ВР" value={blastManagerAccount} accounts={accounts} onChange={setBlastManagerAccount} disabled={busy || project?.lifecycle_status !== "draft" && !!project} />
           <label>Ответственный за ВМ<input value={explosivesSupervisor} onChange={(event) => setExplosivesSupervisor(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
+          <AccountSelect label="Учётка ответственного за ВМ" value={explosivesSupervisorAccount} accounts={accounts} onChange={setExplosivesSupervisorAccount} disabled={busy || project?.lifecycle_status !== "draft" && !!project} />
           <label>Пост охраны<input value={guardLocation} onChange={(event) => setGuardLocation(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
           <label>Дополнительные паспорта БВР (ID через запятую)<input value={additionalDesignIds} onChange={(event) => setAdditionalDesignIds(event.target.value)} placeholder="design-a, design-b" disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
         </div>

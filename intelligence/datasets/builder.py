@@ -140,22 +140,21 @@ def build_sample(
 ) -> TrainingSample:
     """Extract a candidate sample. Inclusion is decided by validate_sample.
 
-    with_baseline=False — только проверка образца (превью): baseline не
-    считается и настройки для него не читаются, физика скважин идёт с
-    запасными настройками или умолчаниями.
+    with_baseline=False — только проверка образца (превью): ни baseline, ни
+    физика скважин не считаются и настройки модели не читаются — превью
+    отдаёт одну проверку, а физика скважин нужна только снимку.
     """
     features = extract_features(design, site_id=site_id)
     fired_coverage = (features.get("EXECUTION") or {}).get("fired_coverage")
     targets = extract_targets(design.blast_result, fired_coverage=fired_coverage)
     provenance = sample_provenance(design, site_id=site_id)
+    holes: list[dict[str, Any]] = []
     if with_baseline:
         # Настройки читаются один раз: ими считаются и физика скважин, и baseline строки.
         settings, source, settings_warnings = baseline_settings(
             design, fallback_settings, fallback_source, model=BASELINE_MODEL
         )
-    else:
-        settings, source, settings_warnings = fallback_settings, dict(fallback_source or {}), []
-    holes = _extract_snapshot_holes(design, site_id=site_id, settings=settings, settings_source=source)
+        holes = _extract_snapshot_holes(design, site_id=site_id, settings=settings, settings_source=source)
     validation = validate_sample(
         design=design,
         features=features,

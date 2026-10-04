@@ -10,6 +10,7 @@ user), ключ статусы не меняет вовсе.
 """
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -240,6 +241,10 @@ def test_service_key_cannot_change_mass_blast_status(monkeypatch) -> None:
 
 def test_signed_in_user_signs_mass_blast_approval(monkeypatch) -> None:
     app, repository = _mass_blast_app(monkeypatch)
+    # Подписывает только действующая учётка организации (PR #113).
+    monkeypatch.setenv("BLASTEX_USERS_JSON", json.dumps([
+        {"email": "user@example.ru", "password_hash": "x", "role": "user", "organization_id": ORG},
+    ]))
 
     response = _approve(_human_client(app, "user"))
 

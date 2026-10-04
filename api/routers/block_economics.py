@@ -28,6 +28,7 @@ from api.schemas.block_economics import (
     VariantsRequest,
     VariantsResponse,
 )
+from api.schemas.payroll import PayrollPreviewRequest, PayrollPreviewResponse
 from api.security import require_internal_access, require_reference_editor
 from api.services.economics_service import get_economics_repository, repository_error
 from api.services.public_sync_service import PublicReader, get_public_reader, reference_issues
@@ -36,6 +37,8 @@ from cost.model.engine import compute_block_economics
 from cost.model.export_xlsx import export_bytes
 from cost.model.inputs import BlockEconomics, ModelParameters, payload_number, payload_text
 from cost.model.materials import ROLES, quantity_in_price_units
+from cost.model.payroll import DowntimeEntry, PayrollInputError
+from cost.model.payroll_preview import PreviewItem, PreviewRequest, payroll_preview
 from cost.model.services import SHIFT_DRIVERS, reference_code, service_code
 from cost.v2.prices import effective_price, effective_price_lookup
 from cost.v2.models import ReferenceItem, ReferenceSnapshot, decimal_value
@@ -182,6 +185,48 @@ def block_economics_sensitivity(
     )
     return SensitivityResponse.model_validate(
         {"rows": [row.to_dict() for row in rows], "reference_revision_id": references.revision_id}
+    )
+
+
+@router.post("/payroll/preview", response_model=PayrollPreviewResponse)
+def payroll_preview_endpoint(
+    payload: PayrollPreviewRequest,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> PayrollPreviewResponse:
+    """ФОТ должности на объекте за месяц по методике TASK-010: строки, премия, доля в марже.
+
+    Вход, на котором методика не считается (простоев больше часов вахты,
+    нет параметров года, неизвестная должность), — 422 с объяснением, а не
+    деление на ноль. Без цены метра доля в марже не проверяется, ответ 200.
+    """
+
+    organization_id, _ = _identity(session)
+    try:
+        references = repository.get_reference_snapshot(organization_id, payload.reference_revision_id or None)
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    try:
+        preview = payroll_preview(references, _payroll_request(payload))
+    except PayrollInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return PayrollPreviewResponse.model_validate(
+        {**preview.to_dict(), "reference_revision_id": references.revision_id}
+    )
+
+
+def _payroll_request(payload: PayrollPreviewRequest) -> PreviewRequest:
+    return PreviewRequest(
+        position_code=payload.position_code,
+        site_code=payload.site_code,
+        year=int(payload.month[:4]),
+        shifts=payload.shifts,
+        downtime=tuple(DowntimeEntry(entry.code, entry.hours) for entry in payload.downtime),
+        items=tuple(PreviewItem(item.meters, item.diameter_mm, item.rock_code, item.f) for item in payload.items),
+        meters_total=payload.meters_total,
+        crew=tuple((member.position_code, member.headcount) for member in payload.crew),
+        price_rub_per_m=payload.price_rub_per_m,
+        variable_rub_per_m=payload.variable_rub_per_m,
     )
 
 

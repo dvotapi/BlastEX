@@ -110,4 +110,16 @@ describe("SpatialPanel — база пространственной модел�
       expect(screen.getByText(warning)).toBeTruthy();
     }
   });
+
+  it("показывает предупреждения и когда прогноз не применён", () => {
+    // Нет production-модели площадки: сервер отдаёт пустой прогноз с объяснением.
+    const overlay = {
+      ...overlayWith(""),
+      prediction_applied: false,
+      hole_count: 0,
+      warnings: ["Нет production-модели скважинного уровня для площадки «quarry-1»."],
+    } as SpatialOverlay;
+    renderPanel(null, overlay, []);
+    expect(screen.getByText(/Нет production-модели/)).toBeTruthy();
+  });
 });

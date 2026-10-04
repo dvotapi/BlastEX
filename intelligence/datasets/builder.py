@@ -142,7 +142,8 @@ def build_sample(
 
     with_baseline=False — только проверка образца (превью): ни baseline, ни
     физика скважин не считаются и настройки модели не читаются — превью
-    отдаёт одну проверку, а физика скважин нужна только снимку.
+    отдаёт одну проверку, а физика скважин нужна только снимку. Запасные
+    настройки (`fallback_*`) тогда не используются.
     """
     features = extract_features(design, site_id=site_id)
     fired_coverage = (features.get("EXECUTION") or {}).get("fired_coverage")

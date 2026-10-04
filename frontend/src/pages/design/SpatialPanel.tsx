@@ -113,12 +113,13 @@ export function SpatialPanel({
                 {" · "}ост. X50 {formatValue(item.residual_x50_mm, 1)} мм
               </small>
             ))}
-            {/* Все предупреждения: о настройках модели и базе сервер пишет в конец списка. */}
-            {overlay.warnings.map((warning, index) => (
-              <small key={index} className="frag-warnings">{warning}</small>
-            ))}
           </div>
         )}
+        {/* Все предупреждения ответа, и когда прогноз не применён (нет production-модели):
+            о настройках модели и базе сервер пишет в конец списка. */}
+        {overlay?.warnings.map((warning, index) => (
+          <small key={index} className="frag-warnings">{warning}</small>
+        ))}
       </div>
     </section>
   );

@@ -129,13 +129,28 @@ def _records_from_config() -> list[dict[str, Any]]:
                 }
             ]
         return []
-    except (AttributeError, FileNotFoundError, KeyError, TypeError, tomllib.TOMLDecodeError):
+    # Нечитаемый или битый файл — нет учёток (вход и сессии закрыты), а не 500.
+    except (AttributeError, KeyError, OSError, TypeError, ValueError, tomllib.TOMLDecodeError):
         return []
+
+
+def _is_active(value: Any) -> bool:
+    """Флаг `active`: строка действует, только если это явное «да».
+
+    `"false"` в кавычках отключает учётку так же, как `false`, а опечатка
+    закрывает вход, а не оставляет учётку действующей.
+    """
+
+    if isinstance(value, str):
+        return value.strip().casefold() in {"true", "1", "yes", "on"}
+    return bool(value)
 
 
 def configured_users() -> list[AuthUser]:
     users: list[AuthUser] = []
     for item in _records_from_config():
+        if not isinstance(item, dict):
+            continue
         email = str(item.get("email", "")).strip().casefold()
         password_hash = str(item.get("password_hash", "")).strip()
         role = str(item.get("role", "user")).strip()
@@ -153,7 +168,7 @@ def configured_users() -> list[AuthUser]:
                     item.get("organization_name", "Внутренняя организация")
                 ).strip()
                 or "Внутренняя организация",
-                active=bool(item.get("active", True)),
+                active=_is_active(item.get("active", True)),
             )
         )
     return users

@@ -1,6 +1,6 @@
 """Вход в тестах API: действующая учётка и cookie её сессии.
 
-API сверяет cookie с текущими учётками (`api/security.py::read_user_session`),
+API сверяет cookie с текущими учётками (`api/security.py::session_account`),
 поэтому сессия без учётки в `BLASTEX_USERS_JSON` ничего не открывает.
 """
 from __future__ import annotations
@@ -37,6 +37,18 @@ def add_account(
     monkeypatch.setenv("BLASTEX_USERS_JSON", json.dumps(records))
 
 
+def session_client(app: FastAPI, email: str, role: str, organization_id: str = "default") -> TestClient:
+    """Клиент с cookie, выданным при входе с этими ролью и организацией.
+
+    Учётку не заводит: сессия действует, только если такая учётка есть.
+    """
+
+    token = create_session_token(email, role, organization_id, int(time.time()) + 3600)
+    client = TestClient(app)
+    client.cookies.set(SESSION_COOKIE, token)
+    return client
+
+
 def signed_in_client(
     app: FastAPI,
     monkeypatch: pytest.MonkeyPatch,
@@ -47,7 +59,4 @@ def signed_in_client(
     """Клиент вошедшей учётки — без внутреннего ключа."""
 
     add_account(monkeypatch, email, role, organization_id)
-    token = create_session_token(email, role, organization_id, int(time.time()) + 3600)
-    client = TestClient(app)
-    client.cookies.set(SESSION_COOKIE, token)
-    return client
+    return session_client(app, email, role, organization_id)

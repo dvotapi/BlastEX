@@ -1,7 +1,6 @@
 """`GET/PUT /economics/references/public-settings` и ошибки выгрузки в public."""
 from __future__ import annotations
 
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

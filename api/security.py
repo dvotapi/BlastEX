@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from fastapi import Cookie, Depends, Header, HTTPException, status
 
-from cost.auth import ALLOWED_ROLES, find_active_user
+from cost.auth import ALLOWED_ROLES, AuthUser, find_active_user
 
 SESSION_COOKIE = "blastex_session"
 # От этого имени действует внутренний ключ. Доменные шлюзы «подтверждает
@@ -56,13 +56,13 @@ def read_session_token(token: str | None) -> dict[str, object] | None:
         return None
 
 
-def read_user_session(token: str | None) -> dict[str, object] | None:
-    """Сессия человека: подписанный cookie и действующая сейчас учётка.
+def session_account(token: str | None) -> AuthUser | None:
+    """Учётка сессии: подписанный cookie и действующая сейчас запись.
 
     Cookie живёт 12 часов и помнит роль и организацию на момент входа.
-    Роль берётся из текущей записи учётки — понижение действует сразу.
-    Отключённая, удалённая или перенесённая в другую организацию учётка
-    сессии не имеет: человек входит заново.
+    Права дальше берутся из возвращённой записи — понижение роли действует
+    сразу. Отключённая, удалённая или перенесённая в другую организацию
+    учётка сессии не имеет: человек входит заново.
     """
     payload = read_session_token(token)
     if payload is None:
@@ -70,7 +70,7 @@ def read_user_session(token: str | None) -> dict[str, object] | None:
     user = find_active_user(str(payload.get("sub", "")))
     if user is None or user.organization_id != str(payload.get("org", "")):
         return None
-    return {"sub": user.email, "role": user.role, "org": user.organization_id, "exp": payload.get("exp")}
+    return user
 
 
 def require_internal_api_key(x_api_key: str | None = Header(default=None)) -> None:
@@ -92,9 +92,9 @@ def require_internal_access(
     x_api_key: str | None = Header(default=None),
     blastex_session: str | None = Cookie(default=None),
 ) -> dict[str, object]:
-    session = read_user_session(blastex_session)
-    if session is not None:
-        return session
+    user = session_account(blastex_session)
+    if user is not None:
+        return {"sub": user.email, "role": user.role, "org": user.organization_id}
     expected = os.getenv("BLASTEX_API_KEY", "").strip()
     if expected and x_api_key and hmac.compare_digest(x_api_key, expected):
         return {"sub": SERVICE_ACTOR, "role": "service", "org": "default"}

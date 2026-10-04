@@ -2,7 +2,6 @@
 справочники приходят из опубликованной ревизии, а не из файлов."""
 from __future__ import annotations
 
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

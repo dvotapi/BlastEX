@@ -17,7 +17,7 @@ vi.mock("../../api/endpoints", () => ({
 }));
 
 import { api } from "../../api/endpoints";
-import type { MassBlastProject } from "../../types/design";
+import type { MassBlastProject, MassBlastProjectSummary } from "../../types/design";
 import { MassBlastPanel } from "./MassBlastPanel";
 
 afterEach(cleanup);
@@ -40,6 +40,10 @@ function project(): MassBlastProject {
     safety_plan: {}, charging_schedule: [], signal_plan: {}, guard_posts: [], notifications: [],
     created_at: "", created_by: "", updated_by: "",
   } as MassBlastProject;
+}
+
+function summary(): MassBlastProjectSummary {
+  return { ...project(), block_design_ids: ["design-1"] };
 }
 
 beforeEach(() => {
@@ -81,7 +85,7 @@ describe("MassBlastPanel — учётки ответственных", () => {
   });
 
   it("сохранённый проект показывает назначенные учётки", async () => {
-    vi.mocked(api.massBlast.list).mockResolvedValue([project()]);
+    vi.mocked(api.massBlast.list).mockResolvedValue([summary()]);
     vi.mocked(api.massBlast.get).mockReset().mockResolvedValue(project());
     render(<MassBlastPanel designId="design-1" designName="Блок 1" />);
 
@@ -92,7 +96,7 @@ describe("MassBlastPanel — учётки ответственных", () => {
   });
 
   it("недействующая учётка не теряется при открытии проекта", async () => {
-    vi.mocked(api.massBlast.list).mockResolvedValue([project()]);
+    vi.mocked(api.massBlast.list).mockResolvedValue([summary()]);
     vi.mocked(api.massBlast.get).mockReset().mockResolvedValue(project());
     vi.mocked(api.massBlast.accounts).mockResolvedValue([ACCOUNTS[0]]);
     render(<MassBlastPanel designId="design-1" designName="Блок 1" />);

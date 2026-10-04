@@ -253,6 +253,7 @@ def _volume_local(
     shape = Polygon(polygon).buffer(0)
     area = float(shape.area)
     covered = integral = volume = 0.0
+    triangles = _unique_triangles(triangles, len(vertices))
     if len(triangles) and area > 0:
         shapely.prepare(shape)
         tri = vertices[triangles]
@@ -296,6 +297,19 @@ def _volume_local(
     return VolumeResult(
         volume_m3=volume, integral_m3=integral, covered_m2=covered, area_m2=area, outside_integral_m3=outside
     )
+
+
+def _unique_triangles(triangles: np.ndarray, vertex_count: int) -> np.ndarray:
+    """Треугольники без повторов (в любом порядке вершин).
+
+    Повтор считал бы площадь и объём дважды и стирал бы границу сети.
+    """
+    if not len(triangles):
+        return triangles
+    n = np.int64(max(vertex_count, 1))
+    rows = np.sort(triangles, axis=1).astype(np.int64)
+    _, first = np.unique((rows[:, 0] * n + rows[:, 1]) * n + rows[:, 2], return_index=True)
+    return triangles[np.sort(first)]
 
 
 def _above_floor(tri: np.ndarray, floor_z: float) -> tuple[np.ndarray, np.ndarray]:
@@ -344,19 +358,22 @@ def _piece_volume(tri: np.ndarray, pieces: np.ndarray, floor_z: float) -> float:
     return float(np.sum(areas[keep] * heights))
 
 
-def _tin_area(vertices: np.ndarray, triangles: np.ndarray) -> shapely.Geometry:
+def _tin_area(vertices: np.ndarray, triangles: np.ndarray) -> shapely.Geometry | None:
     """Область TIN в плане — по рёбрам границы (ребро одного треугольника).
 
     Объединение всех треугольников на 100 000 треугольников — секунды, сборка
-    области по границе — миллисекунды.
+    области по границе — миллисекунды. Повторы треугольников сняты в
+    `_volume_local`.
+    Граница не собралась (сеть с наложениями) — None: объединять сотни тысяч
+    присланных треугольников на каждый пересчёт нельзя.
     """
     edges = np.sort(np.concatenate([triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]), axis=1)
     keys, count = np.unique(edges[:, 0].astype(np.int64) * len(vertices) + edges[:, 1], return_counts=True)
     border = np.stack(np.divmod(keys[count == 1], len(vertices)), axis=1)
+    if not len(border):
+        return None
     area = shapely.build_area(shapely.multilinestrings(shapely.linestrings(vertices[border][:, :, :2])))
-    if area.is_valid and not area.is_empty:
-        return area
-    return shapely.union_all(shapely.polygons(vertices[triangles][:, :, :2]))
+    return area if area.is_valid and not area.is_empty else None
 
 
 # Часть вне кровли режется на ячейки: около 4000 на её площадь, не мельче
@@ -378,15 +395,17 @@ def _outside_integral(
 ) -> tuple[float, float]:
     """(Интеграл со знаком, объём) части полигона вне кровли.
 
-    Ячейка берёт Z ближайшей к её центру вершины TIN; без треугольников вся
-    часть — по `fallback_z`.
+    Ячейка берёт Z ближайшей к её центру вершины TIN; без треугольников или
+    с сетью, граница которой не собирается, вся часть — по `fallback_z`.
     """
     if uncovered_m2 <= max(1e-9, 1e-9 * float(shape.area)):
         return 0.0, 0.0
-    if not len(triangles):
+    covered_area = _tin_area(vertices, triangles)
+    if covered_area is None:
+        # Сеть с наложениями: часть вне кровли — по бровке, как без сети.
         height = fallback_z - floor_z
         return uncovered_m2 * height, uncovered_m2 * max(0.0, height)
-    rest = shapely.difference(shape, _tin_area(vertices, triangles))
+    rest = shapely.difference(shape, covered_area)
     parts = shapely.get_parts(rest)
     parts = parts[shapely.area(parts) > OUTSIDE_SLIVER_M2]
     if not len(parts):

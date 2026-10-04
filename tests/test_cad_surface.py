@@ -525,3 +525,16 @@ def test_hole_inside_the_roof_is_counted_as_outside():
     assert result.covered_m2 == pytest.approx(800.0)
     # Ячейки дыры по 0,16 м: граница «ближе к 421 / к 422» режет ряд ячеек.
     assert result.volume_m3 == pytest.approx(900 * 11.5, rel=1e-4)
+
+
+def test_repeated_triangles_do_not_hide_the_part_beyond_the_roof():
+    # Ревью безопасности: повтор треугольника стирал границу сети, и область
+    # кровли собиралась объединением всех треугольников — секунды на запрос.
+    vertices = np.array([[0, 0, 420], [20, 0, 414], [20, 20, 414], [0, 20, 420]], dtype=float)
+    triangles = np.array([[0, 1, 2], [0, 2, 3], [2, 0, 1], [3, 0, 2]])
+
+    result = volume_in_polygon(vertices, triangles, BLOCK, 410.0, fallback_z=415.0)
+
+    assert result.covered_m2 == pytest.approx(400.0)
+    assert result.volume_m3 == pytest.approx(400 * 7 + 400 * 4)
+

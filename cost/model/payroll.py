@@ -750,3 +750,103 @@ def premium_cost_factor(inputs: PayrollInputs) -> tuple[Decimal, str]:
         f"{format(factor.quantize(Decimal('0.000001')), 'f').replace('.', ',')}"
     )
     return factor, formula
+
+
+# --- Доля в марже метра -----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CrewCost:
+    """Сдельщик экипажа на тех же метрах: его шкала и затраты на рубль премии."""
+
+    position_code: str
+    name: str
+    headcount: Decimal
+    scale: Scale
+    cost_factor: Decimal
+
+
+@dataclass(frozen=True)
+class SharePoint:
+    pace: Decimal
+    # Стоимость последнего метра по экипажу с начислениями / маржа метра.
+    crew_share: Decimal
+    # Цена последнего метра машиниста без начислений / маржа — «получает машинист».
+    main_share: Decimal
+
+
+@dataclass(frozen=True)
+class MarginCheck:
+    # CHECKED — посчитано; NOT_CHECKED — нет цены или переменных затрат метра;
+    # NO_MARGIN — маржа метра не положительна; NOT_APPLICABLE — у должности нет шкалы.
+    status: str
+    threshold: Decimal
+    price: Decimal | None = None
+    variable: Decimal | None = None
+    margin: Decimal | None = None
+    plan: SharePoint | None = None
+    ceiling: SharePoint | None = None
+    crew: tuple[CrewCost, ...] = ()
+    flags: tuple[PayrollFlag, ...] = ()
+    warnings: tuple[str, ...] = ()
+    lineage: Mapping[str, str] = field(default_factory=dict)
+
+
+def margin_check(
+    *,
+    main_scale: Scale | None,
+    crew: Sequence[CrewCost],
+    pace: Decimal,
+    meters_factor: Decimal,
+    price: Decimal | None,
+    variable: Decimal | None,
+    threshold: Decimal,
+) -> MarginCheck:
+    """Доля стоимости последнего метра в марже метра (решения §2.2).
+
+    share(m) = Σ чел × r(m) × затраты на рубль премии × приведённых на п.м. / маржа.
+    Две точки — плановый темп и потолок; предупреждение — по потолку (у
+    ступеней потолка нет — по плановому темпу).
+    """
+
+    if main_scale is None:
+        return MarginCheck("NOT_APPLICABLE", threshold, price, variable, crew=tuple(crew))
+    if price is None or variable is None:
+        return MarginCheck("NOT_CHECKED", threshold, price, variable, crew=tuple(crew))
+    margin = price - variable
+    if margin <= 0:
+        return MarginCheck(
+            "NO_MARGIN",
+            threshold,
+            price,
+            variable,
+            margin,
+            crew=tuple(crew),
+            warnings=(f"Маржа метра {fn(price)} − {fn(variable)} = {fn(margin)} ₽ не положительна: доля в марже не считается.",),
+        )
+
+    def point(at: Decimal) -> SharePoint:
+        crew_cost = sum((member.headcount * member.scale.rate_at(at) * member.cost_factor for member in crew), ZERO)
+        return SharePoint(at, crew_cost * meters_factor / margin, main_scale.rate_at(at) * meters_factor / margin)
+
+    plan = point(pace)
+    ceiling = point(main_scale.ceiling_per_shift) if main_scale.is_curve else None
+    checked = ceiling or plan
+    flags: tuple[PayrollFlag, ...] = ()
+    if checked.crew_share > threshold:
+        where = "на потолке" if ceiling is not None else "при плановом темпе"
+        flags = (
+            PayrollFlag(
+                "MARGIN_SHARE_ABOVE_WARN",
+                f"Стоимость последнего метра по экипажу с начислениями — {percent(checked.crew_share)} маржи метра "
+                f"{where}, порог {percent(threshold)}.",
+            ),
+        )
+    lineage = {
+        "margin": f"{fn(price)} − {fn(variable)} = {fn(margin)} ₽/м",
+        "share": (
+            "Σ чел × r(m) × затраты на рубль премии × "
+            f"{fn(meters_factor)} прив. м/п.м. / {fn(margin)} ₽"
+        ),
+    }
+    return MarginCheck("CHECKED", threshold, price, variable, margin, plan, ceiling, tuple(crew), flags, (), lineage)

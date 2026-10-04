@@ -4,9 +4,9 @@
 ``api-key`` в организации default. Человеческий шлюз в домене отсекал только
 системных акторов («system», «cron»…), поэтому ключ с ``confirm=true``
 утверждал и закрывал паспорта организации, подписывал согласования массового
-взрыва и продвигал модели. Решение владельца: утверждать и закрывать может
-любой вошедший человек (admin, reference_editor, user), ключ статусы не
-меняет вовсе.
+взрыва, продвигал модели и сам ставил им статус. Решение владельца:
+утверждать и закрывать может любой вошедший человек (admin, reference_editor,
+user), ключ статусы не меняет вовсе.
 """
 from __future__ import annotations
 
@@ -19,17 +19,18 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 import api.security as security
-from api.routers import design, drift, mass_blast, registry
+from api.routers import calibration, design, drift, learning, mass_blast, outcomes, registry, spatial
 from api.schemas.design import BlastDesignSchema
 from api.schemas.drift import DriftCheckRequest
 from api.schemas.learning import LearningGlobalTrainRequest
 from api.schemas.registry import RegistryPromoteRequest
 from api.security import SESSION_COOKIE, create_session_token, require_internal_access
 from api.services import design_service, drift_service, learning_service, registry_service
+from api.services.economics_service import get_economics_repository
 from api.services.mass_blast_service import get_mass_blast_repository
 from cost.auth import ALLOWED_ROLES
 from design import lifecycle as design_lifecycle
-from design.mass_blast_repository import MassBlastConflictError
+from design.mass_blast_repository import MassBlastConflictError, MassBlastNotFoundError
 from intelligence.datasets.persistence import save_snapshot
 from intelligence.drift import types as drift_types
 from intelligence.registry import types as registry_types
@@ -58,8 +59,10 @@ def _app(*routers) -> FastAPI:
     return app
 
 
-def _key_client(app: FastAPI) -> TestClient:
-    return TestClient(app, headers={"X-API-Key": "test-api-key"})
+def _key_client(app: FastAPI, *, raise_server_exceptions: bool = True) -> TestClient:
+    return TestClient(
+        app, headers={"X-API-Key": "test-api-key"}, raise_server_exceptions=raise_server_exceptions
+    )
 
 
 def _human_client(app: FastAPI, role: str) -> TestClient:
@@ -82,11 +85,6 @@ def test_service_session_is_not_a_human() -> None:
 def test_every_user_account_role_is_human(role: str) -> None:
     session: dict[str, object] = {"sub": f"{role}@example.ru", "role": role, "org": ORG}
     assert security.require_human(session) is session
-
-
-def test_human_roles_are_exactly_user_account_roles() -> None:
-    # Новая роль учётки не должна молча остаться за шлюзом — или пройти его.
-    assert security.HUMAN_ROLES == frozenset(ALLOWED_ROLES)
 
 
 def test_service_key_actor_is_not_human_in_domain_gates(monkeypatch) -> None:
@@ -166,6 +164,11 @@ class _RecordingMassBlastRepository:
         self.calls.append(("transition", organization_id, actor))
         raise MassBlastConflictError("Заглушка: до хранилища дошли.")
 
+    def get_project(self, organization_id, project_id):
+        # Выпуск ревизии начинается с чтения проекта; актор сюда не передаётся.
+        self.calls.append(("get_project", organization_id, ""))
+        raise MassBlastNotFoundError("Заглушка: до хранилища дошли.")
+
 
 def _mass_blast_app(monkeypatch) -> tuple[FastAPI, _RecordingMassBlastRepository]:
     monkeypatch.setenv("BLASTEX_API_KEY", "test-api-key")
@@ -173,6 +176,7 @@ def _mass_blast_app(monkeypatch) -> tuple[FastAPI, _RecordingMassBlastRepository
     repository = _RecordingMassBlastRepository()
     app = _app(mass_blast.router)
     app.dependency_overrides[get_mass_blast_repository] = lambda: repository
+    app.dependency_overrides[get_economics_repository] = lambda: None
     return app, repository
 
 
@@ -188,6 +192,32 @@ def _mass_blast_transition(client: TestClient):
         "/api/v1/design/mass-blast-projects/project-1/lifecycle",
         json={"to_status": "approved", "expected_version": 1, "confirm": True, "note": ""},
     )
+
+
+def _issue_revision(client: TestClient):
+    # Выпуск ревизии переводит проект из черновика «на проверку».
+    return client.post(
+        "/api/v1/design/mass-blast-projects/project-1/revisions",
+        json={"expected_version": 1, "require_attachments": False},
+    )
+
+
+def test_service_key_cannot_issue_mass_blast_revision(monkeypatch) -> None:
+    app, repository = _mass_blast_app(monkeypatch)
+
+    response = _issue_revision(_key_client(app))
+
+    assert response.status_code == 403, response.text
+    assert repository.calls == []
+
+
+def test_signed_in_user_reaches_mass_blast_revision(monkeypatch) -> None:
+    app, repository = _mass_blast_app(monkeypatch)
+
+    response = _issue_revision(_human_client(app, "user"))
+
+    assert response.status_code == 404, response.text
+    assert repository.calls == [("get_project", ORG, "")]
 
 
 def test_service_key_cannot_sign_mass_blast_approval(monkeypatch) -> None:
@@ -300,3 +330,38 @@ def test_signed_in_user_acknowledges_drift_alert(data_root) -> None:
 
     assert response.status_code == 200, response.text
     assert response.json()["acknowledged_by"] == "user@example.ru"
+
+
+# --- Статус моделей ML в обход реестра --------------------------------------------
+
+
+@pytest.mark.parametrize("router", [calibration.router, learning.router, outcomes.router, spatial.router], ids=lambda r: r.prefix)
+def test_service_key_cannot_set_ml_model_status(data_root, router) -> None:
+    # Шлюз срабатывает до чтения модели: несуществующего id достаточно.
+    client = _key_client(_app(router), raise_server_exceptions=False)
+
+    response = client.post(f"/api/v1{router.prefix}/models/missing-model/status", json={"status": "production"})
+
+    assert response.status_code == 403, response.text
+
+
+def test_service_key_cannot_put_learning_model_into_production(data_root) -> None:
+    trained, _ = _candidate_model()
+
+    response = _key_client(_app(learning.router)).post(
+        f"/api/v1/learning/models/{trained.model_id}/status", json={"status": "production"}
+    )
+
+    assert response.status_code == 403, response.text
+    assert registry_service.get_registry_model(ORG, "learning", trained.model_id).status == "candidate"
+
+
+def test_signed_in_user_sets_learning_model_status(data_root) -> None:
+    trained, _ = _candidate_model()
+
+    response = _human_client(_app(learning.router), "user").post(
+        f"/api/v1/learning/models/{trained.model_id}/status", json={"status": "production"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "production"

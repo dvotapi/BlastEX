@@ -15,7 +15,7 @@ from api.schemas.outcomes import (
     OutcomeStatusRequest,
     OutcomeTrainRequest,
 )
-from api.security import require_internal_access
+from api.security import require_human, require_internal_access
 from api.services import outcome_service
 
 router = APIRouter(prefix="/outcomes", tags=["outcomes"])
@@ -59,7 +59,7 @@ def get_outcome_model(
 def set_outcome_status(
     model_id: str,
     request: OutcomeStatusRequest,
-    session: dict = Depends(require_internal_access),
+    session: dict = Depends(require_human),
 ) -> OutcomeModelSchema:
     return outcome_service.update_status(session["org"], model_id, request)
 

@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 
 from fastapi import Cookie, Depends, Header, HTTPException, status
 
+from cost.auth import ALLOWED_ROLES
+
 SESSION_COOKIE = "blastex_session"
 # От этого имени действует внутренний ключ. Доменные шлюзы «подтверждает
 # человек» держат его в своих AUTO_ACTORS.
@@ -93,8 +95,8 @@ def current_team_id(session: dict[str, object] = Depends(require_internal_access
 
 ADMIN_ROLES = {"admin", "service"}
 REFERENCE_EDITOR_ROLES = {"admin", "reference_editor", "service"}
-# Роли учёток людей (cost/auth.py::ALLOWED_ROLES); у ключа роль service.
-HUMAN_ROLES = frozenset({"admin", "reference_editor", "user"})
+# Роли учёток людей; у внутреннего ключа роль service.
+HUMAN_ROLES = frozenset(ALLOWED_ROLES)
 
 
 def is_reference_editor(session: dict[str, object]) -> bool:

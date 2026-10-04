@@ -122,7 +122,7 @@ def post_validate(
 def post_revision(
     project_id: str,
     payload: RevisionCreateSchema,
-    session: dict[str, object] = Depends(require_internal_access),
+    session: dict[str, object] = Depends(require_human),
     repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
     economics_repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> MassBlastRevisionSchema:

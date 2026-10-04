@@ -17,6 +17,7 @@ from fastapi import HTTPException, status
 from api import config
 from api.schemas.mass_blast import MassBlastProjectInputSchema
 from api.services.economics_service import get_economics_repository
+from cost.auth import configured_users
 from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
 from design.mass_blast import (
@@ -32,6 +33,7 @@ from design.mass_blast import (
 from design.mass_blast_rendering import render_pdf, render_xlsx, render_zip
 from design.mass_blast_repository import (
     MassBlastConflictError,
+    MassBlastForbiddenError,
     MassBlastNotFoundError,
     PostgresMassBlastRepository,
 )
@@ -68,8 +70,30 @@ def _blocks_from_payload(organization_id: str, payload: dict[str, Any]) -> list[
     return blocks
 
 
+def organization_accounts(organization_id: str) -> list[dict[str, str]]:
+    """Active accounts of the organization, in the order of the accounts file."""
+
+    return [
+        {"email": user.email, "display_name": user.display_name or user.email}
+        for user in configured_users()
+        if user.active and user.organization_id == organization_id
+    ]
+
+
+def _bind_accounts(organization_id: str, responsibilities: list[dict[str, Any]]) -> None:
+    """Normalize assigned accounts; an empty one is allowed in a draft, a foreign one never."""
+
+    known = {item["email"] for item in organization_accounts(organization_id)}
+    for item in responsibilities:
+        email = str(item.get("account_email", "")).strip().casefold()
+        if email and email not in known:
+            raise ValueError(f"Учётка {email} не найдена среди действующих учёток организации.")
+        item["account_email"] = email
+
+
 def _payload_with_snapshots(organization_id: str, payload: MassBlastProjectInputSchema) -> dict[str, Any]:
     data = payload.model_dump(exclude={"expected_version"})
+    _bind_accounts(organization_id, data["responsibilities"])
     blocks = _blocks_from_payload(organization_id, data)
     data["blocks"] = [block.to_dict() for block in blocks]
     return data
@@ -341,4 +365,6 @@ def repository_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     if isinstance(exc, MassBlastConflictError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, MassBlastForbiddenError):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Модуль массовых взрывов временно недоступен: {exc}")

@@ -18,6 +18,13 @@ class ResponsibilitySchema(BaseModel):
     employee_code: str = Field(..., min_length=1, max_length=80)
     employee_name: str = Field("", max_length=300)
     position_name: str = Field("", max_length=300)
+    # Учётка, которой одной разрешено согласовать эту роль в ревизии.
+    account_email: str = Field("", max_length=320)
+
+
+class MassBlastAccountSchema(BaseModel):
+    email: str
+    display_name: str
 
 
 class GuardPostSchema(BaseModel):

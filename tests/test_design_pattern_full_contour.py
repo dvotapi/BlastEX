@@ -9,6 +9,7 @@ import math
 import unittest
 
 from design.geometry import (
+    distance_to_free_faces,
     ensure_ccw,
     local_basis,
     offset_polygon,
@@ -69,7 +70,8 @@ def _lattice_reference(
 
     Фаза рядов — первый ряд на расстоянии offset_from_face от средней точки
     бровки; фаза вдоль ряда — от крайней проекции вершины. Перебор — по bbox
-    контура в осях сетки с запасом margin_steps шагов.
+    контура в осях сетки с запасом margin_steps шагов. Узлы впереди первого
+    ряда, кроме того, не ближе offset_from_face к бровке.
     """
     a = float(params["spacing_a_m"])
     b = a
@@ -93,8 +95,11 @@ def _lattice_reference(
             u = u_phase + i * a + (shift_ratio * a if k % 2 else 0.0)
             x = origin[0] + row_dir[0] * u + advance_dir[0] * v
             y = origin[1] + row_dir[1] * u + advance_dir[1] * v
-            if point_in_polygon((x, y), boundary):
-                nodes.append((x, y))
+            if not point_in_polygon((x, y), boundary):
+                continue
+            if k < 0 and distance_to_free_faces((x, y), contour) < offset - 1e-9:
+                continue
+            nodes.append((x, y))
     return nodes
 
 
@@ -113,6 +118,20 @@ class BootContourFillTests(unittest.TestCase):
         holes = generate_pattern(_contour(BOOT), PARAMS)
         pocket = [(x, y) for x, y in _production_xy(holes) if x > 42.0 and y < 32.0]
         self.assertGreaterEqual(len(pocket), 9)
+
+    def test_rows_in_front_keep_first_row_burden_to_face(self):
+        contour = _contour(BOOT)
+        row_dir, advance_dir = local_basis(0.0)
+        origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
+        offset = float(PARAMS["offset_from_face_m"])
+        front = [
+            (x, y)
+            for x, y in _production_xy(generate_pattern(contour, PARAMS))
+            if (x - origin[0]) * advance_dir[0] + (y - origin[1]) * advance_dir[1] < offset - 1e-6
+        ]
+        self.assertGreater(len(front), 0)
+        for x, y in front:
+            self.assertGreaterEqual(distance_to_free_faces((x, y), contour), offset - 1e-9)
 
     def test_row_numbers_are_dense_and_ids_unique(self):
         holes = [h for h in generate_pattern(_contour(BOOT), PARAMS) if h.kind == "production"]
@@ -164,6 +183,23 @@ class RectangleUnchangedTests(unittest.TestCase):
                 expected.append((f"{row + 1}-{col + 1:02d}", row, col, x, y))
         got = [(h.id, h.row, h.col, round(h.collar.x, 6), round(h.collar.y, 6)) for h in holes]
         self.assertEqual(got, expected)
+
+    def test_first_row_burden_larger_than_burden_adds_no_row_in_front(self):
+        params = {
+            "pattern": "rectangular",
+            "spacing_a_m": 5.0,
+            "burden_b_m": 4.0,
+            "first_row_burden_m": 6.0,
+            "edge_margin_m": 0.5,
+            "row_azimuth_deg": 90.0,
+            "depth_m": 10.0,
+        }
+        rect = [(0.0, 0.0), (40.0, 0.0), (40.0, 22.0), (0.0, 22.0)]
+        with_face = generate_pattern(_contour(rect, [[0, 1]]), params)
+        self.assertEqual(sorted({round(y, 6) for _, y in _production_xy(with_face)}), [6.0, 10.0, 14.0, 18.0])
+        # Без свободной поверхности ряды идут от северного края на юг.
+        no_face = generate_pattern(_contour(rect, []), params)
+        self.assertEqual(sorted({round(y, 6) for _, y in _production_xy(no_face)}), [4.0, 8.0, 12.0, 16.0])
 
 
 if __name__ == "__main__":

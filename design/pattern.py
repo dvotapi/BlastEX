@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Callable
 
 from design.geometry import (
+    distance_to_free_faces,
     drape_collar,
     ensure_ccw,
     local_basis,
@@ -113,13 +114,17 @@ def generate_pattern(
             first_lattice_row = 1
             skip_regular_first = True
 
-    def place_row(lattice_row: int, row_index: int, v: float) -> tuple[list[Hole], float]:
+    def place_row(
+        lattice_row: int, row_index: int, v: float, keep_off_face: bool = False
+    ) -> tuple[list[Hole], float]:
         """Узлы одного ряда решётки внутри контура и шаг до следующего ряда.
 
         `lattice_row` — номер ряда, считая от первого ряда у бровки (впереди
         него — отрицательный): от него зависят сдвиг шахматки и строка
-        `row_params`. `row_index` — номер ряда в паспорте.
+        `row_params`. `row_index` — номер ряда в паспорте. `keep_off_face`
+        отбрасывает узлы ближе `offset_from_face` к свободной поверхности.
         """
+        accept = _off_face_filter(contour, offset_from_face) if keep_off_face else None
         row_cfg = _row_config(
             params, pattern, max(lattice_row, 0), spacing_a, burden_b, row_shift_ratio, default_kind
         )
@@ -157,6 +162,7 @@ def generate_pattern(
                 depth_override,
                 surfaces,
                 crest_z,
+                accept,
             )
             return placed, local_b
 
@@ -165,7 +171,7 @@ def generate_pattern(
         u = u_min + shift
         while u <= u_max:
             x, y = _world_xy(origin, row_dir, advance_dir, u, v)
-            if point_in_polygon((x, y), boundary):
+            if point_in_polygon((x, y), boundary) and (accept is None or accept(x, y)):
                 collar, toe = drape_collar(
                     x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_override
                 )
@@ -191,21 +197,24 @@ def generate_pattern(
     # Ряды впереди первого: при изогнутой бровке её средняя точка лежит внутри
     # блока, и часть контура оказывается впереди начала отсчёта. Фаза та же —
     # шаг burden_b назад от первого ряда до крайней проекции вершин контура.
-    # С рядом вдоль бровки перед ним ничего не ставим: его место занято.
+    # Узлы этих рядов не ближе offset_from_face к бровке — иначе скважина у
+    # откоса недогружена. С рядом вдоль бровки перед ним ничего не ставим:
+    # его место занято; без свободной поверхности впереди нет ничего, кроме
+    # полосы между краем контура и первым рядом.
     front_rows: list[tuple[int, float]] = []
-    if not skip_regular_first:
+    if contour.free_faces and not skip_regular_first:
         step = 1
         while v_first - step * burden_b >= v_min and step <= 500:
             front_rows.insert(0, (-step, v_first - step * burden_b))
             step += 1
     # Пустые ряды перед первым непустым номера не получают — для блока, где
     # бровка целиком впереди контура, нумерация остаётся прежней.
-    while front_rows and not place_row(front_rows[0][0], 0, front_rows[0][1])[0]:
+    while front_rows and not place_row(front_rows[0][0], 0, front_rows[0][1], True)[0]:
         front_rows.pop(0)
 
     row_index = first_lattice_row
     for lattice_row, v in front_rows:
-        placed, _ = place_row(lattice_row, row_index, v)
+        placed, _ = place_row(lattice_row, row_index, v, True)
         holes.extend(placed)
         row_index += 1
 
@@ -340,6 +349,7 @@ def _walk_domain_row(
     depth_override: float | None,
     surfaces: object | None,
     crest_z: float,
+    accept: Callable[[float, float], bool] | None = None,
 ) -> list[Hole]:
     holes: list[Hole] = []
     u = u_start
@@ -349,7 +359,7 @@ def _walk_domain_row(
     while u <= u_max and safety < 2000:
         safety += 1
         x, y = _world_xy(origin, row_dir, advance_dir, u, v)
-        if not point_in_polygon((x, y), boundary):
+        if not point_in_polygon((x, y), boundary) or (accept is not None and not accept(x, y)):
             u += probe
             continue
         domain = domain_at(domains, Point3(x=x, y=y, z=crest_z))
@@ -377,6 +387,14 @@ def _walk_domain_row(
         col_index += 1
         u += local_a
     return holes
+
+
+def _off_face_filter(contour: BlockContour, min_distance_m: float) -> Callable[[float, float], bool]:
+    def accept(x: float, y: float) -> bool:
+        distance = distance_to_free_faces((x, y), contour)
+        return distance is None or distance >= min_distance_m - 1e-9
+
+    return accept
 
 
 def _keep_manual(existing_holes: list[Hole] | None) -> list[Hole]:

@@ -825,6 +825,17 @@ def margin_check(
             warnings=(f"Маржа метра {fn(price)} − {fn(variable)} = {fn(margin)} ₽ не положительна: доля в марже не считается.",),
         )
 
+    if not crew:
+        # Доля 0 % без экипажа выглядела бы как «проверено, всё хорошо».
+        return MarginCheck(
+            "NOT_CHECKED",
+            threshold,
+            price,
+            variable,
+            margin,
+            warnings=("В экипаже нет сдельщиков со шкалой: доля в марже не считается.",),
+        )
+
     def point(at: Decimal) -> SharePoint:
         crew_cost = sum((member.headcount * member.scale.rate_at(at) * member.cost_factor for member in crew), ZERO)
         return SharePoint(at, crew_cost * meters_factor / margin, main_scale.rate_at(at) * meters_factor / margin)

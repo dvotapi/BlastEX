@@ -262,15 +262,13 @@ def _crew(
     warnings: list[str] = []
     if request.crew:
         members = list(request.crew)
-    elif main.difficulty == "NORMALIZED_METERS":
+    else:
         members = [
             (item.code, Decimal("1"))
             for item in snapshot.active_items("positions")
             if item.payload.get("difficulty") == "NORMALIZED_METERS"
             and item.payload.get("pay_system") in PIECE_PAY_SYSTEMS
         ]
-    else:
-        members = [(main.code, Decimal("1"))]
     crew: list[CrewCost] = []
     for code, headcount in members:
         if code == main.code:
@@ -322,7 +320,9 @@ def payroll_preview(snapshot: ReferenceSnapshot, request: PreviewRequest) -> Pay
     factor, factor_formula = premium_cost_factor(inputs)
     lineage["premium_cost_factor"] = factor_formula
 
-    if premium is not None:
+    # Доля считается в марже метра бурения: только у сдельщиков на приведённых
+    # метрах. Расценку водителя за километр с маржой метра не сравнить.
+    if premium is not None and position.difficulty == "NORMALIZED_METERS":
         crew, crew_warnings = _crew(snapshot, request, position, inputs)
         warnings.extend(crew_warnings)
         margin = margin_check(
@@ -337,6 +337,11 @@ def payroll_preview(snapshot: ReferenceSnapshot, request: PreviewRequest) -> Pay
     else:
         margin = MarginCheck("NOT_APPLICABLE", inputs.calendar.margin_share_warn)
     warnings.extend(margin.warnings)
+    if request.meters_total is not None and margin.status == "CHECKED":
+        warnings.append(
+            "Метры заданы суммой приведённых: доля в марже считается на приведённый метр, а не на погонный; "
+            "для доли на погонный метр задайте метры по породам и диаметрам."
+        )
     flags.extend(margin.flags)
     lineage.update(margin.lineage)
 

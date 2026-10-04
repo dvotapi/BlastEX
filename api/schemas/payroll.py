@@ -43,8 +43,14 @@ class PayrollPreviewRequest(BaseModel):
     shifts: Decimal | None = Field(None, gt=0)
     downtime: list[PayrollDowntimeSchema] = Field(default_factory=list)
     items: list[PayrollMeterItemSchema] = Field(default_factory=list)
-    # Приведённые метры (выработка) одной суммой.
-    meters_total: Decimal | None = Field(None, ge=0)
+    meters_total: Decimal | None = Field(
+        None,
+        ge=0,
+        description=(
+            "Приведённые метры (выработка) одной суммой: договорной коэффициент объекта к ним не применяется, "
+            "а доля в марже считается на приведённый метр. Для доли на погонный метр задайте items."
+        ),
+    )
     crew: list[PayrollCrewMemberSchema] = Field(default_factory=list)
     price_rub_per_m: Decimal | None = Field(None, ge=0)
     variable_rub_per_m: Decimal | None = Field(None, ge=0)
@@ -55,6 +61,9 @@ class PayrollPreviewRequest(BaseModel):
             raise ValueError("Метры задаются списком по породам или одной суммой, не обоими сразу.")
         if self.downtime and self.shifts is None:
             raise ValueError("Простои задаются вместе с фактическими сменами вахты.")
+        codes = [member.position_code for member in self.crew]
+        if len(codes) != len(set(codes)):
+            raise ValueError("Должность в экипаже указывается один раз: людей в смене задаёт headcount.")
         return self
 
 

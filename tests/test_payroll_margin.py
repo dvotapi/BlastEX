@@ -74,3 +74,10 @@ def test_step_scale_has_no_ceiling_and_warns_by_the_plan_pace() -> None:
     assert result.ceiling is None
     assert cents(result.plan.crew_share * 100) == cents(D("400") * FACTOR / D("550") * 100)
     assert "при плановом темпе" in result.flags[0].message
+
+
+def test_crew_without_scales_does_not_report_a_zero_share() -> None:
+    result = check(crew=())
+    assert result.status == "NOT_CHECKED"
+    assert result.plan is None and result.flags == ()
+    assert any("нет сдельщиков" in warning for warning in result.warnings)

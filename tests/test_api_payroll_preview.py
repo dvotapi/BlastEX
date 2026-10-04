@@ -100,7 +100,21 @@ def test_unknown_position_is_422(api: TestClient) -> None:
         {"downtime": [{"code": "DT_RIG_REPAIR", "hours": "5"}]},
         {"month": "2026-13"},
         {"items": [{"meters": "100", "diameter_mm": "152", "rock_code": "ROCK_F10", "f": "10"}]},
+        {"crew": [{"position_code": "P_DRILLER"}, {"position_code": "P_DRILLER"}]},
     ],
 )
 def test_inconsistent_request_is_rejected_by_the_schema(api: TestClient, fields: dict) -> None:
     assert api.post(URL, json=body(**fields)).status_code == 422
+
+
+def test_meters_total_is_described_as_normalized_meters() -> None:
+    from api.schemas.payroll import PayrollPreviewRequest
+
+    description = PayrollPreviewRequest.model_json_schema()["properties"]["meters_total"]["description"]
+    assert "приведённые" in description.lower()
+
+
+def test_unknown_crew_member_is_422_with_its_code(api: TestClient) -> None:
+    response = api.post(URL, json=body(meters_total="2000", crew=[{"position_code": "NOPE"}]))
+    assert response.status_code == 422
+    assert "NOPE" in response.json()["detail"]

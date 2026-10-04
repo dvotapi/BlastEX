@@ -165,9 +165,41 @@ def test_piece_bonus_position_counts_plain_output() -> None:
     assert result.meters.rows == ()
     assert result.premium.pace == D("250")
     assert result.premium.total == D("13") * (D("200") * 10 + D("50") * 15)
-    assert [member.position_code for member in result.margin.crew] == ["P_DRIVER"]
+    assert result.margin.status == "NOT_APPLICABLE"
 
 
 def test_unknown_crew_member_is_an_input_error() -> None:
     with pytest.raises(PayrollInputError, match="NOPE"):
         preview(meters_total=D("2000"), crew=(("NOPE", D("1")),))
+
+
+def test_share_on_a_total_of_normalized_meters_is_flagged() -> None:
+    """Сумма приведённых метров не знает погонных: доля — на приведённый метр, и это сказано."""
+    result = preview(meters_total=D("2000"), price_rub_per_m=D("800"), variable_rub_per_m=D("250"))
+    assert result.margin.status == "CHECKED"
+    assert any("Метры заданы суммой" in warning for warning in result.warnings)
+    assert not any("Метры заданы суммой" in warning for warning in preview(meters_total=D("2000")).warnings)
+
+
+def test_share_is_not_applicable_to_output_without_normalized_meters() -> None:
+    """Расценка водителя за километр с маржой метра бурения не сравнивается."""
+    snapshot = payroll_references(
+        positions=(
+            *payroll_references().sections["positions"],
+            fx.item("P_DRIVER", "Водитель", {"category": "INDIRECT", "pay_system": "PIECE_BONUS", "output_unit": "KM"}),
+        ),
+        labor_rates=(
+            *payroll_references().sections["labor_rates"],
+            fx.item(
+                "LR_DRIVER",
+                "Водитель",
+                {"position_code": "P_DRIVER", "scale_type": "STEP", "tiers": [{"upto_per_shift": None, "rate": "15"}]},
+            ),
+        ),
+    )
+    result = preview(
+        snapshot, position_code="P_DRIVER", meters_total=D("3000"), price_rub_per_m=D("800"), variable_rub_per_m=D("250")
+    )
+    assert cents(result.premium.total) == D("45000")
+    assert result.margin.status == "NOT_APPLICABLE"
+    assert result.flags == ()

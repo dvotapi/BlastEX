@@ -13,6 +13,7 @@ import os
 import secrets
 import tomllib
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,17 @@ def verify_password(password: str, encoded: str) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
+@lru_cache(maxsize=4)
+def _legacy_password_hash(password: str) -> str:
+    """Хеш устаревшего пароля администратора.
+
+    Соль постоянная, а учётки читаются на каждом запросе API (сверка
+    сессии), поэтому PBKDF2 считается один раз на пароль.
+    """
+
+    return hash_password(password, salt=b"blastex-legacy-v1")
+
+
 def _users_file() -> Path:
     """Файл с учётными записями.
 
@@ -109,9 +121,7 @@ def _records_from_config() -> list[dict[str, Any]]:
             return [
                 {
                     "email": legacy_email,
-                    "password_hash": hash_password(
-                        legacy_password, salt=b"blastex-legacy-v1"
-                    ),
+                    "password_hash": _legacy_password_hash(legacy_password),
                     "role": "admin",
                     "display_name": "Администратор",
                     "organization_id": "default",
@@ -147,3 +157,13 @@ def configured_users() -> list[AuthUser]:
             )
         )
     return users
+
+
+def find_active_user(email: str) -> AuthUser | None:
+    """Действующая учётка по email без учёта регистра."""
+
+    wanted = email.strip().casefold()
+    return next(
+        (user for user in configured_users() if user.email == wanted and user.active),
+        None,
+    )

@@ -1,19 +1,18 @@
 """`POST /economics/references/public-delta` и `.../public-links`."""
 from __future__ import annotations
 
-import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routers import economics
-from api.security import SESSION_COOKIE, create_session_token
 from api.services.economics_service import get_economics_repository
 from api.services.public_sync_service import get_public_reader
 from cost.v2.public_sync import PublicSnapshot, PublicUnavailable, StaticPublicReader
 from cost.v2.public_sync.mapping import TABLES
 from cost.v2.public_sync.settings import PublicSyncSettings
 from cost.v2.repository import EconomicsRepositoryError, InMemoryEconomicsRepository
+from tests.session_fixtures import signed_in_client
 from tests.test_public_sync_mapping import COUNTERPARTIES, make_snapshot
 
 
@@ -105,9 +104,7 @@ def test_linking_same_public_row_twice_with_different_code_conflicts(monkeypatch
 def test_user_role_cannot_link_but_can_read_delta(monkeypatch) -> None:
     client, _ = _client(monkeypatch)
     client.app.dependency_overrides[get_public_reader] = lambda: StaticPublicReader(make_snapshot())
-    token = create_session_token("user@example.ru", "user", "default", int(time.time()) + 3600)
-    user_client = TestClient(client.app)
-    user_client.cookies.set(SESSION_COOKIE, token)
+    user_client = signed_in_client(client.app, monkeypatch, "user@example.ru", "user")
 
     link_response = user_client.post(
         "/api/v1/economics/references/public-links",

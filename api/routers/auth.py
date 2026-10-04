@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Cookie, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
-from api.security import SESSION_COOKIE, create_session_token, read_session_token
-from cost.auth import configured_users, verify_password
+from api.security import SESSION_COOKIE, create_session_token, read_user_session
+from cost.auth import find_active_user, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -27,10 +27,7 @@ class CurrentUserResponse(BaseModel):
 
 
 def _response_for_email(email: str) -> CurrentUserResponse:
-    user = next(
-        (item for item in configured_users() if item.email == email.casefold() and item.active),
-        None,
-    )
+    user = find_active_user(email)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Сессия недействительна.")
     return CurrentUserResponse(
@@ -44,8 +41,7 @@ def _response_for_email(email: str) -> CurrentUserResponse:
 
 @router.post("/login", response_model=CurrentUserResponse)
 def login(payload: LoginRequest, response: Response) -> CurrentUserResponse:
-    email = payload.email.strip().casefold()
-    user = next((item for item in configured_users() if item.email == email and item.active), None)
+    user = find_active_user(payload.email)
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный email или пароль.")
     expires = datetime.now(timezone.utc) + timedelta(hours=12)
@@ -64,10 +60,10 @@ def login(payload: LoginRequest, response: Response) -> CurrentUserResponse:
 
 @router.get("/me", response_model=CurrentUserResponse)
 def me(blastex_session: str | None = Cookie(default=None)) -> CurrentUserResponse:
-    payload = read_session_token(blastex_session)
-    if payload is None:
+    session = read_user_session(blastex_session)
+    if session is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Требуется вход.")
-    return _response_for_email(str(payload["sub"]))
+    return _response_for_email(str(session["sub"]))
 
 
 @router.post("/logout", status_code=204)

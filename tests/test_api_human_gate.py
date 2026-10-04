@@ -37,10 +37,19 @@ from intelligence.drift import types as drift_types
 from intelligence.registry import types as registry_types
 from tests.outcome_fixtures import synthetic_outcome_snapshot
 from tests.scenario_fixtures import charged_design
+from tests.session_fixtures import add_account
 from tests.test_drift_engine import _shift_snapshot
 
 ORG = "default"
 PASSPORT_CHAIN = ("in_review", "approved", "executed", "closed")
+
+
+@pytest.fixture(autouse=True)
+def _accounts(monkeypatch) -> None:
+    """Действующая учётка на каждую роль: сессия без учётки не открывает API."""
+
+    for role in sorted(ALLOWED_ROLES):
+        add_account(monkeypatch, f"{role}@example.ru", role, ORG)
 
 
 @pytest.fixture()

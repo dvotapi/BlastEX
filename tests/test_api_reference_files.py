@@ -4,17 +4,16 @@ from __future__ import annotations
 import asyncio
 import io
 import json
-import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from api.routers import economics
-from api.security import SESSION_COOKIE, create_session_token
 from api.services.economics_service import get_economics_repository
 from cost.v2.models import ReferenceItem
 from cost.v2.repository import InMemoryEconomicsRepository
+from tests.session_fixtures import signed_in_client
 
 
 def _client(monkeypatch) -> tuple[TestClient, InMemoryEconomicsRepository]:
@@ -154,9 +153,7 @@ def test_import_rejects_a_file_over_the_limit(monkeypatch) -> None:
 
 def test_user_cannot_import(monkeypatch) -> None:
     client, _ = _client(monkeypatch)
-    token = create_session_token("user@example.ru", "user", "default", int(time.time()) + 3600)
-    user_client = TestClient(client.app)
-    user_client.cookies.set(SESSION_COOKIE, token)
+    user_client = signed_in_client(client.app, monkeypatch, "user@example.ru", "user")
     response = user_client.post(
         "/api/v1/economics/references/import",
         files={"file": ("refs.json", b"{}", "application/json")},

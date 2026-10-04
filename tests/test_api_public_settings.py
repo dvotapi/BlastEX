@@ -1,17 +1,15 @@
 """`GET/PUT /economics/references/public-settings` и ошибки выгрузки в public."""
 from __future__ import annotations
 
-import time
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routers import economics
-from api.security import SESSION_COOKIE, create_session_token
 from api.services.economics_service import get_economics_repository
 from api.services.public_sync_service import get_public_reader
 from cost.v2.public_sync import PublicUnavailable, PublicWriteError, StaticPublicReader
 from cost.v2.repository import InMemoryEconomicsRepository
+from tests.session_fixtures import signed_in_client
 from tests.test_public_sync_mapping import make_snapshot
 
 
@@ -34,13 +32,10 @@ def _client(monkeypatch) -> tuple[TestClient, InMemoryEconomicsRepository]:
     return TestClient(app, headers={"X-API-Key": "test-api-key"}), repository
 
 
-def _client_as(app: FastAPI, role: str) -> TestClient:
+def _client_as(app: FastAPI, monkeypatch, role: str) -> TestClient:
     """Клиент с сессией указанной роли — без внутреннего ключа."""
 
-    token = create_session_token(f"{role}@example.ru", role, "default", int(time.time()) + 3600)
-    client = TestClient(app)
-    client.cookies.set(SESSION_COOKIE, token)
-    return client
+    return signed_in_client(app, monkeypatch, f"{role}@example.ru", role)
 
 
 def test_public_settings_are_disabled_by_default(monkeypatch) -> None:
@@ -62,7 +57,7 @@ def test_public_settings_are_disabled_by_default(monkeypatch) -> None:
 
 def test_admin_enables_exchange_and_rocks_mirror(monkeypatch) -> None:
     client, _ = _client(monkeypatch)
-    admin_client = _client_as(client.app, "admin")
+    admin_client = _client_as(client.app, monkeypatch, "admin")
 
     response = admin_client.put(
         "/api/v1/economics/references/public-settings",
@@ -82,7 +77,7 @@ def test_admin_enables_exchange_and_rocks_mirror(monkeypatch) -> None:
 
 def test_reference_editor_cannot_change_public_settings(monkeypatch) -> None:
     client, _ = _client(monkeypatch)
-    editor_client = _client_as(client.app, "reference_editor")
+    editor_client = _client_as(client.app, monkeypatch, "reference_editor")
 
     response = editor_client.put(
         "/api/v1/economics/references/public-settings",

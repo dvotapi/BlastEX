@@ -1,6 +1,7 @@
 // Единственный источник истины для документа паспорта БВР на клиенте:
 // useReducer + стек undo/redo. Камера, выделение и режим инструмента — вне
 // документа (не должны попадать в историю правок).
+import { isRecordFrozen } from "../../lib/lifecycle";
 import { collarZFromSurfaces } from "../../lib/surfaces";
 import type { CadCrs } from "../../types/cad";
 import type {
@@ -34,7 +35,14 @@ import {
 } from "../../types/design";
 
 export type DesignAction =
-  | { type: "LOAD"; design: BlastDesign }
+  /**
+   * Открыт другой документ (паспорт, новый, ревизия, тот же после смены
+   * статуса): история с нуля. `base` — `saved` на момент запроса: если с тех
+   * пор открыт другой паспорт, ответ устарел и не применяется.
+   */
+  | { type: "LOAD"; design: BlastDesign; base?: BlastDesign }
+  /** Ответ сервера на сохранение открытого паспорта: история правок остаётся. */
+  | { type: "SAVED"; design: BlastDesign; base?: BlastDesign }
   | { type: "SET_NAME"; name: string }
   | { type: "SET_CONTOUR_VERTICES"; vertices: BlastDesign["contour"]["vertices"]; free_faces?: number[][]; coalesce?: boolean }
   | { type: "TOGGLE_FREE_FACE"; edgeIndex: number }
@@ -95,12 +103,43 @@ export type DesignState = {
   past: BlastDesign[];
   present: BlastDesign;
   future: BlastDesign[];
+  /** Паспорт, как он лежит на сервере: последняя загрузка или ответ сохранения. */
+  saved: BlastDesign;
 };
 
 const HISTORY_LIMIT = 50;
 
+/**
+ * Отмена и повтор закрыты только у закрытого паспорта. История начинается
+ * заново при каждой смене статуса, поэтому в ней лишь правки, которые статус
+ * разрешает (на проверке — название, утверждённому — исполнение и замер), и
+ * отмена не возвращает ни прежний статус, ни проектную часть.
+ */
+export function historyLocked(status: string | undefined | null): boolean {
+  return isRecordFrozen(status);
+}
+
 export function initDesignState(design: BlastDesign): DesignState {
-  return { past: [], present: design, future: [] };
+  return { past: [], present: design, future: [], saved: design };
+}
+
+/** Поля, которые ведёт сервер: принадлежность паспорта и его статус, а не правки. */
+type ServerFields = Pick<
+  BlastDesign,
+  "design_id" | "version" | "updated_at" | "lifecycle_status" | "revision" | "parent_design_id" | "designed_sha256" | "lifecycle_events"
+>;
+
+function serverFields(design: BlastDesign): ServerFields {
+  return {
+    design_id: design.design_id,
+    version: design.version,
+    updated_at: design.updated_at,
+    lifecycle_status: design.lifecycle_status,
+    revision: design.revision,
+    parent_design_id: design.parent_design_id,
+    designed_sha256: design.designed_sha256,
+    lifecycle_events: design.lifecycle_events,
+  };
 }
 
 function edgeKey(index: number, total: number): number[] {
@@ -198,8 +237,6 @@ function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick
 
 function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesign {
   switch (action.type) {
-    case "LOAD":
-      return normalizeDesign(action.design);
     case "SET_NAME":
       return { ...document, name: action.name };
     case "SET_CONTOUR_VERTICES": {
@@ -529,10 +566,29 @@ const UNDOABLE: DesignAction["type"][] = [
 ];
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {
+  if ((action.type === "LOAD" || action.type === "SAVED") && action.base && action.base !== state.saved) {
+    // Пока шёл запрос, открыли другой паспорт: ответ о прежнем ему не принадлежит.
+    return state;
+  }
+  if (action.type === "LOAD") {
+    // Иначе Ctrl+Z вернул бы на экран прежний паспорт с его design_id, и
+    // «Сохранить» записало бы его старое состояние.
+    return initDesignState(normalizeDesign(action.design));
+  }
+  if (action.type === "SAVED") {
+    // Отмена после сохранения возвращает правку, но не прежние служебные поля:
+    // без этого первое сохранение нового паспорта и отмена дали бы пустой
+    // design_id, и следующее «Сохранить» создало бы копию.
+    const present = normalizeDesign(action.design);
+    const server = serverFields(present);
+    const rebase = (design: BlastDesign): BlastDesign => ({ ...design, ...server });
+    return { past: state.past.map(rebase), present, future: state.future.map(rebase), saved: present };
+  }
   if (action.type === "UNDO") {
     if (state.past.length === 0) return state;
     const previous = state.past[state.past.length - 1];
     return {
+      ...state,
       past: state.past.slice(0, -1),
       present: previous,
       future: [state.present, ...state.future].slice(0, HISTORY_LIMIT),
@@ -541,7 +597,7 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
   if (action.type === "REDO") {
     if (state.future.length === 0) return state;
     const [next, ...rest] = state.future;
-    return { past: [...state.past, state.present].slice(-HISTORY_LIMIT), present: next, future: rest };
+    return { ...state, past: [...state.past, state.present].slice(-HISTORY_LIMIT), present: next, future: rest };
   }
 
   const nextPresent = reduceDocument(state.present, action);
@@ -561,6 +617,7 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
   }
 
   return {
+    ...state,
     past: [...state.past, state.present].slice(-HISTORY_LIMIT),
     present: nextPresent,
     future: [],

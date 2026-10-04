@@ -25,6 +25,15 @@ describe("CanvasHitIndex", () => {
     expect(near.hit([5, 0.1], 0.5)?.handle).toBe("A");
   });
 
+  it("замыкающее ребро замкнутой линии без повтора первой вершины ловится, как и нарисовано", () => {
+    // Проверка замечания Codex (#108, круг 5): ребро последняя → первая вершина.
+    const square = new CanvasHitIndex([
+      cadEntity("SQ", "Склад", { closed: true, points: [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]] }),
+    ]);
+    expect(square.hit([0.1, 5], 0.5)).toEqual({ layer: "Склад", handle: "SQ" });
+    expect(new CanvasHitIndex([cadEntity("PL", "Склад", { points: [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]] })]).hit([0.1, 5], 0.5)).toBeNull();
+  });
+
   it("точка отметки — слой целиком, как прежде на SVG", () => {
     expect(index.hit([110.1, 190.1], 0.5)).toEqual({ layer: "Отметка", handle: null });
   });

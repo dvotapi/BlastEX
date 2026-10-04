@@ -237,13 +237,19 @@ def _apply_ml_overlays(
             baseline = getattr(outcomes, baseline_field)
             if baseline is None:
                 continue
-            prediction = apply_residual(
-                model,
-                features=features,
-                baseline=float(baseline),
-                baseline_source="engineering",
-            )
-            calibrated = float(prediction.calibrated)
+            # Сбой наложения поправки — как сбой загрузки: снимает только эту
+            # калибровку, а не весь слой вместе с PPV.
+            try:
+                prediction = apply_residual(
+                    model,
+                    features=features,
+                    baseline=float(baseline),
+                    baseline_source="engineering",
+                )
+                calibrated = float(prediction.calibrated)
+            except Exception as exc:  # noqa: BLE001 — любой сбой модели калибровки
+                outcomes.warnings.append(f"Калибровка «{label}» пропущена: {exc}")
+                continue
             setattr(outcomes, field, calibrated)
             applied = True
             if field in {"x50_mm", "x80_mm"}:

@@ -2223,20 +2223,11 @@ export type RejectedSample = {
   closed: boolean;
 };
 
-export type DatasetSnapshot = {
-  dataset_id: string;
-  dataset_version: number;
-  feature_schema_version: string;
-  source_blast_ids: string[];
-  created_at: string;
-  site_id: string;
-  name: string;
+/** Снимок целиком: поля сводки (с базой baseline) плюс образцы — один набор полей с API. */
+export type DatasetSnapshot = DatasetSummary & {
   kind: string;
-  sample_count: number;
-  rejected_count: number;
   samples: TrainingSample[];
   rejected: RejectedSample[];
-  immutable: boolean;
 };
 
 export type DatasetSummary = {

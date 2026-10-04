@@ -83,11 +83,11 @@ def generate_pattern(
         (vx - origin[0]) * advance_dir[0] + (vy - origin[1]) * advance_dir[1] for vx, vy in verts
     ]
     u_min, u_max = min(us) - spacing_a, max(us) + spacing_a
-    v_max = max(vs) + burden_b
+    v_min, v_max = min(vs) - burden_b, max(vs) + burden_b
     crest_z = contour.bench.crest_z_m
 
     holes: list[Hole] = []
-    row_index = 0
+    first_lattice_row = 0
     skip_regular_first = False
 
     if follow_face and contour.free_faces:
@@ -110,17 +110,19 @@ def generate_pattern(
         )
         if face_row:
             holes.extend(face_row)
-            row_index = 1
+            first_lattice_row = 1
             skip_regular_first = True
 
-    v = offset_from_face
-    if skip_regular_first:
-        v = offset_from_face + burden_b
+    def place_row(lattice_row: int, row_index: int, v: float) -> tuple[list[Hole], float]:
+        """Узлы одного ряда решётки внутри контура и шаг до следующего ряда.
 
-    safety = 0
-    while v <= v_max and safety < 500:
-        safety += 1
-        row_cfg = _row_config(params, pattern, row_index, spacing_a, burden_b, row_shift_ratio, default_kind)
+        `lattice_row` — номер ряда, считая от первого ряда у бровки (впереди
+        него — отрицательный): от него зависят сдвиг шахматки и строка
+        `row_params`. `row_index` — номер ряда в паспорте.
+        """
+        row_cfg = _row_config(
+            params, pattern, max(lattice_row, 0), spacing_a, burden_b, row_shift_ratio, default_kind
+        )
         local_a, local_b, shift_ratio, row_kind = row_cfg
         if pattern == "domain_dependent" and domain_list:
             mid = _world_xy(origin, row_dir, advance_dir, 0.5 * (u_min + u_max), v)
@@ -133,8 +135,7 @@ def generate_pattern(
                 if pattern == "square" and domain.spacing_a_m and not domain.burden_b_m:
                     local_b = local_a
 
-        shift = shift_ratio * local_a if row_index % 2 == 1 else 0.0
-        col_index = 0
+        shift = shift_ratio * local_a if lattice_row % 2 == 1 else 0.0
         if pattern == "domain_dependent" and domain_list:
             placed = _walk_domain_row(
                 contour,
@@ -157,32 +158,65 @@ def generate_pattern(
                 surfaces,
                 crest_z,
             )
-            holes.extend(placed)
-            col_index = len(placed)
-        else:
-            u = u_min + shift
-            while u <= u_max:
-                x, y = _world_xy(origin, row_dir, advance_dir, u, v)
-                if point_in_polygon((x, y), boundary):
-                    collar, toe = drape_collar(
-                        x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_override
-                    )
-                    holes.append(
-                        Hole(
-                            id=_grid_id(row_kind, row_index, col_index),
-                            row=row_index,
-                            col=col_index,
-                            collar=collar,
-                            toe=toe,
-                            diameter_mm=diameter_mm,
-                            subdrill_m=subdrill_m,
-                            kind=row_kind,
-                            source="generated",
-                        )
-                    )
-                    col_index += 1
-                u += local_a
+            return placed, local_b
 
+        placed: list[Hole] = []
+        col_index = 0
+        u = u_min + shift
+        while u <= u_max:
+            x, y = _world_xy(origin, row_dir, advance_dir, u, v)
+            if point_in_polygon((x, y), boundary):
+                collar, toe = drape_collar(
+                    x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_override
+                )
+                placed.append(
+                    Hole(
+                        id=_grid_id(row_kind, row_index, col_index),
+                        row=row_index,
+                        col=col_index,
+                        collar=collar,
+                        toe=toe,
+                        diameter_mm=diameter_mm,
+                        subdrill_m=subdrill_m,
+                        kind=row_kind,
+                        source="generated",
+                    )
+                )
+                col_index += 1
+            u += local_a
+        return placed, local_b
+
+    v_first = offset_from_face + burden_b if skip_regular_first else offset_from_face
+
+    # Ряды впереди первого: при изогнутой бровке её средняя точка лежит внутри
+    # блока, и часть контура оказывается впереди начала отсчёта. Фаза та же —
+    # шаг burden_b назад от первого ряда до крайней проекции вершин контура.
+    # С рядом вдоль бровки перед ним ничего не ставим: его место занято.
+    front_rows: list[tuple[int, float]] = []
+    if not skip_regular_first:
+        step = 1
+        while v_first - step * burden_b >= v_min and step <= 500:
+            front_rows.insert(0, (-step, v_first - step * burden_b))
+            step += 1
+    # Пустые ряды перед первым непустым номера не получают — для блока, где
+    # бровка целиком впереди контура, нумерация остаётся прежней.
+    while front_rows and not place_row(front_rows[0][0], 0, front_rows[0][1])[0]:
+        front_rows.pop(0)
+
+    row_index = first_lattice_row
+    for lattice_row, v in front_rows:
+        placed, _ = place_row(lattice_row, row_index, v)
+        holes.extend(placed)
+        row_index += 1
+
+    lattice_row = first_lattice_row
+    v = v_first
+    safety = 0
+    while v <= v_max and safety < 500:
+        safety += 1
+        placed, local_b = place_row(lattice_row, row_index, v)
+        holes.extend(placed)
+        lattice_row += 1
         row_index += 1
         v += local_b
 

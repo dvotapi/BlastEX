@@ -159,7 +159,8 @@ def test_piece_bonus_position_counts_plain_output() -> None:
             ),
         ),
     )
-    items = (PreviewItem(D("2000"), D("152")), PreviewItem(D("1250"), D("110")))
+    # Ø 133 мм в таблице сложности нет: без приведения таблица не читается.
+    items = (PreviewItem(D("2000"), D("152")), PreviewItem(D("1250"), D("133")))
     result = preview(snapshot, position_code="P_DRIVER", items=items)
     assert result.meters.total == D("3250")
     assert result.meters.rows == ()

@@ -132,14 +132,71 @@ def test_volume_in_polygon_with_msk_coordinates():
     assert msk.covered_m2 == pytest.approx(800.0, rel=1e-9)
 
 
-def test_uncovered_part_of_the_polygon_falls_back_to_the_crest():
-    vertices = np.array([[0, 0, 420], [20, 0, 420], [20, 20, 420], [0, 20, 420]], dtype=float)
+def test_uncovered_part_of_the_polygon_takes_the_nearest_roof_vertex():
+    # Кровля z = 420 − 0,3·x до x = 20, дальше кровли нет: часть вне неё — по
+    # ближайшей вершине (414), как устья скважин, а не по бровке 415.
+    vertices = np.array([[0, 0, 420], [20, 0, 414], [20, 20, 414], [0, 20, 420]], dtype=float)
     triangles = np.array([[0, 1, 2], [0, 2, 3]])
 
     result = volume_in_polygon(vertices, triangles, BLOCK, 410.0, fallback_z=415.0)
 
     assert result.covered_m2 == pytest.approx(400.0)
-    assert result.volume_m3 == pytest.approx(400 * 10 + 400 * 5)
+    assert result.volume_m3 == pytest.approx(400 * 7 + 400 * 4)
+    assert result.mean_height_m() == pytest.approx((400 * 7 + 400 * 4) / 800)
+
+
+def test_without_triangles_the_uncovered_part_falls_back_to_the_crest():
+    result = volume_in_polygon(np.zeros((0, 3)), np.zeros((0, 3), dtype=int), BLOCK, 410.0, fallback_z=415.0)
+
+    assert result.volume_m3 == pytest.approx(800 * 5)
+    assert result.mean_height_m() == pytest.approx(5.0)
+
+
+def test_without_fallback_the_uncovered_part_is_left_out():
+    vertices = np.array([[0, 0, 420], [20, 0, 414], [20, 20, 414], [0, 20, 420]], dtype=float)
+    triangles = np.array([[0, 1, 2], [0, 2, 3]])
+
+    result = volume_in_polygon(vertices, triangles, BLOCK, 410.0)
+
+    assert result.volume_m3 == pytest.approx(400 * 7)
+    assert result.mean_height_m() == pytest.approx(7.0)
+
+
+# Треугольник у подножия откоса: высота над подошвой 410 — h = 5 − x, от +5
+# до −5. Выше подошвы — часть x < 5, объём ∫₀⁵ (5 − x)(10 − x) dx = 625/6;
+# по центру тяжести треугольник дал бы 50 × 5/3.
+TOE = np.array([[0, 0, 415], [10, 0, 405], [0, 10, 415]], dtype=float)
+TOE_VOLUME = 625 / 6
+
+
+@pytest.mark.parametrize(
+    "polygon",
+    [
+        pytest.param([(-1.0, -1.0), (11.0, -1.0), (11.0, 11.0), (-1.0, 11.0)], id="inside"),
+        pytest.param([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)], id="on-boundary"),
+    ],
+)
+def test_triangle_crossing_the_floor_counts_only_the_part_above_it(polygon):
+    result = volume_in_polygon(TOE, np.array([[0, 1, 2]]), polygon, 410.0)
+
+    assert result.volume_m3 == pytest.approx(TOE_VOLUME, rel=1e-9)
+    # Интеграл со знаком — как был: площадь × высота центра тяжести.
+    assert result.integral_m3 == pytest.approx(50 * 5 / 3, rel=1e-9)
+
+
+def test_triangle_crossing_the_floor_is_cut_by_the_polygon_too():
+    # Полигон отрезает x > 2: выше подошвы ∫₀² (5 − x)(10 − x) dx.
+    polygon = [(-1.0, -1.0), (2.0, -1.0), (2.0, 11.0), (-1.0, 11.0)]
+
+    result = volume_in_polygon(TOE, np.array([[0, 1, 2]]), polygon, 410.0)
+
+    assert result.volume_m3 == pytest.approx(100 - 30 + 8 / 3, rel=1e-9)
+
+
+def test_triangle_below_the_floor_gives_no_volume():
+    result = volume_in_polygon(TOE - [0, 0, 20], np.array([[0, 1, 2]]), [(-1, -1), (11, -1), (11, 11), (-1, 11)], 410.0)
+
+    assert result.volume_m3 == 0.0
 
 
 # --- данные без отметок -------------------------------------------------------
@@ -436,14 +493,35 @@ def test_threshold_of_a_block_with_one_contour_is_found_below_the_slope(factory)
 
 
 @pytest.mark.parametrize("factory", BUILDERS)
-def test_mean_height_counts_the_part_beyond_the_roof_at_the_crest(factory):
-    # Ревью Codex #104: объём берёт часть контура вне кровли по отметке
-    # бровки, средняя высота считалась только по покрытой части.
-    entities = grid(lambda x, y: 420.0, x_range=(-20, 21))
+def test_mean_height_counts_the_part_beyond_the_roof_like_the_volume(factory):
+    # Ревью Codex #104: средняя высота считалась только по покрытой части.
+    # Часть вне кровли — по ближайшей вершине (418 на x = 20), не по бровке.
+    entities = grid(lambda x, y: 420.0 - 0.1 * x, x_range=(-20, 21))
 
     roof = build_roof(entities, BLOCK, None, floor_z=410.0, crest_z=415.0, builder=factory())
 
     assert roof.coverage_pct == pytest.approx(50.0)
-    assert roof.volume_m3 == pytest.approx(400 * 10 + 400 * 5)
-    assert roof.mean_height_m == pytest.approx(7.5)
+    assert roof.volume_m3 == pytest.approx(400 * 9 + 400 * 8)
+    assert roof.mean_height_m == pytest.approx(8.5)
     assert roof.mean_height_m * roof.area_top_m2 == pytest.approx(roof.volume_m3)
+
+
+def test_hole_inside_the_roof_is_counted_as_outside():
+    # Кровля z = 420 + 0,1·x сеткой 10 м на 30 × 30 м без средней клетки:
+    # дыра берёт ближайшие вершины (421 и 422 поровну), как линейная кровля.
+    xs = np.arange(0.0, 31.0, 10.0)
+    vertices = np.array([[x, y, 420 + 0.1 * x] for y in xs for x in xs])
+    triangles = []
+    for j in range(3):
+        for i in range(3):
+            if (i, j) == (1, 1):
+                continue
+            a, b, c, d = j * 4 + i, j * 4 + i + 1, (j + 1) * 4 + i + 1, (j + 1) * 4 + i
+            triangles += [[a, b, c], [a, c, d]]
+    square = [(0.0, 0.0), (30.0, 0.0), (30.0, 30.0), (0.0, 30.0)]
+
+    result = volume_in_polygon(vertices, np.array(triangles), square, 410.0, fallback_z=400.0)
+
+    assert result.covered_m2 == pytest.approx(800.0)
+    # Ячейки дыры по 0,16 м: граница «ближе к 421 / к 422» режет ряд ячеек.
+    assert result.volume_m3 == pytest.approx(900 * 11.5, rel=1e-4)

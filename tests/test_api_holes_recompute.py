@@ -100,8 +100,8 @@ def test_mean_bench_height_comes_with_the_volume(client):
     body = client.post(PATH, json={"holes": [], "contour": CONTOUR, "surfaces": ROOF}).json()
 
     # Кровля z = 420 + 0,01·x покрывает контур до x = 30 (в среднем 10,15),
-    # остальные 200 м² — по отметке бровки, как в объёме: 10.
-    assert body["mean_height_m"] == pytest.approx((600 * 10.15 + 200 * 10.0) / 800, abs=1e-3)
+    # остальные 200 м² — по ближайшей вершине кровли, как в объёме: 10,3.
+    assert body["mean_height_m"] == pytest.approx((600 * 10.15 + 200 * 10.3) / 800, abs=1e-3)
 
 
 def test_surface_meshes_are_bounded(client, monkeypatch):

@@ -194,7 +194,7 @@ def _mean_area(contour: BlockContour) -> float:
 def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> float:
     """Средняя высота уступа: среднее (кровля − подошва) по контуру блока, без кровли — H.
 
-    Часть контура вне кровли — по отметке бровки, как в объёме и в окне
+    Часть контура вне кровли — по ближайшей вершине кровли, как в объёме и в окне
     «Импорт чертежа». Подошва из TIN считается той же сеткой, что и объём
     (`_volume_from_surfaces`), иначе средняя высота разошлась бы с объёмом.
     """
@@ -202,7 +202,7 @@ def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> 
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
     if top is not None and top.has_tin and len(contour.vertices) >= 3:
         if floor is not None and getattr(floor, "has_tin", False):
-            # Ячейки вне кровли — по отметке бровки, как в объёме; со знаком,
+            # Ячейки вне кровли — по ближайшей вершине кровли, как в объёме; со знаком,
             # как интеграл без TIN подошвы: кровля ниже подошвы уменьшает среднюю.
             heights = [
                 _roof_z(contour, top, x, y) - _floor_z(contour, floor, x, y)
@@ -212,8 +212,8 @@ def mean_bench_height(contour: BlockContour, surfaces: object | None = None) -> 
                 return sum(heights) / len(heights)
         from design.spatial.cad.surface import tin_volume_in_polygon
 
-        result = tin_volume_in_polygon(top.tin, contour.points_xy, contour.bench.toe_z_m)
-        mean = result.mean_height_m(contour.bench.crest_z_m - contour.bench.toe_z_m)
+        result = tin_volume_in_polygon(top.tin, contour.points_xy, contour.bench.toe_z_m, contour.bench.crest_z_m)
+        mean = result.mean_height_m()
         if mean is not None:
             return mean
     return contour.bench.height_m
@@ -242,9 +242,12 @@ def _grid_cells(verts: list[Point2]) -> tuple[list[Point2], float]:
 
 
 def _roof_z(contour: BlockContour, top: object, x: float, y: float) -> float:
-    """Отметка кровли: TIN кровли, вне неё — отметка бровки."""
+    """Отметка кровли: TIN кровли, вне неё — ближайшая вершина, как у устья."""
     z_top = top.elevation_at(x, y)
-    return contour.bench.crest_z_m if z_top is None else z_top
+    if z_top is not None:
+        return z_top
+    nearest = top.tin.nearest_vertex(x, y)
+    return contour.bench.crest_z_m if nearest is None else nearest.z
 
 
 def _floor_z(contour: BlockContour, floor: object | None, x: float, y: float) -> float:

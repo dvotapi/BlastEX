@@ -16,7 +16,8 @@ from api.services.mass_blast_service import get_mass_blast_repository
 from design.mass_blast_repository import MassBlastForbiddenError
 
 BASE = "/api/v1/design/mass-blast-projects"
-SESSION = {"sub": "designer@example.ru", "role": "user", "org": "org-a"}
+# Сессия действующей учётки организации; тест подписи меняет `sub` на месте.
+SESSION = {"sub": "supervisor@example.ru", "role": "admin", "org": "org-a"}
 USERS = [
     {"email": "Manager@Example.ru", "password_hash": "x", "role": "user", "display_name": "Иванов И. И.",
      "organization_id": "org-a"},
@@ -31,8 +32,10 @@ USERS = [
 class _Repository:
     def __init__(self) -> None:
         self.created: list[dict] = []
+        self.approvals: list[str] = []
 
     def approve_revision(self, organization_id, actor, revision_id, role_code, decision, comment):
+        self.approvals.append(actor)
         raise MassBlastForbiddenError("Согласовать роль «blast_manager» может только назначенная учётка manager@example.ru.")
 
     def get_project(self, organization_id, project_id):
@@ -53,13 +56,18 @@ def repository() -> _Repository:
 
 
 @pytest.fixture()
-def client(monkeypatch, repository: _Repository) -> TestClient:
+def session() -> dict:
+    return dict(SESSION)
+
+
+@pytest.fixture()
+def client(monkeypatch, repository: _Repository, session: dict) -> TestClient:
     monkeypatch.setenv("BLASTEX_USERS_JSON", json.dumps(USERS))
     # Технический снимок блока читается из файлового хранилища паспортов — тесту он не нужен.
     monkeypatch.setattr(mass_blast_service, "_blocks_from_payload", lambda organization_id, payload: [])
     app = FastAPI()
     app.include_router(mass_blast.router, prefix="/api/v1")
-    app.dependency_overrides[require_internal_access] = lambda: SESSION
+    app.dependency_overrides[require_internal_access] = lambda: session
     app.dependency_overrides[get_mass_blast_repository] = lambda: repository
     app.dependency_overrides[get_economics_repository] = lambda: SimpleNamespace(
         get_reference_snapshot=lambda organization_id, requested: SimpleNamespace(revision_id="ref-1")
@@ -85,6 +93,22 @@ def test_approval_by_a_foreign_account_is_forbidden(client: TestClient) -> None:
 
     assert response.status_code == 403
     assert "manager@example.ru" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("actor", ["retired@example.ru", "outsider@example.ru", "stranger@example.ru"])
+def test_approval_needs_an_active_account_of_the_organization_now(
+    client: TestClient, repository: _Repository, session: dict, actor: str
+) -> None:
+    # Сессия выдана раньше: учётку с тех пор отключили, перенесли или удалили.
+    session["sub"] = actor
+
+    response = client.post(
+        f"{BASE}/revisions/rev-1/approvals", json={"role_code": "blast_manager", "decision": "approved"}
+    )
+
+    assert response.status_code == 403
+    assert actor in response.json()["detail"]
+    assert repository.approvals == []
 
 
 def test_accounts_are_active_accounts_of_own_organization(client: TestClient) -> None:

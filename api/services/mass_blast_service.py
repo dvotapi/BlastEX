@@ -217,6 +217,10 @@ def approve_revision(
     repository: PostgresMassBlastRepository, organization_id: str, actor: str, revision_id: str,
     role_code: str, decision: str, comment: str,
 ) -> dict[str, Any]:
+    # Сессия живёт до 12 часов: учётку за это время могли отключить или перенести.
+    signer = normalize_account_email(actor)
+    if signer not in {item["email"] for item in organization_accounts(organization_id)}:
+        raise MassBlastForbiddenError(f"Учётка {signer} не действует в организации: согласовать роль она не может.")
     return repository.approve_revision(organization_id, actor, revision_id, role_code, decision, comment)
 
 

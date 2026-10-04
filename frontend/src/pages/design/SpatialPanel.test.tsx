@@ -26,7 +26,7 @@ const summary = {
   base_label: "Старая база (Kuz-Ram (старая) 1.0.0) — физика считается старой моделью",
 } as SpatialSummary;
 
-function overlayWith(baseLabel: string): SpatialOverlay {
+function overlayWith(baseLabel: string, warnings: string[] = []): SpatialOverlay {
   return {
     holes: [],
     neighborhoods: [],
@@ -44,7 +44,7 @@ function overlayWith(baseLabel: string): SpatialOverlay {
     applied_as: "recommendation_overlay",
     modifies_design: false,
     prediction_applied: true,
-    warnings: [],
+    warnings,
     role: "predicted",
     data_roles: {},
     physics_model: "kuzram_legacy",
@@ -100,5 +100,14 @@ describe("SpatialPanel — база пространственной модел�
     const selected = { ...summary, base_label: "База: Kuz-Ram 2.0.0" } as unknown as SpatialModel;
     renderPanel(selected);
     expect(screen.getByText("База: Kuz-Ram 2.0.0")).toBeTruthy();
+  });
+
+  it("показывает все предупреждения прогноза, а не только первое", () => {
+    // Предупреждения о настройках модели и базе сервер дописывает в конец списка.
+    const warnings = ["Скважина H-3 без заряда пропущена.", "Настройки модели взяты по умолчанию.", "Модель старой базы."];
+    renderPanel(null, overlayWith("", warnings), []);
+    for (const warning of warnings) {
+      expect(screen.getByText(warning)).toBeTruthy();
+    }
   });
 });

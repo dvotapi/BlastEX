@@ -363,35 +363,41 @@ def _positions(
     params: PayrollParamsChoice | None,
     warnings: list[str],
 ) -> list[JobPosition]:
-    """Должности сметы V1. Без ставки — оклад по МРОТ года (методика ФОТ, TASK-010 §2.2).
+    """Должности сметы V1. Без ставки или с нулевым окладом — оклад по МРОТ года (TASK-010 §2.2).
 
-    Должности без ставки называются одной строкой, а не строкой на каждую: после
-    сида методики их семь, и предупреждения заслоняли остальные.
+    Нулевой оклад — тот же пробел, что отсутствие ставки (решение владельца
+    04.10.2026): уровень I методики — оклад не ниже МРОТ; сдельная расценка
+    ставки сохраняется. Такие должности называются одной строкой, а не строкой
+    на каждую: после сида методики их семь, и предупреждения заслоняли остальные.
     """
 
     mrot = float(params.params.mrot) if params is not None else 0.0
     positions: list[JobPosition] = []
-    without_rate: list[str] = []
+    without_salary: list[str] = []
     for item in items:
         rate = rates.get(item.code)
-        if rate is None:
-            without_rate.append(f"«{item.name}»")
+        salary = _number(rate.payload.get("fixed_monthly_rub")) if rate else 0.0
+        if salary <= 0:
+            without_salary.append(f"«{item.name}»")
+            salary = mrot
         positions.append(
             JobPosition(
                 id=_legacy_id(item),
                 name=item.name,
-                fixed_salary_monthly=_number(rate.payload.get("fixed_monthly_rub")) if rate else mrot,
+                fixed_salary_monthly=salary,
                 piece_rate_per_m3=_number(rate.payload.get("piece_rate_rub")) if rate else 0.0,
             )
         )
-    if without_rate:
-        names = ", ".join(without_rate)
+    if without_salary:
+        names = ", ".join(without_salary)
         if params is None:
-            warnings.append(f"В разделе «Ставки персонала» нет ставки у должностей {names}: оклад принят 0.")
+            warnings.append(
+                f"В разделе «Ставки персонала» нет ставки или оклад равен 0 у должностей {names}: оклад принят 0."
+            )
         else:
             warnings.append(
                 f"Оклад по МРОТ {params.params.year} года ({_rub(params.params.mrot)} ₽): в разделе "
-                f"«Ставки персонала» нет ставки у должностей {names}."
+                f"«Ставки персонала» нет ставки или оклад равен 0 у должностей {names}."
             )
     return positions
 

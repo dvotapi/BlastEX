@@ -3,16 +3,16 @@
 // слоёв подсвечивает ту же строку. Подписи не рисуются: их сотни, а отметку
 // точки таблица показывает текстом.
 //
-// Чертёж карьера — десятки тысяч линий, поэтому пути считаются только при
-// смене камеры, а базовый слой не перерисовывается на наведение: подсветка —
-// отдельный слой поверх него из одних подсвеченных линий.
+// Чертёж карьера — десятки тысяч линий (TASK-013, PR 4: 30 000 линий в SVG
+// давали ~0,9 с на кадр колеса), поэтому базовый слой — один `<canvas>`,
+// перерисовка только при смене камеры или данных. Линию под курсором ищет
+// сетка (`CanvasHitIndex`), подсветка — SVG поверх холста из одних
+// подсвеченных линий.
 //
 // На шаге «Контур» холст работает инструментом (`tool`): щелчок отдаёт точку
 // чертежа, линию под курсором и привязку (конец, пересечение, вершина,
 // ближайшая точка), а слой-наложение рисует контуры и участки сборки.
 import {
-  memo,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -34,7 +34,8 @@ import {
 } from "../../../lib/geometry2d";
 import type { CadEntity } from "../../../types/cad";
 import { drawingBounds, linePath, pointsPath } from "./cadGeometry";
-import { roleColor } from "./cadRoles";
+import { inDrawOrder, roleColor } from "./cadRoles";
+import { CanvasHitIndex } from "./canvasHit";
 import type { Snap, SnapIndex } from "./contourGeometry";
 import type { Pick } from "./contourState";
 
@@ -46,56 +47,74 @@ const POINT_RADIUS_PX = 2.2;
 const HIT_WIDTH_PX = 10;
 /** Апертура привязки курсора на экране (как объектная привязка САПР). */
 export const SNAP_APERTURE_PX = 10;
-// Порядок слоёв рисования: ситуация под бровками, контур — сверху.
-const ROLE_ORDER = [
-  "ignore",
-  "situation",
-  "contour_line",
-  "feature_line",
-  "spot_heights",
-  "design_line",
-  "crest_bottom",
-  "crest_top",
-  "block_contour",
-];
 
 function matches(target: CanvasTarget | null, entity: CadEntity): boolean {
   if (!target || target.layer !== entity.layer) return false;
   return target.handle === null || target.handle === entity.handle;
 }
 
-type LinePath = { entity: CadEntity; d: string };
-type PointGroup = { key: string; layer: string; role: string; d: string; hit: string };
+// Толщина линии на холсте по роли (как было у SVG): контур — жирнее.
+const LINE_WIDTH_PX: Record<string, number> = { block_contour: 2.2 };
+const DEFAULT_LINE_WIDTH_PX = 1.4;
 
-/** Базовый слой: перерисовывается только при смене камеры или данных. */
-const LineLayer = memo(function LineLayer({
-  paths,
-  onHover,
-  onSelect,
-}: {
-  paths: LinePath[];
-  onHover: (target: CanvasTarget | null) => void;
-  onSelect: (target: CanvasTarget) => void;
-}) {
+/** Камера, вписывающая весь чертёж в окно. */
+export function fittedCamera(entities: CadEntity[], viewport: Viewport): Camera {
+  const bounds = drawingBounds(entities);
+  return bounds ? fitCamera(bounds, viewport, 0.06, 1, 1e-4, 400) : { x: 0, y: 0, scale: 1 };
+}
+
+/** Базовый слой: линии в цвете роли и точки отметок одним холстом. */
+function BaseLayer({ lines, points, camera, viewport }: { lines: CadEntity[]; points: CadEntity[]; camera: Camera; viewport: Viewport }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const ratio = typeof window !== "undefined" ? Math.min(2, window.devicePixelRatio || 1) : 1;
+  useEffect(() => {
+    const canvas = ref.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    // Размер буфера — только при смене: присваивание пересоздаёт буфер холста.
+    const width = Math.round(viewport.width * ratio);
+    const height = Math.round(viewport.height * ratio);
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, viewport.width, viewport.height);
+    const cx = viewport.width / 2;
+    const cy = viewport.height / 2;
+    const sx = (x: number) => cx + (x - camera.x) * camera.scale;
+    const sy = (y: number) => cy - (y - camera.y) * camera.scale;
+    context.lineJoin = "round";
+    // Линии одной роли — одним путём: тысячи `stroke` на кадр не нужны.
+    let role = "";
+    const flush = () => {
+      if (role) context.stroke();
+    };
+    for (const entity of lines) {
+      if (entity.role !== role) {
+        flush();
+        role = entity.role;
+        context.beginPath();
+        context.strokeStyle = roleColor(role);
+        context.lineWidth = LINE_WIDTH_PX[role] ?? DEFAULT_LINE_WIDTH_PX;
+        context.setLineDash(role === "ignore" ? [4, 3] : []);
+      }
+      const [first, ...rest] = entity.points;
+      context.moveTo(sx(first[0]), sy(first[1]));
+      for (const point of rest) context.lineTo(sx(point[0]), sy(point[1]));
+      if (entity.closed && entity.points.length > 2) context.lineTo(sx(first[0]), sy(first[1]));
+    }
+    flush();
+    context.setLineDash([]);
+    for (const entity of points) {
+      context.fillStyle = roleColor(entity.role);
+      context.beginPath();
+      context.arc(sx(entity.points[0][0]), sy(entity.points[0][1]), POINT_RADIUS_PX, 0, Math.PI * 2);
+      context.fill();
+    }
+  }, [lines, points, camera.x, camera.y, camera.scale, viewport.width, viewport.height, ratio]);
   return (
-    <g>
-      {paths.map(({ entity, d }) => (
-        <g key={entity.handle}>
-          <path className={`cad-line role-${entity.role}`} data-handle={entity.handle} d={d} style={{ stroke: roleColor(entity.role) }} />
-          <path
-            className="cad-hit"
-            data-handle={entity.handle}
-            d={d}
-            strokeWidth={HIT_WIDTH_PX}
-            onMouseEnter={() => onHover({ layer: entity.layer, handle: entity.handle })}
-            onMouseLeave={() => onHover(null)}
-            onClick={() => onSelect({ layer: entity.layer, handle: entity.handle })}
-          />
-        </g>
-      ))}
-    </g>
+    <canvas ref={ref} className="cad-base" aria-hidden="true" style={{ width: viewport.width, height: viewport.height }} />
   );
-});
+}
 
 export type ScreenProjector = (point: number[]) => Vec2;
 
@@ -150,11 +169,9 @@ export function CadCanvas({
   const [camera, setCamera] = useState<Camera | null>(null);
   const [panFrom, setPanFrom] = useState<{ screen: Vec2; camera: Camera } | null>(null);
   const dragMoved = useRef(false);
-  // Линия под курсором при щелчке инструментом: её сообщает зона попадания,
-  // а точку щелчка — сам холст, куда событие всплывает следом.
-  const hitHandle = useRef<string | null>(null);
   const [snapMarker, setSnapMarker] = useState<Snap | null>(null);
-  const bounds = useMemo(() => drawingBounds(entities), [entities]);
+  // Последнее сообщённое наведение: одно и то же не сообщается на каждый сдвиг мыши.
+  const hovered = useRef<string>("");
 
   useEffect(() => {
     const element = wrapRef.current;
@@ -170,61 +187,46 @@ export function CadCanvas({
   // Новый файл или масштаб — вписываем чертёж заново при следующей отрисовке.
   useEffect(() => setCamera(null), [fitKey]);
 
-  const fitted = bounds ? fitCamera(bounds, viewport, 0.06, 1, 1e-4, 400) : { x: 0, y: 0, scale: 1 };
+  const fitted = useMemo(() => fittedCamera(entities, viewport), [entities, viewport]);
   const cam = camera ?? fitted;
 
   const lines = useMemo(
-    () =>
-      entities
-        .filter((entity) => entity.geometry_type === "line")
-        .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)),
+    () => inDrawOrder(entities.filter((entity) => entity.geometry_type === "line" && entity.points.length >= 2)),
     [entities],
   );
-  const paths = useMemo<LinePath[]>(
-    () => lines.map((entity) => ({ entity, d: linePath(entity.points, entity.closed, cam, viewport) })),
-    // Камера и вьюпорт — по значениям: вписанная камера пересоздаётся на каждой отрисовке.
-    [lines, cam.x, cam.y, cam.scale, viewport.width, viewport.height],
+  const points = useMemo(
+    () => entities.filter((entity) => entity.geometry_type === "point" && entity.points.length > 0),
+    [entities],
   );
-  const pointGroups = useMemo<PointGroup[]>(() => {
-    const groups = new Map<string, CadEntity[]>();
-    for (const entity of entities) {
-      if (entity.geometry_type !== "point") continue;
-      const key = `${entity.layer}\u0000${entity.role}`;
-      const group = groups.get(key);
-      if (group) group.push(entity);
-      else groups.set(key, [entity]);
-    }
-    return [...groups.entries()].map(([key, group]) => {
-      const points = group.map((entity) => entity.points[0]);
-      return {
-        key,
-        layer: group[0].layer,
-        role: group[0].role,
-        d: pointsPath(points, cam, viewport, POINT_RADIUS_PX),
-        hit: pointsPath(points, cam, viewport, POINT_RADIUS_PX + 3),
-      };
-    });
-  }, [entities, cam.x, cam.y, cam.scale, viewport.width, viewport.height]);
+  const hitIndex = useMemo(() => new CanvasHitIndex(entities), [entities]);
   // Выделенная цепочка — это тысячи отрезков: поиск по множеству, а не по массиву.
   const emphasizedSet = useMemo(() => new Set(emphasized), [emphasized]);
-  const highlighted = paths.filter(
-    ({ entity }) =>
-      matches(hover, entity) || (selected?.handle === entity.handle) || emphasizedSet.has(entity.handle),
-  );
+  // Подсветка — SVG поверх холста: пути только подсвеченных линий.
+  const highlighted = lines
+    .filter((entity) => matches(hover, entity) || selected?.handle === entity.handle || emphasizedSet.has(entity.handle))
+    .map((entity) => ({ entity, d: linePath(entity.points, entity.closed, cam, viewport) }));
+  const hoveredPoints = hover
+    ? pointsPath(
+        points.filter((entity) => entity.layer === hover.layer).map((entity) => entity.points[0]),
+        cam,
+        viewport,
+        POINT_RADIUS_PX,
+      )
+    : "";
 
-  // Обработчики базового слоя стабильны — иначе memo не спасёт от перерисовки.
-  const latest = useRef({ onHover, onSelect, tool });
-  latest.current = { onHover, onSelect, tool };
-  const hoverStable = useCallback((target: CanvasTarget | null) => latest.current.onHover(target), []);
-  const selectStable = useCallback((target: CanvasTarget) => {
-    // Отпускание после панорамы — не щелчок по линии.
-    if (dragMoved.current) return;
-    if (latest.current.tool) {
-      hitHandle.current = target.handle;
-      return;
-    }
-    latest.current.onSelect(target);
-  }, []);
+  /** Линия или слой точки под курсором: зона попадания — `HIT_WIDTH_PX` на экране. */
+  function targetAt(screen: Vec2): CanvasTarget | null {
+    const world = screenToWorld(cam, viewport, screen);
+    // Как у SVG-зон: линия — 10 px, точка — свой кружок + 3 px; равными считаем линии в пределах 1 px.
+    return hitIndex.hit([world.x, world.y], HIT_WIDTH_PX / 2 / cam.scale, (POINT_RADIUS_PX + 3) / cam.scale, 1 / cam.scale);
+  }
+
+  function reportHover(target: CanvasTarget | null) {
+    const key = target ? `${target.layer}\u0000${target.handle ?? ""}` : "";
+    if (key === hovered.current) return;
+    hovered.current = key;
+    onHover(target);
+  }
 
   const toScreen: ScreenProjector = (point) => worldToScreen(cam, viewport, { x: point[0], y: point[1] });
 
@@ -235,11 +237,17 @@ export function CadCanvas({
   }
 
   function onCanvasClick(event: MouseEvent<SVGSVGElement>) {
-    const handle = hitHandle.current;
-    hitHandle.current = null;
-    if (!tool || dragMoved.current || !onPick) return;
-    const { world, snap } = snapAt(local(event));
-    onPick({ world: [world.x, world.y], snap, handle });
+    // Отпускание после панорамы — не щелчок по линии.
+    if (dragMoved.current) return;
+    const screen = local(event);
+    const target = targetAt(screen);
+    if (!tool) {
+      if (target) onSelect(target);
+      return;
+    }
+    if (!onPick) return;
+    const { world, snap } = snapAt(screen);
+    onPick({ world: [world.x, world.y], snap, handle: target?.handle ?? null });
   }
 
   function local(event: { clientX: number; clientY: number }): Vec2 {
@@ -256,6 +264,11 @@ export function CadCanvas({
     (event.target as Element).setPointerCapture?.(event.pointerId);
     dragMoved.current = false;
     setPanFrom({ screen: local(event), camera: cam });
+  }
+
+  function onMouseMove(event: MouseEvent<SVGSVGElement>) {
+    if (panFrom && dragMoved.current) return;
+    reportHover(targetAt(local(event)));
   }
 
   function onPointerMove(event: PointerEvent<SVGSVGElement>) {
@@ -278,8 +291,9 @@ export function CadCanvas({
 
   return (
     <div className="cad-canvas-wrap" ref={wrapRef}>
+      <BaseLayer lines={lines} points={points} camera={cam} viewport={viewport} />
       <svg
-        className={`cad-canvas${tool ? " is-picking" : ""}`}
+        className={`cad-canvas${tool ? " is-picking" : ""}${hover ? " is-over" : ""}`}
         role="img"
         aria-label="Чертёж: линии в цвете роли"
         width={viewport.width}
@@ -290,28 +304,11 @@ export function CadCanvas({
         onPointerUp={() => setPanFrom(null)}
         onPointerCancel={() => setPanFrom(null)}
         onPointerLeave={() => setSnapMarker(null)}
+        onMouseMove={onMouseMove}
+        onMouseLeave={() => reportHover(null)}
         onClick={onCanvasClick}
       >
-        <LineLayer paths={paths} onHover={hoverStable} onSelect={selectStable} />
-        {pointGroups.map((group) => {
-          const target = { layer: group.layer, handle: null };
-          return (
-            <g key={group.key}>
-              <path
-                className={`cad-points${hover?.layer === group.layer ? " is-hovered" : ""}`}
-                d={group.d}
-                style={{ fill: roleColor(group.role) }}
-              />
-              <path
-                className="cad-hit cad-hit-points"
-                d={group.hit}
-                onMouseEnter={() => hoverStable(target)}
-                onMouseLeave={() => hoverStable(null)}
-                onClick={() => selectStable(target)}
-              />
-            </g>
-          );
-        })}
+        {hoveredPoints && <path className="cad-points is-hovered" d={hoveredPoints} />}
         <g className="cad-highlights">
           {highlighted.map(({ entity, d }) => (
             <path

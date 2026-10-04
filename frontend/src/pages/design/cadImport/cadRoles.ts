@@ -1,6 +1,6 @@
 // Цвета ролей на холсте импорта чертежа. Подписи ролей и происхождений —
 // из `/design/cad/meta`, здесь только оформление.
-import type { CadRolesResponse, CadSource } from "../../../types/cad";
+import type { CadEntity, CadRolesResponse, CadSource } from "../../../types/cad";
 
 export const ROLE_COLORS: Record<string, string> = {
   block_contour: "#c0392b",
@@ -17,6 +17,25 @@ export const ROLE_COLORS: Record<string, string> = {
 
 export function roleColor(role: string): string {
   return ROLE_COLORS[role] ?? ROLE_COLORS.situation;
+}
+
+// Порядок рисования линий на холсте: ситуация под бровками, контур — сверху.
+// Попадание курсора выбирает из совпадающих линий ту, что сверху.
+const ROLE_DRAW_ORDER = [
+  "ignore",
+  "situation",
+  "contour_line",
+  "feature_line",
+  "spot_heights",
+  "design_line",
+  "crest_bottom",
+  "crest_top",
+  "block_contour",
+];
+
+/** Линии в порядке рисования (стабильно: внутри роли — порядок файла). */
+export function inDrawOrder(lines: CadEntity[]): CadEntity[] {
+  return [...lines].sort((a, b) => ROLE_DRAW_ORDER.indexOf(a.role) - ROLE_DRAW_ORDER.indexOf(b.role));
 }
 
 /** Всплывающее пояснение бейджа происхождения роли. */

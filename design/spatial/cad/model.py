@@ -73,6 +73,24 @@ AREA_BASES: tuple[tuple[str, str, str], ...] = (
 AREA_BASIS_CODES = frozenset(code for code, _, _ in AREA_BASES)
 DEFAULT_AREA_BASIS = AREA_BASIS_MEAN
 
+# Вид объекта ситуации (§2 «Ситуация карьера»): хранится сразу, чтобы позже
+# повесить на объекты охранные зоны. Назначается слою роли «Ситуация».
+SITUATION_KIND_PIT = "pit"
+SITUATION_KIND_ROAD = "road"
+SITUATION_KIND_POWER_LINE = "power_line"
+SITUATION_KIND_STOCKPILE = "stockpile"
+SITUATION_KIND_BUILDING = "building"
+SITUATION_KIND_OTHER = "other"
+SITUATION_KINDS: tuple[tuple[str, str], ...] = (
+    (SITUATION_KIND_PIT, "Контур карьера"),
+    (SITUATION_KIND_ROAD, "Дорога"),
+    (SITUATION_KIND_POWER_LINE, "ЛЭП"),
+    (SITUATION_KIND_STOCKPILE, "Склад"),
+    (SITUATION_KIND_BUILDING, "Здание"),
+    (SITUATION_KIND_OTHER, "Прочее"),
+)
+SITUATION_KIND_CODES = frozenset(code for code, _ in SITUATION_KINDS)
+
 ORIGIN_TEMPLATE = "template"
 ORIGIN_AUTO = "auto"
 ORIGIN_Z = "z"

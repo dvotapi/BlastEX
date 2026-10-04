@@ -42,12 +42,38 @@ class CadAreaBasisInfoSchema(BaseModel):
     description: str
 
 
+class CadSituationKindSchema(BaseModel):
+    """Вид объекта ситуации: контур карьера, дорога, ЛЭП, склад, здание, прочее."""
+
+    code: str
+    label: str
+
+
 class CadMetaResponse(BaseModel):
     roles: list[CadRoleSchema]
     layer_roles: list[CadRoleSchema]
     origins: list[CadOriginSchema]
     defaults: CadDefaultsSchema
     area_bases: list[CadAreaBasisInfoSchema] = Field(default_factory=list)
+    situation_kinds: list[CadSituationKindSchema] = Field(default_factory=list)
+
+
+class CadCrsSchema(BaseModel):
+    """Система координат объекта: местная без EPSG — полноценный вариант (§2)."""
+
+    name: str = Field(default="", max_length=120)
+    height_system: str = Field(default="", max_length=120)
+    epsg: int | None = Field(default=None, gt=0)
+
+
+class CadSeriesVersionSchema(BaseModel):
+    """Другая версия той же серии ситуации (то же название на объекте)."""
+
+    id: str
+    title: str
+    file_name: str
+    survey_date: str | None = None
+    uploaded_at: str
 
 
 class CadParamsSchema(BaseModel):
@@ -92,11 +118,16 @@ class CadLayerSchema(BaseModel):
     z_max: float | None = None
     color: str | None = None
     counts_by_role: dict[str, int] = Field(default_factory=dict)
+    # Вид объектов ситуации слоя (есть только у слоёв с объектами ситуации).
+    situation_kind: str | None = None
+    situation_kind_origin: str | None = None
 
 
 class CadSourceSchema(BaseModel):
     id: str
     file_name: str
+    # Название источника: источники объекта с одинаковым названием — версии серии.
+    title: str = ""
     format: str
     site_code: str = ""
     work_object_name: str = ""
@@ -111,6 +142,9 @@ class CadSourceSchema(BaseModel):
     template_saved: bool = False
     # Площадь блока по соглашению маркшейдера объекта (по умолчанию S ср).
     area_basis: str = "mean"
+    # СК объекта (None — не задана) и другие версии той же серии ситуации.
+    crs: CadCrsSchema | None = None
+    series: list[CadSeriesVersionSchema] = Field(default_factory=list)
     warnings: list[CadWarningSchema] = Field(default_factory=list)
     layers: list[CadLayerSchema] = Field(default_factory=list)
     entities: list[CadEntitySchema] = Field(default_factory=list)
@@ -121,10 +155,35 @@ class CadImportResponse(BaseModel):
 
 
 class CadRolesRequest(BaseModel):
-    """Ручные роли: слою — роль, сущности — роль или null (вернуть роль слоя)."""
+    """Ручные роли: слою — роль, сущности — роль или null (вернуть роль слоя).
+
+    `kinds` — вид объектов ситуации слоя; null — вид по имени слоя.
+    """
 
     layers: dict[str, str] = Field(default_factory=dict)
     entities: dict[str, str | None] = Field(default_factory=dict)
+    kinds: dict[str, str | None] = Field(default_factory=dict)
+
+
+class CadSourceMetaRequest(BaseModel):
+    """Название и дата съёмки источника; поле, которого нет в запросе, не меняется."""
+
+    title: str | None = Field(default=None, max_length=300)
+    survey_date: str | None = None
+
+
+class CadSourceMetaResponse(BaseModel):
+    id: str
+    title: str
+    survey_date: str | None = None
+    series: list[CadSeriesVersionSchema] = Field(default_factory=list)
+
+
+class CadCrsResponse(BaseModel):
+    crs: CadCrsSchema | None = None
+    # Без объекта работ СК хранить негде.
+    saved: bool
+    warnings: list[CadWarningSchema] = Field(default_factory=list)
 
 
 class CadRolesResponse(BaseModel):
@@ -405,3 +464,82 @@ class CadSurfaceResponse(BaseModel):
     thresholds: list[CadThresholdSchema] = Field(default_factory=list)
     bench: CadSurfaceBenchSchema = Field(default_factory=CadSurfaceBenchSchema)
     volume: CadSurfaceVolumeSchema = Field(default_factory=CadSurfaceVolumeSchema)
+
+
+# --- ситуация карьера (PR 4) ------------------------------------------------
+
+MAX_SITUATION_REFERENCES = 50
+
+
+class CadSituationVersionSchema(BaseModel):
+    """Версия серии ситуации — один загруженный файл."""
+
+    source_id: str
+    title: str
+    file_name: str
+    survey_date: str | None = None
+    uploaded_at: str
+    situation_count: int
+    # Номер правки источника: кэш геометрии на клиенте сбрасывается по нему.
+    revision: int
+
+
+class CadSituationSeriesSchema(BaseModel):
+    key: str
+    title: str
+    versions: list[CadSituationVersionSchema]
+    # Версия из ссылки паспорта, иначе самая свежая.
+    default_source_id: str
+
+
+class CadSituationCatalogueResponse(BaseModel):
+    site_code: str = ""
+    crs: CadCrsSchema | None = None
+    series: list[CadSituationSeriesSchema] = Field(default_factory=list)
+    # Ссылки паспорта, которых больше нет (удалены или чужие).
+    missing: list[str] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class CadSituationLineSchema(BaseModel):
+    points: list[list[float]]
+    closed: bool = False
+
+
+class CadSituationLayerSchema(BaseModel):
+    name: str
+    kind: str
+    kind_label: str = ""
+    color: str | None = None
+    lines: list[CadSituationLineSchema] = Field(default_factory=list)
+    points: list[list[float]] = Field(default_factory=list)
+    vertex_count: int = 0
+    # Слой не уместился в предел ответа — геометрии нет, только имя.
+    omitted: bool = False
+
+
+class CadSituationGeometryResponse(BaseModel):
+    source_id: str
+    revision: int
+    title: str
+    survey_date: str | None = None
+    layers: list[CadSituationLayerSchema] = Field(default_factory=list)
+    warnings: list[CadWarningSchema] = Field(default_factory=list)
+
+
+class CadSiteSourceSchema(BaseModel):
+    """Строка списка «Чертежи объекта»."""
+
+    id: str
+    title: str
+    file_name: str
+    survey_date: str | None = None
+    uploaded_at: str
+    uploaded_by: str = ""
+    situation_count: int = 0
+
+
+class CadSiteSourcesResponse(BaseModel):
+    site_code: str = ""
+    sources: list[CadSiteSourceSchema] = Field(default_factory=list)
+    truncated: bool = False

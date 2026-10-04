@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import type { CadSource } from "../../../types/cad";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { worldToScreen } from "../../../lib/geometry2d";
+import { fittedCamera } from "./CadCanvas";
 import { CadImportDialog, type CadImportDialogProps } from "./CadImportDialog";
 import { CAD_META, cadSource, contourResult, surfaceResult } from "./testing/fixtures";
 
@@ -15,8 +17,42 @@ const api = vi.hoisted(() => ({
     contour: vi.fn(),
     saveAreaBasis: vi.fn(),
     surface: vi.fn(),
+    situation: vi.fn(),
+    updateMeta: vi.fn(),
+    saveCrs: vi.fn(),
   },
 }));
+
+const VIEWPORT = { width: 800, height: 600 };
+const MSK66 = { name: "МСК-66 зона 1", height_system: "Балтийская 1977", epsg: null };
+
+/** Каталог ситуации объекта: файл окна и «Положение горных работ». */
+function catalogue() {
+  const version = (source_id: string, title: string, survey_date: string | null) => ({
+    source_id,
+    title,
+    file_name: `${title}.dxf`,
+    survey_date,
+    uploaded_at: "2026-09-30T10:00:00+00:00",
+    situation_count: 3,
+    revision: 1,
+  });
+  return {
+    site_code: "SITE_ZK",
+    crs: null,
+    missing: [],
+    truncated: false,
+    series: [
+      { key: "блок 66", title: "блок 66", versions: [version("src-1", "блок 66", "2026-09-28")], default_source_id: "src-1" },
+      {
+        key: "положение горных работ",
+        title: "Положение горных работ",
+        versions: [version("src-10", "Положение горных работ", "2026-10-01"), version("src-9", "Положение горных работ", "2026-09-01")],
+        default_source_id: "src-10",
+      },
+    ],
+  };
+}
 vi.mock("../../../api/endpoints", () => ({ api }));
 
 afterEach(cleanup);
@@ -39,6 +75,9 @@ beforeEach(() => {
   api.cad.contour.mockReset().mockResolvedValue(contourResult());
   api.cad.saveAreaBasis.mockReset().mockResolvedValue({ area_basis: "top", saved: true });
   api.cad.surface.mockReset().mockResolvedValue(surfaceResult());
+  api.cad.situation.mockReset().mockResolvedValue(catalogue());
+  api.cad.updateMeta.mockReset();
+  api.cad.saveCrs.mockReset().mockImplementation(async (_id: string, crs: unknown) => ({ crs, saved: true, warnings: [] }));
 });
 
 function renderDialog(extra: Partial<CadImportDialogProps> = {}) {
@@ -62,10 +101,14 @@ function highlight(handle: string): Element | null {
   return document.querySelector(`.cad-highlight[data-handle="${handle}"]`);
 }
 
-function hit(handle: string): Element {
-  const found = document.querySelector(`.cad-hit[data-handle="${handle}"]`);
-  if (!found) throw new Error(`нет зоны попадания ${handle}`);
-  return found;
+/** Холст чертежа и экранная точка мировой — как у холста (вписанная камера, окно 800 × 600 в jsdom). */
+function canvas(): Element {
+  return document.querySelector("svg.cad-canvas") as Element;
+}
+
+function at(x: number, y: number) {
+  const point = worldToScreen(fittedCamera(cadSource().entities, VIEWPORT), VIEWPORT, { x, y });
+  return { clientX: point.x, clientY: point.y };
 }
 
 describe("CadImportDialog", () => {
@@ -88,7 +131,8 @@ describe("CadImportDialog", () => {
     expect(highlight("769")).toBeNull();
 
     fireEvent.mouseLeave(screen.getByRole("row", { name: /Горизонт \+410/ }));
-    fireEvent.mouseEnter(hit("769"));
+    // Нижнее ребро контура 769: (90; 170) → (140; 170).
+    fireEvent.mouseMove(canvas(), at(120, 170));
     expect(screen.getByRole("row", { name: /блок 66 вар 2/ }).classList.contains("is-hovered")).toBe(true);
   });
 
@@ -96,7 +140,8 @@ describe("CadImportDialog", () => {
     renderDialog();
     await ready();
 
-    fireEvent.click(hit("733"));
+    // Нижняя бровка 733: (100; 180) → (130; 182).
+    fireEvent.click(canvas(), at(115, 181));
 
     const row = await screen.findByRole("row", { name: /733/ });
     expect(row.classList.contains("is-selected")).toBe(true);
@@ -266,6 +311,155 @@ describe("CadImportDialog", () => {
     expect(choice.surface).toMatchObject({ kind: "top", source_format: "cad", source_name: "блок 66.dwg" });
     expect(choice.surface.tin.vertices).toHaveLength(4);
     expect(choice.surface.cad).toMatchObject({ source_id: "src-1", floor_z_m: 409.5, builder: "cdt" });
+  });
+
+  it("«Построить блок» запоминает версии ситуации объекта и отдаёт СК объекта", async () => {
+    const props = renderDialog({ sources: [cadSource({ crs: MSK66 })] });
+    await ready();
+    await waitFor(() => expect(api.cad.situation).toHaveBeenCalledWith(["src-1"]));
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.click(button);
+
+    const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(choice.crs).toEqual(MSK66);
+    expect(choice.cad.situation).toEqual([
+      { source_id: "src-1", title: "блок 66", survey_date: "2026-09-28" },
+      { source_id: "src-10", title: "Положение горных работ", survey_date: "2026-10-01" },
+    ]);
+  });
+
+  it("«Построить блок» ждёт сохранения названия и обновлённого каталога", async () => {
+    // Ревью Codex (#108, круг 4): иначе паспорт запомнил бы прежнюю серию файла.
+    let answer: (value: unknown) => void = () => undefined;
+    api.cad.updateMeta.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const props = renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    const loads = api.cad.situation.mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Положение горных работ" } });
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText("Сохраняю название и дату…")).toBeTruthy();
+    await waitFor(() => expect(api.cad.updateMeta).toHaveBeenCalled());
+    expect(button.disabled).toBe(true);
+
+    await act(async () =>
+      answer({ id: "src-1", title: "Положение горных работ", survey_date: "2026-09-28", series: [], revision: 2 }),
+    );
+    await waitFor(() => expect(api.cad.situation.mock.calls.length).toBeGreaterThan(loads));
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    expect(props.onBuild).toHaveBeenCalledTimes(1);
+  });
+
+  it("«Построить блок» ждёт сохранения СК объекта; открытая правка СК — тоже", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    api.cad.saveCrs.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText("Сохраните или отмените правку СК объекта.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Система координат"), { target: { value: "МСК-66 зона 1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(screen.getByText("Сохраняю систему координат…")).toBeTruthy();
+
+    await act(async () => answer({ crs: MSK66, saved: true, warnings: [] }));
+    await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
+  it("каталог ситуации ещё грузится — «Построить блок» ждёт", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    api.cad.situation.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    renderDialog();
+    await ready();
+    // Контур и кровля готовы (объём у кнопки) — ждать больше нечего, кроме каталога.
+    await screen.findByText(/V [\d\s]+ м³/);
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText("Обновляю ситуацию объекта…")).toBeTruthy();
+
+    await act(async () => answer(catalogue()));
+    await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
+  it("каталог ситуации не загрузился — блок строится без ссылки", async () => {
+    api.cad.situation.mockRejectedValue(new Error("сеть"));
+    const props = renderDialog();
+    await ready();
+    const button = screen.getByRole("button", { name: "Построить блок" }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.click(button);
+
+    const choice = (props.onBuild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(choice.cad.situation).toBeUndefined();
+    expect(choice.crs).toBeNull();
+  });
+
+  it("вид объектов слоя ситуации сохраняется правкой ролей", async () => {
+    const source = cadSource();
+    const withRoad = {
+      ...source,
+      layers: [
+        ...source.layers,
+        {
+          name: "Автодорога",
+          role: "situation" as const,
+          origin: "auto" as const,
+          entity_count: 0,
+          kinds: {},
+          z_min: null,
+          z_max: null,
+          color: null,
+          counts_by_role: {},
+          situation_kind: "road" as const,
+          situation_kind_origin: "auto" as const,
+        },
+      ],
+    };
+    api.cad.saveRoles.mockResolvedValue({
+      id: "src-1",
+      template_saved: true,
+      floor_z_m: 410,
+      warnings: [],
+      layers: withRoad.layers,
+      roles: {},
+      overrides: [],
+    });
+    renderDialog({ sources: [withRoad] });
+
+    fireEvent.change(await screen.findByRole("combobox", { name: "Вид объектов слоя Автодорога" }), {
+      target: { value: "power_line" },
+    });
+
+    await waitFor(() => expect(api.cad.saveRoles).toHaveBeenCalledWith("src-1", { kinds: { Автодорога: "power_line" } }));
+  });
+
+  it("СК, заданная в окне, достаётся всем файлам объекта", async () => {
+    const onSourcesChange = vi.fn();
+    const missing = { code: "crs_missing", message: "У объекта не задана система координат.", level: "info" as const };
+    renderDialog({
+      sources: [cadSource({ warnings: [missing] }), cadSource({ id: "src-2", file_name: "ситуация.dxf", warnings: [missing] })],
+      onSourcesChange,
+    });
+    await ready();
+
+    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    fireEvent.change(screen.getByLabelText("Система координат"), { target: { value: "МСК-66 зона 1" } });
+    fireEvent.change(screen.getByLabelText("Система высот"), { target: { value: "Балтийская 1977" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(onSourcesChange).toHaveBeenCalled());
+    const next = onSourcesChange.mock.calls.at(-1)?.[0] as CadSource[];
+    expect(next.map((item) => item.crs)).toEqual([MSK66, MSK66]);
+    expect(next[1].warnings.map((item) => item.code)).not.toContain("crs_missing");
   });
 
   it("высота уступа вне 2–25 м: «Построить блок» неактивна до подтверждения на шаге «Итог»", async () => {
@@ -636,7 +830,7 @@ describe("CadImportDialog", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Контур" }));
     fireEvent.click(await screen.findByRole("radio", { name: "Сборка" }));
-    fireEvent.click(hit("6C3"));
+    fireEvent.click(canvas(), at(115, 202.5)); // верхняя бровка 6C3: (100; 200) → (130; 205)
 
     await waitFor(() =>
       expect(api.cad.contour).toHaveBeenLastCalledWith(

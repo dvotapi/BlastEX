@@ -107,6 +107,7 @@
 .drawing-import-row small { font-size:10.5px; color:#557166; }
 .drawing-import-row .primary-button { padding:0 14px; white-space:nowrap; }
 .drawing-import-warning { font-size:10.5px; color:#8a590d; }
+.drawing-sources-button { justify-self:start; }
 .crs-choice { display:flex; gap:12px; }
 .crs-choice label { display:flex; align-items:center; gap:5px; font-size:11.5px; cursor:pointer; }
 .crs-choice input { margin:0; accent-color:#2d7556; }
@@ -171,7 +172,9 @@
 .dxf-block-import input[type="file"] { font-size:11px; }
 .plan-canvas-wrap { position:relative; height:540px; background:#fbfcfb; touch-action:none; outline:none; user-select:none; }
 .plan-canvas-wrap:focus-visible { box-shadow:inset 0 0 0 2px rgba(45,117,86,.35); }
-.plan-canvas { display:block; width:100%; height:100%; touch-action:none; }
+.plan-canvas { position:relative; display:block; width:100%; height:100%; touch-action:none; }
+/* Подложка ситуации карьера (TASK-013, PR 4): под SVG плана, мышь проходит насквозь */
+.plan-situation { position:absolute; inset:0; pointer-events:none; }
 .plan-canvas-wrap.cursor-default .plan-canvas { cursor:default; }
 .plan-canvas-wrap.cursor-crosshair .plan-canvas { cursor:crosshair; }
 .plan-canvas-wrap.cursor-move .plan-canvas { cursor:move; }
@@ -564,6 +567,15 @@
 .visibility-layers section { display:grid; gap:4px; margin-top:4px; }
 .visibility-layers section small { color:#5c6a63; text-transform:uppercase; letter-spacing:.04em; }
 .visibility-layers label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+/* Группа «Ситуация» (TASK-013, PR 4): серии ситуации объекта, слои с цветом DXF */
+.visibility-situation .situation-series { display:grid; gap:3px; padding-top:4px; border-top:1px solid #edf1ef; }
+.situation-series-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:2px 6px; min-width:0; }
+.situation-series-head b { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.situation-series-head select { flex:1 1 100%; min-width:0; border:1px solid #d9e2dd; border-radius:6px; padding:1px 4px; font-size:10.5px; }
+.visibility-layers .visibility-situation .situation-passport, .visibility-layers .visibility-situation .situation-loading { color:#6e7c75; text-transform:none; letter-spacing:0; }
+.situation-swatch { flex:none; width:10px; height:3px; border-radius:1px; }
+.visibility-situation label em { margin-left:auto; color:#6e7c75; font-style:normal; font-size:10px; white-space:nowrap; }
+.visibility-note { margin:0; color:#8a590d; font-size:10.5px; }
 .legend-swatch.terrain { background:linear-gradient(90deg,#8fb39a,#6f8f7a); }
 .legend-swatch.network { background:#7a6ee0; }
 .legend-swatch.isolines { background:#9bb8d8; }

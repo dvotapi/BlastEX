@@ -27,6 +27,14 @@ class BenchSurfaceSchema(BaseModel):
     face_angle_deg: float = Field(90.0, gt=0, le=90)
 
 
+class CadSituationRefSchema(BaseModel):
+    """Ссылка паспорта на версию ситуации: источник, его название и дата съёмки."""
+
+    source_id: str
+    title: str = ""
+    survey_date: str | None = None
+
+
 class CadContourInfoSchema(BaseModel):
     """Контур из чертежа маркшейдера (TASK-013): откуда он и каким способом
     построен, участки сборки, контуры по верхней и нижней бровке, площади."""
@@ -49,6 +57,8 @@ class CadContourInfoSchema(BaseModel):
     edited: bool = False
     # Объём с блоковой карты — для сверки с объёмом по поверхностям (PR 3).
     map_volume_m3: float | None = None
+    # Версии ситуации объекта, показанные при «Построить блок» (PR 4).
+    situation: list[CadSituationRefSchema] | None = None
 
 
 class BlockContourSchema(BaseModel):
@@ -348,6 +358,8 @@ class CoordinateSystemSchema(BaseModel):
     origin_z: float = 0.0
     units: str = "m"
     confirmed: bool = False
+    # Система высот объекта (TASK-013 PR 4); пустая в паспорт не пишется.
+    height_system: str = Field(default="", max_length=120)
 
 
 class TINSchema(BaseModel):

@@ -31,13 +31,24 @@ export async function errorMessage(response: Response, fallback: string): Promis
   return fallback;
 }
 
+/** Ошибка ответа API с HTTP-статусом: «нет такого» (404) отличается от сбоя сервера. */
+export class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
   });
-  if (!response.ok) throw new Error(await errorMessage(response, "Не удалось выполнить запрос."));
+  if (!response.ok) throw new HttpError(await errorMessage(response, "Не удалось выполнить запрос."), response.status);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
@@ -73,4 +84,6 @@ export const post = <T,>(path: string, body: unknown) =>
   request<T>(path, { method: "POST", body: JSON.stringify(body) });
 export const put = <T,>(path: string, body: unknown) =>
   request<T>(path, { method: "PUT", body: JSON.stringify(body) });
+export const patch = <T,>(path: string, body: unknown) =>
+  request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 export const del = <T,>(path: string) => request<T>(path, { method: "DELETE" });

@@ -106,7 +106,7 @@ type Segment = { handle: string; a: XY; b: XY; startM: number };
 
 /** Точки привязки (концы, вершины, пересечения) по ячейкам: движение мыши над
  * чертежом с сотнями тысяч вершин смотрит только ячейки в пределах апертуры. */
-class PointCells<T extends { point: XY }> {
+export class PointCells<T extends { point: XY }> {
   cell = 5;
   private readonly items: T[] = [];
   private readonly grid = new Map<string, number[]>();
@@ -251,6 +251,16 @@ export class SnapIndex {
       for (let cy = y0; cy <= y1; cy += 1) for (const at of this.grid.get(this.key(cx, cy)) ?? []) found.add(at);
     }
     return [...found].map((at) => this.segments[at]);
+  }
+
+  /** Линии не дальше `radius` от точки: handle → наименьшее расстояние. */
+  linesNear(p: XY, radius: number): Map<string, number> {
+    const found = new Map<string, number>();
+    for (const segment of this.nearSegments(p, radius)) {
+      const { distance } = projectOnPolyline([segment.a, segment.b], p);
+      if (distance <= radius && distance < (found.get(segment.handle) ?? Infinity)) found.set(segment.handle, distance);
+    }
+    return found;
   }
 
   /** Точка привязки не дальше `aperture` метров от курсора или `null`. */

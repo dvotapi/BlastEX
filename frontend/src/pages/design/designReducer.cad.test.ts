@@ -147,3 +147,57 @@ it("старый паспорт без данных чертежа загруж�
   const loaded = designReducer(initDesignState(emptyDesign()), { type: "LOAD", design: emptyDesign() });
   expect(loaded.present.contour.cad).toBeNull();
 });
+
+describe("APPLY_CAD_CONTOUR: ситуация и СК объекта (PR 4)", () => {
+  const SITUATION = [
+    { source_id: "src-1", title: "граница блока 66", survey_date: "2026-09-28" },
+    { source_id: "src-9", title: "Положение горных работ", survey_date: "2026-09-01" },
+  ];
+
+  it("ставит СК объекта в паспорт подтверждённой и запоминает версии ситуации", () => {
+    const built = designReducer(initDesignState(emptyDesign()), {
+      type: "APPLY_CAD_CONTOUR",
+      vertices: VERTICES,
+      free_faces: [],
+      bench: {},
+      cad: { ...CAD, situation: SITUATION },
+      surface: ROOF,
+      crs: { name: "МСК-66 зона 1", height_system: "Балтийская 1977", epsg: null },
+    });
+
+    expect(built.present.coordinate_system).toMatchObject({
+      name: "МСК-66 зона 1",
+      height_system: "Балтийская 1977",
+      epsg: null,
+      confirmed: true,
+    });
+    expect(built.present.contour.cad?.situation).toEqual(SITUATION);
+    // Кровля из того же чертежа — в той же СК, а не «local» (ревью Codex #108).
+    expect(built.present.surfaces.top?.coordinate_system).toEqual({
+      ...ROOF.coordinate_system,
+      name: "МСК-66 зона 1",
+      height_system: "Балтийская 1977",
+      epsg: null,
+      confirmed: true,
+    });
+  });
+
+  it("без СК объекта система координат паспорта не меняется", () => {
+    const start = initDesignState({
+      ...emptyDesign(),
+      coordinate_system: { ...emptyCoordinateSystem(), name: "Карьерная сетка", confirmed: true },
+    });
+    const built = designReducer(start, {
+      type: "APPLY_CAD_CONTOUR",
+      vertices: VERTICES,
+      free_faces: [],
+      bench: {},
+      cad: CAD,
+      surface: ROOF,
+      crs: null,
+    });
+
+    expect(built.present.coordinate_system.name).toBe("Карьерная сетка");
+    expect(built.present.surfaces.top?.coordinate_system).toEqual(ROOF.coordinate_system);
+  });
+});

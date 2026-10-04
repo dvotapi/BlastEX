@@ -19,6 +19,7 @@ function renderStep(extra: Partial<LayersStepProps> = {}) {
     onSelect: vi.fn(),
     onLayerRole: vi.fn(),
     onEntityRole: vi.fn(),
+    onLayerKind: vi.fn(),
     ...extra,
   };
   render(<LayersStep {...props} />);
@@ -129,5 +130,46 @@ describe("LayersStep", () => {
 
     expect(props.onHover).toHaveBeenCalledWith({ layer: "Отметка", handle: null });
     expect(props.onToggle).toHaveBeenCalledWith("Отметка");
+  });
+  it("у слоя ситуации — вид объектов с бейджем, «По имени слоя» снимает выбор", () => {
+    const source = cadSource();
+    const road = cadEntity("R1", "Автодорога", { kind: "LWPOLYLINE", z_kind: "zero" });
+    const props = renderStep({
+      source: {
+        ...source,
+        entities: [...source.entities, road],
+        layers: [
+          ...source.layers,
+          {
+            name: "Автодорога",
+            role: "situation",
+            origin: "auto",
+            entity_count: 1,
+            kinds: { LWPOLYLINE: 1 },
+            z_min: 0,
+            z_max: 0,
+            color: "#ffffff",
+            counts_by_role: { situation: 1 },
+            situation_kind: "road",
+            situation_kind_origin: "auto",
+          },
+        ],
+      },
+    });
+
+    const kind = screen.getByRole("combobox", { name: "Вид объектов слоя Автодорога" }) as HTMLSelectElement;
+    expect(kind.value).toBe("road");
+    const kindRow = kind.closest("tr") as HTMLElement;
+    expect(within(kindRow).getByText("авто")).toBeTruthy();
+
+    fireEvent.change(kind, { target: { value: "power_line" } });
+    expect(props.onLayerKind).toHaveBeenCalledWith("Автодорога", "power_line");
+    fireEvent.change(kind, { target: { value: "" } });
+    expect(props.onLayerKind).toHaveBeenLastCalledWith("Автодорога", null);
+  });
+
+  it("у слоёв без ситуации вида нет", () => {
+    renderStep();
+    expect(screen.queryByRole("combobox", { name: /Вид объектов слоя/ })).toBeNull();
   });
 });

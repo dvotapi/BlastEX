@@ -26,12 +26,12 @@ ORG = "org-zk"
 LOWER_CRESTS = {"733", "73B", "753", "75A"}
 
 
-def _import(repository: InMemoryCadRepository) -> dict:
+def _import(repository: InMemoryCadRepository, content: bytes | None = None) -> dict:
     response = cad_service.import_files(
         repository,
         ORG,
         "engineer@example.ru",
-        [("block66.dxf", FIXTURE.read_bytes())],
+        [("block66.dxf", content if content is not None else FIXTURE.read_bytes())],
         CadParamsSchema(),
         "Жуков камень",
         None,
@@ -113,8 +113,11 @@ def test_repeat_import_is_labelled_by_the_template_without_manual_steps():
         CadRolesRequest(layers={"Отвал вскрышных пород": "ignore"}),
     )
 
-    second = _import(repository)
+    # Следующий файл того же маркшейдера — другие байты (тот же файл открыл бы
+    # прежний разбор, PR 4): комментарий DXF в начале, содержание то же.
+    second = _import(repository, "999\nповторная выгрузка\n".encode() + FIXTURE.read_bytes())
 
+    assert second["id"] != first["id"]
     assert {item["name"]: (item["role"], item["origin"]) for item in second["layers"]} == {
         "блок 66 вар 2": ("block_contour", "template"),
         "Горизонт +410": ("crests_by_z", "template"),
@@ -124,3 +127,21 @@ def test_repeat_import_is_labelled_by_the_template_without_manual_steps():
     lower = {item["handle"] for item in second["entities"] if item["role"] == "crest_bottom"}
     assert lower == LOWER_CRESTS
     assert not any(item["role_origin"] == "manual" for item in second["entities"])
+
+
+def test_the_same_file_again_opens_the_previous_parse():
+    repository = InMemoryCadRepository()
+    first = _import(repository)
+    cad_service.save_roles(
+        repository,
+        ORG,
+        "engineer@example.ru",
+        first["id"],
+        CadRolesRequest(layers={"Отвал вскрышных пород": "ignore"}),
+    )
+
+    again = _import(repository)
+
+    assert again["id"] == first["id"]
+    assert "already_loaded" in {item["code"] for item in again["warnings"]}
+    assert _layer(again, "Отвал вскрышных пород")["role"] == "ignore"

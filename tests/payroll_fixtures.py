@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from cost.model.payroll import DifficultyTables, HardnessBand
+from cost.model.payroll import DifficultyTables, HardnessBand, Scale
 from cost.v2.payroll_defaults import HARDNESS_BANDS
 
 CENT = Decimal("0.01")
@@ -38,3 +38,12 @@ TABLES = DifficultyTables(
 
 def cents(value: Decimal) -> Decimal:
     return value.quantize(CENT)
+
+
+CURVE_X = Scale(
+    "CURVE_POWER",
+    norm_per_shift=Decimal("115.3846"),
+    rate_norm=Decimal("45"),
+    ceiling_per_shift=Decimal("184.6154"),
+    rate_ceiling=Decimal("168.66"),
+)

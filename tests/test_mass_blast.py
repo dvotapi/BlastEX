@@ -10,6 +10,7 @@ from design.mass_blast import (
     build_document_context,
     content_sha256,
     has_blocking_issues,
+    role_signers,
     validate_project_context,
 )
 from tests.scenario_fixtures import charged_design
@@ -32,8 +33,10 @@ class MassBlastContextTests(unittest.TestCase):
             "document_profile_code": "STANDARD",
             "reference_revision_id": "ref-1",
             "responsibilities": [
-                {"role_code": "blast_manager", "employee_code": "E-1", "employee_name": "Руководитель"},
-                {"role_code": "explosives_supervisor", "employee_code": "E-2", "employee_name": "Ответственный"},
+                {"role_code": "blast_manager", "employee_code": "E-1", "employee_name": "Руководитель",
+                 "account_email": "manager@example.ru"},
+                {"role_code": "explosives_supervisor", "employee_code": "E-2", "employee_name": "Ответственный",
+                 "account_email": "supervisor@example.ru"},
             ],
             "safety_plan": {"danger_zone_radius_m": 500},
             "signal_plan": {"profile_code": "THREE_SIGNALS"},
@@ -65,6 +68,54 @@ class MassBlastContextTests(unittest.TestCase):
         self.assertEqual({issue.code for issue in issues if issue.level == "error"}, {
             "responsibility_required", "danger_zone", "signal_profile", "guard_posts"
         })
+
+    def test_validation_requires_an_account_for_each_responsibility(self):
+        _, _, context = self._context()
+        context["responsibilities"][1]["account_email"] = "  "
+        issues = validate_project_context(context)
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues if issue.level == "error"],
+            [("responsibility_account", "responsibilities[1].account_email")],
+        )
+
+    def test_validation_forbids_one_account_on_two_roles(self):
+        # П. 81 ФНП № 494: заведующий складом ВМ не руководит взрывными работами.
+        _, _, context = self._context()
+        context["responsibilities"][1]["account_email"] = "Manager@Example.ru"
+        issues = validate_project_context(context)
+        self.assertEqual(
+            [issue.code for issue in issues if issue.level == "error"], ["responsibility_distinct"]
+        )
+
+    def test_validation_forbids_a_role_assigned_twice(self):
+        _, _, context = self._context()
+        context["responsibilities"].append(
+            {"role_code": "blast_manager", "employee_code": "E-3", "account_email": "other@example.ru"}
+        )
+        issues = validate_project_context(context)
+        self.assertEqual(
+            [issue.code for issue in issues if issue.level == "error"], ["responsibility_role_duplicate"]
+        )
+
+    def test_role_signers_map_each_role_to_its_account(self):
+        _, _, context = self._context()
+        context["responsibilities"][0]["account_email"] = " Manager@Example.RU "
+        self.assertEqual(role_signers(context), {
+            "blast_manager": "manager@example.ru",
+            "explosives_supervisor": "supervisor@example.ru",
+        })
+
+    def test_role_signers_refuse_a_revision_without_accounts(self):
+        _, _, context = self._context()
+        del context["responsibilities"][1]["account_email"]
+        with self.assertRaisesRegex(ValueError, "explosives_supervisor|Ответственный"):
+            role_signers(context)
+
+    def test_role_signers_refuse_one_account_on_two_roles(self):
+        _, _, context = self._context()
+        context["responsibilities"][1]["account_email"] = "manager@example.ru"
+        with self.assertRaises(ValueError):
+            role_signers(context)
 
     def test_release_requires_a_current_graphic_attachment_when_profile_demands_it(self):
         _, _, context = self._context()

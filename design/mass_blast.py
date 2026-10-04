@@ -220,6 +220,57 @@ def build_document_context(payload: dict[str, Any], blocks: Iterable[ProjectBloc
     }
 
 
+def _responsibility_issues(responsibilities: Iterable[dict[str, Any]]) -> list[ValidationIssue]:
+    """Each role is signed by one account, and one account signs one role.
+
+    Two roles on one person are forbidden by the owner's rule, which follows
+    ФНП № 494 п. 81: the explosives store keeper may not run blasting works.
+    """
+
+    issues: list[ValidationIssue] = []
+    roles: set[str] = set()
+    account_roles: dict[str, str] = {}
+    for index, item in enumerate(responsibilities):
+        role = str(item.get("role_code", "")).strip()
+        if not role:
+            continue
+        label = str(item.get("position_name", "")).strip() or role
+        email = str(item.get("account_email", "")).strip().casefold()
+        if role in roles:
+            issues.append(ValidationIssue(
+                "error", "responsibility_role_duplicate", f"Роль «{label}» назначена дважды.",
+                f"responsibilities[{index}].role_code",
+            ))
+        roles.add(role)
+        if not email:
+            issues.append(ValidationIssue(
+                "error", "responsibility_account",
+                f"Укажите учётку для роли «{label}»: согласовать роль может только она.",
+                f"responsibilities[{index}].account_email",
+            ))
+        elif account_roles.setdefault(email, label) != label:
+            issues.append(ValidationIssue(
+                "error", "responsibility_distinct",
+                f"Одна учётка не может согласовывать за две роли: «{account_roles[email]}» и «{label}».",
+                f"responsibilities[{index}].account_email",
+            ))
+    return issues
+
+
+def role_signers(context: dict[str, Any]) -> dict[str, str]:
+    """Role code → the only account allowed to approve it in this revision."""
+
+    responsibilities = list(context.get("responsibilities") or [])
+    issues = _responsibility_issues(responsibilities)
+    if issues:
+        raise ValueError(" ".join(issue.message for issue in issues))
+    return {
+        str(item.get("role_code", "")).strip(): str(item.get("account_email", "")).strip().casefold()
+        for item in responsibilities
+        if str(item.get("role_code", "")).strip()
+    }
+
+
 def validate_project_context(context: dict[str, Any], *, require_attachments: bool = False) -> list[ValidationIssue]:
     """Validate release readiness; warnings never silently become approvals."""
 
@@ -256,6 +307,7 @@ def validate_project_context(context: dict[str, Any], *, require_attachments: bo
     for code, label in (("blast_manager", "ответственный руководитель взрывных работ"), ("explosives_supervisor", "ответственный за хранение/выдачу ВМ")):
         if code not in roles:
             issues.append(ValidationIssue("error", "responsibility_required", f"Назначьте: {label}.", "responsibilities"))
+    issues.extend(_responsibility_issues(context.get("responsibilities") or []))
 
     safety = context.get("safety_plan") or {}
     if float(safety.get("danger_zone_radius_m", 0) or 0) <= 0:

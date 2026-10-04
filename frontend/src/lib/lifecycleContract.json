@@ -1,0 +1,23 @@
+{
+  "payload_keys": {
+    "designed": [
+      "contour",
+      "holes",
+      "loads",
+      "network",
+      "pattern_params",
+      "charge_rules",
+      "rock_name",
+      "explosive_key",
+      "coordinate_system",
+      "surfaces",
+      "domains",
+      "water_table_z_m",
+      "receptors",
+      "vibration_models"
+    ],
+    "execution": ["as_drilled_holes", "as_charged_holes", "as_fired_holes"],
+    "measured": ["vibration_measurements", "blast_result"],
+    "metadata": ["name"]
+  }
+}

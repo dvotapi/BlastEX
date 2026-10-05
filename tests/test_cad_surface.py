@@ -598,3 +598,19 @@ def test_roof_full_of_holes_falls_back_to_the_crest(monkeypatch):
     result = volume_in_polygon(vertices, triangles, BLOCK, 410.0, fallback_z=415.0)
 
     assert result.outside_integral_m3 == pytest.approx(400 * 5)
+    assert result.outside_by_crest
+
+
+@pytest.mark.parametrize("factory", BUILDERS)
+def test_coverage_warning_names_the_crest_when_the_roof_is_full_of_holes(factory, monkeypatch):
+    # Ревью Codex #116 (32e082c): по бровке, а предупреждение — «по ближайшей отметке».
+    entities = grid(lambda x, y: 420.0, x_range=(-20, 21))
+    plain = build_roof(entities, BLOCK, None, floor_z=410.0, crest_z=415.0, builder=factory())
+    monkeypatch.setattr("design.spatial.cad.surface.TIN_BORDER_EDGES_MAX", 3)
+    holes = build_roof(entities, BLOCK, None, floor_z=410.0, crest_z=415.0, builder=factory())
+
+    def coverage(roof):
+        return next(w.message for w in roof.warnings if w.code == "coverage")
+
+    assert "ближайшей отметке кровли" in coverage(plain)
+    assert "отметке бровки" in coverage(holes)

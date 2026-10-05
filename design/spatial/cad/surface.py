@@ -92,6 +92,9 @@ class VolumeResult:
     area_m2: float
     # Интеграл со знаком по части вне кровли; None — она не считалась.
     outside_integral_m3: float | None = None
+    # Часть вне кровли посчитана по бровке, а не по ближайшей вершине
+    # (сеть без треугольников, с наложениями или в дырах).
+    outside_by_crest: bool = False
 
     @property
     def coverage_pct(self) -> float:
@@ -290,12 +293,19 @@ def _volume_local(
                 volume += _piece_volume(cut, lifted, floor_z)
     covered = min(covered, area)
     outside: float | None = None
+    by_crest = False
     if fallback_z is not None:
-        outside = _outside_integral(vertices, triangles, shape, area - covered, floor_z, fallback_z)
-        volume += max(0.0, outside[1])
-        outside = outside[0]
+        outside, outside_volume, by_crest = _outside_integral(
+            vertices, triangles, shape, area - covered, floor_z, fallback_z
+        )
+        volume += max(0.0, outside_volume)
     return VolumeResult(
-        volume_m3=volume, integral_m3=integral, covered_m2=covered, area_m2=area, outside_integral_m3=outside
+        volume_m3=volume,
+        integral_m3=integral,
+        covered_m2=covered,
+        area_m2=area,
+        outside_integral_m3=outside,
+        outside_by_crest=by_crest,
     )
 
 
@@ -456,37 +466,37 @@ def _outside_integral(
     uncovered_m2: float,
     floor_z: float,
     fallback_z: float,
-) -> tuple[float, float]:
-    """(Интеграл со знаком, объём) части полигона вне кровли.
+) -> tuple[float, float, bool]:
+    """(Интеграл со знаком, объём, «по бровке») части полигона вне кровли.
 
     Ячейка берёт Z ближайшей к её точке вершины сети; без треугольников или
     с сетью, граница которой не собирается, вся часть — по `fallback_z`.
     """
     if uncovered_m2 <= max(1e-9, 1e-9 * float(shape.area)):
-        return 0.0, 0.0
+        return 0.0, 0.0, False
     covered_area = _tin_area(vertices, triangles)
     if covered_area is None:
         # Сеть с наложениями: часть вне кровли — по бровке, как без сети.
         height = fallback_z - floor_z
-        return uncovered_m2 * height, uncovered_m2 * max(0.0, height)
+        return uncovered_m2 * height, uncovered_m2 * max(0.0, height), True
     rest = shapely.difference(shape, covered_area)
     parts = shapely.get_parts(shapely.get_parts(rest))
     parts = parts[(shapely.get_type_id(parts) == 3) & (shapely.area(parts) > OUTSIDE_SLIVER_M2)]
     if not len(parts):
-        return 0.0, 0.0
+        return 0.0, 0.0, False
     # Ближайшая из всех вершин сети с отметкой — как у устья (`TIN.nearest_vertex`).
     marked = np.flatnonzero(np.isfinite(vertices[:, 2]))
     if not len(marked):
         height = fallback_z - floor_z
-        return uncovered_m2 * height, uncovered_m2 * max(0.0, height)
+        return uncovered_m2 * height, uncovered_m2 * max(0.0, height), True
     pieces = outside_cells(parts)
     if not len(pieces):
-        return 0.0, 0.0
+        return 0.0, 0.0, False
     areas = shapely.area(pieces)
     centres = shapely.get_coordinates(shapely.point_on_surface(pieces))
     _, nearest = cKDTree(vertices[marked, :2]).query(centres)
     heights = vertices[marked[nearest], 2] - floor_z
-    return float(np.sum(areas * heights)), float(np.sum(areas * np.maximum(heights, 0.0)))
+    return float(np.sum(areas * heights)), float(np.sum(areas * np.maximum(heights, 0.0))), False
 
 
 # --- построение ---------------------------------------------------------------
@@ -917,6 +927,7 @@ def build_roof(
         )
 
     polygon = bottom_local or top_local
+    outside_by_crest = False
     if floor_z is None:
         roof.coverage_pct = _volume_local(vertices, triangles, polygon, 0.0, None).coverage_pct
         warnings.append(CadWarning("floor_missing", "Подошва не задана — высота уступа и объём не считаются."))
@@ -928,6 +939,7 @@ def build_roof(
         reach = THRESHOLD_NEAR_M + (0.0 if bottom_local else max(0.0, roof.mean_height_m or 0.0))
         roof.thresholds = _thresholds(data, floor_z, polygon, reach)
         block = _volume_local(vertices, triangles, polygon, floor_z, crest_z)
+        outside_by_crest = block.outside_by_crest
         roof.coverage_pct = block.coverage_pct
         roof.volume_m3 = block.volume_m3
         if plane and roof.mean_height_m is not None:
@@ -941,7 +953,13 @@ def build_roof(
             CadWarning(
                 "coverage",
                 f"Кровля покрывает {ru_number(roof.coverage_pct, 1)} % контура"
-                + (": остальное посчитано по ближайшей отметке кровли." if crest_z is not None else "."),
+                + (
+                    "."
+                    if crest_z is None
+                    else ": остальное посчитано по отметке бровки — сеть кровли в дырах или с наложениями."
+                    if outside_by_crest
+                    else ": остальное посчитано по ближайшей отметке кровли."
+                ),
             )
         )
     if roof.vertex_count > SIZE_WARNING_VERTICES:

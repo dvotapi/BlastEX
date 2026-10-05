@@ -377,12 +377,53 @@ def _tin_area(vertices: np.ndarray, triangles: np.ndarray) -> shapely.Geometry |
 
 
 # Часть вне кровли режется на ячейки: около 4000 на её площадь, не мельче
-# 0,05 м; сетка над её габаритом — не больше 400 000 ячеек. Щели склейки
-# треугольников (площадь меньше 1e-6 м²) — шум, не часть вне кровли.
+# 0,05 м и не больше 50 000 (иначе шаг удваивается). Ячейки ставятся только
+# над частью вне кровли — полосами по строкам, не сеткой над габаритом: у
+# тонкой рамки габарит — весь блок. Щели склейки треугольников (площадь
+# меньше 1e-6 м²) — шум, не часть вне кровли.
 OUTSIDE_CELLS = 4_000
 OUTSIDE_CELL_MIN_M = 0.05
-OUTSIDE_GRID_MAX = 400_000
+OUTSIDE_CELLS_MAX = 50_000
 OUTSIDE_SLIVER_M2 = 1e-6
+
+
+def outside_cells(rest: shapely.Geometry) -> np.ndarray:
+    """Куски ячеек над областью `rest` (полигоны shapely), в сумме — `rest`."""
+
+    step = max(OUTSIDE_CELL_MIN_M, math.sqrt(rest.area / OUTSIDE_CELLS))
+    while True:
+        cells = _strip_cells(rest, step)
+        if cells is not None:
+            return cells
+        step *= 2
+
+
+def _strip_cells(rest: shapely.Geometry, step: float) -> np.ndarray | None:
+    """Ячейки шага `step`: строка режется по `rest`, ячейки — над её кусками.
+
+    None — ячеек вышло бы больше `OUTSIDE_CELLS_MAX`.
+    """
+    min_x, min_y, max_x, max_y = rest.bounds
+    ys = np.arange(min_y, max_y, step)
+    if len(ys) > OUTSIDE_CELLS_MAX:
+        return None
+    shapely.prepare(rest)
+    rows = shapely.intersection(shapely.box(min_x, ys, max_x, ys + step), rest)
+    # Пересечение бывает и коллекцией (полигоны, отрезки) — части в два прохода.
+    parts = shapely.get_parts(shapely.get_parts(rows))
+    parts = parts[(shapely.get_type_id(parts) == 3) & (shapely.area(parts) > 0)]
+    if not len(parts):
+        return parts
+    bounds = shapely.bounds(parts)
+    counts = np.maximum(np.ceil((bounds[:, 2] - bounds[:, 0]) / step), 1).astype(int)
+    if int(counts.sum()) > OUTSIDE_CELLS_MAX:
+        return None
+    owner = np.repeat(np.arange(len(parts)), counts)
+    offset = np.arange(len(owner)) - np.repeat(np.cumsum(counts) - counts, counts)
+    x0 = bounds[owner, 0] + offset * step
+    cells = shapely.box(x0, bounds[owner, 1], x0 + step, bounds[owner, 3])
+    pieces = shapely.intersection(cells, parts[owner])
+    return pieces[shapely.area(pieces) > 0]
 
 
 def _outside_integral(
@@ -395,7 +436,7 @@ def _outside_integral(
 ) -> tuple[float, float]:
     """(Интеграл со знаком, объём) части полигона вне кровли.
 
-    Ячейка берёт Z ближайшей к её центру вершины TIN; без треугольников или
+    Ячейка берёт Z ближайшей к её точке вершины сети; без треугольников или
     с сетью, граница которой не собирается, вся часть — по `fallback_z`.
     """
     if uncovered_m2 <= max(1e-9, 1e-9 * float(shape.area)):
@@ -410,29 +451,19 @@ def _outside_integral(
     parts = parts[shapely.area(parts) > OUTSIDE_SLIVER_M2]
     if not len(parts):
         return 0.0, 0.0
-    rest = shapely.union_all(parts)
-    min_x, min_y, max_x, max_y = rest.bounds
-    step = max(
-        OUTSIDE_CELL_MIN_M,
-        math.sqrt(rest.area / OUTSIDE_CELLS),
-        math.sqrt((max_x - min_x) * (max_y - min_y) / OUTSIDE_GRID_MAX),
-    )
-    xs = np.arange(min_x, max_x, step)
-    ys = np.arange(min_y, max_y, step)
-    gx, gy = np.meshgrid(xs, ys)
-    cells = shapely.box(gx.ravel(), gy.ravel(), gx.ravel() + step, gy.ravel() + step)
-    shapely.prepare(rest)
-    cells = cells[shapely.intersects(rest, cells)]
-    pieces = shapely.intersection(cells, rest)
-    areas = shapely.area(pieces)
-    keep = areas > 0
-    if not np.any(keep):
+    # Ближайшая из всех вершин сети с отметкой — как у устья (`TIN.nearest_vertex`).
+    marked = np.flatnonzero(np.isfinite(vertices[:, 2]))
+    if not len(marked):
+        height = fallback_z - floor_z
+        return uncovered_m2 * height, uncovered_m2 * max(0.0, height)
+    pieces = outside_cells(shapely.union_all(parts))
+    if not len(pieces):
         return 0.0, 0.0
-    used = np.unique(triangles)
-    centres = shapely.get_coordinates(shapely.point_on_surface(pieces[keep]))
-    _, nearest = cKDTree(vertices[used, :2]).query(centres)
-    heights = vertices[used[nearest], 2] - floor_z
-    return float(np.sum(areas[keep] * heights)), float(np.sum(areas[keep] * np.maximum(heights, 0.0)))
+    areas = shapely.area(pieces)
+    centres = shapely.get_coordinates(shapely.point_on_surface(pieces))
+    _, nearest = cKDTree(vertices[marked, :2]).query(centres)
+    heights = vertices[marked[nearest], 2] - floor_z
+    return float(np.sum(areas * heights)), float(np.sum(areas * np.maximum(heights, 0.0)))
 
 
 # --- построение ---------------------------------------------------------------

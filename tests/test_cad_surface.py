@@ -14,7 +14,7 @@ import shapely
 from shapely.geometry import Polygon
 
 from design.spatial.cad.model import CadEntity
-from design.spatial.cad.surface import build_roof, volume_in_polygon
+from design.spatial.cad.surface import build_roof, outside_cells, volume_in_polygon
 from design.spatial.cad.surface_builder import CdtBuilder, ScipyBuilder
 
 BLOCK = [(0.0, 0.0), (40.0, 0.0), (40.0, 20.0), (0.0, 20.0)]
@@ -538,3 +538,30 @@ def test_repeated_triangles_do_not_hide_the_part_beyond_the_roof():
     assert result.covered_m2 == pytest.approx(400.0)
     assert result.volume_m3 == pytest.approx(400 * 7 + 400 * 4)
 
+
+
+def test_thin_frame_beyond_the_roof_is_cut_into_few_cells():
+    # Ревью Codex #116: кровля чуть меньше контура оставляет рамку, а сетка
+    # над её габаритом давала ~400 000 ячеек на каждый пересчёт.
+    edge = 0.05
+    frame = shapely.difference(
+        Polygon([(0, 0), (300, 0), (300, 300), (0, 300)]),
+        Polygon([(edge, edge), (300 - edge, edge), (300 - edge, 300 - edge), (edge, 300 - edge)]),
+    )
+
+    cells = outside_cells(frame)
+
+    assert len(cells) < 20_000
+    assert shapely.area(cells).sum() == pytest.approx(frame.area, rel=1e-9)
+
+
+def test_nearest_roof_vertex_includes_vertices_without_triangles():
+    # Ревью Codex #116: устье берёт ближайшую из всех вершин сети
+    # (`TIN.nearest_vertex`) — часть вне кровли тоже, иначе отметки расходятся.
+    vertices = np.array([[0, 0, 420], [20, 0, 420], [20, 20, 420], [0, 20, 420], [21, 10, 412]], dtype=float)
+    triangles = np.array([[0, 1, 2], [0, 2, 3]])
+
+    result = volume_in_polygon(vertices, triangles, BLOCK, 410.0, fallback_z=415.0)
+
+    # Ячейки x > 20 ближе к вершине (21, 10, 412), кроме углов у (20, 0) и (20, 20).
+    assert result.outside_integral_m3 < 400 * 10 * 0.75

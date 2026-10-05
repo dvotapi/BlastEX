@@ -261,7 +261,10 @@ def _volume_local(
         shapely.prepare(shape)
         tri = vertices[triangles]
         polys = shapely.polygons(tri[:, :, :2])
-        above, crossing = _above_floor(tri, floor_z)
+        # Пересекающих подошву (подножие откоса) — единицы: только они режутся
+        # её линией, остальные считаются numpy — целиком выше или целиком ниже.
+        h = tri[:, :, 2] - floor_z
+        crossing = np.any(h < 0, axis=1) & np.any(h > 0, axis=1)
         # Треугольник целиком внутри — площадь и Z центра тяжести напрямую;
         # обрезаются только пересекающие границу.
         inside = shapely.contains_properly(shape, polys)
@@ -273,7 +276,10 @@ def _volume_local(
             heights = whole[:, :, 2].mean(axis=1) - floor_z
             covered += float(np.sum(areas))
             integral += float(np.sum(areas * heights))
-            volume += _piece_volume(tri[inside], above[inside], floor_z)
+            cross = crossing[inside]
+            volume += float(np.sum(areas[~cross] * np.maximum(heights[~cross], 0.0)))
+            if np.any(cross):
+                volume += _piece_volume(whole[cross], _above_floor(whole[cross], floor_z), floor_z)
         mask = ~inside & shapely.intersects(shape, polys)
         if np.any(mask):
             pieces = shapely.intersection(polys[mask], shape)
@@ -285,12 +291,11 @@ def _volume_local(
                 heights = _plane_z(cut, centres) - floor_z
                 covered += float(np.sum(areas[keep]))
                 integral += float(np.sum(areas[keep] * heights))
-                # Кусок целиком выше подошвы — сам кусок: пересечение почти
-                # совпадающих полигонов в GEOS бывает пустым.
-                lifted = pieces[keep].copy()
                 cross = crossing[mask][keep]
-                lifted[cross] = shapely.intersection(above[mask][keep][cross], lifted[cross])
-                volume += _piece_volume(cut, lifted, floor_z)
+                volume += float(np.sum(areas[keep][~cross] * np.maximum(heights[~cross], 0.0)))
+                if np.any(cross):
+                    lifted = shapely.intersection(_above_floor(cut[cross], floor_z), pieces[keep][cross])
+                    volume += _piece_volume(cut[cross], lifted, floor_z)
     covered = min(covered, area)
     outside: float | None = None
     by_crest = False
@@ -322,20 +327,15 @@ def _unique_triangles(triangles: np.ndarray, vertex_count: int) -> np.ndarray:
     return triangles[np.sort(first)]
 
 
-def _above_floor(tri: np.ndarray, floor_z: float) -> tuple[np.ndarray, np.ndarray]:
-    """Часть каждого треугольника выше подошвы (полигоны shapely, пустые — ниже)
-    и признак «пересекает подошву».
+def _above_floor(tri: np.ndarray, floor_z: float) -> np.ndarray:
+    """Часть треугольников, пересекающих подошву, выше неё (полигоны shapely).
 
     Кровля в треугольнике линейна, линия подошвы режет его по прямой: выше
-    подошвы — треугольник или четырёхугольник. Режется только тот, что
-    пересекает подошву (подножие откоса).
+    подошвы — треугольник или четырёхугольник.
     """
     h = tri[:, :, 2] - floor_z
-    out = shapely.polygons(tri[:, :, :2])
-    below = np.all(h <= 0, axis=1)
-    out[below] = shapely.Polygon()
-    crossing = ~below & np.any(h < 0, axis=1)
-    for k in np.flatnonzero(crossing).tolist():
+    out = np.empty(len(tri), dtype=object)
+    for k in range(len(tri)):
         ring: list[tuple[float, float]] = []
         for i in range(3):
             j = (i + 1) % 3
@@ -351,7 +351,7 @@ def _above_floor(tri: np.ndarray, floor_z: float) -> tuple[np.ndarray, np.ndarra
                     )
                 )
         out[k] = Polygon(ring) if len(ring) >= 3 else shapely.Polygon()
-    return out, crossing
+    return out
 
 
 def _piece_volume(tri: np.ndarray, pieces: np.ndarray, floor_z: float) -> float:

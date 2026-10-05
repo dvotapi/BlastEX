@@ -549,7 +549,7 @@ def test_thin_frame_beyond_the_roof_is_cut_into_few_cells():
         Polygon([(edge, edge), (300 - edge, edge), (300 - edge, 300 - edge), (edge, 300 - edge)]),
     )
 
-    cells = outside_cells(frame)
+    cells = outside_cells(shapely.get_parts(frame))
 
     assert len(cells) < 20_000
     assert shapely.area(cells).sum() == pytest.approx(frame.area, rel=1e-9)
@@ -565,3 +565,36 @@ def test_nearest_roof_vertex_includes_vertices_without_triangles():
 
     # Ячейки x > 20 ближе к вершине (21, 10, 412), кроме углов у (20, 0) и (20, 20).
     assert result.outside_integral_m3 < 400 * 10 * 0.75
+
+
+def test_many_pieces_beyond_the_roof_are_cells_themselves(monkeypatch):
+    # Ревью безопасности: кусков больше предела ячеек — каждая строка дала
+    # бы по ячейке на кусок, и удвоение шага не кончилось бы никогда.
+    monkeypatch.setattr("design.spatial.cad.surface.OUTSIDE_CELLS_MAX", 2)
+    pieces = shapely.box(np.arange(3) * 10.0, 0.0, np.arange(3) * 10.0 + 1, 1.0)
+
+    assert list(outside_cells(pieces)) == list(pieces)
+
+
+def test_cells_give_up_on_too_much_work(monkeypatch):
+    # Сложный остаток: каждая строка пересекается с куском во много вершин —
+    # работа ограничена, при переборе пределов кусок — одна ячейка.
+    monkeypatch.setattr("design.spatial.cad.surface.OUTSIDE_WORK_MAX", 10)
+    ring = shapely.Point(0, 0).buffer(50, quad_segs=64)
+
+    cells = outside_cells(np.array([ring]))
+
+    assert len(cells) == 1
+    assert shapely.area(cells).sum() == pytest.approx(ring.area)
+
+
+def test_roof_full_of_holes_falls_back_to_the_crest(monkeypatch):
+    # Ревью безопасности: сборка области сети в тысячах дыр — секунды на
+    # каждый пересчёт; рёбер границы больше предела — часть вне кровли по бровке.
+    monkeypatch.setattr("design.spatial.cad.surface.TIN_BORDER_EDGES_MAX", 3)
+    vertices = np.array([[0, 0, 420], [20, 0, 414], [20, 20, 414], [0, 20, 420]], dtype=float)
+    triangles = np.array([[0, 1, 2], [0, 2, 3]])
+
+    result = volume_in_polygon(vertices, triangles, BLOCK, 410.0, fallback_z=415.0)
+
+    assert result.outside_integral_m3 == pytest.approx(400 * 5)

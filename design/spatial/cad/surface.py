@@ -358,72 +358,91 @@ def _piece_volume(tri: np.ndarray, pieces: np.ndarray, floor_z: float) -> float:
     return float(np.sum(areas[keep] * heights))
 
 
+TIN_BORDER_EDGES_MAX = 10_000
+
+
 def _tin_area(vertices: np.ndarray, triangles: np.ndarray) -> shapely.Geometry | None:
     """Область TIN в плане — по рёбрам границы (ребро одного треугольника).
 
     Объединение всех треугольников на 100 000 треугольников — секунды, сборка
     области по границе — миллисекунды. Повторы треугольников сняты в
     `_volume_local`.
-    Граница не собралась (сеть с наложениями) — None: объединять сотни тысяч
-    присланных треугольников на каждый пересчёт нельзя.
+    Граница не собралась (сеть с наложениями) или в ней больше
+    `TIN_BORDER_EDGES_MAX` рёбер (сеть в дырах: сборка растёт быстрее числа
+    рёбер, 28 000 рёбер — около секунды) — None: часть вне кровли тогда по
+    бровке, объединять сотни тысяч присланных треугольников на каждый
+    пересчёт нельзя. У кровли из чертежа граница — сотни рёбер.
     """
     edges = np.sort(np.concatenate([triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]), axis=1)
     keys, count = np.unique(edges[:, 0].astype(np.int64) * len(vertices) + edges[:, 1], return_counts=True)
     border = np.stack(np.divmod(keys[count == 1], len(vertices)), axis=1)
-    if not len(border):
+    if not len(border) or len(border) > TIN_BORDER_EDGES_MAX:
         return None
     area = shapely.build_area(shapely.multilinestrings(shapely.linestrings(vertices[border][:, :, :2])))
     return area if area.is_valid and not area.is_empty else None
 
 
 # Часть вне кровли режется на ячейки: около 4000 на её площадь, не мельче
-# 0,05 м и не больше 50 000 (иначе шаг удваивается). Ячейки ставятся только
-# над частью вне кровли — полосами по строкам, не сеткой над габаритом: у
-# тонкой рамки габарит — весь блок. Щели склейки треугольников (площадь
+# 0,05 м. Ячейки ставятся только над частью вне кровли — полосами по строкам,
+# не сеткой над габаритом: у тонкой рамки габарит — весь блок. Работа
+# ограничена: ячеек не больше 50 000, а сумма «пересечение × вершины куска» —
+# не больше 2 млн, иначе шаг удваивается; не уложились и одной строкой —
+# каждый кусок остатка — одна ячейка. Щели склейки треугольников (площадь
 # меньше 1e-6 м²) — шум, не часть вне кровли.
 OUTSIDE_CELLS = 4_000
 OUTSIDE_CELL_MIN_M = 0.05
 OUTSIDE_CELLS_MAX = 50_000
+OUTSIDE_WORK_MAX = 2_000_000
 OUTSIDE_SLIVER_M2 = 1e-6
 
 
-def outside_cells(rest: shapely.Geometry) -> np.ndarray:
-    """Куски ячеек над областью `rest` (полигоны shapely), в сумме — `rest`."""
+def outside_cells(parts: np.ndarray) -> np.ndarray:
+    """Куски ячеек над частью вне кровли (полигоны `parts`), в сумме — она же."""
 
-    step = max(OUTSIDE_CELL_MIN_M, math.sqrt(rest.area / OUTSIDE_CELLS))
-    while True:
-        cells = _strip_cells(rest, step)
+    if len(parts) > OUTSIDE_CELLS_MAX:
+        return parts
+    bounds = shapely.total_bounds(parts)
+    extent = max(bounds[2] - bounds[0], bounds[3] - bounds[1])
+    step = max(OUTSIDE_CELL_MIN_M, math.sqrt(float(np.sum(shapely.area(parts))) / OUTSIDE_CELLS))
+    tree = shapely.STRtree(parts)
+    while step <= 2 * extent:
+        cells = _strip_cells(parts, tree, bounds, step)
         if cells is not None:
             return cells
         step *= 2
+    return parts
 
 
-def _strip_cells(rest: shapely.Geometry, step: float) -> np.ndarray | None:
-    """Ячейки шага `step`: строка режется по `rest`, ячейки — над её кусками.
+def _strip_cells(parts: np.ndarray, tree: shapely.STRtree, bounds: np.ndarray, step: float) -> np.ndarray | None:
+    """Ячейки шага `step`: строка режется по кускам, ячейки — над её кусками.
 
-    None — ячеек вышло бы больше `OUTSIDE_CELLS_MAX`.
+    None — вышло бы больше `OUTSIDE_CELLS_MAX` ячеек или `OUTSIDE_WORK_MAX` работы.
     """
-    min_x, min_y, max_x, max_y = rest.bounds
+    min_x, min_y, max_x, max_y = bounds
     ys = np.arange(min_y, max_y, step)
     if len(ys) > OUTSIDE_CELLS_MAX:
         return None
-    shapely.prepare(rest)
-    rows = shapely.intersection(shapely.box(min_x, ys, max_x, ys + step), rest)
+    rows = shapely.box(min_x, ys, max_x, ys + step)
+    row, part = tree.query(rows, predicate="intersects")
+    sizes = shapely.get_num_coordinates(parts)
+    if len(row) > OUTSIDE_CELLS_MAX or int(np.sum(sizes[part])) > OUTSIDE_WORK_MAX:
+        return None
     # Пересечение бывает и коллекцией (полигоны, отрезки) — части в два прохода.
-    parts = shapely.get_parts(shapely.get_parts(rows))
-    parts = parts[(shapely.get_type_id(parts) == 3) & (shapely.area(parts) > 0)]
-    if not len(parts):
-        return parts
-    bounds = shapely.bounds(parts)
-    counts = np.maximum(np.ceil((bounds[:, 2] - bounds[:, 0]) / step), 1).astype(int)
+    pieces = shapely.get_parts(shapely.get_parts(shapely.intersection(rows[row], parts[part])))
+    pieces = pieces[(shapely.get_type_id(pieces) == 3) & (shapely.area(pieces) > 0)]
+    if not len(pieces):
+        return pieces
+    edges = shapely.bounds(pieces)
+    counts = np.maximum(np.ceil((edges[:, 2] - edges[:, 0]) / step), 1).astype(int)
     if int(counts.sum()) > OUTSIDE_CELLS_MAX:
         return None
-    owner = np.repeat(np.arange(len(parts)), counts)
+    if int(np.sum(counts * shapely.get_num_coordinates(pieces))) > OUTSIDE_WORK_MAX:
+        return None
+    owner = np.repeat(np.arange(len(pieces)), counts)
     offset = np.arange(len(owner)) - np.repeat(np.cumsum(counts) - counts, counts)
-    x0 = bounds[owner, 0] + offset * step
-    cells = shapely.box(x0, bounds[owner, 1], x0 + step, bounds[owner, 3])
-    pieces = shapely.intersection(cells, parts[owner])
-    return pieces[shapely.area(pieces) > 0]
+    x0 = edges[owner, 0] + offset * step
+    cells = shapely.intersection(shapely.box(x0, edges[owner, 1], x0 + step, edges[owner, 3]), pieces[owner])
+    return cells[shapely.area(cells) > 0]
 
 
 def _outside_integral(
@@ -447,8 +466,8 @@ def _outside_integral(
         height = fallback_z - floor_z
         return uncovered_m2 * height, uncovered_m2 * max(0.0, height)
     rest = shapely.difference(shape, covered_area)
-    parts = shapely.get_parts(rest)
-    parts = parts[shapely.area(parts) > OUTSIDE_SLIVER_M2]
+    parts = shapely.get_parts(shapely.get_parts(rest))
+    parts = parts[(shapely.get_type_id(parts) == 3) & (shapely.area(parts) > OUTSIDE_SLIVER_M2)]
     if not len(parts):
         return 0.0, 0.0
     # Ближайшая из всех вершин сети с отметкой — как у устья (`TIN.nearest_vertex`).
@@ -456,7 +475,7 @@ def _outside_integral(
     if not len(marked):
         height = fallback_z - floor_z
         return uncovered_m2 * height, uncovered_m2 * max(0.0, height)
-    pieces = outside_cells(shapely.union_all(parts))
+    pieces = outside_cells(parts)
     if not len(pieces):
         return 0.0, 0.0
     areas = shapely.area(pieces)

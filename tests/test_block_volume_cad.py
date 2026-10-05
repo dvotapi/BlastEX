@@ -123,9 +123,9 @@ def test_mean_bench_height_over_a_floor_tin_keeps_the_sign():
     assert mean_bench_height(contour(), surfaces) == pytest.approx(-5.0)
 
 
-def test_mean_bench_height_over_a_floor_tin_counts_cells_beyond_the_roof_at_the_crest():
-    # Ревью Codex #104: объём берёт ячейки вне кровли по отметке бровки,
-    # средняя высота их пропускала — S ср × H и объём расходились.
+def test_mean_bench_height_over_a_floor_tin_counts_cells_beyond_the_roof():
+    # Ревью Codex #104: объём берёт ячейки вне кровли, средняя высота их
+    # пропускала — S ср × H и объём расходились.
     surfaces = roof()
     z = lambda x: 420.0 + 0.01 * x  # noqa: E731
     surfaces.top.tin = TIN(
@@ -142,12 +142,12 @@ def test_mean_bench_height_over_a_floor_tin_counts_cells_beyond_the_roof_at_the_
     )
     plain = contour()
 
-    # x < 20: 11 + 0,01·x, дальше бровка 420 − 409 = 11.
-    assert mean_bench_height(plain, surfaces) == pytest.approx(11.05)
+    # x < 20: 11 + 0,01·x, дальше ближайшая вершина кровли 420,2 − 409.
+    assert mean_bench_height(plain, surfaces) == pytest.approx(11.15)
     assert block_volume(plain, surfaces) == pytest.approx(800.0 * mean_bench_height(plain, surfaces))
 
 
-def test_mean_bench_height_counts_the_part_beyond_the_roof_at_the_crest():
+def test_mean_bench_height_counts_the_part_beyond_the_roof_at_the_nearest_vertex():
     # Без TIN подошвы — так же, как с ней и как в окне «Импорт чертежа».
     surfaces = roof()
     z = lambda x: 420.0 + 0.01 * x  # noqa: E731
@@ -156,5 +156,6 @@ def test_mean_bench_height_counts_the_part_beyond_the_roof_at_the_crest():
         triangles=[(0, 1, 2), (0, 2, 3)],
     )
 
-    # x < 20: 10 + 0,01·x (в среднем 10,1), дальше бровка 420 − 410 = 10.
-    assert mean_bench_height(contour(), surfaces) == pytest.approx(10.05)
+    # x < 20: 10 + 0,01·x (в среднем 10,1), дальше ближайшая вершина кровли
+    # 420,2 − 410, как у устьев скважин.
+    assert mean_bench_height(contour(), surfaces) == pytest.approx(10.15)

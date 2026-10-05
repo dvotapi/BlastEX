@@ -19,8 +19,9 @@ breakline в Civil 3D), и затем входят ограничителями.
 
 Объём между кровлей и подошвой в полигоне — точно: треугольники TIN,
 обрезанные полигоном, площадь куска × (Z кровли в его центре тяжести −
-подошва). Для линейной в треугольнике кровли это точный интеграл. Часть
-полигона вне кровли считается по отметке бровки, если она известна.
+подошва). Для линейной в треугольнике кровли это точный интеграл;
+треугольник, пересекающий подошву, режется по её линии. Часть полигона вне
+кровли — по ближайшей вершине кровли, как устья скважин.
 """
 from __future__ import annotations
 
@@ -83,26 +84,30 @@ class Threshold:
 
 @dataclass
 class VolumeResult:
-    # Объём кровля − подошва (отрицательные куски — ноль), с частью вне кровли.
+    # Объём кровля − подошва (ниже подошвы — ноль), с частью вне кровли.
     volume_m3: float
     # Интеграл (кровля − подошва) по покрытой части, со знаком.
     integral_m3: float
     covered_m2: float
     area_m2: float
+    # Интеграл со знаком по части вне кровли; None — она не считалась.
+    outside_integral_m3: float | None = None
+    # Часть вне кровли посчитана по бровке, а не по ближайшей вершине
+    # (сеть без треугольников, с наложениями или в дырах).
+    outside_by_crest: bool = False
 
     @property
     def coverage_pct(self) -> float:
         return 100.0 * self.covered_m2 / self.area_m2 if self.area_m2 > 0 else 0.0
 
-    def mean_height_m(self, fallback_height_m: float | None = None) -> float | None:
+    def mean_height_m(self) -> float | None:
         """Средняя высота по контуру, со знаком.
 
-        Часть вне кровли — `fallback_height_m` (бровка − подошва), как в объёме;
-        без него — по покрытой части.
+        Часть вне кровли — как в объёме, если она считалась; иначе среднее
+        по покрытой части.
         """
-        if fallback_height_m is not None and self.area_m2 > 0:
-            uncovered = max(0.0, self.area_m2 - self.covered_m2)
-            return (self.integral_m3 + uncovered * fallback_height_m) / self.area_m2
+        if self.outside_integral_m3 is not None and self.area_m2 > 0:
+            return (self.integral_m3 + self.outside_integral_m3) / self.area_m2
         return self.integral_m3 / self.covered_m2 if self.covered_m2 > 0 else None
 
 
@@ -243,13 +248,20 @@ def _volume_local(
     floor_z: float,
     fallback_z: float | None,
 ) -> VolumeResult:
+    """Объём в полигоне; `fallback_z` — считать и часть вне кровли.
+
+    Часть вне кровли берёт Z ближайшей вершины TIN (как устья скважин,
+    `geometry.collar_on_roof`); без треугольников — `fallback_z` (бровка).
+    """
     shape = Polygon(polygon).buffer(0)
     area = float(shape.area)
     covered = integral = volume = 0.0
+    triangles = _unique_triangles(triangles, len(vertices))
     if len(triangles) and area > 0:
         shapely.prepare(shape)
         tri = vertices[triangles]
         polys = shapely.polygons(tri[:, :, :2])
+        above, crossing = _above_floor(tri, floor_z)
         # Треугольник целиком внутри — площадь и Z центра тяжести напрямую;
         # обрезаются только пересекающие границу.
         inside = shapely.contains_properly(shape, polys)
@@ -261,22 +273,230 @@ def _volume_local(
             heights = whole[:, :, 2].mean(axis=1) - floor_z
             covered += float(np.sum(areas))
             integral += float(np.sum(areas * heights))
-            volume += float(np.sum(areas * np.maximum(heights, 0.0)))
+            volume += _piece_volume(tri[inside], above[inside], floor_z)
         mask = ~inside & shapely.intersects(shape, polys)
         if np.any(mask):
             pieces = shapely.intersection(polys[mask], shape)
             areas = shapely.area(pieces)
             keep = areas > 0
             if np.any(keep):
+                cut = tri[mask][keep]
                 centres = shapely.get_coordinates(shapely.centroid(pieces[keep]))
-                heights = _plane_z(tri[mask][keep], centres) - floor_z
+                heights = _plane_z(cut, centres) - floor_z
                 covered += float(np.sum(areas[keep]))
                 integral += float(np.sum(areas[keep] * heights))
-                volume += float(np.sum(areas[keep] * np.maximum(heights, 0.0)))
-    uncovered = max(0.0, area - covered)
+                # Кусок целиком выше подошвы — сам кусок: пересечение почти
+                # совпадающих полигонов в GEOS бывает пустым.
+                lifted = pieces[keep].copy()
+                cross = crossing[mask][keep]
+                lifted[cross] = shapely.intersection(above[mask][keep][cross], lifted[cross])
+                volume += _piece_volume(cut, lifted, floor_z)
+    covered = min(covered, area)
+    outside: float | None = None
+    by_crest = False
     if fallback_z is not None:
-        volume += uncovered * max(0.0, fallback_z - floor_z)
-    return VolumeResult(volume_m3=volume, integral_m3=integral, covered_m2=min(covered, area), area_m2=area)
+        outside, outside_volume, by_crest = _outside_integral(
+            vertices, triangles, shape, area - covered, floor_z, fallback_z
+        )
+        volume += max(0.0, outside_volume)
+    return VolumeResult(
+        volume_m3=volume,
+        integral_m3=integral,
+        covered_m2=covered,
+        area_m2=area,
+        outside_integral_m3=outside,
+        outside_by_crest=by_crest,
+    )
+
+
+def _unique_triangles(triangles: np.ndarray, vertex_count: int) -> np.ndarray:
+    """Треугольники без повторов (в любом порядке вершин).
+
+    Повтор считал бы площадь и объём дважды и стирал бы границу сети.
+    """
+    if not len(triangles):
+        return triangles
+    n = np.int64(max(vertex_count, 1))
+    rows = np.sort(triangles, axis=1).astype(np.int64)
+    _, first = np.unique((rows[:, 0] * n + rows[:, 1]) * n + rows[:, 2], return_index=True)
+    return triangles[np.sort(first)]
+
+
+def _above_floor(tri: np.ndarray, floor_z: float) -> tuple[np.ndarray, np.ndarray]:
+    """Часть каждого треугольника выше подошвы (полигоны shapely, пустые — ниже)
+    и признак «пересекает подошву».
+
+    Кровля в треугольнике линейна, линия подошвы режет его по прямой: выше
+    подошвы — треугольник или четырёхугольник. Режется только тот, что
+    пересекает подошву (подножие откоса).
+    """
+    h = tri[:, :, 2] - floor_z
+    out = shapely.polygons(tri[:, :, :2])
+    below = np.all(h <= 0, axis=1)
+    out[below] = shapely.Polygon()
+    crossing = ~below & np.any(h < 0, axis=1)
+    for k in np.flatnonzero(crossing).tolist():
+        ring: list[tuple[float, float]] = []
+        for i in range(3):
+            j = (i + 1) % 3
+            hi, hj = h[k, i], h[k, j]
+            if hi >= 0:
+                ring.append((float(tri[k, i, 0]), float(tri[k, i, 1])))
+            if (hi < 0) != (hj < 0):
+                t = hi / (hi - hj)
+                ring.append(
+                    (
+                        float(tri[k, i, 0] + t * (tri[k, j, 0] - tri[k, i, 0])),
+                        float(tri[k, i, 1] + t * (tri[k, j, 1] - tri[k, i, 1])),
+                    )
+                )
+        out[k] = Polygon(ring) if len(ring) >= 3 else shapely.Polygon()
+    return out, crossing
+
+
+def _piece_volume(tri: np.ndarray, pieces: np.ndarray, floor_z: float) -> float:
+    """Σ площадь куска × (Z плоскости его треугольника в центре тяжести − подошва).
+
+    Куски лежат выше подошвы, кровля в них линейна — интеграл точный.
+    """
+    areas = shapely.area(pieces)
+    keep = areas > 0
+    if not np.any(keep):
+        return 0.0
+    centres = shapely.get_coordinates(shapely.centroid(pieces[keep]))
+    heights = np.maximum(_plane_z(tri[keep], centres) - floor_z, 0.0)
+    return float(np.sum(areas[keep] * heights))
+
+
+TIN_BORDER_EDGES_MAX = 10_000
+
+
+def _tin_area(vertices: np.ndarray, triangles: np.ndarray) -> shapely.Geometry | None:
+    """Область TIN в плане — по рёбрам границы (ребро одного треугольника).
+
+    Объединение всех треугольников на 100 000 треугольников — секунды, сборка
+    области по границе — миллисекунды. Повторы треугольников сняты в
+    `_volume_local`.
+    Граница не собралась (сеть с наложениями) или в ней больше
+    `TIN_BORDER_EDGES_MAX` рёбер (сеть в дырах: сборка растёт быстрее числа
+    рёбер, 28 000 рёбер — около секунды) — None: часть вне кровли тогда по
+    бровке, объединять сотни тысяч присланных треугольников на каждый
+    пересчёт нельзя. У кровли из чертежа граница — сотни рёбер.
+    """
+    edges = np.sort(np.concatenate([triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]), axis=1)
+    keys, count = np.unique(edges[:, 0].astype(np.int64) * len(vertices) + edges[:, 1], return_counts=True)
+    border = np.stack(np.divmod(keys[count == 1], len(vertices)), axis=1)
+    if not len(border) or len(border) > TIN_BORDER_EDGES_MAX:
+        return None
+    area = shapely.build_area(shapely.multilinestrings(shapely.linestrings(vertices[border][:, :, :2])))
+    return area if area.is_valid and not area.is_empty else None
+
+
+# Часть вне кровли режется на ячейки: около 4000 на её площадь, не мельче
+# 0,05 м. Ячейки ставятся только над частью вне кровли — полосами по строкам,
+# не сеткой над габаритом: у тонкой рамки габарит — весь блок. Работа
+# ограничена: ячеек не больше 50 000, а сумма «пересечение × вершины куска» —
+# не больше 2 млн, иначе шаг удваивается; не уложились и одной строкой —
+# каждый кусок остатка — одна ячейка. Щели склейки треугольников (площадь
+# меньше 1e-6 м²) — шум, не часть вне кровли.
+OUTSIDE_CELLS = 4_000
+OUTSIDE_CELL_MIN_M = 0.05
+OUTSIDE_CELLS_MAX = 50_000
+OUTSIDE_WORK_MAX = 2_000_000
+OUTSIDE_SLIVER_M2 = 1e-6
+
+
+def outside_cells(parts: np.ndarray) -> np.ndarray:
+    """Куски ячеек над частью вне кровли (полигоны `parts`), в сумме — она же."""
+
+    if len(parts) > OUTSIDE_CELLS_MAX:
+        return parts
+    bounds = shapely.total_bounds(parts)
+    extent = max(bounds[2] - bounds[0], bounds[3] - bounds[1])
+    step = max(OUTSIDE_CELL_MIN_M, math.sqrt(float(np.sum(shapely.area(parts))) / OUTSIDE_CELLS))
+    tree = shapely.STRtree(parts)
+    while step <= 2 * extent:
+        cells = _strip_cells(parts, tree, bounds, step)
+        if cells is not None:
+            return cells
+        step *= 2
+    return parts
+
+
+def _strip_cells(parts: np.ndarray, tree: shapely.STRtree, bounds: np.ndarray, step: float) -> np.ndarray | None:
+    """Ячейки шага `step`: строка режется по кускам, ячейки — над её кусками.
+
+    None — вышло бы больше `OUTSIDE_CELLS_MAX` ячеек или `OUTSIDE_WORK_MAX` работы.
+    """
+    min_x, min_y, max_x, max_y = bounds
+    ys = np.arange(min_y, max_y, step)
+    if len(ys) > OUTSIDE_CELLS_MAX:
+        return None
+    # Работа оценивается по габаритам кусков — до любой геометрической операции:
+    # кусок пересекается со строками над своим габаритом (и соседней по краю).
+    part_bounds = shapely.bounds(parts)
+    spans = np.floor((part_bounds[:, 3] - min_y) / step) - np.floor((part_bounds[:, 1] - min_y) / step) + 2
+    if spans.sum() > OUTSIDE_CELLS_MAX or np.sum(spans * shapely.get_num_coordinates(parts)) > OUTSIDE_WORK_MAX:
+        return None
+    rows = shapely.box(min_x, ys, max_x, ys + step)
+    # Без предиката — только пересечение габаритов; пустые пересечения отсеются ниже.
+    row, part = tree.query(rows)
+    # Пересечение бывает и коллекцией (полигоны, отрезки) — части в два прохода.
+    pieces = shapely.get_parts(shapely.get_parts(shapely.intersection(rows[row], parts[part])))
+    pieces = pieces[(shapely.get_type_id(pieces) == 3) & (shapely.area(pieces) > 0)]
+    if not len(pieces):
+        return pieces
+    edges = shapely.bounds(pieces)
+    counts = np.maximum(np.ceil((edges[:, 2] - edges[:, 0]) / step), 1).astype(int)
+    if int(counts.sum()) > OUTSIDE_CELLS_MAX:
+        return None
+    if int(np.sum(counts * shapely.get_num_coordinates(pieces))) > OUTSIDE_WORK_MAX:
+        return None
+    owner = np.repeat(np.arange(len(pieces)), counts)
+    offset = np.arange(len(owner)) - np.repeat(np.cumsum(counts) - counts, counts)
+    x0 = edges[owner, 0] + offset * step
+    cells = shapely.intersection(shapely.box(x0, edges[owner, 1], x0 + step, edges[owner, 3]), pieces[owner])
+    return cells[shapely.area(cells) > 0]
+
+
+def _outside_integral(
+    vertices: np.ndarray,
+    triangles: np.ndarray,
+    shape: Polygon,
+    uncovered_m2: float,
+    floor_z: float,
+    fallback_z: float,
+) -> tuple[float, float, bool]:
+    """(Интеграл со знаком, объём, «по бровке») части полигона вне кровли.
+
+    Ячейка берёт Z ближайшей к её точке вершины сети; без треугольников или
+    с сетью, граница которой не собирается, вся часть — по `fallback_z`.
+    """
+    if uncovered_m2 <= max(1e-9, 1e-9 * float(shape.area)):
+        return 0.0, 0.0, False
+    covered_area = _tin_area(vertices, triangles)
+    if covered_area is None:
+        # Сеть с наложениями: часть вне кровли — по бровке, как без сети.
+        height = fallback_z - floor_z
+        return uncovered_m2 * height, uncovered_m2 * max(0.0, height), True
+    rest = shapely.difference(shape, covered_area)
+    parts = shapely.get_parts(shapely.get_parts(rest))
+    parts = parts[(shapely.get_type_id(parts) == 3) & (shapely.area(parts) > OUTSIDE_SLIVER_M2)]
+    if not len(parts):
+        return 0.0, 0.0, False
+    # Ближайшая из всех вершин сети с отметкой — как у устья (`TIN.nearest_vertex`).
+    marked = np.flatnonzero(np.isfinite(vertices[:, 2]))
+    if not len(marked):
+        height = fallback_z - floor_z
+        return uncovered_m2 * height, uncovered_m2 * max(0.0, height), True
+    pieces = outside_cells(parts)
+    if not len(pieces):
+        return 0.0, 0.0, False
+    areas = shapely.area(pieces)
+    centres = shapely.get_coordinates(shapely.point_on_surface(pieces))
+    _, nearest = cKDTree(vertices[marked, :2]).query(centres)
+    heights = vertices[marked[nearest], 2] - floor_z
+    return float(np.sum(areas * heights)), float(np.sum(areas * np.maximum(heights, 0.0))), False
 
 
 # --- построение ---------------------------------------------------------------
@@ -707,17 +927,19 @@ def build_roof(
         )
 
     polygon = bottom_local or top_local
+    outside_by_crest = False
     if floor_z is None:
         roof.coverage_pct = _volume_local(vertices, triangles, polygon, 0.0, None).coverage_pct
         warnings.append(CadWarning("floor_missing", "Подошва не задана — высота уступа и объём не считаются."))
     else:
-        top_volume = _volume_local(vertices, triangles, top_local, floor_z, None)
-        roof.mean_height_m = top_volume.mean_height_m(None if crest_z is None else crest_z - floor_z)
+        top_volume = _volume_local(vertices, triangles, top_local, floor_z, crest_z)
+        roof.mean_height_m = top_volume.mean_height_m()
         # Нижний контур идёт по нижней бровке; без него подножие откоса —
         # в H·ctg α от контура блока, не дальше H при откосе круче 45°.
         reach = THRESHOLD_NEAR_M + (0.0 if bottom_local else max(0.0, roof.mean_height_m or 0.0))
         roof.thresholds = _thresholds(data, floor_z, polygon, reach)
         block = _volume_local(vertices, triangles, polygon, floor_z, crest_z)
+        outside_by_crest = block.outside_by_crest
         roof.coverage_pct = block.coverage_pct
         roof.volume_m3 = block.volume_m3
         if plane and roof.mean_height_m is not None:
@@ -731,7 +953,13 @@ def build_roof(
             CadWarning(
                 "coverage",
                 f"Кровля покрывает {ru_number(roof.coverage_pct, 1)} % контура"
-                + (": остальное посчитано по отметке бровки." if crest_z is not None else "."),
+                + (
+                    "."
+                    if crest_z is None
+                    else ": остальное посчитано по отметке бровки — сеть кровли в дырах или с наложениями."
+                    if outside_by_crest
+                    else ": остальное посчитано по ближайшей отметке кровли."
+                ),
             )
         )
     if roof.vertex_count > SIZE_WARNING_VERTICES:

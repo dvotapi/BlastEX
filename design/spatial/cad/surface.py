@@ -422,11 +422,15 @@ def _strip_cells(parts: np.ndarray, tree: shapely.STRtree, bounds: np.ndarray, s
     ys = np.arange(min_y, max_y, step)
     if len(ys) > OUTSIDE_CELLS_MAX:
         return None
-    rows = shapely.box(min_x, ys, max_x, ys + step)
-    row, part = tree.query(rows, predicate="intersects")
-    sizes = shapely.get_num_coordinates(parts)
-    if len(row) > OUTSIDE_CELLS_MAX or int(np.sum(sizes[part])) > OUTSIDE_WORK_MAX:
+    # Работа оценивается по габаритам кусков — до любой геометрической операции:
+    # кусок пересекается со строками над своим габаритом (и соседней по краю).
+    part_bounds = shapely.bounds(parts)
+    spans = np.floor((part_bounds[:, 3] - min_y) / step) - np.floor((part_bounds[:, 1] - min_y) / step) + 2
+    if spans.sum() > OUTSIDE_CELLS_MAX or np.sum(spans * shapely.get_num_coordinates(parts)) > OUTSIDE_WORK_MAX:
         return None
+    rows = shapely.box(min_x, ys, max_x, ys + step)
+    # Без предиката — только пересечение габаритов; пустые пересечения отсеются ниже.
+    row, part = tree.query(rows)
     # Пересечение бывает и коллекцией (полигоны, отрезки) — части в два прохода.
     pieces = shapely.get_parts(shapely.get_parts(shapely.intersection(rows[row], parts[part])))
     pieces = pieces[(shapely.get_type_id(pieces) == 3) & (shapely.area(pieces) > 0)]

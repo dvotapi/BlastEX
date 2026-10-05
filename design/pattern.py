@@ -114,21 +114,11 @@ def generate_pattern(
             first_lattice_row = 1
             skip_regular_first = True
 
-    def place_row(
-        lattice_row: int, row_index: int, v: float, keep_off_face: bool = False
-    ) -> tuple[list[Hole], float]:
-        """Узлы одного ряда решётки внутри контура и шаг до следующего ряда.
-
-        `lattice_row` — номер ряда, считая от первого ряда у бровки (впереди
-        него — отрицательный): от него зависят сдвиг шахматки и строка
-        `row_params`. `row_index` — номер ряда в паспорте. `keep_off_face`
-        отбрасывает узлы ближе `offset_from_face` к свободной поверхности.
-        """
-        accept = _off_face_filter(contour, offset_from_face) if keep_off_face else None
-        row_cfg = _row_config(
+    def row_settings(lattice_row: int, v: float) -> tuple[float, float, float, str]:
+        """Шаг по ряду, шаг до следующего ряда, сдвиг шахматки и вид скважин ряда."""
+        local_a, local_b, shift_ratio, row_kind = _row_config(
             params, pattern, max(lattice_row, 0), spacing_a, burden_b, row_shift_ratio, default_kind
         )
-        local_a, local_b, shift_ratio, row_kind = row_cfg
         if pattern == "domain_dependent" and domain_list:
             mid = _world_xy(origin, row_dir, advance_dir, 0.5 * (u_min + u_max), v)
             domain = domain_at(domain_list, Point3(x=mid[0], y=mid[1], z=crest_z))
@@ -139,6 +129,22 @@ def generate_pattern(
                     local_b = float(domain.burden_b_m)
                 if pattern == "square" and domain.spacing_a_m and not domain.burden_b_m:
                     local_b = local_a
+        if local_b <= 0:
+            local_b = burden_b
+        return local_a, local_b, shift_ratio, row_kind
+
+    def place_row(
+        lattice_row: int, row_index: int, v: float, min_face_m: float | None = None
+    ) -> tuple[list[Hole], float]:
+        """Узлы одного ряда решётки внутри контура и шаг до следующего ряда.
+
+        `lattice_row` — номер ряда решётки, первый ряд у бровки — `first_lattice_row`
+        (впереди него — меньше): от него зависят сдвиг шахматки и строка
+        `row_params`. `row_index` — номер ряда в паспорте. `min_face_m`
+        отбрасывает узлы ближе этого расстояния к свободной поверхности.
+        """
+        accept = _off_face_filter(contour, min_face_m) if min_face_m is not None else None
+        local_a, local_b, shift_ratio, row_kind = row_settings(lattice_row, v)
 
         shift = shift_ratio * local_a if lattice_row % 2 == 1 else 0.0
         if pattern == "domain_dependent" and domain_list:
@@ -196,25 +202,38 @@ def generate_pattern(
 
     # Ряды впереди первого: при изогнутой бровке её средняя точка лежит внутри
     # блока, и часть контура оказывается впереди начала отсчёта. Фаза та же —
-    # шаг burden_b назад от первого ряда до крайней проекции вершин контура.
-    # Узлы этих рядов не ближе offset_from_face к бровке — иначе скважина у
-    # откоса недогружена. С рядом вдоль бровки перед ним ничего не ставим:
-    # его место занято; без свободной поверхности впереди нет ничего, кроме
-    # полосы между краем контура и первым рядом.
+    # шаг назад от первого ряда до крайней проекции вершин контура; шаг —
+    # burden ряда, которому он принадлежит (строка row_params, домен). Узлы
+    # этих рядов не ближе offset_from_face к бровке — иначе скважина у
+    # откоса недогружена. С рядом вдоль бровки узлы не ближе
+    # offset_from_face + burden_b: ближе — место ряда вдоль бровки. Без
+    # свободной поверхности впереди нет ничего, кроме полосы между краем
+    # контура и первым рядом.
+    min_face_m = offset_from_face + burden_b if skip_regular_first else offset_from_face
     front_rows: list[tuple[int, float]] = []
-    if contour.free_faces and not skip_regular_first:
-        step = 1
-        while v_first - step * burden_b >= v_min and step <= 500:
-            front_rows.insert(0, (-step, v_first - step * burden_b))
-            step += 1
+    if contour.free_faces:
+        v_row = v_first
+        for step in range(1, 501):
+            lattice_row = first_lattice_row - step
+            v_prev = v_row - burden_b
+            for _ in range(8):  # домен выбирается по положению ряда, шаг — по домену
+                v_next = v_row - row_settings(lattice_row, v_prev)[1]
+                converged = abs(v_next - v_prev) < 1e-9
+                v_prev = v_next
+                if converged:
+                    break
+            if v_prev < v_min:
+                break
+            front_rows.insert(0, (lattice_row, v_prev))
+            v_row = v_prev
     # Пустые ряды перед первым непустым номера не получают — для блока, где
     # бровка целиком впереди контура, нумерация остаётся прежней.
-    while front_rows and not place_row(front_rows[0][0], 0, front_rows[0][1], True)[0]:
+    while front_rows and not place_row(front_rows[0][0], 0, front_rows[0][1], min_face_m)[0]:
         front_rows.pop(0)
 
     row_index = first_lattice_row
     for lattice_row, v in front_rows:
-        placed, _ = place_row(lattice_row, row_index, v, True)
+        placed, _ = place_row(lattice_row, row_index, v, min_face_m)
         holes.extend(placed)
         row_index += 1
 

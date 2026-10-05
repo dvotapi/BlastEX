@@ -16,7 +16,7 @@ from design.geometry import (
     pattern_origin,
     point_in_polygon,
 )
-from design.models import BenchSurface, BlockContour, Point3
+from design.models import BenchSurface, BlastDomain, BlockContour, Point3
 from design.pattern import generate_pattern
 
 # Против часовой стрелки: тыл (x = 0) сверху вниз, наклонная сторона, низ
@@ -64,7 +64,11 @@ def _production_xy(holes):
 
 
 def _lattice_reference(
-    contour: BlockContour, params: dict, margin_steps: int = 5, shift_ratio: float = 0.0
+    contour: BlockContour,
+    params: dict,
+    margin_steps: int = 5,
+    shift_ratio: float = 0.0,
+    burden: float | None = None,
 ):
     """Узлы бесконечной сетки той же фазы, прошедшие фильтр по контуру.
 
@@ -74,7 +78,7 @@ def _lattice_reference(
     ряда, кроме того, не ближе offset_from_face к бровке.
     """
     a = float(params["spacing_a_m"])
-    b = a
+    b = a if burden is None else burden
     offset = float(params["offset_from_face_m"])
     margin = float(params["edge_margin_m"])
     verts = ensure_ccw(contour.points_xy)
@@ -147,6 +151,62 @@ class BootContourFillTests(unittest.TestCase):
         holes = generate_pattern(contour, params)
         expected = _lattice_reference(contour, params, shift_ratio=0.5)
         self.assertEqual(_as_set(_production_xy(holes)), _as_set(expected))
+
+
+    def test_variable_burden_steps_front_rows_by_their_own_burden(self):
+        # Общий burden_b 5 м, но у строки row_params — 12 м: ряды впереди
+        # первого тоже идут через 12 м, а не через общие 5.
+        params = {**PARAMS, "pattern": "variable", "burden_b_m": 5.0, "row_params": [{"burden_b_m": 12.0}]}
+        contour = _contour(BOOT)
+        holes = generate_pattern(contour, params)
+        expected = _lattice_reference(contour, params, burden=12.0)
+        self.assertEqual(_as_set(_production_xy(holes)), _as_set(expected))
+
+    def test_domain_burden_steps_front_rows_by_domain_burden(self):
+        domain = BlastDomain(id="d", name="d", spacing_a_m=5.0, burden_b_m=12.0)
+        params = {**PARAMS, "pattern": "domain_dependent", "burden_b_m": 5.0}
+        contour = _contour(BOOT)
+        holes = generate_pattern(contour, params, domains=[domain])
+        expected = _lattice_reference(contour, params, burden=12.0)
+        # Вдоль ряда домен идёт своим обходом, поэтому сверяем только ряды:
+        # ряды лежат вдоль оси Y, продвижение — по X.
+        self.assertEqual(
+            {round(x, 6) for x, _ in _production_xy(holes)}, {round(x, 6) for x, _ in expected}
+        )
+
+
+class FollowFaceFillTests(unittest.TestCase):
+    PARAMS = {**PARAMS, "first_row_follow_face": True}
+
+    def test_pocket_is_filled_without_touching_the_face_row(self):
+        contour = _contour(BOOT)
+        holes = [h for h in generate_pattern(contour, self.PARAMS) if h.kind == "production"]
+        face_row = [h for h in holes if h.row == 0]
+        grid = [h for h in holes if h.row >= 1]
+        self.assertGreater(len(face_row), 0)
+        row_dir, advance_dir = local_basis(0.0)
+        origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
+        offset = float(self.PARAMS["offset_from_face_m"])
+        step = float(self.PARAMS["spacing_a_m"])
+        front = [
+            h
+            for h in grid
+            if (h.collar.x - origin[0]) * advance_dir[0] + (h.collar.y - origin[1]) * advance_dir[1]
+            < offset + step - 1e-6
+        ]
+        # В кармане, впереди начала отсчёта, раньше сетки не было совсем.
+        self.assertGreaterEqual(len([h for h in front if h.collar.x > 42.0 and h.collar.y < 32.0]), 4)
+        for hole in front:
+            self.assertGreaterEqual(
+                distance_to_free_faces((hole.collar.x, hole.collar.y), contour), offset + step - 1e-9
+            )
+        # Ряд вдоль бровки и ряды впереди первого не накладываются.
+        for g in front:
+            for f in face_row:
+                self.assertGreaterEqual(
+                    math.hypot(g.collar.x - f.collar.x, g.collar.y - f.collar.y), step - 1e-6
+                )
+        self.assertEqual(len({h.id for h in holes}), len(holes))
 
 
 class RotationInvarianceTests(unittest.TestCase):

@@ -2,27 +2,22 @@
 справочники приходят из опубликованной ревизии, а не из файлов."""
 from __future__ import annotations
 
-import time
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routers import workspace
-from api.security import SESSION_COOKIE, create_session_token
 from api.services.economics_service import get_economics_repository
 from cost.drilling_data import DEFAULT_OBJECT_NAME, DEFAULT_WORK_OBJECTS
 from cost.labor import DEFAULT_LABOR_CATALOG
 from cost.v2.models import ReferenceItem
 from cost.v2.repository import InMemoryEconomicsRepository
+from tests.session_fixtures import signed_in_client
 
 
-def _client_as(app: FastAPI, organization_id: str) -> TestClient:
-    """Клиент с сессией указанной организации — без внутреннего ключа."""
+def _client_as(app: FastAPI, monkeypatch, organization_id: str) -> TestClient:
+    """Клиент учётки указанной организации — без внутреннего ключа."""
 
-    token = create_session_token("tester@example.ru", "service", organization_id, int(time.time()) + 3600)
-    client = TestClient(app)
-    client.cookies.set(SESSION_COOKIE, token)
-    return client
+    return signed_in_client(app, monkeypatch, f"tester@{organization_id}.example.ru", "user", organization_id)
 
 
 def _client(monkeypatch) -> tuple[TestClient, InMemoryEconomicsRepository]:
@@ -234,8 +229,8 @@ def test_calc_inputs_reject_an_empty_object_name(monkeypatch) -> None:
 
 def test_calc_inputs_are_isolated_between_organizations(monkeypatch) -> None:
     client, _ = _client(monkeypatch)
-    team_a = _client_as(client.app, "team_a")
-    team_b = _client_as(client.app, "team_b")
+    team_a = _client_as(client.app, monkeypatch, "team_a")
+    team_b = _client_as(client.app, monkeypatch, "team_b")
 
     team_a.put(
         "/api/v1/workspace/calc-inputs",

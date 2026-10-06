@@ -9,6 +9,7 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, Uniqu
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
 from cost.v2.db_repository import AuditLogRow, Base, JsonType, SCHEMA
+from design.mass_blast import normalize_account_email, role_signers
 
 
 class MassBlastRepositoryError(RuntimeError):
@@ -20,6 +21,10 @@ class MassBlastNotFoundError(MassBlastRepositoryError):
 
 
 class MassBlastConflictError(MassBlastRepositoryError):
+    pass
+
+
+class MassBlastForbiddenError(MassBlastRepositoryError):
     pass
 
 
@@ -506,6 +511,13 @@ class PostgresMassBlastRepository:
             revision = session.get(MassBlastRevisionRow, revision_id)
             if revision is None or not self._revision_belongs_to_org(session, revision, organization_id):
                 raise MassBlastNotFoundError(f"Ревизия проекта массового взрыва {revision_id} не найдена.")
+            signers = self._signers(revision)
+            if role_code not in signers:
+                raise MassBlastConflictError(f"Роль «{role_code}» не назначена в этой ревизии.")
+            if normalize_account_email(actor) != signers[role_code]:
+                raise MassBlastForbiddenError(
+                    f"Согласовать роль «{role_code}» может только назначенная учётка {signers[role_code]}."
+                )
             row = session.scalar(select(MassBlastApprovalRow).where(
                 MassBlastApprovalRow.revision_id == revision_id,
                 MassBlastApprovalRow.role_code == role_code,
@@ -548,19 +560,18 @@ class PostgresMassBlastRepository:
             if to_status == "approved":
                 revision = session.get(MassBlastRevisionRow, row.current_revision_id)
                 assert revision is not None
-                required_roles = {
-                    str(item.get("role_code", "")).strip()
-                    for item in (row.payload or {}).get("responsibilities", [])
-                    if str(item.get("role_code", "")).strip()
+                signers = self._signers(revision)
+                approved = {
+                    (role_code, normalize_account_email(approver))
+                    for role_code, approver in session.execute(
+                        select(MassBlastApprovalRow.role_code, MassBlastApprovalRow.actor).where(
+                            MassBlastApprovalRow.revision_id == revision.id,
+                            MassBlastApprovalRow.decision == "approved",
+                            MassBlastApprovalRow.content_sha256 == revision.content_sha256,
+                        )
+                    ).all()
                 }
-                approved_roles = set(session.scalars(
-                    select(MassBlastApprovalRow.role_code).where(
-                        MassBlastApprovalRow.revision_id == revision.id,
-                        MassBlastApprovalRow.decision == "approved",
-                        MassBlastApprovalRow.content_sha256 == revision.content_sha256,
-                    )
-                ).all())
-                missing_roles = required_roles - approved_roles
+                missing_roles = {role_code for role_code, email in signers.items() if (role_code, email) not in approved}
                 if missing_roles:
                     raise MassBlastConflictError(
                         "Для утверждения нужны согласования ролей: " + ", ".join(sorted(missing_roles)) + "."
@@ -595,6 +606,16 @@ class PostgresMassBlastRepository:
             "decision": row.decision, "comment": row.comment, "content_sha256": row.content_sha256,
             "created_at": row.created_at.isoformat(),
         }
+
+    @staticmethod
+    def _signers(revision: MassBlastRevisionRow) -> dict[str, str]:
+        """Accounts frozen in the revision: the approver of a role is who the document names."""
+        try:
+            return role_signers(revision.document_context or {})
+        except ValueError as exc:
+            raise MassBlastConflictError(
+                f"{exc} Верните проект в черновик, назначьте учётки и выпустите ревизию заново."
+            ) from exc
 
     @staticmethod
     def _project_row(session: Session, organization_id: str, project_id: str) -> MassBlastProjectRow:

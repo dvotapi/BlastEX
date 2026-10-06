@@ -13,6 +13,7 @@ import os
 import secrets
 import tomllib
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,17 @@ def verify_password(password: str, encoded: str) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
+@lru_cache(maxsize=4)
+def _legacy_password_hash(password: str) -> str:
+    """Хеш устаревшего пароля администратора.
+
+    Соль постоянная, а учётки читаются на каждом запросе API (сверка
+    сессии), поэтому PBKDF2 считается один раз на пароль.
+    """
+
+    return hash_password(password, salt=b"blastex-legacy-v1")
+
+
 def _users_file() -> Path:
     """Файл с учётными записями.
 
@@ -109,9 +121,7 @@ def _records_from_config() -> list[dict[str, Any]]:
             return [
                 {
                     "email": legacy_email,
-                    "password_hash": hash_password(
-                        legacy_password, salt=b"blastex-legacy-v1"
-                    ),
+                    "password_hash": _legacy_password_hash(legacy_password),
                     "role": "admin",
                     "display_name": "Администратор",
                     "organization_id": "default",
@@ -119,13 +129,28 @@ def _records_from_config() -> list[dict[str, Any]]:
                 }
             ]
         return []
-    except (AttributeError, FileNotFoundError, KeyError, TypeError, tomllib.TOMLDecodeError):
+    # Нечитаемый или битый файл — нет учёток (вход и сессии закрыты), а не 500.
+    except (AttributeError, KeyError, OSError, TypeError, ValueError, tomllib.TOMLDecodeError):
         return []
+
+
+def _is_active(value: Any) -> bool:
+    """Флаг `active`: строка действует, только если это явное «да».
+
+    `"false"` в кавычках отключает учётку так же, как `false`, а опечатка
+    закрывает вход, а не оставляет учётку действующей.
+    """
+
+    if isinstance(value, str):
+        return value.strip().casefold() in {"true", "1", "yes", "on"}
+    return bool(value)
 
 
 def configured_users() -> list[AuthUser]:
     users: list[AuthUser] = []
     for item in _records_from_config():
+        if not isinstance(item, dict):
+            continue
         email = str(item.get("email", "")).strip().casefold()
         password_hash = str(item.get("password_hash", "")).strip()
         role = str(item.get("role", "user")).strip()
@@ -143,7 +168,17 @@ def configured_users() -> list[AuthUser]:
                     item.get("organization_name", "Внутренняя организация")
                 ).strip()
                 or "Внутренняя организация",
-                active=bool(item.get("active", True)),
+                active=_is_active(item.get("active", True)),
             )
         )
     return users
+
+
+def find_active_user(email: str) -> AuthUser | None:
+    """Действующая учётка по email без учёта регистра."""
+
+    wanted = email.strip().casefold()
+    return next(
+        (user for user in configured_users() if user.email == wanted and user.active),
+        None,
+    )

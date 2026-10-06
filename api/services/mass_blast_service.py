@@ -17,6 +17,7 @@ from fastapi import HTTPException, status
 from api import config
 from api.schemas.mass_blast import MassBlastProjectInputSchema
 from api.services.economics_service import get_economics_repository
+from cost.auth import configured_users
 from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
 from design.mass_blast import (
@@ -27,11 +28,13 @@ from design.mass_blast import (
     build_document_context,
     content_sha256,
     has_blocking_issues,
+    normalize_account_email,
     validate_project_context,
 )
 from design.mass_blast_rendering import render_pdf, render_xlsx, render_zip
 from design.mass_blast_repository import (
     MassBlastConflictError,
+    MassBlastForbiddenError,
     MassBlastNotFoundError,
     PostgresMassBlastRepository,
 )
@@ -68,8 +71,34 @@ def _blocks_from_payload(organization_id: str, payload: dict[str, Any]) -> list[
     return blocks
 
 
+def organization_accounts(organization_id: str) -> list[dict[str, str]]:
+    """Active accounts of the organization, in the order of the accounts file."""
+
+    return [
+        {"email": user.email, "display_name": user.display_name or user.email}
+        for user in configured_users()
+        if user.active and user.organization_id == organization_id
+    ]
+
+
+def _active_emails(organization_id: str) -> set[str]:
+    return {item["email"] for item in organization_accounts(organization_id)}
+
+
+def _bind_accounts(organization_id: str, responsibilities: list[dict[str, Any]]) -> None:
+    """Normalize assigned accounts; an empty one is allowed in a draft, a foreign one never."""
+
+    known = _active_emails(organization_id)
+    for item in responsibilities:
+        email = normalize_account_email(item.get("account_email"))
+        if email and email not in known:
+            raise ValueError(f"Учётка {email} не найдена среди действующих учёток организации.")
+        item["account_email"] = email
+
+
 def _payload_with_snapshots(organization_id: str, payload: MassBlastProjectInputSchema) -> dict[str, Any]:
     data = payload.model_dump(exclude={"expected_version"})
+    _bind_accounts(organization_id, data["responsibilities"])
     blocks = _blocks_from_payload(organization_id, data)
     data["blocks"] = [block.to_dict() for block in blocks]
     return data
@@ -168,6 +197,8 @@ def create_revision(
     project = repository.get_project(organization_id, project_id)
     if project["version"] != expected_version:
         raise MassBlastConflictError("Проект изменён другим пользователем. Обновите данные перед выпуском ревизии.")
+    # Учётку могли отключить после сохранения черновика: подписать за роль будет некому.
+    _bind_accounts(organization_id, list(project.get("responsibilities") or []))
     context, blocks = _context_from_stored(project)
     context["attachments"] = list(repository.list_draft_attachments(organization_id, project_id))
     _assert_sources_current(organization_id, blocks)
@@ -190,6 +221,10 @@ def approve_revision(
     repository: PostgresMassBlastRepository, organization_id: str, actor: str, revision_id: str,
     role_code: str, decision: str, comment: str,
 ) -> dict[str, Any]:
+    # Сессия живёт до 12 часов: учётку за это время могли отключить или перенести.
+    signer = normalize_account_email(actor)
+    if signer not in _active_emails(organization_id):
+        raise MassBlastForbiddenError(f"Учётка {signer} не действует в организации: согласовать роль она не может.")
     return repository.approve_revision(organization_id, actor, revision_id, role_code, decision, comment)
 
 
@@ -341,4 +376,6 @@ def repository_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     if isinstance(exc, MassBlastConflictError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, MassBlastForbiddenError):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Модуль массовых взрывов временно недоступен: {exc}")

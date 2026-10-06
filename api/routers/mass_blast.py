@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from fastapi.responses import FileResponse
 
 from api.schemas.mass_blast import (
+    MassBlastAccountSchema,
     MassBlastApprovalCreateSchema,
     MassBlastApprovalSchema,
     MassBlastAttachmentSchema,
@@ -29,6 +30,7 @@ from api.services.mass_blast_service import (
     document_path,
     generate_document,
     get_mass_blast_repository,
+    organization_accounts,
     repository_error,
     transition_project,
     upload_attachment,
@@ -72,6 +74,13 @@ def post_project(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except Exception as exc:
         raise repository_error(exc) from exc
+
+
+@router.get("/accounts", response_model=list[MassBlastAccountSchema])
+def list_accounts(session: dict[str, object] = Depends(require_internal_access)) -> list[MassBlastAccountSchema]:
+    """Учётки организации, которые можно назначить подписывать роль (до `/{project_id}`)."""
+    organization_id, _ = _identity(session)
+    return [MassBlastAccountSchema.model_validate(item) for item in organization_accounts(organization_id)]
 
 
 @router.get("/{project_id}", response_model=MassBlastProjectSchema)

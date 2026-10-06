@@ -10,6 +10,7 @@ user), ключ статусы не меняет вовсе.
 """
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -36,10 +37,19 @@ from intelligence.drift import types as drift_types
 from intelligence.registry import types as registry_types
 from tests.outcome_fixtures import synthetic_outcome_snapshot
 from tests.scenario_fixtures import charged_design
+from tests.session_fixtures import add_account
 from tests.test_drift_engine import _shift_snapshot
 
 ORG = "default"
 PASSPORT_CHAIN = ("in_review", "approved", "executed", "closed")
+
+
+@pytest.fixture(autouse=True)
+def _accounts(monkeypatch) -> None:
+    """Действующая учётка на каждую роль: сессия без учётки не открывает API."""
+
+    for role in sorted(ALLOWED_ROLES):
+        add_account(monkeypatch, f"{role}@example.ru", role, ORG)
 
 
 @pytest.fixture()
@@ -240,6 +250,10 @@ def test_service_key_cannot_change_mass_blast_status(monkeypatch) -> None:
 
 def test_signed_in_user_signs_mass_blast_approval(monkeypatch) -> None:
     app, repository = _mass_blast_app(monkeypatch)
+    # Подписывает только действующая учётка организации (PR #113).
+    monkeypatch.setenv("BLASTEX_USERS_JSON", json.dumps([
+        {"email": "user@example.ru", "password_hash": "x", "role": "user", "organization_id": ORG},
+    ]))
 
     response = _approve(_human_client(app, "user"))
 

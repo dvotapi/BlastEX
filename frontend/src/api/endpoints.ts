@@ -106,6 +106,7 @@ import type {
   SpatialModel,
   SpatialOverlay,
   SpatialSummary,
+  MassBlastAccount,
   MassBlastDocument,
   MassBlastAttachment,
   MassBlastProject,
@@ -988,6 +989,7 @@ export const api = {
   // --- проект массового взрыва ---
   massBlast: {
     list: () => get<MassBlastProjectSummary[]>(`${V1}/design/mass-blast-projects`),
+    accounts: () => get<MassBlastAccount[]>(`${V1}/design/mass-blast-projects/accounts`),
     create: (payload: MassBlastProjectInput) =>
       post<MassBlastProject>(`${V1}/design/mass-blast-projects`, payload),
     get: (id: string) => get<MassBlastProject>(`${V1}/design/mass-blast-projects/${id}`),

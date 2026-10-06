@@ -9,7 +9,11 @@ export type MassBlastResponsibility = {
   employee_code: string;
   employee_name: string;
   position_name: string;
+  // Учётка, которой одной разрешено согласовать роль в ревизии.
+  account_email: string;
 };
+
+export type MassBlastAccount = { email: string; display_name: string };
 
 export type MassBlastGuardPost = {
   code: string;

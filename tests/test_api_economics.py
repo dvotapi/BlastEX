@@ -1,15 +1,14 @@
-import time
 from decimal import Decimal
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routers import economics
-from api.security import SESSION_COOKIE, create_session_token
 from api.services.economics_service import get_economics_repository
 from api.services.public_sync_service import get_public_reader
 from cost.v2.public_sync import StaticPublicReader
 from cost.v2.repository import InMemoryEconomicsRepository
+from tests.session_fixtures import signed_in_client
 from tests.test_public_sync_mapping import make_snapshot
 
 
@@ -62,14 +61,7 @@ def test_reference_validate_publish_and_conflict(monkeypatch) -> None:
 def test_user_cannot_publish_references(monkeypatch) -> None:
     client, _ = _client(monkeypatch)
     snapshot = client.get("/api/v1/economics/references/snapshot").json()
-    token = create_session_token(
-        "user@example.ru",
-        "user",
-        "default",
-        int(time.time()) + 3600,
-    )
-    user_client = TestClient(client.app)
-    user_client.cookies.set(SESSION_COOKIE, token)
+    user_client = signed_in_client(client.app, monkeypatch, "user@example.ru", "user")
     response = user_client.post(
         "/api/v1/economics/references/publish",
         json={

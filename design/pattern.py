@@ -114,13 +114,38 @@ def generate_pattern(
             first_lattice_row = 1
             skip_regular_first = True
 
-    def row_settings(lattice_row: int, v: float) -> tuple[float, float, float, str]:
-        """Шаг по ряду, шаг до следующего ряда, сдвиг шахматки и вид скважин ряда."""
+    def domain_probe(v: float, accept: Callable[[float, float], bool] | None) -> tuple[float, float]:
+        """Точка ряда, по которой выбирается домен.
+
+        Середина ряда по bbox; если она вне контура (или вне допустимой зоны у
+        бровки), — первый узел ряда, который реально встанет в контур.
+        """
+        mid = _world_xy(origin, row_dir, advance_dir, 0.5 * (u_min + u_max), v)
+        if accept is None or (point_in_polygon(mid, boundary) and accept(*mid)):
+            return mid
+        probe_step = max(0.25, spacing_a * 0.25)
+        u = u_min
+        while u <= u_max:
+            x, y = _world_xy(origin, row_dir, advance_dir, u, v)
+            if point_in_polygon((x, y), boundary) and accept(x, y):
+                return x, y
+            u += probe_step
+        return mid
+
+    def row_settings(
+        lattice_row: int, v: float, accept: Callable[[float, float], bool] | None = None
+    ) -> tuple[float, float, float, str]:
+        """Шаг по ряду, шаг до следующего ряда, сдвиг шахматки и вид скважин ряда.
+
+        `accept` — фильтр узлов ряда: домен берётся по его принятой части.
+        """
         local_a, local_b, shift_ratio, row_kind = _row_config(
             params, pattern, max(lattice_row, 0), spacing_a, burden_b, row_shift_ratio, default_kind
         )
         if pattern == "domain_dependent" and domain_list:
-            mid = _world_xy(origin, row_dir, advance_dir, 0.5 * (u_min + u_max), v)
+            mid = domain_probe(v, accept) if accept is not None else _world_xy(
+                origin, row_dir, advance_dir, 0.5 * (u_min + u_max), v
+            )
             domain = domain_at(domain_list, Point3(x=mid[0], y=mid[1], z=crest_z))
             if domain is not None:
                 if domain.spacing_a_m:
@@ -144,7 +169,7 @@ def generate_pattern(
         отбрасывает узлы ближе этого расстояния к свободной поверхности.
         """
         accept = _off_face_filter(contour, min_face_m) if min_face_m is not None else None
-        local_a, local_b, shift_ratio, row_kind = row_settings(lattice_row, v)
+        local_a, local_b, shift_ratio, row_kind = row_settings(lattice_row, v, accept)
 
         shift = shift_ratio * local_a if lattice_row % 2 == 1 else 0.0
         if pattern == "domain_dependent" and domain_list:
@@ -211,13 +236,14 @@ def generate_pattern(
     # контура и первым рядом.
     min_face_m = offset_from_face + burden_b if skip_regular_first else offset_from_face
     front_rows: list[tuple[int, float]] = []
+    front_accept = _off_face_filter(contour, min_face_m)
     if contour.free_faces:
         v_row = v_first
         for step in range(1, 501):
             lattice_row = first_lattice_row - step
             v_prev = v_row - burden_b
             for _ in range(8):  # домен выбирается по положению ряда, шаг — по домену
-                v_next = v_row - row_settings(lattice_row, v_prev)[1]
+                v_next = v_row - row_settings(lattice_row, v_prev, front_accept)[1]
                 converged = abs(v_next - v_prev) < 1e-9
                 v_prev = v_next
                 if converged:

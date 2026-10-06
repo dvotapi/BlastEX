@@ -174,6 +174,29 @@ class BootContourFillTests(unittest.TestCase):
             {round(x, 6) for x, _ in _production_xy(holes)}, {round(x, 6) for x, _ in expected}
         )
 
+    def test_pocket_domain_steps_front_rows_by_its_burden(self):
+        # Домен только в кармане: середина ряда по bbox лежит вне него и вне
+        # контура, но принятые узлы ряда — внутри домена.
+        pocket = [Point3(x=x, y=y, z=0.0) for x, y in ((38.0, -10.0), (70.0, -10.0), (70.0, 34.0), (38.0, 34.0))]
+        domain = BlastDomain(id="d", name="d", polygon=pocket, spacing_a_m=5.0, burden_b_m=12.0)
+        params = {**PARAMS, "pattern": "domain_dependent", "burden_b_m": 5.0}
+        contour = _contour(BOOT)
+        row_dir, advance_dir = local_basis(0.0)
+        origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
+        offset = float(PARAMS["offset_from_face_m"])
+        holes = generate_pattern(contour, params, domains=[domain])
+        vs = sorted(
+            {
+                round((x - origin[0]) * advance_dir[0] + (y - origin[1]) * advance_dir[1], 6)
+                for x, y in _production_xy(holes)
+            }
+        )
+        front = [v for v in vs if v < offset - 1e-6]
+        self.assertGreaterEqual(len(front), 1)
+        self.assertAlmostEqual(front[-1], offset - 12.0, places=5)
+        for lower, upper in zip(front, front[1:]):
+            self.assertAlmostEqual(upper - lower, 12.0, places=5)
+
 
 class FollowFaceFillTests(unittest.TestCase):
     PARAMS = {**PARAMS, "first_row_follow_face": True}

@@ -447,6 +447,8 @@ class CadSurfaceVolumeSchema(BaseModel):
     area_bottom_m2: float = 0.0
     area_mean_m2: float = 0.0
     mean_area_volume_m3: float | None = None
+    # S верх × H — сверка с блоковой картой (как у маркшейдера).
+    top_area_volume_m3: float | None = None
 
 
 class CadSurfaceResponse(BaseModel):

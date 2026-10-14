@@ -52,6 +52,7 @@ def test_roof_preview_of_block_66(loaded):
     assert volume["area_top_m2"] == pytest.approx(contour["top"]["area_m2"])
     assert volume["area_bottom_m2"] == pytest.approx(contour["bottom"]["area_m2"])
     assert volume["mean_area_volume_m3"] == pytest.approx(volume["area_mean_m2"] * body["bench"]["mean_height_m"])
+    assert volume["top_area_volume_m3"] == pytest.approx(volume["area_top_m2"] * body["bench"]["mean_height_m"])
     assert volume["volume_m3"] == pytest.approx(36_939, rel=0.01)
 
 

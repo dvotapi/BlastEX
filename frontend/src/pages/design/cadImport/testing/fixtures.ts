@@ -247,6 +247,7 @@ export function surfaceResult(extra: Partial<CadSurfaceResult> = {}): CadSurface
       area_bottom_m2: 4120.92,
       area_mean_m2: 3455.42,
       mean_area_volume_m3: 36281.9,
+      top_area_volume_m3: 29294.27,
     },
     ...extra,
   };

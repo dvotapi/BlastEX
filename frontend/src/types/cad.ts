@@ -385,6 +385,7 @@ export type CadSurfaceVolume = {
   area_bottom_m2: number;
   area_mean_m2: number;
   mean_area_volume_m3: number | null;
+  top_area_volume_m3: number | null;
 };
 
 export type CadSurfaceResult = {

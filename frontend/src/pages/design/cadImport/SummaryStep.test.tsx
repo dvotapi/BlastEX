@@ -50,8 +50,9 @@ describe("SummaryStep", () => {
     const props = renderStep({ state: { ...initialSurface(cadSource()), mapVolume: "28279,39" }, mapArea: 2772.49 });
 
     const totals = screen.getByRole("group", { name: "Итоги блока" });
-    expect(value(totals, "Объём по поверхностям")).toBe("36939 м³ (+30,62 %)");
-    expect(value(totals, "S ср × H")).toBe("36282 м³ (+28,30 %)");
+    expect(value(totals, "Объём по поверхностям")).toBe("36939 м³");
+    expect(value(totals, "S верх × H")).toBe("29294 м³ (+3,59 %)");
+    expect(value(totals, "S ср × H")).toBe("36282 м³");
     expect(value(totals, "S верх")).toBe("2789,9 м² (+0,63 %)");
     fireEvent.change(screen.getByLabelText("Объём с карты, м³"), { target: { value: "30000" } });
     expect(lastState(props).mapVolume).toBe("30000");

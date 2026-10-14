@@ -173,5 +173,6 @@ def _response(roof: Roof) -> CadSurfaceResponse:
             area_bottom_m2=roof.area_bottom_m2,
             area_mean_m2=roof.area_mean_m2,
             mean_area_volume_m3=roof.mean_area_volume_m3,
+            top_area_volume_m3=roof.top_area_volume_m3,
         ),
     )

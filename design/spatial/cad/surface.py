@@ -160,6 +160,15 @@ class Roof:
         return None if self.mean_height_m is None else self.area_mean_m2 * self.mean_height_m
 
     @property
+    def top_area_volume_m3(self) -> float | None:
+        """S верх × средняя высота — как считает маркшейдер (по верхнему контуру).
+
+        Сверка с блоковой картой идёт по нему (решение владельца 15.10.2026).
+        """
+
+        return None if self.mean_height_m is None else self.area_top_m2 * self.mean_height_m
+
+    @property
     def excluded(self) -> list[str]:
         return self.data.excluded
 

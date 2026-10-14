@@ -48,9 +48,11 @@ export function SummaryStep({ contour, surface, state, onChange, mapArea, disabl
         <dt>Средняя высота</dt>
         <dd>{height === null ? "—" : `${ruNumber(height, 2)} м`}</dd>
         <dt>Объём по поверхностям</dt>
-        <dd>{volume(surface?.volume.volume_m3, mapVolume)}</dd>
+        <dd>{volume(surface?.volume.volume_m3, null)}</dd>
+        <dt>S верх × H</dt>
+        <dd>{volume(surface?.volume.top_area_volume_m3, mapVolume)}</dd>
         <dt>S ср × H</dt>
-        <dd>{volume(surface?.volume.mean_area_volume_m3, mapVolume)}</dd>
+        <dd>{volume(surface?.volume.mean_area_volume_m3, null)}</dd>
         <dt>
           <label htmlFor="cad-map-volume">Объём с карты, м³</label>
         </dt>
@@ -68,7 +70,7 @@ export function SummaryStep({ contour, surface, state, onChange, mapArea, disabl
       <p className="cad-hint">
         {plane
           ? "Отметок нет — кровля — плоскость по бровке и откос не описывает: объём по поверхностям равен S ср × H."
-          : `Объём по поверхностям — между кровлей и подошвой ${basis}; S ср × H — способ горизонтальных сечений по средней площади.`}
+          : `Объём по поверхностям — между кровлей и подошвой ${basis}. Сверка с картой — по S верх × H, как у маркшейдера; S ср × H — способ горизонтальных сечений по средней площади.`}
       </p>
       {surface?.bench.needs_confirmation && height !== null && (
         <label className="cad-confirm-height">

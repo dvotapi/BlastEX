@@ -76,31 +76,38 @@ def _assert_design_untouched(design: BlastDesign, before: tuple, action: str) ->
         raise RuntimeError(f"{action} must not rewrite the designed pattern, charges or network.")
 
 
-def _is_first_layer(
-    hole: Hole, enabled: list[Hole], design: BlastDesign, pattern_burden: float
-) -> bool:
-    """Скважина стоит на первом слое сетки — у свободной поверхности.
+def _first_layer_ids(design: BlastDesign, enabled: list[Hole]) -> set[int]:
+    """Объекты скважин первого слоя (по id() объекта, не по ID скважины).
 
-    Для основной сетки слой — скважины, ближайшие к откосу (в пределах половины
-    burden от самой ближней), а не минимальный номер ряда: ряды впереди первого
-    у изогнутой бровки получают отрицательные номера. Контурные и подрывные
-    ряды по-прежнему — по номеру ряда.
+    Основная сетка: скважины, ближайшие к откосу — в пределах половины самого
+    короткого шага между рядами. Шаг берётся по соседним рядам (distance до
+    ряда позади), а не по общему burden: ряды с `row_params` могут быть уже.
+    Контурные и подрывные скважины — по минимальному номеру среди своих
+    же групп: ряды впереди первого основной сетки их не касаются.
     """
-    if hole.kind in PRESERVED_HOLE_KINDS:
-        min_row = min((item.row for item in enabled), default=hole.row)
-        return hole.row <= min_row
-    known = [
-        d
-        for item in enabled
-        if item.kind not in PRESERVED_HOLE_KINDS
-        for d in [distance_to_free_faces((item.collar.x, item.collar.y), design.contour)]
-        if d is not None
+    contour = design.contour
+    first: set[int] = set()
+    preserved = [h for h in enabled if h.kind in PRESERVED_HOLE_KINDS]
+    if preserved:
+        min_preserved_row = min(h.row for h in preserved)
+        first.update(id(h) for h in preserved if h.row <= min_preserved_row)
+    production = [h for h in enabled if h.kind not in PRESERVED_HOLE_KINDS]
+    faces = [
+        (h, distance_to_free_faces((h.collar.x, h.collar.y), contour)) for h in production
     ]
-    own = distance_to_free_faces((hole.collar.x, hole.collar.y), design.contour)
-    if not known or own is None:
-        min_row = min((item.row for item in enabled), default=hole.row)
-        return hole.row <= min_row
-    return own < min(known) + 0.5 * pattern_burden
+    faces = [(h, d) for h, d in faces if d is not None]
+    if not faces:
+        return first
+    min_face = min(d for _, d in faces)
+    steps = [
+        step
+        for h in production
+        for step in [local_burden(enabled, h, contour)]
+        if step is not None and step > 0
+    ]
+    tolerance = 0.5 * min(steps) if steps else 0.5 * _pattern_length(design, "burden_b_m", DEFAULT_BURDEN_M)
+    first.update(id(h) for h, d in faces if d < min_face + tolerance)
+    return first
 
 
 def _pattern_length(design: BlastDesign, key: str, fallback: float) -> float:
@@ -137,6 +144,7 @@ def _hole_inputs(
     design: BlastDesign,
     load: HoleLoad | None,
     times_ms: dict[str, float],
+    first_layer: set[int],
 ) -> MovementInputs:
     enabled = [item for item in design.holes if item.enabled]
     pattern_burden = _pattern_length(design, "burden_b_m", DEFAULT_BURDEN_M)
@@ -145,7 +153,7 @@ def _hole_inputs(
     if spacing is None or spacing <= 0:
         spacing = pattern_spacing
     measured_burden = local_burden(enabled, hole, design.contour)
-    if _is_first_layer(hole, enabled, design, pattern_burden):
+    if id(hole) in first_layer:
         # Face-to-collar distance is not burden on the first layer of the pattern.
         burden = pattern_burden
     elif measured_burden and measured_burden > 0:
@@ -273,8 +281,9 @@ def predict_design(
     warnings = list(timing_warnings)
     if not enabled:
         warnings.append("Нет активных скважин — оценка развала пустая.")
+    first_layer = _first_layer_ids(design, enabled)
     for hole in enabled:
-        inputs = _hole_inputs(hole, design, loads.get(hole.id), times_ms)
+        inputs = _hole_inputs(hole, design, loads.get(hole.id), times_ms, first_layer)
         if inputs.charge_mass_kg <= 0:
             warnings.append(f"Скважина {hole.id}: нет массы заряда, оценка слабая.")
         hole_rows.append(estimate_hole_movement(hole, inputs, design.contour, enabled, times_ms))

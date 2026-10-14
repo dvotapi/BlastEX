@@ -17,7 +17,7 @@ from design.geometry import (
     point_in_polygon,
 )
 from design.models import BenchSurface, BlastDomain, BlockContour, Point3
-from design.pattern import generate_pattern
+from design.pattern import FRONT_ROW_BASE, generate_pattern
 
 # Против часовой стрелки: тыл (x = 0) сверху вниз, наклонная сторона, низ
 # кармана, бровка снизу вверх: карман → поворот на 90° → полоса.
@@ -140,14 +140,16 @@ class BootContourFillTests(unittest.TestCase):
     def test_row_numbers_are_dense_and_ids_unique(self):
         holes = [h for h in generate_pattern(_contour(BOOT), PARAMS) if h.kind == "production"]
         rows = sorted({h.row for h in holes})
-        # Ряды впереди первого — отрицательные номера; номера идут подряд через 0.
-        self.assertEqual(rows, list(range(rows[0], rows[0] + len(rows))))
-        self.assertLess(rows[0], 0)
-        self.assertIn(0, rows)
+        # Основная сетка — подряд от 0; ряды впереди — подряд от FRONT_ROW_BASE.
+        main = [r for r in rows if r >= 0]
+        front = [r for r in rows if r < 0]
+        self.assertEqual(main, list(range(0, len(main))))
+        self.assertEqual(front, list(range(front[0], front[0] + len(front))))
+        self.assertLessEqual(front[-1], FRONT_ROW_BASE)
         self.assertEqual(len({h.id for h in holes}), len(holes))
         # Ряд у бровки — 0, ряды впереди — F1, F2 …
-        self.assertTrue(all(h.id.startswith("F") for h in holes if h.row < 0))
-        self.assertTrue(all(not h.id.startswith("F") for h in holes if h.row >= 0))
+        self.assertTrue(all(h.id.startswith("F") for h in holes if h.row <= FRONT_ROW_BASE))
+        self.assertTrue(all(not h.id.startswith("F") for h in holes if h.row > FRONT_ROW_BASE))
 
     def test_staggered_matches_lattice_parity(self):
         # Нечётные ряды решётки (по счёту от первого ряда у бровки) сдвинуты

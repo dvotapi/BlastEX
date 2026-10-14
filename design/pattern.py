@@ -16,6 +16,10 @@ from design.geometry import (
 from design.geology import domain_at
 from design.models import HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3
 
+# Ряды впереди первого отрицательные, но номера контурных рядов (-1…-n) и
+# буферного (-10) заняты: ряды впереди уходят в отдельный диапазон ниже.
+FRONT_ROW_BASE = -1000
+
 PATTERN_TYPES = ("square", "rectangular", "staggered", "variable", "domain_dependent")
 REGULAR_PATTERNS = ("square", "rectangular", "staggered")
 
@@ -235,6 +239,9 @@ def generate_pattern(
     # свободной поверхности впереди нет ничего, кроме полосы между краем
     # контура и первым рядом.
     min_face_m = offset_from_face + burden_b if skip_regular_first else offset_from_face
+    def _front_row_number(lattice_row: int) -> int:
+        return FRONT_ROW_BASE - (first_lattice_row - lattice_row)
+
     front_rows: list[tuple[int, float]] = []
     front_accept = _off_face_filter(contour, min_face_m)
     if contour.free_faces:
@@ -255,12 +262,12 @@ def generate_pattern(
     # Пустые ряды перед первым непустым номера не получают — для блока, где
     # бровка целиком впереди контура, нумерация остаётся прежней.
     while front_rows and not place_row(
-        front_rows[0][0], front_rows[0][0] - first_lattice_row, front_rows[0][1], min_face_m
+        front_rows[0][0], _front_row_number(front_rows[0][0]), front_rows[0][1], min_face_m
     )[0]:
         front_rows.pop(0)
 
     for lattice_row, v in front_rows:
-        placed, _ = place_row(lattice_row, lattice_row - first_lattice_row, v, min_face_m)
+        placed, _ = place_row(lattice_row, _front_row_number(lattice_row), v, min_face_m)
         holes.extend(placed)
 
     lattice_row = first_lattice_row
@@ -323,9 +330,9 @@ def _normalize_kind(value: Any, default: str) -> str:
 
 
 def _row_id(kind: str, row_index: int, col_index: int) -> str:
-    """Идентификатор скважины. Ряды впереди первого (номер < 0) — префикс F."""
-    if row_index < 0:
-        return f"F{-row_index}-{col_index + 1:02d}"
+    """Идентификатор скважины. Ряды впереди первого — префикс F: F1, F2 …"""
+    if row_index <= FRONT_ROW_BASE:
+        return f"F{row_index - FRONT_ROW_BASE}-{col_index + 1:02d}"
     return _grid_id(kind, row_index, col_index)
 
 

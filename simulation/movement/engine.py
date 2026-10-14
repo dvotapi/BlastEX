@@ -8,7 +8,9 @@ from __future__ import annotations
 from typing import Any
 
 from design.editing import local_burden, local_spacing
+from design.geometry import distance_to_free_faces
 from design.models import (
+    PRESERVED_HOLE_KINDS,
     ROLE_PREDICTED,
     BlastDesign,
     Hole,
@@ -74,6 +76,33 @@ def _assert_design_untouched(design: BlastDesign, before: tuple, action: str) ->
         raise RuntimeError(f"{action} must not rewrite the designed pattern, charges or network.")
 
 
+def _is_first_layer(
+    hole: Hole, enabled: list[Hole], design: BlastDesign, pattern_burden: float
+) -> bool:
+    """Скважина стоит на первом слое сетки — у свободной поверхности.
+
+    Для основной сетки слой — скважины, ближайшие к откосу (в пределах половины
+    burden от самой ближней), а не минимальный номер ряда: ряды впереди первого
+    у изогнутой бровки получают отрицательные номера. Контурные и подрывные
+    ряды по-прежнему — по номеру ряда.
+    """
+    if hole.kind in PRESERVED_HOLE_KINDS:
+        min_row = min((item.row for item in enabled), default=hole.row)
+        return hole.row <= min_row
+    known = [
+        d
+        for item in enabled
+        if item.kind not in PRESERVED_HOLE_KINDS
+        for d in [distance_to_free_faces((item.collar.x, item.collar.y), design.contour)]
+        if d is not None
+    ]
+    own = distance_to_free_faces((hole.collar.x, hole.collar.y), design.contour)
+    if not known or own is None:
+        min_row = min((item.row for item in enabled), default=hole.row)
+        return hole.row <= min_row
+    return own < min(known) + 0.5 * pattern_burden
+
+
 def _pattern_length(design: BlastDesign, key: str, fallback: float) -> float:
     raw = (design.pattern_params or {}).get(key)
     if raw in (None, ""):
@@ -115,10 +144,11 @@ def _hole_inputs(
     spacing = local_spacing(enabled, hole)
     if spacing is None or spacing <= 0:
         spacing = pattern_spacing
-    # Face-to-collar distance is not burden when the first row sits on the face.
-    min_row = min((item.row for item in enabled), default=hole.row)
     measured_burden = local_burden(enabled, hole, design.contour)
-    if hole.row > min_row and measured_burden and measured_burden > 0:
+    if _is_first_layer(hole, enabled, design, pattern_burden):
+        # Face-to-collar distance is not burden on the first layer of the pattern.
+        burden = pattern_burden
+    elif measured_burden and measured_burden > 0:
         burden = measured_burden
     else:
         burden = pattern_burden

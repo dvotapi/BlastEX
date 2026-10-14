@@ -140,8 +140,14 @@ class BootContourFillTests(unittest.TestCase):
     def test_row_numbers_are_dense_and_ids_unique(self):
         holes = [h for h in generate_pattern(_contour(BOOT), PARAMS) if h.kind == "production"]
         rows = sorted({h.row for h in holes})
-        self.assertEqual(rows, list(range(len(rows))))
+        # Ряды впереди первого — отрицательные номера; номера идут подряд через 0.
+        self.assertEqual(rows, list(range(rows[0], rows[0] + len(rows))))
+        self.assertLess(rows[0], 0)
+        self.assertIn(0, rows)
         self.assertEqual(len({h.id for h in holes}), len(holes))
+        # Ряд у бровки — 0, ряды впереди — F1, F2 …
+        self.assertTrue(all(h.id.startswith("F") for h in holes if h.row < 0))
+        self.assertTrue(all(not h.id.startswith("F") for h in holes if h.row >= 0))
 
     def test_staggered_matches_lattice_parity(self):
         # Нечётные ряды решётки (по счёту от первого ряда у бровки) сдвинуты
@@ -205,7 +211,7 @@ class FollowFaceFillTests(unittest.TestCase):
         contour = _contour(BOOT)
         holes = [h for h in generate_pattern(contour, self.PARAMS) if h.kind == "production"]
         face_row = [h for h in holes if h.row == 0]
-        grid = [h for h in holes if h.row >= 1]
+        grid = [h for h in holes if h.row != 0]
         self.assertGreater(len(face_row), 0)
         row_dir, advance_dir = local_basis(0.0)
         origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)

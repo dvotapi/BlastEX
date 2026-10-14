@@ -208,7 +208,7 @@ def generate_pattern(
                 )
                 placed.append(
                     Hole(
-                        id=_grid_id(row_kind, row_index, col_index),
+                        id=_row_id(row_kind, row_index, col_index),
                         row=row_index,
                         col=col_index,
                         collar=collar,
@@ -254,16 +254,17 @@ def generate_pattern(
             v_row = v_prev
     # Пустые ряды перед первым непустым номера не получают — для блока, где
     # бровка целиком впереди контура, нумерация остаётся прежней.
-    while front_rows and not place_row(front_rows[0][0], 0, front_rows[0][1], min_face_m)[0]:
+    while front_rows and not place_row(
+        front_rows[0][0], front_rows[0][0] - first_lattice_row, front_rows[0][1], min_face_m
+    )[0]:
         front_rows.pop(0)
 
-    row_index = first_lattice_row
     for lattice_row, v in front_rows:
-        placed, _ = place_row(lattice_row, row_index, v, min_face_m)
+        placed, _ = place_row(lattice_row, lattice_row - first_lattice_row, v, min_face_m)
         holes.extend(placed)
-        row_index += 1
 
     lattice_row = first_lattice_row
+    row_index = first_lattice_row
     v = v_first
     safety = 0
     while v <= v_max and safety < 500:
@@ -319,6 +320,13 @@ def generate_pattern(
 def _normalize_kind(value: Any, default: str) -> str:
     kind = str(value or default).strip().lower()
     return kind if kind in HOLE_KINDS else default
+
+
+def _row_id(kind: str, row_index: int, col_index: int) -> str:
+    """Идентификатор скважины. Ряды впереди первого (номер < 0) — префикс F."""
+    if row_index < 0:
+        return f"F{-row_index}-{col_index + 1:02d}"
+    return _grid_id(kind, row_index, col_index)
 
 
 def _grid_id(kind: str, row_index: int, col_index: int) -> str:
@@ -418,7 +426,7 @@ def _walk_domain_row(
         )
         holes.append(
             Hole(
-                id=_grid_id(row_kind, row_index, col_index),
+                id=_row_id(row_kind, row_index, col_index),
                 row=row_index,
                 col=col_index,
                 collar=collar,

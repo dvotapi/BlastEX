@@ -85,9 +85,9 @@ class FrontRowIdsAndTimingTests(unittest.TestCase):
         front = [h for h in holes if h.row <= FRONT_ROW_BASE]
         self.assertTrue(front)
         for h in front:
-            self.assertRegex(h.id, r"^F[1-9]\d*-\d{2}$")
+            self.assertRegex(h.id, r"^\d+-\d{2}$")
         nearest = max(front, key=lambda h: h.row)  # ближайший к первому ряду
-        self.assertTrue(nearest.id.startswith("F1-"))
+        self.assertEqual(nearest.row, FRONT_ROW_BASE - 1)  # техническая сетка: F1 по row
 
     def test_row_timing_on_bent_crest_uses_logical_rows(self):
         from design.timing import _electronic_times

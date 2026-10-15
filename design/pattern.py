@@ -14,6 +14,7 @@ from design.geometry import (
     point_in_polygon,
 )
 from design.geology import domain_at
+from design.numbering import number_by_position
 from design.models import FRONT_ROW_BASE, HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3, logical_row
 
 PATTERN_TYPES = ("square", "rectangular", "staggered", "variable", "domain_dependent")
@@ -329,7 +330,8 @@ def generate_pattern(
     if params.get("infill_holes"):
         holes.extend(_generate_infill_holes(holes, contour, params, surfaces))
 
-    return _keep_manual(existing_holes) + holes
+    # Id — по расположению (север→юг, запад→восток); row/col остаются техническими.
+    return number_by_position(_keep_manual(existing_holes) + holes)
 
 
 def _normalize_kind(value: Any, default: str) -> str:

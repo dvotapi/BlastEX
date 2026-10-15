@@ -6,6 +6,7 @@
 перебирались.
 """
 import math
+import re
 import unittest
 
 from design.geometry import (
@@ -147,9 +148,8 @@ class BootContourFillTests(unittest.TestCase):
         self.assertEqual(front, list(range(front[0], front[0] + len(front))))
         self.assertLessEqual(front[-1], FRONT_ROW_BASE)
         self.assertEqual(len({h.id for h in holes}), len(holes))
-        # Ряд у бровки — 0, ряды впереди — F1, F2 …
-        self.assertTrue(all(h.id.startswith("F") for h in holes if h.row <= FRONT_ROW_BASE))
-        self.assertTrue(all(not h.id.startswith("F") for h in holes if h.row > FRONT_ROW_BASE))
+        # Id — по расположению (север→юг), row остаётся техническим: префикса F нет.
+        self.assertTrue(all(re.match(r"^\d+-\d{2}$", h.id) for h in holes))
 
     def test_staggered_matches_lattice_parity(self):
         # Нечётные ряды решётки (по счёту от первого ряда у бровки) сдвинуты
@@ -271,7 +271,8 @@ class RectangleUnchangedTests(unittest.TestCase):
         expected = []
         for row, y in enumerate((2.5, 7.5, 12.5, 17.5)):
             for col, x in enumerate((5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0)):
-                expected.append((f"{row + 1}-{col + 1:02d}", row, col, x, y))
+                # id — по позиции: север (большой y) — первый ряд.
+                expected.append((f"{4 - row}-{col + 1:02d}", row, col, x, y))
         got = [(h.id, h.row, h.col, round(h.collar.x, 6), round(h.collar.y, 6)) for h in holes]
         self.assertEqual(got, expected)
 

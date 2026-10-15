@@ -88,14 +88,12 @@ def _predecessors(enabled: list[Hole], hole: Hole) -> list[Hole]:
     Контурные/подрывные ряды (сырые номера -1…-n), буферные (-10) и сетка
     (логические номера) не смешиваются.
     """
-    group = "walls" if hole.kind in WALL_HOLE_KINDS else row_family(hole.kind)
+    group = row_family(hole.kind)
     prev = logical_row(hole.row) - 1
     return [
         o
         for o in enabled
-        if o is not hole
-        and ("walls" if o.kind in WALL_HOLE_KINDS else row_family(o.kind)) == group
-        and logical_row(o.row) == prev
+        if o is not hole and row_family(o.kind) == group and logical_row(o.row) == prev
     ]
 
 

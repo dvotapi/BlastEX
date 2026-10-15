@@ -256,8 +256,13 @@ def generate_pattern(
                 visited.append(v_next)
                 v_prev = v_next
             else:
-                if len(visited) >= 2:
-                    v_prev = min(visited)
+                # Цикл — от первого повтора последней позиции; берём его самую далёкую
+                # точку. Если повтора нет, — самую далёкую из всех пробованных.
+                last = visited[-1] if visited else v_prev
+                start = next((i for i, v in enumerate(visited) if abs(v - last) < 1e-9), None)
+                cycle = visited[start:] if start is not None else visited
+                if cycle:
+                    v_prev = min(cycle)
             if v_prev < v_min:
                 break
             front_rows.insert(0, (lattice_row, v_prev))

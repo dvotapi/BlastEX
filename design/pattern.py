@@ -14,7 +14,7 @@ from design.geometry import (
     point_in_polygon,
 )
 from design.geology import domain_at
-from design.models import FRONT_ROW_BASE, HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3
+from design.models import FRONT_ROW_BASE, HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3, logical_row
 
 PATTERN_TYPES = ("square", "rectangular", "staggered", "variable", "domain_dependent")
 REGULAR_PATTERNS = ("square", "rectangular", "staggered")
@@ -698,14 +698,16 @@ def _generate_stab_holes(
     params: dict[str, Any],
     surfaces: object | None,
 ) -> list[Hole]:
-    """Short holes midway between first-row production holes (or in front if a single hole)."""
-    first_row = [h for h in holes if h.enabled and h.kind == "production" and h.row == 0]
-    if not first_row:
-        first_row = [h for h in holes if h.enabled and h.kind == "production"]
-        if not first_row:
-            return []
-        min_row = min(h.row for h in first_row)
-        first_row = [h for h in first_row if h.row == min_row]
+    """Short holes midway between first-row production holes (or in front if a single hole).
+
+    «Первый ряд» — ряд, ближайший к свободной поверхности: самый дальний впереди
+    (наименьший логический номер). Без рядов впереди это ряд 0, как и прежде.
+    """
+    production = [h for h in holes if h.enabled and h.kind == "production"]
+    if not production:
+        return []
+    face_row = min(logical_row(h.row) for h in production)
+    first_row = [h for h in production if logical_row(h.row) == face_row]
     ordered = sorted(first_row, key=lambda h: h.col)
     depth_m = float(params.get("stab_depth_m", 3.0))
     angle_deg = float(params.get("stab_angle_deg", params.get("angle_deg", 0.0)))

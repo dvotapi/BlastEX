@@ -34,6 +34,15 @@ const TARGET_BARREL_PX = 15;
 const MIN_BARREL_PX = 3;
 /** Сдвиг курсора, после которого жест считается панорамой, а не кликом. */
 const DRAG_THRESHOLD_PX = 4;
+// Зеркало design/models.py: ряды впереди первого — номера ниже FRONT_ROW_BASE.
+const FRONT_ROW_BASE = -1000;
+/** Логический номер ряда (logical_row): ряды впереди идут подряд у нуля. */
+const logicalRow = (row: number): number => (row < FRONT_ROW_BASE ? row - FRONT_ROW_BASE : row);
+const rowLabel = (row: number): string => {
+  if (row < FRONT_ROW_BASE) return `Впереди, ряд ${FRONT_ROW_BASE - row}`;
+  if (row < 0) return `Контур ${-row}`;
+  return `Ряд ${row + 1}`;
+};
 
 type Tooltip = { x: number; y: number; text: string };
 
@@ -115,7 +124,7 @@ export function SectionView({
   const rows = useMemo(() => {
     const set = new Set<number>();
     for (const h of holes) if (h.enabled) set.add(h.row);
-    return Array.from(set).sort((a, b) => a - b);
+    return Array.from(set).sort((a, b) => logicalRow(a) - logicalRow(b) || a - b);
   }, [holes]);
 
   const { rowDir } = useMemo(() => localBasis(rowAzimuthDeg), [rowAzimuthDeg]);
@@ -330,7 +339,7 @@ export function SectionView({
       <header>
         <b>Разрез по ряду</b>
         <select value={row ?? ""} onChange={(e) => onSelectedRowChange(Number(e.target.value))}>
-          {rows.map((r) => <option key={r} value={r}>{r < 0 ? `Контур ${-r}` : `Ряд ${r + 1}`}</option>)}
+          {rows.map((r) => <option key={r} value={r}>{rowLabel(r)}</option>)}
         </select>
       </header>
       <div className="panel-body">

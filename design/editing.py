@@ -60,9 +60,11 @@ def spacing_report(
     `col`; между соседними рядами — по ближайшей скважине следующего ряда.
     """
     enabled = [h for h in holes if h.enabled]
-    by_row: dict[int, list[Hole]] = {}
+    # Ключ — группа рядов и логический номер: ряды впереди первого идут подряд у
+    # первого ряда, контурные (-1…-n) и буферные (-10) не сливаются с сеткой.
+    by_row: dict[tuple[str, int], list[Hole]] = {}
     for h in enabled:
-        by_row.setdefault(h.row, []).append(h)
+        by_row.setdefault((row_family(h.kind), logical_row(h.row)), []).append(h)
 
     a_values: list[float] = []
     flagged: list[dict[str, Any]] = []
@@ -79,6 +81,8 @@ def spacing_report(
     b_values: list[float] = []
     rows_sorted = sorted(by_row.keys())
     for r1, r2 in zip(rows_sorted, rows_sorted[1:]):
+        if r1[0] != r2[0]:
+            continue
         for h1 in by_row[r1]:
             nearest = min(by_row[r2], key=lambda h2: _distance2d(h1, h2), default=None)
             if nearest is None:

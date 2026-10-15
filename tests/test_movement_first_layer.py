@@ -126,5 +126,31 @@ class FrontRowBurdenAndDiagonalTimingTests(unittest.TestCase):
         self.assertGreaterEqual(min(times.values()), 0.0)
 
 
+class PredecessorFamilyTests(unittest.TestCase):
+    def test_production_predecessor_ignores_wall_rows(self):
+        import math
+
+        from design.models import logical_row
+        from simulation.movement.engine import _previous_row_distance
+
+        params = {**PARAMS, "contour_row": True, "contour_offset_m": 1.0, "contour_spacing_m": 3.0}
+        holes = [h for h in generate_pattern(_contour(BOOT), params) if h.enabled]
+        walls = [h for h in holes if h.kind == "contour"]
+        production = [h for h in holes if h.kind == "production"]
+        self.assertTrue(walls)
+        for h in production:
+            expected_pool = [
+                o for o in production
+                if o is not h and logical_row(o.row) == logical_row(h.row) - 1
+            ]
+            if not expected_pool:
+                self.assertIsNone(_previous_row_distance(holes, h))
+                continue
+            expected = min(
+                math.hypot(h.collar.x - o.collar.x, h.collar.y - o.collar.y) for o in expected_pool
+            )
+            self.assertAlmostEqual(_previous_row_distance(holes, h), expected, places=9)
+
+
 if __name__ == "__main__":
     unittest.main()

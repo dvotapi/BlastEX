@@ -245,12 +245,19 @@ def generate_pattern(
         for step in range(1, 501):
             lattice_row = first_lattice_row - step
             v_prev = v_row - burden_b
-            for _ in range(8):  # домен выбирается по положению ряда, шаг — по домену
+            # Домен выбирается по положению ряда, шаг — по домену. Если граница домена
+            # зациклила поиск, берём более далёкую из двух последних позиций: шаг
+            # больше, и ряд не окажется недогружен против домена с большим burden.
+            visited: list[float] = []
+            for _ in range(8):
                 v_next = v_row - row_settings(lattice_row, v_prev, front_accept)[1]
-                converged = abs(v_next - v_prev) < 1e-9
-                v_prev = v_next
-                if converged:
+                if abs(v_next - v_prev) < 1e-9:
                     break
+                visited.append(v_next)
+                v_prev = v_next
+            else:
+                if len(visited) >= 2:
+                    v_prev = min(visited[-2:])
             if v_prev < v_min:
                 break
             front_rows.insert(0, (lattice_row, v_prev))

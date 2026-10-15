@@ -83,8 +83,15 @@ WALL_HOLE_KINDS = ("contour", "presplit", "trim")
 
 def _previous_row_distance(enabled: list[Hole], hole: Hole) -> float | None:
     """Расстояние до ближайшей скважины соседнего ряда позади; None, если его нет."""
+    # Соседний ряд ищем только внутри своей группы: контурные/подрывные ряды
+    # (сырые номера -1…-n) и сетка (логические номера) не смешиваются.
+    own_group = hole.kind in WALL_HOLE_KINDS
     prev = logical_row(hole.row) - 1
-    others = [o for o in enabled if o is not hole and logical_row(o.row) == prev]
+    others = [
+        o
+        for o in enabled
+        if o is not hole and (o.kind in WALL_HOLE_KINDS) == own_group and logical_row(o.row) == prev
+    ]
     if not others:
         return None
     return min(math.hypot(hole.collar.x - o.collar.x, hole.collar.y - o.collar.y) for o in others)

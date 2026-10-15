@@ -13,6 +13,7 @@ from typing import Any
 
 from design.models import (
     ELECTRONIC_TIMING_MODES,
+    logical_row,
     Connector,
     DetonatingCord,
     Detonator,
@@ -64,7 +65,7 @@ def _snap(value: float, options: tuple[float, ...]) -> float:
 
 
 def _wave_coordinate(hole: Hole, scheme: str, center_col: float, min_col: int, max_col: int) -> float:
-    row = float(hole.row)
+    row = float(logical_row(hole.row))
     col = float(hole.col)
     if scheme == "row":
         return row
@@ -259,7 +260,7 @@ def _sorted_selected(holes: list[Hole], selected_ids: list[str]) -> list[Hole]:
     ordered = [by_id[hole_id] for hole_id in selected_ids if hole_id in by_id]
     if ordered:
         return ordered
-    return sorted(holes, key=lambda hole: (hole.row, hole.col, hole.id))
+    return sorted(holes, key=lambda hole: (logical_row(hole.row), hole.col, hole.id))
 
 
 def apply_electronic_timing(
@@ -362,7 +363,7 @@ def _electronic_times(
     gradient_to_ms: float,
 ) -> dict[str, float]:
     min_col, max_col, center_col = _grid_extents(holes)
-    min_row = min(hole.row for hole in holes)
+    min_row = min(logical_row(hole.row) for hole in holes)
     times: dict[str, float] = {}
 
     if mode == "selection":
@@ -402,9 +403,9 @@ def _electronic_times(
     if mode == "expression":
         if not expression.strip():
             raise TimingExprError("Задайте выражение тайминга.")
-        for index, hole in enumerate(sorted(holes, key=lambda item: (item.row, item.col, item.id))):
+        for index, hole in enumerate(sorted(holes, key=lambda item: (logical_row(item.row), item.col, item.id))):
             variables = {
-                "row": float(hole.row),
+                "row": float(logical_row(hole.row)),
                 "col": float(hole.col),
                 "x": float(hole.collar.x),
                 "y": float(hole.collar.y),
@@ -428,7 +429,7 @@ def _electronic_times(
         wave = _wave_coordinate(hole, scheme, center_col, min_col, max_col)
         origin = min_row if scheme == "row" else 0.0
         if scheme == "row":
-            times[hole.id] = base_ms + (hole.row - min_row) * interval_ms
+            times[hole.id] = base_ms + (logical_row(hole.row) - min_row) * interval_ms
         else:
             times[hole.id] = base_ms + (wave - origin) * interval_ms
     return times

@@ -14,11 +14,7 @@ from design.geometry import (
     point_in_polygon,
 )
 from design.geology import domain_at
-from design.models import HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3
-
-# Ряды впереди первого отрицательные, но номера контурных рядов (-1…-n) и
-# буферного (-10) заняты: ряды впереди уходят в отдельный диапазон ниже.
-FRONT_ROW_BASE = -1000
+from design.models import FRONT_ROW_BASE, HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3
 
 PATTERN_TYPES = ("square", "rectangular", "staggered", "variable", "domain_dependent")
 REGULAR_PATTERNS = ("square", "rectangular", "staggered")
@@ -331,8 +327,8 @@ def _normalize_kind(value: Any, default: str) -> str:
 
 def _row_id(kind: str, row_index: int, col_index: int) -> str:
     """Идентификатор скважины. Ряды впереди первого — префикс F: F1, F2 …"""
-    if row_index <= FRONT_ROW_BASE:
-        return f"F{row_index - FRONT_ROW_BASE}-{col_index + 1:02d}"
+    if row_index < FRONT_ROW_BASE:
+        return f"F{FRONT_ROW_BASE - row_index}-{col_index + 1:02d}"
     return _grid_id(kind, row_index, col_index)
 
 

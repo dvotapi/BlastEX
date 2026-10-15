@@ -5,6 +5,7 @@ Timing is resolved on a copy of the network so ``firing_events`` stay put.
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from design.editing import local_burden, local_spacing
@@ -16,6 +17,7 @@ from design.models import (
     Hole,
     HoleLoad,
     InitiationNetwork,
+    logical_row,
     stemming_length_m,
 )
 from design.timing import resolve_network
@@ -76,6 +78,18 @@ def _assert_design_untouched(design: BlastDesign, before: tuple, action: str) ->
         raise RuntimeError(f"{action} must not rewrite the designed pattern, charges or network.")
 
 
+WALL_HOLE_KINDS = ("contour", "presplit", "trim")
+
+
+def _previous_row_distance(enabled: list[Hole], hole: Hole) -> float | None:
+    """Расстояние до ближайшей скважины соседнего ряда позади; None, если его нет."""
+    prev = logical_row(hole.row) - 1
+    others = [o for o in enabled if o is not hole and logical_row(o.row) == prev]
+    if not others:
+        return None
+    return min(math.hypot(hole.collar.x - o.collar.x, hole.collar.y - o.collar.y) for o in others)
+
+
 def _first_layer_ids(design: BlastDesign, enabled: list[Hole]) -> set[int]:
     """Объекты скважин первого слоя (по id() объекта, не по ID скважины).
 
@@ -87,11 +101,11 @@ def _first_layer_ids(design: BlastDesign, enabled: list[Hole]) -> set[int]:
     """
     contour = design.contour
     first: set[int] = set()
-    preserved = [h for h in enabled if h.kind in PRESERVED_HOLE_KINDS]
-    if preserved:
-        min_preserved_row = min(h.row for h in preserved)
-        first.update(id(h) for h in preserved if h.row <= min_preserved_row)
-    production = [h for h in enabled if h.kind not in PRESERVED_HOLE_KINDS]
+    walls = [h for h in enabled if h.kind in WALL_HOLE_KINDS]
+    if walls:
+        min_wall_row = min(h.row for h in walls)
+        first.update(id(h) for h in walls if h.row <= min_wall_row)
+    production = [h for h in enabled if h.kind not in WALL_HOLE_KINDS]
     faces = [
         (h, distance_to_free_faces((h.collar.x, h.collar.y), contour)) for h in production
     ]
@@ -102,7 +116,7 @@ def _first_layer_ids(design: BlastDesign, enabled: list[Hole]) -> set[int]:
     steps = [
         step
         for h in production
-        for step in [local_burden(enabled, h, contour)]
+        for step in [_previous_row_distance(enabled, h)]
         if step is not None and step > 0
     ]
     tolerance = 0.5 * min(steps) if steps else 0.5 * _pattern_length(design, "burden_b_m", DEFAULT_BURDEN_M)

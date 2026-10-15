@@ -79,5 +79,27 @@ class FirstLayerTests(unittest.TestCase):
         self.assertNotIn(round(6.5, 6), ys_first)
 
 
+class FrontRowIdsAndTimingTests(unittest.TestCase):
+    def test_front_ids_are_positive_ordinals(self):
+        holes = generate_pattern(_contour(BOOT), PARAMS)
+        front = [h for h in holes if h.row <= FRONT_ROW_BASE]
+        self.assertTrue(front)
+        for h in front:
+            self.assertRegex(h.id, r"^F[1-9]\d*-\d{2}$")
+        nearest = max(front, key=lambda h: h.row)  # ближайший к первому ряду
+        self.assertTrue(nearest.id.startswith("F1-"))
+
+    def test_row_timing_on_bent_crest_uses_logical_rows(self):
+        from design.timing import _electronic_times
+
+        holes = [h for h in generate_pattern(_contour(BOOT), PARAMS) if h.enabled]
+        times = _electronic_times(
+            holes, "row", interval_ms=17.0, base_ms=0.0, selected_ids=[], expression="",
+            azimuth_deg=0.0, gradient_from_ms=0.0, gradient_to_ms=0.0,
+        )
+        # Раньше ряды впереди растягивали тайминг на ~1000 рядов (17 с вместо ~0,2 с).
+        self.assertLess(max(times.values()), 17.0 * 30)
+
+
 if __name__ == "__main__":
     unittest.main()

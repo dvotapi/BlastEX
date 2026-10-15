@@ -73,6 +73,15 @@ HOLE_KINDS = (
 )
 # Wall / auxiliary kinds keep their own ids when the production grid is renumbered.
 PRESERVED_HOLE_KINDS = ("contour", "presplit", "trim", "satellite")
+# Ряды впереди первого основной сетки: номера ниже FRONT_ROW_BASE, чтобы не
+# пересекаться с контурными (-1…-n) и буферным (-10) рядами. Для расчётов,
+# где важны интервалы между рядами (тайминг), см. logical_row.
+FRONT_ROW_BASE = -1000
+
+
+def logical_row(row: int) -> int:
+    """Номер ряда для расчётов по порядку и интервалам: ряды впереди — подряд у нуля."""
+    return row - FRONT_ROW_BASE if row < FRONT_ROW_BASE else row
 MPA_TO_PA = 1_000_000.0
 GPA_TO_PA = 1_000_000_000.0
 

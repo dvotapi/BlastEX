@@ -79,6 +79,31 @@ def _wave_coordinate(hole: Hole, scheme: str, center_col: float, min_col: int, m
     return row
 
 
+def _block_row_coordinates(holes: list[Hole], interval_ms: float, params: dict[str, Any]) -> dict[str, float]:
+    """Координаты стенок в ряд: пресплит — до блока, буфер и контур — после сетки.
+
+    Единица — интервал. Основные ряды (сетка и прочее) идут по логическим номерам и
+    сюда не попадают. Пресплит стартует presplit_lead_ms до первого основного ряда,
+    буфер и контур — wall_after_ms после последнего (по умолчанию один интервал).
+    Без основных рядов или без стенок словарь пуст — порядок прежний.
+    """
+    wall_kinds = ("presplit", "contour", "buffer")
+    grid = [h for h in holes if h.kind not in wall_kinds]
+    if not grid or not any(h.kind in wall_kinds for h in holes):
+        return {}
+    first = min(logical_row(h.row) for h in grid)
+    last = max(logical_row(h.row) for h in grid)
+    lead_units = float(params.get("presplit_lead_ms", 150.0)) / interval_ms
+    after_units = float(params.get("wall_after_ms", interval_ms)) / interval_ms
+    coords: dict[str, float] = {}
+    for hole in holes:
+        if hole.kind == "presplit":
+            coords[hole.id] = first - lead_units
+        elif hole.kind in ("contour", "buffer"):
+            coords[hole.id] = last + after_units
+    return coords
+
+
 def _eligible_holes(holes: list[Hole], include_contour: bool) -> list[Hole]:
     return [h for h in holes if h.enabled and (include_contour or h.kind != "contour")]
 
@@ -222,7 +247,11 @@ def _build_wave_graph(
         connector_kind = "electronic"
 
     min_col, max_col, center_col = _grid_extents(eligible)
-    scored = [(h, _wave_coordinate(h, scheme, center_col, min_col, max_col)) for h in eligible]
+    wall_coords = _block_row_coordinates(eligible, interval_ms, params) if scheme == "row" else {}
+    scored = [
+        (h, wall_coords.get(h.id, _wave_coordinate(h, scheme, center_col, min_col, max_col)))
+        for h in eligible
+    ]
     scored.sort(key=lambda item: item[1])
 
     min_w = scored[0][1]
@@ -284,6 +313,7 @@ def apply_electronic_timing(
     gradient_from = float(params.get("gradient_from_ms", 0.0) or 0.0)
     gradient_to = float(params.get("gradient_to_ms", interval_ms * 10.0) or 0.0)
 
+    wall_coords = _block_row_coordinates(eligible, interval_ms, params) if mode == "row" else {}
     times = _electronic_times(
         eligible,
         mode,
@@ -294,6 +324,7 @@ def apply_electronic_timing(
         azimuth_deg=azimuth_deg,
         gradient_from_ms=gradient_from,
         gradient_to_ms=gradient_to,
+        wall_coords=wall_coords,
     )
 
     min_time = min(times.values()) if times else 0.0
@@ -361,9 +392,9 @@ def _electronic_times(
     azimuth_deg: float,
     gradient_from_ms: float,
     gradient_to_ms: float,
+    wall_coords: dict[str, float] | None = None,
 ) -> dict[str, float]:
     min_col, max_col, center_col = _grid_extents(holes)
-    min_row = min(logical_row(hole.row) for hole in holes)
     times: dict[str, float] = {}
 
     if mode == "selection":
@@ -426,8 +457,11 @@ def _electronic_times(
         "diagonal": "echelon",
     }.get(mode, "row")
     if scheme == "row":
+        coords = {hole.id: float(logical_row(hole.row)) for hole in holes}
+        coords.update(wall_coords or {})
+        origin = min(coords.values())
         for hole in holes:
-            times[hole.id] = base_ms + (logical_row(hole.row) - min_row) * interval_ms
+            times[hole.id] = base_ms + (coords[hole.id] - origin) * interval_ms
         return times
     # Отсчёт — ноль, но не выше самой ранней волны: ряды впереди дают отрицательные
     # координаты, и без этого первая скважина стартовала бы до базового времени.

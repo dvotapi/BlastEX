@@ -257,7 +257,7 @@ def generate_pattern(
                 v_prev = v_next
             else:
                 if len(visited) >= 2:
-                    v_prev = min(visited[-2:])
+                    v_prev = min(visited)
             if v_prev < v_min:
                 break
             front_rows.insert(0, (lattice_row, v_prev))

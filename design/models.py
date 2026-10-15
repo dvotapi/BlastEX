@@ -82,6 +82,16 @@ FRONT_ROW_BASE = -1000
 def logical_row(row: int) -> int:
     """Номер ряда для расчётов по порядку и интервалам: ряды впереди — подряд у нуля."""
     return row - FRONT_ROW_BASE if row < FRONT_ROW_BASE else row
+
+
+# Виды скважин со своей нумерацией рядов. Остальные (сетка, сателлиты, стабилизация,
+# дополнительные) делят одну группу: у них ряд позади — ряд той же сетки.
+OWN_ROW_FAMILY_KINDS = ("contour", "presplit", "trim", "buffer")
+
+
+def row_family(kind: str) -> str:
+    """Группа рядов, в которой ищется ряд позади."""
+    return kind if kind in OWN_ROW_FAMILY_KINDS else "grid"
 MPA_TO_PA = 1_000_000.0
 GPA_TO_PA = 1_000_000_000.0
 

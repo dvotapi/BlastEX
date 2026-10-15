@@ -35,7 +35,7 @@ class FirstLayerTests(unittest.TestCase):
                   "offset_from_face_m": 2.5, "row_azimuth_deg": 90.0, "depth_m": 10.0}
         holes = [h for h in generate_pattern(contour, params) if h.enabled]
         min_row = min(h.row for h in holes)
-        first = _first_layer_ids(_Design(contour, {"burden_b_m": 5.0}), holes)
+        first = _first_layer_ids(_Design(contour, {"burden_b_m": 5.0, "row_azimuth_deg": 90.0}), holes)
         self.assertEqual({h.id for h in holes if id(h) in first}, {h.id for h in holes if h.row == min_row})
 
     def test_bent_crest_front_rows_are_first_layer_by_proximity(self):
@@ -150,6 +150,39 @@ class PredecessorFamilyTests(unittest.TestCase):
                 math.hypot(h.collar.x - o.collar.x, h.collar.y - o.collar.y) for o in expected_pool
             )
             self.assertAlmostEqual(_previous_row_distance(holes, h), expected, places=9)
+
+
+class StaggeredStepAndFamilyTests(unittest.TestCase):
+    def test_staggered_second_row_is_not_first_layer(self):
+        # Шахматка: шаг между рядами 2 м, диагональ до соседа ~5,4 м. Порог по
+        # диагонали впустил бы второй ряд в первый слой; поперёк — нет.
+        contour = _rect([[0, 1]])
+        params = {"pattern": "staggered", "spacing_a_m": 10.0, "burden_b_m": 2.0,
+                  "offset_from_face_m": 1.0, "row_azimuth_deg": 90.0, "depth_m": 10.0,
+                  "row_shift_ratio": 0.5}
+        holes = [h for h in generate_pattern(contour, params) if h.enabled]
+        design = _Design(contour, {"burden_b_m": 2.0, "row_azimuth_deg": 90.0})
+        first = _first_layer_ids(design, holes)
+        first_ys = {round(h.collar.y, 6) for h in holes if id(h) in first}
+        self.assertEqual(first_ys, {1.0})
+
+    def test_buffer_family_is_separate_from_grid(self):
+        from design.models import row_family
+
+        self.assertNotEqual(row_family("buffer"), row_family("production"))
+        self.assertEqual(row_family("satellite"), row_family("production"))
+        self.assertEqual(row_family("stab"), row_family("production"))
+
+    def test_local_burden_of_row0_is_distance_to_front_row(self):
+        from design.editing import local_burden
+
+        contour = _contour(BOOT)
+        holes = [h for h in generate_pattern(contour, PARAMS) if h.enabled]
+        row0 = [h for h in holes if h.row == 0]
+        for h in row0:
+            measured = local_burden(holes, h, contour)
+            self.assertIsNotNone(measured)
+            self.assertLess(measured, 6.0)
 
 
 if __name__ == "__main__":

@@ -9,10 +9,11 @@ import math
 from typing import Any
 
 from design.editing import local_spacing
-from design.geometry import distance_to_free_faces
+from design.geometry import distance_to_free_faces, local_basis
 from design.models import (
     PRESERVED_HOLE_KINDS,
     ROLE_PREDICTED,
+    row_family,
     BlastDesign,
     Hole,
     HoleLoad,
@@ -81,20 +82,44 @@ def _assert_design_untouched(design: BlastDesign, before: tuple, action: str) ->
 WALL_HOLE_KINDS = ("contour", "presplit", "trim")
 
 
-def _previous_row_distance(enabled: list[Hole], hole: Hole) -> float | None:
-    """Расстояние до ближайшей скважины соседнего ряда позади; None, если его нет."""
-    # Соседний ряд ищем только внутри своей группы: контурные/подрывные ряды
-    # (сырые номера -1…-n) и сетка (логические номера) не смешиваются.
-    own_group = hole.kind in WALL_HOLE_KINDS
+def _predecessors(enabled: list[Hole], hole: Hole) -> list[Hole]:
+    """Скважины соседнего ряда позади — только в своей группе рядов.
+
+    Контурные/подрывные ряды (сырые номера -1…-n), буферные (-10) и сетка
+    (логические номера) не смешиваются.
+    """
+    group = "walls" if hole.kind in WALL_HOLE_KINDS else row_family(hole.kind)
     prev = logical_row(hole.row) - 1
-    others = [
+    return [
         o
         for o in enabled
-        if o is not hole and (o.kind in WALL_HOLE_KINDS) == own_group and logical_row(o.row) == prev
+        if o is not hole
+        and ("walls" if o.kind in WALL_HOLE_KINDS else row_family(o.kind)) == group
+        and logical_row(o.row) == prev
     ]
+
+
+def _previous_row_distance(enabled: list[Hole], hole: Hole) -> float | None:
+    """Расстояние до ближайшей скважины соседнего ряда позади; None, если его нет."""
+    others = _predecessors(enabled, hole)
     if not others:
         return None
     return min(math.hypot(hole.collar.x - o.collar.x, hole.collar.y - o.collar.y) for o in others)
+
+
+def _previous_row_step(enabled: list[Hole], hole: Hole, advance: tuple[float, float]) -> float | None:
+    """Шаг между рядами поперёк рядов: проекция на направление продвижения.
+
+    На шахматной сетке диагональ до соседа включает половину шага сдвига вдоль
+    ряда; шаг между рядами — только поперёк.
+    """
+    others = _predecessors(enabled, hole)
+    if not others:
+        return None
+    return min(
+        abs((hole.collar.x - o.collar.x) * advance[0] + (hole.collar.y - o.collar.y) * advance[1])
+        for o in others
+    )
 
 
 def _first_layer_ids(design: BlastDesign, enabled: list[Hole]) -> set[int]:
@@ -107,6 +132,7 @@ def _first_layer_ids(design: BlastDesign, enabled: list[Hole]) -> set[int]:
     же групп: ряды впереди первого основной сетки их не касаются.
     """
     contour = design.contour
+    _, advance = local_basis(float((design.pattern_params or {}).get("row_azimuth_deg", 0.0)))
     first: set[int] = set()
     walls = [h for h in enabled if h.kind in WALL_HOLE_KINDS]
     if walls:
@@ -123,7 +149,7 @@ def _first_layer_ids(design: BlastDesign, enabled: list[Hole]) -> set[int]:
     steps = [
         step
         for h in production
-        for step in [_previous_row_distance(enabled, h)]
+        for step in [_previous_row_step(enabled, h, advance)]
         if step is not None and step > 0
     ]
     tolerance = 0.5 * min(steps) if steps else 0.5 * _pattern_length(design, "burden_b_m", DEFAULT_BURDEN_M)

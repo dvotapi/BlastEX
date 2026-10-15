@@ -13,7 +13,15 @@ from design.geometry import (
     local_basis,
     pattern_origin,
 )
-from design.models import PRESERVED_HOLE_KINDS, BlockContour, Hole, Point3
+from design.models import (
+    FRONT_ROW_BASE,
+    PRESERVED_HOLE_KINDS,
+    BlockContour,
+    Hole,
+    Point3,
+    logical_row,
+    row_family,
+)
 
 
 def _distance2d(a: Hole, b: Hole) -> float:
@@ -52,9 +60,11 @@ def spacing_report(
     `col`; между соседними рядами — по ближайшей скважине следующего ряда.
     """
     enabled = [h for h in holes if h.enabled]
-    by_row: dict[int, list[Hole]] = {}
+    # Ключ — группа рядов и логический номер: ряды впереди первого идут подряд у
+    # первого ряда, контурные (-1…-n) и буферные (-10) не сливаются с сеткой.
+    by_row: dict[tuple[str, int], list[Hole]] = {}
     for h in enabled:
-        by_row.setdefault(h.row, []).append(h)
+        by_row.setdefault((row_family(h.kind), logical_row(h.row)), []).append(h)
 
     a_values: list[float] = []
     flagged: list[dict[str, Any]] = []
@@ -71,6 +81,8 @@ def spacing_report(
     b_values: list[float] = []
     rows_sorted = sorted(by_row.keys())
     for r1, r2 in zip(rows_sorted, rows_sorted[1:]):
+        if r1[0] != r2[0]:
+            continue
         for h1 in by_row[r1]:
             nearest = min(by_row[r2], key=lambda h2: _distance2d(h1, h2), default=None)
             if nearest is None:
@@ -274,8 +286,22 @@ def local_spacing(holes: list[Hole], hole: Hole) -> float | None:
 
 
 def local_burden(holes: list[Hole], hole: Hole, contour: BlockContour) -> float | None:
-    """Distance to the previous row, or collar-to-face if this is the first row."""
-    previous = [h for h in holes if h.enabled and h.row == hole.row - 1]
+    """Distance to the previous row, or collar-to-face if this is the first row.
+
+    Если есть ряды впереди первого (номера ниже FRONT_ROW_BASE), соседа ищем по
+    логическому номеру и в своей группе рядов. Без них поиск прежний — по сырому
+    номеру, чтобы расчёты существующих паспортов не менялись.
+    """
+    if any(h.enabled and h.row < FRONT_ROW_BASE for h in holes):
+        prev = logical_row(hole.row) - 1
+        family = row_family(hole.kind)
+        previous = [
+            h
+            for h in holes
+            if h.enabled and row_family(h.kind) == family and logical_row(h.row) == prev
+        ]
+    else:
+        previous = [h for h in holes if h.enabled and h.row == hole.row - 1]
     if previous:
         return min(_distance2d(hole, other) for other in previous)
     return distance_to_free_faces((hole.collar.x, hole.collar.y), contour)

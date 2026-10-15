@@ -5,15 +5,20 @@ Timing is resolved on a copy of the network so ``firing_events`` stay put.
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
-from design.editing import local_burden, local_spacing
+from design.editing import local_spacing
+from design.geometry import distance_to_free_faces, local_basis
 from design.models import (
+    PRESERVED_HOLE_KINDS,
     ROLE_PREDICTED,
+    row_family,
     BlastDesign,
     Hole,
     HoleLoad,
     InitiationNetwork,
+    logical_row,
     stemming_length_m,
 )
 from design.timing import resolve_network
@@ -74,6 +79,82 @@ def _assert_design_untouched(design: BlastDesign, before: tuple, action: str) ->
         raise RuntimeError(f"{action} must not rewrite the designed pattern, charges or network.")
 
 
+WALL_HOLE_KINDS = ("contour", "presplit", "trim")
+
+
+def _predecessors(enabled: list[Hole], hole: Hole) -> list[Hole]:
+    """Скважины соседнего ряда позади — только в своей группе рядов.
+
+    Контурные/подрывные ряды (сырые номера -1…-n), буферные (-10) и сетка
+    (логические номера) не смешиваются.
+    """
+    group = row_family(hole.kind)
+    prev = logical_row(hole.row) - 1
+    return [
+        o
+        for o in enabled
+        if o is not hole and row_family(o.kind) == group and logical_row(o.row) == prev
+    ]
+
+
+def _previous_row_distance(enabled: list[Hole], hole: Hole) -> float | None:
+    """Расстояние до ближайшей скважины соседнего ряда позади; None, если его нет."""
+    others = _predecessors(enabled, hole)
+    if not others:
+        return None
+    return min(math.hypot(hole.collar.x - o.collar.x, hole.collar.y - o.collar.y) for o in others)
+
+
+def _previous_row_step(enabled: list[Hole], hole: Hole, advance: tuple[float, float]) -> float | None:
+    """Шаг между рядами поперёк рядов: проекция на направление продвижения.
+
+    На шахматной сетке диагональ до соседа включает половину шага сдвига вдоль
+    ряда; шаг между рядами — только поперёк.
+    """
+    others = _predecessors(enabled, hole)
+    if not others:
+        return None
+    return min(
+        abs((hole.collar.x - o.collar.x) * advance[0] + (hole.collar.y - o.collar.y) * advance[1])
+        for o in others
+    )
+
+
+def _first_layer_ids(design: BlastDesign, enabled: list[Hole]) -> set[int]:
+    """Объекты скважин первого слоя (по id() объекта, не по ID скважины).
+
+    Основная сетка: скважины, ближайшие к откосу — в пределах половины самого
+    короткого шага между рядами. Шаг берётся по соседним рядам (distance до
+    ряда позади), а не по общему burden: ряды с `row_params` могут быть уже.
+    Контурные и подрывные скважины — по минимальному номеру среди своих
+    же групп: ряды впереди первого основной сетки их не касаются.
+    """
+    contour = design.contour
+    _, advance = local_basis(float((design.pattern_params or {}).get("row_azimuth_deg", 0.0)))
+    first: set[int] = set()
+    walls = [h for h in enabled if h.kind in WALL_HOLE_KINDS]
+    if walls:
+        min_wall_row = min(h.row for h in walls)
+        first.update(id(h) for h in walls if h.row <= min_wall_row)
+    production = [h for h in enabled if h.kind not in WALL_HOLE_KINDS]
+    faces = [
+        (h, distance_to_free_faces((h.collar.x, h.collar.y), contour)) for h in production
+    ]
+    faces = [(h, d) for h, d in faces if d is not None]
+    if not faces:
+        return first
+    min_face = min(d for _, d in faces)
+    steps = [
+        step
+        for h in production
+        for step in [_previous_row_step(enabled, h, advance)]
+        if step is not None and step > 0
+    ]
+    tolerance = 0.5 * min(steps) if steps else 0.5 * _pattern_length(design, "burden_b_m", DEFAULT_BURDEN_M)
+    first.update(id(h) for h, d in faces if d < min_face + tolerance)
+    return first
+
+
 def _pattern_length(design: BlastDesign, key: str, fallback: float) -> float:
     raw = (design.pattern_params or {}).get(key)
     if raw in (None, ""):
@@ -108,6 +189,7 @@ def _hole_inputs(
     design: BlastDesign,
     load: HoleLoad | None,
     times_ms: dict[str, float],
+    first_layer: set[int],
 ) -> MovementInputs:
     enabled = [item for item in design.holes if item.enabled]
     pattern_burden = _pattern_length(design, "burden_b_m", DEFAULT_BURDEN_M)
@@ -115,10 +197,15 @@ def _hole_inputs(
     spacing = local_spacing(enabled, hole)
     if spacing is None or spacing <= 0:
         spacing = pattern_spacing
-    # Face-to-collar distance is not burden when the first row sits on the face.
-    min_row = min((item.row for item in enabled), default=hole.row)
-    measured_burden = local_burden(enabled, hole, design.contour)
-    if hole.row > min_row and measured_burden and measured_burden > 0:
+    # Соседний ряд позади — по логическому номеру (ряды впереди первого подряд);
+    # если его нет — до ближайшей точки откоса, как и раньше.
+    measured_burden = _previous_row_distance(enabled, hole)
+    if measured_burden is None:
+        measured_burden = distance_to_free_faces((hole.collar.x, hole.collar.y), design.contour)
+    if id(hole) in first_layer:
+        # Face-to-collar distance is not burden on the first layer of the pattern.
+        burden = pattern_burden
+    elif measured_burden and measured_burden > 0:
         burden = measured_burden
     else:
         burden = pattern_burden
@@ -243,8 +330,9 @@ def predict_design(
     warnings = list(timing_warnings)
     if not enabled:
         warnings.append("Нет активных скважин — оценка развала пустая.")
+    first_layer = _first_layer_ids(design, enabled)
     for hole in enabled:
-        inputs = _hole_inputs(hole, design, loads.get(hole.id), times_ms)
+        inputs = _hole_inputs(hole, design, loads.get(hole.id), times_ms, first_layer)
         if inputs.charge_mass_kg <= 0:
             warnings.append(f"Скважина {hole.id}: нет массы заряда, оценка слабая.")
         hole_rows.append(estimate_hole_movement(hole, inputs, design.contour, enabled, times_ms))

@@ -101,5 +101,30 @@ class FrontRowIdsAndTimingTests(unittest.TestCase):
         self.assertLess(max(times.values()), 17.0 * 30)
 
 
+class FrontRowBurdenAndDiagonalTimingTests(unittest.TestCase):
+    def test_row0_burden_measured_to_front_row_not_to_face(self):
+        from simulation.movement.engine import _previous_row_distance
+
+        holes = [h for h in generate_pattern(_contour(BOOT), PARAMS) if h.enabled]
+        row0 = [h for h in holes if h.row == 0]
+        self.assertTrue(row0)
+        front_first = [h for h in holes if h.row == FRONT_ROW_BASE - 1]
+        for h in row0:
+            distance = _previous_row_distance(holes, h)
+            self.assertIsNotNone(distance)
+            self.assertLess(distance, 6.0)  # до ряда F1, а не до откоса
+        self.assertTrue(front_first)
+
+    def test_diagonal_timing_starts_at_base_with_front_rows(self):
+        from design.timing import _electronic_times
+
+        holes = [h for h in generate_pattern(_contour(BOOT), PARAMS) if h.enabled]
+        times = _electronic_times(
+            holes, "diagonal", interval_ms=17.0, base_ms=0.0, selected_ids=[], expression="",
+            azimuth_deg=0.0, gradient_from_ms=0.0, gradient_to_ms=0.0,
+        )
+        self.assertGreaterEqual(min(times.values()), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -425,13 +425,16 @@ def _electronic_times(
         "v_pattern": "diagonal_v",
         "diagonal": "echelon",
     }.get(mode, "row")
-    for hole in holes:
-        wave = _wave_coordinate(hole, scheme, center_col, min_col, max_col)
-        origin = min_row if scheme == "row" else 0.0
-        if scheme == "row":
+    if scheme == "row":
+        for hole in holes:
             times[hole.id] = base_ms + (logical_row(hole.row) - min_row) * interval_ms
-        else:
-            times[hole.id] = base_ms + (wave - origin) * interval_ms
+        return times
+    # Отсчёт — ноль, но не выше самой ранней волны: ряды впереди дают отрицательные
+    # координаты, и без этого первая скважина стартовала бы до базового времени.
+    waves = {hole.id: _wave_coordinate(hole, scheme, center_col, min_col, max_col) for hole in holes}
+    origin = min(0.0, min(waves.values()))
+    for hole in holes:
+        times[hole.id] = base_ms + (waves[hole.id] - origin) * interval_ms
     return times
 
 

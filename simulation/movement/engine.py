@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from design.editing import local_burden, local_spacing
+from design.editing import local_spacing
 from design.geometry import distance_to_free_faces
 from design.models import (
     PRESERVED_HOLE_KINDS,
@@ -166,7 +166,11 @@ def _hole_inputs(
     spacing = local_spacing(enabled, hole)
     if spacing is None or spacing <= 0:
         spacing = pattern_spacing
-    measured_burden = local_burden(enabled, hole, design.contour)
+    # Соседний ряд позади — по логическому номеру (ряды впереди первого подряд);
+    # если его нет — до ближайшей точки откоса, как и раньше.
+    measured_burden = _previous_row_distance(enabled, hole)
+    if measured_burden is None:
+        measured_burden = distance_to_free_faces((hole.collar.x, hole.collar.y), design.contour)
     if id(hole) in first_layer:
         # Face-to-collar distance is not burden on the first layer of the pattern.
         burden = pattern_burden

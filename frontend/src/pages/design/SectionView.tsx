@@ -45,6 +45,18 @@ const rowLabel = (row: number): string => {
 };
 /** Подпись ряда по id скважины: номер по позиции (север→юг), стенки — P/K/B. */
 const WALL_TITLE: Record<string, string> = { P: "Пресплит", K: "Контур", B: "Буфер" };
+/** Вид группы для ключа ряда: стенки отдельно, остальное — сетка. */
+const rowFamily = (kind: string): string =>
+  kind === "presplit" || kind === "contour" || kind === "buffer" ? kind : "grid";
+/**
+ * Ключ ряда в сечении: вид + номер полосы из id (позиционная нумерация). Технический row
+ * у стенок общий (все полосы контура — на одном row), поэтому по нему не группируем.
+ */
+export const sectionRowKey = (hole: { kind: string; id: string; row: number }): string => {
+  const m = /^[PKB]?(\d+)-/.exec(hole.id);
+  return `${rowFamily(hole.kind)}:${m ? m[1] : hole.row}`;
+};
+const FAMILY_ORDER: Record<string, number> = { grid: 0, presplit: 1, contour: 2, buffer: 3 };
 const rowTitleFromId = (id: string, row: number): string => {
   const m = /^([PKB]?)(\d+)-/.exec(id);
   if (!m) return rowLabel(row);
@@ -76,8 +88,8 @@ export function SectionView({
   network?: InitiationNetwork | null;
   warnings?: ValidationWarning[];
   rowAzimuthDeg: number;
-  selectedRow: number | null;
-  onSelectedRowChange: (row: number) => void;
+  selectedRow: string | null;
+  onSelectedRowChange: (key: string) => void;
   selectedHoleIds?: Set<string>;
   onHoleSelect?: (id: string) => void;
   onHoleInspect?: (id: string) => void;
@@ -130,24 +142,32 @@ export function SectionView({
   }, [warnings]);
 
   const rows = useMemo(() => {
-    const set = new Set<number>();
-    for (const h of holes) if (h.enabled) set.add(h.row);
-    return Array.from(set).sort((a, b) => logicalRow(a) - logicalRow(b) || a - b);
+    const seen = new Map<string, { key: string; row: number; family: number; num: number }>();
+    for (const h of holes) {
+      if (!h.enabled) continue;
+      const key = sectionRowKey(h);
+      if (!seen.has(key)) {
+        const num = Number(key.slice(key.indexOf(":") + 1));
+        seen.set(key, { key, row: h.row, family: FAMILY_ORDER[rowFamily(h.kind)] ?? 0, num });
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => a.family - b.family || a.num - b.num);
   }, [holes]);
   const rowTitles = useMemo(() => {
-    const titles = new Map<number, string>();
+    const titles = new Map<string, string>();
     for (const h of holes) {
-      if (h.enabled && !titles.has(h.row)) titles.set(h.row, rowTitleFromId(h.id, h.row));
+      const key = sectionRowKey(h);
+      if (h.enabled && !titles.has(key)) titles.set(key, rowTitleFromId(h.id, h.row));
     }
     return titles;
   }, [holes]);
 
   const { rowDir } = useMemo(() => localBasis(rowAzimuthDeg), [rowAzimuthDeg]);
-  const row = selectedRow ?? rows[0] ?? null;
+  const row = selectedRow ?? rows[0]?.key ?? null;
   const rowHoles = useMemo(() => {
     if (row === null) return [];
     return holes
-      .filter((h) => h.enabled && h.row === row)
+      .filter((h) => h.enabled && sectionRowKey(h) === row)
       .map((h) => ({ hole: h, u: h.collar.x * rowDir.x + h.collar.y * rowDir.y }))
       .sort((a, b) => a.u - b.u);
   }, [holes, row, rowDir]);
@@ -353,8 +373,8 @@ export function SectionView({
     <section className="panel section-view-panel">
       <header>
         <b>Разрез по ряду</b>
-        <select value={row ?? ""} onChange={(e) => onSelectedRowChange(Number(e.target.value))}>
-          {rows.map((r) => <option key={r} value={r}>{rowTitles.get(r) ?? rowLabel(r)}</option>)}
+        <select value={row ?? ""} onChange={(e) => onSelectedRowChange(e.target.value)}>
+          {rows.map((r) => <option key={r.key} value={r.key}>{rowTitles.get(r.key) ?? rowLabel(r.row)}</option>)}
         </select>
       </header>
       <div className="panel-body">

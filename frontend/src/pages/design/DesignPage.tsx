@@ -140,7 +140,7 @@ import {
   volumeSourceLabel,
 } from "./workflowStatus";
 import { PlansPanel } from "./PlansPanel";
-import { SectionView } from "./SectionView";
+import { SectionView, sectionRowKey } from "./SectionView";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 import { useHoleRecompute } from "./useHoleRecompute";
 import { useUndoHotkeys } from "./useUndoHotkeys";
@@ -291,7 +291,7 @@ export function DesignPage({
     () => hasUnsavedChanges(state, { patternParams, chargeRules, explosiveKey }, defaultExplosiveKey),
     [state, patternParams, chargeRules, explosiveKey, defaultExplosiveKey],
   );
-  const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [selectedRow, setSelectedRow] = useState<string | null>(null);
 
   const [tieScheme, setTieScheme] = useState<SchemeType>("row");
   const [tieParams, setTieParams] = useState<TieParams>(DEFAULT_TIE_PARAMS);
@@ -565,7 +565,7 @@ export function DesignPage({
     setSelected(new Set([holeId]));
     setZoomRequest({ kind: "selection", tick: Date.now() });
     const hole = document.holes.find((h) => h.id === holeId);
-    if (hole && viewMode === "section") setSelectedRow(hole.row);
+    if (hole && viewMode === "section") setSelectedRow(sectionRowKey(hole));
   }
 
   function copyHoleParams(holeId: string) {

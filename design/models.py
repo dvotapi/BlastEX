@@ -71,7 +71,7 @@ HOLE_KINDS = (
     "satellite",
     "infill",
 )
-# Wall / auxiliary kinds keep their own ids when the production grid is renumbered.
+# Wall / auxiliary kinds keep their own id families (P/K/B/SAT) in position numbering (design/numbering.py).
 PRESERVED_HOLE_KINDS = ("contour", "presplit", "trim", "satellite")
 # Ряды впереди первого основной сетки: номера ниже FRONT_ROW_BASE, чтобы не
 # пересекаться с контурными (-1…-n) и буферным (-10) рядами. Для расчётов,

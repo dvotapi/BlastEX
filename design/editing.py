@@ -10,12 +10,9 @@ from design.geometry import (
     distance_to_free_faces,
     drape_collar,
     hole_from_collar,
-    local_basis,
-    pattern_origin,
 )
 from design.models import (
     FRONT_ROW_BASE,
-    PRESERVED_HOLE_KINDS,
     BlockContour,
     Hole,
     Point3,
@@ -99,53 +96,6 @@ def spacing_report(
         "spacing_b": _stats(b_values),
         "flagged": flagged,
     }
-
-
-def renumber(
-    holes: list[Hole],
-    contour: BlockContour,
-    row_azimuth_deg: float = 0.0,
-    row_tolerance_m: float = 1.0,
-) -> list[Hole]:
-    """Пересчитывает row/col/id по проекции устьев на базис раскладки контура.
-
-    `row_tolerance_m` — половина ожидаемого шага между рядами (`burden_b_m`);
-    скважины, чья проекция на направление продвижения рядов отличается от
-    предыдущей меньше, чем на это значение, считаются одним рядом. Контурные
-    скважины (`kind == "contour"`) не переиндексируются — их нумерация ведётся
-    отдельным проходом при генерации контурного ряда.
-    """
-    row_dir, advance_dir = local_basis(row_azimuth_deg)
-    origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
-
-    production = [h for h in holes if h.kind not in PRESERVED_HOLE_KINDS]
-    contour_holes = [h for h in holes if h.kind in PRESERVED_HOLE_KINDS]
-
-    def _v(h: Hole) -> float:
-        return (h.collar.x - origin[0]) * advance_dir[0] + (h.collar.y - origin[1]) * advance_dir[1]
-
-    def _u(h: Hole) -> float:
-        return (h.collar.x - origin[0]) * row_dir[0] + (h.collar.y - origin[1]) * row_dir[1]
-
-    # Группируем по близости вдоль направления продвижения рядов (v), не по
-    # старому полю row, — правка могла сдвинуть скважину в другой ряд.
-    ordered = sorted(production, key=_v)
-    rows: list[list[Hole]] = []
-    for h in ordered:
-        v = _v(h)
-        if rows and abs(v - _v(rows[-1][-1])) < row_tolerance_m:
-            rows[-1].append(h)
-        else:
-            rows.append([h])
-
-    renumbered: list[Hole] = []
-    for row_index, group in enumerate(rows):
-        for col_index, h in enumerate(sorted(group, key=_u)):
-            renumbered.append(
-                replace(h, row=row_index, col=col_index, id=f"{row_index + 1}-{col_index + 1:02d}")
-            )
-
-    return renumbered + contour_holes
 
 
 def apply_collar_xy(

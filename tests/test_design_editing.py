@@ -8,7 +8,6 @@ from design.editing import (
     apply_toe,
     insert_manual_hole,
     neighbours,
-    renumber,
     spacing_report,
 )
 from design.models import BenchSurface, BlockContour, Hole, Point3
@@ -59,67 +58,6 @@ class SpacingReportTests(unittest.TestCase):
         self.assertTrue(
             any(f["hole_id"] == "1-02" and f["neighbour_id"] == "1-03" for f in flagged_a)
         )
-
-
-class RenumberTests(unittest.TestCase):
-    def test_renumber_after_deletions_is_contiguous(self):
-        contour = BlockContour(
-            vertices=[Point3(x=x, y=y, z=0.0) for x, y in [(0, 0), (20, 0), (20, 20), (0, 20)]],
-            bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0),
-        )
-        holes = generate_pattern(
-            contour,
-            {
-                "pattern": "rectangular",
-                "spacing_a_m": 5.0,
-                "burden_b_m": 5.0,
-                "offset_from_face_m": 0.0,
-                "edge_margin_m": 0.0,
-            },
-        )
-        # Удаляем две скважины, образуя разрывы в нумерации.
-        remaining = [h for h in holes if h.id not in {"2-02", "3-03"}]
-
-        renumbered = renumber(remaining, contour, row_azimuth_deg=0.0)
-
-        rows = sorted({h.row for h in renumbered})
-        self.assertEqual(rows, list(range(len(rows))))
-        ids = [h.id for h in renumbered]
-        self.assertEqual(len(ids), len(set(ids)))
-        for h in renumbered:
-            self.assertEqual(h.id, f"{h.row + 1}-{h.col + 1:02d}")
-
-    def test_renumber_keeps_contour_and_satellite_ids(self):
-        contour = BlockContour(
-            vertices=[Point3(x=x, y=y, z=0.0) for x, y in [(0, 0), (20, 0), (20, 20), (0, 20)]],
-            bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0),
-        )
-        holes = [
-            _hole("1-01", 0, 0, 0.0, 0.0),
-            _hole("1-03", 0, 2, 10.0, 0.0),
-            Hole(
-                id="K1-01",
-                row=-1,
-                col=0,
-                collar=Point3(x=1, y=0, z=0),
-                toe=Point3(x=1, y=0, z=-10),
-                diameter_mm=152.0,
-                kind="contour",
-            ),
-            Hole(
-                id="SAT-1-01-1",
-                row=0,
-                col=0,
-                collar=Point3(x=1, y=1, z=0),
-                toe=Point3(x=1, y=1, z=-10),
-                diameter_mm=89.0,
-                kind="satellite",
-            ),
-        ]
-        result = renumber(holes, contour, row_azimuth_deg=0.0)
-        ids = {h.id for h in result}
-        self.assertIn("K1-01", ids)
-        self.assertIn("SAT-1-01-1", ids)
 
 
 class GeometryEditTests(unittest.TestCase):

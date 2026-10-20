@@ -43,6 +43,14 @@ const rowLabel = (row: number): string => {
   if (row < 0) return `Контур ${-row}`;
   return `Ряд ${row + 1}`;
 };
+/** Подпись ряда по id скважины: номер по позиции (север→юг), стенки — P/K/B. */
+const WALL_TITLE: Record<string, string> = { P: "Пресплит", K: "Контур", B: "Буфер" };
+const rowTitleFromId = (id: string, row: number): string => {
+  const m = /^([PKB]?)(\d+)-/.exec(id);
+  if (!m) return rowLabel(row);
+  const word = m[1] ? WALL_TITLE[m[1]] : "Ряд";
+  return `${word} ${m[2]}`;
+};
 
 type Tooltip = { x: number; y: number; text: string };
 
@@ -125,6 +133,13 @@ export function SectionView({
     const set = new Set<number>();
     for (const h of holes) if (h.enabled) set.add(h.row);
     return Array.from(set).sort((a, b) => logicalRow(a) - logicalRow(b) || a - b);
+  }, [holes]);
+  const rowTitles = useMemo(() => {
+    const titles = new Map<number, string>();
+    for (const h of holes) {
+      if (h.enabled && !titles.has(h.row)) titles.set(h.row, rowTitleFromId(h.id, h.row));
+    }
+    return titles;
   }, [holes]);
 
   const { rowDir } = useMemo(() => localBasis(rowAzimuthDeg), [rowAzimuthDeg]);
@@ -339,7 +354,7 @@ export function SectionView({
       <header>
         <b>Разрез по ряду</b>
         <select value={row ?? ""} onChange={(e) => onSelectedRowChange(Number(e.target.value))}>
-          {rows.map((r) => <option key={r} value={r}>{rowLabel(r)}</option>)}
+          {rows.map((r) => <option key={r} value={r}>{rowTitles.get(r) ?? rowLabel(r)}</option>)}
         </select>
       </header>
       <div className="panel-body">

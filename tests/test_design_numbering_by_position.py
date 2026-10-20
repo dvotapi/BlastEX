@@ -5,6 +5,7 @@
 """
 import unittest
 
+from design.geometry import local_basis
 from design.models import Hole, Point3
 from design.numbering import number_by_position
 
@@ -23,11 +24,12 @@ class NumberByPositionTest(unittest.TestCase):
             _hole("d", x=0.0, y=10.0),
         ]
         a, b, c, d = number_by_position(holes)
-        self.assertEqual(c.id, "1-02")
-        self.assertEqual(d.id, "1-01")
+        # Ряды — линии вдоль оси (север–юг), идут с запада на восток; внутри ряда — с севера на юг.
+        self.assertEqual(d.id, "1-01")  # x=0, север
+        self.assertEqual(b.id, "1-02")  # x=0, юг
+        self.assertEqual(c.id, "2-01")  # x=5
+        self.assertEqual(a.id, "3-01")  # x=10
         self.assertEqual((d.row, d.col), (0, 0))  # fixture: row/col одинаковые — не переназначены
-        self.assertEqual(b.id, "2-01")
-        self.assertEqual(a.id, "2-02")
 
     def test_walls_use_own_letters_and_own_counting(self):
         holes = [
@@ -43,6 +45,21 @@ class NumberByPositionTest(unittest.TestCase):
         self.assertEqual(numbered["buffer"], "B1-01")
         self.assertEqual(numbered["contour"], "K1-01")
         self.assertEqual(numbered["production"], "1-01")
+
+    def test_rotated_block_groups_rows_along_its_axis(self):
+        # Азимут 30°: ряды идут вдоль оси 30°, а не по полосам Y. Каждый ряд — одна строка id.
+        row_dir, advance = local_basis(30.0)
+        holes = []
+        for j in range(3):  # полосы поперёк оси
+            for i in range(4):  # скважины вдоль оси
+                x = i * 5.0 * row_dir[0] + j * 5.0 * advance[0]
+                y = i * 5.0 * row_dir[1] + j * 5.0 * advance[1]
+                holes.append(_hole(f"h{j}-{i}", x=x, y=y))
+        numbered = number_by_position(holes, row_azimuth_deg=30.0)
+        for j in range(3):
+            band = numbered[j * 4 : (j + 1) * 4]
+            self.assertEqual({h.id.split("-")[0] for h in band}, {str(j + 1)})
+            self.assertEqual(len({h.id for h in band}), 4)
 
     def test_row_and_col_stay_technical(self):
         holes = [

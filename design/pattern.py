@@ -331,7 +331,10 @@ def generate_pattern(
         holes.extend(_generate_infill_holes(holes, contour, params, surfaces))
 
     # Id — по расположению (север→юг, запад→восток); row/col остаются техническими.
-    return number_by_position(_keep_manual(existing_holes) + holes)
+    return number_by_position(
+        _keep_manual(existing_holes) + holes,
+        row_azimuth_deg=float(params.get("row_azimuth_deg", 0.0)),
+    )
 
 
 def _normalize_kind(value: Any, default: str) -> str:

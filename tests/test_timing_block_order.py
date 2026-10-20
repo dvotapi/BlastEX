@@ -67,3 +67,13 @@ class BlockOrderWaveTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ManualHoleTimingTest(unittest.TestCase):
+    def test_manual_hole_with_sentinel_row_does_not_shift_block(self):
+        grid = [_hole(f"P{r}-0", r, 0, "production") for r in (0, 1, 2)]
+        manual = _hole("M-1", -1000, 9, "production")
+        manual = Hole(**{**manual.__dict__, "source": "manual"})
+        times = apply_electronic_timing(grid + [manual], "row", PARAMS).electronic_times_ms
+        self.assertEqual([times[f"P{r}-0"] for r in (0, 1, 2)], [0.0, 50.0, 100.0])
+        self.assertEqual(times["M-1"], 0.0)

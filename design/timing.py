@@ -80,7 +80,7 @@ def _wave_coordinate(hole: Hole, scheme: str, center_col: float, min_col: int, m
 
 
 def _block_row_coordinates(holes: list[Hole], interval_ms: float, params: dict[str, Any]) -> dict[str, float]:
-    """Координаты стенок в ряд: пресплит — до блока, буфер и контур — после сетки.
+    """Координаты в ряд: пресплит — до блока, буфер и контур — после сетки, ручные — с первым рядом.
 
     Единица — интервал. Основные ряды (сетка и прочее) идут по логическим номерам и
     сюда не попадают. Пресплит стартует presplit_lead_ms до первого основного ряда,
@@ -88,8 +88,10 @@ def _block_row_coordinates(holes: list[Hole], interval_ms: float, params: dict[s
     Без основных рядов или без стенок словарь пуст — порядок прежний.
     """
     wall_kinds = ("presplit", "contour", "buffer")
-    grid = [h for h in holes if h.kind not in wall_kinds]
-    if not grid or not any(h.kind in wall_kinds for h in holes):
+    # Ручные скважины (row -1000 и т.п.) не задают начало отсчёта: они стартуют
+    # с первым основным рядом и не сдвигают весь блок.
+    grid = [h for h in holes if h.kind not in wall_kinds and h.source != "manual"]
+    if not grid:
         return {}
     first = min(logical_row(h.row) for h in grid)
     last = max(logical_row(h.row) for h in grid)
@@ -101,6 +103,8 @@ def _block_row_coordinates(holes: list[Hole], interval_ms: float, params: dict[s
             coords[hole.id] = first - lead_units
         elif hole.kind in ("contour", "buffer"):
             coords[hole.id] = last + after_units
+        elif hole.source == "manual":
+            coords[hole.id] = float(first)
     return coords
 
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 
 import pytest
+from shapely.geometry import LineString
+from shapely.geometry import Point as ShapelyPoint
 
 from design.models import BenchSurface, BlastDesign, BlockContour, Hole, Point3
 from design.toe_line import allowed_floor_burden_m, floor_burdens, slope_offset_m, toe_line
@@ -51,8 +53,9 @@ def test_edited_contour_ignores_survey():
     assert toe_line(contour).source == "built"
 
 
-def test_survey_without_edge_near_face_falls_back_to_built():
-    contour = rect_contour(cad={"bottom": [[0, -30], [40, -30], [40, 22], [0, 22]]})
+def test_survey_without_own_edges_falls_back_to_built():
+    # Нижняя бровка не найдена: кольцо совпадает с верхним контуром (S низ = S верх).
+    contour = rect_contour(cad={"bottom": [[0, 0], [40, 0], [40, 22], [0, 22]]})
     assert toe_line(contour).source == "built"
 
 
@@ -141,3 +144,139 @@ def test_no_w_means_no_check():
 def face_design() -> BlastDesign:
     """Прямоугольник 40×22 м, откос 75°: 1-01 у свободной грани (ЛСП 6,38 м), 2-01 — второй ряд."""
     return design_with([vertical_hole("1-01", 10, 3.7, 0), vertical_hole("2-01", 10, 7.4, 1)])
+
+
+# --- Съёмка нижней бровки: выбор рёбер не зависит от угла откоса -------------
+
+
+def test_flat_angle_is_clamped_to_30_degrees():
+    flat = BenchSurface(crest_z_m=0, toe_z_m=-10, face_angle_deg=1)
+    at_30 = BenchSurface(crest_z_m=0, toe_z_m=-10, face_angle_deg=30)
+    assert slope_offset_m(flat) == pytest.approx(slope_offset_m(at_30))
+    assert slope_offset_m(at_30) == pytest.approx(10 * math.tan(math.radians(60)))
+
+
+def test_survey_used_with_vertical_face_angle():
+    contour = rect_contour(cad={"bottom": [[0, -2.68], [40, -2.68], [40, 22], [0, 22]]})
+    contour.bench.face_angle_deg = 90.0
+    line = toe_line(contour)
+    assert line.source == "survey"
+    assert {round(y, 6) for poly in line.polylines for _, y in poly} == {-2.68}
+
+
+def test_legacy_passport_with_default_angle_uses_survey():
+    # Старый паспорт: угол не задан (умолчание 90°), съёмка нижней бровки есть.
+    contour = BlockContour(
+        vertices=[Point3(0, 0, 0), Point3(40, 0, 0), Point3(40, 22, 0), Point3(0, 22, 0)],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0, toe_z_m=-10),
+        cad={"bottom": [[0, -2.68], [40, -2.68], [40, 22], [0, 22]]},
+    )
+    assert contour.bench.face_angle_deg == 90.0
+    line = toe_line(contour)
+    assert line.source == "survey"
+    assert {round(y, 6) for poly in line.polylines for _, y in poly} == {-2.68}
+
+
+def test_survey_farther_than_entered_angle_is_taken_whole():
+    # Реальный откос положе введённого: подошва в 5,77 м (60°), угол на блоке 75°.
+    toe = [[x, -5.77] for x in range(0, 41)]
+    contour = rect_contour(cad={"bottom": [*toe, [40, 22], [0, 22]]})
+    line = toe_line(contour)
+    assert line.source == "survey"
+    assert {round(y, 6) for poly in line.polylines for _, y in poly} == {-5.77}
+    xs = [x for poly in line.polylines for x, _ in poly]
+    assert min(xs) == pytest.approx(0) and max(xs) == pytest.approx(40)
+
+
+def test_dense_flank_vertices_shared_with_top_are_not_toe_line():
+    # Фланги контура — вершины через 1 м (как у контура из чертежа); кольцо по
+    # нижней бровке делит их с верхним контуром и продлевает фланги до подошвы.
+    right = [(40.0, float(y)) for y in range(1, 22)]
+    left = [(0.0, float(y)) for y in range(21, 0, -1)]
+    top = [(0.0, 0.0), (40.0, 0.0), *right, (40.0, 22.0), (0.0, 22.0), *left]
+    toe = [(float(x), -2.68) for x in range(0, 41, 5)]
+    bottom = [(0.0, 0.0), *toe, (40.0, 0.0), *right, (40.0, 22.0), (0.0, 22.0), *left]
+    contour = BlockContour(
+        vertices=[Point3(x, y, 0) for x, y in top],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0, toe_z_m=-10, face_angle_deg=75),
+        cad={"bottom": [list(p) for p in bottom]},
+    )
+    line = toe_line(contour)
+    assert line.source == "survey"
+    assert all(y == pytest.approx(-2.68) for poly in line.polylines for _, y in poly)
+
+
+# --- Первый ряд: геометрия, а не номер ряда ---------------------------------
+
+
+def test_side_free_face_holes_get_floor_burden():
+    # Свободны фронт (y = 0) и правый фланг (x = 40); ряды вдоль фронта. Скважины
+    # у фланга стоят «за» скважинами предыдущего ряда, но к откосу фланга перед
+    # ними никого нет.
+    contour = rect_contour(free_faces=[[0, 1, 2]])
+    holes = [
+        vertical_hole(f"{r + 1}-{c + 1:02d}", 2.6 + 4 * c, 3.7 + 3.7 * r, row=r)
+        for r in range(5)
+        for c in range(9)
+    ]
+    design = BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=PATTERN)
+    result = floor_burdens(design)
+    # Ряды со второго: до откоса фланга (8,08 м) ближе, чем до фронта.
+    side = [h for h in holes if h.collar.x == pytest.approx(34.6) and h.row > 0]
+    assert len(side) == 4
+    for hole in side:
+        assert hole.id in result
+        assert result[hole.id].value_m == pytest.approx(40 - 34.6 + 2.6795, abs=1e-3)
+        assert result[hole.id].excess is True
+    # Внутренние скважины второго и дальних рядов — без ЛСП.
+    inner = [h for h in holes if h.collar.x < 30 and h.row > 0]
+    assert not any(h.id in result for h in inner)
+
+
+def test_manual_hole_in_middle_has_no_floor_burden():
+    from design.editing import insert_manual_hole
+    from design.pattern import generate_pattern
+
+    contour = rect_contour()
+    params = {**PATTERN, "offset_from_face_m": 1.1, "depth_m": 11.0}
+    holes = generate_pattern(contour, params)
+    manual = insert_manual_hole(holes, 20.0, 12.0, contour, {})
+    holes.append(manual)
+    result = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=params))
+    assert manual.id not in result
+    # ЛСП есть только у скважин без соседей между ними и подошвой: все — у фронта.
+    for hole_id in result:
+        hole = next(h for h in holes if h.id == hole_id)
+        assert hole.collar.y <= 4.0 + 1e-6
+
+
+def test_boot_holes_under_pocket_crest_get_floor_burden():
+    from design.geometry import distance_to_free_faces
+    from design.pattern import generate_pattern
+    from tests.test_design_pattern_full_contour import BOOT, BOOT_FACE, PARAMS
+
+    contour = BlockContour(
+        vertices=[Point3(x, y, 0.0) for x, y in BOOT],
+        free_faces=BOOT_FACE,
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0, face_angle_deg=75.0),
+    )
+    params = {**PARAMS, "burden_b_m": 5.0}
+    holes = generate_pattern(contour, params)
+    result = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=params))
+    # Скважины под бровкой кармана (ребро (55; 33)–(28; 35)): ближе 5 м к бровке,
+    # бровка над ними, а не сбоку.
+    crest = LineString([(55.0, 33.0), (28.0, 35.0)])
+    under = [
+        h for h in holes
+        if h.kind == "production" and h.enabled
+        and crest.distance(ShapelyPoint(h.collar.x, h.collar.y)) < 5.0
+        and 28.0 < h.collar.x < 55.0 and h.collar.y < 33.0
+        and distance_to_free_faces((h.collar.x, h.collar.y), contour) < 5.0
+    ]
+    assert len(under) >= 4
+    for hole in under:
+        assert hole.id in result, hole.id
+        assert result[hole.id].value_m > 5.15
+        assert result[hole.id].excess is True

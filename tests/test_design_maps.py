@@ -51,10 +51,6 @@ class EngineeringMapsTests(unittest.TestCase):
         self.assertAlmostEqual(local_burden(holes, holes[2], _rect()), 4.0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def test_engineering_maps_include_floor_burden_for_face_holes():
     maps = engineering_maps(face_design())
     assert "floor_burden" in maps["metrics"]
@@ -62,3 +58,7 @@ def test_engineering_maps_include_floor_burden_for_face_holes():
     assert by_id["1-01"]["floor_burden"] == pytest.approx(3.7 + 2.68, abs=0.01)
     assert by_id["2-01"]["floor_burden"] is None
     assert maps["stats"]["floor_burden"]["count"] == 1.0
+
+
+if __name__ == "__main__":
+    unittest.main()

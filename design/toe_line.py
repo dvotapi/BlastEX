@@ -1,22 +1,31 @@
 """Линия подошвы откоса: от неё считается ЛСП первого ряда скважин.
 
 Если у контура есть съёмка нижней бровки (`cad.bottom`, контур не правили) —
-берутся её рёбра у свободных поверхностей; иначе линия строится смещением
-верхней бровки наружу на проекцию откоса в плане.
+берутся рёбра её кольца, не касающиеся вершин верхнего контура (тыл и фланги
+кольцо делит с контуром, продления флангов начинаются в его вершинах); иначе
+линия строится смещением верхней бровки наружу на проекцию откоса в плане.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
 
-from shapely.geometry import LineString, Point, Polygon
+import shapely
+from shapely.geometry import LineString, MultiLineString, Polygon
+from shapely.ops import nearest_points
 
-from design.editing import previous_row_distance, row_index
 from design.geometry import drawing_bottom
-from design.models import BenchSurface, BlastDesign, BlockContour, Hole
+from design.models import BenchSurface, BlastDesign, BlockContour, Hole, row_family
 
-# Запас к проекции откоса при поиске рёбер съёмки у свободной поверхности, м.
-TOE_SEARCH_MARGIN_M = 1.0
+# Вершина кольца нижней бровки ближе этого к вершине верхнего контура — общая с ним, м.
+SHARED_VERTEX_TOLERANCE_M = 0.01
+
+# Положе этого угла откоса (от горизонтали) смещение подошвы не считается: при
+# угле у нуля проекция откоса уходит в сотни метров.
+MIN_FACE_ANGLE_DEG = 30.0
+
+# Шаг сетки по ряду, когда в параметрах нет ни a, ни W, м.
+DEFAULT_CORRIDOR_STEP_M = 4.0
 
 # Допуск к проектной линии сопротивления по подошве (W): ЛСП до W + 3% — норма.
 TOE_BURDEN_TOLERANCE = 0.03
@@ -31,8 +40,12 @@ class ToeLine:
 
 
 def slope_offset_m(bench: BenchSurface) -> float:
-    """Смещение подошвы от верхней бровки в плане: H · tan(90° − угол откоса)."""
-    return max(0.0, bench.height_m * math.tan(math.radians(90.0 - bench.face_angle_deg)))
+    """Смещение подошвы от верхней бровки в плане: H · tan(90° − угол откоса).
+
+    Угол откоса — от горизонтали, не положе `MIN_FACE_ANGLE_DEG`.
+    """
+    angle = min(90.0, max(MIN_FACE_ANGLE_DEG, bench.face_angle_deg))
+    return max(0.0, bench.height_m * math.tan(math.radians(90.0 - angle)))
 
 
 def _free_polylines(contour: BlockContour) -> list[Polyline]:
@@ -67,25 +80,32 @@ def _built(contour: BlockContour, free: list[Polyline], offset: float) -> list[P
     return result
 
 
-def _survey(ring: list[tuple[float, float]], free: list[Polyline], reach: float) -> list[Polyline]:
-    lines = [LineString(line) for line in free]
+def _survey(ring: list[tuple[float, float]], top: list[tuple[float, float]]) -> list[Polyline]:
+    """Рёбра кольца нижней бровки, ни один конец которых не совпадает с вершиной контура.
+
+    Тыл и фланги кольцо делит с верхним контуром, продление фланга до подошвы
+    начинается в вершине контура — остаются только рёбра по самой нижней бровке.
+    Соседние рёбра склеиваются в полилинии.
+    """
     n = len(ring)
-    near = []
-    for i in range(n):
-        a, b = ring[i], ring[(i + 1) % n]
-        mid = Point((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-        near.append(any(line.distance(mid) <= reach for line in lines))
-    if not any(near):
+    shared = [False] * n
+    if top:
+        tree = shapely.STRtree(shapely.points(top))
+        hits = tree.query(shapely.points(ring), predicate="dwithin", distance=SHARED_VERTEX_TOLERANCE_M)
+        for i in set(int(k) for k in hits[0]):
+            shared[i] = True
+    selected = [not shared[i] and not shared[(i + 1) % n] for i in range(n)]
+    if not any(selected):
         return []
-    if all(near):
+    if all(selected):
         return [list(ring) + [ring[0]]]
-    # Начинаем обход с ребра после первого «дальнего», чтобы серии не рвались на стыке кольца.
-    start = (near.index(False) + 1) % n
+    # Начинаем обход с ребра после первого невыбранного, чтобы серии не рвались на стыке кольца.
+    start = (selected.index(False) + 1) % n
     polylines: list[Polyline] = []
     current: Polyline = []
     for k in range(n):
         i = (start + k) % n
-        if near[i]:
+        if selected[i]:
             if not current:
                 current = [ring[i]]
             current.append(ring[(i + 1) % n])
@@ -102,13 +122,12 @@ def toe_line(contour: BlockContour) -> ToeLine | None:
     free = _free_polylines(contour)
     if not free:
         return None
-    offset = slope_offset_m(contour.bench)
     ring = drawing_bottom(contour)
     if ring is not None:
-        polylines = _survey(ring, free, offset + TOE_SEARCH_MARGIN_M)
+        polylines = _survey(ring, contour.points_xy)
         if polylines:
             return ToeLine(polylines=polylines, source="survey")
-    return ToeLine(polylines=_built(contour, free, offset), source="built")
+    return ToeLine(polylines=_built(contour, free, slope_offset_m(contour.bench)), source="built")
 
 
 @dataclass(frozen=True)
@@ -144,25 +163,57 @@ def allowed_floor_burden_m(pattern_params: dict | None) -> float | None:
     return w * (1.0 + TOE_BURDEN_TOLERANCE) if w > 0 else None
 
 
+def _corridor_half_width_m(pattern_params: dict | None) -> float:
+    """Половина шага по ряду: a, без него — W, без обоих — `DEFAULT_CORRIDOR_STEP_M`."""
+    params = pattern_params or {}
+    for key in ("spacing_a_m", "burden_b_m"):
+        try:
+            step = float(params.get(key) or 0.0)
+        except (TypeError, ValueError):
+            step = 0.0
+        if step > 0:
+            return step / 2.0
+    return DEFAULT_CORRIDOR_STEP_M / 2.0
+
+
 def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
-    """ЛСП включённых рядовых скважин у откоса: впереди нет соседнего ряда или он не ближе линии подошвы."""
+    """ЛСП включённых рядовых скважин, стоящих у откоса.
+
+    ЛСП — расстояние в плане от точки оси на уровне подошвы до ближайшей точки
+    линии подошвы. Скважина стоит у откоса, если в коридоре между этими двумя
+    точками нет другой включённой скважины сетки (`row_family == "grid"`, в том
+    числе ручной), которая ближе к подошве: расстояние соседа до отрезка меньше
+    a/2 и его ЛСП меньше. Номер ряда не важен — так первый ряд находится и у
+    фланговых свободных поверхностей, и у рядов поперёк бровки.
+    """
     toe = toe_line(design.contour)
     if toe is None:
         return {}
     lines = [LineString(poly) for poly in toe.polylines if len(poly) >= 2]
     if not lines:
         return {}
+    toe_geom = MultiLineString(lines)
     allowed = allowed_floor_burden_m(design.pattern_params)
-    index = row_index([h for h in design.holes if h.enabled])
+    half = _corridor_half_width_m(design.pattern_params)
+    grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
+    if not grid:
+        return {}
+    points = shapely.points([floor_point(h) for h in grid])
+    values = shapely.distance(points, toe_geom)
+    tree = shapely.STRtree(points)
     result: dict[str, FloorBurden] = {}
-    for hole in design.holes:
-        if not hole.enabled or hole.kind != "production":
+    for i, hole in enumerate(grid):
+        if hole.kind != "production":
             continue
-        point = Point(*floor_point(hole))
-        value = min(line.distance(point) for line in lines)
-        ahead = previous_row_distance(index, hole)
-        if ahead is not None and value > ahead:
-            continue
+        value = float(values[i])
+        if value > 0:
+            corridor = LineString([points[i], nearest_points(toe_geom, points[i])[0]])
+            near = tree.query(corridor, predicate="dwithin", distance=half)
+            if any(
+                j != i and values[j] < value and shapely.distance(points[j], corridor) < half
+                for j in (int(k) for k in near)
+            ):
+                continue
         result[hole.id] = FloorBurden(
             hole_id=hole.id,
             value_m=value,

@@ -1,6 +1,7 @@
 // Единственный источник истины для документа паспорта БВР на клиенте:
 // useReducer + стек undo/redo. Камера, выделение и режим инструмента — вне
 // документа (не должны попадать в историю правок).
+import { faceAngleForImportedBlock } from "../../lib/faceAngle";
 import { isRecordFrozen } from "../../lib/lifecycle";
 import { collarZFromSurfaces } from "../../lib/surfaces";
 import type { CadCrs } from "../../types/cad";
@@ -282,7 +283,11 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
           ...cleared.contour,
           vertices: action.vertices,
           free_faces: action.free_faces,
-          bench: { ...cleared.contour.bench, ...action.bench },
+          bench: {
+            ...cleared.contour.bench,
+            ...action.bench,
+            face_angle_deg: faceAngleForImportedBlock(action.bench.face_angle_deg ?? cleared.contour.bench.face_angle_deg),
+          },
           cad: action.cad,
         },
         surfaces: {

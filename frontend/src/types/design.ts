@@ -1093,6 +1093,8 @@ export type ReliefTriangle = {
   points: number[][];
   relief_ms_m: number;
   area_m2: number;
+  /** Быстрее нижней границы расчёта; решает сервер по точному темпу (старые ответы — без поля). */
+  fast?: boolean;
 };
 
 export type ReliefStats = {

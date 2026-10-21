@@ -134,3 +134,18 @@ class ReliefBoundsFromRockTests(unittest.TestCase):
         response = _analyze(16.0, rock_name="Гранит", organization_id="org", repository=Broken())
         self.assertEqual(response.relief.stats.min_bound_ms_m, 3.0)
         self.assertTrue(any("не прочитан" in w for w in response.timing_warnings))
+
+    def test_unknown_rock_gives_default_and_warning(self):
+        repository = _repository_with_rock(relief_min_ms_m="16")
+        response = _analyze(16.0, rock_name="Базальт", organization_id="org", repository=repository)
+        self.assertEqual(response.relief.stats.min_bound_ms_m, 3.0)
+        self.assertIn(
+            "Порода «Базальт» не найдена в справочнике — для темпа отбойки взята нижняя граница 3 мс/м.",
+            response.timing_warnings,
+        )
+
+    def test_known_or_empty_rock_gives_no_rock_warning(self):
+        repository = _repository_with_rock(relief_min_ms_m="16")
+        for name in ("Гранит", ""):
+            response = _analyze(16.0, rock_name=name, organization_id="org", repository=repository)
+            self.assertFalse(any("не найдена" in w for w in response.timing_warnings), name)

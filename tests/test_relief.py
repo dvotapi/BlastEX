@@ -241,3 +241,19 @@ def test_motion_almost_along_edge_is_not_converging():
         f"{j + 1}-{i + 1:02d}": 2.0 * abs(i - 2) + 42.0 * j for j in range(3) for i in range(5)
     }
     assert converging_edges(relief_triangles(v_holes(), times, 6.4)) == []
+
+
+def test_to_dict_marks_fast_triangles_by_exact_relief_and_call_bound():
+    holes = v_holes()
+    design = design_with(holes, pattern_params={"spacing_a_m": 4.0, "burden_b_m": 3.0})
+    relief = burden_relief(design, v_times(), min_ms_m=16.0)
+    data = relief.to_dict()
+    assert all(t["fast"] is True for t in data["triangles"])
+    assert data["stats"]["fast_share"] == 1.0
+    # Граница по умолчанию 3 мс/м — те же треугольники не быстрые.
+    assert all(t["fast"] is False for t in burden_relief(design, v_times()).to_dict()["triangles"])
+    # Решение по точному значению: 2,996 округляется до 3,0, но быстрее границы 3.
+    tri = relief.triangles[0]
+    near = type(tri)(tri.hole_ids, tri.points, 2.996, tri.area_m2, tri.gradient)
+    assert near.to_dict(3.0)["relief_ms_m"] == 3.0
+    assert near.to_dict(3.0)["fast"] is True

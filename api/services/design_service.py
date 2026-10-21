@@ -261,17 +261,24 @@ def relief_bounds_for_rock(snapshot, rock_name: str) -> tuple[float, float | Non
     Порода ищется по имени без учёта регистра и пробелов по краям; не нашли,
     имя пустое или поля не заданы — нижняя граница по умолчанию, верхней нет.
     """
+    item = _rock_by_name(snapshot, rock_name)
+    if item is None:
+        return RELIEF_MIN_MS_M, None
+    return (
+        _positive_float(item.payload.get("relief_min_ms_m")) or RELIEF_MIN_MS_M,
+        _positive_float(item.payload.get("relief_max_ms_m")),
+    )
+
+
+def _rock_by_name(snapshot, rock_name: str):
+    """Запись справочника пород по имени без учёта регистра; нет или имя пустое — None."""
     wanted = (rock_name or "").strip().casefold()
     if not wanted:
-        return RELIEF_MIN_MS_M, None
+        return None
     for item in snapshot.active_items("rocks"):
-        if item.name.strip().casefold() != wanted:
-            continue
-        return (
-            _positive_float(item.payload.get("relief_min_ms_m")) or RELIEF_MIN_MS_M,
-            _positive_float(item.payload.get("relief_max_ms_m")),
-        )
-    return RELIEF_MIN_MS_M, None
+        if item.name.strip().casefold() == wanted:
+            return item
+    return None
 
 
 def analyze_design(
@@ -300,6 +307,12 @@ def analyze_design(
         try:
             snapshot = repository.get_reference_snapshot(organization_id)
             min_ms_m, max_ms_m = relief_bounds_for_rock(snapshot, design.rock_name)
+            if _rock_by_name(snapshot, design.rock_name) is None:
+                timing_warnings = [
+                    *timing_warnings,
+                    f"Порода «{design.rock_name.strip()}» не найдена в справочнике — "
+                    f"для темпа отбойки взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м.",
+                ]
         except (EconomicsRepositoryError, SQLAlchemyError):
             # Сбой хранилища не должен ронять анализ: считаем по умолчанию.
             timing_warnings = [

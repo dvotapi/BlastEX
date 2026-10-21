@@ -1169,6 +1169,8 @@ class ReliefTriangleSchema(BaseModel):
     points: list[list[float]]
     relief_ms_m: float
     area_m2: float
+    # Темп быстрее нижней границы расчёта (по точному, неокруглённому значению).
+    fast: bool = False
 
 
 class ReliefStatsSchema(BaseModel):

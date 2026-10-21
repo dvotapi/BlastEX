@@ -50,13 +50,15 @@ class ReliefTriangle:
     # ∇t плоскости, мс/м по x и y; при нулевом темпе — (0, 0). В ответ не идёт.
     gradient: tuple[float, float] = (0.0, 0.0)
 
-    def to_dict(self) -> dict[str, Any]:
-        # Округление для ответа API — только здесь.
+    def to_dict(self, min_bound_ms_m: float = RELIEF_MIN_MS_M) -> dict[str, Any]:
+        # Округление для ответа API — только здесь. «Быстрее нижней границы»
+        # решается по точному темпу, как в fast_share, а не по округлённому.
         return {
             "hole_ids": list(self.hole_ids),
             "points": [[round(x, 3), round(y, 3)] for x, y in self.points],
             "relief_ms_m": round(self.relief_ms_m, 2),
             "area_m2": round(self.area_m2, 2),
+            "fast": self.relief_ms_m < min_bound_ms_m,
         }
 
 
@@ -103,10 +105,12 @@ class BurdenRelief:
     stats: ReliefStats | None
     # Стыки сходящихся фронтов — отрезки общих рёбер.
     converging: list[Segment] = field(default_factory=list)
+    # Нижняя граница темпа этого расчёта — по ней треугольник помечается «быстрым».
+    min_bound_ms_m: float = RELIEF_MIN_MS_M
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "triangles": [t.to_dict() for t in self.triangles],
+            "triangles": [t.to_dict(self.min_bound_ms_m) for t in self.triangles],
             "stats": self.stats.to_dict() if self.stats else None,
             "converging": [
                 [[round(x, 3), round(y, 3)] for x, y in segment] for segment in self.converging
@@ -283,4 +287,5 @@ def burden_relief(
         triangles=triangles,
         stats=relief_stats(triangles, min_ms_m=min_ms_m, max_ms_m=max_ms_m),
         converging=converging_edges(triangles),
+        min_bound_ms_m=min_ms_m,
     )

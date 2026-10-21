@@ -1368,7 +1368,8 @@ export function PlanCanvas({
             })}
             {/* Быстрее нижней границы — штриховка поверх цвета зоны. */}
             {relief.triangles.map((tri, i) => {
-              if (!(tri.relief_ms_m < relief.stats!.min_bound_ms_m)) return null;
+              const fast = tri.fast ?? tri.relief_ms_m < relief.stats!.min_bound_ms_m;
+              if (!fast) return null;
               const points = tri.points.map((v) => {
                 const p = toScreen({ x: v[0], y: v[1] });
                 return `${p.x},${p.y}`;

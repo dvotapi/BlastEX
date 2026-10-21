@@ -30,3 +30,16 @@ export function faceAngleForImportedBlock(current: number | null | undefined): n
   if (typeof current === "number" && Number.isFinite(current) && current > 0 && current < 90) return current;
   return 90 - DEFAULT_FACE_ANGLE_FROM_VERTICAL_DEG;
 }
+
+/** Сообщение после «Построить блок», когда угол 90° заменён углом объекта. */
+export const FACE_ANGLE_REPLACED_NOTICE =
+  "Угол откоса 90° заменён на 15° от вертикали — проверьте угол в «Съёмке», если откос действительно вертикальный.";
+
+/**
+ * Заменит ли «Построить блок» угол 90° (вертикальный откос или умолчание
+ * сервера) углом объекта — тогда пользователю показывается
+ * `FACE_ANGLE_REPLACED_NOTICE`.
+ */
+export function faceAngleReplacedOnImport(current: number | null | undefined): boolean {
+  return typeof current === "number" && current >= 90;
+}

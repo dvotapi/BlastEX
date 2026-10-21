@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useMemo, useReducer, useRef, useState } from
 import { api } from "../../api/endpoints";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import { collarZFromSurfaces, surfaceElevation } from "../../lib/surfaces";
+import { FACE_ANGLE_REPLACED_NOTICE, faceAngleReplacedOnImport } from "../../lib/faceAngle";
 import type { BlastVariant, Explosive, User } from "../../types";
 import type { CadSource } from "../../types/cad";
 import {
@@ -278,6 +279,8 @@ export function DesignPage({
   const [drawingDomain, setDrawingDomain] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [error, setError] = useState("");
+  // Сообщение без ошибки (например, о заменённом угле откоса после «Построить блок»).
+  const [notice, setNotice] = useState("");
 
   const [explosives, setExplosives] = useState<Explosive[]>([]);
   const [explosiveKey, setExplosiveKey] = useState("");
@@ -736,6 +739,8 @@ export function DesignPage({
     // отметка вычерчивания, а не рельеф.
     const z = crest ?? document.contour.bench.crest_z_m;
     const roof = { ...emptySurfaces(), top: choice.surface };
+    // Угол 90° редуктор заменит углом объекта — сказать об этом явно.
+    setNotice(faceAngleReplacedOnImport(document.contour.bench.face_angle_deg) ? FACE_ANGLE_REPLACED_NOTICE : "");
     dispatch({
       type: "APPLY_CAD_CONTOUR",
       vertices: choice.vertices.map(([x, y]) => ({ x, y, z: collarZFromSurfaces(roof, x, y, z) })),
@@ -2636,6 +2641,12 @@ export function DesignPage({
         </div>
       </header>
       {error && <div className="page-error" role="alert">{error}</div>}
+      {notice && (
+        <div className="lifecycle-banner compact" role="status">
+          {notice}{" "}
+          <button type="button" onClick={() => setNotice("")} aria-label="Закрыть сообщение">×</button>
+        </div>
+      )}
       {designedLocked && (
         <div className="lifecycle-banner compact" role="status">
           {recordFrozen
@@ -3292,6 +3303,7 @@ export function DesignPage({
               toolRequest={toolRequest}
               onToolRequestHandled={() => setToolRequest(null)}
               toePolylines={document.surfaces.floor?.polylines}
+              angleToePolylines={maps?.angle_toe_lines}
               insertKind={insertKind}
               onInsertKindChange={setInsertKind}
               situation={situationPlan}

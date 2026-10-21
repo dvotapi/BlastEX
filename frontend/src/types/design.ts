@@ -929,6 +929,16 @@ export type HoleMapSample = {
   collar_burden: number | null;
   true_face_burden: number | null;
   floor_burden?: number | null;
+  /** Откуда линия подошвы для ЛСП: "survey" — съёмка, "angle" — подошва по углу откоса. */
+  floor_burden_source?: FloorBurdenSource | null;
+};
+
+export type FloorBurdenSource = "survey" | "angle";
+
+/** Подпись источника линии подошвы; у съёмки подписи нет. */
+export const FLOOR_BURDEN_SOURCE_LABELS: Record<FloorBurdenSource, string | null> = {
+  survey: null,
+  angle: "подошва по углу",
 };
 
 export type EngineeringMaps = {

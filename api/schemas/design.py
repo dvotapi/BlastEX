@@ -1048,6 +1048,7 @@ class HoleMapSampleSchema(BaseModel):
     collar_burden: float | None = None
     true_face_burden: float | None = None
     floor_burden: float | None = None
+    floor_burden_source: str | None = None  # "survey" | "angle" (подошва по углу)
 
 
 class EngineeringMapsSchema(BaseModel):

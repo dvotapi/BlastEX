@@ -307,7 +307,7 @@ def validate(
                     "message": (
                         f"ЛСП {item.value_m:.1f}".replace(".", ",")
                         + f" м больше допустимого {item.allowed_m:.1f}".replace(".", ",")
-                        + " м (W + 3%)."
+                        + (" м (W + 3%, подошва по углу)." if item.toe_source == "angle" else " м (W + 3%).")
                     ),
                 }
             )

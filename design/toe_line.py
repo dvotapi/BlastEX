@@ -3,7 +3,13 @@
 Если у контура есть съёмка нижней бровки (`cad.bottom`, контур не правили) —
 берутся рёбра её кольца, не касающиеся вершин верхнего контура (тыл и фланги
 кольцо делит с контуром, продления флангов начинаются в его вершинах); иначе
-линия строится смещением верхней бровки наружу на проекцию откоса в плане.
+линия строится смещением верхней бровки наружу на проекцию откоса в плане
+(«подошва по углу»).
+
+Съёмка с развалом (решение 21.10.2026, блок №66): если ближайшая к скважине
+точка съёмки лежит от верхней бровки дальше `SURVEY_SPOIL_WIDTH_FACTOR · H`,
+там не откос, а развал или берма — ЛСП этой скважины считается по линии,
+построенной по углу откоса блока.
 """
 from __future__ import annotations
 
@@ -32,6 +38,14 @@ DEFAULT_CORRIDOR_STEP_M = 4.0
 SHADOW_ADVANCE_RATIO = 0.4
 SHADOW_REACH_RATIO = 1.05
 
+# Съёмка подошвы дальше этой доли высоты уступа от верхней бровки (откос положе
+# 45° от вертикали) — развал или берма, а не откос: ЛСП считается по углу.
+SURVEY_SPOIL_WIDTH_FACTOR = 1.0
+
+# Источник линии подошвы у скважины: съёмка нижней бровки или построение по углу.
+TOE_SOURCE_SURVEY = "survey"
+TOE_SOURCE_ANGLE = "angle"
+
 # Допуск к проектной линии сопротивления по подошве (W): ЛСП до W + 3% — норма.
 TOE_BURDEN_TOLERANCE = 0.03
 
@@ -41,7 +55,7 @@ Polyline = list[tuple[float, float]]
 @dataclass(frozen=True)
 class ToeLine:
     polylines: list[Polyline]
-    source: str  # "survey" — по съёмке нижней бровки, "built" — построена от верхней
+    source: str  # "survey" — по съёмке нижней бровки, "angle" — от верхней бровки по углу откоса
 
 
 def slope_offset_m(bench: BenchSurface) -> float:
@@ -122,8 +136,20 @@ def _survey(ring: list[tuple[float, float]], top: list[tuple[float, float]]) -> 
     return polylines
 
 
+def angle_toe_line(contour: BlockContour) -> ToeLine | None:
+    """Линия подошвы по углу откоса блока; None, если свободных поверхностей нет."""
+    free = _free_polylines(contour)
+    if not free:
+        return None
+    return ToeLine(polylines=_built(contour, free, slope_offset_m(contour.bench)), source=TOE_SOURCE_ANGLE)
+
+
 def toe_line(contour: BlockContour) -> ToeLine | None:
-    """Линия подошвы вдоль свободных поверхностей; None, если их нет."""
+    """Линия подошвы вдоль свободных поверхностей; None, если их нет.
+
+    Съёмка, если она есть, — целиком: проверку на развал делает `floor_burdens`
+    по каждой скважине.
+    """
     free = _free_polylines(contour)
     if not free:
         return None
@@ -131,8 +157,15 @@ def toe_line(contour: BlockContour) -> ToeLine | None:
     if ring is not None:
         polylines = _survey(ring, contour.points_xy)
         if polylines:
-            return ToeLine(polylines=polylines, source="survey")
-    return ToeLine(polylines=_built(contour, free, slope_offset_m(contour.bench)), source="built")
+            return ToeLine(polylines=polylines, source=TOE_SOURCE_SURVEY)
+    return angle_toe_line(contour)
+
+
+def _geometry(line: ToeLine | None) -> MultiLineString | None:
+    if line is None:
+        return None
+    parts = [LineString(poly) for poly in line.polylines if len(poly) >= 2]
+    return MultiLineString(parts) if parts else None
 
 
 @dataclass(frozen=True)
@@ -141,6 +174,7 @@ class FloorBurden:
     value_m: float  # ЛСП: расстояние в плане от точки оси на уровне подошвы до линии подошвы
     allowed_m: float | None  # W + 3%; None, если W не задана
     excess: bool
+    toe_source: str = TOE_SOURCE_SURVEY  # "survey" — съёмка, "angle" — подошва по углу
 
 
 def floor_point(hole: Hole) -> tuple[float, float]:
@@ -238,10 +272,11 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
     toe = toe_line(design.contour)
     if toe is None:
         return {}
-    lines = [LineString(poly) for poly in toe.polylines if len(poly) >= 2]
-    if not lines:
+    toe_geom = _geometry(toe)
+    if toe_geom is None:
         return {}
-    toe_geom = MultiLineString(lines)
+    angle_geom = toe_geom if toe.source == TOE_SOURCE_ANGLE else _geometry(angle_toe_line(design.contour))
+    crest_geom = MultiLineString([LineString(line) for line in _free_polylines(design.contour)])
     allowed = allowed_floor_burden_m(design.pattern_params)
     a, b = _grid_steps_m(design.pattern_params)
     min_advance = SHADOW_ADVANCE_RATIO * min(a, b)
@@ -250,7 +285,19 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
     if not grid:
         return {}
     points = shapely.points([floor_point(h) for h in grid])
-    values = shapely.distance(points, toe_geom)
+    # Линия подошвы каждой скважины: съёмка, а там, где ближайшая точка съёмки
+    # дальше k·H от верхней бровки (развал, берма), — построенная по углу.
+    geoms = [toe_geom] * len(grid)
+    sources = [toe.source] * len(grid)
+    spoil_width = SURVEY_SPOIL_WIDTH_FACTOR * design.contour.bench.height_m
+    if toe.source == TOE_SOURCE_SURVEY and angle_geom is not None and spoil_width > 0:
+        nearest = shapely.get_point(shapely.shortest_line(toe_geom, points), 0)
+        spoil = shapely.distance(nearest, crest_geom) > spoil_width
+        for i in range(len(grid)):
+            if spoil[i]:
+                geoms[i] = angle_geom
+                sources[i] = TOE_SOURCE_ANGLE
+    values = shapely.distance(points, geoms)
     tree = shapely.STRtree(points)
     result: dict[str, FloorBurden] = {}
     for i, hole in enumerate(grid):
@@ -258,7 +305,7 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
             continue
         value = float(values[i])
         if value > 0:
-            toe_point = nearest_points(toe_geom, points[i])[0]
+            toe_point = nearest_points(geoms[i], points[i])[0]
             if _shadowed(i, value, points, toe_point, tree, min_advance, reach):
                 continue
         result[hole.id] = FloorBurden(
@@ -266,5 +313,6 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
             value_m=value,
             allowed_m=allowed,
             excess=allowed is not None and value > allowed,
+            toe_source=sources[i],
         )
     return result

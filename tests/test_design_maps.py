@@ -56,7 +56,9 @@ def test_engineering_maps_include_floor_burden_for_face_holes():
     assert "floor_burden" in maps["metrics"]
     by_id = {r["hole_id"]: r for r in maps["holes"]}
     assert by_id["1-01"]["floor_burden"] == pytest.approx(3.7 + 2.68, abs=0.01)
+    assert by_id["1-01"]["floor_burden_source"] == "angle"
     assert by_id["2-01"]["floor_burden"] is None
+    assert by_id["2-01"]["floor_burden_source"] is None
     assert maps["stats"]["floor_burden"]["count"] == 1.0
 
 

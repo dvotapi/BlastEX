@@ -24,3 +24,4 @@ def test_maps_endpoint_returns_floor_burden():
     body = response.json()
     assert "floor_burden" in body["metrics"]
     assert any(h["floor_burden"] is not None for h in body["holes"])
+    assert {h["floor_burden_source"] for h in body["holes"] if h["floor_burden"] is not None} == {"angle"}

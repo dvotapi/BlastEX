@@ -137,6 +137,7 @@ def test_validate_warns_when_floor_burden_exceeds_w_plus_3_percent():
     excess = [w for w in warnings if w["code"] == "floor_burden_excess"]
     assert [w["hole_id"] for w in excess] == ["1-01"]
     assert "ЛСП 6,4 м больше допустимого 3,8 м" in excess[0]["message"]
+    assert "подошва по углу" in excess[0]["message"]
 
 
 if __name__ == "__main__":

@@ -2519,6 +2519,11 @@ export function DesignPage({
   const crsUnconfirmed = isCrsUnconfirmed(document.coordinate_system, hasImportedSurvey);
   const stageStatuses = statusesForDocument(document, { crsUnconfirmed });
   const inspectHole = document.holes.find((h) => h.id === inspectHoleId) ?? null;
+  const inspectSample = inspectHole ? maps?.holes.find((h) => h.hole_id === inspectHole.id) : undefined;
+  const inspectFloorBurden =
+    inspectSample && typeof inspectSample.floor_burden === "number"
+      ? { value: inspectSample.floor_burden, source: inspectSample.floor_burden_source ?? null }
+      : undefined;
   const stageTitle = WORKFLOW_STAGES.find((item) => item.id === workflowStage)?.label ?? "Параметры";
   // Стрелка выброса на плане: если тайминг задан «по направлению», показываем
   // именно его азимут (применённый, иначе настраиваемый); азимут рядов —
@@ -3363,6 +3368,7 @@ export function DesignPage({
               load={loadsById[inspectHole.id]}
               locked={designedLocked}
               flags={recompute.flags[inspectHole.id] ?? []}
+              floorBurden={inspectFloorBurden}
               onClose={() => setInspectHoleId(null)}
               onUpdateHole={onUpdateHole}
               onSetEnabled={setHolesEnabled}

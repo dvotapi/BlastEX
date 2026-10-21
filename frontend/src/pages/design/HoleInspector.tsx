@@ -7,8 +7,8 @@ import { Primer } from "../../components/holeDrawing/Primer";
 import { barrelWidthPx, makeAxis } from "../../components/holeDrawing/geometry";
 import { ruNumber } from "../../lib/format";
 import { angleAzimuth, holeLength } from "../../lib/geometry2d";
-import type { Hole, HoleKind, HoleLoad, HoleManualFlag, HoleRecomputeFlag } from "../../types/design";
-import { HOLE_KIND_LABELS } from "../../types/design";
+import type { FloorBurdenSource, Hole, HoleKind, HoleLoad, HoleManualFlag, HoleRecomputeFlag } from "../../types/design";
+import { FLOOR_BURDEN_SOURCE_LABELS, HOLE_KIND_LABELS } from "../../types/design";
 import { axisPatch, collarZPatch, toePatch } from "./holeEdits";
 
 /** Флаги пересчёта по кровле — для пользователя. */
@@ -36,6 +36,7 @@ export function HoleInspector({
   load,
   locked = false,
   flags = [],
+  floorBurden,
   onClose,
   onUpdateHole,
   onSetEnabled,
@@ -46,6 +47,8 @@ export function HoleInspector({
   locked?: boolean;
   /** Флаги пересчёта по кровле: устье вне поверхности, H < 1 м. */
   flags?: HoleRecomputeFlag[];
+  /** ЛСП скважины у откоса из карт проекта и источник линии подошвы. */
+  floorBurden?: { value: number; source?: FloorBurdenSource | null };
   onClose: () => void;
   onUpdateHole: (id: string, patch: Partial<Hole>) => void;
   onSetEnabled: (ids: string[], enabled: boolean) => void;
@@ -141,6 +144,14 @@ export function HoleInspector({
                 Устье: {RECOMPUTE_FLAG_LABELS[flag]}
               </small>
             ))}
+            {floorBurden && (
+              <small className="hole-floor-burden">
+                ЛСП: {ruNumber(floorBurden.value, 2)} м
+                {floorBurden.source && FLOOR_BURDEN_SOURCE_LABELS[floorBurden.source]
+                  ? ` · ${FLOOR_BURDEN_SOURCE_LABELS[floorBurden.source]}`
+                  : ""}
+              </small>
+            )}
             <small>Геология: {geologySummary(hole)}</small>
             <button type="button" className="danger-button" onClick={() => onDelete(hole.id)}>Удалить скважину</button>
           </fieldset>

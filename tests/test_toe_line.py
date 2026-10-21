@@ -34,7 +34,7 @@ def test_vertical_face_has_zero_offset():
 
 def test_built_toe_line_lies_outside_block_at_offset():
     line = toe_line(rect_contour())
-    assert line.source == "built"
+    assert line.source == "angle"
     ys = [y for poly in line.polylines for _, y in poly]
     assert all(y == pytest.approx(-2.6795, abs=1e-3) for y in ys)
 
@@ -50,13 +50,13 @@ def test_survey_toe_line_uses_bottom_ring_edge_near_free_face():
 
 def test_edited_contour_ignores_survey():
     contour = rect_contour(cad={"bottom": [[0, -3], [40, -3], [40, 22], [0, 22]], "edited": True})
-    assert toe_line(contour).source == "built"
+    assert toe_line(contour).source == "angle"
 
 
 def test_survey_without_own_edges_falls_back_to_built():
     # Нижняя бровка не найдена: кольцо совпадает с верхним контуром (S низ = S верх).
     contour = rect_contour(cad={"bottom": [[0, 0], [40, 0], [40, 22], [0, 22]]})
-    assert toe_line(contour).source == "built"
+    assert toe_line(contour).source == "angle"
 
 
 def test_no_free_faces_gives_none():
@@ -206,6 +206,40 @@ def test_dense_flank_vertices_shared_with_top_are_not_toe_line():
     line = toe_line(contour)
     assert line.source == "survey"
     assert all(y == pytest.approx(-2.68) for poly in line.polylines for _, y in poly)
+
+
+# --- Съёмка с развалом: ЛСП по углу ---------------------------------------
+
+
+def spoil_contour() -> BlockContour:
+    # H = 10 м. Левая половина фронта: подошва по съёмке в 3 м от бровки (откос);
+    # правая — в 12 м (> H: развал), переход — наклонное ребро.
+    return rect_contour(cad={"bottom": [[0, -3], [20, -3], [24, -12], [40, -12], [40, 22], [0, 22]]})
+
+
+def test_survey_spoil_part_uses_angle_line_near_part_keeps_survey():
+    near = vertical_hole("1-01", x=5, y=1.0, row=0)
+    far = vertical_hole("1-02", x=35, y=1.0, row=0)
+    design = BlastDesign(design_id="t", contour=spoil_contour(), holes=[near, far], pattern_params=PATTERN)
+    result = floor_burdens(design)
+    assert result["1-01"].toe_source == "survey"
+    assert result["1-01"].value_m == pytest.approx(4.0, abs=1e-3)
+    assert result["1-02"].toe_source == "angle"
+    assert result["1-02"].value_m == pytest.approx(1.0 + 2.6795, abs=1e-3)
+
+
+def test_survey_within_bench_height_is_kept():
+    # Подошва в 9,9 м от бровки при H = 10 м — откос, хоть и пологий.
+    contour = rect_contour(cad={"bottom": [[0, -9.9], [40, -9.9], [40, 22], [0, 22]]})
+    hole = vertical_hole("1-01", x=10, y=1.0, row=0)
+    fb = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=[hole], pattern_params=PATTERN))["1-01"]
+    assert fb.toe_source == "survey"
+    assert fb.value_m == pytest.approx(10.9, abs=1e-3)
+
+
+def test_built_line_without_survey_reports_angle_source():
+    fb = floor_burdens(design_with([vertical_hole("1-01", x=10, y=3.7, row=0)]))["1-01"]
+    assert fb.toe_source == "angle"
 
 
 # --- Первый ряд: геометрия, а не номер ряда ---------------------------------

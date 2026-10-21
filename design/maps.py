@@ -10,7 +10,7 @@ from typing import Any
 from design.editing import local_burden, local_spacing
 from design.geometry import collar_burden, toe_burden, true_burden
 from design.models import BlastDesign, Hole
-from design.toe_line import floor_burdens
+from design.toe_line import floor_burdens, spoil_angle_toe_lines
 
 MAP_METRICS = (
     "burden",
@@ -93,4 +93,8 @@ def engineering_maps(design: BlastDesign) -> dict[str, Any]:
         "metrics": list(MAP_METRICS),
         "holes": holes,
         "stats": stats,
+        # Подошва по углу там, где съёмка — развал: по ней считана ЛСП, на плане — пунктиром.
+        "angle_toe_lines": [
+            [[round(x, 3), round(y, 3)] for x, y in line] for line in spoil_angle_toe_lines(design, lsp)
+        ],
     }

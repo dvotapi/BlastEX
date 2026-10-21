@@ -8,8 +8,12 @@
 
 Съёмка с развалом (решение 21.10.2026, блок №66): если ближайшая к скважине
 точка съёмки лежит от верхней бровки дальше `SURVEY_SPOIL_WIDTH_FACTOR · H`,
-там не откос, а развал или берма — ЛСП этой скважины считается по линии,
-построенной по углу откоса блока.
+там не откос, а развал или берма — ЛСП этой скважины считается по углу
+откоса: расстояние от точки оси на уровне подошвы до верхней бровки плюс
+H · tan(90° − угол). H — высота уступа по оси скважины (`Hole.bench_height_m`,
+без неё — высота блока). Угол 90° и круче здесь — «угол не задан» (умолчание
+сервера у старых паспортов): берётся 15° от вертикали (75° от горизонтали),
+иначе подошва по углу совпала бы с бровкой и ЛСП занизилась бы.
 """
 from __future__ import annotations
 
@@ -42,6 +46,10 @@ SHADOW_REACH_RATIO = 1.05
 # 45° от вертикали) — развал или берма, а не откос: ЛСП считается по углу.
 SURVEY_SPOIL_WIDTH_FACTOR = 1.0
 
+# Угол откоса (от горизонтали) для подошвы по углу вместо развала, когда угол
+# блока не задан (90° — умолчание сервера): 15° от вертикали.
+SPOIL_DEFAULT_FACE_ANGLE_DEG = 75.0
+
 # Источник линии подошвы у скважины: съёмка нижней бровки или построение по углу.
 TOE_SOURCE_SURVEY = "survey"
 TOE_SOURCE_ANGLE = "angle"
@@ -58,13 +66,29 @@ class ToeLine:
     source: str  # "survey" — по съёмке нижней бровки, "angle" — от верхней бровки по углу откоса
 
 
+def _offset_m(height_m: float, face_angle_deg: float) -> float:
+    """H · tan(90° − угол); угол от горизонтали, не положе `MIN_FACE_ANGLE_DEG`."""
+    angle = min(90.0, max(MIN_FACE_ANGLE_DEG, face_angle_deg))
+    return max(0.0, height_m * math.tan(math.radians(90.0 - angle)))
+
+
 def slope_offset_m(bench: BenchSurface) -> float:
     """Смещение подошвы от верхней бровки в плане: H · tan(90° − угол откоса).
 
     Угол откоса — от горизонтали, не положе `MIN_FACE_ANGLE_DEG`.
     """
-    angle = min(90.0, max(MIN_FACE_ANGLE_DEG, bench.face_angle_deg))
-    return max(0.0, bench.height_m * math.tan(math.radians(90.0 - angle)))
+    return _offset_m(bench.height_m, bench.face_angle_deg)
+
+
+def spoil_face_angle_deg(bench: BenchSurface) -> float:
+    """Угол откоса для подошвы по углу там, где съёмка — развал.
+
+    90° и круче — «угол не задан» (умолчание сервера у паспортов, сохранённых до
+    правки импорта): берётся `SPOIL_DEFAULT_FACE_ANGLE_DEG`. Без съёмки угол
+    блока используется как есть.
+    """
+    angle = bench.face_angle_deg
+    return angle if angle < 90.0 else SPOIL_DEFAULT_FACE_ANGLE_DEG
 
 
 def _free_polylines(contour: BlockContour) -> list[Polyline]:
@@ -136,12 +160,17 @@ def _survey(ring: list[tuple[float, float]], top: list[tuple[float, float]]) -> 
     return polylines
 
 
-def angle_toe_line(contour: BlockContour) -> ToeLine | None:
-    """Линия подошвы по углу откоса блока; None, если свободных поверхностей нет."""
+def angle_toe_line(contour: BlockContour, face_angle_deg: float | None = None) -> ToeLine | None:
+    """Линия подошвы по углу откоса блока; None, если свободных поверхностей нет.
+
+    `face_angle_deg` — угол вместо угла блока (подошва по углу вместо развала).
+    """
     free = _free_polylines(contour)
     if not free:
         return None
-    return ToeLine(polylines=_built(contour, free, slope_offset_m(contour.bench)), source=TOE_SOURCE_ANGLE)
+    angle = contour.bench.face_angle_deg if face_angle_deg is None else face_angle_deg
+    offset = _offset_m(contour.bench.height_m, angle)
+    return ToeLine(polylines=_built(contour, free, offset), source=TOE_SOURCE_ANGLE)
 
 
 def toe_line(contour: BlockContour) -> ToeLine | None:
@@ -275,8 +304,6 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
     toe_geom = _geometry(toe)
     if toe_geom is None:
         return {}
-    angle_geom = toe_geom if toe.source == TOE_SOURCE_ANGLE else _geometry(angle_toe_line(design.contour))
-    crest_geom = MultiLineString([LineString(line) for line in _free_polylines(design.contour)])
     allowed = allowed_floor_burden_m(design.pattern_params)
     a, b = _grid_steps_m(design.pattern_params)
     min_advance = SHADOW_ADVANCE_RATIO * min(a, b)
@@ -285,27 +312,20 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
     if not grid:
         return {}
     points = shapely.points([floor_point(h) for h in grid])
-    # Линия подошвы каждой скважины: съёмка, а там, где ближайшая точка съёмки
-    # дальше k·H от верхней бровки (развал, берма), — построенная по углу.
-    geoms = [toe_geom] * len(grid)
+    values = [float(v) for v in shapely.distance(points, toe_geom)]
     sources = [toe.source] * len(grid)
-    spoil_width = SURVEY_SPOIL_WIDTH_FACTOR * design.contour.bench.height_m
-    if toe.source == TOE_SOURCE_SURVEY and angle_geom is not None and spoil_width > 0:
-        nearest = shapely.get_point(shapely.shortest_line(toe_geom, points), 0)
-        spoil = shapely.distance(nearest, crest_geom) > spoil_width
-        for i in range(len(grid)):
-            if spoil[i]:
-                geoms[i] = angle_geom
-                sources[i] = TOE_SOURCE_ANGLE
-    values = shapely.distance(points, geoms)
+    # Точка подошвы, к которой идёт коридор скважины (проверка «закрыта соседом»).
+    toe_points: list = [None] * len(grid)
+    if toe.source == TOE_SOURCE_SURVEY:
+        _spoil_to_angle(design, grid, points, toe_geom, values, sources, toe_points)
     tree = shapely.STRtree(points)
     result: dict[str, FloorBurden] = {}
     for i, hole in enumerate(grid):
         if hole.kind != "production":
             continue
-        value = float(values[i])
+        value = values[i]
         if value > 0:
-            toe_point = nearest_points(geoms[i], points[i])[0]
+            toe_point = toe_points[i] if toe_points[i] is not None else nearest_points(toe_geom, points[i])[0]
             if _shadowed(i, value, points, toe_point, tree, min_advance, reach):
                 continue
         result[hole.id] = FloorBurden(
@@ -316,3 +336,83 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
             toe_source=sources[i],
         )
     return result
+
+
+def hole_bench_height_m(hole: Hole, block_height_m: float) -> float:
+    """Высота уступа у скважины: по её оси, без неё — высота блока."""
+    own = hole.bench_height_m
+    return own if own > 0 else block_height_m
+
+
+def _spoil_to_angle(design: BlastDesign, grid, points, toe_geom, values, sources, toe_points) -> None:
+    """Скважины, у которых съёмка подошвы — развал, переводятся на подошву по углу.
+
+    Развал: ближайшая к точке p_i точка съёмки дальше `SURVEY_SPOIL_WIDTH_FACTOR · H_i`
+    от верхней бровки, H_i — высота уступа у скважины. ЛСП по углу —
+    d(p_i, бровка) + H_i · tan(90° − угол): для точки внутри блока это ровно
+    расстояние до бровки, смещённой наружу на проекцию откоса (у смещённой
+    кривой с круглыми стыками расстояния складываются). Точка за бровкой
+    (наклонная скважина) — |смещение − d|. Угол — `spoil_face_angle_deg`.
+    """
+    contour = design.contour
+    crest_geom = MultiLineString([LineString(line) for line in _free_polylines(contour)])
+    block_h = contour.bench.height_m
+    angle = spoil_face_angle_deg(contour.bench)
+    heights = [hole_bench_height_m(h, block_h) for h in grid]
+    nearest_survey = shapely.get_point(shapely.shortest_line(toe_geom, points), 0)
+    survey_gap = shapely.distance(nearest_survey, crest_geom)
+    crest_d = shapely.distance(points, crest_geom)
+    polygon = Polygon(contour.points_xy)
+    if not polygon.is_valid:
+        polygon = shapely.make_valid(polygon)
+    inside = shapely.contains_xy(polygon, shapely.get_x(points), shapely.get_y(points))
+    fallback_geom = None
+    for i in range(len(grid)):
+        height = heights[i]
+        if height <= 0 or survey_gap[i] <= SURVEY_SPOIL_WIDTH_FACTOR * height:
+            continue
+        offset = _offset_m(height, angle)
+        d = float(crest_d[i])
+        values[i] = d + offset if inside[i] else abs(offset - d)
+        sources[i] = TOE_SOURCE_ANGLE
+        px, py = points[i].x, points[i].y
+        if d > 1e-9:
+            c = nearest_points(crest_geom, points[i])[0]
+            ux, uy = (c.x - px) / d, (c.y - py) / d
+            if not inside[i] and offset >= d:
+                ux, uy = -ux, -uy  # точка за бровкой, подошва ещё дальше от блока
+            toe_points[i] = shapely.Point(px + ux * values[i], py + uy * values[i])
+        else:
+            # Точка на самой бровке: направление — к линии по углу блока.
+            if fallback_geom is None:
+                fallback_geom = _geometry(angle_toe_line(contour, angle))
+            if fallback_geom is not None:
+                toe_points[i] = nearest_points(fallback_geom, points[i])[0]
+
+
+def spoil_angle_toe_lines(design: BlastDesign, burdens: dict[str, FloorBurden]) -> list[Polyline]:
+    """Куски подошвы по углу у скважин, чья ЛСП считана по ней вместо съёмки-развала.
+
+    Для плана: линия по углу (`spoil_face_angle_deg`, высота блока) в пределах
+    max(a, b) от ближайших к таким скважинам точек. Пусто, если съёмки нет
+    (тогда нарисованная подошва и есть линия по углу) или все скважины по съёмке.
+    """
+    ids = {hid for hid, fb in burdens.items() if fb.toe_source == TOE_SOURCE_ANGLE}
+    toe = toe_line(design.contour)
+    if not ids or toe is None or toe.source != TOE_SOURCE_SURVEY:
+        return []
+    geom = _geometry(angle_toe_line(design.contour, spoil_face_angle_deg(design.contour.bench)))
+    if geom is None:
+        return []
+    a, b = _grid_steps_m(design.pattern_params)
+    near = [nearest_points(geom, shapely.Point(floor_point(h)))[0] for h in design.holes if h.id in ids]
+    zone = shapely.union_all(shapely.buffer(near, max(a, b)))
+    lines = [g for g in shapely.get_parts(geom.intersection(zone)) if g.geom_type == "LineString"]
+    if not lines:
+        return []
+    merged = shapely.line_merge(MultiLineString(lines))
+    return [
+        [(float(x), float(y)) for x, y in part.coords]
+        for part in shapely.get_parts(merged)
+        if len(part.coords) >= 2
+    ]

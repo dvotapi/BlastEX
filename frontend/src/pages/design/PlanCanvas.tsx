@@ -149,6 +149,7 @@ export function PlanCanvas({
   toolRequest,
   onToolRequestHandled,
   toePolylines,
+  angleToePolylines,
   insertKind,
   onInsertKindChange,
   situation,
@@ -218,6 +219,8 @@ export function PlanCanvas({
   toolRequest?: { tool: PlanTool; tick: number } | null;
   onToolRequestHandled?: () => void;
   toePolylines?: Point3[][];
+  /** Подошва по углу там, где съёмка нижней бровки — развал (ЛСП считана по ней): [[x, y], …]. */
+  angleToePolylines?: number[][][];
   insertKind?: HoleKind;
   onInsertKindChange?: (kind: HoleKind) => void;
   /** Подложка ситуации карьера (TASK-013, PR 4): показанные версии и скрытые слои. */
@@ -1453,6 +1456,18 @@ export function PlanCanvas({
               fill="none"
               points={line.map((v) => { const p = toScreen(v); return `${p.x},${p.y}`; }).join(" ")}
             />
+          ) : null
+        ))}
+        {layers.toe && (angleToePolylines ?? []).map((line, lineIndex) => (
+          line.length >= 2 ? (
+            <polyline
+              key={`angle-toe-${lineIndex}`}
+              className="contour-edge toe angle-toe"
+              fill="none"
+              points={line.map(([x, y]) => { const p = toScreen({ x, y }); return `${p.x},${p.y}`; }).join(" ")}
+            >
+              <title>Подошва по углу (съёмка здесь — развал)</title>
+            </polyline>
           ) : null
         ))}
         {contour.vertices.length >= 2 && contour.vertices.map((v, i) => {

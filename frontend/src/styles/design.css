@@ -124,6 +124,8 @@
 .legend-swatch.fill { background:rgba(45,117,86,.25); }
 
 .contour-edge.toe { stroke:#c7d1cc; stroke-width:2; stroke-dasharray:5 3; }
+/* Подошва по углу вместо съёмки-развала: мельче пунктир, подсказка — в <title>. */
+.contour-edge.toe.angle-toe { stroke-dasharray:2 4; }
 .hole-id-label { fill:#173125; font-size:9px; font-weight:var(--font-weight-strong); text-anchor:middle; paint-order:stroke; stroke:#fbfcfb; stroke-width:2.8px; stroke-linejoin:round; }
 .plan-north { position:absolute; left:10px; top:10px; pointer-events:none; }
 /* Блочный svg: строчный оставил бы под собой зазор под выносные элементы шрифта. */

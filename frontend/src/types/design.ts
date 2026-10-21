@@ -945,6 +945,8 @@ export type EngineeringMaps = {
   metrics: MapMetric[];
   holes: HoleMapSample[];
   stats: Record<string, { min: number; avg: number; max: number; count: number }>;
+  /** Куски подошвы по углу у скважин, где съёмка подошвы — развал: [[x, y], …]. */
+  angle_toe_lines?: number[][][];
 };
 
 export type PatternGenerateResponse = {

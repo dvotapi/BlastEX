@@ -1055,6 +1055,8 @@ class EngineeringMapsSchema(BaseModel):
     metrics: list[str] = Field(default_factory=list)
     holes: list[HoleMapSampleSchema] = Field(default_factory=list)
     stats: dict[str, dict[str, float]] = Field(default_factory=dict)
+    # Куски подошвы по углу у скважин, где съёмка подошвы — развал: [[x, y], …].
+    angle_toe_lines: list[list[list[float]]] = Field(default_factory=list)
 
 
 class EngineeringMapsRequest(BaseModel):

@@ -8,7 +8,14 @@ from shapely.geometry import LineString
 from shapely.geometry import Point as ShapelyPoint
 
 from design.models import BenchSurface, BlastDesign, BlockContour, Hole, Point3
-from design.toe_line import allowed_floor_burden_m, floor_burdens, slope_offset_m, toe_line
+from design.maps import engineering_maps
+from design.toe_line import (
+    allowed_floor_burden_m,
+    floor_burdens,
+    slope_offset_m,
+    spoil_angle_toe_lines,
+    toe_line,
+)
 
 PATTERN = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.7}
 
@@ -235,6 +242,65 @@ def test_survey_within_bench_height_is_kept():
     fb = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=[hole], pattern_params=PATTERN))["1-01"]
     assert fb.toe_source == "survey"
     assert fb.value_m == pytest.approx(10.9, abs=1e-3)
+
+
+def test_spoil_with_default_90_degrees_uses_15_from_vertical():
+    # Старый черновик: угол 90° (умолчание сервера). Подошва по углу вместо
+    # развала — 15° от вертикали, а не бровка: иначе ЛСП занижена.
+    contour = spoil_contour()
+    contour.bench.face_angle_deg = 90.0
+    far = vertical_hole("1-02", x=35, y=1.0, row=0)
+    fb = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=[far], pattern_params=PATTERN))["1-02"]
+    assert fb.toe_source == "angle"
+    assert fb.value_m == pytest.approx(1.0 + 2.6795, abs=1e-3)
+
+
+def test_no_survey_with_90_degrees_keeps_crest_as_toe():
+    # Без съёмки угол блока берётся как есть: 90° — подошва под бровкой.
+    contour = rect_contour()
+    contour.bench.face_angle_deg = 90.0
+    hole = vertical_hole("1-01", x=10, y=3.7, row=0)
+    fb = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=[hole], pattern_params=PATTERN))["1-01"]
+    assert fb.toe_source == "angle"
+    assert fb.value_m == pytest.approx(3.7, abs=1e-3)
+
+
+def test_spoil_threshold_and_offset_use_hole_bench_height():
+    # Съёмка правой части — в 12 м от бровки. H = 6 и 10 м: развал, ЛСП по углу
+    # с высотой своей скважины; H = 14 м: 12 < 14 — откос, ЛСП по съёмке.
+    low = vertical_hole("1-01", x=34, y=1.0, row=0, bench_h=6.0)
+    mid = vertical_hole("1-02", x=36.5, y=1.0, row=0, bench_h=10.0)
+    high = vertical_hole("1-03", x=39, y=1.0, row=0, bench_h=14.0)
+    design = BlastDesign(design_id="t", contour=spoil_contour(), holes=[low, mid, high], pattern_params=PATTERN)
+    result = floor_burdens(design)
+    tan15 = math.tan(math.radians(15))
+    assert result["1-01"].toe_source == "angle"
+    assert result["1-01"].value_m == pytest.approx(1.0 + 6.0 * tan15, abs=1e-3)
+    assert result["1-02"].toe_source == "angle"
+    assert result["1-02"].value_m == pytest.approx(1.0 + 10.0 * tan15, abs=1e-3)
+    assert result["1-03"].toe_source == "survey"
+    assert result["1-03"].value_m == pytest.approx(13.0, abs=1e-3)
+
+
+def test_angle_toe_lines_drawn_only_near_spoil_holes():
+    near = vertical_hole("1-01", x=5, y=1.0, row=0)
+    far = vertical_hole("1-02", x=35, y=1.0, row=0)
+    design = BlastDesign(design_id="t", contour=spoil_contour(), holes=[near, far], pattern_params=PATTERN)
+    lines = spoil_angle_toe_lines(design, floor_burdens(design))
+    assert len(lines) == 1
+    xs = [x for x, _ in lines[0]]
+    assert min(xs) == pytest.approx(31.0, abs=1e-3) and max(xs) == pytest.approx(39.0, abs=1e-3)
+    assert all(y == pytest.approx(-2.6795, abs=1e-3) for _, y in lines[0])
+    maps = engineering_maps(design)
+    assert maps["angle_toe_lines"] and maps["angle_toe_lines"][0][0][1] == pytest.approx(-2.68, abs=1e-2)
+
+
+def test_no_angle_toe_lines_without_spoil_or_survey():
+    near = vertical_hole("1-01", x=5, y=1.0, row=0)
+    on_survey = BlastDesign(design_id="t", contour=spoil_contour(), holes=[near], pattern_params=PATTERN)
+    assert spoil_angle_toe_lines(on_survey, floor_burdens(on_survey)) == []
+    built = design_with([near])
+    assert engineering_maps(built)["angle_toe_lines"] == []
 
 
 def test_built_line_without_survey_reports_angle_source():

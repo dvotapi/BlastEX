@@ -565,6 +565,23 @@ class TestLegacyEngineFields:
         assert schema["properties"]["ucs_mpa"]["x-unit"] == "МПа"
         assert schema["properties"]["fissuring_ff"]["x-unit"] == "трещин/м"
 
+    def test_rock_relief_range_fields(self):
+        from cost.v2.schemas.misc import RockPayload
+
+        schema = section_json_schema("rocks")
+        assert schema["properties"]["relief_min_ms_m"]["x-unit"] == "мс/м"
+        assert schema["properties"]["relief_max_ms_m"]["x-unit"] == "мс/м"
+        assert schema["properties"]["relief_min_ms_m"]["title"] == "Темп отбойки от"
+        assert schema["properties"]["relief_max_ms_m"]["title"] == "Темп отбойки до"
+        payload = RockPayload(relief_min_ms_m=Decimal("4"), relief_max_ms_m=Decimal("12"))
+        assert payload.relief_max_ms_m == Decimal("12")
+        # Старые записи без новых полей читаются.
+        assert RockPayload().relief_min_ms_m is None
+        with pytest.raises(ValidationError):
+            RockPayload(relief_min_ms_m=Decimal("8"), relief_max_ms_m=Decimal("5"))
+        with pytest.raises(ValidationError):
+            RockPayload(relief_min_ms_m=Decimal("0"))
+
     def test_material_keeps_explosive_density_and_chart_label(self):
         from cost.v2.schemas.materials import MaterialPayload
 

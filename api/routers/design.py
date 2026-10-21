@@ -161,8 +161,12 @@ def post_tie_generate(request: TieGenerateRequest) -> TieGenerateResponse:
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-def post_analyze(request: AnalyzeRequest) -> AnalyzeResponse:
-    return design_service.analyze_design(request)
+def post_analyze(
+    request: AnalyzeRequest,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> AnalyzeResponse:
+    return design_service.analyze_design(request, organization_id=organization_id, repository=repository)
 
 
 @router.post("/receptors", response_model=ReceptorAttachResponse)

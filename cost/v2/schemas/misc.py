@@ -9,9 +9,9 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
-from cost.v2.schemas.base import RefField, ReferencePayload, UnitField
+from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_error
 
 __all__ = [
     "UnitPayload",
@@ -89,6 +89,29 @@ class RockPayload(ReferencePayload):
     fissuring_ff: Decimal | None = UnitField(
         "трещин/м", title="Трещиноватость", description="Число трещин на метр массива", default=None, ge=0
     )
+    # Допустимый темп отбойки — скорость, с которой фронт взрыва проходит по блоку.
+    # Пусто — нижняя граница берётся по умолчанию, верхней нет.
+    relief_min_ms_m: Decimal | None = UnitField(
+        "мс/м",
+        title="Темп отбойки от",
+        description="Медленнее этого темпа породе не хватает времени на подвижку; пусто — берётся 3 мс/м",
+        default=None,
+        gt=0,
+    )
+    relief_max_ms_m: Decimal | None = UnitField(
+        "мс/м",
+        title="Темп отбойки до",
+        description="Быстрее этого темпа порода не успевает освободиться; пусто — верхней границы нет",
+        default=None,
+        gt=0,
+    )
+
+    @model_validator(mode="after")
+    def _relief_range_is_ordered(self) -> "RockPayload":
+        low, high = self.relief_min_ms_m, self.relief_max_ms_m
+        if low is not None and high is not None and high <= low:
+            field_error(type(self), "relief_max_ms_m", "Верхняя граница темпа должна быть больше нижней", high)
+        return self
 
 
 class BlastDesignParameterPayload(ReferencePayload):

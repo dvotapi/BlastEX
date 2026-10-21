@@ -1180,11 +1180,18 @@ class ReliefStatsSchema(BaseModel):
     cv: float | None = None
     outside_share: float
     robust_spread: float | None = None
+    min_bound_ms_m: float = 3.0
+    max_bound_ms_m: float | None = None
+    fast_share: float = 0.0
+    slow_share: float = 0.0
+    converging_length_m: float = 0.0
 
 
 class BurdenReliefSchema(BaseModel):
     triangles: list[ReliefTriangleSchema]
     stats: ReliefStatsSchema | None = None
+    # Стыки встречных фронтов: отрезки [[x1, y1], [x2, y2]].
+    converging: list[list[list[float]]] = Field(default_factory=list)
 
 
 class AnalyzeResponse(BaseModel):

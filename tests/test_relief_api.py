@@ -15,7 +15,7 @@ def _contour_payload(width: float = 20.0, height: float = 16.0) -> dict:
     }
 
 
-def _analyze(height: float):
+def _analyze(height: float, rock_name: str = "", **kwargs):
     holes = design_service.generate_pattern(
         PatternGenerateRequest(
             contour=_contour_payload(height=height),
@@ -43,8 +43,10 @@ def _analyze(height: float):
                 "contour": _contour_payload(height=height),
                 "network": tie.network.model_dump(),
                 "loads": [],
+                "rock_name": rock_name,
             }
-        )
+        ),
+        **kwargs,
     )
 
 
@@ -65,3 +67,51 @@ class ReliefApiTests(unittest.TestCase):
     def test_analyze_without_triangles_returns_null_relief(self):
         # узкий блок — один ряд скважин на одной прямой
         self.assertIsNone(_analyze(3.0).relief)
+
+
+def _repository_with_rock(**payload):
+    from cost.v2.models import ReferenceItem
+    from cost.v2.repository import InMemoryEconomicsRepository
+
+    repository = InMemoryEconomicsRepository()
+    repository.publish_references(
+        "org",
+        "tester",
+        repository.list_reference_revisions("org")[0].id,
+        {"rocks": [ReferenceItem(code="GR", name="Гранит", payload=payload)]},
+        "тест",
+    )
+    return repository
+
+
+class ReliefBoundsFromRockTests(unittest.TestCase):
+    def test_relief_bounds_from_rock_by_name(self):
+        repository = _repository_with_rock(relief_min_ms_m="4", relief_max_ms_m="12")
+        snapshot = repository.get_reference_snapshot("org")
+        bounds = design_service.relief_bounds_for_rock
+        self.assertEqual(bounds(snapshot, "Гранит"), (4.0, 12.0))
+        self.assertEqual(bounds(snapshot, "  гранит "), (4.0, 12.0))
+        self.assertEqual(bounds(snapshot, "Нет такой"), (3.0, None))
+        self.assertEqual(bounds(snapshot, ""), (3.0, None))
+
+    def test_rock_without_range_gives_defaults(self):
+        snapshot = _repository_with_rock().get_reference_snapshot("org")
+        self.assertEqual(design_service.relief_bounds_for_rock(snapshot, "Гранит"), (3.0, None))
+
+    def test_analyze_uses_rock_bounds(self):
+        # блок 4 x 4 м, 25/42 мс: темп ниже 16 мс/м → весь блок быстрее нижней границы
+        repository = _repository_with_rock(relief_min_ms_m="16")
+        stats = _analyze(
+            16.0, rock_name="Гранит", organization_id="org", repository=repository
+        ).relief.stats
+        self.assertEqual(stats.min_bound_ms_m, 16.0)
+        self.assertEqual(stats.fast_share, 1.0)
+        self.assertIsNone(stats.max_bound_ms_m)
+
+    def test_analyze_without_repository_uses_default(self):
+        stats = _analyze(16.0, rock_name="Гранит").relief.stats
+        self.assertEqual(stats.min_bound_ms_m, 3.0)
+
+    def test_response_has_converging_field(self):
+        relief = _analyze(16.0).relief
+        self.assertIsInstance(relief.converging, list)

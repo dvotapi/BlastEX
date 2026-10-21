@@ -99,7 +99,7 @@ from design.geometry import block_volume, mean_bench_height
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.hole_recompute import recompute_holes as run_recompute_holes
 from design.maps import engineering_maps
-from design.relief import burden_relief
+from design.relief import RELIEF_MIN_MS_M, burden_relief
 from design.models import (
     AsChargedHole,
     AsDrilledHole,
@@ -244,7 +244,33 @@ def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
     )
 
 
-def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
+def relief_bounds_for_rock(snapshot, rock_name: str) -> tuple[float, float | None]:
+    """Допустимый темп отбойки породы: (нижняя, верхняя или None).
+
+    Порода ищется по имени без учёта регистра и пробелов по краям; не нашли,
+    имя пустое или поля не заданы — нижняя граница по умолчанию, верхней нет.
+    """
+    wanted = (rock_name or "").strip().casefold()
+    if not wanted:
+        return RELIEF_MIN_MS_M, None
+    for item in snapshot.active_items("rocks"):
+        if item.name.strip().casefold() != wanted:
+            continue
+        low = item.payload.get("relief_min_ms_m")
+        high = item.payload.get("relief_max_ms_m")
+        return (
+            float(low) if low not in (None, "") else RELIEF_MIN_MS_M,
+            float(high) if high not in (None, "") else None,
+        )
+    return RELIEF_MIN_MS_M, None
+
+
+def analyze_design(
+    request: AnalyzeRequest,
+    *,
+    organization_id: str | None = None,
+    repository: EconomicsRepository | None = None,
+) -> AnalyzeResponse:
     design = BlastDesign.from_dict(request.design.model_dump())
     enabled_holes = [h for h in design.holes if h.enabled]
 
@@ -259,7 +285,11 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
     if request.ppv is not None:
         ppv_mm_s = estimate_ppv(mic_data["mic_kg"], request.ppv.distance_m, request.ppv.k, request.ppv.n)
 
-    relief = burden_relief(design, times)
+    min_ms_m, max_ms_m = RELIEF_MIN_MS_M, None
+    if repository is not None and organization_id is not None and design.rock_name.strip():
+        snapshot = repository.get_reference_snapshot(organization_id)
+        min_ms_m, max_ms_m = relief_bounds_for_rock(snapshot, design.rock_name)
+    relief = burden_relief(design, times, min_ms_m=min_ms_m, max_ms_m=max_ms_m)
 
     return AnalyzeResponse(
         times_ms=times,

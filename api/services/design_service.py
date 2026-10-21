@@ -118,7 +118,9 @@ from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
 from cost.v2.legacy_adapter import LegacyReferences
-from cost.v2.repository import EconomicsRepository
+from sqlalchemy.exc import SQLAlchemyError
+
+from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 
 
 def _surfaces_from_request(payload) -> SurfaceSet | None:
@@ -244,6 +246,15 @@ def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
     )
 
 
+def _positive_float(value) -> float | None:
+    """Число из записи справочника; пустое или испорченное значение — None."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
 def relief_bounds_for_rock(snapshot, rock_name: str) -> tuple[float, float | None]:
     """Допустимый темп отбойки породы: (нижняя, верхняя или None).
 
@@ -256,11 +267,9 @@ def relief_bounds_for_rock(snapshot, rock_name: str) -> tuple[float, float | Non
     for item in snapshot.active_items("rocks"):
         if item.name.strip().casefold() != wanted:
             continue
-        low = item.payload.get("relief_min_ms_m")
-        high = item.payload.get("relief_max_ms_m")
         return (
-            float(low) if low not in (None, "") else RELIEF_MIN_MS_M,
-            float(high) if high not in (None, "") else None,
+            _positive_float(item.payload.get("relief_min_ms_m")) or RELIEF_MIN_MS_M,
+            _positive_float(item.payload.get("relief_max_ms_m")),
         )
     return RELIEF_MIN_MS_M, None
 
@@ -286,9 +295,17 @@ def analyze_design(
         ppv_mm_s = estimate_ppv(mic_data["mic_kg"], request.ppv.distance_m, request.ppv.k, request.ppv.n)
 
     min_ms_m, max_ms_m = RELIEF_MIN_MS_M, None
+    # Без имени породы искать нечего — справочник не читаем вовсе.
     if repository is not None and organization_id is not None and design.rock_name.strip():
-        snapshot = repository.get_reference_snapshot(organization_id)
-        min_ms_m, max_ms_m = relief_bounds_for_rock(snapshot, design.rock_name)
+        try:
+            snapshot = repository.get_reference_snapshot(organization_id)
+            min_ms_m, max_ms_m = relief_bounds_for_rock(snapshot, design.rock_name)
+        except (EconomicsRepositoryError, SQLAlchemyError):
+            # Сбой хранилища не должен ронять анализ: считаем по умолчанию.
+            timing_warnings = [
+                *timing_warnings,
+                f"Диапазон темпа для породы не прочитан — взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м.",
+            ]
     relief = burden_relief(design, times, min_ms_m=min_ms_m, max_ms_m=max_ms_m)
 
     return AnalyzeResponse(

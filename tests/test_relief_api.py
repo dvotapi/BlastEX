@@ -115,3 +115,22 @@ class ReliefBoundsFromRockTests(unittest.TestCase):
     def test_response_has_converging_field(self):
         relief = _analyze(16.0).relief
         self.assertIsInstance(relief.converging, list)
+
+    def test_rock_with_only_max_bound(self):
+        snapshot = _repository_with_rock(relief_max_ms_m="12").get_reference_snapshot("org")
+        self.assertEqual(design_service.relief_bounds_for_rock(snapshot, "Гранит"), (3.0, 12.0))
+
+    def test_corrupt_stored_value_gives_default(self):
+        snapshot = _repository_with_rock(relief_min_ms_m="abc", relief_max_ms_m="12").get_reference_snapshot("org")
+        self.assertEqual(design_service.relief_bounds_for_rock(snapshot, "Гранит"), (3.0, 12.0))
+
+    def test_repository_failure_does_not_break_analyze(self):
+        from cost.v2.repository import EconomicsRepositoryError
+
+        class Broken:
+            def get_reference_snapshot(self, organization_id):
+                raise EconomicsRepositoryError("нет связи")
+
+        response = _analyze(16.0, rock_name="Гранит", organization_id="org", repository=Broken())
+        self.assertEqual(response.relief.stats.min_bound_ms_m, 3.0)
+        self.assertTrue(any("не прочитан" in w for w in response.timing_warnings))

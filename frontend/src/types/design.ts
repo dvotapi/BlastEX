@@ -1086,6 +1086,32 @@ export type PpvRequest = {
   n: number;
 };
 
+/** Треугольник между тремя скважинами с темпом отбойки (мс на метр сопротивления). */
+export type ReliefTriangle = {
+  hole_ids: [string, string, string];
+  /** Три вершины [x, y] в метрах. */
+  points: number[][];
+  relief_ms_m: number;
+  area_m2: number;
+};
+
+export type ReliefStats = {
+  triangles: number;
+  median_ms_m: number;
+  mean_ms_m: number;
+  min_ms_m: number;
+  max_ms_m: number;
+  /** Разброс σ / среднее; null при нулевом среднем. */
+  cv: number | null;
+  /** Доля площади вне коридора ±25 % от медианы. */
+  outside_share: number;
+};
+
+export type BurdenRelief = {
+  triangles: ReliefTriangle[];
+  stats: ReliefStats | null;
+};
+
 export type AnalyzeResponse = {
   times_ms: Record<string, number>;
   timing_warnings: string[];
@@ -1096,6 +1122,7 @@ export type AnalyzeResponse = {
   ppv_mm_s: number | null;
   maps?: EngineeringMaps | null;
   firing_events?: FiringEvent[];
+  relief?: BurdenRelief | null;
 };
 
 export type CostScenarioId = "drill_blast" | "drilling" | "blasting" | "contour_blasting";

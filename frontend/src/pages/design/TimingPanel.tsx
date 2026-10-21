@@ -170,9 +170,13 @@ function ReliefSummary({ relief }: { relief: AnalyzeResponse["relief"] }) {
         <div><span>Разброс темпа</span><strong>{formatSpread(stats.cv)}</strong><small>по площади</small></div>
         <div><span>Вне коридора ±25 %</span><strong>{`${Math.round(stats.outside_share * 100)} %`}</strong><small>площади</small></div>
       </div>
-      {stats.median_ms_m === 0 ? (
-        // Нулевая медиана: зоны по отклонению от медианы не определены, легенда не нужна.
+      {stats.max_ms_m === 0 ? (
+        // Темп 0 во всех треугольниках: зоны по отклонению от медианы не определены.
         <small>Все скважины срабатывают одновременно — темп 0 мс/м</small>
+      ) : stats.median_ms_m === 0 ? (
+        // Нулевая медиана при ненулевых треугольниках: подписи легенды вырождаются в 0;
+        // ненулевые треугольники на плане красные и выделяются на фоне одновременных.
+        <small>Больше половины площади срабатывает одновременно — темп 0 мс/м</small>
       ) : (
         <div className="relief-legend">
           {reliefLegend(stats.median_ms_m).map((item) => (

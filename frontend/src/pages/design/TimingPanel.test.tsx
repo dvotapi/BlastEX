@@ -54,9 +54,19 @@ describe("TimingPanel relief summary", () => {
     expect(screen.getByText(/нет треугольников/)).toBeInTheDocument();
   });
 
-  it("says all holes fire together instead of the legend when median is zero", () => {
+  it("says all holes fire together instead of the legend when every triangle is zero", () => {
     render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 4, median_ms_m: 0, mean_ms_m: 0, min_ms_m: 0, max_ms_m: 0, cv: null, outside_share: 0 } } }} />);
     expect(screen.getByText("Все скважины срабатывают одновременно — темп 0 мс/м")).toBeInTheDocument();
+    expect(screen.queryByText(/^до /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^больше /)).not.toBeInTheDocument();
+  });
+
+  it("says most of the area fires together when median is zero but some triangles are not", () => {
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 6, median_ms_m: 0, mean_ms_m: 4, min_ms_m: 0, max_ms_m: 12, cv: 1.4, outside_share: 0.4 } } }} />);
+    expect(screen.getByText("Темп отбойки, мс/м (медиана)")).toBeInTheDocument();
+    expect(screen.getByText("140 %")).toBeInTheDocument();
+    expect(screen.getByText("Больше половины площади срабатывает одновременно — темп 0 мс/м")).toBeInTheDocument();
+    expect(screen.queryByText(/Все скважины срабатывают одновременно/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^до /)).not.toBeInTheDocument();
     expect(screen.queryByText(/^больше /)).not.toBeInTheDocument();
   });

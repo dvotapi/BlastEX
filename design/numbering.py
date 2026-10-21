@@ -53,9 +53,12 @@ def _bands(items: list[tuple[int, Hole]], advance: tuple[float, float], toleranc
 
 
 def number_by_position(
-    holes: list[Hole], tolerance_m: float = 1.0, row_azimuth_deg: float = 0.0
+    holes: list[Hole], tolerance_m: float = 0.05, row_azimuth_deg: float = 0.0
 ) -> list[Hole]:
     """Возвращает скважины с новыми id по расположению относительно оси блока.
+
+    Допуск — 5 см: скважины одного ряда совпадают по положению поперёк оси до
+    погрешности вычислений, а соседние ряды отстоят на burden (от 1 м и выше).
 
     `row` и `col` не меняются: это техническая сетка от откоса, по ней считаются
     первый слой, стабилизация и тайминг. Нумерация своя у каждой группы (сетка,

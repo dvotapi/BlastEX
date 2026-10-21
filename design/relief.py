@@ -22,6 +22,9 @@ RELIEF_EDGE_FACTOR = 1.6
 RELIEF_CORRIDOR = 0.25
 # Меньшие по площади треугольники вырождены, м².
 _MIN_AREA_M2 = 1e-6
+# Темп ниже порога — шум float от сложения задержек разными путями
+# (17,6 × 3 ≠ 52,8): такие скважины срабатывают одновременно, темп ровно 0.
+RELIEF_ZERO_MS_M = 1e-6
 
 
 @dataclass(frozen=True)
@@ -108,11 +111,14 @@ def relief_triangles(
         # Система 2×2 на разностях: α·dx + β·dy = dt.
         alpha = (dt1 * (y2 - y0) - dt2 * (y1 - y0)) / det
         beta = ((x1 - x0) * dt2 - (x2 - x0) * dt1) / det
+        relief = math.hypot(alpha, beta)
+        if relief < RELIEF_ZERO_MS_M:
+            relief = 0.0
         result.append(
             ReliefTriangle(
                 hole_ids=(used[idx[0]].id, used[idx[1]].id, used[idx[2]].id),
                 points=(pts[0], pts[1], pts[2]),
-                relief_ms_m=math.hypot(alpha, beta),
+                relief_ms_m=relief,
                 area_m2=area,
             )
         )

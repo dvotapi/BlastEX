@@ -20,8 +20,8 @@ from api.schemas.cost import (
 from api.schemas.design import (
     AnalyzeRequest,
     AnalyzeResponse,
-    BurdenReliefSchema,
     BlastDesignSchema,
+    BurdenReliefSchema,
     ChargeGenerateRequest,
     ChargeGenerateResponse,
     DesignCostRequest,

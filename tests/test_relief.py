@@ -6,7 +6,7 @@ import math
 import pytest
 
 from design.models import BlastDesign, BlockContour, Hole, Point3
-from design.relief import burden_relief, relief_stats, relief_triangles
+from design.relief import ReliefTriangle, burden_relief, relief_stats, relief_triangles
 
 
 def hole(hid: str, x: float, y: float, kind: str = "production") -> Hole:
@@ -90,3 +90,50 @@ def test_burden_relief_uses_pattern_spacing_for_edge_limit():
     assert set(data) == {"triangles", "stats"}
     assert len(data["triangles"][0]["points"]) == 3
     assert isinstance(data["triangles"][0]["points"][0], list)
+
+
+def tri(value: float, area: float) -> ReliefTriangle:
+    return ReliefTriangle(
+        hole_ids=("a", "b", "c"),
+        points=((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+        relief_ms_m=value,
+        area_m2=area,
+    )
+
+
+def test_noisy_simultaneous_times_give_exact_zero():
+    # Одни и те же 52,8 мс, набранные разными путями: 17,6 × 3 ≠ 52,8 в float.
+    noisy = 17.6 + 17.6 + 17.6
+    assert noisy != 52.8
+    times = {h.id: (noisy if k % 2 else 52.8) for k, h in enumerate(grid_holes())}
+    tris = relief_triangles(grid_holes(), times, 6.4)
+    assert tris and all(t.relief_ms_m == 0.0 for t in tris)
+    stats = relief_stats(tris)
+    assert stats.cv is None
+    assert stats.mean_ms_m == 0.0 and stats.median_ms_m == 0.0
+    assert stats.outside_share == 0.0
+
+
+def test_stats_are_weighted_by_area():
+    # Без весов медиана была бы 2, среднее 4,33; по площади — 10 и 103/12.
+    stats = relief_stats([tri(1.0, 1.0), tri(2.0, 1.0), tri(10.0, 10.0)])
+    assert stats.median_ms_m == pytest.approx(10.0)
+    assert stats.mean_ms_m == pytest.approx(103 / 12)
+    assert stats.min_ms_m == 1.0 and stats.max_ms_m == 10.0
+    # Вне коридора ±25 % от 10 — два малых треугольника: 2 м² из 12.
+    assert stats.outside_share == pytest.approx(2 / 12)
+
+
+def test_zero_median_counts_nonzero_area_as_outside():
+    stats = relief_stats([tri(0.0, 3.0), tri(0.0, 3.0), tri(5.0, 1.0)])
+    assert stats.median_ms_m == 0.0
+    assert stats.outside_share == pytest.approx(1 / 7)
+
+
+def test_disabled_holes_are_skipped():
+    holes = grid_holes()
+    off = next(h for h in holes if h.id == "2-02")
+    off.enabled = False
+    ids = {i for t in relief_triangles(holes, plane_times(25, 42), 6.4) for i in t.hole_ids}
+    assert "2-02" not in ids
+    assert ids  # остальные треугольники на месте

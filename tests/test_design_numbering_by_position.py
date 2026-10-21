@@ -82,3 +82,16 @@ class NumberByPositionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AuxiliaryPrefixTest(unittest.TestCase):
+    def test_satellite_stab_and_infill_keep_their_prefix_and_stay_unique(self):
+        holes = [
+            _hole("g", x=0.0, y=0.0),
+            _hole("s", x=0.0, y=0.0, kind="satellite"),
+            _hole("t", x=0.0, y=0.0, kind="stab"),
+            _hole("i", x=0.0, y=0.0, kind="infill"),
+        ]
+        ids = [h.id for h in number_by_position(holes)]
+        self.assertEqual(ids, ["1-01", "SAT1-01", "S1-01", "I1-01"])
+        self.assertEqual(len(set(ids)), len(ids))

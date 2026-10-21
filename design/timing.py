@@ -79,6 +79,26 @@ def _wave_coordinate(hole: Hole, scheme: str, center_col: float, min_col: int, m
     return row
 
 
+def _anchor_manual(holes: list[Hole], coords: dict[str, float]) -> dict[str, float]:
+    """Ручные скважины не задают начало отсчёта: их координата — у самой ранней основной.
+
+    Основная — не стенка и не ручная. Иначе ручная скважина (row -1000 и т.п.)
+    сдвигала бы весь блок на тысячи интервалов в режимах, где координата берётся
+    из геометрии.
+    """
+    wall_kinds = ("presplit", "contour", "buffer")
+    grid_values = [
+        coords[h.id]
+        for h in holes
+        if h.source != "manual" and h.kind not in wall_kinds and h.id in coords
+    ]
+    anchor = min(grid_values) if grid_values else 0.0
+    for hole in holes:
+        if hole.source == "manual":
+            coords[hole.id] = anchor
+    return coords
+
+
 def _block_row_coordinates(holes: list[Hole], interval_ms: float, params: dict[str, Any]) -> dict[str, float]:
     """Координаты в ряд: пресплит — до блока, буфер и контур — после сетки, ручные — с первым рядом.
 
@@ -91,7 +111,7 @@ def _block_row_coordinates(holes: list[Hole], interval_ms: float, params: dict[s
     # Ручные скважины (row -1000 и т.п.) не задают начало отсчёта: они стартуют
     # с первым основным рядом и не сдвигают весь блок.
     grid = [h for h in holes if h.kind not in wall_kinds and h.source != "manual"]
-    if not grid:
+    if not grid or interval_ms <= 0:
         return {}
     first = min(logical_row(h.row) for h in grid)
     last = max(logical_row(h.row) for h in grid)
@@ -252,10 +272,10 @@ def _build_wave_graph(
 
     min_col, max_col, center_col = _grid_extents(eligible)
     wall_coords = _block_row_coordinates(eligible, interval_ms, params) if scheme == "row" else {}
-    scored = [
-        (h, wall_coords.get(h.id, _wave_coordinate(h, scheme, center_col, min_col, max_col)))
-        for h in eligible
-    ]
+    coords = {h.id: _wave_coordinate(h, scheme, center_col, min_col, max_col) for h in eligible}
+    coords.update(wall_coords)
+    coords = _anchor_manual(eligible, coords)
+    scored = [(h, coords[h.id]) for h in eligible]
     scored.sort(key=lambda item: item[1])
 
     min_w = scored[0][1]
@@ -469,7 +489,9 @@ def _electronic_times(
         return times
     # Отсчёт — ноль, но не выше самой ранней волны: ряды впереди дают отрицательные
     # координаты, и без этого первая скважина стартовала бы до базового времени.
-    waves = {hole.id: _wave_coordinate(hole, scheme, center_col, min_col, max_col) for hole in holes}
+    waves = _anchor_manual(
+        holes, {hole.id: _wave_coordinate(hole, scheme, center_col, min_col, max_col) for hole in holes}
+    )
     origin = min(0.0, min(waves.values()))
     for hole in holes:
         times[hole.id] = base_ms + (waves[hole.id] - origin) * interval_ms

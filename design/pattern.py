@@ -209,7 +209,7 @@ def generate_pattern(
                 )
                 placed.append(
                     Hole(
-                        id=_row_id(row_kind, row_index, col_index),
+                        id=_grid_id(row_kind, row_index, col_index),
                         row=row_index,
                         col=col_index,
                         collar=collar,
@@ -229,7 +229,7 @@ def generate_pattern(
     # Ряды впереди первого: при изогнутой бровке её средняя точка лежит внутри
     # блока, и часть контура оказывается впереди начала отсчёта. Фаза та же —
     # шаг назад от первого ряда до крайней проекции вершин контура; шаг —
-    # burden ряда, которому он принадлежит (строка row_params, домен). Узлы
+    # burden первого ряда (строка row_params[0]; домен — по положению ряда). Узлы
     # этих рядов не ближе offset_from_face к бровке — иначе скважина у
     # откоса недогружена. С рядом вдоль бровки узлы не ближе
     # offset_from_face + burden_b: ближе — место ряда вдоль бровки. Без
@@ -269,14 +269,16 @@ def generate_pattern(
             front_rows.insert(0, (lattice_row, v_prev))
             v_row = v_prev
     # Пустые ряды перед первым непустым номера не получают — для блока, где
-    # бровка целиком впереди контура, нумерация остаётся прежней.
-    while front_rows and not place_row(
-        front_rows[0][0], _front_row_number(front_rows[0][0]), front_rows[0][1], min_face_m
-    )[0]:
+    # бровка целиком впереди контура, нумерация остаётся прежней. Каждый ряд
+    # размещается один раз: результат пустого ряда отбрасывается, а не пересчитывается.
+    front_placed = [
+        place_row(lattice_row, _front_row_number(lattice_row), v, min_face_m)[0]
+        for lattice_row, v in front_rows
+    ]
+    while front_placed and not front_placed[0]:
+        front_placed.pop(0)
         front_rows.pop(0)
-
-    for lattice_row, v in front_rows:
-        placed, _ = place_row(lattice_row, _front_row_number(lattice_row), v, min_face_m)
+    for placed in front_placed:
         holes.extend(placed)
 
     lattice_row = first_lattice_row
@@ -340,13 +342,6 @@ def generate_pattern(
 def _normalize_kind(value: Any, default: str) -> str:
     kind = str(value or default).strip().lower()
     return kind if kind in HOLE_KINDS else default
-
-
-def _row_id(kind: str, row_index: int, col_index: int) -> str:
-    """Идентификатор скважины. Ряды впереди первого — префикс F: F1, F2 …"""
-    if row_index < FRONT_ROW_BASE:
-        return f"F{FRONT_ROW_BASE - row_index}-{col_index + 1:02d}"
-    return _grid_id(kind, row_index, col_index)
 
 
 def _grid_id(kind: str, row_index: int, col_index: int) -> str:
@@ -446,7 +441,7 @@ def _walk_domain_row(
         )
         holes.append(
             Hole(
-                id=_row_id(row_kind, row_index, col_index),
+                id=_grid_id(row_kind, row_index, col_index),
                 row=row_index,
                 col=col_index,
                 collar=collar,

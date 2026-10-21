@@ -44,7 +44,9 @@ const rowLabel = (row: number): string => {
   return `Ряд ${row + 1}`;
 };
 /** Подпись ряда по id скважины: номер по позиции (север→юг), стенки — P/K/B. */
-const WALL_TITLE: Record<string, string> = { P: "Пресплит", K: "Контур", B: "Буфер" };
+const WALL_TITLE: Record<string, string> = {
+  P: "Пресплит", K: "Контур", B: "Буфер", T: "Подрезка", SAT: "Сателлиты", S: "Стабилизация", I: "Инфилл",
+};
 /** Вид группы для ключа ряда: стенки отдельно, остальное — сетка. */
 const rowFamily = (kind: string): string =>
   kind === "presplit" || kind === "contour" || kind === "buffer" ? kind : "grid";
@@ -55,14 +57,14 @@ const rowFamily = (kind: string): string =>
 export const sectionRowKey = (hole: { kind: string; id: string; row: number; source?: string }): string => {
   // Ручные скважины — одна группа: их технический row (например, -1000) не означает ряда.
   if (hole.source === "manual") return "manual:0";
-  const m = /^[PKB]?(\d+)-/.exec(hole.id);
+  const m = /^(?:SAT|[PKBTSI])?(\d+)-/.exec(hole.id);
   return `${rowFamily(hole.kind)}:${m ? m[1] : hole.row}`;
 };
 const FAMILY_ORDER: Record<string, number> = { grid: 0, presplit: 1, contour: 2, buffer: 3, manual: 4 };
 const rowTitleFromId = (id: string, row: number): string => {
-  const m = /^([PKB]?)(\d+)-/.exec(id);
+  const m = /^(SAT|[PKBTSI]?)(\d+)-/.exec(id);
   if (!m) return rowLabel(row);
-  const word = m[1] ? WALL_TITLE[m[1]] : "Ряд";
+  const word = (m[1] && WALL_TITLE[m[1]]) || "Ряд";
   return `${word} ${m[2]}`;
 };
 

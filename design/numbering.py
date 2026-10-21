@@ -3,7 +3,9 @@
 Ряды группируются по оси блока (`row_azimuth_deg`): скважины одного ряда лежат на
 одной линии вдоль оси. Порядок рядов — по направлению продвижения блока (для блока
 без поворота — с запада на восток). Внутри ряда — с севера на юг, то есть по оси
-ряда в сторону юга. Сетка: «1-01», «1-02», «2-01» …; стенки — P/K/B: «P1-01», «K1-01», «B1-01».
+ряда в сторону юга. Сетка: «1-01», «1-02», «2-01» …; стенки и вспомогательные виды — со своим префиксом
+и своей нумерацией: P (пресплит), K (контур), B (буфер), T (подрезка), SAT (сателлиты),
+S (стабилизация), I (инфилл). Префикс делает id уникальным между группами.
 Ручные скважины (`source == "manual"`) id не меняют.
 """
 
@@ -14,15 +16,23 @@ from dataclasses import replace
 from design.geometry import local_basis
 from design.models import Hole
 
-WALL_PREFIX = {"presplit": "P", "contour": "K", "buffer": "B"}
+PREFIX = {
+    "presplit": "P",
+    "contour": "K",
+    "buffer": "B",
+    "trim": "T",
+    "satellite": "SAT",
+    "stab": "S",
+    "infill": "I",
+}
 
 
 def _family(kind: str) -> str:
-    return kind if kind in WALL_PREFIX else "grid"
+    return kind if kind in PREFIX else "grid"
 
 
 def _id(family: str, row: int, col: int) -> str:
-    prefix = "" if family == "grid" else WALL_PREFIX[family]
+    prefix = "" if family == "grid" else PREFIX[family]
     return f"{prefix}{row + 1}-{col + 1:02d}"
 
 

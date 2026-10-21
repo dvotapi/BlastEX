@@ -103,14 +103,14 @@ class FrontRowIdsAndTimingTests(unittest.TestCase):
 
 class FrontRowBurdenAndDiagonalTimingTests(unittest.TestCase):
     def test_row0_burden_measured_to_front_row_not_to_face(self):
-        from simulation.movement.engine import _previous_row_distance
+        from design.editing import previous_row_distance, row_index
 
         holes = [h for h in generate_pattern(_contour(BOOT), PARAMS) if h.enabled]
         row0 = [h for h in holes if h.row == 0]
         self.assertTrue(row0)
         front_first = [h for h in holes if h.row == FRONT_ROW_BASE - 1]
         for h in row0:
-            distance = _previous_row_distance(holes, h)
+            distance = previous_row_distance(row_index(holes), h)
             self.assertIsNotNone(distance)
             self.assertLess(distance, 6.0)  # до ряда F1, а не до откоса
         self.assertTrue(front_first)
@@ -131,7 +131,7 @@ class PredecessorFamilyTests(unittest.TestCase):
         import math
 
         from design.models import logical_row
-        from simulation.movement.engine import _previous_row_distance
+        from design.editing import previous_row_distance, row_index
 
         params = {**PARAMS, "contour_row": True, "contour_offset_m": 1.0, "contour_spacing_m": 3.0}
         holes = [h for h in generate_pattern(_contour(BOOT), params) if h.enabled]
@@ -144,12 +144,12 @@ class PredecessorFamilyTests(unittest.TestCase):
                 if o is not h and logical_row(o.row) == logical_row(h.row) - 1
             ]
             if not expected_pool:
-                self.assertIsNone(_previous_row_distance(holes, h))
+                self.assertIsNone(previous_row_distance(row_index(holes), h))
                 continue
             expected = min(
                 math.hypot(h.collar.x - o.collar.x, h.collar.y - o.collar.y) for o in expected_pool
             )
-            self.assertAlmostEqual(_previous_row_distance(holes, h), expected, places=9)
+            self.assertAlmostEqual(previous_row_distance(row_index(holes), h), expected, places=9)
 
 
 class StaggeredStepAndFamilyTests(unittest.TestCase):
@@ -187,3 +187,24 @@ class StaggeredStepAndFamilyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WallFirstLayerByGroupTests(unittest.TestCase):
+    def test_presplit_first_row_is_first_layer_even_with_deeper_contour_rows(self):
+        # Пресплит на ряде -1 и контур до ряда -3: у каждой группы свой первый ряд.
+        from design.models import Hole, Point3
+
+        contour = _rect([[0, 1]])
+
+        def wall(hid, kind, row, y):
+            p = Point3(x=0.5, y=y, z=0.0)
+            return Hole(id=hid, row=row, col=0, collar=p, toe=p, diameter_mm=152.0, kind=kind)
+
+        presplit = wall("P1-01", "presplit", -1, 5.0)
+        contour_near = wall("K1-01", "contour", -1, 10.0)
+        contour_deep = wall("K3-01", "contour", -3, 0.5)
+        holes = [presplit, contour_near, contour_deep]
+        first = _first_layer_ids(_Design(contour, {}), holes)
+        self.assertIn(id(presplit), first)
+        self.assertIn(id(contour_deep), first)
+        self.assertNotIn(id(contour_near), first)

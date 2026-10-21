@@ -77,3 +77,19 @@ class ManualHoleTimingTest(unittest.TestCase):
         times = apply_electronic_timing(grid + [manual], "row", PARAMS).electronic_times_ms
         self.assertEqual([times[f"P{r}-0"] for r in (0, 1, 2)], [0.0, 50.0, 100.0])
         self.assertEqual(times["M-1"], 0.0)
+
+
+class ManualHoleDiagonalTimingTest(unittest.TestCase):
+    def test_manual_sentinel_row_does_not_shift_diagonal_timing(self):
+        grid = [_hole(f"P{r}-0", r, 0, "production") for r in (0, 1, 2)]
+        manual = Hole(**{**_hole("M-1", -1000, 9, "production").__dict__, "source": "manual"})
+        times = apply_electronic_timing(grid + [manual], "diagonal", PARAMS).electronic_times_ms
+        self.assertAlmostEqual(min(times[f"P{r}-0"] for r in (0, 1, 2)), 0.0)
+        self.assertLess(max(times.values()), 1000.0)
+
+
+class ZeroIntervalTimingTest(unittest.TestCase):
+    def test_zero_interval_does_not_divide_by_zero(self):
+        holes = _block()
+        network = apply_electronic_timing(holes, "row", {"interval_ms": 0.0, "base_ms": 0.0})
+        self.assertTrue(network.electronic_times_ms)

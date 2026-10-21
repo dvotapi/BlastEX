@@ -235,23 +235,55 @@ def local_spacing(holes: list[Hole], hole: Hole) -> float | None:
     return min(_distance2d(hole, other) for other in same_row)
 
 
+def row_index(holes: list[Hole]) -> dict[tuple[str, int], list[Hole]]:
+    """Включённые скважины по (группа рядов, логический номер). Строится один раз на набор."""
+    index: dict[tuple[str, int], list[Hole]] = {}
+    for h in holes:
+        if h.enabled:
+            index.setdefault((row_family(h.kind), logical_row(h.row)), []).append(h)
+    return index
+
+
+def previous_row_holes(index: dict[tuple[str, int], list[Hole]], hole: Hole) -> list[Hole]:
+    """Скважины соседнего ряда позади — только в своей группе рядов."""
+    return [
+        other
+        for other in index.get((row_family(hole.kind), logical_row(hole.row) - 1), [])
+        if other is not hole
+    ]
+
+
+def previous_row_distance(index: dict[tuple[str, int], list[Hole]], hole: Hole) -> float | None:
+    """Расстояние до ближайшей скважины соседнего ряда позади; None, если его нет."""
+    others = previous_row_holes(index, hole)
+    if not others:
+        return None
+    return min(_distance2d(hole, other) for other in others)
+
+
+def previous_row_step(
+    index: dict[tuple[str, int], list[Hole]], hole: Hole, advance: tuple[float, float]
+) -> float | None:
+    """Шаг между рядами поперёк рядов: проекция на направление продвижения.
+
+    На шахматной сетке диагональ до соседа включает половину шага сдвига вдоль
+    ряда; шаг между рядами — только поперёк.
+    """
+    others = previous_row_holes(index, hole)
+    if not others:
+        return None
+    return min(
+        abs((hole.collar.x - o.collar.x) * advance[0] + (hole.collar.y - o.collar.y) * advance[1])
+        for o in others
+    )
+
+
 def local_burden(holes: list[Hole], hole: Hole, contour: BlockContour) -> float | None:
     """Distance to the previous row, or collar-to-face if this is the first row.
 
-    Если есть ряды впереди первого (номера ниже FRONT_ROW_BASE), соседа ищем по
-    логическому номеру и в своей группе рядов. Без них поиск прежний — по сырому
-    номеру, чтобы расчёты существующих паспортов не менялись.
+    Соседа ищем по логическому номеру в своей группе рядов (см. previous_row_distance).
     """
-    if any(h.enabled and h.row < FRONT_ROW_BASE for h in holes):
-        prev = logical_row(hole.row) - 1
-        family = row_family(hole.kind)
-        previous = [
-            h
-            for h in holes
-            if h.enabled and row_family(h.kind) == family and logical_row(h.row) == prev
-        ]
-    else:
-        previous = [h for h in holes if h.enabled and h.row == hole.row - 1]
-    if previous:
-        return min(_distance2d(hole, other) for other in previous)
+    distance = previous_row_distance(row_index(holes), hole)
+    if distance is not None:
+        return distance
     return distance_to_free_faces((hole.collar.x, hole.collar.y), contour)

@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
 import { designReducer, initDesignState, type DesignAction, type DesignState } from "./designReducer";
-import { designWithParams, hasUnsavedChanges, paramsFromDesign, type DesignParams } from "./designParams";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, type DesignParams } from "./designParams";
 
 const DEFAULT_EXPLOSIVE = "ГРАНУЛИТ-РП";
 
@@ -154,5 +154,22 @@ describe("hasUnsavedChanges — статус и ревизия берутся и
   it("закрытый паспорт: сохранить нечего, значит и несохранённого нет", () => {
     const state = opened(passport({ lifecycle_status: "closed" }), { type: "UPSERT_AS_DRILLED", hole: FACT }, { type: "SET_NAME", name: "другое" });
     expect(hasUnsavedChanges(state, EDITED, DEFAULT_EXPLOSIVE)).toBe(false);
+  });
+});
+
+describe("угол откоса объекта при переносе варианта", () => {
+  it("новый проект без вершин контура получает 90 − угол от вертикали", () => {
+    expect(benchPatchFromObjectAngle(emptyDesign(), 15)).toEqual({ face_angle_deg: 75 });
+    expect(benchPatchFromObjectAngle(emptyDesign(), 20)).toEqual({ face_angle_deg: 70 });
+  });
+
+  it("проект с контуром сохраняет свою бровку", () => {
+    const design = emptyDesign();
+    design.contour.vertices = [[0, 0, 0], [10, 0, 0], [10, 10, 0]] as BlastDesign["contour"]["vertices"];
+    expect(benchPatchFromObjectAngle(design, 15)).toBeNull();
+  });
+
+  it("угла нет — бровку не трогаем", () => {
+    expect(benchPatchFromObjectAngle(emptyDesign(), null)).toBeNull();
   });
 });

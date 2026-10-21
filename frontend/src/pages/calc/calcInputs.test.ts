@@ -4,6 +4,7 @@ import {
   applyCalcInputs,
   calcInputsEqual,
   collectCalcInputs,
+  faceAngleFromVertical,
   defaultCalcSheet,
   isOptimizationResultStale,
   nextAutosaveAction,
@@ -41,6 +42,7 @@ function sheet(overrides: Partial<SheetState> = {}): SheetState {
     explosiveKey: "ПЭВВ ЭВЕРСИН Э-100",
     lumpSizeMm: 500,
     benchHeightM: 12,
+    faceAngleFromVerticalDeg: 15,
     overdrillM: 1.5,
     oversizeCoeff: 1.08,
     spacingCoeff: 1.3,
@@ -305,5 +307,18 @@ describe("isOptimizationResultStale", () => {
 
   it("устарел при обоих расхождениях сразу", () => {
     expect(isOptimizationResultStale(1, 3, "Карьер №1", "Карьер №2")).toBe(true);
+  });
+});
+
+describe("угол откоса от вертикали", () => {
+  it("в старых настройках без поля — 15°", () => {
+    const { face_angle_from_vertical_deg: _omit, ...old } = collectCalcInputs(sheet());
+    expect(faceAngleFromVertical(old)).toBe(15);
+  });
+
+  it("сохраняется и читается обратно, вне 0–60 обрезается", () => {
+    const saved = collectCalcInputs(sheet({ faceAngleFromVerticalDeg: 20 }));
+    expect(saved.face_angle_from_vertical_deg).toBe(20);
+    expect(faceAngleFromVertical({ face_angle_from_vertical_deg: 99 })).toBe(60);
   });
 });

@@ -212,6 +212,17 @@ export function SurfacePanel({
               <input type="number" step="0.1" value={bench.toe_z_m} onChange={(e) => onBenchChange({ toe_z_m: Number(e.target.value) })} />
             </label>
           </div>
+          <label>
+            Угол откоса от вертикали, °
+            <input
+              type="number"
+              min={0}
+              max={60}
+              step="1"
+              value={90 - bench.face_angle_deg}
+              onChange={(e) => onBenchChange({ face_angle_deg: 90 - Number(e.target.value) })}
+            />
+          </label>
           <small>Плоскость используется, если съёмка не покрывает точку.</small>
         </Section>
 

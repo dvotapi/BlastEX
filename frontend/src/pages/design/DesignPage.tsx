@@ -105,7 +105,7 @@ import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
-import { designWithParams, hasUnsavedChanges, paramsFromDesign } from "./designParams";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -186,10 +186,13 @@ async function readSurveyFile(file: File): Promise<string> {
 export function DesignPage({
   user,
   incomingVariant,
+  incomingFaceAngleFromVerticalDeg = null,
   onVariantConsumed,
 }: {
   user: User;
   incomingVariant: BlastVariant | null;
+  /** Угол откоса объекта от вертикали, °, из «Расчёта»; нужен только новому проекту. */
+  incomingFaceAngleFromVerticalDeg?: number | null;
   onVariantConsumed: () => void;
 }) {
   const [state, dispatch] = useReducer(designReducer, emptyDesign(), initDesignState);
@@ -511,6 +514,8 @@ export function DesignPage({
       burden_b_m: incomingVariant.grid_b_m,
       diameter_mm: incomingVariant.crown_mm,
     }));
+    const benchPatch = benchPatchFromObjectAngle(document, incomingFaceAngleFromVerticalDeg);
+    if (benchPatch) dispatch({ type: "SET_BENCH", bench: benchPatch });
     onVariantConsumed();
   }, [incomingVariant]);
 

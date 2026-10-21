@@ -38,6 +38,8 @@ const TITLES: Record<Page, string> = {
 export function AppShell({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [page, setPage] = useState<Page>("Расчёт");
   const [pendingVariant, setPendingVariant] = useState<BlastVariant | null>(null);
+  // Угол откоса объекта (от вертикали, °), который едет вместе с вариантом.
+  const [pendingFaceAngle, setPendingFaceAngle] = useState<number | null>(null);
   const [economicsPassportId, setEconomicsPassportId] = useState<string | null>(null);
   // Узел в шапке, куда лист «Расчёт» переносит свою полосу инструментов
   // через createPortal (см. topbarSlot.tsx); callback-ref, чтобы страницы
@@ -55,8 +57,9 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
     return saved === null ? true : saved === "true";
   });
 
-  function sendToDesign(variant: BlastVariant) {
+  function sendToDesign(variant: BlastVariant, faceAngleFromVerticalDeg: number) {
     setPendingVariant(variant);
+    setPendingFaceAngle(faceAngleFromVerticalDeg);
     setPage("Проектирование");
   }
 
@@ -140,7 +143,8 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
               <DesignPage
                 user={user}
                 incomingVariant={pendingVariant}
-                onVariantConsumed={() => setPendingVariant(null)}
+                incomingFaceAngleFromVerticalDeg={pendingFaceAngle}
+                onVariantConsumed={() => { setPendingVariant(null); setPendingFaceAngle(null); }}
               />
             )}
             {page === "Экономика" && (

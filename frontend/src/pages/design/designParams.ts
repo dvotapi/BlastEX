@@ -4,7 +4,7 @@
 // каждой загрузки с сервера, а на сервер паспорт уходит только с тем, что в
 // его статусе можно править, — замороженные части как хранятся.
 import { canEdit, MUTATION_PAYLOAD_KEYS, type MutationKind } from "../../lib/lifecycle";
-import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, type BlastDesign, type ChargeRules, type PatternParams } from "../../types/design";
+import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, type BenchSurface, type BlastDesign, type ChargeRules, type PatternParams } from "../../types/design";
 import type { DesignState } from "./designReducer";
 
 export type DesignParams = { patternParams: PatternParams; chargeRules: ChargeRules; explosiveKey: string };
@@ -68,4 +68,18 @@ function sameJson(a: unknown, b: unknown): boolean {
 export function hasUnsavedChanges(state: Pick<DesignState, "present" | "saved">, params: DesignParams, defaultExplosiveKey: string): boolean {
   const stored = { present: state.saved, saved: state.saved };
   return !sameJson(designWithParams(state, params), designWithParams(stored, paramsFromDesign(state.saved, defaultExplosiveKey)));
+}
+
+/**
+ * Угол откоса объекта из «Расчёта» (от вертикали, °) → бровка проекта (от
+ * горизонтали). Только для нового проекта — без вершин контура; у проекта с
+ * контуром угол уже выбран, его не трогаем.
+ */
+export function benchPatchFromObjectAngle(
+  design: Pick<BlastDesign, "contour">,
+  angleFromVerticalDeg: number | null | undefined,
+): Partial<BenchSurface> | null {
+  if (angleFromVerticalDeg === null || angleFromVerticalDeg === undefined) return null;
+  if (design.contour.vertices.length > 0) return null;
+  return { face_angle_deg: 90 - angleFromVerticalDeg };
 }

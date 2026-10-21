@@ -59,3 +59,14 @@ describe("SurfacePanel: система координат и чертежи об
     expect(props.onOpenSources).toHaveBeenCalled();
   });
 });
+
+describe("SurfacePanel: угол откоса", () => {
+  it("показывает угол от вертикали и пишет его от горизонтали", () => {
+    const props = renderPanel(0, { bench: { crest_z_m: 0, toe_z_m: -10, face_angle_deg: 75 } });
+
+    const input = screen.getByLabelText("Угол откоса от вертикали, °");
+    expect(input).toHaveProperty("value", "15");
+    fireEvent.change(input, { target: { value: "20" } });
+    expect(props.onBenchChange).toHaveBeenCalledWith({ face_angle_deg: 70 });
+  });
+});

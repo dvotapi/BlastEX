@@ -136,3 +136,8 @@ def test_no_w_means_no_check():
     hole = vertical_hole("1-01", x=10, y=20.0, row=0)
     fb = floor_burdens(design_with([hole], pattern_params={}))["1-01"]
     assert fb.allowed_m is None and fb.excess is False
+
+
+def face_design() -> BlastDesign:
+    """Прямоугольник 40×22 м, откос 75°: 1-01 у свободной грани (ЛСП 6,38 м), 2-01 — второй ряд."""
+    return design_with([vertical_hole("1-01", 10, 3.7, 0), vertical_hole("2-01", 10, 7.4, 1)])

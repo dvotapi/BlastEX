@@ -13,6 +13,7 @@ from design.geometry import block_volume, collar_on_roof, ensure_ccw, floor_elev
 from design.hole_recompute import SHORT_BENCH_M
 from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind
 from design.timing import resolve_network
+from design.toe_line import floor_burdens
 
 Point2 = tuple[float, float]
 
@@ -293,6 +294,21 @@ def validate(
                     "code": "burden_too_small",
                     "hole_id": h.id,
                     "message": f"ЛНС скважины {h.id} ≈ {burden:.2f} м — меньше допустимого {min_burden_m:.2f} м.",
+                }
+            )
+
+    # ЛСП первого ряда больше W + 3% — скважина стоит слишком далеко от подошвы.
+    for hole_id, item in floor_burdens(design).items():
+        if item.excess and item.allowed_m is not None:
+            warnings.append(
+                {
+                    "code": "floor_burden_excess",
+                    "hole_id": hole_id,
+                    "message": (
+                        f"ЛСП {item.value_m:.1f}".replace(".", ",")
+                        + f" м больше допустимого {item.allowed_m:.1f}".replace(".", ",")
+                        + " м (W + 3%)."
+                    ),
                 }
             )
 

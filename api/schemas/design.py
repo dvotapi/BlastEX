@@ -1047,6 +1047,7 @@ class HoleMapSampleSchema(BaseModel):
     toe_burden: float | None = None
     collar_burden: float | None = None
     true_face_burden: float | None = None
+    floor_burden: float | None = None
 
 
 class EngineeringMapsSchema(BaseModel):

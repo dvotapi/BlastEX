@@ -14,4 +14,9 @@ describe("sectionRowKey", () => {
     expect(sectionRowKey({ kind: "production", id: "3-05", row: 2 })).toBe("grid:3");
     expect(sectionRowKey({ kind: "stab", id: "3-06", row: 2 })).toBe("grid:3");
   });
+
+  it("puts manual holes in one group regardless of their sentinel row", () => {
+    expect(sectionRowKey({ kind: "production", id: "M-1", row: -1000, source: "manual" })).toBe("manual:0");
+    expect(sectionRowKey({ kind: "production", id: "M-2", row: -1000, source: "manual" })).toBe("manual:0");
+  });
 });

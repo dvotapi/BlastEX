@@ -52,11 +52,13 @@ const rowFamily = (kind: string): string =>
  * Ключ ряда в сечении: вид + номер полосы из id (позиционная нумерация). Технический row
  * у стенок общий (все полосы контура — на одном row), поэтому по нему не группируем.
  */
-export const sectionRowKey = (hole: { kind: string; id: string; row: number }): string => {
+export const sectionRowKey = (hole: { kind: string; id: string; row: number; source?: string }): string => {
+  // Ручные скважины — одна группа: их технический row (например, -1000) не означает ряда.
+  if (hole.source === "manual") return "manual:0";
   const m = /^[PKB]?(\d+)-/.exec(hole.id);
   return `${rowFamily(hole.kind)}:${m ? m[1] : hole.row}`;
 };
-const FAMILY_ORDER: Record<string, number> = { grid: 0, presplit: 1, contour: 2, buffer: 3 };
+const FAMILY_ORDER: Record<string, number> = { grid: 0, presplit: 1, contour: 2, buffer: 3, manual: 4 };
 const rowTitleFromId = (id: string, row: number): string => {
   const m = /^([PKB]?)(\d+)-/.exec(id);
   if (!m) return rowLabel(row);
@@ -148,7 +150,7 @@ export function SectionView({
       const key = sectionRowKey(h);
       if (!seen.has(key)) {
         const num = Number(key.slice(key.indexOf(":") + 1));
-        seen.set(key, { key, row: h.row, family: FAMILY_ORDER[rowFamily(h.kind)] ?? 0, num });
+        seen.set(key, { key, row: h.row, family: FAMILY_ORDER[key.split(":")[0]] ?? 0, num });
       }
     }
     return Array.from(seen.values()).sort((a, b) => a.family - b.family || a.num - b.num);
@@ -157,7 +159,9 @@ export function SectionView({
     const titles = new Map<string, string>();
     for (const h of holes) {
       const key = sectionRowKey(h);
-      if (h.enabled && !titles.has(key)) titles.set(key, rowTitleFromId(h.id, h.row));
+      if (h.enabled && !titles.has(key)) {
+        titles.set(key, key.startsWith("manual:") ? "Ручные скважины" : rowTitleFromId(h.id, h.row));
+      }
     }
     return titles;
   }, [holes]);

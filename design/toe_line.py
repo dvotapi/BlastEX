@@ -11,11 +11,15 @@ from dataclasses import dataclass
 
 from shapely.geometry import LineString, Point, Polygon
 
+from design.editing import previous_row_distance, row_index
 from design.geometry import drawing_bottom
-from design.models import BenchSurface, BlockContour
+from design.models import BenchSurface, BlastDesign, BlockContour, Hole
 
 # Запас к проекции откоса при поиске рёбер съёмки у свободной поверхности, м.
 TOE_SEARCH_MARGIN_M = 1.0
+
+# Допуск к проектной линии сопротивления по подошве (W): ЛСП до W + 3% — норма.
+TOE_BURDEN_TOLERANCE = 0.03
 
 Polyline = list[tuple[float, float]]
 
@@ -105,3 +109,64 @@ def toe_line(contour: BlockContour) -> ToeLine | None:
         if polylines:
             return ToeLine(polylines=polylines, source="survey")
     return ToeLine(polylines=_built(contour, free, offset), source="built")
+
+
+@dataclass(frozen=True)
+class FloorBurden:
+    hole_id: str
+    value_m: float  # ЛСП: расстояние в плане от точки оси на уровне подошвы до линии подошвы
+    allowed_m: float | None  # W + 3%; None, если W не задана
+    excess: bool
+
+
+def floor_point(hole: Hole) -> tuple[float, float]:
+    """Точка оси на уровне подошвы уступа: забой минус перебор вдоль оси, в плане."""
+    dx = hole.toe.x - hole.collar.x
+    dy = hole.toe.y - hole.collar.y
+    dz = hole.toe.z - hole.collar.z
+    length = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if length <= 0:
+        return (hole.toe.x, hole.toe.y)
+    k = hole.subdrill_m / length
+    return (hole.toe.x - dx * k, hole.toe.y - dy * k)
+
+
+def allowed_floor_burden_m(pattern_params: dict | None) -> float | None:
+    """Допустимая ЛСП: W · (1 + 3%). W — `burden_b_m`; у квадратной сетки без него — шаг."""
+    params = pattern_params or {}
+    w = params.get("burden_b_m")
+    if not w and params.get("pattern") == "square":
+        w = params.get("spacing_a_m")
+    try:
+        w = float(w)
+    except (TypeError, ValueError):
+        return None
+    return w * (1.0 + TOE_BURDEN_TOLERANCE) if w > 0 else None
+
+
+def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
+    """ЛСП включённых рядовых скважин у откоса: впереди нет соседнего ряда или он не ближе линии подошвы."""
+    toe = toe_line(design.contour)
+    if toe is None:
+        return {}
+    lines = [LineString(poly) for poly in toe.polylines if len(poly) >= 2]
+    if not lines:
+        return {}
+    allowed = allowed_floor_burden_m(design.pattern_params)
+    index = row_index([h for h in design.holes if h.enabled])
+    result: dict[str, FloorBurden] = {}
+    for hole in design.holes:
+        if not hole.enabled or hole.kind != "production":
+            continue
+        point = Point(*floor_point(hole))
+        value = min(line.distance(point) for line in lines)
+        ahead = previous_row_distance(index, hole)
+        if ahead is not None and value > ahead:
+            continue
+        result[hole.id] = FloorBurden(
+            hole_id=hole.id,
+            value_m=value,
+            allowed_m=allowed,
+            excess=allowed is not None and value > allowed,
+        )
+    return result

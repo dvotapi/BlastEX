@@ -51,7 +51,7 @@ describe("TimingPanel relief summary", () => {
 
   it("explains missing relief", () => {
     render(<TimingPanel {...props} analysis={{ ...analysis, relief: null }} />);
-    expect(screen.getByText(/нет треугольников/)).toBeInTheDocument();
+    expect(screen.getByText("Темп отбойки: треугольники не построены — мало скважин или они слишком далеко друг от друга")).toBeInTheDocument();
   });
 
   it("says all holes fire together instead of the legend when every triangle is zero", () => {

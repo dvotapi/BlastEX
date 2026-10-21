@@ -161,7 +161,7 @@ export function TimingPanel({
 function ReliefSummary({ relief }: { relief: AnalyzeResponse["relief"] }) {
   const stats = relief?.stats ?? null;
   if (!stats) {
-    return <small>Темп отбойки: нет треугольников (меньше трёх скважин в два ряда)</small>;
+    return <small>Темп отбойки: треугольники не построены — мало скважин или они слишком далеко друг от друга</small>;
   }
   return (
     <>

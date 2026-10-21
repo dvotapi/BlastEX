@@ -143,6 +143,7 @@ import { PlansPanel } from "./PlansPanel";
 import { SectionView, sectionRowKey } from "./SectionView";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 import { useHoleRecompute } from "./useHoleRecompute";
+import { useStaleAnalysisReset } from "./useStaleAnalysis";
 import { useUndoHotkeys } from "./useUndoHotkeys";
 import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
@@ -413,6 +414,14 @@ export function DesignPage({
   const [passportBusy, setPassportBusy] = useState(false);
   const [movementBusy, setMovementBusy] = useState(false);
   const [showMovementVectors, setShowMovementVectors] = useState(true);
+
+  // Сетка перестроена, скважины сдвинуты, выключены или удалены — тайминг,
+  // изолинии и темп отбойки относятся к старой раскладке.
+  useStaleAnalysisReset(document.holes, () => {
+    setAnalysis(null);
+    setPlaying(false);
+    setCurrentMs(0);
+  });
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];

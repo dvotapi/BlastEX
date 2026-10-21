@@ -901,7 +901,8 @@ export type MapMetric =
   | "subdrill"
   | "bench_height"
   | "toe_burden"
-  | "collar_burden";
+  | "collar_burden"
+  | "floor_burden";
 
 export type FragmentationMapMetric = "x50" | "x80" | "oversize" | "powder_factor";
 export type SpatialMapMetric =
@@ -927,6 +928,7 @@ export type HoleMapSample = {
   toe_burden: number | null;
   collar_burden: number | null;
   true_face_burden: number | null;
+  floor_burden?: number | null;
 };
 
 export type EngineeringMaps = {
@@ -1901,6 +1903,7 @@ export const MAP_METRIC_LABELS: Record<MapMetric, string> = {
   bench_height: "Высота уступа",
   toe_burden: "ЛНС по забою",
   collar_burden: "ЛНС по устью",
+  floor_burden: "ЛСП",
 };
 
 export const FRAGMENTATION_MAP_METRIC_LABELS: Record<FragmentationMapMetric, string> = {
@@ -1933,6 +1936,7 @@ export const MAP_METRIC_UNITS: Record<OverlayMetric, string> = {
   bench_height: "м",
   toe_burden: "м",
   collar_burden: "м",
+  floor_burden: "м",
   x50: "мм",
   x80: "мм",
   oversize: "%",

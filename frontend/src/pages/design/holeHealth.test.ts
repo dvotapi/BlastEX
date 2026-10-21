@@ -44,6 +44,21 @@ describe("holeHealth", () => {
     expect(code).toBe("outside_contour");
   });
 
+  it("flags holes whose floor burden exceeds the allowed value", () => {
+    const hole = sampleHole("H3", 0, 0);
+    const network = emptyNetwork();
+    network.starter_items = [{ id: "st-H3", hole_id: "H3", delay_ms: 0, kind: "starter" }];
+    network.starters = ["H3"];
+    const code = computeHoleHealth(hole, {
+      load: { hole_id: "H3", decks: [], total_charge_kg: 100, influence_volume_m3: 1, specific_q_kg_m3: 1, primers: [5] },
+      network,
+      contour: emptyDesign().contour,
+      warnings: [{ code: "floor_burden_excess", hole_id: hole.id, message: "" }],
+    });
+    expect(code).toBe("floor_burden_excess");
+    expect(HEALTH_LABELS.floor_burden_excess).toBe("ЛСП больше допустимого");
+  });
+
   it("flags holes the initiation cannot reach from the starters", () => {
     const network = emptyNetwork();
     network.starter_items = [{ id: "st-A", hole_id: "A", delay_ms: 0, kind: "starter" }];

@@ -21,6 +21,7 @@ export type HoleHealthCode =
   | "outside_contour"
   | "outside_surface"
   | "short_bench"
+  | "floor_burden_excess"
   | "actual_unmatched";
 
 export const HEALTH_LABELS: Record<HoleHealthCode, string> = {
@@ -32,6 +33,7 @@ export const HEALTH_LABELS: Record<HoleHealthCode, string> = {
   outside_contour: "вне контура",
   outside_surface: "вне поверхности",
   short_bench: "H < 1 м",
+  floor_burden_excess: "ЛСП больше допустимого",
   actual_unmatched: "факт без проекта",
 };
 
@@ -45,6 +47,7 @@ export const HEALTH_COLORS: Record<HoleHealthCode, string> = {
   // Кровля (TASK-013, PR 3): устье вне поверхности и уступ ниже 1 м — красным.
   outside_surface: "#c0392b",
   short_bench: "#c0392b",
+  floor_burden_excess: "#c0392b",
   actual_unmatched: "#3d6ea8",
 };
 
@@ -59,6 +62,7 @@ const WARNING_CODE_TO_HEALTH: Record<string, HoleHealthCode> = {
   outside_contour: "outside_contour",
   hole_outside_surface: "outside_surface",
   hole_short_bench: "short_bench",
+  floor_burden_excess: "floor_burden_excess",
 };
 
 export type HoleHealthMap = Record<string, HoleHealthCode>;
@@ -150,6 +154,7 @@ function severity(code: HoleHealthCode): number {
     case "missing_primer": return 4;
     case "outside_surface": return 4;
     case "short_bench": return 3;
+    case "floor_burden_excess": return 3;
     case "outside_contour": return 3;
     case "actual_unmatched": return 3;
     case "extra_hole": return 2;
@@ -249,6 +254,7 @@ export function summarizeHealth(health: HoleHealthMap, holes: Hole[]): HealthSum
     outside_contour: [] as string[],
     outside_surface: [] as string[],
     short_bench: [] as string[],
+    floor_burden_excess: [] as string[],
     actual_unmatched: [] as string[],
   };
   const holeIds = new Set(holes.map((h) => h.id));

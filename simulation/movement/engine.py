@@ -15,7 +15,6 @@ from design.editing import (
 )
 from design.geometry import distance_to_free_faces, local_basis
 from design.models import (
-    PRESERVED_HOLE_KINDS,
     ROLE_PREDICTED,
     BlastDesign,
     Hole,

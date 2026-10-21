@@ -12,7 +12,6 @@ from design.geometry import (
     hole_from_collar,
 )
 from design.models import (
-    FRONT_ROW_BASE,
     BlockContour,
     Hole,
     Point3,

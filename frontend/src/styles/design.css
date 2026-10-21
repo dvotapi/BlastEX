@@ -579,6 +579,7 @@
 .legend-swatch.terrain { background:linear-gradient(90deg,#8fb39a,#6f8f7a); }
 .legend-swatch.network { background:#7a6ee0; }
 .legend-swatch.isolines { background:#9bb8d8; }
+.legend-swatch.relief { background:linear-gradient(90deg,#2f6fb3,#3a9d5d,#c0392b); }
 .legend-swatch.throw { background:#c45a2c; }
 .legend-swatch.actual { background:#d07a2d; }
 .legend-swatch.health { background:#d8455a; }
@@ -627,3 +628,8 @@
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas-wrap { height:420px; } .plan-toolbar { gap:6px; padding:8px; } }
 /* На узком экране подсказка перекрыла бы строку координат — оставляем «？». */
 @media (max-width:760px) { .plan-canvas-hint { display:none; } }
+
+/* Темп отбойки: зоны треугольников на плане и легенда в панели «Тайминг». */
+.relief-triangle { stroke:none; fill-opacity:.45; }
+.relief-legend { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; font-size:11px; }
+.relief-legend-item { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }

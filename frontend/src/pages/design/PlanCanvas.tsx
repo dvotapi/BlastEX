@@ -21,9 +21,10 @@ import {
   zoomAt,
   angleAzimuth,
 } from "../../lib/geometry2d";
-import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
+import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
 import { HOLE_KIND_LABELS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
+import { RELIEF_BANDS, reliefBand } from "./relief";
 import { healthColor, holeDepthM, type HoleHealthCode, type HoleHealthMap } from "./holeHealth";
 import { DEFAULT_MAP_LAYERS, type MapLayerVisibility } from "./MapLegend";
 import { SituationCanvas } from "./SituationCanvas";
@@ -105,6 +106,7 @@ export function PlanCanvas({
   loadsById,
   network,
   isolines,
+  relief,
   timesMs,
   animationMs,
   pendingTieFromId,
@@ -172,6 +174,8 @@ export function PlanCanvas({
   loadsById?: Record<string, HoleLoad>;
   network?: InitiationNetwork | null;
   isolines?: Isoline[];
+  /** Темп отбойки по треугольникам между скважинами; задан — слой включён. */
+  relief?: BurdenRelief | null;
   timesMs?: Record<string, number> | null;
   animationMs?: number | null;
   pendingTieFromId?: string | null;
@@ -1341,6 +1345,25 @@ export function PlanCanvas({
 
         <line x1={0} y1={origin.y} x2={viewport.width} y2={origin.y} className="axis-line" />
         <line x1={origin.x} y1={0} x2={origin.x} y2={viewport.height} className="axis-line" />
+
+        {/* Темп отбойки — под изолиниями и скважинами; цвет зоны — по отклонению от медианы. */}
+        {relief?.stats && (
+          <g className="relief-layer">
+            {relief.triangles.map((tri, i) => {
+              const band = reliefBand(tri.relief_ms_m, relief.stats!.median_ms_m);
+              const color = RELIEF_BANDS.find((b) => b.id === band)?.color;
+              const points = tri.points.map((v) => {
+                const p = toScreen({ x: v[0], y: v[1] });
+                return `${p.x},${p.y}`;
+              }).join(" ");
+              return (
+                <polygon key={`relief-${i}`} className="relief-triangle" points={points} style={{ fill: color }}>
+                  <title>{`${ruNumber(tri.relief_ms_m, 1)} мс/м`}</title>
+                </polygon>
+              );
+            })}
+          </g>
+        )}
 
         {showIsolineLayer && isolines?.map((iso, i) => {
           const passed = animating && iso.time_ms <= animationMs!;

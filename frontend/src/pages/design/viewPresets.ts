@@ -32,6 +32,7 @@ export type LayerId =
   | "labels"
   | "network"
   | "isolines"
+  | "relief"
   | "throw_direction"
   | "actual"
   | "health";
@@ -102,6 +103,7 @@ export const LAYER_DEFS: LayerDef[] = [
   { id: "labels", label: "Подписи", group: "holes", swatch: "labels", keywords: ["подпись", "номер", "азимут", "глубина", "заряд", "время"] },
   { id: "network", label: "Сеть инициирования", group: "analysis", swatch: "network", keywords: ["сеть", "связь", "нси"] },
   { id: "isolines", label: "Изолинии времени", group: "analysis", swatch: "isolines", keywords: ["изолинии", "время", "тайминг"] },
+  { id: "relief", label: "Темп отбойки", group: "analysis", swatch: "relief", keywords: ["темп", "отбойка", "мс/м", "relief"] },
   { id: "throw_direction", label: "Направление выброса", group: "analysis", swatch: "throw", keywords: ["выброс", "инициация", "угол"] },
   { id: "actual", label: "Факт бурения / зарядки", group: "execution", swatch: "actual", keywords: ["факт", "бурение", "зарядка"] },
   { id: "health", label: "Замечания", group: "execution", swatch: "health", keywords: ["замечания", "проверка", "ошибка"] },
@@ -129,6 +131,7 @@ const PRESET_TEMPLATES: Record<ViewPresetId, PresetTemplate> = {
     layers: baseLayers({
       network: false,
       isolines: false,
+      relief: false,
       throw_direction: false,
       actual: false,
       health: false,
@@ -141,6 +144,7 @@ const PRESET_TEMPLATES: Record<ViewPresetId, PresetTemplate> = {
       terrain: false,
       network: false,
       isolines: false,
+      relief: false,
       throw_direction: false,
       actual: false,
       health: false,
@@ -153,6 +157,7 @@ const PRESET_TEMPLATES: Record<ViewPresetId, PresetTemplate> = {
       terrain: false,
       network: false,
       isolines: false,
+      relief: false,
       throw_direction: false,
       actual: false,
       health: false,
@@ -164,6 +169,7 @@ const PRESET_TEMPLATES: Record<ViewPresetId, PresetTemplate> = {
     layers: baseLayers({
       terrain: false,
       isolines: false,
+      relief: false,
       throw_direction: false,
       actual: false,
       health: false,
@@ -184,6 +190,7 @@ const PRESET_TEMPLATES: Record<ViewPresetId, PresetTemplate> = {
     layers: baseLayers({
       network: false,
       isolines: false,
+      relief: false,
       throw_direction: false,
       health: false,
     }),
@@ -194,6 +201,7 @@ const PRESET_TEMPLATES: Record<ViewPresetId, PresetTemplate> = {
     layers: baseLayers({
       terrain: false,
       isolines: false,
+      relief: false,
       throw_direction: false,
       actual: false,
     }),

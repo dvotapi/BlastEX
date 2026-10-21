@@ -1,5 +1,6 @@
 import { ruNumber } from "../../lib/format";
 import type { AnalyzeResponse, PpvRequest } from "../../types/design";
+import { formatSpread, reliefLegend } from "./relief";
 import { RoleBadge } from "./RoleBadge";
 
 const LEVEL_LABELS: Record<string, string> = {
@@ -82,6 +83,8 @@ export function TimingPanel({
               <div><span>Скважин в схеме</span><strong>{Object.keys(analysis.times_ms).length}</strong><small>шт.</small></div>
             </div>
 
+            <ReliefSummary relief={analysis.relief ?? null} />
+
             <div className="field-pair">
               <label>Расстояние до объекта, м<input type="number" min="1" step="1" value={ppv.distance_m} onChange={(e) => onPpvChange({ distance_m: Number(e.target.value) })} /></label>
               <label>K / n<span className="ppv-kn">
@@ -151,5 +154,36 @@ export function TimingPanel({
         )}
       </div>
     </section>
+  );
+}
+
+/** Сводка темпа отбойки: медиана, разброс по площади, доля вне коридора и легенда зон плана. */
+function ReliefSummary({ relief }: { relief: AnalyzeResponse["relief"] }) {
+  const stats = relief?.stats ?? null;
+  if (!stats) {
+    return <small>Темп отбойки: нет треугольников (меньше трёх скважин в два ряда)</small>;
+  }
+  return (
+    <>
+      <div className="metrics-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+        <div><span>Темп отбойки, мс/м (медиана)</span><strong>{ruNumber(stats.median_ms_m, 1)}</strong><small>мс/м</small></div>
+        <div><span>Разброс темпа</span><strong>{formatSpread(stats.cv)}</strong><small>по площади</small></div>
+        <div><span>Вне коридора ±25 %</span><strong>{`${Math.round(stats.outside_share * 100)} %`}</strong><small>площади</small></div>
+      </div>
+      {stats.median_ms_m === 0 ? (
+        // Нулевая медиана: зоны по отклонению от медианы не определены, легенда не нужна.
+        <small>Все скважины срабатывают одновременно — темп 0 мс/м</small>
+      ) : (
+        <div className="relief-legend">
+          {reliefLegend(stats.median_ms_m).map((item) => (
+            <span key={item.band} className="relief-legend-item">
+              <i className="legend-swatch relief-band" style={{ background: item.color }} />
+              <span>{item.label}</span>
+            </span>
+          ))}
+          <small>мс/м</small>
+        </div>
+      )}
+    </>
   );
 }

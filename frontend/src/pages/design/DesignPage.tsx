@@ -2567,6 +2567,7 @@ export function DesignPage({
     { id: "zoom-selection", label: "Зум к выбору", keywords: ["выбор", "зум"], run: () => setZoomRequest({ kind: "selection", tick: Date.now() }) },
     { id: "review", label: "Проверить проект", keywords: ["проверка", "замечания"], run: () => setViewPreset("review") },
     { id: "isolines", label: "Показать изолинии", keywords: ["изолинии", "тайминг"], run: () => setDesignView((prev) => ({ ...prev, layers: { ...prev.layers, isolines: true } })) },
+    { id: "relief", label: "Показать темп отбойки", keywords: ["темп", "отбойка", "мс/м", "тайминг"], run: () => setDesignView((prev) => ({ ...prev, layers: { ...prev.layers, relief: true } })) },
     { id: "reset-view", label: "Сбросить вид к пресету", keywords: ["сброс", "вид"], run: () => setDesignView((prev) => resetLayersToPreset(prev)) },
     { id: "open-inspector", label: "Открыть карточку скважины", keywords: ["карточка", "скважина"], run: () => {
       const id = selected.size === 1 ? Array.from(selected)[0] : null;
@@ -3225,6 +3226,7 @@ export function DesignPage({
               loadsById={loadsById}
               network={designView.layers.network ? document.network : undefined}
               isolines={designView.layers.isolines && showIsolines ? analysis?.isolines : undefined}
+              relief={designView.layers.relief ? analysis?.relief : undefined}
               timesMs={analysis?.times_ms ?? undefined}
               animationMs={mode === "timing" && analysis ? currentMs : undefined}
               pendingTieFromId={mode === "tie" ? pendingTieFromId : null}

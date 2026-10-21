@@ -415,13 +415,25 @@ export function DesignPage({
   const [movementBusy, setMovementBusy] = useState(false);
   const [showMovementVectors, setShowMovementVectors] = useState(true);
 
-  // Сетка перестроена, скважины сдвинуты, выключены или удалены — тайминг,
-  // изолинии и темп отбойки относятся к старой раскладке.
-  useStaleAnalysisReset(document.holes, () => {
+  // Сброс результата «Рассчитать тайминг» с остановкой анимации: тайминг,
+  // изолинии и темп отбойки относятся к прежним скважинам, породе, a × b или сети.
+  function clearAnalysis() {
     setAnalysis(null);
     setPlaying(false);
     setCurrentMs(0);
-  });
+  }
+
+  // Сетка перестроена, скважины сдвинуты, выключены или удалены, сменилась
+  // порода или a, b — анализ устарел. Правки сети сбрасывают его на месте.
+  useStaleAnalysisReset(
+    {
+      holes: document.holes,
+      rockName: document.rock_name,
+      spacingAM: patternParams.spacing_a_m,
+      burdenBM: patternParams.burden_b_m,
+    },
+    clearAnalysis,
+  );
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -612,6 +624,7 @@ export function DesignPage({
         starters: starterItems.map((item) => item.hole_id),
       },
     });
+    clearAnalysis();
   }
 
   async function refreshPlans() {
@@ -964,7 +977,7 @@ export function DesignPage({
       },
     });
     setPendingTieFromId(null);
-    setAnalysis(null);
+    clearAnalysis();
   }
 
   function updateManualTie(tie: SurfaceConnector, delayMs: number) {
@@ -979,7 +992,7 @@ export function DesignPage({
         connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
       },
     });
-    setAnalysis(null);
+    clearAnalysis();
   }
 
   function removeManualTie(connectorId: string) {
@@ -994,7 +1007,7 @@ export function DesignPage({
         connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
       },
     });
-    setAnalysis(null);
+    clearAnalysis();
   }
 
   function toggleStartersFromSelection() {
@@ -1015,7 +1028,7 @@ export function DesignPage({
       type: "SET_NETWORK",
       network: { ...network, starter_items: starterItems, starters: starterItems.map((item) => item.hole_id) },
     });
-    setAnalysis(null);
+    clearAnalysis();
   }
 
   async function generateTie() {

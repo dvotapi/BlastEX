@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ruNumber } from "../../lib/format";
 import {
   Camera,
@@ -225,6 +225,9 @@ export function PlanCanvas({
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
+  // Своя штриховка у каждого холста: одинаковый id в двух <svg> на странице
+  // ссылался бы на чужой узор. Двоеточия useId в url(#…) не годятся.
+  const reliefHatchId = `relief-fast-hatch-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [drag, setDragState] = useState<DragState>({ kind: "none" });
   const [hover, setHover] = useState<Hover>({ kind: "none" });
   const [cursorWorld, setCursorWorld] = useState<Vec2 | null>(null);
@@ -1329,7 +1332,7 @@ export function PlanCanvas({
             <path d="M0,0 L10,5 L0,10 z" fill="#8a5a1a" />
           </marker>
           {/* Штриховка быстрых участков плана (темп ниже нижней границы). */}
-          <pattern id="relief-fast-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <pattern id={reliefHatchId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="6" stroke="#0C447C" strokeWidth="2" strokeOpacity="0.5" />
           </pattern>
         </defs>
@@ -1374,7 +1377,7 @@ export function PlanCanvas({
                 const p = toScreen({ x: v[0], y: v[1] });
                 return `${p.x},${p.y}`;
               }).join(" ");
-              return <polygon key={`relief-fast-${i}`} className="relief-fast" points={points} fill="url(#relief-fast-hatch)" />;
+              return <polygon key={`relief-fast-${i}`} className="relief-fast" points={points} fill={`url(#${reliefHatchId})`} />;
             })}
             {/* Стыки сходящихся фронтов. */}
             {(relief.converging ?? []).map((seg, i) => {

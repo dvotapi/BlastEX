@@ -40,7 +40,7 @@ export function reliefLegend(median: number): { band: ReliefBand; color: string;
 }
 
 /** Разброс темпа в процентах: «7 %»; нет значения — «—». */
-export function formatSpread(cv: number | null): string {
-  if (cv === null || cv === undefined || Number.isNaN(cv)) return "—";
-  return `${Math.round(cv * 100)} %`;
+export function formatSpread(spread: number | null): string {
+  if (spread == null || Number.isNaN(spread)) return "—";
+  return `${Math.round(spread * 100)} %`;
 }

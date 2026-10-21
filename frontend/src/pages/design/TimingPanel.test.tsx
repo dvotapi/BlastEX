@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Панель «Тайминг»: сводка темпа отбойки (мс/м) после расчёта — медиана,
-// разброс, доля вне коридора и легенда зон.
+// доля вне коридора, устойчивый разброс и легенда зон.
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AnalyzeResponse } from "../../types/design";
@@ -39,13 +39,17 @@ const analysis: AnalyzeResponse = {
 
 describe("TimingPanel relief summary", () => {
   it("shows relief median, spread and legend after analysis", () => {
-    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 12, median_ms_m: 15.33, mean_ms_m: 15.4, min_ms_m: 14, max_ms_m: 17, cv: 0.0712, outside_share: 0.05 } } }} />);
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 12, median_ms_m: 15.33, mean_ms_m: 15.4, min_ms_m: 14, max_ms_m: 17, cv: 0.55, outside_share: 0.05, robust_spread: 0.0712 } } }} />);
     expect(screen.getByText("Темп отбойки, мс/м (медиана)")).toBeInTheDocument();
     expect(screen.getByText("15,3")).toBeInTheDocument();
-    expect(screen.getByText("Разброс темпа")).toBeInTheDocument();
-    expect(screen.getByText("7 %")).toBeInTheDocument();
-    expect(screen.getByText("Вне коридора ±25 %")).toBeInTheDocument();
+    const outside = screen.getByText("Вне коридора ±25 %");
+    const robust = screen.getByText("Устойчивый разброс");
+    // Главный показатель ровности — доля вне коридора, он идёт раньше разброса.
+    expect(outside.compareDocumentPosition(robust) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("5 %")).toBeInTheDocument();
+    expect(screen.getByText("7 %")).toBeInTheDocument();
+    // cv раздувают выбросы — в панели его нет.
+    expect(screen.queryByText("55 %")).not.toBeInTheDocument();
     expect(screen.getByText("13,8–16,9")).toBeInTheDocument();
   });
 
@@ -55,16 +59,17 @@ describe("TimingPanel relief summary", () => {
   });
 
   it("says all holes fire together instead of the legend when every triangle is zero", () => {
-    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 4, median_ms_m: 0, mean_ms_m: 0, min_ms_m: 0, max_ms_m: 0, cv: null, outside_share: 0 } } }} />);
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 4, median_ms_m: 0, mean_ms_m: 0, min_ms_m: 0, max_ms_m: 0, cv: null, outside_share: 0, robust_spread: null } } }} />);
     expect(screen.getByText("Все скважины срабатывают одновременно — темп 0 мс/м")).toBeInTheDocument();
     expect(screen.queryByText(/^до /)).not.toBeInTheDocument();
     expect(screen.queryByText(/^больше /)).not.toBeInTheDocument();
   });
 
   it("says most of the area fires together when median is zero but some triangles are not", () => {
-    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 6, median_ms_m: 0, mean_ms_m: 4, min_ms_m: 0, max_ms_m: 12, cv: 1.4, outside_share: 0.4 } } }} />);
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 6, median_ms_m: 0, mean_ms_m: 4, min_ms_m: 0, max_ms_m: 12, cv: 1.4, outside_share: 0.4, robust_spread: null } } }} />);
     expect(screen.getByText("Темп отбойки, мс/м (медиана)")).toBeInTheDocument();
-    expect(screen.getByText("140 %")).toBeInTheDocument();
+    expect(screen.getByText("40 %")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.getByText("Больше половины площади срабатывает одновременно — темп 0 мс/м")).toBeInTheDocument();
     expect(screen.queryByText(/Все скважины срабатывают одновременно/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^до /)).not.toBeInTheDocument();

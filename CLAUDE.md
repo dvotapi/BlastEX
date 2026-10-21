@@ -88,8 +88,10 @@ L = (S − Z)/cos α + Δ (`geometry.hole_depth_m`), пересчёт —
 по устьям) — `design/relief.py`: `relief_triangles`, `relief_stats`,
 `burden_relief`. Приходит в ответе `POST /design/analyze` как `relief`; на
 фронте — слой «Темп отбойки» пресета «Тайминг» (`frontend/src/pages/design/relief.ts`)
-и сводка в панели «Тайминг». Показатели ровности `cv` и `outside_share`
-понадобятся перебору схем (часть 4). Подробности — `Docs/BURDEN_RELIEF.md`.
+и сводка в панели «Тайминг». Ровность для перебора (часть 4): главный
+показатель — `outside_share` (доля площади вне ±25 % от медианы), второй —
+`robust_spread` (межквартильный размах к медиане); `cv` — справочный.
+Подробности — `Docs/BURDEN_RELIEF.md`.
 
 ## Интерфейс
 

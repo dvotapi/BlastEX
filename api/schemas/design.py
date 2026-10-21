@@ -1179,6 +1179,7 @@ class ReliefStatsSchema(BaseModel):
     max_ms_m: float
     cv: float | None = None
     outside_share: float
+    robust_spread: float | None = None
 
 
 class BurdenReliefSchema(BaseModel):

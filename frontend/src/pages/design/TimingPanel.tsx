@@ -157,7 +157,8 @@ export function TimingPanel({
   );
 }
 
-/** Сводка темпа отбойки: медиана, разброс по площади, доля вне коридора и легенда зон плана. */
+/** Сводка темпа отбойки: медиана, доля вне коридора (главный показатель ровности),
+ *  устойчивый разброс и легенда зон плана. */
 function ReliefSummary({ relief }: { relief: AnalyzeResponse["relief"] }) {
   const stats = relief?.stats ?? null;
   if (!stats) {
@@ -167,8 +168,8 @@ function ReliefSummary({ relief }: { relief: AnalyzeResponse["relief"] }) {
     <>
       <div className="metrics-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
         <div><span>Темп отбойки, мс/м (медиана)</span><strong>{ruNumber(stats.median_ms_m, 1)}</strong><small>мс/м</small></div>
-        <div><span>Разброс темпа</span><strong>{formatSpread(stats.cv)}</strong><small>по площади</small></div>
         <div><span>Вне коридора ±25 %</span><strong>{`${Math.round(stats.outside_share * 100)} %`}</strong><small>площади</small></div>
+        <div><span>Устойчивый разброс</span><strong>{formatSpread(stats.robust_spread)}</strong><small>межквартильный</small></div>
       </div>
       {stats.max_ms_m === 0 ? (
         // Темп 0 во всех треугольниках: зоны по отклонению от медианы не определены.

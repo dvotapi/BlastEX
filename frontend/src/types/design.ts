@@ -1101,10 +1101,12 @@ export type ReliefStats = {
   mean_ms_m: number;
   min_ms_m: number;
   max_ms_m: number;
-  /** Разброс σ / среднее; null при нулевом среднем. */
+  /** Справочно: σ / среднее; null при нулевом среднем. Раздувается выбросами. */
   cv: number | null;
-  /** Доля площади вне коридора ±25 % от медианы. */
+  /** Главный показатель ровности: доля площади вне коридора ±25 % от медианы. */
   outside_share: number;
+  /** Устойчивый разброс: (P75 − P25) / медиана по площади; null при нулевой медиане. */
+  robust_spread: number | null;
 };
 
 export type BurdenRelief = {

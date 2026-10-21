@@ -2,8 +2,9 @@
 
 Устья скважин сетки триангулируются по Делоне; по трём временам срабатывания
 треугольника строится плоскость t = αx + βy + γ, темп — |∇t| (мс/м).
-Сводка ровности — разброс темпа по площади и доля площади вне коридора
-вокруг медианы.
+Сводка ровности: главный показатель — доля площади вне коридора ±25 % вокруг
+медианы, второй — устойчивый разброс (межквартильный размах к медиане); cv —
+справочный, его раздувают единичные выбросы.
 """
 from __future__ import annotations
 
@@ -53,6 +54,7 @@ class ReliefStats:
     max_ms_m: float
     cv: float | None
     outside_share: float
+    robust_spread: float | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -63,6 +65,7 @@ class ReliefStats:
             "max_ms_m": round(self.max_ms_m, 2),
             "cv": None if self.cv is None else round(self.cv, 4),
             "outside_share": round(self.outside_share, 4),
+            "robust_spread": None if self.robust_spread is None else round(self.robust_spread, 4),
         }
 
 
@@ -125,8 +128,14 @@ def relief_triangles(
     return result
 
 
+def _weighted_quantile(sorted_values: np.ndarray, cumulative: np.ndarray, q: float) -> float:
+    """Первое значение, на котором накопленная площадь доходит до доли q."""
+    pos = int(np.searchsorted(cumulative, q * cumulative[-1] - 1e-12))
+    return float(sorted_values[min(pos, len(sorted_values) - 1)])
+
+
 def relief_stats(triangles: list[ReliefTriangle]) -> ReliefStats | None:
-    """Сводка ровности: среднее, σ, медиана и доля вне коридора — по площади."""
+    """Сводка ровности: среднее, σ, квантили и доля вне коридора — по площади."""
     if not triangles:
         return None
     values = np.array([t.relief_ms_m for t in triangles], dtype=float)
@@ -137,9 +146,11 @@ def relief_stats(triangles: list[ReliefTriangle]) -> ReliefStats | None:
     sigma = math.sqrt(float((weights * (values - mean) ** 2).sum() / total))
 
     order = np.argsort(values, kind="stable")
+    sorted_values = values[order]
     cumulative = np.cumsum(weights[order])
-    pos = int(np.searchsorted(cumulative, total / 2.0 - 1e-12))
-    median = float(values[order][min(pos, len(order) - 1)])
+    median = _weighted_quantile(sorted_values, cumulative, 0.5)
+    q25 = _weighted_quantile(sorted_values, cumulative, 0.25)
+    q75 = _weighted_quantile(sorted_values, cumulative, 0.75)
 
     if median > 0:
         outside = np.abs(values - median) > RELIEF_CORRIDOR * median
@@ -155,6 +166,7 @@ def relief_stats(triangles: list[ReliefTriangle]) -> ReliefStats | None:
         max_ms_m=float(values.max()),
         cv=sigma / mean if mean > 0 else None,
         outside_share=share,
+        robust_spread=(q75 - q25) / median if median > 0 else None,
     )
 
 

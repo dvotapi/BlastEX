@@ -137,3 +137,30 @@ def test_disabled_holes_are_skipped():
     ids = {i for t in relief_triangles(holes, plane_times(25, 42), 6.4) for i in t.hole_ids}
     assert "2-02" not in ids
     assert ids  # остальные треугольники на месте
+
+
+def test_robust_spread_is_interquartile_range_over_median():
+    # По площади: P25 = 4, медиана 8, P75 = 10 — (10 − 4) / 8.
+    stats = relief_stats([tri(4.0, 1.0), tri(8.0, 1.0), tri(10.0, 1.0), tri(12.0, 1.0)])
+    assert stats.robust_spread == pytest.approx(0.75)
+
+
+def test_robust_spread_ignores_small_outliers():
+    # Две малые площади с выбросами: доля вне коридора их видит, устойчивый разброс — нет.
+    stats = relief_stats([tri(1.0, 1.0), tri(2.0, 1.0), tri(10.0, 10.0)])
+    assert stats.robust_spread == pytest.approx(0.0)
+    assert stats.outside_share > 0
+
+
+def test_robust_spread_zero_for_even_relief_and_none_for_zero_median():
+    even = relief_stats(relief_triangles(grid_holes(), plane_times(25, 42), 6.4))
+    assert even.robust_spread == pytest.approx(0.0)
+    assert relief_stats([tri(0.0, 3.0), tri(0.0, 3.0), tri(5.0, 1.0)]).robust_spread is None
+
+
+def test_stats_to_dict_rounds_robust_spread():
+    # P25 = 3, медиана 7, P75 = 9: (9 − 3) / 7 = 0,857142…
+    stats = relief_stats([tri(3.0, 1.0), tri(7.0, 1.0), tri(9.0, 1.0)])
+    assert stats.to_dict()["robust_spread"] == 0.8571
+    zero = relief_stats([tri(0.0, 3.0), tri(0.0, 3.0), tri(5.0, 1.0)])
+    assert zero.to_dict()["robust_spread"] is None

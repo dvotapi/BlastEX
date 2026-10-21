@@ -157,6 +157,11 @@ export function TimingPanel({
   );
 }
 
+/** Граница темпа: целое без дробной части («3»), иначе одна цифра («2,5»). */
+function boundLabel(value: number): string {
+  return Number.isInteger(value) ? ruNumber(value, 0) : ruNumber(value, 1);
+}
+
 /** Сводка темпа отбойки: медиана, доля вне коридора (главный показатель ровности),
  *  устойчивый разброс и легенда зон плана. */
 function ReliefSummary({ relief }: { relief: AnalyzeResponse["relief"] }) {
@@ -168,6 +173,11 @@ function ReliefSummary({ relief }: { relief: AnalyzeResponse["relief"] }) {
     <>
       <div className="metrics-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
         <div><span>Темп отбойки, мс/м (медиана)</span><strong>{ruNumber(stats.median_ms_m, 1)}</strong><small>мс/м</small></div>
+        <div><span>{`Быстрее ${boundLabel(stats.min_bound_ms_m)} мс/м`}</span><strong>{`${Math.round(stats.fast_share * 100)} %`}</strong><small>площади</small></div>
+        {stats.max_bound_ms_m != null && (
+          <div><span>{`Медленнее ${boundLabel(stats.max_bound_ms_m)} мс/м`}</span><strong>{`${Math.round(stats.slow_share * 100)} %`}</strong><small>площади</small></div>
+        )}
+        <div><span>Стыки фронтов</span><strong>{stats.converging_length_m > 0 ? ruNumber(stats.converging_length_m, 1) : "нет"}</strong>{stats.converging_length_m > 0 && <small>м</small>}</div>
         <div><span>Вне коридора ±25 %</span><strong>{`${Math.round(stats.outside_share * 100)} %`}</strong><small>площади</small></div>
         <div><span>Устойчивый разброс</span><strong>{formatSpread(stats.robust_spread)}</strong><small>межквартильный</small></div>
       </div>

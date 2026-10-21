@@ -1328,6 +1328,10 @@ export function PlanCanvas({
           <marker id="arrow-movement" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="#8a5a1a" />
           </marker>
+          {/* Штриховка быстрых участков плана (темп ниже нижней границы). */}
+          <pattern id="relief-fast-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#0C447C" strokeWidth="2" strokeOpacity="0.5" />
+          </pattern>
         </defs>
 
         {showGrid && (
@@ -1360,6 +1364,25 @@ export function PlanCanvas({
                 <polygon key={`relief-${i}`} className="relief-triangle" points={points} style={{ fill: color }}>
                   <title>{`${ruNumber(tri.relief_ms_m, 1)} мс/м`}</title>
                 </polygon>
+              );
+            })}
+            {/* Быстрее нижней границы — штриховка поверх цвета зоны. */}
+            {relief.triangles.map((tri, i) => {
+              if (!(tri.relief_ms_m < relief.stats!.min_bound_ms_m)) return null;
+              const points = tri.points.map((v) => {
+                const p = toScreen({ x: v[0], y: v[1] });
+                return `${p.x},${p.y}`;
+              }).join(" ");
+              return <polygon key={`relief-fast-${i}`} className="relief-fast" points={points} fill="url(#relief-fast-hatch)" />;
+            })}
+            {/* Стыки сходящихся фронтов. */}
+            {(relief.converging ?? []).map((seg, i) => {
+              const a = toScreen({ x: seg[0][0], y: seg[0][1] });
+              const b = toScreen({ x: seg[1][0], y: seg[1][1] });
+              return (
+                <line key={`relief-join-${i}`} className="relief-converging" x1={a.x} y1={a.y} x2={b.x} y2={b.y}>
+                  <title>Стык фронтов</title>
+                </line>
               );
             })}
           </g>

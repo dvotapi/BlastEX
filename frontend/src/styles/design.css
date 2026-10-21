@@ -631,5 +631,7 @@
 
 /* Темп отбойки: зоны треугольников на плане и легенда в панели «Тайминг». */
 .relief-triangle { stroke:none; fill-opacity:.45; }
+.relief-fast { stroke:none; pointer-events:none; }
+.relief-converging { stroke:#A32D2D; stroke-width:3; stroke-linecap:butt; fill:none; }
 .relief-legend { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; font-size:11px; }
 .relief-legend-item { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }

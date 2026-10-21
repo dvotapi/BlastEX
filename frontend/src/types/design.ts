@@ -1107,11 +1107,23 @@ export type ReliefStats = {
   outside_share: number;
   /** Устойчивый разброс: (P75 − P25) / медиана по площади; null при нулевой медиане. */
   robust_spread: number | null;
+  /** Нижняя жёсткая граница темпа, мс/м (по умолчанию 3). */
+  min_bound_ms_m: number;
+  /** Верхняя граница темпа, мс/м; null — не задана. */
+  max_bound_ms_m: number | null;
+  /** Доля площади быстрее нижней границы. */
+  fast_share: number;
+  /** Доля площади медленнее верхней границы. */
+  slow_share: number;
+  /** Суммарная длина стыков сходящихся фронтов, м. */
+  converging_length_m: number;
 };
 
 export type BurdenRelief = {
   triangles: ReliefTriangle[];
   stats: ReliefStats | null;
+  /** Стыки сходящихся фронтов: отрезки [[x, y], [x, y]]. */
+  converging: number[][][];
 };
 
 export type AnalyzeResponse = {

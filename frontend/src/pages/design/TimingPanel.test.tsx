@@ -39,7 +39,7 @@ const analysis: AnalyzeResponse = {
 
 describe("TimingPanel relief summary", () => {
   it("shows relief median, spread and legend after analysis", () => {
-    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 12, median_ms_m: 15.33, mean_ms_m: 15.4, min_ms_m: 14, max_ms_m: 17, cv: 0.55, outside_share: 0.05, robust_spread: 0.0712 } } }} />);
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], converging: [], stats: { triangles: 12, median_ms_m: 15.33, mean_ms_m: 15.4, min_ms_m: 14, max_ms_m: 17, cv: 0.55, outside_share: 0.05, robust_spread: 0.0712, min_bound_ms_m: 3, max_bound_ms_m: null, fast_share: 0, slow_share: 0, converging_length_m: 0 } } }} />);
     expect(screen.getByText("Темп отбойки, мс/м (медиана)")).toBeInTheDocument();
     expect(screen.getByText("15,3")).toBeInTheDocument();
     const outside = screen.getByText("Вне коридора ±25 %");
@@ -59,14 +59,14 @@ describe("TimingPanel relief summary", () => {
   });
 
   it("says all holes fire together instead of the legend when every triangle is zero", () => {
-    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 4, median_ms_m: 0, mean_ms_m: 0, min_ms_m: 0, max_ms_m: 0, cv: null, outside_share: 0, robust_spread: null } } }} />);
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], converging: [], stats: { triangles: 4, median_ms_m: 0, mean_ms_m: 0, min_ms_m: 0, max_ms_m: 0, cv: null, outside_share: 0, robust_spread: null, min_bound_ms_m: 3, max_bound_ms_m: null, fast_share: 0, slow_share: 0, converging_length_m: 0 } } }} />);
     expect(screen.getByText("Все скважины срабатывают одновременно — темп 0 мс/м")).toBeInTheDocument();
     expect(screen.queryByText(/^до /)).not.toBeInTheDocument();
     expect(screen.queryByText(/^больше /)).not.toBeInTheDocument();
   });
 
   it("says most of the area fires together when median is zero but some triangles are not", () => {
-    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], stats: { triangles: 6, median_ms_m: 0, mean_ms_m: 4, min_ms_m: 0, max_ms_m: 12, cv: 1.4, outside_share: 0.4, robust_spread: null } } }} />);
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], converging: [], stats: { triangles: 6, median_ms_m: 0, mean_ms_m: 4, min_ms_m: 0, max_ms_m: 12, cv: 1.4, outside_share: 0.4, robust_spread: null, min_bound_ms_m: 3, max_bound_ms_m: null, fast_share: 0, slow_share: 0, converging_length_m: 0 } } }} />);
     expect(screen.getByText("Темп отбойки, мс/м (медиана)")).toBeInTheDocument();
     expect(screen.getByText("40 %")).toBeInTheDocument();
     expect(screen.getByText("—")).toBeInTheDocument();
@@ -74,5 +74,27 @@ describe("TimingPanel relief summary", () => {
     expect(screen.queryByText(/Все скважины срабатывают одновременно/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^до /)).not.toBeInTheDocument();
     expect(screen.queryByText(/^больше /)).not.toBeInTheDocument();
+  });
+
+  it("shows fast share and converging fronts, no upper bound row", () => {
+    const stats = { triangles: 12, median_ms_m: 15, mean_ms_m: 15, min_ms_m: 2, max_ms_m: 17, cv: 0.2, outside_share: 0.05, robust_spread: 0.07, min_bound_ms_m: 3, max_bound_ms_m: null, fast_share: 0.12, slow_share: 0, converging_length_m: 7.5 };
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], converging: [], stats } }} />);
+    expect(screen.getByText("Быстрее 3 мс/м")).toBeInTheDocument();
+    expect(screen.getByText("12 %")).toBeInTheDocument();
+    expect(screen.getByText("Стыки фронтов")).toBeInTheDocument();
+    expect(screen.getByText("7,5")).toBeInTheDocument();
+    expect(screen.queryByText(/Медленнее/)).not.toBeInTheDocument();
+    const order = ["Быстрее 3 мс/м", "Стыки фронтов", "Вне коридора ±25 %", "Устойчивый разброс"].map((t) => screen.getByText(t));
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("shows upper bound row and «нет» for zero converging length", () => {
+    const stats = { triangles: 12, median_ms_m: 15, mean_ms_m: 15, min_ms_m: 2, max_ms_m: 17, cv: 0.2, outside_share: 0.05, robust_spread: 0.07, min_bound_ms_m: 3, max_bound_ms_m: 12, fast_share: 0, slow_share: 0.3, converging_length_m: 0 };
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief: { triangles: [], converging: [], stats } }} />);
+    expect(screen.getByText("Медленнее 12 мс/м")).toBeInTheDocument();
+    expect(screen.getByText("30 %")).toBeInTheDocument();
+    expect(screen.getByText("нет")).toBeInTheDocument();
   });
 });

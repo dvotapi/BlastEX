@@ -6,12 +6,13 @@
 медианы, второй — устойчивый разброс (межквартильный размах к медиане); cv —
 справочный, его раздувают единичные выбросы.
 
-В сетку входят только основные скважины: вид production и вид, заданный для
-основной сетки (`pattern_params.default_kind`); стабилизация, сателлиты и
-дополнительные — короткие вставки, а не сетка (если это не вид основной сетки). Треугольник
-отбрасывается, если ребро длиннее предела, если он «щепка» (наименьшая высота
-меньше доли от min(a, b)) или его центр тяжести вне контура блока (через
-вогнутость контура).
+В сетку входят скважины семейства сетки (`row_family == "grid"`, в том числе
+дополнительные и ручные) и вид основной сетки (`pattern_params.default_kind`);
+стабилизация и сателлиты — короткие вставки, а не сетка (если это не вид
+основной сетки). Треугольник отбрасывается, если ребро длиннее предела, если
+он «щепка» (наименьшая высота меньше доли от шага сетки) или его центр тяжести
+вне контура блока (через вогнутость контура). Шаг и предел ребра берутся по
+фактической раскладке, а не только по a и b из параметров (`relief_limits`).
 
 Рабочий диапазон: темп ниже нижней границы (3 мс/м по умолчанию) — дефект
 варианта, доля такой площади — первый показатель оценки. Стык сходящихся
@@ -26,20 +27,23 @@ from typing import Any
 
 import numpy as np
 import shapely
-from scipy.spatial import Delaunay, QhullError
+from scipy.spatial import Delaunay, QhullError, cKDTree
 from shapely.geometry import Polygon
 
-from design.models import BlastDesign, Hole
+from design.models import BlastDesign, Hole, row_family
 
 # Предел ребра — тот же, что соседство в timing_diagnostics.
 RELIEF_EDGE_FACTOR = 1.6
-# Виды скважин сетки темпа по умолчанию: основная производственная сетка.
-# Стабилизация, сателлиты и дополнительные ставятся между основными и дают
-# «щепки». burden_relief добавляет вид основной сетки из pattern_params.
-RELIEF_HOLE_KINDS = frozenset({"production"})
-# Наименьшая высота треугольника — не меньше этой доли от min(a, b): у «щепки»
-# вдоль края сетки делитель системы мал, и темп выходит огромным.
+# Виды семейства сетки, которые в сетку темпа не входят: стабилизация и
+# сателлиты ставятся вплотную к основным и дают «щепки». Вид основной сетки
+# (`pattern_params.default_kind`) входит всегда.
+RELIEF_EXCLUDED_KINDS = frozenset({"stab", "satellite"})
+# Наименьшая высота треугольника — не меньше этой доли от шага сетки s: у
+# «щепки» вдоль края сетки делитель системы мал, и темп выходит огромным.
 RELIEF_MIN_HEIGHT_FACTOR = 0.3
+# Квантиль длин рёбер «не щепок», по которому оценивается крупный шаг
+# фактической сетки для предела ребра.
+RELIEF_EDGE_QUANTILE = 0.75
 # Коридор вокруг медианы, доля от медианы.
 RELIEF_CORRIDOR = 0.25
 # Меньшие по площади треугольники вырождены, м².
@@ -144,6 +148,76 @@ def _contour_polygon(contour_xy: list[Point2] | None) -> Polygon | None:
     return None if polygon.is_empty else polygon
 
 
+def is_relief_kind(kind: str, default_kind: str = "") -> bool:
+    """Входит ли вид в сетку темпа: семейство сетки без стабилизации и сателлитов,
+    плюс вид основной сетки."""
+    if default_kind and kind == default_kind:
+        return True
+    return row_family(kind) == "grid" and kind not in RELIEF_EXCLUDED_KINDS
+
+
+def _used_holes(holes: list[Hole], times: dict[str, float], default_kind: str) -> list[Hole]:
+    return [h for h in holes if h.enabled and h.id in times and is_relief_kind(h.kind, default_kind)]
+
+
+def _delaunay(used: list[Hole]) -> tuple[np.ndarray, np.ndarray] | None:
+    """Устья и треугольники Делоне; None, если точек меньше трёх или все на прямой."""
+    if len(used) < 3:
+        return None
+    xy = np.array([[h.collar.x, h.collar.y] for h in used], dtype=float)
+    try:
+        return xy, Delaunay(xy).simplices
+    except QhullError:
+        return None  # все точки на одной прямой
+
+
+def _min_height(pts: np.ndarray) -> tuple[float, list[float]]:
+    edges = [float(np.hypot(*(pts[k] - pts[(k + 1) % 3]))) for k in range(3)]
+    (x0, y0), (x1, y1), (x2, y2) = pts
+    area = abs((x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)) / 2.0
+    return (2.0 * area / max(edges) if max(edges) > 0 else 0.0), edges
+
+
+def relief_limits(
+    holes: list[Hole],
+    times: dict[str, float],
+    a: float,
+    b: float,
+    default_kind: str = "",
+) -> tuple[float, float]:
+    """Предел ребра и наименьшая высота треугольника по фактической раскладке.
+
+    s — медиана расстояния от каждой скважины сетки до ближайшей соседней
+    (≈ меньший шаг сетки): наименьшая высота — `RELIEF_MIN_HEIGHT_FACTOR · s`.
+    L — `RELIEF_EDGE_QUANTILE`-квантиль длин рёбер треугольников Делоне, прошедших
+    отбор по высоте (≈ крупный шаг, у прямоугольной сетки — её диагональ):
+    предел ребра — max(1,6 · max(a, b), 1,6 · L). Сетка с рядами шире b из
+    параметров (переменный шаг) так не теряет треугольники; пустоты, где
+    скважин нет, по-прежнему дают рёбра длиннее предела, а треугольники через
+    вогнутость контура убирает отбор по центру тяжести. Без триангуляции —
+    пределы по a и b.
+    """
+    by_params = (RELIEF_EDGE_FACTOR * max(a, b), RELIEF_MIN_HEIGHT_FACTOR * min(a, b))
+    mesh = _delaunay(_used_holes(holes, times, default_kind))
+    if mesh is None:
+        return by_params
+    xy, simplices = mesh
+    nearest, _ = cKDTree(xy).query(xy, k=2)
+    s = float(np.median(nearest[:, 1]))
+    if s <= 0:
+        return by_params
+    min_height = RELIEF_MIN_HEIGHT_FACTOR * s
+    lengths: list[float] = []
+    for simplex in simplices:
+        height, edges = _min_height(xy[simplex])
+        if height >= min_height:
+            lengths.extend(edges)
+    if not lengths:
+        return by_params[0], min_height
+    big_step = float(np.quantile(lengths, RELIEF_EDGE_QUANTILE))
+    return max(by_params[0], RELIEF_EDGE_FACTOR * big_step), min_height
+
+
 def relief_triangles(
     holes: list[Hole],
     times: dict[str, float],
@@ -151,24 +225,19 @@ def relief_triangles(
     *,
     min_height_m: float = 0.0,
     contour_xy: list[Point2] | None = None,
-    kinds: frozenset[str] = RELIEF_HOLE_KINDS,
+    default_kind: str = "",
 ) -> list[ReliefTriangle]:
     """Треугольники Делоне по устьям сетки со временем; темп — |∇t| плоскости.
 
-    Берутся включённые скважины видов `kinds` со временем. Отбрасываются треугольники с ребром длиннее `max_edge_m`, с наименьшей
+    Берутся включённые скважины сетки темпа (`is_relief_kind`) со временем.
+    Отбрасываются треугольники с ребром длиннее `max_edge_m`, с наименьшей
     высотой меньше `min_height_m` и с центром тяжести вне `contour_xy`.
     """
-    used = [
-        h for h in holes
-        if h.enabled and h.kind in kinds and h.id in times
-    ]
-    if len(used) < 3:
+    used = _used_holes(holes, times, default_kind)
+    mesh = _delaunay(used)
+    if mesh is None:
         return []
-    xy = np.array([[h.collar.x, h.collar.y] for h in used], dtype=float)
-    try:
-        simplices = Delaunay(xy).simplices
-    except QhullError:
-        return []  # все точки на одной прямой
+    xy, simplices = mesh
 
     polygon = _contour_polygon(contour_xy)
     result: list[ReliefTriangle] = []
@@ -332,14 +401,14 @@ def burden_relief(
     b = float(params.get("burden_b_m") or 4.0)
     # Основная сетка могла быть построена другим видом («Тип скважин основной сетки»).
     default_kind = str(params.get("default_kind") or "").strip().lower()
-    kinds = RELIEF_HOLE_KINDS | {default_kind} if default_kind else RELIEF_HOLE_KINDS
+    max_edge, min_height = relief_limits(design.holes, times, a, b, default_kind)
     triangles = relief_triangles(
         design.holes,
         times,
-        RELIEF_EDGE_FACTOR * max(a, b),
-        min_height_m=RELIEF_MIN_HEIGHT_FACTOR * min(a, b),
+        max_edge,
+        min_height_m=min_height,
         contour_xy=design.contour.points_xy,
-        kinds=kinds,
+        default_kind=default_kind,
     )
     if not triangles:
         return None

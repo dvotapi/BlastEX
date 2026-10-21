@@ -10,6 +10,7 @@ from design.relief import (
     ReliefTriangle,
     burden_relief,
     converging_edges,
+    relief_limits,
     relief_stats,
     relief_triangles,
 )
@@ -338,7 +339,9 @@ def test_regular_grid_keeps_all_triangles():
     assert len(burden_relief(design, times).triangles) == len(raw) == 24
 
 
-def test_stabilization_and_auxiliary_holes_are_excluded():
+def test_stabilization_and_satellites_excluded_infill_included():
+    # Дополнительная скважина вида сетки (в том числе ручная) входит в сетку
+    # темпа; стабилизация и сателлиты — нет.
     extra = [
         hole("ST1", 2.0, -1.5, kind="stab"),
         hole("SAT1", 6.0, 1.5, kind="satellite"),
@@ -347,8 +350,18 @@ def test_stabilization_and_auxiliary_holes_are_excluded():
     holes = grid_holes() + extra
     times = plane_times(25, 42) | {"ST1": 5.0, "SAT1": 60.0, "D1": 80.0}
     ids = {i for t in relief_triangles(holes, times, 6.4) for i in t.hole_ids}
-    assert not ids & {"ST1", "SAT1", "D1"}
-    assert len(relief_triangles(holes, times, 6.4)) == 12
+    assert "D1" in ids
+    assert not ids & {"ST1", "SAT1"}
+    relief = burden_relief(design_with(holes, pattern_params={"spacing_a_m": 4.0, "burden_b_m": 3.0}), times)
+    used = {i for t in relief.triangles for i in t.hole_ids}
+    assert "D1" in used and not used & {"ST1", "SAT1"}
+
+
+def test_walls_and_buffer_are_not_relief_kinds():
+    extra = [hole("B1", 2.0, -1.5, kind="buffer"), hole("K1", 6.0, -3.0, kind="contour")]
+    times = plane_times(25, 42) | {"B1": 5.0, "K1": 0.0}
+    ids = {i for t in relief_triangles(grid_holes() + extra, times, 6.4) for i in t.hole_ids}
+    assert not ids & {"B1", "K1"}
 
 
 def test_stats_use_given_converging_segments():
@@ -365,16 +378,50 @@ def test_stats_use_given_converging_segments():
 
 
 def test_main_grid_of_another_kind_keeps_relief():
-    # Основная сетка построена видом «дополнительные»: темп не пропадает,
-    # а стабилизация (не вид сетки) по-прежнему не входит.
+    # Основная сетка построена видом, который сам в сетку темпа не входит
+    # (стабилизация): как вид основной сетки он входит, сателлит — нет.
     holes = [
-        hole(h.id, h.collar.x, h.collar.y, kind="infill") for h in grid_holes()
-    ] + [hole("ST1", 2.0, -1.5, kind="stab")]
-    times = plane_times(25, 42) | {"ST1": 5.0}
+        hole(h.id, h.collar.x, h.collar.y, kind="stab") for h in grid_holes()
+    ] + [hole("SAT1", 2.0, -1.5, kind="satellite")]
+    times = plane_times(25, 42) | {"SAT1": 5.0}
     params = {"spacing_a_m": 4.0, "burden_b_m": 3.0}
     assert burden_relief(design_with(holes, pattern_params=params), times) is None
     relief = burden_relief(
-        design_with(holes, pattern_params=params | {"default_kind": "infill"}), times
+        design_with(holes, pattern_params=params | {"default_kind": "stab"}), times
     )
     assert relief is not None and relief.stats.triangles == 12
-    assert all("ST1" not in t.hole_ids for t in relief.triangles)
+    assert all("SAT1" not in t.hole_ids for t in relief.triangles)
+
+
+# --- Пределы по фактической раскладке ---------------------------------------
+
+
+def test_variable_grid_with_wide_rows_keeps_triangles():
+    # Ряды через 6 м при b = 3,5 в параметрах: диагональ 7,44 м длиннее
+    # 1,6 · max(4,41; 3,5) = 7,06 м — по параметрам треугольники пропали бы.
+    a, rows = 4.41, 6.0
+    holes = [hole(f"{j + 1}-{i + 1:02d}", a * i, rows * j) for j in range(4) for i in range(5)]
+    times = {h.id: 25.0 * h.collar.x / a + 42.0 * h.collar.y / rows for h in holes}
+    assert relief_triangles(holes, times, 1.6 * max(a, 3.5)) == []
+    design = design_with(holes, pattern_params={"spacing_a_m": a, "burden_b_m": 3.5})
+    assert len(burden_relief(design, times).triangles) == 24
+
+
+def test_limits_follow_actual_grid_steps():
+    a, b = 4.41, 3.53
+    holes = regular_grid(a, b)
+    times = {h.id: 0.0 for h in holes}
+    max_edge, min_height = relief_limits(holes, times, a, b)
+    assert min_height == pytest.approx(0.3 * b)
+    # Крупный шаг — диагональ прямоугольной сетки, не меньше 1,6 · max(a, b).
+    assert max_edge == pytest.approx(1.6 * math.hypot(a, b))
+    # Без триангуляции — по параметрам.
+    assert relief_limits(holes[:2], times, a, b) == pytest.approx((1.6 * a, 0.3 * b))
+
+
+def test_far_hole_is_still_dropped_with_actual_limits():
+    holes = grid_holes() + [hole("far", 40.0, 0.0)]
+    times = plane_times(25, 42) | {"far": 300.0}
+    relief = burden_relief(design_with(holes, pattern_params={"spacing_a_m": 4.0, "burden_b_m": 3.0}), times)
+    assert all("far" not in t.hole_ids for t in relief.triangles)
+    assert relief.stats.triangles == 12

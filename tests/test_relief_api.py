@@ -3,6 +3,9 @@ import unittest
 
 from api.schemas.design import AnalyzeRequest, PatternGenerateRequest, TieGenerateRequest
 from api.services import design_service
+from api.services.design_service import ReliefBounds
+
+_bounds = design_service.relief_bounds_for_rock
 
 
 def _contour_payload(width: float = 20.0, height: float = 16.0) -> dict:
@@ -88,15 +91,15 @@ class ReliefBoundsFromRockTests(unittest.TestCase):
     def test_relief_bounds_from_rock_by_name(self):
         repository = _repository_with_rock(relief_min_ms_m="4", relief_max_ms_m="12")
         snapshot = repository.get_reference_snapshot("org")
-        bounds = design_service.relief_bounds_for_rock
-        self.assertEqual(bounds(snapshot, "Гранит"), (4.0, 12.0))
-        self.assertEqual(bounds(snapshot, "  гранит "), (4.0, 12.0))
-        self.assertEqual(bounds(snapshot, "Нет такой"), (3.0, None))
-        self.assertEqual(bounds(snapshot, ""), (3.0, None))
+        found = ReliefBounds(4.0, 12.0, found=True)
+        self.assertEqual(_bounds(snapshot, "Гранит"), found)
+        self.assertEqual(_bounds(snapshot, "  гранит "), found)
+        self.assertEqual(_bounds(snapshot, "Нет такой"), ReliefBounds(3.0, None, found=False))
+        self.assertEqual(_bounds(snapshot, ""), ReliefBounds(3.0, None, found=False))
 
     def test_rock_without_range_gives_defaults(self):
         snapshot = _repository_with_rock().get_reference_snapshot("org")
-        self.assertEqual(design_service.relief_bounds_for_rock(snapshot, "Гранит"), (3.0, None))
+        self.assertEqual(_bounds(snapshot, "Гранит"), ReliefBounds(3.0, None, found=True))
 
     def test_analyze_uses_rock_bounds(self):
         # блок 4 x 4 м, 25/42 мс: темп ниже 16 мс/м → весь блок быстрее нижней границы
@@ -118,11 +121,11 @@ class ReliefBoundsFromRockTests(unittest.TestCase):
 
     def test_rock_with_only_max_bound(self):
         snapshot = _repository_with_rock(relief_max_ms_m="12").get_reference_snapshot("org")
-        self.assertEqual(design_service.relief_bounds_for_rock(snapshot, "Гранит"), (3.0, 12.0))
+        self.assertEqual(_bounds(snapshot, "Гранит"), ReliefBounds(3.0, 12.0, found=True))
 
     def test_corrupt_stored_value_gives_default(self):
         snapshot = _repository_with_rock(relief_min_ms_m="abc", relief_max_ms_m="12").get_reference_snapshot("org")
-        self.assertEqual(design_service.relief_bounds_for_rock(snapshot, "Гранит"), (3.0, 12.0))
+        self.assertEqual(_bounds(snapshot, "Гранит"), ReliefBounds(3.0, 12.0, found=True))
 
     def test_repository_failure_does_not_break_analyze(self):
         from cost.v2.repository import EconomicsRepositoryError
@@ -149,3 +152,28 @@ class ReliefBoundsFromRockTests(unittest.TestCase):
         for name in ("Гранит", ""):
             response = _analyze(16.0, rock_name=name, organization_id="org", repository=repository)
             self.assertFalse(any("не найдена" in w for w in response.timing_warnings), name)
+
+    def test_contradictory_stored_bounds_drop_upper(self):
+        # Запись опубликована без проверки: верхняя 12 не больше нижней 16.
+        snapshot = _repository_with_rock(
+            relief_min_ms_m="16", relief_max_ms_m="12"
+        ).get_reference_snapshot("org")
+        self.assertEqual(
+            _bounds(snapshot, "Гранит"),
+            ReliefBounds(16.0, None, found=True, max_dropped=True),
+        )
+        # Верхняя по умолчанию нижней (3) тоже противоречит.
+        snapshot = _repository_with_rock(relief_max_ms_m="3").get_reference_snapshot("org")
+        self.assertIsNone(_bounds(snapshot, "Гранит").max_ms_m)
+
+    def test_analyze_warns_about_contradictory_bounds(self):
+        repository = _repository_with_rock(relief_min_ms_m="16", relief_max_ms_m="12")
+        response = _analyze(16.0, rock_name="Гранит", organization_id="org", repository=repository)
+        stats = response.relief.stats
+        self.assertEqual(stats.min_bound_ms_m, 16.0)
+        self.assertIsNone(stats.max_bound_ms_m)
+        self.assertEqual(stats.slow_share, 0.0)
+        self.assertIn(
+            "Верхняя граница темпа для породы «Гранит» не больше нижней — не учитывается.",
+            response.timing_warnings,
+        )

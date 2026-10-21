@@ -1,6 +1,10 @@
 """Сервис проекта БВР: раскладка сетки и хранение паспортов команды."""
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+from sqlalchemy.exc import SQLAlchemyError
+
 from Blast import ExplosiveProperties
 from api.exceptions import (
     DesignNotFoundError,
@@ -118,8 +122,6 @@ from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
 from cost.v2.legacy_adapter import LegacyReferences
-from sqlalchemy.exc import SQLAlchemyError
-
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 
 
@@ -255,19 +257,33 @@ def _positive_float(value) -> float | None:
     return number if number > 0 else None
 
 
-def relief_bounds_for_rock(snapshot, rock_name: str) -> tuple[float, float | None]:
-    """Допустимый темп отбойки породы: (нижняя, верхняя или None).
+@dataclass(frozen=True)
+class ReliefBounds:
+    """Допустимый темп отбойки породы из справочника."""
+
+    min_ms_m: float = RELIEF_MIN_MS_M
+    max_ms_m: float | None = None
+    # Порода нашлась в справочнике.
+    found: bool = False
+    # Записанная верхняя граница не больше нижней и отброшена.
+    max_dropped: bool = False
+
+
+def relief_bounds_for_rock(snapshot, rock_name: str) -> ReliefBounds:
+    """Допустимый темп отбойки породы: нижняя, верхняя или None, нашлась ли порода.
 
     Порода ищется по имени без учёта регистра и пробелов по краям; не нашли,
     имя пустое или поля не заданы — нижняя граница по умолчанию, верхней нет.
+    Верхняя не больше нижней (запись опубликована без проверки) — не учитывается.
     """
     item = _rock_by_name(snapshot, rock_name)
     if item is None:
-        return RELIEF_MIN_MS_M, None
-    return (
-        _positive_float(item.payload.get("relief_min_ms_m")) or RELIEF_MIN_MS_M,
-        _positive_float(item.payload.get("relief_max_ms_m")),
-    )
+        return ReliefBounds()
+    min_ms_m = _positive_float(item.payload.get("relief_min_ms_m")) or RELIEF_MIN_MS_M
+    max_ms_m = _positive_float(item.payload.get("relief_max_ms_m"))
+    if max_ms_m is not None and max_ms_m <= min_ms_m:
+        return ReliefBounds(min_ms_m, None, found=True, max_dropped=True)
+    return ReliefBounds(min_ms_m, max_ms_m, found=True)
 
 
 def _rock_by_name(snapshot, rock_name: str):
@@ -306,12 +322,19 @@ def analyze_design(
     if repository is not None and organization_id is not None and design.rock_name.strip():
         try:
             snapshot = repository.get_reference_snapshot(organization_id)
-            min_ms_m, max_ms_m = relief_bounds_for_rock(snapshot, design.rock_name)
-            if _rock_by_name(snapshot, design.rock_name) is None:
+            bounds = relief_bounds_for_rock(snapshot, design.rock_name)
+            min_ms_m, max_ms_m = bounds.min_ms_m, bounds.max_ms_m
+            if not bounds.found:
                 timing_warnings = [
                     *timing_warnings,
                     f"Порода «{design.rock_name.strip()}» не найдена в справочнике — "
                     f"для темпа отбойки взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м.",
+                ]
+            elif bounds.max_dropped:
+                timing_warnings = [
+                    *timing_warnings,
+                    f"Верхняя граница темпа для породы «{design.rock_name.strip()}» "
+                    "не больше нижней — не учитывается.",
                 ]
         except (EconomicsRepositoryError, SQLAlchemyError):
             # Сбой хранилища не должен ронять анализ: считаем по умолчанию.

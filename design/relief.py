@@ -6,6 +6,12 @@
 медианы, второй — устойчивый разброс (межквартильный размах к медиане); cv —
 справочный, его раздувают единичные выбросы.
 
+В сетку входят только основные скважины (вид production): стабилизация,
+сателлиты и дополнительные — короткие вставки, а не сетка. Треугольник
+отбрасывается, если ребро длиннее предела, если он «щепка» (наименьшая высота
+меньше доли от min(a, b)) или его центр тяжести вне контура блока (через
+вогнутость контура).
+
 Рабочий диапазон: темп ниже нижней границы (3 мс/м по умолчанию) — дефект
 варианта, доля такой площади — первый показатель оценки. Стык сходящихся
 фронтов — общее ребро соседних треугольников, где порода с двух сторон
@@ -18,12 +24,20 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import shapely
 from scipy.spatial import Delaunay, QhullError
+from shapely.geometry import Polygon
 
-from design.models import BlastDesign, Hole, row_family
+from design.models import BlastDesign, Hole
 
 # Предел ребра — тот же, что соседство в timing_diagnostics.
 RELIEF_EDGE_FACTOR = 1.6
+# Виды скважин сетки темпа: основная производственная сетка. Стабилизация,
+# сателлиты и дополнительные ставятся между основными и дают «щепки».
+RELIEF_HOLE_KINDS = frozenset({"production"})
+# Наименьшая высота треугольника — не меньше этой доли от min(a, b): у «щепки»
+# вдоль края сетки делитель системы мал, и темп выходит огромным.
+RELIEF_MIN_HEIGHT_FACTOR = 0.3
 # Коридор вокруг медианы, доля от медианы.
 RELIEF_CORRIDOR = 0.25
 # Меньшие по площади треугольники вырождены, м².
@@ -118,13 +132,32 @@ class BurdenRelief:
         }
 
 
+def _contour_polygon(contour_xy: list[Point2] | None) -> Polygon | None:
+    """Многоугольник контура блока; меньше трёх точек или пустой — None (без фильтра)."""
+    if not contour_xy or len(contour_xy) < 3:
+        return None
+    polygon = Polygon(contour_xy)
+    if not polygon.is_valid:
+        polygon = shapely.make_valid(polygon)
+    return None if polygon.is_empty else polygon
+
+
 def relief_triangles(
-    holes: list[Hole], times: dict[str, float], max_edge_m: float
+    holes: list[Hole],
+    times: dict[str, float],
+    max_edge_m: float,
+    *,
+    min_height_m: float = 0.0,
+    contour_xy: list[Point2] | None = None,
 ) -> list[ReliefTriangle]:
-    """Треугольники Делоне по устьям сетки со временем; темп — |∇t| плоскости."""
+    """Треугольники Делоне по устьям сетки со временем; темп — |∇t| плоскости.
+
+    Отбрасываются треугольники с ребром длиннее `max_edge_m`, с наименьшей
+    высотой меньше `min_height_m` и с центром тяжести вне `contour_xy`.
+    """
     used = [
         h for h in holes
-        if h.enabled and row_family(h.kind) == "grid" and h.id in times
+        if h.enabled and h.kind in RELIEF_HOLE_KINDS and h.id in times
     ]
     if len(used) < 3:
         return []
@@ -134,6 +167,7 @@ def relief_triangles(
     except QhullError:
         return []  # все точки на одной прямой
 
+    polygon = _contour_polygon(contour_xy)
     result: list[ReliefTriangle] = []
     for simplex in simplices:
         idx = [int(i) for i in simplex]
@@ -146,6 +180,13 @@ def relief_triangles(
         area = abs(det) / 2.0
         if area < _MIN_AREA_M2:
             continue
+        # Наименьшая высота — на самое длинное ребро.
+        if 2.0 * area / max(edges) < min_height_m:
+            continue
+        if polygon is not None and not shapely.intersects_xy(
+            polygon, (x0 + x1 + x2) / 3.0, (y0 + y1 + y2) / 3.0
+        ):
+            continue  # треугольник через вогнутость контура — вне блока
         t0, t1, t2 = (float(times[used[i].id]) for i in idx)
         dt1, dt2 = t1 - t0, t2 - t0
         # Система 2×2 на разностях: α·dx + β·dy = dt.
@@ -225,8 +266,12 @@ def relief_stats(
     triangles: list[ReliefTriangle],
     min_ms_m: float = RELIEF_MIN_MS_M,
     max_ms_m: float | None = None,
+    converging: list[Segment] | None = None,
 ) -> ReliefStats | None:
-    """Сводка ровности: среднее, σ, квантили, доли вне коридора и вне границ — по площади."""
+    """Сводка ровности: среднее, σ, квантили, доли вне коридора и вне границ — по площади.
+
+    `converging` — уже найденные стыки; без них ищутся здесь же.
+    """
     if not triangles:
         return None
     values = np.array([t.relief_ms_m for t in triangles], dtype=float)
@@ -250,7 +295,9 @@ def relief_stats(
     share = float(weights[outside].sum() / total)
     fast = float(weights[values < min_ms_m].sum() / total)
     slow = 0.0 if max_ms_m is None else float(weights[values > max_ms_m].sum() / total)
-    converging = sum(math.dist(p, q) for p, q in converging_edges(triangles))
+    if converging is None:
+        converging = converging_edges(triangles)
+    converging_length = sum(math.dist(p, q) for p, q in converging)
 
     return ReliefStats(
         triangles=len(triangles),
@@ -265,7 +312,7 @@ def relief_stats(
         max_bound_ms_m=max_ms_m,
         fast_share=fast,
         slow_share=slow,
-        converging_length_m=converging,
+        converging_length_m=converging_length,
     )
 
 
@@ -280,12 +327,19 @@ def burden_relief(
     params = design.pattern_params or {}
     a = float(params.get("spacing_a_m") or 5.0)
     b = float(params.get("burden_b_m") or 4.0)
-    triangles = relief_triangles(design.holes, times, RELIEF_EDGE_FACTOR * max(a, b))
+    triangles = relief_triangles(
+        design.holes,
+        times,
+        RELIEF_EDGE_FACTOR * max(a, b),
+        min_height_m=RELIEF_MIN_HEIGHT_FACTOR * min(a, b),
+        contour_xy=design.contour.points_xy,
+    )
     if not triangles:
         return None
+    converging = converging_edges(triangles)
     return BurdenRelief(
         triangles=triangles,
-        stats=relief_stats(triangles, min_ms_m=min_ms_m, max_ms_m=max_ms_m),
-        converging=converging_edges(triangles),
+        stats=relief_stats(triangles, min_ms_m=min_ms_m, max_ms_m=max_ms_m, converging=converging),
+        converging=converging,
         min_bound_ms_m=min_ms_m,
     )

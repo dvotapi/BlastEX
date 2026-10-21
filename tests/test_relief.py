@@ -257,3 +257,108 @@ def test_to_dict_marks_fast_triangles_by_exact_relief_and_call_bound():
     near = type(tri)(tri.hole_ids, tri.points, 2.996, tri.area_m2, tri.gradient)
     assert near.to_dict(3.0)["relief_ms_m"] == 3.0
     assert near.to_dict(3.0)["fast"] is True
+
+
+# --- Отбор треугольников: контур, «щепки», виды скважин -------------------
+
+
+def l_contour() -> BlockContour:
+    # Г-образный блок: вогнутый угол (8, 8), выемка — x > 8 и y > 8.
+    pts = [(0.0, 0.0), (20.0, 0.0), (20.0, 8.0), (8.0, 8.0), (8.0, 20.0), (0.0, 20.0)]
+    return BlockContour(vertices=[Point3(x, y, 0.0) for x, y in pts])
+
+
+def l_holes() -> list[Hole]:
+    # Скважины в обоих крыльях; (11, 7) и (7, 11) ближе предела ребра через выемку.
+    xy = [(3, 3), (7, 3), (11, 3), (15, 3), (3, 7), (7, 7), (11, 7), (15, 7),
+          (3, 11), (7, 11), (3, 15), (7, 15)]
+    return [hole(f"L{i}", float(x), float(y)) for i, (x, y) in enumerate(xy)]
+
+
+def _centroid(t: ReliefTriangle) -> tuple[float, float]:
+    return (sum(p[0] for p in t.points) / 3.0, sum(p[1] for p in t.points) / 3.0)
+
+
+def _in_notch(t: ReliefTriangle) -> bool:
+    cx, cy = _centroid(t)
+    return cx > 8.0 and cy > 8.0
+
+
+def test_triangles_across_concave_notch_are_dropped():
+    holes = l_holes()
+    times = {h.id: 10.0 * h.collar.x + 20.0 * h.collar.y for h in holes}
+    # Без контура треугольник через выемку есть — значит, тест что-то проверяет.
+    assert any(_in_notch(t) for t in relief_triangles(holes, times, 8.0))
+    clipped = relief_triangles(holes, times, 8.0, contour_xy=l_contour().points_xy)
+    assert clipped and not any(_in_notch(t) for t in clipped)
+    design = BlastDesign(
+        design_id="t", contour=l_contour(), holes=holes,
+        pattern_params={"spacing_a_m": 5.0, "burden_b_m": 5.0},
+    )
+    relief = burden_relief(design, times)
+    assert relief is not None and not any(_in_notch(t) for t in relief.triangles)
+
+
+def test_short_contour_does_not_filter():
+    holes = l_holes()
+    times = {h.id: 10.0 * h.collar.x + 20.0 * h.collar.y for h in holes}
+    full = relief_triangles(holes, times, 8.0)
+    assert relief_triangles(holes, times, 8.0, contour_xy=[(0.0, 0.0), (1.0, 0.0)]) == full
+
+
+def _min_height(t: ReliefTriangle) -> float:
+    edges = [math.dist(t.points[k], t.points[(k + 1) % 3]) for k in range(3)]
+    return 2.0 * t.area_m2 / max(edges)
+
+
+def regular_grid(a: float = 4.41, b: float = 3.53) -> list[Hole]:
+    return [hole(f"{j + 1}-{i + 1:02d}", a * i, b * j) for j in range(4) for i in range(5)]
+
+
+def test_sliver_triangles_near_hull_are_dropped():
+    a, b = 4.41, 3.53
+    # Скважина в 0,05 м под первым рядом между двумя его скважинами — почти на прямой.
+    holes = regular_grid(a, b) + [hole("X", a / 2.0, -0.05)]
+    times = {h.id: 25.0 * h.collar.x / a + 42.0 * h.collar.y / b for h in holes}
+    raw = relief_triangles(holes, times, 1.6 * max(a, b))
+    assert any(_min_height(t) < 0.1 for t in raw)  # «щепка» есть без отбора
+    design = design_with(holes, pattern_params={"spacing_a_m": a, "burden_b_m": b})
+    kept = burden_relief(design, times).triangles
+    assert kept and all(_min_height(t) >= 0.3 * min(a, b) for t in kept)
+
+
+def test_regular_grid_keeps_all_triangles():
+    a, b = 4.41, 3.53
+    holes = regular_grid(a, b)
+    times = {h.id: 25.0 * h.collar.x / a + 42.0 * h.collar.y / b for h in holes}
+    raw = relief_triangles(holes, times, 1.6 * max(a, b))
+    # Наименьшая высота прямоугольного треугольника a × b — ≈ 2,76 м.
+    assert min(_min_height(t) for t in raw) == pytest.approx(a * b / math.hypot(a, b))
+    design = design_with(holes, pattern_params={"spacing_a_m": a, "burden_b_m": b})
+    assert len(burden_relief(design, times).triangles) == len(raw) == 24
+
+
+def test_stabilization_and_auxiliary_holes_are_excluded():
+    extra = [
+        hole("ST1", 2.0, -1.5, kind="stab"),
+        hole("SAT1", 6.0, 1.5, kind="satellite"),
+        hole("D1", 2.0, 4.5, kind="infill"),
+    ]
+    holes = grid_holes() + extra
+    times = plane_times(25, 42) | {"ST1": 5.0, "SAT1": 60.0, "D1": 80.0}
+    ids = {i for t in relief_triangles(holes, times, 6.4) for i in t.hole_ids}
+    assert not ids & {"ST1", "SAT1", "D1"}
+    assert len(relief_triangles(holes, times, 6.4)) == 12
+
+
+def test_stats_use_given_converging_segments():
+    tris = relief_triangles(v_holes(), v_times(), 6.4)
+    assert relief_stats(tris).converging_length_m == pytest.approx(6.0)
+    # Переданные стыки не ищутся заново.
+    assert relief_stats(tris, converging=[]).converging_length_m == 0.0
+    relief = burden_relief(
+        design_with(v_holes(), pattern_params={"spacing_a_m": 4.0, "burden_b_m": 3.0}), v_times()
+    )
+    assert relief.stats.converging_length_m == pytest.approx(
+        sum(math.dist(p, q) for p, q in relief.converging)
+    )

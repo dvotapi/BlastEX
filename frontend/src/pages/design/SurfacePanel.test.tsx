@@ -69,4 +69,18 @@ describe("SurfacePanel: угол откоса", () => {
     fireEvent.change(input, { target: { value: "20" } });
     expect(props.onBenchChange).toHaveBeenCalledWith({ face_angle_deg: 70 });
   });
+
+  it("угол больше 60° от вертикали обрезается до 60° (30° от горизонтали)", () => {
+    const props = renderPanel(0, { bench: { crest_z_m: 0, toe_z_m: -10, face_angle_deg: 75 } });
+
+    fireEvent.change(screen.getByLabelText("Угол откоса от вертикали, °"), { target: { value: "80" } });
+    expect(props.onBenchChange).toHaveBeenCalledWith({ face_angle_deg: 30 });
+  });
+
+  it("пустое поле не меняет угол", () => {
+    const props = renderPanel(0, { bench: { crest_z_m: 0, toe_z_m: -10, face_angle_deg: 75 } });
+
+    fireEvent.change(screen.getByLabelText("Угол откоса от вертикали, °"), { target: { value: "" } });
+    expect(props.onBenchChange).not.toHaveBeenCalled();
+  });
 });

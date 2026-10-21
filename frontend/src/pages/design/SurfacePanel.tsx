@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import { faceAngleFromVerticalInput } from "../../lib/faceAngle";
 import { ruNumber } from "../../lib/format";
 import type { BenchSurface, CoordinateSystem, SurfaceKind, SurfaceModel, SurfaceSet } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
@@ -220,7 +221,11 @@ export function SurfacePanel({
               max={60}
               step="1"
               value={90 - bench.face_angle_deg}
-              onChange={(e) => onBenchChange({ face_angle_deg: 90 - Number(e.target.value) })}
+              onChange={(e) => {
+                const previous = 90 - bench.face_angle_deg;
+                const next = faceAngleFromVerticalInput(e.target.value, previous);
+                if (next !== previous) onBenchChange({ face_angle_deg: 90 - next });
+              }}
             />
           </label>
           <small>Плоскость используется, если съёмка не покрывает точку.</small>

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { api } from "../api/endpoints";
 import { useWorkspace } from "../app/useWorkspace";
 import { useTopbarSlot } from "../app/topbarSlot";
+import { faceAngleFromVerticalInput } from "../lib/faceAngle";
 import { explosiveColor } from "../components/holeDrawing/palette";
 import {
   applyCalcInputs,
@@ -709,7 +710,7 @@ function FullBvrCalc({
                   <label title="Перебур, м">Перебур, м<input type="number" min={0} max={3} step={0.1} value={overdrill} onChange={(e) => setOverdrill(Number(e.target.value))} /></label>
                   <label title="Кондиционный кусок, мм">Кусок, мм<input type="number" min={100} max={1200} step={50} value={lumpSize} onChange={(e) => setLumpSize(Number(e.target.value))} /></label>
                 </div>
-                <label title="Угол откоса уступа от вертикали, °">Угол откоса от вертикали, °<input type="number" min={0} max={60} step={1} value={faceAngleFromVerticalDeg} onChange={(e) => setFaceAngle(Number(e.target.value))} /></label>
+                <label title="Угол откоса уступа от вертикали, °">Угол откоса от вертикали, °<input type="number" min={0} max={60} step={1} value={faceAngleFromVerticalDeg} onChange={(e) => setFaceAngle(faceAngleFromVerticalInput(e.target.value, faceAngleFromVerticalDeg))} /></label>
               </div>
               <div className="input-column">
                 <fieldset className="crown-select">

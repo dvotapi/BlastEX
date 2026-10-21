@@ -169,6 +169,12 @@ describe("угол откоса объекта при переносе вари�
     expect(benchPatchFromObjectAngle(design, 15)).toBeNull();
   });
 
+  it("угол вне 0–60° от вертикали обрезается", () => {
+    expect(benchPatchFromObjectAngle(emptyDesign(), 90)).toEqual({ face_angle_deg: 30 });
+    expect(benchPatchFromObjectAngle(emptyDesign(), -5)).toEqual({ face_angle_deg: 90 });
+    expect(benchPatchFromObjectAngle(emptyDesign(), Number.NaN)).toBeNull();
+  });
+
   it("угла нет — бровку не трогаем", () => {
     expect(benchPatchFromObjectAngle(emptyDesign(), null)).toBeNull();
   });

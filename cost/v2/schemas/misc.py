@@ -73,6 +73,12 @@ class RoutePayload(ReferencePayload):
     cargo_kind: str | None = Field(default=None, description="Тип груза")
 
 
+# Нижняя граница темпа отбойки по умолчанию, мс/м; та же, что
+# `design.relief.RELIEF_MIN_MS_M` (схема справочника не тянет расчётный модуль,
+# совпадение проверяет тест).
+_RELIEF_MIN_DEFAULT_MS_M = Decimal("3")
+
+
 class RockPayload(ReferencePayload):
     density_t_m3: Decimal | None = UnitField("т/м³", description="Плотность", default=None)
     # Нуль — не «мягкая порода», а незаполненное поле: коэффициент крепости
@@ -94,14 +100,14 @@ class RockPayload(ReferencePayload):
     relief_min_ms_m: Decimal | None = UnitField(
         "мс/м",
         title="Темп отбойки от",
-        description="Медленнее этого темпа породе не хватает времени на подвижку; пусто — берётся 3 мс/м",
+        description="Быстрее этого темпа (меньше мс/м) порода зажата — не успевает сдвинуться; пусто — 3 мс/м",
         default=None,
         gt=0,
     )
     relief_max_ms_m: Decimal | None = UnitField(
         "мс/м",
         title="Темп отбойки до",
-        description="Быстрее этого темпа порода не успевает освободиться; пусто — верхней границы нет",
+        description="Медленнее этого темпа (больше мс/м) скважины работают поодиночке; пусто — без верхней границы",
         default=None,
         gt=0,
     )
@@ -111,6 +117,14 @@ class RockPayload(ReferencePayload):
         low, high = self.relief_min_ms_m, self.relief_max_ms_m
         if low is not None and high is not None and high <= low:
             field_error(type(self), "relief_max_ms_m", "Верхняя граница темпа должна быть больше нижней", high)
+        # Без нижней границы действует умолчание 3 мс/м — верхняя должна быть выше него.
+        if low is None and high is not None and high <= _RELIEF_MIN_DEFAULT_MS_M:
+            field_error(
+                type(self),
+                "relief_max_ms_m",
+                f"Верхняя граница темпа должна быть больше {_RELIEF_MIN_DEFAULT_MS_M} мс/м — нижней по умолчанию",
+                high,
+            )
         return self
 
 

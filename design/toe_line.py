@@ -27,6 +27,11 @@ MIN_FACE_ANGLE_DEG = 30.0
 # Шаг сетки по ряду, когда в параметрах нет ни a, ни W, м.
 DEFAULT_CORRIDOR_STEP_M = 4.0
 
+# Сосед закрывает скважину от откоса, если продвинут к подошве вдоль её коридора
+# хотя бы на эту долю min(a, b) и отступает вбок не дальше этой доли max(a, b).
+SHADOW_ADVANCE_RATIO = 0.4
+SHADOW_REACH_RATIO = 1.05
+
 # Допуск к проектной линии сопротивления по подошве (W): ЛСП до W + 3% — норма.
 TOE_BURDEN_TOLERANCE = 0.03
 
@@ -163,27 +168,71 @@ def allowed_floor_burden_m(pattern_params: dict | None) -> float | None:
     return w * (1.0 + TOE_BURDEN_TOLERANCE) if w > 0 else None
 
 
-def _corridor_half_width_m(pattern_params: dict | None) -> float:
-    """Половина шага по ряду: a, без него — W, без обоих — `DEFAULT_CORRIDOR_STEP_M`."""
+def _grid_steps_m(pattern_params: dict | None) -> tuple[float, float]:
+    """Шаги сетки (a, b): a — `spacing_a_m`, без него W, без обоих
+    `DEFAULT_CORRIDOR_STEP_M`; b — `burden_b_m`, без него a."""
     params = pattern_params or {}
-    for key in ("spacing_a_m", "burden_b_m"):
+
+    def step(key: str) -> float:
         try:
-            step = float(params.get(key) or 0.0)
+            value = float(params.get(key) or 0.0)
         except (TypeError, ValueError):
-            step = 0.0
-        if step > 0:
-            return step / 2.0
-    return DEFAULT_CORRIDOR_STEP_M / 2.0
+            return 0.0
+        return value if value > 0 else 0.0
+
+    a = step("spacing_a_m") or step("burden_b_m") or DEFAULT_CORRIDOR_STEP_M
+    b = step("burden_b_m") or a
+    return a, b
+
+
+def _shadowed(
+    i: int,
+    value: float,
+    points,
+    toe_point,
+    tree: shapely.STRtree,
+    min_advance: float,
+    reach: float,
+) -> bool:
+    """Закрыта ли скважина i соседом сетки на пути к ближайшей точке подошвы.
+
+    d — единичный вектор от точки i к ближайшей точке линии подошвы; для соседа
+    j продвижение — проекция (p_j − p_i) на d, отступ вбок — модуль
+    перпендикулярной составляющей. Такой сосед лежит не дальше `reach` от
+    отрезка «точка i → подошва», поэтому запрос к индексу его не пропустит.
+    """
+    px, py = points[i].x, points[i].y
+    dx, dy = (toe_point.x - px) / value, (toe_point.y - py) / value
+    corridor = LineString([points[i], toe_point])
+    for k in tree.query(corridor, predicate="dwithin", distance=reach):
+        j = int(k)
+        if j == i:
+            continue
+        vx, vy = points[j].x - px, points[j].y - py
+        advance = vx * dx + vy * dy
+        lateral = abs(vx * dy - vy * dx)
+        if min_advance <= advance < value and lateral <= reach:
+            return True
+    return False
 
 
 def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
     """ЛСП включённых рядовых скважин, стоящих у откоса.
 
-    ЛСП — расстояние в плане от точки оси на уровне подошвы до ближайшей точки
-    линии подошвы. Скважина стоит у откоса, если в коридоре между этими двумя
-    точками нет другой включённой скважины сетки (`row_family == "grid"`, в том
-    числе ручной), которая ближе к подошве: расстояние соседа до отрезка меньше
-    a/2 и его ЛСП меньше. Номер ряда не важен — так первый ряд находится и у
+    ЛСП — расстояние в плане от точки оси на уровне подошвы p_i до ближайшей
+    точки линии подошвы t_i. Пусть d — единичный вектор от p_i к t_i. Скважину i
+    закрывает от откоса другая включённая скважина сетки j (`row_family ==
+    "grid"`, в том числе ручная), если одновременно:
+
+    1. продвижение j к подошве (p_j − p_i)·d не меньше 0,4·min(a, b) и меньше
+       ЛСП_i — j стоит впереди i, между ней и подошвой;
+    2. отступ j вбок от направления d не больше 1,05·max(a, b).
+
+    Закрытая скважина ЛСП не получает. Продвижение берётся вдоль коридора i, а
+    не разностью ЛСП: у фланга сосед может быть ближе к фронтальной подошве, но
+    стоять сбоку от пути к фланговой. Отступ до max(a, b) нужен шахматной сетке:
+    сосед предыдущего ряда стоит в a/2 (ряды вдоль бровки) или в b (ряды
+    поперёк бровки) сбоку. Номер ряда не важен — так первый ряд находится и у
     фланговых свободных поверхностей, и у рядов поперёк бровки.
     """
     toe = toe_line(design.contour)
@@ -194,7 +243,9 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
         return {}
     toe_geom = MultiLineString(lines)
     allowed = allowed_floor_burden_m(design.pattern_params)
-    half = _corridor_half_width_m(design.pattern_params)
+    a, b = _grid_steps_m(design.pattern_params)
+    min_advance = SHADOW_ADVANCE_RATIO * min(a, b)
+    reach = SHADOW_REACH_RATIO * max(a, b)
     grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
     if not grid:
         return {}
@@ -207,12 +258,8 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
             continue
         value = float(values[i])
         if value > 0:
-            corridor = LineString([points[i], nearest_points(toe_geom, points[i])[0]])
-            near = tree.query(corridor, predicate="dwithin", distance=half)
-            if any(
-                j != i and values[j] < value and shapely.distance(points[j], corridor) < half
-                for j in (int(k) for k in near)
-            ):
+            toe_point = nearest_points(toe_geom, points[i])[0]
+            if _shadowed(i, value, points, toe_point, tree, min_advance, reach):
                 continue
         result[hole.id] = FloorBurden(
             hole_id=hole.id,

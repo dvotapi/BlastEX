@@ -280,3 +280,60 @@ def test_boot_holes_under_pocket_crest_get_floor_burden():
         assert hole.id in result, hole.id
         assert result[hole.id].value_m > 5.15
         assert result[hole.id].excess is True
+
+
+# --- Шахматная сетка ---------------------------------------------------------
+
+
+def staggered_along_face(spacing_a: float) -> list[Hole]:
+    # Ряды вдоль фронта (y = 0), второй ряд сдвинут на a/2: соседи первого ряда
+    # стоят ровно в a/2 сбоку от коридора скважины второго ряда.
+    holes = []
+    for r in range(3):
+        shift = spacing_a / 2 if r % 2 else 0.0
+        c = 0
+        while 2.0 + shift + spacing_a * c <= 38.0:
+            holes.append(vertical_hole(f"{r + 1}-{c + 1:02d}", 2.0 + shift + spacing_a * c, 3.7 * (r + 1), row=r))
+            c += 1
+    return holes
+
+
+@pytest.mark.parametrize("spacing_a", [4.0, 5.0, 3.9])
+def test_staggered_rows_along_face_second_row_has_no_floor_burden(spacing_a):
+    holes = staggered_along_face(spacing_a)
+    params = {"pattern": "staggered", "spacing_a_m": spacing_a, "burden_b_m": 3.7}
+    result = floor_burdens(design_with(holes, params))
+    first = [h for h in holes if h.row == 0]
+    assert first and all(h.id in result for h in first)
+    for hole in first:
+        assert result[hole.id].value_m == pytest.approx(3.7 + 2.6795, abs=1e-3)
+    assert not any(h.id in result for h in holes if h.row > 0)
+
+
+def test_generated_staggered_rows_across_face_end_holes_behind_neighbours_not_excess():
+    from design.pattern import generate_pattern
+
+    contour = rect_contour()
+    a, b = 4.0, 3.7
+    params = {
+        "pattern": "staggered", "spacing_a_m": a, "burden_b_m": b,
+        "offset_from_face_m": 1.1, "depth_m": 11.0, "row_azimuth_deg": 0.0,
+    }
+    holes = generate_pattern(contour, params)
+    result = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=params))
+    grid = [h for h in holes if h.enabled]
+
+    def has_hole_in_front(hole: Hole) -> bool:
+        # Перед скважиной: на полшага a ближе к фронту, в соседнем ряду (до b сбоку).
+        return any(
+            other is not hole
+            and hole.collar.y - other.collar.y >= a / 2 - 1e-6
+            and abs(hole.collar.x - other.collar.x) <= b + 1e-6
+            for other in grid
+        )
+
+    behind = [h for h in grid if h.kind == "production" and has_hole_in_front(h)]
+    assert behind
+    assert not any(result[h.id].excess for h in behind if h.id in result)
+    # Скважины, перед которыми никого нет, по-прежнему проверяются.
+    assert any(fb.excess for fb in result.values())

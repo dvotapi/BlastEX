@@ -1,15 +1,17 @@
 // Устаревший результат «Рассчитать тайминг»: времена, изолинии и темп отбойки
-// посчитаны по раскладке скважин, породе и сетке a × b на момент расчёта.
-// После перестройки сетки, сдвига, включения/выключения или удаления скважин,
-// смены породы (границы темпа) или a, b (предел ребра треугольника) их нужно
+// посчитаны по раскладке скважин, сети коммутации, породе и сетке a × b на
+// момент расчёта. После перестройки сетки, сдвига, включения/выключения или
+// удаления скважин, любой правки сети (в том числе отменой и повтором), смены
+// породы (границы темпа) или a, b (предел ребра треугольника) их нужно
 // сбросить, иначе слой темпа рисует треугольники старой сетки, а панель —
 // старую медиану и доли.
 import { useEffect, useMemo, useRef } from "react";
-import type { Hole } from "../../types/design";
+import { normalizeNetwork, type Hole, type InitiationNetwork } from "../../types/design";
 
-/** Входы расчёта помимо сети коммутации: скважины, порода и сетка a × b. */
+/** Входы расчёта: скважины, сеть коммутации, порода и сетка a × b. */
 export interface AnalysisInputs {
   holes: Hole[];
+  network: InitiationNetwork;
   rockName: string;
   spacingAM: number | null | undefined;
   burdenBM: number | null | undefined;
@@ -20,21 +22,30 @@ export function holesLayoutKey(holes: Hole[]): string {
   return holes.map((h) => `${h.id}:${h.collar.x}:${h.collar.y}:${h.kind}:${h.enabled ? 1 : 0}`).join("|");
 }
 
-/** Ключ входов расчёта: раскладка, порода, a и b. */
+/**
+ * Подпись сети: стартеры, связи, замедления — всё, кроме времён срабатывания
+ * (`firing_events`), которые «Рассчитать тайминг» сам записывает в сеть.
+ */
+export function networkKey(network: InitiationNetwork): string {
+  const { firing_events: _firingEvents, ...rest } = normalizeNetwork(network);
+  return JSON.stringify(rest);
+}
+
+/** Ключ входов расчёта: раскладка, сеть, порода, a и b. */
 export function analysisInputsKey(inputs: AnalysisInputs): string {
-  return `${holesLayoutKey(inputs.holes)}#${inputs.rockName ?? ""}#${inputs.spacingAM ?? ""}#${inputs.burdenBM ?? ""}`;
+  return `${holesLayoutKey(inputs.holes)}#${networkKey(inputs.network)}#${inputs.rockName ?? ""}#${inputs.spacingAM ?? ""}#${inputs.burdenBM ?? ""}`;
 }
 
 /**
  * Зовёт `reset`, когда меняются входы расчёта. Новый массив с той же
- * раскладкой (пересчёт глубин, запись времён срабатывания после расчёта) — не
- * сброс. Правки сети коммутации сбрасывают анализ на месте правки.
+ * раскладкой (пересчёт глубин) и запись времён срабатывания после расчёта —
+ * не сброс. Единственный механизм сброса при правках скважин и сети.
  */
 export function useStaleAnalysisReset(inputs: AnalysisInputs, reset: () => void): void {
-  const { holes, rockName, spacingAM, burdenBM } = inputs;
+  const { holes, network, rockName, spacingAM, burdenBM } = inputs;
   const key = useMemo(
-    () => analysisInputsKey({ holes, rockName, spacingAM, burdenBM }),
-    [holes, rockName, spacingAM, burdenBM],
+    () => analysisInputsKey({ holes, network, rockName, spacingAM, burdenBM }),
+    [holes, network, rockName, spacingAM, burdenBM],
   );
   const previous = useRef(key);
   const resetRef = useRef(reset);

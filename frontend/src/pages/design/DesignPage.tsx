@@ -423,11 +423,12 @@ export function DesignPage({
     setCurrentMs(0);
   }
 
-  // Сетка перестроена, скважины сдвинуты, выключены или удалены, сменилась
-  // порода или a, b — анализ устарел. Правки сети сбрасывают его на месте.
+  // Сетка перестроена, скважины сдвинуты, выключены или удалены, сеть
+  // изменена (и отменой/повтором), сменилась порода или a, b — анализ устарел.
   useStaleAnalysisReset(
     {
       holes: document.holes,
+      network: document.network,
       rockName: document.rock_name,
       spacingAM: patternParams.spacing_a_m,
       burdenBM: patternParams.burden_b_m,
@@ -624,7 +625,6 @@ export function DesignPage({
         starters: starterItems.map((item) => item.hole_id),
       },
     });
-    clearAnalysis();
   }
 
   async function refreshPlans() {
@@ -977,7 +977,6 @@ export function DesignPage({
       },
     });
     setPendingTieFromId(null);
-    clearAnalysis();
   }
 
   function updateManualTie(tie: SurfaceConnector, delayMs: number) {
@@ -992,7 +991,6 @@ export function DesignPage({
         connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
       },
     });
-    clearAnalysis();
   }
 
   function removeManualTie(connectorId: string) {
@@ -1007,7 +1005,6 @@ export function DesignPage({
         connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
       },
     });
-    clearAnalysis();
   }
 
   function toggleStartersFromSelection() {
@@ -1028,7 +1025,6 @@ export function DesignPage({
       type: "SET_NETWORK",
       network: { ...network, starter_items: starterItems, starters: starterItems.map((item) => item.hole_id) },
     });
-    clearAnalysis();
   }
 
   async function generateTie() {
@@ -1045,9 +1041,6 @@ export function DesignPage({
         selected_hole_ids: Array.from(selected),
       });
       dispatch({ type: "SET_NETWORK", network: result.network });
-      setAnalysis(null);
-      setCurrentMs(0);
-      setPlaying(false);
       setPendingTieFromId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось построить схему коммутации.");

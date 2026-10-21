@@ -6,8 +6,9 @@
 медианы, второй — устойчивый разброс (межквартильный размах к медиане); cv —
 справочный, его раздувают единичные выбросы.
 
-В сетку входят только основные скважины (вид production): стабилизация,
-сателлиты и дополнительные — короткие вставки, а не сетка. Треугольник
+В сетку входят только основные скважины: вид production и вид, заданный для
+основной сетки (`pattern_params.default_kind`); стабилизация, сателлиты и
+дополнительные — короткие вставки, а не сетка (если это не вид основной сетки). Треугольник
 отбрасывается, если ребро длиннее предела, если он «щепка» (наименьшая высота
 меньше доли от min(a, b)) или его центр тяжести вне контура блока (через
 вогнутость контура).
@@ -32,8 +33,9 @@ from design.models import BlastDesign, Hole
 
 # Предел ребра — тот же, что соседство в timing_diagnostics.
 RELIEF_EDGE_FACTOR = 1.6
-# Виды скважин сетки темпа: основная производственная сетка. Стабилизация,
-# сателлиты и дополнительные ставятся между основными и дают «щепки».
+# Виды скважин сетки темпа по умолчанию: основная производственная сетка.
+# Стабилизация, сателлиты и дополнительные ставятся между основными и дают
+# «щепки». burden_relief добавляет вид основной сетки из pattern_params.
 RELIEF_HOLE_KINDS = frozenset({"production"})
 # Наименьшая высота треугольника — не меньше этой доли от min(a, b): у «щепки»
 # вдоль края сетки делитель системы мал, и темп выходит огромным.
@@ -149,15 +151,16 @@ def relief_triangles(
     *,
     min_height_m: float = 0.0,
     contour_xy: list[Point2] | None = None,
+    kinds: frozenset[str] = RELIEF_HOLE_KINDS,
 ) -> list[ReliefTriangle]:
     """Треугольники Делоне по устьям сетки со временем; темп — |∇t| плоскости.
 
-    Отбрасываются треугольники с ребром длиннее `max_edge_m`, с наименьшей
+    Берутся включённые скважины видов `kinds` со временем. Отбрасываются треугольники с ребром длиннее `max_edge_m`, с наименьшей
     высотой меньше `min_height_m` и с центром тяжести вне `contour_xy`.
     """
     used = [
         h for h in holes
-        if h.enabled and h.kind in RELIEF_HOLE_KINDS and h.id in times
+        if h.enabled and h.kind in kinds and h.id in times
     ]
     if len(used) < 3:
         return []
@@ -327,12 +330,16 @@ def burden_relief(
     params = design.pattern_params or {}
     a = float(params.get("spacing_a_m") or 5.0)
     b = float(params.get("burden_b_m") or 4.0)
+    # Основная сетка могла быть построена другим видом («Тип скважин основной сетки»).
+    default_kind = str(params.get("default_kind") or "").strip().lower()
+    kinds = RELIEF_HOLE_KINDS | {default_kind} if default_kind else RELIEF_HOLE_KINDS
     triangles = relief_triangles(
         design.holes,
         times,
         RELIEF_EDGE_FACTOR * max(a, b),
         min_height_m=RELIEF_MIN_HEIGHT_FACTOR * min(a, b),
         contour_xy=design.contour.points_xy,
+        kinds=kinds,
     )
     if not triangles:
         return None

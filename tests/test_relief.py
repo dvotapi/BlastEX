@@ -362,3 +362,19 @@ def test_stats_use_given_converging_segments():
     assert relief.stats.converging_length_m == pytest.approx(
         sum(math.dist(p, q) for p, q in relief.converging)
     )
+
+
+def test_main_grid_of_another_kind_keeps_relief():
+    # Основная сетка построена видом «дополнительные»: темп не пропадает,
+    # а стабилизация (не вид сетки) по-прежнему не входит.
+    holes = [
+        hole(h.id, h.collar.x, h.collar.y, kind="infill") for h in grid_holes()
+    ] + [hole("ST1", 2.0, -1.5, kind="stab")]
+    times = plane_times(25, 42) | {"ST1": 5.0}
+    params = {"spacing_a_m": 4.0, "burden_b_m": 3.0}
+    assert burden_relief(design_with(holes, pattern_params=params), times) is None
+    relief = burden_relief(
+        design_with(holes, pattern_params=params | {"default_kind": "infill"}), times
+    )
+    assert relief is not None and relief.stats.triangles == 12
+    assert all("ST1" not in t.hole_ids for t in relief.triangles)

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 // Результат «Рассчитать тайминг» сбрасывается, когда меняется набор скважин,
-// их устья в плане, вид или включённость, порода или сетка a × b: иначе слой
-// темпа и сводка панели «Тайминг» показывают старую сетку и старые границы.
-// Правки, не трогающие эти входы (глубина, геология), анализ не сбрасывают.
+// их устья в плане, вид или включённость, сеть коммутации (и отменой/повтором),
+// порода или сетка a × b: иначе слой темпа и сводка панели «Тайминг» показывают
+// старую сетку и старые границы. Правки, не трогающие эти входы (глубина,
+// геология), и запись времён срабатывания после расчёта анализ не сбрасывают.
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { emptyHoleGeology, type Hole } from "../../types/design";
+import { emptyHoleGeology, emptyNetwork, type Hole, type InitiationNetwork } from "../../types/design";
 import { analysisInputsKey, holesLayoutKey, useStaleAnalysisReset, type AnalysisInputs } from "./useStaleAnalysis";
 
 function hole(id: string, extra: Partial<Hole> = {}): Hole {
@@ -44,7 +45,7 @@ describe("holesLayoutKey", () => {
 });
 
 describe("analysisInputsKey", () => {
-  const inputs: AnalysisInputs = { holes: [hole("1-01")], rockName: "Гранит", spacingAM: 4.41, burdenBM: 3.53 };
+  const inputs: AnalysisInputs = { holes: [hole("1-01")], network: emptyNetwork(), rockName: "Гранит", spacingAM: 4.41, burdenBM: 3.53 };
 
   it("changes on rock, spacing and burden", () => {
     const key = analysisInputsKey(inputs);
@@ -57,7 +58,7 @@ describe("analysisInputsKey", () => {
 
 describe("useStaleAnalysisReset", () => {
   function inputsOf(holes: Hole[], extra: Partial<AnalysisInputs> = {}): AnalysisInputs {
-    return { holes, rockName: "Гранит", spacingAM: 4.41, burdenBM: 3.53, ...extra };
+    return { holes, network: emptyNetwork(), rockName: "Гранит", spacingAM: 4.41, burdenBM: 3.53, ...extra };
   }
 
   it("resets only when the hole layout changes", () => {
@@ -95,6 +96,42 @@ describe("useStaleAnalysisReset", () => {
     expect(reset).toHaveBeenCalledTimes(2);
 
     rerender({ inputs: inputsOf(holes, { rockName: "Базальт", spacingAM: 5, burdenBM: 4 }) });
+    expect(reset).toHaveBeenCalledTimes(3);
+  });
+
+  it("resets on undo-like network change but not on firing_events", () => {
+    const reset = vi.fn();
+    const holes = [hole("1-01"), hole("1-02", { collar: { x: 14, y: 5, z: 420 } })];
+    const tied: InitiationNetwork = {
+      ...emptyNetwork(),
+      starters: ["1-01"],
+      starter_items: [{ id: "st-1-01", hole_id: "1-01", delay_ms: 0, kind: "starter" }],
+      surface_connectors: [{ id: "c1", from_hole: "1-01", to_hole: "1-02", delay_ms: 25, kind: "surface", product: "" }],
+      connectors: [{ from_hole: "1-01", to_hole: "1-02", delay_ms: 25, kind: "surface" }],
+    };
+    const { rerender } = renderHook(({ inputs }) => useStaleAnalysisReset(inputs, reset), {
+      initialProps: { inputs: inputsOf(holes, { network: tied }) },
+    });
+
+    // «Рассчитать тайминг» дописывает в сеть только времена срабатывания — не сброс.
+    const fired = { ...tied, firing_events: [{ hole_id: "1-01", time_ms: 0 }] } as unknown as InitiationNetwork;
+    rerender({ inputs: inputsOf(holes, { network: fired }) });
+    expect(reset).not.toHaveBeenCalled();
+
+    // Отмена: связь и стартер вернулись к пустой сети.
+    rerender({ inputs: inputsOf(holes, { network: emptyNetwork() }) });
+    expect(reset).toHaveBeenCalledTimes(1);
+
+    // Повтор: сеть снова со связью.
+    rerender({ inputs: inputsOf(holes, { network: tied }) });
+    expect(reset).toHaveBeenCalledTimes(2);
+
+    // Правка замедления связи — сброс.
+    const slower = {
+      ...tied,
+      surface_connectors: [{ ...tied.surface_connectors[0], delay_ms: 42 }],
+    };
+    rerender({ inputs: inputsOf(holes, { network: slower }) });
     expect(reset).toHaveBeenCalledTimes(3);
   });
 });

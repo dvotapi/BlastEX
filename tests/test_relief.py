@@ -6,7 +6,13 @@ import math
 import pytest
 
 from design.models import BlastDesign, BlockContour, Hole, Point3
-from design.relief import ReliefTriangle, burden_relief, relief_stats, relief_triangles
+from design.relief import (
+    ReliefTriangle,
+    burden_relief,
+    converging_edges,
+    relief_stats,
+    relief_triangles,
+)
 
 
 def hole(hid: str, x: float, y: float, kind: str = "production") -> Hole:
@@ -87,7 +93,7 @@ def test_burden_relief_uses_pattern_spacing_for_edge_limit():
     assert result.stats.triangles == 12
     assert burden_relief(design_with([]), {}) is None
     data = result.to_dict()
-    assert set(data) == {"triangles", "stats"}
+    assert set(data) == {"triangles", "stats", "converging"}
     assert len(data["triangles"][0]["points"]) == 3
     assert isinstance(data["triangles"][0]["points"][0], list)
 
@@ -164,3 +170,74 @@ def test_stats_to_dict_rounds_robust_spread():
     assert stats.to_dict()["robust_spread"] == 0.8571
     zero = relief_stats([tri(0.0, 3.0), tri(0.0, 3.0), tri(5.0, 1.0)])
     assert zero.to_dict()["robust_spread"] is None
+
+
+def v_holes() -> list[Hole]:
+    # 3 ряда × 5 столбцов: a = 4 вдоль x, b = 3 вдоль y; вруб — средний столбец i = 2.
+    return [hole(f"{j + 1}-{i + 1:02d}", 4.0 * i, 3.0 * j) for j in range(3) for i in range(5)]
+
+
+def v_times() -> dict[str, float]:
+    return {
+        f"{j + 1}-{i + 1:02d}": 25.0 * abs(i - 2) + 42.0 * j for j in range(3) for i in range(5)
+    }
+
+
+def test_plane_timing_is_not_fast_and_has_no_converging_fronts():
+    relief = burden_relief(
+        design_with(grid_holes(), pattern_params={"spacing_a_m": 4.0, "burden_b_m": 3.0}),
+        plane_times(25, 42),
+    )
+    assert relief.stats.fast_share == 0.0 and relief.converging == []
+    assert relief.stats.min_bound_ms_m == 3.0 and relief.stats.max_bound_ms_m is None
+
+
+def test_simultaneous_firing_is_all_fast_without_fronts():
+    tris = relief_triangles(grid_holes(), {h.id: 500.0 for h in grid_holes()}, 6.4)
+    assert relief_stats(tris).fast_share == 1.0
+    assert converging_edges(tris) == []
+
+
+def test_bounds_from_caller():
+    stats = relief_stats(
+        relief_triangles(grid_holes(), plane_times(25, 42), 6.4), min_ms_m=16.0, max_ms_m=15.0
+    )
+    assert stats.fast_share == 1.0 and stats.slow_share == 1.0
+
+
+def test_v_cut_valley_gives_converging_line_along_cut():
+    tris = relief_triangles(v_holes(), v_times(), 6.4)
+    edges = converging_edges(tris)
+    assert edges and all(abs(a[0] - 8.0) < 1e-6 and abs(b[0] - 8.0) < 1e-6 for a, b in edges)
+    stats = burden_relief(
+        design_with(v_holes(), pattern_params={"spacing_a_m": 4.0, "burden_b_m": 3.0}), v_times()
+    ).stats
+    assert stats.converging_length_m == pytest.approx(6.0)  # средняя линия x = 8: два ребра по 3 м
+
+
+def test_ridge_is_not_converging():
+    tris = relief_triangles(v_holes(), {k: -v for k, v in v_times().items()}, 6.4)
+    assert converging_edges(tris) == []
+
+
+def test_slow_share_is_zero_without_upper_bound_and_to_dict_rounds_new_fields():
+    relief = burden_relief(
+        design_with(v_holes(), pattern_params={"spacing_a_m": 4.0, "burden_b_m": 3.0}),
+        v_times(),
+        min_ms_m=16.0,
+    )
+    assert relief.stats.slow_share == 0.0
+    data = relief.to_dict()
+    assert data["stats"]["min_bound_ms_m"] == 16.0
+    assert data["stats"]["max_bound_ms_m"] is None
+    assert data["stats"]["fast_share"] == 1.0
+    assert data["stats"]["converging_length_m"] == 6.0
+    assert all(len(seg) == 2 and all(len(p) == 2 for p in seg) for seg in data["converging"])
+
+
+def test_motion_almost_along_edge_is_not_converging():
+    # 2 мс между скважинами против 42 между рядами: подход к x = 8 под ≈ 2° < 10°.
+    times = {
+        f"{j + 1}-{i + 1:02d}": 2.0 * abs(i - 2) + 42.0 * j for j in range(3) for i in range(5)
+    }
+    assert converging_edges(relief_triangles(v_holes(), times, 6.4)) == []

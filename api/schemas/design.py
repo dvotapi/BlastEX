@@ -1164,6 +1164,28 @@ class AnalyzeRequest(BaseModel):
     ppv: PpvRequestSchema | None = None
 
 
+class ReliefTriangleSchema(BaseModel):
+    hole_ids: list[str]
+    points: list[list[float]]
+    relief_ms_m: float
+    area_m2: float
+
+
+class ReliefStatsSchema(BaseModel):
+    triangles: int
+    median_ms_m: float
+    mean_ms_m: float
+    min_ms_m: float
+    max_ms_m: float
+    cv: float | None = None
+    outside_share: float
+
+
+class BurdenReliefSchema(BaseModel):
+    triangles: list[ReliefTriangleSchema]
+    stats: ReliefStatsSchema | None = None
+
+
 class AnalyzeResponse(BaseModel):
     times_ms: dict[str, float]
     timing_warnings: list[str]
@@ -1174,6 +1196,7 @@ class AnalyzeResponse(BaseModel):
     ppv_mm_s: float | None = None
     maps: EngineeringMapsSchema | None = None
     firing_events: list[FiringEventSchema] = Field(default_factory=list)
+    relief: BurdenReliefSchema | None = None
 
 
 class DesignCostRequest(BaseModel):

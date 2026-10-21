@@ -32,11 +32,12 @@ class ReliefTriangle:
     area_m2: float
 
     def to_dict(self) -> dict[str, Any]:
+        # Округление для ответа API — только здесь.
         return {
             "hole_ids": list(self.hole_ids),
-            "points": [[x, y] for x, y in self.points],
-            "relief_ms_m": self.relief_ms_m,
-            "area_m2": self.area_m2,
+            "points": [[round(x, 3), round(y, 3)] for x, y in self.points],
+            "relief_ms_m": round(self.relief_ms_m, 2),
+            "area_m2": round(self.area_m2, 2),
         }
 
 
@@ -53,12 +54,12 @@ class ReliefStats:
     def to_dict(self) -> dict[str, Any]:
         return {
             "triangles": self.triangles,
-            "median_ms_m": self.median_ms_m,
-            "mean_ms_m": self.mean_ms_m,
-            "min_ms_m": self.min_ms_m,
-            "max_ms_m": self.max_ms_m,
-            "cv": self.cv,
-            "outside_share": self.outside_share,
+            "median_ms_m": round(self.median_ms_m, 2),
+            "mean_ms_m": round(self.mean_ms_m, 2),
+            "min_ms_m": round(self.min_ms_m, 2),
+            "max_ms_m": round(self.max_ms_m, 2),
+            "cv": None if self.cv is None else round(self.cv, 4),
+            "outside_share": round(self.outside_share, 4),
         }
 
 

@@ -20,6 +20,7 @@ from api.schemas.cost import (
 from api.schemas.design import (
     AnalyzeRequest,
     AnalyzeResponse,
+    BurdenReliefSchema,
     BlastDesignSchema,
     ChargeGenerateRequest,
     ChargeGenerateResponse,
@@ -98,6 +99,7 @@ from design.geometry import block_volume, mean_bench_height
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.hole_recompute import recompute_holes as run_recompute_holes
 from design.maps import engineering_maps
+from design.relief import burden_relief
 from design.models import (
     AsChargedHole,
     AsDrilledHole,
@@ -257,6 +259,8 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
     if request.ppv is not None:
         ppv_mm_s = estimate_ppv(mic_data["mic_kg"], request.ppv.distance_m, request.ppv.k, request.ppv.n)
 
+    relief = burden_relief(design, times)
+
     return AnalyzeResponse(
         times_ms=times,
         timing_warnings=timing_warnings,
@@ -267,6 +271,7 @@ def analyze_design(request: AnalyzeRequest) -> AnalyzeResponse:
         ppv_mm_s=ppv_mm_s,
         maps=EngineeringMapsSchema(**engineering_maps(design)),
         firing_events=[event.to_dict() for event in result.events],
+        relief=BurdenReliefSchema(**relief.to_dict()) if relief else None,
     )
 
 

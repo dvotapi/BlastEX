@@ -62,10 +62,13 @@ export function TiePanel({
   // времена — по связям.
   const electronicModes = electronic && !trunkChains;
   // Внутрискважинное замедление СИНВ при этой схеме подбирает сервер; поле
-  // показывает выбранное, только если текущая сеть построена этой схемой.
+  // показывает выбранное, только если текущая сеть построена этой схемой и
+  // этой системой (у сети ДШ/электронной там умолчание системы, а не подбор).
   const downholeAuto = trunkChains && params.system === "nonel";
   const pickedDownhole =
-    network.timing_params?.scheme === "trunk_chains" ? network.timing_params.downhole_delay_ms : undefined;
+    network.timing_params?.scheme === "trunk_chains" && network.system === params.system
+      ? network.timing_params.downhole_delay_ms
+      : undefined;
   const downholeValue = downholeAuto
     ? typeof pickedDownhole === "number" ? pickedDownhole : ""
     : params.downhole_delay_ms;
@@ -107,7 +110,12 @@ export function TiePanel({
               key={opt.value}
               type="button"
               className={`pattern-type-option${scheme === opt.value ? " active" : ""}`}
-              onClick={() => onSchemeChange(opt.value)}
+              onClick={() => {
+                onSchemeChange(opt.value);
+                // Режим электронного тайминга, выбранный при другой схеме, этой
+                // схеме не применяется и скрыт — не отправляем его серверу.
+                if (opt.value === "trunk_chains" && params.timing_mode) onParamsChange({ timing_mode: "" });
+              }}
             >
               <b>{opt.label}</b>
               <small>{opt.hint}</small>

@@ -72,6 +72,7 @@ describe("TiePanel trunk_chains", () => {
       connectors: [],
       surface_connectors: [],
       starter_items: [],
+      system: "nonel",
       timing_params: { scheme: "trunk_chains", downhole_delay_ms: 700 },
     } as unknown as InitiationNetwork;
     renderPanel({ scheme: "trunk_chains", network, params: { ...DEFAULT_TIE_PARAMS, downhole_delay_ms: 500 } });
@@ -90,6 +91,35 @@ describe("TiePanel trunk_chains", () => {
     const field = screen.getByLabelText("Внутрискважинное замедление, мс");
     expect(field).toHaveValue(null);
     expect(field).toHaveAttribute("placeholder", "подбирается");
+  });
+
+  it("does not show the downhole delay of a network built by another system", () => {
+    const network = {
+      system: "detcord",
+      starters: [],
+      connectors: [],
+      surface_connectors: [],
+      starter_items: [],
+      timing_params: { scheme: "trunk_chains", downhole_delay_ms: 500 },
+    } as unknown as InitiationNetwork;
+    renderPanel({ scheme: "trunk_chains", network, params: { ...DEFAULT_TIE_PARAMS, system: "nonel" } });
+    const field = screen.getByLabelText("Внутрискважинное замедление, мс");
+    expect(field).toBeDisabled();
+    expect(field).toHaveValue(null);
+    expect(field).toHaveAttribute("placeholder", "подбирается");
+  });
+
+  it("drops a stale electronic timing mode when trunk_chains is chosen", () => {
+    const onSchemeChange = vi.fn();
+    const onParamsChange = vi.fn();
+    const params = { ...DEFAULT_TIE_PARAMS, system: "electronic" as const, timing_mode: "direction" as const };
+    renderPanel({ scheme: "row", params, onSchemeChange, onParamsChange });
+    fireEvent.click(screen.getByText("Магистраль + цепочки"));
+    expect(onSchemeChange).toHaveBeenCalledWith("trunk_chains");
+    expect(onParamsChange).toHaveBeenCalledWith({ timing_mode: "" });
+    onParamsChange.mockClear();
+    fireEvent.click(screen.getByText("Порядная"));
+    expect(onParamsChange).not.toHaveBeenCalled();
   });
 
   it("hides electronic timing modes for trunk_chains", () => {

@@ -875,6 +875,9 @@ export type PatternParams = {
   subdrill_m: number;
   angle_deg: number;
   azimuth_deg: number;
+  // Наклон 1–2 рядов основной сетки у откоса; ключей нет, пока их не задали
+  front_rows_tilt_count?: 0 | 1 | 2;
+  front_rows_tilt_deg?: number;
   default_kind: HoleKind;
   row_params: RowPatternParams[];
   contour_row: boolean;

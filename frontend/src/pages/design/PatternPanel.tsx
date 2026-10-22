@@ -157,6 +157,33 @@ export function PatternPanel({
           <label>Азимут наклона, °<input type="number" min="0" max="359" step="1" {...num("azimuth_deg")} /></label>
         </div>
 
+        <div className="field-pair">
+          <label title="Наклоняются только ряды основной сетки, в сторону ближайшего участка откоса (верхней бровки). Устья остаются на местах.">
+            Наклонных рядов у откоса
+            <select
+              value={params.front_rows_tilt_count ?? 0}
+              onChange={(e) => onChange({ front_rows_tilt_count: Number(e.target.value) as 0 | 1 | 2 })}
+            >
+              <option value={0}>0</option>
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+            </select>
+          </label>
+          {(params.front_rows_tilt_count ?? 0) > 0 && (
+            <label title="Наклон от вертикали в сторону откоса, от 0 до 30°. Относится только к рядам основной сетки.">
+              Наклон рядов у откоса, ° от вертикали
+              <input
+                type="number"
+                min="0"
+                max="30"
+                step="1"
+                value={params.front_rows_tilt_deg ?? 15}
+                onChange={(e) => onChange({ front_rows_tilt_deg: Math.min(30, Math.max(0, Number(e.target.value))) })}
+              />
+            </label>
+          )}
+        </div>
+
         <div className="kind-flags">
           <label className="checkbox-row"><input type="checkbox" checked={params.buffer_row} onChange={(e) => onChange({ buffer_row: e.target.checked })} />Буферный ряд</label>
           <label className="checkbox-row"><input type="checkbox" checked={params.trim_row} onChange={(e) => onChange({ trim_row: e.target.checked })} />Оконтуривание</label>

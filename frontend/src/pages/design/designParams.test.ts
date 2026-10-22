@@ -209,3 +209,14 @@ describe("порода из «Расчёта» при переносе вари�
     expect(next.present.rock_name).toBe("Гранит");
   });
 });
+
+describe("наклон рядов у откоса", () => {
+  it("паспорт без новых ключей их не получает", () => {
+    const design = passport();
+    const state = opened(design);
+    const written = designWithParams(state, formsOf(state));
+    expect(written.pattern_params).not.toHaveProperty("front_rows_tilt_count");
+    expect(written.pattern_params).not.toHaveProperty("front_rows_tilt_deg");
+    expect(DEFAULT_PATTERN_PARAMS).not.toHaveProperty("front_rows_tilt_count");
+  });
+});

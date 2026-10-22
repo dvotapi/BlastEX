@@ -106,7 +106,7 @@ import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
-import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign } from "./designParams";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -189,12 +189,15 @@ export function DesignPage({
   user,
   incomingVariant,
   incomingFaceAngleFromVerticalDeg = null,
+  incomingRockName = null,
   onVariantConsumed,
 }: {
   user: User;
   incomingVariant: BlastVariant | null;
   /** Угол откоса объекта от вертикали, °, из «Расчёта»; нужен только новому проекту. */
   incomingFaceAngleFromVerticalDeg?: number | null;
+  /** Порода листа «Расчёт» (имя записи справочника); ставится новому проекту и проекту без породы. */
+  incomingRockName?: string | null;
   onVariantConsumed: () => void;
 }) {
   const [state, dispatch] = useReducer(designReducer, emptyDesign(), initDesignState);
@@ -470,6 +473,16 @@ export function DesignPage({
   useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); refreshLearning(); refreshDriftAlerts(); refreshSpatial(); }, []);
   useEffect(() => { refreshRegistry(); }, [registryFamily]);
 
+  // Породы справочника для выбора породы блока (границы темпа отбойки).
+  const [rockNames, setRockNames] = useState<string[]>([]);
+  useEffect(() => {
+    api.rocks()
+      .then((data) => setRockNames(data.items.map((rock) => rock.name)))
+      .catch(() => {
+        // Без справочника пород проект строится; выбор породы останется пустым.
+      });
+  }, []);
+
   useEffect(() => {
     api.explosives()
       .then((data) => {
@@ -541,6 +554,8 @@ export function DesignPage({
     }));
     const benchPatch = benchPatchFromObjectAngle(document, incomingFaceAngleFromVerticalDeg);
     if (benchPatch) dispatch({ type: "SET_BENCH", bench: benchPatch });
+    const rockName = rockNameFromTransfer(document, incomingRockName);
+    if (rockName !== null) dispatch({ type: "SET_ROCK_NAME", rock_name: rockName });
     onVariantConsumed();
   }, [incomingVariant]);
 
@@ -2786,6 +2801,9 @@ export function DesignPage({
                 bench={document.contour.bench}
                 coordinateSystem={document.coordinate_system}
                 holeCount={document.holes.length}
+                rockName={document.rock_name}
+                rockNames={rockNames}
+                onRockNameChange={(rock_name) => dispatch({ type: "SET_ROCK_NAME", rock_name })}
                 onBenchChange={(bench) => dispatch({ type: "SET_BENCH", bench })}
                 onCoordinateSystemChange={(patch) => dispatch({ type: "SET_COORDINATE_SYSTEM", patch })}
                 onImport={importSurface}

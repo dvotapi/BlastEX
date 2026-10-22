@@ -40,6 +40,8 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
   const [pendingVariant, setPendingVariant] = useState<BlastVariant | null>(null);
   // Угол откоса объекта (от вертикали, °), который едет вместе с вариантом.
   const [pendingFaceAngle, setPendingFaceAngle] = useState<number | null>(null);
+  // Порода листа «Расчёт» (имя записи справочника) — тоже едет с вариантом.
+  const [pendingRockName, setPendingRockName] = useState<string | null>(null);
   const [economicsPassportId, setEconomicsPassportId] = useState<string | null>(null);
   // Узел в шапке, куда лист «Расчёт» переносит свою полосу инструментов
   // через createPortal (см. topbarSlot.tsx); callback-ref, чтобы страницы
@@ -57,9 +59,10 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
     return saved === null ? true : saved === "true";
   });
 
-  function sendToDesign(variant: BlastVariant, faceAngleFromVerticalDeg: number) {
+  function sendToDesign(variant: BlastVariant, faceAngleFromVerticalDeg: number, rockName: string) {
     setPendingVariant(variant);
     setPendingFaceAngle(faceAngleFromVerticalDeg);
+    setPendingRockName(rockName);
     setPage("Проектирование");
   }
 
@@ -144,7 +147,8 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
                 user={user}
                 incomingVariant={pendingVariant}
                 incomingFaceAngleFromVerticalDeg={pendingFaceAngle}
-                onVariantConsumed={() => { setPendingVariant(null); setPendingFaceAngle(null); }}
+                incomingRockName={pendingRockName}
+                onVariantConsumed={() => { setPendingVariant(null); setPendingFaceAngle(null); setPendingRockName(null); }}
               />
             )}
             {page === "Экономика" && (

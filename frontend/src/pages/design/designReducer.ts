@@ -45,6 +45,8 @@ export type DesignAction =
   /** Ответ сервера на сохранение открытого паспорта: история правок остаётся. */
   | { type: "SAVED"; design: BlastDesign; base?: BlastDesign }
   | { type: "SET_NAME"; name: string }
+  /** Порода блока: по ней анализ берёт границы темпа отбойки из справочника. */
+  | { type: "SET_ROCK_NAME"; rock_name: string }
   | { type: "SET_CONTOUR_VERTICES"; vertices: BlastDesign["contour"]["vertices"]; free_faces?: number[][]; coalesce?: boolean }
   | { type: "TOGGLE_FREE_FACE"; edgeIndex: number }
   | {
@@ -240,6 +242,8 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
   switch (action.type) {
     case "SET_NAME":
       return { ...document, name: action.name };
+    case "SET_ROCK_NAME":
+      return { ...document, rock_name: action.rock_name };
     case "SET_CONTOUR_VERTICES": {
       // Вставка и удаление вершин присылают пересчитанные пометки откосов:
       // индексы рёбер при этом сдвигаются, и сохранить старые нельзя.

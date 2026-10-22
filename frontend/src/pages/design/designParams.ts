@@ -86,3 +86,19 @@ export function benchPatchFromObjectAngle(
   if (design.contour.vertices.length > 0) return null;
   return { face_angle_deg: 90 - clampFaceAngleFromVertical(angleFromVerticalDeg) };
 }
+
+/**
+ * Порода из «Расчёта» при переносе варианта: ставится новому проекту и
+ * проекту без породы, выбранную в проекте не перетирает. Пустое имя и
+ * проект, проектную часть которого править нельзя, — null.
+ */
+export function rockNameFromTransfer(
+  design: Pick<BlastDesign, "design_id" | "rock_name" | "lifecycle_status">,
+  rockName: string | null | undefined,
+): string | null {
+  const name = (rockName ?? "").trim();
+  if (!name) return null;
+  if (!canEdit(design.lifecycle_status, "designed")) return null;
+  if (design.design_id && design.rock_name.trim()) return null;
+  return name === design.rock_name ? null : name;
+}

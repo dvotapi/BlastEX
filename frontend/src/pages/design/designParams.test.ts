@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
 import { designReducer, initDesignState, type DesignAction, type DesignState } from "./designReducer";
-import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, type DesignParams } from "./designParams";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, type DesignParams } from "./designParams";
 
 const DEFAULT_EXPLOSIVE = "ГРАНУЛИТ-РП";
 
@@ -177,5 +177,35 @@ describe("угол откоса объекта при переносе вари�
 
   it("угла нет — бровку не трогаем", () => {
     expect(benchPatchFromObjectAngle(emptyDesign(), null)).toBeNull();
+  });
+});
+
+describe("порода из «Расчёта» при переносе варианта", () => {
+  it("новому проекту ставится порода листа", () => {
+    expect(rockNameFromTransfer(emptyDesign(), "Гранит")).toBe("Гранит");
+  });
+
+  it("новому проекту порода листа заменяет прежнюю", () => {
+    expect(rockNameFromTransfer({ ...emptyDesign(), rock_name: "Известняк" }, "Гранит")).toBe("Гранит");
+  });
+
+  it("сохранённому проекту без породы — ставится", () => {
+    expect(rockNameFromTransfer(passport({ rock_name: "" }), " Гранит ")).toBe("Гранит");
+  });
+
+  it("выбранную в сохранённом проекте породу не перетирает", () => {
+    expect(rockNameFromTransfer(passport({ rock_name: "Известняк" }), "Гранит")).toBeNull();
+  });
+
+  it("пустая порода листа и утверждённый проект — без изменений", () => {
+    expect(rockNameFromTransfer(emptyDesign(), "")).toBeNull();
+    expect(rockNameFromTransfer(passport({ rock_name: "", lifecycle_status: "approved" }), "Гранит")).toBeNull();
+  });
+
+  it("перенос ставит породу в паспорт через SET_ROCK_NAME", () => {
+    const state = initDesignState(emptyDesign());
+    const name = rockNameFromTransfer(state.present, "Гранит");
+    const next = designReducer(state, { type: "SET_ROCK_NAME", rock_name: name! });
+    expect(next.present.rock_name).toBe("Гранит");
   });
 });

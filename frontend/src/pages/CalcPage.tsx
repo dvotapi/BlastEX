@@ -55,7 +55,7 @@ function FullBvrCalc({
   onSendToDesign,
   onOpenEconomics,
 }: {
-  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number) => void;
+  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number, rockName: string) => void;
   onOpenEconomics?: (passportId: string) => void;
 }) {
   const [rocks, setRocks] = useState<Rock[]>([]);
@@ -768,7 +768,7 @@ function FullBvrCalc({
                 )}
               </span>
               {onSendToDesign && (
-                <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected, faceAngleFromVerticalDeg)}>
+                <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected, faceAngleFromVerticalDeg, rockName)}>
                   Перенести в проект →
                 </button>
               )}
@@ -884,7 +884,7 @@ export function CalcPage({
   onSendToDesign,
   onOpenEconomics,
 }: {
-  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number) => void;
+  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number, rockName: string) => void;
   onOpenEconomics?: (passportId: string) => void;
 }) {
   return <FullBvrCalc onSendToDesign={onSendToDesign} onOpenEconomics={onOpenEconomics} />;

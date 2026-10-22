@@ -84,3 +84,25 @@ describe("SurfacePanel: угол откоса", () => {
     expect(props.onBenchChange).not.toHaveBeenCalled();
   });
 });
+
+describe("SurfacePanel: порода блока", () => {
+  it("список из справочника с пустым вариантом, выбор уходит наверх", () => {
+    const onRockNameChange = vi.fn();
+    renderPanel(0, { rockName: "", rockNames: ["Гранит", "Известняк"], onRockNameChange });
+
+    const select = screen.getByLabelText(/Порода блока/) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Не выбрана", "Гранит", "Известняк"]);
+    expect(select.value).toBe("");
+    fireEvent.change(select, { target: { value: "Гранит" } });
+    expect(onRockNameChange).toHaveBeenCalledWith("Гранит");
+    fireEvent.change(select, { target: { value: "" } });
+    expect(onRockNameChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("порода паспорта, которой нет в справочнике, остаётся выбранной", () => {
+    renderPanel(0, { rockName: "Базальт", rockNames: ["Гранит"], onRockNameChange: vi.fn() });
+
+    const select = screen.getByLabelText(/Порода блока/) as HTMLSelectElement;
+    expect(select.value).toBe("Базальт");
+  });
+});

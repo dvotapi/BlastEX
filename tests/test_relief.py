@@ -419,9 +419,63 @@ def test_limits_follow_actual_grid_steps():
     assert relief_limits(holes[:2], times, a, b) == pytest.approx((1.6 * a, 0.3 * b))
 
 
+# Противовес test_single_missing_hole_is_bridged: пропуски в 1–3 шага перекрываются,
+# а скважина в 40 м — нет.
 def test_far_hole_is_still_dropped_with_actual_limits():
     holes = grid_holes() + [hole("far", 40.0, 0.0)]
     times = plane_times(25, 42) | {"far": 300.0}
     relief = burden_relief(design_with(holes, pattern_params={"spacing_a_m": 4.0, "burden_b_m": 3.0}), times)
     assert all("far" not in t.hole_ids for t in relief.triangles)
     assert relief.stats.triangles == 12
+
+
+# Решение владельца 22.10.2026: треугольники перекрывают пропуски из 1–3
+# отсутствующих скважин (темп считается по соседям через пропуск). Большие
+# пустоты по-прежнему не перекрываются — см. test_far_hole_is_still_dropped_*.
+def _gap_grid(missing: set[tuple[int, int]], a: float = 4.41, b: float = 3.53):
+    """Сетка 7 × 6 без скважин `missing` (пары (ряд j, колонка i)); плоские времена."""
+    holes = [
+        hole(f"{j + 1}-{i + 1:02d}", a * i, b * j)
+        for j in range(6) for i in range(7) if (j, i) not in missing
+    ]
+    times = {h.id: 25.0 * h.collar.x / a + 42.0 * h.collar.y / b for h in holes}
+    design = design_with(holes, pattern_params={"spacing_a_m": a, "burden_b_m": b})
+    return burden_relief(design, times), times
+
+
+def _covered(tris: list[ReliefTriangle], x: float, y: float) -> bool:
+    def side(p, q):
+        return (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0])
+
+    for t in tris:
+        s = [side(t.points[k], t.points[(k + 1) % 3]) for k in range(3)]
+        if all(v >= -1e-9 for v in s) or all(v <= 1e-9 for v in s):
+            return True
+    return False
+
+
+def test_full_grid_triangle_count_is_baseline():
+    relief, _ = _gap_grid(set())
+    assert relief.stats.triangles == 60  # 6 × 5 ячеек по 2 треугольника
+
+
+def test_single_missing_hole_is_bridged():
+    a, b = 4.41, 3.53
+    relief, _ = _gap_grid({(2, 3)})
+    # Замеренное число: 60 − 2 треугольника, потерянных вместе со скважиной.
+    assert relief.stats.triangles == 58
+    assert all("3-04" not in t.hole_ids for t in relief.triangles)
+    assert _covered(relief.triangles, a * 3, b * 2)
+
+
+def test_three_missing_holes_in_a_row_are_bridged_without_artefact():
+    a, b = 4.41, 3.53
+    missing = {(2, 2), (2, 3), (2, 4)}
+    relief, _ = _gap_grid(missing)
+    # Замеренное число: 60 − 6 треугольников трёх скважин ряда.
+    assert relief.stats.triangles == 54
+    for _, i in sorted(missing):
+        assert _covered(relief.triangles, a * i, b * 2)
+    # Плоское время: темп над перекрытием равен темпу плоскости (нет артефакта).
+    expected = math.hypot(25.0 / a, 42.0 / b)
+    assert all(t.relief_ms_m == pytest.approx(expected, rel=1e-6) for t in relief.triangles)

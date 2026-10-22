@@ -7,7 +7,7 @@ from collections import Counter
 from design.models import Hole, face_pair_partner_id, logical_row
 from design.pattern import generate_pattern
 from design.trunk_network import plan_trunk_chains, row_axis
-from tests.front_rows_fixtures import BASE, CONTOUR, _rect_contour, vertical_hole
+from tests.front_rows_fixtures import BASE, CONTOUR, _contour_of, _rect_contour, vertical_hole
 
 # Прямоугольник 20×16, a = b = 4, бровка снизу: ряд 0 на y = 0, вглубь — по +Y.
 RECT = {
@@ -86,9 +86,45 @@ class SteppedFrontTests(unittest.TestCase):
         column_heads = {h.id for h in heads.values()}
         self.assertGreater(len({logical_row(h.row) for h in heads.values()}), 1)
         plan = plan_trunk_chains(stepped, cut_flank="left")
-        trunk_targets = {to for frm, to, ms in plan.ties if ms == 25.0}
+        trunk_targets = {to for _, to, ms in plan.ties if ms == 25.0}
         self.assertEqual(trunk_targets | set(plan.starters), column_heads)
         self.assertEqual(set(plan.surface_ms), {h.id for h in stepped})
+
+
+class GapAndWideningTests(unittest.TestCase):
+    def _assert_columns_fire_front_to_back(self, holes, plan):
+        for h in holes:
+            for front in holes:
+                same_column = abs(front.collar.x - h.collar.x) < 1e-6
+                if same_column and logical_row(front.row) < logical_row(h.row):
+                    self.assertGreater(plan.surface_ms[h.id], plan.surface_ms[front.id], msg=(front.id, h.id))
+
+    def test_gap_in_column_does_not_make_a_head(self):
+        holes = _rect_holes()
+        gap = next(h for h in holes if logical_row(h.row) == 1 and abs(h.collar.x - 8.0) < 1e-6)
+        behind = next(h for h in holes if logical_row(h.row) == 2 and abs(h.collar.x - 8.0) < 1e-6)
+        front = next(h for h in holes if logical_row(h.row) == 0 and abs(h.collar.x - 8.0) < 1e-6)
+        holes = [h for h in holes if h.id != gap.id]
+        plan = plan_trunk_chains(holes)
+        self.assertIn((front.id, behind.id, 42.0), plan.ties)
+        self.assertEqual(set(plan.surface_ms), {h.id for h in holes})
+        self._assert_columns_fire_front_to_back(holes, plan)
+
+    def test_widening_contour_keeps_cut_in_front_row(self):
+        # Трапеция: фронт x 8…20 у бровки y = 0, тыл x 0…20 — контур расширяется вглубь.
+        contour = _contour_of([(8.0, 0.0), (20.0, 0.0), (20.0, 16.0), (0.0, 16.0)], ((0, 1),))
+        holes = generate_pattern(contour, RECT)
+        by_id = {h.id: h for h in holes}
+        min_row = min(logical_row(h.row) for h in holes)
+        first_row = [h for h in holes if logical_row(h.row) == min_row]
+        self.assertLess(min(h.collar.x for h in holes), min(h.collar.x for h in first_row))
+        plan = plan_trunk_chains(holes, cut_flank="left")
+        starter = by_id[plan.starters[0]]
+        self.assertEqual(logical_row(starter.row), min_row)
+        self.assertEqual(starter.collar.x, min(h.collar.x for h in first_row))
+        self.assertEqual(set(plan.surface_ms), {h.id for h in holes})
+        self.assertTrue(all(ms in (25.0, 42.0) for _, _, ms in plan.ties))
+        self._assert_columns_fire_front_to_back(holes, plan)
 
 
 class FacePairTests(unittest.TestCase):
@@ -123,7 +159,7 @@ class StaggeredTests(unittest.TestCase):
         # Цепочка 42 мс — всегда к скважине предыдущего ряда.
         for frm, to, ms in plan.ties:
             if ms == 42.0:
-                self.assertLess(logical_row(by_id[frm].row), logical_row(by_id[to].row))
+                self.assertEqual(logical_row(by_id[frm].row) + 1, logical_row(by_id[to].row))
 
 
 class StrayTests(unittest.TestCase):

@@ -1,16 +1,19 @@
 """Монтаж «магистраль + цепочки» для неэлектрической системы (СИНВ).
 
-Вруб — крайняя голова столбца у выбранного фланга первого ряда. От него по
-головам столбцов идёт магистраль (25 мс между соседними головами), от каждой
-головы назад по рядам — цепочка (42 мс к скважине следующего ряда).
+Голова столбца — член, у которого впереди по столбцу никого нет: в рядах
+впереди (ближайший ряд, где есть скважина в 0,75·a по оси) не нашлось
+предшественника; выключенная скважина столбца пропускается. На ступенчатой
+бровке головы лежат в разных рядах решётки, и магистраль идёт по ним, а не по
+ряду 1. Вруб — крайняя у выбранного фланга голова среди голов у переднего края
+(не глубже самой передней + 1,5·b): на контуре, расширяющемся вглубь, он
+остаётся в первом ряду. Магистраль (25 мс между соседними по оси головами)
+идёт от вруба к дальнему флангу, а головы со стороны фланга — от вруба в
+обратном порядке. От каждой головы назад по рядам — цепочка (42 мс).
 
 Член столбца — скважина семейства сетки, кроме стабилизации, сателлитов и
-наклонной у откоса. Голова — член, у которого в предыдущем логическом ряду нет
-скважины ближе 0,75·a по оси ряда; на ступенчатой бровке головы лежат в разных
-рядах решётки, и магистраль идёт по ним, а не по ряду 1. Пара у откоса
-(`face_toe`) получает копию входящей связи своей вертикальной. Прочие скважины
-(стенки, стабилизация, сателлиты, ручные вне столбцов) привязываются связью
-цепочки к ближайшей уже привязанной.
+наклонной у откоса. Пара у откоса (`face_toe`) получает копию входящей связи
+своей вертикальной. Прочие скважины (стенки, стабилизация, сателлиты, ручные
+вне столбцов) привязываются связью цепочки к ближайшей уже привязанной.
 
 Модуль не строит `InitiationNetwork`: он отдаёт граф связей и времена
 поверхностной сети от вруба (`TrunkPlan`).
@@ -33,6 +36,9 @@ _NON_COLUMN_KINDS = frozenset({"stab", "satellite", FACE_TOE_KIND})
 # Предшественник в цепочке — не дальше этой доли шага a по оси ряда: на
 # шахматной сетке (смещение a/2) это ближайший по диагонали.
 _CHAIN_OFFSET_FACTOR = 0.75
+# Вруб выбирается среди голов, лежащих не глубже самой передней + 1,5·b:
+# ступень бровки — в пределах, задний ряд расширяющегося контура — нет.
+_CUT_DEPTH_FACTOR = 1.5
 
 Vec = tuple[float, float]
 
@@ -112,6 +118,16 @@ def _row_step(rows: dict[int, list[tuple[float, Hole]]]) -> float:
     return float(np.median(gaps)) if gaps else math.inf
 
 
+def _row_burden(rows: dict[int, list[tuple[float, Hole]]], deep: Vec, fallback: float) -> float:
+    """Шаг между рядами b — медиана разностей средней глубины соседних логических рядов."""
+    means = [
+        float(np.mean([h.collar.x * deep[0] + h.collar.y * deep[1] for _, h in rows[row]]))
+        for row in sorted(rows)
+    ]
+    steps = [b - a for a, b in zip(means, means[1:]) if b - a > 1e-9]
+    return float(np.median(steps)) if steps else fallback
+
+
 def _nsi_step(value: float, label: str, warnings: list[str]) -> float:
     snapped = float(_snap(float(value), SURFACE_NSI_MS_OPTIONS))
     if abs(snapped - float(value)) > 1e-9:
@@ -134,15 +150,19 @@ def plan_trunk_chains(
         return TrunkPlan(starters=[], ties=[], surface_ms={}, warnings=warnings)
 
     by_id = {h.id: h for h in holes}
-    (ax, ay), _ = row_axis(holes)
+    (ax, ay), (dx, dy) = row_axis(holes)
 
     def along(h: Hole) -> float:
         return h.collar.x * ax + h.collar.y * ay
 
     members = [h for h in holes if _is_column_member(h)]
-    pairs = [h for h in holes if h.kind == FACE_TOE_KIND and face_pair_partner_id(h) in by_id
-             and _is_column_member(by_id[face_pair_partner_id(h)])]
-    pair_ids = {h.id for h in pairs}
+    # Пара у откоса и номер её вертикальной (вертикальная — член столбца).
+    pairs: list[tuple[Hole, str]] = []
+    for h in holes:
+        partner = face_pair_partner_id(h)
+        if partner is not None and partner in by_id and _is_column_member(by_id[partner]):
+            pairs.append((h, partner))
+    pair_ids = {h.id for h, _ in pairs}
     member_ids = {h.id for h in members}
     others = [h for h in holes if h.id not in member_ids and h.id not in pair_ids]
 
@@ -157,11 +177,18 @@ def plan_trunk_chains(
     heads: list[tuple[float, Hole]] = []
     ordered_rows = sorted(rows)
     for index, row in enumerate(ordered_rows):
-        previous = rows[ordered_rows[index - 1]] if index > 0 else []
         for pos, hole in rows[row]:
-            best = min(previous, key=lambda item: (abs(item[0] - pos), item[0], item[1].id), default=None)
-            if best is not None and abs(best[0] - pos) <= limit:
-                incoming[hole.id] = (best[1].id, chain)
+            # Предшественник — в ближайшем ряду впереди, где есть скважина в
+            # 0,75·a по оси: выключенная скважина столбца пропускается, и
+            # скважина за ней не становится головой.
+            predecessor = None
+            for back in reversed(ordered_rows[:index]):
+                best = min(rows[back], key=lambda item: (abs(item[0] - pos), item[0], item[1].id))
+                if abs(best[0] - pos) <= limit:
+                    predecessor = best[1]
+                    break
+            if predecessor is not None:
+                incoming[hole.id] = (predecessor.id, chain)
             else:
                 heads.append((pos, hole))
 
@@ -170,8 +197,19 @@ def plan_trunk_chains(
         heads.sort(key=lambda item: (item[0], item[1].id))
         if cut_flank == "right":
             heads.reverse()
-        starters.append(heads[0][1].id)
-        for (_, prev), (_, head) in zip(heads, heads[1:]):
+        # Вруб — крайняя у фланга голова среди голов у переднего края
+        # (глубина не дальше 1,5·b от самой передней): на контуре,
+        # расширяющемся вглубь, вруб не уходит в задний ряд.
+        depths = [h.collar.x * dx + h.collar.y * dy for _, h in heads]
+        front_limit = min(depths) + _CUT_DEPTH_FACTOR * _row_burden(rows, (dx, dy), limit / _CHAIN_OFFSET_FACTOR)
+        cut = next(i for i, depth in enumerate(depths) if depth <= front_limit + 1e-9)
+        starters.append(heads[cut][1].id)
+        # Магистраль от вруба к дальнему флангу, головы со стороны фланга —
+        # от вруба в обратном порядке; 25 мс между соседними головами.
+        for (_, prev), (_, head) in zip(heads[cut:], heads[cut + 1:]):
+            incoming[head.id] = (prev.id, trunk)
+        flank_side = heads[: cut + 1][::-1]
+        for (_, prev), (_, head) in zip(flank_side, flank_side[1:]):
             incoming[head.id] = (prev.id, trunk)
     elif others:
         # Сетки нет — вруб у фланга среди прочих скважин.
@@ -181,8 +219,7 @@ def plan_trunk_chains(
         others = [h for h in others if h.id != first.id]
 
     # Пара у откоса — та же входящая связь, что у её вертикальной.
-    for toe in pairs:
-        partner = face_pair_partner_id(toe)
+    for toe, partner in pairs:
         if partner in starters:
             starters.append(toe.id)
         else:

@@ -57,6 +57,9 @@ TOE_SOURCE_ANGLE = "angle"
 
 # Допуск к проектной линии сопротивления по подошве (W): ЛСП до W + 3% — норма.
 TOE_BURDEN_TOLERANCE = 0.03
+# Нижняя граница ЛСП (решение владельца 22.10.2026): не меньше 0,8·W.
+# Допустимый коридор ЛСП — от 0,8·W до W + 3 %.
+FLOOR_BURDEN_MIN_RATIO = 0.8
 
 Polyline = list[tuple[float, float]]
 
@@ -206,6 +209,8 @@ class FloorBurden:
     excess: bool  # ЛСП больше W + 3% или точка за линией подошвы — не «в допуске»
     toe_source: str = TOE_SOURCE_SURVEY  # "survey" — съёмка, "angle" — подошва по углу
     beyond_toe: bool = False  # точка на подошве за нижней бровкой: скважина выходит в откос
+    min_m: float | None = None  # 0,8·W; None, если W не задана
+    short: bool = False  # ЛСП меньше 0,8·W (W задана, скважина не за подошвой)
 
 
 @dataclass(frozen=True)
@@ -230,8 +235,8 @@ def floor_point(hole: Hole) -> tuple[float, float]:
     return (hole.toe.x - dx * k, hole.toe.y - dy * k)
 
 
-def allowed_floor_burden_m(pattern_params: dict | None) -> float | None:
-    """Допустимая ЛСП: W · (1 + 3%). W — `burden_b_m`; у квадратной сетки без него — шаг."""
+def design_burden_m(pattern_params: dict | None) -> float | None:
+    """Проектная W: `burden_b_m`; у квадратной сетки без него — шаг; None — не задана."""
     params = pattern_params or {}
     w = params.get("burden_b_m")
     if not w and params.get("pattern") == "square":
@@ -240,7 +245,19 @@ def allowed_floor_burden_m(pattern_params: dict | None) -> float | None:
         w = float(w)
     except (TypeError, ValueError):
         return None
-    return w * (1.0 + TOE_BURDEN_TOLERANCE) if w > 0 else None
+    return w if math.isfinite(w) and w > 0 else None
+
+
+def allowed_floor_burden_m(pattern_params: dict | None) -> float | None:
+    """Допустимая ЛСП сверху: W · (1 + 3%)."""
+    w = design_burden_m(pattern_params)
+    return w * (1.0 + TOE_BURDEN_TOLERANCE) if w is not None else None
+
+
+def min_floor_burden_m(pattern_params: dict | None) -> float | None:
+    """Допустимая ЛСП снизу: `FLOOR_BURDEN_MIN_RATIO` · W."""
+    w = design_burden_m(pattern_params)
+    return w * FLOOR_BURDEN_MIN_RATIO if w is not None else None
 
 
 def _grid_steps_m(pattern_params: dict | None) -> tuple[float, float]:
@@ -467,6 +484,7 @@ def floor_report(design: BlastDesign) -> tuple[dict[str, FloorBurden], list[str]
         return {}, []
     beyond = [hole.id for hole, position in zip(grid, positions) if position.beyond]
     allowed = allowed_floor_burden_m(design.pattern_params)
+    minimum = min_floor_burden_m(design.pattern_params)
     a, b = _grid_steps_m(design.pattern_params)
     min_advance, reach = shadow_limits(a, b)
     points = shapely.points(xy)
@@ -488,6 +506,9 @@ def floor_report(design: BlastDesign) -> tuple[dict[str, FloorBurden], list[str]
             excess=position.beyond or (allowed is not None and value > allowed),
             toe_source=position.source,
             beyond_toe=position.beyond,
+            min_m=minimum,
+            # Допуск 1 мкм: наклон, ограниченный ровно до 0,8·W, даёт ЛСП на ошибку округления меньше.
+            short=minimum is not None and not position.beyond and value < minimum - 1e-6,
         )
     return result, beyond
 

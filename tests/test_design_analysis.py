@@ -155,5 +155,16 @@ def test_validate_warns_when_hole_exits_into_slope():
     assert not any(w["code"] == "floor_burden_excess" and w["hole_id"] == "1-01" for w in warnings)
 
 
+def test_validate_warns_when_floor_burden_below_0_8_w():
+    from design.models import BlastDesign
+    from tests.test_toe_line import PATTERN, rect_contour, vertical_hole
+
+    hole = vertical_hole("1-01", x=10, y=0.2, row=0)  # ЛСП 2,88 < 0,8·3,7 = 2,96
+    design = BlastDesign(design_id="t", contour=rect_contour(), holes=[hole], pattern_params=PATTERN)
+    short = [w for w in validate(design) if w["code"] == "floor_burden_short"]
+    assert [w["hole_id"] for w in short] == ["1-01"]
+    assert short[0]["message"] == "ЛСП 2,9 м меньше допустимого 3,0 м (0,8·W)."
+
+
 if __name__ == "__main__":
     unittest.main()

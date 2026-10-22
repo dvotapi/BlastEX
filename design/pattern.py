@@ -21,7 +21,7 @@ from design.geometry import (
 from design.geology import domain_at
 from design.numbering import number_by_position
 from design.models import FRONT_ROW_BASE, HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3, logical_row
-from design.toe_line import corridor_blocker_pairs, crest_geometry, shadow_limits, toe_positions
+from design.toe_line import corridor_blocker_pairs, crest_geometry, min_floor_burden_m, shadow_limits, toe_positions
 
 PATTERN_TYPES = ("square", "rectangular", "staggered", "variable", "domain_dependent")
 REGULAR_PATTERNS = ("square", "rectangular", "staggered")
@@ -31,8 +31,10 @@ FRONT_ROWS_TILT_MAX_DEG = 30.0
 FRONT_ROWS_TILT_DEFAULT_DEG = 15.0
 FRONT_ROWS_TILT_MAX_COUNT = 2
 # Наклон не уводит точку оси на уровне подошвы ближе этого к линии подошвы
-# (ЛСП): угол ограничивается tan α ≤ (ЛСП вертикальной − 1 м) / H, иначе
-# забой выходит в откос (решение владельца 22.10.2026, блок №66), м.
+# (ЛСП), даже если W не задана: иначе забой выходит в откос (решение
+# владельца 22.10.2026, блок №66), м. При заданной W цель — не меньше
+# нижней границы ЛСП 0,8·W (`toe_line.min_floor_burden_m`); см.
+# `tilt_floor_burden_target_m`.
 FRONT_TILT_MIN_FLOOR_BURDEN_M = 1.0
 
 
@@ -325,6 +327,7 @@ def generate_pattern(
             contour,
             tilt_count,
             tilt_deg,
+            tilt_floor_burden_target_m(params),
             {"production", default_kind},
             spacing_a,
             burden_b,
@@ -456,12 +459,19 @@ def front_row_ranks(
     return [3 if deep[i] else 2 if blocked[i] else 1 for i in range(count)]
 
 
+def tilt_floor_burden_target_m(params: dict[str, Any]) -> float:
+    """Наименьшая ЛСП после наклона: max(0,8·W, `FRONT_TILT_MIN_FLOOR_BURDEN_M`); без W — последняя."""
+    minimum = min_floor_burden_m(params)
+    return max(minimum, FRONT_TILT_MIN_FLOOR_BURDEN_M) if minimum is not None else FRONT_TILT_MIN_FLOOR_BURDEN_M
+
+
 def _tilt_front_rows(
     grid: list[Hole],
     face_row_count: int,
     contour: BlockContour,
     tilt_count: int,
     tilt_deg: float,
+    target_m: float,
     tilt_kinds: set[str],
     spacing_a: float,
     burden_b: float,
@@ -476,11 +486,11 @@ def _tilt_front_rows(
     участку свободной поверхности. Наклоняются только виды `tilt_kinds`
     (рядовые и вид основной сетки); остальные скважины — только заслоняют.
 
-    Угол ограничен: точка оси на уровне подошвы остаётся не ближе
-    `FRONT_TILT_MIN_FLOOR_BURDEN_M` к линии подошвы (та же линия, что у ЛСП,
-    с правилом развала) — tan α ≤ (ЛСП вертикальной − 1 м) / H, H — высота
-    уступа у скважины. ЛСП вертикальной не больше 1 м — скважина остаётся
-    с общим углом.
+    Угол ограничен: точка оси на уровне подошвы остаётся не ближе `target_m`
+    (`tilt_floor_burden_target_m`: 0,8·W, но не меньше 1 м) к линии подошвы
+    (та же линия, что у ЛСП, с правилом развала) — tan α ≤ (ЛСП вертикальной −
+    target_m) / H, H — высота уступа у скважины. ЛСП вертикальной не больше
+    target_m — скважина остаётся с общим углом.
     """
     collars = [(h.collar.x, h.collar.y) for h in grid]
     ranks = front_row_ranks(collars, contour, spacing_a, burden_b, forced_first=face_row_count)
@@ -494,7 +504,7 @@ def _tilt_front_rows(
     result = list(grid)
     for i, height, position in zip(picked, heights, positions):
         face_azimuth = face_azimuth_deg(collars[i], contour)
-        room = position.distance_m - FRONT_TILT_MIN_FLOOR_BURDEN_M
+        room = position.distance_m - target_m
         if face_azimuth is None or height <= 0 or room <= 1e-6:
             continue
         angle = min(tilt_deg, math.degrees(math.atan(room / height)))

@@ -12,13 +12,15 @@ from design.pattern import (
     FRONT_TILT_MIN_FLOOR_BURDEN_M,
     front_row_ranks,
     generate_pattern,
+    tilt_floor_burden_target_m,
 )
-from design.toe_line import floor_burdens, floor_point
+from design.toe_line import FLOOR_BURDEN_MIN_RATIO, floor_burdens, floor_point
 
 
-# Откос 60° от горизонтали: подошва в 10·tan 30° = 5,77 м от бровки — запас,
-# при котором наклон до 30° не упирается в ограничение по ЛСП (оно — отдельно).
-FACE_ANGLE_DEG = 60.0
+# Откос 55° от горизонтали: подошва в 10·tan 35° = 7,0 м от бровки — запас,
+# при котором наклон до 30° не упирается в ограничение по ЛСП (0,8·W = 2,8 м;
+# оно проверяется отдельно).
+FACE_ANGLE_DEG = 55.0
 
 
 def _rect_contour(width: float, height: float, free_faces=((0, 1),), face_angle_deg=FACE_ANGLE_DEG) -> BlockContour:
@@ -433,10 +435,13 @@ def test_recompute_keeps_tilt():
 
 
 def test_tilt_angle_is_capped_by_floor_burden():
-    # Откос вертикальный (90°): подошва — сама бровка y = 0. Первый ряд в 3 м:
-    # ЛСП вертикальной 3 м, H = 10 м — угол не больше atan((3 − 1)/10) ≈ 11,3°.
+    # Откос вертикальный (90°): подошва — сама бровка y = 0. W не задана
+    # (нет burden_b_m) — цель 1 м. Первый ряд в 3 м: ЛСП вертикальной 3 м,
+    # H = 10 м — угол не больше atan((3 − 1)/10) ≈ 11,3°.
     contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
-    params = BASE | {"offset_from_face_m": 3.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 30}
+    base = {k: v for k, v in BASE.items() if k != "burden_b_m"} | {"spacing_a_m": 3.5}
+    params = base | {"offset_from_face_m": 3.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 30}
+    assert tilt_floor_burden_target_m(params) == FRONT_TILT_MIN_FLOOR_BURDEN_M
     holes = generate_pattern(contour, params)
     first, second = rows(holes)[:2]
     expected = math.degrees(math.atan((3.0 - FRONT_TILT_MIN_FLOOR_BURDEN_M) / 10.0))
@@ -453,9 +458,32 @@ def test_tilt_angle_is_capped_by_floor_burden():
     assert all(h.angle_deg == pytest.approx(0.0) for h in second)
 
 
+def test_tilt_angle_is_capped_at_lower_floor_burden_bound():
+    # W = 3,5 м: цель 0,8·W = 2,8 м. ЛСП вертикальной 5 м, H = 10 м —
+    # угол atan((5 − 2,8)/10) ≈ 12,4°, ЛСП после наклона 2,8 м — не «мало».
+    contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
+    params = BASE | {"offset_from_face_m": 5.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 30}
+    target = tilt_floor_burden_target_m(params)
+    assert target == pytest.approx(FLOOR_BURDEN_MIN_RATIO * 3.5)
+    holes = generate_pattern(contour, params)
+    first = rows(holes)[0]
+    expected = math.degrees(math.atan((5.0 - target) / 10.0))
+    assert expected == pytest.approx(12.41, abs=0.01)
+    design = BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=params)
+    burdens = floor_burdens(design)
+    for hole in first:
+        assert hole.angle_deg == pytest.approx(expected, abs=1e-6)
+        assert burdens[hole.id].value_m == pytest.approx(target, abs=1e-6)
+        assert burdens[hole.id].short is False
+        assert burdens[hole.id].excess is False
+    # ЛСП вертикальной меньше цели (первый ряд в 2,5 м) — без наклона.
+    near = rows(generate_pattern(contour, params | {"offset_from_face_m": 2.5}))[0]
+    assert all(h.angle_deg == pytest.approx(0.0) for h in near)
+
+
 def test_small_angle_is_not_capped():
     contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
-    params = BASE | {"offset_from_face_m": 3.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 5}
+    params = BASE | {"offset_from_face_m": 5.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 5}
     assert all(h.angle_deg == pytest.approx(5.0) for h in rows(generate_pattern(contour, params))[0])
 
 

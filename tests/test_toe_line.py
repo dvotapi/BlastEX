@@ -544,3 +544,37 @@ def test_floor_report_matches_separate_calls():
     burdens, beyond = floor_report(design)
     assert burdens == floor_burdens(design)
     assert beyond == holes_beyond_toe(design) == ["1-01"]
+
+
+# --- Нижняя граница ЛСП: 0,8·W ---
+
+
+def test_min_floor_burden_is_0_8_w():
+    from design.toe_line import FLOOR_BURDEN_MIN_RATIO, min_floor_burden_m
+
+    assert FLOOR_BURDEN_MIN_RATIO == 0.8
+    assert min_floor_burden_m(PATTERN) == pytest.approx(0.8 * 3.7)
+    assert min_floor_burden_m({"pattern": "square", "spacing_a_m": 5.0}) == pytest.approx(4.0)
+    assert min_floor_burden_m({"pattern": "rectangular", "spacing_a_m": 4.0}) is None
+
+
+def test_short_floor_burden_is_flagged():
+    # Подошва по углу y = −2,68; ЛСП 0,8·3,7 = 2,96 — граница.
+    short = vertical_hole("1-01", x=10, y=0.2, row=0)  # ЛСП 2,88
+    ok = vertical_hole("1-02", x=20, y=0.4, row=0)  # ЛСП 3,08
+    result = floor_burdens(design_with([short, ok]))
+    assert result["1-01"].short is True and result["1-01"].min_m == pytest.approx(2.96)
+    assert result["1-02"].short is False
+    assert result["1-01"].excess is False
+
+
+def test_beyond_toe_is_not_short():
+    hole = inclined_hole("1-01", x=10, y=1.0, row=0, angle_deg=30, azimuth_deg=180)
+    fb = floor_burdens(design_with([hole]))["1-01"]
+    assert fb.beyond_toe is True and fb.short is False
+
+
+def test_no_w_means_no_short():
+    hole = vertical_hole("1-01", x=10, y=0.0, row=0)
+    fb = floor_burdens(design_with([hole], {"pattern": "rectangular", "spacing_a_m": 4.0}))["1-01"]
+    assert fb.min_m is None and fb.short is False

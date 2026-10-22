@@ -324,6 +324,18 @@ def validate(
                     ),
                 }
             )
+        if item.short and item.min_m is not None:
+            warnings.append(
+                {
+                    "code": "floor_burden_short",
+                    "hole_id": hole_id,
+                    "message": (
+                        f"ЛСП {item.value_m:.1f}".replace(".", ",")
+                        + f" м меньше допустимого {item.min_m:.1f}".replace(".", ",")
+                        + " м (0,8·W)."
+                    ),
+                }
+            )
 
     for load in design.loads:
         hole = holes_by_id.get(load.hole_id)

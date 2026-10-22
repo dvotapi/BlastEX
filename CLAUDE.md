@@ -114,8 +114,11 @@ L = (S − Z)/cos α + Δ (`geometry.hole_depth_m`), пересчёт —
 Ранг местный, после раскладки (`front_row_ranks`): ряд 1 — нет скважины
 сетки впереди в коридоре к бровке (`toe_line.corridor_blockers`, та же
 проверка, что у ЛСП), ряд 2 — впереди только ряд 1; ряд вдоль бровки — ряд 1.
-Угол ограничен: точка на подошве не ближе `FRONT_TILT_MIN_FLOOR_BURDEN_M`
-(1 м) к линии подошвы ЛСП (`toe_line.toe_positions`). Точка за нижней
+Угол ограничен: точка на подошве не ближе max(0,8·W,
+`FRONT_TILT_MIN_FLOOR_BURDEN_M` = 1 м) к линии подошвы ЛСП
+(`tilt_floor_burden_target_m`, `toe_line.toe_positions`); без W — 1 м. Нижняя
+граница ЛСП — `toe_line.FLOOR_BURDEN_MIN_RATIO` (0,8·W): `short` в
+`floor_burdens`, `floor_burden_short` в `validate`. Точка за нижней
 бровкой — `floor_beyond_toe` в `validate`, `beyond_toe` и `excess` в
 `floor_burdens`. Ключи пишутся только когда заданы (иначе сменится хэш
 утверждённых паспортов). Подробности и проверка на №66 —

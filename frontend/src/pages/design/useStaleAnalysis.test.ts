@@ -9,6 +9,11 @@ import { describe, expect, it, vi } from "vitest";
 import { emptyHoleGeology, emptyNetwork, type Hole, type InitiationNetwork } from "../../types/design";
 import { analysisInputsKey, holesLayoutKey, useStaleAnalysisReset, type AnalysisInputs } from "./useStaleAnalysis";
 
+const CONTOUR: AnalysisInputs["contour"] = {
+  vertices: [{ x: 0, y: 0, z: 420 }, { x: 20, y: 0, z: 420 }, { x: 20, y: 16, z: 420 }],
+  free_faces: [[0, 1]],
+};
+
 function hole(id: string, extra: Partial<Hole> = {}): Hole {
   return {
     id,
@@ -45,7 +50,7 @@ describe("holesLayoutKey", () => {
 });
 
 describe("analysisInputsKey", () => {
-  const inputs: AnalysisInputs = { holes: [hole("1-01")], network: emptyNetwork(), rockName: "Гранит", spacingAM: 4.41, burdenBM: 3.53 };
+  const inputs: AnalysisInputs = { holes: [hole("1-01")], network: emptyNetwork(), rockName: "Гранит", spacingAM: 4.41, burdenBM: 3.53, contour: CONTOUR, defaultKind: "production" };
 
   it("changes on rock, spacing and burden", () => {
     const key = analysisInputsKey(inputs);
@@ -54,11 +59,21 @@ describe("analysisInputsKey", () => {
     expect(analysisInputsKey({ ...inputs, spacingAM: 5 })).not.toBe(key);
     expect(analysisInputsKey({ ...inputs, burdenBM: 4 })).not.toBe(key);
   });
+
+  it("changes on contour in plan, free faces and default kind, not on vertex z", () => {
+    const key = analysisInputsKey(inputs);
+    const moved = { ...CONTOUR, vertices: [CONTOUR.vertices[0], { x: 22, y: 0, z: 420 }, CONTOUR.vertices[2]] };
+    expect(analysisInputsKey({ ...inputs, contour: moved })).not.toBe(key);
+    expect(analysisInputsKey({ ...inputs, contour: { ...CONTOUR, free_faces: [[1, 2]] } })).not.toBe(key);
+    expect(analysisInputsKey({ ...inputs, defaultKind: "buffer" })).not.toBe(key);
+    const lowered = { ...CONTOUR, vertices: CONTOUR.vertices.map((v) => ({ ...v, z: 410 })) };
+    expect(analysisInputsKey({ ...inputs, contour: lowered })).toBe(key);
+  });
 });
 
 describe("useStaleAnalysisReset", () => {
   function inputsOf(holes: Hole[], extra: Partial<AnalysisInputs> = {}): AnalysisInputs {
-    return { holes, network: emptyNetwork(), rockName: "Гранит", spacingAM: 4.41, burdenBM: 3.53, ...extra };
+    return { holes, network: emptyNetwork(), rockName: "Гранит", spacingAM: 4.41, burdenBM: 3.53, contour: CONTOUR, defaultKind: "production", ...extra };
   }
 
   it("resets only when the hole layout changes", () => {
@@ -97,6 +112,24 @@ describe("useStaleAnalysisReset", () => {
 
     rerender({ inputs: inputsOf(holes, { rockName: "Базальт", spacingAM: 5, burdenBM: 4 }) });
     expect(reset).toHaveBeenCalledTimes(3);
+  });
+
+  it("resets when the contour or default kind change", () => {
+    const reset = vi.fn();
+    const holes = [hole("1-01")];
+    const { rerender } = renderHook(({ inputs }) => useStaleAnalysisReset(inputs, reset), {
+      initialProps: { inputs: inputsOf(holes) },
+    });
+    // Новый объект контура с той же геометрией — не сброс.
+    rerender({ inputs: inputsOf(holes, { contour: { ...CONTOUR, vertices: [...CONTOUR.vertices] } }) });
+    expect(reset).not.toHaveBeenCalled();
+
+    const moved = { ...CONTOUR, vertices: [CONTOUR.vertices[0], { x: 22, y: 0, z: 420 }, CONTOUR.vertices[2]] };
+    rerender({ inputs: inputsOf(holes, { contour: moved }) });
+    expect(reset).toHaveBeenCalledTimes(1);
+
+    rerender({ inputs: inputsOf(holes, { contour: moved, defaultKind: "buffer" }) });
+    expect(reset).toHaveBeenCalledTimes(2);
   });
 
   it("resets on undo-like network change but not on firing_events", () => {

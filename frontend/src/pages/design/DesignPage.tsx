@@ -430,7 +430,8 @@ export function DesignPage({
   }
 
   // Сетка перестроена, скважины сдвинуты, выключены или удалены, сеть
-  // изменена (и отменой/повтором), сменилась порода или a, b — анализ устарел.
+  // изменена (и отменой/повтором), сменились порода, a, b, контур блока или
+  // вид основной сетки — анализ устарел.
   useStaleAnalysisReset(
     {
       holes: document.holes,
@@ -438,6 +439,8 @@ export function DesignPage({
       rockName: document.rock_name,
       spacingAM: patternParams.spacing_a_m,
       burdenBM: patternParams.burden_b_m,
+      contour: document.contour,
+      defaultKind: patternParams.default_kind,
     },
     clearAnalysis,
   );

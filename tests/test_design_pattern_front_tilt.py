@@ -803,3 +803,14 @@ def test_taper_tilts_front_row_of_another_kind_in_variable_grid():
         assert [(h.collar, h.toe) for h in row_got] == [(h.collar, h.toe) for h in row_expected]
     assert all(h.angle_deg == pytest.approx(15.0) for h in got[0])
     assert all(h.angle_deg == pytest.approx(7.5) for h in got[1])
+
+
+@pytest.mark.parametrize("kind", ["buffer", "contour"])
+def test_taper_leaves_wall_row_from_row_params_vertical(kind):
+    """Стенка из `row_params` у откоса не наклоняется плавным переходом и не удаляется отступом."""
+    keys = {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 15, "min_crest_offset_m": 4.0}
+    params = BASE | keys | {"pattern": "variable", "row_params": [{"kind": kind}, {}]}
+    holes = generate_pattern(CONTOUR, params)
+    wall = [h for h in holes if h.kind == kind]
+    assert len(wall) == 11
+    assert all(h.angle_deg == pytest.approx(0.0) for h in wall)

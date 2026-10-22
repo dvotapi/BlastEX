@@ -275,3 +275,18 @@ def test_pair_added_when_variable_row_gives_front_row_another_kind():
     assert len(pairs) == len(front)
     by_id = {h.id: h for h in holes}
     assert all(by_id[p.id[:-1]].kind == "infill" for p in pairs)
+
+
+@pytest.mark.parametrize("kind", ["buffer", "contour"])
+def test_wall_row_from_row_params_gets_no_pair_and_keeps_crest_offset(kind):
+    """Стенку из `row_params` схема не трогает: ни пары, ни удаления по отступу от кромки."""
+    params = BASE | {"pattern": "variable", "row_params": [{"kind": kind}, {}]}
+    holes = generate_pattern(CONTOUR, params)
+    wall = [h for h in holes if h.kind == kind]
+    assert len(wall) == 11
+    assert all(not h.id.endswith("T") or h.kind == "face_toe" for h in holes)
+    by_id = {h.id: h for h in holes}
+    assert all(by_id[p.id[:-1]].kind != kind for p in _pairs(holes))
+    # Отступ 4 м больше расстояния ряда до кромки (3 м): стенка остаётся.
+    far = generate_pattern(CONTOUR, params | {"min_crest_offset_m": 4.0})
+    assert len([h for h in far if h.kind == kind]) == 11

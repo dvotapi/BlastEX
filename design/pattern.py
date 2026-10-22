@@ -29,6 +29,7 @@ from design.models import (
     Hole,
     Point3,
     logical_row,
+    row_family,
 )
 from design.toe_line import (
     MIN_CREST_OFFSET_DEFAULT_M,
@@ -365,10 +366,12 @@ def generate_pattern(
     # Сейчас в `holes` — вся основная сетка: ряд вдоль бровки, ряды впереди
     # первого ряда решётки и ряды решётки. Схема первого ряда у откоса — после
     # раскладки, по местному рангу (см. `_taper_front_rows`).
-    # Схема первого ряда работает со всей основной сеткой независимо от вида
-    # скважин: у variable строка `row_params` может дать ряду у откоса любой
-    # вид (например, infill) — он остаётся рядом основной сетки. Поэтому в
-    # `_off_crest`, `_face_pairs` и `_taper_front_rows` уходит только она.
+    # Схема первого ряда работает с основной сеткой: у variable строка
+    # `row_params` может дать ряду у откоса другой вид (например, infill) — он
+    # остаётся рядом основной сетки. Стенки (буфер, контур, предщель,
+    # оконтуривание) и face_toe, заданные строкой, схемой не трогаются
+    # (`_front_rows_member`). В `_off_crest`, `_face_pairs` и
+    # `_taper_front_rows` уходит только основная сетка.
     lattice_xy: dict[int, tuple[float, float]] = {}
     pair_of: dict[int, int] = {}  # id() пары → id() её вертикальной
     if mode == FRONT_ROWS_MODE_PAIR:
@@ -468,8 +471,18 @@ def generate_pattern(
     )
 
 
+def _front_rows_member(hole: Hole) -> bool:
+    """Скважина основной сетки, к которой применяется схема первого ряда.
+
+    Любой вид семейства сетки (`row_family` — «grid»), кроме стенок и
+    «Наклонной у откоса»: их строка `row_params` задаёт явно, и наклон, пара
+    или отступ от кромки их не касаются.
+    """
+    return row_family(hole.kind) == "grid" and hole.kind != FACE_TOE_KIND
+
+
 def _off_crest(holes: list[Hole], contour: BlockContour, min_offset: float) -> list[Hole]:
-    """Скважины основной сетки (`holes` — только она) без устьев ближе `min_offset` к кромке."""
+    """Основная сетка (`holes`) без устьев схемы первого ряда ближе `min_offset` к кромке."""
     crest = crest_geometry(contour)
     if crest is None or min_offset <= 0 or not holes:
         return holes
@@ -477,7 +490,7 @@ def _off_crest(holes: list[Hole], contour: BlockContour, min_offset: float) -> l
     return [
         h
         for h, d in zip(holes, distances)
-        if d >= min_offset - 1e-9
+        if not _front_rows_member(h) or d >= min_offset - 1e-9
     ]
 
 
@@ -740,8 +753,8 @@ def _face_pairs(
 ) -> list[tuple[Hole, Hole]]:
     """Пара у откоса: (вертикальная, наклонная у откоса) для скважин ранга 1.
 
-    Пара ставится к скважине основной сетки (`grid` — только она, любого
-    вида) ранга 1
+    Пара ставится к скважине основной сетки (`grid` — только она;
+    `_front_rows_member`) ранга 1
     (`front_row_ranks`), у которой ЛСП больше допустимой `allowed_m` (W + 3 %).
     Устье пары — на `FACE_PAIR_OFFSET_M` ближе к откосу по линии столбца
     (−`advance_dir`), без смещения вдоль ряда; азимут наклона — то же
@@ -763,7 +776,7 @@ def _face_pairs(
     block_h = contour.bench.height_m
     collars = [(h.collar.x, h.collar.y) for h in grid]
     ranks = front_row_ranks(collars, contour, spacing_a, burden_b, forced_first=face_row_count)
-    picked = [i for i in range(len(grid)) if ranks[i] == 1]
+    picked = [i for i in range(len(grid)) if ranks[i] == 1 and _front_rows_member(grid[i])]
     if not picked:
         return []
     heights = [hole_bench_height_m(grid[i], block_h) for i in picked]
@@ -1015,7 +1028,8 @@ def _taper_front_rows(
     α₁/2, остальные — общий угол паспорта; устья ранга k ≥ 2 сдвигаются к
     откосу на H·(tg α₁ − tg α_k) (α_k = 0 за переходом, H — высота уступа
     блока): у подошвы между соседями столбца — шаг сетки. `grid` — только
-    основная сетка; наклон и сдвиг не зависят от вида скважины.
+    основная сетка; наклоняются скважины `_front_rows_member` (не стенки и
+    не face_toe из `row_params`), сдвигаются все скважины столбца.
 
     В `grid` могут быть узлы решётки за контуром (у тыла и флангов), которые
     сдвиг вернёт внутрь: они не бывают первыми в столбце, а скважина, чьё
@@ -1068,7 +1082,7 @@ def _taper_front_rows(
         if steps:
             row_gap[anchor] = min(row_gap.get(anchor, math.inf), *steps)
 
-    first = [rank[i] == 1 for i in range(len(grid))]
+    first = [rank[i] == 1 and _front_rows_member(grid[i]) for i in range(len(grid))]
     picked = [i for i in range(len(grid)) if first[i]]
     tan_first = [0.0] * len(grid)
     if picked:
@@ -1116,7 +1130,7 @@ def _taper_front_rows(
         tan_1 = tan_first[head[i]] if head[i] >= 0 else 0.0
         if rank[i] == 1:
             tan_k = tan_first[i]
-        elif rank[i] == 2 and tilt_count >= 2:
+        elif rank[i] == 2 and tilt_count >= 2 and _front_rows_member(grid[i]):
             tan_k = math.tan(0.5 * math.atan(tan_1))
         else:
             tan_k = 0.0

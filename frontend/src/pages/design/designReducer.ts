@@ -536,6 +536,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
 
 const UNDOABLE: DesignAction["type"][] = [
   "SET_NAME",
+  "SET_ROCK_NAME",
   "SET_CONTOUR_VERTICES",
   "APPLY_CAD_CONTOUR",
   "TOGGLE_FREE_FACE",

@@ -150,3 +150,25 @@ describe("historyLocked — отмена и повтор закрыты толь
     expect(undone.present.holes).toBe(approved.present.holes);
   });
 });
+
+describe("порода блока в истории отмены", () => {
+  it("смена породы — шаг истории: отмена возвращает прежнюю, повтор применяет снова", () => {
+    let state = initDesignState({ ...emptyDesign(), rock_name: "Известняк" });
+    state = designReducer(state, { type: "SET_ROCK_NAME", rock_name: "Гранит" });
+    expect(state.present.rock_name).toBe("Гранит");
+
+    state = designReducer(state, { type: "UNDO" });
+    expect(state.present.rock_name).toBe("Известняк");
+
+    state = designReducer(state, { type: "REDO" });
+    expect(state.present.rock_name).toBe("Гранит");
+  });
+
+  it("отмена следующей правки не откатывает породу", () => {
+    let state = initDesignState(emptyDesign());
+    state = designReducer(state, { type: "SET_ROCK_NAME", rock_name: "Гранит" });
+    state = designReducer(state, { type: "SET_NAME", name: "Блок 7" });
+    state = designReducer(state, { type: "UNDO" });
+    expect(state.present.rock_name).toBe("Гранит");
+  });
+});

@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptyHoleGeology, emptyNetwork, type BlockContour, type Hole, type InitiationNetwork } from "../../types/design";
 import {
   analysisInputsKey,
+  analyzeResponseUse,
   holesLayoutKey,
   isResponseCurrent,
   MAPS_REFRESH_DELAY_MS,
@@ -296,5 +297,22 @@ describe("useStaleMapsRefresh", () => {
     unmount();
     vi.advanceTimersByTime(MAPS_REFRESH_DELAY_MS);
     expect(refetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("analyzeResponseUse", () => {
+  const keys = { startAnalysisKey: "a1", currentAnalysisKey: "a1", startMapsKey: "m1", currentMapsKey: "m1" };
+
+  it("installs analysis and maps when nothing changed", () => {
+    expect(analyzeResponseUse(keys)).toEqual({ analysis: true, maps: true });
+  });
+
+  it("drops only maps when toe geometry changed (bench angle, depth) but analysis inputs did not", () => {
+    expect(analyzeResponseUse({ ...keys, currentMapsKey: "m2" })).toEqual({ analysis: true, maps: false });
+  });
+
+  it("drops everything (and the error) when analysis inputs changed", () => {
+    expect(analyzeResponseUse({ ...keys, currentAnalysisKey: "a2" })).toEqual({ analysis: false, maps: false });
+    expect(analyzeResponseUse({ ...keys, currentAnalysisKey: "a2", currentMapsKey: "m2" })).toEqual({ analysis: false, maps: false });
   });
 });

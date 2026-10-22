@@ -70,6 +70,25 @@ export function isResponseCurrent(startKey: string, currentKey: string): boolean
   return startKey === currentKey;
 }
 
+/** Ключи входов на момент запроса «Рассчитать тайминг» и сейчас. */
+export interface AnalyzeResponseKeys {
+  startAnalysisKey: string;
+  currentAnalysisKey: string;
+  startMapsKey: string;
+  currentMapsKey: string;
+}
+
+/**
+ * Что из ответа `/design/analyze` можно поставить: сам анализ (и времена
+ * срабатывания, и ошибку) — пока не менялись входы расчёта; карты из ответа
+ * (с пунктиром «подошва по углу») — ещё и пока не менялась геометрия подошвы
+ * (отметки и угол уступа, глубины скважин в ключ анализа не входят).
+ */
+export function analyzeResponseUse(keys: AnalyzeResponseKeys): { analysis: boolean; maps: boolean } {
+  const analysis = isResponseCurrent(keys.startAnalysisKey, keys.currentAnalysisKey);
+  return { analysis, maps: analysis && isResponseCurrent(keys.startMapsKey, keys.currentMapsKey) };
+}
+
 /**
  * Зовёт `reset`, когда меняется `key`; первый рендер — не сброс. Возвращает
  * чтение текущего ключа: его берут при старте запроса и сверяют с ним ответ
@@ -151,6 +170,9 @@ export function useStaleMapsRefresh(
   key: string,
   options: { active: () => boolean; clear: () => void; refetch: () => void; delayMs?: number },
 ): () => string {
+  // Повторный запрос не нужен, если к моменту таймера уже стоят карты для
+  // текущего ключа (пришёл ответ запроса, начатого после правки): `refetch`
+  // сверяет это сам — см. DesignPage.
   const optionsRef = useRef(options);
   optionsRef.current = options;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -144,7 +144,7 @@ import { PlansPanel } from "./PlansPanel";
 import { SectionView, sectionRowKey } from "./SectionView";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 import { useHoleRecompute } from "./useHoleRecompute";
-import { isResponseCurrent, mapsInputsKey, shouldRefetchMaps, useStaleAnalysisReset, useStaleMapsRefresh } from "./useStaleAnalysis";
+import { analyzeResponseUse, isResponseCurrent, mapsInputsKey, shouldRefetchMaps, useStaleAnalysisReset, useStaleMapsRefresh } from "./useStaleAnalysis";
 import { useUndoHotkeys } from "./useUndoHotkeys";
 import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
@@ -456,10 +456,19 @@ export function DesignPage({
   // Запрос карт в полёте: его ответ будет отброшен сменой ключа, поэтому он
   // тоже повод перезапросить (автопересчёт глубин может опередить карты).
   const mapsInFlightRef = useRef(0);
+  // Ключ, для которого стоят карты (null — карт нет): таймер перезапроса не
+  // шлёт лишний запрос, если свежие карты уже пришли.
+  const mapsLoadedKeyRef = useRef<string | null>(null);
   const currentMapsKey = useStaleMapsRefresh(mapsKey, {
     active: () => shouldRefetchMaps(maps !== null || mapsInFlightRef.current > 0, mapMetric !== "" && mapMetric in MAP_METRIC_LABELS),
-    clear: () => setMaps(null),
-    refetch: () => refreshMapsRef.current(),
+    clear: () => {
+      mapsLoadedKeyRef.current = null;
+      setMaps(null);
+    },
+    refetch: () => {
+      if (maps !== null && mapsLoadedKeyRef.current !== null && isResponseCurrent(mapsLoadedKeyRef.current, currentMapsKey())) return;
+      refreshMapsRef.current();
+    },
   });
 
   const maxAnimationMs = useMemo(() => {
@@ -820,6 +829,7 @@ export function DesignPage({
       const result = await api.design.maps(designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey }));
       // Контур или скважины поменялись, пока шёл запрос, — ответ устарел.
       if (!isResponseCurrent(startKey, currentMapsKey())) return;
+      mapsLoadedKeyRef.current = startKey;
       setMaps(result);
     } catch {
       if (isResponseCurrent(startKey, currentMapsKey())) setMaps(null);
@@ -1115,21 +1125,36 @@ export function DesignPage({
     }
     setAnalyzeBusy(true);
     setError("");
-    const startKey = currentAnalysisKey();
+    const startAnalysisKey = currentAnalysisKey();
+    const startMapsKey = currentMapsKey();
+    const responseUse = () => analyzeResponseUse({
+      startAnalysisKey,
+      currentAnalysisKey: currentAnalysisKey(),
+      startMapsKey,
+      currentMapsKey: currentMapsKey(),
+    });
     try {
       const designForAnalysis = designPayload();
       const result = await api.design.analyze(designForAnalysis, isolineStepMs, micWindowMs, ppv);
       // Входы поменялись, пока шёл расчёт: анализ уже сброшен, поздний ответ
       // (и его времена срабатывания) в документ не пишем.
-      if (!isResponseCurrent(startKey, currentAnalysisKey())) return;
+      const use = responseUse();
+      if (!use.analysis) return;
       setAnalysis(result);
       if (result.firing_events) {
         dispatch({ type: "SET_NETWORK", network: { ...normalizeNetwork(document.network), firing_events: result.firing_events } });
       }
-      if (result.maps) setMaps(result.maps);
+      // Карты — только если не менялась и геометрия подошвы (уступ, глубины);
+      // иначе их перезапросит useStaleMapsRefresh.
+      if (result.maps && use.maps) {
+        mapsLoadedKeyRef.current = startMapsKey;
+        setMaps(result.maps);
+      }
       setCurrentMs(0);
       setPlaying(false);
     } catch (reason) {
+      // Ошибка устаревшего расчёта к текущему документу не относится.
+      if (!responseUse().analysis) return;
       setError(reason instanceof Error ? reason.message : "Не удалось рассчитать тайминг.");
     } finally {
       setAnalyzeBusy(false);

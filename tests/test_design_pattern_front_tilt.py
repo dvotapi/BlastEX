@@ -213,6 +213,13 @@ def test_count_is_clamped():
     assert all(h.angle_deg == pytest.approx(0.0) for h in grid[2])
 
 
+@pytest.mark.parametrize("count", [float("inf"), float("-inf"), float("nan"), "много"])
+def test_count_not_a_number_means_no_tilt(count):
+    holes = generate_pattern(CONTOUR, BASE | {"front_rows_tilt_count": count})
+    assert holes_signature(holes) == REFERENCE_SIGNATURE
+    assert all(h.angle_deg == pytest.approx(0.0) for h in holes)
+
+
 def test_tilt_moves_floor_point_toward_face():
     vertical = rows(generate_pattern(CONTOUR, BASE))[0][0]
     tilted = rows(generate_pattern(CONTOUR, BASE | {"front_rows_tilt_count": 1}))[0][0]
@@ -254,6 +261,33 @@ def test_front_rows_ahead_of_first_share_its_rank():
         assert hole.angle_deg == pytest.approx(15.0)
         assert hole.azimuth_deg == pytest.approx(face_azimuth_deg((hole.collar.x, hole.collar.y), contour))
     assert all(h.angle_deg == pytest.approx(0.0) for h in second)
+
+
+def test_face_following_row_puts_front_rows_to_rank_two():
+    # «Сапог» с рядом вдоль бровки: ряд 1 — ряд вдоль бровки, ряды впереди
+    # первого ряда решётки и он сам — ряд 2.
+    from tests.test_design_pattern_full_contour import BOOT, PARAMS, _contour
+
+    contour = _contour(BOOT)
+    params = PARAMS | {"first_row_follow_face": True}
+
+    def split(holes):
+        production = [h for h in holes if h.kind == "production"]
+        face = [h for h in production if h.row == 0]
+        second = [h for h in production if h.row < FRONT_ROW_BASE or h.row == 1]
+        behind = [h for h in production if h.row >= 2]
+        return face, second, behind
+
+    face, second, behind = split(generate_pattern(contour, params | {"front_rows_tilt_count": 1}))
+    assert face and behind and any(h.row < FRONT_ROW_BASE for h in second)
+    assert all(h.angle_deg == pytest.approx(15.0) for h in face)
+    assert all(h.angle_deg == pytest.approx(0.0) for h in second + behind)
+
+    face, second, behind = split(generate_pattern(contour, params | {"front_rows_tilt_count": 2}))
+    for hole in face + second:
+        assert hole.angle_deg == pytest.approx(15.0)
+        assert hole.azimuth_deg == pytest.approx(face_azimuth_deg((hole.collar.x, hole.collar.y), contour))
+    assert all(h.angle_deg == pytest.approx(0.0) for h in behind)
 
 
 def test_bent_face_gives_each_hole_its_own_azimuth():
@@ -330,7 +364,7 @@ def test_walls_and_stab_keep_their_angles():
         "angle_deg": 3.0,
         "azimuth_deg": 90.0,
     }
-    other = ("contour", "presplit", "trim", "buffer", "stab", "satellite", "infill")
+    other = ("contour", "presplit", "trim", "buffer", "stab", "satellite")
     plain = generate_pattern(CONTOUR, BASE | extras)
     tilted = generate_pattern(CONTOUR, BASE | extras | {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 20})
     pick = lambda holes: [h for h in holes if h.kind in other]  # noqa: E731

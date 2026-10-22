@@ -386,7 +386,7 @@ def _front_rows_tilt(params: dict[str, Any]) -> tuple[int, float]:
     """Число наклонных рядов у откоса (0–2) и их угол от вертикали (0–30°)."""
     try:
         count = int(float(params.get("front_rows_tilt_count") or 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         count = 0
     raw_deg = params.get("front_rows_tilt_deg")
     try:

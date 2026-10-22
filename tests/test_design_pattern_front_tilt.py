@@ -5,22 +5,33 @@ import pytest
 
 from design.geometry import face_azimuth_deg
 from design.hole_recompute import recompute_hole
-from design.models import FRONT_ROW_BASE, BenchSurface, BlockContour, Point3, logical_row
+from design.models import FRONT_ROW_BASE, BenchSurface, BlastDesign, BlockContour, Point3, logical_row
 from design.pattern import (
     FRONT_ROWS_TILT_DEFAULT_DEG,
     FRONT_ROWS_TILT_MAX_DEG,
+    FRONT_TILT_MIN_FLOOR_BURDEN_M,
+    front_row_ranks,
     generate_pattern,
 )
-from design.toe_line import floor_point
+from design.toe_line import floor_burdens, floor_point
 
 
-def _rect_contour(width: float, height: float, free_faces=((0, 1),)) -> BlockContour:
+# Откос 60° от горизонтали: подошва в 10·tan 30° = 5,77 м от бровки — запас,
+# при котором наклон до 30° не упирается в ограничение по ЛСП (оно — отдельно).
+FACE_ANGLE_DEG = 60.0
+
+
+def _rect_contour(width: float, height: float, free_faces=((0, 1),), face_angle_deg=FACE_ANGLE_DEG) -> BlockContour:
     """Прямоугольник как в tests/test_design_pattern.py; откос — нижнее ребро y = 0."""
     verts = [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+    return _contour_of(verts, free_faces, face_angle_deg)
+
+
+def _contour_of(verts, free_faces, face_angle_deg=FACE_ANGLE_DEG) -> BlockContour:
     return BlockContour(
         vertices=[Point3(x=x, y=y, z=0.0) for x, y in verts],
         free_faces=[list(edge) for edge in free_faces],
-        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0),
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0, face_angle_deg=face_angle_deg),
     )
 
 
@@ -245,49 +256,84 @@ def test_face_following_row_is_row_one():
     assert all(h.angle_deg == pytest.approx(0.0) for h in grid[2])
 
 
-def test_front_rows_ahead_of_first_share_its_rank():
-    # Контур «сапогом» (tests/test_design_pattern_full_contour.py): средняя точка
-    # бровки внутри кармана, впереди первого ряда решётки — ряды с номерами
-    # ниже FRONT_ROW_BASE. Они того же ранга, что и первый ряд решётки.
-    from tests.test_design_pattern_full_contour import BOOT, PARAMS, _contour
+# Ступенчатая бровка: слева откос на y = 0, справа отступает к y = 8.
+STEP = [(0.0, 0.0), (20.0, 0.0), (20.0, 8.0), (40.0, 8.0), (40.0, 30.0), (0.0, 30.0)]
+STEP_FACE = ((0, 1, 2, 3),)
 
-    contour = _contour(BOOT)
+
+def _by_row(holes):
+    grouped: dict[int, dict[float, object]] = {}
+    for hole in holes:
+        if hole.kind == "production":
+            grouped.setdefault(logical_row(hole.row), {})[round(hole.collar.x, 1)] = hole
+    return [grouped[key] for key in sorted(grouped)]
+
+
+def test_stepped_crest_tilts_row_facing_retreated_face():
+    # Ранг местный: на отступившем участке (x ≥ 24) у откоса стоит третий ряд
+    # решётки — он ряд 1 у откоса и наклоняется, хотя впереди него на левом
+    # участке ещё два ряда.
+    contour = _contour_of(STEP, STEP_FACE)
+    front, first, third, fourth = _by_row(generate_pattern(contour, BASE | {"front_rows_tilt_count": 1}))[:4]
+    assert all(h.angle_deg == pytest.approx(15.0) and h.azimuth_deg == pytest.approx(180.0) for h in front.values())
+    for x in (24.0, 28.0, 32.0, 36.0, 40.0):
+        assert third[x].angle_deg == pytest.approx(15.0)
+        assert third[x].azimuth_deg == pytest.approx(180.0)
+        assert fourth[x].angle_deg == pytest.approx(0.0)
+    # Левый участок: за рядом впереди первого ряда решётки — без наклона.
+    for x in (0.0, 4.0, 8.0, 12.0):
+        assert first[x].angle_deg == pytest.approx(0.0)
+        assert third[x].angle_deg == pytest.approx(0.0)
+
+    # Два ряда: следующий за рядом 1 — и слева, и на отступившем участке.
+    front, first, third, fourth = _by_row(generate_pattern(contour, BASE | {"front_rows_tilt_count": 2}))[:4]
+    for x in (0.0, 4.0, 8.0, 12.0):
+        assert first[x].angle_deg == pytest.approx(15.0)
+        assert third[x].angle_deg == pytest.approx(0.0)
+    for x in (24.0, 28.0, 32.0, 36.0, 40.0):
+        assert fourth[x].angle_deg == pytest.approx(15.0)
+
+
+def test_ranks_follow_corridor_not_lattice_row():
+    contour = _contour_of(STEP, STEP_FACE)
+    collars = [(10.0, 2.0), (10.0, 5.5), (10.0, 9.0), (30.0, 10.0), (30.0, 13.5), (30.0, 17.0)]
+    assert front_row_ranks(collars, contour, 4.0, 3.5) == [1, 2, 3, 1, 2, 3]
+    # Ряд вдоль бровки — ряд 1 всегда, даже если впереди что-то стоит.
+    assert front_row_ranks(collars[1:2] + collars[:1], contour, 4.0, 3.5, forced_first=1) == [1, 1]
+
+
+def test_boot_crest_tilts_holes_at_each_part_of_face():
+    # «Сапог» (tests/test_design_pattern_full_contour.py): ряды решётки идут
+    # поперёк полосы, вдоль полосы у откоса стоит четвёртый ряд решётки —
+    # он ряд 1 у откоса и наклоняется к полосе (азимут 90°).
+    from tests.test_design_pattern_full_contour import BOOT, BOOT_FACE, PARAMS
+
+    contour = _contour_of(BOOT, BOOT_FACE)
     holes = generate_pattern(contour, PARAMS | {"front_rows_tilt_count": 1})
-    front = [h for h in holes if h.kind == "production" and h.row < FRONT_ROW_BASE]
-    first = [h for h in holes if h.kind == "production" and h.row == 0]
-    second = [h for h in holes if h.kind == "production" and h.row == 1]
-    assert front and first and second
-    for hole in front + first:
+    strip = [h for h in holes if h.kind == "production" and h.row == 3 and h.collar.y >= 40.0]
+    behind = [h for h in holes if h.kind == "production" and h.row == 4 and h.collar.y >= 40.0]
+    assert strip and behind
+    for hole in strip:
         assert hole.angle_deg == pytest.approx(15.0)
-        assert hole.azimuth_deg == pytest.approx(face_azimuth_deg((hole.collar.x, hole.collar.y), contour))
-    assert all(h.angle_deg == pytest.approx(0.0) for h in second)
-
-
-def test_face_following_row_puts_front_rows_to_rank_two():
-    # «Сапог» с рядом вдоль бровки: ряд 1 — ряд вдоль бровки, ряды впереди
-    # первого ряда решётки и он сам — ряд 2.
-    from tests.test_design_pattern_full_contour import BOOT, PARAMS, _contour
-
-    contour = _contour(BOOT)
-    params = PARAMS | {"first_row_follow_face": True}
-
-    def split(holes):
-        production = [h for h in holes if h.kind == "production"]
-        face = [h for h in production if h.row == 0]
-        second = [h for h in production if h.row < FRONT_ROW_BASE or h.row == 1]
-        behind = [h for h in production if h.row >= 2]
-        return face, second, behind
-
-    face, second, behind = split(generate_pattern(contour, params | {"front_rows_tilt_count": 1}))
-    assert face and behind and any(h.row < FRONT_ROW_BASE for h in second)
-    assert all(h.angle_deg == pytest.approx(15.0) for h in face)
-    assert all(h.angle_deg == pytest.approx(0.0) for h in second + behind)
-
-    face, second, behind = split(generate_pattern(contour, params | {"front_rows_tilt_count": 2}))
-    for hole in face + second:
-        assert hole.angle_deg == pytest.approx(15.0)
-        assert hole.azimuth_deg == pytest.approx(face_azimuth_deg((hole.collar.x, hole.collar.y), contour))
+        assert hole.azimuth_deg == pytest.approx(90.0)
     assert all(h.angle_deg == pytest.approx(0.0) for h in behind)
+    # Каждая наклонённая скважина — ряд 1 у откоса, каждая ряда 1 — наклонена.
+    production = [h for h in holes if h.kind == "production"]
+    ranks = front_row_ranks([(h.collar.x, h.collar.y) for h in production], contour, 5.0, 5.0)
+    assert [h.angle_deg > 1.0 for h in production] == [rank == 1 for rank in ranks]
+
+
+def test_face_following_row_is_rank_one_on_boot():
+    from tests.test_design_pattern_full_contour import BOOT, BOOT_FACE, PARAMS
+
+    contour = _contour_of(BOOT, BOOT_FACE)
+    params = PARAMS | {"first_row_follow_face": True, "front_rows_tilt_count": 1}
+    holes = generate_pattern(contour, params)
+    face = [h for h in holes if h.kind == "production" and h.row == 0]
+    assert face
+    for hole in face:
+        assert hole.angle_deg == pytest.approx(15.0)
+        assert hole.azimuth_deg == pytest.approx(face_azimuth_deg((hole.collar.x, hole.collar.y), contour))
 
 
 def test_bent_face_gives_each_hole_its_own_azimuth():
@@ -381,3 +427,41 @@ def test_recompute_keeps_tilt():
     assert result.hole.azimuth_deg == pytest.approx(180.0)
     assert result.hole.toe.x == pytest.approx(hole.toe.x)
     assert result.hole.toe.y == pytest.approx(hole.toe.y)
+
+
+# --- Ограничение угла: забой не ближе 1 м к линии подошвы ---
+
+
+def test_tilt_angle_is_capped_by_floor_burden():
+    # Откос вертикальный (90°): подошва — сама бровка y = 0. Первый ряд в 3 м:
+    # ЛСП вертикальной 3 м, H = 10 м — угол не больше atan((3 − 1)/10) ≈ 11,3°.
+    contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
+    params = BASE | {"offset_from_face_m": 3.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 30}
+    holes = generate_pattern(contour, params)
+    first, second = rows(holes)[:2]
+    expected = math.degrees(math.atan((3.0 - FRONT_TILT_MIN_FLOOR_BURDEN_M) / 10.0))
+    assert expected == pytest.approx(11.31, abs=0.01)
+    for hole in first:
+        assert hole.angle_deg == pytest.approx(expected, abs=1e-6)
+        assert hole.azimuth_deg == pytest.approx(180.0)
+    design = BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=params)
+    burdens = floor_burdens(design)
+    for hole in first:
+        assert burdens[hole.id].value_m == pytest.approx(1.0, abs=1e-6)
+        assert burdens[hole.id].beyond_toe is False
+    # Второй ряд не наклоняется (ряд 2 при count 1).
+    assert all(h.angle_deg == pytest.approx(0.0) for h in second)
+
+
+def test_small_angle_is_not_capped():
+    contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
+    params = BASE | {"offset_from_face_m": 3.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 5}
+    assert all(h.angle_deg == pytest.approx(5.0) for h in rows(generate_pattern(contour, params))[0])
+
+
+def test_no_room_means_common_angle():
+    # ЛСП вертикальной 1 м — не больше запаса: ряд остаётся с общим углом.
+    contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
+    params = BASE | {"offset_from_face_m": 1.0, "angle_deg": 3.0, "azimuth_deg": 0.0, "front_rows_tilt_count": 1}
+    first = rows(generate_pattern(contour, params))[0]
+    assert all(h.angle_deg == pytest.approx(3.0) and math.cos(math.radians(h.azimuth_deg)) == pytest.approx(1.0) for h in first)

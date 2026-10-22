@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import Any, Callable
+
+import shapely
 
 from design.geometry import (
     distance_to_free_faces,
@@ -17,6 +20,7 @@ from design.geometry import (
 from design.geology import domain_at
 from design.numbering import number_by_position
 from design.models import FRONT_ROW_BASE, HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3, logical_row
+from design.toe_line import corridor_blockers, crest_geometry, shadow_limits, toe_positions
 
 PATTERN_TYPES = ("square", "rectangular", "staggered", "variable", "domain_dependent")
 REGULAR_PATTERNS = ("square", "rectangular", "staggered")
@@ -25,9 +29,10 @@ REGULAR_PATTERNS = ("square", "rectangular", "staggered")
 FRONT_ROWS_TILT_MAX_DEG = 30.0
 FRONT_ROWS_TILT_DEFAULT_DEG = 15.0
 FRONT_ROWS_TILT_MAX_COUNT = 2
-
-# Ориентация скважины по устью: (угол от вертикали, азимут).
-Orient = Callable[[float, float], tuple[float, float]]
+# Наклон не уводит точку оси на уровне подошвы ближе этого к линии подошвы
+# (ЛСП): угол ограничивается tan α ≤ (ЛСП вертикальной − 1 м) / H, иначе
+# забой выходит в откос (решение владельца 22.10.2026, блок №66), м.
+FRONT_TILT_MIN_FLOOR_BURDEN_M = 1.0
 
 
 def generate_pattern(
@@ -105,24 +110,7 @@ def generate_pattern(
     holes: list[Hole] = []
     first_lattice_row = 0
     skip_regular_first = False
-
-    def row_orient(rank: int, row_kind: str) -> Orient | None:
-        """Ориентация скважин ряда с рангом `rank` (1 — ближайший к откосу).
-
-        None — общий угол и азимут. Наклоняются только скважины основной сетки
-        в рядах с рангом не больше `front_rows_tilt_count`; азимут — к ближайшему
-        участку свободной поверхности, а без него — общий угол и азимут.
-        """
-        if rank > tilt_count or row_kind not in ("production", default_kind):
-            return None
-
-        def orient(x: float, y: float) -> tuple[float, float]:
-            face_azimuth = face_azimuth_deg((x, y), contour)
-            if face_azimuth is None:
-                return angle_deg, azimuth_deg
-            return tilt_deg, face_azimuth
-
-        return orient
+    face_row_count = 0
 
     if follow_face and contour.free_faces:
         face_row = _generate_face_following_row(
@@ -141,10 +129,10 @@ def generate_pattern(
             depth_override,
             default_kind,
             surfaces,
-            orient=row_orient(1, default_kind),
         )
         if face_row:
             holes.extend(face_row)
+            face_row_count = len(face_row)
             first_lattice_row = 1
             skip_regular_first = True
 
@@ -204,9 +192,6 @@ def generate_pattern(
         """
         accept = _off_face_filter(contour, min_face_m) if min_face_m is not None else None
         local_a, local_b, shift_ratio, row_kind = row_settings(lattice_row, v, accept)
-        # Ранг от откоса: первый ряд решётки — 1 (за рядом вдоль бровки — 2),
-        # ряды впереди него — того же ранга, что и он.
-        orient = row_orient(max(lattice_row, first_lattice_row) + 1, row_kind)
 
         shift = shift_ratio * local_a if lattice_row % 2 == 1 else 0.0
         if pattern == "domain_dependent" and domain_list:
@@ -231,7 +216,6 @@ def generate_pattern(
                 surfaces,
                 crest_z,
                 accept,
-                orient,
             )
             return placed, local_b
 
@@ -241,9 +225,8 @@ def generate_pattern(
         while u <= u_max:
             x, y = _world_xy(origin, row_dir, advance_dir, u, v)
             if point_in_polygon((x, y), boundary) and (accept is None or accept(x, y)):
-                hole_angle, hole_azimuth = orient(x, y) if orient else (angle_deg, azimuth_deg)
                 collar, toe = drape_collar(
-                    x, y, hole_angle, hole_azimuth, subdrill_m, contour, surfaces, depth_override
+                    x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_override
                 )
                 placed.append(
                     Hole(
@@ -331,6 +314,24 @@ def generate_pattern(
         row_index += 1
         v += local_b
 
+    # Сейчас в `holes` — вся основная сетка: ряд вдоль бровки, ряды впереди
+    # первого ряда решётки и ряды решётки. Наклон — после раскладки, по
+    # местному рангу (см. `_tilt_front_rows`).
+    if tilt_count > 0:
+        holes = _tilt_front_rows(
+            holes,
+            face_row_count,
+            contour,
+            tilt_count,
+            tilt_deg,
+            {"production", default_kind},
+            spacing_a,
+            burden_b,
+            subdrill_m,
+            surfaces,
+            depth_override,
+        )
+
     holes.extend(
         _generate_wall_row(
             contour, params, "contour", "K", "contour_row", "contour_spacing_m",
@@ -398,6 +399,92 @@ def _front_rows_tilt(params: dict[str, Any]) -> tuple[int, float]:
     count = max(0, min(FRONT_ROWS_TILT_MAX_COUNT, count))
     deg = max(0.0, min(FRONT_ROWS_TILT_MAX_DEG, deg))
     return count, deg
+
+
+def front_row_ranks(
+    collars_xy: list[tuple[float, float]],
+    contour: BlockContour,
+    spacing_a: float,
+    burden_b: float,
+    forced_first: int = 0,
+) -> list[int]:
+    """Местный ранг скважин основной сетки от откоса: 1, 2 или 3 (дальше).
+
+    Ранг 1 — впереди скважины, в её коридоре к ближайшей точке верхней бровки,
+    нет другой скважины сетки; ранг 2 — впереди только скважины ранга 1.
+    Коридор и «впереди» — та же проверка, что у ЛСП (`toe_line.corridor_blockers`:
+    продвижение не меньше 0,4·min(a, b), отступ вбок не больше 1,05·max(a, b)),
+    но по устьям и к бровке. Так на ступенчатой бровке ранг 1 получает ряд,
+    который реально стоит у своего участка откоса, а не только первый ряд
+    решётки. Первые `forced_first` скважин (ряд вдоль бровки) — ранг 1 всегда.
+    """
+    crest = crest_geometry(contour)
+    if crest is None or not collars_xy:
+        return [3] * len(collars_xy)
+    points = shapely.points(collars_xy)
+    tree = shapely.STRtree(points)
+    distances = shapely.distance(points, crest)
+    targets = shapely.get_point(shapely.shortest_line(crest, points), 0)
+    min_advance, reach = shadow_limits(spacing_a, burden_b)
+    blockers: list[set[int]] = []
+    for i in range(len(collars_xy)):
+        value = float(distances[i])
+        if i < forced_first or value <= 0:
+            blockers.append(set())
+            continue
+        blockers.append(set(corridor_blockers(i, value, points, targets[i], tree, min_advance, reach)))
+    first = {i for i, items in enumerate(blockers) if not items}
+    second = {i for i, items in enumerate(blockers) if items and items <= first}
+    return [1 if i in first else 2 if i in second else 3 for i in range(len(collars_xy))]
+
+
+def _tilt_front_rows(
+    grid: list[Hole],
+    face_row_count: int,
+    contour: BlockContour,
+    tilt_count: int,
+    tilt_deg: float,
+    tilt_kinds: set[str],
+    spacing_a: float,
+    burden_b: float,
+    subdrill_m: float,
+    surfaces: object | None,
+    depth_override: float | None,
+) -> list[Hole]:
+    """Наклон к откосу скважин основной сетки с местным рангом ≤ `tilt_count`.
+
+    Сетка уже разложена с общим углом; устья не двигаются, скважина
+    перестраивается из устья с углом `tilt_deg` и азимутом к ближайшему
+    участку свободной поверхности. Наклоняются только виды `tilt_kinds`
+    (рядовые и вид основной сетки); остальные скважины — только заслоняют.
+
+    Угол ограничен: точка оси на уровне подошвы остаётся не ближе
+    `FRONT_TILT_MIN_FLOOR_BURDEN_M` к линии подошвы (та же линия, что у ЛСП,
+    с правилом развала) — tan α ≤ (ЛСП вертикальной − 1 м) / H, H — высота
+    уступа у скважины. ЛСП вертикальной не больше 1 м — скважина остаётся
+    с общим углом.
+    """
+    collars = [(h.collar.x, h.collar.y) for h in grid]
+    ranks = front_row_ranks(collars, contour, spacing_a, burden_b, forced_first=face_row_count)
+    picked = [i for i, h in enumerate(grid) if ranks[i] <= tilt_count and h.kind in tilt_kinds]
+    if not picked:
+        return grid
+    heights = [grid[i].bench_height_m for i in picked]
+    positions = toe_positions(contour, [collars[i] for i in picked], heights)
+    if positions is None:
+        return grid
+    result = list(grid)
+    for i, height, position in zip(picked, heights, positions):
+        face_azimuth = face_azimuth_deg(collars[i], contour)
+        room = position.distance_m - FRONT_TILT_MIN_FLOOR_BURDEN_M
+        if face_azimuth is None or height <= 0 or room <= 1e-6:
+            continue
+        angle = min(tilt_deg, math.degrees(math.atan(room / height)))
+        collar, toe = drape_collar(
+            collars[i][0], collars[i][1], angle, face_azimuth, subdrill_m, contour, surfaces, depth_override
+        )
+        result[i] = replace(grid[i], collar=collar, toe=toe)
+    return result
 
 
 def _grid_id(kind: str, row_index: int, col_index: int) -> str:
@@ -474,7 +561,6 @@ def _walk_domain_row(
     surfaces: object | None,
     crest_z: float,
     accept: Callable[[float, float], bool] | None = None,
-    orient: Orient | None = None,
 ) -> list[Hole]:
     holes: list[Hole] = []
     u = u_start
@@ -493,9 +579,8 @@ def _walk_domain_row(
             local_a = float(domain.spacing_a_m)
         if local_a <= 0:
             local_a = fallback_a
-        hole_angle, hole_azimuth = orient(x, y) if orient else (angle_deg, azimuth_deg)
         collar, toe = drape_collar(
-            x, y, hole_angle, hole_azimuth, subdrill_m, contour, surfaces, depth_override
+            x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_override
         )
         holes.append(
             Hole(
@@ -554,12 +639,8 @@ def _generate_face_following_row(
     depth_m: float | None,
     kind: str,
     surfaces: object | None,
-    orient: Orient | None = None,
 ) -> list[Hole]:
-    """Place row 0 at a constant burden from the actual free-face polyline.
-
-    `orient` — угол и азимут по устью (наклон ряда к откосу); None — общие.
-    """
+    """Place row 0 at a constant burden from the actual free-face polyline."""
     verts = ensure_ccw(contour.points_xy)
     start_offset = float(params.get("first_row_start_offset_m", 0.0))
     holes: list[Hole] = []
@@ -580,9 +661,8 @@ def _generate_face_following_row(
                 x = a[0] + ux * distance + nx * burden_m
                 y = a[1] + uy * distance + ny * burden_m
                 if point_in_polygon((x, y), boundary):
-                    hole_angle, hole_azimuth = orient(x, y) if orient else (angle_deg, azimuth_deg)
                     collar, toe = drape_collar(
-                        x, y, hole_angle, hole_azimuth, subdrill_m, contour, surfaces, depth_m
+                        x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_m
                     )
                     holes.append(
                         Hole(

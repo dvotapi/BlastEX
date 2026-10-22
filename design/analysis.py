@@ -345,11 +345,13 @@ def validate(
     for hole_id, gap in row_gaps.items():
         if gap.excess:
             value, limit = _two_numbers(gap.value_m, gap.allowed_m)
+            # Допуск — проекция решётки на коридор: «шаг сетки», а не a или b.
+            step = "шаг сетки" if gap.step == "grid" else gap.step
             warnings.append(
                 {
                     "code": "floor_row_gap_excess",
                     "hole_id": hole_id,
-                    "message": f"Между рядами у подошвы {value} м — больше допустимого {limit} м ({gap.step} + 3%).",
+                    "message": f"Между рядами у подошвы {value} м — больше допустимого {limit} м ({step} + 3%).",
                 }
             )
 

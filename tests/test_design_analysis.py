@@ -225,6 +225,33 @@ def test_validate_gap_along_row_names_step_a():
     assert gaps[0]["message"] == "Между рядами у подошвы 7,7 м — больше допустимого 5,2 м (a + 3%)."
 
 
+def test_validate_gap_against_projected_lattice_names_grid_step():
+    # 3-01 наклонена на 25°, соседи наискосок 2-01 и 4-01 — на 15°: у 3-02
+    # наименьшее отношение — у соседа другого ряда, чей допуск — проекция
+    # решётки на коридор (5 м при b = 3,5): подпись «шаг сетки», а не a или b.
+    from design.models import Hole
+    from tests.front_rows_fixtures import ACROSS_PATTERN, design_with, inclined_hole, rows_across_face
+
+    holes = [
+        Hole(**{**inclined_hole("3-01", h.collar.x, h.collar.y, h.row, 25, 180).__dict__, "col": h.col})
+        if h.id == "3-01"
+        else h
+        for h in rows_across_face(("2-01", "4-01"))
+    ]
+    gaps = floor_row_gaps(design_with(holes, pattern_params=ACROSS_PATTERN))
+    assert gaps["3-02"].step == "grid" and gaps["3-02"].excess
+    found = [w for w in _codes(validate(design_with(holes, pattern_params=ACROSS_PATTERN)), "floor_row_gap_excess")]
+    message = next(w["message"] for w in found if w["hole_id"] == "3-02")
+    assert message == "Между рядами у подошвы 7,7 м — больше допустимого 5,2 м (шаг сетки + 3%)."
+
+
+def test_gap_two_rows_apart_names_two_b():
+    from tests.front_rows_fixtures import GAP_PATTERN, design_with, grid_rows
+
+    gaps = floor_row_gaps(design_with(grid_rows(15.0, rows=3, tilted_row=2), pattern_params=GAP_PATTERN))
+    assert {gaps[f"3-{c:02d}"].step for c in range(1, 6)} == {"2b"}
+
+
 def _gap_cases():
     from tests.front_rows_fixtures import BASE, SLANT, STEP, STEP_FACE, _arc_contour, _contour_of, _poly_contour, _rect_contour
 
@@ -316,6 +343,12 @@ def test_validate_warns_when_collar_is_too_close_to_crest():
     assert [w["hole_id"] for w in close(PATTERN | {"front_rows_mode": "pair"})] == ["1-01"]
     # Старый паспорт без ключей — не проверяется.
     assert not close(PATTERN)
+    # Шахматка: переход генератор не применяет — его ключи проверку не включают.
+    staggered = PATTERN | {"pattern": "staggered"}
+    assert not close(staggered | {"front_rows_mode": "taper", "front_rows_tilt_count": 1})
+    assert not close(staggered | {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 15})
+    assert [w["hole_id"] for w in close(staggered | {"front_rows_tilt_count": 1, "min_crest_offset_m": 1})] == ["1-01"]
+    assert [w["hole_id"] for w in close(staggered | {"front_rows_mode": "pair"})] == ["1-01"]
 
 
 @pytest.mark.parametrize("mode", [{"front_rows_mode": "pair"}, {"front_rows_tilt_count": 1}, {"front_rows_tilt_count": 2}])

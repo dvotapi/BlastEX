@@ -615,6 +615,19 @@ def test_tilted_row_one_on_grid_opens_gap_at_floor_before_row_two():
     assert not any(hid.startswith("1-") for hid in gaps)
 
 
+def test_tilted_row_three_ahead_of_row_two_compares_row_one_with_two_b():
+    # Ряд 3 (y = 9) наклонён на 15°: у подошвы в 9 − 2,68 = 6,32, ряд 2 (5,5)
+    # впереди меньше чем на 0,4·b — не сосед; сосед — ряд 1 (2,0), продвижение
+    # 4,32 при решётке 2·b = 7: разрыва нет (с допуском b ряд 3 получал ложный).
+    gaps = floor_row_gaps(design_with(grid_rows(15.0, rows=3, tilted_row=2), pattern_params=GAP_PATTERN))
+    row_three = {hid: g for hid, g in gaps.items() if hid.startswith("3-")}
+    assert set(row_three) == {f"3-{c:02d}" for c in range(1, 6)}
+    for gap in row_three.values():
+        assert gap.value_m == pytest.approx(7.0 - 2.6795, abs=1e-3)
+        assert gap.allowed_m == pytest.approx(7.0 * 1.03)
+        assert gap.excess is False
+
+
 def test_plain_vertical_grid_has_no_gap_excess():
     gaps = floor_row_gaps(design_with(grid_rows(), pattern_params=GAP_PATTERN))
     assert gaps and not any(g.excess for g in gaps.values())

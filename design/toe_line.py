@@ -222,7 +222,9 @@ class FloorRowGap:
     value_m: float  # продвижение соседа впереди вдоль коридора, на уровне подошвы
     allowed_m: float  # шаг + 3 %
     excess: bool  # все соседи впереди дальше своего допуска
-    step: str = "b"  # с каким шагом сравнивалось: "a" (по ряду) или "b" (между рядами)
+    # С каким шагом сравнивалось: "a" (по ряду), "b" (соседний ряд), "2b" (через ряд)
+    # или "grid" — проекция решётки на коридор (косой ряд, дуга).
+    step: str = "b"
 
 
 @dataclass(frozen=True)
@@ -327,9 +329,20 @@ CREST_OFFSET_KEYS = ("min_crest_offset_m", "front_rows_mode", "front_rows_tilt_c
 def crest_offset_checked(pattern_params: dict | None) -> bool:
     """Проверять ли отступ устья от кромки: задан `min_crest_offset_m` или ключ
     схемы первого ряда (решение 22.10.2026 — старые паспорта без ключей не
-    засыпаются предупреждениями)."""
+    засыпаются предупреждениями).
+
+    Шахматную сетку плавный переход не меняет (`generate_pattern`), поэтому у
+    неё ключи перехода проверку не включают — только `min_crest_offset_m` или
+    пара у откоса.
+    """
     params = pattern_params or {}
-    return any(params.get(key) not in (None, "") for key in CREST_OFFSET_KEYS)
+    if not any(params.get(key) not in (None, "") for key in CREST_OFFSET_KEYS):
+        return False
+    if params.get("min_crest_offset_m") not in (None, ""):
+        return True
+    if str(params.get("front_rows_mode") or "").strip().lower() == "pair":
+        return True
+    return str(params.get("pattern", "square")) != "staggered"
 
 
 def shadow_limits(a: float, b: float) -> tuple[float, float]:
@@ -616,6 +629,7 @@ def floor_checks(
                 _row_azimuth_deg(design.pattern_params),
                 min_advance,
                 reach,
+                a,
             )
     return result, beyond, gaps
 
@@ -682,6 +696,7 @@ def _row_gaps(
     row_azimuth_deg: float,
     min_advance: float,
     reach: float,
+    step_a: float | None = None,
 ) -> dict[str, FloorRowGap]:
     """Разрыв у подошвы для точек основной сетки (см. `floor_checks`), пакетом.
 
@@ -691,7 +706,7 @@ def _row_gaps(
     Для каждой пары «сосед j впереди i в коридоре к подошве» допуск — её
     продвижение в правильной решётке, плюс 3 %: вектор решётки от i к j
     вдоль ряда берётся по устьям (наклон и сдвиг плавного перехода идут
-    вдоль столбца и его не меняют), поперёк ряда — шаг b (`steps`: b ряда,
+    вдоль столбца и его не меняют), поперёк ряда — |Δряд|·b (`steps`: b ряда,
     что ближе к началу решётки; у соседа своего ряда — 0), и проецируется на
     направление коридора. Так сосед своего ряда сравнивается с a (ряды
     поперёк бровки, фланговая грань), сосед другого ряда прямо впереди — с
@@ -732,12 +747,25 @@ def _row_gaps(
     across = cx * ax + cy * ay
     same = rows[i] == rows[j]
     step_b = np.where(rows[i] < rows[j], steps_b[i], steps_b[j])
-    lattice_across = np.where(same, 0.0, np.sign(across) * step_b)
+    # Через ряд (наклонённый ряд ушёл вперёд соседнего) — |Δряд|·b.
+    lattice_across = np.where(same, 0.0, np.sign(across) * np.abs(rows[j] - rows[i]) * step_b)
     expected = along * (rx * dx + ry * dy) + lattice_across * (ax * dx + ay * dy)
     # Пара считается, только если и в решётке j впереди i (иначе это сосед
     # сбоку, ушедший вперёд наклоном, а не ряд впереди).
     ahead = expected >= min_advance
-    i, j, same, advance, expected = i[ahead], j[ahead], same[ahead], advance[ahead], expected[ahead]
+    # Подпись допуска: чистый шаг (a, b, k·b), если допуск с ним совпадает
+    # (коридор вдоль столбца или ряда), иначе — проекция решётки, «шаг сетки».
+    # Подпись — `step_a` (a паспорта), у переменной сетки с другим a ряда — «шаг сетки».
+    rows_apart = np.abs(rows[j] - rows[i])
+    cols_apart = np.rint(np.abs(along) / step_a).astype(np.int64) if step_a else np.zeros_like(rows_apart)
+    pure = np.where(same, cols_apart * (step_a or 0.0), rows_apart * step_b)
+    exact = (pure > 0) & (np.abs(expected - pure) <= 0.01 * pure)
+    count = np.where(same, cols_apart, rows_apart)
+    letter = np.where(same, "a", "b")
+    labels = np.where(
+        ~exact, "grid", np.where(count == 1, letter, np.char.add(count.astype(str), letter))
+    )
+    i, j, same, advance, expected, labels = i[ahead], j[ahead], same[ahead], advance[ahead], expected[ahead], labels[ahead]
     if i.size == 0:
         return {}
     allowed = expected * (1.0 + TOE_BURDEN_TOLERANCE)
@@ -751,7 +779,7 @@ def _row_gaps(
             value_m=float(advance[p]),
             allowed_m=float(allowed[p]),
             excess=bool(ratio[p] > 1.0 + 1e-9),
-            step="a" if same[p] else "b",
+            step=str(labels[p]),
         )
         for p in first.tolist()
         for k in (int(i[p]),)

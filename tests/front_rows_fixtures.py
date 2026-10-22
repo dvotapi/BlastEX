@@ -58,14 +58,14 @@ def design_with(holes, pattern_params=None) -> BlastDesign:
 GAP_PATTERN = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.5, "row_azimuth_deg": 90.0}
 
 
-def grid_rows(row_one_tilt_deg: float = 0.0, rows: int = 4) -> list[Hole]:
-    """Сетка 4×3,5 м у грани y = 0: устья по сетке, ряд 1 (y = 2) наклонён к откосу."""
+def grid_rows(row_one_tilt_deg: float = 0.0, rows: int = 4, tilted_row: int = 0) -> list[Hole]:
+    """Сетка 4×3,5 м у грани y = 0: устья по сетке, ряд `tilted_row` (0 — ряд 1, y = 2) наклонён к откосу."""
     holes = []
     for r in range(rows):
         for c, x in enumerate((8.0, 12.0, 16.0, 20.0, 24.0)):
             y = 2.0 + 3.5 * r
             hid = f"{r + 1}-{c + 1:02d}"
-            if r == 0 and row_one_tilt_deg:
+            if r == tilted_row and row_one_tilt_deg:
                 hole = inclined_hole(hid, x, y, r, row_one_tilt_deg, 180)
             else:
                 hole = vertical_hole(hid, x, y, r)

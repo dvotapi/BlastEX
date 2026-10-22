@@ -202,8 +202,19 @@ class FloorBurden:
     hole_id: str
     value_m: float  # ЛСП: расстояние в плане от точки оси на уровне подошвы до линии подошвы
     allowed_m: float | None  # W + 3%; None, если W не задана
-    excess: bool
+    excess: bool  # ЛСП больше W + 3% или точка за линией подошвы — не «в допуске»
     toe_source: str = TOE_SOURCE_SURVEY  # "survey" — съёмка, "angle" — подошва по углу
+    beyond_toe: bool = False  # точка на подошве за нижней бровкой: скважина выходит в откос
+
+
+@dataclass(frozen=True)
+class ToePosition:
+    """Положение точки на уровне подошвы относительно линии подошвы (для ЛСП)."""
+
+    distance_m: float  # расстояние в плане до линии подошвы, без знака
+    source: str  # "survey" или "angle" — по какой линии считано (правило развала)
+    toe_point: tuple[float, float]  # точка подошвы, к которой идёт коридор
+    beyond: bool  # точка за линией подошвы, со стороны откоса
 
 
 def floor_point(hole: Hole) -> tuple[float, float]:
@@ -248,25 +259,33 @@ def _grid_steps_m(pattern_params: dict | None) -> tuple[float, float]:
     return a, b
 
 
-def _shadowed(
+def shadow_limits(a: float, b: float) -> tuple[float, float]:
+    """Коридор «закрыт соседом»: минимальное продвижение и предельный отступ вбок, м."""
+    return SHADOW_ADVANCE_RATIO * min(a, b), SHADOW_REACH_RATIO * max(a, b)
+
+
+def corridor_blockers(
     i: int,
     value: float,
     points,
-    toe_point,
+    target,
     tree: shapely.STRtree,
     min_advance: float,
     reach: float,
-) -> bool:
-    """Закрыта ли скважина i соседом сетки на пути к ближайшей точке подошвы.
+):
+    """Соседи, закрывающие точку i на пути к точке `target` (подошва или бровка).
 
-    d — единичный вектор от точки i к ближайшей точке линии подошвы; для соседа
-    j продвижение — проекция (p_j − p_i) на d, отступ вбок — модуль
-    перпендикулярной составляющей. Такой сосед лежит не дальше `reach` от
-    отрезка «точка i → подошва», поэтому запрос к индексу его не пропустит.
+    d — единичный вектор от точки i к `target`, `value` — расстояние до неё; для
+    соседа j продвижение — проекция (p_j − p_i) на d, отступ вбок — модуль
+    перпендикулярной составляющей. Сосед закрывает i, если продвижение не меньше
+    `min_advance` и меньше `value`, а отступ не больше `reach`. Такой сосед
+    лежит не дальше `reach` от отрезка «точка i → target», поэтому запрос к
+    индексу его не пропустит. Одна и та же проверка — у ЛСП (`floor_burdens`,
+    по точкам на подошве) и у ранга ряда наклона (`design/pattern.py`, по устьям).
     """
     px, py = points[i].x, points[i].y
-    dx, dy = (toe_point.x - px) / value, (toe_point.y - py) / value
-    corridor = LineString([points[i], toe_point])
+    dx, dy = (target.x - px) / value, (target.y - py) / value
+    corridor = LineString([points[i], target])
     for k in tree.query(corridor, predicate="dwithin", distance=reach):
         j = int(k)
         if j == i:
@@ -275,8 +294,70 @@ def _shadowed(
         advance = vx * dx + vy * dy
         lateral = abs(vx * dy - vy * dx)
         if min_advance <= advance < value and lateral <= reach:
-            return True
-    return False
+            yield j
+
+
+def crest_geometry(contour: BlockContour) -> MultiLineString | None:
+    """Верхняя бровка — свободные поверхности контура; None, если их нет."""
+    lines = _free_polylines(contour)
+    return MultiLineString([LineString(line) for line in lines]) if lines else None
+
+
+def _valid_polygon(ring):
+    polygon = Polygon(ring)
+    return polygon if polygon.is_valid else shapely.make_valid(polygon)
+
+
+def toe_positions(
+    contour: BlockContour, points_xy: list[tuple[float, float]], heights_m: list[float]
+) -> list[ToePosition] | None:
+    """Расстояние до линии подошвы для точек на уровне подошвы; None — подошвы нет.
+
+    Та же линия, что у ЛСП: съёмка нижней бровки с правилом развала (по высоте
+    уступа `heights_m` у каждой точки) или подошва по углу. «За подошвой» —
+    точка вне верхнего контура, ближайший край которого — свободная
+    поверхность (со стороны откоса, а не за тылом или флангом), и при этом:
+    у съёмки — вне кольца нижней бровки, у подошвы по углу — дальше смещения
+    H · tan(90° − угол) от бровки.
+    """
+    toe = toe_line(contour)
+    toe_geom = _geometry(toe)
+    if toe is None or toe_geom is None or not points_xy:
+        return None
+    points = shapely.points(points_xy)
+    values = [float(v) for v in shapely.distance(points, toe_geom)]
+    sources = [toe.source] * len(points_xy)
+    nearest = shapely.get_point(shapely.shortest_line(toe_geom, points), 0)
+    toe_points: list = list(nearest)
+    crest_geom = crest_geometry(contour)
+    top = _valid_polygon(contour.points_xy)
+    xs, ys = shapely.get_x(points), shapely.get_y(points)
+    inside = shapely.contains_xy(top, xs, ys)
+    crest_d = shapely.distance(points, crest_geom)
+    # Сторона откоса: ближайший край верхнего контура — свободная поверхность.
+    face_side = crest_d <= shapely.distance(points, top.boundary) + 1e-6
+    if toe.source == TOE_SOURCE_SURVEY:
+        bottom = _valid_polygon(drawing_bottom(contour))
+        beyond = [bool(not inside[i] and face_side[i] and not bottom.covers(points[i])) for i in range(len(points))]
+        _spoil_to_angle(contour, heights_m, points, toe_geom, crest_geom, inside, crest_d, values, sources, toe_points)
+        # Развал: подошва по углу с высотой уступа у точки.
+        angle = spoil_face_angle_deg(contour.bench)
+        for i in range(len(points)):
+            if sources[i] == TOE_SOURCE_ANGLE:
+                offset = _offset_m(heights_m[i], angle)
+                beyond[i] = bool(not inside[i] and face_side[i] and crest_d[i] > offset + 1e-9)
+    else:
+        offset = _offset_m(contour.bench.height_m, contour.bench.face_angle_deg)
+        beyond = [bool(not inside[i] and face_side[i] and crest_d[i] > offset + 1e-9) for i in range(len(points))]
+    return [
+        ToePosition(
+            distance_m=values[i],
+            source=sources[i],
+            toe_point=(float(toe_points[i].x), float(toe_points[i].y)),
+            beyond=beyond[i],
+        )
+        for i in range(len(points_xy))
+    ]
 
 
 def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
@@ -297,45 +378,58 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
     сосед предыдущего ряда стоит в a/2 (ряды вдоль бровки) или в b (ряды
     поперёк бровки) сбоку. Номер ряда не важен — так первый ряд находится и у
     фланговых свободных поверхностей, и у рядов поперёк бровки.
+
+    Точка за линией подошвы (скважина выходит в откос) коридора к подошве не
+    имеет: такая скважина попадает в ответ всегда, с `beyond_toe` и
+    `excess=True` — ЛСП без знака там не «в допуске», а расстояние с другой
+    стороны линии.
     """
-    toe = toe_line(design.contour)
-    if toe is None:
-        return {}
-    toe_geom = _geometry(toe)
-    if toe_geom is None:
-        return {}
     allowed = allowed_floor_burden_m(design.pattern_params)
     a, b = _grid_steps_m(design.pattern_params)
-    min_advance = SHADOW_ADVANCE_RATIO * min(a, b)
-    reach = SHADOW_REACH_RATIO * max(a, b)
+    min_advance, reach = shadow_limits(a, b)
     grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
     if not grid:
         return {}
-    points = shapely.points([floor_point(h) for h in grid])
-    values = [float(v) for v in shapely.distance(points, toe_geom)]
-    sources = [toe.source] * len(grid)
-    # Точка подошвы, к которой идёт коридор скважины (проверка «закрыта соседом»).
-    toe_points: list = [None] * len(grid)
-    if toe.source == TOE_SOURCE_SURVEY:
-        _spoil_to_angle(design, grid, points, toe_geom, values, sources, toe_points)
+    block_h = design.contour.bench.height_m
+    xy = [floor_point(h) for h in grid]
+    positions = toe_positions(design.contour, xy, [hole_bench_height_m(h, block_h) for h in grid])
+    if positions is None:
+        return {}
+    points = shapely.points(xy)
     tree = shapely.STRtree(points)
     result: dict[str, FloorBurden] = {}
     for i, hole in enumerate(grid):
         if hole.kind != "production":
             continue
-        value = values[i]
-        if value > 0:
-            toe_point = toe_points[i] if toe_points[i] is not None else nearest_points(toe_geom, points[i])[0]
-            if _shadowed(i, value, points, toe_point, tree, min_advance, reach):
+        position = positions[i]
+        value = position.distance_m
+        if value > 0 and not position.beyond:
+            target = shapely.Point(position.toe_point)
+            if next(corridor_blockers(i, value, points, target, tree, min_advance, reach), None) is not None:
                 continue
         result[hole.id] = FloorBurden(
             hole_id=hole.id,
             value_m=value,
             allowed_m=allowed,
-            excess=allowed is not None and value > allowed,
-            toe_source=sources[i],
+            excess=position.beyond or (allowed is not None and value > allowed),
+            toe_source=position.source,
+            beyond_toe=position.beyond,
         )
     return result
+
+
+def holes_beyond_toe(design: BlastDesign) -> list[str]:
+    """Включённые скважины сетки (в том числе ручные), чья точка на подошве за линией подошвы."""
+    grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
+    if not grid:
+        return []
+    block_h = design.contour.bench.height_m
+    positions = toe_positions(
+        design.contour, [floor_point(h) for h in grid], [hole_bench_height_m(h, block_h) for h in grid]
+    )
+    if positions is None:
+        return []
+    return [hole.id for hole, position in zip(grid, positions) if position.beyond]
 
 
 def hole_bench_height_m(hole: Hole, block_height_m: float) -> float:
@@ -344,8 +438,10 @@ def hole_bench_height_m(hole: Hole, block_height_m: float) -> float:
     return own if own > 0 else block_height_m
 
 
-def _spoil_to_angle(design: BlastDesign, grid, points, toe_geom, values, sources, toe_points) -> None:
-    """Скважины, у которых съёмка подошвы — развал, переводятся на подошву по углу.
+def _spoil_to_angle(
+    contour: BlockContour, heights, points, toe_geom, crest_geom, inside, crest_d, values, sources, toe_points
+) -> None:
+    """Точки, у которых съёмка подошвы — развал, переводятся на подошву по углу.
 
     Развал: ближайшая к точке p_i точка съёмки дальше `SURVEY_SPOIL_WIDTH_FACTOR · H_i`
     от верхней бровки, H_i — высота уступа у скважины. ЛСП по углу —
@@ -354,20 +450,11 @@ def _spoil_to_angle(design: BlastDesign, grid, points, toe_geom, values, sources
     кривой с круглыми стыками расстояния складываются). Точка за бровкой
     (наклонная скважина) — |смещение − d|. Угол — `spoil_face_angle_deg`.
     """
-    contour = design.contour
-    crest_geom = MultiLineString([LineString(line) for line in _free_polylines(contour)])
-    block_h = contour.bench.height_m
     angle = spoil_face_angle_deg(contour.bench)
-    heights = [hole_bench_height_m(h, block_h) for h in grid]
     nearest_survey = shapely.get_point(shapely.shortest_line(toe_geom, points), 0)
     survey_gap = shapely.distance(nearest_survey, crest_geom)
-    crest_d = shapely.distance(points, crest_geom)
-    polygon = Polygon(contour.points_xy)
-    if not polygon.is_valid:
-        polygon = shapely.make_valid(polygon)
-    inside = shapely.contains_xy(polygon, shapely.get_x(points), shapely.get_y(points))
     fallback_geom = None
-    for i in range(len(grid)):
+    for i in range(len(points)):
         height = heights[i]
         if height <= 0 or survey_gap[i] <= SURVEY_SPOIL_WIDTH_FACTOR * height:
             continue

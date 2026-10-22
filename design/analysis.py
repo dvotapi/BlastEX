@@ -13,7 +13,7 @@ from design.geometry import block_volume, collar_on_roof, ensure_ccw, floor_elev
 from design.hole_recompute import SHORT_BENCH_M
 from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind
 from design.timing import resolve_network
-from design.toe_line import floor_burdens
+from design.toe_line import floor_burdens, holes_beyond_toe
 
 Point2 = tuple[float, float]
 
@@ -297,9 +297,21 @@ def validate(
                 }
             )
 
+    # Точка на подошве за нижней бровкой — скважина выходит в откос (любая
+    # скважина сетки, в том числе ручная). ЛСП такой скважины не «в допуске»,
+    # но вместо предупреждения о ЛСП — это.
+    for hole_id in holes_beyond_toe(design):
+        warnings.append(
+            {
+                "code": "floor_beyond_toe",
+                "hole_id": hole_id,
+                "message": f"Скважина {hole_id} выходит в откос: точка на подошве за нижней бровкой.",
+            }
+        )
+
     # ЛСП первого ряда больше W + 3% — скважина стоит слишком далеко от подошвы.
     for hole_id, item in floor_burdens(design).items():
-        if item.excess and item.allowed_m is not None:
+        if item.excess and item.allowed_m is not None and not item.beyond_toe:
             warnings.append(
                 {
                     "code": "floor_burden_excess",

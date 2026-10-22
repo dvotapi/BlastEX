@@ -12,9 +12,11 @@ from design.maps import engineering_maps
 from design.toe_line import (
     allowed_floor_burden_m,
     floor_burdens,
+    holes_beyond_toe,
     slope_offset_m,
     spoil_angle_toe_lines,
     toe_line,
+    toe_positions,
 )
 
 PATTERN = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.7}
@@ -456,3 +458,61 @@ def test_generated_staggered_rows_across_face_end_holes_behind_neighbours_not_ex
     assert not any(result[h.id].excess for h in behind if h.id in result)
     # Скважины, перед которыми никого нет, по-прежнему проверяются.
     assert any(fb.excess for fb in result.values())
+
+
+# --- Выход в откос: точка на подошве за линией подошвы ---
+
+
+def test_hole_exiting_into_slope_is_beyond_toe_and_excess():
+    # Подошва по углу — y = −2,68. Наклон 30° от устья в 1 м: на H = 10 м ось
+    # уходит к откосу на 5,77 м — точка на подошве y = −4,77, за линией подошвы.
+    hole = inclined_hole("1-01", x=10, y=1.0, row=0, angle_deg=30, azimuth_deg=180)
+    fb = floor_burdens(design_with([hole], {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.0}))["1-01"]
+    assert fb.beyond_toe is True
+    assert fb.value_m == pytest.approx(5.7735 - 1.0 - 2.6795, abs=1e-3)  # расстояние с другой стороны
+    assert fb.value_m < fb.allowed_m
+    assert fb.excess is True  # без знака ЛСП «в допуске», но скважина выходит в откос
+
+
+def test_beyond_toe_hole_is_not_hidden_by_row_behind():
+    # Скважина за ней (ряд 2) не закрывает: коридора к подошве у вышедшей в откос нет.
+    first = inclined_hole("1-01", x=10, y=1.0, row=0, angle_deg=30, azimuth_deg=180)
+    second = vertical_hole("2-01", x=10, y=4.7, row=1)
+    result = floor_burdens(design_with([first, second]))
+    assert result["1-01"].beyond_toe is True
+
+
+def test_hole_inside_toe_is_not_beyond():
+    hole = inclined_hole("1-01", x=10, y=3.7, row=0, angle_deg=15, azimuth_deg=180)
+    fb = floor_burdens(design_with([hole]))["1-01"]
+    assert fb.beyond_toe is False
+
+
+def test_hole_past_back_edge_is_not_beyond_toe():
+    # Наклон наружу через тыл (y = 22, не свободная поверхность) — не откос.
+    hole = inclined_hole("1-01", x=10, y=21.0, row=5, angle_deg=30, azimuth_deg=0)
+    assert holes_beyond_toe(design_with([hole])) == []
+
+
+def test_survey_toe_beyond_uses_bottom_ring():
+    # Съёмка нижней бровки y = −3 (ближе H — откос, не развал).
+    contour = rect_contour(cad={"bottom": [[0, -3], [40, -3], [40, 22], [0, 22]]})
+    inside = inclined_hole("1-01", x=10, y=3.0, row=0, angle_deg=15, azimuth_deg=180)  # y_подошва = 0,32
+    out = inclined_hole("1-02", x=20, y=1.0, row=0, angle_deg=30, azimuth_deg=180)  # y_подошва = −4,77
+    design = BlastDesign(design_id="t", contour=contour, holes=[inside, out], pattern_params=PATTERN)
+    assert holes_beyond_toe(design) == ["1-02"]
+    assert floor_burdens(design)["1-02"].beyond_toe is True
+
+
+def test_manual_and_non_production_grid_holes_are_checked():
+    hole = inclined_hole("M-1", x=10, y=1.0, row=0, angle_deg=30, azimuth_deg=180)
+    hole.source = "manual"
+    hole.kind = "infill"
+    assert holes_beyond_toe(design_with([hole])) == ["M-1"]
+
+
+def test_toe_positions_for_vertical_floor_points():
+    positions = toe_positions(rect_contour(), [(10.0, 3.0), (10.0, -5.0)], [10.0, 10.0])
+    assert positions[0].distance_m == pytest.approx(3.0 + 2.6795, abs=1e-3)
+    assert positions[0].beyond is False
+    assert positions[1].beyond is True

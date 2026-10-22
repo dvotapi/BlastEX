@@ -140,5 +140,20 @@ def test_validate_warns_when_floor_burden_exceeds_w_plus_3_percent():
     assert "подошва по углу" in excess[0]["message"]
 
 
+def test_validate_warns_when_hole_exits_into_slope():
+    from design.models import BlastDesign
+    from tests.test_toe_line import PATTERN, inclined_hole, rect_contour
+
+    out = inclined_hole("1-01", x=10, y=1.0, row=0, angle_deg=30, azimuth_deg=180)
+    ok = inclined_hole("1-02", x=20, y=3.7, row=0, angle_deg=15, azimuth_deg=180)
+    design = BlastDesign(design_id="t", contour=rect_contour(), holes=[out, ok], pattern_params=PATTERN)
+    warnings = validate(design)
+    beyond = [w for w in warnings if w["code"] == "floor_beyond_toe"]
+    assert [w["hole_id"] for w in beyond] == ["1-01"]
+    assert beyond[0]["message"] == "Скважина 1-01 выходит в откос: точка на подошве за нижней бровкой."
+    # ЛСП вышедшей в откос скважины предупреждением о ЛСП не дублируется.
+    assert not any(w["code"] == "floor_burden_excess" and w["hole_id"] == "1-01" for w in warnings)
+
+
 if __name__ == "__main__":
     unittest.main()

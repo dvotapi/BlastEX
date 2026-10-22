@@ -59,6 +59,24 @@ describe("holeHealth", () => {
     expect(HEALTH_LABELS.floor_burden_excess).toBe("ЛСП больше допустимого");
   });
 
+  it("flags holes whose floor point is beyond the toe line", () => {
+    const hole = sampleHole("H4", 0, 0);
+    const network = emptyNetwork();
+    network.starter_items = [{ id: "st-H4", hole_id: "H4", delay_ms: 0, kind: "starter" }];
+    network.starters = ["H4"];
+    const code = computeHoleHealth(hole, {
+      load: { hole_id: "H4", decks: [], total_charge_kg: 100, influence_volume_m3: 1, specific_q_kg_m3: 1, primers: [5] },
+      network,
+      contour: emptyDesign().contour,
+      warnings: [
+        { code: "floor_burden_excess", hole_id: hole.id, message: "" },
+        { code: "floor_beyond_toe", hole_id: hole.id, message: "" },
+      ],
+    });
+    expect(code).toBe("floor_beyond_toe");
+    expect(HEALTH_LABELS.floor_beyond_toe).toBe("Скважина выходит в откос");
+  });
+
   it("flags holes the initiation cannot reach from the starters", () => {
     const network = emptyNetwork();
     network.starter_items = [{ id: "st-A", hole_id: "A", delay_ms: 0, kind: "starter" }];

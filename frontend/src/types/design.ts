@@ -243,6 +243,9 @@ export type HoleKind =
   | "satellite"
   | "infill"
   | "face_toe";
+/** Виды, у которых без заряда скважина отмечается «нет заряда»: основная сетка
+ *  и «Наклонная у откоса» — генератор ставит её без зарядки, как и основную. */
+export const CHARGE_REQUIRED_HOLE_KINDS: ReadonlySet<HoleKind> = new Set<HoleKind>(["production", "face_toe"]);
 export type HoleSource = "generated" | "manual";
 export type DataRole = "designed" | "executed" | "predicted" | "measured";
 export type WaterCondition = "dry" | "moist" | "wet" | "flowing" | "";

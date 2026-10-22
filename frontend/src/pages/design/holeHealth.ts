@@ -10,7 +10,7 @@ import type {
   Point3,
   ValidationWarning,
 } from "../../types/design";
-import { networkTies } from "../../types/design";
+import { CHARGE_REQUIRED_HOLE_KINDS, networkTies } from "../../types/design";
 
 export type HoleHealthCode =
   | "ok"
@@ -214,7 +214,7 @@ export function computeHoleHealth(
 
   const load = context.load;
   const charged = (load?.total_charge_kg ?? 0) > 0;
-  if (!charged && hole.kind === "production") {
+  if (!charged && CHARGE_REQUIRED_HOLE_KINDS.has(hole.kind)) {
     code = pickWorst(code, "missing_charge");
   }
   if (charged && (!load?.primers?.length && !(load?.primer_items?.length))) {

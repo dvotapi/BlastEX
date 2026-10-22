@@ -28,6 +28,19 @@ describe("holeHealth", () => {
     expect(code).toBe("missing_charge");
   });
 
+  it("flags face_toe holes without charge, but not buffer holes", () => {
+    const context = { network: emptyNetwork(), contour: emptyDesign().contour };
+    const pair = { ...sampleHole("5-08T", 0, 0), kind: "face_toe" as const };
+    expect(computeHoleHealth(pair, context)).toBe("missing_charge");
+    const charged = computeHoleHealth(pair, {
+      ...context,
+      load: { hole_id: "5-08T", decks: [], total_charge_kg: 50, influence_volume_m3: 1, specific_q_kg_m3: 1, primers: [5] },
+    });
+    expect(charged).toBe("ok");
+    const buffer = { ...sampleHole("B1", 0, 0), kind: "buffer" as const };
+    expect(computeHoleHealth(buffer, context)).toBe("ok");
+  });
+
   it("flags holes outside contour polygon", () => {
     const design = emptyDesign();
     design.contour.vertices = [

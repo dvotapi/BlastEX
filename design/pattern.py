@@ -12,7 +12,6 @@ from design.geometry import (
     distance_to_free_faces,
     drape_collar,
     ensure_ccw,
-    face_azimuth_deg,
     local_basis,
     offset_polygon,
     pattern_origin,
@@ -318,13 +317,19 @@ def generate_pattern(
         v += local_b
 
     # Сейчас в `holes` — вся основная сетка: ряд вдоль бровки, ряды впереди
-    # первого ряда решётки и ряды решётки. Наклон — после раскладки, по
-    # местному рангу (см. `_tilt_front_rows`).
-    if tilt_count > 0:
-        holes = _tilt_front_rows(
+    # первого ряда решётки и ряды решётки. Схема первого ряда у откоса — после
+    # раскладки, по местному рангу (см. `_taper_front_rows`).
+    mode = front_rows_mode(params, tilt_count) if contour.free_faces else None
+    lattice_xy: dict[int, tuple[float, float]] = {}
+    if mode == FRONT_ROWS_MODE_PAIR:
+        pass  # «Пара у откоса» — часть 3b, задача 2.
+    elif mode == FRONT_ROWS_MODE_TAPER and tilt_count > 0:
+        holes, lattice_xy = _taper_front_rows(
             holes,
             face_row_count,
             contour,
+            boundary,
+            advance_dir,
             tilt_count,
             tilt_deg,
             tilt_floor_burden_target_m(params),
@@ -376,9 +381,12 @@ def generate_pattern(
         holes.extend(_generate_infill_holes(holes, contour, params, surfaces))
 
     # Id — по расположению (север→юг, запад→восток); row/col остаются техническими.
+    # Сдвинутые плавным переходом — по месту в сетке до сдвига.
+    numbered = _keep_manual(existing_holes) + holes
     return number_by_position(
-        _keep_manual(existing_holes) + holes,
+        numbered,
         row_azimuth_deg=float(params.get("row_azimuth_deg", 0.0)),
+        positions=[lattice_xy.get(id(h)) for h in numbered] if lattice_xy else None,
     )
 
 
@@ -465,10 +473,138 @@ def tilt_floor_burden_target_m(params: dict[str, Any]) -> float:
     return max(minimum, FRONT_TILT_MIN_FLOOR_BURDEN_M) if minimum is not None else FRONT_TILT_MIN_FLOOR_BURDEN_M
 
 
-def _tilt_front_rows(
+# Схемы первого ряда у откоса (`front_rows_mode`): «плавный переход» — один
+# угол на участок ряда, шаг b у подошвы; «пара» — вертикальная + наклонная
+# у откоса (часть 3b, задача 2).
+FRONT_ROWS_MODE_TAPER = "taper"
+FRONT_ROWS_MODE_PAIR = "pair"
+FRONT_ROWS_MODES = (FRONT_ROWS_MODE_PAIR, FRONT_ROWS_MODE_TAPER)
+
+
+def front_rows_mode(params: dict[str, Any], tilt_count: int) -> str | None:
+    """Схема первого ряда у откоса; None — вертикальный первый ряд (как без ключей).
+
+    Без `front_rows_mode` и с `front_rows_tilt_count` > 0 — «плавный переход»
+    (ключи, введённые до выбора схемы). Неизвестное значение — None: сетка не
+    меняется.
+    """
+    raw = params.get("front_rows_mode")
+    if raw in (None, ""):
+        return FRONT_ROWS_MODE_TAPER if tilt_count > 0 else None
+    mode = str(raw).strip().lower()
+    return mode if mode in FRONT_ROWS_MODES else None
+
+
+def _tilt_caps_m(
+    contour: BlockContour,
+    collars: list[tuple[float, float]],
+    heights: list[float],
+    direction: tuple[float, float],
+    tilt_deg: float,
+    target_m: float,
+) -> list[float] | None:
+    """Наибольший вынос точки оси на уровне подошвы вдоль `direction`, м, по скважинам.
+
+    Вынос t = H·tg α не больше H·tg `tilt_deg`; точка устье + t·direction не
+    ближе `target_m` к линии подошвы (та же линия, что у ЛСП, с правилом
+    развала) и не за ней. Начальная оценка — по проекции направления на путь к
+    ближайшей точке подошвы (точна для прямого участка), затем проверка
+    `toe_positions` и, где не прошла, деление пополам. ЛСП вертикальной не
+    больше `target_m` — 0. None — линии подошвы нет.
+    """
+    base = toe_positions(contour, collars, heights)
+    if base is None:
+        return None
+    tan_max = math.tan(math.radians(tilt_deg))
+    caps: list[float] = []
+    for (x, y), height, position in zip(collars, heights, base):
+        room = position.distance_m - target_m
+        if height <= 0 or room <= 1e-6 or position.beyond:
+            caps.append(0.0)
+            continue
+        limit = height * tan_max
+        ux, uy = position.toe_point[0] - x, position.toe_point[1] - y
+        norm = math.hypot(ux, uy)
+        cos = (ux * direction[0] + uy * direction[1]) / norm if norm > 1e-12 else 0.0
+        caps.append(min(limit, room / cos) if cos > 1e-9 else limit)
+
+    def failing(indices: list[int], shifts: list[float]) -> list[bool]:
+        points = [(collars[i][0] + direction[0] * t, collars[i][1] + direction[1] * t) for i, t in zip(indices, shifts)]
+        found = toe_positions(contour, points, [heights[i] for i in indices]) or []
+        return [p.beyond or p.distance_m < target_m - 1e-6 for p in found]
+
+    todo = [i for i, t in enumerate(caps) if t > 0]
+    bad = [i for i, fail in zip(todo, failing(todo, [caps[i] for i in todo])) if fail]
+    # Деление пополам: [0, lo] проходит, hi — нет.
+    low = {i: 0.0 for i in bad}
+    high = {i: caps[i] for i in bad}
+    for _ in range(40):
+        if not bad:
+            break
+        mids = [0.5 * (low[i] + high[i]) for i in bad]
+        for i, mid, fail in zip(bad, mids, failing(bad, mids)):
+            if fail:
+                high[i] = mid
+            else:
+                low[i] = mid
+        bad = [i for i in bad if high[i] - low[i] > 1e-7]
+    for i in low:
+        caps[i] = low[i]
+    return caps
+
+
+def _row_segments(grid: list[Hole], ranks: list[int], picked: set[int]) -> list[list[int]]:
+    """Участки ряда ранга 1: скважины одного ряда решётки с рангом 1, подряд по столбцу.
+
+    Скважина другого ранга или вида, который не наклоняется, участок рвёт.
+    """
+    by_row: dict[int, list[int]] = {}
+    for i, hole in enumerate(grid):
+        by_row.setdefault(hole.row, []).append(i)
+    segments: list[list[int]] = []
+    for indices in by_row.values():
+        indices.sort(key=lambda i: grid[i].col)
+        current: list[int] = []
+        for i in indices:
+            if ranks[i] == 1 and i in picked:
+                current.append(i)
+            elif current:
+                segments.append(current)
+                current = []
+        if current:
+            segments.append(current)
+    return segments
+
+
+def _column_anchor(
+    collars: np.ndarray, anchors: np.ndarray, direction: tuple[float, float], min_advance: float, reach: float
+) -> np.ndarray:
+    """Для каждой скважины — скважина ранга 1 впереди в её столбце (индекс в `anchors`), −1 — нет.
+
+    «Впереди» — продвижение вдоль `direction` (к откосу) не меньше
+    `min_advance`; столбец — наименьший отступ вбок (не больше `reach`, у
+    шахматки соседний столбец в полшага), при равных — ближайшая.
+    """
+    if anchors.size == 0:
+        return np.full(len(collars), -1, dtype=np.int64)
+    vx = collars[anchors][None, :, 0] - collars[:, None, 0]
+    vy = collars[anchors][None, :, 1] - collars[:, None, 1]
+    advance = vx * direction[0] + vy * direction[1]
+    lateral = np.abs(vx * direction[1] - vy * direction[0])
+    ok = (advance >= min_advance) & (lateral <= reach)
+    # Отступ вбок важнее продвижения: сравнение по округлённому до мм отступу.
+    score = np.where(ok, np.round(lateral, 3) * 1e6 + advance, np.inf)
+    best = np.argmin(score, axis=1)
+    found = np.isfinite(score[np.arange(len(collars)), best])
+    return np.where(found, best, -1)
+
+
+def _taper_front_rows(
     grid: list[Hole],
     face_row_count: int,
     contour: BlockContour,
+    boundary: list[tuple[float, float]],
+    advance_dir: tuple[float, float],
     tilt_count: int,
     tilt_deg: float,
     target_m: float,
@@ -478,41 +614,88 @@ def _tilt_front_rows(
     subdrill_m: float,
     surfaces: object | None,
     depth_override: float | None,
-) -> list[Hole]:
-    """Наклон к откосу скважин основной сетки с местным рангом ≤ `tilt_count`.
+) -> tuple[list[Hole], dict[int, tuple[float, float]]]:
+    """Плавный переход: ряды 1–`tilt_count` у откоса наклонены, шаг b — у подошвы.
 
-    Сетка уже разложена с общим углом; устья не двигаются, скважина
-    перестраивается из устья с углом `tilt_deg` и азимутом к ближайшему
-    участку свободной поверхности. Наклоняются только виды `tilt_kinds`
-    (рядовые и вид основной сетки); остальные скважины — только заслоняют.
+    Все наклоны и сдвиги — вдоль линии столбца к откосу (−`advance_dir`):
+    скважины соседних рядов остаются на одной линии (поперечные заходки
+    зарядной машины). Ранг — местный (`front_row_ranks`) по сетке до наклона.
 
-    Угол ограничен: точка оси на уровне подошвы остаётся не ближе `target_m`
-    (`tilt_floor_burden_target_m`: 0,8·W, но не меньше 1 м) к линии подошвы
-    (та же линия, что у ЛСП, с правилом развала) — tan α ≤ (ЛСП вертикальной −
-    target_m) / H, H — высота уступа у скважины. ЛСП вертикальной не больше
-    target_m — скважина остаётся с общим углом.
+    Участок ряда ранга 1 (`_row_segments`) получает один угол α₁ —
+    наименьший из допустимых по его скважинам (`_tilt_caps_m`: не больше
+    `tilt_deg`, ЛСП не меньше `target_m`, низ не за подошвой), устья — на
+    месте. Скважина ранга 2 при `tilt_count` = 2 — α₁/2 участка ранга 1
+    впереди в её столбце; остальные — с общим углом паспорта. Устья ранга
+    k ≥ 2 сдвигаются к откосу на H·(tg α₁ − tg α_k) (α_k = 0 за переходом,
+    H — высота уступа блока): расстояние между рядами у подошвы остаётся b,
+    каждый участок ряда — прямым. Наклоняются только виды `tilt_kinds`;
+    сдвигаются все скважины сетки (столбцы обязаны остаться на линии).
+    Сдвинутое устье вне контура — скважина не ставится.
+
+    Возвращает скважины и место в сетке до сдвига у сдвинутых (по `id()`
+    объекта) — для нумерации: ряды остаются рядами решётки, даже когда
+    устья соседних рядов сблизились меньше допуска нумерации.
     """
+    if not grid:
+        return grid, {}
+    direction = (-advance_dir[0], -advance_dir[1])
+    azimuth = math.degrees(math.atan2(direction[0], direction[1])) % 360.0
     collars = [(h.collar.x, h.collar.y) for h in grid]
     ranks = front_row_ranks(collars, contour, spacing_a, burden_b, forced_first=face_row_count)
-    picked = [i for i, h in enumerate(grid) if ranks[i] <= tilt_count and h.kind in tilt_kinds]
+    picked = {i for i, h in enumerate(grid) if ranks[i] == 1 and h.kind in tilt_kinds}
     if not picked:
-        return grid
-    heights = [grid[i].bench_height_m for i in picked]
-    positions = toe_positions(contour, [collars[i] for i in picked], heights)
-    if positions is None:
-        return grid
-    result = list(grid)
-    for i, height, position in zip(picked, heights, positions):
-        face_azimuth = face_azimuth_deg(collars[i], contour)
-        room = position.distance_m - target_m
-        if face_azimuth is None or height <= 0 or room <= 1e-6:
+        return grid, {}
+    order = sorted(picked)
+    heights = [grid[i].bench_height_m for i in order]
+    caps = _tilt_caps_m(contour, [collars[i] for i in order], heights, direction, tilt_deg, target_m)
+    if caps is None:
+        return grid, {}
+    tan_of = {i: (cap / height if height > 0 else 0.0) for i, cap, height in zip(order, caps, heights)}
+    # Угол участка — наименьший из допустимых по его скважинам.
+    tan_first = [0.0] * len(grid)
+    for segment in _row_segments(grid, ranks, picked):
+        value = min(tan_of[i] for i in segment)
+        for i in segment:
+            tan_first[i] = value
+
+    height = contour.bench.height_m
+    points = np.asarray(collars, dtype=float)
+    first = np.asarray([i for i in range(len(grid)) if ranks[i] == 1], dtype=np.int64)
+    min_advance, reach = shadow_limits(spacing_a, burden_b)
+    anchor = _column_anchor(points, first, direction, min_advance, reach)
+
+    result: list[Hole] = []
+    lattice_xy: dict[int, tuple[float, float]] = {}
+    for i, hole in enumerate(grid):
+        if ranks[i] == 1:
+            tan_1 = tan_first[i]
+            tan_k = tan_1 if i in picked else 0.0
+        else:
+            tan_1 = tan_first[int(first[anchor[i]])] if anchor[i] >= 0 else 0.0
+            half = math.tan(0.5 * math.atan(tan_1))
+            tan_k = half if ranks[i] == 2 and tilt_count >= 2 and hole.kind in tilt_kinds else 0.0
+        if tan_1 <= 1e-12:
+            result.append(hole)
             continue
-        angle = min(tilt_deg, math.degrees(math.atan(room / height)))
-        collar, toe = drape_collar(
-            collars[i][0], collars[i][1], angle, face_azimuth, subdrill_m, contour, surfaces, depth_override
-        )
-        result[i] = replace(grid[i], collar=collar, toe=toe)
-    return result
+        shift = height * (tan_1 - tan_k) if ranks[i] > 1 else 0.0
+        x = collars[i][0] + direction[0] * shift
+        y = collars[i][1] + direction[1] * shift
+        if shift > 0 and not point_in_polygon((x, y), boundary):
+            continue
+        if tan_k > 1e-12:
+            angle = math.degrees(math.atan(tan_k))
+            collar, toe = drape_collar(x, y, angle, azimuth, subdrill_m, contour, surfaces, depth_override)
+        else:
+            # Общий угол паспорта — тот же вектор оси, что у скважины сетки.
+            dx, dy, dz = hole.toe.x - hole.collar.x, hole.toe.y - hole.collar.y, hole.toe.z - hole.collar.z
+            angle = math.degrees(math.atan2(math.hypot(dx, dy), -dz)) if dz < 0 else 0.0
+            own_azimuth = math.degrees(math.atan2(dx, dy)) % 360.0 if (dx or dy) else 0.0
+            collar, toe = drape_collar(x, y, angle, own_azimuth, subdrill_m, contour, surfaces, depth_override)
+        moved = replace(hole, collar=collar, toe=toe)
+        if shift > 0:
+            lattice_xy[id(moved)] = collars[i]
+        result.append(moved)
+    return result, lattice_xy
 
 
 def _grid_id(kind: str, row_index: int, col_index: int) -> str:

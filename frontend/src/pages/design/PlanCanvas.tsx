@@ -22,7 +22,7 @@ import {
   angleAzimuth,
 } from "../../lib/geometry2d";
 import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
-import { HOLE_KIND_LABELS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
+import { HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
 import { RELIEF_BANDS, reliefBand } from "./relief";
 import { healthColor, holeDepthM, type HoleHealthCode, type HoleHealthMap } from "./holeHealth";
@@ -1282,7 +1282,7 @@ export function PlanCanvas({
             <label className="plan-toggle" title="Тип скважины при добавлении инструментом «Скважина»">
               Тип
               <select value={insertKind} onChange={(e) => onInsertKindChange(e.target.value as HoleKind)}>
-                {Object.entries(HOLE_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {SELECTABLE_HOLE_KINDS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
           )}

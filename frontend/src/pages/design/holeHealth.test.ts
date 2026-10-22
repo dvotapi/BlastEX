@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyDesign, emptyHoleGeology, emptyNetwork } from "../../types/design";
+import { emptyDesign, emptyHoleGeology, emptyNetwork, HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS } from "../../types/design";
 import { computeAllHoleHealth, computeHoleHealth, HEALTH_LABELS, healthColor, summarizeHealth } from "./holeHealth";
 
 function sampleHole(id: string, x: number, y: number) {
@@ -155,5 +155,12 @@ describe("holeHealth: флаги кровли (TASK-013, PR 3)", () => {
     });
 
     expect(health.A).toBe("short_bench");
+  });
+
+  it("коды проверок первых рядов получают подписи", () => {
+    expect(HOLE_KIND_LABELS.face_toe).toBe("Наклонная у откоса");
+    expect(SELECTABLE_HOLE_KINDS.map(([k]) => k)).not.toContain("face_toe");
+    expect(HEALTH_LABELS.floor_row_gap_excess).toBe("Между рядами у подошвы больше допустимого");
+    expect(HEALTH_LABELS.collar_too_close_to_crest).toBe("Устье ближе допустимого к кромке");
   });
 });

@@ -1,5 +1,5 @@
 import type { HoleKind, PatternParams, PatternType, RowPatternParams } from "../../types/design";
-import { HOLE_KIND_LABELS } from "../../types/design";
+import { SELECTABLE_HOLE_KINDS } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
 
 const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
@@ -10,7 +10,7 @@ const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
   { value: "domain_dependent", label: "По доменам", hint: "a/b из геологических доменов" },
 ];
 
-const KIND_OPTIONS = Object.entries(HOLE_KIND_LABELS) as Array<[HoleKind, string]>;
+const KIND_OPTIONS = SELECTABLE_HOLE_KINDS;
 
 function GridPreview({ pattern }: { pattern: PatternType }) {
   const cols = [0, 1, 2];
@@ -42,6 +42,11 @@ export function PatternPanel({
   onGenerate: () => void;
   busy: boolean;
 }) {
+  const taperCount = params.front_rows_tilt_count ?? 0;
+  // Старые проекты хранят только число рядов — это «Плавный переход»
+  const frontScheme: "vertical" | "pair" | "taper" =
+    params.front_rows_mode ?? (taperCount > 0 ? "taper" : "vertical");
+
   function num<K extends keyof PatternParams>(key: K) {
     return {
       value: params[key] as number,
@@ -158,24 +163,38 @@ export function PatternPanel({
         </div>
 
         <div className="field-pair">
-          <label title="Наклоняются только ряды основной сетки, в сторону ближайшего участка откоса (верхней бровки). Устья остаются на местах.">
-            Наклонных рядов у откоса
+          <label title="Как поставить скважины первого ряда у откоса: оставить вертикальными, добавить к каждой наклонную на 1 м ближе к откосу или плавно наклонить ряды. Столбцы сетки остаются на одной линии.">
+            Первый ряд у откоса
             <select
-              value={params.front_rows_tilt_count ?? 0}
+              value={frontScheme}
               onChange={(e) => {
-                const count = Number(e.target.value) as 0 | 1 | 2;
-                // 0 — «нет наклона»: ключи убираем, чтобы паспорт не отличался от нетронутого
-                onChange(count === 0 ? { front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined } : { front_rows_tilt_count: count });
+                const scheme = e.target.value as "vertical" | "pair" | "taper";
+                // «Вертикальный» — ключи убираем, чтобы паспорт не отличался от нетронутого
+                if (scheme === "vertical") onChange({ front_rows_mode: undefined, front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined });
+                else if (scheme === "pair") onChange({ front_rows_mode: "pair", front_rows_tilt_count: undefined });
+                else onChange({ front_rows_mode: "taper", front_rows_tilt_count: taperCount || 1 });
               }}
             >
-              <option value={0}>0</option>
-              <option value={1}>1</option>
-              <option value={2}>2</option>
+              <option value="vertical">Вертикальный</option>
+              <option value="pair">Пара: вертикальная + наклонная</option>
+              <option value="taper">Плавный переход</option>
             </select>
           </label>
-          {(params.front_rows_tilt_count ?? 0) > 0 && (
-            <label title="Наклон от вертикали в сторону откоса, от 0 до 30°. Относится только к рядам основной сетки.">
-              Наклон рядов у откоса, ° от вертикали
+          {frontScheme === "taper" && (
+            <label title="Сколько первых рядов переходят от наклона к вертикали.">
+              Рядов перехода
+              <select
+                value={taperCount || 1}
+                onChange={(e) => onChange({ front_rows_tilt_count: Number(e.target.value) as 1 | 2 })}
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+              </select>
+            </label>
+          )}
+          {frontScheme !== "vertical" && (
+            <label title="Наибольший наклон от вертикали в сторону откоса, от 0 до 30°.">
+              Наибольший наклон, ° от вертикали
               <input
                 type="number"
                 min="0"
@@ -187,6 +206,18 @@ export function PatternPanel({
             </label>
           )}
         </div>
+
+        <label title="Устье не ближе этого расстояния к верхней кромке уступа. Пусто — 1 м.">
+          Мин. отступ устья от кромки, м
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            value={params.min_crest_offset_m ?? ""}
+            placeholder="1"
+            onChange={(e) => onChange({ min_crest_offset_m: e.target.value === "" ? undefined : Number(e.target.value) })}
+          />
+        </label>
 
         <div className="kind-flags">
           <label className="checkbox-row"><input type="checkbox" checked={params.buffer_row} onChange={(e) => onChange({ buffer_row: e.target.checked })} />Буферный ряд</label>

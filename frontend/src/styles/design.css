@@ -234,6 +234,7 @@
 .hole-marker.kind-stab circle { fill:#8b5a2b; }
 .hole-marker.kind-satellite circle { fill:#4a90a4; }
 .hole-marker.kind-infill circle { fill:#1f5d46; }
+.hole-marker.kind-face_toe circle { fill:#3f8f6e; }
 .hole-marker.hovered circle { stroke:#2d7556; stroke-width:2.5; }
 .hole-marker.selected circle { stroke:#173125; stroke-width:2.5; }
 .hole-marker.disabled circle { fill:#c3cdc7; }

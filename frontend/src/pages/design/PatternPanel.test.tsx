@@ -14,30 +14,68 @@ function mount(params: PatternParams = DEFAULT_PATTERN_PARAMS) {
   return onChange;
 }
 
-describe("PatternPanel: наклон рядов у откоса", () => {
-  it("по умолчанию 0 рядов и поле угла скрыто", () => {
+const SCHEME = "Первый ряд у откоса";
+const TILT = "Наибольший наклон, ° от вертикали";
+
+describe("PatternPanel: первый ряд у откоса", () => {
+  it("по умолчанию «Вертикальный», поля скрыты", () => {
     mount();
-    expect((screen.getByLabelText("Наклонных рядов у откоса") as HTMLSelectElement).value).toBe("0");
-    expect(screen.queryByLabelText("Наклон рядов у откоса, ° от вертикали")).toBeNull();
+    expect((screen.getByLabelText(SCHEME) as HTMLSelectElement).value).toBe("vertical");
+    expect(screen.queryByLabelText(TILT)).toBeNull();
+    expect(screen.queryByLabelText("Рядов перехода")).toBeNull();
   });
 
-  it("выбор 2 пишет front_rows_tilt_count: 2", () => {
+  it("«Пара» пишет front_rows_mode: pair и показывает угол без числа рядов", () => {
     const onChange = mount();
-    fireEvent.change(screen.getByLabelText("Наклонных рядов у откоса"), { target: { value: "2" } });
-    expect(onChange).toHaveBeenCalledWith({ front_rows_tilt_count: 2 });
+    fireEvent.change(screen.getByLabelText(SCHEME), { target: { value: "pair" } });
+    expect(onChange).toHaveBeenCalledWith({ front_rows_mode: "pair", front_rows_tilt_count: undefined });
+    cleanup();
+    mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
+    expect(screen.getByLabelText(TILT)).toBeTruthy();
+    expect(screen.queryByLabelText("Рядов перехода")).toBeNull();
   });
 
-  it("при рядах > 0 угол виден, по умолчанию 15, ввод 40 пишется как 30", () => {
-    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_tilt_count: 1 });
-    const field = screen.getByLabelText("Наклон рядов у откоса, ° от вертикали") as HTMLInputElement;
+  it("«Плавный переход» пишет taper и показывает «Рядов перехода»", () => {
+    const onChange = mount();
+    fireEvent.change(screen.getByLabelText(SCHEME), { target: { value: "taper" } });
+    expect(onChange).toHaveBeenCalledWith({ front_rows_mode: "taper", front_rows_tilt_count: 1 });
+    cleanup();
+    const onChange2 = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "taper", front_rows_tilt_count: 1 });
+    fireEvent.change(screen.getByLabelText("Рядов перехода"), { target: { value: "2" } });
+    expect(onChange2).toHaveBeenCalledWith({ front_rows_tilt_count: 2 });
+  });
+
+  it("старый паспорт только с front_rows_tilt_count показывается как «Плавный переход»", () => {
+    mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_tilt_count: 2 });
+    expect((screen.getByLabelText(SCHEME) as HTMLSelectElement).value).toBe("taper");
+    expect((screen.getByLabelText("Рядов перехода") as HTMLSelectElement).value).toBe("2");
+  });
+
+  it("угол по умолчанию 15, ввод 40 пишется как 30", () => {
+    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
+    const field = screen.getByLabelText(TILT) as HTMLInputElement;
     expect(field.value).toBe("15");
     fireEvent.change(field, { target: { value: "40" } });
     expect(onChange).toHaveBeenCalledWith({ front_rows_tilt_deg: 30 });
   });
 
-  it("выбор 0 убирает оба ключа наклона", () => {
-    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_tilt_count: 2, front_rows_tilt_deg: 20 });
-    fireEvent.change(screen.getByLabelText("Наклонных рядов у откоса"), { target: { value: "0" } });
-    expect(onChange).toHaveBeenCalledWith({ front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined });
+  it("«Вертикальный» убирает все три ключа", () => {
+    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "taper", front_rows_tilt_count: 2, front_rows_tilt_deg: 20 });
+    fireEvent.change(screen.getByLabelText(SCHEME), { target: { value: "vertical" } });
+    expect(onChange).toHaveBeenCalledWith({ front_rows_mode: undefined, front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined });
+  });
+
+  it("«Мин. отступ устья от кромки» пишет ключ, умолчание 1 — подсказка", () => {
+    const onChange = mount();
+    const field = screen.getByLabelText("Мин. отступ устья от кромки, м") as HTMLInputElement;
+    expect(field.value).toBe("");
+    expect(field.placeholder).toBe("1");
+    fireEvent.change(field, { target: { value: "1.5" } });
+    expect(onChange).toHaveBeenCalledWith({ min_crest_offset_m: 1.5 });
+  });
+
+  it("вид «Наклонная у откоса» не предлагается для сетки", () => {
+    mount();
+    expect(screen.queryByText("Наклонная у откоса")).toBeNull();
   });
 });

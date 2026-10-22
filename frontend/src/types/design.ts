@@ -241,7 +241,8 @@ export type HoleKind =
   | "contour"
   | "stab"
   | "satellite"
-  | "infill";
+  | "infill"
+  | "face_toe";
 export type HoleSource = "generated" | "manual";
 export type DataRole = "designed" | "executed" | "predicted" | "measured";
 export type WaterCondition = "dry" | "moist" | "wet" | "flowing" | "";
@@ -876,8 +877,13 @@ export type PatternParams = {
   angle_deg: number;
   azimuth_deg: number;
   // Наклон 1–2 рядов основной сетки у откоса; ключей нет, пока их не задали
+  // Схема: "pair" — вертикальная + наклонная, "taper" — плавный переход;
+  // нет ключа, но есть front_rows_tilt_count > 0 — старый проект, то же что "taper"
+  front_rows_mode?: "pair" | "taper";
   front_rows_tilt_count?: 0 | 1 | 2;
   front_rows_tilt_deg?: number;
+  // Мин. отступ устья от кромки, м; нет ключа — умолчание сервера (1 м)
+  min_crest_offset_m?: number;
   default_kind: HoleKind;
   row_params: RowPatternParams[];
   contour_row: boolean;
@@ -1955,7 +1961,13 @@ export const HOLE_KIND_LABELS: Record<HoleKind, string> = {
   stab: "Короткая",
   satellite: "Сателлит",
   infill: "Дополнительная",
+  face_toe: "Наклонная у откоса",
 };
+
+// Виды для выбора пользователем: «Наклонную у откоса» ставит только генератор
+// пары, а как вид сетки или вставки она убрала бы основную сетку из темпа отбойки.
+export const SELECTABLE_HOLE_KINDS = (Object.entries(HOLE_KIND_LABELS) as Array<[HoleKind, string]>)
+  .filter(([kind]) => kind !== "face_toe");
 
 export const MAP_METRIC_LABELS: Record<MapMetric, string> = {
   burden: "ЛНС",

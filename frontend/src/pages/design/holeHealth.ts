@@ -24,6 +24,8 @@ export type HoleHealthCode =
   | "floor_burden_excess"
   | "floor_burden_short"
   | "floor_beyond_toe"
+  | "floor_row_gap_excess"
+  | "collar_too_close_to_crest"
   | "actual_unmatched";
 
 export const HEALTH_LABELS: Record<HoleHealthCode, string> = {
@@ -38,6 +40,8 @@ export const HEALTH_LABELS: Record<HoleHealthCode, string> = {
   floor_burden_excess: "ЛСП больше допустимого",
   floor_burden_short: "ЛСП меньше допустимого",
   floor_beyond_toe: "Скважина выходит в откос",
+  floor_row_gap_excess: "Между рядами у подошвы больше допустимого",
+  collar_too_close_to_crest: "Устье ближе допустимого к кромке",
   actual_unmatched: "факт без проекта",
 };
 
@@ -54,6 +58,8 @@ export const HEALTH_COLORS: Record<HoleHealthCode, string> = {
   floor_burden_excess: "#c0392b",
   floor_burden_short: "#c0392b",
   floor_beyond_toe: "#c0392b",
+  floor_row_gap_excess: "#c0392b",
+  collar_too_close_to_crest: "#c0392b",
   actual_unmatched: "#3d6ea8",
 };
 
@@ -71,6 +77,8 @@ const WARNING_CODE_TO_HEALTH: Record<string, HoleHealthCode> = {
   floor_burden_excess: "floor_burden_excess",
   floor_burden_short: "floor_burden_short",
   floor_beyond_toe: "floor_beyond_toe",
+  floor_row_gap_excess: "floor_row_gap_excess",
+  collar_too_close_to_crest: "collar_too_close_to_crest",
 };
 
 export type HoleHealthMap = Record<string, HoleHealthCode>;
@@ -165,6 +173,8 @@ function severity(code: HoleHealthCode): number {
     // Точка на подошве за нижней бровкой хуже, чем ЛСП больше допустимого.
     case "floor_beyond_toe": return 4;
     case "floor_burden_excess": return 3;
+    case "floor_row_gap_excess": return 3;
+    case "collar_too_close_to_crest": return 3;
     case "floor_burden_short": return 3;
     case "outside_contour": return 3;
     case "actual_unmatched": return 3;
@@ -268,6 +278,8 @@ export function summarizeHealth(health: HoleHealthMap, holes: Hole[]): HealthSum
     floor_burden_excess: [] as string[],
     floor_burden_short: [] as string[],
     floor_beyond_toe: [] as string[],
+    floor_row_gap_excess: [] as string[],
+    collar_too_close_to_crest: [] as string[],
     actual_unmatched: [] as string[],
   };
   const holeIds = new Set(holes.map((h) => h.id));

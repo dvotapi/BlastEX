@@ -393,26 +393,40 @@ def _spoil_to_angle(design: BlastDesign, grid, points, toe_geom, values, sources
 def spoil_angle_toe_lines(design: BlastDesign, burdens: dict[str, FloorBurden]) -> list[Polyline]:
     """Куски подошвы по углу у скважин, чья ЛСП считана по ней вместо съёмки-развала.
 
-    Для плана: линия по углу (`spoil_face_angle_deg`, высота блока) в пределах
-    max(a, b) от ближайших к таким скважинам точек. Пусто, если съёмки нет
+    Для плана: у каждой такой скважины — своя линия по углу
+    (`spoil_face_angle_deg`), смещённая от бровки на H_i · tan(90° − угол) с
+    высотой уступа H_i у этой скважины, как в ЛСП, в пределах ±a/2 от ближайшей
+    к скважине точки (a — шаг сетки). Куски не сливаются: у скважин разной
+    высоты они лежат на разном удалении от бровки. Пусто, если съёмки нет
     (тогда нарисованная подошва и есть линия по углу) или все скважины по съёмке.
     """
     ids = {hid for hid, fb in burdens.items() if fb.toe_source == TOE_SOURCE_ANGLE}
-    toe = toe_line(design.contour)
+    contour = design.contour
+    toe = toe_line(contour)
     if not ids or toe is None or toe.source != TOE_SOURCE_SURVEY:
         return []
-    geom = _geometry(angle_toe_line(design.contour, spoil_face_angle_deg(design.contour.bench)))
-    if geom is None:
-        return []
-    a, b = _grid_steps_m(design.pattern_params)
-    near = [nearest_points(geom, shapely.Point(floor_point(h)))[0] for h in design.holes if h.id in ids]
-    zone = shapely.union_all(shapely.buffer(near, max(a, b)))
-    lines = [g for g in shapely.get_parts(geom.intersection(zone)) if g.geom_type == "LineString"]
-    if not lines:
-        return []
-    merged = shapely.line_merge(MultiLineString(lines))
-    return [
-        [(float(x), float(y)) for x, y in part.coords]
-        for part in shapely.get_parts(merged)
-        if len(part.coords) >= 2
-    ]
+    free = _free_polylines(contour)
+    angle = spoil_face_angle_deg(contour.bench)
+    block_h = contour.bench.height_m
+    a, _ = _grid_steps_m(design.pattern_params)
+    # Линия по углу для каждой встретившейся высоты: смещение одно на высоту.
+    by_offset: dict[float, MultiLineString | None] = {}
+    result: list[Polyline] = []
+    for hole in design.holes:
+        if hole.id not in ids:
+            continue
+        offset = round(_offset_m(hole_bench_height_m(hole, block_h), angle), 9)
+        if offset not in by_offset:
+            by_offset[offset] = _geometry(ToeLine(polylines=_built(contour, free, offset), source=TOE_SOURCE_ANGLE))
+        geom = by_offset[offset]
+        if geom is None:
+            continue
+        anchor = nearest_points(geom, shapely.Point(floor_point(hole)))[0]
+        pieces = [g for g in shapely.get_parts(geom.intersection(anchor.buffer(a / 2.0))) if g.geom_type == "LineString"]
+        if not pieces:
+            continue
+        # Пересечение с кругом может задеть и соседний изгиб — берётся кусок у скважины.
+        piece = min(pieces, key=lambda g: g.distance(anchor))
+        if len(piece.coords) >= 2:
+            result.append([(float(x), float(y)) for x, y in piece.coords])
+    return result

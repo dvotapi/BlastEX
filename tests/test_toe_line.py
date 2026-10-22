@@ -289,10 +289,29 @@ def test_angle_toe_lines_drawn_only_near_spoil_holes():
     lines = spoil_angle_toe_lines(design, floor_burdens(design))
     assert len(lines) == 1
     xs = [x for x, _ in lines[0]]
-    assert min(xs) == pytest.approx(31.0, abs=1e-3) and max(xs) == pytest.approx(39.0, abs=1e-3)
+    # ±a/2 (a = 4 м) от точки подошвы у скважины.
+    assert min(xs) == pytest.approx(33.0, abs=1e-3) and max(xs) == pytest.approx(37.0, abs=1e-3)
     assert all(y == pytest.approx(-2.6795, abs=1e-3) for _, y in lines[0])
     maps = engineering_maps(design)
     assert maps["angle_toe_lines"] and maps["angle_toe_lines"][0][0][1] == pytest.approx(-2.68, abs=1e-2)
+
+
+def test_angle_toe_lines_use_each_hole_bench_height():
+    # Две скважины на развале с разной высотой уступа: куски линии по углу —
+    # на своём удалении от бровки, как ЛСП каждой скважины.
+    low = vertical_hole("1-01", x=33, y=1.0, row=0, bench_h=6.0)
+    high = vertical_hole("1-02", x=37, y=1.0, row=0, bench_h=10.0)
+    design = BlastDesign(design_id="t", contour=spoil_contour(), holes=[low, high], pattern_params=PATTERN)
+    burdens = floor_burdens(design)
+    assert {burdens["1-01"].toe_source, burdens["1-02"].toe_source} == {"angle"}
+    lines = spoil_angle_toe_lines(design, burdens)
+    assert len(lines) == 2
+    tan15 = math.tan(math.radians(15))
+    by_x = sorted(lines, key=lambda line: line[0][0])
+    assert all(y == pytest.approx(-6.0 * tan15, abs=1e-3) for _, y in by_x[0])
+    assert all(y == pytest.approx(-10.0 * tan15, abs=1e-3) for _, y in by_x[1])
+    xs_low = [x for x, _ in by_x[0]]
+    assert min(xs_low) == pytest.approx(31.0, abs=1e-3) and max(xs_low) == pytest.approx(35.0, abs=1e-3)
 
 
 def test_no_angle_toe_lines_without_spoil_or_survey():

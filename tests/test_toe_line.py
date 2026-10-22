@@ -578,3 +578,18 @@ def test_no_w_means_no_short():
     hole = vertical_hole("1-01", x=10, y=0.0, row=0)
     fb = floor_burdens(design_with([hole], {"pattern": "rectangular", "spacing_a_m": 4.0}))["1-01"]
     assert fb.min_m is None and fb.short is False
+
+
+def test_default_kind_of_main_grid_gets_floor_burden():
+    hole = vertical_hole("1-01", x=10, y=3.0, row=0, kind="infill")
+    params = PATTERN | {"default_kind": "infill"}
+    assert set(floor_burdens(design_with([hole], pattern_params=params))) == {"1-01"}
+    assert floor_burdens(design_with([hole])) == {}
+
+
+def test_square_pattern_w_is_spacing_even_with_burden_key():
+    # Квадратная сетка строится с b = a (generate_pattern) — W тоже a.
+    assert allowed_floor_burden_m({"pattern": "square", "spacing_a_m": 4.0, "burden_b_m": 3.0}) == pytest.approx(4.12)
+    # Без ключа pattern сетка квадратная.
+    assert allowed_floor_burden_m({"spacing_a_m": 4.0, "burden_b_m": 3.0}) == pytest.approx(4.12)
+    assert allowed_floor_burden_m({"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.0}) == pytest.approx(3.09)

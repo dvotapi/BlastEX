@@ -235,12 +235,20 @@ def floor_point(hole: Hole) -> tuple[float, float]:
     return (hole.toe.x - dx * k, hole.toe.y - dy * k)
 
 
+# Сетки, у которых шаг рядов b задаётся отдельно от a (`design/pattern.py`);
+# остальное, включая отсутствие ключа `pattern`, — квадратная сетка, b = a.
+_OWN_BURDEN_PATTERNS = ("rectangular", "staggered", "variable", "domain_dependent")
+
+
+def _is_square(params: dict) -> bool:
+    """Квадратная ли сетка — так же, как в `generate_pattern` (нет ключа или неизвестный вид — квадратная)."""
+    return str(params.get("pattern", "square")) not in _OWN_BURDEN_PATTERNS
+
+
 def design_burden_m(pattern_params: dict | None) -> float | None:
-    """Проектная W: `burden_b_m`; у квадратной сетки без него — шаг; None — не задана."""
+    """Проектная W: `burden_b_m`; у квадратной сетки — шаг a (b = a); None — не задана."""
     params = pattern_params or {}
-    w = params.get("burden_b_m")
-    if not w and params.get("pattern") == "square":
-        w = params.get("spacing_a_m")
+    w = params.get("spacing_a_m") if _is_square(params) else params.get("burden_b_m")
     try:
         w = float(w)
     except (TypeError, ValueError):
@@ -262,7 +270,7 @@ def min_floor_burden_m(pattern_params: dict | None) -> float | None:
 
 def _grid_steps_m(pattern_params: dict | None) -> tuple[float, float]:
     """Шаги сетки (a, b): a — `spacing_a_m`, без него W, без обоих
-    `DEFAULT_CORRIDOR_STEP_M`; b — `burden_b_m`, без него a."""
+    `DEFAULT_CORRIDOR_STEP_M`; b — `burden_b_m`, без него (и у квадратной сетки) a."""
     params = pattern_params or {}
 
     def step(key: str) -> float:
@@ -273,7 +281,7 @@ def _grid_steps_m(pattern_params: dict | None) -> tuple[float, float]:
         return value if value > 0 else 0.0
 
     a = step("spacing_a_m") or step("burden_b_m") or DEFAULT_CORRIDOR_STEP_M
-    b = step("burden_b_m") or a
+    b = a if _is_square(params) and step("spacing_a_m") else step("burden_b_m") or a
     return a, b
 
 
@@ -442,7 +450,7 @@ def toe_positions(
 
 
 def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
-    """ЛСП включённых рядовых скважин, стоящих у откоса.
+    """ЛСП включённых скважин основной сетки, стоящих у откоса.
 
     ЛСП — расстояние в плане от точки оси на уровне подошвы p_i до ближайшей
     точки линии подошвы t_i. Пусть d — единичный вектор от p_i к t_i. Скважину i
@@ -489,9 +497,15 @@ def floor_report(design: BlastDesign) -> tuple[dict[str, FloorBurden], list[str]
     min_advance, reach = shadow_limits(a, b)
     points = shapely.points(xy)
     tree = shapely.STRtree(points)
+    # ЛСП — у скважин основной сетки: рядовые и вид `default_kind` (как в
+    # сетке темпа отбойки).
+    measured = {"production"}
+    default_kind = str((design.pattern_params or {}).get("default_kind") or "").strip().lower()
+    if default_kind:
+        measured.add(default_kind)
     result: dict[str, FloorBurden] = {}
     for i, hole in enumerate(grid):
-        if hole.kind != "production":
+        if hole.kind not in measured:
             continue
         position = positions[i]
         value = position.distance_m

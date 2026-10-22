@@ -218,6 +218,12 @@ def timing_isolines(
     return isolines
 
 
+def _two_numbers(value: float, limit: float) -> tuple[str, str]:
+    """Два числа предупреждения через запятую: один знак, а если так они совпадают — два."""
+    digits = 1 if f"{value:.1f}" != f"{limit:.1f}" else 2
+    return f"{value:.{digits}f}".replace(".", ","), f"{limit:.{digits}f}".replace(".", ",")
+
+
 def validate(
     design: BlastDesign,
     *,
@@ -312,28 +318,23 @@ def validate(
 
     # ЛСП первого ряда больше W + 3% — скважина стоит слишком далеко от подошвы.
     for hole_id, item in burdens.items():
+        angle_note = ", подошва по углу" if item.toe_source == "angle" else ""
         if item.excess and item.allowed_m is not None and not item.beyond_toe:
+            value, limit = _two_numbers(item.value_m, item.allowed_m)
             warnings.append(
                 {
                     "code": "floor_burden_excess",
                     "hole_id": hole_id,
-                    "message": (
-                        f"ЛСП {item.value_m:.1f}".replace(".", ",")
-                        + f" м больше допустимого {item.allowed_m:.1f}".replace(".", ",")
-                        + (" м (W + 3%, подошва по углу)." if item.toe_source == "angle" else " м (W + 3%).")
-                    ),
+                    "message": f"ЛСП {value} м больше допустимого {limit} м (W + 3%{angle_note}).",
                 }
             )
         if item.short and item.min_m is not None:
+            value, limit = _two_numbers(item.value_m, item.min_m)
             warnings.append(
                 {
                     "code": "floor_burden_short",
                     "hole_id": hole_id,
-                    "message": (
-                        f"ЛСП {item.value_m:.1f}".replace(".", ",")
-                        + f" м меньше допустимого {item.min_m:.1f}".replace(".", ",")
-                        + " м (0,8·W)."
-                    ),
+                    "message": f"ЛСП {value} м меньше допустимого {limit} м (0,8·W{angle_note}).",
                 }
             )
 

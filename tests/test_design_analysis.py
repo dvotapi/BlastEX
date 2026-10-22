@@ -163,7 +163,23 @@ def test_validate_warns_when_floor_burden_below_0_8_w():
     design = BlastDesign(design_id="t", contour=rect_contour(), holes=[hole], pattern_params=PATTERN)
     short = [w for w in validate(design) if w["code"] == "floor_burden_short"]
     assert [w["hole_id"] for w in short] == ["1-01"]
-    assert short[0]["message"] == "ЛСП 2,9 м меньше допустимого 3,0 м (0,8·W)."
+    assert short[0]["message"] == "ЛСП 2,9 м меньше допустимого 3,0 м (0,8·W, подошва по углу)."
+
+
+def test_floor_burden_messages_show_two_decimals_when_rounding_hides_difference():
+    from design.models import BlastDesign
+    from tests.test_toe_line import PATTERN, rect_contour, vertical_hole
+
+    # Допуск 3,811; ЛСП 3,83 — обе «3,8» при одном знаке.
+    over = vertical_hole("1-01", x=10, y=3.83 - 2.6795, row=0)
+    # Нижняя граница 2,96; ЛСП 2,952 — обе «3,0» при одном знаке.
+    under = vertical_hole("1-03", x=30, y=2.952 - 2.6795, row=0)
+    design = BlastDesign(design_id="t", contour=rect_contour(), holes=[over, under], pattern_params=PATTERN)
+    warnings = validate(design)
+    excess = [w for w in warnings if w["code"] == "floor_burden_excess"]
+    short = [w for w in warnings if w["code"] == "floor_burden_short"]
+    assert excess[0]["message"] == "ЛСП 3,83 м больше допустимого 3,81 м (W + 3%, подошва по углу)."
+    assert short[0]["message"] == "ЛСП 2,95 м меньше допустимого 2,96 м (0,8·W, подошва по углу)."
 
 
 if __name__ == "__main__":

@@ -16,6 +16,12 @@ function mount(params: PatternParams = DEFAULT_PATTERN_PARAMS) {
 
 const SCHEME = "Первый ряд у откоса";
 const TILT = "Наибольший наклон, ° от вертикали";
+const RECT: PatternParams = { ...DEFAULT_PATTERN_PARAMS, pattern: "rectangular" };
+const STAGGERED_HINT = /не применяется к шахматной сетке/;
+
+function taperOption(): HTMLOptionElement {
+  return screen.getByRole("option", { name: /Плавный переход/ }) as HTMLOptionElement;
+}
 
 describe("PatternPanel: первый ряд у откоса", () => {
   it("по умолчанию «Вертикальный», поля скрыты", () => {
@@ -36,17 +42,17 @@ describe("PatternPanel: первый ряд у откоса", () => {
   });
 
   it("«Плавный переход» пишет taper и показывает «Рядов перехода»", () => {
-    const onChange = mount();
+    const onChange = mount(RECT);
     fireEvent.change(screen.getByLabelText(SCHEME), { target: { value: "taper" } });
     expect(onChange).toHaveBeenCalledWith({ front_rows_mode: "taper", front_rows_tilt_count: 1 });
     cleanup();
-    const onChange2 = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "taper", front_rows_tilt_count: 1 });
+    const onChange2 = mount({ ...RECT, front_rows_mode: "taper", front_rows_tilt_count: 1 });
     fireEvent.change(screen.getByLabelText("Рядов перехода"), { target: { value: "2" } });
     expect(onChange2).toHaveBeenCalledWith({ front_rows_tilt_count: 2 });
   });
 
   it("старый паспорт только с front_rows_tilt_count показывается как «Плавный переход»", () => {
-    mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_tilt_count: 2 });
+    mount({ ...RECT, front_rows_tilt_count: 2 });
     expect((screen.getByLabelText(SCHEME) as HTMLSelectElement).value).toBe("taper");
     expect((screen.getByLabelText("Рядов перехода") as HTMLSelectElement).value).toBe("2");
   });
@@ -96,5 +102,37 @@ describe("PatternPanel: первый ряд у откоса", () => {
   it("вид «Наклонная у откоса» не предлагается для сетки", () => {
     mount();
     expect(screen.queryByText("Наклонная у откоса")).toBeNull();
+  });
+
+  it("у шахматной сетки «Плавный переход» недоступен, у прямоугольной — доступен", () => {
+    expect(DEFAULT_PATTERN_PARAMS.pattern).toBe("staggered");
+    mount();
+    expect(taperOption().disabled).toBe(true);
+    expect(taperOption().textContent).toMatch(STAGGERED_HINT);
+    expect(screen.queryByRole("note")).toBeNull();
+    cleanup();
+    mount(RECT);
+    expect(taperOption().disabled).toBe(false);
+    expect(taperOption().textContent).not.toMatch(STAGGERED_HINT);
+  });
+
+  it("сохранённый taper у шахматной сетки — неактивен с подсказкой, параметры не переписываются", () => {
+    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "taper", front_rows_tilt_count: 2 });
+    expect((screen.getByLabelText(SCHEME) as HTMLSelectElement).value).toBe("taper");
+    expect((screen.getByLabelText("Рядов перехода") as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.getByRole("note").textContent).toMatch(STAGGERED_HINT);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("переключение на шахматную при выбранном переходе показывает подсказку", () => {
+    const params: PatternParams = { ...RECT, front_rows_mode: "taper", front_rows_tilt_count: 1 };
+    const onChange = vi.fn();
+    const { rerender } = render(<PatternPanel params={params} onChange={onChange} onGenerate={() => {}} busy={false} />);
+    expect(screen.queryByRole("note")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Шахматная/ }));
+    expect(onChange).toHaveBeenCalledWith({ pattern: "staggered" });
+    rerender(<PatternPanel params={{ ...params, pattern: "staggered" }} onChange={onChange} onGenerate={() => {}} busy={false} />);
+    expect(screen.getByRole("note").textContent).toMatch(STAGGERED_HINT);
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 });

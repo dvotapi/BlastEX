@@ -11,6 +11,7 @@ const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
 ];
 
 const KIND_OPTIONS = SELECTABLE_HOLE_KINDS;
+const TAPER_STAGGERED_HINT = "не применяется к шахматной сетке";
 
 function GridPreview({ pattern }: { pattern: PatternType }) {
   const cols = [0, 1, 2];
@@ -46,6 +47,11 @@ export function PatternPanel({
   // Старые проекты хранят только число рядов — это «Плавный переход»
   const frontScheme: "vertical" | "pair" | "taper" =
     params.front_rows_mode ?? (taperCount > 0 ? "taper" : "vertical");
+  // Плавный переход генератор к шахматной сетке не применяет (столбцы через
+  // ряд): вариант недоступен, а сохранённый — показывается как неактивный,
+  // параметры при этом не переписываются.
+  const taperBlocked = params.pattern === "staggered";
+  const taperInactive = frontScheme === "taper" && taperBlocked;
 
   function num<K extends keyof PatternParams>(key: K) {
     return {
@@ -183,7 +189,9 @@ export function PatternPanel({
             >
               <option value="vertical">Вертикальный</option>
               <option value="pair">Пара: вертикальная + наклонная</option>
-              <option value="taper">Плавный переход</option>
+              <option value="taper" disabled={taperBlocked}>
+                {taperBlocked ? `Плавный переход (${TAPER_STAGGERED_HINT})` : "Плавный переход"}
+              </option>
             </select>
           </label>
           {frontScheme === "taper" && (
@@ -191,6 +199,7 @@ export function PatternPanel({
               Рядов перехода
               <select
                 value={taperCount || 1}
+                disabled={taperInactive}
                 onChange={(e) => onChange({ front_rows_tilt_count: Number(e.target.value) as 1 | 2 })}
               >
                 <option value={1}>1</option>
@@ -218,6 +227,11 @@ export function PatternPanel({
             </label>
           )}
         </div>
+        {taperInactive && (
+          <small role="note">
+            Плавный переход {TAPER_STAGGERED_HINT}: сетка строится с вертикальным первым рядом.
+          </small>
+        )}
 
         {/* У вертикального первого ряда отступ генератор не выбирает (это часть 4
             оптимизатора) — поле видно, только если отступ уже задан в паспорте */}

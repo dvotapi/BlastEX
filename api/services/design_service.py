@@ -121,6 +121,7 @@ from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
+from design.trunk_network import TRUNK_SCHEME, build_trunk_chains_network
 from cost.v2.legacy_adapter import LegacyReferences
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 
@@ -237,14 +238,19 @@ def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
     holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
     if not holes:
         raise InvalidDesignError("Список скважин пуст — нечего коммутировать.")
+    warnings: list[str] = []
     try:
-        network = build_template_network(holes, request.scheme, request.params)
+        if request.scheme == TRUNK_SCHEME:
+            network, warnings = build_trunk_chains_network(holes, request.params)
+        else:
+            network = build_template_network(holes, request.scheme, request.params)
     except TimingExprError as exc:
         raise InvalidDesignError(str(exc)) from exc
     return TieGenerateResponse(
         network=network.to_dict(),
         starters_count=len(network.starters),
         connectors_count=len(network.connectors),
+        warnings=warnings,
     )
 
 

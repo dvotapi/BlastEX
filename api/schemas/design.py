@@ -1012,6 +1012,7 @@ class TieGenerateResponse(BaseModel):
     network: InitiationNetworkSchema
     starters_count: int
     connectors_count: int
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ValidationWarningSchema(BaseModel):

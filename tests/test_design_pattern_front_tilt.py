@@ -447,7 +447,7 @@ def test_tilt_angle_is_capped_by_floor_burden():
     design = BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=params)
     burdens = floor_burdens(design)
     for hole in first:
-        assert burdens[hole.id].value_m == pytest.approx(1.0, abs=1e-6)
+        assert burdens[hole.id].value_m == pytest.approx(FRONT_TILT_MIN_FLOOR_BURDEN_M, abs=1e-6)
         assert burdens[hole.id].beyond_toe is False
     # Второй ряд не наклоняется (ряд 2 при count 1).
     assert all(h.angle_deg == pytest.approx(0.0) for h in second)
@@ -465,3 +465,45 @@ def test_no_room_means_common_angle():
     params = BASE | {"offset_from_face_m": 1.0, "angle_deg": 3.0, "azimuth_deg": 0.0, "front_rows_tilt_count": 1}
     first = rows(generate_pattern(contour, params))[0]
     assert all(h.angle_deg == pytest.approx(3.0) and math.cos(math.radians(h.azimuth_deg)) == pytest.approx(1.0) for h in first)
+
+
+def _naive_ranks(collars, contour, a, b, forced_first=0):
+    """Ранг по определению: полный список закрывающих по `corridor_blockers`."""
+    import shapely
+
+    from design.toe_line import corridor_blockers, crest_geometry, shadow_limits
+
+    crest = crest_geometry(contour)
+    points = shapely.points(collars)
+    tree = shapely.STRtree(points)
+    min_advance, reach = shadow_limits(a, b)
+    blockers = []
+    for i, point in enumerate(points):
+        value = float(shapely.distance(point, crest))
+        target = shapely.get_point(shapely.shortest_line(crest, point), 0)
+        if i < forced_first or value <= 0:
+            blockers.append(set())
+        else:
+            blockers.append(set(corridor_blockers(i, value, points, target, tree, min_advance, reach)))
+    first = {i for i, items in enumerate(blockers) if not items}
+    return [1 if i in first else 2 if items <= first else 3 for i, items in enumerate(blockers)]
+
+
+@pytest.mark.parametrize("case", ["step", "boot", "boot_face", "bent"])
+def test_fast_ranks_match_definition(case):
+    from tests.test_design_pattern_full_contour import BOOT, BOOT_FACE, PARAMS
+
+    if case == "step":
+        contour, params, a, b = _contour_of(STEP, STEP_FACE), BASE, 4.0, 3.5
+    elif case == "bent":
+        contour, params, a, b = _rect_contour(40.0, 30.0, free_faces=((3, 0, 1),)), BASE, 4.0, 3.5
+    else:
+        contour, params, a, b = _contour_of(BOOT, BOOT_FACE), PARAMS, 5.0, 5.0
+        if case == "boot_face":
+            params = PARAMS | {"first_row_follow_face": True}
+    holes = generate_pattern(contour, params)
+    collars = [(h.collar.x, h.collar.y) for h in holes if h.kind == "production"]
+    # Короткий шаг: коридоры длиннее «ближней» части — проверяется и полный поиск.
+    for step_a, step_b in ((a, b), (a / 3.0, b / 3.0)):
+        assert front_row_ranks(collars, contour, step_a, step_b) == _naive_ranks(collars, contour, step_a, step_b)
+    assert front_row_ranks(collars, contour, a, b, forced_first=5) == _naive_ranks(collars, contour, a, b, 5)

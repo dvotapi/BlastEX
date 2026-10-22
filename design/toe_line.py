@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import numpy as np
 import shapely
 from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import nearest_points
@@ -272,8 +273,13 @@ def corridor_blockers(
     tree: shapely.STRtree,
     min_advance: float,
     reach: float,
+    query_length: float | None = None,
 ):
     """Соседи, закрывающие точку i на пути к точке `target` (подошва или бровка).
+
+    `query_length` — искать только в начале коридора, не дальше этого от
+    точки i: найденные — настоящие закрывающие, но пустой ответ ничего не
+    доказывает (дальше по коридору сосед может быть).
 
     d — единичный вектор от точки i к `target`, `value` — расстояние до неё; для
     соседа j продвижение — проекция (p_j − p_i) на d, отступ вбок — модуль
@@ -285,7 +291,10 @@ def corridor_blockers(
     """
     px, py = points[i].x, points[i].y
     dx, dy = (target.x - px) / value, (target.y - py) / value
-    corridor = LineString([points[i], target])
+    if query_length is not None and query_length < value:
+        corridor = LineString([(px, py), (px + dx * query_length, py + dy * query_length)])
+    else:
+        corridor = LineString([points[i], target])
     for k in tree.query(corridor, predicate="dwithin", distance=reach):
         j = int(k)
         if j == i:
@@ -297,6 +306,48 @@ def corridor_blockers(
             yield j
 
 
+def corridor_blocker_pairs(
+    indices,
+    points,
+    targets,
+    values,
+    tree: shapely.STRtree,
+    min_advance: float,
+    reach: float,
+    query_length: float | None = None,
+):
+    """Пакетный `corridor_blockers` для точек `indices`: пары (i, j) «j закрывает i».
+
+    Та же проверка, что у `corridor_blockers`, но запрос к индексу и отбор —
+    одним вызовом на все точки (numpy). `query_length` — как там: ищется
+    только начало коридора.
+    """
+    idx = np.asarray(indices, dtype=np.int64)
+    if idx.size == 0:
+        return idx, idx
+    xs, ys = shapely.get_x(points), shapely.get_y(points)
+    tx, ty = shapely.get_x(targets[idx]), shapely.get_y(targets[idx])
+    vals = np.asarray(values, dtype=float)[idx]
+    dx, dy = (tx - xs[idx]) / vals, (ty - ys[idx]) / vals
+    lengths = vals if query_length is None else np.minimum(vals, query_length)
+    ex, ey = xs[idx] + dx * lengths, ys[idx] + dy * lengths
+    # Запрос — по габариту коридора с полосой `reach`: отбор ниже точный, а
+    # габарит дешевле проверки расстояния до отрезка.
+    boxes = shapely.box(
+        np.minimum(xs[idx], ex) - reach,
+        np.minimum(ys[idx], ey) - reach,
+        np.maximum(xs[idx], ex) + reach,
+        np.maximum(ys[idx], ey) + reach,
+    )
+    pos, j = tree.query(boxes)
+    i = idx[pos]
+    vx, vy = xs[j] - xs[i], ys[j] - ys[i]
+    advance = vx * dx[pos] + vy * dy[pos]
+    lateral = np.abs(vx * dy[pos] - vy * dx[pos])
+    keep = (j != i) & (advance >= min_advance) & (advance < vals[pos]) & (lateral <= reach)
+    return i[keep], j[keep]
+
+
 def crest_geometry(contour: BlockContour) -> MultiLineString | None:
     """Верхняя бровка — свободные поверхности контура; None, если их нет."""
     lines = _free_polylines(contour)
@@ -304,8 +355,21 @@ def crest_geometry(contour: BlockContour) -> MultiLineString | None:
 
 
 def _valid_polygon(ring):
+    """Полигон кольца; самопересечённое кольцо чинится `make_valid`.
+
+    Если починка дала набор с линиями или точками (GeometryCollection), берётся
+    наибольший полигон: у набора нет границы, и «за подошвой» молча не
+    находилось бы.
+    """
     polygon = Polygon(ring)
-    return polygon if polygon.is_valid else shapely.make_valid(polygon)
+    if polygon.is_valid:
+        return polygon
+    fixed = shapely.make_valid(polygon)
+    if fixed.geom_type in ("Polygon", "MultiPolygon"):
+        return fixed
+    parts = [g for g in shapely.get_parts(fixed) if g.geom_type in ("Polygon", "MultiPolygon")]
+    polygons = [q for g in parts for q in shapely.get_parts(g)]
+    return max(polygons, key=lambda q: q.area) if polygons else polygon
 
 
 def toe_positions(
@@ -384,17 +448,27 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
     `excess=True` — ЛСП без знака там не «в допуске», а расстояние с другой
     стороны линии.
     """
-    allowed = allowed_floor_burden_m(design.pattern_params)
-    a, b = _grid_steps_m(design.pattern_params)
-    min_advance, reach = shadow_limits(a, b)
+    return floor_report(design)[0]
+
+
+def floor_report(design: BlastDesign) -> tuple[dict[str, FloorBurden], list[str]]:
+    """ЛСП (`floor_burdens`) и скважины за подошвой (`holes_beyond_toe`) за один расчёт.
+
+    Положение относительно линии подошвы считается один раз для всех
+    включённых скважин сетки.
+    """
     grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
     if not grid:
-        return {}
+        return {}, []
     block_h = design.contour.bench.height_m
     xy = [floor_point(h) for h in grid]
     positions = toe_positions(design.contour, xy, [hole_bench_height_m(h, block_h) for h in grid])
     if positions is None:
-        return {}
+        return {}, []
+    beyond = [hole.id for hole, position in zip(grid, positions) if position.beyond]
+    allowed = allowed_floor_burden_m(design.pattern_params)
+    a, b = _grid_steps_m(design.pattern_params)
+    min_advance, reach = shadow_limits(a, b)
     points = shapely.points(xy)
     tree = shapely.STRtree(points)
     result: dict[str, FloorBurden] = {}
@@ -415,21 +489,12 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
             toe_source=position.source,
             beyond_toe=position.beyond,
         )
-    return result
+    return result, beyond
 
 
 def holes_beyond_toe(design: BlastDesign) -> list[str]:
     """Включённые скважины сетки (в том числе ручные), чья точка на подошве за линией подошвы."""
-    grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
-    if not grid:
-        return []
-    block_h = design.contour.bench.height_m
-    positions = toe_positions(
-        design.contour, [floor_point(h) for h in grid], [hole_bench_height_m(h, block_h) for h in grid]
-    )
-    if positions is None:
-        return []
-    return [hole.id for hole, position in zip(grid, positions) if position.beyond]
+    return floor_report(design)[1]
 
 
 def hole_bench_height_m(hole: Hole, block_height_m: float) -> float:

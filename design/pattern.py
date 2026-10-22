@@ -5,6 +5,7 @@ import math
 from dataclasses import replace
 from typing import Any, Callable
 
+import numpy as np
 import shapely
 
 from design.geometry import (
@@ -20,7 +21,7 @@ from design.geometry import (
 from design.geology import domain_at
 from design.numbering import number_by_position
 from design.models import FRONT_ROW_BASE, HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3, logical_row
-from design.toe_line import corridor_blockers, crest_geometry, shadow_limits, toe_positions
+from design.toe_line import corridor_blocker_pairs, crest_geometry, shadow_limits, toe_positions
 
 PATTERN_TYPES = ("square", "rectangular", "staggered", "variable", "domain_dependent")
 REGULAR_PATTERNS = ("square", "rectangular", "staggered")
@@ -412,9 +413,9 @@ def front_row_ranks(
 
     Ранг 1 — впереди скважины, в её коридоре к ближайшей точке верхней бровки,
     нет другой скважины сетки; ранг 2 — впереди только скважины ранга 1.
-    Коридор и «впереди» — та же проверка, что у ЛСП (`toe_line.corridor_blockers`:
-    продвижение не меньше 0,4·min(a, b), отступ вбок не больше 1,05·max(a, b)),
-    но по устьям и к бровке. Так на ступенчатой бровке ранг 1 получает ряд,
+    Коридор и «впереди» — та же проверка, что у ЛСП (`toe_line.corridor_blockers`,
+    здесь пакетом — `corridor_blocker_pairs`: продвижение не меньше
+    0,4·min(a, b), отступ вбок не больше 1,05·max(a, b)), но по устьям и к бровке. Так на ступенчатой бровке ранг 1 получает ряд,
     который реально стоит у своего участка откоса, а не только первый ряд
     решётки. Первые `forced_first` скважин (ряд вдоль бровки) — ранг 1 всегда.
     """
@@ -426,16 +427,33 @@ def front_row_ranks(
     distances = shapely.distance(points, crest)
     targets = shapely.get_point(shapely.shortest_line(crest, points), 0)
     min_advance, reach = shadow_limits(spacing_a, burden_b)
-    blockers: list[set[int]] = []
-    for i in range(len(collars_xy)):
-        value = float(distances[i])
-        if i < forced_first or value <= 0:
-            blockers.append(set())
-            continue
-        blockers.append(set(corridor_blockers(i, value, points, targets[i], tree, min_advance, reach)))
-    first = {i for i, items in enumerate(blockers) if not items}
-    second = {i for i, items in enumerate(blockers) if items and items <= first}
-    return [1 if i in first else 2 if i in second else 3 for i in range(len(collars_xy))]
+    # Коридор от глубоких скважин тянется через весь блок, а решают ближние
+    # соседи: сначала начало коридора у всех, весь — только у тех, кому там
+    # ответа не нашлось. Запросы — пакетом (`corridor_blocker_pairs`).
+    near = min_advance + 2.0 * reach
+    count = len(collars_xy)
+    values = np.asarray(distances, dtype=float)
+    candidates = [i for i in range(count) if i >= forced_first and values[i] > 0]
+
+    def pairs(indices, length):
+        return corridor_blocker_pairs(indices, points, targets, values, tree, min_advance, reach, length)
+
+    # Ряд 1: нет закрывающего соседа.
+    blocked = np.zeros(count, dtype=bool)
+    near_i, near_j = pairs(candidates, near)
+    blocked[near_i] = True
+    far = [i for i in candidates if not blocked[i] and values[i] > near]
+    far_i, far_j = pairs(far, None)
+    blocked[far_i] = True
+    # Ряд 2: среди закрывающих нет никого, кроме ряда 1.
+    deep = np.zeros(count, dtype=bool)
+    deep[near_i[blocked[near_j]]] = True
+    deep[far_i[blocked[far_j]]] = True
+    searched = set(far)
+    rest = [i for i in range(count) if blocked[i] and not deep[i] and values[i] > near and i not in searched]
+    rest_i, rest_j = pairs(rest, None)
+    deep[rest_i[blocked[rest_j]]] = True
+    return [3 if deep[i] else 2 if blocked[i] else 1 for i in range(count)]
 
 
 def _tilt_front_rows(

@@ -516,3 +516,31 @@ def test_toe_positions_for_vertical_floor_points():
     assert positions[0].distance_m == pytest.approx(3.0 + 2.6795, abs=1e-3)
     assert positions[0].beyond is False
     assert positions[1].beyond is True
+
+
+def test_spiky_contour_still_detects_beyond_toe():
+    # Кольцо с «усом» (5,10)→(5,15)→(5,10): make_valid даёт GeometryCollection
+    # (полигон + линия); берётся полигон, и «за подошвой» находится.
+    from design.toe_line import _valid_polygon
+
+    ring = [(0, 0), (40, 0), (40, 22), (5, 22), (5, 27), (5, 22), (0, 22)]
+    assert _valid_polygon(ring).geom_type == "Polygon"
+    assert _valid_polygon(ring).area == pytest.approx(40 * 22)
+    contour = BlockContour(
+        vertices=[Point3(x, y, 0) for x, y in ring],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0, toe_z_m=-10, face_angle_deg=75),
+    )
+    positions = toe_positions(contour, [(10.0, 3.0), (10.0, -5.0)], [10.0, 10.0])
+    assert [p.beyond for p in positions] == [False, True]
+
+
+def test_floor_report_matches_separate_calls():
+    from design.toe_line import floor_report
+
+    out = inclined_hole("1-01", x=10, y=1.0, row=0, angle_deg=30, azimuth_deg=180)
+    ok = inclined_hole("1-02", x=20, y=3.7, row=0, angle_deg=15, azimuth_deg=180)
+    design = design_with([out, ok])
+    burdens, beyond = floor_report(design)
+    assert burdens == floor_burdens(design)
+    assert beyond == holes_beyond_toe(design) == ["1-01"]

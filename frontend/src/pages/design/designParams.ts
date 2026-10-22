@@ -32,7 +32,8 @@ export function designWithParams(state: Pick<DesignState, "present" | "saved">, 
   let payload: BlastDesign = canEdit(status, "designed")
     ? {
         ...state.present,
-        pattern_params: params.patternParams as unknown as Record<string, unknown>,
+        // ключи со значением undefined (сброшенный наклон рядов) в паспорт не пишем
+        pattern_params: Object.fromEntries(Object.entries(params.patternParams).filter(([, v]) => v !== undefined)),
         charge_rules: params.chargeRules as unknown as Record<string, unknown>,
         explosive_key: params.explosiveKey,
       }

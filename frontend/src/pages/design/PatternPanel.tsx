@@ -162,7 +162,11 @@ export function PatternPanel({
             Наклонных рядов у откоса
             <select
               value={params.front_rows_tilt_count ?? 0}
-              onChange={(e) => onChange({ front_rows_tilt_count: Number(e.target.value) as 0 | 1 | 2 })}
+              onChange={(e) => {
+                const count = Number(e.target.value) as 0 | 1 | 2;
+                // 0 — «нет наклона»: ключи убираем, чтобы паспорт не отличался от нетронутого
+                onChange(count === 0 ? { front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined } : { front_rows_tilt_count: count });
+              }}
             >
               <option value={0}>0</option>
               <option value={1}>1</option>

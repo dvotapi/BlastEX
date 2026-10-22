@@ -34,4 +34,10 @@ describe("PatternPanel: наклон рядов у откоса", () => {
     fireEvent.change(field, { target: { value: "40" } });
     expect(onChange).toHaveBeenCalledWith({ front_rows_tilt_deg: 30 });
   });
+
+  it("выбор 0 убирает оба ключа наклона", () => {
+    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_tilt_count: 2, front_rows_tilt_deg: 20 });
+    fireEvent.change(screen.getByLabelText("Наклонных рядов у откоса"), { target: { value: "0" } });
+    expect(onChange).toHaveBeenCalledWith({ front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined });
+  });
 });

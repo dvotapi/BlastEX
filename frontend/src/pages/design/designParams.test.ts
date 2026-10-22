@@ -220,3 +220,15 @@ describe("наклон рядов у откоса", () => {
     expect(DEFAULT_PATTERN_PARAMS).not.toHaveProperty("front_rows_tilt_count");
   });
 });
+
+describe("наклон рядов: возврат к 0", () => {
+  it("после 2 → 0 правок нет, ключей в паспорте нет", () => {
+    const state = opened(passport());
+    const forms = formsOf(state);
+    const back = { ...forms, patternParams: { ...forms.patternParams, front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined } };
+    expect(hasUnsavedChanges(state, back, DEFAULT_EXPLOSIVE)).toBe(false);
+    const written = designWithParams(state, back);
+    expect(Object.keys(written.pattern_params)).not.toContain("front_rows_tilt_count");
+    expect(Object.keys(written.pattern_params)).not.toContain("front_rows_tilt_deg");
+  });
+});

@@ -27,6 +27,7 @@ function renderPlan(toe: boolean) {
       mode="contour"
       selected={new Set()}
       onSelectedChange={noop}
+      onContourChange={noop}
       onToggleFreeFace={noop}
       onMoveHoles={noop}
       onAddHole={noop}

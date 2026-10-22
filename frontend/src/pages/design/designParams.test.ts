@@ -165,7 +165,7 @@ describe("угол откоса объекта при переносе вари�
 
   it("проект с контуром сохраняет свою бровку", () => {
     const design = emptyDesign();
-    design.contour.vertices = [[0, 0, 0], [10, 0, 0], [10, 10, 0]] as BlastDesign["contour"]["vertices"];
+    design.contour.vertices = [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }, { x: 10, y: 10, z: 0 }];
     expect(benchPatchFromObjectAngle(design, 15)).toBeNull();
   });
 

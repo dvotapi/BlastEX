@@ -26,7 +26,7 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import nearest_points
 
 from design.geometry import drawing_bottom
-from design.models import FACE_TOE_KIND, BenchSurface, BlastDesign, BlockContour, Hole, face_pair_partner_id, row_family
+from design.models import FACE_TOE_KIND, BenchSurface, BlastDesign, BlockContour, Hole, face_pair_partner_id, logical_row, row_family
 
 # Вершина кольца нижней бровки ближе этого к вершине верхнего контура — общая с ним, м.
 SHARED_VERTEX_TOLERANCE_M = 0.01
@@ -539,7 +539,8 @@ def floor_checks(
     сосед стоит наискосок, но продвигается на b. Пары у откоса и стенки не
     считаются ни скважиной, ни соседом: вертикальная за парой — ряд 1, у неё
     разрыва нет. Допуск — b + 3 % (b — `design_burden_m`, у квадратной
-    сетки a); без b разрывы не считаются.
+    сетки a), а для соседа своего ряда решётки — a + 3 % (`_row_gaps`); без b
+    разрывы не считаются.
     """
     grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
     if not grid:
@@ -595,6 +596,8 @@ def floor_checks(
             [grid[i].id for i in main],
             [xy[i] for i in main],
             [positions[i] for i in main],
+            [logical_row(grid[i].row) for i in main],
+            a * (1.0 + TOE_BURDEN_TOLERANCE),
             allowed,
             min_advance,
             reach,
@@ -606,6 +609,8 @@ def _row_gaps(
     ids: list[str],
     xy: list[tuple[float, float]],
     positions: list[ToePosition],
+    rows: list[int],
+    allowed_same_row: float,
     allowed: float,
     min_advance: float,
     reach: float,
@@ -614,6 +619,12 @@ def _row_gaps(
 
     Как у ранга ряда (`design/pattern.py::front_row_ranks`): сначала начало
     коридора у всех, весь коридор — только у тех, кому там соседа не нашлось.
+
+    Шаг сравнения зависит от ряда соседа (`rows` — `logical_row`): если в
+    коридоре есть сосед своего ряда решётки (ряды поперёк бровки или
+    фланговая грань), разрыв — продвижение ближайшего из них, допуск
+    `allowed_same_row` (a + 3 %); иначе — ближайшего соседа другого ряда,
+    допуск `allowed` (b + 3 %).
     """
     if not ids:
         return {}
@@ -635,12 +646,22 @@ def _row_gaps(
     tx, ty = shapely.get_x(targets), shapely.get_y(targets)
     # Продвижение соседа j вдоль коридора i — как в `corridor_blocker_pairs`.
     advance = ((xs[j] - xs[i]) * (tx[i] - xs[i]) + (ys[j] - ys[i]) * (ty[i] - ys[i])) / values[i]
-    gap = np.full(len(ids), np.inf)
-    np.minimum.at(gap, i, advance)
-    return {
-        ids[k]: FloorRowGap(hole_id=ids[k], value_m=float(gap[k]), allowed_m=allowed, excess=bool(gap[k] > allowed))
-        for k in np.flatnonzero(np.isfinite(gap)).tolist()
-    }
+    row = np.asarray(rows, dtype=np.int64)
+    same = row[i] == row[j]
+    gap_same = np.full(len(ids), np.inf)
+    gap_other = np.full(len(ids), np.inf)
+    np.minimum.at(gap_same, i[same], advance[same])
+    np.minimum.at(gap_other, i[~same], advance[~same])
+    result: dict[str, FloorRowGap] = {}
+    for k in range(len(ids)):
+        if math.isfinite(gap_same[k]):
+            value, limit = float(gap_same[k]), allowed_same_row
+        elif math.isfinite(gap_other[k]):
+            value, limit = float(gap_other[k]), allowed
+        else:
+            continue
+        result[ids[k]] = FloorRowGap(hole_id=ids[k], value_m=value, allowed_m=limit, excess=value > limit)
+    return result
 
 
 def holes_beyond_toe(design: BlastDesign) -> list[str]:

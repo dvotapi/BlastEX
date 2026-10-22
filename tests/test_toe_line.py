@@ -682,3 +682,30 @@ def test_face_pairs_do_not_create_gap():
 
 def test_gap_without_w_is_not_checked():
     assert floor_row_gaps(design_with(grid_rows(15.0), pattern_params={})) == {}
+
+
+ACROSS_PATTERN = {"pattern": "rectangular", "spacing_a_m": 5.0, "burden_b_m": 3.5}
+
+
+def rows_across_face(tilted_id: str | None = None) -> list[Hole]:
+    """Ряды поперёк бровки y = 0: в ряду шаг a = 5 (к откосу), между рядами b = 3,5."""
+    holes = []
+    for r, x in enumerate((8.0, 11.5, 15.0, 18.5, 22.0)):
+        for c, y in enumerate((2.0, 7.0, 12.0, 17.0)):
+            hid = f"{r + 1}-{c + 1:02d}"
+            hole = inclined_hole(hid, x, y, r, 15, 180) if hid == tilted_id else vertical_hole(hid, x, y, r)
+            holes.append(Hole(**{**hole.__dict__, "col": c}))
+    return holes
+
+
+def test_rows_across_face_compare_same_row_with_a():
+    gaps = floor_row_gaps(design_with(rows_across_face(), pattern_params=ACROSS_PATTERN))
+    assert gaps and not any(g.excess for g in gaps.values())
+    assert gaps["3-02"].value_m == pytest.approx(5.0) and gaps["3-02"].allowed_m == pytest.approx(5.15)
+
+
+def test_rows_across_face_tilted_hole_opens_gap_behind_it():
+    gaps = floor_row_gaps(design_with(rows_across_face("3-01"), pattern_params=ACROSS_PATTERN))
+    assert [hid for hid, g in gaps.items() if g.excess] == ["3-02"]
+    assert gaps["3-02"].value_m == pytest.approx(5.0 + 2.6795, abs=1e-3)
+    assert gaps["3-02"].allowed_m == pytest.approx(5.15)

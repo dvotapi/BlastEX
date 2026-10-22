@@ -6,7 +6,8 @@ from collections import Counter
 
 from design.models import Hole, face_pair_partner_id, logical_row
 from design.pattern import generate_pattern
-from design.trunk_network import plan_trunk_chains, row_axis
+from design.timing import build_template_network, resolve_times
+from design.trunk_network import build_trunk_chains_network, pick_downhole_ms, plan_trunk_chains, row_axis
 from tests.front_rows_fixtures import BASE, CONTOUR, _contour_of, _rect_contour, vertical_hole
 
 # Прямоугольник 20×16, a = b = 4, бровка снизу: ряд 0 на y = 0, вглубь — по +Y.
@@ -196,6 +197,45 @@ class DegenerateTests(unittest.TestCase):
         self.assertEqual(len(one_row.ties), 4)
         self.assertEqual(sorted(one_row.surface_ms.values()), [0.0, 25.0, 50.0, 75.0, 100.0])
         self.assertEqual(plan_trunk_chains([]).starters, [])
+
+
+class DownholeAndNetworkTests(unittest.TestCase):
+    def setUp(self):
+        self.holes = _rect_holes()
+
+    def test_pick_downhole_smallest_safe(self):
+        self.assertEqual(pick_downhole_ms(320.0), (500.0, []))
+        self.assertEqual(pick_downhole_ms(500.0), (700.0, []))  # строго больше
+        self.assertEqual(pick_downhole_ms(999.0)[0], 1000.0)
+        ms, warnings = pick_downhole_ms(1000.0)
+        self.assertEqual(ms, 1000.0)
+        self.assertIn("Фронт инициирования отстаёт", warnings[0])
+
+    def test_network_resolves_to_plan_times(self):
+        network, _warnings = build_trunk_chains_network(self.holes, {"system": "nonel"})
+        times, _resolve_warnings = resolve_times(network, self.holes)
+        plan = plan_trunk_chains(self.holes)
+        for h in self.holes:
+            self.assertAlmostEqual(times[h.id], plan.surface_ms[h.id] + 500.0)
+        self.assertEqual(network.timing_params["scheme"], "trunk_chains")
+
+    def test_template_entry_point(self):
+        network = build_template_network(self.holes, "trunk_chains", {"system": "nonel", "cut_flank": "right"})
+        self.assertEqual(network.timing_params["cut_flank"], "right")
+
+    def test_non_nonel_system_keeps_default_downhole(self):
+        network, warnings = build_trunk_chains_network(self.holes, {"system": "electronic"})
+        self.assertEqual(network.downhole_connectors, [])
+        self.assertEqual(warnings, [])
+
+    def test_long_block_gets_1000_and_warning(self):
+        holes = generate_pattern(
+            _rect_contour(160.0, 48.0),
+            RECT | {"burden_b_m": 4.0, "spacing_a_m": 4.0},
+        )
+        network, warnings = build_trunk_chains_network(holes, {"system": "nonel"})
+        self.assertEqual(network.timing_params["downhole_delay_ms"], 1000.0)
+        self.assertTrue(any("Фронт инициирования отстаёт" in w for w in warnings))
 
 
 if __name__ == "__main__":

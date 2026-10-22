@@ -22,11 +22,28 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
-from design.models import FACE_TOE_KIND, Hole, face_pair_partner_id, logical_row, row_family
-from design.timing import SURFACE_NSI_MS_OPTIONS, _snap
+from design.models import (
+    FACE_TOE_KIND,
+    Connector,
+    Hole,
+    InitiationNetwork,
+    face_pair_partner_id,
+    logical_row,
+    row_family,
+)
+from design.timing import (
+    DEFAULT_DOWNHOLE_MS,
+    SURFACE_NSI_MS_OPTIONS,
+    SYSTEM_TYPES,
+    _connector_kind,
+    _eligible_holes,
+    _populate_v2_from_graph,
+    _snap,
+)
 
 TRUNK_SCHEME = "trunk_chains"
 DOWNHOLE_CHOICES_MS = (500.0, 700.0, 1000.0)
@@ -260,3 +277,54 @@ def _times_from_starters(starters: list[str], ties: list[tuple[str, str, float]]
                 times[to] = times[current] + ms
                 stack.append(to)
     return times
+
+
+def pick_downhole_ms(max_surface_ms: float) -> tuple[float, list[str]]:
+    """Внутрискважинное замедление блока: наименьшее из НСИ, строго большее
+    наибольшего поверхностного времени сети; иначе 1000 мс и предупреждение."""
+    for choice in DOWNHOLE_CHOICES_MS:
+        if choice > max_surface_ms:
+            return choice, []
+    return DOWNHOLE_CHOICES_MS[-1], [
+        "Фронт инициирования отстаёт: поверхностная сеть длиннее 1000 мс — возможен подбой."
+    ]
+
+
+def build_trunk_chains_network(
+    holes: list[Hole], params: dict[str, Any]
+) -> tuple[InitiationNetwork, list[str]]:
+    """Сеть «Магистраль + цепочки» и предупреждения построения."""
+    system = str(params.get("system", "nonel"))
+    if system not in SYSTEM_TYPES:
+        system = "nonel"
+    eligible = _eligible_holes(holes, bool(params.get("include_contour", False)))
+    if not eligible:
+        return InitiationNetwork(system=system), []
+
+    trunk_ms = float(params.get("trunk_ms", 25.0))
+    chain_ms = float(params.get("chain_ms", 42.0))
+    cut_flank = str(params.get("cut_flank", "left"))
+    plan = plan_trunk_chains(eligible, trunk_ms=trunk_ms, chain_ms=chain_ms, cut_flank=cut_flank)
+    warnings = list(plan.warnings)
+
+    if system == "nonel":
+        downhole_ms, extra = pick_downhole_ms(max(plan.surface_ms.values(), default=0.0))
+        warnings.extend(extra)
+    else:
+        downhole_ms = DEFAULT_DOWNHOLE_MS[system]
+
+    kind = _connector_kind(system)
+    network = InitiationNetwork(
+        system=system,
+        starters=list(plan.starters),
+        connectors=[Connector(from_hole=a, to_hole=b, delay_ms=ms, kind=kind) for a, b, ms in plan.ties],
+        timing_params={
+            "scheme": TRUNK_SCHEME,
+            "trunk_ms": trunk_ms,
+            "chain_ms": chain_ms,
+            "cut_flank": cut_flank,
+            "downhole_delay_ms": downhole_ms,
+        },
+    )
+    network = _populate_v2_from_graph(network, downhole_ms=downhole_ms, eligible=eligible)
+    return network, warnings

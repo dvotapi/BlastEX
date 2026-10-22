@@ -366,5 +366,39 @@ def test_front_row_schemes_skip_collars_near_crest(mode):
     assert not _codes(_validate(CONTOUR, params), "collar_too_close_to_crest")
 
 
+@pytest.mark.parametrize(
+    "mode",
+    [
+        {"front_rows_mode": "pair"},
+        {"front_rows_mode": "pair", "offset_from_face_m": 3.5},
+        {"front_rows_tilt_count": 1},
+        {"front_rows_tilt_count": 2},
+        {"front_rows_tilt_count": 1, "front_rows_tilt_deg": 30},
+        {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 30},
+    ],
+    ids=["pair", "pair-3.5", "taper1", "taper2", "taper1-30", "taper2-30"],
+)
+def test_front_row_schemes_pass_legacy_spacing_and_burden_checks(mode):
+    """Пара у откоса и плавный переход не противоречат старым проверкам.
+
+    Пара стоит в 1 м от своей вертикальной — не шаг сетки; у перехода решётка
+    держится у подошвы (устья рангов сближены намеренно); ЛНС «забой — бровка»
+    наклонной скважины у откоса заменена ЛСП и разрывом у подошвы.
+    """
+    from tests.front_rows_fixtures import BASE, CONTOUR
+
+    warnings = _validate(CONTOUR, BASE | mode)
+    assert not _codes(warnings, "hole_spacing")
+    assert not _codes(warnings, "burden_too_small")
+
+
+def test_vertical_hole_close_to_crest_still_warns_burden_too_small():
+    from tests.front_rows_fixtures import GAP_PATTERN, design_with, vertical_hole
+
+    holes = [vertical_hole("1-01", 10.0, 0.5, 0), vertical_hole("2-01", 10.0, 4.0, 1)]
+    found = _codes(validate(design_with(holes, pattern_params=GAP_PATTERN)), "burden_too_small")
+    assert [w["hole_id"] for w in found] == ["1-01"]
+
+
 if __name__ == "__main__":
     unittest.main()

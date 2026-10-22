@@ -15,9 +15,12 @@ from design.geometry import block_volume, collar_on_roof, ensure_ccw, floor_elev
 from design.hole_recompute import SHORT_BENCH_M
 from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind, row_family
 from design.timing import resolve_network
-from design.toe_line import crest_geometry, crest_offset_checked, floor_checks, min_crest_offset_m
+from design.toe_line import crest_geometry, crest_offset_checked, floor_checks, min_crest_offset_m, min_floor_burden_m
 
 Point2 = tuple[float, float]
+
+# Скважина наклонная, если угол от вертикали больше этого, градусы.
+TILTED_ANGLE_DEG = 0.1
 
 
 def summary(design: BlastDesign) -> dict[str, Any]:
@@ -292,8 +295,17 @@ def validate(
             }
         )
 
+    burdens, beyond_toe, row_gaps = floor_checks(design)
+    floor_governed = min_floor_burden_m(pattern_params) is not None
     for h in enabled:
         if h.kind not in ("production", "buffer"):
+            continue
+        # ЛНС здесь — от забоя до бровки в плане. У наклонной скважины сетки
+        # у откоса (плавный переход, наклон паспорта) забой уходит к бровке и
+        # за неё по построению — меряется не то. При заданной W такие
+        # скважины проверяет подошва: ЛСП с нижней границей 0,8·W и разрыв
+        # между рядами; вертикальные и стенки — как прежде.
+        if floor_governed and row_family(h.kind) == "grid" and h.angle_deg > TILTED_ANGLE_DEG:
             continue
         burden = true_burden(h, design.contour)
         if burden is not None and burden < min_burden_m:
@@ -308,7 +320,6 @@ def validate(
     # Точка на подошве за нижней бровкой — скважина выходит в откос (любая
     # скважина сетки, в том числе ручная). ЛСП такой скважины не «в допуске»,
     # но вместо предупреждения о ЛСП — это.
-    burdens, beyond_toe, row_gaps = floor_checks(design)
     for hole_id in beyond_toe:
         warnings.append(
             {

@@ -860,7 +860,7 @@ def taper_tan_limit(tilt_count: int, burden_b: float, height_m: float) -> float:
     if height_m <= 0:
         return math.inf
     k = max(0.0, burden_b - MIN_COLLAR_ROW_GAP_M) / height_m
-    if tilt_count < 2:
+    if tilt_count < 2 or k <= 0.0:
         return k
 
     def fits(alpha: float) -> bool:

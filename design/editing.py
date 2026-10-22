@@ -12,12 +12,14 @@ from design.geometry import (
     hole_from_collar,
 )
 from design.models import (
+    FACE_TOE_KIND,
     BlockContour,
     Hole,
     Point3,
     logical_row,
     row_family,
 )
+from design.toe_line import floor_point
 
 
 def _distance2d(a: Hole, b: Hole) -> float:
@@ -54,8 +56,20 @@ def spacing_report(
 
     В пределах ряда (`Hole.row`) шаг вдоль ряда считается между соседями по
     `col`; между соседними рядами — по ближайшей скважине следующего ряда.
+    Шаги меряются между точками оси на уровне подошвы (`floor_point`): у
+    вертикальных скважин и у сетки с одним наклоном это те же расстояния, что
+    между устьями, а плавный переход у откоса держит решётку именно у подошвы
+    (устья соседних рангов сближены намеренно). Пара у откоса (`face_toe`)
+    стоит в ряду и столбце своей вертикальной в 1 м от неё — не шаг сетки, в
+    отчёт не входит.
     """
-    enabled = [h for h in holes if h.enabled]
+    enabled = [h for h in holes if h.enabled and h.kind != FACE_TOE_KIND]
+    at_floor = {h.id: floor_point(h) for h in enabled}
+
+    def _distance2d(a: Hole, b: Hole) -> float:
+        (ax, ay), (bx, by) = at_floor[a.id], at_floor[b.id]
+        return math.hypot(ax - bx, ay - by)
+
     # Ключ — группа рядов и логический номер: ряды впереди первого идут подряд у
     # первого ряда, контурные (-1…-n) и буферные (-10) не сливаются с сеткой.
     by_row: dict[tuple[str, int], list[Hole]] = {}

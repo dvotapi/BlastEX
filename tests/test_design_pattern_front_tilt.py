@@ -187,6 +187,12 @@ ONE_ROW_DEG = math.degrees(math.atan(0.25))
 TWO_ROWS_30_DEG = math.degrees(math.atan(taper_tan_limit(2, 3.5, 10.0)))
 
 
+def test_taper_tan_limit_is_zero_when_burden_leaves_no_collar_gap():
+    assert taper_tan_limit(1, 1.0, 10.0) == 0.0
+    assert taper_tan_limit(2, 1.0, 10.0) == 0.0
+    assert taper_tan_limit(2, 0.8, 10.0) == 0.0
+
+
 def _column_x(holes):
     return sorted(round(h.collar.x, 6) for h in holes)
 

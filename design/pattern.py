@@ -120,6 +120,10 @@ def generate_pattern(
     if not contour.free_faces:
         tilt_count = 0
     mode = front_rows_mode(params, tilt_count) if contour.free_faces else None
+    if mode == FRONT_ROWS_MODE_TAPER and pattern == "staggered":
+        # Шахматка в оптимизатор не входит: столбцы через ряд, и переход
+        # разводит ряды 1–2 у подошвы. Сетка — как без ключей (решение 22.10.2026).
+        mode = None
     taper = mode == FRONT_ROWS_MODE_TAPER and tilt_count > 0
 
     verts = ensure_ccw(contour.points_xy)

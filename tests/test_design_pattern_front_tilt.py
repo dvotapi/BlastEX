@@ -319,24 +319,24 @@ def test_curved_crest_keeps_burden_at_floor():
     assert any(h.angle_deg > 1.0 for h in holes)
 
 
-def test_staggered_grid_columns_by_parity():
-    params = BASE | {"pattern": "staggered", "front_rows_tilt_count": 2}
-    holes = generate_pattern(CONTOUR, params)
-    plain = generate_pattern(CONTOUR, params | {"front_rows_tilt_count": 0})
-    # Столбец шахматки — через ряд: у подошвы между соседями столбца 2b.
-    gaps = _floor_gaps(holes, CONTOUR, 90.0)
-    assert gaps and all(gap == pytest.approx(7.0, abs=0.01) for gap in gaps)
-    first, second, third = rows(holes)[:3]
-    assert all(h.angle_deg == pytest.approx(15.0) for h in first)
-    # Второй ряд — первый в своих столбцах (сдвинут на полшага), но не у
-    # откоса (по коридору — ряд 2): его столбцы без наклона и сдвига.
-    plain_second = rows(plain)[1]
-    assert all(h.angle_deg == pytest.approx(0.0) for h in second)
-    assert [h.collar for h in second] == [h.collar for h in plain_second]
-    assert all(h.angle_deg == pytest.approx(7.5) for h in third)
-    assert {round(h.collar.x, 6) for h in holes if h.kind == "production"} == {
-        round(h.collar.x, 6) for h in plain if h.kind == "production"
-    }
+@pytest.mark.parametrize(
+    "keys",
+    [
+        {"front_rows_tilt_count": 1},
+        {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 30},
+        {"front_rows_mode": "taper", "front_rows_tilt_count": 2, "min_crest_offset_m": 3},
+    ],
+)
+def test_staggered_grid_ignores_taper(keys):
+    # Шахматка в оптимизатор не входит: плавный переход на ней не применяется —
+    # сетка побитно как без ключей.
+    params = BASE | {"pattern": "staggered", "offset_from_face_m": 0.5}
+    assert holes_signature(generate_pattern(CONTOUR, params | keys)) == holes_signature(generate_pattern(CONTOUR, params))
+
+
+def test_staggered_grid_keeps_pair_mode():
+    params = BASE | {"pattern": "staggered", "front_rows_mode": "pair", "offset_from_face_m": 3.5}
+    assert any(h.kind == "face_toe" for h in generate_pattern(CONTOUR, params))
 
 
 def test_row_segments_get_their_own_angles():

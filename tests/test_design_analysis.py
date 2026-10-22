@@ -245,27 +245,30 @@ def _gap_cases():
     }
     modes = {"plain": {}, "pair": {"front_rows_mode": "pair", "offset_from_face_m": 3.5}}
     cases = [
-        pytest.param(contour, BASE | pattern | mode, id=f"{cn}-{pn}-{mn}")
+        pytest.param(contour, BASE | pattern | mode, True, id=f"{cn}-{pn}-{mn}")
         for cn, contour in contours.items()
         for pn, pattern in patterns.items()
         for mn, mode in modes.items()
     ]
     # Плавный переход у прямой, косой и ступенчатой бровки при рядах вдоль неё:
-    # у подошвы — решётка, разрывов нет.
+    # у подошвы — решётка, разрывов нет. На шахматке переход не применяется:
+    # сетка как без ключей, и устья у кромки генератор не убирает — отступ там
+    # не проверяется в этом тесте.
     for cn in ("rect", "slant", "step"):
-        for pn in ("rect", "variable", "square"):
+        for pn in ("rect", "staggered", "variable", "square"):
             for count in (1, 2):
                 params = BASE | patterns[pn] | {"front_rows_tilt_count": count}
-                cases.append(pytest.param(contours[cn], params, id=f"{cn}-{pn}-taper{count}"))
-    cases.append(pytest.param(contours["rect"], {k: v for k, v in BASE.items() if k != "spacing_a_m"} | {"pattern": "square", "burden_b_m": 3.0, "row_azimuth_deg": 0.0}, id="square-no-a"))
+                cases.append(pytest.param(contours[cn], params, pn != "staggered", id=f"{cn}-{pn}-taper{count}"))
+    cases.append(pytest.param(contours["rect"], {k: v for k, v in BASE.items() if k != "spacing_a_m"} | {"pattern": "square", "burden_b_m": 3.0, "row_azimuth_deg": 0.0}, True, id="square-no-a"))
     return cases
 
 
-@pytest.mark.parametrize("contour, params", _gap_cases())
-def test_regular_layouts_have_no_gap_or_crest_warnings(contour, params):
+@pytest.mark.parametrize("contour, params, check_crest", _gap_cases())
+def test_regular_layouts_have_no_gap_or_crest_warnings(contour, params, check_crest):
     warnings = _validate(contour, params)
     assert not _codes(warnings, "floor_row_gap_excess")
-    assert not _codes(warnings, "collar_too_close_to_crest")
+    if check_crest:
+        assert not _codes(warnings, "collar_too_close_to_crest")
 
 
 @pytest.mark.parametrize("shape", ["arc", "poly"])

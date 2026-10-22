@@ -305,6 +305,7 @@ export function DesignPage({
 
   const [tieScheme, setTieScheme] = useState<SchemeType>("row");
   const [tieParams, setTieParams] = useState<TieParams>(DEFAULT_TIE_PARAMS);
+  const [tieWarnings, setTieWarnings] = useState<string[]>([]);
   const [tieBusy, setTieBusy] = useState(false);
   const [pendingTieFromId, setPendingTieFromId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
@@ -1095,12 +1096,14 @@ export function DesignPage({
     }
     setTieBusy(true);
     setError("");
+    setTieWarnings([]);
     try {
       const result = await api.design.tie(document.holes, tieScheme, {
         ...tieParams,
         selected_hole_ids: Array.from(selected),
       });
       dispatch({ type: "SET_NETWORK", network: result.network });
+      setTieWarnings(result.warnings ?? []);
       setPendingTieFromId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось построить схему коммутации.");
@@ -2559,6 +2562,7 @@ export function DesignPage({
     syncDesignParams(emptyDesign());
     setPendingFit(true);
     setTieParams(DEFAULT_TIE_PARAMS);
+    setTieWarnings([]);
     setBlockVolumeM3(null);
     setSelected(new Set());
     setSelectedRow(null);
@@ -2924,6 +2928,7 @@ export function DesignPage({
                 network={document.network}
                 selectedCount={selected.size}
                 pendingFromId={pendingTieFromId}
+                warnings={tieWarnings}
                 onSchemeChange={setTieScheme}
                 onParamsChange={(patch) => setTieParams((prev) => ({ ...prev, ...patch }))}
                 onGenerate={generateTie}

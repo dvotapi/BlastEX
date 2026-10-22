@@ -1050,7 +1050,10 @@ export type DesignSummary = {
   parent_design_id?: string;
 };
 
-export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid";
+export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid" | "trunk_chains";
+
+// Ступени поверхностных замедлений НСИ, мс.
+export const SURFACE_NSI_MS_OPTIONS = [17, 25, 42, 67, 109] as const;
 export type SystemType = InitiationNetwork["system"];
 
 export type TieParams = {
@@ -1064,6 +1067,9 @@ export type TieParams = {
   gradient_from_ms: number;
   gradient_to_ms: number;
   base_ms: number;
+  trunk_ms: number;
+  chain_ms: number;
+  cut_flank: "left" | "right";
   selected_hole_ids: string[];
 };
 
@@ -1071,6 +1077,7 @@ export type TieGenerateResponse = {
   network: InitiationNetwork;
   starters_count: number;
   connectors_count: number;
+  warnings: string[];
 };
 
 export type ValidationWarning = {
@@ -1757,6 +1764,9 @@ export const DEFAULT_TIE_PARAMS: TieParams = {
   gradient_from_ms: 0,
   gradient_to_ms: 250,
   base_ms: 0,
+  trunk_ms: 25,
+  chain_ms: 42,
+  cut_flank: "left",
   selected_hole_ids: [],
 };
 

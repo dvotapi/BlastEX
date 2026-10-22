@@ -1,6 +1,7 @@
 import {
   ELECTRONIC_MODE_OPTIONS,
   networkTies,
+  SURFACE_NSI_MS_OPTIONS,
   type InitiationNetwork,
   type SchemeType,
   type SurfaceConnector,
@@ -14,6 +15,7 @@ const SCHEME_OPTIONS: { value: SchemeType; label: string; hint: string }[] = [
   { value: "echelon", label: "Клиновая", hint: "диагональная лестница" },
   { value: "diagonal_v", label: "Диагональная V", hint: "от центра ряда" },
   { value: "trapezoid", label: "Трапецеидальная", hint: "от флангов к центру" },
+  { value: "trunk_chains", label: "Магистраль + цепочки", hint: "вруб у фланга, 25 / 42 мс" },
 ];
 
 const SYSTEM_OPTIONS: { value: SystemType; label: string }[] = [
@@ -28,6 +30,7 @@ export function TiePanel({
   network,
   selectedCount,
   pendingFromId,
+  warnings,
   onSchemeChange,
   onParamsChange,
   onGenerate,
@@ -41,6 +44,7 @@ export function TiePanel({
   network: InitiationNetwork;
   selectedCount: number;
   pendingFromId: string | null;
+  warnings: string[];
   onSchemeChange: (scheme: SchemeType) => void;
   onParamsChange: (patch: Partial<TieParams>) => void;
   onGenerate: () => void;
@@ -52,6 +56,9 @@ export function TiePanel({
   const ties = networkTies(network);
   const electronic = params.system === "electronic";
   const mode = params.timing_mode;
+  const trunkChains = scheme === "trunk_chains";
+  // Внутрискважинное замедление СИНВ при этой схеме подбирает сервер.
+  const downholeAuto = trunkChains && params.system === "nonel";
 
   return (
     <section className="panel">
@@ -97,14 +104,42 @@ export function TiePanel({
           ))}
         </div>
 
-        <div className="field-pair">
-          <label>Интервал замедления, мс
-            <input type="number" min="1" step="1" value={params.interval_ms} onChange={(e) => onParamsChange({ interval_ms: Number(e.target.value) })} />
-          </label>
-          <label>Внутрискважинное замедление, мс
-            <input type="number" min="0" step="10" value={params.downhole_delay_ms} onChange={(e) => onParamsChange({ downhole_delay_ms: Number(e.target.value) })} />
-          </label>
-        </div>
+        {trunkChains ? (
+          <>
+            <div className="field-pair">
+              <label>Магистраль, мс
+                <select value={params.trunk_ms} onChange={(e) => onParamsChange({ trunk_ms: Number(e.target.value) })}>
+                  {SURFACE_NSI_MS_OPTIONS.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
+                </select>
+              </label>
+              <label>Цепочки, мс
+                <select value={params.chain_ms} onChange={(e) => onParamsChange({ chain_ms: Number(e.target.value) })}>
+                  {SURFACE_NSI_MS_OPTIONS.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
+                </select>
+              </label>
+            </div>
+            <label>Вруб у фланга
+              <select value={params.cut_flank} onChange={(e) => onParamsChange({ cut_flank: e.target.value as "left" | "right" })}>
+                <option value="left">левого</option>
+                <option value="right">правого</option>
+              </select>
+            </label>
+            <small>Фланг — если смотреть с откоса на блок.</small>
+            <label>Внутрискважинное замедление, мс
+              <input type="number" min="0" step="10" value={params.downhole_delay_ms} disabled={downholeAuto} onChange={(e) => onParamsChange({ downhole_delay_ms: Number(e.target.value) })} />
+            </label>
+            {downholeAuto && <small>Подбирается: наименьшее из 500 / 700 / 1000 мс, при котором сеть успевает до первого взрыва.</small>}
+          </>
+        ) : (
+          <div className="field-pair">
+            <label>Интервал замедления, мс
+              <input type="number" min="1" step="1" value={params.interval_ms} onChange={(e) => onParamsChange({ interval_ms: Number(e.target.value) })} />
+            </label>
+            <label>Внутрискважинное замедление, мс
+              <input type="number" min="0" step="10" value={params.downhole_delay_ms} onChange={(e) => onParamsChange({ downhole_delay_ms: Number(e.target.value) })} />
+            </label>
+          </div>
+        )}
 
         {electronic && mode === "direction" && (
           <label>Азимут направления, °
@@ -145,6 +180,7 @@ export function TiePanel({
         <button className="calculate-button" onClick={onGenerate} disabled={busy}>
           {busy ? "Строим схему…" : electronic && mode ? "Назначить электронный тайминг" : "Построить схему"}
         </button>
+        {warnings.map((text) => <small key={text} className="form-warning">{text}</small>)}
         <small>
           {electronic
             ? "Время задаётся программой канала. Выражение: row, col, x, y, interval, base, abs/min/max. Без eval."

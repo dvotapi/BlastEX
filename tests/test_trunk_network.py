@@ -3,11 +3,24 @@
 import math
 import unittest
 from collections import Counter
+from functools import lru_cache
+from pathlib import Path
 
-from design.models import Hole, face_pair_partner_id, logical_row
+from design.models import BlockContour, Hole, face_pair_partner_id, logical_row
 from design.pattern import generate_pattern
+from design.spatial.cad.contour import ready_contour
+from design.spatial.cad.reader import read_cad
+from design.spatial.cad.roles import RoleParams, assign_roles
+from design.spatial.cad.stitch import StitchedLine, stitch_lines
+from design.spatial.cad.two_contours import bench_levels, two_contours
 from design.timing import build_template_network, resolve_times
-from design.trunk_network import build_trunk_chains_network, pick_downhole_ms, plan_trunk_chains, row_axis
+from design.trunk_network import (
+    _is_column_member,
+    build_trunk_chains_network,
+    pick_downhole_ms,
+    plan_trunk_chains,
+    row_axis,
+)
 from tests.front_rows_fixtures import BASE, CONTOUR, _contour_of, _rect_contour, vertical_hole
 
 # Прямоугольник 20×16, a = b = 4, бровка снизу: ряд 0 на y = 0, вглубь — по +Y.
@@ -236,6 +249,86 @@ class DownholeAndNetworkTests(unittest.TestCase):
         network, warnings = build_trunk_chains_network(holes, {"system": "nonel"})
         self.assertEqual(network.timing_params["downhole_delay_ms"], 1000.0)
         self.assertTrue(any("Фронт инициирования отстаёт" in w for w in warnings))
+
+
+BLOCK66 = Path(__file__).parent / "fixtures" / "cad" / "block66.dxf"
+# Сетка паспорта №66, как в проверках темпа отбойки и первого ряда.
+BLOCK66_PARAMS = {
+    "pattern": "rectangular",
+    "spacing_a_m": 4.41,
+    "burden_b_m": 3.53,
+    "row_azimuth_deg": 0,
+    "offset_from_face_m": 2,
+    "first_row_burden_m": 2,
+    "first_row_follow_face": False,
+    "edge_margin_m": 1,
+    "diameter_mm": 152,
+    "subdrill_m": 1,
+    "angle_deg": 0,
+    "azimuth_deg": 0,
+    "default_kind": "production",
+}
+
+
+@lru_cache(maxsize=1)
+def _block66_holes() -> tuple[Hole, ...]:
+    """Сетка на контуре №66: готовый контур (handle 769), откосы и отметки — как в импорте чертежа."""
+    drawing = read_cad(BLOCK66.read_bytes(), "block66.dxf")
+    assign_roles(drawing.entities, {}, RoleParams())
+    entities = drawing.entities
+    draft = ready_contour({item.handle: item for item in entities}["769"])
+    tops, _ = stitch_lines([e for e in entities if e.role == "crest_top" and e.geometry_type == "line"])
+    bottoms, _ = stitch_lines([e for e in entities if e.role == "crest_bottom" and e.geometry_type == "line"])
+    face_lines = [StitchedLine(points=[(x, y, 0.0) for x, y in draft.crest_line])] if draft.crest_line else None
+    two = two_contours(draft.ring, tops, bottoms, face_lines=face_lines)
+    levels = bench_levels(draft.ring, two.free_faces, tops, bottoms, 410.0)
+    contour = BlockContour.from_dict(
+        {
+            "vertices": [{"x": x, "y": y, "z": 0.0} for x, y in draft.ring],
+            "free_faces": [list(edge) for edge in two.free_faces],
+            "bench": {"crest_z_m": levels.crest_z_m, "toe_z_m": levels.toe_z_m},
+        }
+    )
+    return tuple(generate_pattern(contour, BLOCK66_PARAMS))
+
+
+class Block66Tests(unittest.TestCase):
+    """Блок №66: мыс впереди основного фронта, бровка ступенчатая."""
+
+    def setUp(self):
+        self.holes = list(_block66_holes())
+        self.assertGreater(len(self.holes), 100)
+
+    def test_every_hole_timed_and_only_trunk_or_chain_ties(self):
+        for flank in ("left", "right"):
+            with self.subTest(flank=flank):
+                network, warnings = build_trunk_chains_network(self.holes, {"system": "nonel", "cut_flank": flank})
+                times, _ = resolve_times(network, self.holes)
+                self.assertEqual(set(times), {h.id for h in self.holes if h.enabled})
+                self.assertEqual({c.delay_ms for c in network.surface_connectors}, {25.0, 42.0})
+                self.assertEqual(warnings, [])
+
+    def test_cut_is_flank_head_of_front(self):
+        (ax, ay), (dx, dy) = row_axis(self.holes)
+        members = [h for h in self.holes if _is_column_member(h)]
+
+        def along(h: Hole) -> float:
+            return h.collar.x * ax + h.collar.y * ay
+
+        def depth(h: Hole) -> float:
+            return h.collar.x * dx + h.collar.y * dy
+
+        front = [h for h in members if depth(h) <= min(depth(m) for m in members) + 1.5 * 3.53 + 1e-6]
+        for flank, pick in (("left", min), ("right", max)):
+            with self.subTest(flank=flank):
+                plan = plan_trunk_chains(self.holes, cut_flank=flank)
+                self.assertEqual(len(plan.starters), 1)
+                cut = plan.starters[0]
+                self.assertNotIn(cut, {to for _, to, _ in plan.ties})
+                self.assertEqual(cut, pick(front, key=along).id)
+        # Левый фланг мыса — и крайний столбец всего блока.
+        left = plan_trunk_chains(self.holes, cut_flank="left").starters[0]
+        self.assertEqual(left, min(members, key=along).id)
 
 
 if __name__ == "__main__":

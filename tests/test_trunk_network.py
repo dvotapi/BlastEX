@@ -176,31 +176,68 @@ class FacePairTests(unittest.TestCase):
 
 
 class StaggeredTests(unittest.TestCase):
+    # Размеры блока (ширина × глубина) и фланги вруба, на которых край ряда
+    # шахматки ловил обгон скважины впереди.
+    SIZES = ((20.0, 16.0), (22.0, 16.0), (18.0, 20.0), (40.0, 30.0), (60.0, 40.0))
+    FLANKS = ("left", "right")
+
+    def _cases(self):
+        for width, depth in self.SIZES:
+            holes = generate_pattern(_rect_contour(width, depth), RECT | {"pattern": "staggered"})
+            for flank in self.FLANKS:
+                yield (width, depth, flank), holes, plan_trunk_chains(holes, cut_flank=flank)
+
     def test_staggered_every_hole_timed_once(self):
-        staggered = _rect_holes("staggered")
-        self.assertGreater(len({round(h.collar.x % 4.0, 3) for h in staggered}), 1)
-        plan = plan_trunk_chains(staggered)
-        self.assertEqual(set(plan.surface_ms), {h.id for h in staggered})
-        self.assertTrue(all(ms in (25.0, 42.0) for _, _, ms in plan.ties))
-        incoming = Counter(to for _, to, _ in plan.ties)
-        self.assertTrue(all(incoming[h.id] == 1 for h in staggered if h.id not in plan.starters))
-        by_id = {h.id: h for h in staggered}
-        # Цепочка 42 мс — всегда от скважины ряда впереди.
-        for frm, to, ms in plan.ties:
-            if ms == 42.0:
-                self.assertLess(logical_row(by_id[frm].row), logical_row(by_id[to].row))
+        for case, holes, plan in self._cases():
+            with self.subTest(case=case):
+                self.assertGreater(len({round(h.collar.x % 4.0, 3) for h in holes}), 1)
+                self.assertEqual(set(plan.surface_ms), {h.id for h in holes})
+                # Занятый предшественник — следующая ступень НСИ после 42 мс.
+                self.assertTrue(all(ms in (25.0, 42.0, 67.0) for _, _, ms in plan.ties))
+                incoming = Counter(to for _, to, _ in plan.ties)
+                self.assertTrue(all(incoming[h.id] == 1 for h in holes if h.id not in plan.starters))
+                self.assertTrue(all(incoming[s] == 0 for s in plan.starters))
+                by_id = {h.id: h for h in holes}
+                # Цепочка — только от ближайшего ряда впереди, ряд не пропускается.
+                for frm, to, ms in plan.ties:
+                    if ms != 25.0:
+                        self.assertEqual(logical_row(by_id[to].row) - logical_row(by_id[frm].row), 1)
+
+    def test_staggered_hole_fires_after_nearest_row_ahead(self):
+        for case, holes, plan in self._cases():
+            with self.subTest(case=case):
+                rows: dict[int, list[Hole]] = {}
+                for h in holes:
+                    rows.setdefault(logical_row(h.row), []).append(h)
+                t = plan.surface_ms
+                for row, items in rows.items():
+                    ahead = [r for r in rows if r < row]
+                    if not ahead:
+                        continue
+                    for h in items:
+                        near = [y for y in rows[max(ahead)] if abs(y.collar.x - h.collar.x) <= 0.75 * 4.0 + 1e-9]
+                        for y in near:
+                            self.assertGreater(t[h.id], t[y.id], msg=(case, y.id, h.id))
 
     def test_staggered_neighbours_in_row_never_fire_together(self):
-        staggered = _rect_holes("staggered")
-        plan = plan_trunk_chains(staggered)
-        rows: dict[int, list[Hole]] = {}
-        for h in staggered:
-            rows.setdefault(logical_row(h.row), []).append(h)
-        for row, items in rows.items():
-            items.sort(key=lambda h: h.collar.x)
-            for a, b in pairwise(items):
-                if _dist(a, b) <= 1.1 * 4.0:
-                    self.assertNotEqual(plan.surface_ms[a.id], plan.surface_ms[b.id], msg=(row, a.id, b.id))
+        for case, holes, plan in self._cases():
+            with self.subTest(case=case):
+                rows: dict[int, list[Hole]] = {}
+                for h in holes:
+                    rows.setdefault(logical_row(h.row), []).append(h)
+                for row, items in rows.items():
+                    items.sort(key=lambda h: h.collar.x)
+                    for a, b in pairwise(items):
+                        if _dist(a, b) <= 1.1 * 4.0:
+                            self.assertNotEqual(plan.surface_ms[a.id], plan.surface_ms[b.id], msg=(case, row, a.id, b.id))
+
+    def test_detcord_shared_predecessor_takes_next_relay(self):
+        holes = generate_pattern(_rect_contour(20.0, 16.0), RECT | {"pattern": "staggered"})
+        plan = plan_trunk_chains(holes, chain_ms=25.0, system="detcord")
+        steps = Counter(ms for _, _, ms in plan.ties)
+        # 25 мс — и магистраль, и цепочка; занятый предшественник — реле 35 мс.
+        self.assertGreater(steps[35.0], 0)
+        self.assertEqual(set(steps), {25.0, 35.0})
 
 
 class StrayTests(unittest.TestCase):

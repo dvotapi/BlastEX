@@ -239,6 +239,9 @@ def plan_trunk_chains(
     for items in rows.values():
         items.sort(key=lambda item: (item[0], item[1].id))
     limit = _CHAIN_OFFSET_FACTOR * _row_step(rows)
+    # Предшественник, уже взятый соседкой по ряду, — со следующей ступенью:
+    # скважина не обгоняет ряд впереди и не совпадает с соседкой.
+    chain_shared = _next_step(chain, system)
 
     incoming: dict[str, tuple[str, float]] = {}
     heads: list[tuple[float, Hole]] = []
@@ -249,9 +252,10 @@ def plan_trunk_chains(
         side = -1.0 if row % 2 else 1.0
         taken: set[str] = set()  # предшественники, уже взятые соседками по ряду
         for pos, hole in rows[row]:
-            predecessor = _chain_predecessor(rows, ordered_rows[:index], pos, limit, side, taken)
-            if predecessor is not None:
-                incoming[hole.id] = (predecessor.id, chain)
+            found = _chain_predecessor(rows, ordered_rows[:index], pos, limit, side, taken)
+            if found is not None:
+                predecessor, shared = found
+                incoming[hole.id] = (predecessor.id, chain_shared if shared else chain)
                 taken.add(predecessor.id)
             else:
                 heads.append((pos, hole))
@@ -312,6 +316,12 @@ def plan_trunk_chains(
     )
 
 
+def _next_step(chain_ms: float, system: str) -> float:
+    """Следующий номинал системы выше ступени цепочки; выше нет — наибольший."""
+    options, _ = _step_options(system)
+    return float(next((o for o in sorted(options) if o > chain_ms + 1e-9), max(options)))
+
+
 def _chain_predecessor(
     rows: dict[int, list[tuple[float, Hole]]],
     rows_ahead: list[int],
@@ -319,16 +329,17 @@ def _chain_predecessor(
     limit: float,
     side: float,
     taken: set[str],
-) -> Hole | None:
+) -> tuple[Hole, bool] | None:
     """Предшественник по столбцу — в ближайшем ряду впереди со скважиной в limit по оси.
 
-    Выключенная скважина столбца пропускается: скважина за ней не становится
-    головой. Из кандидатов ряда — с наименьшим смещением, при равенстве — со
-    стороны `side`; занятый соседкой по ряду уступает свободному. Если в ряду все
-    кандидаты заняты, поиск идёт дальше вперёд (край длинного ряда шахматки
-    берёт свой столбец через ряд); свободного нигде нет — ближайший кандидат.
+    Возвращает скважину и признак «уже взята соседкой по ряду». Выключенная
+    скважина столбца пропускается: скважина за ней не становится головой. Из
+    кандидатов ряда — с наименьшим смещением, при равенстве — со стороны `side`;
+    занятый соседкой по ряду уступает свободному. Если в ряду все кандидаты
+    заняты, берётся ближайший из них (дальше вперёд поиск не идёт: край ряда
+    шахматки не обгоняет скважину перед собой) — вызывающий даёт такой связи
+    следующую ступень.
     """
-    fallback: Hole | None = None
     for back in reversed(rows_ahead):
         near = [(abs(p - pos), p, h) for p, h in rows[back] if abs(p - pos) <= limit]
         if not near:
@@ -341,12 +352,11 @@ def _chain_predecessor(
             return (not tied, 0.0 if tied else offset, side * (pos - p) > 0, h.id)
 
         near.sort(key=order)
-        if fallback is None:
-            fallback = near[0][2]
         free = next((h for _, _, h in near if h.id not in taken), None)
         if free is not None:
-            return free
-    return fallback
+            return free, False
+        return near[0][2], True
+    return None
 
 
 def _times_from_starters(starters: list[str], ties: list[tuple[str, str, float]]) -> dict[str, float]:

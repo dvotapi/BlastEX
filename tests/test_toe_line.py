@@ -12,6 +12,7 @@ from design.maps import engineering_maps
 from design.toe_line import (
     allowed_floor_burden_m,
     floor_burdens,
+    floor_row_gaps,
     holes_beyond_toe,
     slope_offset_m,
     spoil_angle_toe_lines,
@@ -627,3 +628,57 @@ def test_square_w_without_spacing_uses_generator_default():
     # generate_pattern строит квадратную сетку без spacing_a_m с a = 5.
     assert allowed_floor_burden_m({"pattern": "square", "burden_b_m": 3.0}) == pytest.approx(5.15)
     assert allowed_floor_burden_m({}) is None
+
+
+# --- Разрыв между рядами у подошвы (часть 3b) ---------------------------------
+
+GAP_PATTERN = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.5}
+
+
+def grid_rows(row_one_tilt_deg: float = 0.0, rows: int = 4) -> list[Hole]:
+    """Сетка 4×3,5 м у грани y = 0: устья по сетке, ряд 1 (y = 2) наклонён к откосу."""
+    holes = []
+    for r in range(rows):
+        for c, x in enumerate((8.0, 12.0, 16.0, 20.0, 24.0)):
+            y = 2.0 + 3.5 * r
+            hid = f"{r + 1}-{c + 1:02d}"
+            if r == 0 and row_one_tilt_deg:
+                hole = inclined_hole(hid, x, y, r, row_one_tilt_deg, 180)
+            else:
+                hole = vertical_hole(hid, x, y, r)
+            holes.append(Hole(**{**hole.__dict__, "col": c}))
+    return holes
+
+
+def test_tilted_row_one_on_grid_opens_gap_at_floor_before_row_two():
+    gaps = floor_row_gaps(design_with(grid_rows(15.0), pattern_params=GAP_PATTERN))
+    row_two = {hid: g for hid, g in gaps.items() if hid.startswith("2-")}
+    assert set(row_two) == {f"2-{c:02d}" for c in range(1, 6)}
+    for gap in row_two.values():
+        assert gap.value_m == pytest.approx(3.5 + 2.6795, abs=1e-3)
+        assert gap.allowed_m == pytest.approx(3.605)
+        assert gap.excess is True
+    # Ряд 3 — за вертикальным рядом 2: шаг b, без превышения; ряд 1 — у откоса, разрыва нет.
+    assert all(not g.excess for hid, g in gaps.items() if hid.startswith("3-"))
+    assert not any(hid.startswith("1-") for hid in gaps)
+
+
+def test_plain_vertical_grid_has_no_gap_excess():
+    gaps = floor_row_gaps(design_with(grid_rows(), pattern_params=GAP_PATTERN))
+    assert gaps and not any(g.excess for g in gaps.values())
+
+
+def test_face_pairs_do_not_create_gap():
+    holes = grid_rows()
+    pairs = [
+        Hole(**{**inclined_hole(f"{h.id}T", h.collar.x, h.collar.y - 1.0, 0, 15, 180).__dict__, "kind": "face_toe"})
+        for h in holes
+        if h.row == 0
+    ]
+    gaps = floor_row_gaps(design_with(holes + pairs, pattern_params=GAP_PATTERN))
+    assert not any(g.excess for g in gaps.values())
+    assert not any(hid.endswith("T") for hid in gaps)
+
+
+def test_gap_without_w_is_not_checked():
+    assert floor_row_gaps(design_with(grid_rows(15.0), pattern_params={})) == {}

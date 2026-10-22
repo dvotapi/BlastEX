@@ -191,5 +191,61 @@ def test_two_numbers_adds_digits_until_numbers_differ():
     assert _two_numbers(3.8114, 3.811) == ("3,811", "3,811")
 
 
+# --- Разрыв между рядами у подошвы и устье у кромки (часть 3b) ---------------
+
+
+def _codes(warnings, code):
+    return [w for w in warnings if w["code"] == code]
+
+
+def test_validate_warns_about_gap_between_rows_at_floor():
+    from tests.test_toe_line import GAP_PATTERN, design_with, grid_rows
+
+    gaps = _codes(validate(design_with(grid_rows(15.0), pattern_params=GAP_PATTERN)), "floor_row_gap_excess")
+    assert sorted(w["hole_id"] for w in gaps) == [f"2-{c:02d}" for c in range(1, 6)]
+    assert gaps[0]["message"] == "Между рядами у подошвы 6,2 м — больше допустимого 3,6 м (b + 3%)."
+
+
+def test_validate_taper_and_plain_grid_have_no_gap_or_crest_warnings():
+    from tests.test_design_pattern_front_tilt import BASE, CONTOUR
+
+    for params in (BASE, BASE | {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 15}, BASE | {"front_rows_tilt_count": 1}):
+        holes = generate_pattern(CONTOUR, params)
+        design = BlastDesign(design_id="t", contour=CONTOUR, holes=holes, pattern_params=params)
+        warnings = validate(design)
+        assert not _codes(warnings, "floor_row_gap_excess"), params
+        assert not _codes(warnings, "collar_too_close_to_crest"), params
+
+
+def test_validate_pair_scheme_has_no_gap_warnings():
+    from tests.test_design_pattern_front_tilt import BASE, CONTOUR
+
+    params = BASE | {"front_rows_mode": "pair", "offset_from_face_m": 3.5}
+    holes = generate_pattern(CONTOUR, params)
+    assert any(h.kind == "face_toe" for h in holes)
+    design = BlastDesign(design_id="t", contour=CONTOUR, holes=holes, pattern_params=params)
+    assert not _codes(validate(design), "floor_row_gap_excess")
+
+
+def test_validate_warns_when_collar_is_too_close_to_crest():
+    from tests.test_toe_line import PATTERN, rect_contour, vertical_hole
+
+    near = vertical_hole("1-01", x=10, y=0.6, row=0)
+    ok = vertical_hole("1-03", x=30, y=1.0, row=0)
+    design = BlastDesign(
+        design_id="t", contour=rect_contour(), holes=[near, ok], pattern_params=PATTERN | {"min_crest_offset_m": 1}
+    )
+    close = _codes(validate(design), "collar_too_close_to_crest")
+    assert [w["hole_id"] for w in close] == ["1-01"]
+    assert close[0]["message"] == "Устье 1-01 ближе 1,0 м к кромке уступа."
+    # Без ключа — умолчание 1 м; меньший отступ снимает предупреждение.
+    assert [w["hole_id"] for w in _codes(validate(BlastDesign(
+        design_id="t", contour=rect_contour(), holes=[near, ok], pattern_params=PATTERN
+    )), "collar_too_close_to_crest")] == ["1-01"]
+    assert not _codes(validate(BlastDesign(
+        design_id="t", contour=rect_contour(), holes=[near, ok], pattern_params=PATTERN | {"min_crest_offset_m": 0.5}
+    )), "collar_too_close_to_crest")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,12 +8,14 @@ from typing import Any
 
 from collections import Counter
 
+import shapely
+
 from design.editing import spacing_report
 from design.geometry import block_volume, collar_on_roof, ensure_ccw, floor_elevation, point_in_polygon, true_burden
 from design.hole_recompute import SHORT_BENCH_M
-from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind
+from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind, row_family
 from design.timing import resolve_network
-from design.toe_line import floor_report
+from design.toe_line import crest_geometry, floor_checks, min_crest_offset_m
 
 Point2 = tuple[float, float]
 
@@ -306,7 +308,7 @@ def validate(
     # Точка на подошве за нижней бровкой — скважина выходит в откос (любая
     # скважина сетки, в том числе ручная). ЛСП такой скважины не «в допуске»,
     # но вместо предупреждения о ЛСП — это.
-    burdens, beyond_toe = floor_report(design)
+    burdens, beyond_toe, row_gaps = floor_checks(design)
     for hole_id in beyond_toe:
         warnings.append(
             {
@@ -337,6 +339,36 @@ def validate(
                     "message": f"ЛСП {value} м меньше допустимого {limit} м (0,8·W{angle_note}).",
                 }
             )
+
+    # Разрыв у подошвы между рядами больше b + 3% (например, первый ряд
+    # наклонён, а устья второго не сдвинуты к откосу).
+    for hole_id, gap in row_gaps.items():
+        if gap.excess:
+            value, limit = _two_numbers(gap.value_m, gap.allowed_m)
+            warnings.append(
+                {
+                    "code": "floor_row_gap_excess",
+                    "hole_id": hole_id,
+                    "message": f"Между рядами у подошвы {value} м — больше допустимого {limit} м (b + 3%).",
+                }
+            )
+
+    # Устье скважины сетки ближе минимального отступа к кромке (верхней бровке).
+    crest = crest_geometry(design.contour)
+    grid = [h for h in enabled if row_family(h.kind) == "grid"]
+    if crest is not None and grid:
+        min_offset = min_crest_offset_m(pattern_params)
+        crest_d = shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in grid]), crest)
+        label = f"{min_offset:.1f}".replace(".", ",")
+        for h, distance in zip(grid, crest_d):
+            if distance < min_offset - 1e-6:
+                warnings.append(
+                    {
+                        "code": "collar_too_close_to_crest",
+                        "hole_id": h.id,
+                        "message": f"Устье {h.id} ближе {label} м к кромке уступа.",
+                    }
+                )
 
     for load in design.loads:
         hole = holes_by_id.get(load.hole_id)

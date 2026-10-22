@@ -218,6 +218,16 @@ class FloorBurden:
 
 
 @dataclass(frozen=True)
+class FloorRowGap:
+    """Разрыв у подошвы между скважиной и рядом впереди неё (к откосу)."""
+
+    hole_id: str
+    value_m: float  # продвижение до ближайшей скважины впереди в коридоре, на уровне подошвы
+    allowed_m: float  # b + 3%
+    excess: bool  # больше b + 3%
+
+
+@dataclass(frozen=True)
 class ToePosition:
     """Положение точки на уровне подошвы относительно линии подошвы (для ЛСП)."""
 
@@ -507,14 +517,38 @@ def floor_report(design: BlastDesign) -> tuple[dict[str, FloorBurden], list[str]
     Положение относительно линии подошвы считается один раз для всех
     включённых скважин сетки.
     """
+    burdens, beyond, _gaps = floor_checks(design, with_gaps=False)
+    return burdens, beyond
+
+
+def floor_row_gaps(design: BlastDesign) -> dict[str, FloorRowGap]:
+    """Разрывы между рядами у подошвы (см. `floor_checks`); пусто, если b не задан."""
+    return floor_checks(design)[2]
+
+
+def floor_checks(
+    design: BlastDesign, *, with_gaps: bool = True
+) -> tuple[dict[str, FloorBurden], list[str], dict[str, FloorRowGap]]:
+    """ЛСП, скважины за подошвой и разрывы между рядами у подошвы за один расчёт.
+
+    Разрыв у подошвы — у скважины основной сетки (рядовые и `default_kind`),
+    перед которой в её коридоре к подошве стоит другая скважина основной
+    сетки: наименьшее продвижение такого соседа вдоль коридора (та же
+    проверка «впереди», что у ЛСП, — `corridor_blocker_pairs`, по точкам на
+    подошве). Это расстояние до ряда впереди у подошвы: у шахматной сетки
+    сосед стоит наискосок, но продвигается на b. Пары у откоса и стенки не
+    считаются ни скважиной, ни соседом: вертикальная за парой — ряд 1, у неё
+    разрыва нет. Допуск — b + 3 % (b — `design_burden_m`, у квадратной
+    сетки a); без b разрывы не считаются.
+    """
     grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
     if not grid:
-        return {}, []
+        return {}, [], {}
     block_h = design.contour.bench.height_m
     xy = [floor_point(h) for h in grid]
     positions = toe_positions(design.contour, xy, [hole_bench_height_m(h, block_h) for h in grid])
     if positions is None:
-        return {}, []
+        return {}, [], {}
     beyond = [hole.id for hole, position in zip(grid, positions) if position.beyond]
     allowed = allowed_floor_burden_m(design.pattern_params)
     minimum = min_floor_burden_m(design.pattern_params)
@@ -553,7 +587,60 @@ def floor_report(design: BlastDesign) -> tuple[dict[str, FloorBurden], list[str]
             # Допуск 1 мкм: наклон, ограниченный ровно до 0,8·W, даёт ЛСП на ошибку округления меньше.
             short=minimum is not None and not position.beyond and value < minimum - 1e-6,
         )
-    return result, beyond
+    gaps: dict[str, FloorRowGap] = {}
+    if with_gaps and allowed is not None:
+        main_kinds = measured - {FACE_TOE_KIND}
+        main = [i for i, hole in enumerate(grid) if hole.kind in main_kinds]
+        gaps = _row_gaps(
+            [grid[i].id for i in main],
+            [xy[i] for i in main],
+            [positions[i] for i in main],
+            allowed,
+            min_advance,
+            reach,
+        )
+    return result, beyond, gaps
+
+
+def _row_gaps(
+    ids: list[str],
+    xy: list[tuple[float, float]],
+    positions: list[ToePosition],
+    allowed: float,
+    min_advance: float,
+    reach: float,
+) -> dict[str, FloorRowGap]:
+    """Разрыв у подошвы для точек основной сетки (см. `floor_checks`), пакетом.
+
+    Как у ранга ряда (`design/pattern.py::front_row_ranks`): сначала начало
+    коридора у всех, весь коридор — только у тех, кому там соседа не нашлось.
+    """
+    if not ids:
+        return {}
+    points = shapely.points(xy)
+    tree = shapely.STRtree(points)
+    targets = shapely.points([p.toe_point for p in positions])
+    values = np.asarray([p.distance_m for p in positions], dtype=float)
+    eligible = [i for i, p in enumerate(positions) if p.distance_m > 0 and not p.beyond]
+    near = min_advance + 2.0 * reach
+    near_i, near_j = corridor_blocker_pairs(eligible, points, targets, values, tree, min_advance, reach, near)
+    found = set(near_i.tolist())
+    far = [i for i in eligible if i not in found and values[i] > near]
+    far_i, far_j = corridor_blocker_pairs(far, points, targets, values, tree, min_advance, reach)
+    i = np.concatenate([near_i, far_i])
+    j = np.concatenate([near_j, far_j])
+    if i.size == 0:
+        return {}
+    xs, ys = shapely.get_x(points), shapely.get_y(points)
+    tx, ty = shapely.get_x(targets), shapely.get_y(targets)
+    # Продвижение соседа j вдоль коридора i — как в `corridor_blocker_pairs`.
+    advance = ((xs[j] - xs[i]) * (tx[i] - xs[i]) + (ys[j] - ys[i]) * (ty[i] - ys[i])) / values[i]
+    gap = np.full(len(ids), np.inf)
+    np.minimum.at(gap, i, advance)
+    return {
+        ids[k]: FloorRowGap(hole_id=ids[k], value_m=float(gap[k]), allowed_m=allowed, excess=bool(gap[k] > allowed))
+        for k in np.flatnonzero(np.isfinite(gap)).tolist()
+    }
 
 
 def holes_beyond_toe(design: BlastDesign) -> list[str]:

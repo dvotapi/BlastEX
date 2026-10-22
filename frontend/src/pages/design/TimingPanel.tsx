@@ -84,6 +84,7 @@ export function TimingPanel({
             </div>
 
             <ReliefSummary relief={analysis.relief ?? null} />
+            <ReliefNotes analysis={analysis} />
 
             <div className="field-pair">
               <label>Расстояние до объекта, м<input type="number" min="1" step="1" value={ppv.distance_m} onChange={(e) => onPpvChange({ distance_m: Number(e.target.value) })} /></label>
@@ -160,6 +161,23 @@ export function TimingPanel({
 /** Граница темпа: целое без дробной части («3»), иначе одна цифра («2,5»). */
 function boundLabel(value: number): string {
   return Number.isInteger(value) ? ruNumber(value, 0) : ruNumber(value, 1);
+}
+
+/**
+ * Пояснения к границам темпа под сводкой: предупреждения о породе — без
+ * подписи «Нет связи», это не сеть коммутации. Порода не задана и других
+ * пояснений нет — подсказка, откуда взялась нижняя граница.
+ */
+export function ReliefNotes({ analysis }: { analysis: AnalyzeResponse }) {
+  const warnings = analysis.relief_warnings ?? [];
+  const noRock = !analysis.relief_rock_used && warnings.length === 0;
+  if (!analysis.relief?.stats || (!noRock && warnings.length === 0)) return null;
+  return (
+    <div className="relief-notes">
+      {noRock && <small>{`Порода блока не выбрана — нижняя граница темпа ${boundLabel(analysis.relief.stats.min_bound_ms_m)} мс/м.`}</small>}
+      {warnings.map((message) => <small key={message} className="relief-note-warning">{message}</small>)}
+    </div>
+  );
 }
 
 /** Сводка темпа отбойки: медиана, доля вне коридора (главный показатель ровности),

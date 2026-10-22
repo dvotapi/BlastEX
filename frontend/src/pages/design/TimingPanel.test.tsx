@@ -98,3 +98,26 @@ describe("TimingPanel relief summary", () => {
     expect(screen.getByText("нет")).toBeInTheDocument();
   });
 });
+
+describe("TimingPanel: границы темпа по породе", () => {
+  const stats = { triangles: 12, median_ms_m: 15, mean_ms_m: 15, min_ms_m: 2, max_ms_m: 17, cv: 0.2, outside_share: 0.05, robust_spread: 0.07, min_bound_ms_m: 3, max_bound_ms_m: null, fast_share: 0, slow_share: 0, converging_length_m: 0 };
+  const relief = { triangles: [], converging: [], stats };
+
+  it("порода не выбрана — подсказка про нижнюю границу 3 мс/м", () => {
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief, relief_warnings: [], relief_rock_used: false }} />);
+    expect(screen.getByText("Порода блока не выбрана — нижняя граница темпа 3 мс/м.")).toBeInTheDocument();
+  });
+
+  it("порода из справочника — подсказки нет", () => {
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief, relief_warnings: [], relief_rock_used: true }} />);
+    expect(screen.queryByText(/Порода блока не выбрана/)).not.toBeInTheDocument();
+  });
+
+  it("предупреждение о породе — под сводкой темпа, без «Нет связи»", () => {
+    const message = "Порода «Базальт» не найдена в справочнике — для темпа отбойки взята нижняя граница 3 мс/м.";
+    render(<TimingPanel {...props} analysis={{ ...analysis, relief, relief_warnings: [message], relief_rock_used: false }} />);
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(/Нет связи/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Порода блока не выбрана/)).not.toBeInTheDocument();
+  });
+});

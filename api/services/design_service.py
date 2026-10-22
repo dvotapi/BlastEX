@@ -318,30 +318,31 @@ def analyze_design(
         ppv_mm_s = estimate_ppv(mic_data["mic_kg"], request.ppv.distance_m, request.ppv.k, request.ppv.n)
 
     min_ms_m, max_ms_m = RELIEF_MIN_MS_M, None
+    # Предупреждения о границах темпа — свои, не «Нет связи» сети коммутации.
+    relief_warnings: list[str] = []
+    rock_used = False
     # Без имени породы искать нечего — справочник не читаем вовсе.
     if repository is not None and organization_id is not None and design.rock_name.strip():
         try:
             snapshot = repository.get_reference_snapshot(organization_id)
             bounds = relief_bounds_for_rock(snapshot, design.rock_name)
             min_ms_m, max_ms_m = bounds.min_ms_m, bounds.max_ms_m
+            rock_used = bounds.found
             if not bounds.found:
-                timing_warnings = [
-                    *timing_warnings,
+                relief_warnings.append(
                     f"Порода «{design.rock_name.strip()}» не найдена в справочнике — "
-                    f"для темпа отбойки взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м.",
-                ]
+                    f"для темпа отбойки взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м."
+                )
             elif bounds.max_dropped:
-                timing_warnings = [
-                    *timing_warnings,
+                relief_warnings.append(
                     f"Верхняя граница темпа для породы «{design.rock_name.strip()}» "
-                    "не больше нижней — не учитывается.",
-                ]
+                    "не больше нижней — не учитывается."
+                )
         except (EconomicsRepositoryError, SQLAlchemyError):
             # Сбой хранилища не должен ронять анализ: считаем по умолчанию.
-            timing_warnings = [
-                *timing_warnings,
-                f"Диапазон темпа для породы не прочитан — взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м.",
-            ]
+            relief_warnings.append(
+                f"Диапазон темпа для породы не прочитан — взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м."
+            )
     relief = burden_relief(design, times, min_ms_m=min_ms_m, max_ms_m=max_ms_m)
 
     return AnalyzeResponse(
@@ -355,6 +356,8 @@ def analyze_design(
         maps=EngineeringMapsSchema(**engineering_maps(design)),
         firing_events=[event.to_dict() for event in result.events],
         relief=BurdenReliefSchema(**relief.to_dict()) if relief else None,
+        relief_warnings=relief_warnings,
+        relief_rock_used=rock_used,
     )
 
 

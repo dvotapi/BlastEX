@@ -111,6 +111,19 @@ class ReliefBoundsFromRockTests(unittest.TestCase):
         self.assertEqual(stats.fast_share, 1.0)
         self.assertIsNone(stats.max_bound_ms_m)
 
+    def test_rock_used_flag_and_warnings_outside_timing(self):
+        repository = _repository_with_rock(relief_min_ms_m="16")
+        found = _analyze(16.0, rock_name="Гранит", organization_id="org", repository=repository)
+        self.assertTrue(found.relief_rock_used)
+        self.assertEqual(found.relief_warnings, [])
+        empty = _analyze(16.0, rock_name="", organization_id="org", repository=repository)
+        self.assertFalse(empty.relief_rock_used)
+        self.assertEqual(empty.relief_warnings, [])
+        unknown = _analyze(16.0, rock_name="Базальт", organization_id="org", repository=repository)
+        self.assertFalse(unknown.relief_rock_used)
+        # Предупреждения о породе не попадают в «Нет связи» сети коммутации.
+        self.assertFalse(any("Порода" in w for w in unknown.timing_warnings))
+
     def test_analyze_without_repository_uses_default(self):
         stats = _analyze(16.0, rock_name="Гранит").relief.stats
         self.assertEqual(stats.min_bound_ms_m, 3.0)
@@ -136,7 +149,7 @@ class ReliefBoundsFromRockTests(unittest.TestCase):
 
         response = _analyze(16.0, rock_name="Гранит", organization_id="org", repository=Broken())
         self.assertEqual(response.relief.stats.min_bound_ms_m, 3.0)
-        self.assertTrue(any("не прочитан" in w for w in response.timing_warnings))
+        self.assertTrue(any("не прочитан" in w for w in response.relief_warnings))
 
     def test_unknown_rock_gives_default_and_warning(self):
         repository = _repository_with_rock(relief_min_ms_m="16")
@@ -144,14 +157,14 @@ class ReliefBoundsFromRockTests(unittest.TestCase):
         self.assertEqual(response.relief.stats.min_bound_ms_m, 3.0)
         self.assertIn(
             "Порода «Базальт» не найдена в справочнике — для темпа отбойки взята нижняя граница 3 мс/м.",
-            response.timing_warnings,
+            response.relief_warnings,
         )
 
     def test_known_or_empty_rock_gives_no_rock_warning(self):
         repository = _repository_with_rock(relief_min_ms_m="16")
         for name in ("Гранит", ""):
             response = _analyze(16.0, rock_name=name, organization_id="org", repository=repository)
-            self.assertFalse(any("не найдена" in w for w in response.timing_warnings), name)
+            self.assertFalse(any("не найдена" in w for w in response.relief_warnings), name)
 
     def test_contradictory_stored_bounds_drop_upper(self):
         # Запись опубликована без проверки: верхняя 12 не больше нижней 16.
@@ -175,5 +188,5 @@ class ReliefBoundsFromRockTests(unittest.TestCase):
         self.assertEqual(stats.slow_share, 0.0)
         self.assertIn(
             "Верхняя граница темпа для породы «Гранит» не больше нижней — не учитывается.",
-            response.timing_warnings,
+            response.relief_warnings,
         )

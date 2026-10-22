@@ -1151,6 +1151,10 @@ export type AnalyzeResponse = {
   maps?: EngineeringMaps | null;
   firing_events?: FiringEvent[];
   relief?: BurdenRelief | null;
+  /** Предупреждения о границах темпа отбойки (порода не найдена и т. п.). */
+  relief_warnings?: string[];
+  /** Границы темпа взяты из записи породы справочника. */
+  relief_rock_used?: boolean;
 };
 
 export type CostScenarioId = "drill_blast" | "drilling" | "blasting" | "contour_blasting";

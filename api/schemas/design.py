@@ -1210,6 +1210,11 @@ class AnalyzeResponse(BaseModel):
     maps: EngineeringMapsSchema | None = None
     firing_events: list[FiringEventSchema] = Field(default_factory=list)
     relief: BurdenReliefSchema | None = None
+    # Предупреждения о границах темпа отбойки (порода не найдена, границы
+    # противоречат друг другу, справочник не прочитан).
+    relief_warnings: list[str] = Field(default_factory=list)
+    # Границы темпа взяты из записи породы справочника; иначе — умолчание.
+    relief_rock_used: bool = False
 
 
 class DesignCostRequest(BaseModel):

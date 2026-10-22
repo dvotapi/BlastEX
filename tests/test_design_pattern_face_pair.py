@@ -203,3 +203,63 @@ def test_no_pair_when_collar_outside_boundary():
     holes = generate_pattern(CONTOUR, BASE | {"edge_margin_m": 2.5})
     assert _first_row(holes)
     assert _pairs(holes) == []
+
+
+# --- Предел угла по построенной скважине (волна перед финалом) -------------
+
+
+def _floor_rising_to_face(gap_m: float):
+    """Съёмка подошвы в `gap_m` от бровки; подошва (TIN) поднимается к откосу.
+
+    Подошва z = −10,5 + 0,2·(3 − y): у вертикальной (y = 3) H = 10,5, у пары
+    (y = 2) — 10,3, а у наклонной на подошве H тем меньше, чем дальше её низ
+    к откосу. Съёмка — откос, пока H ≥ `gap_m` (`SURVEY_SPOIL_WIDTH_FACTOR` = 1),
+    иначе развал и подошва по углу — ближе к устью.
+    """
+    from design.spatial.surfaces import SurfaceSet, floor_surface
+
+    contour = _contour()
+    contour.cad = {"bottom": [[0.0, -gap_m], [40.0, -gap_m], [40.0, 30.0], [0.0, 30.0]]}
+    points = [
+        Point3(x=x, y=y, z=-10.5 + 0.2 * (3.0 - y))
+        for x in (-10.0, 20.0, 50.0)
+        for y in (-20.0, 5.0, 40.0)
+    ]
+    return contour, SurfaceSet(floor=floor_surface(points))
+
+
+@pytest.mark.parametrize("mode", ["pair", "taper"])
+def test_tilt_cap_holds_across_survey_to_spoil_switch(mode):
+    # Оценка угла по высоте у устья (10,3) пропускает 30°: съёмка, ЛСП ~5,9.
+    # У построенной скважины H у низа < 9,9 — развал, подошва по углу в
+    # 2,5 м от бровки, низ за ней или ближе 0,8·W. Угол должен уменьшиться до прохода проверки.
+    contour, surfaces = _floor_rising_to_face(9.9)
+    params = BASE | {"front_rows_tilt_deg": 30.0}
+    if mode == "taper":
+        params = params | {"front_rows_mode": "taper", "front_rows_tilt_count": 1, "offset_from_face_m": 2.0}
+    holes = generate_pattern(contour, params, [], surfaces)
+    burdens = floor_burdens(_design(holes, params, contour))
+    tilted = [h for h in holes if h.angle_deg > 1e-6 and (mode == "taper" or h.kind == "face_toe")]
+    assert tilted
+    for hole in tilted:
+        burden = burdens[hole.id]
+        assert not burden.beyond_toe
+        assert not burden.short
+        assert burden.value_m >= 0.8 * 3.5 - 1e-6
+
+
+def test_pair_cap_uses_own_collar_on_sloped_roof():
+    # Кровля опускается вглубь блока: у пары (1 м ближе к откосу) H больше,
+    # чем у вертикальной. Предел по H вертикальной дал бы ЛСП чуть меньше 0,8·W.
+    from design.spatial.surfaces import SurfaceSet, top_surface
+
+    roof = [Point3(x=x, y=y, z=2.0 - 0.3 * y) for x in (-10.0, 20.0, 50.0) for y in (-20.0, 5.0, 40.0)]
+    surfaces = SurfaceSet(top=top_surface(roof))
+    holes = generate_pattern(CONTOUR, BASE, [], surfaces)
+    burdens = floor_burdens(_design(holes))
+    pairs = _pairs(holes)
+    assert pairs
+    for pair in pairs:
+        burden = burdens[pair.id]
+        assert not burden.short
+        assert burden.value_m == pytest.approx(0.8 * 3.5, abs=1e-5)

@@ -121,7 +121,23 @@ class FaceAzimuthTests(unittest.TestCase):
         a1 = face_azimuth_deg((5.0, 5.0), contour)
         a2 = face_azimuth_deg((33.0, 14.0), contour)
         self.assertAlmostEqual(a1, 180.0)
-        self.assertNotAlmostEqual(a1, a2)
+        # Перпендикуляр к отрезку (20,0)-(40,10): направление (10,-20).
+        self.assertAlmostEqual(a2, math.degrees(math.atan2(10.0, -20.0)), places=6)
+        self.assertAlmostEqual(a2, 153.4349, places=3)
+
+    def test_point_outside_block_still_points_out(self):
+        self.assertAlmostEqual(face_azimuth_deg((10.0, -3.0), self._rect([[0, 1]])), 180.0)
+
+    def test_point_beyond_segment_end_points_to_vertex(self):
+        # Вогнутый для блока стык (20,0): проекция точки за концами обоих отрезков.
+        contour = self._contour([(0, 0), (20, 0), (40, -10), (40, 30), (0, 30)], [[0, 1, 2]])
+        az = face_azimuth_deg((22.0, 8.0), contour)
+        self.assertAlmostEqual(az, math.degrees(math.atan2(-2.0, -8.0)) % 360.0)
+
+    def test_clockwise_contour(self):
+        contour = self._contour([(0, 0), (0, 22), (40, 22), (40, 0)], [[3, 0]])
+        self.assertAlmostEqual(face_azimuth_deg((10.0, 5.0), contour), 180.0)
+        self.assertAlmostEqual(face_azimuth_deg((10.0, 0.0), contour), 180.0)
 
     def test_point_on_segment_uses_outward_normal(self):
         self.assertAlmostEqual(face_azimuth_deg((10.0, 0.0), self._rect([[0, 1]])), 180.0)

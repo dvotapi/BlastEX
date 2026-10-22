@@ -390,18 +390,8 @@ def point_to_segment_distance(p: Point2, a: Point2, b: Point2) -> float:
 
 def distance_to_free_faces(point_xy: Point2, contour: BlockContour) -> float | None:
     """Минимальное расстояние от точки до ближайшего открытого откоса блока."""
-    verts = contour.points_xy
-    if not verts or not contour.free_faces:
-        return None
-    best: float | None = None
-    for edge in contour.free_faces:
-        for i in range(len(edge) - 1):
-            a = verts[edge[i]]
-            b = verts[edge[i + 1]]
-            dist = point_to_segment_distance(point_xy, a, b)
-            if best is None or dist < best:
-                best = dist
-    return best
+    nearest = _nearest_face_segment(point_xy, contour)
+    return None if nearest is None else nearest[2]
 
 
 def _nearest_face_segment(
@@ -416,6 +406,8 @@ def _nearest_face_segment(
         for i in range(len(edge) - 1):
             a = verts[edge[i]]
             b = verts[edge[i + 1]]
+            if math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-12:
+                continue  # вырожденный отрезок нормали не даёт
             dist = point_to_segment_distance(point_xy, a, b)
             if best is None or dist < best[2]:
                 best = (a, b, dist)
@@ -435,12 +427,13 @@ def face_azimuth_deg(point_xy: Point2, contour: BlockContour) -> float | None:
     a, b, dist = nearest
     dx, dy = b[0] - a[0], b[1] - a[1]
     length = math.hypot(dx, dy)
-    if length < 1e-12:
-        return None
     if dist > 1e-9:
         t = max(0.0, min(1.0, ((point_xy[0] - a[0]) * dx + (point_xy[1] - a[1]) * dy) / (length * length)))
         vx = a[0] + t * dx - point_xy[0]
         vy = a[1] + t * dy - point_xy[1]
+        if not point_in_polygon(point_xy, contour.points_xy):
+            # Точка снаружи блока, со стороны откоса: «наружу» — от отрезка к точке.
+            vx, vy = -vx, -vy
     else:
         # Точка на отрезке: нормаль, которая уходит из полигона блока.
         nx, ny = dy / length, -dx / length

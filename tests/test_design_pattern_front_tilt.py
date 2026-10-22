@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from design.geometry import face_azimuth_deg
+from design.geometry import face_azimuth_deg, local_basis, pattern_origin
 from design.hole_recompute import recompute_hole
 from design.models import FRONT_ROW_BASE, BenchSurface, BlastDesign, BlockContour, Point3, logical_row
 from design.pattern import (
@@ -257,23 +257,30 @@ def test_mode_key():
 SLANT = [(0.0, 0.0), (40.0, 4.0), (40.0, 30.0), (0.0, 30.0)]
 
 
-def _segments(holes, ranks):
-    """Участки ряда: скважины одного ряда решётки с одним рангом, подряд по номеру столбца."""
-    by_row: dict[int, list] = {}
-    for hole, rank in zip(holes, ranks):
-        by_row.setdefault(hole.row, []).append((hole, rank))
-    result = []
-    for items in by_row.values():
-        items.sort(key=lambda item: item[0].col)
-        current = [items[0]]
-        for item in items[1:]:
-            if item[1] == current[-1][1]:
-                current.append(item)
-            else:
-                result.append(current)
-                current = [item]
-        result.append(current)
-    return result
+def _axes(contour, row_azimuth_deg):
+    """Ось ряда и направление продвижения вглубь блока (как у генератора)."""
+    row_dir, advance = local_basis(row_azimuth_deg)
+    return row_dir, pattern_origin(contour, row_dir, advance)[1]
+
+
+def _columns(holes, contour, row_azimuth_deg, tolerance=1.0):
+    """Столбцы сетки по проекции устья на ось ряда; внутри — от откоса по точке на подошве."""
+    row_dir, advance = _axes(contour, row_azimuth_deg)
+    across = lambda h: h.collar.x * row_dir[0] + h.collar.y * row_dir[1]  # noqa: E731
+    depth = lambda h: floor_point(h)[0] * advance[0] + floor_point(h)[1] * advance[1]  # noqa: E731
+    columns: list[list] = []
+    for hole in sorted((h for h in holes if h.kind == "production"), key=across):
+        if columns and across(hole) - across(columns[-1][-1]) <= tolerance:
+            columns[-1].append(hole)
+        else:
+            columns.append([hole])
+    return [sorted(column, key=depth) for column in columns], across, depth
+
+
+def _floor_gaps(holes, contour, row_azimuth_deg):
+    """Расстояния у подошвы между соседями столбца."""
+    columns, _, depth = _columns(holes, contour, row_azimuth_deg)
+    return [depth(b) - depth(a) for column in columns for a, b in zip(column, column[1:])]
 
 
 def test_slanted_crest_one_angle_per_row_segment():
@@ -281,52 +288,98 @@ def test_slanted_crest_one_angle_per_row_segment():
     params = BASE | {"offset_from_face_m": 4.0, "front_rows_tilt_count": 2, "front_rows_tilt_deg": 30}
     plain = [h for h in generate_pattern(contour, params | {"front_rows_tilt_count": 0}) if h.kind == "production"]
     holes = [h for h in generate_pattern(contour, params) if h.kind == "production"]
-    ranks = front_row_ranks([(h.collar.x, h.collar.y) for h in plain], contour, 4.0, 3.5)
-    # Номера и порядок те же: скважины сдвигаются только вдоль столбца.
-    assert [h.id for h in holes] == [h.id for h in plain]
+    first = [h for h in holes if h.row == 0]
+    assert first and all(abs(h.collar.y - 6.0) < 1e-9 for h in first)
+    angles = [h.angle_deg for h in first]
+    # Один угол на участок — наименьший из допустимых: у ближней к откосу
+    # скважины ЛСП ровно цель, у остальных запас разный.
+    assert max(angles) - min(angles) < 1e-6 and 5.0 < angles[0] < 29.0
     target = tilt_floor_burden_target_m(params)
-    design = BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=params)
-    burdens = floor_burdens(design)
-    first_angles = []
-    for segment in _segments(holes, ranks):
-        angles = [h.angle_deg for h, _ in segment]
-        # Один угол на участок ряда.
-        assert max(angles) - min(angles) < 1e-6
-        rank = segment[0][1]
-        if rank == 1:
-            first_angles.append(angles[0])
-            # Наименьший из допустимых: ни у одной ЛСП не меньше цели, у
-            # ближней к откосу — ровно цель; у остальных запас разный.
-            values = [burdens[h.id].value_m for h, _ in segment if h.id in burdens]
-            assert len(values) == len(segment)
-            assert min(values) >= target - 1e-2
-            assert min(values) == pytest.approx(target, abs=1e-2)
-            assert max(values) - min(values) > 3.0
-            assert not any(burdens[h.id].beyond_toe for h, _ in segment)
-        # Устья участка на одной прямой (± 1 мм).
-        pts = [(h.collar.x, h.collar.y) for h, _ in segment]
-        if len(pts) >= 3:
-            (x0, y0), (x1, y1) = pts[0], pts[-1]
-            length = math.hypot(x1 - x0, y1 - y0)
-            for x, y in pts[1:-1]:
-                assert abs((x - x0) * (y1 - y0) - (y - y0) * (x1 - x0)) / length < 1e-3
-    assert first_angles and all(5.0 < angle < 29.0 for angle in first_angles)
-    # Столбцы на одной линии: проекция устьев на ось ряда та же, что у сетки.
-    for tilted, vertical in zip(holes, plain):
-        assert tilted.collar.x == pytest.approx(vertical.collar.x, abs=1e-3)
-        assert tilted.azimuth_deg == pytest.approx(180.0) or tilted.angle_deg == pytest.approx(0.0)
-    # У подошвы: от скважины ранга 2 до скважины ранга 1 впереди в её столбце — b.
-    by_column: dict[float, list] = {}
-    for hole, rank in zip(holes, ranks):
-        by_column.setdefault(round(hole.collar.x, 3), []).append((hole, rank))
-    checked = 0
-    for column in by_column.values():
-        column.sort(key=lambda item: item[0].collar.y)
-        for (front, r1), (back, r2) in zip(column, column[1:]):
-            if r1 == 1 and r2 == 2:
-                assert floor_point(back)[1] - floor_point(front)[1] == pytest.approx(3.5, abs=0.01)
-                checked += 1
-    assert checked
+    burdens = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=params))
+    values = [burdens[h.id].value_m for h in first]
+    assert min(values) == pytest.approx(target, abs=1e-2)
+    assert max(values) - min(values) > 3.0
+    assert not any(burdens[h.id].beyond_toe for h in first)
+    # Ряд 2 — α₁/2, у подошвы — шаг b, столбцы на месте.
+    assert all(h.angle_deg == pytest.approx(angles[0] / 2.0) for h in holes if h.row == 1)
+    assert all(gap == pytest.approx(3.5, abs=0.01) for gap in _floor_gaps(holes, contour, 90.0))
+    assert {round(h.collar.x, 6) for h in holes} == {round(h.collar.x, 6) for h in plain}
+
+
+@pytest.mark.parametrize("count, deg", [(1, 15.0), (2, 15.0), (2, 30.0)])
+def test_stepped_crest_rotated_rows_keep_burden_at_floor(count, deg):
+    # Ряды под 80°: столбцы косые к ступени бровки; у подошвы в каждом
+    # столбце — шаг b, устья столбца — на линии сетки.
+    contour = _contour_of(STEP, STEP_FACE)
+    params = BASE | {"row_azimuth_deg": 80.0, "front_rows_tilt_count": count, "front_rows_tilt_deg": deg}
+    holes = generate_pattern(contour, params)
+    plain = generate_pattern(contour, params | {"front_rows_tilt_count": 0})
+    gaps = _floor_gaps(holes, contour, 80.0)
+    assert gaps and all(gap == pytest.approx(3.5, abs=0.01) for gap in gaps)
+    _, across, _ = _columns(plain, contour, 80.0)
+    lines = sorted(across(h) for h in plain if h.kind == "production")
+    for hole in holes:
+        if hole.kind == "production":
+            assert min(abs(across(hole) - x) for x in lines) < 1e-3
+    assert any(h.angle_deg > 1.0 for h in holes)
+
+
+def test_curved_crest_keeps_burden_at_floor():
+    # Бровка — дуга, откос 70°, два ряда перехода, 30°.
+    arc = [(-20.0, 25.0)] + [
+        (20.0 * math.cos(math.pi * (1 + i / 12)), -20.0 + 20.0 * math.sin(math.pi * (1 + i / 12))) for i in range(13)
+    ] + [(20.0, 25.0)]
+    contour = _contour_of(arc, (tuple(range(1, 14)),), face_angle_deg=70.0)
+    holes = generate_pattern(contour, BASE | {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 30})
+    gaps = _floor_gaps(holes, contour, 90.0)
+    assert gaps and min(gaps) >= 3.5 * 0.97
+    assert any(h.angle_deg > 1.0 for h in holes)
+
+
+def test_staggered_grid_columns_by_parity():
+    params = BASE | {"pattern": "staggered", "front_rows_tilt_count": 2}
+    holes = generate_pattern(CONTOUR, params)
+    plain = generate_pattern(CONTOUR, params | {"front_rows_tilt_count": 0})
+    # Столбец шахматки — через ряд: у подошвы между соседями столбца 2b.
+    gaps = _floor_gaps(holes, CONTOUR, 90.0)
+    assert gaps and all(gap == pytest.approx(7.0, abs=0.01) for gap in gaps)
+    first, second, third = rows(holes)[:3]
+    assert all(h.angle_deg == pytest.approx(15.0) for h in first)
+    # Второй ряд — первый в своих столбцах (сдвинут на полшага).
+    assert all(h.angle_deg == pytest.approx(15.0) for h in second)
+    assert all(h.angle_deg == pytest.approx(7.5) for h in third)
+    assert {round(h.collar.x, 6) for h in holes if h.kind == "production"} == {
+        round(h.collar.x, 6) for h in plain if h.kind == "production"
+    }
+
+
+def test_row_segments_get_their_own_angles():
+    # Ступень бровки, откос 70°: у рядов 1 на левом и правом участке разная
+    # ЛСП — разный угол, но один на участок.
+    contour = _contour_of(STEP, STEP_FACE, face_angle_deg=70.0)
+    holes = generate_pattern(contour, BASE | {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 30})
+    left = [h for h in holes if h.kind == "production" and logical_row(h.row) == logical_row(FRONT_ROW_BASE - 1)]
+    right = [h for h in holes if h.kind == "production" and h.row == 1 and h.collar.x > 22.0]
+    assert left and right
+    for part in (left, right):
+        assert max(h.angle_deg for h in part) - min(h.angle_deg for h in part) < 1e-6
+    assert left[0].angle_deg > 1.0 and right[0].angle_deg > 1.0
+    assert abs(left[0].angle_deg - right[0].angle_deg) > 1.0
+    assert all(gap == pytest.approx(3.5, abs=0.01) for gap in _floor_gaps(holes, contour, 90.0))
+
+
+def test_back_of_block_is_filled_after_shift():
+    # 30°: ряды за наклонным сдвинуты к откосу на 5,77 м — у тыла добавлены
+    # ряды решётки, и полоса без скважин не шире остатка шага сетки.
+    holes = generate_pattern(CONTOUR, BASE | {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 30})
+    production = [h for h in holes if h.kind == "production"]
+    shift = H * math.tan(math.radians(30.0))
+    back = max(h.collar.y for h in production)
+    assert 30.0 - back == pytest.approx((30.0 - 2.0 + shift) % 3.5, abs=1e-6)
+    assert 30.0 - back < 3.5
+    assert all(-1e-6 <= h.collar.x <= 40.0 + 1e-6 and -1e-6 <= h.collar.y <= 30.0 + 1e-6 for h in production)
+    assert len(production) > len([h for h in generate_pattern(CONTOUR, BASE) if h.kind == "production"])
+    assert len({h.id for h in holes}) == len(holes)
 
 
 def test_two_rows_tilted_with_custom_angle_and_clamp():
@@ -444,17 +497,19 @@ def test_boot_crest_tilts_holes_at_each_part_of_face():
         assert hole.angle_deg == pytest.approx(15.0)
         assert hole.azimuth_deg == pytest.approx(90.0)
     assert all(h.angle_deg == pytest.approx(0.0) for h in behind)
-    # Наклонены только скважины ряда 1 у откоса (ранг — по сетке до наклона),
-    # у всех — азимут вдоль линии столбца (ряды по Y, столбцы по X).
-    production = [h for h in holes if h.kind == "production"]
+    # Наклонены только первые от откоса скважины своих столбцов (ряды по Y,
+    # столбцы по X, откос — к востоку), азимут — вдоль столбца; столбцы не
+    # смещаются вдоль ряда.
     plain = [h for h in generate_pattern(contour, PARAMS) if h.kind == "production"]
-    assert [h.id for h in production] == [h.id for h in plain]
-    ranks = front_row_ranks([(h.collar.x, h.collar.y) for h in plain], contour, 5.0, 5.0)
-    for hole, base, rank in zip(production, plain, ranks):
-        assert hole.collar.y == pytest.approx(base.collar.y, abs=1e-9)
+    ys = {round(h.collar.y, 6) for h in plain}
+    for hole in holes:
+        if hole.kind != "production":
+            continue
+        assert round(hole.collar.y, 6) in ys
         if hole.angle_deg > 1.0:
-            assert rank == 1
             assert hole.azimuth_deg == pytest.approx(90.0)
+            ahead = [h for h in plain if abs(h.collar.y - hole.collar.y) < 1e-6 and h.collar.x > hole.collar.x + 0.1]
+            assert not ahead
 
 
 def test_face_following_row_is_rank_one_on_boot():
@@ -511,7 +566,7 @@ def test_variable_and_domain_rows_are_tilted():
         CONTOUR,
         BASE | {
             "pattern": "variable",
-            "row_params": [{"spacing_a_m": 3.0, "burden_b_m": 3.0}, {"spacing_a_m": 4.0}],
+            "row_params": [{"spacing_a_m": 4.0, "burden_b_m": 3.0}, {"spacing_a_m": 4.0, "burden_b_m": 4.0}],
             "front_rows_tilt_count": 1,
         },
     )
@@ -560,7 +615,7 @@ def test_walls_and_stab_keep_their_angles():
     assert any(h.kind == "stab" for h in pick(tilted))
     # Сателлиты идут за своей скважиной (её устье сдвинуто), угол — свой.
     satellites = pick(tilted, ("satellite",))
-    assert satellites and len(satellites) == len(pick(plain, ("satellite",)))
+    assert satellites and len(satellites) >= len(pick(plain, ("satellite",)))
     assert all(h.angle_deg == pytest.approx(3.0) for h in satellites)
 
 

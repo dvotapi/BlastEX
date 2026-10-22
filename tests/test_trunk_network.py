@@ -4,9 +4,10 @@ import math
 import unittest
 from collections import Counter
 from functools import lru_cache
+from itertools import pairwise
 from pathlib import Path
 
-from design.models import BlockContour, Hole, face_pair_partner_id, logical_row
+from design.models import BlockContour, Hole, Point3, face_pair_partner_id, logical_row
 from design.pattern import generate_pattern
 from design.spatial.cad.contour import ready_contour
 from design.spatial.cad.reader import read_cad
@@ -15,13 +16,22 @@ from design.spatial.cad.stitch import StitchedLine, stitch_lines
 from design.spatial.cad.two_contours import bench_levels, two_contours
 from design.timing import build_template_network, resolve_times
 from design.trunk_network import (
+    DOWNHOLE_LATE_WARNING,
+    ELECTRONIC_MODE_IGNORED_WARNING,
+    WALLS_AFTER_GRID_WARNING,
     _is_column_member,
     build_trunk_chains_network,
     pick_downhole_ms,
     plan_trunk_chains,
     row_axis,
 )
-from tests.front_rows_fixtures import BASE, CONTOUR, _contour_of, _rect_contour, vertical_hole
+from tests.front_rows_fixtures import (
+    BASE,
+    CONTOUR,
+    _contour_of,
+    _rect_contour,
+    vertical_hole,
+)
 
 # Прямоугольник 20×16, a = b = 4, бровка снизу: ряд 0 на y = 0, вглубь — по +Y.
 RECT = {
@@ -85,6 +95,11 @@ class RectangularGridTests(unittest.TestCase):
     def test_only_nsi_delays(self):
         plan = plan_trunk_chains(self.holes, trunk_ms=24.0, chain_ms=40.0)
         self.assertEqual({ms for *_, ms in plan.ties}, {25.0, 42.0})
+
+    def test_detcord_snaps_to_relay_steps(self):
+        plan = plan_trunk_chains(self.holes, trunk_ms=17.0, chain_ms=67.0, system="detcord")
+        self.assertEqual({ms for *_, ms in plan.ties}, {20.0, 42.0})
+        self.assertTrue(any("реле ДШ" in w for w in plan.warnings))
 
 
 class SteppedFrontTests(unittest.TestCase):
@@ -170,10 +185,22 @@ class StaggeredTests(unittest.TestCase):
         incoming = Counter(to for _, to, _ in plan.ties)
         self.assertTrue(all(incoming[h.id] == 1 for h in staggered if h.id not in plan.starters))
         by_id = {h.id: h for h in staggered}
-        # Цепочка 42 мс — всегда к скважине предыдущего ряда.
+        # Цепочка 42 мс — всегда от скважины ряда впереди.
         for frm, to, ms in plan.ties:
             if ms == 42.0:
-                self.assertEqual(logical_row(by_id[frm].row) + 1, logical_row(by_id[to].row))
+                self.assertLess(logical_row(by_id[frm].row), logical_row(by_id[to].row))
+
+    def test_staggered_neighbours_in_row_never_fire_together(self):
+        staggered = _rect_holes("staggered")
+        plan = plan_trunk_chains(staggered)
+        rows: dict[int, list[Hole]] = {}
+        for h in staggered:
+            rows.setdefault(logical_row(h.row), []).append(h)
+        for row, items in rows.items():
+            items.sort(key=lambda h: h.collar.x)
+            for a, b in pairwise(items):
+                if _dist(a, b) <= 1.1 * 4.0:
+                    self.assertNotEqual(plan.surface_ms[a.id], plan.surface_ms[b.id], msg=(row, a.id, b.id))
 
 
 class StrayTests(unittest.TestCase):
@@ -196,6 +223,49 @@ class StrayTests(unittest.TestCase):
             self.assertEqual(ms, 42.0)
             self.assertIn(stray.id, plan.surface_ms)
         self.assertEqual(len(plan.starters), 1)
+
+
+class ManualHoleTests(unittest.TestCase):
+    """Ручная скважина (row −1000, как в design/editing.py) — прочая, не член столбца."""
+
+    def setUp(self):
+        self.grid = _rect_holes()
+        self.manual = Hole(
+            id="M-1",
+            row=-1000,
+            col=1,
+            collar=Point3(8.0, 14.0, 0.0),
+            toe=Point3(8.0, 14.0, -11.0),
+            diameter_mm=152.0,
+            kind="production",
+            source="manual",
+        )
+        self.holes = self.grid + [self.manual]
+        self.min_row = min(logical_row(h.row) for h in self.grid)
+
+    def test_manual_hole_is_not_a_column_member(self):
+        self.assertFalse(_is_column_member(self.manual))
+        self.assertEqual(row_axis(self.holes), row_axis(self.grid))
+
+    def test_manual_hole_near_back_edge_keeps_grid_order(self):
+        plan = plan_trunk_chains(self.holes, cut_flank="left")
+        by_id = {h.id: h for h in self.holes}
+        starter = by_id[plan.starters[0]]
+        first_row = [h for h in self.grid if logical_row(h.row) == self.min_row]
+        self.assertEqual(starter.collar.x, min(h.collar.x for h in first_row))
+        # Ручная — от ближайшей привязанной скважины сетки, 42 мс.
+        nearest = min(self.grid, key=lambda h: (_dist(h, self.manual), h.id))
+        self.assertIn((nearest.id, self.manual.id, 42.0), plan.ties)
+        # От ручной никого не цепляют.
+        self.assertFalse([t for f, t, _ in plan.ties if f == self.manual.id])
+        # Сетка — те же времена, что без ручной: столбцы спереди назад.
+        without = plan_trunk_chains(self.grid, cut_flank="left")
+        for h in self.grid:
+            self.assertEqual(plan.surface_ms[h.id], without.surface_ms[h.id], msg=h.id)
+        for h in self.grid:
+            for front in self.grid:
+                if abs(front.collar.x - h.collar.x) < 1e-6 and logical_row(front.row) < logical_row(h.row):
+                    self.assertGreater(plan.surface_ms[h.id], plan.surface_ms[front.id], msg=(front.id, h.id))
 
 
 class DegenerateTests(unittest.TestCase):
@@ -222,7 +292,8 @@ class DownholeAndNetworkTests(unittest.TestCase):
         self.assertEqual(pick_downhole_ms(999.0)[0], 1000.0)
         ms, warnings = pick_downhole_ms(1000.0)
         self.assertEqual(ms, 1000.0)
-        self.assertIn("Фронт инициирования отстаёт", warnings[0])
+        self.assertEqual(warnings, [DOWNHOLE_LATE_WARNING])
+        self.assertIn("не короче 1000 мс", DOWNHOLE_LATE_WARNING)
 
     def test_network_resolves_to_plan_times(self):
         network, _warnings = build_trunk_chains_network(self.holes, {"system": "nonel"})
@@ -235,6 +306,43 @@ class DownholeAndNetworkTests(unittest.TestCase):
     def test_template_entry_point(self):
         network = build_template_network(self.holes, "trunk_chains", {"system": "nonel", "cut_flank": "right"})
         self.assertEqual(network.timing_params["cut_flank"], "right")
+
+    def test_timing_params_store_snapped_steps_and_normalized_flank(self):
+        network, _warnings = build_trunk_chains_network(
+            self.holes, {"system": "nonel", "trunk_ms": 24.0, "chain_ms": 40.0, "cut_flank": "middle"}
+        )
+        self.assertEqual(network.timing_params["trunk_ms"], 25.0)
+        self.assertEqual(network.timing_params["chain_ms"], 42.0)
+        self.assertEqual(network.timing_params["cut_flank"], "left")
+        detcord, _ = build_trunk_chains_network(self.holes, {"system": "detcord", "trunk_ms": 17.0})
+        self.assertEqual(detcord.timing_params["trunk_ms"], 20.0)
+        self.assertEqual({c.delay_ms for c in detcord.connectors}, {20.0, 42.0})
+
+    def test_walls_in_network_warn_they_fire_after_grid(self):
+        _, plain = build_trunk_chains_network(self.holes, {"system": "nonel"})
+        self.assertNotIn(WALLS_AFTER_GRID_WARNING, plain)
+        for kind in ("contour", "presplit", "trim"):
+            wall = vertical_hole("W1", 10.0, -3.0, row=-1, kind=kind)
+            _, warnings = build_trunk_chains_network(
+                self.holes + [wall], {"system": "nonel", "include_contour": True}
+            )
+            self.assertIn(WALLS_AFTER_GRID_WARNING, warnings, msg=kind)
+        # Контур без include_contour в сеть не входит — и предупреждения нет.
+        contour = vertical_hole("W1", 10.0, -3.0, row=-1, kind="contour")
+        _, warnings = build_trunk_chains_network(self.holes + [contour], {"system": "nonel"})
+        self.assertNotIn(WALLS_AFTER_GRID_WARNING, warnings)
+
+    def test_electronic_timing_mode_is_ignored_with_warning(self):
+        network, warnings = build_trunk_chains_network(
+            self.holes, {"system": "electronic", "timing_mode": "direction"}
+        )
+        self.assertIn(ELECTRONIC_MODE_IGNORED_WARNING, warnings)
+        self.assertEqual(network.timing_params["scheme"], "trunk_chains")
+        self.assertEqual({c.delay_ms for c in network.connectors}, {25.0, 42.0})
+        _, no_mode = build_trunk_chains_network(self.holes, {"system": "electronic", "timing_mode": ""})
+        self.assertNotIn(ELECTRONIC_MODE_IGNORED_WARNING, no_mode)
+        _, nonel = build_trunk_chains_network(self.holes, {"system": "nonel", "timing_mode": "direction"})
+        self.assertNotIn(ELECTRONIC_MODE_IGNORED_WARNING, nonel)
 
     def test_non_nonel_system_keeps_default_downhole(self):
         network, warnings = build_trunk_chains_network(self.holes, {"system": "electronic"})

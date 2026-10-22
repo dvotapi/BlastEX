@@ -10,10 +10,15 @@
 идёт от вруба к дальнему флангу, а головы со стороны фланга — от вруба в
 обратном порядке. От каждой головы назад по рядам — цепочка (42 мс).
 
-Член столбца — скважина семейства сетки, кроме стабилизации, сателлитов и
-наклонной у откоса. Пара у откоса (`face_toe`) получает копию входящей связи
-своей вертикальной. Прочие скважины (стенки, стабилизация, сателлиты, ручные
-вне столбцов) привязываются связью цепочки к ближайшей уже привязанной.
+Член столбца — скважина семейства сетки, кроме стабилизации, сателлитов,
+наклонной у откоса и ручных. Пара у откоса (`face_toe`) получает копию входящей
+связи своей вертикальной. Прочие скважины (стенки, стабилизация, сателлиты,
+ручные) привязываются связью цепочки к ближайшей уже привязанной.
+
+На шахматке у скважины два предшественника на равном смещении: сторона
+чередуется по чётности логического ряда (нечётный — левый, чётный — правый),
+а предшественник, уже занятый соседкой по ряду, уступает свободному — иначе
+две соседние скважины ряда срабатывали бы разом.
 
 Модуль не строит `InitiationNetwork`: он отдаёт граф связей и времена
 поверхностной сети от вруба (`TrunkPlan`).
@@ -37,6 +42,8 @@ from design.models import (
 )
 from design.timing import (
     DEFAULT_DOWNHOLE_MS,
+    DETCORD_RELAY_MS_OPTIONS,
+    ELECTRONIC_MODES,
     SURFACE_NSI_MS_OPTIONS,
     SYSTEM_TYPES,
     _connector_kind,
@@ -56,6 +63,22 @@ _CHAIN_OFFSET_FACTOR = 0.75
 # Вруб выбирается среди голов, лежащих не глубже самой передней + 1,5·b:
 # ступень бровки — в пределах, задний ряд расширяющегося контура — нет.
 _CUT_DEPTH_FACTOR = 1.5
+# Стенки: в этой схеме они «прочие» и срабатывают после соседней сетки.
+_WALL_KINDS = frozenset({"contour", "presplit", "trim"})
+# Равенство смещений до предшественника, м (погрешность координат).
+_OFFSET_TIE_M = 1e-6
+
+DOWNHOLE_LATE_WARNING = (
+    "Фронт инициирования отстаёт: поверхностная сеть не короче 1000 мс — возможен подбой."
+)
+WALLS_AFTER_GRID_WARNING = (
+    "Стенки (контур, пресплит) в этой схеме срабатывают после сетки — "
+    "опережающий пресплит постройте отдельно."
+)
+ELECTRONIC_MODE_IGNORED_WARNING = (
+    "Электронный режим тайминга не применяется к схеме „Магистраль + цепочки“: "
+    "времена — по связям."
+)
 
 Vec = tuple[float, float]
 
@@ -68,10 +91,19 @@ class TrunkPlan:
     ties: list[tuple[str, str, float]]
     surface_ms: dict[str, float]
     warnings: list[str] = field(default_factory=list)
+    # Ступени после привязки к номиналам системы.
+    trunk_ms: float = 25.0
+    chain_ms: float = 42.0
 
 
 def _is_column_member(hole: Hole) -> bool:
-    return row_family(hole.kind) == "grid" and hole.kind not in _NON_COLUMN_KINDS
+    # Ручная скважина (row −1000) не член столбца: иначе она стала бы
+    # «самым передним рядом» и перевернула ось и фланг.
+    return (
+        hole.source != "manual"
+        and row_family(hole.kind) == "grid"
+        and hole.kind not in _NON_COLUMN_KINDS
+    )
 
 
 def _xy(holes: list[Hole]) -> np.ndarray:
@@ -145,11 +177,24 @@ def _row_burden(rows: dict[int, list[tuple[float, Hole]]], deep: Vec, fallback: 
     return float(np.median(steps)) if steps else fallback
 
 
-def _nsi_step(value: float, label: str, warnings: list[str]) -> float:
-    snapped = float(_snap(float(value), SURFACE_NSI_MS_OPTIONS))
+def _step_options(system: str) -> tuple[tuple[float, ...], str]:
+    """Номиналы ступеней системы и их название в предупреждении."""
+    if system == "detcord":
+        return DETCORD_RELAY_MS_OPTIONS, "номиналов реле ДШ"
+    return SURFACE_NSI_MS_OPTIONS, "НСИ"
+
+
+def _snap_step(value: float, label: str, system: str, warnings: list[str]) -> float:
+    options, name = _step_options(system)
+    snapped = float(_snap(float(value), options))
     if abs(snapped - float(value)) > 1e-9:
-        warnings.append(f"Замедление {label} {value:g} мс заменено ближайшим из НСИ: {snapped:g} мс.")
+        warnings.append(f"Замедление {label} {value:g} мс заменено ближайшим из {name}: {snapped:g} мс.")
     return snapped
+
+
+def normalize_flank(value: Any) -> str:
+    """Фланг вруба: "right" или "left" (всё прочее — левый)."""
+    return "right" if str(value) == "right" else "left"
 
 
 def plan_trunk_chains(
@@ -158,13 +203,18 @@ def plan_trunk_chains(
     trunk_ms: float = 25.0,
     chain_ms: float = 42.0,
     cut_flank: str = "left",
+    system: str = "nonel",
 ) -> TrunkPlan:
-    """Граф «магистраль + цепочки» по уже отфильтрованным скважинам."""
+    """Граф «магистраль + цепочки» по уже отфильтрованным скважинам.
+
+    Ступени привязываются к номиналам системы: ДШ — к реле ДШ, остальные — к НСИ.
+    """
     warnings: list[str] = []
-    trunk = _nsi_step(trunk_ms, "магистрали", warnings)
-    chain = _nsi_step(chain_ms, "цепочки", warnings)
+    trunk = _snap_step(trunk_ms, "магистрали", system, warnings)
+    chain = _snap_step(chain_ms, "цепочки", system, warnings)
+    cut_flank = normalize_flank(cut_flank)
     if not holes:
-        return TrunkPlan(starters=[], ties=[], surface_ms={}, warnings=warnings)
+        return TrunkPlan(starters=[], ties=[], surface_ms={}, warnings=warnings, trunk_ms=trunk, chain_ms=chain)
 
     by_id = {h.id: h for h in holes}
     (ax, ay), (dx, dy) = row_axis(holes)
@@ -194,18 +244,15 @@ def plan_trunk_chains(
     heads: list[tuple[float, Hole]] = []
     ordered_rows = sorted(rows)
     for index, row in enumerate(ordered_rows):
+        # Шахматка: при равном смещении нечётный ряд берёт левого, чётный —
+        # правого (зигзаг держит столбцы).
+        side = -1.0 if row % 2 else 1.0
+        taken: set[str] = set()  # предшественники, уже взятые соседками по ряду
         for pos, hole in rows[row]:
-            # Предшественник — в ближайшем ряду впереди, где есть скважина в
-            # 0,75·a по оси: выключенная скважина столбца пропускается, и
-            # скважина за ней не становится головой.
-            predecessor = None
-            for back in reversed(ordered_rows[:index]):
-                best = min(rows[back], key=lambda item: (abs(item[0] - pos), item[0], item[1].id))
-                if abs(best[0] - pos) <= limit:
-                    predecessor = best[1]
-                    break
+            predecessor = _chain_predecessor(rows, ordered_rows[:index], pos, limit, side, taken)
             if predecessor is not None:
                 incoming[hole.id] = (predecessor.id, chain)
+                taken.add(predecessor.id)
             else:
                 heads.append((pos, hole))
 
@@ -260,7 +307,46 @@ def plan_trunk_chains(
 
     ties = [(frm, to, ms) for to, (frm, ms) in incoming.items()]
     surface_ms = _times_from_starters(starters, ties)
-    return TrunkPlan(starters=starters, ties=ties, surface_ms=surface_ms, warnings=warnings)
+    return TrunkPlan(
+        starters=starters, ties=ties, surface_ms=surface_ms, warnings=warnings, trunk_ms=trunk, chain_ms=chain
+    )
+
+
+def _chain_predecessor(
+    rows: dict[int, list[tuple[float, Hole]]],
+    rows_ahead: list[int],
+    pos: float,
+    limit: float,
+    side: float,
+    taken: set[str],
+) -> Hole | None:
+    """Предшественник по столбцу — в ближайшем ряду впереди со скважиной в limit по оси.
+
+    Выключенная скважина столбца пропускается: скважина за ней не становится
+    головой. Из кандидатов ряда — с наименьшим смещением, при равенстве — со
+    стороны `side`; занятый соседкой по ряду уступает свободному. Если в ряду все
+    кандидаты заняты, поиск идёт дальше вперёд (край длинного ряда шахматки
+    берёт свой столбец через ряд); свободного нигде нет — ближайший кандидат.
+    """
+    fallback: Hole | None = None
+    for back in reversed(rows_ahead):
+        near = [(abs(p - pos), p, h) for p, h in rows[back] if abs(p - pos) <= limit]
+        if not near:
+            continue
+        least = min(d for d, _, _ in near)
+
+        def order(item: tuple[float, float, Hole], least: float = least) -> tuple[bool, float, bool, str]:
+            offset, p, h = item
+            tied = offset <= least + _OFFSET_TIE_M
+            return (not tied, 0.0 if tied else offset, side * (pos - p) > 0, h.id)
+
+        near.sort(key=order)
+        if fallback is None:
+            fallback = near[0][2]
+        free = next((h for _, _, h in near if h.id not in taken), None)
+        if free is not None:
+            return free
+    return fallback
 
 
 def _times_from_starters(starters: list[str], ties: list[tuple[str, str, float]]) -> dict[str, float]:
@@ -285,9 +371,7 @@ def pick_downhole_ms(max_surface_ms: float) -> tuple[float, list[str]]:
     for choice in DOWNHOLE_CHOICES_MS:
         if choice > max_surface_ms:
             return choice, []
-    return DOWNHOLE_CHOICES_MS[-1], [
-        "Фронт инициирования отстаёт: поверхностная сеть длиннее 1000 мс — возможен подбой."
-    ]
+    return DOWNHOLE_CHOICES_MS[-1], [DOWNHOLE_LATE_WARNING]
 
 
 def build_trunk_chains_network(
@@ -303,9 +387,14 @@ def build_trunk_chains_network(
 
     trunk_ms = float(params.get("trunk_ms", 25.0))
     chain_ms = float(params.get("chain_ms", 42.0))
-    cut_flank = str(params.get("cut_flank", "left"))
-    plan = plan_trunk_chains(eligible, trunk_ms=trunk_ms, chain_ms=chain_ms, cut_flank=cut_flank)
+    cut_flank = normalize_flank(params.get("cut_flank", "left"))
+    plan = plan_trunk_chains(eligible, trunk_ms=trunk_ms, chain_ms=chain_ms, cut_flank=cut_flank, system=system)
     warnings = list(plan.warnings)
+    # Режимы электронного тайминга этой схеме не применяются: времена — по связям.
+    if system == "electronic" and str(params.get("timing_mode", "") or "") in ELECTRONIC_MODES:
+        warnings.append(ELECTRONIC_MODE_IGNORED_WARNING)
+    if any(h.kind in _WALL_KINDS for h in eligible):
+        warnings.append(WALLS_AFTER_GRID_WARNING)
 
     if system == "nonel":
         downhole_ms, extra = pick_downhole_ms(max(plan.surface_ms.values(), default=0.0))
@@ -320,8 +409,8 @@ def build_trunk_chains_network(
         connectors=[Connector(from_hole=a, to_hole=b, delay_ms=ms, kind=kind) for a, b, ms in plan.ties],
         timing_params={
             "scheme": TRUNK_SCHEME,
-            "trunk_ms": trunk_ms,
-            "chain_ms": chain_ms,
+            "trunk_ms": plan.trunk_ms,
+            "chain_ms": plan.chain_ms,
             "cut_flank": cut_flank,
             "downhole_delay_ms": downhole_ms,
         },

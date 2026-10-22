@@ -135,7 +135,17 @@ class TimingApiTests(unittest.TestCase):
             TieGenerateRequest(holes=payload, scheme="trunk_chains", params={"system": "nonel"})
         )
         self.assertIn("Фронт инициирования отстаёт", response.warnings[0])
+        self.assertIn("не короче 1000 мс", response.warnings[0])
         self.assertEqual(response.network.timing_params["downhole_delay_ms"], 1000)
+        electronic = design_service.generate_tie(
+            TieGenerateRequest(
+                holes=payload,
+                scheme="trunk_chains",
+                params={"system": "electronic", "timing_mode": "gradient"},
+            )
+        )
+        self.assertTrue(any("Электронный режим тайминга не применяется" in w for w in electronic.warnings))
+        self.assertEqual(electronic.network.timing_mode, "")
         row = design_service.generate_tie(
             TieGenerateRequest(holes=payload, scheme="row", params={"system": "nonel"})
         )

@@ -578,6 +578,41 @@ TAPER_COLUMN_TOLERANCE_RATIO = 0.1
 TAPER_SEGMENT_GAP_RATIO = 1.5
 
 
+# Плавный переход: устья соседних рангов в столбце не ближе этого, м (как
+# шаг пары у откоса — 1 м) — угол участка ограничивается, иначе вертикальная
+# за наклонной встаёт вплотную или впереди неё и скважины пересекаются в
+# массиве (решение 22.10.2026).
+MIN_COLLAR_ROW_GAP_M = 1.0
+
+
+def taper_tan_limit(tilt_count: int, burden_b: float, height_m: float) -> float:
+    """Наибольший tg α₁, при котором устья соседних рангов в столбце не ближе 1 м.
+
+    Сдвиг между рангами не больше b − `MIN_COLLAR_ROW_GAP_M` (b — шаг рядов
+    решётки, H — высота уступа блока). count = 1: H·tg α₁ ≤ b − 1;
+    count = 2: H·(tg α₁ − tg(α₁/2)) ≤ b − 1 и H·tg(α₁/2) ≤ b − 1 — обе части
+    растут с углом, предел — делением пополам.
+    """
+    if height_m <= 0:
+        return math.inf
+    k = max(0.0, burden_b - MIN_COLLAR_ROW_GAP_M) / height_m
+    if tilt_count < 2:
+        return k
+
+    def fits(alpha: float) -> bool:
+        tan_full, tan_half = math.tan(alpha), math.tan(0.5 * alpha)
+        return tan_full - tan_half <= k + 1e-12 and tan_half <= k + 1e-12
+
+    low, high = 0.0, math.radians(89.0)
+    for _ in range(60):
+        mid = 0.5 * (low + high)
+        if fits(mid):
+            low = mid
+        else:
+            high = mid
+    return math.tan(low)
+
+
 def taper_reach_m(contour: BlockContour, tilt_deg: float) -> float:
     """Наибольший сдвиг устья к откосу при плавном переходе: H·tg α, м."""
     return contour.bench.height_m * math.tan(math.radians(tilt_deg))
@@ -740,6 +775,7 @@ def _taper_front_rows(
         head[i] = i
     face_across = collars[:face_row_count, 0] * -direction[1] + collars[:face_row_count, 1] * direction[0]
     tolerance = TAPER_COLUMN_TOLERANCE_RATIO * spacing_a
+    row_gap: dict[int, float] = {}
     corridor = front_row_ranks([tuple(xy) for xy in collars], contour, spacing_a, burden_b, forced_first=face_row_count)
     for column in _taper_columns(collars, direction, tolerance, face_row_count):
         ordered = [i for i in column if inside[i]] + [i for i in column if not inside[i]]
@@ -760,6 +796,12 @@ def _taper_front_rows(
         for k, i in enumerate(ordered):
             rank[i] = k + (2 if face_row_count else 1)
             head[i] = anchor
+        # Шаг рядов в столбце у устьев (ранги 1→2 и 2→3) — для предела угла.
+        chain = ([anchor] if face_row_count else []) + ordered[: 3 - (1 if face_row_count else 0)]
+        toward = [collars[i, 0] * direction[0] + collars[i, 1] * direction[1] for i in chain]
+        steps = [a - b for a, b in zip(toward, toward[1:])][:tilt_count]
+        if steps:
+            row_gap[anchor] = min(row_gap.get(anchor, math.inf), *steps)
 
     first = [rank[i] == 1 and grid[i].kind in tilt_kinds for i in range(len(grid))]
     picked = [i for i in range(len(grid)) if first[i]]
@@ -769,9 +811,14 @@ def _taper_front_rows(
         caps = _tilt_caps_m(contour, [tuple(collars[i]) for i in picked], heights, direction, tilt_deg, target_m)
         if caps is not None:
             tan_of = {i: (cap / height if height > 0 else 0.0) for i, cap, height in zip(picked, caps, heights)}
-            # Угол участка — наименьший из допустимых по его скважинам.
+            # Угол участка — наименьший из допустимых по его скважинам и не
+            # больше предела по зазору устьев между рангами.
+            # Шаг b — наименьший шаг рядов у устьев в столбцах участка (у
+            # variable он свой у ряда), без соседей в столбце — шаг паспорта.
             for segment in _row_segments(grid, collars, direction, first, spacing_a):
-                value = min(tan_of[i] for i in segment)
+                step_b = min((row_gap[i] for i in segment if i in row_gap), default=burden_b)
+                limit = taper_tan_limit(tilt_count, step_b, contour.bench.height_m)
+                value = min(min(tan_of[i] for i in segment), limit)
                 for i in segment:
                     tan_first[i] = value
 

@@ -16,39 +16,20 @@ from design.pattern import (
     tilt_floor_burden_target_m,
 )
 from design.toe_line import FLOOR_BURDEN_MIN_RATIO, floor_burdens, floor_point
+from tests.front_rows_fixtures import (
+    BASE,
+    CONTOUR,
+    FACE_ANGLE_DEG,
+    SLANT,
+    STEP,
+    STEP_FACE,
+    _arc_contour,
+    _contour_of,
+    _poly_contour,
+    _rect_contour,
+)
 
 
-# Откос 55° от горизонтали: подошва в 10·tan 35° = 7,0 м от бровки — запас,
-# при котором наклон до 30° не упирается в ограничение по ЛСП (0,8·W = 2,8 м;
-# оно проверяется отдельно).
-FACE_ANGLE_DEG = 55.0
-
-
-def _rect_contour(width: float, height: float, free_faces=((0, 1),), face_angle_deg=FACE_ANGLE_DEG) -> BlockContour:
-    """Прямоугольник как в tests/test_design_pattern.py; откос — нижнее ребро y = 0."""
-    verts = [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
-    return _contour_of(verts, free_faces, face_angle_deg)
-
-
-def _contour_of(verts, free_faces, face_angle_deg=FACE_ANGLE_DEG) -> BlockContour:
-    return BlockContour(
-        vertices=[Point3(x=x, y=y, z=0.0) for x, y in verts],
-        free_faces=[list(edge) for edge in free_faces],
-        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0, face_angle_deg=face_angle_deg),
-    )
-
-
-CONTOUR = _rect_contour(40.0, 30.0)
-# Ряды вдоль бровки (по +X), a = 4, b = 3,5, первый ряд в 2 м от откоса.
-BASE = {
-    "pattern": "rectangular",
-    "spacing_a_m": 4.0,
-    "burden_b_m": 3.5,
-    "row_azimuth_deg": 90.0,
-    "offset_from_face_m": 2.0,
-    "edge_margin_m": 0.0,
-    "subdrill_m": 1.0,
-}
 GRID_KINDS = ("production",)
 
 
@@ -259,12 +240,6 @@ def test_mode_key():
     assert holes_signature(unknown) == REFERENCE_SIGNATURE
 
 
-# Бровка под углом к рядам: откос — ребро (0, 0) → (40, 4), 75° (подошва в
-# 2,68 м от бровки), ряды вдоль X. ЛСП вертикальных первого ряда — от 6,8 до
-# 4,7 м: ограничение угла (α = 30°, цель 2,8 м) у каждой скважины своё.
-SLANT = [(0.0, 0.0), (40.0, 4.0), (40.0, 30.0), (0.0, 30.0)]
-
-
 def _axes(contour, row_azimuth_deg):
     """Ось ряда и направление продвижения вглубь блока (как у генератора)."""
     row_dir, advance = local_basis(row_azimuth_deg)
@@ -391,17 +366,6 @@ def test_steep_single_row_keeps_one_metre_between_collars():
         assert floor_point(b)[1] - floor_point(a)[1] == pytest.approx(3.5, abs=0.01)
 
 
-def _poly_contour(face_angle_deg):
-    return _contour_of([(0, 0), (30, -5), (60, 3), (70, 40), (10, 50)], ((0, 1, 2),), face_angle_deg)
-
-
-def _arc_contour(face_angle_deg):
-    arc = [(-20.0, 25.0)] + [
-        (20.0 * math.cos(math.pi * (1 + i / 12)), -20.0 + 20.0 * math.sin(math.pi * (1 + i / 12))) for i in range(13)
-    ] + [(20.0, 25.0)]
-    return _contour_of(arc, (tuple(range(1, 14)),), face_angle_deg)
-
-
 @pytest.mark.parametrize("shape", [_arc_contour, _poly_contour])
 @pytest.mark.parametrize("face_angle", [45.0, 70.0])
 @pytest.mark.parametrize("count", [1, 2])
@@ -487,11 +451,6 @@ def test_face_following_row_is_row_one():
     assert all(h.angle_deg == pytest.approx(15.0) for h in grid[0])
     assert all(h.angle_deg == pytest.approx(7.5) for h in grid[1])
     assert all(h.angle_deg == pytest.approx(0.0) for h in grid[2])
-
-
-# Ступенчатая бровка: слева откос на y = 0, справа отступает к y = 8.
-STEP = [(0.0, 0.0), (20.0, 0.0), (20.0, 8.0), (40.0, 8.0), (40.0, 30.0), (0.0, 30.0)]
-STEP_FACE = ((0, 1, 2, 3),)
 
 
 def _by_row(holes):
@@ -593,8 +552,12 @@ def test_bent_face_tilts_along_columns():
     assert {
         face_azimuth_deg((h.collar.x, h.collar.y), contour) for h in first
     } != {180.0}
-    for tilted, vertical in zip(holes, plain):
-        assert tilted.id == vertical.id
+    # Столбец на западной бровке (x = 0) — ближе 1 м к кромке: при заданной
+    # схеме первого ряда генератор его не ставит; остальные столбцы — на своих x.
+    assert not any(h.collar.x < 1.0 for h in holes)
+    far = [h for h in plain if h.collar.x >= 1.0]
+    assert len(holes) == len(far)
+    for tilted, vertical in zip(holes, far):
         assert tilted.collar.x == pytest.approx(vertical.collar.x, abs=1e-9)
 
 

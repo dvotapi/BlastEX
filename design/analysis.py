@@ -15,7 +15,7 @@ from design.geometry import block_volume, collar_on_roof, ensure_ccw, floor_elev
 from design.hole_recompute import SHORT_BENCH_M
 from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind, row_family
 from design.timing import resolve_network
-from design.toe_line import crest_geometry, floor_checks, min_crest_offset_m
+from design.toe_line import crest_geometry, crest_offset_checked, floor_checks, min_crest_offset_m
 
 Point2 = tuple[float, float]
 
@@ -349,17 +349,19 @@ def validate(
                 {
                     "code": "floor_row_gap_excess",
                     "hole_id": hole_id,
-                    "message": f"Между рядами у подошвы {value} м — больше допустимого {limit} м (b + 3%).",
+                    "message": f"Между рядами у подошвы {value} м — больше допустимого {limit} м ({gap.step} + 3%).",
                 }
             )
 
-    # Устье скважины сетки ближе минимального отступа к кромке (верхней бровке).
-    crest = crest_geometry(design.contour)
+    # Устье скважины сетки ближе минимального отступа к кромке (верхней бровке) —
+    # только когда отступ или схема первого ряда заданы: старые черновики без
+    # этих ключей предупреждениями не засыпаются.
+    crest = crest_geometry(design.contour) if crest_offset_checked(pattern_params) else None
     grid = [h for h in enabled if row_family(h.kind) == "grid"]
     if crest is not None and grid:
         min_offset = min_crest_offset_m(pattern_params)
         crest_d = shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in grid]), crest)
-        label = f"{min_offset:.1f}".replace(".", ",")
+        label = f"{min_offset:.2f}".rstrip("0").rstrip(".").replace(".", ",")
         for h, distance in zip(grid, crest_d):
             if distance < min_offset - 1e-6:
                 warnings.append(

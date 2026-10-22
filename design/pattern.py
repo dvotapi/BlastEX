@@ -39,6 +39,7 @@ from design.toe_line import (
     hole_bench_height_m,
     min_crest_offset_m,
     min_floor_burden_m,
+    row_steps_m,
     shadow_limits,
     toe_positions,
 )
@@ -363,6 +364,11 @@ def generate_pattern(
     lattice_xy: dict[int, tuple[float, float]] = {}
     pair_of: dict[int, int] = {}  # id() пары → id() её вертикальной
     if mode == FRONT_ROWS_MODE_PAIR:
+        # Устья основной сетки не ближе `min_crest_offset_m` к кромке — до
+        # постановки пар (у пары свой отступ проверяется при постановке).
+        face_row = holes[:face_row_count]
+        holes = _off_crest(holes, contour, min_crest_offset_m(params), {"production", default_kind})
+        face_row_count = len(_off_crest(face_row, contour, min_crest_offset_m(params), {"production", default_kind}))
         for partner, pair in _face_pairs(
             holes,
             face_row_count,
@@ -399,6 +405,10 @@ def generate_pattern(
             surfaces,
             depth_override,
         )
+    if mode is not None and mode != FRONT_ROWS_MODE_PAIR:
+        # Схема первого ряда задана: устья основной сетки не ближе
+        # `min_crest_offset_m` к кромке — после сдвига плавного перехода.
+        holes = _off_crest(holes, contour, min_crest_offset_m(params), {"production", default_kind})
 
     holes.extend(
         _generate_wall_row(
@@ -450,6 +460,19 @@ def generate_pattern(
         positions=[lattice_xy.get(id(h)) for h in numbered] if lattice_xy else None,
         partners=[index_of.get(pair_of[id(h)]) if id(h) in pair_of else None for h in numbered],
     )
+
+
+def _off_crest(holes: list[Hole], contour: BlockContour, min_offset: float, kinds: set[str]) -> list[Hole]:
+    """Скважины без устьев основной сетки (`kinds`) ближе `min_offset` к кромке."""
+    crest = crest_geometry(contour)
+    if crest is None or min_offset <= 0 or not holes:
+        return holes
+    distances = shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in holes]), crest)
+    return [
+        h
+        for h, d in zip(holes, distances)
+        if h.kind not in kinds or d >= min_offset - 1e-9
+    ]
 
 
 def _normalize_kind(value: Any, default: str) -> str:
@@ -1062,14 +1085,10 @@ def _row_config(
             override = row_params[row_index]
         elif isinstance(row_params[-1], dict):
             override = row_params[-1]
-    local_a = float(override.get("spacing_a_m", spacing_a))
-    local_b = float(override.get("burden_b_m", burden_b))
+    # Шаги ряда — одно правило с проверкой разрыва у подошвы (`toe_line.row_steps_m`).
+    local_a, local_b = row_steps_m(params, pattern, row_index, spacing_a, burden_b)
     shift_ratio = float(override.get("shift_ratio", row_shift_ratio))
     kind = _normalize_kind(override.get("kind", default_kind), default_kind)
-    if local_a <= 0:
-        local_a = spacing_a
-    if local_b <= 0:
-        local_b = burden_b
     return local_a, local_b, shift_ratio, kind
 
 

@@ -25,7 +25,7 @@ import shapely
 from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import nearest_points
 
-from design.geometry import drawing_bottom
+from design.geometry import drawing_bottom, local_basis
 from design.models import FACE_TOE_KIND, BenchSurface, BlastDesign, BlockContour, Hole, face_pair_partner_id, logical_row, row_family
 
 # Вершина кольца нижней бровки ближе этого к вершине верхнего контура — общая с ним, м.
@@ -34,9 +34,6 @@ SHARED_VERTEX_TOLERANCE_M = 0.01
 # Положе этого угла откоса (от горизонтали) смещение подошвы не считается: при
 # угле у нуля проекция откоса уходит в сотни метров.
 MIN_FACE_ANGLE_DEG = 30.0
-
-# Шаг сетки по ряду, когда в параметрах нет ни a, ни W, м.
-DEFAULT_CORRIDOR_STEP_M = 4.0
 
 # Сосед закрывает скважину от откоса, если продвинут к подошве вдоль её коридора
 # хотя бы на эту долю min(a, b) и отступает вбок не дальше этой доли max(a, b).
@@ -222,9 +219,10 @@ class FloorRowGap:
     """Разрыв у подошвы между скважиной и рядом впереди неё (к откосу)."""
 
     hole_id: str
-    value_m: float  # продвижение до ближайшей скважины впереди в коридоре, на уровне подошвы
-    allowed_m: float  # b + 3%
-    excess: bool  # больше b + 3%
+    value_m: float  # продвижение соседа впереди вдоль коридора, на уровне подошвы
+    allowed_m: float  # шаг + 3 %
+    excess: bool  # все соседи впереди дальше своего допуска
+    step: str = "b"  # с каким шагом сравнивалось: "a" (по ряду) или "b" (между рядами)
 
 
 @dataclass(frozen=True)
@@ -263,21 +261,40 @@ def _is_square(params: dict) -> bool:
     return str(params.get("pattern", "square")) not in _OWN_BURDEN_PATTERNS
 
 
-def design_burden_m(pattern_params: dict | None) -> float | None:
-    """Проектная W: `burden_b_m`; у квадратной сетки — шаг a (b = a); None — не задана."""
-    params = pattern_params or {}
-    if _is_square(params):
-        w = params.get("spacing_a_m")
-        if w in (None, "") and params.get("burden_b_m") not in (None, ""):
-            # Шаг не задан, а W введена: генератор строит квадратную сетку с a по умолчанию.
-            w = DEFAULT_SQUARE_SPACING_M
-    else:
-        w = params.get("burden_b_m")
+def _positive(params: dict, key: str) -> float | None:
+    """Положительное конечное число из `params[key]`; иначе None."""
     try:
-        w = float(w)
+        value = float(params.get(key))
     except (TypeError, ValueError):
         return None
-    return w if math.isfinite(w) and w > 0 else None
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def grid_steps_m(pattern_params: dict | None) -> tuple[float, float]:
+    """Шаги сетки (a, b) так же, как их берёт `generate_pattern`.
+
+    a — `spacing_a_m`, без него `DEFAULT_SQUARE_SPACING_M`; b — у квадратной
+    сетки a, у остальных `burden_b_m`, без него a. Одна функция для W
+    (`design_burden_m`), коридора «закрыт соседом» (`shadow_limits`) и
+    допусков разрыва у подошвы.
+    """
+    params = pattern_params or {}
+    a = _positive(params, "spacing_a_m") or DEFAULT_SQUARE_SPACING_M
+    b = a if _is_square(params) else _positive(params, "burden_b_m") or a
+    return a, b
+
+
+def design_burden_m(pattern_params: dict | None) -> float | None:
+    """Проектная W — шаг b (`grid_steps_m`); None — не задана.
+
+    Задана: у квадратной сетки — введён `spacing_a_m` или `burden_b_m` (без
+    шага генератор строит сетку с a по умолчанию), у остальных — `burden_b_m`.
+    """
+    params = pattern_params or {}
+    keys = ("spacing_a_m", "burden_b_m") if _is_square(params) else ("burden_b_m",)
+    if not any(_positive(params, key) for key in keys):
+        return None
+    return grid_steps_m(params)[1]
 
 
 def allowed_floor_burden_m(pattern_params: dict | None) -> float | None:
@@ -303,21 +320,16 @@ def min_crest_offset_m(pattern_params: dict | None) -> float:
     return max(0.0, value) if math.isfinite(value) else MIN_CREST_OFFSET_DEFAULT_M
 
 
-def _grid_steps_m(pattern_params: dict | None) -> tuple[float, float]:
-    """Шаги сетки (a, b): a — `spacing_a_m`, без него W, без обоих
-    `DEFAULT_CORRIDOR_STEP_M`; b — `burden_b_m`, без него (и у квадратной сетки) a."""
+# Ключи, с которыми проверяется отступ устья от кромки (`crest_offset_checked`).
+CREST_OFFSET_KEYS = ("min_crest_offset_m", "front_rows_mode", "front_rows_tilt_count", "front_rows_tilt_deg")
+
+
+def crest_offset_checked(pattern_params: dict | None) -> bool:
+    """Проверять ли отступ устья от кромки: задан `min_crest_offset_m` или ключ
+    схемы первого ряда (решение 22.10.2026 — старые паспорта без ключей не
+    засыпаются предупреждениями)."""
     params = pattern_params or {}
-
-    def step(key: str) -> float:
-        try:
-            value = float(params.get(key) or 0.0)
-        except (TypeError, ValueError):
-            return 0.0
-        return value if value > 0 else 0.0
-
-    a = step("spacing_a_m") or step("burden_b_m") or DEFAULT_CORRIDOR_STEP_M
-    b = a if _is_square(params) and step("spacing_a_m") else step("burden_b_m") or a
-    return a, b
+    return any(params.get(key) not in (None, "") for key in CREST_OFFSET_KEYS)
 
 
 def shadow_limits(a: float, b: float) -> tuple[float, float]:
@@ -553,7 +565,7 @@ def floor_checks(
     beyond = [hole.id for hole, position in zip(grid, positions) if position.beyond]
     allowed = allowed_floor_burden_m(design.pattern_params)
     minimum = min_floor_burden_m(design.pattern_params)
-    a, b = _grid_steps_m(design.pattern_params)
+    a, b = grid_steps_m(design.pattern_params)
     min_advance, reach = shadow_limits(a, b)
     points = shapely.points(xy)
     tree = shapely.STRtree(points)
@@ -591,27 +603,83 @@ def floor_checks(
     gaps: dict[str, FloorRowGap] = {}
     if with_gaps and allowed is not None:
         main_kinds = measured - {FACE_TOE_KIND}
-        main = [i for i, hole in enumerate(grid) if hole.kind in main_kinds]
-        gaps = _row_gaps(
-            [grid[i].id for i in main],
-            [xy[i] for i in main],
-            [positions[i] for i in main],
-            [logical_row(grid[i].row) for i in main],
-            a * (1.0 + TOE_BURDEN_TOLERANCE),
-            allowed,
-            min_advance,
-            reach,
-        )
+        main = [grid[i] for i in range(len(grid)) if grid[i].kind in main_kinds]
+        index = [i for i in range(len(grid)) if grid[i].kind in main_kinds]
+        steps = _hole_steps(design, main, b)
+        if steps is not None:
+            gaps = _row_gaps(
+                [hole.id for hole in main],
+                [xy[i] for i in index],
+                [(hole.collar.x, hole.collar.y) for hole in main],
+                [positions[i] for i in index],
+                steps,
+                _row_azimuth_deg(design.pattern_params),
+                min_advance,
+                reach,
+            )
     return result, beyond, gaps
+
+
+def row_steps_m(params: dict, pattern: str, row_index: int, a: float, b: float) -> tuple[float, float]:
+    """Шаги (a, b) ряда решётки `row_index` переменной сетки: строка `row_params`
+    (за последней — последняя), неверные значения — общие шаги. Одно правило
+    с генератором (`design/pattern.py::_row_config`); b ряда — шаг до следующего.
+    """
+    row_params = params.get("row_params") or []
+    override: dict = {}
+    if pattern == "variable" and isinstance(row_params, list) and row_params:
+        if 0 <= row_index < len(row_params) and isinstance(row_params[row_index], dict):
+            override = row_params[row_index]
+        elif isinstance(row_params[-1], dict):
+            override = row_params[-1]
+    return _positive(override, "spacing_a_m") or a, _positive(override, "burden_b_m") or b
+
+
+def _hole_steps(design: BlastDesign, holes: list[Hole], b: float):
+    """Ряд решётки и шаг b (до следующего ряда) у каждой скважины основной сетки.
+
+    Переменная сетка — шаг ряда (`row_steps_m`, ряды впереди первого — строка
+    0); сетка по доменам — b домена у устья (как у генератора: только
+    заданный доменом); без доменов у такой сетки шаг неизвестен — None,
+    разрыв не проверяется.
+    """
+    params = design.pattern_params or {}
+    pattern = str(params.get("pattern", "square"))
+    rows = np.asarray([logical_row(h.row) for h in holes], dtype=np.int64)
+    steps_b = np.full(len(holes), b)
+    if pattern == "variable":
+        for k, row in enumerate(rows.tolist()):
+            steps_b[k] = row_steps_m(params, pattern, max(row, 0), b, b)[1]
+    elif pattern == "domain_dependent":
+        if not design.domains:
+            return None
+        from design.geology import domain_at
+        from design.models import Point3
+
+        crest_z = design.contour.bench.crest_z_m
+        for k, hole in enumerate(holes):
+            domain = domain_at(design.domains, Point3(x=hole.collar.x, y=hole.collar.y, z=crest_z))
+            if domain is not None and domain.burden_b_m:
+                steps_b[k] = domain.burden_b_m
+    return rows, steps_b
+
+
+def _row_azimuth_deg(pattern_params: dict | None) -> float:
+    """Азимут рядов сетки (`row_azimuth_deg`, как у генератора; без него 0°)."""
+    try:
+        value = float((pattern_params or {}).get("row_azimuth_deg") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return value if math.isfinite(value) else 0.0
 
 
 def _row_gaps(
     ids: list[str],
     xy: list[tuple[float, float]],
+    collars_xy: list[tuple[float, float]],
     positions: list[ToePosition],
-    rows: list[int],
-    allowed_same_row: float,
-    allowed: float,
+    steps,
+    row_azimuth_deg: float,
     min_advance: float,
     reach: float,
 ) -> dict[str, FloorRowGap]:
@@ -620,14 +688,23 @@ def _row_gaps(
     Как у ранга ряда (`design/pattern.py::front_row_ranks`): сначала начало
     коридора у всех, весь коридор — только у тех, кому там соседа не нашлось.
 
-    Шаг сравнения зависит от ряда соседа (`rows` — `logical_row`): если в
-    коридоре есть сосед своего ряда решётки (ряды поперёк бровки или
-    фланговая грань), разрыв — продвижение ближайшего из них, допуск
-    `allowed_same_row` (a + 3 %); иначе — ближайшего соседа другого ряда,
-    допуск `allowed` (b + 3 %).
+    Для каждой пары «сосед j впереди i в коридоре к подошве» допуск — её
+    продвижение в правильной решётке, плюс 3 %: вектор решётки от i к j
+    вдоль ряда берётся по устьям (наклон и сдвиг плавного перехода идут
+    вдоль столбца и его не меняют), поперёк ряда — шаг b (`steps`: b ряда,
+    что ближе к началу решётки; у соседа своего ряда — 0), и проецируется на
+    направление коридора. Так сосед своего ряда сравнивается с a (ряды
+    поперёк бровки, фланговая грань), сосед другого ряда прямо впереди — с
+    b, наискосок — с проекцией решётки (косые ряды, дуга), а сдвинутая к
+    тылу у подошвы скважина даёт продвижение больше допуска. Пары, где в
+    решётке j не впереди i (продвижение решётки меньше порога «впереди»), не
+    считаются. Разрыв — если каждый сосед впереди дальше своего допуска
+    (наименьшее отношение продвижения к допуску больше 1); в ответе — пара с
+    наименьшим отношением, при равенстве — своего ряда.
     """
     if not ids:
         return {}
+    rows, steps_b = steps
     points = shapely.points(xy)
     tree = shapely.STRtree(points)
     targets = shapely.points([p.toe_point for p in positions])
@@ -644,24 +721,41 @@ def _row_gaps(
         return {}
     xs, ys = shapely.get_x(points), shapely.get_y(points)
     tx, ty = shapely.get_x(targets), shapely.get_y(targets)
-    # Продвижение соседа j вдоль коридора i — как в `corridor_blocker_pairs`.
-    advance = ((xs[j] - xs[i]) * (tx[i] - xs[i]) + (ys[j] - ys[i]) * (ty[i] - ys[i])) / values[i]
-    row = np.asarray(rows, dtype=np.int64)
-    same = row[i] == row[j]
-    gap_same = np.full(len(ids), np.inf)
-    gap_other = np.full(len(ids), np.inf)
-    np.minimum.at(gap_same, i[same], advance[same])
-    np.minimum.at(gap_other, i[~same], advance[~same])
-    result: dict[str, FloorRowGap] = {}
-    for k in range(len(ids)):
-        if math.isfinite(gap_same[k]):
-            value, limit = float(gap_same[k]), allowed_same_row
-        elif math.isfinite(gap_other[k]):
-            value, limit = float(gap_other[k]), allowed
-        else:
-            continue
-        result[ids[k]] = FloorRowGap(hole_id=ids[k], value_m=value, allowed_m=limit, excess=value > limit)
-    return result
+    # Направление коридора i и продвижение соседа j — как в `corridor_blocker_pairs`.
+    dx, dy = (tx[i] - xs[i]) / values[i], (ty[i] - ys[i]) / values[i]
+    advance = (xs[j] - xs[i]) * dx + (ys[j] - ys[i]) * dy
+    # Вектор решётки i → j: вдоль ряда — по устьям, поперёк — ±b (свой ряд — 0).
+    (rx, ry), (ax, ay) = local_basis(row_azimuth_deg)
+    collars = np.asarray(collars_xy, dtype=float)
+    cx, cy = collars[j, 0] - collars[i, 0], collars[j, 1] - collars[i, 1]
+    along = cx * rx + cy * ry
+    across = cx * ax + cy * ay
+    same = rows[i] == rows[j]
+    step_b = np.where(rows[i] < rows[j], steps_b[i], steps_b[j])
+    lattice_across = np.where(same, 0.0, np.sign(across) * step_b)
+    expected = along * (rx * dx + ry * dy) + lattice_across * (ax * dx + ay * dy)
+    # Пара считается, только если и в решётке j впереди i (иначе это сосед
+    # сбоку, ушедший вперёд наклоном, а не ряд впереди).
+    ahead = expected >= min_advance
+    i, j, same, advance, expected = i[ahead], j[ahead], same[ahead], advance[ahead], expected[ahead]
+    if i.size == 0:
+        return {}
+    allowed = expected * (1.0 + TOE_BURDEN_TOLERANCE)
+    ratio = advance / allowed
+    # При равных отношениях в ответ — сосед своего ряда (сравнение с a).
+    order = np.lexsort((~same, np.round(ratio, 9), i))
+    first = order[np.r_[True, i[order][1:] != i[order][:-1]]]
+    return {
+        ids[k]: FloorRowGap(
+            hole_id=ids[k],
+            value_m=float(advance[p]),
+            allowed_m=float(allowed[p]),
+            excess=bool(ratio[p] > 1.0 + 1e-9),
+            step="a" if same[p] else "b",
+        )
+        for p in first.tolist()
+        for k in (int(i[p]),)
+    }
 
 
 def holes_beyond_toe(design: BlastDesign) -> list[str]:
@@ -732,7 +826,7 @@ def spoil_angle_toe_lines(design: BlastDesign, burdens: dict[str, FloorBurden]) 
     free = _free_polylines(contour)
     angle = spoil_face_angle_deg(contour.bench)
     block_h = contour.bench.height_m
-    a, _ = _grid_steps_m(design.pattern_params)
+    a, _ = grid_steps_m(design.pattern_params)
     # Линия по углу для каждой встретившейся высоты: смещение одно на высоту.
     by_offset: dict[float, MultiLineString | None] = {}
     result: list[Polyline] = []

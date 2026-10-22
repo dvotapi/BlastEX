@@ -8,6 +8,17 @@ from shapely.geometry import LineString
 from shapely.geometry import Point as ShapelyPoint
 
 from design.models import BenchSurface, BlastDesign, BlockContour, Hole, Point3
+from tests.front_rows_fixtures import (
+    ACROSS_PATTERN,
+    GAP_PATTERN,
+    PATTERN,
+    design_with,
+    grid_rows,
+    inclined_hole,
+    rect_contour,
+    rows_across_face,
+    vertical_hole,
+)
 from design.maps import engineering_maps
 from design.toe_line import (
     allowed_floor_burden_m,
@@ -19,18 +30,6 @@ from design.toe_line import (
     toe_line,
     toe_positions,
 )
-
-PATTERN = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.7}
-
-
-def rect_contour(cad=None, free_faces=None) -> BlockContour:
-    return BlockContour(
-        vertices=[Point3(0, 0, 0), Point3(40, 0, 0), Point3(40, 22, 0), Point3(0, 22, 0)],
-        free_faces=[[0, 1]] if free_faces is None else free_faces,
-        bench=BenchSurface(crest_z_m=0, toe_z_m=-10, face_angle_deg=75),
-        cad=cad,
-    )
-
 
 def test_offset_for_15_degrees_from_vertical():
     bench = BenchSurface(crest_z_m=0, toe_z_m=-10, face_angle_deg=75)
@@ -71,35 +70,6 @@ def test_survey_without_own_edges_falls_back_to_built():
 
 def test_no_free_faces_gives_none():
     assert toe_line(rect_contour(free_faces=[])) is None
-
-
-def vertical_hole(hole_id, x, y, row, subdrill=1.0, kind="production", enabled=True, bench_h=10.0) -> Hole:
-    return Hole(
-        id=hole_id, row=row, col=0, collar=Point3(x, y, 0.0),
-        toe=Point3(x, y, -(bench_h + subdrill)), diameter_mm=215.0,
-        subdrill_m=subdrill, kind=kind, enabled=enabled,
-    )
-
-
-def inclined_hole(hole_id, x, y, row, angle_deg, azimuth_deg, bench_h=10.0, subdrill=1.0) -> Hole:
-    # Перебор откладывается вдоль оси: до подошвы (глубина H) ось идёт H / cos α,
-    # забой — ещё на subdrill дальше по оси.
-    a = math.radians(angle_deg)
-    az = math.radians(azimuth_deg)
-    length = bench_h / math.cos(a) + subdrill
-    horizontal = length * math.sin(a)
-    return Hole(
-        id=hole_id, row=row, col=0, collar=Point3(x, y, 0.0),
-        toe=Point3(x + horizontal * math.sin(az), y + horizontal * math.cos(az), -length * math.cos(a)),
-        diameter_mm=215.0, subdrill_m=subdrill,
-    )
-
-
-def design_with(holes, pattern_params=None) -> BlastDesign:
-    return BlastDesign(
-        design_id="t", contour=rect_contour(), holes=holes,
-        pattern_params=PATTERN if pattern_params is None else pattern_params,
-    )
 
 
 def test_vertical_hole_floor_burden_adds_slope_offset():
@@ -632,24 +602,6 @@ def test_square_w_without_spacing_uses_generator_default():
 
 # --- Разрыв между рядами у подошвы (часть 3b) ---------------------------------
 
-GAP_PATTERN = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.5}
-
-
-def grid_rows(row_one_tilt_deg: float = 0.0, rows: int = 4) -> list[Hole]:
-    """Сетка 4×3,5 м у грани y = 0: устья по сетке, ряд 1 (y = 2) наклонён к откосу."""
-    holes = []
-    for r in range(rows):
-        for c, x in enumerate((8.0, 12.0, 16.0, 20.0, 24.0)):
-            y = 2.0 + 3.5 * r
-            hid = f"{r + 1}-{c + 1:02d}"
-            if r == 0 and row_one_tilt_deg:
-                hole = inclined_hole(hid, x, y, r, row_one_tilt_deg, 180)
-            else:
-                hole = vertical_hole(hid, x, y, r)
-            holes.append(Hole(**{**hole.__dict__, "col": c}))
-    return holes
-
-
 def test_tilted_row_one_on_grid_opens_gap_at_floor_before_row_two():
     gaps = floor_row_gaps(design_with(grid_rows(15.0), pattern_params=GAP_PATTERN))
     row_two = {hid: g for hid, g in gaps.items() if hid.startswith("2-")}
@@ -684,28 +636,66 @@ def test_gap_without_w_is_not_checked():
     assert floor_row_gaps(design_with(grid_rows(15.0), pattern_params={})) == {}
 
 
-ACROSS_PATTERN = {"pattern": "rectangular", "spacing_a_m": 5.0, "burden_b_m": 3.5}
-
-
-def rows_across_face(tilted_id: str | None = None) -> list[Hole]:
-    """Ряды поперёк бровки y = 0: в ряду шаг a = 5 (к откосу), между рядами b = 3,5."""
-    holes = []
-    for r, x in enumerate((8.0, 11.5, 15.0, 18.5, 22.0)):
-        for c, y in enumerate((2.0, 7.0, 12.0, 17.0)):
-            hid = f"{r + 1}-{c + 1:02d}"
-            hole = inclined_hole(hid, x, y, r, 15, 180) if hid == tilted_id else vertical_hole(hid, x, y, r)
-            holes.append(Hole(**{**hole.__dict__, "col": c}))
-    return holes
-
-
 def test_rows_across_face_compare_same_row_with_a():
     gaps = floor_row_gaps(design_with(rows_across_face(), pattern_params=ACROSS_PATTERN))
     assert gaps and not any(g.excess for g in gaps.values())
     assert gaps["3-02"].value_m == pytest.approx(5.0) and gaps["3-02"].allowed_m == pytest.approx(5.15)
 
 
-def test_rows_across_face_tilted_hole_opens_gap_behind_it():
-    gaps = floor_row_gaps(design_with(rows_across_face("3-01"), pattern_params=ACROSS_PATTERN))
-    assert [hid for hid, g in gaps.items() if g.excess] == ["3-02"]
+def test_rows_across_face_tilted_front_holes_open_gap_behind_them():
+    # Устья у откоса (первые в каждом ряду) наклонены на 15° без сдвига: за
+    # каждой разрыв по своему ряду 5 + 2,68 м против a + 3 % = 5,15 м.
+    front = tuple(f"{r}-01" for r in range(1, 6))
+    gaps = floor_row_gaps(design_with(rows_across_face(front), pattern_params=ACROSS_PATTERN))
+    assert sorted(hid for hid, g in gaps.items() if g.excess) == [f"{r}-02" for r in range(1, 6)]
     assert gaps["3-02"].value_m == pytest.approx(5.0 + 2.6795, abs=1e-3)
     assert gaps["3-02"].allowed_m == pytest.approx(5.15)
+    assert gaps["3-02"].step == "a"
+
+
+def test_one_tilted_hole_is_covered_by_diagonal_neighbours():
+    # Наклонена одна скважина: соседи наискосок (другие ряды, 5 м впереди при
+    # допуске max(a, b) + 3 %) остаются впереди — разрыва нет.
+    gaps = floor_row_gaps(design_with(rows_across_face(("3-01",)), pattern_params=ACROSS_PATTERN))
+    assert not any(g.excess for g in gaps.values())
+
+
+def test_square_without_spacing_uses_generator_default_steps():
+    from design.toe_line import grid_steps_m
+
+    assert grid_steps_m({"pattern": "square", "burden_b_m": 3.0}) == (5.0, 5.0)
+    assert grid_steps_m({"pattern": "rectangular", "burden_b_m": 3.0}) == (5.0, 3.0)
+    assert grid_steps_m({}) == (5.0, 5.0)
+
+
+def test_variable_rows_use_their_own_step():
+    # Ряд 1 (второй от откоса) с b = 4,5: ряд 2 стоит за ним на 4,5 м — не разрыв.
+    holes = []
+    for r, y in enumerate((2.0, 5.5, 10.0, 13.5)):
+        for c, x in enumerate((8.0, 12.0, 16.0)):
+            holes.append(Hole(**{**vertical_hole(f"{r + 1}-{c + 1:02d}", x, y, r).__dict__, "col": c}))
+    params = GAP_PATTERN | {"pattern": "variable", "row_params": [{}, {"burden_b_m": 4.5}, {}]}
+    gaps = floor_row_gaps(design_with(holes, pattern_params=params))
+    assert gaps["3-02"].value_m == pytest.approx(4.5) and gaps["3-02"].allowed_m == pytest.approx(4.635)
+    assert not any(g.excess for g in gaps.values())
+    # Та же раскладка с общим b = 3,5 — разрыв у ряда 3.
+    flat = floor_row_gaps(design_with(holes, pattern_params=GAP_PATTERN))
+    assert sorted(hid for hid, g in flat.items() if g.excess) == ["3-01", "3-02", "3-03"]
+
+
+def test_domain_grid_without_domains_is_not_checked():
+    params = GAP_PATTERN | {"pattern": "domain_dependent"}
+    assert floor_row_gaps(design_with(grid_rows(15.0), pattern_params=params)) == {}
+
+
+def test_domain_grid_uses_domain_step():
+    from design.models import BlastDomain
+
+    # Домен на весь план с b = 6,5: наклон ряда 1 (3,5 + 2,68 = 6,18 м) в допуске домена.
+    params = GAP_PATTERN | {"pattern": "domain_dependent"}
+    design = design_with(grid_rows(15.0), pattern_params=params)
+    design.domains = [BlastDomain(id="d", name="d", burden_b_m=6.5)]
+    gaps = floor_row_gaps(design)
+    assert gaps and not any(g.excess for g in gaps.values())
+    design.domains = [BlastDomain(id="d", name="d", spacing_a_m=4.0)]
+    assert {hid for hid, g in floor_row_gaps(design).items() if g.excess} == {f"2-{c:02d}" for c in range(1, 6)}

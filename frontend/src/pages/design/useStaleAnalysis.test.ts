@@ -5,15 +5,18 @@
 // старую сетку и старые границы. Правки, не трогающие эти входы (глубина,
 // геология), и запись времён срабатывания после расчёта анализ не сбрасывают.
 import { renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptyHoleGeology, emptyNetwork, type BlockContour, type Hole, type InitiationNetwork } from "../../types/design";
 import {
   analysisInputsKey,
   holesLayoutKey,
   isResponseCurrent,
+  MAPS_REFRESH_DELAY_MS,
   mapsInputsKey,
+  shouldRefetchMaps,
   useKeyChangeReset,
   useStaleAnalysisReset,
+  useStaleMapsRefresh,
   type AnalysisInputs,
 } from "./useStaleAnalysis";
 
@@ -242,5 +245,56 @@ describe("mapsInputsKey", () => {
 
   it("ignores the contour name", () => {
     expect(mapsInputsKey(holes, { ...contour, name: "Б-2" })).toBe(mapsInputsKey(holes, contour));
+  });
+});
+
+describe("shouldRefetchMaps", () => {
+  it("refetches when maps were loaded or a map metric is selected", () => {
+    expect(shouldRefetchMaps(true, false)).toBe(true);
+    expect(shouldRefetchMaps(false, true)).toBe(true);
+    expect(shouldRefetchMaps(true, true)).toBe(true);
+    expect(shouldRefetchMaps(false, false)).toBe(false);
+  });
+});
+
+describe("useStaleMapsRefresh", () => {
+  afterEach(() => vi.useRealTimers());
+
+  function setup(active: boolean) {
+    vi.useFakeTimers();
+    const clear = vi.fn();
+    const refetch = vi.fn();
+    const view = renderHook(({ key }) => useStaleMapsRefresh(key, { active: () => active, clear, refetch }), {
+      initialProps: { key: "k1" },
+    });
+    return { clear, refetch, ...view };
+  }
+
+  it("grid build: maps loaded, depth recompute changes key — clear now, refetch once after the pause", () => {
+    const { clear, refetch, rerender } = setup(true);
+    // «Построить сетку» и сразу автопересчёт глубин — две смены подряд.
+    rerender({ key: "k2" });
+    rerender({ key: "k3" });
+    expect(clear).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(MAPS_REFRESH_DELAY_MS - 1);
+    expect(refetch).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps not viewed — only clear", () => {
+    const { clear, refetch, rerender } = setup(false);
+    rerender({ key: "k2" });
+    vi.advanceTimersByTime(MAPS_REFRESH_DELAY_MS * 2);
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
+  it("unmount cancels a pending refetch", () => {
+    const { refetch, rerender, unmount } = setup(true);
+    rerender({ key: "k2" });
+    unmount();
+    vi.advanceTimersByTime(MAPS_REFRESH_DELAY_MS);
+    expect(refetch).not.toHaveBeenCalled();
   });
 });

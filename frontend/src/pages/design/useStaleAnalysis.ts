@@ -125,3 +125,52 @@ export function mapsInputsKey(holes: Hole[], contour: BlockContour): string {
     holesKey,
   ].join("#");
 }
+
+/** Пауза перед повторным запросом карт: серия правок — один запрос. */
+export const MAPS_REFRESH_DELAY_MS = 300;
+
+/**
+ * Перезапросить карты после смены их входов, если пользователь их смотрел:
+ * карты были загружены (или запрошены — ответ в полёте) или выбрана метрика
+ * инженерных карт. Иначе карты
+ * запрашиваются по требованию — только убираем.
+ */
+export function shouldRefetchMaps(mapsLoaded: boolean, mapMetricSelected: boolean): boolean {
+  return mapsLoaded || mapMetricSelected;
+}
+
+/**
+ * Инженерные карты при смене `key`: сразу `clear` (старый пунктир «подошва
+ * по углу» не висит), а если `active()` на момент смены — `refetch` через
+ * `delayMs` после последней смены. Так обычный путь «Построить сетку →
+ * карты → автопересчёт глубин» оставляет карту на экране. Поздние ответы
+ * отбрасывает сам `refetch` по ключу (`isResponseCurrent`). Возвращает
+ * чтение текущего ключа.
+ */
+export function useStaleMapsRefresh(
+  key: string,
+  options: { active: () => boolean; clear: () => void; refetch: () => void; delayMs?: number },
+): () => string {
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+  }, []);
+  return useKeyChangeReset(key, () => {
+    const { active, clear, delayMs = MAPS_REFRESH_DELAY_MS } = optionsRef.current;
+    // Решение — до очистки: после `clear` карт уже нет.
+    const refetchWanted = active();
+    clear();
+    if (timer.current !== null) {
+      // Запрос уже запланирован серией правок — переносим его.
+      clearTimeout(timer.current);
+    } else if (!refetchWanted) {
+      return;
+    }
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      optionsRef.current.refetch();
+    }, delayMs);
+  });
+}

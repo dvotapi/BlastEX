@@ -144,7 +144,7 @@ import { PlansPanel } from "./PlansPanel";
 import { SectionView, sectionRowKey } from "./SectionView";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 import { useHoleRecompute } from "./useHoleRecompute";
-import { isResponseCurrent, mapsInputsKey, useKeyChangeReset, useStaleAnalysisReset } from "./useStaleAnalysis";
+import { isResponseCurrent, mapsInputsKey, shouldRefetchMaps, useStaleAnalysisReset, useStaleMapsRefresh } from "./useStaleAnalysis";
 import { useUndoHotkeys } from "./useUndoHotkeys";
 import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
@@ -448,9 +448,19 @@ export function DesignPage({
   // Инженерные карты (и пунктир «подошва по углу») посчитаны по контуру,
   // уступу и скважинам на момент запроса: правка вершин, откосов, отметок или
   // угла уступа, замена контура с чертежа, сдвиг или пересчёт скважин делают
-  // их устаревшими. Карты запрашиваются по требованию, поэтому только убираем.
+  // их устаревшими. Старые карты убираем сразу; если их смотрели (загружены
+  // или выбрана метрика карт) — перезапрашиваем по текущему документу, иначе
+  // после «Построить сетку» автопересчёт глубин стирал бы карту.
   const mapsKey = useMemo(() => mapsInputsKey(document.holes, document.contour), [document.holes, document.contour]);
-  const currentMapsKey = useKeyChangeReset(mapsKey, () => setMaps(null));
+  const refreshMapsRef = useRef<() => void>(() => {});
+  // Запрос карт в полёте: его ответ будет отброшен сменой ключа, поэтому он
+  // тоже повод перезапросить (автопересчёт глубин может опередить карты).
+  const mapsInFlightRef = useRef(0);
+  const currentMapsKey = useStaleMapsRefresh(mapsKey, {
+    active: () => shouldRefetchMaps(maps !== null || mapsInFlightRef.current > 0, mapMetric !== "" && mapMetric in MAP_METRIC_LABELS),
+    clear: () => setMaps(null),
+    refetch: () => refreshMapsRef.current(),
+  });
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -795,6 +805,8 @@ export function DesignPage({
     dispatch({ type: "UPDATE_HOLE", id, patch });
   }
 
+  refreshMapsRef.current = () => { void refreshMaps(); };
+
   async function refreshMaps(design = document) {
     if (!design.holes.length) {
       setMaps(null);
@@ -803,13 +815,16 @@ export function DesignPage({
     // Ключ того документа, по которому спрашиваем: после «Построить сетку»
     // это уже новые скважины, хотя страница ещё не перерисовалась.
     const startKey = mapsInputsKey(design.holes, design.contour);
+    mapsInFlightRef.current += 1;
     try {
       const result = await api.design.maps(designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey }));
       // Контур или скважины поменялись, пока шёл запрос, — ответ устарел.
       if (!isResponseCurrent(startKey, currentMapsKey())) return;
       setMaps(result);
     } catch {
-      setMaps(null);
+      if (isResponseCurrent(startKey, currentMapsKey())) setMaps(null);
+    } finally {
+      mapsInFlightRef.current -= 1;
     }
   }
 

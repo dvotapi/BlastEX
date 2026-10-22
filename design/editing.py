@@ -21,6 +21,9 @@ from design.models import (
 )
 from design.toe_line import floor_point
 
+# Запас к допуску шага, м: шаг ровно на допуске не мигает из-за округления.
+SPACING_EPS_M = 1e-6
+
 
 def _distance2d(a: Hole, b: Hole) -> float:
     return math.hypot(a.collar.x - b.collar.x, a.collar.y - b.collar.y)
@@ -56,12 +59,16 @@ def spacing_report(
 
     В пределах ряда (`Hole.row`) шаг вдоль ряда считается между соседями по
     `col`; между соседними рядами — по ближайшей скважине следующего ряда.
-    Шаги меряются между точками оси на уровне подошвы (`floor_point`): у
-    вертикальных скважин и у сетки с одним наклоном это те же расстояния, что
-    между устьями, а плавный переход у откоса держит решётку именно у подошвы
-    (устья соседних рангов сближены намеренно). Пара у откоса (`face_toe`)
-    стоит в ряду и столбце своей вертикальной в 1 м от неё — не шаг сетки, в
-    отчёт не входит.
+    Шаги меряются между точками оси на уровне подошвы (`floor_point`), а не
+    между устьями: плавный переход у откоса держит решётку именно у подошвы
+    (устья соседних рангов сближены намеренно). У вертикальных скважин это те
+    же расстояния, что между устьями. Но результат `hole_spacing` меняется у
+    существующих проектов с углом паспорта на неровной кровле (длины, а с ними
+    точки на подошве, у скважин разные) и у скважин, наклонённых вручную, —
+    их шаг считается там, где ось встречает подошву. Пара у откоса
+    (`face_toe`) стоит в ряду и столбце своей вертикальной в 1 м от неё — не
+    шаг сетки, в отчёт не входит. Сравнение с допуском — с запасом
+    `SPACING_EPS_M` на ошибку округления.
     """
     enabled = [h for h in holes if h.enabled and h.kind != FACE_TOE_KIND]
     at_floor = {h.id: floor_point(h) for h in enabled}
@@ -83,7 +90,7 @@ def spacing_report(
         for h1, h2 in zip(ordered, ordered[1:]):
             d = _distance2d(h1, h2)
             a_values.append(d)
-            if expected_a_m is not None and abs(d - expected_a_m) > tolerance_m:
+            if expected_a_m is not None and abs(d - expected_a_m) > tolerance_m + SPACING_EPS_M:
                 flagged.append(
                     {"hole_id": h1.id, "neighbour_id": h2.id, "kind": "a", "distance_m": d}
                 )
@@ -99,7 +106,7 @@ def spacing_report(
                 continue
             d = _distance2d(h1, nearest)
             b_values.append(d)
-            if expected_b_m is not None and abs(d - expected_b_m) > tolerance_m:
+            if expected_b_m is not None and abs(d - expected_b_m) > tolerance_m + SPACING_EPS_M:
                 flagged.append(
                     {"hole_id": h1.id, "neighbour_id": nearest.id, "kind": "b", "distance_m": d}
                 )

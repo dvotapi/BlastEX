@@ -82,6 +82,15 @@ class SpacingReportFrontRowsTests(unittest.TestCase):
         self.assertAlmostEqual(report["spacing_b"]["min"], 4.0, places=2)
 
 
+class SpacingToleranceTests(unittest.TestCase):
+    def test_step_on_the_tolerance_does_not_flicker(self):
+        # 4 − 3,5 = 0,5 — ровно допуск; ошибка округления не даёт предупреждения.
+        holes = [_hole("1-01", 0, 0, 0.0, 0.0), _hole("1-02", 0, 1, 4.0 + 1e-9, 0.0)]
+        self.assertEqual(spacing_report(holes, expected_a_m=3.5, tolerance_m=0.5)["flagged"], [])
+        holes = [_hole("1-01", 0, 0, 0.0, 0.0), _hole("1-02", 0, 1, 4.01, 0.0)]
+        self.assertEqual(len(spacing_report(holes, expected_a_m=3.5, tolerance_m=0.5)["flagged"]), 1)
+
+
 class GeometryEditTests(unittest.TestCase):
     def test_depth_inclination_azimuth_and_toe(self):
         hole = _hole("1-01", 0, 0, 2.0, 3.0)

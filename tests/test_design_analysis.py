@@ -400,5 +400,25 @@ def test_vertical_hole_close_to_crest_still_warns_burden_too_small():
     assert [w["hole_id"] for w in found] == ["1-01"]
 
 
+def test_shadowed_tilted_hole_keeps_burden_too_small():
+    """Наклонная скважина без ЛСП (закрыта впереди стоящей) и не из перехода — ЛНС проверяется по-старому."""
+    from design.toe_line import floor_checks
+    from tests.front_rows_fixtures import GAP_PATTERN, design_with, inclined_hole, vertical_hole
+
+    front = vertical_hole("1-01", 10.0, 0.2, 0)
+    tilted = inclined_hole("2-01", 10.0, 5.3, 1, 20.0, 180, subdrill=3.0)
+    design = design_with([front, tilted], pattern_params=GAP_PATTERN)
+    assert "2-01" not in floor_checks(design)[0]
+    found = [w["hole_id"] for w in _codes(validate(design), "burden_too_small")]
+    assert "2-01" in found
+
+
+def test_tilted_hole_with_floor_burden_skips_burden_too_small():
+    from tests.front_rows_fixtures import GAP_PATTERN, design_with, inclined_hole
+
+    tilted = inclined_hole("1-01", 10.0, 3.0, 0, 20.0, 180, subdrill=3.0)
+    assert not _codes(validate(design_with([tilted], pattern_params=GAP_PATTERN)), "burden_too_small")
+
+
 if __name__ == "__main__":
     unittest.main()

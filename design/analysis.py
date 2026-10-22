@@ -14,6 +14,7 @@ from design.editing import spacing_report
 from design.geometry import block_volume, collar_on_roof, ensure_ccw, floor_elevation, point_in_polygon, true_burden
 from design.hole_recompute import SHORT_BENCH_M
 from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind, row_family
+from design.pattern import FRONT_ROWS_MODE_TAPER, _front_rows_tilt, front_rows_mode
 from design.timing import resolve_network
 from design.toe_line import crest_geometry, crest_offset_checked, floor_checks, min_crest_offset_m, min_floor_burden_m
 
@@ -223,6 +224,23 @@ def timing_isolines(
     return isolines
 
 
+def _number(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value) if value not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+    return number if math.isfinite(number) else default
+
+
+def _taper_layout(design: BlastDesign) -> bool:
+    """Применён ли к сетке плавный переход — так же, как решает `generate_pattern`."""
+    params = design.pattern_params or {}
+    tilt_count = _front_rows_tilt(params)[0] if design.contour.free_faces else 0
+    if tilt_count <= 0 or str(params.get("pattern", "square")) == "staggered":
+        return False
+    return front_rows_mode(params, tilt_count) == FRONT_ROWS_MODE_TAPER
+
+
 def _two_numbers(value: float, limit: float) -> tuple[str, str]:
     """Два числа предупреждения через запятую: один знак, а если так они совпадают — два (три)."""
     digits = next((d for d in (1, 2) if f"{value:.{d}f}" != f"{limit:.{d}f}"), 3)
@@ -297,15 +315,24 @@ def validate(
 
     burdens, beyond_toe, row_gaps = floor_checks(design)
     floor_governed = min_floor_burden_m(pattern_params) is not None
+    taper_layout = _taper_layout(design)
+    passport_angle = _number(pattern_params.get("angle_deg"))
     for h in enabled:
         if h.kind not in ("production", "buffer"):
             continue
         # ЛНС здесь — от забоя до бровки в плане. У наклонной скважины сетки
-        # у откоса (плавный переход, наклон паспорта) забой уходит к бровке и
-        # за неё по построению — меряется не то. При заданной W такие
-        # скважины проверяет подошва: ЛСП с нижней границей 0,8·W и разрыв
-        # между рядами; вертикальные и стенки — как прежде.
-        if floor_governed and row_family(h.kind) == "grid" and h.angle_deg > TILTED_ANGLE_DEG:
+        # у откоса забой уходит к бровке и за неё по построению — меряется не
+        # то. При заданной W пропускаются наклонные скважины основной сетки,
+        # у которых есть ЛСП (её нижняя граница 0,8·W), и ранги плавного
+        # перехода (угол не паспортный; их держит разрыв у подошвы). Пары у
+        # откоса (`face_toe`) сюда не входят по виду. Остальные — закрытые
+        # впереди стоящими, вертикальные, стенки — как прежде.
+        if (
+            floor_governed
+            and row_family(h.kind) == "grid"
+            and h.angle_deg > TILTED_ANGLE_DEG
+            and (h.id in burdens or (taper_layout and abs(h.angle_deg - passport_angle) > TILTED_ANGLE_DEG))
+        ):
             continue
         burden = true_burden(h, design.contour)
         if burden is not None and burden < min_burden_m:

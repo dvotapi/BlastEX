@@ -144,7 +144,7 @@ import { PlansPanel } from "./PlansPanel";
 import { SectionView, sectionRowKey } from "./SectionView";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 import { useHoleRecompute } from "./useHoleRecompute";
-import { useStaleAnalysisReset } from "./useStaleAnalysis";
+import { isResponseCurrent, mapsInputsKey, useKeyChangeReset, useStaleAnalysisReset } from "./useStaleAnalysis";
 import { useUndoHotkeys } from "./useUndoHotkeys";
 import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
@@ -432,7 +432,7 @@ export function DesignPage({
   // Сетка перестроена, скважины сдвинуты, выключены или удалены, сеть
   // изменена (и отменой/повтором), сменились порода, a, b, контур блока или
   // вид основной сетки — анализ устарел.
-  useStaleAnalysisReset(
+  const currentAnalysisKey = useStaleAnalysisReset(
     {
       holes: document.holes,
       network: document.network,
@@ -444,6 +444,13 @@ export function DesignPage({
     },
     clearAnalysis,
   );
+
+  // Инженерные карты (и пунктир «подошва по углу») посчитаны по контуру,
+  // уступу и скважинам на момент запроса: правка вершин, откосов, отметок или
+  // угла уступа, замена контура с чертежа, сдвиг или пересчёт скважин делают
+  // их устаревшими. Карты запрашиваются по требованию, поэтому только убираем.
+  const mapsKey = useMemo(() => mapsInputsKey(document.holes, document.contour), [document.holes, document.contour]);
+  const currentMapsKey = useKeyChangeReset(mapsKey, () => setMaps(null));
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -793,8 +800,13 @@ export function DesignPage({
       setMaps(null);
       return;
     }
+    // Ключ того документа, по которому спрашиваем: после «Построить сетку»
+    // это уже новые скважины, хотя страница ещё не перерисовалась.
+    const startKey = mapsInputsKey(design.holes, design.contour);
     try {
       const result = await api.design.maps(designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey }));
+      // Контур или скважины поменялись, пока шёл запрос, — ответ устарел.
+      if (!isResponseCurrent(startKey, currentMapsKey())) return;
       setMaps(result);
     } catch {
       setMaps(null);
@@ -1088,9 +1100,13 @@ export function DesignPage({
     }
     setAnalyzeBusy(true);
     setError("");
+    const startKey = currentAnalysisKey();
     try {
       const designForAnalysis = designPayload();
       const result = await api.design.analyze(designForAnalysis, isolineStepMs, micWindowMs, ppv);
+      // Входы поменялись, пока шёл расчёт: анализ уже сброшен, поздний ответ
+      // (и его времена срабатывания) в документ не пишем.
+      if (!isResponseCurrent(startKey, currentAnalysisKey())) return;
       setAnalysis(result);
       if (result.firing_events) {
         dispatch({ type: "SET_NETWORK", network: { ...normalizeNetwork(document.network), firing_events: result.firing_events } });

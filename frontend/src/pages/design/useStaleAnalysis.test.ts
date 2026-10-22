@@ -6,8 +6,16 @@
 // геология), и запись времён срабатывания после расчёта анализ не сбрасывают.
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { emptyHoleGeology, emptyNetwork, type Hole, type InitiationNetwork } from "../../types/design";
-import { analysisInputsKey, holesLayoutKey, useStaleAnalysisReset, type AnalysisInputs } from "./useStaleAnalysis";
+import { emptyHoleGeology, emptyNetwork, type BlockContour, type Hole, type InitiationNetwork } from "../../types/design";
+import {
+  analysisInputsKey,
+  holesLayoutKey,
+  isResponseCurrent,
+  mapsInputsKey,
+  useKeyChangeReset,
+  useStaleAnalysisReset,
+  type AnalysisInputs,
+} from "./useStaleAnalysis";
 
 const CONTOUR: AnalysisInputs["contour"] = {
   vertices: [{ x: 0, y: 0, z: 420 }, { x: 20, y: 0, z: 420 }, { x: 20, y: 16, z: 420 }],
@@ -166,5 +174,73 @@ describe("useStaleAnalysisReset", () => {
     };
     rerender({ inputs: inputsOf(holes, { network: slower }) });
     expect(reset).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("isResponseCurrent", () => {
+  it("accepts a response only for unchanged inputs", () => {
+    expect(isResponseCurrent("a", "a")).toBe(true);
+    expect(isResponseCurrent("a", "b")).toBe(false);
+  });
+});
+
+describe("useKeyChangeReset", () => {
+  it("resets on key change and reads the current key for an in-flight request", () => {
+    const reset = vi.fn();
+    const { result, rerender } = renderHook(({ key }) => useKeyChangeReset(key, reset), { initialProps: { key: "k1" } });
+    expect(reset).not.toHaveBeenCalled();
+    // Запрос начат при k1.
+    const startKey = result.current();
+    rerender({ key: "k1" });
+    expect(reset).not.toHaveBeenCalled();
+    expect(isResponseCurrent(startKey, result.current())).toBe(true);
+
+    // Пока шёл запрос, входы поменялись: сброс, а поздний ответ — не текущий.
+    const read = result.current;
+    rerender({ key: "k2" });
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(result.current).toBe(read);
+    expect(isResponseCurrent(startKey, read())).toBe(false);
+  });
+
+  it("useStaleAnalysisReset returns the current analysis key", () => {
+    const inputs: AnalysisInputs = { holes: [hole("1-01")], network: emptyNetwork(), rockName: "Гранит", spacingAM: 4.41, burdenBM: 3.53, contour: CONTOUR, defaultKind: "production" };
+    const { result, rerender } = renderHook(({ inputs }) => useStaleAnalysisReset(inputs, () => {}), { initialProps: { inputs } });
+    const startKey = result.current();
+    expect(startKey).toBe(analysisInputsKey(inputs));
+    // Запись времён срабатывания — ответ остаётся текущим.
+    const fired = { ...inputs.network, firing_events: [{ hole_id: "1-01", time_ms: 0 }] } as unknown as InitiationNetwork;
+    rerender({ inputs: { ...inputs, network: fired } });
+    expect(isResponseCurrent(startKey, result.current())).toBe(true);
+    rerender({ inputs: { ...inputs, rockName: "Базальт" } });
+    expect(isResponseCurrent(startKey, result.current())).toBe(false);
+  });
+});
+
+describe("mapsInputsKey", () => {
+  const contour: BlockContour = { ...CONTOUR, bench: { crest_z_m: 420, toe_z_m: 408, face_angle_deg: 75 }, name: "Б-1", cad: null };
+  const holes = [hole("1-01")];
+
+  it("changes on toe geometry: contour, faces, bench, CAD, holes", () => {
+    const key = mapsInputsKey(holes, contour);
+    expect(mapsInputsKey([...holes], { ...contour, vertices: [...contour.vertices] })).toBe(key);
+    const moved = { ...contour, vertices: [contour.vertices[0], { x: 22, y: 0, z: 420 }, contour.vertices[2]] };
+    expect(mapsInputsKey(holes, moved)).not.toBe(key);
+    expect(mapsInputsKey(holes, { ...contour, free_faces: [[1, 2]] })).not.toBe(key);
+    expect(mapsInputsKey(holes, { ...contour, bench: { ...contour.bench, face_angle_deg: 70 } })).not.toBe(key);
+    expect(mapsInputsKey(holes, { ...contour, bench: { ...contour.bench, toe_z_m: 405 } })).not.toBe(key);
+    expect(mapsInputsKey(holes, { ...contour, bench: { ...contour.bench, crest_z_m: 421 } })).not.toBe(key);
+    const cad = { source_id: "s1", built_at: "2026-10-01", edited: false } as BlockContour["cad"];
+    const withCad = mapsInputsKey(holes, { ...contour, cad });
+    expect(withCad).not.toBe(key);
+    expect(mapsInputsKey(holes, { ...contour, cad: { ...cad!, source_id: "s2" } })).not.toBe(withCad);
+    expect(mapsInputsKey(holes, { ...contour, cad: { ...cad!, edited: true } })).not.toBe(withCad);
+    expect(mapsInputsKey([{ ...holes[0], collar: { x: 10, y: 5, z: 421 } }], contour)).not.toBe(key);
+    expect(mapsInputsKey([{ ...holes[0], toe: { x: 10, y: 5, z: 400 } }], contour)).not.toBe(key);
+    expect(mapsInputsKey([...holes, hole("1-02")], contour)).not.toBe(key);
+  });
+
+  it("ignores the contour name", () => {
+    expect(mapsInputsKey(holes, { ...contour, name: "Б-2" })).toBe(mapsInputsKey(holes, contour));
   });
 });

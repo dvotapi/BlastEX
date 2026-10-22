@@ -7,7 +7,7 @@
 // или вида основной сетки (какие скважины входят в темп) их нужно сбросить,
 // иначе слой темпа рисует треугольники старой сетки, а панель — старую
 // медиану и доли.
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { normalizeNetwork, type BlockContour, type Hole, type InitiationNetwork } from "../../types/design";
 
 /** Входы расчёта: скважины, сеть, порода, сетка a × b, контур и вид основной сетки. */
@@ -61,16 +61,23 @@ export function analysisInputsKey(inputs: AnalysisInputs): string {
 }
 
 /**
- * Зовёт `reset`, когда меняются входы расчёта. Новый массив с той же
- * раскладкой (пересчёт глубин) и запись времён срабатывания после расчёта —
- * не сброс. Единственный механизм сброса при правках скважин и сети.
+ * Ответ запроса, начатого при ключе входов `startKey`, ещё относится к
+ * документу: входы с тех пор не менялись. Иначе его выбрасывают — сброс уже
+ * случился, и поздний ответ вернул бы старый результат (и старые времена
+ * срабатывания в сеть).
  */
-export function useStaleAnalysisReset(inputs: AnalysisInputs, reset: () => void): void {
-  const { holes, network, rockName, spacingAM, burdenBM, contour, defaultKind } = inputs;
-  const key = useMemo(
-    () => analysisInputsKey({ holes, network, rockName, spacingAM, burdenBM, contour, defaultKind }),
-    [holes, network, rockName, spacingAM, burdenBM, contour, defaultKind],
-  );
+export function isResponseCurrent(startKey: string, currentKey: string): boolean {
+  return startKey === currentKey;
+}
+
+/**
+ * Зовёт `reset`, когда меняется `key`; первый рендер — не сброс. Возвращает
+ * чтение текущего ключа: его берут при старте запроса и сверяют с ним ответ
+ * (`isResponseCurrent`), чтобы ответ, пришедший после правки, не лёг поверх.
+ */
+export function useKeyChangeReset(key: string, reset: () => void): () => string {
+  const current = useRef(key);
+  current.current = key;
   const previous = useRef(key);
   const resetRef = useRef(reset);
   resetRef.current = reset;
@@ -79,4 +86,42 @@ export function useStaleAnalysisReset(inputs: AnalysisInputs, reset: () => void)
     previous.current = key;
     resetRef.current();
   }, [key]);
+  return useCallback(() => current.current, []);
+}
+
+/**
+ * Зовёт `reset`, когда меняются входы расчёта. Новый массив с той же
+ * раскладкой (пересчёт глубин) и запись времён срабатывания после расчёта —
+ * не сброс. Единственный механизм сброса при правках скважин и сети.
+ * Возвращает чтение текущего ключа входов — для отбраковки позднего ответа.
+ */
+export function useStaleAnalysisReset(inputs: AnalysisInputs, reset: () => void): () => string {
+  const { holes, network, rockName, spacingAM, burdenBM, contour, defaultKind } = inputs;
+  const key = useMemo(
+    () => analysisInputsKey({ holes, network, rockName, spacingAM, burdenBM, contour, defaultKind }),
+    [holes, network, rockName, spacingAM, burdenBM, contour, defaultKind],
+  );
+  return useKeyChangeReset(key, reset);
+}
+
+/**
+ * Ключ геометрии подошвы для инженерных карт: подошва по углу (пунктир
+ * «подошва по углу») строится от бровки контура по углу откоса и высоте
+ * уступа у каждой скважины, а показатели карт — по устьям и глубинам скважин.
+ * Поэтому в ключ входят вершины контура в плане, откосы, отметки и угол
+ * уступа, замена или правка контура с чертежа, устья (с отметкой) и забои
+ * скважин, их вид и включённость.
+ */
+export function mapsInputsKey(holes: Hole[], contour: BlockContour): string {
+  const bench = contour.bench;
+  const cad = contour.cad ? `${contour.cad.source_id}:${contour.cad.built_at}:${contour.cad.edited ? 1 : 0}` : "";
+  const holesKey = holes
+    .map((h) => `${h.id}:${h.collar.x}:${h.collar.y}:${h.collar.z}:${h.toe.x}:${h.toe.y}:${h.toe.z}:${h.kind}:${h.enabled ? 1 : 0}`)
+    .join("|");
+  return [
+    contourKey(contour),
+    `${bench.crest_z_m}:${bench.toe_z_m}:${bench.face_angle_deg}`,
+    cad,
+    holesKey,
+  ].join("#");
 }

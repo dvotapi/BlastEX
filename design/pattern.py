@@ -8,6 +8,7 @@ from design.geometry import (
     distance_to_free_faces,
     drape_collar,
     ensure_ccw,
+    face_azimuth_deg,
     local_basis,
     offset_polygon,
     pattern_origin,
@@ -19,6 +20,14 @@ from design.models import FRONT_ROW_BASE, HOLE_KINDS, BlastDomain, BlockContour,
 
 PATTERN_TYPES = ("square", "rectangular", "staggered", "variable", "domain_dependent")
 REGULAR_PATTERNS = ("square", "rectangular", "staggered")
+
+# Наклон 1–2 ряда у откоса (оптимизатор, часть 3): угол от вертикали, °.
+FRONT_ROWS_TILT_MAX_DEG = 30.0
+FRONT_ROWS_TILT_DEFAULT_DEG = 15.0
+FRONT_ROWS_TILT_MAX_COUNT = 2
+
+# Ориентация скважины по устью: (угол от вертикали, азимут).
+Orient = Callable[[float, float], tuple[float, float]]
 
 
 def generate_pattern(
@@ -43,6 +52,8 @@ def generate_pattern(
       diameter_mm / subdrill_m / angle_deg / azimuth_deg / depth_m
       default_kind            kind assigned to the main grid (default production)
       row_params              per-row overrides for variable: spacing_a_m, burden_b_m, shift_ratio, kind
+      front_rows_tilt_count   0–2 рядов у откоса с наклоном к откосу (нет ключа — 0)
+      front_rows_tilt_deg     угол этих рядов от вертикали, 0–30° (нет ключа — 15°)
       contour_row / presplit_row / trim_row / buffer_row / stab_row
       satellite_holes / infill_holes
     """
@@ -71,6 +82,9 @@ def generate_pattern(
     depth_override = float(depth_override) if depth_override is not None else None
     default_kind = _normalize_kind(params.get("default_kind", "production"), "production")
     domain_list = list(domains or [])
+    tilt_count, tilt_deg = _front_rows_tilt(params)
+    if not contour.free_faces:
+        tilt_count = 0
 
     verts = ensure_ccw(contour.points_xy)
     if len(verts) < 3 or spacing_a <= 0 or burden_b <= 0:
@@ -92,6 +106,24 @@ def generate_pattern(
     first_lattice_row = 0
     skip_regular_first = False
 
+    def row_orient(rank: int, row_kind: str) -> Orient | None:
+        """Ориентация скважин ряда с рангом `rank` (1 — ближайший к откосу).
+
+        None — общий угол и азимут. Наклоняются только скважины основной сетки
+        в рядах с рангом не больше `front_rows_tilt_count`; азимут — к ближайшему
+        участку свободной поверхности, а без него — общий угол и азимут.
+        """
+        if rank > tilt_count or row_kind not in ("production", default_kind):
+            return None
+
+        def orient(x: float, y: float) -> tuple[float, float]:
+            face_azimuth = face_azimuth_deg((x, y), contour)
+            if face_azimuth is None:
+                return angle_deg, azimuth_deg
+            return tilt_deg, face_azimuth
+
+        return orient
+
     if follow_face and contour.free_faces:
         face_row = _generate_face_following_row(
             contour,
@@ -109,6 +141,7 @@ def generate_pattern(
             depth_override,
             default_kind,
             surfaces,
+            orient=row_orient(1, default_kind),
         )
         if face_row:
             holes.extend(face_row)
@@ -171,6 +204,9 @@ def generate_pattern(
         """
         accept = _off_face_filter(contour, min_face_m) if min_face_m is not None else None
         local_a, local_b, shift_ratio, row_kind = row_settings(lattice_row, v, accept)
+        # Ранг от откоса: первый ряд решётки — 1 (за рядом вдоль бровки — 2),
+        # ряды впереди него — того же ранга, что и он.
+        orient = row_orient(max(lattice_row, first_lattice_row) + 1, row_kind)
 
         shift = shift_ratio * local_a if lattice_row % 2 == 1 else 0.0
         if pattern == "domain_dependent" and domain_list:
@@ -195,6 +231,7 @@ def generate_pattern(
                 surfaces,
                 crest_z,
                 accept,
+                orient,
             )
             return placed, local_b
 
@@ -204,8 +241,9 @@ def generate_pattern(
         while u <= u_max:
             x, y = _world_xy(origin, row_dir, advance_dir, u, v)
             if point_in_polygon((x, y), boundary) and (accept is None or accept(x, y)):
+                hole_angle, hole_azimuth = orient(x, y) if orient else (angle_deg, azimuth_deg)
                 collar, toe = drape_collar(
-                    x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_override
+                    x, y, hole_angle, hole_azimuth, subdrill_m, contour, surfaces, depth_override
                 )
                 placed.append(
                     Hole(
@@ -344,6 +382,24 @@ def _normalize_kind(value: Any, default: str) -> str:
     return kind if kind in HOLE_KINDS else default
 
 
+def _front_rows_tilt(params: dict[str, Any]) -> tuple[int, float]:
+    """Число наклонных рядов у откоса (0–2) и их угол от вертикали (0–30°)."""
+    try:
+        count = int(float(params.get("front_rows_tilt_count") or 0))
+    except (TypeError, ValueError):
+        count = 0
+    raw_deg = params.get("front_rows_tilt_deg")
+    try:
+        deg = float(raw_deg) if raw_deg not in (None, "") else FRONT_ROWS_TILT_DEFAULT_DEG
+    except (TypeError, ValueError):
+        deg = FRONT_ROWS_TILT_DEFAULT_DEG
+    if not math.isfinite(deg):
+        deg = FRONT_ROWS_TILT_DEFAULT_DEG
+    count = max(0, min(FRONT_ROWS_TILT_MAX_COUNT, count))
+    deg = max(0.0, min(FRONT_ROWS_TILT_MAX_DEG, deg))
+    return count, deg
+
+
 def _grid_id(kind: str, row_index: int, col_index: int) -> str:
     prefixes = {
         "buffer": "B",
@@ -418,6 +474,7 @@ def _walk_domain_row(
     surfaces: object | None,
     crest_z: float,
     accept: Callable[[float, float], bool] | None = None,
+    orient: Orient | None = None,
 ) -> list[Hole]:
     holes: list[Hole] = []
     u = u_start
@@ -436,8 +493,9 @@ def _walk_domain_row(
             local_a = float(domain.spacing_a_m)
         if local_a <= 0:
             local_a = fallback_a
+        hole_angle, hole_azimuth = orient(x, y) if orient else (angle_deg, azimuth_deg)
         collar, toe = drape_collar(
-            x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_override
+            x, y, hole_angle, hole_azimuth, subdrill_m, contour, surfaces, depth_override
         )
         holes.append(
             Hole(
@@ -496,8 +554,12 @@ def _generate_face_following_row(
     depth_m: float | None,
     kind: str,
     surfaces: object | None,
+    orient: Orient | None = None,
 ) -> list[Hole]:
-    """Place row 0 at a constant burden from the actual free-face polyline."""
+    """Place row 0 at a constant burden from the actual free-face polyline.
+
+    `orient` — угол и азимут по устью (наклон ряда к откосу); None — общие.
+    """
     verts = ensure_ccw(contour.points_xy)
     start_offset = float(params.get("first_row_start_offset_m", 0.0))
     holes: list[Hole] = []
@@ -518,8 +580,9 @@ def _generate_face_following_row(
                 x = a[0] + ux * distance + nx * burden_m
                 y = a[1] + uy * distance + ny * burden_m
                 if point_in_polygon((x, y), boundary):
+                    hole_angle, hole_azimuth = orient(x, y) if orient else (angle_deg, azimuth_deg)
                     collar, toe = drape_collar(
-                        x, y, angle_deg, azimuth_deg, subdrill_m, contour, surfaces, depth_m
+                        x, y, hole_angle, hole_azimuth, subdrill_m, contour, surfaces, depth_m
                     )
                     holes.append(
                         Hole(

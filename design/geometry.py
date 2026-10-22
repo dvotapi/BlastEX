@@ -404,6 +404,54 @@ def distance_to_free_faces(point_xy: Point2, contour: BlockContour) -> float | N
     return best
 
 
+def _nearest_face_segment(
+    point_xy: Point2, contour: BlockContour
+) -> tuple[Point2, Point2, float] | None:
+    """Ближайший к точке отрезок свободных поверхностей: (a, b, расстояние)."""
+    verts = contour.points_xy
+    if not verts or not contour.free_faces:
+        return None
+    best: tuple[Point2, Point2, float] | None = None
+    for edge in contour.free_faces:
+        for i in range(len(edge) - 1):
+            a = verts[edge[i]]
+            b = verts[edge[i + 1]]
+            dist = point_to_segment_distance(point_xy, a, b)
+            if best is None or dist < best[2]:
+                best = (a, b, dist)
+    return best
+
+
+def face_azimuth_deg(point_xy: Point2, contour: BlockContour) -> float | None:
+    """Азимут «к откосу»: 0° = +Y, по часовой, как у Hole.azimuth_deg.
+
+    Направление перпендикуляра от точки к ближайшему отрезку свободных
+    поверхностей, наружу из блока. Для точки на самом отрезке берётся внешняя
+    нормаль отрезка. Без свободных поверхностей — None.
+    """
+    nearest = _nearest_face_segment(point_xy, contour)
+    if nearest is None:
+        return None
+    a, b, dist = nearest
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dy)
+    if length < 1e-12:
+        return None
+    if dist > 1e-9:
+        t = max(0.0, min(1.0, ((point_xy[0] - a[0]) * dx + (point_xy[1] - a[1]) * dy) / (length * length)))
+        vx = a[0] + t * dx - point_xy[0]
+        vy = a[1] + t * dy - point_xy[1]
+    else:
+        # Точка на отрезке: нормаль, которая уходит из полигона блока.
+        nx, ny = dy / length, -dx / length
+        mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        probe = (mid[0] + nx * 1e-6, mid[1] + ny * 1e-6)
+        if point_in_polygon(probe, contour.points_xy):
+            nx, ny = -nx, -ny
+        vx, vy = nx, ny
+    return math.degrees(math.atan2(vx, vy)) % 360.0
+
+
 def true_burden(hole: Hole, contour: BlockContour) -> float | None:
     """True face burden: toe-to-face distance (accounts for hole inclination)."""
     return distance_to_free_faces((hole.toe.x, hole.toe.y), contour)

@@ -5,6 +5,7 @@ from design.geometry import (
     angle_azimuth,
     block_volume,
     collar_burden,
+    face_azimuth_deg,
     hole_from_collar,
     offset_polygon,
     point_in_polygon,
@@ -93,6 +94,42 @@ class BurdenGeometryTests(unittest.TestCase):
         self.assertAlmostEqual(collar_burden(hole, contour), 3.0)
         self.assertAlmostEqual(toe_burden(hole, contour), 4.0)
         self.assertAlmostEqual(true_burden(hole, contour), 4.0)
+
+
+class FaceAzimuthTests(unittest.TestCase):
+    @staticmethod
+    def _contour(points, free_faces):
+        return BlockContour(
+            vertices=[Point3(x=x, y=y, z=0.0) for x, y in points],
+            free_faces=free_faces,
+            bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0),
+        )
+
+    def _rect(self, free_faces):
+        return self._contour([(0, 0), (40, 0), (40, 22), (0, 22)], free_faces)
+
+    def test_points_out_of_block_to_south_face(self):
+        self.assertAlmostEqual(face_azimuth_deg((10.0, 5.0), self._rect([[0, 1]])), 180.0)
+
+    def test_east_face(self):
+        self.assertAlmostEqual(face_azimuth_deg((30.0, 10.0), self._rect([[1, 2]])), 90.0)
+
+    def test_follows_nearest_segment_of_bent_crest(self):
+        contour = self._contour(
+            [(0, 0), (20, 0), (40, 10), (40, 30), (0, 30)], [[0, 1, 2]]
+        )
+        a1 = face_azimuth_deg((5.0, 5.0), contour)
+        a2 = face_azimuth_deg((33.0, 14.0), contour)
+        self.assertAlmostEqual(a1, 180.0)
+        self.assertNotAlmostEqual(a1, a2)
+
+    def test_point_on_segment_uses_outward_normal(self):
+        self.assertAlmostEqual(face_azimuth_deg((10.0, 0.0), self._rect([[0, 1]])), 180.0)
+        # Грань задана против порядка обхода — наружу всё равно.
+        self.assertAlmostEqual(face_azimuth_deg((10.0, 0.0), self._rect([[1, 0]])), 180.0)
+
+    def test_none_without_free_faces(self):
+        self.assertIsNone(face_azimuth_deg((10.0, 5.0), self._rect([])))
 
 
 class BlockVolumeTests(unittest.TestCase):

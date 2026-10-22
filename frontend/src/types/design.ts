@@ -1969,6 +1969,11 @@ export const HOLE_KIND_LABELS: Record<HoleKind, string> = {
 export const SELECTABLE_HOLE_KINDS = (Object.entries(HOLE_KIND_LABELS) as Array<[HoleKind, string]>)
   .filter(([kind]) => kind !== "face_toe");
 
+/** Виды в выборе у скважины: «Наклонная у откоса» — только у той, что уже ею является. */
+export function holeKindOptions(current: HoleKind): Array<[HoleKind, string]> {
+  return current === "face_toe" ? [...SELECTABLE_HOLE_KINDS, ["face_toe", HOLE_KIND_LABELS.face_toe]] : SELECTABLE_HOLE_KINDS;
+}
+
 export const MAP_METRIC_LABELS: Record<MapMetric, string> = {
   burden: "ЛНС",
   spacing: "Шаг",

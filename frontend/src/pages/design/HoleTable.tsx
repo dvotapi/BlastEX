@@ -1,7 +1,7 @@
 import { angleAzimuth, holeLength } from "../../lib/geometry2d";
 import { ruNumber } from "../../lib/format";
 import type { Hole, HoleKind } from "../../types/design";
-import { HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS } from "../../types/design";
+import { HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS, holeKindOptions } from "../../types/design";
 import { axisPatch, toePatch } from "./holeEdits";
 import { RoleBadge } from "./RoleBadge";
 
@@ -111,7 +111,7 @@ export function HoleTable({
                   <td><b>{h.id}</b></td>
                   <td>
                     <select value={h.kind} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdateHole(h.id, { kind: e.target.value as HoleKind })}>
-                      {Object.entries(HOLE_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      {holeKindOptions(h.kind).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
                   </td>
                   <td>{ruNumber(h.collar.x, 2)}</td>

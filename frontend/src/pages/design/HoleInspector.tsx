@@ -8,7 +8,7 @@ import { barrelWidthPx, makeAxis } from "../../components/holeDrawing/geometry";
 import { ruNumber } from "../../lib/format";
 import { angleAzimuth, holeLength } from "../../lib/geometry2d";
 import type { FloorBurdenSource, Hole, HoleKind, HoleLoad, HoleManualFlag, HoleRecomputeFlag } from "../../types/design";
-import { FLOOR_BURDEN_SOURCE_LABELS, HOLE_KIND_LABELS } from "../../types/design";
+import { FLOOR_BURDEN_SOURCE_LABELS, HOLE_KIND_LABELS, holeKindOptions } from "../../types/design";
 import { axisPatch, collarZPatch, toePatch } from "./holeEdits";
 
 /** Флаги пересчёта по кровле — для пользователя. */
@@ -106,7 +106,7 @@ export function HoleInspector({
             <label>
               Тип
               <select value={hole.kind} onChange={(e) => onUpdateHole(hole.id, { kind: e.target.value as HoleKind })}>
-                {Object.entries(HOLE_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {holeKindOptions(hole.kind).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
             <div className="field-pair">

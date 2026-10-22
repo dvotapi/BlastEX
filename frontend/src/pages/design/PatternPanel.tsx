@@ -170,7 +170,13 @@ export function PatternPanel({
               onChange={(e) => {
                 const scheme = e.target.value as "vertical" | "pair" | "taper";
                 // «Вертикальный» — ключи убираем, чтобы паспорт не отличался от нетронутого
-                if (scheme === "vertical") onChange({ front_rows_mode: undefined, front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined });
+                if (scheme === "vertical")
+                  onChange({
+                    front_rows_mode: undefined,
+                    front_rows_tilt_count: undefined,
+                    front_rows_tilt_deg: undefined,
+                    min_crest_offset_m: undefined,
+                  });
                 else if (scheme === "pair") onChange({ front_rows_mode: "pair", front_rows_tilt_count: undefined });
                 else onChange({ front_rows_mode: "taper", front_rows_tilt_count: taperCount || 1 });
               }}
@@ -200,24 +206,34 @@ export function PatternPanel({
                 min="0"
                 max="30"
                 step="1"
-                value={params.front_rows_tilt_deg ?? 15}
-                onChange={(e) => onChange({ front_rows_tilt_deg: Math.min(30, Math.max(0, Number(e.target.value))) })}
+                value={params.front_rows_tilt_deg ?? ""}
+                placeholder="15"
+                // Пусто — ключ убираем (угол по умолчанию 15°), а не пишем 0
+                onChange={(e) =>
+                  onChange({
+                    front_rows_tilt_deg: e.target.value === "" ? undefined : Math.min(30, Math.max(0, Number(e.target.value))),
+                  })
+                }
               />
             </label>
           )}
         </div>
 
-        <label title="Устье не ближе этого расстояния к верхней кромке уступа. Пусто — 1 м.">
-          Мин. отступ устья от кромки, м
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={params.min_crest_offset_m ?? ""}
-            placeholder="1"
-            onChange={(e) => onChange({ min_crest_offset_m: e.target.value === "" ? undefined : Number(e.target.value) })}
-          />
-        </label>
+        {/* У вертикального первого ряда отступ генератор не выбирает (это часть 4
+            оптимизатора) — поле видно, только если отступ уже задан в паспорте */}
+        {(frontScheme !== "vertical" || params.min_crest_offset_m != null) && (
+          <label title="Устье не ближе этого расстояния к верхней кромке уступа. Пусто — 1 м.">
+            Мин. отступ устья от кромки, м
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={params.min_crest_offset_m ?? ""}
+              placeholder="1"
+              onChange={(e) => onChange({ min_crest_offset_m: e.target.value === "" ? undefined : Number(e.target.value) })}
+            />
+          </label>
+        )}
 
         <div className="kind-flags">
           <label className="checkbox-row"><input type="checkbox" checked={params.buffer_row} onChange={(e) => onChange({ buffer_row: e.target.checked })} />Буферный ряд</label>

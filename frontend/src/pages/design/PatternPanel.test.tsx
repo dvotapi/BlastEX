@@ -54,19 +54,38 @@ describe("PatternPanel: первый ряд у откоса", () => {
   it("угол по умолчанию 15, ввод 40 пишется как 30", () => {
     const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
     const field = screen.getByLabelText(TILT) as HTMLInputElement;
-    expect(field.value).toBe("15");
+    expect(field.value).toBe("");
+    expect(field.placeholder).toBe("15");
     fireEvent.change(field, { target: { value: "40" } });
     expect(onChange).toHaveBeenCalledWith({ front_rows_tilt_deg: 30 });
   });
 
-  it("«Вертикальный» убирает все три ключа", () => {
-    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "taper", front_rows_tilt_count: 2, front_rows_tilt_deg: 20 });
+  it("пустой наклон убирает ключ, а не пишет 0", () => {
+    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair", front_rows_tilt_deg: 20 });
+    fireEvent.change(screen.getByLabelText(TILT), { target: { value: "" } });
+    const [patch] = onChange.mock.calls[0];
+    expect("front_rows_tilt_deg" in patch).toBe(true);
+    expect(patch.front_rows_tilt_deg).toBeUndefined();
+  });
+
+  it("«Вертикальный» убирает ключи схемы и отступа", () => {
+    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "taper", front_rows_tilt_count: 2, front_rows_tilt_deg: 20, min_crest_offset_m: 2 });
     fireEvent.change(screen.getByLabelText(SCHEME), { target: { value: "vertical" } });
-    expect(onChange).toHaveBeenCalledWith({ front_rows_mode: undefined, front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined });
+    const [patch] = onChange.mock.calls[0];
+    expect(Object.keys(patch).sort()).toEqual(["front_rows_mode", "front_rows_tilt_count", "front_rows_tilt_deg", "min_crest_offset_m"]);
+    expect(Object.values(patch).every((v) => v === undefined)).toBe(true);
+  });
+
+  it("у вертикального первого ряда отступа от кромки нет, если он не задан", () => {
+    mount();
+    expect(screen.queryByLabelText("Мин. отступ устья от кромки, м")).toBeNull();
+    cleanup();
+    mount({ ...DEFAULT_PATTERN_PARAMS, min_crest_offset_m: 1.5 });
+    expect((screen.getByLabelText("Мин. отступ устья от кромки, м") as HTMLInputElement).value).toBe("1.5");
   });
 
   it("«Мин. отступ устья от кромки» пишет ключ, умолчание 1 — подсказка", () => {
-    const onChange = mount();
+    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
     const field = screen.getByLabelText("Мин. отступ устья от кромки, м") as HTMLInputElement;
     expect(field.value).toBe("");
     expect(field.placeholder).toBe("1");

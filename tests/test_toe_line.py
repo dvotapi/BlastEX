@@ -611,3 +611,19 @@ def test_square_pattern_w_is_spacing_even_with_burden_key():
     # Без ключа pattern сетка квадратная.
     assert allowed_floor_burden_m({"spacing_a_m": 4.0, "burden_b_m": 3.0}) == pytest.approx(4.12)
     assert allowed_floor_burden_m({"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.0}) == pytest.approx(3.09)
+
+
+def test_tilted_pair_shadows_only_its_own_vertical():
+    # A с парой; B без пары — сбоку и впереди пары по коридору: пара его не закрывает.
+    a = vertical_hole("1-01", x=10, y=3.0, row=0)
+    pair = inclined_hole("1-01T", x=10, y=2.0, row=0, angle_deg=10, azimuth_deg=180)
+    pair = Hole(**{**pair.__dict__, "kind": "face_toe"})
+    b = vertical_hole("1-02", x=14, y=1.8, row=0)
+    result = floor_burdens(design_with([a, pair, b]))
+    assert set(result) == {"1-01T", "1-02"}
+
+
+def test_square_w_without_spacing_uses_generator_default():
+    # generate_pattern строит квадратную сетку без spacing_a_m с a = 5.
+    assert allowed_floor_burden_m({"pattern": "square", "burden_b_m": 3.0}) == pytest.approx(5.15)
+    assert allowed_floor_burden_m({}) is None

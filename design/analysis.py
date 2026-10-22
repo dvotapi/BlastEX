@@ -219,8 +219,8 @@ def timing_isolines(
 
 
 def _two_numbers(value: float, limit: float) -> tuple[str, str]:
-    """Два числа предупреждения через запятую: один знак, а если так они совпадают — два."""
-    digits = 1 if f"{value:.1f}" != f"{limit:.1f}" else 2
+    """Два числа предупреждения через запятую: один знак, а если так они совпадают — два (три)."""
+    digits = next((d for d in (1, 2) if f"{value:.{d}f}" != f"{limit:.{d}f}"), 3)
     return f"{value:.{digits}f}".replace(".", ","), f"{limit:.{digits}f}".replace(".", ",")
 
 

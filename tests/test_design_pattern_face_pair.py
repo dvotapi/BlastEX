@@ -195,3 +195,11 @@ def test_pair_floor_point_lies_toward_face():
         fx, fy = floor_point(pair)
         assert fx == pytest.approx(pair.collar.x, abs=1e-9)
         assert fy == pytest.approx(2.8 - SLOPE_M, abs=1e-3)
+
+
+def test_no_pair_when_collar_outside_boundary():
+    # Отступ от контура 2,5 м: ряд в 3 м внутри, устье пары в 2 м — вне границы
+    # (до кромки 2 м — больше минимального отступа, отсекает только граница).
+    holes = generate_pattern(CONTOUR, BASE | {"edge_margin_m": 2.5})
+    assert _first_row(holes)
+    assert _pairs(holes) == []

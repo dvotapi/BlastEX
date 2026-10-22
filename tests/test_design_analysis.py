@@ -182,5 +182,14 @@ def test_floor_burden_messages_show_two_decimals_when_rounding_hides_difference(
     assert short[0]["message"] == "ЛСП 2,95 м меньше допустимого 2,96 м (0,8·W, подошва по углу)."
 
 
+
+def test_two_numbers_adds_digits_until_numbers_differ():
+    from design.analysis import _two_numbers
+
+    assert _two_numbers(6.38, 3.81) == ("6,4", "3,8")
+    assert _two_numbers(3.83, 3.811) == ("3,83", "3,81")
+    assert _two_numbers(3.8114, 3.811) == ("3,811", "3,811")
+
+
 if __name__ == "__main__":
     unittest.main()

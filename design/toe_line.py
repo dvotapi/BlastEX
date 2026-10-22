@@ -244,6 +244,10 @@ def floor_point(hole: Hole) -> tuple[float, float]:
 _OWN_BURDEN_PATTERNS = ("rectangular", "staggered", "variable", "domain_dependent")
 
 
+# Шаг a квадратной сетки без `spacing_a_m` — как в `generate_pattern`, м.
+DEFAULT_SQUARE_SPACING_M = 5.0
+
+
 def _is_square(params: dict) -> bool:
     """Квадратная ли сетка — так же, как в `generate_pattern` (нет ключа или неизвестный вид — квадратная)."""
     return str(params.get("pattern", "square")) not in _OWN_BURDEN_PATTERNS
@@ -252,7 +256,13 @@ def _is_square(params: dict) -> bool:
 def design_burden_m(pattern_params: dict | None) -> float | None:
     """Проектная W: `burden_b_m`; у квадратной сетки — шаг a (b = a); None — не задана."""
     params = pattern_params or {}
-    w = params.get("spacing_a_m") if _is_square(params) else params.get("burden_b_m")
+    if _is_square(params):
+        w = params.get("spacing_a_m")
+        if w in (None, "") and params.get("burden_b_m") not in (None, ""):
+            # Шаг не задан, а W введена: генератор строит квадратную сетку с a по умолчанию.
+            w = DEFAULT_SQUARE_SPACING_M
+    else:
+        w = params.get("burden_b_m")
     try:
         w = float(w)
     except (TypeError, ValueError):
@@ -528,7 +538,9 @@ def floor_report(design: BlastDesign) -> tuple[dict[str, FloorBurden], list[str]
         value = position.distance_m
         if value > 0 and not position.beyond:
             target = shapely.Point(position.toe_point)
-            if next(corridor_blockers(i, value, points, target, tree, min_advance, reach), None) is not None:
+            # Пара у откоса закрывает только свою вертикальную (`paired`), не соседей.
+            blockers = corridor_blockers(i, value, points, target, tree, min_advance, reach)
+            if next((j for j in blockers if grid[j].kind != FACE_TOE_KIND), None) is not None:
                 continue
         result[hole.id] = FloorBurden(
             hole_id=hole.id,

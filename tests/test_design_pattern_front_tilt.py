@@ -345,8 +345,11 @@ def test_staggered_grid_columns_by_parity():
     assert gaps and all(gap == pytest.approx(7.0, abs=0.01) for gap in gaps)
     first, second, third = rows(holes)[:3]
     assert all(h.angle_deg == pytest.approx(15.0) for h in first)
-    # Второй ряд — первый в своих столбцах (сдвинут на полшага).
-    assert all(h.angle_deg == pytest.approx(15.0) for h in second)
+    # Второй ряд — первый в своих столбцах (сдвинут на полшага), но не у
+    # откоса (по коридору — ряд 2): его столбцы без наклона и сдвига.
+    plain_second = rows(plain)[1]
+    assert all(h.angle_deg == pytest.approx(0.0) for h in second)
+    assert [h.collar for h in second] == [h.collar for h in plain_second]
     assert all(h.angle_deg == pytest.approx(7.5) for h in third)
     assert {round(h.collar.x, 6) for h in holes if h.kind == "production"} == {
         round(h.collar.x, 6) for h in plain if h.kind == "production"
@@ -592,6 +595,36 @@ def test_variable_and_domain_rows_are_tilted():
     assert all(h.angle_deg == pytest.approx(15.0) for h in grid[0])
     assert all(h.angle_deg == pytest.approx(7.5) for h in grid[1])
     assert all(h.angle_deg == pytest.approx(0.0) for h in grid[2])
+
+
+def test_variable_rows_with_different_spacing_tilt_only_face_holes():
+    # Разный шаг a по рядам: столбцы не совпадают, и у скважин глубже
+    # первого ряда «впереди в столбце» никого нет. Наклоняется только ряд у
+    # откоса; глубже — ни наклона, ни сдвига.
+    params = BASE | {
+        "pattern": "variable",
+        "row_params": [{"spacing_a_m": 3.0, "burden_b_m": 3.0}, {"spacing_a_m": 4.0}],
+    }
+    holes = generate_pattern(CONTOUR, params | {"front_rows_tilt_count": 1})
+    plain = generate_pattern(CONTOUR, params)
+    grid = rows(holes)
+    assert all(h.angle_deg == pytest.approx(15.0) for h in grid[0])
+    face_y = max(h.collar.y for h in grid[0])
+    tilted = [h for h in holes if h.kind == "production" and h.angle_deg > 1e-6]
+    assert tilted and all(h.collar.y <= face_y + 1e-9 for h in tilted)
+    plain_xy = {(round(h.collar.x, 6), round(h.collar.y, 6)) for h in plain if h.kind == "production"}
+    for hole in holes:
+        if hole.kind == "production" and hole.collar.y > face_y + 1e-9 and hole.angle_deg <= 1e-6:
+            moved = (round(hole.collar.x, 6), round(hole.collar.y, 6)) not in plain_xy
+            # Сдвинуты только скважины столбцов, начатых наклонённым рядом 1.
+            if moved:
+                assert any(abs(t.collar.x - hole.collar.x) < 0.4 for t in grid[0])
+    # Скважины в столбцах, начатых глубже ряда у откоса, — на месте.
+    assert any(
+        (round(h.collar.x, 6), round(h.collar.y, 6)) in plain_xy
+        for h in holes
+        if h.kind == "production" and h.collar.y > face_y + 1e-9
+    )
 
 
 def test_walls_and_stab_keep_their_angles():

@@ -572,8 +572,8 @@ def _tilt_caps_m(
 
 # Столбец сетки для плавного перехода: устья с проекцией на ось ряда в
 # пределах этой доли шага a — один столбец (у шахматки соседний столбец — в
-# полшага, он свой).
-TAPER_COLUMN_TOLERANCE_RATIO = 0.25
+# полшага, он свой; у variable с разным a по рядам совпадают лишь общие узлы).
+TAPER_COLUMN_TOLERANCE_RATIO = 0.1
 # Разрыв участка ряда: соседние по ряду устья дальше этого числа шагов ряда.
 TAPER_SEGMENT_GAP_RATIO = 1.5
 
@@ -602,11 +602,11 @@ def _swept_inside(
         quad = shapely.Polygon([(ax, ay), (bx, by), (bx + ox, by + oy), (ax + ox, ay + oy)])
         if quad.area > 1e-12:
             parts.append(quad)
-    region = shapely.union_all([shapely.make_valid(part) for part in parts])
+    region = shapely.union_all([shapely.make_valid(part) for part in parts]).buffer(_ON_EDGE_M)
     shapely.prepare(region)
 
     def inside(x: float, y: float) -> bool:
-        return bool(shapely.dwithin(region, shapely.Point(x, y), _ON_EDGE_M))
+        return bool(shapely.intersects_xy(region, x, y))
 
     return inside
 
@@ -704,8 +704,9 @@ def _taper_front_rows(
     откоса скважина столбца — ранг 1, вторая — 2, дальше — 3 и глубже. Ряд
     вдоль бровки (первые `face_row_count`) — ранг 1 весь, скважины решётки за
     ним — со второго; их столбец берёт угол ближайшей по оси ряда скважины
-    ряда вдоль бровки. Ранг по коридору к бровке (`front_row_ranks`) остаётся
-    для ЛСП и проверок.
+    ряда вдоль бровки. Первая в столбце получает ранг 1, только если и по
+    коридору к бровке (`front_row_ranks`) она ранг 1; иначе столбец начинается
+    в глубине блока — он остаётся без наклона и сдвига.
 
     Участок ряда (`_row_segments`) получает один угол α₁ — наименьший из
     допустимых по его скважинам (`_tilt_caps_m`: не больше `tilt_deg`, ЛСП
@@ -739,6 +740,7 @@ def _taper_front_rows(
         head[i] = i
     face_across = collars[:face_row_count, 0] * -direction[1] + collars[:face_row_count, 1] * direction[0]
     tolerance = TAPER_COLUMN_TOLERANCE_RATIO * spacing_a
+    corridor = front_row_ranks([tuple(xy) for xy in collars], contour, spacing_a, burden_b, forced_first=face_row_count)
     for column in _taper_columns(collars, direction, tolerance, face_row_count):
         ordered = [i for i in column if inside[i]] + [i for i in column if not inside[i]]
         if not inside[ordered[0]]:
@@ -746,6 +748,12 @@ def _taper_front_rows(
                 rank[i] = 0  # столбец целиком за контуром — не ставится
             continue
         anchor = ordered[0]
+        if not face_row_count and corridor[anchor] != 1:
+            # Первая в столбце, но не у откоса (столбец начинается в глубине
+            # блока — у variable с разным a по рядам): без наклона и сдвига.
+            for i in ordered:
+                rank[i] = 3
+            continue
         if face_row_count:
             across = collars[anchor, 0] * -direction[1] + collars[anchor, 1] * direction[0]
             anchor = int(np.argmin(np.abs(face_across - across)))

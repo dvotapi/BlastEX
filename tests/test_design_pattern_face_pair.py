@@ -263,3 +263,15 @@ def test_pair_cap_uses_own_collar_on_sloped_roof():
         burden = burdens[pair.id]
         assert not burden.short
         assert burden.value_m == pytest.approx(0.8 * 3.5, abs=1e-5)
+
+
+def test_pair_added_when_variable_row_gives_front_row_another_kind():
+    """Ряд у откоса с видом из `row_params` (infill) — всё равно основная сетка: пара ставится."""
+    params = BASE | {"pattern": "variable", "row_params": [{"kind": "infill"}, {}]}
+    holes = generate_pattern(CONTOUR, params)
+    front = [h for h in holes if h.kind == "infill" and abs(h.collar.y - 3.0) < 1e-6]
+    pairs = _pairs(holes)
+    assert len(front) == 11
+    assert len(pairs) == len(front)
+    by_id = {h.id: h for h in holes}
+    assert all(by_id[p.id[:-1]].kind == "infill" for p in pairs)

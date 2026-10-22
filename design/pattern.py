@@ -365,14 +365,18 @@ def generate_pattern(
     # Сейчас в `holes` — вся основная сетка: ряд вдоль бровки, ряды впереди
     # первого ряда решётки и ряды решётки. Схема первого ряда у откоса — после
     # раскладки, по местному рангу (см. `_taper_front_rows`).
+    # Схема первого ряда работает со всей основной сеткой независимо от вида
+    # скважин: у variable строка `row_params` может дать ряду у откоса любой
+    # вид (например, infill) — он остаётся рядом основной сетки. Поэтому в
+    # `_off_crest`, `_face_pairs` и `_taper_front_rows` уходит только она.
     lattice_xy: dict[int, tuple[float, float]] = {}
     pair_of: dict[int, int] = {}  # id() пары → id() её вертикальной
     if mode == FRONT_ROWS_MODE_PAIR:
         # Устья основной сетки не ближе `min_crest_offset_m` к кромке — до
         # постановки пар (у пары свой отступ проверяется при постановке).
         face_row = holes[:face_row_count]
-        holes = _off_crest(holes, contour, min_crest_offset_m(params), {"production", default_kind})
-        face_row_count = len(_off_crest(face_row, contour, min_crest_offset_m(params), {"production", default_kind}))
+        holes = _off_crest(holes, contour, min_crest_offset_m(params))
+        face_row_count = len(_off_crest(face_row, contour, min_crest_offset_m(params)))
         for partner, pair in _face_pairs(
             holes,
             face_row_count,
@@ -383,7 +387,6 @@ def generate_pattern(
             tilt_floor_burden_target_m(params),
             allowed_floor_burden_m(params),
             min_crest_offset_m(params),
-            {"production", default_kind},
             spacing_a,
             burden_b,
             subdrill_m,
@@ -402,7 +405,6 @@ def generate_pattern(
             tilt_count,
             tilt_deg,
             tilt_floor_burden_target_m(params),
-            {"production", default_kind},
             spacing_a,
             burden_b,
             subdrill_m,
@@ -412,7 +414,7 @@ def generate_pattern(
     if mode is not None and mode != FRONT_ROWS_MODE_PAIR:
         # Схема первого ряда задана: устья основной сетки не ближе
         # `min_crest_offset_m` к кромке — после сдвига плавного перехода.
-        holes = _off_crest(holes, contour, min_crest_offset_m(params), {"production", default_kind})
+        holes = _off_crest(holes, contour, min_crest_offset_m(params))
 
     holes.extend(
         _generate_wall_row(
@@ -466,8 +468,8 @@ def generate_pattern(
     )
 
 
-def _off_crest(holes: list[Hole], contour: BlockContour, min_offset: float, kinds: set[str]) -> list[Hole]:
-    """Скважины без устьев основной сетки (`kinds`) ближе `min_offset` к кромке."""
+def _off_crest(holes: list[Hole], contour: BlockContour, min_offset: float) -> list[Hole]:
+    """Скважины основной сетки (`holes` — только она) без устьев ближе `min_offset` к кромке."""
     crest = crest_geometry(contour)
     if crest is None or min_offset <= 0 or not holes:
         return holes
@@ -475,7 +477,7 @@ def _off_crest(holes: list[Hole], contour: BlockContour, min_offset: float, kind
     return [
         h
         for h, d in zip(holes, distances)
-        if h.kind not in kinds or d >= min_offset - 1e-9
+        if d >= min_offset - 1e-9
     ]
 
 
@@ -730,7 +732,6 @@ def _face_pairs(
     target_m: float,
     allowed_m: float | None,
     min_crest_m: float,
-    pair_kinds: set[str],
     spacing_a: float,
     burden_b: float,
     subdrill_m: float,
@@ -739,7 +740,8 @@ def _face_pairs(
 ) -> list[tuple[Hole, Hole]]:
     """Пара у откоса: (вертикальная, наклонная у откоса) для скважин ранга 1.
 
-    Пара ставится к скважине основной сетки (`pair_kinds`) ранга 1
+    Пара ставится к скважине основной сетки (`grid` — только она, любого
+    вида) ранга 1
     (`front_row_ranks`), у которой ЛСП больше допустимой `allowed_m` (W + 3 %).
     Устье пары — на `FACE_PAIR_OFFSET_M` ближе к откосу по линии столбца
     (−`advance_dir`), без смещения вдоль ряда; азимут наклона — то же
@@ -761,7 +763,7 @@ def _face_pairs(
     block_h = contour.bench.height_m
     collars = [(h.collar.x, h.collar.y) for h in grid]
     ranks = front_row_ranks(collars, contour, spacing_a, burden_b, forced_first=face_row_count)
-    picked = [i for i, hole in enumerate(grid) if ranks[i] == 1 and hole.kind in pair_kinds]
+    picked = [i for i in range(len(grid)) if ranks[i] == 1]
     if not picked:
         return []
     heights = [hole_bench_height_m(grid[i], block_h) for i in picked]
@@ -988,7 +990,6 @@ def _taper_front_rows(
     tilt_count: int,
     tilt_deg: float,
     target_m: float,
-    tilt_kinds: set[str],
     spacing_a: float,
     burden_b: float,
     subdrill_m: float,
@@ -1013,8 +1014,8 @@ def _taper_front_rows(
     Столбец берёт угол своей первой скважины: ранг 2 при `tilt_count` = 2 —
     α₁/2, остальные — общий угол паспорта; устья ранга k ≥ 2 сдвигаются к
     откосу на H·(tg α₁ − tg α_k) (α_k = 0 за переходом, H — высота уступа
-    блока): у подошвы между соседями столбца — шаг сетки. Наклоняются только
-    виды `tilt_kinds`; сдвигаются все скважины столбца.
+    блока): у подошвы между соседями столбца — шаг сетки. `grid` — только
+    основная сетка; наклон и сдвиг не зависят от вида скважины.
 
     В `grid` могут быть узлы решётки за контуром (у тыла и флангов), которые
     сдвиг вернёт внутрь: они не бывают первыми в столбце, а скважина, чьё
@@ -1067,7 +1068,7 @@ def _taper_front_rows(
         if steps:
             row_gap[anchor] = min(row_gap.get(anchor, math.inf), *steps)
 
-    first = [rank[i] == 1 and grid[i].kind in tilt_kinds for i in range(len(grid))]
+    first = [rank[i] == 1 for i in range(len(grid))]
     picked = [i for i in range(len(grid)) if first[i]]
     tan_first = [0.0] * len(grid)
     if picked:
@@ -1109,13 +1110,13 @@ def _taper_front_rows(
     height = contour.bench.height_m
     tan_1s = np.zeros(len(grid))
     tan_ks = np.zeros(len(grid))
-    for i, hole in enumerate(grid):
+    for i in range(len(grid)):
         if rank[i] == 0:
             continue
         tan_1 = tan_first[head[i]] if head[i] >= 0 else 0.0
         if rank[i] == 1:
             tan_k = tan_first[i]
-        elif rank[i] == 2 and tilt_count >= 2 and hole.kind in tilt_kinds:
+        elif rank[i] == 2 and tilt_count >= 2:
             tan_k = math.tan(0.5 * math.atan(tan_1))
         else:
             tan_k = 0.0

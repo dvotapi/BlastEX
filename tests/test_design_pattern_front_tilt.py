@@ -789,3 +789,17 @@ def test_fast_ranks_match_definition(case):
     for step_a, step_b in ((a, b), (a / 3.0, b / 3.0)):
         assert front_row_ranks(collars, contour, step_a, step_b) == _naive_ranks(collars, contour, step_a, step_b)
     assert front_row_ranks(collars, contour, a, b, forced_first=5) == _naive_ranks(collars, contour, a, b, 5)
+
+
+def test_taper_tilts_front_row_of_another_kind_in_variable_grid():
+    """Вид ряда у откоса из `row_params` (infill) не выводит его из плавного перехода."""
+    keys = {"front_rows_tilt_count": 2, "front_rows_tilt_deg": 15}
+    same = BASE | keys | {"pattern": "variable", "row_params": [{}, {}]}
+    other = BASE | keys | {"pattern": "variable", "row_params": [{"kind": "infill"}, {"kind": "infill"}, {}]}
+    expected = rows(generate_pattern(CONTOUR, same))[:3]
+    got = rows(generate_pattern(CONTOUR, other), kinds=("production", "infill"))[:3]
+    assert [h.kind for h in got[0]] == ["infill"] * len(got[0])
+    for row_got, row_expected in zip(got, expected):
+        assert [(h.collar, h.toe) for h in row_got] == [(h.collar, h.toe) for h in row_expected]
+    assert all(h.angle_deg == pytest.approx(15.0) for h in got[0])
+    assert all(h.angle_deg == pytest.approx(7.5) for h in got[1])

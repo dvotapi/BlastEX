@@ -1054,6 +1054,8 @@ export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid" | "trunk
 
 // Ступени поверхностных замедлений НСИ, мс.
 export const SURFACE_NSI_MS_OPTIONS = [17, 25, 42, 67, 109] as const;
+// Номиналы пиротехнических реле ДШ, мс (design/timing.py::DETCORD_RELAY_MS_OPTIONS).
+export const DETCORD_RELAY_MS_OPTIONS = [10, 20, 25, 35, 42] as const;
 export type SystemType = InitiationNetwork["system"];
 
 export type TieParams = {

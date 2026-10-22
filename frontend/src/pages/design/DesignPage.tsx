@@ -2929,7 +2929,10 @@ export function DesignPage({
                 selectedCount={selected.size}
                 pendingFromId={pendingTieFromId}
                 warnings={tieWarnings}
-                onSchemeChange={setTieScheme}
+                onSchemeChange={(next) => {
+                  setTieScheme(next);
+                  setTieWarnings([]);
+                }}
                 onParamsChange={(patch) => setTieParams((prev) => ({ ...prev, ...patch }))}
                 onGenerate={generateTie}
                 onUpdateTie={updateManualTie}

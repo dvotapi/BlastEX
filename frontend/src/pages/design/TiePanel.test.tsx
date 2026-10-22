@@ -59,8 +59,59 @@ describe("TiePanel trunk_chains", () => {
     expect(screen.getByLabelText("Внутрискважинное замедление, мс")).not.toBeDisabled();
   });
 
-  it("prints warnings", () => {
-    renderPanel({ scheme: "trunk_chains", warnings: ["Фронт инициирования отстаёт."] });
-    expect(screen.getByText("Фронт инициирования отстаёт.")).toBeInTheDocument();
+  it("prints warnings in the warning style, repeated texts included", () => {
+    renderPanel({ scheme: "trunk_chains", warnings: ["Фронт инициирования отстаёт.", "Фронт инициирования отстаёт."] });
+    const items = screen.getAllByText("Фронт инициирования отстаёт.");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveClass("frag-warnings");
+  });
+
+  it("shows the server-picked downhole delay of a trunk_chains network", () => {
+    const network = {
+      starters: [],
+      connectors: [],
+      surface_connectors: [],
+      starter_items: [],
+      timing_params: { scheme: "trunk_chains", downhole_delay_ms: 700 },
+    } as unknown as InitiationNetwork;
+    renderPanel({ scheme: "trunk_chains", network, params: { ...DEFAULT_TIE_PARAMS, downhole_delay_ms: 500 } });
+    expect(screen.getByLabelText("Внутрискважинное замедление, мс")).toHaveValue(700);
+  });
+
+  it("leaves the downhole field empty until the scheme is built", () => {
+    const network = {
+      starters: [],
+      connectors: [],
+      surface_connectors: [],
+      starter_items: [],
+      timing_params: { scheme: "row", downhole_delay_ms: 500 },
+    } as unknown as InitiationNetwork;
+    renderPanel({ scheme: "trunk_chains", network, params: { ...DEFAULT_TIE_PARAMS, downhole_delay_ms: 500 } });
+    const field = screen.getByLabelText("Внутрискважинное замедление, мс");
+    expect(field).toHaveValue(null);
+    expect(field).toHaveAttribute("placeholder", "подбирается");
+  });
+
+  it("hides electronic timing modes for trunk_chains", () => {
+    const params = { ...DEFAULT_TIE_PARAMS, system: "electronic" as const, timing_mode: "direction" as const };
+    renderPanel({ scheme: "trunk_chains", params });
+    expect(screen.queryByText("Электронный тайминг")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Азимут направления, °")).not.toBeInTheDocument();
+    expect(screen.queryByText("Назначить электронный тайминг")).not.toBeInTheDocument();
+    expect(screen.getByText("Построить схему")).toBeInTheDocument();
+    cleanup();
+    renderPanel({ scheme: "row", params });
+    expect(screen.getByText("Электронный тайминг")).toBeInTheDocument();
+    expect(screen.getByText("Назначить электронный тайминг")).toBeInTheDocument();
+  });
+
+  it("offers detcord relay steps for detcord", () => {
+    renderPanel({ scheme: "trunk_chains", params: { ...DEFAULT_TIE_PARAMS, system: "detcord" } });
+    const options = Array.from((screen.getByLabelText("Магистраль, мс") as HTMLSelectElement).options).map((o) => o.value);
+    expect(options).toEqual(["10", "20", "25", "35", "42"]);
+    cleanup();
+    renderPanel({ scheme: "trunk_chains" });
+    const nsi = Array.from((screen.getByLabelText("Цепочки, мс") as HTMLSelectElement).options).map((o) => o.value);
+    expect(nsi).toEqual(["17", "25", "42", "67", "109"]);
   });
 });

@@ -1,4 +1,5 @@
 import {
+  DETCORD_RELAY_MS_OPTIONS,
   ELECTRONIC_MODE_OPTIONS,
   networkTies,
   SURFACE_NSI_MS_OPTIONS,
@@ -57,8 +58,18 @@ export function TiePanel({
   const electronic = params.system === "electronic";
   const mode = params.timing_mode;
   const trunkChains = scheme === "trunk_chains";
-  // Внутрискважинное замедление СИНВ при этой схеме подбирает сервер.
+  // Режимы электронного тайминга схеме «Магистраль + цепочки» не применяются:
+  // времена — по связям.
+  const electronicModes = electronic && !trunkChains;
+  // Внутрискважинное замедление СИНВ при этой схеме подбирает сервер; поле
+  // показывает выбранное, только если текущая сеть построена этой схемой.
   const downholeAuto = trunkChains && params.system === "nonel";
+  const pickedDownhole =
+    network.timing_params?.scheme === "trunk_chains" ? network.timing_params.downhole_delay_ms : undefined;
+  const downholeValue = downholeAuto
+    ? typeof pickedDownhole === "number" ? pickedDownhole : ""
+    : params.downhole_delay_ms;
+  const stepOptions = params.system === "detcord" ? DETCORD_RELAY_MS_OPTIONS : SURFACE_NSI_MS_OPTIONS;
 
   return (
     <section className="panel">
@@ -70,7 +81,7 @@ export function TiePanel({
           </select>
         </label>
 
-        {electronic && (
+        {electronicModes && (
           <>
             <small>Электронный тайминг</small>
             <div className="pattern-type-grid">
@@ -109,12 +120,12 @@ export function TiePanel({
             <div className="field-pair">
               <label>Магистраль, мс
                 <select value={params.trunk_ms} onChange={(e) => onParamsChange({ trunk_ms: Number(e.target.value) })}>
-                  {SURFACE_NSI_MS_OPTIONS.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
+                  {stepOptions.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
                 </select>
               </label>
               <label>Цепочки, мс
                 <select value={params.chain_ms} onChange={(e) => onParamsChange({ chain_ms: Number(e.target.value) })}>
-                  {SURFACE_NSI_MS_OPTIONS.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
+                  {stepOptions.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
                 </select>
               </label>
             </div>
@@ -126,7 +137,15 @@ export function TiePanel({
             </label>
             <small>Фланг — если смотреть с откоса на блок.</small>
             <label>Внутрискважинное замедление, мс
-              <input type="number" min="0" step="10" value={params.downhole_delay_ms} disabled={downholeAuto} onChange={(e) => onParamsChange({ downhole_delay_ms: Number(e.target.value) })} />
+              <input
+                type="number"
+                min="0"
+                step="10"
+                value={downholeValue}
+                placeholder={downholeAuto ? "подбирается" : undefined}
+                disabled={downholeAuto}
+                onChange={(e) => onParamsChange({ downhole_delay_ms: Number(e.target.value) })}
+              />
             </label>
             {downholeAuto && <small>Подбирается: наименьшее из 500 / 700 / 1000 мс, при котором сеть успевает до первого взрыва.</small>}
           </>
@@ -141,12 +160,12 @@ export function TiePanel({
           </div>
         )}
 
-        {electronic && mode === "direction" && (
+        {electronicModes && mode === "direction" && (
           <label>Азимут направления, °
             <input type="number" step="5" value={params.direction_azimuth_deg} onChange={(e) => onParamsChange({ direction_azimuth_deg: Number(e.target.value) })} />
           </label>
         )}
-        {electronic && mode === "gradient" && (
+        {electronicModes && mode === "gradient" && (
           <div className="field-pair">
             <label>От, мс
               <input type="number" step="1" value={params.gradient_from_ms} onChange={(e) => onParamsChange({ gradient_from_ms: Number(e.target.value) })} />
@@ -156,7 +175,7 @@ export function TiePanel({
             </label>
           </div>
         )}
-        {electronic && mode === "expression" && (
+        {electronicModes && mode === "expression" && (
           <label>Выражение времени
             <input
               type="text"
@@ -166,7 +185,7 @@ export function TiePanel({
             />
           </label>
         )}
-        {electronic && (
+        {electronicModes && (
           <label>База, мс
             <input type="number" min="0" step="1" value={params.base_ms} onChange={(e) => onParamsChange({ base_ms: Number(e.target.value) })} />
           </label>
@@ -178,13 +197,15 @@ export function TiePanel({
         </label>
 
         <button className="calculate-button" onClick={onGenerate} disabled={busy}>
-          {busy ? "Строим схему…" : electronic && mode ? "Назначить электронный тайминг" : "Построить схему"}
+          {busy ? "Строим схему…" : electronicModes && mode ? "Назначить электронный тайминг" : "Построить схему"}
         </button>
-        {warnings.map((text) => <small key={text} className="form-warning">{text}</small>)}
+        {warnings.map((text, index) => <small key={index} className="frag-warnings">{text}</small>)}
         <small>
-          {electronic
-            ? "Время задаётся программой канала. Выражение: row, col, x, y, interval, base, abs/min/max. Без eval."
-            : "Для НСИ интервал округляется до номинала (17/25/42/67/109 мс), для ДШ — до номинала реле."}
+          {trunkChains
+            ? "Ступени округляются до номинала: НСИ — 17/25/42/67/109 мс, ДШ — 10/20/25/35/42 мс."
+            : electronic
+              ? "Время задаётся программой канала. Выражение: row, col, x, y, interval, base, abs/min/max. Без eval."
+              : "Для НСИ интервал округляется до номинала (17/25/42/67/109 мс), для ДШ — до номинала реле."}
         </small>
 
         <div className="tie-edit-block">

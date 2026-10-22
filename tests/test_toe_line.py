@@ -580,6 +580,24 @@ def test_no_w_means_no_short():
     assert fb.min_m is None and fb.short is False
 
 
+# --- Пара у откоса: ЛСП у наклонной, вертикальная за ней закрыта -------------
+
+
+def test_face_toe_pair_gets_floor_burden_and_closes_its_vertical():
+    vertical = vertical_hole("1-01", x=10, y=3.0, row=0)
+    pair = vertical_hole("1-01T", x=10, y=2.0, row=0, kind="face_toe")
+    other = vertical_hole("1-03", x=30, y=3.0, row=0)
+    result = floor_burdens(design_with([vertical, pair, other]))
+    assert set(result) == {"1-01T", "1-03"}
+    assert result["1-01T"].value_m == pytest.approx(2.0 + 2.6795, abs=1e-3)
+
+
+def test_disabled_pair_does_not_close_its_vertical():
+    vertical = vertical_hole("1-01", x=10, y=3.0, row=0)
+    pair = vertical_hole("1-01T", x=10, y=2.0, row=0, kind="face_toe", enabled=False)
+    assert set(floor_burdens(design_with([vertical, pair]))) == {"1-01"}
+
+
 def test_default_kind_of_main_grid_gets_floor_burden():
     hole = vertical_hole("1-01", x=10, y=3.0, row=0, kind="infill")
     params = PATTERN | {"default_kind": "infill"}

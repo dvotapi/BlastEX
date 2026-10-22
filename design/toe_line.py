@@ -26,7 +26,7 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import nearest_points
 
 from design.geometry import drawing_bottom
-from design.models import BenchSurface, BlastDesign, BlockContour, Hole, row_family
+from design.models import FACE_TOE_KIND, BenchSurface, BlastDesign, BlockContour, Hole, face_pair_partner_id, row_family
 
 # Вершина кольца нижней бровки ближе этого к вершине верхнего контура — общая с ним, м.
 SHARED_VERTEX_TOLERANCE_M = 0.01
@@ -60,6 +60,10 @@ TOE_BURDEN_TOLERANCE = 0.03
 # Нижняя граница ЛСП (решение владельца 22.10.2026): не меньше 0,8·W.
 # Допустимый коридор ЛСП — от 0,8·W до W + 3 %.
 FLOOR_BURDEN_MIN_RATIO = 0.8
+
+# Минимальный отступ устья от кромки (верхней бровки) по умолчанию, м:
+# `pattern_params.min_crest_offset_m` (решение владельца 22.10.2026).
+MIN_CREST_OFFSET_DEFAULT_M = 1.0
 
 Polyline = list[tuple[float, float]]
 
@@ -268,6 +272,17 @@ def min_floor_burden_m(pattern_params: dict | None) -> float | None:
     return w * FLOOR_BURDEN_MIN_RATIO if w is not None else None
 
 
+def min_crest_offset_m(pattern_params: dict | None) -> float:
+    """Минимальный отступ устья от кромки: `min_crest_offset_m`, без него (или
+    при неверном значении) — `MIN_CREST_OFFSET_DEFAULT_M`; не меньше 0."""
+    raw = (pattern_params or {}).get("min_crest_offset_m")
+    try:
+        value = float(raw) if raw not in (None, "") else MIN_CREST_OFFSET_DEFAULT_M
+    except (TypeError, ValueError):
+        return MIN_CREST_OFFSET_DEFAULT_M
+    return max(0.0, value) if math.isfinite(value) else MIN_CREST_OFFSET_DEFAULT_M
+
+
 def _grid_steps_m(pattern_params: dict | None) -> tuple[float, float]:
     """Шаги сетки (a, b): a — `spacing_a_m`, без него W, без обоих
     `DEFAULT_CORRIDOR_STEP_M`; b — `burden_b_m`, без него (и у квадратной сетки) a."""
@@ -450,7 +465,7 @@ def toe_positions(
 
 
 def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
-    """ЛСП включённых скважин основной сетки, стоящих у откоса.
+    """ЛСП включённых скважин основной сетки и пар у откоса, стоящих у откоса.
 
     ЛСП — расстояние в плане от точки оси на уровне подошвы p_i до ближайшей
     точки линии подошвы t_i. Пусть d — единичный вектор от p_i к t_i. Скважину i
@@ -497,15 +512,17 @@ def floor_report(design: BlastDesign) -> tuple[dict[str, FloorBurden], list[str]
     min_advance, reach = shadow_limits(a, b)
     points = shapely.points(xy)
     tree = shapely.STRtree(points)
-    # ЛСП — у скважин основной сетки: рядовые и вид `default_kind` (как в
-    # сетке темпа отбойки).
-    measured = {"production"}
+    # ЛСП — у скважин основной сетки (рядовые и вид `default_kind`) и у пар у
+    # откоса; вертикальная за своей парой закрыта всегда — даже если пара
+    # вертикальная и стоит впереди меньше чем на 0,4·min(a, b).
+    measured = {"production", FACE_TOE_KIND}
     default_kind = str((design.pattern_params or {}).get("default_kind") or "").strip().lower()
     if default_kind:
         measured.add(default_kind)
+    paired = {partner for hole in grid if (partner := face_pair_partner_id(hole)) is not None}
     result: dict[str, FloorBurden] = {}
     for i, hole in enumerate(grid):
-        if hole.kind not in measured:
+        if hole.kind not in measured or hole.id in paired:
             continue
         position = positions[i]
         value = position.distance_m

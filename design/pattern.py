@@ -19,8 +19,29 @@ from design.geometry import (
 )
 from design.geology import domain_at
 from design.numbering import number_by_position
-from design.models import FRONT_ROW_BASE, HOLE_KINDS, BlastDomain, BlockContour, Hole, Point3, logical_row
-from design.toe_line import corridor_blocker_pairs, crest_geometry, min_floor_burden_m, shadow_limits, toe_positions
+from design.models import (
+    FACE_PAIR_ID_SUFFIX,
+    FACE_TOE_KIND,
+    FRONT_ROW_BASE,
+    HOLE_KINDS,
+    BlastDomain,
+    BlockContour,
+    Hole,
+    Point3,
+    logical_row,
+)
+from design.toe_line import (
+    MIN_CREST_OFFSET_DEFAULT_M,
+    allowed_floor_burden_m,
+    corridor_blocker_pairs,
+    crest_geometry,
+    floor_point,
+    hole_bench_height_m,
+    min_crest_offset_m,
+    min_floor_burden_m,
+    shadow_limits,
+    toe_positions,
+)
 
 PATTERN_TYPES = ("square", "rectangular", "staggered", "variable", "domain_dependent")
 REGULAR_PATTERNS = ("square", "rectangular", "staggered")
@@ -35,6 +56,9 @@ FRONT_ROWS_TILT_MAX_COUNT = 2
 # нижней границы ЛСП 0,8·W (`toe_line.min_floor_burden_m`); см.
 # `tilt_floor_burden_target_m`.
 FRONT_TILT_MIN_FLOOR_BURDEN_M = 1.0
+# Пара у откоса: устье наклонной на столько ближе к уступу, чем у вертикальной
+# первого ряда, по линии столбца, м (решение владельца 22.10.2026).
+FACE_PAIR_OFFSET_M = 1.0
 
 
 def generate_pattern(
@@ -59,8 +83,10 @@ def generate_pattern(
       diameter_mm / subdrill_m / angle_deg / azimuth_deg / depth_m
       default_kind            kind assigned to the main grid (default production)
       row_params              per-row overrides for variable: spacing_a_m, burden_b_m, shift_ratio, kind
+      front_rows_mode         pair | taper — схема первого ряда у откоса (нет ключа — taper при count > 0)
       front_rows_tilt_count   0–2 рядов у откоса с наклоном к откосу (нет ключа — 0)
-      front_rows_tilt_deg     угол этих рядов от вертикали, 0–30° (нет ключа — 15°)
+      front_rows_tilt_deg     наибольший угол наклона от вертикали, 0–30° (нет ключа — 15°)
+      min_crest_offset_m      минимальный отступ устья от кромки (нет ключа — 1 м)
       contour_row / presplit_row / trim_row / buffer_row / stab_row
       satellite_holes / infill_holes
     """
@@ -335,8 +361,27 @@ def generate_pattern(
     # первого ряда решётки и ряды решётки. Схема первого ряда у откоса — после
     # раскладки, по местному рангу (см. `_taper_front_rows`).
     lattice_xy: dict[int, tuple[float, float]] = {}
+    pair_of: dict[int, int] = {}  # id() пары → id() её вертикальной
     if mode == FRONT_ROWS_MODE_PAIR:
-        pass  # «Пара у откоса» — часть 3b, задача 2.
+        for partner, pair in _face_pairs(
+            holes,
+            face_row_count,
+            contour,
+            boundary,
+            advance_dir,
+            tilt_deg,
+            tilt_floor_burden_target_m(params),
+            allowed_floor_burden_m(params),
+            min_crest_offset_m(params),
+            {"production", default_kind},
+            spacing_a,
+            burden_b,
+            subdrill_m,
+            surfaces,
+            depth_override,
+        ):
+            pair_of[id(pair)] = id(partner)
+            holes.append(pair)
     elif taper:
         holes, lattice_xy = _taper_front_rows(
             holes,
@@ -396,11 +441,14 @@ def generate_pattern(
 
     # Id — по расположению (север→юг, запад→восток); row/col остаются техническими.
     # Сдвинутые плавным переходом — по месту в сетке до сдвига.
+    # Пара у откоса — номер своей вертикальной с «T».
     numbered = _keep_manual(existing_holes) + holes
+    index_of = {id(h): k for k, h in enumerate(numbered)}
     return number_by_position(
         numbered,
         row_azimuth_deg=float(params.get("row_azimuth_deg", 0.0)),
         positions=[lattice_xy.get(id(h)) for h in numbered] if lattice_xy else None,
+        partners=[index_of.get(pair_of[id(h)]) if id(h) in pair_of else None for h in numbered],
     )
 
 
@@ -492,7 +540,7 @@ def tilt_floor_burden_target_m(params: dict[str, Any]) -> float:
 
 # Схемы первого ряда у откоса (`front_rows_mode`): «плавный переход» — один
 # угол на участок ряда, шаг b у подошвы; «пара» — вертикальная + наклонная
-# у откоса (часть 3b, задача 2).
+# у откоса (`_face_pairs`).
 FRONT_ROWS_MODE_TAPER = "taper"
 FRONT_ROWS_MODE_PAIR = "pair"
 FRONT_ROWS_MODES = (FRONT_ROWS_MODE_PAIR, FRONT_ROWS_MODE_TAPER)
@@ -568,6 +616,104 @@ def _tilt_caps_m(
     for i in low:
         caps[i] = low[i]
     return caps
+
+
+def _face_pairs(
+    grid: list[Hole],
+    face_row_count: int,
+    contour: BlockContour,
+    boundary: list[tuple[float, float]],
+    advance_dir: tuple[float, float],
+    tilt_deg: float,
+    target_m: float,
+    allowed_m: float | None,
+    min_crest_m: float,
+    pair_kinds: set[str],
+    spacing_a: float,
+    burden_b: float,
+    subdrill_m: float,
+    surfaces: object | None,
+    depth_override: float | None,
+) -> list[tuple[Hole, Hole]]:
+    """Пара у откоса: (вертикальная, наклонная у откоса) для скважин ранга 1.
+
+    Пара ставится к скважине основной сетки (`pair_kinds`) ранга 1
+    (`front_row_ranks`), у которой ЛСП больше допустимой `allowed_m` (W + 3 %).
+    Устье пары — на `FACE_PAIR_OFFSET_M` ближе к откосу по линии столбца
+    (−`advance_dir`), без смещения вдоль ряда; азимут наклона — то же
+    направление. Угол — наибольший ≤ `tilt_deg`, при котором ЛСП пары не
+    меньше `target_m` и низ не за подошвой (`_tilt_caps_m`); если ЛСП пары и
+    без наклона в допуске — ось как у вертикальной. Пара не ставится, если её
+    устье вне контура (`boundary`) или ближе `min_crest_m` к кромке. Без W
+    (`allowed_m` None) пар нет: сравнивать не с чем. Вертикальная остаётся
+    на месте. Номер пары — номер вертикальной с «T», ряд и столбец — её.
+    """
+    if allowed_m is None or not grid:
+        return []
+    crest = crest_geometry(contour)
+    if crest is None:
+        return []
+    direction = (-advance_dir[0], -advance_dir[1])
+    azimuth = math.degrees(math.atan2(direction[0], direction[1])) % 360.0
+    block_h = contour.bench.height_m
+    collars = [(h.collar.x, h.collar.y) for h in grid]
+    ranks = front_row_ranks(collars, contour, spacing_a, burden_b, forced_first=face_row_count)
+    picked = [i for i, hole in enumerate(grid) if ranks[i] == 1 and hole.kind in pair_kinds]
+    if not picked:
+        return []
+    heights = [hole_bench_height_m(grid[i], block_h) for i in picked]
+    own = toe_positions(contour, [floor_point(grid[i]) for i in picked], heights) or []
+
+    shift = (direction[0] * FACE_PAIR_OFFSET_M, direction[1] * FACE_PAIR_OFFSET_M)
+    candidates: list[tuple[int, tuple[float, float], float]] = []
+    for i, height, position in zip(picked, heights, own):
+        if position.beyond or position.distance_m <= allowed_m:
+            continue
+        x, y = collars[i][0] + shift[0], collars[i][1] + shift[1]
+        if not point_in_polygon((x, y), boundary):
+            continue
+        if shapely.distance(shapely.Point(x, y), crest) < min_crest_m - 1e-9:
+            continue
+        candidates.append((i, (x, y), height))
+    if not candidates:
+        return []
+
+    # ЛСП пары с осью вертикальной — по её точке на подошве, сдвинутой на 1 м.
+    plain = toe_positions(
+        contour,
+        [(fx + shift[0], fy + shift[1]) for fx, fy in (floor_point(grid[i]) for i, _, _ in candidates)],
+        [height for _, _, height in candidates],
+    ) or []
+    caps = _tilt_caps_m(
+        contour, [xy for _, xy, _ in candidates], [height for _, _, height in candidates], direction, tilt_deg, target_m
+    ) or [0.0] * len(candidates)
+
+    result: list[tuple[Hole, Hole]] = []
+    for (i, (x, y), height), position, cap in zip(candidates, plain, caps):
+        hole = grid[i]
+        if position.distance_m > allowed_m and cap > 1e-12 and height > 0:
+            angle = math.degrees(math.atan(cap / height))
+            collar, toe = drape_collar(x, y, angle, azimuth, subdrill_m, contour, surfaces, depth_override)
+        elif surfaces is None:
+            # Ось вертикальной на плоском уступе — перенос.
+            collar = Point3(x=x, y=y, z=hole.collar.z)
+            toe = Point3(x=x + (hole.toe.x - hole.collar.x), y=y + (hole.toe.y - hole.collar.y), z=hole.toe.z)
+        else:
+            dx, dy, dz = hole.toe.x - hole.collar.x, hole.toe.y - hole.collar.y, hole.toe.z - hole.collar.z
+            angle = math.degrees(math.atan2(math.hypot(dx, dy), -dz)) if dz < 0 else 0.0
+            own_azimuth = math.degrees(math.atan2(dx, dy)) % 360.0 if (dx or dy) else 0.0
+            collar, toe = drape_collar(x, y, angle, own_azimuth, subdrill_m, contour, surfaces, depth_override)
+        pair = replace(
+            hole,
+            id=hole.id + FACE_PAIR_ID_SUFFIX,
+            collar=collar,
+            toe=toe,
+            kind=FACE_TOE_KIND,
+            source="generated",
+            manual=[],
+        )
+        result.append((hole, pair))
+    return result
 
 
 # Столбец сетки для плавного перехода: устья с проекцией на ось ряда в

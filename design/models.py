@@ -70,7 +70,23 @@ HOLE_KINDS = (
     "stab",
     "satellite",
     "infill",
+    "face_toe",
 )
+# «Наклонная у откоса» (пара у откоса, оптимизатор, часть 3b): ставится
+# генератором на 1 м ближе к уступу, чем вертикальная скважина первого ряда.
+# Номер — номер вертикальной с суффиксом «T» (`5-08T`), ряд и столбец — её же.
+# Сгенерированная пересоздаётся при перегенерации (в PRESERVED_HOLE_KINDS её нет).
+FACE_TOE_KIND = "face_toe"
+FACE_PAIR_ID_SUFFIX = "T"
+
+
+def face_pair_partner_id(hole: "Hole") -> str | None:
+    """Номер вертикальной скважины, к которой относится пара у откоса; None — не пара."""
+    if hole.kind != FACE_TOE_KIND or not hole.id.endswith(FACE_PAIR_ID_SUFFIX):
+        return None
+    return hole.id[: -len(FACE_PAIR_ID_SUFFIX)] or None
+
+
 # Wall / auxiliary kinds keep their own id families (P/K/B/SAT) in position numbering (design/numbering.py).
 PRESERVED_HOLE_KINDS = ("contour", "presplit", "trim", "satellite")
 # Ряды впереди первого основной сетки: номера ниже FRONT_ROW_BASE, чтобы не

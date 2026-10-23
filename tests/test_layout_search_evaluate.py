@@ -19,7 +19,7 @@ from design.layout_search.evaluate import (
     with_base_steps,
 )
 from design.layout_search.space import Candidate, stage1
-from design.models import BlastDesign, Detonator, InitiationNetwork
+from design.models import BlastDesign, DetonatingCord, Detonator, ElectronicChannel, InitiationNetwork
 from design.pattern import generate_pattern
 from design.timing import resolve_times
 from design.toe_line import crest_geometry, floor_report, min_crest_offset_m
@@ -319,6 +319,36 @@ class MountingFromBaseTests(unittest.TestCase):
         base_times, _ = resolve_times(production.network, production.holes)
         xy = lambda holes, t: sorted((round(h.collar.x, 6), round(h.collar.y, 6), t[h.id]) for h in holes)
         self.assertEqual(xy(ev.holes, times), xy(production.holes, base_times))
+
+    def test_stab_main_grid_gets_trunk(self):
+        # Основная сетка вида stab — члены столбцов: магистраль 25 мс.
+        params = {**BASE, "default_kind": "stab"}
+        design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(params))
+        self.assertEqual(network_params(design)["main_kind"], "stab")
+        ev = evaluate(SearchContext.from_design(design), Candidate(dict(params), "left"))
+        self.assertTrue(ev.holes and all(h.kind == "stab" for h in ev.holes))
+        self.assertTrue(any(c.delay_ms == 25.0 for c in ev.network.surface_connectors))
+        self.assertEqual(len(ev.network.starters), 1)
+
+    def test_contour_wired_by_cord_or_electronic(self):
+        # Контурный ряд, смонтированный шнуром ДШ или электронными временами,
+        # — тоже «контурные скважины в сети».
+        params = {**BASE, "contour_row": True, "contour_spacing_m": 3.0}
+        holes = generate_pattern(CONTOUR, params)
+        walls = [h.id for h in holes if h.kind == "contour"]
+        self.assertTrue(walls)
+        networks = {
+            "cord": InitiationNetwork(system="detcord", detonating_cords=[DetonatingCord(id="c1", hole_ids=walls)]),
+            "times": InitiationNetwork(system="electronic", electronic_times_ms={walls[0]: 10.0}),
+            "channels": InitiationNetwork(
+                system="electronic", electronic_channels=[ElectronicChannel(id="e1", hole_id=walls[-1], time_ms=5.0)]
+            ),
+        }
+        for name, network in networks.items():
+            design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(params), holes=holes,
+                                 network=network)
+            self.assertTrue(network_params(design)["include_contour"], msg=name)
+            self.assertTrue(wired_wall_holes(design), msg=name)
 
     def test_contour_main_grid_checked(self):
         # Основная сетка вида contour проверяется как рядовая: отступ устья и ЛСП.

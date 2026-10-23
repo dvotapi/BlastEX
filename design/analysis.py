@@ -20,7 +20,6 @@ from design.models import (
     Hole,
     in_main_grid,
     is_explosive_deck_kind,
-    main_grid_kind,
 )
 from design.pattern import FRONT_ROWS_MODE_TAPER, _front_rows_tilt, front_rows_mode
 from design.timing import resolve_network
@@ -262,14 +261,14 @@ def collar_crest_warnings(design: BlastDesign, *, force: bool = False) -> list[d
     (`crest_offset_checked`): старые черновики без этих ключей предупреждениями
     не засыпаются. Часть `validate`; перебор раскладки зовёт её отдельно с
     `force=True` — там отступ проверяется всегда (без ключа — 1 м).
-    Скважины сетки — `in_main_grid`, как у `floor_checks`: основная сетка
-    стеночного вида (`default_kind`) входит, отдельные стеночные ряды — нет.
+    Скважины сетки — `in_main_grid`, как у `floor_checks`: ряды решётки
+    стеночного вида (`default_kind` или строка `row_params` сетки variable)
+    входят, отдельные стеночные ряды — нет.
     """
     pattern_params = design.pattern_params or {}
     checked = force or crest_offset_checked(pattern_params)
     crest = crest_geometry(design.contour) if checked else None
-    main_kind = main_grid_kind(pattern_params)
-    grid = [h for h in design.holes if h.enabled and in_main_grid(h, main_kind)]
+    grid = [h for h in design.holes if h.enabled and in_main_grid(h)]
     if crest is None or not grid:
         return []
     min_offset = min_crest_offset_m(pattern_params)
@@ -356,7 +355,6 @@ def validate(
     floor_governed = min_floor_burden_m(pattern_params) is not None
     taper_layout = _taper_layout(design)
     passport_angle = _number(pattern_params.get("angle_deg"))
-    main_kind = main_grid_kind(pattern_params)
     for h in enabled:
         if h.kind not in ("production", "buffer"):
             continue
@@ -369,7 +367,7 @@ def validate(
         # впереди стоящими, вертикальные, стенки — как прежде.
         if (
             floor_governed
-            and in_main_grid(h, main_kind)
+            and in_main_grid(h)
             and h.angle_deg > TILTED_ANGLE_DEG
             and (h.id in burdens or (taper_layout and abs(h.angle_deg - passport_angle) > TILTED_ANGLE_DEG))
         ):

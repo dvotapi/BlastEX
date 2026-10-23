@@ -191,13 +191,14 @@ def network_params(base: BlastDesign) -> dict:
     монтажа варианта — по базе.
 
     Система — `network.system` базы (неизвестная — СИНВ). `main_kind` — вид
-    основной сетки (`pattern_params.default_kind`): сетка стеночного вида
-    (например, contour) — члены столбцов магистрали, а отдельные стеночные
-    ряды того же вида — нет. Флаг `include_contour` управляет только
-    отдельными рядами вида contour (предщелевой и оконтуривающий ряды монтаж
-    включает всегда) и ставится, если базовая сеть монтирует хотя бы одну
-    контурную скважину. У ДШ и электронной замедление в скважине — из базовой
-    сети (`base_downhole_ms`); у СИНВ его выбирает построитель.
+    основной сетки (`pattern_params.default_kind`): по нему построитель
+    отличает основную сетку вида stab/satellite от вставок; ряды решётки
+    стеночного вида — члены столбцов при любом виде. Флаг `include_contour`
+    управляет только отдельными рядами вида contour (предщелевой и
+    оконтуривающий ряды монтаж включает всегда) и ставится, если базовая сеть
+    монтирует хотя бы одну контурную скважину (`wired_wall_holes`). У ДШ и
+    электронной замедление в скважине — из базовой сети (`base_downhole_ms`);
+    у СИНВ его выбирает построитель.
     """
     system = str(getattr(base.network, "system", "") or "nonel")
     if system not in SYSTEM_TYPES:
@@ -215,23 +216,35 @@ def network_params(base: BlastDesign) -> dict:
 
 
 def wired_wall_holes(base: BlastDesign) -> list[Hole]:
-    """Контурные скважины, которые монтирует базовая сеть: у них есть связи или
-    они стартовые. Основная сетка вида contour (`default_kind`) — не стенки:
-    её монтирует `main_kind`, в счёт она не идёт.
+    """Контурные скважины, которые монтирует базовая сеть. Ряд решётки вида
+    contour (`default_kind` или строка `row_params`) — не стенки: его монтирует
+    построитель как члены столбцов, в счёт он не идёт.
+
+    Смонтированной считается скважина, которая есть в сети хоть как-то:
+    стартовая, конец поверхностной или старой связи, скважина шнура ДШ,
+    электронное время или канал.
 
     Только по ним решается флаг `include_contour` (`network_params`), поэтому
     фоновый подбор передаёт в дочерний процесс лишь их, а не все скважины.
     """
     network = base.network
-    main_kind = main_grid_kind(base.pattern_params)
-    walls = [h for h in base.holes or [] if h.kind == CONTOUR_KIND and not in_main_grid(h, main_kind)]
+    walls = [h for h in base.holes or [] if h.kind == CONTOUR_KIND and not in_main_grid(h)]
     if network is None or not walls:
         return []
+    return [h for h in walls if h.id in _wired_hole_ids(network)]
+
+
+def _wired_hole_ids(network: InitiationNetwork) -> set[str]:
+    """Скважины, которые сеть монтирует любым способом."""
     wired: set[str] = set(network.starters)
     wired.update(item.hole_id for item in network.starter_items)
     for link in (*network.connectors, *network.surface_connectors):
         wired.update((link.from_hole, link.to_hole))
-    return [h for h in walls if h.id in wired]
+    for cord in network.detonating_cords:
+        wired.update(cord.hole_ids)
+    wired.update(network.electronic_times_ms)
+    wired.update(channel.hole_id for channel in network.electronic_channels)
+    return wired
 
 
 def base_downhole_ms(network: InitiationNetwork | None) -> float | None:

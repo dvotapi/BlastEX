@@ -3482,3 +3482,48 @@ export type DriftReport = {
   action: string;
   next_step: string;
 };
+
+// Подбор раскладки блока (оптимизатор, часть 4в): зеркало схем API
+// `/design/layout-search`.
+export type LayoutSearchState = "idle" | "running" | "done" | "stopped" | "failed";
+export type LayoutSearchStage = "geometry" | "front_rows" | "refine";
+
+export type LayoutSearchVariant = {
+  params: Record<string, unknown>;
+  cut_flank: "left" | "right";
+  holes: Hole[];
+  network: InitiationNetwork;
+  rejected: boolean;
+  reject_codes: string[];
+  lsp_out: number;
+  fast_share: number | null;
+  converging_length_m: number | null;
+  outside_share: number | null;
+  robust_spread: number | null;
+  hole_count: number;
+  window8_max_holes: number;
+  downhole_ms: number | null;
+  warnings: string[];
+};
+
+export type LayoutSearchResult = {
+  best: LayoutSearchVariant[];
+  evaluated: number;
+  rejected: number;
+  stopped_early: boolean;
+  elapsed_s: number;
+  all_rejected: boolean;
+  warnings: string[];
+};
+
+export type LayoutSearchStatus = {
+  state: LayoutSearchState;
+  stage: LayoutSearchStage | null;
+  done: number;
+  total: number;
+  elapsed_s: number | null;
+  /** Отпечаток входов, по которым посчитан результат. */
+  fingerprint: string | null;
+  result: LayoutSearchResult | null;
+  error: string | null;
+};

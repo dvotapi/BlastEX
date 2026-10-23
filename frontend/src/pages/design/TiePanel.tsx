@@ -186,7 +186,7 @@ export function TiePanel({
                 onChange={(e) => onParamsChange({ downhole_delay_ms: Number(e.target.value) })}
               />
             </label>
-            {downholeAuto && <small>Подбирается: наименьшее из 500 / 700 / 1000 мс, при котором сеть успевает до первого взрыва.</small>}
+            {downholeAuto && <small>Подбирается: наименьшее из 500 / 700 / 1000 мс, при котором импульс успевает пройти трубки в радиусе 30 м до взрыва скважины.</small>}
           </>
         ) : (
           <div className="field-pair">

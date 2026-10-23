@@ -131,11 +131,20 @@ class TimingApiTests(unittest.TestCase):
             )
         ).holes
         payload = [h.model_dump() for h in holes]
-        response = design_service.generate_tie(
+        # Местный критерий (R = 30 м): длинный блок не требует 1000 мс.
+        local = design_service.generate_tie(
             TieGenerateRequest(holes=payload, scheme="trunk_chains", params={"system": "nonel"})
         )
+        self.assertEqual(local.warnings, [])
+        self.assertEqual(local.network.timing_params["downhole_delay_ms"], 500)
+        # Радиус на весь блок — запас больше 1000 мс: 1000 и предупреждение.
+        response = design_service.generate_tie(
+            TieGenerateRequest(
+                holes=payload, scheme="trunk_chains", params={"system": "nonel", "burning_front_m": 200.0}
+            )
+        )
         self.assertIn("Фронт инициирования отстаёт", response.warnings[0])
-        self.assertIn("не короче 1000 мс", response.warnings[0])
+        self.assertIn("в радиусе 200 м", response.warnings[0])
         self.assertEqual(response.network.timing_params["downhole_delay_ms"], 1000)
         electronic = design_service.generate_tie(
             TieGenerateRequest(

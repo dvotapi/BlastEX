@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from design.models import (
     Connector,
@@ -88,9 +89,27 @@ _OFFSET_TIE_M = 1e-6
 # Наименьшая ступень электронной системы, мс.
 _ELECTRONIC_MIN_STEP_MS = 1.0
 
-DOWNHOLE_LATE_WARNING = (
-    "Фронт инициирования отстаёт: поверхностная сеть не короче 1000 мс — возможен подбой."
-)
+# «Горящий фронт»: к взрыву скважины импульс должен пройти поверхностные трубки
+# всех скважин в этом радиусе от неё (по устьям в плане), м. Дальние трубки
+# могут догореть и после взрыва — разлёт их не достаёт (решение 23.10.2026).
+BURNING_FRONT_RADIUS_M = 30.0
+# Наибольший допустимый радиус из параметров, м: больше разлёт не достаёт, а
+# окрестности растут квадратично (защита от запроса с огромным радиусом).
+BURNING_FRONT_MAX_M = 200.0
+# Скважин в одной части при поиске соседей.
+_LAG_CHUNK = 512
+
+
+def downhole_late_warning(radius_m: float) -> str:
+    """Предупреждение «фронт отстаёт» с радиусом критерия в тексте."""
+    radius = f"{radius_m:g}".replace(".", ",")
+    return (
+        f"Фронт инициирования отстаёт: в радиусе {radius} м импульс не успевает "
+        "до взрыва скважины — возможен подбой."
+    )
+
+
+DOWNHOLE_LATE_WARNING = downhole_late_warning(BURNING_FRONT_RADIUS_M)
 WALLS_AFTER_GRID_WARNING = (
     "Стенки (контур, пресплит) в этой схеме срабатывают после сетки — "
     "опережающий пресплит постройте отдельно."
@@ -496,13 +515,59 @@ def _times_from_starters(starters: list[str], ties: list[tuple[str, str, float]]
     return times
 
 
-def pick_downhole_ms(max_surface_ms: float) -> tuple[float, list[str]]:
-    """Внутрискважинное замедление блока: наименьшее из НСИ, строго большее
-    наибольшего поверхностного времени сети; иначе 1000 мс и предупреждение."""
+def local_front_lag_ms(holes: list[Hole], surface_ms: dict[str, float], radius_m: float) -> float:
+    """Требуемый запас L: наибольшая разница поверхностных времён двух скважин,
+    устья которых в плане не дальше radius_m друг от друга (пар нет — 0).
+
+    Для каждой скважины берутся соседи в радиусе (частями, без списка всех пар)
+    и наибольшее отклонение их времени от её собственного — память ограничена
+    размером части, а не числом пар."""
+    timed = [h for h in holes if h.id in surface_ms]
+    if len(timed) < 2:
+        return 0.0
+    xy = np.array([(h.collar.x, h.collar.y) for h in timed], dtype=float)
+    times = np.array([surface_ms[h.id] for h in timed], dtype=float)
+    tree = cKDTree(xy)
+    reach = radius_m * (1 + 1e-9) + 1e-9
+    lag = 0.0
+    for start in range(0, len(timed), _LAG_CHUNK):
+        part = slice(start, start + _LAG_CHUNK)
+        for own, near in zip(times[part], tree.query_ball_point(xy[part], r=reach)):
+            if len(near) > 1:
+                values = times[near]
+                lag = max(lag, float(values.max()) - own, own - float(values.min()))
+    return lag
+
+
+def pick_downhole_ms(
+    holes: list[Hole], surface_ms: dict[str, float], radius_m: float = BURNING_FRONT_RADIUS_M
+) -> tuple[float, list[str]]:
+    """Внутрискважинное замедление блока по местному критерию подбоя.
+
+    Скважина h взрывается в t(h) + D; к этому моменту импульс должен пройти
+    трубки всех скважин j в радиусе R: t(j) < t(h) + D. D — наименьшее из НСИ,
+    строго большее запаса L (`local_front_lag_ms`); иначе 1000 мс и
+    предупреждение."""
+    lag = local_front_lag_ms(holes, surface_ms, radius_m)
     for choice in DOWNHOLE_CHOICES_MS:
-        if choice > max_surface_ms:
+        if choice > lag:
             return choice, []
-    return DOWNHOLE_CHOICES_MS[-1], [DOWNHOLE_LATE_WARNING]
+    return DOWNHOLE_CHOICES_MS[-1], [downhole_late_warning(radius_m)]
+
+
+def _burning_front_radius(params: dict[str, Any]) -> float:
+    """Радиус критерия из параметров (0 < R ≤ `BURNING_FRONT_MAX_M`), иначе
+    `BURNING_FRONT_RADIUS_M`; логическое значение — не радиус."""
+    value = params.get("burning_front_m", BURNING_FRONT_RADIUS_M)
+    if isinstance(value, bool):
+        return BURNING_FRONT_RADIUS_M
+    try:
+        radius = float(value)
+    except (TypeError, ValueError):
+        return BURNING_FRONT_RADIUS_M
+    if not math.isfinite(radius) or radius <= 0:
+        return BURNING_FRONT_RADIUS_M
+    return min(radius, BURNING_FRONT_MAX_M)
 
 
 def build_trunk_chains_network(
@@ -538,7 +603,7 @@ def build_trunk_chains_network(
         warnings.append(WALLS_AFTER_GRID_WARNING)
 
     if system == "nonel":
-        downhole_ms, extra = pick_downhole_ms(max(plan.surface_ms.values(), default=0.0))
+        downhole_ms, extra = pick_downhole_ms(eligible, plan.surface_ms, _burning_front_radius(params))
         warnings.extend(extra)
     else:
         # ДШ и электронная — из поля, как у остальных схем; не задано — умолчание системы.

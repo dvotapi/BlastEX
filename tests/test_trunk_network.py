@@ -17,6 +17,7 @@ from design.spatial.cad.stitch import StitchedLine, stitch_lines
 from design.spatial.cad.two_contours import bench_levels, two_contours
 from design.timing import build_template_network, resolve_times
 from design.trunk_network import (
+    BURNING_FRONT_RADIUS_M,
     DOWNHOLE_LATE_WARNING,
     ELECTRONIC_MODE_IGNORED_WARNING,
     WALLS_AFTER_GRID_WARNING,
@@ -566,14 +567,51 @@ class DownholeAndNetworkTests(unittest.TestCase):
     def setUp(self):
         self.holes = _rect_holes()
 
-    def test_pick_downhole_smallest_safe(self):
-        self.assertEqual(pick_downhole_ms(320.0), (500.0, []))
-        self.assertEqual(pick_downhole_ms(500.0), (700.0, []))  # строго больше
-        self.assertEqual(pick_downhole_ms(999.0)[0], 1000.0)
-        ms, warnings = pick_downhole_ms(1000.0)
+    @staticmethod
+    def _pair(gap_m: float, late_ms: float) -> tuple[list[Hole], dict[str, float]]:
+        """Две скважины в gap_m по устьям: вторая срабатывает на late_ms позже."""
+        holes = [vertical_hole("1-01", 0.0, 0.0, row=0), vertical_hole("1-02", gap_m, 0.0, row=0)]
+        return holes, {"1-01": 0.0, "1-02": late_ms}
+
+    def test_pick_downhole_smallest_safe_by_local_lag(self):
+        """Запас L — наибольшая разница времён соседей в радиусе R; D строго больше L."""
+        self.assertEqual(BURNING_FRONT_RADIUS_M, 30.0)
+        self.assertEqual(pick_downhole_ms(*self._pair(10.0, 320.0)), (500.0, []))
+        self.assertEqual(pick_downhole_ms(*self._pair(10.0, 500.0)), (700.0, []))  # строго больше
+        self.assertEqual(pick_downhole_ms(*self._pair(10.0, 600.0)), (700.0, []))
+        self.assertEqual(pick_downhole_ms(*self._pair(10.0, 999.0)), (1000.0, []))
+        ms, warnings = pick_downhole_ms(*self._pair(10.0, 1000.0))
         self.assertEqual(ms, 1000.0)
         self.assertEqual(warnings, [DOWNHOLE_LATE_WARNING])
-        self.assertIn("не короче 1000 мс", DOWNHOLE_LATE_WARNING)
+        self.assertIn("в радиусе 30 м", DOWNHOLE_LATE_WARNING)
+        # Порядок пары не важен: запас — по модулю разницы.
+        holes, surface = self._pair(10.0, 600.0)
+        self.assertEqual(pick_downhole_ms(holes, {"1-01": 600.0, "1-02": 0.0}), (700.0, []))
+        self.assertEqual(pick_downhole_ms(holes, surface, 12.0), (700.0, []))
+
+    def test_pick_downhole_ignores_pairs_beyond_radius(self):
+        """Соседи дальше R не связаны: импульс к ним может идти и после взрыва."""
+        self.assertEqual(pick_downhole_ms(*self._pair(30.0, 600.0)), (700.0, []))  # ровно R — входит
+        self.assertEqual(pick_downhole_ms(*self._pair(30.5, 1500.0)), (500.0, []))
+        holes, surface = self._pair(40.0, 800.0)
+        self.assertEqual(pick_downhole_ms(holes, surface, 50.0), (1000.0, []))
+        self.assertEqual(pick_downhole_ms(holes, surface, 39.0), (500.0, []))
+        # Пар нет вовсе — запас 0.
+        self.assertEqual(pick_downhole_ms([], {}), (500.0, []))
+        self.assertEqual(pick_downhole_ms(holes[:1], {"1-01": 0.0}), (500.0, []))
+
+    def test_pick_downhole_skips_holes_without_surface_time(self):
+        holes, _ = self._pair(5.0, 0.0)
+        self.assertEqual(pick_downhole_ms(holes, {"1-01": 900.0}), (500.0, []))
+
+    def test_late_warning_names_radius(self):
+        holes, surface = self._pair(10.0, 1200.0)
+        ms, warnings = pick_downhole_ms(holes, surface, 12.5)
+        self.assertEqual(ms, 1000.0)
+        self.assertEqual(
+            warnings,
+            ["Фронт инициирования отстаёт: в радиусе 12,5 м импульс не успевает до взрыва скважины — возможен подбой."],
+        )
 
     def test_network_resolves_to_plan_times(self):
         network, _warnings = build_trunk_chains_network(self.holes, {"system": "nonel"})
@@ -682,14 +720,40 @@ class DownholeAndNetworkTests(unittest.TestCase):
                     for hole_id, ms in plan.surface_ms.items():
                         self.assertAlmostEqual(times[hole_id], ms + downhole, msg=hole_id)
 
-    def test_long_block_gets_1000_and_warning(self):
-        holes = generate_pattern(
-            _rect_contour(160.0, 48.0),
-            RECT | {"burden_b_m": 4.0, "spacing_a_m": 4.0},
-        )
+    def test_long_block_keeps_500_by_local_criterion(self):
+        """40 столбцов × 12 рядов: сеть длиннее 1000 мс, но в радиусе 30 м запас
+        меньше 500 мс — замедление 500 без предупреждения."""
+        holes = _long_block_holes()
         network, warnings = build_trunk_chains_network(holes, {"system": "nonel"})
-        self.assertEqual(network.timing_params["downhole_delay_ms"], 1000.0)
-        self.assertTrue(any("Фронт инициирования отстаёт" in w for w in warnings))
+        plan = plan_trunk_chains(holes)
+        self.assertEqual(max(plan.surface_ms.values()), 1437.0)
+        self.assertEqual(network.timing_params["downhole_delay_ms"], 500.0)
+        self.assertFalse(any("Фронт инициирования отстаёт" in w for w in warnings))
+        self.assertNotIn("burning_front_m", network.timing_params)
+
+    def test_burning_front_radius_from_params(self):
+        holes = _long_block_holes()
+        wide, warnings = build_trunk_chains_network(holes, {"system": "nonel", "burning_front_m": 200.0})
+        self.assertEqual(wide.timing_params["downhole_delay_ms"], 1000.0)
+        self.assertTrue(any("в радиусе 200 м" in w for w in warnings))
+        middle, warnings = build_trunk_chains_network(holes, {"system": "nonel", "burning_front_m": 60.0})
+        self.assertEqual(middle.timing_params["downhole_delay_ms"], 1000.0)
+        self.assertEqual(warnings, [])
+        # Не число или не больше нуля — радиус по умолчанию.
+        for bad in (0.0, -5.0, "много", None):
+            with self.subTest(bad=bad):
+                net, _ = build_trunk_chains_network(holes, {"system": "nonel", "burning_front_m": bad})
+                self.assertEqual(net.timing_params["downhole_delay_ms"], 500.0)
+
+
+@lru_cache(maxsize=1)
+def _long_block_holes_cached() -> tuple[Hole, ...]:
+    return tuple(generate_pattern(_rect_contour(156.0, 44.0), RECT))
+
+
+def _long_block_holes() -> list[Hole]:
+    """Длинный блок 156×44 м, a = b = 4: 40 столбцов × 12 рядов, сеть 1437 мс."""
+    return list(_long_block_holes_cached())
 
 
 BLOCK66 = Path(__file__).parent / "fixtures" / "cad" / "block66.dxf"
@@ -753,6 +817,8 @@ class Block66Tests(unittest.TestCase):
                 self.assertEqual(set(times), {h.id for h in self.holes if h.enabled})
                 self.assertEqual({c.delay_ms for c in network.surface_connectors}, {25.0, 42.0})
                 self.assertEqual(warnings, [])
+                # Сеть 918 / 793 мс, но в радиусе 30 м запас меньше 500 мс.
+                self.assertEqual(network.timing_params["downhole_delay_ms"], 500.0)
 
     def test_cut_is_flank_head_of_front(self):
         (ax, ay), (dx, dy) = row_axis(self.holes)
@@ -782,3 +848,35 @@ class Block66Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BurningFrontRadiusLimitTests(unittest.TestCase):
+    """Радиус из параметров ограничен сверху, логическое значение — не радиус."""
+
+    def test_radius_clamped_and_bool_rejected(self):
+        from design.trunk_network import BURNING_FRONT_MAX_M, BURNING_FRONT_RADIUS_M, _burning_front_radius
+
+        self.assertEqual(_burning_front_radius({"burning_front_m": 1e9}), BURNING_FRONT_MAX_M)
+        self.assertEqual(_burning_front_radius({"burning_front_m": True}), BURNING_FRONT_RADIUS_M)
+        self.assertEqual(_burning_front_radius({"burning_front_m": 45}), 45.0)
+
+    def test_lag_matches_all_pairs(self):
+        import itertools
+        import math as _math
+
+        from design.trunk_network import local_front_lag_ms
+
+        holes = [_hole(f"h{i}", (i * 7) % 23 * 1.7, (i * 11) % 19 * 2.3) for i in range(1100)]
+        times = {h.id: float((i * 37) % 911) for i, h in enumerate(holes)}
+        expected = 0.0
+        for a, b in itertools.combinations(holes, 2):
+            if _math.hypot(a.collar.x - b.collar.x, a.collar.y - b.collar.y) <= 6.0:
+                expected = max(expected, abs(times[a.id] - times[b.id]))
+        self.assertAlmostEqual(local_front_lag_ms(holes, times, 6.0), expected)
+
+
+def _hole(hole_id: str, x: float, y: float) -> Hole:
+    return Hole(
+        id=hole_id, row=0, col=0, collar=Point3(x, y, 0.0), toe=Point3(x, y, -11.0),
+        diameter_mm=152.0, kind="production",
+    )

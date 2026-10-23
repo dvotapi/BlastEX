@@ -91,6 +91,11 @@ describe("TiePanel trunk_chains", () => {
     const field = screen.getByLabelText("Внутрискважинное замедление, мс");
     expect(field).toHaveValue(null);
     expect(field).toHaveAttribute("placeholder", "подбирается");
+    expect(
+      screen.getByText(
+        "Подбирается: наименьшее из 500 / 700 / 1000 мс, при котором импульс успевает пройти трубки в радиусе 30 м до взрыва скважины.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("does not show the downhole delay of a network built by another system", () => {

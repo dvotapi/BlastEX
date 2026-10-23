@@ -1,10 +1,10 @@
 """Оценка одного варианта раскладки: сетка, монтаж, отбраковка и показатели.
 
 Порядок: сетка (`generate_pattern` без ручных скважин) → монтаж «Магистраль +
-цепочки» (система и стенки — как в базовой сети) → паспорт варианта → отбраковка
-(коды `validate`) и ЛСП вне коридора `[0,8·W₀; 1,03·W₀]` за один расчёт подошвы →
-темп отбойки → окно 8 мс. W₀ и шаги для разрыва у подошвы — из базового паспорта
-и с перебором a и b не меняются.
+цепочки» (система, контурный ряд и замедление в скважине — как в базовой сети) →
+паспорт варианта → отбраковка (коды `validate`) и ЛСП вне коридора
+`[0,8·W₀; 1,03·W₀]` за один расчёт подошвы → темп отбойки → окно 8 мс. W₀ и шаги
+для разрыва у подошвы — из базового паспорта и с перебором a и b не меняются.
 """
 from __future__ import annotations
 
@@ -27,8 +27,9 @@ from design.toe_line import (
 )
 from design.trunk_network import build_trunk_chains_network
 
-# Виды стенок: если базовая сеть их монтирует, монтаж варианта тоже их включает.
-WALL_KINDS = frozenset({"contour", "presplit", "trim"})
+# Вид скважин, который монтаж включает только по флагу `include_contour`
+# (`timing._eligible_holes`); предщелевой и оконтуривающий ряды входят всегда.
+CONTOUR_KIND = "contour"
 # Шаги сетки, которые для проверок подошвы берутся из базы.
 STEP_KEYS = ("spacing_a_m", "burden_b_m")
 # Коды `validate`, отбраковывающие вариант (`reject_codes_and_lsp` выводит их сам).
@@ -186,27 +187,37 @@ def window_max_holes(times: dict[str, float], window_ms: float = WINDOW_MS) -> i
 
 
 def network_params(base: BlastDesign) -> dict:
-    """Система и стенки монтажа варианта — по базовой сети.
+    """Система, контурный ряд и замедление в скважине монтажа варианта — по базе.
 
-    Система — `network.system` базы (неизвестная — СИНВ). Стенки (контурный,
-    предщелевой, оконтуривающий ряд) включаются, если базовая сеть их монтирует:
-    у скважин этих видов есть связи или стартовые.
+    Система — `network.system` базы (неизвестная — СИНВ). Флаг `include_contour`
+    управляет только видом contour (предщелевой и оконтуривающий ряды монтаж
+    включает всегда): он ставится, если базовая сеть монтирует хотя бы одну
+    контурную скважину или основная сетка строится видом contour
+    (`pattern_params.default_kind`) — иначе сеть варианта была бы пустой.
+    У ДШ и электронной замедление в скважине — из базовой сети
+    (`base_downhole_ms`); у СИНВ его выбирает построитель.
     """
     system = str(getattr(base.network, "system", "") or "nonel")
     if system not in SYSTEM_TYPES:
         system = "nonel"
-    return {"system": system, "include_contour": bool(wired_wall_holes(base))}
+    contour_grid = (base.pattern_params or {}).get("default_kind") == CONTOUR_KIND
+    params: dict = {"system": system, "include_contour": contour_grid or bool(wired_wall_holes(base))}
+    if system != "nonel":
+        downhole_ms = base_downhole_ms(base.network)
+        if downhole_ms is not None:
+            params["downhole_delay_ms"] = downhole_ms
+    return params
 
 
 def wired_wall_holes(base: BlastDesign) -> list[Hole]:
-    """Скважины стенок (контурный, предщелевой, оконтуривающий ряд), которые
-    монтирует базовая сеть: у них есть связи или они стартовые.
+    """Контурные скважины, которые монтирует базовая сеть: у них есть связи или
+    они стартовые.
 
-    Фоновый подбор передаёт в дочерний процесс только их, а не все скважины:
-    `network_params` по ним даёт тот же ответ, что по полному паспорту.
+    Только по ним решается флаг `include_contour` (`network_params`), поэтому
+    фоновый подбор передаёт в дочерний процесс лишь их, а не все скважины.
     """
     network = base.network
-    walls = [h for h in base.holes or [] if h.kind in WALL_KINDS]
+    walls = [h for h in base.holes or [] if h.kind == CONTOUR_KIND]
     if network is None or not walls:
         return []
     wired: set[str] = set(network.starters)
@@ -214,6 +225,23 @@ def wired_wall_holes(base: BlastDesign) -> list[Hole]:
     for link in (*network.connectors, *network.surface_connectors):
         wired.update((link.from_hole, link.to_hole))
     return [h for h in walls if h.id in wired]
+
+
+def base_downhole_ms(network: InitiationNetwork | None) -> float | None:
+    """Замедление в скважине базовой сети: поле схемы (`timing_params`), иначе
+    первое значение по скважинам (`downhole_delay_ms`), иначе первого детонатора;
+    нигде нет — `None` (построитель возьмёт умолчание системы)."""
+    if network is None:
+        return None
+    value = (network.timing_params or {}).get("downhole_delay_ms")
+    if value is None and network.downhole_delay_ms:
+        value = next(iter(network.downhole_delay_ms.values()))
+    if value is None and network.detonators:
+        value = network.detonators[0].delay_ms
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _empty(candidate: Candidate, system: str) -> Evaluation:

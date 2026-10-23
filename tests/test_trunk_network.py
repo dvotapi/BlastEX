@@ -431,6 +431,25 @@ class DownholeAndNetworkTests(unittest.TestCase):
             self.assertAlmostEqual(times[h.id], plan.surface_ms[h.id] + 500.0)
         self.assertEqual(network.timing_params["scheme"], "trunk_chains")
 
+    def test_detcord_network_keeps_relay_delays(self):
+        """У ДШ времена задают реле связей: общего шнура через все скважины нет."""
+        holes = _rect_holes()
+        network, _warnings = build_trunk_chains_network(holes, {"system": "detcord"})
+        self.assertEqual(network.detonating_cords, [])
+        times, _resolve_warnings = resolve_times(network, holes)
+        plan = plan_trunk_chains(holes, system="detcord")
+        downhole = network.timing_params["downhole_delay_ms"]
+        for h in holes:
+            self.assertAlmostEqual(times[h.id], plan.surface_ms[h.id] + downhole)
+        # Соседи по ряду из разных столбцов не срабатывают почти разом.
+        by_row: dict[int, list[Hole]] = {}
+        for h in holes:
+            by_row.setdefault(logical_row(h.row), []).append(h)
+        for items in by_row.values():
+            items.sort(key=lambda h: h.collar.x)
+            for a, b in pairwise(items):
+                self.assertGreater(abs(times[a.id] - times[b.id]), 1.0, msg=(a.id, b.id))
+
     def test_template_entry_point(self):
         network = build_template_network(self.holes, "trunk_chains", {"system": "nonel", "cut_flank": "right"})
         self.assertEqual(network.timing_params["cut_flank"], "right")

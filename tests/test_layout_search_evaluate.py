@@ -12,12 +12,14 @@ from design.layout_search.evaluate import (
     Evaluation,
     SearchContext,
     evaluate,
+    network_params,
     reject_codes_and_lsp,
     window_max_holes,
+    wired_wall_holes,
     with_base_steps,
 )
 from design.layout_search.space import Candidate, stage1
-from design.models import BlastDesign, InitiationNetwork
+from design.models import BlastDesign, Detonator, InitiationNetwork
 from design.pattern import generate_pattern
 from design.timing import resolve_times
 from design.toe_line import crest_geometry, floor_report, min_crest_offset_m
@@ -230,6 +232,81 @@ class EvaluateTests(unittest.TestCase):
                 self.assertEqual(walls <= set(times), timed)
                 if not timed:
                     self.assertFalse(walls & set(times))
+
+
+class MountingFromBaseTests(unittest.TestCase):
+    """Стенки и замедление в скважине монтажа варианта — по базовой сети."""
+
+    @staticmethod
+    def _timed(ev, kind: str) -> tuple[set[str], set[str]]:
+        walls = {h.id for h in ev.holes if h.kind == kind}
+        times, _ = resolve_times(ev.network, [h for h in ev.holes if h.enabled])
+        return walls, walls & set(times)
+
+    def test_wired_presplit_does_not_wire_contour(self):
+        # `include_contour` управляет только видом contour: пресплит в сеть входит
+        # всегда, и его связи в базе не должны включать контурный ряд варианта.
+        params = {**BASE, "contour_row": True, "contour_spacing_m": 3.0,
+                  "presplit_row": True, "presplit_spacing_m": 3.0}
+        holes = generate_pattern(CONTOUR, params)
+        self.assertTrue({h.kind for h in holes} >= {"contour", "presplit"})
+        network, _ = build_trunk_chains_network(holes, {})
+        design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(params),
+                             holes=holes, network=network)
+        self.assertFalse(network_params(design)["include_contour"])
+        self.assertEqual(wired_wall_holes(design), [])
+        ev = evaluate(SearchContext.from_design(design), Candidate(dict(params), "left"))
+        contour, timed = self._timed(ev, "contour")
+        self.assertTrue(contour)
+        self.assertFalse(timed)
+        presplit, timed = self._timed(ev, "presplit")
+        self.assertTrue(presplit)
+        self.assertEqual(timed, presplit)
+
+    def test_wired_wall_holes_only_contour(self):
+        params = {**BASE, "contour_row": True, "contour_spacing_m": 3.0,
+                  "presplit_row": True, "presplit_spacing_m": 3.0}
+        holes = generate_pattern(CONTOUR, params)
+        network, _ = build_trunk_chains_network(holes, {"include_contour": True})
+        design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(params),
+                             holes=holes, network=network)
+        self.assertTrue(network_params(design)["include_contour"])
+        wired = wired_wall_holes(design)
+        self.assertTrue(wired)
+        self.assertEqual({h.kind for h in wired}, {"contour"})
+
+    def test_contour_default_kind_without_base_network(self):
+        # Основная сетка строится видом contour: без флага сеть варианта была бы пустой.
+        params = {**BASE, "default_kind": "contour"}
+        design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(params))
+        self.assertTrue(network_params(design)["include_contour"])
+        ev = evaluate(SearchContext.from_design(design), Candidate(dict(params), "left"))
+        self.assertTrue(ev.holes)
+        self.assertTrue(ev.network.starters)
+        self.assertTrue(ev.network.connectors)
+
+    def test_downhole_delay_from_base_network(self):
+        # У ДШ и электронной замедление в скважине — из базовой сети, а не умолчание системы.
+        cases = (
+            ("timing_params", InitiationNetwork(system="detcord", timing_params={"downhole_delay_ms": 42.0}), 42.0),
+            ("downhole_delay_ms", InitiationNetwork(system="electronic", downhole_delay_ms={"1-01": 17.0}), 17.0),
+            ("detonators", InitiationNetwork(
+                system="electronic", detonators=[Detonator(id="d1", hole_id="1-01", delay_ms=9.0)]), 9.0),
+            ("none", InitiationNetwork(system="detcord"), 0.0),
+        )
+        for name, network, expected in cases:
+            with self.subTest(source=name):
+                design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(BASE), network=network)
+                ev = evaluate(SearchContext.from_design(design), Candidate(dict(BASE), "left"))
+                self.assertEqual(ev.downhole_ms, expected)
+
+    def test_nonel_ignores_base_downhole(self):
+        # У СИНВ замедление выбирает построитель (500/700/1000 мс), поле базы не передаётся.
+        network = InitiationNetwork(system="nonel", timing_params={"downhole_delay_ms": 42.0})
+        design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(BASE), network=network)
+        self.assertNotIn("downhole_delay_ms", network_params(design))
+        ev = evaluate(SearchContext.from_design(design), Candidate(dict(BASE), "left"))
+        self.assertIn(ev.downhole_ms, (500.0, 700.0, 1000.0))
 
 
 class BaseStepsTests(unittest.TestCase):

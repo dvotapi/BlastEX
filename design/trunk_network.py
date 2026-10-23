@@ -463,4 +463,8 @@ def build_trunk_chains_network(
         },
     )
     network = _populate_v2_from_graph(network, downhole_ms=downhole_ms, eligible=eligible)
+    # У ДШ общий шнур через все скважины подряд дал бы связи «расстояние / скорость»
+    # между несвязанными скважинами, и кратчайший путь обошёл бы реле 25/42 мс.
+    # Здесь времена задают сами связи-реле: каждое ребро графа — отрезок шнура с реле.
+    network.detonating_cords = []
     return network, warnings

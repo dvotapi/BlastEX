@@ -140,11 +140,11 @@ class TimingApiTests(unittest.TestCase):
         # Радиус на весь блок — запас больше 1000 мс: 1000 и предупреждение.
         response = design_service.generate_tie(
             TieGenerateRequest(
-                holes=payload, scheme="trunk_chains", params={"system": "nonel", "burning_front_m": 500.0}
+                holes=payload, scheme="trunk_chains", params={"system": "nonel", "burning_front_m": 200.0}
             )
         )
         self.assertIn("Фронт инициирования отстаёт", response.warnings[0])
-        self.assertIn("в радиусе 500 м", response.warnings[0])
+        self.assertIn("в радиусе 200 м", response.warnings[0])
         self.assertEqual(response.network.timing_params["downhole_delay_ms"], 1000)
         electronic = design_service.generate_tie(
             TieGenerateRequest(

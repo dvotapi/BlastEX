@@ -733,9 +733,9 @@ class DownholeAndNetworkTests(unittest.TestCase):
 
     def test_burning_front_radius_from_params(self):
         holes = _long_block_holes()
-        wide, warnings = build_trunk_chains_network(holes, {"system": "nonel", "burning_front_m": 500.0})
+        wide, warnings = build_trunk_chains_network(holes, {"system": "nonel", "burning_front_m": 200.0})
         self.assertEqual(wide.timing_params["downhole_delay_ms"], 1000.0)
-        self.assertTrue(any("в радиусе 500 м" in w for w in warnings))
+        self.assertTrue(any("в радиусе 200 м" in w for w in warnings))
         middle, warnings = build_trunk_chains_network(holes, {"system": "nonel", "burning_front_m": 60.0})
         self.assertEqual(middle.timing_params["downhole_delay_ms"], 1000.0)
         self.assertEqual(warnings, [])
@@ -848,3 +848,35 @@ class Block66Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BurningFrontRadiusLimitTests(unittest.TestCase):
+    """Радиус из параметров ограничен сверху, логическое значение — не радиус."""
+
+    def test_radius_clamped_and_bool_rejected(self):
+        from design.trunk_network import BURNING_FRONT_MAX_M, BURNING_FRONT_RADIUS_M, _burning_front_radius
+
+        self.assertEqual(_burning_front_radius({"burning_front_m": 1e9}), BURNING_FRONT_MAX_M)
+        self.assertEqual(_burning_front_radius({"burning_front_m": True}), BURNING_FRONT_RADIUS_M)
+        self.assertEqual(_burning_front_radius({"burning_front_m": 45}), 45.0)
+
+    def test_lag_matches_all_pairs(self):
+        import itertools
+        import math as _math
+
+        from design.trunk_network import local_front_lag_ms
+
+        holes = [_hole(f"h{i}", (i * 7) % 23 * 1.7, (i * 11) % 19 * 2.3) for i in range(1100)]
+        times = {h.id: float((i * 37) % 911) for i, h in enumerate(holes)}
+        expected = 0.0
+        for a, b in itertools.combinations(holes, 2):
+            if _math.hypot(a.collar.x - b.collar.x, a.collar.y - b.collar.y) <= 6.0:
+                expected = max(expected, abs(times[a.id] - times[b.id]))
+        self.assertAlmostEqual(local_front_lag_ms(holes, times, 6.0), expected)
+
+
+def _hole(hole_id: str, x: float, y: float) -> Hole:
+    return Hole(
+        id=hole_id, row=0, col=0, collar=Point3(x, y, 0.0), toe=Point3(x, y, -11.0),
+        diameter_mm=152.0, kind="production",
+    )

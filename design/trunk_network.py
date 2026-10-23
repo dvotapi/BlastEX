@@ -93,6 +93,11 @@ _ELECTRONIC_MIN_STEP_MS = 1.0
 # всех скважин в этом радиусе от неё (по устьям в плане), м. Дальние трубки
 # могут догореть и после взрыва — разлёт их не достаёт (решение 23.10.2026).
 BURNING_FRONT_RADIUS_M = 30.0
+# Наибольший допустимый радиус из параметров, м: больше разлёт не достаёт, а
+# окрестности растут квадратично (защита от запроса с огромным радиусом).
+BURNING_FRONT_MAX_M = 200.0
+# Скважин в одной части при поиске соседей.
+_LAG_CHUNK = 512
 
 
 def downhole_late_warning(radius_m: float) -> str:
@@ -512,17 +517,26 @@ def _times_from_starters(starters: list[str], ties: list[tuple[str, str, float]]
 
 def local_front_lag_ms(holes: list[Hole], surface_ms: dict[str, float], radius_m: float) -> float:
     """Требуемый запас L: наибольшая разница поверхностных времён двух скважин,
-    устья которых в плане не дальше radius_m друг от друга (пар нет — 0)."""
+    устья которых в плане не дальше radius_m друг от друга (пар нет — 0).
+
+    Для каждой скважины берутся соседи в радиусе (частями, без списка всех пар)
+    и наибольшее отклонение их времени от её собственного — память ограничена
+    размером части, а не числом пар."""
     timed = [h for h in holes if h.id in surface_ms]
     if len(timed) < 2:
         return 0.0
     xy = np.array([(h.collar.x, h.collar.y) for h in timed], dtype=float)
     times = np.array([surface_ms[h.id] for h in timed], dtype=float)
-    # Пары — массивом индексов, без множества кортежей: блок до ~10 тыс. скважин.
-    pairs = cKDTree(xy).query_pairs(r=radius_m * (1 + 1e-9) + 1e-9, output_type="ndarray")
-    if len(pairs) == 0:
-        return 0.0
-    return float(np.max(np.abs(times[pairs[:, 0]] - times[pairs[:, 1]])))
+    tree = cKDTree(xy)
+    reach = radius_m * (1 + 1e-9) + 1e-9
+    lag = 0.0
+    for start in range(0, len(timed), _LAG_CHUNK):
+        part = slice(start, start + _LAG_CHUNK)
+        for own, near in zip(times[part], tree.query_ball_point(xy[part], r=reach)):
+            if len(near) > 1:
+                values = times[near]
+                lag = max(lag, float(values.max()) - own, own - float(values.min()))
+    return lag
 
 
 def pick_downhole_ms(
@@ -542,12 +556,18 @@ def pick_downhole_ms(
 
 
 def _burning_front_radius(params: dict[str, Any]) -> float:
-    """Радиус критерия из параметров (> 0), иначе `BURNING_FRONT_RADIUS_M`."""
+    """Радиус критерия из параметров (0 < R ≤ `BURNING_FRONT_MAX_M`), иначе
+    `BURNING_FRONT_RADIUS_M`; логическое значение — не радиус."""
+    value = params.get("burning_front_m", BURNING_FRONT_RADIUS_M)
+    if isinstance(value, bool):
+        return BURNING_FRONT_RADIUS_M
     try:
-        radius = float(params.get("burning_front_m", BURNING_FRONT_RADIUS_M))
+        radius = float(value)
     except (TypeError, ValueError):
         return BURNING_FRONT_RADIUS_M
-    return radius if math.isfinite(radius) and radius > 0 else BURNING_FRONT_RADIUS_M
+    if not math.isfinite(radius) or radius <= 0:
+        return BURNING_FRONT_RADIUS_M
+    return min(radius, BURNING_FRONT_MAX_M)
 
 
 def build_trunk_chains_network(

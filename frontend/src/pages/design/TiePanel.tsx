@@ -25,6 +25,19 @@ const SYSTEM_OPTIONS: { value: SystemType; label: string }[] = [
   { value: "detcord", label: "ДШ + пиротехн. реле" },
 ];
 
+// Ступени «Магистраль + цепочки» при смене системы — к ближайшему номиналу новой
+// системы (как design/timing.py::_snap: при равенстве — меньший); у электронной
+// номиналов нет — ступень остаётся.
+function nearestStep(value: number, options: readonly number[]): number {
+  return options.reduce((best, option) => (Math.abs(option - value) < Math.abs(best - value) ? option : best));
+}
+
+function stepsForSystem(system: SystemType, params: TieParams): Pick<TieParams, "trunk_ms" | "chain_ms"> {
+  if (system === "electronic") return { trunk_ms: params.trunk_ms, chain_ms: params.chain_ms };
+  const options = system === "detcord" ? DETCORD_RELAY_MS_OPTIONS : SURFACE_NSI_MS_OPTIONS;
+  return { trunk_ms: nearestStep(params.trunk_ms, options), chain_ms: nearestStep(params.chain_ms, options) };
+}
+
 export function TiePanel({
   scheme,
   params,
@@ -79,7 +92,13 @@ export function TiePanel({
       <header><b>Коммутация</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
         <label>Система инициирования
-          <select value={params.system} onChange={(e) => onParamsChange({ system: e.target.value as SystemType })}>
+          <select
+            value={params.system}
+            onChange={(e) => {
+              const system = e.target.value as SystemType;
+              onParamsChange({ system, ...stepsForSystem(system, params) });
+            }}
+          >
             {SYSTEM_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
         </label>
@@ -125,18 +144,30 @@ export function TiePanel({
 
         {trunkChains ? (
           <>
-            <div className="field-pair">
-              <label>Магистраль, мс
-                <select value={params.trunk_ms} onChange={(e) => onParamsChange({ trunk_ms: Number(e.target.value) })}>
-                  {stepOptions.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
-                </select>
-              </label>
-              <label>Цепочки, мс
-                <select value={params.chain_ms} onChange={(e) => onParamsChange({ chain_ms: Number(e.target.value) })}>
-                  {stepOptions.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
-                </select>
-              </label>
-            </div>
+            {electronic ? (
+              // Электронный детонатор программируется с точностью 1 мс: номиналов нет.
+              <div className="field-pair">
+                <label>Магистраль, мс
+                  <input type="number" min="1" step="1" value={params.trunk_ms} onChange={(e) => onParamsChange({ trunk_ms: Number(e.target.value) })} />
+                </label>
+                <label>Цепочки, мс
+                  <input type="number" min="1" step="1" value={params.chain_ms} onChange={(e) => onParamsChange({ chain_ms: Number(e.target.value) })} />
+                </label>
+              </div>
+            ) : (
+              <div className="field-pair">
+                <label>Магистраль, мс
+                  <select value={params.trunk_ms} onChange={(e) => onParamsChange({ trunk_ms: Number(e.target.value) })}>
+                    {stepOptions.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
+                  </select>
+                </label>
+                <label>Цепочки, мс
+                  <select value={params.chain_ms} onChange={(e) => onParamsChange({ chain_ms: Number(e.target.value) })}>
+                    {stepOptions.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
+                  </select>
+                </label>
+              </div>
+            )}
             <label>Вруб у фланга
               <select value={params.cut_flank} onChange={(e) => onParamsChange({ cut_flank: e.target.value as "left" | "right" })}>
                 <option value="left">левого</option>
@@ -210,7 +241,7 @@ export function TiePanel({
         {warnings.map((text, index) => <small key={index} className="frag-warnings">{text}</small>)}
         <small>
           {trunkChains
-            ? "Ступени округляются до номинала: НСИ — 17/25/42/67/109 мс, ДШ — 10/20/25/35/42 мс."
+            ? "Ступени округляются до номинала: НСИ — 17/25/42/67/109 мс, ДШ — 10/20/25/35/42 мс; у электронных — любые, от 1 мс."
             : electronic
               ? "Время задаётся программой канала. Выражение: row, col, x, y, interval, base, abs/min/max. Без eval."
               : "Для НСИ интервал округляется до номинала (17/25/42/67/109 мс), для ДШ — до номинала реле."}

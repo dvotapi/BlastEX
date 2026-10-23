@@ -4,11 +4,16 @@
 впереди (ближайший ряд, где есть скважина в 0,75·a по оси) не нашлось
 предшественника; выключенная скважина столбца пропускается. На ступенчатой
 бровке головы лежат в разных рядах решётки, и магистраль идёт по ним, а не по
-ряду 1. Вруб — крайняя у выбранного фланга голова среди голов у переднего края
-(не глубже самой передней + 1,5·b): на контуре, расширяющемся вглубь, он
-остаётся в первом ряду. Магистраль (25 мс между соседними по оси головами)
-идёт от вруба к дальнему флангу, а головы со стороны фланга — от вруба в
-обратном порядке. От каждой головы назад по рядам — цепочка (42 мс).
+ряду 1. Передняя полоса — головы не глубже самой передней + 1,5·b. Вруб —
+крайняя у выбранного фланга голова передней полосы: на контуре, расширяющемся
+вглубь, он остаётся в первом ряду. Магистраль (25 мс между соседними по оси
+головами) идёт от вруба к дальнему флангу только по передней полосе. Головы
+глубже полосы привязываются связью цепочки к ближайшей уже привязанной
+скважине, по возрастанию глубины. От каждой головы назад по рядам — цепочка
+(42 мс).
+
+Ступени СИНВ привязываются к НСИ, ДШ — к реле ДШ; у электронной системы
+ступень — любое число не меньше 1 мс.
 
 Член столбца — скважина семейства сетки, кроме стабилизации, сателлитов,
 наклонной у откоса и ручных. Пара у откоса (`face_toe`) получает копию входящей
@@ -26,6 +31,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -67,6 +73,8 @@ _CUT_DEPTH_FACTOR = 1.5
 _WALL_KINDS = frozenset({"contour", "presplit", "trim"})
 # Равенство смещений до предшественника, м (погрешность координат).
 _OFFSET_TIE_M = 1e-6
+# Наименьшая ступень электронной системы, мс.
+_ELECTRONIC_MIN_STEP_MS = 1.0
 
 DOWNHOLE_LATE_WARNING = (
     "Фронт инициирования отстаёт: поверхностная сеть не короче 1000 мс — возможен подбой."
@@ -159,7 +167,8 @@ def row_axis(holes: list[Hole]) -> tuple[Vec, Vec]:
 
 
 def _row_step(rows: dict[int, list[tuple[float, Hole]]]) -> float:
-    """Шаг ряда a — медиана расстояний между соседними по оси скважинами ряда."""
+    """Шаг ряда a — медиана расстояний между соседними по оси скважинами ряда;
+    math.inf — в каждом ряду по одной скважине."""
     gaps: list[float] = []
     for items in rows.values():
         for (_, a), (_, b) in zip(items, items[1:]):
@@ -177,6 +186,15 @@ def _row_burden(rows: dict[int, list[tuple[float, Hole]]], deep: Vec, fallback: 
     return float(np.median(steps)) if steps else fallback
 
 
+def _chain_limit(rows: dict[int, list[tuple[float, Hole]]], deep: Vec) -> float:
+    """Порог смещения до предшественника: 0,75·a; a не определяется — 0,75·b;
+    не определяется и b — без ограничения."""
+    step = _row_step(rows)
+    if math.isinf(step):
+        step = _row_burden(rows, deep, math.inf)
+    return _CHAIN_OFFSET_FACTOR * step
+
+
 def _step_options(system: str) -> tuple[tuple[float, ...], str]:
     """Номиналы ступеней системы и их название в предупреждении."""
     if system == "detcord":
@@ -185,6 +203,12 @@ def _step_options(system: str) -> tuple[tuple[float, ...], str]:
 
 
 def _snap_step(value: float, label: str, system: str, warnings: list[str]) -> float:
+    if system == "electronic":
+        # Электронный детонатор программируется с точностью 1 мс: номиналов нет.
+        if float(value) >= _ELECTRONIC_MIN_STEP_MS:
+            return float(value)
+        warnings.append(f"Замедление {label} {value:g} мс заменено на {_ELECTRONIC_MIN_STEP_MS:g} мс.")
+        return _ELECTRONIC_MIN_STEP_MS
     options, name = _step_options(system)
     snapped = float(_snap(float(value), options))
     if abs(snapped - float(value)) > 1e-9:
@@ -207,7 +231,8 @@ def plan_trunk_chains(
 ) -> TrunkPlan:
     """Граф «магистраль + цепочки» по уже отфильтрованным скважинам.
 
-    Ступени привязываются к номиналам системы: ДШ — к реле ДШ, остальные — к НСИ.
+    Ступени привязываются к номиналам системы: ДШ — к реле ДШ, СИНВ — к НСИ;
+    у электронной — любое число не меньше 1 мс.
     """
     warnings: list[str] = []
     trunk = _snap_step(trunk_ms, "магистрали", system, warnings)
@@ -238,7 +263,8 @@ def plan_trunk_chains(
         rows.setdefault(logical_row(h.row), []).append((along(h), h))
     for items in rows.values():
         items.sort(key=lambda item: (item[0], item[1].id))
-    limit = _CHAIN_OFFSET_FACTOR * _row_step(rows)
+    deep = (dx, dy)
+    limit = _chain_limit(rows, deep)
     # Предшественник, уже взятый соседкой по ряду, — со следующей ступенью:
     # скважина не обгоняет ряд впереди и не совпадает с соседкой.
     chain_shared = _next_step(chain, system)
@@ -260,25 +286,28 @@ def plan_trunk_chains(
             else:
                 heads.append((pos, hole))
 
+    def depth(h: Hole) -> float:
+        return h.collar.x * dx + h.collar.y * dy
+
     starters: list[str] = []
     if heads:
         heads.sort(key=lambda item: (item[0], item[1].id))
         if cut_flank == "right":
             heads.reverse()
-        # Вруб — крайняя у фланга голова среди голов у переднего края
-        # (глубина не дальше 1,5·b от самой передней): на контуре,
-        # расширяющемся вглубь, вруб не уходит в задний ряд.
-        depths = [h.collar.x * dx + h.collar.y * dy for _, h in heads]
-        front_limit = min(depths) + _CUT_DEPTH_FACTOR * _row_burden(rows, (dx, dy), limit / _CHAIN_OFFSET_FACTOR)
-        cut = next(i for i, depth in enumerate(depths) if depth <= front_limit + 1e-9)
-        starters.append(heads[cut][1].id)
-        # Магистраль от вруба к дальнему флангу, головы со стороны фланга —
-        # от вруба в обратном порядке; 25 мс между соседними головами.
-        for (_, prev), (_, head) in zip(heads[cut:], heads[cut + 1:]):
+        # Передняя полоса — головы не глубже самой передней + 1,5·b. Вруб —
+        # крайняя у фланга голова полосы: на контуре, расширяющемся вглубь,
+        # он не уходит в задний ряд.
+        top = min(depth(h) for _, h in heads)
+        burden = _row_burden(rows, deep, limit / _CHAIN_OFFSET_FACTOR)
+        front_limit = top + _CUT_DEPTH_FACTOR * burden + 1e-9
+        front = [h for _, h in heads if depth(h) <= front_limit]
+        starters.append(front[0].id)
+        # Магистраль от вруба к дальнему флангу — только по передней полосе.
+        for prev, head in zip(front, front[1:]):
             incoming[head.id] = (prev.id, trunk)
-        flank_side = heads[: cut + 1][::-1]
-        for (_, prev), (_, head) in zip(flank_side, flank_side[1:]):
-            incoming[head.id] = (prev.id, trunk)
+        _tie_deep_heads(
+            [h for _, h in heads if depth(h) > front_limit], members, starters, incoming, chain, depth
+        )
     elif others:
         # Сетки нет — вруб у фланга среди прочих скважин.
         flank = max if cut_flank == "right" else min
@@ -316,10 +345,60 @@ def plan_trunk_chains(
     )
 
 
+def _tie_deep_heads(
+    deep_heads: list[Hole],
+    members: list[Hole],
+    starters: list[str],
+    incoming: dict[str, tuple[str, float]],
+    chain: float,
+    depth: Callable[[Hole], float],
+) -> None:
+    """Головы глубже передней полосы — связью цепочки к ближайшей уже привязанной.
+
+    Привязанная — член столбца, до которого уже доходит сеть от вруба (голова
+    передней полосы или её цепочка). Головы берутся по возрастанию глубины;
+    привязанная голова приносит с собой свою цепочку.
+    """
+    children: dict[str, list[str]] = {}
+    for to, (frm, _) in incoming.items():
+        children.setdefault(frm, []).append(to)
+    by_id = {h.id: h for h in members}
+    reached: set[str] = set()
+
+    def reach(start: str) -> None:
+        stack = [start]
+        while stack:
+            current = stack.pop()
+            if current in reached:
+                continue
+            reached.add(current)
+            stack.extend(children.get(current, []))
+
+    for starter in starters:
+        reach(starter)
+    for head in sorted(deep_heads, key=lambda h: (depth(h), h.id)):
+        near = min(
+            (by_id[i] for i in reached if i in by_id),
+            key=lambda t: (math.hypot(t.collar.x - head.collar.x, t.collar.y - head.collar.y), t.id),
+        )
+        incoming[head.id] = (near.id, chain)
+        children.setdefault(near.id, []).append(head.id)
+        reach(head.id)
+
+
 def _next_step(chain_ms: float, system: str) -> float:
-    """Следующий номинал системы выше ступени цепочки; выше нет — наибольший."""
+    """Следующий номинал системы выше ступени цепочки; выше нет — наибольший.
+
+    У электронной системы номиналов нет: следующий номинал НСИ выше ступени,
+    а если ступень не меньше наибольшего — ступень + наименьший номинал НСИ.
+    """
     options, _ = _step_options(system)
-    return float(next((o for o in sorted(options) if o > chain_ms + 1e-9), max(options)))
+    above = next((float(o) for o in sorted(options) if o > chain_ms + 1e-9), None)
+    if above is not None:
+        return above
+    if system == "electronic":
+        return chain_ms + float(min(SURFACE_NSI_MS_OPTIONS))
+    return float(max(options))
 
 
 def _chain_predecessor(
@@ -410,7 +489,8 @@ def build_trunk_chains_network(
         downhole_ms, extra = pick_downhole_ms(max(plan.surface_ms.values(), default=0.0))
         warnings.extend(extra)
     else:
-        downhole_ms = DEFAULT_DOWNHOLE_MS[system]
+        # ДШ и электронная — из поля, как у остальных схем; не задано — умолчание системы.
+        downhole_ms = float(params.get("downhole_delay_ms", DEFAULT_DOWNHOLE_MS[system]))
 
     kind = _connector_kind(system)
     network = InitiationNetwork(

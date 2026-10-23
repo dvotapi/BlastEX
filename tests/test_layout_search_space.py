@@ -99,6 +99,18 @@ class SpaceTests(unittest.TestCase):
         low = stage1(SQUARE, _contour([[0, 1]]))[0]
         self.assertLessEqual(len(stage3([low], SQUARE)), 81)
 
+    def test_variable_and_domain_steps_not_searched(self):
+        # Переменная сетка и сетка по доменам берут шаги из строк и доменов:
+        # множители общих a и b на них не действуют, этап 3 их не перебирает.
+        for pattern in ("variable", "domain_dependent"):
+            with self.subTest(pattern=pattern):
+                base = {**RECT, "pattern": pattern}
+                seed = stage1(base, _contour([[0, 1]]))[-1]
+                out = stage3([seed], base)
+                self.assertEqual(len(out), 27)
+                self.assertEqual({c.params["spacing_a_m"] for c in out}, {4.0})
+                self.assertEqual({c.params["burden_b_m"] for c in out}, {5.0})
+
     def test_zero_shift_key_absent(self):
         seed = stage1(RECT, _contour([[0, 1]]))[0]
         for c in stage3([seed], RECT):

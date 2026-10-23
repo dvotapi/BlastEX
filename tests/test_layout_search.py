@@ -5,12 +5,12 @@ from unittest import mock
 
 from design.geometry import crest_azimuth_deg
 from design.layout_search import search as search_module
-from design.layout_search.evaluate import SearchContext, evaluate
+from design.layout_search.evaluate import Evaluation, SearchContext, evaluate
 from design.layout_search.search import search_layout
-from design.layout_search.space import stage1
-from design.models import BlastDesign
+from design.layout_search.space import Candidate, stage1
+from design.models import BlastDesign, InitiationNetwork
 from design.toe_line import min_crest_offset_m
-from tests.front_rows_fixtures import _rect_contour
+from tests.front_rows_fixtures import _rect_contour, vertical_hole
 from tests.test_trunk_network import BLOCK66_PARAMS, _block66_contour
 
 CONTOUR = _rect_contour(40.0, 30.0, face_angle_deg=75.0)
@@ -60,6 +60,47 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(res.evaluated, 10)
         self.assertTrue(res.best)
         self.assertEqual(set(progress_stages), {"geometry"})
+
+    def test_budget_in_stage1_warns_big_block(self):
+        # Бюджет кончился в этапе 1 — блок большой; остановка по запросу или
+        # бюджет, кончившийся позже, такого пояснения не дают.
+        calls = {"n": 0}
+        real = search_module.evaluate
+
+        def counting(ctx, candidate):
+            calls["n"] += 1
+            return real(ctx, candidate)
+
+        stage1_total = len(stage1(BASE, CONTOUR))
+        cases = (
+            ({"budget_s": 100.0, "clock": lambda: 0.0 if calls["n"] < 10 else 1000.0}, True),
+            ({"budget_s": 100.0, "clock": lambda: 0.0 if calls["n"] < stage1_total + 5 else 1000.0}, False),
+            ({"budget_s": 1e9, "should_stop": lambda: calls["n"] >= 10}, False),
+        )
+        for kwargs, big in cases:
+            calls["n"] = 0
+            with self.subTest(big=big, n=len(kwargs)), mock.patch.object(search_module, "evaluate", counting):
+                res = search_layout(_ctx(), **kwargs)
+                self.assertTrue(res.stopped_early)
+                self.assertTrue(res.best)
+                self.assertEqual(search_module.BIG_BLOCK in res.warnings, big, res.warnings)
+
+    def test_seeds_distinct_grids(self):
+        # Два варианта с одной сеткой (те же устья и фланг) — одно семя.
+        holes = [vertical_hole("1", 1.0, 2.0, 0), vertical_hole("2", 5.0, 2.0, 0)]
+        shifted = [vertical_hole("1", 1.0, 3.0, 0), vertical_hole("2", 5.0, 3.0, 0)]
+
+        def ev(params, grid, flank="left", count=10):
+            return Evaluation(
+                candidate=Candidate(params, flank), holes=grid, network=InitiationNetwork(), rejected=False,
+                reject_codes=[], lsp_out=0, fast_share=0.0, converging_length_m=0.0, outside_share=0.0,
+                robust_spread=0.1, hole_count=count, window8_max_holes=1, downhole_ms=500.0,
+            )
+
+        evaluations = [ev({"k": 1}, holes, count=1), ev({"k": 2}, holes, count=2),
+                       ev({"k": 3}, shifted, count=3), ev({"k": 4}, holes, "right", count=4)]
+        seeds = search_module._seeds(evaluations, 3)
+        self.assertEqual([s.params["k"] for s in seeds], [1, 3, 4])
 
     def test_should_stop(self):
         flag = {"stop": False}

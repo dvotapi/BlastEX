@@ -45,6 +45,7 @@ __all__ = [
     "DesignSummary",
     "designs_dir",
     "design_path",
+    "layout_search_path",
     "ensure_designs_layout",
     "new_design_id",
     "list_designs",
@@ -100,6 +101,20 @@ def design_path(team_id: str, design_id: str) -> Path:
     return path
 
 
+# Результат подбора раскладки лежит рядом с паспортом: `{design_id}.layout_search.json`.
+LAYOUT_SEARCH_SUFFIX = ".layout_search.json"
+
+
+def layout_search_path(team_id: str, design_id: str) -> Path:
+    """Файл последнего подбора раскладки блока; `design_id` проверяется как в `design_path`."""
+    _validate_design_id(design_id)
+    base = designs_dir(team_id).resolve()
+    path = (base / f"{design_id}{LAYOUT_SEARCH_SUFFIX}").resolve()
+    if not path.is_relative_to(base):
+        raise DesignNotFoundError(f"Паспорт БВР «{design_id}» не найден.")
+    return path
+
+
 def ensure_designs_layout(team_id: str) -> None:
     designs_dir(team_id).mkdir(parents=True, exist_ok=True)
 
@@ -112,6 +127,8 @@ def list_designs(team_id: str) -> list[DesignSummary]:
     ensure_designs_layout(team_id)
     summaries: list[DesignSummary] = []
     for path in sorted(designs_dir(team_id).glob("*.json")):
+        if path.name.endswith(LAYOUT_SEARCH_SUFFIX):
+            continue  # результат подбора раскладки, не паспорт
         try:
             data = _read_json(path)
         except (OSError, json.JSONDecodeError):
@@ -243,6 +260,7 @@ def delete_design(team_id: str, design_id: str) -> None:
             "Удаляются только черновик и паспорт на проверке."
         )
     path.unlink()
+    layout_search_path(team_id, design_id).unlink(missing_ok=True)
 
 
 def rename_design(team_id: str, design_id: str, new_name: str, *, actor: str = "") -> BlastDesign:

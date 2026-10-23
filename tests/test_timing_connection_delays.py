@@ -39,3 +39,19 @@ class ConnectionDelayDefaultsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PresplitLeadLadderTest(unittest.TestCase):
+    def test_presplit_lead_on_nonel_is_the_largest_ladder_step_below_lead(self):
+        from design.models import Hole, Point3
+
+        def h(hid, x, row, kind="production"):
+            p = Point3(x=x, y=row * 5.0, z=0.0)
+            return Hole(id=hid, row=row, col=0, collar=p, toe=p, diameter_mm=152.0, kind=kind)
+
+        holes = [h("P0", 0.0, 0), h("P1", 0.0, 1), h("PS", 0.0, -1, "presplit")]
+        net = build_template_network(holes, "row", {"system": "nonel", "interval_ms": 25.0})
+        delays = {(c.from_hole, c.to_hole): c.delay_ms for c in net.connectors}
+        # 150 мс не входит в ступени НСИ: ближайшая не выше — 109 мс.
+        self.assertEqual(delays[("PS", "P0")], 109.0)
+        self.assertEqual(delays[("P0", "P1")], 25.0)

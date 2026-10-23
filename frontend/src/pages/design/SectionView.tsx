@@ -49,7 +49,7 @@ const WALL_TITLE: Record<string, string> = {
 };
 /** Вид группы для ключа ряда: стенки отдельно, остальное — сетка. */
 const rowFamily = (kind: string): string =>
-  kind === "presplit" || kind === "contour" || kind === "buffer" ? kind : "grid";
+  ["presplit", "contour", "buffer", "stab", "satellite", "infill"].includes(kind) ? kind : "grid";
 /**
  * Ключ ряда в сечении: вид + номер полосы из id (позиционная нумерация). Технический row
  * у стенок общий (все полосы контура — на одном row), поэтому по нему не группируем.
@@ -60,7 +60,9 @@ export const sectionRowKey = (hole: { kind: string; id: string; row: number; sou
   const m = /^(?:SAT|[PKBTSI])?(\d+)-/.exec(hole.id);
   return `${rowFamily(hole.kind)}:${m ? m[1] : hole.row}`;
 };
-const FAMILY_ORDER: Record<string, number> = { grid: 0, presplit: 1, contour: 2, buffer: 3, manual: 4 };
+const FAMILY_ORDER: Record<string, number> = {
+  grid: 0, presplit: 1, contour: 2, buffer: 3, stab: 4, satellite: 5, infill: 6, manual: 7,
+};
 const rowTitleFromId = (id: string, row: number): string => {
   const m = /^(SAT|[PKBTSI]?)(\d+)-/.exec(id);
   if (!m) return rowLabel(row);

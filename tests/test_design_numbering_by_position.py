@@ -111,3 +111,15 @@ class AuxiliaryPrefixTest(unittest.TestCase):
         ids = [h.id for h in number_by_position(holes)]
         self.assertEqual(ids, ["1-01", "SAT1-01", "S1-01", "I1-01"])
         self.assertEqual(len(set(ids)), len(ids))
+
+
+class MinimumSpacingBandsTest(unittest.TestCase):
+    def test_one_metre_spaced_rows_stay_separate(self):
+        # Ряды через 1 м поперёк оси: раньше допуск 1.0 м склеивал все в одну полосу.
+        holes = [
+            Hole(id=f"x{i}{j}", row=i, col=j, collar=Point3(x=float(i), y=float(j) * 5.0, z=0.0),
+                 toe=Point3(x=0.0, y=0.0, z=0.0), diameter_mm=152.0)
+            for i in range(10) for j in range(2)
+        ]
+        numbered = number_by_position(holes, row_azimuth_deg=0.0)
+        self.assertEqual(len({h.id.split("-")[0] for h in numbered}), 10)

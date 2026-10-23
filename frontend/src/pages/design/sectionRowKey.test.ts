@@ -10,9 +10,13 @@ describe("sectionRowKey", () => {
     expect(k1).not.toBe(p1);
   });
 
-  it("groups production and auxiliary grid holes of one positional row together", () => {
+  it("groups production holes of one positional row together", () => {
     expect(sectionRowKey({ kind: "production", id: "3-05", row: 2 })).toBe("grid:3");
-    expect(sectionRowKey({ kind: "stab", id: "3-06", row: 2 })).toBe("grid:3");
+  });
+
+  it("keeps stabilisation holes in their own family, not the production row", () => {
+    expect(sectionRowKey({ kind: "stab", id: "S1-01", row: -1003 })).toBe("stab:1");
+    expect(sectionRowKey({ kind: "stab", id: "S1-01", row: -1003 })).not.toBe("grid:1");
   });
 
   it("puts manual holes in one group regardless of their sentinel row", () => {

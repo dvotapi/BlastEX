@@ -93,3 +93,4 @@ class ZeroIntervalTimingTest(unittest.TestCase):
         holes = _block()
         network = apply_electronic_timing(holes, "row", {"interval_ms": 0.0, "base_ms": 0.0})
         self.assertTrue(network.electronic_times_ms)
+

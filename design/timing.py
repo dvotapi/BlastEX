@@ -276,6 +276,12 @@ def _build_wave_graph(
         connector_kind = "electronic"
 
     min_col, max_col, center_col = _grid_extents(eligible)
+    if system in ("nonel", "detcord"):
+        # Пресплит идёт одним поверхностным соединителем: его задержка — ступень системы.
+        ladder = SURFACE_NSI_MS_OPTIONS if system == "nonel" else DETCORD_RELAY_MS_OPTIONS
+        lead = float(params.get("presplit_lead_ms", 150.0))
+        below = [option for option in ladder if option <= lead]
+        params = {**params, "presplit_lead_ms": float(max(below) if below else min(ladder))}
     wall_coords = _block_row_coordinates(eligible, interval_ms, params) if scheme == "row" else {}
     coords = {h.id: _wave_coordinate(h, scheme, center_col, min_col, max_col) for h in eligible}
     coords.update(wall_coords)

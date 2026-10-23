@@ -1,14 +1,17 @@
 """Поиск раскладки по этапам: топ-3, бюджет, остановка, прогресс, отбраковка."""
+import os
 import unittest
 from unittest import mock
 
 from design.geometry import crest_azimuth_deg
 from design.layout_search import search as search_module
-from design.layout_search.evaluate import SearchContext
+from design.layout_search.evaluate import SearchContext, evaluate
 from design.layout_search.search import search_layout
 from design.layout_search.space import stage1
 from design.models import BlastDesign
+from design.toe_line import min_crest_offset_m
 from tests.front_rows_fixtures import _rect_contour
+from tests.test_trunk_network import BLOCK66_PARAMS, _block66_contour
 
 CONTOUR = _rect_contour(40.0, 30.0, face_angle_deg=75.0)
 BASE = {
@@ -104,6 +107,35 @@ class SearchTests(unittest.TestCase):
         res = search_layout(_ctx(contour=contour), budget_s=1e9, stage2_seeds=2, stage3_seeds=1)
         self.assertTrue(res.best)
         self.assertTrue(all(ev.lsp_out == 0 for ev in res.best))
+
+
+@unittest.skipUnless(os.environ.get("BLASTEX_SLOW"), "медленный тест (≈1 мин): BLASTEX_SLOW=1")
+class Block66SearchTests(unittest.TestCase):
+    """Блок №66 с полным бюджетом: три прошедших варианта не хуже базы без перебора."""
+
+    def test_best_not_worse_than_base(self):
+        contour = _block66_contour()
+        ctx = SearchContext.from_design(
+            BlastDesign(design_id="66", contour=contour, pattern_params=dict(BLOCK66_PARAMS))
+        )
+        # База без перебора — вариант этапа 1 при k = 0: азимут бровки, без
+        # сдвига, отступ o₀; фланг — лучший из двух.
+        azimuth = round(crest_azimuth_deg(contour) % 360.0, 4)
+        o0 = min_crest_offset_m(BLOCK66_PARAMS)
+        bases = [
+            c for c in stage1(BLOCK66_PARAMS, contour)
+            if c.params["row_azimuth_deg"] == azimuth
+            and "grid_shift_along_m" not in c.params
+            and abs(c.params["offset_from_face_m"] - o0) < 1e-9
+        ]
+        self.assertEqual({c.cut_flank for c in bases}, {"left", "right"})
+        self.assertEqual(len(bases), 2)
+        base_key = min(evaluate(ctx, c).rank_key() for c in bases)
+
+        res = search_layout(ctx, budget_s=150.0)
+        self.assertEqual(len(res.best), 3)
+        self.assertTrue(all(not ev.rejected for ev in res.best))
+        self.assertLessEqual(res.best[0].rank_key(), base_key)
 
 
 if __name__ == "__main__":

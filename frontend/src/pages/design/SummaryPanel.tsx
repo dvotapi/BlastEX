@@ -63,7 +63,9 @@ export function SummaryPanel({
 }) {
   const production = holes.filter((h) => h.kind === "production" && h.enabled);
   const contourHoles = holes.filter((h) => (h.kind === "contour" || h.kind === "presplit" || h.kind === "trim") && h.enabled);
-  const extraHoles = holes.filter((h) => ["buffer", "stab", "satellite", "infill"].includes(h.kind) && h.enabled);
+  // Наклонные у откоса (пары) — тоже скважины к бурению: считаются в дополнительных
+  const extraHoles = holes.filter((h) => ["buffer", "stab", "satellite", "infill", "face_toe"].includes(h.kind) && h.enabled);
+  const faceToeCount = extraHoles.filter((h) => h.kind === "face_toe").length;
   const footage = holes.filter((h) => h.enabled).reduce((sum, h) => sum + Math.sqrt(
     (h.toe.x - h.collar.x) ** 2 + (h.toe.y - h.collar.y) ** 2 + (h.toe.z - h.collar.z) ** 2,
   ), 0);
@@ -78,7 +80,13 @@ export function SummaryPanel({
     <div className="metrics-strip">
       <div><span>Рабочих скважин</span><strong>{production.length}</strong><small>{holesSource}</small></div>
       <div><span>Контурные скважины</span><strong>{contourHoles.length}</strong><small>шт.</small></div>
-      {extraHoles.length > 0 && <div><span>Буфер / добор</span><strong>{extraHoles.length}</strong><small>шт.</small></div>}
+      {extraHoles.length > 0 && (
+        <div>
+          <span>Дополнительные</span>
+          <strong>{extraHoles.length}</strong>
+          <small>{faceToeCount > 0 ? `шт., из них наклонных у откоса — ${faceToeCount}` : "шт."}</small>
+        </div>
+      )}
       <div><span>Погонаж бурения</span><strong>{ruNumber(footage, 1)} м</strong><small>{holesSource}</small></div>
       <div title={volumeTitle ?? undefined}>
         <span>Объём блока</span>

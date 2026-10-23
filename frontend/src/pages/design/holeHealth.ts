@@ -10,7 +10,7 @@ import type {
   Point3,
   ValidationWarning,
 } from "../../types/design";
-import { networkTies } from "../../types/design";
+import { CHARGE_REQUIRED_HOLE_KINDS, networkTies } from "../../types/design";
 
 export type HoleHealthCode =
   | "ok"
@@ -22,6 +22,10 @@ export type HoleHealthCode =
   | "outside_surface"
   | "short_bench"
   | "floor_burden_excess"
+  | "floor_burden_short"
+  | "floor_beyond_toe"
+  | "floor_row_gap_excess"
+  | "collar_too_close_to_crest"
   | "actual_unmatched";
 
 export const HEALTH_LABELS: Record<HoleHealthCode, string> = {
@@ -34,6 +38,10 @@ export const HEALTH_LABELS: Record<HoleHealthCode, string> = {
   outside_surface: "вне поверхности",
   short_bench: "H < 1 м",
   floor_burden_excess: "ЛСП больше допустимого",
+  floor_burden_short: "ЛСП меньше допустимого",
+  floor_beyond_toe: "Скважина выходит в откос",
+  floor_row_gap_excess: "Между рядами у подошвы больше допустимого",
+  collar_too_close_to_crest: "Устье ближе допустимого к кромке",
   actual_unmatched: "факт без проекта",
 };
 
@@ -48,6 +56,10 @@ export const HEALTH_COLORS: Record<HoleHealthCode, string> = {
   outside_surface: "#c0392b",
   short_bench: "#c0392b",
   floor_burden_excess: "#c0392b",
+  floor_burden_short: "#c0392b",
+  floor_beyond_toe: "#c0392b",
+  floor_row_gap_excess: "#c0392b",
+  collar_too_close_to_crest: "#c0392b",
   actual_unmatched: "#3d6ea8",
 };
 
@@ -63,6 +75,10 @@ const WARNING_CODE_TO_HEALTH: Record<string, HoleHealthCode> = {
   hole_outside_surface: "outside_surface",
   hole_short_bench: "short_bench",
   floor_burden_excess: "floor_burden_excess",
+  floor_burden_short: "floor_burden_short",
+  floor_beyond_toe: "floor_beyond_toe",
+  floor_row_gap_excess: "floor_row_gap_excess",
+  collar_too_close_to_crest: "collar_too_close_to_crest",
 };
 
 export type HoleHealthMap = Record<string, HoleHealthCode>;
@@ -154,7 +170,12 @@ function severity(code: HoleHealthCode): number {
     case "missing_primer": return 4;
     case "outside_surface": return 4;
     case "short_bench": return 3;
+    // Точка на подошве за нижней бровкой хуже, чем ЛСП больше допустимого.
+    case "floor_beyond_toe": return 4;
     case "floor_burden_excess": return 3;
+    case "floor_row_gap_excess": return 3;
+    case "collar_too_close_to_crest": return 3;
+    case "floor_burden_short": return 3;
     case "outside_contour": return 3;
     case "actual_unmatched": return 3;
     case "extra_hole": return 2;
@@ -193,7 +214,7 @@ export function computeHoleHealth(
 
   const load = context.load;
   const charged = (load?.total_charge_kg ?? 0) > 0;
-  if (!charged && hole.kind === "production") {
+  if (!charged && CHARGE_REQUIRED_HOLE_KINDS.has(hole.kind)) {
     code = pickWorst(code, "missing_charge");
   }
   if (charged && (!load?.primers?.length && !(load?.primer_items?.length))) {
@@ -255,6 +276,10 @@ export function summarizeHealth(health: HoleHealthMap, holes: Hole[]): HealthSum
     outside_surface: [] as string[],
     short_bench: [] as string[],
     floor_burden_excess: [] as string[],
+    floor_burden_short: [] as string[],
+    floor_beyond_toe: [] as string[],
+    floor_row_gap_excess: [] as string[],
+    collar_too_close_to_crest: [] as string[],
     actual_unmatched: [] as string[],
   };
   const holeIds = new Set(holes.map((h) => h.id));

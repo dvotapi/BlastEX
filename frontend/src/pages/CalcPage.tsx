@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { api } from "../api/endpoints";
 import { useWorkspace } from "../app/useWorkspace";
 import { useTopbarSlot } from "../app/topbarSlot";
-import { faceAngleFromVerticalInput } from "../lib/faceAngle";
+import { DEFAULT_FACE_ANGLE_FROM_VERTICAL_DEG, faceAngleFromVerticalInput } from "../lib/faceAngle";
 import { explosiveColor } from "../components/holeDrawing/palette";
 import {
   applyCalcInputs,
@@ -55,7 +55,7 @@ function FullBvrCalc({
   onSendToDesign,
   onOpenEconomics,
 }: {
-  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number) => void;
+  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number, rockName: string) => void;
   onOpenEconomics?: (passportId: string) => void;
 }) {
   const [rocks, setRocks] = useState<Rock[]>([]);
@@ -64,7 +64,7 @@ function FullBvrCalc({
   const [explosiveKey, setExplosiveKeyRaw] = useState("");
   const [lumpSize, setLumpSizeRaw] = useState(400);
   const [benchHeight, setBenchHeightRaw] = useState(10);
-  const [faceAngleFromVerticalDeg, setFaceAngle] = useState(15);
+  const [faceAngleFromVerticalDeg, setFaceAngle] = useState(DEFAULT_FACE_ANGLE_FROM_VERTICAL_DEG);
   const [overdrill, setOverdrillRaw] = useState(1);
   const [oversizeCoeff, setOversizeCoeffRaw] = useState(1.05);
   const [spacing, setSpacingRaw] = useState(1.25);
@@ -768,7 +768,7 @@ function FullBvrCalc({
                 )}
               </span>
               {onSendToDesign && (
-                <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected, faceAngleFromVerticalDeg)}>
+                <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected, faceAngleFromVerticalDeg, rockName)}>
                   Перенести в проект →
                 </button>
               )}
@@ -884,7 +884,7 @@ export function CalcPage({
   onSendToDesign,
   onOpenEconomics,
 }: {
-  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number) => void;
+  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number, rockName: string) => void;
   onOpenEconomics?: (passportId: string) => void;
 }) {
   return <FullBvrCalc onSendToDesign={onSendToDesign} onOpenEconomics={onOpenEconomics} />;

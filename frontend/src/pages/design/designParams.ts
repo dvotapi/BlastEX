@@ -4,7 +4,7 @@
 // каждой загрузки с сервера, а на сервер паспорт уходит только с тем, что в
 // его статусе можно править, — замороженные части как хранятся.
 import { canEdit, MUTATION_PAYLOAD_KEYS, type MutationKind } from "../../lib/lifecycle";
-import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, type BenchSurface, type BlastDesign, type ChargeRules, type PatternParams } from "../../types/design";
+import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, type BenchSurface, type BlastDesign, type ChargeRules, type PatternParams, type TieParams } from "../../types/design";
 import { clampFaceAngleFromVertical } from "../../lib/faceAngle";
 import type { DesignState } from "./designReducer";
 
@@ -32,7 +32,8 @@ export function designWithParams(state: Pick<DesignState, "present" | "saved">, 
   let payload: BlastDesign = canEdit(status, "designed")
     ? {
         ...state.present,
-        pattern_params: params.patternParams as unknown as Record<string, unknown>,
+        // ключи со значением undefined (сброшенный наклон рядов) в паспорт не пишем
+        pattern_params: Object.fromEntries(Object.entries(params.patternParams).filter(([, v]) => v !== undefined)),
         charge_rules: params.chargeRules as unknown as Record<string, unknown>,
         explosive_key: params.explosiveKey,
       }
@@ -85,4 +86,30 @@ export function benchPatchFromObjectAngle(
   if (!Number.isFinite(angleFromVerticalDeg)) return null;
   if (design.contour.vertices.length > 0) return null;
   return { face_angle_deg: 90 - clampFaceAngleFromVertical(angleFromVerticalDeg) };
+}
+
+/**
+ * Порода из «Расчёта» при переносе варианта: ставится новому проекту и
+ * проекту без породы, выбранную в проекте не перетирает. Пустое имя и
+ * проект, проектную часть которого править нельзя, — null.
+ */
+export function rockNameFromTransfer(
+  design: Pick<BlastDesign, "design_id" | "rock_name" | "lifecycle_status">,
+  rockName: string | null | undefined,
+): string | null {
+  const name = (rockName ?? "").trim();
+  if (!name) return null;
+  if (!canEdit(design.lifecycle_status, "designed")) return null;
+  if (design.design_id && design.rock_name.trim()) return null;
+  return name === design.rock_name ? null : name;
+}
+
+/**
+ * Параметры построения коммутации. Вид основной сетки (`main_kind`) нужен
+ * схеме «Магистраль + цепочки»: по нему сетка вида «стабилизация» или
+ * «сателлит» — столбцы с магистралью, а не вставки. Ряды решётки стеночного
+ * вида — столбцы и без него (по номеру ряда).
+ */
+export function tieRequestParams(tieParams: TieParams, selectedHoleIds: string[], mainKind: string): TieParams {
+  return { ...tieParams, selected_hole_ids: selectedHoleIds, main_kind: mainKind };
 }

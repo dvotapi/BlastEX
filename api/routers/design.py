@@ -1,7 +1,7 @@
 """REST-роутер проектирования БВР: раскладка сетки и паспорта блока."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from api.schemas.cost import AggregatedCostResultSchema
 from api.schemas.design import (
@@ -28,6 +28,8 @@ from api.schemas.design import (
     HoleInsertResponse,
     HoleRecomputeRequest,
     HoleRecomputeResponse,
+    LayoutSearchStartRequest,
+    LayoutSearchStatusResponse,
     PatternGenerateRequest,
     PatternGenerateResponse,
     SurfaceImportRequest,
@@ -74,6 +76,8 @@ from api.services.economics_service import get_economics_repository
 from api.services.legacy_references import current_legacy_references
 from cost.v2.legacy_adapter import LegacyReferences
 from cost.v2.repository import EconomicsRepository
+from design import persistence as design_persistence
+from design.layout_search.jobs import LayoutSearchBusyError, LayoutSearchJobs, get_layout_search_jobs
 
 router = APIRouter(prefix="/design", tags=["design"])
 
@@ -161,8 +165,61 @@ def post_tie_generate(request: TieGenerateRequest) -> TieGenerateResponse:
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-def post_analyze(request: AnalyzeRequest) -> AnalyzeResponse:
-    return design_service.analyze_design(request)
+def post_analyze(
+    request: AnalyzeRequest,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> AnalyzeResponse:
+    return design_service.analyze_design(request, organization_id=organization_id, repository=repository)
+
+
+@router.post(
+    "/layout-search",
+    response_model=LayoutSearchStatusResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def post_layout_search(
+    request: LayoutSearchStartRequest,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+    jobs: LayoutSearchJobs = Depends(get_layout_search_jobs),
+) -> LayoutSearchStatusResponse:
+    try:
+        return design_service.start_layout_search(
+            request, organization_id=organization_id, repository=repository, jobs=jobs
+        )
+    except design_persistence.DesignNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except LayoutSearchBusyError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except design_service.LayoutSearchInputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/layout-search/{design_id}", response_model=LayoutSearchStatusResponse)
+def get_layout_search(
+    design_id: str,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+    jobs: LayoutSearchJobs = Depends(get_layout_search_jobs),
+) -> LayoutSearchStatusResponse:
+    try:
+        return design_service.layout_search_status(organization_id, design_id, jobs=jobs, repository=repository)
+    except design_persistence.DesignNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+
+@router.post("/layout-search/{design_id}/stop", response_model=LayoutSearchStatusResponse)
+def post_layout_search_stop(
+    design_id: str,
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+    jobs: LayoutSearchJobs = Depends(get_layout_search_jobs),
+) -> LayoutSearchStatusResponse:
+    try:
+        return design_service.stop_layout_search(organization_id, design_id, jobs=jobs, repository=repository)
+    except design_persistence.DesignNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
 
 @router.post("/receptors", response_model=ReceptorAttachResponse)

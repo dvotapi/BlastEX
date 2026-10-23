@@ -10,7 +10,7 @@ from typing import Any
 from design.editing import local_burden, local_spacing
 from design.geometry import collar_burden, toe_burden, true_burden
 from design.models import BlastDesign, Hole
-from design.toe_line import floor_burdens
+from design.toe_line import floor_burdens, spoil_angle_toe_lines
 
 MAP_METRICS = (
     "burden",
@@ -42,7 +42,11 @@ def _round_opt(value: float | None, places: int = 3) -> float | None:
 
 
 def hole_map_record(
-    hole: Hole, holes: list[Hole], contour, floor_burden: float | None = None
+    hole: Hole,
+    holes: list[Hole],
+    contour,
+    floor_burden: float | None = None,
+    floor_burden_source: str | None = None,
 ) -> dict[str, Any]:
     burden = local_burden(holes, hole, contour)
     if burden is None:
@@ -61,6 +65,8 @@ def hole_map_record(
         "collar_burden": _round_opt(collar_burden(hole, contour)),
         "true_face_burden": _round_opt(true_burden(hole, contour)),
         "floor_burden": _round_opt(floor_burden),
+        # Откуда линия подошвы: "survey" — съёмка, "angle" — подошва по углу откоса.
+        "floor_burden_source": floor_burden_source if floor_burden is not None else None,
     }
 
 
@@ -70,7 +76,13 @@ def engineering_maps(design: BlastDesign) -> dict[str, Any]:
     # ЛСП считается один раз на проект; у скважин не у откоса значения нет.
     lsp = floor_burdens(design)
     holes = [
-        hole_map_record(h, enabled, design.contour, lsp[h.id].value_m if h.id in lsp else None)
+        hole_map_record(
+            h,
+            enabled,
+            design.contour,
+            lsp[h.id].value_m if h.id in lsp else None,
+            lsp[h.id].toe_source if h.id in lsp else None,
+        )
         for h in enabled
     ]
     stats: dict[str, dict[str, float]] = {}
@@ -81,4 +93,8 @@ def engineering_maps(design: BlastDesign) -> dict[str, Any]:
         "metrics": list(MAP_METRICS),
         "holes": holes,
         "stats": stats,
+        # Подошва по углу там, где съёмка — развал: по ней считана ЛСП, на плане — пунктиром.
+        "angle_toe_lines": [
+            [[round(x, 3), round(y, 3)] for x, y in line] for line in spoil_angle_toe_lines(design, lsp)
+        ],
     }

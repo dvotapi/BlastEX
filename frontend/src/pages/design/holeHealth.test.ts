@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyDesign, emptyHoleGeology, emptyNetwork } from "../../types/design";
+import { emptyDesign, emptyHoleGeology, emptyNetwork, HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS } from "../../types/design";
 import { computeAllHoleHealth, computeHoleHealth, HEALTH_LABELS, healthColor, summarizeHealth } from "./holeHealth";
 
 function sampleHole(id: string, x: number, y: number) {
@@ -26,6 +26,19 @@ describe("holeHealth", () => {
       contour: emptyDesign().contour,
     });
     expect(code).toBe("missing_charge");
+  });
+
+  it("flags face_toe holes without charge, but not buffer holes", () => {
+    const context = { network: emptyNetwork(), contour: emptyDesign().contour };
+    const pair = { ...sampleHole("5-08T", 0, 0), kind: "face_toe" as const };
+    expect(computeHoleHealth(pair, context)).toBe("missing_charge");
+    const charged = computeHoleHealth(pair, {
+      ...context,
+      load: { hole_id: "5-08T", decks: [], total_charge_kg: 50, influence_volume_m3: 1, specific_q_kg_m3: 1, primers: [5] },
+    });
+    expect(charged).toBe("ok");
+    const buffer = { ...sampleHole("B1", 0, 0), kind: "buffer" as const };
+    expect(computeHoleHealth(buffer, context)).toBe("ok");
   });
 
   it("flags holes outside contour polygon", () => {
@@ -57,6 +70,39 @@ describe("holeHealth", () => {
     });
     expect(code).toBe("floor_burden_excess");
     expect(HEALTH_LABELS.floor_burden_excess).toBe("ЛСП больше допустимого");
+  });
+
+  it("flags holes whose floor burden is below 0.8·W", () => {
+    const hole = sampleHole("H5", 0, 0);
+    const network = emptyNetwork();
+    network.starter_items = [{ id: "st-H5", hole_id: "H5", delay_ms: 0, kind: "starter" }];
+    network.starters = ["H5"];
+    const code = computeHoleHealth(hole, {
+      load: { hole_id: "H5", decks: [], total_charge_kg: 100, influence_volume_m3: 1, specific_q_kg_m3: 1, primers: [5] },
+      network,
+      contour: emptyDesign().contour,
+      warnings: [{ code: "floor_burden_short", hole_id: hole.id, message: "" }],
+    });
+    expect(code).toBe("floor_burden_short");
+    expect(HEALTH_LABELS.floor_burden_short).toBe("ЛСП меньше допустимого");
+  });
+
+  it("flags holes whose floor point is beyond the toe line", () => {
+    const hole = sampleHole("H4", 0, 0);
+    const network = emptyNetwork();
+    network.starter_items = [{ id: "st-H4", hole_id: "H4", delay_ms: 0, kind: "starter" }];
+    network.starters = ["H4"];
+    const code = computeHoleHealth(hole, {
+      load: { hole_id: "H4", decks: [], total_charge_kg: 100, influence_volume_m3: 1, specific_q_kg_m3: 1, primers: [5] },
+      network,
+      contour: emptyDesign().contour,
+      warnings: [
+        { code: "floor_burden_excess", hole_id: hole.id, message: "" },
+        { code: "floor_beyond_toe", hole_id: hole.id, message: "" },
+      ],
+    });
+    expect(code).toBe("floor_beyond_toe");
+    expect(HEALTH_LABELS.floor_beyond_toe).toBe("Скважина выходит в откос");
   });
 
   it("flags holes the initiation cannot reach from the starters", () => {
@@ -122,5 +168,12 @@ describe("holeHealth: флаги кровли (TASK-013, PR 3)", () => {
     });
 
     expect(health.A).toBe("short_bench");
+  });
+
+  it("коды проверок первых рядов получают подписи", () => {
+    expect(HOLE_KIND_LABELS.face_toe).toBe("Наклонная у откоса");
+    expect(SELECTABLE_HOLE_KINDS.map(([k]) => k)).not.toContain("face_toe");
+    expect(HEALTH_LABELS.floor_row_gap_excess).toBe("Между рядами у подошвы больше допустимого");
+    expect(HEALTH_LABELS.collar_too_close_to_crest).toBe("Устье ближе допустимого к кромке");
   });
 });

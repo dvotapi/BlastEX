@@ -1012,6 +1012,7 @@ class TieGenerateResponse(BaseModel):
     network: InitiationNetworkSchema
     starters_count: int
     connectors_count: int
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ValidationWarningSchema(BaseModel):
@@ -1048,12 +1049,15 @@ class HoleMapSampleSchema(BaseModel):
     collar_burden: float | None = None
     true_face_burden: float | None = None
     floor_burden: float | None = None
+    floor_burden_source: str | None = None  # "survey" | "angle" (подошва по углу)
 
 
 class EngineeringMapsSchema(BaseModel):
     metrics: list[str] = Field(default_factory=list)
     holes: list[HoleMapSampleSchema] = Field(default_factory=list)
     stats: dict[str, dict[str, float]] = Field(default_factory=dict)
+    # Куски подошвы по углу у скважин, где съёмка подошвы — развал: [[x, y], …].
+    angle_toe_lines: list[list[list[float]]] = Field(default_factory=list)
 
 
 class EngineeringMapsRequest(BaseModel):
@@ -1164,6 +1168,91 @@ class AnalyzeRequest(BaseModel):
     ppv: PpvRequestSchema | None = None
 
 
+class LayoutSearchStartRequest(BaseModel):
+    design_id: str
+    design: BlastDesignSchema
+    # Отпечаток входа, по которому фронт узнаёт устаревший итог.
+    fingerprint: str
+
+
+class LayoutSearchVariantSchema(BaseModel):
+    """Вариант раскладки: параметры сетки, скважины, сеть и показатели (None — нет данных)."""
+
+    params: dict[str, Any]
+    cut_flank: str
+    holes: list[HoleSchema]
+    network: InitiationNetworkSchema
+    rejected: bool = False
+    reject_codes: list[str] = Field(default_factory=list)
+    lsp_out: int = 0
+    fast_share: float | None = None
+    converging_length_m: float | None = None
+    outside_share: float | None = None
+    robust_spread: float | None = None
+    hole_count: int = 0
+    window8_max_holes: int = 0
+    downhole_ms: float | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class LayoutSearchResultSchema(BaseModel):
+    best: list[LayoutSearchVariantSchema]
+    evaluated: int = 0
+    rejected: int = 0
+    stopped_early: bool = False
+    elapsed_s: float = 0.0
+    all_rejected: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    # Границы темпа отбойки, с которыми шёл подбор (у итогов прежней версии — None).
+    relief_min_ms_m: float | None = None
+    relief_max_ms_m: float | None = None
+
+
+class LayoutSearchStatusResponse(BaseModel):
+    state: str
+    stage: str | None = None
+    done: int = 0
+    total: int = 0
+    elapsed_s: float | None = None
+    fingerprint: str | None = None
+    result: LayoutSearchResultSchema | None = None
+    error: str | None = None
+    # Границы темпа породы итога в справочнике уже другие: итог устарел.
+    bounds_changed: bool = False
+
+
+class ReliefTriangleSchema(BaseModel):
+    hole_ids: list[str]
+    points: list[list[float]]
+    relief_ms_m: float
+    area_m2: float
+    # Темп быстрее нижней границы расчёта (по точному, неокруглённому значению).
+    fast: bool = False
+
+
+class ReliefStatsSchema(BaseModel):
+    triangles: int
+    median_ms_m: float
+    mean_ms_m: float
+    min_ms_m: float
+    max_ms_m: float
+    cv: float | None = None
+    outside_share: float
+    robust_spread: float | None = None
+    min_bound_ms_m: float = 3.0
+    max_bound_ms_m: float | None = None
+    fast_share: float = 0.0
+    slow_share: float = 0.0
+    converging_length_m: float = 0.0
+
+
+class BurdenReliefSchema(BaseModel):
+    triangles: list[ReliefTriangleSchema]
+    stats: ReliefStatsSchema | None = None
+    # Стыки встречных фронтов: отрезки [[x1, y1], [x2, y2]].
+    converging: list[list[list[float]]] = Field(default_factory=list)
+
+
 class AnalyzeResponse(BaseModel):
     times_ms: dict[str, float]
     timing_warnings: list[str]
@@ -1174,6 +1263,12 @@ class AnalyzeResponse(BaseModel):
     ppv_mm_s: float | None = None
     maps: EngineeringMapsSchema | None = None
     firing_events: list[FiringEventSchema] = Field(default_factory=list)
+    relief: BurdenReliefSchema | None = None
+    # Предупреждения о границах темпа отбойки (порода не найдена, границы
+    # противоречат друг другу, справочник не прочитан).
+    relief_warnings: list[str] = Field(default_factory=list)
+    # Границы темпа взяты из записи породы справочника; иначе — умолчание.
+    relief_rock_used: bool = False
 
 
 class DesignCostRequest(BaseModel):

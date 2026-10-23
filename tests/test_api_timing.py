@@ -114,6 +114,43 @@ class TimingApiTests(unittest.TestCase):
         )
         self.assertIn(holes[1].id, analyzed.times_ms)
 
+    def test_tie_generate_trunk_chains_warns_on_long_block(self):
+        from api.schemas.design import PatternGenerateRequest
+
+        holes = design_service.generate_pattern(
+            PatternGenerateRequest(
+                contour=_contour_payload(160.0, 48.0),
+                params={
+                    "pattern": "rectangular",
+                    "spacing_a_m": 4.0,
+                    "burden_b_m": 4.0,
+                    "row_azimuth_deg": 90.0,
+                    "offset_from_face_m": 0.0,
+                    "edge_margin_m": 0.0,
+                },
+            )
+        ).holes
+        payload = [h.model_dump() for h in holes]
+        response = design_service.generate_tie(
+            TieGenerateRequest(holes=payload, scheme="trunk_chains", params={"system": "nonel"})
+        )
+        self.assertIn("Фронт инициирования отстаёт", response.warnings[0])
+        self.assertIn("не короче 1000 мс", response.warnings[0])
+        self.assertEqual(response.network.timing_params["downhole_delay_ms"], 1000)
+        electronic = design_service.generate_tie(
+            TieGenerateRequest(
+                holes=payload,
+                scheme="trunk_chains",
+                params={"system": "electronic", "timing_mode": "gradient"},
+            )
+        )
+        self.assertTrue(any("Электронный режим тайминга не применяется" in w for w in electronic.warnings))
+        self.assertEqual(electronic.network.timing_mode, "")
+        row = design_service.generate_tie(
+            TieGenerateRequest(holes=payload, scheme="row", params={"system": "nonel"})
+        )
+        self.assertEqual(row.warnings, [])
+
 
 if __name__ == "__main__":
     unittest.main()

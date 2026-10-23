@@ -241,7 +241,11 @@ export type HoleKind =
   | "contour"
   | "stab"
   | "satellite"
-  | "infill";
+  | "infill"
+  | "face_toe";
+/** Виды, у которых без заряда скважина отмечается «нет заряда»: основная сетка
+ *  и «Наклонная у откоса» — генератор ставит её без зарядки, как и основную. */
+export const CHARGE_REQUIRED_HOLE_KINDS: ReadonlySet<HoleKind> = new Set<HoleKind>(["production", "face_toe"]);
 export type HoleSource = "generated" | "manual";
 export type DataRole = "designed" | "executed" | "predicted" | "measured";
 export type WaterCondition = "dry" | "moist" | "wet" | "flowing" | "";
@@ -875,6 +879,14 @@ export type PatternParams = {
   subdrill_m: number;
   angle_deg: number;
   azimuth_deg: number;
+  // Наклон 1–2 рядов основной сетки у откоса; ключей нет, пока их не задали
+  // Схема: "pair" — вертикальная + наклонная, "taper" — плавный переход;
+  // нет ключа, но есть front_rows_tilt_count > 0 — старый проект, то же что "taper"
+  front_rows_mode?: "pair" | "taper";
+  front_rows_tilt_count?: 0 | 1 | 2;
+  front_rows_tilt_deg?: number;
+  // Мин. отступ устья от кромки, м; нет ключа — умолчание сервера (1 м)
+  min_crest_offset_m?: number;
   default_kind: HoleKind;
   row_params: RowPatternParams[];
   contour_row: boolean;
@@ -929,12 +941,24 @@ export type HoleMapSample = {
   collar_burden: number | null;
   true_face_burden: number | null;
   floor_burden?: number | null;
+  /** Откуда линия подошвы для ЛСП: "survey" — съёмка, "angle" — подошва по углу откоса. */
+  floor_burden_source?: FloorBurdenSource | null;
+};
+
+export type FloorBurdenSource = "survey" | "angle";
+
+/** Подпись источника линии подошвы; у съёмки подписи нет. */
+export const FLOOR_BURDEN_SOURCE_LABELS: Record<FloorBurdenSource, string | null> = {
+  survey: null,
+  angle: "подошва по углу",
 };
 
 export type EngineeringMaps = {
   metrics: MapMetric[];
   holes: HoleMapSample[];
   stats: Record<string, { min: number; avg: number; max: number; count: number }>;
+  /** Куски подошвы по углу у скважин, где съёмка подошвы — развал: [[x, y], …]. */
+  angle_toe_lines?: number[][][];
 };
 
 export type PatternGenerateResponse = {
@@ -1026,7 +1050,12 @@ export type DesignSummary = {
   parent_design_id?: string;
 };
 
-export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid";
+export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid" | "trunk_chains";
+
+// Ступени поверхностных замедлений НСИ, мс.
+export const SURFACE_NSI_MS_OPTIONS = [17, 25, 42, 67, 109] as const;
+// Номиналы пиротехнических реле ДШ, мс (design/timing.py::DETCORD_RELAY_MS_OPTIONS).
+export const DETCORD_RELAY_MS_OPTIONS = [10, 20, 25, 35, 42] as const;
 export type SystemType = InitiationNetwork["system"];
 
 export type TieParams = {
@@ -1040,13 +1069,19 @@ export type TieParams = {
   gradient_from_ms: number;
   gradient_to_ms: number;
   base_ms: number;
+  trunk_ms: number;
+  chain_ms: number;
+  cut_flank: "left" | "right";
   selected_hole_ids: string[];
+  /** Вид основной сетки паспорта (`pattern_params.default_kind`); подставляется при построении. */
+  main_kind?: string;
 };
 
 export type TieGenerateResponse = {
   network: InitiationNetwork;
   starters_count: number;
   connectors_count: number;
+  warnings: string[];
 };
 
 export type ValidationWarning = {
@@ -1086,6 +1121,48 @@ export type PpvRequest = {
   n: number;
 };
 
+/** Треугольник между тремя скважинами с темпом отбойки (мс на метр сопротивления). */
+export type ReliefTriangle = {
+  hole_ids: [string, string, string];
+  /** Три вершины [x, y] в метрах. */
+  points: number[][];
+  relief_ms_m: number;
+  area_m2: number;
+  /** Быстрее нижней границы расчёта; решает сервер по точному темпу (старые ответы — без поля). */
+  fast?: boolean;
+};
+
+export type ReliefStats = {
+  triangles: number;
+  median_ms_m: number;
+  mean_ms_m: number;
+  min_ms_m: number;
+  max_ms_m: number;
+  /** Справочно: σ / среднее; null при нулевом среднем. Раздувается выбросами. */
+  cv: number | null;
+  /** Главный показатель ровности: доля площади вне коридора ±25 % от медианы. */
+  outside_share: number;
+  /** Устойчивый разброс: (P75 − P25) / медиана по площади; null при нулевой медиане. */
+  robust_spread: number | null;
+  /** Нижняя жёсткая граница темпа, мс/м (по умолчанию 3). */
+  min_bound_ms_m: number;
+  /** Верхняя граница темпа, мс/м; null — не задана. */
+  max_bound_ms_m: number | null;
+  /** Доля площади быстрее нижней границы. */
+  fast_share: number;
+  /** Доля площади медленнее верхней границы. */
+  slow_share: number;
+  /** Суммарная длина стыков сходящихся фронтов, м. */
+  converging_length_m: number;
+};
+
+export type BurdenRelief = {
+  triangles: ReliefTriangle[];
+  stats: ReliefStats | null;
+  /** Стыки сходящихся фронтов: отрезки [[x, y], [x, y]]. */
+  converging: number[][][];
+};
+
 export type AnalyzeResponse = {
   times_ms: Record<string, number>;
   timing_warnings: string[];
@@ -1096,6 +1173,11 @@ export type AnalyzeResponse = {
   ppv_mm_s: number | null;
   maps?: EngineeringMaps | null;
   firing_events?: FiringEvent[];
+  relief?: BurdenRelief | null;
+  /** Предупреждения о границах темпа отбойки (порода не найдена и т. п.). */
+  relief_warnings?: string[];
+  /** Границы темпа взяты из записи породы справочника. */
+  relief_rock_used?: boolean;
 };
 
 export type CostScenarioId = "drill_blast" | "drilling" | "blasting" | "contour_blasting";
@@ -1686,6 +1768,9 @@ export const DEFAULT_TIE_PARAMS: TieParams = {
   gradient_from_ms: 0,
   gradient_to_ms: 250,
   base_ms: 0,
+  trunk_ms: 25,
+  chain_ms: 42,
+  cut_flank: "left",
   selected_hole_ids: [],
 };
 
@@ -1893,7 +1978,18 @@ export const HOLE_KIND_LABELS: Record<HoleKind, string> = {
   stab: "Короткая",
   satellite: "Сателлит",
   infill: "Дополнительная",
+  face_toe: "Наклонная у откоса",
 };
+
+// Виды для выбора пользователем: «Наклонную у откоса» ставит только генератор
+// пары, а как вид сетки или вставки она убрала бы основную сетку из темпа отбойки.
+export const SELECTABLE_HOLE_KINDS = (Object.entries(HOLE_KIND_LABELS) as Array<[HoleKind, string]>)
+  .filter(([kind]) => kind !== "face_toe");
+
+/** Виды в выборе у скважины: «Наклонная у откоса» — только у той, что уже ею является. */
+export function holeKindOptions(current: HoleKind): Array<[HoleKind, string]> {
+  return current === "face_toe" ? [...SELECTABLE_HOLE_KINDS, ["face_toe", HOLE_KIND_LABELS.face_toe]] : SELECTABLE_HOLE_KINDS;
+}
 
 export const MAP_METRIC_LABELS: Record<MapMetric, string> = {
   burden: "ЛНС",
@@ -3387,4 +3483,54 @@ export type DriftReport = {
   live_model_unchanged: boolean;
   action: string;
   next_step: string;
+};
+
+// Подбор раскладки блока (оптимизатор, часть 4в): зеркало схем API
+// `/design/layout-search`.
+export type LayoutSearchState = "idle" | "running" | "done" | "stopped" | "failed";
+export type LayoutSearchStage = "geometry" | "front_rows" | "refine";
+
+export type LayoutSearchVariant = {
+  params: Record<string, unknown>;
+  cut_flank: "left" | "right";
+  holes: Hole[];
+  network: InitiationNetwork;
+  rejected: boolean;
+  reject_codes: string[];
+  lsp_out: number;
+  fast_share: number | null;
+  converging_length_m: number | null;
+  outside_share: number | null;
+  robust_spread: number | null;
+  hole_count: number;
+  window8_max_holes: number;
+  downhole_ms: number | null;
+  warnings: string[];
+};
+
+export type LayoutSearchResult = {
+  best: LayoutSearchVariant[];
+  evaluated: number;
+  rejected: number;
+  stopped_early: boolean;
+  elapsed_s: number;
+  all_rejected: boolean;
+  warnings: string[];
+  /** Границы темпа отбойки, с которыми шёл подбор (у итогов прежней версии — нет). */
+  relief_min_ms_m?: number | null;
+  relief_max_ms_m?: number | null;
+};
+
+export type LayoutSearchStatus = {
+  state: LayoutSearchState;
+  stage: LayoutSearchStage | null;
+  done: number;
+  total: number;
+  elapsed_s: number | null;
+  /** Отпечаток входов, по которым посчитан результат. */
+  fingerprint: string | null;
+  result: LayoutSearchResult | null;
+  error: string | null;
+  /** Границы темпа породы итога в справочнике уже другие — итог устарел. */
+  bounds_changed?: boolean;
 };

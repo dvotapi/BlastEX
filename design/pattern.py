@@ -88,6 +88,8 @@ def generate_pattern(
       front_rows_mode         pair | taper — схема первого ряда у откоса (нет ключа — taper при count > 0)
       front_rows_tilt_count   0–2 рядов у откоса с наклоном к откосу (нет ключа — 0)
       front_rows_tilt_deg     наибольший угол наклона от вертикали, 0–30° (нет ключа — 15°)
+      grid_shift_along_m      сдвиг узлов решётки вдоль ряда, м (по модулю шага a; нет ключа — 0;
+                              ряд вдоль бровки не сдвигается)
       min_crest_offset_m      минимальный отступ устья от кромки (нет ключа — 1 м)
       contour_row / presplit_row / trim_row / buffer_row / stab_row
       satellite_holes / infill_holes
@@ -108,6 +110,7 @@ def generate_pattern(
         else float(params.get("offset_from_face_m", burden_b / 2))
     )
     follow_face = bool(params.get("first_row_follow_face", False))
+    grid_shift = float(params.get("grid_shift_along_m", 0.0) or 0.0)
     edge_margin = float(params.get("edge_margin_m", 0.0))
     diameter_mm = float(params.get("diameter_mm", 152.0))
     subdrill_m = float(params.get("subdrill_m", 1.0))
@@ -237,6 +240,8 @@ def generate_pattern(
         local_a, local_b, shift_ratio, row_kind = row_settings(lattice_row, v, accept)
 
         shift = shift_ratio * local_a if lattice_row % 2 == 1 else 0.0
+        if grid_shift:
+            shift += grid_shift % local_a
         if pattern == "domain_dependent" and domain_list:
             placed = _walk_domain_row(
                 contour,

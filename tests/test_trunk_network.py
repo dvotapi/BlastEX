@@ -437,9 +437,50 @@ class MainKindTests(unittest.TestCase):
         times, _ = resolve_times(with_walls, self.holes)
         self.assertEqual(set(times), {h.id for h in self.holes})
 
-    def test_without_main_kind_contour_grid_is_others(self):
+    def test_contour_lattice_is_member_without_main_kind(self):
+        # Член столбцов — скважина ряда решётки при любом виде: `main_kind`
+        # нужен лишь стабилизации и сателлитам.
         plan = plan_trunk_chains(self.grid)
-        self.assertNotIn(25.0, {ms for *_, ms in plan.ties})
+        self.assertIn(25.0, {ms for *_, ms in plan.ties})
+        self.assertEqual(plan.surface_ms, plan_trunk_chains(self.grid, main_kind="contour").surface_ms)
+
+    def test_variable_wall_kind_row_is_member(self):
+        # Сетка variable: ряд решётки, которому `row_params` дал вид contour, —
+        # член столбцов, времена — как у рядовой сетки.
+        rows = [{"kind": "contour"}, {"kind": "production"}]
+        holes = generate_pattern(_rect_contour(20.0, 16.0), RECT | {"pattern": "variable", "row_params": rows})
+        self.assertTrue(any(h.kind == "contour" and h.row >= 0 for h in holes))
+        plain = generate_pattern(_rect_contour(20.0, 16.0), RECT | {"pattern": "variable"})
+        xy = lambda hs, t: sorted((round(h.collar.x, 6), round(h.collar.y, 6), t[h.id]) for h in hs)
+        self.assertEqual(xy(holes, plan_trunk_chains(holes).surface_ms), xy(plain, plan_trunk_chains(plain).surface_ms))
+
+
+class StabMainKindTests(unittest.TestCase):
+    """Основная сетка вида stab/satellite (`main_kind`) — члены столбцов;
+    отдельно сгенерированные вставки этих видов при рядовой сетке — «прочие»."""
+
+    def test_stab_main_grid_gets_trunk(self):
+        for kind in ("stab", "satellite"):
+            grid = generate_pattern(_rect_contour(20.0, 16.0), RECT | {"default_kind": kind})
+            self.assertTrue(grid and all(h.kind == kind for h in grid))
+            plan = plan_trunk_chains(grid, main_kind=kind)
+            min_row = min(logical_row(h.row) for h in grid)
+            for h in grid:
+                col_rank = round(h.collar.x / 4.0)
+                row_rank = logical_row(h.row) - min_row
+                self.assertAlmostEqual(plan.surface_ms[h.id], 25 * col_rank + 42 * row_rank, msg=(kind, h.id))
+            network, _ = build_trunk_chains_network(grid, {"system": "nonel", "main_kind": kind})
+            self.assertTrue(any(c.delay_ms == 25.0 for c in network.surface_connectors))
+
+    def test_inserts_are_others(self):
+        holes = generate_pattern(_rect_contour(20.0, 16.0), RECT | {"stab_row": True, "satellite_holes": True})
+        inserts = [h for h in holes if h.kind in ("stab", "satellite")]
+        self.assertEqual({h.kind for h in inserts}, {"stab", "satellite"})
+        plan = plan_trunk_chains(holes, main_kind="production")
+        self.assertTrue(set(plan.starters).isdisjoint(h.id for h in inserts))
+        for h in inserts:
+            self.assertFalse(_is_column_member(h, "production"))
+            self.assertEqual(next(m for _, t, m in plan.ties if t == h.id), 42.0)
 
 
 class StrayTests(unittest.TestCase):
@@ -671,8 +712,8 @@ BLOCK66_PARAMS = {
 
 
 @lru_cache(maxsize=1)
-def _block66_holes() -> tuple[Hole, ...]:
-    """Сетка на контуре №66: готовый контур (handle 769), откосы и отметки — как в импорте чертежа."""
+def _block66_contour() -> BlockContour:
+    """Контур №66: готовый контур (handle 769), откосы и отметки — как в импорте чертежа."""
     drawing = read_cad(BLOCK66.read_bytes(), "block66.dxf")
     assign_roles(drawing.entities, {}, RoleParams())
     entities = drawing.entities
@@ -682,14 +723,19 @@ def _block66_holes() -> tuple[Hole, ...]:
     face_lines = [StitchedLine(points=[(x, y, 0.0) for x, y in draft.crest_line])] if draft.crest_line else None
     two = two_contours(draft.ring, tops, bottoms, face_lines=face_lines)
     levels = bench_levels(draft.ring, two.free_faces, tops, bottoms, 410.0)
-    contour = BlockContour.from_dict(
+    return BlockContour.from_dict(
         {
             "vertices": [{"x": x, "y": y, "z": 0.0} for x, y in draft.ring],
             "free_faces": [list(edge) for edge in two.free_faces],
             "bench": {"crest_z_m": levels.crest_z_m, "toe_z_m": levels.toe_z_m},
         }
     )
-    return tuple(generate_pattern(contour, BLOCK66_PARAMS))
+
+
+@lru_cache(maxsize=1)
+def _block66_holes() -> tuple[Hole, ...]:
+    """Сетка паспорта №66 на его контуре."""
+    return tuple(generate_pattern(_block66_contour(), BLOCK66_PARAMS))
 
 
 class Block66Tests(unittest.TestCase):

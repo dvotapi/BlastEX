@@ -26,7 +26,19 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import nearest_points
 
 from design.geometry import drawing_bottom, local_basis
-from design.models import FACE_TOE_KIND, BenchSurface, BlastDesign, BlockContour, Hole, face_pair_partner_id, logical_row, row_family
+from design.models import (
+    FACE_TOE_KIND,
+    BenchSurface,
+    BlastDesign,
+    BlockContour,
+    Hole,
+    face_pair_partner_id,
+    in_main_grid,
+    is_lattice_hole,
+    logical_row,
+    main_grid_kind,
+    row_family,
+)
 
 # Вершина кольца нижней бровки ближе этого к вершине верхнего контура — общая с ним, м.
 SHARED_VERTEX_TOLERANCE_M = 0.01
@@ -514,8 +526,9 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
 
     ЛСП — расстояние в плане от точки оси на уровне подошвы p_i до ближайшей
     точки линии подошвы t_i. Пусть d — единичный вектор от p_i к t_i. Скважину i
-    закрывает от откоса другая включённая скважина сетки j (`row_family ==
-    "grid"`, в том числе ручная), если одновременно:
+    закрывает от откоса другая включённая скважина сетки j (`in_main_grid`:
+    семейство `grid`, в том числе ручная, и ряды решётки стеночного вида без
+    отдельных стеночных рядов), если одновременно:
 
     1. продвижение j к подошве (p_j − p_i)·d не меньше 0,4·min(a, b) и меньше
        ЛСП_i — j стоит впереди i, между ней и подошвой;
@@ -556,7 +569,8 @@ def floor_checks(
 ) -> tuple[dict[str, FloorBurden], list[str], dict[str, FloorRowGap]]:
     """ЛСП, скважины за подошвой и разрывы между рядами у подошвы за один расчёт.
 
-    Разрыв у подошвы — у скважины основной сетки (рядовые и `default_kind`),
+    Разрыв у подошвы — у скважины основной сетки (`_measured`: рядовые, вид
+    `default_kind` и ряды решётки стеночного вида),
     перед которой в её коридоре к подошве стоит другая скважина основной
     сетки: наименьшее продвижение такого соседа вдоль коридора (та же
     проверка «впереди», что у ЛСП, — `corridor_blocker_pairs`, по точкам на
@@ -566,8 +580,14 @@ def floor_checks(
     разрыва нет. Допуск — b + 3 % (b — `design_burden_m`, у квадратной
     сетки a), а для соседа своего ряда решётки — a + 3 % (`_row_gaps`); без b
     разрывы не считаются.
+
+    Члены сетки — `in_main_grid`: ряд решётки стеночного вида
+    (contour/presplit/trim/buffer — `default_kind` или строка `row_params`
+    сетки variable) проверяется как рядовой, а отдельные стеночные ряды
+    (номера −1…−n и −10) — нет. Принадлежность — по номеру ряда, не по виду.
     """
-    grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
+    main_kind = main_grid_kind(design.pattern_params)
+    grid = [h for h in design.holes if h.enabled and in_main_grid(h)]
     if not grid:
         return {}, [], {}
     block_h = design.contour.bench.height_m
@@ -582,17 +602,13 @@ def floor_checks(
     min_advance, reach = shadow_limits(a, b)
     points = shapely.points(xy)
     tree = shapely.STRtree(points)
-    # ЛСП — у скважин основной сетки (рядовые и вид `default_kind`) и у пар у
-    # откоса; вертикальная за своей парой закрыта всегда — даже если пара
-    # вертикальная и стоит впереди меньше чем на 0,4·min(a, b).
-    measured = {"production", FACE_TOE_KIND}
-    default_kind = str((design.pattern_params or {}).get("default_kind") or "").strip().lower()
-    if default_kind:
-        measured.add(default_kind)
+    # ЛСП — у скважин основной сетки (`_measured`) и у пар у откоса;
+    # вертикальная за своей парой закрыта всегда — даже если пара вертикальная
+    # и стоит впереди меньше чем на 0,4·min(a, b).
     paired = {partner for hole in grid if (partner := face_pair_partner_id(hole)) is not None}
     result: dict[str, FloorBurden] = {}
     for i, hole in enumerate(grid):
-        if hole.kind not in measured or hole.id in paired:
+        if not (_measured(hole, main_kind) or hole.kind == FACE_TOE_KIND) or hole.id in paired:
             continue
         position = positions[i]
         value = position.distance_m
@@ -615,9 +631,8 @@ def floor_checks(
         )
     gaps: dict[str, FloorRowGap] = {}
     if with_gaps and allowed is not None:
-        main_kinds = measured - {FACE_TOE_KIND}
-        main = [grid[i] for i in range(len(grid)) if grid[i].kind in main_kinds]
-        index = [i for i in range(len(grid)) if grid[i].kind in main_kinds]
+        index = [i for i in range(len(grid)) if _measured(grid[i], main_kind)]
+        main = [grid[i] for i in index]
         steps = _hole_steps(design, main, b)
         if steps is not None:
             gaps = _row_gaps(
@@ -632,6 +647,16 @@ def floor_checks(
                 a,
             )
     return result, beyond, gaps
+
+
+def _measured(hole: Hole, main_kind: str) -> bool:
+    """Скважина основной сетки, у которой меряются ЛСП и разрыв у подошвы:
+    рядовая, вид основной сетки (`default_kind`) или ряд решётки стеночного
+    вида (`is_lattice_hole` — строка `row_params` сетки variable). Стабилизация,
+    сателлиты и дополнительные чужого вида — только соседи."""
+    if hole.kind in ("production", main_kind):
+        return True
+    return row_family(hole.kind) != "grid" and is_lattice_hole(hole)
 
 
 def row_steps_m(params: dict, pattern: str, row_index: int, a: float, b: float) -> tuple[float, float]:

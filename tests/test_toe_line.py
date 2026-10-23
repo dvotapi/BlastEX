@@ -712,3 +712,91 @@ def test_domain_grid_uses_domain_step():
     assert gaps and not any(g.excess for g in gaps.values())
     design.domains = [BlastDomain(id="d", name="d", spacing_a_m=4.0)]
     assert {hid for hid, g in floor_row_gaps(design).items() if g.excess} == {f"2-{c:02d}" for c in range(1, 6)}
+
+
+@pytest.mark.parametrize("main_kind", ["contour", "presplit", "trim", "buffer"])
+def test_wall_kind_main_grid_checked_like_production(main_kind):
+    """Основная сетка стеночного вида (`default_kind`) проверяется как рядовая:
+    ЛСП, скважины за подошвой, разрывы у подошвы и отступ устья — те же;
+    отдельный стеночный ряд того же вида (свой номер ряда < 0) членом сетки не
+    становится. Номера у сетки стеночного вида свои (`K5-01`), поэтому
+    сравниваются устья."""
+    from design.analysis import collar_crest_warnings
+    from design.geometry import crest_azimuth_deg
+    from design.pattern import generate_pattern
+    from design.toe_line import floor_checks
+
+    contour = rect_contour()
+    base = {
+        "pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 4.0,
+        "row_azimuth_deg": crest_azimuth_deg(contour), "offset_from_face_m": 1.5,
+        "edge_margin_m": 1.0, "subdrill_m": 1.0, "min_crest_offset_m": 3.0,
+    }
+
+    def checks(params):
+        design = BlastDesign(design_id="t", contour=contour, pattern_params=params)
+        design.holes = generate_pattern(contour, params)
+        xy = {h.id: (round(h.collar.x, 6), round(h.collar.y, 6)) for h in design.holes}
+        burdens, beyond, gaps = floor_checks(design)
+        crest = {xy[w["hole_id"]] for w in collar_crest_warnings(design)}
+        return (
+            design,
+            {xy[k]: round(b.value_m, 6) for k, b in burdens.items()},
+            {xy[k] for k in beyond},
+            {xy[k]: g.excess for k, g in gaps.items()},
+            crest,
+        )
+
+    _, burdens, beyond, gaps, crest = checks(base)
+    assert burdens and crest
+    walls = {f"{main_kind}_row": True, f"{main_kind}_spacing_m": 3.0} if main_kind != "buffer" else {"buffer_row": True}
+    design, w_burdens, w_beyond, w_gaps, w_crest = checks(base | {"default_kind": main_kind} | walls)
+    assert any(h.kind == main_kind and h.row >= 0 for h in design.holes)
+    assert w_burdens == burdens and w_beyond == beyond and w_gaps == gaps and w_crest == crest
+    separate = {(round(h.collar.x, 6), round(h.collar.y, 6)) for h in design.holes if h.kind == main_kind and h.row < 0}
+    assert separate
+    assert not separate & (set(w_burdens) | set(w_gaps) | w_crest)
+
+
+def test_variable_wall_kind_lattice_row_checked():
+    """Сетка variable: ряд решётки, которому `row_params` дал стеночный вид,
+    остаётся членом основной сетки — по номеру ряда, а не по виду. Отступ устья
+    1 м при `min_crest_offset_m` 3 м — `collar_too_close_to_crest`, точки
+    подошвы ряда видит `floor_checks`; проверки — те же, что у рядового ряда."""
+    from design.analysis import collar_crest_warnings, validate
+    from design.geometry import crest_azimuth_deg
+    from design.pattern import generate_pattern
+    from design.toe_line import floor_checks
+
+    contour = rect_contour()
+    base = {
+        "pattern": "variable", "spacing_a_m": 4.0, "burden_b_m": 4.0,
+        "row_azimuth_deg": crest_azimuth_deg(contour), "offset_from_face_m": 1.0,
+        "edge_margin_m": 1.0, "subdrill_m": 1.0, "min_crest_offset_m": 3.0,
+    }
+
+    def checks(params):
+        design = BlastDesign(design_id="t", contour=contour, pattern_params=params)
+        design.holes = generate_pattern(contour, params)
+        xy = {h.id: (round(h.collar.x, 6), round(h.collar.y, 6)) for h in design.holes}
+        burdens, beyond, gaps = floor_checks(design)
+        crest = {xy[w["hole_id"]] for w in collar_crest_warnings(design)}
+        return (
+            design,
+            {xy[k]: round(b.value_m, 6) for k, b in burdens.items()},
+            {xy[k] for k in beyond},
+            {xy[k]: g.excess for k, g in gaps.items()},
+            crest,
+        )
+
+    rows = [{"kind": "production"}, {"kind": "production"}]
+    _, burdens, beyond, gaps, crest = checks(base | {"row_params": rows})
+    assert burdens and crest
+    walled = [{"kind": "contour"}, {"kind": "production"}]
+    design, w_burdens, w_beyond, w_gaps, w_crest = checks(base | {"row_params": walled})
+    first = {(round(h.collar.x, 6), round(h.collar.y, 6)) for h in design.holes if h.kind == "contour"}
+    assert first and all(h.row >= 0 for h in design.holes if h.kind == "contour")
+    assert first <= w_crest and first <= set(w_burdens) | set(w_gaps)
+    assert (w_burdens, w_beyond, w_gaps, w_crest) == (burdens, beyond, gaps, crest)
+    codes = {issue.get("code") for issue in validate(design)}
+    assert "collar_too_close_to_crest" in codes

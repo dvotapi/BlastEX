@@ -13,7 +13,14 @@ import shapely
 from design.editing import spacing_report
 from design.geometry import block_volume, collar_on_roof, ensure_ccw, floor_elevation, point_in_polygon, true_burden
 from design.hole_recompute import SHORT_BENCH_M
-from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind, row_family
+from design.models import (
+    HOLE_KINDS,
+    BlastDesign,
+    FiringEvent,
+    Hole,
+    in_main_grid,
+    is_explosive_deck_kind,
+)
 from design.pattern import FRONT_ROWS_MODE_TAPER, _front_rows_tilt, front_rows_mode
 from design.timing import resolve_network
 from design.toe_line import crest_geometry, crest_offset_checked, floor_checks, min_crest_offset_m, min_floor_burden_m
@@ -247,6 +254,37 @@ def _two_numbers(value: float, limit: float) -> tuple[str, str]:
     return f"{value:.{digits}f}".replace(".", ","), f"{limit:.{digits}f}".replace(".", ",")
 
 
+def collar_crest_warnings(design: BlastDesign, *, force: bool = False) -> list[dict[str, Any]]:
+    """Устья скважин сетки ближе минимального отступа к кромке (верхней бровке).
+
+    Проверяется только когда отступ или схема первого ряда заданы
+    (`crest_offset_checked`): старые черновики без этих ключей предупреждениями
+    не засыпаются. Часть `validate`; перебор раскладки зовёт её отдельно с
+    `force=True` — там отступ проверяется всегда (без ключа — 1 м).
+    Скважины сетки — `in_main_grid`, как у `floor_checks`: ряды решётки
+    стеночного вида (`default_kind` или строка `row_params` сетки variable)
+    входят, отдельные стеночные ряды — нет.
+    """
+    pattern_params = design.pattern_params or {}
+    checked = force or crest_offset_checked(pattern_params)
+    crest = crest_geometry(design.contour) if checked else None
+    grid = [h for h in design.holes if h.enabled and in_main_grid(h)]
+    if crest is None or not grid:
+        return []
+    min_offset = min_crest_offset_m(pattern_params)
+    crest_d = shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in grid]), crest)
+    label = f"{min_offset:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+    return [
+        {
+            "code": "collar_too_close_to_crest",
+            "hole_id": h.id,
+            "message": f"Устье {h.id} ближе {label} м к кромке уступа.",
+        }
+        for h, distance in zip(grid, crest_d)
+        if distance < min_offset - 1e-6
+    ]
+
+
 def validate(
     design: BlastDesign,
     *,
@@ -329,7 +367,7 @@ def validate(
         # впереди стоящими, вертикальные, стенки — как прежде.
         if (
             floor_governed
-            and row_family(h.kind) == "grid"
+            and in_main_grid(h)
             and h.angle_deg > TILTED_ANGLE_DEG
             and (h.id in burdens or (taper_layout and abs(h.angle_deg - passport_angle) > TILTED_ANGLE_DEG))
         ):
@@ -393,24 +431,7 @@ def validate(
                 }
             )
 
-    # Устье скважины сетки ближе минимального отступа к кромке (верхней бровке) —
-    # только когда отступ или схема первого ряда заданы: старые черновики без
-    # этих ключей предупреждениями не засыпаются.
-    crest = crest_geometry(design.contour) if crest_offset_checked(pattern_params) else None
-    grid = [h for h in enabled if row_family(h.kind) == "grid"]
-    if crest is not None and grid:
-        min_offset = min_crest_offset_m(pattern_params)
-        crest_d = shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in grid]), crest)
-        label = f"{min_offset:.2f}".rstrip("0").rstrip(".").replace(".", ",")
-        for h, distance in zip(grid, crest_d):
-            if distance < min_offset - 1e-6:
-                warnings.append(
-                    {
-                        "code": "collar_too_close_to_crest",
-                        "hole_id": h.id,
-                        "message": f"Устье {h.id} ближе {label} м к кромке уступа.",
-                    }
-                )
+    warnings.extend(collar_crest_warnings(design))
 
     for load in design.loads:
         hole = holes_by_id.get(load.hole_id)

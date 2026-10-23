@@ -106,8 +106,9 @@ export function rockNameFromTransfer(
 
 /**
  * Параметры построения коммутации. Вид основной сетки (`main_kind`) нужен
- * схеме «Магистраль + цепочки»: сетка контурного вида — столбцы с магистралью,
- * а не стенки; отдельные стеночные ряды того же вида остаются стенками.
+ * схеме «Магистраль + цепочки»: по нему сетка вида «стабилизация» или
+ * «сателлит» — столбцы с магистралью, а не вставки. Ряды решётки стеночного
+ * вида — столбцы и без него (по номеру ряда).
  */
 export function tieRequestParams(tieParams: TieParams, selectedHoleIds: string[], mainKind: string): TieParams {
   return { ...tieParams, selected_hole_ids: selectedHoleIds, main_kind: mainKind };

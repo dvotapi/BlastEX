@@ -150,7 +150,7 @@ max(0,8·W, 1 м) — по построенной скважине (`_verified_a
 в `timing_params` — только у этой схемы. Подробности и сравнение на №66 —
 `Docs/TRUNK_CHAINS.md`.
 
-## Перебор раскладки (часть 4б)
+## Перебор раскладки (части 4б и 4в)
 
 Пакет `design/layout_search/`: `space.py` — варианты (`Candidate`, этапы
 `stage1`/`stage2`/`stage3`), `evaluate.py` — оценка одного варианта
@@ -170,7 +170,21 @@ max(0,8·W, 1 м) — по построенной скважине (`_verified_a
 0,01, стыки до 0,5 м; окно 8 мс и замедление только показываются. В `best` —
 только прошедшие (отбракованные — лишь когда прошедших нет), с разными
 сетками. Ручные скважины перебор не использует. Проверка на №66 — медленный
-тест под `BLASTEX_SLOW=1`. Подробности — `Docs/LAYOUT_SEARCH.md`.
+тест под `BLASTEX_SLOW=1`.
+
+Фон и экран (4в): `design/layout_search/jobs.py` — реестр `LayoutSearchJobs`
+в памяти процесса API, перебор в дочернем процессе (`spawn`), на весь сервер
+один подбор (второй — 409), страховка `budget_s + 60` с → `failed`. API —
+`POST /design/layout-search`, `GET /design/layout-search/{design_id}`,
+`POST …/{design_id}/stop`, без `require_human` (паспорт не меняется). Итог —
+`data/teams/{team}/designs/layout_search/{design_id}.json` (свой каталог, не
+суффикс к паспорту), с отпечатком входа, который считает фронт (контур,
+поверхности, домены, `pattern_params`, порода) — по нему «Устарел». Фронт —
+`useLayoutSearch` (опрос раз в секунду), `LayoutSearchPanel` (карточки, вне
+`fieldset` вкладки), `useLayoutSearchApply`: «Применить» — одно действие
+`APPLY_LAYOUT` (скважины, сеть, `pattern_params`, один шаг отмены), «Коммутация»
+— «Магистраль + цепочки» с флангом варианта. Подробности —
+`Docs/LAYOUT_SEARCH.md`.
 
 ## Интерфейс
 

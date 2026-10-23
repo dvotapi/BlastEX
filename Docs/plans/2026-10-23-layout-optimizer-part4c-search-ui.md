@@ -17,9 +17,10 @@
   держит GIL, и в потоке подбор тормозил бы остальные запросы. Ход
   выполнения приходит из дочернего процесса через очередь, остановка идёт
   через событие.
-- **Хранение.** Готовый результат пишется JSON-файлом рядом с паспортом:
-  `data/teams/{team}/designs/{design_id}.layout_search.json`. Так он
-  переживает перезапуск сервера.
+- **Хранение.** Готовый результат пишется JSON-файлом в свой каталог рядом
+  с паспортами: `data/teams/{team}/designs/layout_search/{design_id}.json`
+  (не суффиксом к имени паспорта — решение после ревью безопасности:
+  коллизия имён). Так он переживает перезапуск сервера.
 - **API** — три маршрута в роутере `/design`.
 - **Фронт:**
   - хук `useLayoutSearch` опрашивает статус раз в секунду, пока подбор идёт;
@@ -157,7 +158,7 @@ TypeScript, pytest/unittest, vitest, `tsc -b`.
   `rejected`, `stopped_early`, `elapsed_s`, `all_rejected`, `warnings`.
 - `layout_search_path(team_id: str, design_id: str) -> Path` в
   `persistence.py` — та же проверка `design_id`, что `design_path`, файл
-  `{design_id}.layout_search.json`.
+  `layout_search/{design_id}.json` в каталоге паспортов.
 - `class LayoutSearchJobs` в `jobs.py`:
   - `__init__(self, *, runner: str = "process", budget_s: float = 150.0,
     grace_s: float = 60.0)`; `runner` — `"process"` или `"thread"`, второй

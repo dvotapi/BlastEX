@@ -357,7 +357,8 @@ describe("useLayoutSearchApply: «Применить» на странице", (
   });
 
   describe("паспорт изменился, пока готовилась геология", () => {
-    const domain = { id: "dom", name: "Гранит" } as unknown as BlastDesign["domains"][number];
+    // Домен — как его отдаёт сервер (после «Сохранить» поля те же).
+    const domain = { id: "dom", name: "Гранит", spacing_a_m: null, burden_b_m: null } as unknown as BlastDesign["domains"][number];
     const CHANGED = "Паспорт изменился, пока готовилась геология, — примените вариант ещё раз.";
 
     async function applyWhile(change: (probe: { current: Probe }) => void) {
@@ -385,6 +386,34 @@ describe("useLayoutSearchApply: «Применить» на странице", (
       await applyWhile((probe) =>
         probe.current.dispatch({ type: "SET_CONTOUR_VERTICES", vertices: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] as never }),
       );
+    });
+
+    it("уровень воды", async () => {
+      await applyWhile((probe) => probe.current.dispatch({ type: "SET_WATER_TABLE", water_table_z_m: 405 }));
+    });
+
+    it("сохранение того же паспорта применение не отменяет", async () => {
+      let resolve: (value: unknown) => void = () => {};
+      vi.spyOn(api.design, "interceptGeology").mockReturnValue(new Promise((r) => { resolve = r; }) as never);
+      const probe = await mount(base({ domains: [domain] }));
+      // Паспорт на странице — как после загрузки с сервера (нормализован).
+      act(() => probe.current.dispatch({ type: "LOAD", design: probe.current.state.present }));
+      await applyVariant(0);
+      // Завершилось ранее начатое «Сохранить»: новые объекты, те же значения.
+      act(() => probe.current.dispatch({ type: "SAVED", design: structuredClone(probe.current.state.present) }));
+      const saved = probe.current.state.present;
+      await act(async () => {
+        resolve({ holes: variant().holes });
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      expect(probe.current.state.present.holes.map((h) => h.id)).toEqual(["n1", "n2"]);
+      expect(probe.current.error).toBe("");
+      await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4.6));
+
+      // Отмена — к сохранённому документу; форма — из его параметров.
+      act(() => probe.current.dispatch({ type: "UNDO" }));
+      expect(probe.current.state.present.pattern_params).toBe(saved.pattern_params);
+      await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4));
     });
 
     it("паспорт заблокирован", async () => {

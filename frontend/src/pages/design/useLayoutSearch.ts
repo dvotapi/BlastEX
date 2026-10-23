@@ -23,7 +23,7 @@ export interface LayoutFingerprintInput {
 }
 
 /** JSON с ключами по алфавиту на любой глубине: порядок ключей не влияет на текст. */
-function stableJson(value: unknown): string {
+export function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map((item) => stableJson(item === undefined ? null : item)).join(",")}]`;
   if (value !== null && typeof value === "object") {
     const record = value as Record<string, unknown>;

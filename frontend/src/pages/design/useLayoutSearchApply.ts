@@ -22,7 +22,7 @@ import {
   type TieParams,
 } from "../../types/design";
 import type { DesignAction, DesignState } from "./designReducer";
-import { layoutFingerprint, useLayoutSearch, type LayoutSearchHook } from "./useLayoutSearch";
+import { layoutFingerprint, stableJson, useLayoutSearch, type LayoutSearchHook } from "./useLayoutSearch";
 
 /** Параметры без ключей со значением undefined — как они уходят на сервер. */
 function definedParams(params: PatternParams): Record<string, unknown> {
@@ -67,6 +67,17 @@ export function tieFormFromNetwork(
       interval_ms: finite(timing.interval_ms) ?? prev.interval_ms,
     },
   };
+}
+
+/** То, от чего зависят скважины варианта и их геология (и статус паспорта). */
+function geologyInputs(design: DesignState["present"]): string {
+  return stableJson({
+    contour: design.contour,
+    surfaces: design.surfaces,
+    domains: design.domains,
+    water_table_z_m: design.water_table_z_m,
+    lifecycle_status: design.lifecycle_status,
+  });
 }
 
 export const CHANGED_DURING_GEOLOGY = "Паспорт изменился, пока готовилась геология, — примените вариант ещё раз.";
@@ -200,20 +211,17 @@ export function useLayoutSearchApply({
         }
       }
       // Пока ждали геологию, паспорт могли сменить, поправить или заблокировать:
-      // вариант лёг бы поверх другого документа.
+      // вариант лёг бы поверх другого документа. Сверка — по значениям:
+      // «Сохранить», завершившееся во время ожидания, даёт новые объекты с
+      // теми же значениями и применение не отменяет.
       const now = latest.current;
-      if (
-        now.design_id !== before.design_id ||
-        now.contour !== before.contour ||
-        now.domains !== before.domains ||
-        now.lifecycle_status !== before.lifecycle_status ||
-        rejectLockedRef.current()
-      ) {
+      if (now.design_id !== before.design_id || geologyInputs(now) !== geologyInputs(before) || rejectLockedRef.current()) {
         setError(CHANGED_DURING_GEOLOGY);
         return;
       }
       appliedParams.current.add(params);
-      appliedParams.current.add(before.pattern_params);
+      // Параметры документа, на который ложится шаг отмены (после «Сохранить» — новый объект).
+      appliedParams.current.add(now.pattern_params);
       dispatch({ type: "APPLY_LAYOUT", holes, network: variant.network, pattern_params: params });
       setPreviewIndex(null);
       // Формы «Сетка», «Коммутация» и сетка для q — из документа (эффект выше):

@@ -192,18 +192,28 @@ def network_params(base: BlastDesign) -> dict:
     предщелевой, оконтуривающий ряд) включаются, если базовая сеть их монтирует:
     у скважин этих видов есть связи или стартовые.
     """
-    network = base.network
-    system = str(getattr(network, "system", "") or "nonel")
+    system = str(getattr(base.network, "system", "") or "nonel")
     if system not in SYSTEM_TYPES:
         system = "nonel"
-    walls = {h.id for h in base.holes or [] if h.kind in WALL_KINDS}
-    wired: set[str] = set()
-    if network is not None and walls:
-        wired.update(network.starters)
-        wired.update(item.hole_id for item in network.starter_items)
-        for link in (*network.connectors, *network.surface_connectors):
-            wired.update((link.from_hole, link.to_hole))
-    return {"system": system, "include_contour": bool(walls & wired)}
+    return {"system": system, "include_contour": bool(wired_wall_holes(base))}
+
+
+def wired_wall_holes(base: BlastDesign) -> list[Hole]:
+    """Скважины стенок (контурный, предщелевой, оконтуривающий ряд), которые
+    монтирует базовая сеть: у них есть связи или они стартовые.
+
+    Фоновый подбор передаёт в дочерний процесс только их, а не все скважины:
+    `network_params` по ним даёт тот же ответ, что по полному паспорту.
+    """
+    network = base.network
+    walls = [h for h in base.holes or [] if h.kind in WALL_KINDS]
+    if network is None or not walls:
+        return []
+    wired: set[str] = set(network.starters)
+    wired.update(item.hole_id for item in network.starter_items)
+    for link in (*network.connectors, *network.surface_connectors):
+        wired.update((link.from_hole, link.to_hole))
+    return [h for h in walls if h.id in wired]
 
 
 def _empty(candidate: Candidate, system: str) -> Evaluation:

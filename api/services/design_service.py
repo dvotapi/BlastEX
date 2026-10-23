@@ -107,6 +107,7 @@ from design.geometry import block_volume, mean_bench_height
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.hole_recompute import recompute_holes as run_recompute_holes
 from design.maps import engineering_maps
+from design.layout_search.evaluate import wired_wall_holes
 from design.layout_search.jobs import LayoutSearchJobs
 from design.relief import RELIEF_MIN_MS_M, burden_relief
 from design.models import (
@@ -349,13 +350,18 @@ def resolve_relief_bounds(
 
 
 # Поля паспорта, нужные перебору: сеть — ради системы инициирования и стенок.
+# Скважины в этот список не входят: из них уходят только стенки, которые
+# монтирует базовая сеть (`wired_wall_holes`), — по ним перебор решает,
+# монтировать ли стенки у варианта.
 LAYOUT_SEARCH_FIELDS = ("contour", "surfaces", "domains", "pattern_params", "rock_name", "name", "network")
 
 
 def _layout_search_inputs(design: BlastDesign) -> dict:
     """В дочерний процесс подбора уходят только поля, нужные перебору."""
     data = design.to_dict()
-    return {key: data[key] for key in LAYOUT_SEARCH_FIELDS}
+    inputs = {key: data[key] for key in LAYOUT_SEARCH_FIELDS}
+    inputs["holes"] = [h.to_dict() for h in wired_wall_holes(design)]
+    return inputs
 
 
 def start_layout_search(

@@ -188,7 +188,8 @@ max(0,8·W, 1 м) — по построенной скважине (`_verified_a
 один подбор (второй — 409), страховка `budget_s + 60` с → `failed` (без
 карточек прошлого итога). Запуск — только для сохранённого паспорта
 организации (иначе 404), в дочерний процесс — лишь поля перебора
-(`LAYOUT_SEARCH_FIELDS`); паспорт удалён во время подбора — итог не пишется. API —
+(`LAYOUT_SEARCH_FIELDS` и стенки, которые монтирует базовая сеть, —
+`wired_wall_holes`); паспорт удалён во время подбора — итог не пишется. API —
 `POST /design/layout-search`, `GET /design/layout-search/{design_id}`,
 `POST …/{design_id}/stop`, без `require_human` (паспорт не меняется). Итог —
 `data/teams/{team}/designs/layout_search/{design_id}.json` (свой каталог, не

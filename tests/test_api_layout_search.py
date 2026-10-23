@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,7 +17,11 @@ from api.security import current_team_id, require_internal_access
 from api.services.economics_service import get_economics_repository
 from cost.v2.repository import InMemoryEconomicsRepository
 from design.layout_search.jobs import LayoutSearchJobs, get_layout_search_jobs
-from design.models import BlastDesign
+from design.layout_search.evaluate import network_params
+from design.models import BlastDesign, Hole, InitiationNetwork
+from design.pattern import generate_pattern
+from design.timing import resolve_times
+from design.trunk_network import build_trunk_chains_network
 from design.persistence import design_path, save_design
 from tests.test_layout_search_jobs import _inputs
 
@@ -162,17 +167,56 @@ def test_unsaved_design_is_404(jobs):
     assert jobs.status("org-a", "d1")["state"] == "idle"
 
 
+def _walled_body(wired: bool) -> dict:
+    """Паспорт с контурным рядом; `wired` — базовая сеть монтирует стенки."""
+    body = _body()
+    design = BlastDesign.from_dict(body["design"])
+    params = {**design.pattern_params, "contour_row": True, "contour_spacing_m": 3.0}
+    holes = generate_pattern(design.contour, params)
+    network, _ = build_trunk_chains_network(holes, {"include_contour": True} if wired else {})
+    design = replace(design, pattern_params=params, holes=holes, network=network)
+    body["design"] = design.to_dict()
+    return body
+
+
 def test_child_gets_only_search_inputs(jobs):
-    # В дочерний процесс уходит лишь то, что нужно перебору, а не весь паспорт.
+    # В дочерний процесс уходит лишь то, что нужно перебору, а не весь паспорт:
+    # из скважин — только стенки, которые монтирует базовая сеть.
     client = _client(jobs)
-    body = _body(rock="Гранит")
-    body["design"]["water_table_z_m"] = 410.0
-    with patch.object(jobs, "start") as start:
-        assert client.post(f"{BASE}/layout-search", json=body).status_code == 202
-    inputs = start.call_args.args[3]
-    assert set(inputs) == {"contour", "surfaces", "domains", "pattern_params", "rock_name", "name", "network"}
-    assert inputs["rock_name"] == "Гранит"
-    assert inputs["pattern_params"] == body["design"]["pattern_params"]
+    for wired in (True, False):
+        body = _walled_body(wired)
+        body["design"]["rock_name"] = "Гранит"
+        body["design"]["water_table_z_m"] = 410.0
+        with patch.object(jobs, "start") as start:
+            assert client.post(f"{BASE}/layout-search", json=body).status_code == 202
+        inputs = start.call_args.args[3]
+        assert set(inputs) == {
+            "contour", "surfaces", "domains", "pattern_params", "rock_name", "name", "network", "holes"
+        }
+        assert inputs["rock_name"] == "Гранит"
+        assert inputs["pattern_params"] == body["design"]["pattern_params"]
+        walls = [h for h in body["design"]["holes"] if h["kind"] == "contour"]
+        assert walls and len(walls) < len(body["design"]["holes"])
+        assert inputs["holes"] == (walls if wired else [])
+        # Монтаж стенок у урезанного паспорта — тот же, что у полного.
+        full = network_params(BlastDesign.from_dict(body["design"]))
+        assert network_params(BlastDesign.from_dict(inputs)) == full
+        assert full["include_contour"] is wired
+
+
+def test_background_search_wires_walls(jobs):
+    # Базовая сеть монтирует контурный ряд — и у варианта из фонового подбора
+    # стенки в сети и получают время (п. 5 ревью #124).
+    client = _client(jobs)
+    assert client.post(f"{BASE}/layout-search", json=_walled_body(True)).status_code == 202
+    data = _poll(client)
+    assert data["state"] == "done", data.get("error")
+    variant = data["result"]["best"][0]
+    holes = [Hole.from_dict(h) for h in variant["holes"]]
+    walls = {h.id for h in holes if h.kind == "contour"}
+    assert walls
+    times, _ = resolve_times(InitiationNetwork.from_dict(variant["network"]), [h for h in holes if h.enabled])
+    assert walls <= set(times)
 
 
 def test_unknown_rock_warning_in_result(jobs):

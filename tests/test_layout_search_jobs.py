@@ -11,7 +11,7 @@ from design.layout_search import jobs as jobs_module
 from design.layout_search.jobs import LayoutSearchBusyError, LayoutSearchJobs
 from design.layout_search.search import NOTHING_EVALUATED
 from design.models import BlastDesign
-from design.persistence import DesignNotFoundError, layout_search_path
+from design.persistence import DesignNotFoundError, delete_design, design_path, layout_search_path, list_designs, save_design
 from tests.front_rows_fixtures import _rect_contour
 
 TEAM = "t"
@@ -37,9 +37,20 @@ def failing_search(ctx, **kwargs):
     raise RuntimeError("сломался перебор")
 
 
-def _start(jobs, design_id="d1", name="Блок 1", fingerprint="fp1", inputs=None, warnings=None):
+def chatty_search(ctx, *, progress=None, **kwargs):
+    """Подменённый поиск: не слушает ни бюджет, ни остановку и всё время шлёт ход."""
+    deadline = time.monotonic() + 60.0
+    done = 0
+    while time.monotonic() < deadline:
+        done += 1
+        progress("geometry", done, 10**9)
+        time.sleep(0.01)
+    raise RuntimeError("сторож не сработал")
+
+
+def _start(jobs, design_id="d1", name="Блок 1", fingerprint="fp1", inputs=None, warnings=None, team=TEAM):
     jobs.start(
-        TEAM, design_id, name, inputs or _inputs(name=name, design_id=design_id), fingerprint,
+        team, design_id, name, inputs or _inputs(name=name, design_id=design_id), fingerprint,
         3.0, None, list(warnings or []),
     )
 
@@ -115,6 +126,13 @@ class LayoutSearchJobsTests(unittest.TestCase):
                 self.assertIn("«Блок 66»", str(caught.exception))
         self.assertEqual(self.jobs.status(TEAM, "d2")["state"], "idle")
 
+    def test_busy_other_team_hides_block_name(self):
+        _start(self.jobs, name="Блок 66")
+        with self.assertRaises(LayoutSearchBusyError) as caught:
+            _start(self.jobs, design_id="d2", name="Другой", team="other")
+        self.assertNotIn("Блок 66", str(caught.exception))
+        self.assertEqual(str(caught.exception), jobs_module.BUSY_OTHER_MESSAGE)
+
     def test_stop(self):
         _start(self.jobs)
         self.assertTrue(self.jobs.stop(TEAM, "d1"))
@@ -140,6 +158,8 @@ class LayoutSearchJobsTests(unittest.TestCase):
         # Файл не переписан: прежний результат остаётся.
         self.assertEqual(status["result"], previous["result"])
         self.assertEqual(status["fingerprint"], "old")
+        # Время — упавшего запуска, а не прежнего итога.
+        self.assertIsInstance(status["elapsed_s"], float)
         # Слот свободен: следующий запуск возможен.
         _start(jobs, design_id="d2")
         self.assertEqual(_wait(jobs, "d2")["state"], "failed")
@@ -159,26 +179,38 @@ class LayoutSearchJobsTests(unittest.TestCase):
         self.assertIsNotNone(status["result"])
 
     def test_watchdog_terminates(self):
-        jobs = LayoutSearchJobs(runner="thread", budget_s=0.0, grace_s=0.0, search_fn=_slow_search)
+        jobs = LayoutSearchJobs(runner="thread", budget_s=0.5, grace_s=0.0, search_fn=_slow_search)
         _start(jobs)
+        worker = jobs._active.worker
         status = _wait(jobs)
         self.assertEqual(status["state"], "failed")
         self.assertIn("Подбор раскладки завершился с ошибкой", status["error"])
-        jobs.stop(TEAM, "d1")
+        # Поток не убить: сторож ставит событие остановки, поток доходит до конца сам.
+        worker.join(10.0)
+        self.assertFalse(worker.is_alive())
 
     def test_path_rejects_traversal(self):
         for bad in ("../x", "", ".", ".."):
             with self.subTest(bad=bad):
                 with self.assertRaises(DesignNotFoundError):
                     layout_search_path(TEAM, bad)
-        self.assertEqual(layout_search_path(TEAM, "abc").name, "abc.layout_search.json")
+        path = layout_search_path(TEAM, "abc")
+        self.assertEqual((path.parent.name, path.name), ("layout_search", "abc.json"))
 
-    def test_search_file_not_listed_as_design(self):
-        from design.persistence import list_designs, save_design
-
-        save_design(TEAM, BlastDesign.from_dict(_inputs()))
-        layout_search_path(TEAM, "d1").write_text("{}", encoding="utf-8")
-        self.assertEqual([s.design_id for s in list_designs(TEAM)], ["d1"])
+    def test_search_file_does_not_collide_with_design(self):
+        # Паспорт с id «x.layout_search» и итог подбора блока «x» — разные файлы.
+        save_design(TEAM, BlastDesign.from_dict(_inputs(design_id="x")))
+        save_design(TEAM, BlastDesign.from_dict(_inputs(design_id="x.layout_search")))
+        self.assertNotEqual(layout_search_path(TEAM, "x"), design_path(TEAM, "x.layout_search"))
+        layout_search_path(TEAM, "x").parent.mkdir(parents=True, exist_ok=True)
+        layout_search_path(TEAM, "x").write_text("{}", encoding="utf-8")
+        self.assertEqual(sorted(s.design_id for s in list_designs(TEAM)), ["x", "x.layout_search"])
+        # Удаление паспорта убирает и его итог подбора, чужой итог не трогает.
+        layout_search_path(TEAM, "x.layout_search").write_text("{}", encoding="utf-8")
+        delete_design(TEAM, "x")
+        self.assertFalse(layout_search_path(TEAM, "x").exists())
+        self.assertTrue(layout_search_path(TEAM, "x.layout_search").exists())
+        self.assertTrue(design_path(TEAM, "x.layout_search").exists())
 
     def test_process_runner_done(self):
         jobs = LayoutSearchJobs(runner="process", budget_s=20.0)
@@ -188,6 +220,19 @@ class LayoutSearchJobsTests(unittest.TestCase):
         self.assertEqual(status["state"], "done", status.get("error"))
         self.assertTrue(status["result"]["best"])
         self.assertTrue(status["result"]["best"][0]["holes"])
+
+    def test_process_watchdog_kills_chatty_child(self):
+        # Ребёнок шлёт ход без перерыва и бюджет не слушает: сторож всё равно убивает его.
+        jobs = LayoutSearchJobs(runner="process", budget_s=3.0, grace_s=0.0, search_fn=chatty_search)
+        _start(jobs)
+        worker = jobs._active.worker
+        status = _wait(jobs, timeout=60.0)
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("не уложился", status["error"])
+        self.assertIsNone(jobs._active)
+        self.assertFalse(worker.is_alive())
+        self.assertIsNotNone(worker.exitcode)  # процесс пожат, не зомби
+        self.assertFalse(layout_search_path(TEAM, "d1").exists())
 
     def test_singleton(self):
         self.assertIs(jobs_module.get_layout_search_jobs(), jobs_module.get_layout_search_jobs())

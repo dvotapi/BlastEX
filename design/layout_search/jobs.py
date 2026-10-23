@@ -6,7 +6,7 @@
 (контекст `spawn`): чистый Python держит GIL, и в потоке подбор тормозил бы
 остальные запросы. Ход выполнения и итог приходят через очередь, остановка —
 через событие. Поток-наблюдатель в родителе читает очередь, обновляет реестр
-и пишет итог в `{design_id}.layout_search.json` рядом с паспортом — так он
+и пишет итог в `designs/layout_search/{design_id}.json` рядом с паспортами — так он
 переживает перезапуск сервера. Идущий подбор перезапуск не переживает:
 новый реестр о нём не знает и показывает сохранённый итог или `idle`.
 
@@ -44,6 +44,8 @@ STATE_STOPPED = "stopped"
 STATE_FAILED = "failed"
 
 BUSY_MESSAGE = "Подбор раскладки уже идёт: блок «{name}». Дождитесь окончания или остановите его."
+# Подбор блока другой команды (организации): имя её блока не раскрывается.
+BUSY_OTHER_MESSAGE = "Сервер занят подбором раскладки другого блока. Попробуйте позже."
 ERROR_PREFIX = "Подбор раскладки завершился с ошибкой: "
 NO_RESULT_TEXT = "процесс подбора завершился без результата."
 TIMEOUT_TEXT = "подбор не уложился в {seconds:.0f} с и прерван."
@@ -152,8 +154,8 @@ class LayoutSearchJobs:
         self._search_fn = search_fn
         self._lock = threading.Lock()
         self._active: _Job | None = None
-        # Ошибки последних подборов по блокам (в файл не пишутся).
-        self._failed: dict[tuple[str, str], str] = {}
+        # Ошибки последних подборов по блокам (в файл не пишутся): текст и время запуска, с.
+        self._failed: dict[tuple[str, str], tuple[str, float]] = {}
 
     # --- запуск -------------------------------------------------------------
 
@@ -181,7 +183,9 @@ class LayoutSearchJobs:
         spawn = multiprocessing.get_context("spawn")
         with self._lock:
             if self._active is not None:
-                raise LayoutSearchBusyError(BUSY_MESSAGE.format(name=self._active.design_name))
+                if self._active.team_id == team_id:
+                    raise LayoutSearchBusyError(BUSY_MESSAGE.format(name=self._active.design_name))
+                raise LayoutSearchBusyError(BUSY_OTHER_MESSAGE)
             # Очередь и событие — после проверки занятости (отказ их не создаёт) и
             # до освобождения блокировки (`stop` сразу после старта их видит).
             if self._runner == RUNNER_PROCESS:
@@ -202,7 +206,16 @@ class LayoutSearchJobs:
             with self._lock:
                 self._active = None
             raise
-        threading.Thread(target=self._watch, args=(job,), daemon=True, name="layout-search-watch").start()
+        try:
+            threading.Thread(target=self._watch, args=(job,), daemon=True, name="layout-search-watch").start()
+        except BaseException:
+            # Без наблюдателя ребёнок остался бы без присмотра, а слот — занятым.
+            try:
+                self._kill(job)
+            finally:
+                with self._lock:
+                    self._active = None
+            raise
 
     # --- статус и остановка -------------------------------------------------
 
@@ -222,21 +235,23 @@ class LayoutSearchJobs:
                     "result": None,
                     "error": None,
                 }
-            error = self._failed.get((team_id, design_id))
+            failed = self._failed.get((team_id, design_id))
         stored = _read_stored(path)
         result = stored.get("result") if stored else None
-        if error is not None:
+        error: str | None = None
+        if failed is not None:
             state = STATE_FAILED
-        elif stored is not None:
-            state = str(stored.get("state") or STATE_DONE)
+            # Время — упавшего запуска, а не прежнего итога из файла.
+            error, elapsed_s = failed
         else:
-            state = STATE_IDLE
+            state = str(stored.get("state") or STATE_DONE) if stored is not None else STATE_IDLE
+            elapsed_s = result.get("elapsed_s") if isinstance(result, dict) else None
         return {
             "state": state,
             "stage": None,
             "done": 0,
             "total": 0,
-            "elapsed_s": result.get("elapsed_s") if isinstance(result, dict) else None,
+            "elapsed_s": elapsed_s,
             "fingerprint": stored.get("fingerprint") if stored else None,
             "result": result,
             "error": error,
@@ -292,12 +307,14 @@ class LayoutSearchJobs:
     def _wait_outcome(self, job: _Job) -> tuple[str, Any]:
         deadline = job.started + self._budget_s + self._grace_s
         while True:
+            # Срок проверяется на каждом шаге: ребёнок, шлющий ход без перерыва,
+            # иначе не дал бы очереди опустеть и пережил бы сторожа.
+            if time.monotonic() >= deadline:
+                self._kill(job)
+                return "error", TIMEOUT_TEXT.format(seconds=self._budget_s + self._grace_s)
             try:
                 message = job.queue.get(timeout=_POLL_S)
             except queue_module.Empty:
-                if time.monotonic() >= deadline:
-                    self._kill(job)
-                    return "error", TIMEOUT_TEXT.format(seconds=self._budget_s + self._grace_s)
                 if not self._alive(job):
                     return self._drain(job) or ("error", NO_RESULT_TEXT)
                 continue
@@ -318,13 +335,18 @@ class LayoutSearchJobs:
             logger.exception("Наблюдатель подбора раскладки упал")
             error = str(exc) or type(exc).__name__
         finally:
-            self._finish_worker(job)
-            with self._lock:
-                if error is not None:
-                    self._failed[job.key] = ERROR_PREFIX + error
-                else:
-                    self._failed.pop(job.key, None)
-                self._active = None
+            try:
+                self._finish_worker(job)
+            except Exception:  # noqa: BLE001 — сбой уборки не держит слот
+                logger.exception("Не удалось завершить процесс подбора раскладки")
+            finally:
+                elapsed_s = round(time.monotonic() - job.started, 1)
+                with self._lock:
+                    if error is not None:
+                        self._failed[job.key] = (ERROR_PREFIX + error, elapsed_s)
+                    else:
+                        self._failed.pop(job.key, None)
+                    self._active = None
 
     def _store(self, job: _Job, result: dict[str, Any]) -> None:
         """Пишет итог: предупреждения запуска (порода) идут первыми."""

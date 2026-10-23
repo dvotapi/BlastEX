@@ -26,7 +26,17 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import nearest_points
 
 from design.geometry import drawing_bottom, local_basis
-from design.models import FACE_TOE_KIND, BenchSurface, BlastDesign, BlockContour, Hole, face_pair_partner_id, logical_row, row_family
+from design.models import (
+    FACE_TOE_KIND,
+    BenchSurface,
+    BlastDesign,
+    BlockContour,
+    Hole,
+    face_pair_partner_id,
+    in_main_grid,
+    logical_row,
+    main_grid_kind,
+)
 
 # Вершина кольца нижней бровки ближе этого к вершине верхнего контура — общая с ним, м.
 SHARED_VERTEX_TOLERANCE_M = 0.01
@@ -514,8 +524,9 @@ def floor_burdens(design: BlastDesign) -> dict[str, FloorBurden]:
 
     ЛСП — расстояние в плане от точки оси на уровне подошвы p_i до ближайшей
     точки линии подошвы t_i. Пусть d — единичный вектор от p_i к t_i. Скважину i
-    закрывает от откоса другая включённая скважина сетки j (`row_family ==
-    "grid"`, в том числе ручная), если одновременно:
+    закрывает от откоса другая включённая скважина сетки j (`in_main_grid`:
+    семейство `grid`, в том числе ручная, и основная сетка стеночного вида
+    `default_kind` без отдельных стеночных рядов), если одновременно:
 
     1. продвижение j к подошве (p_j − p_i)·d не меньше 0,4·min(a, b) и меньше
        ЛСП_i — j стоит впереди i, между ней и подошвой;
@@ -566,8 +577,13 @@ def floor_checks(
     разрыва нет. Допуск — b + 3 % (b — `design_burden_m`, у квадратной
     сетки a), а для соседа своего ряда решётки — a + 3 % (`_row_gaps`); без b
     разрывы не считаются.
+
+    Члены сетки — `in_main_grid`: при `default_kind` стеночного вида
+    (contour/presplit/trim/buffer) основная сетка проверяется как рядовая, а
+    отдельные стеночные ряды того же вида (номера −1…−n и −10) — нет.
     """
-    grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
+    main_kind = main_grid_kind(design.pattern_params)
+    grid = [h for h in design.holes if h.enabled and in_main_grid(h, main_kind)]
     if not grid:
         return {}, [], {}
     block_h = design.contour.bench.height_m
@@ -585,10 +601,7 @@ def floor_checks(
     # ЛСП — у скважин основной сетки (рядовые и вид `default_kind`) и у пар у
     # откоса; вертикальная за своей парой закрыта всегда — даже если пара
     # вертикальная и стоит впереди меньше чем на 0,4·min(a, b).
-    measured = {"production", FACE_TOE_KIND}
-    default_kind = str((design.pattern_params or {}).get("default_kind") or "").strip().lower()
-    if default_kind:
-        measured.add(default_kind)
+    measured = {"production", FACE_TOE_KIND, main_kind}
     paired = {partner for hole in grid if (partner := face_pair_partner_id(hole)) is not None}
     result: dict[str, FloorBurden] = {}
     for i, hole in enumerate(grid):

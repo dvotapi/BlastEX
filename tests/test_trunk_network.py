@@ -52,21 +52,17 @@ def _dist(a: Hole, b: Hole) -> float:
     return math.hypot(a.collar.x - b.collar.x, a.collar.y - b.collar.y)
 
 
-def _assert_fires_after_row_ahead(case: unittest.TestCase, holes: list[Hole], plan, step_a: float) -> None:
-    """Член столбца срабатывает позже хотя бы одной скважины ближайшего ряда
-    впереди, где есть скважина в 0,75·a по оси ряда (если такой ряд есть)."""
+def _assert_fires_after_all_rows_ahead(case: unittest.TestCase, holes: list[Hole], plan, step_a: float) -> None:
+    """Член столбца срабатывает позже каждой скважины столбцов в 0,75·a по оси
+    ряда во всех рядах впереди."""
     (ax, ay), _ = row_axis(holes)
     members = [h for h in holes if _is_column_member(h)]
-    rows: dict[int, list[Hole]] = {}
-    for h in members:
-        rows.setdefault(logical_row(h.row), []).append(h)
     for h in members:
         pos = h.collar.x * ax + h.collar.y * ay
-        for row in sorted((r for r in rows if r < logical_row(h.row)), reverse=True):
-            near = [y for y in rows[row] if abs(y.collar.x * ax + y.collar.y * ay - pos) <= 0.75 * step_a + 1e-6]
-            if near:
-                case.assertGreater(plan.surface_ms[h.id], min(plan.surface_ms[y.id] for y in near), msg=h.id)
-                break
+        for y in members:
+            ahead = logical_row(y.row) < logical_row(h.row)
+            if ahead and abs(y.collar.x * ax + y.collar.y * ay - pos) <= 0.75 * step_a + 1e-6:
+                case.assertGreater(plan.surface_ms[h.id], plan.surface_ms[y.id], msg=(y.id, h.id))
 
 
 class RectangularGridTests(unittest.TestCase):
@@ -173,47 +169,28 @@ class GapAndWideningTests(unittest.TestCase):
         self._assert_columns_fire_front_to_back(holes, plan)
 
 
-class FrontBandTests(unittest.TestCase):
-    """Магистраль — только по головам переднего края (не глубже передней + 1,5·b)."""
+class AfterRowsAheadTests(unittest.TestCase):
+    """Каждая скважина позже всех скважин в 0,75·a по оси во всех рядах впереди:
+    голова — только без скважин впереди, магистраль по всем головам не обгоняет ряды."""
 
-    def setUp(self):
-        # Вырез в бровке: у столбца x = 8 нет рядов 0 и 1 — его голова в ряду 2,
-        # а по оси она между головами переднего ряда.
-        self.holes = [
-            h for h in _rect_holes()
-            if not (abs(h.collar.x - 8.0) < 1e-6 and logical_row(h.row) in (0, 1))
-        ]
-        self.by_id = {h.id: h for h in self.holes}
-        self.notch_head = next(
-            h for h in self.holes if abs(h.collar.x - 8.0) < 1e-6 and logical_row(h.row) == 2
-        )
+    CONTOURS = {
+        # Песочные часы: широкий фронт, узкая шейка, широкий тыл.
+        "песочные часы": ([(0.0, 0.0), (24.0, 0.0), (16.0, 10.0), (24.0, 20.0), (0.0, 20.0), (8.0, 10.0)], ((0, 1),)),
+        # Косой край: фронт уже тыла, левая сторона скошена наружу.
+        "косой край": ([(10.0, 0.0), (28.0, 0.0), (28.0, 20.0), (0.0, 20.0)], ((0, 1),)),
+        # Вырез в бровке шире 1,5·a: отдельный участок магистрали законен.
+        "вырез": ([(0.0, 0.0), (8.0, 0.0), (12.0, 9.0), (16.0, 0.0), (28.0, 0.0), (28.0, 20.0), (0.0, 20.0)], ((0, 1), (3, 4))),
+    }
 
-    def test_trunk_never_joins_heads_of_different_bands(self):
-        for flank in ("left", "right"):
-            with self.subTest(flank=flank):
-                plan = plan_trunk_chains(self.holes, cut_flank=flank)
-                for frm, to, ms in plan.ties:
-                    if ms == 25.0:
-                        # Передняя полоса — y ≤ 0 + 1,5·4: здесь только ряд 0.
-                        self.assertLessEqual(self.by_id[frm].collar.y, 6.0, msg=(frm, to))
-                        self.assertLessEqual(self.by_id[to].collar.y, 6.0, msg=(frm, to))
-
-    def test_deep_head_tied_by_chain_to_nearest_tied(self):
-        plan = plan_trunk_chains(self.holes, cut_flank="left")
-        frm, ms = next((f, m) for f, t, m in plan.ties if t == self.notch_head.id)
-        self.assertEqual(ms, 42.0)
-        nearest = min(
-            (h for h in self.holes if h.id != self.notch_head.id),
-            key=lambda h: (_dist(h, self.notch_head), h.id),
-        )
-        self.assertAlmostEqual(_dist(self.by_id[frm], self.notch_head), _dist(nearest, self.notch_head))
-        self.assertEqual(set(plan.surface_ms), {h.id for h in self.holes})
-
-    def test_every_hole_fires_after_row_ahead(self):
-        for flank in ("left", "right"):
-            with self.subTest(flank=flank):
-                plan = plan_trunk_chains(self.holes, cut_flank=flank)
-                _assert_fires_after_row_ahead(self, self.holes, plan, 4.0)
+    def test_every_hole_fires_after_all_rows_ahead(self):
+        for name, (vertices, faces) in self.CONTOURS.items():
+            holes = generate_pattern(_contour_of(vertices, faces), RECT)
+            self.assertGreater(len(holes), 10, msg=name)
+            for flank in ("left", "right"):
+                with self.subTest(contour=name, flank=flank):
+                    plan = plan_trunk_chains(holes, cut_flank=flank)
+                    self.assertEqual(set(plan.surface_ms), {h.id for h in holes})
+                    _assert_fires_after_all_rows_ahead(self, holes, plan, 4.0)
 
 
 class SingleHoleRowsTests(unittest.TestCase):
@@ -599,9 +576,7 @@ class Block66Tests(unittest.TestCase):
                 times, _ = resolve_times(network, self.holes)
                 self.assertEqual(set(times), {h.id for h in self.holes if h.enabled})
                 self.assertEqual({c.delay_ms for c in network.surface_connectors}, {25.0, 42.0})
-                # Основной фронт глубже передней полосы мыса: его головы не на
-                # магистрали, а на связях цепочки, — сеть длиннее 1000 мс.
-                self.assertEqual(warnings, [DOWNHOLE_LATE_WARNING])
+                self.assertEqual(warnings, [])
 
     def test_cut_is_flank_head_of_front(self):
         (ax, ay), (dx, dy) = row_axis(self.holes)
@@ -622,15 +597,8 @@ class Block66Tests(unittest.TestCase):
                 self.assertNotIn(cut, {to for _, to, _ in plan.ties})
                 self.assertEqual(cut, pick(front, key=along).id)
         for flank in ("left", "right"):
-            with self.subTest(flank=flank, check="trunk_band"):
-                plan = plan_trunk_chains(self.holes, cut_flank=flank)
-                by_id = {h.id: h for h in self.holes}
-                band = min(depth(m) for m in members) + 1.5 * 3.53 + 1e-6
-                for frm, to, ms in plan.ties:
-                    if ms == 25.0:
-                        self.assertLessEqual(depth(by_id[frm]), band, msg=(frm, to))
-                        self.assertLessEqual(depth(by_id[to]), band, msg=(frm, to))
-                _assert_fires_after_row_ahead(self, self.holes, plan, 4.41)
+            with self.subTest(flank=flank, check="after_rows_ahead"):
+                _assert_fires_after_all_rows_ahead(self, self.holes, plan_trunk_chains(self.holes, cut_flank=flank), 4.41)
         # Левый фланг мыса — и крайний столбец всего блока.
         left = plan_trunk_chains(self.holes, cut_flank="left").starters[0]
         self.assertEqual(left, min(members, key=along).id)

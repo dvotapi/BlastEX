@@ -4,13 +4,15 @@
 впереди (ближайший ряд, где есть скважина в 0,75·a по оси) не нашлось
 предшественника; выключенная скважина столбца пропускается. На ступенчатой
 бровке головы лежат в разных рядах решётки, и магистраль идёт по ним, а не по
-ряду 1. Передняя полоса — головы не глубже самой передней + 1,5·b. Вруб —
-крайняя у выбранного фланга голова передней полосы: на контуре, расширяющемся
-вглубь, он остаётся в первом ряду. Магистраль (25 мс между соседними по оси
-головами) идёт от вруба к дальнему флангу только по передней полосе. Головы
-глубже полосы привязываются связью цепочки к ближайшей уже привязанной
-скважине, по возрастанию глубины. От каждой головы назад по рядам — цепочка
-(42 мс).
+ряду 1. Вруб — крайняя у выбранного фланга голова среди голов у переднего края
+(не глубже самой передней + 1,5·b): на контуре, расширяющемся вглубь, он
+остаётся в первом ряду. Магистраль (25 мс между соседними по оси головами)
+идёт от вруба к дальнему флангу, а головы со стороны фланга — от вруба в
+обратном порядке. От каждой головы назад по рядам — цепочка (42 мс).
+Предшественник ищется во всех рядах впереди, поэтому голова — скважина, у
+которой ни в одном ряду впереди нет скважины в 0,75·a по оси: между головами
+переднего края глубокая голова оказывается только в разрыве фронта шире
+1,5·a, и отдельный участок магистрали там законен.
 
 Ступени СИНВ привязываются к НСИ, ДШ — к реле ДШ; у электронной системы
 ступень — любое число не меньше 1 мс.
@@ -31,7 +33,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -286,28 +287,25 @@ def plan_trunk_chains(
             else:
                 heads.append((pos, hole))
 
-    def depth(h: Hole) -> float:
-        return h.collar.x * dx + h.collar.y * dy
-
     starters: list[str] = []
     if heads:
         heads.sort(key=lambda item: (item[0], item[1].id))
         if cut_flank == "right":
             heads.reverse()
-        # Передняя полоса — головы не глубже самой передней + 1,5·b. Вруб —
-        # крайняя у фланга голова полосы: на контуре, расширяющемся вглубь,
-        # он не уходит в задний ряд.
-        top = min(depth(h) for _, h in heads)
-        burden = _row_burden(rows, deep, limit / _CHAIN_OFFSET_FACTOR)
-        front_limit = top + _CUT_DEPTH_FACTOR * burden + 1e-9
-        front = [h for _, h in heads if depth(h) <= front_limit]
-        starters.append(front[0].id)
-        # Магистраль от вруба к дальнему флангу — только по передней полосе.
-        for prev, head in zip(front, front[1:]):
+        # Вруб — крайняя у фланга голова среди голов у переднего края
+        # (глубина не дальше 1,5·b от самой передней): на контуре,
+        # расширяющемся вглубь, вруб не уходит в задний ряд.
+        depths = [h.collar.x * dx + h.collar.y * dy for _, h in heads]
+        front_limit = min(depths) + _CUT_DEPTH_FACTOR * _row_burden(rows, deep, limit / _CHAIN_OFFSET_FACTOR)
+        cut = next(i for i, depth in enumerate(depths) if depth <= front_limit + 1e-9)
+        starters.append(heads[cut][1].id)
+        # Магистраль от вруба к дальнему флангу, головы со стороны фланга —
+        # от вруба в обратном порядке; 25 мс между соседними головами.
+        for (_, prev), (_, head) in zip(heads[cut:], heads[cut + 1:]):
             incoming[head.id] = (prev.id, trunk)
-        _tie_deep_heads(
-            [h for _, h in heads if depth(h) > front_limit], members, starters, incoming, chain, depth
-        )
+        flank_side = heads[: cut + 1][::-1]
+        for (_, prev), (_, head) in zip(flank_side, flank_side[1:]):
+            incoming[head.id] = (prev.id, trunk)
     elif others:
         # Сетки нет — вруб у фланга среди прочих скважин.
         flank = max if cut_flank == "right" else min
@@ -343,47 +341,6 @@ def plan_trunk_chains(
     return TrunkPlan(
         starters=starters, ties=ties, surface_ms=surface_ms, warnings=warnings, trunk_ms=trunk, chain_ms=chain
     )
-
-
-def _tie_deep_heads(
-    deep_heads: list[Hole],
-    members: list[Hole],
-    starters: list[str],
-    incoming: dict[str, tuple[str, float]],
-    chain: float,
-    depth: Callable[[Hole], float],
-) -> None:
-    """Головы глубже передней полосы — связью цепочки к ближайшей уже привязанной.
-
-    Привязанная — член столбца, до которого уже доходит сеть от вруба (голова
-    передней полосы или её цепочка). Головы берутся по возрастанию глубины;
-    привязанная голова приносит с собой свою цепочку.
-    """
-    children: dict[str, list[str]] = {}
-    for to, (frm, _) in incoming.items():
-        children.setdefault(frm, []).append(to)
-    by_id = {h.id: h for h in members}
-    reached: set[str] = set()
-
-    def reach(start: str) -> None:
-        stack = [start]
-        while stack:
-            current = stack.pop()
-            if current in reached:
-                continue
-            reached.add(current)
-            stack.extend(children.get(current, []))
-
-    for starter in starters:
-        reach(starter)
-    for head in sorted(deep_heads, key=lambda h: (depth(h), h.id)):
-        near = min(
-            (by_id[i] for i in reached if i in by_id),
-            key=lambda t: (math.hypot(t.collar.x - head.collar.x, t.collar.y - head.collar.y), t.id),
-        )
-        incoming[head.id] = (near.id, chain)
-        children.setdefault(near.id, []).append(head.id)
-        reach(head.id)
 
 
 def _next_step(chain_ms: float, system: str) -> float:

@@ -202,6 +202,58 @@ describe("useLayoutSearch: сбои и гонки", () => {
     expect(poll).toHaveBeenCalledTimes(4);
   });
 
+  it("сбой первого запроса статуса: состояние неизвестно — повтор, затем опрос по running", async () => {
+    const poll = vi.spyOn(api.design, "layoutSearchStatus")
+      .mockRejectedValueOnce(new Error("Сеть недоступна"))
+      .mockResolvedValueOnce(status({ state: "running", done: 1, total: 4 }))
+      .mockResolvedValue(status({ state: "running", done: 2, total: 4 }));
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await flush();
+    expect(result.current.error).toBe("Сеть недоступна");
+    expect(result.current.status).toBeNull();
+    await tick(LAYOUT_SEARCH_POLL_MS);
+    expect(result.current.status?.state).toBe("running");
+    expect(result.current.error).toBeNull();
+    await tick(LAYOUT_SEARCH_POLL_MS);
+    expect(result.current.status?.done).toBe(2);
+    expect(poll).toHaveBeenCalledTimes(3);
+  });
+
+  it("5xx на первом запросе статуса — повтор, idle — опрос прекращается", async () => {
+    const poll = vi.spyOn(api.design, "layoutSearchStatus")
+      .mockRejectedValueOnce(new HttpError("Сервер недоступен", 503))
+      .mockResolvedValue(status());
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await flush();
+    await tick(LAYOUT_SEARCH_POLL_MS);
+    expect(result.current.status?.state).toBe("idle");
+    await tick(LAYOUT_SEARCH_POLL_MS * 3);
+    expect(poll).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([401, 403, 404])("постоянная ошибка %i на первом запросе статуса — без повтора", async (code) => {
+    const poll = vi.spyOn(api.design, "layoutSearchStatus").mockRejectedValue(new HttpError("Нет доступа", code));
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await flush();
+    expect(result.current.error).toBe("Нет доступа");
+    await tick(LAYOUT_SEARCH_POLL_MS * 3);
+    expect(poll).toHaveBeenCalledTimes(1);
+  });
+
+  it("неудачный старт и сбой восстановительного запроса статуса — повтор, ошибка старта видна", async () => {
+    const poll = vi.spyOn(api.design, "layoutSearchStatus")
+      .mockImplementationOnce(() => new Promise<LayoutSearchStatus>(() => {}))
+      .mockRejectedValueOnce(new Error("Сеть недоступна"))
+      .mockResolvedValue(status({ state: "running", done: 1, total: 4 }));
+    vi.spyOn(api.design, "layoutSearchStart").mockRejectedValue(new HttpError("Подбор раскладки уже идёт", 409));
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await act(async () => { await result.current.start(emptyDesign()); });
+    expect(result.current.error).toBe("Подбор раскладки уже идёт");
+    await tick(LAYOUT_SEARCH_POLL_MS);
+    expect(result.current.status?.state).toBe("running");
+    expect(poll).toHaveBeenCalledTimes(3);
+  });
+
   it("поздний ответ опроса до старта не перетирает running от старта", async () => {
     let resolvePoll: (s: LayoutSearchStatus) => void = () => {};
     vi.spyOn(api.design, "layoutSearchStatus")

@@ -7,7 +7,8 @@
 // страницы и вернуться можно: идущий подбор подхватывается по `design_id`.
 // Старт не удался (409 — подбор уже идёт, сеть) — хук один раз спрашивает
 // статус и дальше опрашивает по нему: идущий подбор так подхватывается и
-// тогда, когда первый ответ статуса ещё не пришёл.
+// тогда, когда первый ответ статуса ещё не пришёл. Сбой запроса статуса при
+// неизвестном состоянии (сеть, 5xx) — повтор через секунду.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HttpError } from "../../api/client";
 import { api } from "../../api/endpoints";
@@ -146,7 +147,8 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
   const fingerprintRef = useRef(fingerprint);
   fingerprintRef.current = fingerprint;
   // Последнее известное состояние: после сбоя запроса (сеть, 5xx) опрос
-  // продолжается, пока оно running; на 401/403/404 опрос прекращается.
+  // повторяется, пока оно running или ещё неизвестно (null — первый запрос
+  // или восстановительный после старта не дошёл); на 401/403/404 — стоп.
   const lastState = useRef<LayoutSearchStatus["state"] | null>(null);
   const pollRef = useRef<(id: string, gen: number, keepError?: boolean) => Promise<void>>(async () => {});
 
@@ -189,7 +191,8 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
       if (gen !== generation.current) return;
       // После неудачного старта видна его ошибка, а не сбой запроса статуса.
       if (!keepError) setError(messageOf(e));
-      if (lastState.current === "running" && retryable(e)) schedule(id, gen);
+      const unknownOrRunning = lastState.current === null || lastState.current === "running";
+      if (unknownOrRunning && retryable(e)) schedule(id, gen);
     }
   };
 

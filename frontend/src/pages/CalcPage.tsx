@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { api } from "../api/endpoints";
 import { useWorkspace } from "../app/useWorkspace";
 import { useTopbarSlot } from "../app/topbarSlot";
+import { DEFAULT_FACE_ANGLE_FROM_VERTICAL_DEG, faceAngleFromVerticalInput } from "../lib/faceAngle";
 import { explosiveColor } from "../components/holeDrawing/palette";
 import {
   applyCalcInputs,
@@ -54,7 +55,7 @@ function FullBvrCalc({
   onSendToDesign,
   onOpenEconomics,
 }: {
-  onSendToDesign?: (variant: BlastVariant) => void;
+  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number, rockName: string) => void;
   onOpenEconomics?: (passportId: string) => void;
 }) {
   const [rocks, setRocks] = useState<Rock[]>([]);
@@ -63,6 +64,7 @@ function FullBvrCalc({
   const [explosiveKey, setExplosiveKeyRaw] = useState("");
   const [lumpSize, setLumpSizeRaw] = useState(400);
   const [benchHeight, setBenchHeightRaw] = useState(10);
+  const [faceAngleFromVerticalDeg, setFaceAngle] = useState(DEFAULT_FACE_ANGLE_FROM_VERTICAL_DEG);
   const [overdrill, setOverdrillRaw] = useState(1);
   const [oversizeCoeff, setOversizeCoeffRaw] = useState(1.05);
   const [spacing, setSpacingRaw] = useState(1.25);
@@ -276,6 +278,7 @@ function FullBvrCalc({
       explosiveKey,
       lumpSizeMm: lumpSize,
       benchHeightM: benchHeight,
+      faceAngleFromVerticalDeg,
       overdrillM: overdrill,
       oversizeCoeff,
       spacingCoeff: spacing,
@@ -288,7 +291,7 @@ function FullBvrCalc({
       kuzram,
       panels: panelInputs,
     }),
-    [rockName, explosiveKey, lumpSize, benchHeight, overdrill, oversizeCoeff, spacing, threshold,
+    [rockName, explosiveKey, lumpSize, benchHeight, faceAngleFromVerticalDeg, overdrill, oversizeCoeff, spacing, threshold,
       selectedCrowns, selected, loadedCrownMm, blockVolumeM3, additionalHolesPct, productionUnitCode, panelInputs, kuzram]
   );
   const sheetInputs = useMemo(() => collectCalcInputs(sheet), [sheet]);
@@ -312,6 +315,7 @@ function FullBvrCalc({
     setExplosiveKey(next.explosiveKey);
     setLumpSize(next.lumpSizeMm);
     setBenchHeight(next.benchHeightM);
+    setFaceAngle(next.faceAngleFromVerticalDeg);
     setOverdrill(next.overdrillM);
     setOversizeCoeff(next.oversizeCoeff);
     setSpacing(next.spacingCoeff);
@@ -706,6 +710,7 @@ function FullBvrCalc({
                   <label title="Перебур, м">Перебур, м<input type="number" min={0} max={3} step={0.1} value={overdrill} onChange={(e) => setOverdrill(Number(e.target.value))} /></label>
                   <label title="Кондиционный кусок, мм">Кусок, мм<input type="number" min={100} max={1200} step={50} value={lumpSize} onChange={(e) => setLumpSize(Number(e.target.value))} /></label>
                 </div>
+                <label title="Угол откоса уступа от вертикали, °">Угол откоса от вертикали, °<input type="number" min={0} max={60} step={1} value={faceAngleFromVerticalDeg} onChange={(e) => setFaceAngle(faceAngleFromVerticalInput(e.target.value, faceAngleFromVerticalDeg))} /></label>
               </div>
               <div className="input-column">
                 <fieldset className="crown-select">
@@ -763,7 +768,7 @@ function FullBvrCalc({
                 )}
               </span>
               {onSendToDesign && (
-                <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected)}>
+                <button className="secondary-button" disabled={!selected} onClick={() => selected && onSendToDesign(selected, faceAngleFromVerticalDeg, rockName)}>
                   Перенести в проект →
                 </button>
               )}
@@ -879,7 +884,7 @@ export function CalcPage({
   onSendToDesign,
   onOpenEconomics,
 }: {
-  onSendToDesign?: (variant: BlastVariant) => void;
+  onSendToDesign?: (variant: BlastVariant, faceAngleFromVerticalDeg: number, rockName: string) => void;
   onOpenEconomics?: (passportId: string) => void;
 }) {
   return <FullBvrCalc onSendToDesign={onSendToDesign} onOpenEconomics={onOpenEconomics} />;

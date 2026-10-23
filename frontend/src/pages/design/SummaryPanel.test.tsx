@@ -3,7 +3,7 @@
 // по наведению — S верх, S низ, S ср, S ср × H, объём с карты и расхождение.
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CadContourInfo, SurfaceModel } from "../../types/design";
+import { emptyHoleGeology, type CadContourInfo, type Hole, type SurfaceModel } from "../../types/design";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 
 afterEach(cleanup);
@@ -76,5 +76,23 @@ describe("SummaryPanel: пересчёт скважин", () => {
     render(<SummaryPanel holes={[]} blockVolumeM3={1} holesSource="—" volumeSource="—" recomputeNotice="Пересчитано: 3 скважины." />);
 
     expect(screen.getByRole("status").textContent).toContain("Пересчитано: 3 скважины.");
+  });
+});
+
+describe("SummaryPanel: наклонные у откоса", () => {
+  function hole(id: string, kind: Hole["kind"]): Hole {
+    return {
+      id, row: 0, col: 0, collar: { x: 0, y: 0, z: 10 }, toe: { x: 0, y: 0, z: 0 },
+      diameter_mm: 152, subdrill_m: 1, kind, source: "generated", enabled: true, ...emptyHoleGeology(),
+    };
+  }
+
+  it("пары у откоса входят в дополнительные — итог не занижен", () => {
+    const holes = [hole("1-01", "production"), hole("1-01T", "face_toe"), hole("1-02T", "face_toe"), hole("B-01", "buffer")];
+    render(<SummaryPanel holes={holes} blockVolumeM3={null} holesSource="—" volumeSource="—" />);
+
+    const cell = screen.getByText("Дополнительные").closest("div") as HTMLElement;
+    expect(cell.querySelector("strong")?.textContent).toBe("3");
+    expect(cell.textContent).toContain("из них наклонных у откоса — 2");
   });
 });

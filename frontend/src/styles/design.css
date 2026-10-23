@@ -124,6 +124,8 @@
 .legend-swatch.fill { background:rgba(45,117,86,.25); }
 
 .contour-edge.toe { stroke:#c7d1cc; stroke-width:2; stroke-dasharray:5 3; }
+/* Подошва по углу вместо съёмки-развала: мельче пунктир, подсказка — в <title>. */
+.contour-edge.toe.angle-toe { stroke-dasharray:2 4; }
 .hole-id-label { fill:#173125; font-size:9px; font-weight:var(--font-weight-strong); text-anchor:middle; paint-order:stroke; stroke:#fbfcfb; stroke-width:2.8px; stroke-linejoin:round; }
 .plan-north { position:absolute; left:10px; top:10px; pointer-events:none; }
 /* Блочный svg: строчный оставил бы под собой зазор под выносные элементы шрифта. */
@@ -232,6 +234,7 @@
 .hole-marker.kind-stab circle { fill:#8b5a2b; }
 .hole-marker.kind-satellite circle { fill:#4a90a4; }
 .hole-marker.kind-infill circle { fill:#1f5d46; }
+.hole-marker.kind-face_toe circle { fill:#3f8f6e; }
 .hole-marker.hovered circle { stroke:#2d7556; stroke-width:2.5; }
 .hole-marker.selected circle { stroke:#173125; stroke-width:2.5; }
 .hole-marker.disabled circle { fill:#c3cdc7; }
@@ -262,6 +265,30 @@
 .geology-card i { width:12px; height:12px; border-radius:3px; flex:0 0 12px; }
 .geology-card b { font-size:12px; display:block; }
 .geology-card small { color:#7b8982; font-size:10px; }
+
+/* Подбор раскладки (часть 4в): ход, пометки, карточки вариантов и показ на плане. */
+.layout-search-progress { display:grid; grid-template-columns:1fr auto; align-items:center; gap:4px 8px; }
+.layout-search-progress progress { grid-column:1 / -1; width:100%; height:8px; accent-color:#2d7556; }
+.layout-search-progress small { color:#7b8982; font-size:10px; }
+.layout-search-progress .secondary-button { grid-column:2; grid-row:2 / span 2; height:24px; padding:0 8px; font-size:11px; }
+.layout-search-state { color:#7b8982; font-size:11px; }
+.layout-search-marks { margin:0; padding-left:16px; font-size:11px; }
+.layout-variant-list { display:grid; gap:6px; }
+.layout-variant-card { display:grid; gap:6px; padding:8px 10px; border:1px solid #d9e2dd; border-radius:9px; background:#fff; text-align:left; }
+.layout-variant-toggle { justify-self:stretch; padding:0; border:0; background:none; color:inherit; font:inherit; font-size:12px; font-weight:var(--font-weight-title); text-align:left; cursor:pointer; }
+.layout-variant-toggle:focus-visible { outline:2px solid #2d7556; outline-offset:2px; }
+.layout-variant-card.active { border-color:#2d7556; background:#edf7f1; }
+.layout-variant-card.rejected { border-color:#e4c4ad; }
+.layout-variant-card ul { margin:2px 0 0; padding-left:16px; font-size:11px; }
+.layout-variant-rows { display:grid; gap:2px; margin:0; font-size:11px; }
+.layout-variant-rows > div { display:flex; justify-content:space-between; gap:8px; }
+.layout-variant-rows dt { color:#7b8982; }
+.layout-variant-rows dd { margin:0; font-variant-numeric:tabular-nums; }
+.layout-variant-actions { display:flex; justify-content:flex-end; gap:6px; }
+.layout-variant-actions .secondary-button { height:24px; padding:0 8px; font-size:11px; }
+.layout-preview { opacity:.45; }
+.layout-preview circle { fill:#3d6ea8; stroke:#fff; stroke-width:1; }
+.layout-preview line { stroke:#3d6ea8; stroke-width:1.5; }
 
 .domain-shape { fill-opacity:.22; stroke:none; }
 .domain-shape.active { fill-opacity:.34; }
@@ -579,6 +606,7 @@
 .legend-swatch.terrain { background:linear-gradient(90deg,#8fb39a,#6f8f7a); }
 .legend-swatch.network { background:#7a6ee0; }
 .legend-swatch.isolines { background:#9bb8d8; }
+.legend-swatch.relief { background:linear-gradient(90deg,#2f6fb3,#3a9d5d,#c0392b); }
 .legend-swatch.throw { background:#c45a2c; }
 .legend-swatch.actual { background:#d07a2d; }
 .legend-swatch.health { background:#d8455a; }
@@ -627,3 +655,12 @@
 @media (max-width:900px) { .design-grid { grid-template-columns:1fr; } .plan-canvas-wrap { height:420px; } .plan-toolbar { gap:6px; padding:8px; } }
 /* На узком экране подсказка перекрыла бы строку координат — оставляем «？». */
 @media (max-width:760px) { .plan-canvas-hint { display:none; } }
+
+/* Темп отбойки: зоны треугольников на плане и легенда в панели «Тайминг». */
+.relief-triangle { stroke:none; fill-opacity:.45; }
+.relief-fast { stroke:none; pointer-events:none; }
+.relief-converging { stroke:#A32D2D; stroke-width:3; stroke-linecap:butt; fill:none; }
+.relief-legend { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; font-size:11px; }
+.relief-notes { display:flex; flex-direction:column; gap:2px; }
+.relief-note-warning { color:#745014; }
+.relief-legend-item { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }

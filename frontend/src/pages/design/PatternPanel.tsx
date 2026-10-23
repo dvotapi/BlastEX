@@ -1,5 +1,5 @@
 import type { HoleKind, PatternParams, PatternType, RowPatternParams } from "../../types/design";
-import { HOLE_KIND_LABELS } from "../../types/design";
+import { SELECTABLE_HOLE_KINDS } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
 
 const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
@@ -10,7 +10,8 @@ const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
   { value: "domain_dependent", label: "По доменам", hint: "a/b из геологических доменов" },
 ];
 
-const KIND_OPTIONS = Object.entries(HOLE_KIND_LABELS) as Array<[HoleKind, string]>;
+const KIND_OPTIONS = SELECTABLE_HOLE_KINDS;
+const TAPER_STAGGERED_HINT = "не применяется к шахматной сетке";
 
 function GridPreview({ pattern }: { pattern: PatternType }) {
   const cols = [0, 1, 2];
@@ -42,6 +43,16 @@ export function PatternPanel({
   onGenerate: () => void;
   busy: boolean;
 }) {
+  const taperCount = params.front_rows_tilt_count ?? 0;
+  // Старые проекты хранят только число рядов — это «Плавный переход»
+  const frontScheme: "vertical" | "pair" | "taper" =
+    params.front_rows_mode ?? (taperCount > 0 ? "taper" : "vertical");
+  // Плавный переход генератор к шахматной сетке не применяет (столбцы через
+  // ряд): вариант недоступен, а сохранённый — показывается как неактивный,
+  // параметры при этом не переписываются.
+  const taperBlocked = params.pattern === "staggered";
+  const taperInactive = frontScheme === "taper" && taperBlocked;
+
   function num<K extends keyof PatternParams>(key: K) {
     return {
       value: params[key] as number,
@@ -156,6 +167,87 @@ export function PatternPanel({
           <label>Угол от вертикали, °<input type="number" min="0" max="45" step="1" {...num("angle_deg")} /></label>
           <label>Азимут наклона, °<input type="number" min="0" max="359" step="1" {...num("azimuth_deg")} /></label>
         </div>
+
+        <div className="field-pair">
+          <label title="Как поставить скважины первого ряда у откоса: оставить вертикальными, добавить к каждой наклонную на 1 м ближе к откосу или плавно наклонить ряды. Столбцы сетки остаются на одной линии.">
+            Первый ряд у откоса
+            <select
+              value={frontScheme}
+              onChange={(e) => {
+                const scheme = e.target.value as "vertical" | "pair" | "taper";
+                // «Вертикальный» — ключи убираем, чтобы паспорт не отличался от нетронутого
+                if (scheme === "vertical")
+                  onChange({
+                    front_rows_mode: undefined,
+                    front_rows_tilt_count: undefined,
+                    front_rows_tilt_deg: undefined,
+                    min_crest_offset_m: undefined,
+                  });
+                else if (scheme === "pair") onChange({ front_rows_mode: "pair", front_rows_tilt_count: undefined });
+                else onChange({ front_rows_mode: "taper", front_rows_tilt_count: taperCount || 1 });
+              }}
+            >
+              <option value="vertical">Вертикальный</option>
+              <option value="pair">Пара: вертикальная + наклонная</option>
+              <option value="taper" disabled={taperBlocked}>
+                {taperBlocked ? `Плавный переход (${TAPER_STAGGERED_HINT})` : "Плавный переход"}
+              </option>
+            </select>
+          </label>
+          {frontScheme === "taper" && (
+            <label title="Сколько первых рядов переходят от наклона к вертикали.">
+              Рядов перехода
+              <select
+                value={taperCount || 1}
+                disabled={taperInactive}
+                onChange={(e) => onChange({ front_rows_tilt_count: Number(e.target.value) as 1 | 2 })}
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+              </select>
+            </label>
+          )}
+          {frontScheme !== "vertical" && (
+            <label title="Наибольший наклон от вертикали в сторону откоса, от 0 до 30°.">
+              Наибольший наклон, ° от вертикали
+              <input
+                type="number"
+                min="0"
+                max="30"
+                step="1"
+                value={params.front_rows_tilt_deg ?? ""}
+                placeholder="15"
+                // Пусто — ключ убираем (угол по умолчанию 15°), а не пишем 0
+                onChange={(e) =>
+                  onChange({
+                    front_rows_tilt_deg: e.target.value === "" ? undefined : Math.min(30, Math.max(0, Number(e.target.value))),
+                  })
+                }
+              />
+            </label>
+          )}
+        </div>
+        {taperInactive && (
+          <small role="note">
+            Плавный переход {TAPER_STAGGERED_HINT}: сетка строится с вертикальным первым рядом.
+          </small>
+        )}
+
+        {/* У вертикального первого ряда отступ генератор не выбирает (это часть 4
+            оптимизатора) — поле видно, только если отступ уже задан в паспорте */}
+        {(frontScheme !== "vertical" || params.min_crest_offset_m != null) && (
+          <label title="Устье не ближе этого расстояния к верхней кромке уступа. Пусто — 1 м.">
+            Мин. отступ устья от кромки, м
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={params.min_crest_offset_m ?? ""}
+              placeholder="1"
+              onChange={(e) => onChange({ min_crest_offset_m: e.target.value === "" ? undefined : Number(e.target.value) })}
+            />
+          </label>
+        )}
 
         <div className="kind-flags">
           <label className="checkbox-row"><input type="checkbox" checked={params.buffer_row} onChange={(e) => onChange({ buffer_row: e.target.checked })} />Буферный ряд</label>

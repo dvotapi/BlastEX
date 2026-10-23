@@ -1,5 +1,6 @@
 import { ruNumber } from "../../lib/format";
 import type { AnalyzeResponse, PpvRequest } from "../../types/design";
+import { formatSpread, reliefLegend } from "./relief";
 import { RoleBadge } from "./RoleBadge";
 
 const LEVEL_LABELS: Record<string, string> = {
@@ -82,6 +83,9 @@ export function TimingPanel({
               <div><span>Скважин в схеме</span><strong>{Object.keys(analysis.times_ms).length}</strong><small>шт.</small></div>
             </div>
 
+            <ReliefSummary relief={analysis.relief ?? null} />
+            <ReliefNotes analysis={analysis} />
+
             <div className="field-pair">
               <label>Расстояние до объекта, м<input type="number" min="1" step="1" value={ppv.distance_m} onChange={(e) => onPpvChange({ distance_m: Number(e.target.value) })} /></label>
               <label>K / n<span className="ppv-kn">
@@ -151,5 +155,68 @@ export function TimingPanel({
         )}
       </div>
     </section>
+  );
+}
+
+/** Граница темпа: целое без дробной части («3»), иначе одна цифра («2,5»). */
+function boundLabel(value: number): string {
+  return Number.isInteger(value) ? ruNumber(value, 0) : ruNumber(value, 1);
+}
+
+/**
+ * Пояснения к границам темпа под сводкой: предупреждения о породе — без
+ * подписи «Нет связи», это не сеть коммутации. Порода не задана и других
+ * пояснений нет — подсказка, откуда взялась нижняя граница.
+ */
+export function ReliefNotes({ analysis }: { analysis: AnalyzeResponse }) {
+  const warnings = analysis.relief_warnings ?? [];
+  const noRock = !analysis.relief_rock_used && warnings.length === 0;
+  if (!analysis.relief?.stats || (!noRock && warnings.length === 0)) return null;
+  return (
+    <div className="relief-notes">
+      {noRock && <small>{`Порода блока не выбрана — нижняя граница темпа ${boundLabel(analysis.relief.stats.min_bound_ms_m)} мс/м.`}</small>}
+      {warnings.map((message) => <small key={message} className="relief-note-warning">{message}</small>)}
+    </div>
+  );
+}
+
+/** Сводка темпа отбойки: медиана, доля вне коридора (главный показатель ровности),
+ *  устойчивый разброс и легенда зон плана. */
+function ReliefSummary({ relief }: { relief: AnalyzeResponse["relief"] }) {
+  const stats = relief?.stats ?? null;
+  if (!stats) {
+    return <small>Темп отбойки: треугольники не построены — мало скважин или они слишком далеко друг от друга</small>;
+  }
+  return (
+    <>
+      <div className="metrics-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+        <div><span>Темп отбойки, мс/м (медиана)</span><strong>{ruNumber(stats.median_ms_m, 1)}</strong><small>мс/м</small></div>
+        <div><span>{`Быстрее ${boundLabel(stats.min_bound_ms_m)} мс/м`}</span><strong>{`${Math.round(stats.fast_share * 100)} %`}</strong><small>площади</small></div>
+        {stats.max_bound_ms_m != null && (
+          <div><span>{`Медленнее ${boundLabel(stats.max_bound_ms_m)} мс/м`}</span><strong>{`${Math.round(stats.slow_share * 100)} %`}</strong><small>площади</small></div>
+        )}
+        <div><span>Стыки фронтов</span><strong>{stats.converging_length_m > 0 ? ruNumber(stats.converging_length_m, 1) : "нет"}</strong>{stats.converging_length_m > 0 && <small>м</small>}</div>
+        <div><span>Вне коридора ±25 %</span><strong>{`${Math.round(stats.outside_share * 100)} %`}</strong><small>площади</small></div>
+        <div><span>Устойчивый разброс</span><strong>{formatSpread(stats.robust_spread)}</strong><small>межквартильный</small></div>
+      </div>
+      {stats.max_ms_m === 0 ? (
+        // Темп 0 во всех треугольниках: зоны по отклонению от медианы не определены.
+        <small>Все скважины срабатывают одновременно — темп 0 мс/м</small>
+      ) : stats.median_ms_m === 0 ? (
+        // Нулевая медиана при ненулевых треугольниках: подписи легенды вырождаются в 0;
+        // ненулевые треугольники на плане красные и выделяются на фоне одновременных.
+        <small>Больше половины площади срабатывает одновременно — темп 0 мс/м</small>
+      ) : (
+        <div className="relief-legend">
+          {reliefLegend(stats.median_ms_m).map((item) => (
+            <span key={item.band} className="relief-legend-item">
+              <i className="legend-swatch relief-band" style={{ background: item.color }} />
+              <span>{item.label}</span>
+            </span>
+          ))}
+          <small>мс/м</small>
+        </div>
+      )}
+    </>
   );
 }

@@ -10,10 +10,19 @@ from design.geometry import (
     distance_to_free_faces,
     drape_collar,
     hole_from_collar,
-    local_basis,
-    pattern_origin,
 )
-from design.models import PRESERVED_HOLE_KINDS, BlockContour, Hole, Point3
+from design.models import (
+    FACE_TOE_KIND,
+    BlockContour,
+    Hole,
+    Point3,
+    logical_row,
+    row_family,
+)
+from design.toe_line import floor_point
+
+# Запас к допуску шага, м: шаг ровно на допуске не мигает из-за округления.
+SPACING_EPS_M = 1e-6
 
 
 def _distance2d(a: Hole, b: Hole) -> float:
@@ -50,11 +59,29 @@ def spacing_report(
 
     В пределах ряда (`Hole.row`) шаг вдоль ряда считается между соседями по
     `col`; между соседними рядами — по ближайшей скважине следующего ряда.
+    Шаги меряются между точками оси на уровне подошвы (`floor_point`), а не
+    между устьями: плавный переход у откоса держит решётку именно у подошвы
+    (устья соседних рангов сближены намеренно). У вертикальных скважин это те
+    же расстояния, что между устьями. Но результат `hole_spacing` меняется у
+    существующих проектов с углом паспорта на неровной кровле (длины, а с ними
+    точки на подошве, у скважин разные) и у скважин, наклонённых вручную, —
+    их шаг считается там, где ось встречает подошву. Пара у откоса
+    (`face_toe`) стоит в ряду и столбце своей вертикальной в 1 м от неё — не
+    шаг сетки, в отчёт не входит. Сравнение с допуском — с запасом
+    `SPACING_EPS_M` на ошибку округления.
     """
-    enabled = [h for h in holes if h.enabled]
-    by_row: dict[int, list[Hole]] = {}
+    enabled = [h for h in holes if h.enabled and h.kind != FACE_TOE_KIND]
+    at_floor = {h.id: floor_point(h) for h in enabled}
+
+    def _distance2d(a: Hole, b: Hole) -> float:
+        (ax, ay), (bx, by) = at_floor[a.id], at_floor[b.id]
+        return math.hypot(ax - bx, ay - by)
+
+    # Ключ — группа рядов и логический номер: ряды впереди первого идут подряд у
+    # первого ряда, контурные (-1…-n) и буферные (-10) не сливаются с сеткой.
+    by_row: dict[tuple[str, int], list[Hole]] = {}
     for h in enabled:
-        by_row.setdefault(h.row, []).append(h)
+        by_row.setdefault((row_family(h.kind), logical_row(h.row)), []).append(h)
 
     a_values: list[float] = []
     flagged: list[dict[str, Any]] = []
@@ -63,7 +90,7 @@ def spacing_report(
         for h1, h2 in zip(ordered, ordered[1:]):
             d = _distance2d(h1, h2)
             a_values.append(d)
-            if expected_a_m is not None and abs(d - expected_a_m) > tolerance_m:
+            if expected_a_m is not None and abs(d - expected_a_m) > tolerance_m + SPACING_EPS_M:
                 flagged.append(
                     {"hole_id": h1.id, "neighbour_id": h2.id, "kind": "a", "distance_m": d}
                 )
@@ -71,13 +98,15 @@ def spacing_report(
     b_values: list[float] = []
     rows_sorted = sorted(by_row.keys())
     for r1, r2 in zip(rows_sorted, rows_sorted[1:]):
+        if r1[0] != r2[0]:
+            continue
         for h1 in by_row[r1]:
             nearest = min(by_row[r2], key=lambda h2: _distance2d(h1, h2), default=None)
             if nearest is None:
                 continue
             d = _distance2d(h1, nearest)
             b_values.append(d)
-            if expected_b_m is not None and abs(d - expected_b_m) > tolerance_m:
+            if expected_b_m is not None and abs(d - expected_b_m) > tolerance_m + SPACING_EPS_M:
                 flagged.append(
                     {"hole_id": h1.id, "neighbour_id": nearest.id, "kind": "b", "distance_m": d}
                 )
@@ -87,53 +116,6 @@ def spacing_report(
         "spacing_b": _stats(b_values),
         "flagged": flagged,
     }
-
-
-def renumber(
-    holes: list[Hole],
-    contour: BlockContour,
-    row_azimuth_deg: float = 0.0,
-    row_tolerance_m: float = 1.0,
-) -> list[Hole]:
-    """Пересчитывает row/col/id по проекции устьев на базис раскладки контура.
-
-    `row_tolerance_m` — половина ожидаемого шага между рядами (`burden_b_m`);
-    скважины, чья проекция на направление продвижения рядов отличается от
-    предыдущей меньше, чем на это значение, считаются одним рядом. Контурные
-    скважины (`kind == "contour"`) не переиндексируются — их нумерация ведётся
-    отдельным проходом при генерации контурного ряда.
-    """
-    row_dir, advance_dir = local_basis(row_azimuth_deg)
-    origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
-
-    production = [h for h in holes if h.kind not in PRESERVED_HOLE_KINDS]
-    contour_holes = [h for h in holes if h.kind in PRESERVED_HOLE_KINDS]
-
-    def _v(h: Hole) -> float:
-        return (h.collar.x - origin[0]) * advance_dir[0] + (h.collar.y - origin[1]) * advance_dir[1]
-
-    def _u(h: Hole) -> float:
-        return (h.collar.x - origin[0]) * row_dir[0] + (h.collar.y - origin[1]) * row_dir[1]
-
-    # Группируем по близости вдоль направления продвижения рядов (v), не по
-    # старому полю row, — правка могла сдвинуть скважину в другой ряд.
-    ordered = sorted(production, key=_v)
-    rows: list[list[Hole]] = []
-    for h in ordered:
-        v = _v(h)
-        if rows and abs(v - _v(rows[-1][-1])) < row_tolerance_m:
-            rows[-1].append(h)
-        else:
-            rows.append([h])
-
-    renumbered: list[Hole] = []
-    for row_index, group in enumerate(rows):
-        for col_index, h in enumerate(sorted(group, key=_u)):
-            renumbered.append(
-                replace(h, row=row_index, col=col_index, id=f"{row_index + 1}-{col_index + 1:02d}")
-            )
-
-    return renumbered + contour_holes
 
 
 def apply_collar_xy(
@@ -273,9 +255,55 @@ def local_spacing(holes: list[Hole], hole: Hole) -> float | None:
     return min(_distance2d(hole, other) for other in same_row)
 
 
+def row_index(holes: list[Hole]) -> dict[tuple[str, int], list[Hole]]:
+    """Включённые скважины по (группа рядов, логический номер). Строится один раз на набор."""
+    index: dict[tuple[str, int], list[Hole]] = {}
+    for h in holes:
+        if h.enabled:
+            index.setdefault((row_family(h.kind), logical_row(h.row)), []).append(h)
+    return index
+
+
+def previous_row_holes(index: dict[tuple[str, int], list[Hole]], hole: Hole) -> list[Hole]:
+    """Скважины соседнего ряда позади — только в своей группе рядов."""
+    return [
+        other
+        for other in index.get((row_family(hole.kind), logical_row(hole.row) - 1), [])
+        if other is not hole
+    ]
+
+
+def previous_row_distance(index: dict[tuple[str, int], list[Hole]], hole: Hole) -> float | None:
+    """Расстояние до ближайшей скважины соседнего ряда позади; None, если его нет."""
+    others = previous_row_holes(index, hole)
+    if not others:
+        return None
+    return min(_distance2d(hole, other) for other in others)
+
+
+def previous_row_step(
+    index: dict[tuple[str, int], list[Hole]], hole: Hole, advance: tuple[float, float]
+) -> float | None:
+    """Шаг между рядами поперёк рядов: проекция на направление продвижения.
+
+    На шахматной сетке диагональ до соседа включает половину шага сдвига вдоль
+    ряда; шаг между рядами — только поперёк.
+    """
+    others = previous_row_holes(index, hole)
+    if not others:
+        return None
+    return min(
+        abs((hole.collar.x - o.collar.x) * advance[0] + (hole.collar.y - o.collar.y) * advance[1])
+        for o in others
+    )
+
+
 def local_burden(holes: list[Hole], hole: Hole, contour: BlockContour) -> float | None:
-    """Distance to the previous row, or collar-to-face if this is the first row."""
-    previous = [h for h in holes if h.enabled and h.row == hole.row - 1]
-    if previous:
-        return min(_distance2d(hole, other) for other in previous)
+    """Distance to the previous row, or collar-to-face if this is the first row.
+
+    Соседа ищем по логическому номеру в своей группе рядов (см. previous_row_distance).
+    """
+    distance = previous_row_distance(row_index(holes), hole)
+    if distance is not None:
+        return distance
     return distance_to_free_faces((hole.collar.x, hole.collar.y), contour)

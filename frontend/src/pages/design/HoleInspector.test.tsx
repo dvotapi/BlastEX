@@ -90,3 +90,31 @@ describe("HoleInspector: ручная правка", () => {
     expect(screen.getByText(/H < 1 м/)).toBeTruthy();
   });
 });
+
+describe("HoleInspector: ЛСП", () => {
+  function renderWithBurden(floorBurden?: { value: number; source?: "survey" | "angle" | null }) {
+    render(
+      <HoleInspector
+        hole={hole()}
+        floorBurden={floorBurden}
+        onClose={vi.fn()}
+        onUpdateHole={vi.fn()}
+        onSetEnabled={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+  }
+
+  it("ЛСП по углу помечена «подошва по углу», по съёмке — без пометки", () => {
+    renderWithBurden({ value: 6.38, source: "angle" });
+    expect(screen.getByText(/ЛСП: 6,38 м · подошва по углу/)).toBeTruthy();
+
+    cleanup();
+    renderWithBurden({ value: 4, source: "survey" });
+    expect(screen.getByText(/ЛСП: 4/).textContent).not.toMatch(/по углу/);
+
+    cleanup();
+    renderWithBurden();
+    expect(screen.queryByText(/ЛСП:/)).toBeNull();
+  });
+});

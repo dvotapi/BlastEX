@@ -1,3 +1,4 @@
+from dataclasses import replace
 import unittest
 
 from design.editing import (
@@ -8,7 +9,6 @@ from design.editing import (
     apply_toe,
     insert_manual_hole,
     neighbours,
-    renumber,
     spacing_report,
 )
 from design.models import BenchSurface, BlockContour, Hole, Point3
@@ -61,65 +61,34 @@ class SpacingReportTests(unittest.TestCase):
         )
 
 
-class RenumberTests(unittest.TestCase):
-    def test_renumber_after_deletions_is_contiguous(self):
-        contour = BlockContour(
-            vertices=[Point3(x=x, y=y, z=0.0) for x, y in [(0, 0), (20, 0), (20, 20), (0, 20)]],
-            bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0),
-        )
-        holes = generate_pattern(
-            contour,
-            {
-                "pattern": "rectangular",
-                "spacing_a_m": 5.0,
-                "burden_b_m": 5.0,
-                "offset_from_face_m": 0.0,
-                "edge_margin_m": 0.0,
-            },
-        )
-        # Удаляем две скважины, образуя разрывы в нумерации.
-        remaining = [h for h in holes if h.id not in {"2-02", "3-03"}]
+class SpacingReportFrontRowsTests(unittest.TestCase):
+    def test_face_toe_pair_is_not_a_grid_step(self):
+        pair = replace(_hole("1-01T", 0, 0, 0.0, -1.0), kind="face_toe")
+        holes = [_hole("1-01", 0, 0, 0.0, 0.0), pair, _hole("2-01", 1, 0, 0.0, 4.0)]
+        report = spacing_report(holes, expected_a_m=5.0, expected_b_m=4.0)
+        self.assertEqual(report["flagged"], [])
+        self.assertAlmostEqual(report["spacing_b"]["min"], 4.0)
 
-        renumbered = renumber(remaining, contour, row_azimuth_deg=0.0)
-
-        rows = sorted({h.row for h in renumbered})
-        self.assertEqual(rows, list(range(len(rows))))
-        ids = [h.id for h in renumbered]
-        self.assertEqual(len(ids), len(set(ids)))
-        for h in renumbered:
-            self.assertEqual(h.id, f"{h.row + 1}-{h.col + 1:02d}")
-
-    def test_renumber_keeps_contour_and_satellite_ids(self):
-        contour = BlockContour(
-            vertices=[Point3(x=x, y=y, z=0.0) for x, y in [(0, 0), (20, 0), (20, 20), (0, 20)]],
-            bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0),
+    def test_steps_are_measured_at_floor_points(self):
+        # Устье ряда 1 сдвинуто назад на 2 м, ось наклонена к откосу — у
+        # подошвы шаг рядов b = 4, как у решётки (плавный переход).
+        tilted = Hole(
+            id="1-01", row=0, col=0, collar=Point3(x=0.0, y=2.0, z=0.0),
+            toe=Point3(x=0.0, y=-0.2, z=-11.0), diameter_mm=152.0, subdrill_m=1.0,
         )
-        holes = [
-            _hole("1-01", 0, 0, 0.0, 0.0),
-            _hole("1-03", 0, 2, 10.0, 0.0),
-            Hole(
-                id="K1-01",
-                row=-1,
-                col=0,
-                collar=Point3(x=1, y=0, z=0),
-                toe=Point3(x=1, y=0, z=-10),
-                diameter_mm=152.0,
-                kind="contour",
-            ),
-            Hole(
-                id="SAT-1-01-1",
-                row=0,
-                col=0,
-                collar=Point3(x=1, y=1, z=0),
-                toe=Point3(x=1, y=1, z=-10),
-                diameter_mm=89.0,
-                kind="satellite",
-            ),
-        ]
-        result = renumber(holes, contour, row_azimuth_deg=0.0)
-        ids = {h.id for h in result}
-        self.assertIn("K1-01", ids)
-        self.assertIn("SAT-1-01-1", ids)
+        holes = [tilted, _hole("2-01", 1, 0, 0.0, 4.0)]
+        report = spacing_report(holes, expected_b_m=4.0, tolerance_m=0.1)
+        self.assertEqual(report["flagged"], [])
+        self.assertAlmostEqual(report["spacing_b"]["min"], 4.0, places=2)
+
+
+class SpacingToleranceTests(unittest.TestCase):
+    def test_step_on_the_tolerance_does_not_flicker(self):
+        # 4 − 3,5 = 0,5 — ровно допуск; ошибка округления не даёт предупреждения.
+        holes = [_hole("1-01", 0, 0, 0.0, 0.0), _hole("1-02", 0, 1, 4.0 + 1e-9, 0.0)]
+        self.assertEqual(spacing_report(holes, expected_a_m=3.5, tolerance_m=0.5)["flagged"], [])
+        holes = [_hole("1-01", 0, 0, 0.0, 0.0), _hole("1-02", 0, 1, 4.01, 0.0)]
+        self.assertEqual(len(spacing_report(holes, expected_a_m=3.5, tolerance_m=0.5)["flagged"]), 1)
 
 
 class GeometryEditTests(unittest.TestCase):

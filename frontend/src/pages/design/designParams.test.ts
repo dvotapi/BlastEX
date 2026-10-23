@@ -4,9 +4,9 @@
 // — как хранятся. Иначе «Сохранить» факта бурения падает на FrozenDesignError
 // (аудит замечаний Codex к PR #34, BDX-026).
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
+import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, DEFAULT_TIE_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
 import { designReducer, initDesignState, type DesignAction, type DesignState } from "./designReducer";
-import { designWithParams, hasUnsavedChanges, paramsFromDesign, type DesignParams } from "./designParams";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 
 const DEFAULT_EXPLOSIVE = "ГРАНУЛИТ-РП";
 
@@ -154,5 +154,90 @@ describe("hasUnsavedChanges — статус и ревизия берутся и
   it("закрытый паспорт: сохранить нечего, значит и несохранённого нет", () => {
     const state = opened(passport({ lifecycle_status: "closed" }), { type: "UPSERT_AS_DRILLED", hole: FACT }, { type: "SET_NAME", name: "другое" });
     expect(hasUnsavedChanges(state, EDITED, DEFAULT_EXPLOSIVE)).toBe(false);
+  });
+});
+
+describe("угол откоса объекта при переносе варианта", () => {
+  it("новый проект без вершин контура получает 90 − угол от вертикали", () => {
+    expect(benchPatchFromObjectAngle(emptyDesign(), 15)).toEqual({ face_angle_deg: 75 });
+    expect(benchPatchFromObjectAngle(emptyDesign(), 20)).toEqual({ face_angle_deg: 70 });
+  });
+
+  it("проект с контуром сохраняет свою бровку", () => {
+    const design = emptyDesign();
+    design.contour.vertices = [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }, { x: 10, y: 10, z: 0 }];
+    expect(benchPatchFromObjectAngle(design, 15)).toBeNull();
+  });
+
+  it("угол вне 0–60° от вертикали обрезается", () => {
+    expect(benchPatchFromObjectAngle(emptyDesign(), 90)).toEqual({ face_angle_deg: 30 });
+    expect(benchPatchFromObjectAngle(emptyDesign(), -5)).toEqual({ face_angle_deg: 90 });
+    expect(benchPatchFromObjectAngle(emptyDesign(), Number.NaN)).toBeNull();
+  });
+
+  it("угла нет — бровку не трогаем", () => {
+    expect(benchPatchFromObjectAngle(emptyDesign(), null)).toBeNull();
+  });
+});
+
+describe("порода из «Расчёта» при переносе варианта", () => {
+  it("новому проекту ставится порода листа", () => {
+    expect(rockNameFromTransfer(emptyDesign(), "Гранит")).toBe("Гранит");
+  });
+
+  it("новому проекту порода листа заменяет прежнюю", () => {
+    expect(rockNameFromTransfer({ ...emptyDesign(), rock_name: "Известняк" }, "Гранит")).toBe("Гранит");
+  });
+
+  it("сохранённому проекту без породы — ставится", () => {
+    expect(rockNameFromTransfer(passport({ rock_name: "" }), " Гранит ")).toBe("Гранит");
+  });
+
+  it("выбранную в сохранённом проекте породу не перетирает", () => {
+    expect(rockNameFromTransfer(passport({ rock_name: "Известняк" }), "Гранит")).toBeNull();
+  });
+
+  it("пустая порода листа и утверждённый проект — без изменений", () => {
+    expect(rockNameFromTransfer(emptyDesign(), "")).toBeNull();
+    expect(rockNameFromTransfer(passport({ rock_name: "", lifecycle_status: "approved" }), "Гранит")).toBeNull();
+  });
+
+  it("перенос ставит породу в паспорт через SET_ROCK_NAME", () => {
+    const state = initDesignState(emptyDesign());
+    const name = rockNameFromTransfer(state.present, "Гранит");
+    const next = designReducer(state, { type: "SET_ROCK_NAME", rock_name: name! });
+    expect(next.present.rock_name).toBe("Гранит");
+  });
+});
+
+describe("наклон рядов у откоса", () => {
+  it("паспорт без новых ключей их не получает", () => {
+    const design = passport();
+    const state = opened(design);
+    const written = designWithParams(state, formsOf(state));
+    expect(written.pattern_params).not.toHaveProperty("front_rows_tilt_count");
+    expect(written.pattern_params).not.toHaveProperty("front_rows_tilt_deg");
+    expect(DEFAULT_PATTERN_PARAMS).not.toHaveProperty("front_rows_tilt_count");
+  });
+});
+
+describe("наклон рядов: возврат к 0", () => {
+  it("после 2 → 0 правок нет, ключей в паспорте нет", () => {
+    const state = opened(passport());
+    const forms = formsOf(state);
+    const back = { ...forms, patternParams: { ...forms.patternParams, front_rows_tilt_count: undefined, front_rows_tilt_deg: undefined } };
+    expect(hasUnsavedChanges(state, back, DEFAULT_EXPLOSIVE)).toBe(false);
+    const written = designWithParams(state, back);
+    expect(Object.keys(written.pattern_params)).not.toContain("front_rows_tilt_count");
+    expect(Object.keys(written.pattern_params)).not.toContain("front_rows_tilt_deg");
+  });
+});
+
+describe("параметры построения коммутации", () => {
+  it("передают вид основной сетки и выбранные скважины", () => {
+    const params = tieRequestParams(DEFAULT_TIE_PARAMS, ["1-01", "1-02"], "contour");
+    expect(params.main_kind).toBe("contour");
+    expect(params.selected_hole_ids).toEqual(["1-01", "1-02"]);
+    expect(params.trunk_ms).toBe(DEFAULT_TIE_PARAMS.trunk_ms);
   });
 });

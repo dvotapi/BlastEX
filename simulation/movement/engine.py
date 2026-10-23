@@ -7,13 +7,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from design.editing import local_burden, local_spacing
+from design.editing import (
+    local_spacing,
+    previous_row_distance,
+    previous_row_step,
+    row_index,
+)
+from design.geometry import distance_to_free_faces, local_basis
 from design.models import (
     ROLE_PREDICTED,
     BlastDesign,
     Hole,
     HoleLoad,
     InitiationNetwork,
+    logical_row,
     stemming_length_m,
 )
 from design.timing import resolve_network
@@ -74,6 +81,47 @@ def _assert_design_untouched(design: BlastDesign, before: tuple, action: str) ->
         raise RuntimeError(f"{action} must not rewrite the designed pattern, charges or network.")
 
 
+WALL_HOLE_KINDS = ("contour", "presplit", "trim")
+
+
+def _first_layer_ids(design: BlastDesign, enabled: list[Hole], index: dict | None = None) -> set[int]:
+    """Объекты скважин первого слоя (по id() объекта, не по ID скважины).
+
+    Основная сетка: скважины, ближайшие к откосу — в пределах половины самого
+    короткого шага между рядами. Шаг берётся по соседним рядам (distance до
+    ряда позади), а не по общему burden: ряды с `row_params` могут быть уже.
+    Контурные и подрывные скважины — по минимальному номеру среди своих
+    же групп: ряды впереди первого основной сетки их не касаются.
+    """
+    contour = design.contour
+    index = row_index(enabled) if index is None else index
+    _, advance = local_basis(float((design.pattern_params or {}).get("row_azimuth_deg", 0.0)))
+    first: set[int] = set()
+    # Стенки — по группам: контур, пресплит и подрыв каждый со своим первым рядом.
+    for family in WALL_HOLE_KINDS:
+        walls = [h for h in enabled if h.kind == family]
+        if walls:
+            min_wall_row = min(logical_row(h.row) for h in walls)
+            first.update(id(h) for h in walls if logical_row(h.row) == min_wall_row)
+    production = [h for h in enabled if h.kind not in WALL_HOLE_KINDS]
+    faces = [
+        (h, distance_to_free_faces((h.collar.x, h.collar.y), contour)) for h in production
+    ]
+    faces = [(h, d) for h, d in faces if d is not None]
+    if not faces:
+        return first
+    min_face = min(d for _, d in faces)
+    steps = [
+        step
+        for h in production
+        for step in [previous_row_step(index, h, advance)]
+        if step is not None and step > 0
+    ]
+    tolerance = 0.5 * min(steps) if steps else 0.5 * _pattern_length(design, "burden_b_m", DEFAULT_BURDEN_M)
+    first.update(id(h) for h, d in faces if d < min_face + tolerance)
+    return first
+
+
 def _pattern_length(design: BlastDesign, key: str, fallback: float) -> float:
     raw = (design.pattern_params or {}).get(key)
     if raw in (None, ""):
@@ -108,6 +156,8 @@ def _hole_inputs(
     design: BlastDesign,
     load: HoleLoad | None,
     times_ms: dict[str, float],
+    first_layer: set[int],
+    index: dict,
 ) -> MovementInputs:
     enabled = [item for item in design.holes if item.enabled]
     pattern_burden = _pattern_length(design, "burden_b_m", DEFAULT_BURDEN_M)
@@ -115,10 +165,15 @@ def _hole_inputs(
     spacing = local_spacing(enabled, hole)
     if spacing is None or spacing <= 0:
         spacing = pattern_spacing
-    # Face-to-collar distance is not burden when the first row sits on the face.
-    min_row = min((item.row for item in enabled), default=hole.row)
-    measured_burden = local_burden(enabled, hole, design.contour)
-    if hole.row > min_row and measured_burden and measured_burden > 0:
+    # Соседний ряд позади — по логическому номеру (ряды впереди первого подряд);
+    # если его нет — до ближайшей точки откоса, как и раньше.
+    measured_burden = previous_row_distance(index, hole)
+    if measured_burden is None:
+        measured_burden = distance_to_free_faces((hole.collar.x, hole.collar.y), design.contour)
+    if id(hole) in first_layer:
+        # Face-to-collar distance is not burden on the first layer of the pattern.
+        burden = pattern_burden
+    elif measured_burden and measured_burden > 0:
         burden = measured_burden
     else:
         burden = pattern_burden
@@ -243,8 +298,10 @@ def predict_design(
     warnings = list(timing_warnings)
     if not enabled:
         warnings.append("Нет активных скважин — оценка развала пустая.")
+    index = row_index(enabled)
+    first_layer = _first_layer_ids(design, enabled, index)
     for hole in enabled:
-        inputs = _hole_inputs(hole, design, loads.get(hole.id), times_ms)
+        inputs = _hole_inputs(hole, design, loads.get(hole.id), times_ms, first_layer, index)
         if inputs.charge_mass_kg <= 0:
             warnings.append(f"Скважина {hole.id}: нет массы заряда, оценка слабая.")
         hole_rows.append(estimate_hole_movement(hole, inputs, design.contour, enabled, times_ms))

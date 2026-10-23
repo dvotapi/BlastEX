@@ -91,6 +91,33 @@ describe("APPLY_CAD_CONTOUR", () => {
   });
 });
 
+describe("APPLY_CAD_CONTOUR: угол откоса", () => {
+  function build(faceAngleDeg: number | undefined) {
+    const design = emptyDesign();
+    const bench = { ...design.contour.bench } as BlastDesign["contour"]["bench"];
+    if (faceAngleDeg === undefined) delete (bench as Partial<typeof bench>).face_angle_deg;
+    else bench.face_angle_deg = faceAngleDeg;
+    const start = initDesignState({ ...design, contour: { ...design.contour, bench } });
+    return designReducer(start, {
+      type: "APPLY_CAD_CONTOUR",
+      vertices: VERTICES,
+      free_faces: [[1, 2]],
+      bench: { crest_z_m: 420, toe_z_m: 410 },
+      cad: CAD,
+      surface: ROOF,
+    }).present.contour.bench.face_angle_deg;
+  }
+
+  it("угол блока сохраняется", () => {
+    expect(build(70)).toBe(70);
+  });
+
+  it("90° (умолчание сервера) и отсутствие угла — угол объекта 15° от вертикали", () => {
+    expect(build(90)).toBe(75);
+    expect(build(undefined)).toBe(75);
+  });
+});
+
 describe("APPLY_CAD_CONTOUR: кровля из чертежа", () => {
   it("ставит кровлю, снимает поверхность подошвы, объём с карты — и всё одним шагом отмены", () => {
     const old = { ...withHole(), surfaces: { top: surface("top", "Старая кровля"), floor: surface("floor", "Подошва"), face: null, post_blast: null } };

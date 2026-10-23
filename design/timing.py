@@ -13,6 +13,7 @@ from typing import Any
 
 from design.models import (
     ELECTRONIC_TIMING_MODES,
+    logical_row,
     Connector,
     DetonatingCord,
     Detonator,
@@ -45,7 +46,7 @@ __all__ = [
     "build_firing_events",
 ]
 
-SCHEME_TYPES = ("row", "echelon", "diagonal_v", "trapezoid")
+SCHEME_TYPES = ("row", "echelon", "diagonal_v", "trapezoid", "trunk_chains")
 SYSTEM_TYPES = ("nonel", "electronic", "detcord")
 ELECTRONIC_MODES = ELECTRONIC_TIMING_MODES
 
@@ -64,7 +65,7 @@ def _snap(value: float, options: tuple[float, ...]) -> float:
 
 
 def _wave_coordinate(hole: Hole, scheme: str, center_col: float, min_col: int, max_col: int) -> float:
-    row = float(hole.row)
+    row = float(logical_row(hole.row))
     col = float(hole.col)
     if scheme == "row":
         return row
@@ -76,6 +77,55 @@ def _wave_coordinate(hole: Hole, scheme: str, center_col: float, min_col: int, m
         half_width = (max_col - min_col) / 2.0
         return row + max(0.0, half_width - abs(col - center_col))
     return row
+
+
+def _anchor_manual(holes: list[Hole], coords: dict[str, float]) -> dict[str, float]:
+    """Ручные скважины не задают начало отсчёта: их координата — у самой ранней основной.
+
+    Основная — не стенка и не ручная. Иначе ручная скважина (row -1000 и т.п.)
+    сдвигала бы весь блок на тысячи интервалов в режимах, где координата берётся
+    из геометрии.
+    """
+    wall_kinds = ("presplit", "contour", "buffer")
+    grid_values = [
+        coords[h.id]
+        for h in holes
+        if h.source != "manual" and h.kind not in wall_kinds and h.id in coords
+    ]
+    anchor = min(grid_values) if grid_values else 0.0
+    for hole in holes:
+        if hole.source == "manual":
+            coords[hole.id] = anchor
+    return coords
+
+
+def _block_row_coordinates(holes: list[Hole], interval_ms: float, params: dict[str, Any]) -> dict[str, float]:
+    """Координаты в ряд: пресплит — до блока, буфер и контур — после сетки, ручные — с первым рядом.
+
+    Единица — интервал. Основные ряды (сетка и прочее) идут по логическим номерам и
+    сюда не попадают. Пресплит стартует presplit_lead_ms до первого основного ряда,
+    буфер и контур — wall_after_ms после последнего (по умолчанию один интервал).
+    Без основных рядов или без стенок словарь пуст — порядок прежний.
+    """
+    wall_kinds = ("presplit", "contour", "buffer")
+    # Ручные скважины (row -1000 и т.п.) не задают начало отсчёта: они стартуют
+    # с первым основным рядом и не сдвигают весь блок.
+    grid = [h for h in holes if h.kind not in wall_kinds and h.source != "manual"]
+    if not grid or interval_ms <= 0:
+        return {}
+    first = min(logical_row(h.row) for h in grid)
+    last = max(logical_row(h.row) for h in grid)
+    lead_units = float(params.get("presplit_lead_ms", 150.0)) / interval_ms
+    after_units = float(params.get("wall_after_ms", interval_ms)) / interval_ms
+    coords: dict[str, float] = {}
+    for hole in holes:
+        if hole.kind == "presplit":
+            coords[hole.id] = first - lead_units
+        elif hole.kind in ("contour", "buffer"):
+            coords[hole.id] = last + after_units
+        elif hole.source == "manual":
+            coords[hole.id] = float(first)
+    return coords
 
 
 def _eligible_holes(holes: list[Hole], include_contour: bool) -> list[Hole]:
@@ -177,6 +227,11 @@ def build_template_network(
         system = "nonel"
     if scheme not in SCHEME_TYPES:
         scheme = "row"
+    if scheme == "trunk_chains":
+        # Импорт здесь: trunk_network сам импортирует timing.
+        from design.trunk_network import build_trunk_chains_network
+
+        return build_trunk_chains_network(holes, params)[0]
 
     include_contour = bool(params.get("include_contour", False))
     eligible = _eligible_holes(holes, include_contour)
@@ -221,7 +276,17 @@ def _build_wave_graph(
         connector_kind = "electronic"
 
     min_col, max_col, center_col = _grid_extents(eligible)
-    scored = [(h, _wave_coordinate(h, scheme, center_col, min_col, max_col)) for h in eligible]
+    if system in ("nonel", "detcord"):
+        # Пресплит идёт одним поверхностным соединителем: его задержка — ступень системы.
+        ladder = SURFACE_NSI_MS_OPTIONS if system == "nonel" else DETCORD_RELAY_MS_OPTIONS
+        lead = float(params.get("presplit_lead_ms", 150.0))
+        below = [option for option in ladder if option <= lead]
+        params = {**params, "presplit_lead_ms": float(max(below) if below else min(ladder))}
+    wall_coords = _block_row_coordinates(eligible, interval_ms, params) if scheme == "row" else {}
+    coords = {h.id: _wave_coordinate(h, scheme, center_col, min_col, max_col) for h in eligible}
+    coords.update(wall_coords)
+    coords = _anchor_manual(eligible, coords)
+    scored = [(h, coords[h.id]) for h in eligible]
     scored.sort(key=lambda item: item[1])
 
     min_w = scored[0][1]
@@ -259,7 +324,7 @@ def _sorted_selected(holes: list[Hole], selected_ids: list[str]) -> list[Hole]:
     ordered = [by_id[hole_id] for hole_id in selected_ids if hole_id in by_id]
     if ordered:
         return ordered
-    return sorted(holes, key=lambda hole: (hole.row, hole.col, hole.id))
+    return sorted(holes, key=lambda hole: (logical_row(hole.row), hole.col, hole.id))
 
 
 def apply_electronic_timing(
@@ -283,6 +348,7 @@ def apply_electronic_timing(
     gradient_from = float(params.get("gradient_from_ms", 0.0) or 0.0)
     gradient_to = float(params.get("gradient_to_ms", interval_ms * 10.0) or 0.0)
 
+    wall_coords = _block_row_coordinates(eligible, interval_ms, params) if mode == "row" else {}
     times = _electronic_times(
         eligible,
         mode,
@@ -293,6 +359,7 @@ def apply_electronic_timing(
         azimuth_deg=azimuth_deg,
         gradient_from_ms=gradient_from,
         gradient_to_ms=gradient_to,
+        wall_coords=wall_coords,
     )
 
     min_time = min(times.values()) if times else 0.0
@@ -360,9 +427,9 @@ def _electronic_times(
     azimuth_deg: float,
     gradient_from_ms: float,
     gradient_to_ms: float,
+    wall_coords: dict[str, float] | None = None,
 ) -> dict[str, float]:
     min_col, max_col, center_col = _grid_extents(holes)
-    min_row = min(hole.row for hole in holes)
     times: dict[str, float] = {}
 
     if mode == "selection":
@@ -402,9 +469,9 @@ def _electronic_times(
     if mode == "expression":
         if not expression.strip():
             raise TimingExprError("Задайте выражение тайминга.")
-        for index, hole in enumerate(sorted(holes, key=lambda item: (item.row, item.col, item.id))):
+        for index, hole in enumerate(sorted(holes, key=lambda item: (logical_row(item.row), item.col, item.id))):
             variables = {
-                "row": float(hole.row),
+                "row": float(logical_row(hole.row)),
                 "col": float(hole.col),
                 "x": float(hole.collar.x),
                 "y": float(hole.collar.y),
@@ -424,13 +491,21 @@ def _electronic_times(
         "v_pattern": "diagonal_v",
         "diagonal": "echelon",
     }.get(mode, "row")
+    if scheme == "row":
+        coords = {hole.id: float(logical_row(hole.row)) for hole in holes}
+        coords.update(wall_coords or {})
+        origin = min(coords.values())
+        for hole in holes:
+            times[hole.id] = base_ms + (coords[hole.id] - origin) * interval_ms
+        return times
+    # Отсчёт — ноль, но не выше самой ранней волны: ряды впереди дают отрицательные
+    # координаты, и без этого первая скважина стартовала бы до базового времени.
+    waves = _anchor_manual(
+        holes, {hole.id: _wave_coordinate(hole, scheme, center_col, min_col, max_col) for hole in holes}
+    )
+    origin = min(0.0, min(waves.values()))
     for hole in holes:
-        wave = _wave_coordinate(hole, scheme, center_col, min_col, max_col)
-        origin = min_row if scheme == "row" else 0.0
-        if scheme == "row":
-            times[hole.id] = base_ms + (hole.row - min_row) * interval_ms
-        else:
-            times[hole.id] = base_ms + (wave - origin) * interval_ms
+        times[hole.id] = base_ms + (waves[hole.id] - origin) * interval_ms
     return times
 
 

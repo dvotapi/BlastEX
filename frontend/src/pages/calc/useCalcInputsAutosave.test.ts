@@ -23,6 +23,7 @@ function sheet(overrides: Partial<SheetState> = {}): SheetState {
     explosiveKey: "ПЭВВ ЭВЕРСИН Э-100",
     lumpSizeMm: 500,
     benchHeightM: 12,
+    faceAngleFromVerticalDeg: 15,
     overdrillM: 1.5,
     oversizeCoeff: 1.08,
     spacingCoeff: 1.3,

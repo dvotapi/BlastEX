@@ -24,6 +24,9 @@ export type CalcInputs = {
   explosive_key: string;
   lump_size_mm: number;
   bench_height_m: number;
+  /** Угол откоса уступа от вертикали, ° (умолчание объекта для новых проектов).
+   * Поле появилось позже версии 1; в старых настройках его нет — тогда 15°. */
+  face_angle_from_vertical_deg?: number;
   overdrill_m: number;
   oversize_coeff: number;
   spacing_coeff: number;
@@ -47,6 +50,7 @@ export type SheetState = {
   explosiveKey: string;
   lumpSizeMm: number;
   benchHeightM: number;
+  faceAngleFromVerticalDeg: number;
   overdrillM: number;
   oversizeCoeff: number;
   spacingCoeff: number;
@@ -86,6 +90,7 @@ export const DETONATOR_DELAY_DEFAULT = 500;
 const BOUNDS = {
   lumpSizeMm: { min: 100, max: 1200, fallback: 400 },
   benchHeightM: { min: 5, max: 25, fallback: 10 },
+  faceAngleFromVerticalDeg: { min: 0, max: 60, fallback: 15 },
   overdrillM: { min: 0, max: 3, fallback: 1 },
   oversizeCoeff: { min: 1, max: 1.15, fallback: 1.05 },
   spacingCoeff: { min: 1, max: 2, fallback: 1.25 },
@@ -93,6 +98,11 @@ const BOUNDS = {
   blockVolumeM3: { min: 1000, max: Number.POSITIVE_INFINITY, fallback: 30_000 },
   additionalHolesPct: { min: 0, max: 20, fallback: 3.0 },
 } as const;
+
+/** Угол откоса от вертикали, °: в старых сохранённых настройках поля нет — 15°. */
+export function faceAngleFromVertical(inputs: Partial<CalcInputs>): number {
+  return clamped(inputs.face_angle_from_vertical_deg, BOUNDS.faceAngleFromVerticalDeg);
+}
 
 /** Недозаряд не может быть глубже скважины: тот же предел, что у ползунка
  * панели (`depthM` — высота уступа с перебуром). */
@@ -125,6 +135,7 @@ export function defaultCalcSheet(
     explosiveKey: defaults.explosiveKey,
     lumpSizeMm: BOUNDS.lumpSizeMm.fallback,
     benchHeightM,
+    faceAngleFromVerticalDeg: BOUNDS.faceAngleFromVerticalDeg.fallback,
     overdrillM,
     oversizeCoeff: BOUNDS.oversizeCoeff.fallback,
     spacingCoeff: BOUNDS.spacingCoeff.fallback,
@@ -149,6 +160,7 @@ export function collectCalcInputs(sheet: SheetState): CalcInputs {
     explosive_key: sheet.explosiveKey,
     lump_size_mm: sheet.lumpSizeMm,
     bench_height_m: sheet.benchHeightM,
+    face_angle_from_vertical_deg: sheet.faceAngleFromVerticalDeg,
     overdrill_m: sheet.overdrillM,
     oversize_coeff: sheet.oversizeCoeff,
     spacing_coeff: sheet.spacingCoeff,
@@ -249,6 +261,7 @@ export function applyCalcInputs(raw: unknown, catalogs: CalcInputsCatalogs): She
     explosiveKey: fromCatalog(raw.explosive_key, catalogs.explosiveKeys, ""),
     lumpSizeMm: clamped(raw.lump_size_mm, BOUNDS.lumpSizeMm),
     benchHeightM,
+    faceAngleFromVerticalDeg: faceAngleFromVertical(raw as Partial<CalcInputs>),
     overdrillM,
     oversizeCoeff: clamped(raw.oversize_coeff, BOUNDS.oversizeCoeff),
     spacingCoeff: clamped(raw.spacing_coeff, BOUNDS.spacingCoeff),

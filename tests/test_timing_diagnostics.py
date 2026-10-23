@@ -10,6 +10,7 @@ from design.models import (
     DetonatingCord,
     DownholeConnector,
     ElectronicChannel,
+    logical_row,
     HoleLoad,
     InitiationNetwork,
     Point3,
@@ -155,7 +156,9 @@ class TimingDiagnosticTests(unittest.TestCase):
             {"timing_expression": "interval * row + col", "interval_ms": 10.0},
         )
         sample = holes[0]
-        self.assertAlmostEqual(expr_net.electronic_times_ms[sample.id], 10.0 * sample.row + sample.col)
+        self.assertAlmostEqual(
+            expr_net.electronic_times_ms[sample.id], 10.0 * logical_row(sample.row) + sample.col
+        )
 
         v_net = apply_electronic_timing(holes, "v_pattern", {"interval_ms": 10.0})
         diag_net = apply_electronic_timing(holes, "diagonal", {"interval_ms": 10.0})

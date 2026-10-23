@@ -135,6 +135,51 @@ describe("TiePanel trunk_chains", () => {
     expect(screen.getByText("Назначить электронный тайминг")).toBeInTheDocument();
   });
 
+  it("sends the downhole delay of detcord and electronic to the server params", () => {
+    for (const system of ["detcord", "electronic"] as const) {
+      const onParamsChange = vi.fn();
+      renderPanel({ scheme: "trunk_chains", params: { ...DEFAULT_TIE_PARAMS, system }, onParamsChange });
+      const field = screen.getByLabelText("Внутрискважинное замедление, мс");
+      expect(field).not.toBeDisabled();
+      expect(field).toHaveValue(500);
+      fireEvent.change(field, { target: { value: "300" } });
+      expect(onParamsChange).toHaveBeenCalledWith({ downhole_delay_ms: 300 });
+      cleanup();
+    }
+  });
+
+  it("snaps trunk and chain steps to the new system's nominals on system change", () => {
+    const onParamsChange = vi.fn();
+    renderPanel({ scheme: "trunk_chains", params: { ...DEFAULT_TIE_PARAMS, trunk_ms: 17, chain_ms: 67 }, onParamsChange });
+    fireEvent.change(screen.getByLabelText("Система инициирования"), { target: { value: "detcord" } });
+    expect(onParamsChange).toHaveBeenCalledWith({ system: "detcord", trunk_ms: 20, chain_ms: 42 });
+    cleanup();
+    const back = vi.fn();
+    renderPanel({ scheme: "trunk_chains", params: { ...DEFAULT_TIE_PARAMS, system: "detcord", trunk_ms: 10, chain_ms: 35 }, onParamsChange: back });
+    fireEvent.change(screen.getByLabelText("Система инициирования"), { target: { value: "nonel" } });
+    expect(back).toHaveBeenCalledWith({ system: "nonel", trunk_ms: 17, chain_ms: 42 });
+  });
+
+  it("keeps any step when switching to the electronic system", () => {
+    const onParamsChange = vi.fn();
+    renderPanel({ scheme: "trunk_chains", params: { ...DEFAULT_TIE_PARAMS, system: "detcord", trunk_ms: 35, chain_ms: 10 }, onParamsChange });
+    fireEvent.change(screen.getByLabelText("Система инициирования"), { target: { value: "electronic" } });
+    expect(onParamsChange).toHaveBeenCalledWith({ system: "electronic", trunk_ms: 35, chain_ms: 10 });
+  });
+
+  it("offers number fields instead of nominal lists for the electronic system", () => {
+    const onParamsChange = vi.fn();
+    renderPanel({ scheme: "trunk_chains", params: { ...DEFAULT_TIE_PARAMS, system: "electronic", trunk_ms: 30 }, onParamsChange });
+    const trunk = screen.getByLabelText("Магистраль, мс");
+    expect(trunk.tagName).toBe("INPUT");
+    expect(trunk).toHaveAttribute("type", "number");
+    expect(trunk).toHaveAttribute("min", "1");
+    expect(trunk).toHaveValue(30);
+    expect(screen.getByLabelText("Цепочки, мс").tagName).toBe("INPUT");
+    fireEvent.change(screen.getByLabelText("Цепочки, мс"), { target: { value: "50" } });
+    expect(onParamsChange).toHaveBeenCalledWith({ chain_ms: 50 });
+  });
+
   it("offers detcord relay steps for detcord", () => {
     renderPanel({ scheme: "trunk_chains", params: { ...DEFAULT_TIE_PARAMS, system: "detcord" } });
     const options = Array.from((screen.getByLabelText("Магистраль, мс") as HTMLSelectElement).options).map((o) => o.value);

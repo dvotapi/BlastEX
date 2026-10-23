@@ -106,6 +106,7 @@ import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
+import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
 import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
@@ -305,7 +306,9 @@ export function DesignPage({
 
   const [tieScheme, setTieScheme] = useState<SchemeType>("row");
   const [tieParams, setTieParams] = useState<TieParams>(DEFAULT_TIE_PARAMS);
-  const [tieWarnings, setTieWarnings] = useState<string[]>([]);
+  // Предупреждения построения — вместе с сетью, для которой получены (tieWarnings.ts).
+  const [tieWarnings, setTieWarnings] = useState<StoredTieWarnings | null>(null);
+  const visibleTieWarnings = useMemo(() => tieWarningsFor(tieWarnings, document.network), [tieWarnings, document.network]);
   const [tieBusy, setTieBusy] = useState(false);
   const [pendingTieFromId, setPendingTieFromId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
@@ -1096,14 +1099,14 @@ export function DesignPage({
     }
     setTieBusy(true);
     setError("");
-    setTieWarnings([]);
+    setTieWarnings(null);
     try {
       const result = await api.design.tie(document.holes, tieScheme, {
         ...tieParams,
         selected_hole_ids: Array.from(selected),
       });
       dispatch({ type: "SET_NETWORK", network: result.network });
-      setTieWarnings(result.warnings ?? []);
+      setTieWarnings(withTieWarnings(result.network, result.warnings ?? []));
       setPendingTieFromId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось построить схему коммутации.");
@@ -2562,7 +2565,7 @@ export function DesignPage({
     syncDesignParams(emptyDesign());
     setPendingFit(true);
     setTieParams(DEFAULT_TIE_PARAMS);
-    setTieWarnings([]);
+    setTieWarnings(null);
     setBlockVolumeM3(null);
     setSelected(new Set());
     setSelectedRow(null);
@@ -2928,10 +2931,10 @@ export function DesignPage({
                 network={document.network}
                 selectedCount={selected.size}
                 pendingFromId={pendingTieFromId}
-                warnings={tieWarnings}
+                warnings={visibleTieWarnings}
                 onSchemeChange={(next) => {
                   setTieScheme(next);
-                  setTieWarnings([]);
+                  setTieWarnings(null);
                 }}
                 onParamsChange={(patch) => setTieParams((prev) => ({ ...prev, ...patch }))}
                 onGenerate={generateTie}

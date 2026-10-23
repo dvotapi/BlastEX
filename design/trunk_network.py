@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from design.models import (
     Connector,
@@ -88,9 +89,22 @@ _OFFSET_TIE_M = 1e-6
 # Наименьшая ступень электронной системы, мс.
 _ELECTRONIC_MIN_STEP_MS = 1.0
 
-DOWNHOLE_LATE_WARNING = (
-    "Фронт инициирования отстаёт: поверхностная сеть не короче 1000 мс — возможен подбой."
-)
+# «Горящий фронт»: к взрыву скважины импульс должен пройти поверхностные трубки
+# всех скважин в этом радиусе от неё (по устьям в плане), м. Дальние трубки
+# могут догореть и после взрыва — разлёт их не достаёт (решение 23.10.2026).
+BURNING_FRONT_RADIUS_M = 30.0
+
+
+def downhole_late_warning(radius_m: float) -> str:
+    """Предупреждение «фронт отстаёт» с радиусом критерия в тексте."""
+    radius = f"{radius_m:g}".replace(".", ",")
+    return (
+        f"Фронт инициирования отстаёт: в радиусе {radius} м импульс не успевает "
+        "до взрыва скважины — возможен подбой."
+    )
+
+
+DOWNHOLE_LATE_WARNING = downhole_late_warning(BURNING_FRONT_RADIUS_M)
 WALLS_AFTER_GRID_WARNING = (
     "Стенки (контур, пресплит) в этой схеме срабатывают после сетки — "
     "опережающий пресплит постройте отдельно."
@@ -496,13 +510,44 @@ def _times_from_starters(starters: list[str], ties: list[tuple[str, str, float]]
     return times
 
 
-def pick_downhole_ms(max_surface_ms: float) -> tuple[float, list[str]]:
-    """Внутрискважинное замедление блока: наименьшее из НСИ, строго большее
-    наибольшего поверхностного времени сети; иначе 1000 мс и предупреждение."""
+def local_front_lag_ms(holes: list[Hole], surface_ms: dict[str, float], radius_m: float) -> float:
+    """Требуемый запас L: наибольшая разница поверхностных времён двух скважин,
+    устья которых в плане не дальше radius_m друг от друга (пар нет — 0)."""
+    timed = [h for h in holes if h.id in surface_ms]
+    if len(timed) < 2:
+        return 0.0
+    xy = np.array([(h.collar.x, h.collar.y) for h in timed], dtype=float)
+    times = np.array([surface_ms[h.id] for h in timed], dtype=float)
+    # Пары — массивом индексов, без множества кортежей: блок до ~10 тыс. скважин.
+    pairs = cKDTree(xy).query_pairs(r=radius_m * (1 + 1e-9) + 1e-9, output_type="ndarray")
+    if len(pairs) == 0:
+        return 0.0
+    return float(np.max(np.abs(times[pairs[:, 0]] - times[pairs[:, 1]])))
+
+
+def pick_downhole_ms(
+    holes: list[Hole], surface_ms: dict[str, float], radius_m: float = BURNING_FRONT_RADIUS_M
+) -> tuple[float, list[str]]:
+    """Внутрискважинное замедление блока по местному критерию подбоя.
+
+    Скважина h взрывается в t(h) + D; к этому моменту импульс должен пройти
+    трубки всех скважин j в радиусе R: t(j) < t(h) + D. D — наименьшее из НСИ,
+    строго большее запаса L (`local_front_lag_ms`); иначе 1000 мс и
+    предупреждение."""
+    lag = local_front_lag_ms(holes, surface_ms, radius_m)
     for choice in DOWNHOLE_CHOICES_MS:
-        if choice > max_surface_ms:
+        if choice > lag:
             return choice, []
-    return DOWNHOLE_CHOICES_MS[-1], [DOWNHOLE_LATE_WARNING]
+    return DOWNHOLE_CHOICES_MS[-1], [downhole_late_warning(radius_m)]
+
+
+def _burning_front_radius(params: dict[str, Any]) -> float:
+    """Радиус критерия из параметров (> 0), иначе `BURNING_FRONT_RADIUS_M`."""
+    try:
+        radius = float(params.get("burning_front_m", BURNING_FRONT_RADIUS_M))
+    except (TypeError, ValueError):
+        return BURNING_FRONT_RADIUS_M
+    return radius if math.isfinite(radius) and radius > 0 else BURNING_FRONT_RADIUS_M
 
 
 def build_trunk_chains_network(
@@ -538,7 +583,7 @@ def build_trunk_chains_network(
         warnings.append(WALLS_AFTER_GRID_WARNING)
 
     if system == "nonel":
-        downhole_ms, extra = pick_downhole_ms(max(plan.surface_ms.values(), default=0.0))
+        downhole_ms, extra = pick_downhole_ms(eligible, plan.surface_ms, _burning_front_radius(params))
         warnings.extend(extra)
     else:
         # ДШ и электронная — из поля, как у остальных схем; не задано — умолчание системы.

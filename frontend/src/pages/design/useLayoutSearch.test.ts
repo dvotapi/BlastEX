@@ -124,7 +124,78 @@ describe("useLayoutSearch", () => {
   });
 });
 
+describe("useLayoutSearch: сбои и гонки", () => {
+  it("сбой запроса статуса при running: ошибка видна, опрос продолжается, успех её снимает", async () => {
+    vi.spyOn(api.design, "layoutSearchStatus")
+      .mockResolvedValueOnce(status({ state: "running", done: 1, total: 4 }))
+      .mockRejectedValueOnce(new Error("Сеть недоступна"))
+      .mockResolvedValue(status({ state: "running", done: 2, total: 4 }));
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await flush();
+    await tick(LAYOUT_SEARCH_POLL_MS);
+    expect(result.current.error).toBe("Сеть недоступна");
+    expect(result.current.status?.state).toBe("running");
+    await tick(LAYOUT_SEARCH_POLL_MS);
+    expect(result.current.status?.done).toBe(2);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("поздний ответ опроса до старта не перетирает running от старта", async () => {
+    let resolvePoll: (s: LayoutSearchStatus) => void = () => {};
+    vi.spyOn(api.design, "layoutSearchStatus")
+      .mockImplementationOnce(() => new Promise<LayoutSearchStatus>((r) => { resolvePoll = r; }))
+      .mockResolvedValue(status({ state: "running", done: 1, total: 4 }));
+    vi.spyOn(api.design, "layoutSearchStart").mockResolvedValue(status({ state: "running", total: 4 }));
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await act(async () => { await result.current.start(emptyDesign()); });
+    await act(async () => { resolvePoll(status()); });
+    expect(result.current.status?.state).toBe("running");
+    await tick(LAYOUT_SEARCH_POLL_MS);
+    expect(result.current.status?.done).toBe(1);
+  });
+
+  it("старт без отпечатка не шлёт запрос и даёт ошибку", async () => {
+    vi.spyOn(api.design, "layoutSearchStatus").mockResolvedValue(status());
+    const startSpy = vi.spyOn(api.design, "layoutSearchStart");
+    const { result } = renderHook(() => useLayoutSearch("d1", null));
+    await flush();
+    await act(async () => { await result.current.start(emptyDesign()); });
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(result.current.error).toBe("Подождите, данные блока ещё готовятся.");
+  });
+
+  it("при размонтировании таймеров не остаётся", async () => {
+    vi.spyOn(api.design, "layoutSearchStatus").mockResolvedValue(status({ state: "running" }));
+    const { unmount } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await flush();
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe("layoutFingerprint", () => {
+  it("ключ undefined равен отсутствующему, 1 равно 1.0", async () => {
+    const a = { contour: { a: 1, b: undefined }, surfaces: {}, domains: [], pattern_params: {}, rock_name: "r" };
+    const b = { contour: { a: 1.0 }, surfaces: {}, domains: [], pattern_params: {}, rock_name: "r" };
+    expect(await layoutFingerprint(a)).toBe(await layoutFingerprint(b));
+  });
+
+  it("без crypto.subtle работает запасной хеш, различающий входы", async () => {
+    vi.stubGlobal("crypto", { subtle: undefined });
+    try {
+      const base = { contour: { a: 1 }, surfaces: {}, domains: [], pattern_params: {}, rock_name: "r" };
+      const fp = await layoutFingerprint(base);
+      expect(fp).toMatch(/^[0-9a-f]+$/);
+      expect(await layoutFingerprint({ ...base })).toBe(fp);
+      expect(await layoutFingerprint({ ...base, contour: { a: 2 } })).not.toBe(fp);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("layoutFingerprint: основной путь", () => {
   const base = { contour: { a: 1, b: [1, 2] }, surfaces: {}, domains: [], pattern_params: { x: 1, y: 2 }, rock_name: "Гранит" };
 
   it("не зависит от порядка ключей", async () => {

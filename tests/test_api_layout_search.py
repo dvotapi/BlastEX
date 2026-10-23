@@ -16,6 +16,8 @@ from api.security import current_team_id, require_internal_access
 from api.services.economics_service import get_economics_repository
 from cost.v2.repository import InMemoryEconomicsRepository
 from design.layout_search.jobs import LayoutSearchJobs, get_layout_search_jobs
+from design.models import BlastDesign
+from design.persistence import design_path, save_design
 from tests.test_layout_search_jobs import _inputs
 
 BASE = "/api/v1/design"
@@ -52,8 +54,12 @@ def _wait(jobs: LayoutSearchJobs, org: str, design_id: str) -> dict:
     raise AssertionError("подбор не закончился вовремя")
 
 
-def _body(design_id: str = "d1", name: str = "Блок 1", rock: str = "", fingerprint: str = "fp1") -> dict:
+def _body(
+    design_id: str = "d1", name: str = "Блок 1", rock: str = "", fingerprint: str = "fp1", save: bool = True
+) -> dict:
     payload = _inputs(name=name, design_id=design_id)
+    if save and design_id not in ("", ".", "..") and not design_path("org-a", design_id).exists():
+        save_design("org-a", BlastDesign.from_dict(payload))
     payload["rock_name"] = rock
     return {"design_id": design_id, "design": payload, "fingerprint": fingerprint}
 
@@ -146,6 +152,27 @@ def test_bad_design_id_is_404(jobs):
     assert client.post(f"{BASE}/layout-search/../stop").status_code in (404, 405)
     assert client.post(f"{BASE}/layout-search/%2E%2E/stop").status_code == 404
     assert client.post(f"{BASE}/layout-search", json=_body("..")).status_code == 404
+
+
+def test_unsaved_design_is_404(jobs):
+    client = _client(jobs)
+    response = client.post(f"{BASE}/layout-search", json=_body(save=False))
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Паспорт не найден — сохраните его перед подбором."
+    assert jobs.status("org-a", "d1")["state"] == "idle"
+
+
+def test_child_gets_only_search_inputs(jobs):
+    # В дочерний процесс уходит лишь то, что нужно перебору, а не весь паспорт.
+    client = _client(jobs)
+    body = _body(rock="Гранит")
+    body["design"]["water_table_z_m"] = 410.0
+    with patch.object(jobs, "start") as start:
+        assert client.post(f"{BASE}/layout-search", json=body).status_code == 202
+    inputs = start.call_args.args[3]
+    assert set(inputs) == {"contour", "surfaces", "domains", "pattern_params", "rock_name", "name", "network"}
+    assert inputs["rock_name"] == "Гранит"
+    assert inputs["pattern_params"] == body["design"]["pattern_params"]
 
 
 def test_unknown_rock_warning_in_result(jobs):

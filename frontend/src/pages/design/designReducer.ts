@@ -76,11 +76,6 @@ export type DesignAction =
       holes: Hole[];
       network: InitiationNetwork;
       pattern_params: Record<string, unknown>;
-      /**
-       * Параметры формы «Сетка» на момент применения: форма живёт вне
-       * документа и могла с ним разойтись — шаг отмены возвращает её значения.
-       */
-      previous_pattern_params?: Record<string, unknown>;
     }
   /** Ответ пересчёта по кровле и подошве: новые устья и забои, вне истории отмены. */
   | { type: "RECOMPUTE_HOLES"; holes: Hole[] }
@@ -634,11 +629,7 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
     return { ...state, past: [...state.past, state.present].slice(-HISTORY_LIMIT), present: next, future: rest };
   }
 
-  // Шаг отмены «Применить» хранит и параметры формы на момент применения.
-  const current =
-    action.type === "APPLY_LAYOUT" && action.previous_pattern_params
-      ? { ...state.present, pattern_params: action.previous_pattern_params }
-      : state.present;
+  const current = state.present;
   const nextPresent = reduceDocument(current, action);
   if (nextPresent === state.present) return state;
 

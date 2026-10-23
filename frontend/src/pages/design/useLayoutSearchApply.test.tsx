@@ -26,6 +26,7 @@ import { layoutFingerprint } from "./useLayoutSearch";
 import { useLayoutSearchApply, type ChargeGrid } from "./useLayoutSearchApply";
 
 afterEach(() => {
+  lockedRef.current = false;
   cleanup();
   vi.restoreAllMocks();
 });
@@ -116,6 +117,9 @@ type Probe = {
   setPatternParams: (params: PatternParams) => void;
 };
 
+/** Проектная часть заблокирована (проверяется и после ожидания геологии). */
+const lockedRef = { current: false };
+
 function Page({ design, probe }: { design: BlastDesign; probe: { current: Probe | null } }) {
   const [state, dispatch] = useReducer(designReducer, design, initDesignState);
   // Форма разошлась с паспортом: шаг a поправлен и не сохранён.
@@ -137,7 +141,7 @@ function Page({ design, probe }: { design: BlastDesign; probe: { current: Probe 
     setTieScheme,
     setTieParams,
     setChargeGrid,
-    rejectLocked: () => false,
+    rejectLocked: () => lockedRef.current,
     setError,
   });
   probe.current = { state, patternParams, tieScheme, tieParams, chargeGrid, error, dispatch, setPatternParams };
@@ -207,8 +211,9 @@ describe("useLayoutSearchApply: «Применить» на странице", (
     act(() => probe.current.dispatch({ type: "UNDO" }));
     expect(probe.current.state.present.holes.map((h) => h.id)).toEqual(["a"]);
     expect(probe.current.state.present.network.starters).toEqual(["a"]);
-    // Форма — как была до применения, с несохранённой правкой шага a.
-    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(FORM_A));
+    // Документ — как был; форма — из документа (по его параметрам построены скважины).
+    expect(probe.current.state.present.pattern_params).toBe(design.pattern_params);
+    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4));
     expect(probe.current.patternParams.front_rows_mode).toBeUndefined();
 
     act(() => probe.current.dispatch({ type: "REDO" }));
@@ -223,7 +228,7 @@ describe("useLayoutSearchApply: «Применить» на странице", (
 
     // Заряды после отмены считаются по сетке прежней раскладки, а не варианта.
     act(() => probe.current.dispatch({ type: "UNDO" }));
-    await waitFor(() => expect(probe.current.chargeGrid).toEqual({ grid_a_m: FORM_A, grid_b_m: 4 }));
+    await waitFor(() => expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4, grid_b_m: 4 }));
 
     act(() => probe.current.dispatch({ type: "REDO" }));
     await waitFor(() => expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4.6, grid_b_m: 3.7 }));
@@ -325,5 +330,67 @@ describe("useLayoutSearchApply: «Применить» на странице", (
     await waitFor(() => expect(probe.current.state.present.holes.map((h) => h.id)).toEqual(["n1", "n2"]));
     expect(probe.current.error).toBe("Сервер недоступен");
     expect(probe.current.state.past).toHaveLength(1);
+  });
+  it("форма не перестроена: отмена возвращает параметры документа, а не формы", async () => {
+    const design = base({ pattern_params: { spacing_a_m: 4.41, burden_b_m: 3.53 } });
+    const probe = await mount(design);
+    // Шаг a в форме поправлен на 5, сетка не перестроена.
+    act(() => probe.current.setPatternParams({ ...probe.current.patternParams, spacing_a_m: 5 }));
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4.6));
+
+    act(() => probe.current.dispatch({ type: "UNDO" }));
+    expect(probe.current.state.present.pattern_params).toBe(design.pattern_params);
+    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4.41));
+    expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4.41, grid_b_m: 3.53 });
+  });
+
+  it("сеть документа не построена шаблоном — отмена форму «Коммутация» не меняет", async () => {
+    const probe = await mount(base({ network: { ...emptyNetwork(), starters: ["a"], timing_params: {} } }));
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.tieScheme).toBe("trunk_chains"));
+
+    act(() => probe.current.dispatch({ type: "UNDO" }));
+    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4));
+    expect(probe.current.tieScheme).toBe("trunk_chains");
+    expect(probe.current.tieParams).toMatchObject({ cut_flank: "right", trunk_ms: 17, chain_ms: 67, system: "nonel" });
+  });
+
+  describe("паспорт изменился, пока готовилась геология", () => {
+    const domain = { id: "dom", name: "Гранит" } as unknown as BlastDesign["domains"][number];
+    const CHANGED = "Паспорт изменился, пока готовилась геология, — примените вариант ещё раз.";
+
+    async function applyWhile(change: (probe: { current: Probe }) => void) {
+      let resolve: (value: unknown) => void = () => {};
+      vi.spyOn(api.design, "interceptGeology").mockReturnValue(new Promise((r) => { resolve = r; }) as never);
+      const probe = await mount(base({ domains: [domain] }));
+      await applyVariant(0);
+      act(() => change(probe));
+      const pastBefore = probe.current.state.past.length;
+      await act(async () => {
+        resolve({ holes: variant().holes });
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      expect(probe.current.state.present.holes.map((h) => h.id)).toEqual(["a"]);
+      expect(probe.current.state.past).toHaveLength(pastBefore);
+      expect(probe.current.error).toBe(CHANGED);
+      expect(probe.current.tieScheme).toBe("row");
+    }
+
+    it("домены", async () => {
+      await applyWhile((probe) => probe.current.dispatch({ type: "SET_DOMAINS", domains: [] }));
+    });
+
+    it("контур", async () => {
+      await applyWhile((probe) =>
+        probe.current.dispatch({ type: "SET_CONTOUR_VERTICES", vertices: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] as never }),
+      );
+    });
+
+    it("паспорт заблокирован", async () => {
+      await applyWhile(() => {
+        lockedRef.current = true;
+      });
+    });
   });
 });

@@ -1,12 +1,14 @@
 // Подбор раскладки на странице «Проектирование» (часть 4в): отпечаток входов,
 // опрос подбора, показ варианта на плане и «Применить».
 //
-// Форма «Сетка» живёт вне документа паспорта, поэтому «Применить» пишет в
-// шаг отмены и её значения на момент применения, а форма берётся из
-// документа, когда применение, отмена или повтор возвращают одни из этих
-// параметров. Вместе с ней из документа берутся сетка для q в правилах
+// Форма «Сетка» живёт вне документа паспорта. Отмена «Применить» возвращает
+// документ как был: его `pattern_params` — те, по которым построены
+// скважины, а не несохранённые правки формы. Когда применение, отмена или
+// повтор возвращают документ с параметрами до или после «Применить», форма
+// «Сетка» берётся из документа. Вместе с ней — сетка для q в правилах
 // зарядов (шаги a × b — от них масса заряда) и форма «Коммутация» (по
-// `timing_params` сети документа).
+// `timing_params` сети документа; сеть, построенная не шаблоном, форму не
+// меняет).
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { api } from "../../api/endpoints";
 import {
@@ -42,13 +44,16 @@ function finite(value: unknown): number | null {
 /**
  * Форма «Коммутация» по сети документа: схема и её параметры — из
  * `timing_params` (их пишут построители сети); чего там нет — умолчание.
+ * Без схемы в `timing_params` (сеть построена не шаблоном) — null: форма
+ * остаётся как есть.
  */
 export function tieFormFromNetwork(
   network: InitiationNetwork,
   prev: TieParams,
-): { scheme: SchemeType; params: TieParams } {
+): { scheme: SchemeType; params: TieParams } | null {
   const timing = network.timing_params ?? {};
-  const scheme = typeof timing.scheme === "string" && SCHEMES.has(timing.scheme) ? (timing.scheme as SchemeType) : "row";
+  if (typeof timing.scheme !== "string" || !SCHEMES.has(timing.scheme)) return null;
+  const scheme = timing.scheme as SchemeType;
   const flank = timing.cut_flank === "left" || timing.cut_flank === "right" ? timing.cut_flank : DEFAULT_TIE_PARAMS.cut_flank;
   return {
     scheme,
@@ -63,6 +68,8 @@ export function tieFormFromNetwork(
     },
   };
 }
+
+export const CHANGED_DURING_GEOLOGY = "Паспорт изменился, пока готовилась геология, — примените вариант ещё раз.";
 
 export interface LayoutSearchApply {
   search: LayoutSearchHook;
@@ -144,10 +151,10 @@ export function useLayoutSearchApply({
   const staleRef = useRef(stale);
   staleRef.current = stale;
 
-  // Параметры, записанные в документ «Применить» (и до него): когда применение,
-  // отмена или повтор возвращают документ с одним из них, форма «Сетка», сетка
-  // для q в правилах зарядов и форма «Коммутация» берутся из документа. Другие
-  // отмены (параметры — тот же объект) правок форм не затирают.
+  // Параметры документа до и после «Применить»: когда применение, отмена или
+  // повтор возвращают документ с одним из них, форма «Сетка», сетка для q в
+  // правилах зарядов и форма «Коммутация» берутся из документа. Другие отмены
+  // (параметры — тот же объект) правок форм не затирают.
   const appliedParams = useRef(new WeakSet<object>());
   const syncedParams = useRef(document.pattern_params);
   useEffect(() => {
@@ -157,12 +164,19 @@ export function useLayoutSearchApply({
     const params: PatternParams = { ...DEFAULT_PATTERN_PARAMS, ...(document.pattern_params as Partial<PatternParams>) };
     setPatternParams(params);
     setChargeGrid({ grid_a_m: params.spacing_a_m, grid_b_m: params.burden_b_m });
+    const tie = tieFormFromNetwork(document.network, DEFAULT_TIE_PARAMS);
+    if (!tie) return;
+    setTieScheme(tie.scheme);
     const network = document.network;
-    setTieScheme(tieFormFromNetwork(network, DEFAULT_TIE_PARAMS).scheme);
-    setTieParams((prev) => tieFormFromNetwork(network, prev).params);
+    setTieParams((prev) => tieFormFromNetwork(network, prev)?.params ?? prev);
   }, [document.pattern_params, document.network, setPatternParams, setChargeGrid, setTieScheme, setTieParams]);
 
   const applying = useRef(false);
+  // Последний документ: «Применить» сверяется с ним после ожидания геологии.
+  const latest = useRef(document);
+  latest.current = document;
+  const rejectLockedRef = useRef(rejectLocked);
+  rejectLockedRef.current = rejectLocked;
 
   async function apply(variant: LayoutSearchVariant) {
     if (applying.current || rejectLocked()) return;
@@ -171,7 +185,7 @@ export function useLayoutSearchApply({
     const resultFingerprint = search.status?.fingerprint ?? null;
     const nextParams: PatternParams = { ...DEFAULT_PATTERN_PARAMS, ...(variant.params as Partial<PatternParams>) };
     const params = definedParams(nextParams);
-    const previous = formParams;
+    const before = document;
     const { domains, water_table_z_m: waterTable } = document;
     try {
       // Геология — до применения, чтобы скважины и их интервалы были одним
@@ -185,9 +199,22 @@ export function useLayoutSearchApply({
           geologyError = reason instanceof Error ? reason.message : "Не удалось пересечь скважины с доменами.";
         }
       }
+      // Пока ждали геологию, паспорт могли сменить, поправить или заблокировать:
+      // вариант лёг бы поверх другого документа.
+      const now = latest.current;
+      if (
+        now.design_id !== before.design_id ||
+        now.contour !== before.contour ||
+        now.domains !== before.domains ||
+        now.lifecycle_status !== before.lifecycle_status ||
+        rejectLockedRef.current()
+      ) {
+        setError(CHANGED_DURING_GEOLOGY);
+        return;
+      }
       appliedParams.current.add(params);
-      appliedParams.current.add(previous);
-      dispatch({ type: "APPLY_LAYOUT", holes, network: variant.network, pattern_params: params, previous_pattern_params: previous });
+      appliedParams.current.add(before.pattern_params);
+      dispatch({ type: "APPLY_LAYOUT", holes, network: variant.network, pattern_params: params });
       setPreviewIndex(null);
       // Формы «Сетка», «Коммутация» и сетка для q — из документа (эффект выше):
       // «Магистраль + цепочки» с флангом варианта.

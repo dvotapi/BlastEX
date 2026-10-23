@@ -348,6 +348,16 @@ def resolve_relief_bounds(
     return min_ms_m, max_ms_m, relief_warnings, rock_used
 
 
+# Поля паспорта, нужные перебору: сеть — ради системы инициирования и стенок.
+LAYOUT_SEARCH_FIELDS = ("contour", "surfaces", "domains", "pattern_params", "rock_name", "name", "network")
+
+
+def _layout_search_inputs(design: BlastDesign) -> dict:
+    """В дочерний процесс подбора уходят только поля, нужные перебору."""
+    data = design.to_dict()
+    return {key: data[key] for key in LAYOUT_SEARCH_FIELDS}
+
+
 def start_layout_search(
     request: LayoutSearchStartRequest,
     *,
@@ -355,7 +365,10 @@ def start_layout_search(
     repository: EconomicsRepository,
     jobs: LayoutSearchJobs,
 ) -> LayoutSearchStatusResponse:
-    """Запускает подбор раскладки блока в фоне; занято — `LayoutSearchBusyError`."""
+    """Запускает подбор раскладки блока в фоне.
+
+    Занято — `LayoutSearchBusyError`; паспорт не сохранён — `DesignNotFoundError` (404).
+    """
     design = BlastDesign.from_dict(request.design.model_dump())
     min_ms_m, max_ms_m, warnings, _ = resolve_relief_bounds(
         design, organization_id=organization_id, repository=repository
@@ -364,7 +377,7 @@ def start_layout_search(
         organization_id,
         request.design_id,
         design.name,
-        design.to_dict(),
+        _layout_search_inputs(design),
         request.fingerprint,
         min_ms_m,
         max_ms_m,

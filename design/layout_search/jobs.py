@@ -10,10 +10,15 @@
 переживает перезапуск сервера. Идущий подбор перезапуск не переживает:
 новый реестр о нём не знает и показывает сохранённый итог или `idle`.
 
+Подбор запускается только для сохранённого паспорта организации; если паспорт
+удалили, пока шёл подбор, итог не пишется (запись в журнал).
+
 Ошибка перебора, выход дочернего процесса без итога и превышение
-`budget_s + grace_s` дают статус `failed`; файл при этом не переписывается,
-прежний итог остаётся. Исключение перебора пользователю не показывается
-(общий `ERROR_TEXT`), подробности — в журнале сервера. Испорченный или
+`budget_s + grace_s` дают статус `failed` без итога и отпечатка: карточки
+прошлого итога не показываются, хотя файл не переписывается. Ошибка
+забывается при следующем запуске или остановке. Исключение перебора
+пользователю не показывается (общий `ERROR_TEXT`), подробности — в журнале
+сервера. Испорченный или
 несовместимый файл итога читается как «нет итога» (`idle`) с записью в журнал.
 """
 from __future__ import annotations
@@ -35,7 +40,7 @@ from design.layout_search.search import search_layout
 from design.layout_search.serialize import result_to_dict
 from design.lifecycle import utc_now_iso
 from design.models import BlastDesign
-from design.persistence import layout_search_path
+from design.persistence import DesignNotFoundError, design_path, layout_search_path
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +56,7 @@ BUSY_OTHER_MESSAGE = "Сервер занят подбором раскладк�
 ERROR_PREFIX = "Подбор раскладки завершился с ошибкой: "
 # Исключение перебора: служебные имена пользователю не показываются.
 ERROR_TEXT = "Подбор раскладки завершился с ошибкой. Подробности — в журнале сервера."
+NOT_SAVED_MESSAGE = "Паспорт не найден — сохраните его перед подбором."
 NO_RESULT_TEXT = "процесс подбора завершился без результата."
 TIMEOUT_TEXT = "подбор не уложился в {seconds:.0f} с и прерван."
 
@@ -201,6 +207,9 @@ class LayoutSearchJobs:
     ) -> None:
         """Запускает подбор блока; при идущем подборе — `LayoutSearchBusyError`."""
         layout_search_path(team_id, design_id)  # проверка design_id до занятия слота
+        # Итог пишется рядом с паспортом организации: без паспорта — не запускаем.
+        if not design_path(team_id, design_id).exists():
+            raise DesignNotFoundError(NOT_SAVED_MESSAGE)
         job = _Job(
             team_id=team_id,
             design_id=design_id,
@@ -265,30 +274,41 @@ class LayoutSearchJobs:
                     "error": None,
                 }
             failed = self._failed.get((team_id, design_id))
+        if failed is not None:
+            # Карточки прошлого итога при ошибке не показываются (файл не тронут);
+            # время — упавшего запуска.
+            error, elapsed_s = failed
+            return {
+                "state": STATE_FAILED,
+                "stage": None,
+                "done": 0,
+                "total": 0,
+                "elapsed_s": elapsed_s,
+                "fingerprint": None,
+                "result": None,
+                "error": error,
+            }
         stored = _read_stored(path)
         result = stored.get("result") if stored else None
-        error: str | None = None
-        if failed is not None:
-            state = STATE_FAILED
-            # Время — упавшего запуска, а не прежнего итога из файла.
-            error, elapsed_s = failed
-        else:
-            state = str(stored.get("state") or STATE_DONE) if stored is not None else STATE_IDLE
-            elapsed_s = result.get("elapsed_s") if isinstance(result, dict) else None
+        state = str(stored.get("state") or STATE_DONE) if stored is not None else STATE_IDLE
         return {
             "state": state,
             "stage": None,
             "done": 0,
             "total": 0,
-            "elapsed_s": elapsed_s,
+            "elapsed_s": result.get("elapsed_s") if isinstance(result, dict) else None,
             "fingerprint": stored.get("fingerprint") if stored else None,
             "result": result,
-            "error": error,
+            "error": None,
         }
 
     def stop(self, team_id: str, design_id: str) -> bool:
-        """Просит идущий подбор блока остановиться; False — подбор этого блока не идёт."""
+        """Просит идущий подбор блока остановиться; False — подбор этого блока не идёт.
+
+        Ошибка прошлого подбора блока при этом забывается.
+        """
         with self._lock:
+            self._failed.pop((team_id, design_id), None)
             job = self._active
             if job is None or job.key != (team_id, design_id):
                 return False
@@ -385,6 +405,11 @@ class LayoutSearchJobs:
             if text not in warnings:
                 warnings.append(text)
         result = {**result, "warnings": warnings}
+        if not design_path(job.team_id, job.design_id).exists():
+            logger.warning(
+                "Паспорт %s удалён во время подбора раскладки — итог не записан", job.design_id
+            )
+            return
         payload = {
             "fingerprint": job.fingerprint,
             # `stopped` — перебор прерван по просьбе пользователя; исчерпанный

@@ -57,23 +57,22 @@ describe("APPLY_LAYOUT", () => {
     expect(undone.past).toHaveLength(0);
   });
 
-  it("параметры формы на момент применения входят в шаг отмены", () => {
-    // Форма «Сетка» могла разойтись с паспортом: отмена возвращает то, что было в форме.
-    const start = initDesignState({ ...emptyDesign(), pattern_params: { spacing_a_m: 4 } });
-    const fromForm = { spacing_a_m: 4.2, burden_b_m: 3.9 };
+  it("отмена возвращает параметры документа, а не формы", () => {
+    // Скважины построены по параметрам документа: отмена возвращает именно их.
+    const docParams = { spacing_a_m: 4 };
+    const start = initDesignState({ ...emptyDesign(), pattern_params: docParams });
 
     const applied = designReducer(start, {
       type: "APPLY_LAYOUT",
       holes: [hole("n1")],
       network: emptyNetwork(),
       pattern_params: VARIANT_PARAMS,
-      previous_pattern_params: fromForm,
     });
     // Сами объекты, а не копии: страница узнаёт по ним, что форму надо обновить.
     expect(applied.present.pattern_params).toBe(VARIANT_PARAMS);
 
     const undone = designReducer(applied, { type: "UNDO" });
-    expect(undone.present.pattern_params).toBe(fromForm);
+    expect(undone.present.pattern_params).toBe(docParams);
     expect(undone.present.holes).toEqual([]);
     expect(designReducer(undone, { type: "REDO" }).present.pattern_params).toBe(VARIANT_PARAMS);
   });

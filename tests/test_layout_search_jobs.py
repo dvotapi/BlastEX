@@ -1,6 +1,7 @@
 """Фоновые задачи подбора раскладки: реестр, остановка, ошибки и хранение."""
 import json
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -48,7 +49,14 @@ def chatty_search(ctx, *, progress=None, **kwargs):
     raise RuntimeError("сторож не сработал")
 
 
+def _save(design_id="d1", name="Блок 1", team=TEAM):
+    """Подбор запускается только для сохранённого паспорта."""
+    if not design_path(team, design_id).exists():
+        save_design(team, BlastDesign.from_dict(_inputs(name=name, design_id=design_id)))
+
+
 def _start(jobs, design_id="d1", name="Блок 1", fingerprint="fp1", inputs=None, warnings=None, team=TEAM):
+    _save(design_id, name, team)
     jobs.start(
         team, design_id, name, inputs or _inputs(name=name, design_id=design_id), fingerprint,
         3.0, None, list(warnings or []),
@@ -157,14 +165,53 @@ class LayoutSearchJobsTests(unittest.TestCase):
         # Пользователю — общий текст: причина (служебные имена) — только в журнал сервера.
         self.assertEqual(status["error"], jobs_module.ERROR_TEXT)
         self.assertNotIn("сломался", status["error"])
-        # Файл не переписан: прежний результат остаётся.
-        self.assertEqual(status["result"], previous["result"])
-        self.assertEqual(status["fingerprint"], "old")
+        # Карточки прошлого итога при ошибке не показываются, файл не переписан.
+        self.assertIsNone(status["result"])
+        self.assertIsNone(status["fingerprint"])
+        stored = json.loads(layout_search_path(TEAM, "d1").read_text(encoding="utf-8"))
+        self.assertEqual(stored, previous)
         # Время — упавшего запуска, а не прежнего итога.
         self.assertIsInstance(status["elapsed_s"], float)
         # Слот свободен: следующий запуск возможен.
         _start(jobs, design_id="d2")
         self.assertEqual(_wait(jobs, "d2")["state"], "failed")
+
+    def test_stop_clears_failed(self):
+        jobs = LayoutSearchJobs(runner="thread", budget_s=20.0, search_fn=failing_search)
+        _start(jobs)
+        self.assertEqual(_wait(jobs)["state"], "failed")
+        self.assertFalse(jobs.stop(TEAM, "d1"))
+        status = jobs.status(TEAM, "d1")
+        self.assertEqual(status["state"], "idle")
+        self.assertIsNone(status["error"])
+
+    def test_start_requires_saved_design(self):
+        with self.assertRaises(DesignNotFoundError) as caught:
+            self.jobs.start(TEAM, "d1", "Блок 1", _inputs(), "fp1", 3.0, None, [])
+        self.assertEqual(str(caught.exception), jobs_module.NOT_SAVED_MESSAGE)
+        self.assertEqual(jobs_module.NOT_SAVED_MESSAGE, "Паспорт не найден — сохраните его перед подбором.")
+        self.assertIsNone(self.jobs._active)
+        # Паспорт другой организации не годится.
+        _save(team="other")
+        with self.assertRaises(DesignNotFoundError):
+            self.jobs.start(TEAM, "d1", "Блок 1", _inputs(), "fp1", 3.0, None, [])
+
+    def test_design_deleted_during_search_not_stored(self):
+        release = threading.Event()
+
+        def waiting_search(ctx, **kwargs):
+            release.wait(30.0)
+            return jobs_module.search_layout(ctx, budget_s=0.0)
+
+        jobs = LayoutSearchJobs(runner="thread", budget_s=20.0, search_fn=waiting_search)
+        _start(jobs)
+        delete_design(TEAM, "d1")
+        with self.assertLogs("design.layout_search.jobs", level="WARNING") as logs:
+            release.set()
+            status = _wait(jobs)
+        self.assertEqual(status["state"], "idle")
+        self.assertFalse(layout_search_path(TEAM, "d1").exists())
+        self.assertTrue(any("удалён" in line for line in logs.output))
 
     def test_child_failure_logged(self):
         jobs = LayoutSearchJobs(runner="thread", budget_s=20.0, search_fn=failing_search)
@@ -243,6 +290,7 @@ class LayoutSearchJobsTests(unittest.TestCase):
     def test_process_runner_done(self):
         jobs = LayoutSearchJobs(runner="process", budget_s=20.0)
         self.addCleanup(self._drain, jobs)
+        _save()
         jobs.start(TEAM, "d1", "Блок 1", _inputs(16.0, 12.0), "fp", 3.0, None, [])
         status = _wait(jobs)
         self.assertEqual(status["state"], "done", status.get("error"))

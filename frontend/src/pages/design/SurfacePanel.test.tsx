@@ -59,3 +59,50 @@ describe("SurfacePanel: система координат и чертежи об
     expect(props.onOpenSources).toHaveBeenCalled();
   });
 });
+
+describe("SurfacePanel: угол откоса", () => {
+  it("показывает угол от вертикали и пишет его от горизонтали", () => {
+    const props = renderPanel(0, { bench: { crest_z_m: 0, toe_z_m: -10, face_angle_deg: 75 } });
+
+    const input = screen.getByLabelText("Угол откоса от вертикали, °");
+    expect(input).toHaveProperty("value", "15");
+    fireEvent.change(input, { target: { value: "20" } });
+    expect(props.onBenchChange).toHaveBeenCalledWith({ face_angle_deg: 70 });
+  });
+
+  it("угол больше 60° от вертикали обрезается до 60° (30° от горизонтали)", () => {
+    const props = renderPanel(0, { bench: { crest_z_m: 0, toe_z_m: -10, face_angle_deg: 75 } });
+
+    fireEvent.change(screen.getByLabelText("Угол откоса от вертикали, °"), { target: { value: "80" } });
+    expect(props.onBenchChange).toHaveBeenCalledWith({ face_angle_deg: 30 });
+  });
+
+  it("пустое поле не меняет угол", () => {
+    const props = renderPanel(0, { bench: { crest_z_m: 0, toe_z_m: -10, face_angle_deg: 75 } });
+
+    fireEvent.change(screen.getByLabelText("Угол откоса от вертикали, °"), { target: { value: "" } });
+    expect(props.onBenchChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("SurfacePanel: порода блока", () => {
+  it("список из справочника с пустым вариантом, выбор уходит наверх", () => {
+    const onRockNameChange = vi.fn();
+    renderPanel(0, { rockName: "", rockNames: ["Гранит", "Известняк"], onRockNameChange });
+
+    const select = screen.getByLabelText(/Порода блока/) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Не выбрана", "Гранит", "Известняк"]);
+    expect(select.value).toBe("");
+    fireEvent.change(select, { target: { value: "Гранит" } });
+    expect(onRockNameChange).toHaveBeenCalledWith("Гранит");
+    fireEvent.change(select, { target: { value: "" } });
+    expect(onRockNameChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("порода паспорта, которой нет в справочнике, остаётся выбранной", () => {
+    renderPanel(0, { rockName: "Базальт", rockNames: ["Гранит"], onRockNameChange: vi.fn() });
+
+    const select = screen.getByLabelText(/Порода блока/) as HTMLSelectElement;
+    expect(select.value).toBe("Базальт");
+  });
+});

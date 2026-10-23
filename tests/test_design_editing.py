@@ -1,3 +1,4 @@
+from dataclasses import replace
 import unittest
 
 from design.editing import (
@@ -58,6 +59,36 @@ class SpacingReportTests(unittest.TestCase):
         self.assertTrue(
             any(f["hole_id"] == "1-02" and f["neighbour_id"] == "1-03" for f in flagged_a)
         )
+
+
+class SpacingReportFrontRowsTests(unittest.TestCase):
+    def test_face_toe_pair_is_not_a_grid_step(self):
+        pair = replace(_hole("1-01T", 0, 0, 0.0, -1.0), kind="face_toe")
+        holes = [_hole("1-01", 0, 0, 0.0, 0.0), pair, _hole("2-01", 1, 0, 0.0, 4.0)]
+        report = spacing_report(holes, expected_a_m=5.0, expected_b_m=4.0)
+        self.assertEqual(report["flagged"], [])
+        self.assertAlmostEqual(report["spacing_b"]["min"], 4.0)
+
+    def test_steps_are_measured_at_floor_points(self):
+        # Устье ряда 1 сдвинуто назад на 2 м, ось наклонена к откосу — у
+        # подошвы шаг рядов b = 4, как у решётки (плавный переход).
+        tilted = Hole(
+            id="1-01", row=0, col=0, collar=Point3(x=0.0, y=2.0, z=0.0),
+            toe=Point3(x=0.0, y=-0.2, z=-11.0), diameter_mm=152.0, subdrill_m=1.0,
+        )
+        holes = [tilted, _hole("2-01", 1, 0, 0.0, 4.0)]
+        report = spacing_report(holes, expected_b_m=4.0, tolerance_m=0.1)
+        self.assertEqual(report["flagged"], [])
+        self.assertAlmostEqual(report["spacing_b"]["min"], 4.0, places=2)
+
+
+class SpacingToleranceTests(unittest.TestCase):
+    def test_step_on_the_tolerance_does_not_flicker(self):
+        # 4 − 3,5 = 0,5 — ровно допуск; ошибка округления не даёт предупреждения.
+        holes = [_hole("1-01", 0, 0, 0.0, 0.0), _hole("1-02", 0, 1, 4.0 + 1e-9, 0.0)]
+        self.assertEqual(spacing_report(holes, expected_a_m=3.5, tolerance_m=0.5)["flagged"], [])
+        holes = [_hole("1-01", 0, 0, 0.0, 0.0), _hole("1-02", 0, 1, 4.01, 0.0)]
+        self.assertEqual(len(spacing_report(holes, expected_a_m=3.5, tolerance_m=0.5)["flagged"]), 1)
 
 
 class GeometryEditTests(unittest.TestCase):

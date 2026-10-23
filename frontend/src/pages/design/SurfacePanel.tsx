@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import { faceAngleFromVerticalInput } from "../../lib/faceAngle";
 import { ruNumber } from "../../lib/format";
 import type { BenchSurface, CoordinateSystem, SurfaceKind, SurfaceModel, SurfaceSet } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
@@ -53,6 +54,9 @@ export function SurfacePanel({
   bench,
   coordinateSystem,
   holeCount,
+  rockName = "",
+  rockNames = [],
+  onRockNameChange,
   onBenchChange,
   onCoordinateSystemChange,
   onImport,
@@ -65,6 +69,11 @@ export function SurfacePanel({
   bench: BenchSurface;
   coordinateSystem: CoordinateSystem;
   holeCount: number;
+  /** Порода блока (имя записи справочника пород); пусто — не выбрана. */
+  rockName?: string;
+  /** Породы опубликованного справочника. */
+  rockNames?: string[];
+  onRockNameChange?: (rockName: string) => void;
   onBenchChange: (patch: Partial<BenchSurface>) => void;
   onCoordinateSystemChange: (patch: Partial<CoordinateSystem>) => void;
   onImport: (kind: SurfaceKind, file: File) => void;
@@ -80,6 +89,9 @@ export function SurfacePanel({
   const hasSurfaces = Boolean(surfaces.top || surfaces.floor || surfaces.face);
   const crsWarning = isCrsUnconfirmed(coordinateSystem, hasSurfaces);
   const useEpsg = coordinateSystem.epsg != null;
+  // Порода паспорта, которой уже нет в справочнике, остаётся в списке, чтобы
+  // выбор не подменял её молча.
+  const rockOptions = rockName && !rockNames.includes(rockName) ? [rockName, ...rockNames] : rockNames;
 
   function onFile(file: File | undefined) {
     if (!file) return;
@@ -130,6 +142,15 @@ export function SurfacePanel({
             }}
           />
         </div>
+
+        <label className="block-rock">
+          Порода блока
+          <select value={rockName} onChange={(e) => onRockNameChange?.(e.target.value)}>
+            <option value="">Не выбрана</option>
+            {rockOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+          <small>По породе берутся границы темпа отбойки.</small>
+        </label>
 
         <Section title="Координаты" summaryRight={crsSummary(coordinateSystem)} defaultOpen={crsWarning}>
           {crsWarning && (
@@ -212,6 +233,21 @@ export function SurfacePanel({
               <input type="number" step="0.1" value={bench.toe_z_m} onChange={(e) => onBenchChange({ toe_z_m: Number(e.target.value) })} />
             </label>
           </div>
+          <label>
+            Угол откоса от вертикали, °
+            <input
+              type="number"
+              min={0}
+              max={60}
+              step="1"
+              value={90 - bench.face_angle_deg}
+              onChange={(e) => {
+                const previous = 90 - bench.face_angle_deg;
+                const next = faceAngleFromVerticalInput(e.target.value, previous);
+                if (next !== previous) onBenchChange({ face_angle_deg: 90 - next });
+              }}
+            />
+          </label>
           <small>Плоскость используется, если съёмка не покрывает точку.</small>
         </Section>
 

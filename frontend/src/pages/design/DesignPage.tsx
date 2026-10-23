@@ -1,7 +1,8 @@
-import { Suspense, lazy, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import { collarZFromSurfaces, surfaceElevation } from "../../lib/surfaces";
+import { FACE_ANGLE_REPLACED_NOTICE, faceAngleReplacedOnImport } from "../../lib/faceAngle";
 import type { BlastVariant, Explosive, User } from "../../types";
 import type { CadSource } from "../../types/cad";
 import {
@@ -105,12 +106,15 @@ import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
-import { designWithParams, hasUnsavedChanges, paramsFromDesign } from "./designParams";
+import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
 import { layersToMapLegend } from "./MapLegend";
 import { PatternPanel } from "./PatternPanel";
+import { LayoutSearchPanel } from "./LayoutSearchPanel";
+import { useLayoutSearchApply, type ChargeGrid } from "./useLayoutSearchApply";
 import { PlanCanvas, type PlanMeasureState } from "./PlanCanvas";
 import { StageInspector } from "./StageInspector";
 import { VisibilityPanel } from "./VisibilityPanel";
@@ -143,6 +147,7 @@ import { PlansPanel } from "./PlansPanel";
 import { SectionView, sectionRowKey } from "./SectionView";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 import { useHoleRecompute } from "./useHoleRecompute";
+import { analyzeResponseUse, isResponseCurrent, mapsInputsKey, shouldRefetchMaps, useStaleAnalysisReset, useStaleMapsRefresh } from "./useStaleAnalysis";
 import { useUndoHotkeys } from "./useUndoHotkeys";
 import { SurfacePanel } from "./SurfacePanel";
 import { TiePanel } from "./TiePanel";
@@ -186,10 +191,16 @@ async function readSurveyFile(file: File): Promise<string> {
 export function DesignPage({
   user,
   incomingVariant,
+  incomingFaceAngleFromVerticalDeg = null,
+  incomingRockName = null,
   onVariantConsumed,
 }: {
   user: User;
   incomingVariant: BlastVariant | null;
+  /** Угол откоса объекта от вертикали, °, из «Расчёта»; нужен только новому проекту. */
+  incomingFaceAngleFromVerticalDeg?: number | null;
+  /** Порода листа «Расчёт» (имя записи справочника); ставится новому проекту и проекту без породы. */
+  incomingRockName?: string | null;
   onVariantConsumed: () => void;
 }) {
   const [state, dispatch] = useReducer(designReducer, emptyDesign(), initDesignState);
@@ -274,6 +285,8 @@ export function DesignPage({
   const [drawingDomain, setDrawingDomain] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [error, setError] = useState("");
+  // Сообщение без ошибки (например, о заменённом угле откоса после «Построить блок»).
+  const [notice, setNotice] = useState("");
 
   const [explosives, setExplosives] = useState<Explosive[]>([]);
   const [explosiveKey, setExplosiveKey] = useState("");
@@ -295,6 +308,9 @@ export function DesignPage({
 
   const [tieScheme, setTieScheme] = useState<SchemeType>("row");
   const [tieParams, setTieParams] = useState<TieParams>(DEFAULT_TIE_PARAMS);
+  // Предупреждения построения — вместе с сетью, для которой получены (tieWarnings.ts).
+  const [tieWarnings, setTieWarnings] = useState<StoredTieWarnings | null>(null);
+  const visibleTieWarnings = useMemo(() => tieWarningsFor(tieWarnings, document.network), [tieWarnings, document.network]);
   const [tieBusy, setTieBusy] = useState(false);
   const [pendingTieFromId, setPendingTieFromId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
@@ -411,6 +427,56 @@ export function DesignPage({
   const [movementBusy, setMovementBusy] = useState(false);
   const [showMovementVectors, setShowMovementVectors] = useState(true);
 
+  // Сброс результата «Рассчитать тайминг» с остановкой анимации: тайминг,
+  // изолинии и темп отбойки относятся к прежним скважинам, породе, a × b или сети.
+  function clearAnalysis() {
+    setAnalysis(null);
+    setPlaying(false);
+    setCurrentMs(0);
+  }
+
+  // Сетка перестроена, скважины сдвинуты, выключены или удалены, сеть
+  // изменена (и отменой/повтором), сменились порода, a, b, контур блока или
+  // вид основной сетки — анализ устарел.
+  const currentAnalysisKey = useStaleAnalysisReset(
+    {
+      holes: document.holes,
+      network: document.network,
+      rockName: document.rock_name,
+      spacingAM: patternParams.spacing_a_m,
+      burdenBM: patternParams.burden_b_m,
+      contour: document.contour,
+      defaultKind: patternParams.default_kind,
+    },
+    clearAnalysis,
+  );
+
+  // Инженерные карты (и пунктир «подошва по углу») посчитаны по контуру,
+  // уступу и скважинам на момент запроса: правка вершин, откосов, отметок или
+  // угла уступа, замена контура с чертежа, сдвиг или пересчёт скважин делают
+  // их устаревшими. Старые карты убираем сразу; если их смотрели (загружены
+  // или выбрана метрика карт) — перезапрашиваем по текущему документу, иначе
+  // после «Построить сетку» автопересчёт глубин стирал бы карту.
+  const mapsKey = useMemo(() => mapsInputsKey(document.holes, document.contour), [document.holes, document.contour]);
+  const refreshMapsRef = useRef<() => void>(() => {});
+  // Запрос карт в полёте: его ответ будет отброшен сменой ключа, поэтому он
+  // тоже повод перезапросить (автопересчёт глубин может опередить карты).
+  const mapsInFlightRef = useRef(0);
+  // Ключ, для которого стоят карты (null — карт нет): таймер перезапроса не
+  // шлёт лишний запрос, если свежие карты уже пришли.
+  const mapsLoadedKeyRef = useRef<string | null>(null);
+  const currentMapsKey = useStaleMapsRefresh(mapsKey, {
+    active: () => shouldRefetchMaps(maps !== null || mapsInFlightRef.current > 0, mapMetric !== "" && mapMetric in MAP_METRIC_LABELS),
+    clear: () => {
+      mapsLoadedKeyRef.current = null;
+      setMaps(null);
+    },
+    refetch: () => {
+      if (maps !== null && mapsLoadedKeyRef.current !== null && isResponseCurrent(mapsLoadedKeyRef.current, currentMapsKey())) return;
+      refreshMapsRef.current();
+    },
+  });
+
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
     return values.length ? Math.max(...values) : 0;
@@ -441,6 +507,16 @@ export function DesignPage({
 
   useEffect(() => { refreshPlans(); refreshDatasets(); refreshCalibrations(); refreshOutcomes(); refreshLearning(); refreshDriftAlerts(); refreshSpatial(); }, []);
   useEffect(() => { refreshRegistry(); }, [registryFamily]);
+
+  // Породы справочника для выбора породы блока (границы темпа отбойки).
+  const [rockNames, setRockNames] = useState<string[]>([]);
+  useEffect(() => {
+    api.rocks()
+      .then((data) => setRockNames(data.items.map((rock) => rock.name)))
+      .catch(() => {
+        // Без справочника пород проект строится; выбор породы останется пустым.
+      });
+  }, []);
 
   useEffect(() => {
     api.explosives()
@@ -511,6 +587,10 @@ export function DesignPage({
       burden_b_m: incomingVariant.grid_b_m,
       diameter_mm: incomingVariant.crown_mm,
     }));
+    const benchPatch = benchPatchFromObjectAngle(document, incomingFaceAngleFromVerticalDeg);
+    if (benchPatch) dispatch({ type: "SET_BENCH", bench: benchPatch });
+    const rockName = rockNameFromTransfer(document, incomingRockName);
+    if (rockName !== null) dispatch({ type: "SET_ROCK_NAME", rock_name: rockName });
     onVariantConsumed();
   }, [incomingVariant]);
 
@@ -641,6 +721,37 @@ export function DesignPage({
     }
   }
 
+  const setChargeGrid = useCallback(
+    (grid: ChargeGrid) => setChargeRules((prev) => ({ ...prev, ...grid })),
+    [],
+  );
+
+  // Подбор раскладки (часть 4в): опрос, показ варианта и «Применить».
+  const layout = useLayoutSearchApply({
+    state,
+    dispatch,
+    patternParams,
+    setPatternParams,
+    setTieScheme,
+    setTieParams,
+    // Шаги в правилах зарядов — при применении, отмене и повторе (масса заряда по сетке).
+    setChargeGrid,
+    rejectLocked: () => rejectLocked("designed"),
+    setError,
+    onApplied: (variant, holes, params, grid) => {
+      // Как после «Сгенерировать сетку»: сброс результатов.
+      setFragResult(null);
+      setAsDrilledResult(null);
+      setAsChargedResult(null);
+      setAsFiredResult(null);
+      setExecutionResult(null);
+      setBlastResultCompare(null);
+      setSelected(new Set());
+      // Формы страницы ещё прежние: карты — по параметрам и сетке варианта.
+      void refreshMaps({ ...document, holes, network: variant.network }, { patternParams: params, chargeRules: { ...chargeRules, ...grid } });
+    },
+  });
+
   function onContourChange(vertices: Point3[], freeFaces?: number[][], coalesce?: boolean) {
     if (rejectLocked("designed")) return;
     const draped = vertices.map((v) => ({
@@ -709,6 +820,8 @@ export function DesignPage({
     // отметка вычерчивания, а не рельеф.
     const z = crest ?? document.contour.bench.crest_z_m;
     const roof = { ...emptySurfaces(), top: choice.surface };
+    // Угол 90° редуктор заменит углом объекта — сказать об этом явно.
+    setNotice(faceAngleReplacedOnImport(document.contour.bench.face_angle_deg) ? FACE_ANGLE_REPLACED_NOTICE : "");
     dispatch({
       type: "APPLY_CAD_CONTOUR",
       vertices: choice.vertices.map(([x, y]) => ({ x, y, z: collarZFromSurfaces(roof, x, y, z) })),
@@ -738,16 +851,30 @@ export function DesignPage({
     dispatch({ type: "UPDATE_HOLE", id, patch });
   }
 
-  async function refreshMaps(design = document) {
+  refreshMapsRef.current = () => { void refreshMaps(); };
+
+  /** Карты по документу; `params` — формы, если страница их ещё не перерисовала. */
+  async function refreshMaps(design = document, params?: Pick<DesignParams, "patternParams" | "chargeRules">) {
     if (!design.holes.length) {
       setMaps(null);
       return;
     }
+    // Ключ того документа, по которому спрашиваем: после «Построить сетку»
+    // это уже новые скважины, хотя страница ещё не перерисовалась.
+    const startKey = mapsInputsKey(design.holes, design.contour);
+    mapsInFlightRef.current += 1;
     try {
-      const result = await api.design.maps(designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey }));
+      const result = await api.design.maps(
+        designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey, ...params }),
+      );
+      // Контур или скважины поменялись, пока шёл запрос, — ответ устарел.
+      if (!isResponseCurrent(startKey, currentMapsKey())) return;
+      mapsLoadedKeyRef.current = startKey;
       setMaps(result);
     } catch {
-      setMaps(null);
+      if (isResponseCurrent(startKey, currentMapsKey())) setMaps(null);
+    } finally {
+      mapsInFlightRef.current -= 1;
     }
   }
 
@@ -950,7 +1077,6 @@ export function DesignPage({
       },
     });
     setPendingTieFromId(null);
-    setAnalysis(null);
   }
 
   function updateManualTie(tie: SurfaceConnector, delayMs: number) {
@@ -965,7 +1091,6 @@ export function DesignPage({
         connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
       },
     });
-    setAnalysis(null);
   }
 
   function removeManualTie(connectorId: string) {
@@ -980,7 +1105,6 @@ export function DesignPage({
         connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
       },
     });
-    setAnalysis(null);
   }
 
   function toggleStartersFromSelection() {
@@ -1001,7 +1125,6 @@ export function DesignPage({
       type: "SET_NETWORK",
       network: { ...network, starter_items: starterItems, starters: starterItems.map((item) => item.hole_id) },
     });
-    setAnalysis(null);
   }
 
   async function generateTie() {
@@ -1012,15 +1135,15 @@ export function DesignPage({
     }
     setTieBusy(true);
     setError("");
+    setTieWarnings(null);
     try {
-      const result = await api.design.tie(document.holes, tieScheme, {
-        ...tieParams,
-        selected_hole_ids: Array.from(selected),
-      });
+      const result = await api.design.tie(
+        document.holes,
+        tieScheme,
+        tieRequestParams(tieParams, Array.from(selected), patternParams.default_kind),
+      );
       dispatch({ type: "SET_NETWORK", network: result.network });
-      setAnalysis(null);
-      setCurrentMs(0);
-      setPlaying(false);
+      setTieWarnings(withTieWarnings(result.network, result.warnings ?? []));
       setPendingTieFromId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось построить схему коммутации.");
@@ -1045,17 +1168,36 @@ export function DesignPage({
     }
     setAnalyzeBusy(true);
     setError("");
+    const startAnalysisKey = currentAnalysisKey();
+    const startMapsKey = currentMapsKey();
+    const responseUse = () => analyzeResponseUse({
+      startAnalysisKey,
+      currentAnalysisKey: currentAnalysisKey(),
+      startMapsKey,
+      currentMapsKey: currentMapsKey(),
+    });
     try {
       const designForAnalysis = designPayload();
       const result = await api.design.analyze(designForAnalysis, isolineStepMs, micWindowMs, ppv);
+      // Входы поменялись, пока шёл расчёт: анализ уже сброшен, поздний ответ
+      // (и его времена срабатывания) в документ не пишем.
+      const use = responseUse();
+      if (!use.analysis) return;
       setAnalysis(result);
       if (result.firing_events) {
         dispatch({ type: "SET_NETWORK", network: { ...normalizeNetwork(document.network), firing_events: result.firing_events } });
       }
-      if (result.maps) setMaps(result.maps);
+      // Карты — только если не менялась и геометрия подошвы (уступ, глубины);
+      // иначе их перезапросит useStaleMapsRefresh.
+      if (result.maps && use.maps) {
+        mapsLoadedKeyRef.current = startMapsKey;
+        setMaps(result.maps);
+      }
       setCurrentMs(0);
       setPlaying(false);
     } catch (reason) {
+      // Ошибка устаревшего расчёта к текущему документу не относится.
+      if (!responseUse().analysis) return;
       setError(reason instanceof Error ? reason.message : "Не удалось рассчитать тайминг.");
     } finally {
       setAnalyzeBusy(false);
@@ -2460,6 +2602,7 @@ export function DesignPage({
     syncDesignParams(emptyDesign());
     setPendingFit(true);
     setTieParams(DEFAULT_TIE_PARAMS);
+    setTieWarnings(null);
     setBlockVolumeM3(null);
     setSelected(new Set());
     setSelectedRow(null);
@@ -2499,6 +2642,11 @@ export function DesignPage({
   const crsUnconfirmed = isCrsUnconfirmed(document.coordinate_system, hasImportedSurvey);
   const stageStatuses = statusesForDocument(document, { crsUnconfirmed });
   const inspectHole = document.holes.find((h) => h.id === inspectHoleId) ?? null;
+  const inspectSample = inspectHole ? maps?.holes.find((h) => h.hole_id === inspectHole.id) : undefined;
+  const inspectFloorBurden =
+    inspectSample && typeof inspectSample.floor_burden === "number"
+      ? { value: inspectSample.floor_burden, source: inspectSample.floor_burden_source ?? null }
+      : undefined;
   const stageTitle = WORKFLOW_STAGES.find((item) => item.id === workflowStage)?.label ?? "Параметры";
   // Стрелка выброса на плане: если тайминг задан «по направлению», показываем
   // именно его азимут (применённый, иначе настраиваемый); азимут рядов —
@@ -2562,6 +2710,7 @@ export function DesignPage({
     { id: "zoom-selection", label: "Зум к выбору", keywords: ["выбор", "зум"], run: () => setZoomRequest({ kind: "selection", tick: Date.now() }) },
     { id: "review", label: "Проверить проект", keywords: ["проверка", "замечания"], run: () => setViewPreset("review") },
     { id: "isolines", label: "Показать изолинии", keywords: ["изолинии", "тайминг"], run: () => setDesignView((prev) => ({ ...prev, layers: { ...prev.layers, isolines: true } })) },
+    { id: "relief", label: "Показать темп отбойки", keywords: ["темп", "отбойка", "мс/м", "тайминг"], run: () => setDesignView((prev) => ({ ...prev, layers: { ...prev.layers, relief: true } })) },
     { id: "reset-view", label: "Сбросить вид к пресету", keywords: ["сброс", "вид"], run: () => setDesignView((prev) => resetLayersToPreset(prev)) },
     { id: "open-inspector", label: "Открыть карточку скважины", keywords: ["карточка", "скважина"], run: () => {
       const id = selected.size === 1 ? Array.from(selected)[0] : null;
@@ -2610,6 +2759,12 @@ export function DesignPage({
         </div>
       </header>
       {error && <div className="page-error" role="alert">{error}</div>}
+      {notice && (
+        <div className="lifecycle-banner compact" role="status">
+          {notice}{" "}
+          <button type="button" onClick={() => setNotice("")} aria-label="Закрыть сообщение">×</button>
+        </div>
+      )}
       {designedLocked && (
         <div className="lifecycle-banner compact" role="status">
           {recordFrozen
@@ -2749,6 +2904,9 @@ export function DesignPage({
                 bench={document.contour.bench}
                 coordinateSystem={document.coordinate_system}
                 holeCount={document.holes.length}
+                rockName={document.rock_name}
+                rockNames={rockNames}
+                onRockNameChange={(rock_name) => dispatch({ type: "SET_ROCK_NAME", rock_name })}
                 onBenchChange={(bench) => dispatch({ type: "SET_BENCH", bench })}
                 onCoordinateSystemChange={(patch) => dispatch({ type: "SET_COORDINATE_SYSTEM", patch })}
                 onImport={importSurface}
@@ -2788,6 +2946,26 @@ export function DesignPage({
               <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
             </fieldset>
           )}
+          {/* Вне блокировки: показ вариантов и «Остановить» доступны и у закрытого
+              паспорта, запуск и «Применить» панель закрывает сама. */}
+          {workflowStage === "pattern" && (
+            <LayoutSearchPanel
+              designId={document.design_id || null}
+              status={layout.search.status}
+              stale={layout.stale}
+              error={layout.search.error}
+              manualCount={document.holes.filter((hole) => hole.source === "manual").length}
+              locked={designedLocked}
+              previewIndex={layout.previewIndex}
+              onStart={() => {
+                if (rejectLocked("designed")) return;
+                void layout.search.start(designPayload());
+              }}
+              onStop={() => void layout.search.stop()}
+              onPreview={layout.setPreviewIndex}
+              onApply={(variant) => void layout.apply(variant)}
+            />
+          )}
           {workflowStage === "charge" && (
             <fieldset className="workstation-lock" disabled={designedLocked}>
               <ChargePanel
@@ -2810,7 +2988,11 @@ export function DesignPage({
                 network={document.network}
                 selectedCount={selected.size}
                 pendingFromId={pendingTieFromId}
-                onSchemeChange={setTieScheme}
+                warnings={visibleTieWarnings}
+                onSchemeChange={(next) => {
+                  setTieScheme(next);
+                  setTieWarnings(null);
+                }}
                 onParamsChange={(patch) => setTieParams((prev) => ({ ...prev, ...patch }))}
                 onGenerate={generateTie}
                 onUpdateTie={updateManualTie}
@@ -3220,6 +3402,7 @@ export function DesignPage({
               loadsById={loadsById}
               network={designView.layers.network ? document.network : undefined}
               isolines={designView.layers.isolines && showIsolines ? analysis?.isolines : undefined}
+              relief={designView.layers.relief ? analysis?.relief : undefined}
               timesMs={analysis?.times_ms ?? undefined}
               animationMs={mode === "timing" && analysis ? currentMs : undefined}
               pendingTieFromId={mode === "tie" ? pendingTieFromId : null}
@@ -3265,9 +3448,11 @@ export function DesignPage({
               toolRequest={toolRequest}
               onToolRequestHandled={() => setToolRequest(null)}
               toePolylines={document.surfaces.floor?.polylines}
+              angleToePolylines={maps?.angle_toe_lines}
               insertKind={insertKind}
               onInsertKindChange={setInsertKind}
               situation={situationPlan}
+              preview={workflowStage === "pattern" && layout.preview ? { holes: layout.preview.holes, network: layout.preview.network } : null}
             />
           )}
           <VisibilityPanel
@@ -3341,6 +3526,7 @@ export function DesignPage({
               load={loadsById[inspectHole.id]}
               locked={designedLocked}
               flags={recompute.flags[inspectHole.id] ?? []}
+              floorBurden={inspectFloorBurden}
               onClose={() => setInspectHoleId(null)}
               onUpdateHole={onUpdateHole}
               onSetEnabled={setHolesEnabled}

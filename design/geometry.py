@@ -390,18 +390,59 @@ def point_to_segment_distance(p: Point2, a: Point2, b: Point2) -> float:
 
 def distance_to_free_faces(point_xy: Point2, contour: BlockContour) -> float | None:
     """Минимальное расстояние от точки до ближайшего открытого откоса блока."""
+    nearest = _nearest_face_segment(point_xy, contour)
+    return None if nearest is None else nearest[2]
+
+
+def _nearest_face_segment(
+    point_xy: Point2, contour: BlockContour
+) -> tuple[Point2, Point2, float] | None:
+    """Ближайший к точке отрезок свободных поверхностей: (a, b, расстояние)."""
     verts = contour.points_xy
     if not verts or not contour.free_faces:
         return None
-    best: float | None = None
+    best: tuple[Point2, Point2, float] | None = None
     for edge in contour.free_faces:
         for i in range(len(edge) - 1):
             a = verts[edge[i]]
             b = verts[edge[i + 1]]
+            if math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-12:
+                continue  # вырожденный отрезок нормали не даёт
             dist = point_to_segment_distance(point_xy, a, b)
-            if best is None or dist < best:
-                best = dist
+            if best is None or dist < best[2]:
+                best = (a, b, dist)
     return best
+
+
+def face_azimuth_deg(point_xy: Point2, contour: BlockContour) -> float | None:
+    """Азимут «к откосу»: 0° = +Y, по часовой, как у Hole.azimuth_deg.
+
+    Направление перпендикуляра от точки к ближайшему отрезку свободных
+    поверхностей, наружу из блока. Для точки на самом отрезке берётся внешняя
+    нормаль отрезка. Без свободных поверхностей — None.
+    """
+    nearest = _nearest_face_segment(point_xy, contour)
+    if nearest is None:
+        return None
+    a, b, dist = nearest
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dy)
+    if dist > 1e-9:
+        t = max(0.0, min(1.0, ((point_xy[0] - a[0]) * dx + (point_xy[1] - a[1]) * dy) / (length * length)))
+        vx = a[0] + t * dx - point_xy[0]
+        vy = a[1] + t * dy - point_xy[1]
+        if not point_in_polygon(point_xy, contour.points_xy):
+            # Точка снаружи блока, со стороны откоса: «наружу» — от отрезка к точке.
+            vx, vy = -vx, -vy
+    else:
+        # Точка на отрезке: нормаль, которая уходит из полигона блока.
+        nx, ny = dy / length, -dx / length
+        mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        probe = (mid[0] + nx * 1e-6, mid[1] + ny * 1e-6)
+        if point_in_polygon(probe, contour.points_xy):
+            nx, ny = -nx, -ny
+        vx, vy = nx, ny
+    return math.degrees(math.atan2(vx, vy)) % 360.0
 
 
 def true_burden(hole: Hole, contour: BlockContour) -> float | None:
@@ -425,6 +466,34 @@ def local_basis(row_azimuth_deg: float) -> tuple[Point2, Point2]:
     row_dir = (math.sin(az), math.cos(az))
     advance_dir = (row_dir[1], -row_dir[0])
     return row_dir, advance_dir
+
+
+def crest_azimuth_deg(contour: BlockContour) -> float | None:
+    """Азимут линии бровки в градусах [0, 180): 0° = +Y, по часовой (как у `local_basis`).
+
+    Направление усредняется по длинам отрезков свободных поверхностей: углы
+    удваиваются (линия не имеет «вперёд/назад»), векторы суммируются, угол
+    суммы делится пополам. Без свободных поверхностей — None.
+    """
+    verts = contour.points_xy
+    if not verts or not contour.free_faces:
+        return None
+    sx = sy = 0.0
+    for edge in contour.free_faces:
+        for i in range(len(edge) - 1):
+            if not (0 <= edge[i] < len(verts) and 0 <= edge[i + 1] < len(verts)):
+                continue
+            a, b = verts[edge[i]], verts[edge[i + 1]]
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            length = math.hypot(dx, dy)
+            if length < 1e-12:
+                continue
+            theta = math.atan2(dx, dy)
+            sx += length * math.sin(2.0 * theta)
+            sy += length * math.cos(2.0 * theta)
+    if math.hypot(sx, sy) < 1e-9:
+        return None
+    return (math.degrees(0.5 * math.atan2(sx, sy)) % 180.0) % 180.0
 
 
 def _face_reference_point(contour: BlockContour) -> Point2 | None:

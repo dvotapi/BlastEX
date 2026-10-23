@@ -31,6 +31,22 @@ class NumberByPositionTest(unittest.TestCase):
         self.assertEqual(a.id, "3-01")  # x=10
         self.assertEqual((d.row, d.col), (0, 0))  # fixture: row/col одинаковые — не переназначены
 
+    def test_face_pair_takes_vertical_number_with_t(self):
+        # Пара на 1 м ближе к откосу не образует свой ряд и не сбивает нумерацию.
+        holes = [
+            _hole("v1", x=0.0, y=0.0),
+            _hole("v2", x=0.0, y=4.0),
+            _hole("v1T", x=1.0, y=0.0, kind="face_toe"),
+            _hole("x", x=1.0, y=4.0, kind="face_toe"),  # без вертикальной — номер не меняется
+        ]
+        v1, v2, pair, orphan = number_by_position(holes)
+        self.assertEqual((v1.id, v2.id), ("1-02", "1-01"))
+        self.assertEqual(pair.id, "1-02T")
+        self.assertEqual(orphan.id, "x")
+        # Явная связь: индекс вертикальной.
+        _, _, pair, _ = number_by_position(holes, partners=[None, None, 1, None])
+        self.assertEqual(pair.id, "1-01T")
+
     def test_walls_use_own_letters_and_own_counting(self):
         holes = [
             _hole("g", x=0.0, y=0.0),

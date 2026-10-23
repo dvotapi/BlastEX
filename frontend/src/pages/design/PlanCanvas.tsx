@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ruNumber } from "../../lib/format";
 import {
   Camera,
@@ -21,9 +21,10 @@ import {
   zoomAt,
   angleAzimuth,
 } from "../../lib/geometry2d";
-import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
-import { HOLE_KIND_LABELS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
+import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
+import { HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
+import { RELIEF_BANDS, reliefBand } from "./relief";
 import { healthColor, holeDepthM, type HoleHealthCode, type HoleHealthMap } from "./holeHealth";
 import { DEFAULT_MAP_LAYERS, type MapLayerVisibility } from "./MapLegend";
 import { SituationCanvas } from "./SituationCanvas";
@@ -105,6 +106,7 @@ export function PlanCanvas({
   loadsById,
   network,
   isolines,
+  relief,
   timesMs,
   animationMs,
   pendingTieFromId,
@@ -147,9 +149,11 @@ export function PlanCanvas({
   toolRequest,
   onToolRequestHandled,
   toePolylines,
+  angleToePolylines,
   insertKind,
   onInsertKindChange,
   situation,
+  preview = null,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -172,6 +176,8 @@ export function PlanCanvas({
   loadsById?: Record<string, HoleLoad>;
   network?: InitiationNetwork | null;
   isolines?: Isoline[];
+  /** Темп отбойки по треугольникам между скважинами; задан — слой включён. */
+  relief?: BurdenRelief | null;
   timesMs?: Record<string, number> | null;
   animationMs?: number | null;
   pendingTieFromId?: string | null;
@@ -214,13 +220,23 @@ export function PlanCanvas({
   toolRequest?: { tool: PlanTool; tick: number } | null;
   onToolRequestHandled?: () => void;
   toePolylines?: Point3[][];
+  /** Подошва по углу там, где съёмка нижней бровки — развал (ЛСП считана по ней): [[x, y], …]. */
+  angleToePolylines?: number[][][];
   insertKind?: HoleKind;
   onInsertKindChange?: (kind: HoleKind) => void;
   /** Подложка ситуации карьера (TASK-013, PR 4): показанные версии и скрытые слои. */
   situation?: { shown: SituationShown[]; hidden: Set<string> };
+  /**
+   * Вариант подбора раскладки на показ (часть 4в): устья и связи поверх плана,
+   * полупрозрачно. Не применён — в выборе, подсказках и привязке не участвует.
+   */
+  preview?: { holes: Hole[]; network: InitiationNetwork } | null;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
+  // Своя штриховка у каждого холста: одинаковый id в двух <svg> на странице
+  // ссылался бы на чужой узор. Двоеточия useId в url(#…) не годятся.
+  const reliefHatchId = `relief-fast-hatch-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [drag, setDragState] = useState<DragState>({ kind: "none" });
   const [hover, setHover] = useState<Hover>({ kind: "none" });
   const [cursorWorld, setCursorWorld] = useState<Vec2 | null>(null);
@@ -1272,7 +1288,7 @@ export function PlanCanvas({
             <label className="plan-toggle" title="Тип скважины при добавлении инструментом «Скважина»">
               Тип
               <select value={insertKind} onChange={(e) => onInsertKindChange(e.target.value as HoleKind)}>
-                {Object.entries(HOLE_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {SELECTABLE_HOLE_KINDS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
           )}
@@ -1324,6 +1340,10 @@ export function PlanCanvas({
           <marker id="arrow-movement" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="#8a5a1a" />
           </marker>
+          {/* Штриховка быстрых участков плана (темп ниже нижней границы). */}
+          <pattern id={reliefHatchId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#0C447C" strokeWidth="2" strokeOpacity="0.5" />
+          </pattern>
         </defs>
 
         {showGrid && (
@@ -1341,6 +1361,45 @@ export function PlanCanvas({
 
         <line x1={0} y1={origin.y} x2={viewport.width} y2={origin.y} className="axis-line" />
         <line x1={origin.x} y1={0} x2={origin.x} y2={viewport.height} className="axis-line" />
+
+        {/* Темп отбойки — под изолиниями и скважинами; цвет зоны — по отклонению от медианы. */}
+        {relief?.stats && (
+          <g className="relief-layer">
+            {relief.triangles.map((tri, i) => {
+              const band = reliefBand(tri.relief_ms_m, relief.stats!.median_ms_m);
+              const color = RELIEF_BANDS.find((b) => b.id === band)?.color;
+              const points = tri.points.map((v) => {
+                const p = toScreen({ x: v[0], y: v[1] });
+                return `${p.x},${p.y}`;
+              }).join(" ");
+              return (
+                <polygon key={`relief-${i}`} className="relief-triangle" points={points} style={{ fill: color }}>
+                  <title>{`${ruNumber(tri.relief_ms_m, 1)} мс/м`}</title>
+                </polygon>
+              );
+            })}
+            {/* Быстрее нижней границы — штриховка поверх цвета зоны. */}
+            {relief.triangles.map((tri, i) => {
+              const fast = tri.fast ?? tri.relief_ms_m < relief.stats!.min_bound_ms_m;
+              if (!fast) return null;
+              const points = tri.points.map((v) => {
+                const p = toScreen({ x: v[0], y: v[1] });
+                return `${p.x},${p.y}`;
+              }).join(" ");
+              return <polygon key={`relief-fast-${i}`} className="relief-fast" points={points} fill={`url(#${reliefHatchId})`} />;
+            })}
+            {/* Стыки сходящихся фронтов. */}
+            {(relief.converging ?? []).map((seg, i) => {
+              const a = toScreen({ x: seg[0][0], y: seg[0][1] });
+              const b = toScreen({ x: seg[1][0], y: seg[1][1] });
+              return (
+                <line key={`relief-join-${i}`} className="relief-converging" x1={a.x} y1={a.y} x2={b.x} y2={b.y}>
+                  <title>Стык фронтов</title>
+                </line>
+              );
+            })}
+          </g>
+        )}
 
         {showIsolineLayer && isolines?.map((iso, i) => {
           const passed = animating && iso.time_ms <= animationMs!;
@@ -1403,6 +1462,18 @@ export function PlanCanvas({
               fill="none"
               points={line.map((v) => { const p = toScreen(v); return `${p.x},${p.y}`; }).join(" ")}
             />
+          ) : null
+        ))}
+        {layers.toe && (angleToePolylines ?? []).map((line, lineIndex) => (
+          line.length >= 2 ? (
+            <polyline
+              key={`angle-toe-${lineIndex}`}
+              className="contour-edge toe angle-toe"
+              fill="none"
+              points={line.map(([x, y]) => { const p = toScreen({ x, y }); return `${p.x},${p.y}`; }).join(" ")}
+            >
+              <title>Подошва по углу (съёмка здесь — развал)</title>
+            </polyline>
           ) : null
         ))}
         {contour.vertices.length >= 2 && contour.vertices.map((v, i) => {
@@ -1589,6 +1660,26 @@ export function PlanCanvas({
             </g>
           );
         })}
+
+        {preview && (() => {
+          const byId = new Map(preview.holes.map((h) => [h.id, h]));
+          return (
+            <g className="layout-preview" pointerEvents="none" aria-hidden="true">
+              {networkTies(preview.network).map((c, i) => {
+                const from = byId.get(c.from_hole);
+                const to = byId.get(c.to_hole);
+                if (!from || !to) return null;
+                const a = toScreen({ x: from.collar.x, y: from.collar.y });
+                const b = toScreen({ x: to.collar.x, y: to.collar.y });
+                return <line key={c.id || `pv-conn-${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
+              })}
+              {preview.holes.map((h) => {
+                const p = toScreen({ x: h.collar.x, y: h.collar.y });
+                return <circle key={h.id} cx={p.x} cy={p.y} r={holeMarkerRadiusPx(h.diameter_mm, camera.scale, false)} />;
+              })}
+            </g>
+          );
+        })()}
 
         {measureState && measureState.points.length > 0 && measureState.points.map((pt, i) => {
           const p = toScreen(pt);

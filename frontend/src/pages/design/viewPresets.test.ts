@@ -18,6 +18,15 @@ describe("viewPresets", () => {
     expect(timing.layers.isolines).toBe(true);
   });
 
+  it("timing preset shows burden relief, review hides it", () => {
+    expect(applyViewPreset("timing").layers.relief).toBe(true);
+    expect(applyViewPreset("review").layers.relief).toBe(false);
+    // Слой включён только в «Тайминге», как изолинии.
+    for (const preset of ["survey", "pattern", "charge", "network", "actual", "review"] as const) {
+      expect(applyViewPreset(preset).layers.relief).toBe(false);
+    }
+  });
+
   it("maps workflow stages to default presets", () => {
     expect(stageDefaultPreset("pattern")).toBe("pattern");
     expect(stageDefaultPreset("timing")).toBe("network");

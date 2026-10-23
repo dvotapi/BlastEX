@@ -22,7 +22,7 @@ import {
   angleAzimuth,
 } from "../../lib/geometry2d";
 import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
-import { HOLE_KIND_LABELS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
+import { HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
 import { RELIEF_BANDS, reliefBand } from "./relief";
 import { healthColor, holeDepthM, type HoleHealthCode, type HoleHealthMap } from "./holeHealth";
@@ -153,6 +153,7 @@ export function PlanCanvas({
   insertKind,
   onInsertKindChange,
   situation,
+  preview = null,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -225,6 +226,11 @@ export function PlanCanvas({
   onInsertKindChange?: (kind: HoleKind) => void;
   /** Подложка ситуации карьера (TASK-013, PR 4): показанные версии и скрытые слои. */
   situation?: { shown: SituationShown[]; hidden: Set<string> };
+  /**
+   * Вариант подбора раскладки на показ (часть 4в): устья и связи поверх плана,
+   * полупрозрачно. Не применён — в выборе, подсказках и привязке не участвует.
+   */
+  preview?: { holes: Hole[]; network: InitiationNetwork } | null;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 520 });
@@ -1282,7 +1288,7 @@ export function PlanCanvas({
             <label className="plan-toggle" title="Тип скважины при добавлении инструментом «Скважина»">
               Тип
               <select value={insertKind} onChange={(e) => onInsertKindChange(e.target.value as HoleKind)}>
-                {Object.entries(HOLE_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {SELECTABLE_HOLE_KINDS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
           )}
@@ -1654,6 +1660,26 @@ export function PlanCanvas({
             </g>
           );
         })}
+
+        {preview && (() => {
+          const byId = new Map(preview.holes.map((h) => [h.id, h]));
+          return (
+            <g className="layout-preview" pointerEvents="none" aria-hidden="true">
+              {networkTies(preview.network).map((c, i) => {
+                const from = byId.get(c.from_hole);
+                const to = byId.get(c.to_hole);
+                if (!from || !to) return null;
+                const a = toScreen({ x: from.collar.x, y: from.collar.y });
+                const b = toScreen({ x: to.collar.x, y: to.collar.y });
+                return <line key={c.id || `pv-conn-${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
+              })}
+              {preview.holes.map((h) => {
+                const p = toScreen({ x: h.collar.x, y: h.collar.y });
+                return <circle key={h.id} cx={p.x} cy={p.y} r={holeMarkerRadiusPx(h.diameter_mm, camera.scale, false)} />;
+              })}
+            </g>
+          );
+        })()}
 
         {measureState && measureState.points.length > 0 && measureState.points.map((pt, i) => {
           const p = toScreen(pt);

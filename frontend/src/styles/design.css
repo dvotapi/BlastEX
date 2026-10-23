@@ -234,6 +234,7 @@
 .hole-marker.kind-stab circle { fill:#8b5a2b; }
 .hole-marker.kind-satellite circle { fill:#4a90a4; }
 .hole-marker.kind-infill circle { fill:#1f5d46; }
+.hole-marker.kind-face_toe circle { fill:#3f8f6e; }
 .hole-marker.hovered circle { stroke:#2d7556; stroke-width:2.5; }
 .hole-marker.selected circle { stroke:#173125; stroke-width:2.5; }
 .hole-marker.disabled circle { fill:#c3cdc7; }
@@ -264,6 +265,30 @@
 .geology-card i { width:12px; height:12px; border-radius:3px; flex:0 0 12px; }
 .geology-card b { font-size:12px; display:block; }
 .geology-card small { color:#7b8982; font-size:10px; }
+
+/* Подбор раскладки (часть 4в): ход, пометки, карточки вариантов и показ на плане. */
+.layout-search-progress { display:grid; grid-template-columns:1fr auto; align-items:center; gap:4px 8px; }
+.layout-search-progress progress { grid-column:1 / -1; width:100%; height:8px; accent-color:#2d7556; }
+.layout-search-progress small { color:#7b8982; font-size:10px; }
+.layout-search-progress .secondary-button { grid-column:2; grid-row:2 / span 2; height:24px; padding:0 8px; font-size:11px; }
+.layout-search-state { color:#7b8982; font-size:11px; }
+.layout-search-marks { margin:0; padding-left:16px; font-size:11px; }
+.layout-variant-list { display:grid; gap:6px; }
+.layout-variant-card { display:grid; gap:6px; padding:8px 10px; border:1px solid #d9e2dd; border-radius:9px; background:#fff; text-align:left; }
+.layout-variant-toggle { justify-self:stretch; padding:0; border:0; background:none; color:inherit; font:inherit; font-size:12px; font-weight:var(--font-weight-title); text-align:left; cursor:pointer; }
+.layout-variant-toggle:focus-visible { outline:2px solid #2d7556; outline-offset:2px; }
+.layout-variant-card.active { border-color:#2d7556; background:#edf7f1; }
+.layout-variant-card.rejected { border-color:#e4c4ad; }
+.layout-variant-card ul { margin:2px 0 0; padding-left:16px; font-size:11px; }
+.layout-variant-rows { display:grid; gap:2px; margin:0; font-size:11px; }
+.layout-variant-rows > div { display:flex; justify-content:space-between; gap:8px; }
+.layout-variant-rows dt { color:#7b8982; }
+.layout-variant-rows dd { margin:0; font-variant-numeric:tabular-nums; }
+.layout-variant-actions { display:flex; justify-content:flex-end; gap:6px; }
+.layout-variant-actions .secondary-button { height:24px; padding:0 8px; font-size:11px; }
+.layout-preview { opacity:.45; }
+.layout-preview circle { fill:#3d6ea8; stroke:#fff; stroke-width:1; }
+.layout-preview line { stroke:#3d6ea8; stroke-width:1.5; }
 
 .domain-shape { fill-opacity:.22; stroke:none; }
 .domain-shape.active { fill-opacity:.34; }

@@ -66,6 +66,17 @@ export type DesignAction =
   | { type: "CLEAR_SURFACE"; kind: SurfaceKind }
   | { type: "SET_PATTERN_PARAMS"; params: Partial<PatternParams> }
   | { type: "SET_HOLES"; holes: Hole[] }
+  /**
+   * Вариант подбора раскладки (часть 4в): скважины, сеть «Магистраль +
+   * цепочки» и параметры сетки варианта — одной правкой, один шаг отмены.
+   * Параметры заменяются целиком: ключи прежней схемы первого ряда уходят.
+   */
+  | {
+      type: "APPLY_LAYOUT";
+      holes: Hole[];
+      network: InitiationNetwork;
+      pattern_params: Record<string, unknown>;
+    }
   /** Ответ пересчёта по кровле и подошве: новые устья и забои, вне истории отмены. */
   | { type: "RECOMPUTE_HOLES"; holes: Hole[] }
   | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number }
@@ -333,6 +344,13 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         as_fired_holes: [],
         blast_result: null,
       };
+    case "APPLY_LAYOUT": {
+      // Как новая сетка: заряды и исполнение прежней раскладки сбрасываются.
+      const cleared = reduceDocument(document, { type: "SET_HOLES", holes: action.holes });
+      // Параметры — из действия: по их значению страница узнаёт, что форму
+      // «Сетка» надо взять из документа (применение, отмена, повтор).
+      return { ...cleared, network: normalizeNetwork(action.network), pattern_params: action.pattern_params };
+    }
     case "RECOMPUTE_HOLES": {
       // Только геометрия: устье и забой. Прочие поля скважины (диаметр, вид,
       // ручные флаги) — как в документе; геология старой оси сбрасывается.
@@ -544,6 +562,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "SET_SURFACE",
   "CLEAR_SURFACE",
   "SET_HOLES",
+  "APPLY_LAYOUT",
   "MOVE_HOLES",
   "UPDATE_HOLE",
   "ADD_HOLE",
@@ -610,7 +629,8 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
     return { ...state, past: [...state.past, state.present].slice(-HISTORY_LIMIT), present: next, future: rest };
   }
 
-  const nextPresent = reduceDocument(state.present, action);
+  const current = state.present;
+  const nextPresent = reduceDocument(current, action);
   if (nextPresent === state.present) return state;
 
   if (
@@ -628,7 +648,7 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
 
   return {
     ...state,
-    past: [...state.past, state.present].slice(-HISTORY_LIMIT),
+    past: [...state.past, current].slice(-HISTORY_LIMIT),
     present: nextPresent,
     future: [],
   };

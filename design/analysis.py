@@ -8,14 +8,27 @@ from typing import Any
 
 from collections import Counter
 
+import shapely
+
 from design.editing import spacing_report
 from design.geometry import block_volume, collar_on_roof, ensure_ccw, floor_elevation, point_in_polygon, true_burden
 from design.hole_recompute import SHORT_BENCH_M
-from design.models import HOLE_KINDS, BlastDesign, FiringEvent, Hole, is_explosive_deck_kind
+from design.models import (
+    HOLE_KINDS,
+    BlastDesign,
+    FiringEvent,
+    Hole,
+    in_main_grid,
+    is_explosive_deck_kind,
+)
+from design.pattern import FRONT_ROWS_MODE_TAPER, _front_rows_tilt, front_rows_mode
 from design.timing import resolve_network
-from design.toe_line import floor_burdens
+from design.toe_line import crest_geometry, crest_offset_checked, floor_checks, min_crest_offset_m, min_floor_burden_m
 
 Point2 = tuple[float, float]
+
+# Скважина наклонная, если угол от вертикали больше этого, градусы.
+TILTED_ANGLE_DEG = 0.1
 
 
 def summary(design: BlastDesign) -> dict[str, Any]:
@@ -218,6 +231,60 @@ def timing_isolines(
     return isolines
 
 
+def _number(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value) if value not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+    return number if math.isfinite(number) else default
+
+
+def _taper_layout(design: BlastDesign) -> bool:
+    """Применён ли к сетке плавный переход — так же, как решает `generate_pattern`."""
+    params = design.pattern_params or {}
+    tilt_count = _front_rows_tilt(params)[0] if design.contour.free_faces else 0
+    if tilt_count <= 0 or str(params.get("pattern", "square")) == "staggered":
+        return False
+    return front_rows_mode(params, tilt_count) == FRONT_ROWS_MODE_TAPER
+
+
+def _two_numbers(value: float, limit: float) -> tuple[str, str]:
+    """Два числа предупреждения через запятую: один знак, а если так они совпадают — два (три)."""
+    digits = next((d for d in (1, 2) if f"{value:.{d}f}" != f"{limit:.{d}f}"), 3)
+    return f"{value:.{digits}f}".replace(".", ","), f"{limit:.{digits}f}".replace(".", ",")
+
+
+def collar_crest_warnings(design: BlastDesign, *, force: bool = False) -> list[dict[str, Any]]:
+    """Устья скважин сетки ближе минимального отступа к кромке (верхней бровке).
+
+    Проверяется только когда отступ или схема первого ряда заданы
+    (`crest_offset_checked`): старые черновики без этих ключей предупреждениями
+    не засыпаются. Часть `validate`; перебор раскладки зовёт её отдельно с
+    `force=True` — там отступ проверяется всегда (без ключа — 1 м).
+    Скважины сетки — `in_main_grid`, как у `floor_checks`: ряды решётки
+    стеночного вида (`default_kind` или строка `row_params` сетки variable)
+    входят, отдельные стеночные ряды — нет.
+    """
+    pattern_params = design.pattern_params or {}
+    checked = force or crest_offset_checked(pattern_params)
+    crest = crest_geometry(design.contour) if checked else None
+    grid = [h for h in design.holes if h.enabled and in_main_grid(h)]
+    if crest is None or not grid:
+        return []
+    min_offset = min_crest_offset_m(pattern_params)
+    crest_d = shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in grid]), crest)
+    label = f"{min_offset:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+    return [
+        {
+            "code": "collar_too_close_to_crest",
+            "hole_id": h.id,
+            "message": f"Устье {h.id} ближе {label} м к кромке уступа.",
+        }
+        for h, distance in zip(grid, crest_d)
+        if distance < min_offset - 1e-6
+    ]
+
+
 def validate(
     design: BlastDesign,
     *,
@@ -284,8 +351,26 @@ def validate(
             }
         )
 
+    burdens, beyond_toe, row_gaps = floor_checks(design)
+    floor_governed = min_floor_burden_m(pattern_params) is not None
+    taper_layout = _taper_layout(design)
+    passport_angle = _number(pattern_params.get("angle_deg"))
     for h in enabled:
         if h.kind not in ("production", "buffer"):
+            continue
+        # ЛНС здесь — от забоя до бровки в плане. У наклонной скважины сетки
+        # у откоса забой уходит к бровке и за неё по построению — меряется не
+        # то. При заданной W пропускаются наклонные скважины основной сетки,
+        # у которых есть ЛСП (её нижняя граница 0,8·W), и ранги плавного
+        # перехода (угол не паспортный; их держит разрыв у подошвы). Пары у
+        # откоса (`face_toe`) сюда не входят по виду. Остальные — закрытые
+        # впереди стоящими, вертикальные, стенки — как прежде.
+        if (
+            floor_governed
+            and in_main_grid(h)
+            and h.angle_deg > TILTED_ANGLE_DEG
+            and (h.id in burdens or (taper_layout and abs(h.angle_deg - passport_angle) > TILTED_ANGLE_DEG))
+        ):
             continue
         burden = true_burden(h, design.contour)
         if burden is not None and burden < min_burden_m:
@@ -297,20 +382,56 @@ def validate(
                 }
             )
 
+    # Точка на подошве за нижней бровкой — скважина выходит в откос (любая
+    # скважина сетки, в том числе ручная). ЛСП такой скважины не «в допуске»,
+    # но вместо предупреждения о ЛСП — это.
+    for hole_id in beyond_toe:
+        warnings.append(
+            {
+                "code": "floor_beyond_toe",
+                "hole_id": hole_id,
+                "message": f"Скважина {hole_id} выходит в откос: точка на подошве за нижней бровкой.",
+            }
+        )
+
     # ЛСП первого ряда больше W + 3% — скважина стоит слишком далеко от подошвы.
-    for hole_id, item in floor_burdens(design).items():
-        if item.excess and item.allowed_m is not None:
+    for hole_id, item in burdens.items():
+        angle_note = ", подошва по углу" if item.toe_source == "angle" else ""
+        if item.excess and item.allowed_m is not None and not item.beyond_toe:
+            value, limit = _two_numbers(item.value_m, item.allowed_m)
             warnings.append(
                 {
                     "code": "floor_burden_excess",
                     "hole_id": hole_id,
-                    "message": (
-                        f"ЛСП {item.value_m:.1f}".replace(".", ",")
-                        + f" м больше допустимого {item.allowed_m:.1f}".replace(".", ",")
-                        + (" м (W + 3%, подошва по углу)." if item.toe_source == "angle" else " м (W + 3%).")
-                    ),
+                    "message": f"ЛСП {value} м больше допустимого {limit} м (W + 3%{angle_note}).",
                 }
             )
+        if item.short and item.min_m is not None:
+            value, limit = _two_numbers(item.value_m, item.min_m)
+            warnings.append(
+                {
+                    "code": "floor_burden_short",
+                    "hole_id": hole_id,
+                    "message": f"ЛСП {value} м меньше допустимого {limit} м (0,8·W{angle_note}).",
+                }
+            )
+
+    # Разрыв у подошвы между рядами больше b + 3% (например, первый ряд
+    # наклонён, а устья второго не сдвинуты к откосу).
+    for hole_id, gap in row_gaps.items():
+        if gap.excess:
+            value, limit = _two_numbers(gap.value_m, gap.allowed_m)
+            # Допуск — проекция решётки на коридор: «шаг сетки», а не a или b.
+            step = "шаг сетки" if gap.step == "grid" else gap.step
+            warnings.append(
+                {
+                    "code": "floor_row_gap_excess",
+                    "hole_id": hole_id,
+                    "message": f"Между рядами у подошвы {value} м — больше допустимого {limit} м ({step} + 3%).",
+                }
+            )
+
+    warnings.extend(collar_crest_warnings(design))
 
     for load in design.loads:
         hole = holes_by_id.get(load.hole_id)

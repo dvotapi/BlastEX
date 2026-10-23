@@ -46,7 +46,7 @@ __all__ = [
     "build_firing_events",
 ]
 
-SCHEME_TYPES = ("row", "echelon", "diagonal_v", "trapezoid")
+SCHEME_TYPES = ("row", "echelon", "diagonal_v", "trapezoid", "trunk_chains")
 SYSTEM_TYPES = ("nonel", "electronic", "detcord")
 ELECTRONIC_MODES = ELECTRONIC_TIMING_MODES
 
@@ -227,6 +227,11 @@ def build_template_network(
         system = "nonel"
     if scheme not in SCHEME_TYPES:
         scheme = "row"
+    if scheme == "trunk_chains":
+        # Импорт здесь: trunk_network сам импортирует timing.
+        from design.trunk_network import build_trunk_chains_network
+
+        return build_trunk_chains_network(holes, params)[0]
 
     include_contour = bool(params.get("include_contour", False))
     eligible = _eligible_holes(holes, include_contour)

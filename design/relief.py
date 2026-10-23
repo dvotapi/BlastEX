@@ -9,7 +9,7 @@
 В сетку входят скважины семейства сетки (`row_family == "grid"`, в том числе
 дополнительные и ручные) и вид основной сетки (`pattern_params.default_kind`);
 стабилизация и сателлиты — короткие вставки, а не сетка (если это не вид
-основной сетки). Треугольник отбрасывается, если ребро длиннее предела, если
+основной сетки); наклонная у откоса (пара) — тоже не сетка. Треугольник отбрасывается, если ребро длиннее предела, если
 он «щепка» (наименьшая высота меньше доли от шага сетки) или его центр тяжести
 вне контура блока (через вогнутость контура). Шаг и предел ребра берутся по
 фактической раскладке, а не только по a и b из параметров (`relief_limits`).
@@ -30,14 +30,15 @@ import shapely
 from scipy.spatial import Delaunay, QhullError, cKDTree
 from shapely.geometry import Polygon
 
-from design.models import BlastDesign, Hole, row_family
+from design.models import FACE_TOE_KIND, BlastDesign, Hole, row_family
 
 # Предел ребра — тот же, что соседство в timing_diagnostics.
 RELIEF_EDGE_FACTOR = 1.6
-# Виды семейства сетки, которые в сетку темпа не входят: стабилизация и
-# сателлиты ставятся вплотную к основным и дают «щепки». Вид основной сетки
+# Виды семейства сетки, которые в сетку темпа не входят: стабилизация,
+# сателлиты и наклонная у откоса (пара) ставятся вплотную к основным и дают
+# «щепки». Вид основной сетки
 # (`pattern_params.default_kind`) входит всегда.
-RELIEF_EXCLUDED_KINDS = frozenset({"stab", "satellite"})
+RELIEF_EXCLUDED_KINDS = frozenset({"stab", "satellite", FACE_TOE_KIND})
 # Наименьшая высота треугольника — не меньше этой доли от шага сетки s: у
 # «щепки» вдоль края сетки делитель системы мал, и темп выходит огромным.
 RELIEF_MIN_HEIGHT_FACTOR = 0.3
@@ -149,8 +150,10 @@ def _contour_polygon(contour_xy: list[Point2] | None) -> Polygon | None:
 
 
 def is_relief_kind(kind: str, default_kind: str = "") -> bool:
-    """Входит ли вид в сетку темпа: семейство сетки без стабилизации и сателлитов,
-    плюс вид основной сетки."""
+    """Входит ли вид в сетку темпа: семейство сетки без стабилизации, сателлитов и
+    пары у откоса, плюс вид основной сетки (пара — никогда)."""
+    if kind == FACE_TOE_KIND:
+        return False
     if default_kind and kind == default_kind:
         return True
     return row_family(kind) == "grid" and kind not in RELIEF_EXCLUDED_KINDS

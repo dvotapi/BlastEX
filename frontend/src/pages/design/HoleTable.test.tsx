@@ -76,3 +76,27 @@ describe("HoleTable: ручная длина", () => {
     expect(onUpdateHole.mock.calls[0][1].manual).toBeUndefined();
   });
 });
+
+describe("HoleTable: вид «Наклонная у откоса»", () => {
+  function kindOptions(value: Hole) {
+    const { container } = render(
+      <HoleTable
+        holes={[value]}
+        selected={new Set()}
+        onSelectedChange={vi.fn()}
+        onUpdateHole={vi.fn()}
+        onDeleteSelected={vi.fn()}
+        insertKind="production"
+        onInsertKindChange={vi.fn()}
+        onSetEnabled={vi.fn()}
+      />,
+    );
+    const select = container.querySelector<HTMLSelectElement>("tbody select") as HTMLSelectElement;
+    return Array.from(select.options).map((o) => o.value);
+  }
+
+  it("в выборе только у скважины, которая уже наклонная у откоса", () => {
+    expect(kindOptions(hole())).not.toContain("face_toe");
+    expect(kindOptions(hole({ id: "1-01T", kind: "face_toe" }))).toContain("face_toe");
+  });
+});

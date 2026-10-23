@@ -8,13 +8,15 @@
 // «Сетка» берётся из документа. Вместе с ней — сетка для q в правилах
 // зарядов (шаги a × b — от них масса заряда) и форма «Коммутация» (по
 // `timing_params` сети документа; сеть, построенная не шаблоном, форму не
-// меняет). Параметры узнаются по значению, а не по объекту: после «Сохранить»
-// документ приходит с сервера новыми объектами с теми же значениями.
+// меняет). Вариант с теми же параметрами, но другой сетью меняет одну форму
+// «Коммутация». Параметры и сеть узнаются по значению, а не по объекту: после
+// «Сохранить» документ приходит с сервера новыми объектами с теми же значениями.
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { api } from "../../api/endpoints";
 import {
   DEFAULT_PATTERN_PARAMS,
   DEFAULT_TIE_PARAMS,
+  normalizeNetwork,
   type Hole,
   type InitiationNetwork,
   type LayoutSearchVariant,
@@ -187,21 +189,32 @@ export function useLayoutSearchApply({
   const staleRef = useRef(stale);
   staleRef.current = stale;
 
-  // Параметры документа до и после «Применить» (по значению): когда
-  // применение, отмена или повтор возвращают документ с одним из них, форма
-  // «Сетка», сетка для q в правилах зарядов и форма «Коммутация» берутся из
-  // документа. Другие отмены и «Сохранить» (параметры по значению те же)
-  // правок форм не затирают.
+  // Параметры и сеть документа до и после «Применить» (по значению): когда
+  // применение, отмена или повтор возвращают документ с одними из них, формы
+  // берутся из документа. Сменились параметры — форма «Сетка», сетка для q в
+  // правилах зарядов и форма «Коммутация»; только сеть (вариант с теми же
+  // параметрами) — одна форма «Коммутация». Другие отмены и «Сохранить»
+  // (значения те же) правок форм не затирают.
   const appliedParams = useRef(new Set<string>());
+  const appliedNetworks = useRef(new Set<string>());
   const syncedParams = useRef(stableJson(document.pattern_params));
+  const syncedNetwork = useRef(stableJson(document.network));
   useEffect(() => {
-    const key = stableJson(document.pattern_params);
-    if (syncedParams.current === key) return;
-    syncedParams.current = key;
-    if (!appliedParams.current.has(key)) return;
-    const params: PatternParams = { ...DEFAULT_PATTERN_PARAMS, ...(document.pattern_params as Partial<PatternParams>) };
-    setPatternParams(params);
-    setChargeGrid({ grid_a_m: params.spacing_a_m, grid_b_m: params.burden_b_m });
+    const paramsKey = stableJson(document.pattern_params);
+    const networkKey = stableJson(document.network);
+    const paramsChanged = syncedParams.current !== paramsKey;
+    const networkChanged = syncedNetwork.current !== networkKey;
+    if (!paramsChanged && !networkChanged) return;
+    syncedParams.current = paramsKey;
+    syncedNetwork.current = networkKey;
+    const paramsApplied = paramsChanged && appliedParams.current.has(paramsKey);
+    const networkApplied = networkChanged && appliedNetworks.current.has(networkKey);
+    if (paramsApplied) {
+      const params: PatternParams = { ...DEFAULT_PATTERN_PARAMS, ...(document.pattern_params as Partial<PatternParams>) };
+      setPatternParams(params);
+      setChargeGrid({ grid_a_m: params.spacing_a_m, grid_b_m: params.burden_b_m });
+    }
+    if (!paramsApplied && !networkApplied) return;
     const tie = tieFormFromNetwork(document.network, DEFAULT_TIE_PARAMS);
     if (!tie) return;
     setTieScheme(tie.scheme);
@@ -250,6 +263,9 @@ export function useLayoutSearchApply({
       appliedParams.current.add(stableJson(params));
       // Параметры документа, на который ложится шаг отмены.
       appliedParams.current.add(stableJson(now.pattern_params));
+      // Сеть — так же: варианта (как её запишет редьюсер) и прежняя.
+      appliedNetworks.current.add(stableJson(normalizeNetwork(variant.network)));
+      appliedNetworks.current.add(stableJson(now.network));
       dispatch({ type: "APPLY_LAYOUT", holes, network: variant.network, pattern_params: params });
       setPreviewIndex(null);
       // Формы «Сетка», «Коммутация» и сетка для q — из документа (эффект выше):

@@ -277,6 +277,40 @@ describe("useLayoutSearchApply: «Применить» на странице", (
     expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4.6, grid_b_m: 3.7 });
   });
 
+  it("вариант с теми же параметрами и другой сетью: форма «Коммутация» — варианта, отмена — прежняя", async () => {
+    // Параметры документа — как их запишет «Применить» (умолчания без undefined).
+    const sameParams = Object.fromEntries(Object.entries(DEFAULT_PATTERN_PARAMS).filter(([, v]) => v !== undefined));
+    const design = base({ pattern_params: sameParams });
+    const probe = await mount(design, undefined, [variant({ params: { ...DEFAULT_PATTERN_PARAMS }, cut_flank: "left" })]);
+
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.state.present.holes.map((h) => h.id)).toEqual(["n1", "n2"]));
+    expect(probe.current.state.present.pattern_params).toEqual(sameParams);
+    await waitFor(() => expect(probe.current.tieScheme).toBe("trunk_chains"));
+    expect(probe.current.tieParams).toMatchObject({ cut_flank: "left", trunk_ms: 17, chain_ms: 67 });
+    // Форма «Сетка» не менялась: её правка (шаг a) остаётся.
+    expect(probe.current.patternParams.spacing_a_m).toBe(FORM_A);
+
+    act(() => probe.current.dispatch({ type: "UNDO" }));
+    await waitFor(() => expect(probe.current.tieScheme).toBe("row"));
+    expect(probe.current.tieParams).toMatchObject({ interval_ms: 25 });
+    expect(probe.current.patternParams.spacing_a_m).toBe(FORM_A);
+
+    act(() => probe.current.dispatch({ type: "REDO" }));
+    await waitFor(() => expect(probe.current.tieScheme).toBe("trunk_chains"));
+    expect(probe.current.tieParams.cut_flank).toBe("left");
+  });
+
+  it("сеть, не записанная применением, форму «Коммутация» не трогает", async () => {
+    const probe = await mount(base());
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.tieScheme).toBe("trunk_chains"));
+    const network = probe.current.state.present.network;
+    act(() => probe.current.dispatch({ type: "SET_NETWORK", network: { ...network, timing_params: { scheme: "row", interval_ms: 9 } } }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    expect(probe.current.tieScheme).toBe("trunk_chains");
+  });
+
   it("показ снимается; коммутация — «Магистраль + цепочки» с флангом варианта", async () => {
     const probe = await mount(base());
     fireEvent.click(screen.getAllByRole("button", { name: /^Вариант \d/ })[0]);

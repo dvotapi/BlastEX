@@ -2,8 +2,9 @@
 
 Этап 1 — азимут рядов, сдвиги сетки и фланг вруба; этап 2 — схема первого ряда
 у откоса для лучших семян; этап 3 — тонкая подстройка вокруг лучших семян
-(азимут, сдвиги, шаги a и b в пределах ±3 % от базовых). Каждый этап удаляет
-дубли по `Candidate.key()`.
+(азимут, сдвиги, шаги a и b в пределах ±3 % от базовых; у переменной сетки и
+сетки по доменам шаги не перебираются). Каждый этап удаляет дубли по
+`Candidate.key()`.
 """
 from __future__ import annotations
 
@@ -60,6 +61,11 @@ def _dedup(items: list[Candidate]) -> list[Candidate]:
             seen.add(k)
             out.append(item)
     return out
+
+
+def _own_steps(params: dict) -> bool:
+    """Шаги берутся из строк `row_params` или доменов — множители общих a и b не действуют."""
+    return str(params.get("pattern", "square")) in ("variable", "domain_dependent")
 
 
 def _is_square(params: dict) -> bool:
@@ -128,11 +134,15 @@ def stage2(seeds: list[Candidate], base: dict) -> list[Candidate]:
 
 
 def stage3(seeds: list[Candidate], base: dict) -> list[Candidate]:
-    """Этап 3: подстройка вокруг семян — азимут ±1,25°, сдвиги ±a/8 и ±b/8, шаги ×{0,97; 1; 1,03}."""
+    """Этап 3: подстройка вокруг семян — азимут ±1,25°, сдвиги ±a/8 и ±b/8, шаги ×{0,97; 1; 1,03}
+    (у переменной сетки и сетки по доменам шаги не трогаются)."""
     a0, b0 = grid_steps_m(base)
     o0 = min_crest_offset_m(base)
     square = _is_square(base)
-    mults_b = (1.0,) if square else STEP_MULTIPLIERS
+    # Переменная сетка и сетка по доменам: шаги не перебираются (множитель 1).
+    fixed = _own_steps(base)
+    mults_a = (1.0,) if fixed else STEP_MULTIPLIERS
+    mults_b = (1.0,) if square or fixed else STEP_MULTIPLIERS
     out: list[Candidate] = []
     for seed in seeds:
         p = seed.params
@@ -142,13 +152,14 @@ def stage3(seeds: list[Candidate], base: dict) -> list[Candidate]:
         for daz in (-FINE_AZIMUTH_DEG, 0.0, FINE_AZIMUTH_DEG):
             for dsh in (-a0 / 8.0, 0.0, a0 / 8.0):
                 for dof in (-b0 / 8.0, 0.0, b0 / 8.0):
-                    for ma in STEP_MULTIPLIERS:
+                    for ma in mults_a:
                         for mb in mults_b:
                             params = _with_shift(dict(p), sh0 + dsh)
                             params["row_azimuth_deg"] = _azimuth(az0 + daz)
                             params["offset_from_face_m"] = round(max(o0, of0 + dof), 4)
-                            params["spacing_a_m"] = round(a0 * ma, 4)
-                            if not square:
+                            if not fixed:
+                                params["spacing_a_m"] = round(a0 * ma, 4)
+                            if not square and not fixed:
                                 params["burden_b_m"] = round(b0 * mb, 4)
                             out.append(Candidate(params, seed.cut_flank))
     return _dedup(out)

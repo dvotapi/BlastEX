@@ -1,9 +1,10 @@
 """Оценка одного варианта раскладки: сетка, монтаж, отбраковка и показатели.
 
 Порядок: сетка (`generate_pattern` без ручных скважин) → монтаж «Магистраль +
-цепочки» (СИНВ) → паспорт варианта → отбраковка (коды `validate`) и ЛСП вне коридора
-`[0,8·W₀; 1,03·W₀]` за один расчёт подошвы → темп отбойки → окно 8 мс. W₀ — из базового
-паспорта и с перебором b не меняется.
+цепочки» (система и стенки — как в базовой сети) → паспорт варианта → отбраковка
+(коды `validate`) и ЛСП вне коридора `[0,8·W₀; 1,03·W₀]` за один расчёт подошвы →
+темп отбойки → окно 8 мс. W₀ и шаги для разрыва у подошвы — из базового паспорта
+и с перебором a и b не меняются.
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from design.models import BlastDesign, BlastDomain, Hole, InitiationNetwork
 from design.pattern import generate_pattern
 from design.relief import RELIEF_MIN_MS_M, burden_relief
 from design.spatial.surfaces import SurfaceSet
-from design.timing import resolve_times
+from design.timing import SYSTEM_TYPES, resolve_times
 from design.toe_line import (
     FLOOR_BURDEN_MIN_RATIO,
     TOE_BURDEN_TOLERANCE,
@@ -26,6 +27,10 @@ from design.toe_line import (
 )
 from design.trunk_network import build_trunk_chains_network
 
+# Виды стенок: если базовая сеть их монтирует, монтаж варианта тоже их включает.
+WALL_KINDS = frozenset({"contour", "presplit", "trim"})
+# Шаги сетки, которые для проверок подошвы берутся из базы.
+STEP_KEYS = ("spacing_a_m", "burden_b_m")
 # Коды `validate`, отбраковывающие вариант (`reject_codes_and_lsp` выводит их сам).
 REJECT_CODES = ("floor_beyond_toe", "collar_too_close_to_crest", "floor_row_gap_excess")
 # Код отбраковки пустой сетки.
@@ -151,25 +156,59 @@ def reject_codes_and_lsp(design: BlastDesign, w0_m: float | None) -> tuple[list[
     return sorted(codes), _lsp_out(burdens, w0_m)
 
 
-def window_max_holes(times: dict[str, float], window_ms: float = WINDOW_MS) -> int:
-    """Наибольшее число скважин, срабатывающих в одном окне `[t, t + window_ms)`.
+def with_base_steps(params: dict, base: dict | None) -> dict:
+    """`pattern_params` варианта для проверок подошвы: шаги a и b — базовые.
 
-    Окно полуоткрытое, в отличие от МИС `charge_per_delay` (там `≤ window_ms`):
-    скважины ровно через 8 мс (2·25 против 42 мс) в одно окно не попадают.
-    Показатель только показывается и в ранжировании не участвует.
+    Разрыв у подошвы («шаг + 3 %») отсчитывается от исходной сетки, как W₀ для
+    ЛСП: иначе вариант с b · 1,03 сам себе расширял бы допуск. Шага нет в базе —
+    его нет и здесь (`grid_steps_m` возьмёт то же умолчание, что и для базы).
+    """
+    base = base or {}
+    out = {k: v for k, v in params.items() if k not in STEP_KEYS}
+    out.update({k: base[k] for k in STEP_KEYS if k in base})
+    return out
+
+
+def window_max_holes(times: dict[str, float], window_ms: float = WINDOW_MS) -> int:
+    """Наибольшее число скважин, срабатывающих в одном окне `window_ms`.
+
+    Окно — как у МИС `analysis.charge_per_delay`: скважины с разницей времён не
+    больше `window_ms` — одно окно (скважины ровно через 8 мс, 2·25 против 42 мс,
+    в него попадают). Показатель только показывается и в ранжировании не участвует.
     """
     values = sorted(times.values())
     best = left = 0
     for right, t in enumerate(values):
-        while t - values[left] >= window_ms - 1e-9:
+        while t - values[left] > window_ms:
             left += 1
         best = max(best, right - left + 1)
     return best
 
 
-def _empty(candidate: Candidate) -> Evaluation:
+def network_params(base: BlastDesign) -> dict:
+    """Система и стенки монтажа варианта — по базовой сети.
+
+    Система — `network.system` базы (неизвестная — СИНВ). Стенки (контурный,
+    предщелевой, оконтуривающий ряд) включаются, если базовая сеть их монтирует:
+    у скважин этих видов есть связи или стартовые.
+    """
+    network = base.network
+    system = str(getattr(network, "system", "") or "nonel")
+    if system not in SYSTEM_TYPES:
+        system = "nonel"
+    walls = {h.id for h in base.holes or [] if h.kind in WALL_KINDS}
+    wired: set[str] = set()
+    if network is not None and walls:
+        wired.update(network.starters)
+        wired.update(item.hole_id for item in network.starter_items)
+        for link in (*network.connectors, *network.surface_connectors):
+            wired.update((link.from_hole, link.to_hole))
+    return {"system": system, "include_contour": bool(walls & wired)}
+
+
+def _empty(candidate: Candidate, system: str) -> Evaluation:
     return Evaluation(
-        candidate=candidate, holes=[], network=InitiationNetwork(system="nonel"), rejected=True,
+        candidate=candidate, holes=[], network=InitiationNetwork(system=system), rejected=True,
         reject_codes=[EMPTY_CODE], lsp_out=0, fast_share=math.inf, converging_length_m=math.inf,
         outside_share=math.inf, robust_spread=None, hole_count=0, window8_max_holes=0, downhole_ms=0.0, warnings=[],
     )
@@ -182,15 +221,16 @@ def evaluate(ctx: SearchContext, candidate: Candidate) -> Evaluation:
     holes = generate_pattern(
         base.contour, candidate.params, None, _surfaces(base.surfaces), _domains(base.domains)
     )
+    mounting = network_params(base)
     if not holes:
-        return _empty(candidate)
+        return _empty(candidate, mounting["system"])
 
-    network, warnings = build_trunk_chains_network(
-        holes, {"system": "nonel", "cut_flank": candidate.cut_flank}
-    )
+    network, warnings = build_trunk_chains_network(holes, {**mounting, "cut_flank": candidate.cut_flank})
     design = replace(base, holes=holes, network=network, pattern_params=dict(candidate.params))
 
-    reject_codes, lsp_out = reject_codes_and_lsp(design, ctx.w0_m)
+    # Проверки подошвы — на скважинах варианта, но с шагами базы.
+    checked = replace(design, pattern_params=with_base_steps(candidate.params, base.pattern_params))
+    reject_codes, lsp_out = reject_codes_and_lsp(checked, ctx.w0_m)
 
     enabled = [h for h in holes if h.enabled]
     times, timing_warnings = resolve_times(network, enabled)

@@ -1,12 +1,13 @@
 """Поиск раскладки по этапам: геометрия → первый ряд у откоса → подстройка.
 
 Этапы идут по порядку. Семена следующего этапа — лучшие по `Evaluation.rank_key()`
-среди всех оценённых вариантов (не только текущего этапа); отбракованные в семена
-не идут, пока есть прошедшие. Перед каждой оценкой проверяются бюджет времени и
-запрос остановки (и в начале каждого этапа); при срабатывании возвращается
-лучшее найденное, а если не оценено ничего — пустой `best` и предупреждение
-`NOTHING_EVALUATED`. Поиск последовательный, без процессов и потоков:
-параллельность — решение части 4в.
+среди всех оценённых вариантов (не только текущего этапа), с разными сетками;
+отбракованные в семена не идут, пока есть прошедшие. Перед каждой оценкой
+проверяются бюджет времени и запрос остановки (и в начале каждого этапа); при
+срабатывании возвращается лучшее найденное, а если не оценено ничего — пустой
+`best` и предупреждение `NOTHING_EVALUATED`; бюджет, кончившийся до конца
+этапа 1, добавляет `BIG_BLOCK`. Поиск последовательный, без процессов и
+потоков: параллельность — решение части 4в.
 """
 from __future__ import annotations
 
@@ -22,6 +23,8 @@ STAGE_FRONT_ROWS = "front_rows"
 STAGE_REFINE = "refine"
 # Остановка (бюджет ≤ 0, запрос) раньше первой оценки: `best` пуст.
 NOTHING_EVALUATED = "Подбор остановлен до первой оценки."
+# Бюджет кончился, не досчитав этап 1 (геометрию).
+BIG_BLOCK = "Блок большой: за отведённое время просчитана только часть вариантов геометрии."
 # Округление координат устьев при сравнении сеток, м.
 _COORD_DIGITS = 2
 
@@ -54,11 +57,14 @@ def _ranked(evaluations: list[Evaluation]) -> list[Evaluation]:
 
 
 def _seeds(evaluations: list[Evaluation], count: int) -> list[Candidate]:
-    return [ev.candidate for ev in _ranked(evaluations)[: max(count, 0)]]
+    """Лучшие варианты с разными сетками (`_grid_key`): дубли сетки семя не тратят."""
+    return [ev.candidate for ev in _top_distinct(evaluations, count)]
 
 
 def _top_distinct(evaluations: list[Evaluation], top_n: int) -> list[Evaluation]:
     out: list[Evaluation] = []
+    if top_n <= 0:
+        return out
     seen: set[tuple] = set()
     for ev in _ranked(evaluations):
         key = _grid_key(ev)
@@ -87,9 +93,16 @@ def search_layout(
     base = ctx.design.pattern_params
     cache: dict[tuple, Evaluation] = {}
     stopped = False
+    # Остановка по бюджету (не по запросу) и досчитан ли этап 1.
+    budget_hit = False
+    geometry_done = False
 
     def out_of_time() -> bool:
-        return clock() - started >= budget_s or bool(should_stop and should_stop())
+        nonlocal budget_hit
+        if clock() - started >= budget_s:
+            budget_hit = True
+            return True
+        return bool(should_stop and should_stop())
 
     def run_stage(name: str, candidates: list[Candidate]) -> bool:
         """Оценивает новые варианты этапа; False — поиск остановлен."""
@@ -120,6 +133,8 @@ def search_layout(
             break
         if not run_stage(name, make()):
             break
+        if name == STAGE_GEOMETRY:
+            geometry_done = True
 
     evaluations = list(cache.values())
     best = _top_distinct(evaluations, top_n)
@@ -135,6 +150,8 @@ def search_layout(
     # пометку по ним даёт интерфейс, предупреждение их не дублирует.
     if stopped and not evaluations:
         warnings.append(NOTHING_EVALUATED)
+    elif stopped and budget_hit and not geometry_done:
+        warnings.append(BIG_BLOCK)
 
     return SearchResult(
         best=best,

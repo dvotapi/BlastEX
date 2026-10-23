@@ -13,16 +13,22 @@ from design.layout_search.evaluate import (
     SearchContext,
     evaluate,
     reject_codes_and_lsp,
+    window_max_holes,
+    with_base_steps,
 )
 from design.layout_search.space import Candidate, stage1
 from design.models import BlastDesign, InitiationNetwork
+from design.pattern import generate_pattern
+from design.timing import resolve_times
 from design.toe_line import crest_geometry, floor_report, min_crest_offset_m
+from design.trunk_network import build_trunk_chains_network
 from tests.front_rows_fixtures import (
     GAP_PATTERN,
     _contour_of,
     _rect_contour,
     design_with,
     grid_rows,
+    vertical_hole,
 )
 from tests.test_trunk_network import BLOCK66_PARAMS, _block66_contour
 
@@ -179,13 +185,78 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(strict.hole_count, base.hole_count)
 
     def test_window8(self):
+        # Окно — как у МИС (`analysis.charge_per_delay`): разница ≤ 8 мс — одно
+        # окно. Скважины через ровно 8 мс (2·25 против 42 мс) в него попадают.
         params = {**BASE, "offset_from_face_m": 2.0, "edge_margin_m": 2.0}
         contour = _rect_contour(20.0, 16.0)
         design = BlastDesign(design_id="t", contour=contour, pattern_params=dict(params))
         ev = evaluate(SearchContext.from_design(design), Candidate(params, "left"))
         self.assertEqual(ev.hole_count, 16)
-        self.assertEqual(ev.window8_max_holes, 1)
+        self.assertEqual(ev.window8_max_holes, 2)
         self.assertTrue(math.isfinite(ev.downhole_ms))
+
+    def test_window8_closed_like_charge_per_delay(self):
+        self.assertEqual(window_max_holes({"a": 0.0, "b": 8.0}), 2)
+        self.assertEqual(window_max_holes({"a": 0.0, "b": 8.01}), 1)
+        self.assertEqual(window_max_holes({"a": 0.0, "b": 4.0, "c": 8.0, "d": 12.0}), 3)
+
+    def test_network_system_from_base(self):
+        # Система монтажа варианта — как у базовой сети; неизвестная — СИНВ.
+        for system, expected in (("electronic", "electronic"), ("detcord", "detcord"), ("nonel", "nonel"),
+                                 ("plasma", "nonel")):
+            with self.subTest(system=system):
+                design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(BASE),
+                                     network=InitiationNetwork(system=system))
+                ev = evaluate(SearchContext.from_design(design), Candidate(dict(BASE), "left"))
+                self.assertEqual(ev.network.system, expected)
+
+    def test_walls_timed_when_base_network_wires_them(self):
+        # Контурный ряд: в базовой сети связи к стенкам есть — у варианта стенки
+        # получают время; базовая сеть без стенок — контурные времени не получают.
+        params = {**BASE, "contour_row": True, "contour_spacing_m": 3.0}
+        holes = generate_pattern(CONTOUR, params)
+        walls_base = {h.id for h in holes if h.kind == "contour"}
+        self.assertTrue(walls_base)
+        wired, _ = build_trunk_chains_network(holes, {"include_contour": True})
+        plain, _ = build_trunk_chains_network(holes, {})
+        for network, timed in ((wired, True), (plain, False)):
+            with self.subTest(timed=timed):
+                design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(params),
+                                     holes=holes, network=network)
+                ev = evaluate(SearchContext.from_design(design), Candidate(dict(params), "left"))
+                walls = {h.id for h in ev.holes if h.kind == "contour"}
+                self.assertTrue(walls)
+                times, _ = resolve_times(ev.network, [h for h in ev.holes if h.enabled])
+                self.assertEqual(walls <= set(times), timed)
+                if not timed:
+                    self.assertFalse(walls & set(times))
+
+
+class BaseStepsTests(unittest.TestCase):
+    """Разрыв у подошвы — от шагов базы, как W₀ для ЛСП: «шаг + 3 %» не растёт с b варианта."""
+
+    @staticmethod
+    def _rows(gap: float) -> list:
+        return [vertical_hole(f"{r + 1}-{c + 1:02d}", x, 4.0 + gap * r, r)
+                for r in range(4) for c, x in enumerate((8.0, 12.0, 16.0, 20.0, 24.0))]
+
+    def test_with_base_steps(self):
+        variant = {**GAP_PATTERN, "spacing_a_m": 4.12, "burden_b_m": 3.605, "offset_from_face_m": 2.0}
+        self.assertEqual(with_base_steps(variant, GAP_PATTERN), {**variant, "spacing_a_m": 4.0, "burden_b_m": 3.5})
+        # Шага нет в базе — нет и в паспорте проверки (умолчание генератора).
+        square = with_base_steps({"pattern": "square", "spacing_a_m": 5.15}, {"pattern": "square"})
+        self.assertEqual(square, {"pattern": "square"})
+
+    def test_row_gap_from_base_b(self):
+        b0 = GAP_PATTERN["burden_b_m"]
+        variant = {**GAP_PATTERN, "burden_b_m": round(b0 * 1.03, 4)}
+        for gap, codes in ((1.05 * b0, ["floor_row_gap_excess"]), (1.02 * b0, [])):
+            with self.subTest(gap=gap):
+                design = replace(design_with(self._rows(gap)), pattern_params=variant)
+                # По b варианта (допуск 1,03·1,03·b₀) разрыв 1,05·b₀ в допуске.
+                self.assertEqual(reject_codes_and_lsp(design, b0)[0], [])
+                checked = replace(design, pattern_params=with_base_steps(variant, GAP_PATTERN))
+                self.assertEqual(reject_codes_and_lsp(checked, b0)[0], codes)
 
 
 class RejectEquivalenceTests(unittest.TestCase):
@@ -204,8 +275,9 @@ class RejectEquivalenceTests(unittest.TestCase):
     def _variant(self, contour, base, params, flank="left"):
         ctx = SearchContext.from_design(BlastDesign(design_id="t", contour=contour, pattern_params=dict(base)))
         ev = evaluate(ctx, Candidate(params, flank))
+        # Паспорт проверки — шаги базы, скважины варианта (как в `evaluate`).
         self.assertEqual(ev.reject_codes, self._assert_same(
-            replace(ctx.design, holes=ev.holes, network=ev.network, pattern_params=params)
+            replace(ctx.design, holes=ev.holes, network=ev.network, pattern_params=with_base_steps(params, base))
         ))
         return ev
 
@@ -215,6 +287,8 @@ class RejectEquivalenceTests(unittest.TestCase):
             ({"min_crest_offset_m": 3.0}, ["collar_too_close_to_crest"]),
             ({"angle_deg": 30, "azimuth_deg": 180}, ["floor_beyond_toe"]),
             ({"burden_b_m": 4.12, "offset_from_face_m": 1.5}, []),
+            # b на 5 % больше базы: разрыв у подошвы больше b₀ + 3 %.
+            ({"burden_b_m": 4.2}, ["floor_row_gap_excess"]),
             ({"front_rows_mode": "taper", "front_rows_tilt_count": 2, "front_rows_tilt_deg": 30,
               "offset_from_face_m": 3.5}, []),
         ]

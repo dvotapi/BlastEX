@@ -113,6 +113,9 @@ class SearchTests(unittest.TestCase):
         self.assertTrue(res.stopped_early)
         self.assertEqual(res.evaluated, len(stage1(BASE, CONTOUR)))
         self.assertTrue(res.best)
+        # Об остановке говорит флаг `stopped_early` (интерфейс даёт одну пометку),
+        # а не предупреждение ядра.
+        self.assertFalse(any("остановлен" in text for text in res.warnings))
 
     def test_zero_budget_nothing_evaluated(self):
         for kwargs in ({"budget_s": 0.0}, {"budget_s": -1.0}, {"budget_s": 1e9, "should_stop": lambda: True}):
@@ -170,6 +173,8 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(len(res.best), 3)
         self.assertTrue(all(ev.rejected and ev.reject_codes for ev in res.best))
         self.assertEqual(res.rejected, res.evaluated)
+        # «Все отбракованы» — флаг `all_rejected`; предупреждение ядра его не дублирует.
+        self.assertFalse(any("отбраковк" in text for text in res.warnings))
 
     def test_no_free_face(self):
         contour = _rect_contour(40.0, 30.0, free_faces=(), face_angle_deg=75.0)

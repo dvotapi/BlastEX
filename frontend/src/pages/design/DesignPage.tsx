@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import { collarZFromSurfaces, surfaceElevation } from "../../lib/surfaces";
@@ -107,12 +107,14 @@ import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
-import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams } from "./designParams";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
 import { layersToMapLegend } from "./MapLegend";
 import { PatternPanel } from "./PatternPanel";
+import { LayoutSearchPanel } from "./LayoutSearchPanel";
+import { useLayoutSearchApply, type ChargeGrid } from "./useLayoutSearchApply";
 import { PlanCanvas, type PlanMeasureState } from "./PlanCanvas";
 import { StageInspector } from "./StageInspector";
 import { VisibilityPanel } from "./VisibilityPanel";
@@ -719,6 +721,37 @@ export function DesignPage({
     }
   }
 
+  const setChargeGrid = useCallback(
+    (grid: ChargeGrid) => setChargeRules((prev) => ({ ...prev, ...grid })),
+    [],
+  );
+
+  // Подбор раскладки (часть 4в): опрос, показ варианта и «Применить».
+  const layout = useLayoutSearchApply({
+    state,
+    dispatch,
+    patternParams,
+    setPatternParams,
+    setTieScheme,
+    setTieParams,
+    // Шаги в правилах зарядов — при применении, отмене и повторе (масса заряда по сетке).
+    setChargeGrid,
+    rejectLocked: () => rejectLocked("designed"),
+    setError,
+    onApplied: (variant, holes, params, grid) => {
+      // Как после «Сгенерировать сетку»: сброс результатов.
+      setFragResult(null);
+      setAsDrilledResult(null);
+      setAsChargedResult(null);
+      setAsFiredResult(null);
+      setExecutionResult(null);
+      setBlastResultCompare(null);
+      setSelected(new Set());
+      // Формы страницы ещё прежние: карты — по параметрам и сетке варианта.
+      void refreshMaps({ ...document, holes, network: variant.network }, { patternParams: params, chargeRules: { ...chargeRules, ...grid } });
+    },
+  });
+
   function onContourChange(vertices: Point3[], freeFaces?: number[][], coalesce?: boolean) {
     if (rejectLocked("designed")) return;
     const draped = vertices.map((v) => ({
@@ -820,7 +853,8 @@ export function DesignPage({
 
   refreshMapsRef.current = () => { void refreshMaps(); };
 
-  async function refreshMaps(design = document) {
+  /** Карты по документу; `params` — формы, если страница их ещё не перерисовала. */
+  async function refreshMaps(design = document, params?: Pick<DesignParams, "patternParams" | "chargeRules">) {
     if (!design.holes.length) {
       setMaps(null);
       return;
@@ -830,7 +864,9 @@ export function DesignPage({
     const startKey = mapsInputsKey(design.holes, design.contour);
     mapsInFlightRef.current += 1;
     try {
-      const result = await api.design.maps(designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey }));
+      const result = await api.design.maps(
+        designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey, ...params }),
+      );
       // Контур или скважины поменялись, пока шёл запрос, — ответ устарел.
       if (!isResponseCurrent(startKey, currentMapsKey())) return;
       mapsLoadedKeyRef.current = startKey;
@@ -2910,6 +2946,26 @@ export function DesignPage({
               <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
             </fieldset>
           )}
+          {/* Вне блокировки: показ вариантов и «Остановить» доступны и у закрытого
+              паспорта, запуск и «Применить» панель закрывает сама. */}
+          {workflowStage === "pattern" && (
+            <LayoutSearchPanel
+              designId={document.design_id || null}
+              status={layout.search.status}
+              stale={layout.stale}
+              error={layout.search.error}
+              manualCount={document.holes.filter((hole) => hole.source === "manual").length}
+              locked={designedLocked}
+              previewIndex={layout.previewIndex}
+              onStart={() => {
+                if (rejectLocked("designed")) return;
+                void layout.search.start(designPayload());
+              }}
+              onStop={() => void layout.search.stop()}
+              onPreview={layout.setPreviewIndex}
+              onApply={(variant) => void layout.apply(variant)}
+            />
+          )}
           {workflowStage === "charge" && (
             <fieldset className="workstation-lock" disabled={designedLocked}>
               <ChargePanel
@@ -3396,6 +3452,7 @@ export function DesignPage({
               insertKind={insertKind}
               onInsertKindChange={setInsertKind}
               situation={situationPlan}
+              preview={workflowStage === "pattern" && layout.preview ? { holes: layout.preview.holes, network: layout.preview.network } : null}
             />
           )}
           <VisibilityPanel

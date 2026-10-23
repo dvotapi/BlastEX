@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { holeFromCollar, type Camera, type Vec2 } from "../../lib/geometry2d";
 import { collarZFromSurfaces, surfaceElevation } from "../../lib/surfaces";
@@ -113,7 +113,7 @@ import { HoleInspector } from "./HoleInspector";
 import { layersToMapLegend } from "./MapLegend";
 import { PatternPanel } from "./PatternPanel";
 import { LayoutSearchPanel } from "./LayoutSearchPanel";
-import { useLayoutSearchApply } from "./useLayoutSearchApply";
+import { useLayoutSearchApply, type ChargeGrid } from "./useLayoutSearchApply";
 import { PlanCanvas, type PlanMeasureState } from "./PlanCanvas";
 import { StageInspector } from "./StageInspector";
 import { VisibilityPanel } from "./VisibilityPanel";
@@ -718,6 +718,11 @@ export function DesignPage({
     }
   }
 
+  const setChargeGrid = useCallback(
+    (grid: ChargeGrid) => setChargeRules((prev) => ({ ...prev, ...grid })),
+    [],
+  );
+
   // Подбор раскладки (часть 4в): опрос, показ варианта и «Применить».
   const layout = useLayoutSearchApply({
     state,
@@ -726,11 +731,12 @@ export function DesignPage({
     setPatternParams,
     setTieScheme,
     setTieParams,
+    // Шаги в правилах зарядов — при применении, отмене и повторе (масса заряда по сетке).
+    setChargeGrid,
     rejectLocked: () => rejectLocked("designed"),
     setError,
-    onApplied: (variant, holes, params) => {
-      // Как после «Сгенерировать сетку»: шаги в правилах зарядов, сброс результатов.
-      setChargeRules((prev) => ({ ...prev, grid_a_m: params.spacing_a_m, grid_b_m: params.burden_b_m }));
+    onApplied: (variant, holes) => {
+      // Как после «Сгенерировать сетку»: сброс результатов.
       setFragResult(null);
       setAsDrilledResult(null);
       setAsChargedResult(null);

@@ -9,7 +9,7 @@ const STATE_LABELS: Record<LayoutSearchState, string> = {
   idle: "нет подбора",
   running: "идёт",
   done: "готово",
-  stopped: "остановлен, показано лучшее найденное",
+  stopped: "остановлен",
   failed: "ошибка",
 };
 
@@ -31,7 +31,11 @@ const UNKNOWN_REJECT = "не прошёл проверку";
 const NO_DESIGN_HINT = "Сохраните паспорт, чтобы подобрать раскладку";
 const STALE_TEXT = "Устарел: контур, съёмка или параметры изменились после подбора";
 const ALL_REJECTED_TEXT = "Ни один вариант не прошёл проверки — показаны лучшие из отбракованных.";
-const STOPPED_EARLY_TEXT = "Подбор остановлен — показано лучшее найденное.";
+// Остановка — одна пометка: пользователем (state stopped) или концом бюджета
+// (done с stopped_early). Без вариантов пометки нет — говорит предупреждение сервера.
+const STOPPED_BY_USER_TEXT = "Подбор остановлен — показано лучшее найденное.";
+const BUDGET_OVER_TEXT = "Время подбора вышло — показано лучшее найденное.";
+const PREPARING_TEXT = "Подготовка…";
 
 function rejectReasons(codes: string[]): string[] {
   return [...new Set(codes.map((code) => REJECT_LABELS[code] ?? UNKNOWN_REJECT))];
@@ -137,6 +141,12 @@ export function LayoutSearchPanel({
 }) {
   const running = status?.state === "running";
   const result = running ? null : status?.result ?? null;
+  const stopMark =
+    result?.stopped_early && result.best.length > 0
+      ? status?.state === "stopped"
+        ? STOPPED_BY_USER_TEXT
+        : BUDGET_OVER_TEXT
+      : null;
 
   function apply(variant: LayoutSearchVariant) {
     if (manualCount > 0 && !window.confirm(`Ручные правки (${manualCount}) будут потеряны. Применить вариант?`)) return;
@@ -164,7 +174,8 @@ export function LayoutSearchPanel({
         {designId === null && <small>{NO_DESIGN_HINT}</small>}
         {error && <small role="alert" className="frag-warnings">{error}</small>}
 
-        {status && status.state !== "idle" && (
+        {/* «Остановлен» говорит пометка результата — строка состояния её не повторяет. */}
+        {status && status.state !== "idle" && status.state !== "stopped" && (
           <small className="layout-search-state">Подбор: {STATE_LABELS[status.state]}</small>
         )}
         {status?.state === "failed" && status.error && <small className="frag-warnings">{status.error}</small>}
@@ -173,8 +184,9 @@ export function LayoutSearchPanel({
           <div className="layout-search-progress">
             <progress value={status.done} max={Math.max(status.total, 1)} />
             <span>
-              {status.stage ? `${STAGE_LABELS[status.stage]}: ` : ""}
-              {`${status.done} из ${status.total}`}
+              {status.total > 0
+                ? `${status.stage ? `${STAGE_LABELS[status.stage]}: ` : ""}${status.done} из ${status.total}`
+                : PREPARING_TEXT}
             </span>
             <small>Прошло {ruNumber(status.elapsed_s ?? 0, 0)} с</small>
             <button type="button" className="secondary-button" onClick={onStop}>Остановить</button>
@@ -183,11 +195,11 @@ export function LayoutSearchPanel({
 
         {result && (
           <>
-            {(stale || result.all_rejected || result.stopped_early || result.warnings.length > 0) && (
+            {(stale || result.all_rejected || stopMark || result.warnings.length > 0) && (
               <ul className="frag-warnings layout-search-marks">
                 {stale && <li>{STALE_TEXT}</li>}
                 {result.all_rejected && <li>{ALL_REJECTED_TEXT}</li>}
-                {result.stopped_early && <li>{STOPPED_EARLY_TEXT}</li>}
+                {stopMark && <li>{stopMark}</li>}
                 {result.warnings.map((text, i) => <li key={i}>{text}</li>)}
               </ul>
             )}

@@ -1,8 +1,10 @@
 """Сервис проекта БВР: раскладка сетки и хранение паспортов команды."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from Blast import ExplosiveProperties
@@ -128,6 +130,7 @@ from design.trunk_network import TRUNK_SCHEME, build_trunk_chains_network
 from cost.v2.legacy_adapter import LegacyReferences
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 
+logger = logging.getLogger(__name__)
 
 def _surfaces_from_request(payload) -> SurfaceSet | None:
     if payload is None:
@@ -373,7 +376,23 @@ def start_layout_search(
 def layout_search_status(
     organization_id: str, design_id: str, *, jobs: LayoutSearchJobs
 ) -> LayoutSearchStatusResponse:
-    return LayoutSearchStatusResponse(**jobs.status(organization_id, design_id))
+    status = jobs.status(organization_id, design_id)
+    try:
+        return LayoutSearchStatusResponse(**status)
+    except ValidationError:
+        # Файл итога прежней версии, который схема ответа уже не принимает:
+        # как «нет итога», чтобы панель блока открывалась (а не 500).
+        logger.warning(
+            "Несовместимый итог подбора раскладки блока %s — показан как «нет подбора»",
+            design_id,
+            exc_info=True,
+        )
+        failed = status.get("state") == "failed"
+        return LayoutSearchStatusResponse(
+            state="failed" if failed else "idle",
+            elapsed_s=status.get("elapsed_s") if failed else None,
+            error=status.get("error") if failed else None,
+        )
 
 
 def stop_layout_search(

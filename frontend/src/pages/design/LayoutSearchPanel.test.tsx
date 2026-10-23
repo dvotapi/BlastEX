@@ -142,8 +142,15 @@ describe("LayoutSearchPanel: ход подбора", () => {
   });
 
   it("ошибка подбора показывается текстом сервера", () => {
-    mount({ status: status({ state: "failed", result: null, error: "Подбор раскладки завершился с ошибкой: сбой" }) });
-    expect(screen.getByText("Подбор раскладки завершился с ошибкой: сбой")).toBeTruthy();
+    const text = "Подбор раскладки завершился с ошибкой. Подробности — в журнале сервера.";
+    mount({ status: status({ state: "failed", result: null, error: text }) });
+    expect(screen.getByText(text)).toBeTruthy();
+  });
+
+  it("сразу после запуска (всего 0) — «Подготовка…», а не «0 из 0»", () => {
+    mount({ status: status({ state: "running", stage: null, done: 0, total: 0, elapsed_s: 0, result: null }) });
+    expect(screen.getByText("Подготовка…")).toBeTruthy();
+    expect(screen.queryByText(/0 из 0/)).toBeNull();
   });
 });
 
@@ -212,9 +219,32 @@ describe("LayoutSearchPanel: пометки результата", () => {
     expect(screen.getByText("Ни один вариант не прошёл проверки — показаны лучшие из отбракованных.")).toBeTruthy();
   });
 
-  it("stopped_early", () => {
-    mount({ status: status({ state: "stopped", result: result({ stopped_early: true }) }) });
+  it("остановка пользователем — одна пометка", () => {
+    const { view } = mount({ status: status({ state: "stopped", result: result({ stopped_early: true }) }) });
     expect(screen.getByText("Подбор остановлен — показано лучшее найденное.")).toBeTruthy();
+    expect(view.container.textContent!.match(/остановлен/g)).toHaveLength(1);
+    expect(screen.queryByText(/Время подбора вышло/)).toBeNull();
+  });
+
+  it("конец бюджета (done, stopped_early) — «время вышло», не «остановлен»", () => {
+    const { view } = mount({ status: status({ state: "done", result: result({ stopped_early: true }) }) });
+    expect(screen.getByText("Время подбора вышло — показано лучшее найденное.")).toBeTruthy();
+    expect(view.container.textContent).not.toMatch(/остановлен/);
+    expect(view.container.textContent!.match(/показано лучшее найденное/g)).toHaveLength(1);
+  });
+
+  it("остановлен до первой оценки — только предупреждение сервера", () => {
+    const nothing = "Подбор остановлен до первой оценки.";
+    const { view } = mount({
+      status: status({ state: "stopped", result: result({ best: [], stopped_early: true, warnings: [nothing] }) }),
+    });
+    expect(screen.getByText(nothing)).toBeTruthy();
+    expect(view.container.textContent).not.toMatch(/показано лучшее найденное/);
+  });
+
+  it("все отбракованы — одна пометка", () => {
+    const { view } = mount({ status: status({ result: result({ all_rejected: true }) }) });
+    expect(view.container.textContent!.match(/отбракованных/g)).toHaveLength(1);
   });
 
   it("«Устарел»", () => {

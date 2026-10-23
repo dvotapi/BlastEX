@@ -23,7 +23,7 @@ import {
 import { designReducer, initDesignState, type DesignState } from "./designReducer";
 import { LayoutSearchPanel } from "./LayoutSearchPanel";
 import { layoutFingerprint } from "./useLayoutSearch";
-import { useLayoutSearchApply } from "./useLayoutSearchApply";
+import { useLayoutSearchApply, type ChargeGrid } from "./useLayoutSearchApply";
 
 afterEach(() => {
   cleanup();
@@ -46,18 +46,23 @@ function hole(id: string, source: Hole["source"] = "generated"): Hole {
   };
 }
 
-const VARIANT_NETWORK: InitiationNetwork = {
-  ...emptyNetwork(),
-  starters: ["n1"],
-  connectors: [{ id: "c1", from_hole: "n1", to_hole: "n2", delay_ms: 42, kind: "surface" } as InitiationNetwork["connectors"][number]],
-};
+/** Сеть варианта — как её строит «Магистраль + цепочки» (`trunk_network.py`). */
+function variantNetwork(cutFlank: "left" | "right"): InitiationNetwork {
+  return {
+    ...emptyNetwork(),
+    starters: ["n1"],
+    connectors: [{ id: "c1", from_hole: "n1", to_hole: "n2", delay_ms: 42, kind: "surface" } as InitiationNetwork["connectors"][number]],
+    timing_params: { scheme: "trunk_chains", trunk_ms: 17, chain_ms: 67, cut_flank: cutFlank, downhole_delay_ms: 500 },
+  };
+}
 
 function variant(extra: Partial<LayoutSearchVariant> = {}): LayoutSearchVariant {
+  const cutFlank = extra.cut_flank ?? "right";
   return {
     params: { ...DEFAULT_PATTERN_PARAMS, row_azimuth_deg: 35, spacing_a_m: 4.6, burden_b_m: 3.7, front_rows_mode: "pair" },
-    cut_flank: "right",
+    cut_flank: cutFlank,
     holes: [hole("n1"), hole("n2")],
-    network: VARIANT_NETWORK,
+    network: variantNetwork(cutFlank),
     rejected: false,
     reject_codes: [],
     lsp_out: 0,
@@ -79,7 +84,8 @@ function base(extra: Partial<BlastDesign> = {}): BlastDesign {
     design_id: "d1",
     rock_name: "Гранит",
     holes: [hole("a")],
-    network: { ...emptyNetwork(), starters: ["a"] },
+    // Прежняя сеть — «По рядам» с интервалом 25 мс.
+    network: { ...emptyNetwork(), starters: ["a"], timing_params: { scheme: "row", interval_ms: 25, downhole_delay_ms: 500 } },
     pattern_params: { spacing_a_m: 4, burden_b_m: 4 },
     ...extra,
   };
@@ -104,6 +110,7 @@ type Probe = {
   patternParams: PatternParams;
   tieScheme: SchemeType;
   tieParams: TieParams;
+  chargeGrid: ChargeGrid;
   error: string;
   dispatch: (action: Parameters<typeof designReducer>[1]) => void;
   setPatternParams: (params: PatternParams) => void;
@@ -119,6 +126,8 @@ function Page({ design, probe }: { design: BlastDesign; probe: { current: Probe 
   }));
   const [tieScheme, setTieScheme] = useState<SchemeType>("row");
   const [tieParams, setTieParams] = useState<TieParams>(DEFAULT_TIE_PARAMS);
+  // Сетка для q в правилах зарядов — как на странице, по шагам формы.
+  const [chargeGrid, setChargeGrid] = useState<ChargeGrid>({ grid_a_m: 4, grid_b_m: 4 });
   const [error, setError] = useState("");
   const layout = useLayoutSearchApply({
     state,
@@ -127,10 +136,11 @@ function Page({ design, probe }: { design: BlastDesign; probe: { current: Probe 
     setPatternParams,
     setTieScheme,
     setTieParams,
+    setChargeGrid,
     rejectLocked: () => false,
     setError,
   });
-  probe.current = { state, patternParams, tieScheme, tieParams, error, dispatch, setPatternParams };
+  probe.current = { state, patternParams, tieScheme, tieParams, chargeGrid, error, dispatch, setPatternParams };
   return (
     <>
       <LayoutSearchPanel
@@ -203,6 +213,52 @@ describe("useLayoutSearchApply: «Применить» на странице", (
 
     act(() => probe.current.dispatch({ type: "REDO" }));
     await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4.6));
+  });
+
+  it("отмена и повтор возвращают сетку для q в правилах зарядов", async () => {
+    const probe = await mount(base());
+
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4.6, grid_b_m: 3.7 }));
+
+    // Заряды после отмены считаются по сетке прежней раскладки, а не варианта.
+    act(() => probe.current.dispatch({ type: "UNDO" }));
+    await waitFor(() => expect(probe.current.chargeGrid).toEqual({ grid_a_m: FORM_A, grid_b_m: 4 }));
+
+    act(() => probe.current.dispatch({ type: "REDO" }));
+    await waitFor(() => expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4.6, grid_b_m: 3.7 }));
+  });
+
+  it("отмена и повтор возвращают форму «Коммутация» по сети документа", async () => {
+    const probe = await mount(base());
+
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.tieScheme).toBe("trunk_chains"));
+    expect(probe.current.tieParams).toMatchObject({ cut_flank: "right", trunk_ms: 17, chain_ms: 67 });
+
+    act(() => probe.current.dispatch({ type: "UNDO" }));
+    await waitFor(() => expect(probe.current.tieScheme).toBe("row"));
+    expect(probe.current.tieParams).toMatchObject({
+      cut_flank: DEFAULT_TIE_PARAMS.cut_flank,
+      trunk_ms: DEFAULT_TIE_PARAMS.trunk_ms,
+      chain_ms: DEFAULT_TIE_PARAMS.chain_ms,
+      interval_ms: 25,
+    });
+
+    act(() => probe.current.dispatch({ type: "REDO" }));
+    await waitFor(() => expect(probe.current.tieScheme).toBe("trunk_chains"));
+    expect(probe.current.tieParams).toMatchObject({ cut_flank: "right", trunk_ms: 17, chain_ms: 67 });
+  });
+
+  it("отмена другой правки после применения форму «Коммутация» не трогает", async () => {
+    const probe = await mount(base());
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.tieScheme).toBe("trunk_chains"));
+    act(() => probe.current.dispatch({ type: "SET_WATER_TABLE", water_table_z_m: 410 }));
+    act(() => probe.current.dispatch({ type: "UNDO" }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    expect(probe.current.tieScheme).toBe("trunk_chains");
+    expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4.6, grid_b_m: 3.7 });
   });
 
   it("показ снимается; коммутация — «Магистраль + цепочки» с флангом варианта", async () => {

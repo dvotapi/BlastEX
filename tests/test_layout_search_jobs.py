@@ -154,7 +154,9 @@ class LayoutSearchJobsTests(unittest.TestCase):
         _start(jobs)
         status = _wait(jobs)
         self.assertEqual(status["state"], "failed")
-        self.assertIn("Подбор раскладки завершился с ошибкой: сломался перебор", status["error"])
+        # Пользователю — общий текст: причина (служебные имена) — только в журнал сервера.
+        self.assertEqual(status["error"], jobs_module.ERROR_TEXT)
+        self.assertNotIn("сломался", status["error"])
         # Файл не переписан: прежний результат остаётся.
         self.assertEqual(status["result"], previous["result"])
         self.assertEqual(status["fingerprint"], "old")
@@ -163,6 +165,32 @@ class LayoutSearchJobsTests(unittest.TestCase):
         # Слот свободен: следующий запуск возможен.
         _start(jobs, design_id="d2")
         self.assertEqual(_wait(jobs, "d2")["state"], "failed")
+
+    def test_child_failure_logged(self):
+        jobs = LayoutSearchJobs(runner="thread", budget_s=20.0, search_fn=failing_search)
+        with self.assertLogs("design.layout_search.jobs", level="ERROR") as logs:
+            _start(jobs)
+            _wait(jobs)
+        self.assertTrue(any("сломался перебор" in line for line in logs.output))
+
+    def test_corrupt_stored_result_is_idle(self):
+        path = layout_search_path(TEAM, "d1")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        bad_files = {
+            "битый JSON": "{не json",
+            "не объект": "[1, 2]",
+            "итог не объект": json.dumps({"fingerprint": "fp", "state": "done", "result": "строка"}),
+            "чужое состояние": json.dumps({"fingerprint": "fp", "state": "running", "result": {"best": []}}),
+            "отпечаток не строка": json.dumps({"fingerprint": 5, "state": "done", "result": {"best": []}}),
+        }
+        for name, text in bad_files.items():
+            with self.subTest(name=name):
+                path.write_text(text, encoding="utf-8")
+                with self.assertLogs("design.layout_search.jobs", level="WARNING"):
+                    status = self.jobs.status(TEAM, "d1")
+                self.assertEqual(status["state"], "idle")
+                self.assertIsNone(status["result"])
+                self.assertIsNone(status["fingerprint"])
 
     def test_restart_forgets_running(self):
         _start(self.jobs)

@@ -3,12 +3,17 @@
 //
 // Форма «Сетка» живёт вне документа паспорта, поэтому «Применить» пишет в
 // шаг отмены и её значения на момент применения, а форма берётся из
-// документа, когда отмена или повтор возвращают одни из этих параметров.
+// документа, когда применение, отмена или повтор возвращают одни из этих
+// параметров. Вместе с ней из документа берутся сетка для q в правилах
+// зарядов (шаги a × b — от них масса заряда) и форма «Коммутация» (по
+// `timing_params` сети документа).
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { api } from "../../api/endpoints";
 import {
   DEFAULT_PATTERN_PARAMS,
+  DEFAULT_TIE_PARAMS,
   type Hole,
+  type InitiationNetwork,
   type LayoutSearchVariant,
   type PatternParams,
   type SchemeType,
@@ -20,6 +25,43 @@ import { layoutFingerprint, useLayoutSearch, type LayoutSearchHook } from "./use
 /** Параметры без ключей со значением undefined — как они уходят на сервер. */
 function definedParams(params: PatternParams): Record<string, unknown> {
   return Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
+}
+
+/** Сетка для q в правилах зарядов: шаги a × b раскладки. */
+export interface ChargeGrid {
+  grid_a_m: number;
+  grid_b_m: number;
+}
+
+const SCHEMES: ReadonlySet<string> = new Set<SchemeType>(["row", "echelon", "diagonal_v", "trapezoid", "trunk_chains"]);
+
+function finite(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Форма «Коммутация» по сети документа: схема и её параметры — из
+ * `timing_params` (их пишут построители сети); чего там нет — умолчание.
+ */
+export function tieFormFromNetwork(
+  network: InitiationNetwork,
+  prev: TieParams,
+): { scheme: SchemeType; params: TieParams } {
+  const timing = network.timing_params ?? {};
+  const scheme = typeof timing.scheme === "string" && SCHEMES.has(timing.scheme) ? (timing.scheme as SchemeType) : "row";
+  const flank = timing.cut_flank === "left" || timing.cut_flank === "right" ? timing.cut_flank : DEFAULT_TIE_PARAMS.cut_flank;
+  return {
+    scheme,
+    params: {
+      ...prev,
+      system: network.system ?? prev.system,
+      timing_mode: network.timing_mode ?? "",
+      cut_flank: flank,
+      trunk_ms: finite(timing.trunk_ms) ?? DEFAULT_TIE_PARAMS.trunk_ms,
+      chain_ms: finite(timing.chain_ms) ?? DEFAULT_TIE_PARAMS.chain_ms,
+      interval_ms: finite(timing.interval_ms) ?? prev.interval_ms,
+    },
+  };
 }
 
 export interface LayoutSearchApply {
@@ -43,6 +85,7 @@ export function useLayoutSearchApply({
   setPatternParams,
   setTieScheme,
   setTieParams,
+  setChargeGrid,
   rejectLocked,
   setError,
   onApplied,
@@ -53,6 +96,8 @@ export function useLayoutSearchApply({
   setPatternParams: Dispatch<SetStateAction<PatternParams>>;
   setTieScheme: (scheme: SchemeType) => void;
   setTieParams: Dispatch<SetStateAction<TieParams>>;
+  /** Сетка для q в правилах зарядов: ставится вместе с формой «Сетка». */
+  setChargeGrid: (grid: ChargeGrid) => void;
   /** true — проектную часть править нельзя (сообщение ставит страница). */
   rejectLocked: () => boolean;
   setError: (message: string) => void;
@@ -99,16 +144,23 @@ export function useLayoutSearchApply({
   const staleRef = useRef(stale);
   staleRef.current = stale;
 
-  // Параметры, записанные в документ «Применить» (и до него): когда отмена или
-  // повтор возвращают документ с одним из них, форма «Сетка» берётся оттуда.
+  // Параметры, записанные в документ «Применить» (и до него): когда применение,
+  // отмена или повтор возвращают документ с одним из них, форма «Сетка», сетка
+  // для q в правилах зарядов и форма «Коммутация» берутся из документа. Другие
+  // отмены (параметры — тот же объект) правок форм не затирают.
   const appliedParams = useRef(new WeakSet<object>());
   const syncedParams = useRef(document.pattern_params);
   useEffect(() => {
     if (syncedParams.current === document.pattern_params) return;
     syncedParams.current = document.pattern_params;
     if (!appliedParams.current.has(document.pattern_params)) return;
-    setPatternParams({ ...DEFAULT_PATTERN_PARAMS, ...(document.pattern_params as Partial<PatternParams>) });
-  }, [document.pattern_params, setPatternParams]);
+    const params: PatternParams = { ...DEFAULT_PATTERN_PARAMS, ...(document.pattern_params as Partial<PatternParams>) };
+    setPatternParams(params);
+    setChargeGrid({ grid_a_m: params.spacing_a_m, grid_b_m: params.burden_b_m });
+    const network = document.network;
+    setTieScheme(tieFormFromNetwork(network, DEFAULT_TIE_PARAMS).scheme);
+    setTieParams((prev) => tieFormFromNetwork(network, prev).params);
+  }, [document.pattern_params, document.network, setPatternParams, setChargeGrid, setTieScheme, setTieParams]);
 
   const applying = useRef(false);
 
@@ -137,9 +189,8 @@ export function useLayoutSearchApply({
       appliedParams.current.add(previous);
       dispatch({ type: "APPLY_LAYOUT", holes, network: variant.network, pattern_params: params, previous_pattern_params: previous });
       setPreviewIndex(null);
-      // «Коммутация» — схема варианта: «Магистраль + цепочки» с его флангом.
-      setTieScheme("trunk_chains");
-      setTieParams((prev) => ({ ...prev, system: variant.network.system, cut_flank: variant.cut_flank, timing_mode: "" }));
+      // Формы «Сетка», «Коммутация» и сетка для q — из документа (эффект выше):
+      // «Магистраль + цепочки» с флангом варианта.
       setError(geologyError);
       onApplied?.(variant, holes, nextParams);
       if (!wasStale) {

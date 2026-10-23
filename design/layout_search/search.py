@@ -131,12 +131,10 @@ def search_layout(
         for text in ev.warnings:
             if text not in warnings:
                 warnings.append(text)
+    # Остановка и «все отбракованы» — флаги `stopped_early`/`all_rejected`:
+    # пометку по ним даёт интерфейс, предупреждение их не дублирует.
     if stopped and not evaluations:
         warnings.append(NOTHING_EVALUATED)
-    elif stopped:
-        warnings.append("Перебор остановлен до конца: показан лучший из найденных вариантов.")
-    if all_rejected:
-        warnings.append("Ни один вариант не прошёл отбраковку: показаны лучшие из отбракованных.")
 
     return SearchResult(
         best=best,

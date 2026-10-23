@@ -140,6 +140,29 @@ describe("useLayoutSearch: сбои и гонки", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it.each([401, 403, 404])("постоянная ошибка %i при running — опрос прекращается", async (code) => {
+    const poll = vi.spyOn(api.design, "layoutSearchStatus")
+      .mockResolvedValueOnce(status({ state: "running", done: 1, total: 4 }))
+      .mockRejectedValue(new HttpError("Сессия истекла", code));
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await flush();
+    await tick(LAYOUT_SEARCH_POLL_MS);
+    expect(result.current.error).toBe("Сессия истекла");
+    expect(poll).toHaveBeenCalledTimes(2);
+    await tick(LAYOUT_SEARCH_POLL_MS * 5);
+    expect(poll).toHaveBeenCalledTimes(2);
+  });
+
+  it("сбой сервера 5xx при running — опрос продолжается", async () => {
+    const poll = vi.spyOn(api.design, "layoutSearchStatus")
+      .mockResolvedValueOnce(status({ state: "running", done: 1, total: 4 }))
+      .mockRejectedValue(new HttpError("Сервер недоступен", 502));
+    renderHook(() => useLayoutSearch("d1", "fp"));
+    await flush();
+    await tick(LAYOUT_SEARCH_POLL_MS * 3);
+    expect(poll).toHaveBeenCalledTimes(4);
+  });
+
   it("поздний ответ опроса до старта не перетирает running от старта", async () => {
     let resolvePoll: (s: LayoutSearchStatus) => void = () => {};
     vi.spyOn(api.design, "layoutSearchStatus")

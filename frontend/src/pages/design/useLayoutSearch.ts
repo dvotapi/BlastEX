@@ -6,6 +6,7 @@
 // следующий запрос не начнётся, пока не вернулся предыдущий). Уйти со
 // страницы и вернуться можно: идущий подбор подхватывается по `design_id`.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HttpError } from "../../api/client";
 import { api } from "../../api/endpoints";
 import type { BlastDesign, LayoutSearchStatus } from "../../types/design";
 
@@ -71,6 +72,14 @@ export interface LayoutSearchHook {
   stale: boolean;
 }
 
+/** Ошибки, которые повтор не исправит: нет входа, нет прав, нет такого блока. */
+const PERMANENT_STATUSES = new Set([401, 403, 404]);
+
+/** Повторять опрос после сбоя: сеть и 5xx — да, 401/403/404 — нет. */
+function retryable(e: unknown): boolean {
+  return !(e instanceof HttpError && PERMANENT_STATUSES.has(e.status));
+}
+
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : "Не удалось выполнить запрос.";
 }
@@ -84,7 +93,8 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fingerprintRef = useRef(fingerprint);
   fingerprintRef.current = fingerprint;
-  // Последнее известное состояние: после сбоя запроса опрос продолжается, пока оно running.
+  // Последнее известное состояние: после сбоя запроса (сеть, 5xx) опрос
+  // продолжается, пока оно running; на 401/403/404 опрос прекращается.
   const lastState = useRef<LayoutSearchStatus["state"] | null>(null);
   const pollRef = useRef<(id: string, gen: number) => void>(() => {});
 
@@ -126,7 +136,7 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
       } catch (e) {
         if (gen !== generation.current) return;
         setError(messageOf(e));
-        if (lastState.current === "running") schedule(id, gen);
+        if (lastState.current === "running" && retryable(e)) schedule(id, gen);
       }
     })();
   };

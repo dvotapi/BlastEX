@@ -1,6 +1,8 @@
 """HTTP-маршруты подбора раскладки: старт, ход, остановка, чужая организация."""
 from __future__ import annotations
 
+import json
+import logging
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -113,6 +115,29 @@ def test_other_organization_sees_idle(jobs):
     foreign = _client(jobs, org="org-b").get(f"{BASE}/layout-search/d1").json()
     assert foreign["state"] == "idle"
     assert foreign["result"] is None
+
+
+def test_incompatible_stored_result_is_idle(jobs, caplog):
+    # Файл итога прежней версии, который схема ответа не принимает: панель
+    # блока открывается как «нет подбора», а не 500.
+    from design.persistence import layout_search_path
+
+    path = layout_search_path("org-a", "d1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stale = {"fingerprint": "fp", "state": "done", "result": {"best": [{"params": "не словарь"}]}}
+    path.write_text(json.dumps(stale), encoding="utf-8")
+    client = _client(jobs)
+    with caplog.at_level(logging.WARNING):
+        for response in (client.get(f"{BASE}/layout-search/d1"), client.post(f"{BASE}/layout-search/d1/stop")):
+            assert response.status_code == 200
+            data = response.json()
+            assert data["state"] == "idle"
+            assert data["result"] is None
+            assert data["fingerprint"] is None
+    assert any("итог" in record.getMessage() for record in caplog.records)
+
+    path.write_text("{не json", encoding="utf-8")
+    assert client.get(f"{BASE}/layout-search/d1").json()["state"] == "idle"
 
 
 def test_bad_design_id_is_404(jobs):

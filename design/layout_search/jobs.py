@@ -11,8 +11,10 @@
 новый реестр о нём не знает и показывает сохранённый итог или `idle`.
 
 Ошибка перебора, выход дочернего процесса без итога и превышение
-`budget_s + grace_s` дают статус `failed` с текстом ошибки; файл при этом не
-переписывается, прежний итог остаётся.
+`budget_s + grace_s` дают статус `failed`; файл при этом не переписывается,
+прежний итог остаётся. Исключение перебора пользователю не показывается
+(общий `ERROR_TEXT`), подробности — в журнале сервера. Испорченный или
+несовместимый файл итога читается как «нет итога» (`idle`) с записью в журнал.
 """
 from __future__ import annotations
 
@@ -47,6 +49,8 @@ BUSY_MESSAGE = "Подбор раскладки уже идёт: блок «{nam
 # Подбор блока другой команды (организации): имя её блока не раскрывается.
 BUSY_OTHER_MESSAGE = "Сервер занят подбором раскладки другого блока. Попробуйте позже."
 ERROR_PREFIX = "Подбор раскладки завершился с ошибкой: "
+# Исключение перебора: служебные имена пользователю не показываются.
+ERROR_TEXT = "Подбор раскладки завершился с ошибкой. Подробности — в журнале сервера."
 NO_RESULT_TEXT = "процесс подбора завершился без результата."
 TIMEOUT_TEXT = "подбор не уложился в {seconds:.0f} с и прерван."
 
@@ -92,9 +96,10 @@ def run_search_child(
             should_stop=stop.is_set,
         )
         out.put(("result", result_to_dict(result)))
-    except Exception as exc:  # noqa: BLE001 — любая ошибка перебора → статус «ошибка»
+    except Exception:  # noqa: BLE001 — любая ошибка перебора → статус «ошибка»
+        # Подробности — только в журнал: текст исключения несёт служебные имена.
         logger.exception("Подбор раскладки завершился с ошибкой")
-        out.put(("error", str(exc) or type(exc).__name__))
+        out.put(("error", ERROR_TEXT))
 
 
 @dataclass
@@ -118,12 +123,36 @@ class _Job:
 
 
 def _read_stored(path: Path) -> dict[str, Any] | None:
-    """Сохранённый итог подбора; нет файла или он испорчен — None."""
+    """Сохранённый итог подбора; нет файла — None, испорченный — None с записью в журнал."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return None
-    return data if isinstance(data, dict) else None
+    except OSError:
+        logger.warning("Файл итога подбора раскладки не прочитан: %s", path, exc_info=True)
+        return None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        logger.warning("Файл итога подбора раскладки испорчен: %s", path)
+        return None
+    if not _stored_shape_ok(data):
+        logger.warning("Файл итога подбора раскладки несовместим: %s", path)
+        return None
+    return data
+
+
+def _stored_shape_ok(data: Any) -> bool:
+    """Верхний уровень файла итога: объект, состояние done/stopped, итог — объект."""
+    if not isinstance(data, dict):
+        return False
+    fingerprint = data.get("fingerprint")
+    if fingerprint is not None and not isinstance(fingerprint, str):
+        return False
+    if data.get("state", STATE_DONE) not in (STATE_DONE, STATE_STOPPED):
+        return False
+    result = data.get("result")
+    return result is None or isinstance(result, dict)
 
 
 def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -331,9 +360,9 @@ class LayoutSearchJobs:
                 self._store(job, payload)
             else:
                 error = str(payload)
-        except Exception as exc:  # noqa: BLE001 — слот освобождается при любой ошибке
+        except Exception:  # noqa: BLE001 — слот освобождается при любой ошибке
             logger.exception("Наблюдатель подбора раскладки упал")
-            error = str(exc) or type(exc).__name__
+            error = ERROR_TEXT
         finally:
             try:
                 self._finish_worker(job)
@@ -343,7 +372,8 @@ class LayoutSearchJobs:
                 elapsed_s = round(time.monotonic() - job.started, 1)
                 with self._lock:
                     if error is not None:
-                        self._failed[job.key] = (ERROR_PREFIX + error, elapsed_s)
+                        text = error if error == ERROR_TEXT else ERROR_PREFIX + error
+                        self._failed[job.key] = (text, elapsed_s)
                     else:
                         self._failed.pop(job.key, None)
                     self._active = None

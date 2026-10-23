@@ -22,7 +22,7 @@ import {
 } from "../../types/design";
 import { designReducer, initDesignState, type DesignState } from "./designReducer";
 import { LayoutSearchPanel } from "./LayoutSearchPanel";
-import { layoutFingerprint } from "./useLayoutSearch";
+import { layoutFingerprint, layoutSearchInputs } from "./useLayoutSearch";
 import { useLayoutSearchApply, type ChargeGrid } from "./useLayoutSearchApply";
 
 afterEach(() => {
@@ -97,13 +97,9 @@ const FORM_A = 4.2;
 /** Отпечаток входов страницы до правок: форма — поверх умолчаний, правка шага a. */
 async function startFingerprint(design: BlastDesign): Promise<string> {
   const form = { ...DEFAULT_PATTERN_PARAMS, ...(design.pattern_params as Partial<PatternParams>), spacing_a_m: FORM_A };
-  return layoutFingerprint({
-    contour: design.contour,
-    surfaces: design.surfaces,
-    domains: design.domains,
-    pattern_params: Object.fromEntries(Object.entries(form).filter(([, v]) => v !== undefined)),
-    rock_name: design.rock_name,
-  });
+  return layoutFingerprint(
+    layoutSearchInputs(design, Object.fromEntries(Object.entries(form).filter(([, v]) => v !== undefined))),
+  );
 }
 
 type Probe = {
@@ -113,6 +109,8 @@ type Probe = {
   tieParams: TieParams;
   chargeGrid: ChargeGrid;
   error: string;
+  inputsFingerprint: string | null;
+  applied: Parameters<NonNullable<Parameters<typeof useLayoutSearchApply>[0]["onApplied"]>>[];
   dispatch: (action: Parameters<typeof designReducer>[1]) => void;
   setPatternParams: (params: PatternParams) => void;
 };
@@ -133,6 +131,7 @@ function Page({ design, probe }: { design: BlastDesign; probe: { current: Probe 
   // Сетка для q в правилах зарядов — как на странице, по шагам формы.
   const [chargeGrid, setChargeGrid] = useState<ChargeGrid>({ grid_a_m: 4, grid_b_m: 4 });
   const [error, setError] = useState("");
+  const [applied] = useState<Probe["applied"]>(() => []);
   const layout = useLayoutSearchApply({
     state,
     dispatch,
@@ -143,8 +142,20 @@ function Page({ design, probe }: { design: BlastDesign; probe: { current: Probe 
     setChargeGrid,
     rejectLocked: () => lockedRef.current,
     setError,
+    onApplied: (...args) => applied.push(args),
   });
-  probe.current = { state, patternParams, tieScheme, tieParams, chargeGrid, error, dispatch, setPatternParams };
+  probe.current = {
+    state,
+    patternParams,
+    tieScheme,
+    tieParams,
+    chargeGrid,
+    error,
+    inputsFingerprint: layout.inputsFingerprint,
+    applied,
+    dispatch,
+    setPatternParams,
+  };
   return (
     <>
       <LayoutSearchPanel
@@ -354,6 +365,93 @@ describe("useLayoutSearchApply: «Применить» на странице", (
     await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4));
     expect(probe.current.tieScheme).toBe("trunk_chains");
     expect(probe.current.tieParams).toMatchObject({ cut_flank: "right", trunk_ms: 17, chain_ms: 67, system: "nonel" });
+  });
+
+  it("уровень воды без доменов: скважины варианта всё равно пересекаются", async () => {
+    const withWater = variant().holes.map((h) => ({ ...h, water_intervals: [{ from_m: 0, to_m: 3 }] as unknown as Hole["water_intervals"] }));
+    const intercept = vi.spyOn(api.design, "interceptGeology").mockResolvedValue({ holes: withWater } as never);
+    const probe = await mount(base({ water_table_z_m: 415 }));
+
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.state.present.holes[0].water_intervals).toHaveLength(1));
+    expect(intercept).toHaveBeenCalledWith(variant().holes, [], 415);
+  });
+
+  it("без доменов и уровня воды пересечения нет", async () => {
+    const intercept = vi.spyOn(api.design, "interceptGeology");
+    const probe = await mount(base());
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.state.present.holes.map((h) => h.id)).toEqual(["n1", "n2"]));
+    expect(intercept).not.toHaveBeenCalled();
+  });
+
+  it("применить → сохранить → отменить → повторить: формы — варианта", async () => {
+    const probe = await mount(base());
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4.6));
+    // «Сохранить»: документ с сервера — новые объекты с теми же значениями.
+    act(() => probe.current.dispatch({ type: "SAVED", design: structuredClone(probe.current.state.present) }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    expect(probe.current.patternParams.spacing_a_m).toBe(4.6);
+
+    act(() => probe.current.dispatch({ type: "UNDO" }));
+    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4));
+    await waitFor(() => expect(probe.current.tieScheme).toBe("row"));
+    expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4, grid_b_m: 4 });
+
+    act(() => probe.current.dispatch({ type: "REDO" }));
+    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4.6));
+    expect(probe.current.patternParams.front_rows_mode).toBe("pair");
+    expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4.6, grid_b_m: 3.7 });
+    await waitFor(() => expect(probe.current.tieScheme).toBe("trunk_chains"));
+    expect(probe.current.tieParams).toMatchObject({ cut_flank: "right", trunk_ms: 17, chain_ms: 67 });
+  });
+
+  it("«Сохранить» без отмены правку формы «Сетка» не затирает", async () => {
+    const probe = await mount(base());
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4.6));
+    act(() => probe.current.setPatternParams({ ...probe.current.patternParams, spacing_a_m: 5 }));
+    act(() => probe.current.dispatch({ type: "SAVED", design: structuredClone(probe.current.state.present) }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    expect(probe.current.patternParams.spacing_a_m).toBe(5);
+  });
+
+  it("смена системы инициирования базовой сети — итог «Устарел»", async () => {
+    const probe = await mount(base());
+    expect(screen.queryByText(/Устарел/)).toBeNull();
+    act(() => probe.current.dispatch({ type: "SET_NETWORK", network: { ...probe.current.state.present.network, system: "electronic" } }));
+    await screen.findByText(/^Устарел/);
+  });
+
+  it("контурный ряд в базовой сети — итог «Устарел»", async () => {
+    const contourHole = { ...hole("k1"), kind: "contour" } as Hole;
+    const probe = await mount(base({ holes: [hole("a"), contourHole] }));
+    expect(screen.queryByText(/Устарел/)).toBeNull();
+    const network = probe.current.state.present.network;
+    act(() => probe.current.dispatch({ type: "SET_NETWORK", network: { ...network, starters: [...network.starters, "k1"] } }));
+    await screen.findByText(/^Устарел/);
+  });
+
+  it("пока отпечаток пересчитывается, прежний не действует", async () => {
+    const probe = await mount(base());
+    await waitFor(() => expect(probe.current.inputsFingerprint).not.toBeNull());
+    act(() => probe.current.setPatternParams({ ...probe.current.patternParams, spacing_a_m: 5.5 }));
+    expect(probe.current.inputsFingerprint).toBeNull();
+    await waitFor(() => expect(probe.current.inputsFingerprint).not.toBeNull());
+  });
+
+  it("onApplied получает скважины, параметры и сетку варианта — для карт", async () => {
+    const withWater = variant().holes.map((h) => ({ ...h, water_intervals: [{ from_m: 0, to_m: 3 }] as unknown as Hole["water_intervals"] }));
+    vi.spyOn(api.design, "interceptGeology").mockResolvedValue({ holes: withWater } as never);
+    const probe = await mount(base({ water_table_z_m: 415 }));
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.applied).toHaveLength(1));
+    const [applied, holes, params, grid] = probe.current.applied[0];
+    expect(applied.cut_flank).toBe("right");
+    expect(holes).toEqual(withWater);
+    expect(params).toMatchObject({ spacing_a_m: 4.6, burden_b_m: 3.7, row_azimuth_deg: 35, front_rows_mode: "pair" });
+    expect(grid).toEqual({ grid_a_m: 4.6, grid_b_m: 3.7 });
   });
 
   describe("паспорт изменился, пока готовилась геология", () => {

@@ -347,8 +347,8 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     case "APPLY_LAYOUT": {
       // Как новая сетка: заряды и исполнение прежней раскладки сбрасываются.
       const cleared = reduceDocument(document, { type: "SET_HOLES", holes: action.holes });
-      // Объект параметров — тот же, что в действии: по нему страница узнаёт,
-      // что форму «Сетка» надо взять из документа (применение, отмена, повтор).
+      // Параметры — из действия: по их значению страница узнаёт, что форму
+      // «Сетка» надо взять из документа (применение, отмена, повтор).
       return { ...cleared, network: normalizeNetwork(action.network), pattern_params: action.pattern_params };
     }
     case "RECOMPUTE_HOLES": {

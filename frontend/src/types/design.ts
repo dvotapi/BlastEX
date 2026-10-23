@@ -3514,6 +3514,9 @@ export type LayoutSearchResult = {
   elapsed_s: number;
   all_rejected: boolean;
   warnings: string[];
+  /** Границы темпа отбойки, с которыми шёл подбор (у итогов прежней версии — нет). */
+  relief_min_ms_m?: number | null;
+  relief_max_ms_m?: number | null;
 };
 
 export type LayoutSearchStatus = {
@@ -3526,4 +3529,6 @@ export type LayoutSearchStatus = {
   fingerprint: string | null;
   result: LayoutSearchResult | null;
   error: string | null;
+  /** Границы темпа породы итога в справочнике уже другие — итог устарел. */
+  bounds_changed?: boolean;
 };

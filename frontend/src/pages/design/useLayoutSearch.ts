@@ -5,10 +5,13 @@
 // подбор идёт, повторяет запрос раз в секунду (`setTimeout`, не `setInterval`:
 // следующий запрос не начнётся, пока не вернулся предыдущий). Уйти со
 // страницы и вернуться можно: идущий подбор подхватывается по `design_id`.
+// Старт не удался (409 — подбор уже идёт, сеть) — хук один раз спрашивает
+// статус и дальше опрашивает по нему: идущий подбор так подхватывается и
+// тогда, когда первый ответ статуса ещё не пришёл.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HttpError } from "../../api/client";
 import { api } from "../../api/endpoints";
-import type { BlastDesign, LayoutSearchStatus } from "../../types/design";
+import type { BlastDesign, Hole, InitiationNetwork, LayoutSearchStatus } from "../../types/design";
 
 /** Пауза между запросами статуса, пока подбор идёт. */
 export const LAYOUT_SEARCH_POLL_MS = 1000;
@@ -20,6 +23,49 @@ export interface LayoutFingerprintInput {
   domains: unknown;
   pattern_params: unknown;
   rock_name: string;
+  /** Система инициирования базовой сети: от неё — замедление и реле варианта. */
+  network_system: string | null;
+  /** Контурные скважины, которые монтирует базовая сеть (по номерам, по порядку). */
+  wired_contour_holes: string[];
+}
+
+/**
+ * Контурные скважины, связанные базовой сетью (связи или стартовые), — то же
+ * правило, что `wired_wall_holes` на сервере: по ним перебор решает,
+ * монтировать ли контурный ряд варианта.
+ */
+export function wiredContourHoles(holes: Hole[], network: InitiationNetwork | null | undefined): string[] {
+  if (!network) return [];
+  const wired = new Set<string>(network.starters ?? []);
+  for (const link of [...(network.connectors ?? []), ...(network.surface_connectors ?? [])]) {
+    wired.add(link.from_hole);
+    wired.add(link.to_hole);
+  }
+  return holes
+    .filter((h) => h.kind === "contour" && wired.has(h.id))
+    .map((h) => h.id)
+    .sort();
+}
+
+/**
+ * Входы подбора по паспорту и параметрам формы «Сетка» (как они уйдут на
+ * сервер). `wired` — уже посчитанный `wiredContourHoles` (страница держит его
+ * отдельно, чтобы правка скважин не пересобирала JSON съёмки).
+ */
+export function layoutSearchInputs(
+  design: Pick<BlastDesign, "contour" | "surfaces" | "domains" | "rock_name" | "network" | "holes">,
+  patternParams: Record<string, unknown>,
+  wired: string[] = wiredContourHoles(design.holes, design.network),
+): LayoutFingerprintInput {
+  return {
+    contour: design.contour,
+    surfaces: design.surfaces,
+    domains: design.domains,
+    pattern_params: patternParams,
+    rock_name: design.rock_name,
+    network_system: design.network?.system ?? null,
+    wired_contour_holes: wired,
+  };
 }
 
 /** JSON с ключами по алфавиту на любой глубине: порядок ключей не влияет на текст. */
@@ -56,7 +102,11 @@ function cyrb53(text: string): string {
  * иначе — запасной хеш: отпечаток нужен лишь для пометки «устарел».
  */
 export async function layoutFingerprint(input: LayoutFingerprintInput): Promise<string> {
-  const json = stableJson(input);
+  return fingerprintOfJson(stableJson(input));
+}
+
+/** Отпечаток уже собранного стабильного JSON (`stableJson`). */
+export async function fingerprintOfJson(json: string): Promise<string> {
   const subtle = typeof crypto !== "undefined" ? crypto.subtle : undefined;
   if (!subtle) return cyrb53(json);
   const digest = await subtle.digest("SHA-256", new TextEncoder().encode(json));
@@ -68,8 +118,10 @@ export interface LayoutSearchHook {
   start: (design: BlastDesign) => Promise<void>;
   stop: () => Promise<void>;
   error: string | null;
-  /** Есть результат, посчитанный по другим входам, чем текущие. */
+  /** Есть результат, посчитанный по другим входам, чем текущие (или по другим границам темпа). */
   stale: boolean;
+  /** Границы темпа породы итога в справочнике уже другие. */
+  boundsChanged: boolean;
 }
 
 /** Ошибки, которые повтор не исправит: нет входа, нет прав, нет такого блока. */
@@ -96,7 +148,7 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
   // Последнее известное состояние: после сбоя запроса (сеть, 5xx) опрос
   // продолжается, пока оно running; на 401/403/404 опрос прекращается.
   const lastState = useRef<LayoutSearchStatus["state"] | null>(null);
-  const pollRef = useRef<(id: string, gen: number) => void>(() => {});
+  const pollRef = useRef<(id: string, gen: number, keepError?: boolean) => Promise<void>>(async () => {});
 
   const clearTimer = useCallback(() => {
     if (timer.current !== null) {
@@ -110,35 +162,35 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
       clearTimer();
       timer.current = setTimeout(() => {
         timer.current = null;
-        pollRef.current(id, gen);
+        void pollRef.current(id, gen);
       }, LAYOUT_SEARCH_POLL_MS);
     },
     [clearTimer],
   );
 
   // Принять статус; пока идёт подбор — запланировать следующий запрос.
+  // `keepError` — ответ после неудачного старта: его ошибка остаётся видна.
   const accept = useCallback(
-    (id: string, gen: number, next: LayoutSearchStatus) => {
+    (id: string, gen: number, next: LayoutSearchStatus, keepError = false) => {
       if (gen !== generation.current) return;
       lastState.current = next.state;
       setStatus(next);
-      setError(null);
+      if (!keepError) setError(null);
       clearTimer();
       if (next.state === "running") schedule(id, gen);
     },
     [clearTimer, schedule],
   );
 
-  pollRef.current = (id, gen) => {
-    void (async () => {
-      try {
-        accept(id, gen, await api.design.layoutSearchStatus(id));
-      } catch (e) {
-        if (gen !== generation.current) return;
-        setError(messageOf(e));
-        if (lastState.current === "running" && retryable(e)) schedule(id, gen);
-      }
-    })();
+  pollRef.current = async (id, gen, keepError = false) => {
+    try {
+      accept(id, gen, await api.design.layoutSearchStatus(id), keepError);
+    } catch (e) {
+      if (gen !== generation.current) return;
+      // После неудачного старта видна его ошибка, а не сбой запроса статуса.
+      if (!keepError) setError(messageOf(e));
+      if (lastState.current === "running" && retryable(e)) schedule(id, gen);
+    }
   };
 
   useEffect(() => {
@@ -148,7 +200,7 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
     lastState.current = null;
     setStatus(null);
     setError(null);
-    if (designId) pollRef.current(designId, gen);
+    if (designId) void pollRef.current(designId, gen);
     return () => {
       generation.current += 1;
       clearTimer();
@@ -172,8 +224,10 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
       } catch (e) {
         if (gen !== generation.current) return;
         setError(messageOf(e));
-        // 409: чужой подбор идёт — опрос, прерванный стартом, возобновляем.
-        if (lastState.current === "running") schedule(designId, gen);
+        // 409 (подбор уже идёт) или сбой: старт прервал опрос, а первый ответ
+        // статуса мог ещё не прийти — один раз спрашиваем статус, дальше опрос
+        // по нему (идёт — раз в секунду).
+        await pollRef.current(designId, gen, true);
       }
     },
     [designId, accept, clearTimer, schedule],
@@ -195,6 +249,7 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
     }
   }, [designId, accept, clearTimer, schedule]);
 
-  const stale = Boolean(status?.result) && fingerprint !== null && status?.fingerprint !== fingerprint;
-  return { status, start, stop, error, stale };
+  const boundsChanged = Boolean(status?.result && status.bounds_changed);
+  const stale = boundsChanged || (Boolean(status?.result) && fingerprint !== null && status?.fingerprint !== fingerprint);
+  return { status, start, stop, error, stale, boundsChanged };
 }

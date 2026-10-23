@@ -327,3 +327,20 @@ describe("LayoutSearchPanel: предпросмотр и «Применить»"
     expect(props.onPreview).toHaveBeenCalledWith(0);
   });
 });
+
+describe("LayoutSearchPanel: границы темпа итога", () => {
+  it("подпись доли быстрых — по нижней границе запуска", () => {
+    mount({ status: status({ result: result({ relief_min_ms_m: 4.5, relief_max_ms_m: 12 }) }) });
+    expect(within(card(0)).getByText("Быстрее 4,5 мс/м, %")).toBeTruthy();
+  });
+
+  it("итог прежней версии без границ — 3 мс/м", () => {
+    mount();
+    expect(within(card(0)).getByText("Быстрее 3 мс/м, %")).toBeTruthy();
+  });
+
+  it("границы породы изменились — своя пометка «Устарел»", () => {
+    mount({ stale: true, status: status({ bounds_changed: true }) });
+    expect(screen.getByText("Устарел: границы темпа отбойки породы изменились после подбора")).toBeTruthy();
+  });
+});

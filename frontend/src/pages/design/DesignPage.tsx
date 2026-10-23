@@ -107,7 +107,7 @@ import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
-import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer } from "./designParams";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, type DesignParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -738,7 +738,7 @@ export function DesignPage({
     setChargeGrid,
     rejectLocked: () => rejectLocked("designed"),
     setError,
-    onApplied: (variant, holes) => {
+    onApplied: (variant, holes, params, grid) => {
       // Как после «Сгенерировать сетку»: сброс результатов.
       setFragResult(null);
       setAsDrilledResult(null);
@@ -747,7 +747,8 @@ export function DesignPage({
       setExecutionResult(null);
       setBlastResultCompare(null);
       setSelected(new Set());
-      void refreshMaps({ ...document, holes, network: variant.network });
+      // Формы страницы ещё прежние: карты — по параметрам и сетке варианта.
+      void refreshMaps({ ...document, holes, network: variant.network }, { patternParams: params, chargeRules: { ...chargeRules, ...grid } });
     },
   });
 
@@ -852,7 +853,8 @@ export function DesignPage({
 
   refreshMapsRef.current = () => { void refreshMaps(); };
 
-  async function refreshMaps(design = document) {
+  /** Карты по документу; `params` — формы, если страница их ещё не перерисовала. */
+  async function refreshMaps(design = document, params?: Pick<DesignParams, "patternParams" | "chargeRules">) {
     if (!design.holes.length) {
       setMaps(null);
       return;
@@ -862,7 +864,9 @@ export function DesignPage({
     const startKey = mapsInputsKey(design.holes, design.contour);
     mapsInFlightRef.current += 1;
     try {
-      const result = await api.design.maps(designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey }));
+      const result = await api.design.maps(
+        designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey, ...params }),
+      );
       // Контур или скважины поменялись, пока шёл запрос, — ответ устарел.
       if (!isResponseCurrent(startKey, currentMapsKey())) return;
       mapsLoadedKeyRef.current = startKey;

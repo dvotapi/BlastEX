@@ -8,7 +8,8 @@
 // «Сетка» берётся из документа. Вместе с ней — сетка для q в правилах
 // зарядов (шаги a × b — от них масса заряда) и форма «Коммутация» (по
 // `timing_params` сети документа; сеть, построенная не шаблоном, форму не
-// меняет).
+// меняет). Параметры узнаются по значению, а не по объекту: после «Сохранить»
+// документ приходит с сервера новыми объектами с теми же значениями.
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { api } from "../../api/endpoints";
 import {
@@ -22,7 +23,15 @@ import {
   type TieParams,
 } from "../../types/design";
 import type { DesignAction, DesignState } from "./designReducer";
-import { layoutFingerprint, stableJson, useLayoutSearch, type LayoutSearchHook } from "./useLayoutSearch";
+import {
+  fingerprintOfJson,
+  layoutFingerprint,
+  layoutSearchInputs,
+  stableJson,
+  useLayoutSearch,
+  wiredContourHoles,
+  type LayoutSearchHook,
+} from "./useLayoutSearch";
 
 /** Параметры без ключей со значением undefined — как они уходят на сервер. */
 function definedParams(params: PatternParams): Record<string, unknown> {
@@ -119,30 +128,44 @@ export function useLayoutSearchApply({
   /** true — проектную часть править нельзя (сообщение ставит страница). */
   rejectLocked: () => boolean;
   setError: (message: string) => void;
-  /** Остальное, что страница сбрасывает после новой раскладки. */
-  onApplied?: (variant: LayoutSearchVariant, holes: Hole[], params: PatternParams) => void;
+  /**
+   * Остальное, что страница сбрасывает после новой раскладки. Скважины (после
+   * геологии), параметры и сетка для q — варианта: страница ещё не
+   * перерисовалась, и её формы — прежние.
+   */
+  onApplied?: (variant: LayoutSearchVariant, holes: Hole[], params: PatternParams, grid: ChargeGrid) => void;
 }): LayoutSearchApply {
   const document = state.present;
 
   // Отпечаток — по тому, что ушло бы на сервер: контур, съёмка, домены,
-  // параметры формы «Сетка» и порода.
+  // параметры формы «Сетка», порода, система инициирования и контурные
+  // скважины, связанные базовой сетью. Пока он пересчитывается, прежний не
+  // действует (null): запуск в это время просит подождать.
   const formParams = useMemo(() => definedParams(patternParams), [patternParams]);
+  // Связанные контурные скважины — отдельно: правка скважин (перетаскивание)
+  // не пересобирает JSON съёмки, пока список не изменился.
+  const wiredKey = useMemo(
+    () => wiredContourHoles(document.holes, document.network).join("\n"),
+    [document.holes, document.network],
+  );
+  const networkSystem = document.network?.system ?? null;
+  const inputsJson = useMemo(
+    () => stableJson(layoutSearchInputs(document, formParams, wiredKey ? wiredKey.split("\n") : [])),
+    // Сеть и скважины входят только системой и списком связанных контурных.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [document.contour, document.surfaces, document.domains, formParams, document.rock_name, networkSystem, wiredKey],
+  );
   const [inputsFingerprint, setInputsFingerprint] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    void layoutFingerprint({
-      contour: document.contour,
-      surfaces: document.surfaces,
-      domains: document.domains,
-      pattern_params: formParams,
-      rock_name: document.rock_name,
-    }).then((value) => {
+    setInputsFingerprint(null);
+    void fingerprintOfJson(inputsJson).then((value) => {
       if (alive) setInputsFingerprint(value);
     });
     return () => {
       alive = false;
     };
-  }, [document.contour, document.surfaces, document.domains, formParams, document.rock_name]);
+  }, [inputsJson]);
 
   const search = useLayoutSearch(document.design_id || null, inputsFingerprint);
   const result = search.status?.state === "running" ? null : search.status?.result ?? null;
@@ -156,22 +179,26 @@ export function useLayoutSearchApply({
   // с подбором, хотя результат свежий: входы после применения помним отдельно.
   // Только для свежего результата — устаревший так и остаётся устаревшим.
   const [applied, setApplied] = useState<{ result: string | null; inputs: string } | null>(null);
+  // Сменившиеся границы темпа породы применённый вариант не исправляет.
   const stale =
-    search.stale &&
-    !(applied && applied.result === search.status?.fingerprint && applied.inputs === inputsFingerprint);
+    search.boundsChanged ||
+    (search.stale &&
+      !(applied && applied.result === search.status?.fingerprint && applied.inputs === inputsFingerprint));
   const staleRef = useRef(stale);
   staleRef.current = stale;
 
-  // Параметры документа до и после «Применить»: когда применение, отмена или
-  // повтор возвращают документ с одним из них, форма «Сетка», сетка для q в
-  // правилах зарядов и форма «Коммутация» берутся из документа. Другие отмены
-  // (параметры — тот же объект) правок форм не затирают.
-  const appliedParams = useRef(new WeakSet<object>());
-  const syncedParams = useRef(document.pattern_params);
+  // Параметры документа до и после «Применить» (по значению): когда
+  // применение, отмена или повтор возвращают документ с одним из них, форма
+  // «Сетка», сетка для q в правилах зарядов и форма «Коммутация» берутся из
+  // документа. Другие отмены и «Сохранить» (параметры по значению те же)
+  // правок форм не затирают.
+  const appliedParams = useRef(new Set<string>());
+  const syncedParams = useRef(stableJson(document.pattern_params));
   useEffect(() => {
-    if (syncedParams.current === document.pattern_params) return;
-    syncedParams.current = document.pattern_params;
-    if (!appliedParams.current.has(document.pattern_params)) return;
+    const key = stableJson(document.pattern_params);
+    if (syncedParams.current === key) return;
+    syncedParams.current = key;
+    if (!appliedParams.current.has(key)) return;
     const params: PatternParams = { ...DEFAULT_PATTERN_PARAMS, ...(document.pattern_params as Partial<PatternParams>) };
     setPatternParams(params);
     setChargeGrid({ grid_a_m: params.spacing_a_m, grid_b_m: params.burden_b_m });
@@ -201,9 +228,10 @@ export function useLayoutSearchApply({
     try {
       // Геология — до применения, чтобы скважины и их интервалы были одним
       // шагом отмены: без интервалов шаблоны зарядов считают скважины сухими.
+      // Уровень воды без доменов тоже даёт интервалы — обводнённые скважины.
       let holes = variant.holes;
       let geologyError = "";
-      if (domains.length && holes.length) {
+      if ((domains.length || (waterTable !== null && waterTable !== undefined)) && holes.length) {
         try {
           holes = (await api.design.interceptGeology(holes, domains, waterTable)).holes;
         } catch (reason) {
@@ -219,23 +247,18 @@ export function useLayoutSearchApply({
         setError(CHANGED_DURING_GEOLOGY);
         return;
       }
-      appliedParams.current.add(params);
-      // Параметры документа, на который ложится шаг отмены (после «Сохранить» — новый объект).
-      appliedParams.current.add(now.pattern_params);
+      appliedParams.current.add(stableJson(params));
+      // Параметры документа, на который ложится шаг отмены.
+      appliedParams.current.add(stableJson(now.pattern_params));
       dispatch({ type: "APPLY_LAYOUT", holes, network: variant.network, pattern_params: params });
       setPreviewIndex(null);
       // Формы «Сетка», «Коммутация» и сетка для q — из документа (эффект выше):
       // «Магистраль + цепочки» с флангом варианта.
       setError(geologyError);
-      onApplied?.(variant, holes, nextParams);
+      onApplied?.(variant, holes, nextParams, { grid_a_m: nextParams.spacing_a_m, grid_b_m: nextParams.burden_b_m });
       if (!wasStale) {
-        const inputs = await layoutFingerprint({
-          contour: document.contour,
-          surfaces: document.surfaces,
-          domains,
-          pattern_params: params,
-          rock_name: document.rock_name,
-        });
+        // Входы документа после применения: скважины и сеть — варианта.
+        const inputs = await layoutFingerprint(layoutSearchInputs({ ...now, holes, network: variant.network }, params));
         setApplied({ result: resultFingerprint, inputs });
       }
     } finally {

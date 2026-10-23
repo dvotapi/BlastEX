@@ -112,6 +112,45 @@ describe("useLayoutSearch", () => {
     expect(result.current.stale).toBe(true);
   });
 
+  it("bounds_changed: границы темпа породы изменились — результат устарел", async () => {
+    vi.spyOn(api.design, "layoutSearchStatus").mockResolvedValue(
+      status({ state: "done", fingerprint: "a", result: RESULT, bounds_changed: true }),
+    );
+    const { result } = renderHook(() => useLayoutSearch("d1", "a"));
+    await flush();
+    expect(result.current.boundsChanged).toBe(true);
+    expect(result.current.stale).toBe(true);
+  });
+
+  it("409 до первого ответа статуса: один запрос статуса, дальше опрос по нему", async () => {
+    const poll = vi.spyOn(api.design, "layoutSearchStatus")
+      .mockImplementationOnce(() => new Promise<LayoutSearchStatus>(() => {}))
+      .mockResolvedValueOnce(status({ state: "running", done: 1, total: 4 }))
+      .mockResolvedValue(status({ state: "running", done: 2, total: 4 }));
+    vi.spyOn(api.design, "layoutSearchStart").mockRejectedValue(
+      new HttpError("Подбор раскладки уже идёт: блок «Блок 1». Дождитесь окончания или остановите его.", 409),
+    );
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await act(async () => { await result.current.start(emptyDesign()); });
+    expect(poll).toHaveBeenCalledTimes(2);
+    expect(result.current.status?.state).toBe("running");
+    expect(result.current.error).toContain("уже идёт");
+    await tick(LAYOUT_SEARCH_POLL_MS);
+    expect(result.current.status?.done).toBe(2);
+  });
+
+  it("ошибка старта при подборе, которого нет: статус спрошен, опроса нет", async () => {
+    const poll = vi.spyOn(api.design, "layoutSearchStatus").mockResolvedValue(status());
+    vi.spyOn(api.design, "layoutSearchStart").mockRejectedValue(new HttpError("Паспорт не найден", 404));
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await flush();
+    await act(async () => { await result.current.start(emptyDesign()); });
+    expect(poll).toHaveBeenCalledTimes(2);
+    expect(result.current.error).toBe("Паспорт не найден");
+    await tick(LAYOUT_SEARCH_POLL_MS * 3);
+    expect(poll).toHaveBeenCalledTimes(2);
+  });
+
   it("409 попадает в error с текстом сервера", async () => {
     vi.spyOn(api.design, "layoutSearchStatus").mockResolvedValue(status());
     vi.spyOn(api.design, "layoutSearchStart").mockRejectedValue(
@@ -199,15 +238,15 @@ describe("useLayoutSearch: сбои и гонки", () => {
 
 describe("layoutFingerprint", () => {
   it("ключ undefined равен отсутствующему, 1 равно 1.0", async () => {
-    const a = { contour: { a: 1, b: undefined }, surfaces: {}, domains: [], pattern_params: {}, rock_name: "r" };
-    const b = { contour: { a: 1.0 }, surfaces: {}, domains: [], pattern_params: {}, rock_name: "r" };
+    const a = { contour: { a: 1, b: undefined }, surfaces: {}, domains: [], pattern_params: {}, rock_name: "r", network_system: "nonel", wired_contour_holes: [] };
+    const b = { contour: { a: 1.0 }, surfaces: {}, domains: [], pattern_params: {}, rock_name: "r", network_system: "nonel", wired_contour_holes: [] };
     expect(await layoutFingerprint(a)).toBe(await layoutFingerprint(b));
   });
 
   it("без crypto.subtle работает запасной хеш, различающий входы", async () => {
     vi.stubGlobal("crypto", { subtle: undefined });
     try {
-      const base = { contour: { a: 1 }, surfaces: {}, domains: [], pattern_params: {}, rock_name: "r" };
+      const base = { contour: { a: 1 }, surfaces: {}, domains: [], pattern_params: {}, rock_name: "r", network_system: "nonel", wired_contour_holes: [] };
       const fp = await layoutFingerprint(base);
       expect(fp).toMatch(/^[0-9a-f]+$/);
       expect(await layoutFingerprint({ ...base })).toBe(fp);
@@ -219,10 +258,10 @@ describe("layoutFingerprint", () => {
 });
 
 describe("layoutFingerprint: основной путь", () => {
-  const base = { contour: { a: 1, b: [1, 2] }, surfaces: {}, domains: [], pattern_params: { x: 1, y: 2 }, rock_name: "Гранит" };
+  const base = { contour: { a: 1, b: [1, 2] }, surfaces: {}, domains: [], pattern_params: { x: 1, y: 2 }, rock_name: "Гранит", network_system: "nonel", wired_contour_holes: [] };
 
   it("не зависит от порядка ключей", async () => {
-    const reordered = { rock_name: "Гранит", pattern_params: { y: 2, x: 1 }, domains: [], surfaces: {}, contour: { b: [1, 2], a: 1 } };
+    const reordered = { wired_contour_holes: [], network_system: "nonel", rock_name: "Гранит", pattern_params: { y: 2, x: 1 }, domains: [], surfaces: {}, contour: { b: [1, 2], a: 1 } };
     expect(await layoutFingerprint(reordered)).toBe(await layoutFingerprint(base));
   });
 

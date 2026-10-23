@@ -30,6 +30,9 @@ const UNKNOWN_REJECT = "не прошёл проверку";
 
 const NO_DESIGN_HINT = "Сохраните паспорт, чтобы подобрать раскладку";
 const STALE_TEXT = "Устарел: контур, съёмка или параметры изменились после подбора";
+const BOUNDS_CHANGED_TEXT = "Устарел: границы темпа отбойки породы изменились после подбора";
+/** Нижняя граница темпа у итогов прежней версии (без сохранённых границ), мс/м. */
+const DEFAULT_RELIEF_MIN_MS_M = 3;
 const ALL_REJECTED_TEXT = "Ни один вариант не прошёл проверки — показаны лучшие из отбракованных.";
 // Остановка — одна пометка: пользователем (state stopped) или концом бюджета
 // (done с stopped_early). Без вариантов пометки нет — говорит предупреждение сервера.
@@ -45,8 +48,8 @@ function numberOf(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/** Градусы: целые — без дробной части, иначе одна цифра после запятой. */
-function degrees(value: number): string {
+/** Градусы и мс/м: целые — без дробной части, иначе одна цифра после запятой. */
+function plain(value: number): string {
   return ruNumber(value, Number.isInteger(value) ? 0 : 1);
 }
 
@@ -62,7 +65,7 @@ function rowsWord(count: number): string {
 function frontRowsText(params: Record<string, unknown>): string {
   const count = numberOf(params.front_rows_tilt_count) ?? 0;
   const mode = params.front_rows_mode ?? (count > 0 ? "taper" : "vertical");
-  const tilt = degrees(numberOf(params.front_rows_tilt_deg) ?? 15);
+  const tilt = plain(numberOf(params.front_rows_tilt_deg) ?? 15);
   if (mode === "pair") return `пара ${tilt}°`;
   if (mode === "taper") {
     const rows = Math.max(1, count);
@@ -75,18 +78,21 @@ function percent(share: number | null): string {
   return share === null ? "—" : String(Math.round(share * 100));
 }
 
-function variantRows(v: LayoutSearchVariant): { params: [string, string][]; metrics: [string, string][] } {
+function variantRows(
+  v: LayoutSearchVariant,
+  reliefMinMsM: number,
+): { params: [string, string][]; metrics: [string, string][] } {
   const azimuth = numberOf(v.params.row_azimuth_deg);
   return {
     params: [
-      ["Азимут рядов, °", azimuth === null ? "—" : degrees(azimuth)],
+      ["Азимут рядов, °", azimuth === null ? "—" : plain(azimuth)],
       ["Шаги a × b, м", `${ruNumber(numberOf(v.params.spacing_a_m))} × ${ruNumber(numberOf(v.params.burden_b_m))}`],
       ["Первый ряд", frontRowsText(v.params)],
       ["Вруб у фланга", v.cut_flank === "right" ? "правого" : "левого"],
     ],
     metrics: [
       ["ЛСП вне коридора", String(v.lsp_out)],
-      ["Быстрее 3 мс/м, %", percent(v.fast_share)],
+      [`Быстрее ${plain(reliefMinMsM)} мс/м, %`, percent(v.fast_share)],
       ["Стыки фронтов, м", ruNumber(v.converging_length_m, 1)],
       ["Вне коридора ±25 %, %", percent(v.outside_share)],
       ["Разброс темпа", ruNumber(v.robust_spread, 2)],
@@ -125,7 +131,7 @@ export function LayoutSearchPanel({
 }: {
   designId: string | null;
   status: LayoutSearchStatus | null;
-  /** Результат посчитан по другим контуру, съёмке или параметрам, чем сейчас. */
+  /** Результат посчитан по другим входам, чем сейчас, или границы темпа породы сменились. */
   stale: boolean;
   /** Ошибка запроса (запуск занят, сеть). */
   error: string | null;
@@ -148,9 +154,13 @@ export function LayoutSearchPanel({
         : BUDGET_OVER_TEXT
       : null;
 
+  // Нижняя граница темпа, с которой шёл подбор: по ней считана доля быстрых.
+  const reliefMinMsM = numberOf(result?.relief_min_ms_m) ?? DEFAULT_RELIEF_MIN_MS_M;
+  const staleText = status?.bounds_changed ? BOUNDS_CHANGED_TEXT : STALE_TEXT;
+
   function apply(variant: LayoutSearchVariant) {
     if (manualCount > 0 && !window.confirm(`Ручные правки (${manualCount}) будут потеряны. Применить вариант?`)) return;
-    if (stale && !window.confirm(`${STALE_TEXT}. Применить вариант?`)) return;
+    if (stale && !window.confirm(`${staleText}. Применить вариант?`)) return;
     onApply(variant);
   }
 
@@ -197,7 +207,7 @@ export function LayoutSearchPanel({
           <>
             {(stale || result.all_rejected || stopMark || result.warnings.length > 0) && (
               <ul className="frag-warnings layout-search-marks">
-                {stale && <li>{STALE_TEXT}</li>}
+                {stale && <li>{staleText}</li>}
                 {result.all_rejected && <li>{ALL_REJECTED_TEXT}</li>}
                 {stopMark && <li>{stopMark}</li>}
                 {result.warnings.map((text, i) => <li key={i}>{text}</li>)}
@@ -205,7 +215,7 @@ export function LayoutSearchPanel({
             )}
             <div className="layout-variant-list">
               {result.best.map((variant, index) => {
-                const rows = variantRows(variant);
+                const rows = variantRows(variant, reliefMinMsM);
                 const shown = previewIndex === index;
                 return (
                   <article

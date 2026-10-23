@@ -1073,6 +1073,8 @@ export type TieParams = {
   chain_ms: number;
   cut_flank: "left" | "right";
   selected_hole_ids: string[];
+  /** Вид основной сетки паспорта (`pattern_params.default_kind`); подставляется при построении. */
+  main_kind?: string;
 };
 
 export type TieGenerateResponse = {

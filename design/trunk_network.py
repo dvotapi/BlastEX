@@ -22,10 +22,21 @@
 связи своей вертикальной. Прочие скважины (стенки, стабилизация, сателлиты,
 ручные) привязываются связью цепочки к ближайшей уже привязанной.
 
+Основная сетка может быть стеночного вида (`main_kind`, вид основной сетки
+паспорта): её скважины — члены столбцов, а отдельные стеночные ряды того же
+вида (свои номера рядов −1…−n, буферный −10) — прочие.
+
 На шахматке у скважины два предшественника на равном смещении: сторона
 чередуется по чётности логического ряда (нечётный — левый, чётный — правый),
 а предшественник, уже занятый соседкой по ряду, уступает свободному — иначе
-две соседние скважины ряда срабатывали бы разом.
+две соседние скважины ряда срабатывали бы разом. Если свободного нет — тот же
+предшественник со следующей ступенью системы, а когда следующей нет (ДШ при
+42 мс) — связь от соседки, уже взявшей его, наименьшей ступенью системы.
+
+Времена считаются рядами спереди назад. Скважина, которая по выбранной связи
+сработала бы не позже какой-либо скважины впереди в 0,75·a по оси (шахматка с
+пропусками: предшественница из одного столбца раньше соседки из другого),
+перепривязывается к самой поздней из них — по тем же правилам занятого.
 
 Модуль не строит `InitiationNetwork`: он отдаёт граф связей и времена
 поверхностной сети от вруба (`TrunkPlan`).
@@ -33,6 +44,8 @@
 from __future__ import annotations
 
 import math
+from bisect import bisect_left, bisect_right
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +53,7 @@ import numpy as np
 
 from design.models import (
     FACE_TOE_KIND,
+    FRONT_ROW_BASE,
     Connector,
     Hole,
     InitiationNetwork,
@@ -54,7 +68,6 @@ from design.timing import (
     SURFACE_NSI_MS_OPTIONS,
     SYSTEM_TYPES,
     _connector_kind,
-    _eligible_holes,
     _populate_v2_from_graph,
     _snap,
 )
@@ -105,14 +118,22 @@ class TrunkPlan:
     chain_ms: float = 42.0
 
 
-def _is_column_member(hole: Hole) -> bool:
+def _is_main_grid_row(row: int) -> bool:
+    """Ряд основной сетки: с нуля вглубь или ряды впереди первого (ниже
+    FRONT_ROW_BASE). Номера −1…−n и −10 — отдельные стеночные ряды."""
+    return row >= 0 or row < FRONT_ROW_BASE
+
+
+def _is_column_member(hole: Hole, main_kind: str = "") -> bool:
     # Ручная скважина (row −1000) не член столбца: иначе она стала бы
     # «самым передним рядом» и перевернула ось и фланг.
-    return (
-        hole.source != "manual"
-        and row_family(hole.kind) == "grid"
-        and hole.kind not in _NON_COLUMN_KINDS
-    )
+    if hole.source == "manual" or hole.kind in _NON_COLUMN_KINDS:
+        return False
+    if row_family(hole.kind) == "grid":
+        return True
+    # Основная сетка стеночного вида — член столбцов, отдельный стеночный ряд
+    # того же вида — нет.
+    return bool(main_kind) and hole.kind == main_kind and _is_main_grid_row(hole.row)
 
 
 def _xy(holes: list[Hole]) -> np.ndarray:
@@ -130,13 +151,13 @@ def _principal_axis(points: np.ndarray) -> np.ndarray | None:
     return vt[0]
 
 
-def row_axis(holes: list[Hole]) -> tuple[Vec, Vec]:
+def row_axis(holes: list[Hole], main_kind: str = "") -> tuple[Vec, Vec]:
     """(ось ряда, направление «от откоса вглубь») — единичные векторы.
 
     Вглубь — ось, повёрнутая на +90°: наименьшая проекция на ось — левый фланг,
     если смотреть с откоса вглубь блока.
     """
-    members = [h for h in holes if _is_column_member(h)] or list(holes)
+    members = [h for h in holes if _is_column_member(h, main_kind)] or list(holes)
     groups: dict[int, list[Hole]] = {}
     for h in members:
         groups.setdefault(logical_row(h.row), []).append(h)
@@ -229,11 +250,13 @@ def plan_trunk_chains(
     chain_ms: float = 42.0,
     cut_flank: str = "left",
     system: str = "nonel",
+    main_kind: str = "",
 ) -> TrunkPlan:
     """Граф «магистраль + цепочки» по уже отфильтрованным скважинам.
 
     Ступени привязываются к номиналам системы: ДШ — к реле ДШ, СИНВ — к НСИ;
-    у электронной — любое число не меньше 1 мс.
+    у электронной — любое число не меньше 1 мс. `main_kind` — вид основной
+    сетки: её скважины стеночного вида тоже члены столбцов.
     """
     warnings: list[str] = []
     trunk = _snap_step(trunk_ms, "магистрали", system, warnings)
@@ -243,17 +266,17 @@ def plan_trunk_chains(
         return TrunkPlan(starters=[], ties=[], surface_ms={}, warnings=warnings, trunk_ms=trunk, chain_ms=chain)
 
     by_id = {h.id: h for h in holes}
-    (ax, ay), (dx, dy) = row_axis(holes)
+    (ax, ay), (dx, dy) = row_axis(holes, main_kind)
 
     def along(h: Hole) -> float:
         return h.collar.x * ax + h.collar.y * ay
 
-    members = [h for h in holes if _is_column_member(h)]
+    members = [h for h in holes if _is_column_member(h, main_kind)]
     # Пара у откоса и номер её вертикальной (вертикальная — член столбца).
     pairs: list[tuple[Hole, str]] = []
     for h in holes:
         partner = face_pair_partner_id(h)
-        if partner is not None and partner in by_id and _is_column_member(by_id[partner]):
+        if partner is not None and partner in by_id and _is_column_member(by_id[partner], main_kind):
             pairs.append((h, partner))
     pair_ids = {h.id for h, _ in pairs}
     member_ids = {h.id for h in members}
@@ -266,26 +289,25 @@ def plan_trunk_chains(
         items.sort(key=lambda item: (item[0], item[1].id))
     deep = (dx, dy)
     limit = _chain_limit(rows, deep)
-    # Предшественник, уже взятый соседкой по ряду, — со следующей ступенью:
-    # скважина не обгоняет ряд впереди и не совпадает с соседкой.
-    chain_shared = _next_step(chain, system)
+    ordered_rows = sorted(rows)
+    positions = {row: [p for p, _ in rows[row]] for row in ordered_rows}
+
+    def ahead_of(index: int, pos: float) -> list[tuple[float, Hole]]:
+        """Скважины всех рядов впереди в limit по оси от pos."""
+        found: list[tuple[float, Hole]] = []
+        for back in ordered_rows[:index]:
+            lo = bisect_left(positions[back], pos - limit - 1e-6)
+            hi = bisect_right(positions[back], pos + limit + 1e-6)
+            found.extend(item for item in rows[back][lo:hi] if abs(item[0] - pos) <= limit)
+        return found
+
+    # Голова — член, у которого ни в одном ряду впереди нет скважины в limit по оси.
+    heads: list[tuple[float, Hole]] = [
+        (pos, hole) for index, row in enumerate(ordered_rows) for pos, hole in rows[row] if not ahead_of(index, pos)
+    ]
+    head_ids = {hole.id for _, hole in heads}
 
     incoming: dict[str, tuple[str, float]] = {}
-    heads: list[tuple[float, Hole]] = []
-    ordered_rows = sorted(rows)
-    for index, row in enumerate(ordered_rows):
-        # Шахматка: при равном смещении нечётный ряд берёт левого, чётный —
-        # правого (зигзаг держит столбцы).
-        side = -1.0 if row % 2 else 1.0
-        taken: set[str] = set()  # предшественники, уже взятые соседками по ряду
-        for pos, hole in rows[row]:
-            found = _chain_predecessor(rows, ordered_rows[:index], pos, limit, side, taken)
-            if found is not None:
-                predecessor, shared = found
-                incoming[hole.id] = (predecessor.id, chain_shared if shared else chain)
-                taken.add(predecessor.id)
-            else:
-                heads.append((pos, hole))
 
     starters: list[str] = []
     if heads:
@@ -306,6 +328,9 @@ def plan_trunk_chains(
         flank_side = heads[: cut + 1][::-1]
         for (_, prev), (_, head) in zip(flank_side, flank_side[1:]):
             incoming[head.id] = (prev.id, trunk)
+        _tie_chains(
+            rows, ordered_rows, limit, ahead_of, head_ids, starters, incoming, chain=chain, system=system
+        )
     elif others:
         # Сетки нет — вруб у фланга среди прочих скважин.
         flank = max if cut_flank == "right" else min
@@ -343,8 +368,68 @@ def plan_trunk_chains(
     )
 
 
-def _next_step(chain_ms: float, system: str) -> float:
-    """Следующий номинал системы выше ступени цепочки; выше нет — наибольший.
+def _tie_chains(
+    rows: dict[int, list[tuple[float, Hole]]],
+    ordered_rows: list[int],
+    limit: float,
+    ahead_of: Callable[[int, float], list[tuple[float, Hole]]],
+    head_ids: set[str],
+    starters: list[str],
+    incoming: dict[str, tuple[str, float]],
+    *,
+    chain: float,
+    system: str,
+) -> None:
+    """Цепочки рядами спереди назад; дописывает связи в `incoming`.
+
+    Скважина берёт предшественника по столбцу (`_chain_predecessor`). Если по
+    этой связи она сработала бы не позже какой-либо скважины впереди в 0,75·a
+    по оси, она перепривязывается к самой поздней из них. Занятый соседкой по
+    ряду предшественник — со следующей ступенью системы; следующей нет — связь
+    от соседки, уже взявшей его, наименьшей ступенью системы.
+    """
+    step_up = _next_step(chain, system)
+    least = _least_step(system)
+
+    def link(predecessor: Hole, taken: dict[str, str]) -> tuple[str, float]:
+        """Связь от предшественника; занятый соседкой — следующая ступень,
+        а без неё — от соседки, уже взявшей его, наименьшей ступенью."""
+        if predecessor.id not in taken:
+            return predecessor.id, chain
+        if step_up is not None:
+            return predecessor.id, step_up
+        return taken[predecessor.id], least
+
+    # Времена голов — по магистрали от вруба.
+    times = _times_from_starters(starters, [(frm, to, ms) for to, (frm, ms) in incoming.items()])
+    for index, row in enumerate(ordered_rows):
+        # Шахматка: при равном смещении нечётный ряд берёт левого, чётный —
+        # правого (зигзаг держит столбцы).
+        side = -1.0 if row % 2 else 1.0
+        # Предшественник → последняя скважина ряда, взявшая его.
+        taken: dict[str, str] = {}
+        for pos, hole in rows[row]:
+            if hole.id in head_ids:
+                continue
+            found = _chain_predecessor(rows, ordered_rows[:index], pos, limit, side, taken)
+            if found is None:  # не бывает: у не-головы впереди есть скважина в пределе
+                continue
+            predecessor = found[0]
+            tie = link(predecessor, taken)
+            # Самая поздняя скважина впереди в пределе; при равенстве — ближайшая по оси.
+            latest = max(
+                ahead_of(index, pos), key=lambda item: (times[item[1].id], -abs(item[0] - pos), item[1].id)
+            )[1]
+            if times[tie[0]] + tie[1] <= times[latest.id] + 1e-9:
+                predecessor = latest
+                tie = link(latest, taken)
+            incoming[hole.id] = tie
+            times[hole.id] = times[tie[0]] + tie[1]
+            taken[predecessor.id] = hole.id
+
+
+def _next_step(chain_ms: float, system: str) -> float | None:
+    """Следующий номинал системы выше ступени цепочки; выше нет — None.
 
     У электронной системы номиналов нет: следующий номинал НСИ выше ступени,
     а если ступень не меньше наибольшего — ступень + наименьший номинал НСИ.
@@ -355,7 +440,15 @@ def _next_step(chain_ms: float, system: str) -> float:
         return above
     if system == "electronic":
         return chain_ms + float(min(SURFACE_NSI_MS_OPTIONS))
-    return float(max(options))
+    return None
+
+
+def _least_step(system: str) -> float:
+    """Наименьшая ступень системы: ДШ — 10 мс, НСИ — 17 мс, электронная — 1 мс."""
+    if system == "electronic":
+        return _ELECTRONIC_MIN_STEP_MS
+    options, _ = _step_options(system)
+    return float(min(options))
 
 
 def _chain_predecessor(
@@ -364,7 +457,7 @@ def _chain_predecessor(
     pos: float,
     limit: float,
     side: float,
-    taken: set[str],
+    taken: Collection[str],
 ) -> tuple[Hole, bool] | None:
     """Предшественник по столбцу — в ближайшем ряду впереди со скважиной в limit по оси.
 
@@ -374,7 +467,7 @@ def _chain_predecessor(
     занятый соседкой по ряду уступает свободному. Если в ряду все кандидаты
     заняты, берётся ближайший из них (дальше вперёд поиск не идёт: край ряда
     шахматки не обгоняет скважину перед собой) — вызывающий даёт такой связи
-    следующую ступень.
+    следующую ступень, а без неё — связь от соседки наименьшей ступенью.
     """
     for back in reversed(rows_ahead):
         near = [(abs(p - pos), p, h) for p, h in rows[back] if abs(p - pos) <= limit]
@@ -427,19 +520,29 @@ def build_trunk_chains_network(
     system = str(params.get("system", "nonel"))
     if system not in SYSTEM_TYPES:
         system = "nonel"
-    eligible = _eligible_holes(holes, bool(params.get("include_contour", False)))
+    main_kind = str(params.get("main_kind") or "").strip().lower()
+    include_contour = bool(params.get("include_contour", False))
+    # Основная сетка контурного вида входит в сеть и без include_contour:
+    # флаг касается только отдельных контурных рядов.
+    eligible = [
+        h
+        for h in holes
+        if h.enabled and (include_contour or h.kind != "contour" or _is_column_member(h, main_kind))
+    ]
     if not eligible:
         return InitiationNetwork(system=system), []
 
     trunk_ms = float(params.get("trunk_ms", 25.0))
     chain_ms = float(params.get("chain_ms", 42.0))
     cut_flank = normalize_flank(params.get("cut_flank", "left"))
-    plan = plan_trunk_chains(eligible, trunk_ms=trunk_ms, chain_ms=chain_ms, cut_flank=cut_flank, system=system)
+    plan = plan_trunk_chains(
+        eligible, trunk_ms=trunk_ms, chain_ms=chain_ms, cut_flank=cut_flank, system=system, main_kind=main_kind
+    )
     warnings = list(plan.warnings)
     # Режимы электронного тайминга этой схеме не применяются: времена — по связям.
     if system == "electronic" and str(params.get("timing_mode", "") or "") in ELECTRONIC_MODES:
         warnings.append(ELECTRONIC_MODE_IGNORED_WARNING)
-    if any(h.kind in _WALL_KINDS for h in eligible):
+    if any(h.kind in _WALL_KINDS and not _is_column_member(h, main_kind) for h in eligible):
         warnings.append(WALLS_AFTER_GRID_WARNING)
 
     if system == "nonel":

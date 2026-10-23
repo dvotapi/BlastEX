@@ -192,16 +192,19 @@ def post_layout_search(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except LayoutSearchBusyError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except design_service.LayoutSearchInputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.get("/layout-search/{design_id}", response_model=LayoutSearchStatusResponse)
 def get_layout_search(
     design_id: str,
     organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
     jobs: LayoutSearchJobs = Depends(get_layout_search_jobs),
 ) -> LayoutSearchStatusResponse:
     try:
-        return design_service.layout_search_status(organization_id, design_id, jobs=jobs)
+        return design_service.layout_search_status(organization_id, design_id, jobs=jobs, repository=repository)
     except design_persistence.DesignNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
@@ -210,10 +213,11 @@ def get_layout_search(
 def post_layout_search_stop(
     design_id: str,
     organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
     jobs: LayoutSearchJobs = Depends(get_layout_search_jobs),
 ) -> LayoutSearchStatusResponse:
     try:
-        return design_service.stop_layout_search(organization_id, design_id, jobs=jobs)
+        return design_service.stop_layout_search(organization_id, design_id, jobs=jobs, repository=repository)
     except design_persistence.DesignNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 

@@ -39,12 +39,13 @@ def jobs(tmp_path: Path):
         _wait(instance, "org-a", "d1")
 
 
-def _client(jobs: LayoutSearchJobs, org: str = "org-a") -> TestClient:
+def _client(jobs: LayoutSearchJobs, org: str = "org-a", repository=None) -> TestClient:
+    repository = repository if repository is not None else InMemoryEconomicsRepository()
     app = FastAPI()
     app.include_router(design.router, prefix="/api/v1")
     app.dependency_overrides[require_internal_access] = lambda: {"sub": "a@example.ru", "role": "admin", "org": org}
     app.dependency_overrides[current_team_id] = lambda: org
-    app.dependency_overrides[get_economics_repository] = lambda: InMemoryEconomicsRepository()
+    app.dependency_overrides[get_economics_repository] = lambda: repository
     app.dependency_overrides[get_layout_search_jobs] = lambda: jobs
     return TestClient(app)
 
@@ -237,3 +238,90 @@ def test_analyze_rock_warning_unchanged():
     assert response.relief_rock_used is False
     assert len(response.relief_warnings) == 1
     assert "Нет такой" in response.relief_warnings[0]
+
+
+def test_design_id_mismatch_is_400(jobs):
+    # Номер паспорта запроса и номер в данных подбора — один и тот же паспорт.
+    client = _client(jobs)
+    body = _body()
+    body["design"]["design_id"] = "d2"
+    response = client.post(f"{BASE}/layout-search", json=body)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Номер паспорта не совпадает с данными подбора."
+    assert jobs.status("org-a", "d1")["state"] == "idle"
+    # Номер в данных не задан — сверять не с чем.
+    body["design"]["design_id"] = ""
+    assert client.post(f"{BASE}/layout-search", json=body).status_code == 202
+
+
+def _publish_rock(repository, **payload) -> None:
+    from cost.v2.models import ReferenceItem
+
+    repository.publish_references(
+        "org-a",
+        "tester",
+        repository.list_reference_revisions("org-a")[0].id,
+        {"rocks": [ReferenceItem(code="GR", name="Гранит", payload=payload)]},
+        "тест",
+    )
+
+
+def test_relief_bounds_stored_and_change_marks_result(jobs):
+    # Итог помнит границы темпа запуска; справочник пород поменялся — итог устарел.
+    repository = InMemoryEconomicsRepository()
+    _publish_rock(repository, relief_min_ms_m="4", relief_max_ms_m="12")
+    client = _client(jobs, repository=repository)
+    assert client.post(f"{BASE}/layout-search", json=_body(rock="Гранит")).status_code == 202
+    data = _poll(client)
+    assert data["state"] == "done", data.get("error")
+    assert data["result"]["relief_min_ms_m"] == 4.0
+    assert data["result"]["relief_max_ms_m"] == 12.0
+    assert data["bounds_changed"] is False
+    from design.persistence import layout_search_path
+
+    stored = json.loads(layout_search_path("org-a", "d1").read_text(encoding="utf-8"))
+    assert stored["rock_name"] == "Гранит"
+
+    _publish_rock(repository, relief_min_ms_m="5", relief_max_ms_m="12")
+    assert client.get(f"{BASE}/layout-search/d1").json()["bounds_changed"] is True
+    _publish_rock(repository, relief_min_ms_m="4")
+    assert client.get(f"{BASE}/layout-search/d1").json()["bounds_changed"] is True
+    _publish_rock(repository, relief_min_ms_m="4", relief_max_ms_m="12")
+    assert client.get(f"{BASE}/layout-search/d1").json()["bounds_changed"] is False
+
+
+def test_relief_bounds_without_rock_and_old_file(jobs):
+    # Без породы — нижняя граница по умолчанию; файл итога без границ — не «устарел».
+    client = _client(jobs)
+    assert client.post(f"{BASE}/layout-search", json=_body()).status_code == 202
+    data = _poll(client)
+    assert data["result"]["relief_min_ms_m"] == 3.0
+    assert data["result"]["relief_max_ms_m"] is None
+    assert data["bounds_changed"] is False
+
+    from design.persistence import layout_search_path
+
+    path = layout_search_path("org-a", "d1")
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored.pop("rock_name")
+    stored["result"].pop("relief_min_ms_m")
+    stored["result"].pop("relief_max_ms_m")
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    data = client.get(f"{BASE}/layout-search/d1").json()
+    assert data["state"] == "done"
+    assert data["bounds_changed"] is False
+    assert data["result"]["relief_min_ms_m"] is None
+
+
+def test_relief_bounds_repository_failure_is_not_change(jobs):
+    # Справочник не прочитан — «устарел» не ставится: сравнивать не с чем.
+    from cost.v2.repository import EconomicsRepositoryError
+
+    repository = InMemoryEconomicsRepository()
+    _publish_rock(repository, relief_min_ms_m="4")
+    client = _client(jobs, repository=repository)
+    assert client.post(f"{BASE}/layout-search", json=_body(rock="Гранит")).status_code == 202
+    assert _poll(client)["result"]["relief_min_ms_m"] == 4.0
+    with patch.object(repository, "get_reference_snapshot", side_effect=EconomicsRepositoryError("нет связи")):
+        data = client.get(f"{BASE}/layout-search/d1").json()
+    assert data["bounds_changed"] is False

@@ -116,6 +116,9 @@ class _Job:
     fingerprint: str
     warnings: list[str]
     started: float
+    relief_min_ms_m: float = 0.0
+    relief_max_ms_m: float | None = None
+    rock_name: str = ""
     queue: Any = None
     stop_event: Any = None
     worker: Any = None
@@ -204,8 +207,14 @@ class LayoutSearchJobs:
         relief_min_ms_m: float,
         relief_max_ms_m: float | None,
         warnings: list[str],
+        *,
+        rock_name: str = "",
     ) -> None:
-        """Запускает подбор блока; при идущем подборе — `LayoutSearchBusyError`."""
+        """Запускает подбор блока; при идущем подборе — `LayoutSearchBusyError`.
+
+        Границы темпа и порода запуска пишутся в итог: по ним статус узнаёт,
+        что справочник пород поменялся после подбора.
+        """
         layout_search_path(team_id, design_id)  # проверка design_id до занятия слота
         # Итог пишется рядом с паспортом организации: без паспорта — не запускаем.
         if not design_path(team_id, design_id).exists():
@@ -217,6 +226,9 @@ class LayoutSearchJobs:
             fingerprint=fingerprint,
             warnings=list(warnings),
             started=time.monotonic(),
+            relief_min_ms_m=float(relief_min_ms_m),
+            relief_max_ms_m=None if relief_max_ms_m is None else float(relief_max_ms_m),
+            rock_name=rock_name,
         )
         spawn = multiprocessing.get_context("spawn")
         with self._lock:
@@ -291,6 +303,7 @@ class LayoutSearchJobs:
         stored = _read_stored(path)
         result = stored.get("result") if stored else None
         state = str(stored.get("state") or STATE_DONE) if stored is not None else STATE_IDLE
+        rock_name = stored.get("rock_name") if stored else None
         return {
             "state": state,
             "stage": None,
@@ -300,6 +313,9 @@ class LayoutSearchJobs:
             "fingerprint": stored.get("fingerprint") if stored else None,
             "result": result,
             "error": None,
+            # Порода запуска (только у сохранённого итога): по ней сервис сверяет
+            # границы темпа итога с текущим справочником.
+            "rock_name": rock_name if isinstance(rock_name, str) else None,
         }
 
     def stop(self, team_id: str, design_id: str) -> bool:
@@ -404,7 +420,12 @@ class LayoutSearchJobs:
         for text in result.get("warnings", []):
             if text not in warnings:
                 warnings.append(text)
-        result = {**result, "warnings": warnings}
+        result = {
+            **result,
+            "warnings": warnings,
+            "relief_min_ms_m": job.relief_min_ms_m,
+            "relief_max_ms_m": job.relief_max_ms_m,
+        }
         if not design_path(job.team_id, job.design_id).exists():
             logger.warning(
                 "Паспорт %s удалён во время подбора раскладки — итог не записан", job.design_id
@@ -416,6 +437,7 @@ class LayoutSearchJobs:
             # бюджет — `done` с пометкой `stopped_early` в итоге.
             "state": STATE_STOPPED if job.stop_event.is_set() and result.get("stopped_early") else STATE_DONE,
             "finished_at": utc_now_iso(),
+            "rock_name": job.rock_name,
             "result": result,
         }
         _write_atomic(layout_search_path(job.team_id, job.design_id), payload)

@@ -1203,6 +1203,9 @@ class LayoutSearchResultSchema(BaseModel):
     elapsed_s: float = 0.0
     all_rejected: bool = False
     warnings: list[str] = Field(default_factory=list)
+    # Границы темпа отбойки, с которыми шёл подбор (у итогов прежней версии — None).
+    relief_min_ms_m: float | None = None
+    relief_max_ms_m: float | None = None
 
 
 class LayoutSearchStatusResponse(BaseModel):
@@ -1214,6 +1217,8 @@ class LayoutSearchStatusResponse(BaseModel):
     fingerprint: str | None = None
     result: LayoutSearchResultSchema | None = None
     error: str | None = None
+    # Границы темпа породы итога в справочнике уже другие: итог устарел.
+    bounds_changed: bool = False
 
 
 class ReliefTriangleSchema(BaseModel):

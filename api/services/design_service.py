@@ -310,6 +310,22 @@ def _rock_by_name(snapshot, rock_name: str):
     return None
 
 
+def current_rock_bounds(
+    rock_name: str,
+    *,
+    organization_id: str,
+    repository: EconomicsRepository,
+) -> tuple[float, float | None]:
+    """Текущие границы темпа породы по справочнику (как в `resolve_relief_bounds`).
+
+    Сбой хранилища не глотается: решать, что делать без справочника, — вызывающему.
+    """
+    if not rock_name.strip():
+        return RELIEF_MIN_MS_M, None
+    bounds = relief_bounds_for_rock(repository.get_reference_snapshot(organization_id), rock_name)
+    return bounds.min_ms_m, bounds.max_ms_m
+
+
 def resolve_relief_bounds(
     design: BlastDesign,
     *,
@@ -327,8 +343,7 @@ def resolve_relief_bounds(
     # Без имени породы искать нечего — справочник не читаем вовсе.
     if repository is not None and organization_id is not None and design.rock_name.strip():
         try:
-            snapshot = repository.get_reference_snapshot(organization_id)
-            bounds = relief_bounds_for_rock(snapshot, design.rock_name)
+            bounds = relief_bounds_for_rock(repository.get_reference_snapshot(organization_id), design.rock_name)
             min_ms_m, max_ms_m = bounds.min_ms_m, bounds.max_ms_m
             rock_used = bounds.found
             if not bounds.found:
@@ -364,6 +379,13 @@ def _layout_search_inputs(design: BlastDesign) -> dict:
     return inputs
 
 
+DESIGN_ID_MISMATCH_MESSAGE = "Номер паспорта не совпадает с данными подбора."
+
+
+class LayoutSearchInputError(ValueError):
+    """Запрос подбора противоречив (HTTP 400)."""
+
+
 def start_layout_search(
     request: LayoutSearchStartRequest,
     *,
@@ -373,9 +395,13 @@ def start_layout_search(
 ) -> LayoutSearchStatusResponse:
     """Запускает подбор раскладки блока в фоне.
 
-    Занято — `LayoutSearchBusyError`; паспорт не сохранён — `DesignNotFoundError` (404).
+    Занято — `LayoutSearchBusyError`; паспорт не сохранён — `DesignNotFoundError` (404);
+    номер паспорта в данных не тот, что в запросе, — `LayoutSearchInputError` (400):
+    итог записался бы к одному паспорту по данным другого.
     """
     design = BlastDesign.from_dict(request.design.model_dump())
+    if design.design_id and design.design_id != request.design_id:
+        raise LayoutSearchInputError(DESIGN_ID_MISMATCH_MESSAGE)
     min_ms_m, max_ms_m, warnings, _ = resolve_relief_bounds(
         design, organization_id=organization_id, repository=repository
     )
@@ -388,14 +414,65 @@ def start_layout_search(
         min_ms_m,
         max_ms_m,
         warnings,
+        rock_name=design.rock_name,
     )
-    return layout_search_status(organization_id, request.design_id, jobs=jobs)
+    return layout_search_status(organization_id, request.design_id, jobs=jobs, repository=repository)
+
+
+# Границы темпа сравниваются с допуском: в файле итога — float из JSON.
+_BOUNDS_TOLERANCE = 1e-9
+
+
+def _same_bound(stored: object, current: float | None) -> bool:
+    if stored is None or current is None:
+        return stored is None and current is None
+    try:
+        return abs(float(stored) - current) <= _BOUNDS_TOLERANCE
+    except (TypeError, ValueError):
+        return False
+
+
+def _relief_bounds_changed(
+    result: object,
+    rock_name: str | None,
+    *,
+    organization_id: str,
+    repository: EconomicsRepository | None,
+) -> bool:
+    """Границы темпа итога разошлись с текущими границами его породы.
+
+    Итог прежней версии (без границ) и непрочитанный справочник — не «устарел»:
+    сравнивать не с чем.
+    """
+    if repository is None or not isinstance(result, dict) or result.get("relief_min_ms_m") is None:
+        return False
+    try:
+        current_min, current_max = current_rock_bounds(
+            rock_name or "", organization_id=organization_id, repository=repository
+        )
+    except (EconomicsRepositoryError, SQLAlchemyError):
+        logger.warning("Справочник пород не прочитан — границы темпа итога подбора не сверены", exc_info=True)
+        return False
+    return not (
+        _same_bound(result.get("relief_min_ms_m"), current_min)
+        and _same_bound(result.get("relief_max_ms_m"), current_max)
+    )
 
 
 def layout_search_status(
-    organization_id: str, design_id: str, *, jobs: LayoutSearchJobs
+    organization_id: str,
+    design_id: str,
+    *,
+    jobs: LayoutSearchJobs,
+    repository: EconomicsRepository | None = None,
 ) -> LayoutSearchStatusResponse:
-    status = jobs.status(organization_id, design_id)
+    """Статус подбора блока; у сохранённого итога — сверка границ темпа породы
+    со справочником (`bounds_changed`), если передан репозиторий."""
+    status = dict(jobs.status(organization_id, design_id))
+    rock_name = status.pop("rock_name", None)
+    status["bounds_changed"] = _relief_bounds_changed(
+        status.get("result"), rock_name, organization_id=organization_id, repository=repository
+    )
     try:
         return LayoutSearchStatusResponse(**status)
     except ValidationError:
@@ -415,10 +492,14 @@ def layout_search_status(
 
 
 def stop_layout_search(
-    organization_id: str, design_id: str, *, jobs: LayoutSearchJobs
+    organization_id: str,
+    design_id: str,
+    *,
+    jobs: LayoutSearchJobs,
+    repository: EconomicsRepository | None = None,
 ) -> LayoutSearchStatusResponse:
     jobs.stop(organization_id, design_id)
-    return layout_search_status(organization_id, design_id, jobs=jobs)
+    return layout_search_status(organization_id, design_id, jobs=jobs, repository=repository)
 
 
 def analyze_design(

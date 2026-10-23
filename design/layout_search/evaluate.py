@@ -1,0 +1,182 @@
+"""Оценка одного варианта раскладки: сетка, монтаж, отбраковка и показатели.
+
+Порядок: сетка (`generate_pattern` без ручных скважин) → монтаж «Магистраль +
+цепочки» (СИНВ) → паспорт варианта → отбраковка `validate` → ЛСП вне коридора
+`[0,8·W₀; 1,03·W₀]` → темп отбойки → окно 8 мс. W₀ берётся из базового
+паспорта и с перебором b не меняется.
+"""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field, replace
+
+from design.analysis import validate
+from design.layout_search.space import Candidate
+from design.models import BlastDesign, BlastDomain, Hole, InitiationNetwork
+from design.pattern import generate_pattern
+from design.relief import RELIEF_MIN_MS_M, burden_relief
+from design.spatial.surfaces import SurfaceSet
+from design.timing import resolve_times
+from design.toe_line import FLOOR_BURDEN_MIN_RATIO, TOE_BURDEN_TOLERANCE, design_burden_m, floor_report
+from design.trunk_network import build_trunk_chains_network
+
+# Коды `validate`, отбраковывающие вариант.
+REJECT_CODES = ("floor_beyond_toe", "collar_too_close_to_crest", "floor_row_gap_excess")
+# Код отбраковки пустой сетки.
+EMPTY_CODE = "empty"
+# Окно одновременного срабатывания (только показывается), мс.
+WINDOW_MS = 8.0
+# Шаги округления перед сравнением: доли — 0,01, длина стыков — 0,5 м.
+SHARE_STEP = 0.01
+LENGTH_STEP_M = 0.5
+_EPS = 1e-6
+
+
+@dataclass(frozen=True)
+class SearchContext:
+    """Базовый паспорт (контур, поверхности, домены, `pattern_params`), W₀ и границы темпа."""
+
+    design: BlastDesign
+    w0_m: float | None
+    relief_min_ms_m: float = RELIEF_MIN_MS_M
+    relief_max_ms_m: float | None = None
+
+    @classmethod
+    def from_design(
+        cls,
+        design: BlastDesign,
+        *,
+        relief_min_ms_m: float = RELIEF_MIN_MS_M,
+        relief_max_ms_m: float | None = None,
+    ) -> SearchContext:
+        """W₀ — проектная W базовых параметров (`toe_line.design_burden_m`)."""
+        return cls(
+            design=design,
+            w0_m=design_burden_m(design.pattern_params),
+            relief_min_ms_m=relief_min_ms_m,
+            relief_max_ms_m=relief_max_ms_m,
+        )
+
+
+@dataclass
+class Evaluation:
+    """Результат оценки варианта: сетка, сеть и показатели ранжирования."""
+
+    candidate: Candidate
+    holes: list[Hole]
+    network: InitiationNetwork
+    rejected: bool
+    reject_codes: list[str]
+    lsp_out: int
+    fast_share: float
+    converging_length_m: float
+    outside_share: float
+    robust_spread: float | None
+    hole_count: int
+    window8_max_holes: int
+    downhole_ms: float
+    warnings: list[str] = field(default_factory=list)
+
+    def rank_key(self) -> tuple:
+        """Ключ сравнения, меньше — лучше: отбраковка, ЛСП вне коридора, быстрые
+        доли, стыки, доля вне ±25 %, разброс (None — хуже любого числа), число
+        скважин. Доли и разброс — до 0,01, стыки — до 0,5 м: шум генератора
+        порядок не решает. Окно 8 мс и замедление в сравнении не участвуют."""
+        spread = math.inf if self.robust_spread is None else _round_step(self.robust_spread, SHARE_STEP)
+        return (
+            self.rejected,
+            self.lsp_out,
+            _round_step(self.fast_share, SHARE_STEP),
+            _round_step(self.converging_length_m, LENGTH_STEP_M),
+            _round_step(self.outside_share, SHARE_STEP),
+            spread,
+            self.hole_count,
+        )
+
+
+def _round_step(value: float, step: float) -> float:
+    return round(round(value / step) * step, 6) + 0.0  # + 0.0 убирает «-0.0»
+
+
+def _surfaces(value: object) -> SurfaceSet | None:
+    """Поверхности паспорта как в `design_service`: словарь — в `SurfaceSet`."""
+    if value is None or isinstance(value, SurfaceSet):
+        return value
+    if isinstance(value, dict):
+        return SurfaceSet.from_dict(value)
+    return value  # type: ignore[return-value]
+
+
+def _domains(items: list | None) -> list[BlastDomain]:
+    return [d if isinstance(d, BlastDomain) else BlastDomain.from_dict(d) for d in items or []]
+
+
+def _lsp_out(design: BlastDesign, w0_m: float | None) -> int:
+    """Скважины с ЛСП вне коридора `[0,8·W₀; 1,03·W₀]` или за подошвой; без W₀ — 0."""
+    if w0_m is None:
+        return 0
+    low = FLOOR_BURDEN_MIN_RATIO * w0_m - _EPS
+    high = (1.0 + TOE_BURDEN_TOLERANCE) * w0_m + _EPS
+    burdens, _ = floor_report(design)
+    return sum(1 for item in burdens.values() if item.beyond_toe or not low <= item.value_m <= high)
+
+
+def window_max_holes(times: dict[str, float], window_ms: float = WINDOW_MS) -> int:
+    """Наибольшее число скважин, срабатывающих в одном окне `[t, t + window_ms)`."""
+    values = sorted(times.values())
+    best = left = 0
+    for right, t in enumerate(values):
+        while t - values[left] >= window_ms - 1e-9:
+            left += 1
+        best = max(best, right - left + 1)
+    return best
+
+
+def _empty(candidate: Candidate) -> Evaluation:
+    return Evaluation(
+        candidate=candidate, holes=[], network=InitiationNetwork(system="nonel"), rejected=True,
+        reject_codes=[EMPTY_CODE], lsp_out=0, fast_share=0.0, converging_length_m=0.0, outside_share=0.0,
+        robust_spread=None, hole_count=0, window8_max_holes=0, downhole_ms=0.0, warnings=[],
+    )
+
+
+def evaluate(ctx: SearchContext, candidate: Candidate) -> Evaluation:
+    """Строит вариант и считает показатели ранжирования."""
+    base = ctx.design
+    # Ручные скважины перебор не использует: сетка без `existing_holes`.
+    holes = generate_pattern(
+        base.contour, candidate.params, None, _surfaces(base.surfaces), _domains(base.domains)
+    )
+    if not holes:
+        return _empty(candidate)
+
+    network, warnings = build_trunk_chains_network(
+        holes, {"system": "nonel", "cut_flank": candidate.cut_flank}
+    )
+    design = replace(base, holes=holes, network=network, pattern_params=dict(candidate.params))
+
+    reject_codes = sorted({w["code"] for w in validate(design) if w.get("code") in REJECT_CODES})
+    lsp_out = _lsp_out(design, ctx.w0_m)
+
+    enabled = [h for h in holes if h.enabled]
+    times, timing_warnings = resolve_times(network, enabled)
+    warnings = [*warnings, *timing_warnings]
+    relief = burden_relief(design, times, min_ms_m=ctx.relief_min_ms_m, max_ms_m=ctx.relief_max_ms_m)
+    stats = relief.stats if relief is not None else None
+
+    return Evaluation(
+        candidate=candidate,
+        holes=holes,
+        network=network,
+        rejected=bool(reject_codes),
+        reject_codes=reject_codes,
+        lsp_out=lsp_out,
+        fast_share=stats.fast_share if stats else 0.0,
+        converging_length_m=stats.converging_length_m if stats else 0.0,
+        outside_share=stats.outside_share if stats else 0.0,
+        robust_spread=stats.robust_spread if stats else None,
+        hole_count=len(holes),
+        window8_max_holes=window_max_holes(times),
+        downhole_ms=float(network.timing_params.get("downhole_delay_ms", 0.0) or 0.0),
+        warnings=warnings,
+    )

@@ -1,8 +1,8 @@
 """Оценка одного варианта раскладки: сетка, монтаж, отбраковка и показатели.
 
 Порядок: сетка (`generate_pattern` без ручных скважин) → монтаж «Магистраль +
-цепочки» (СИНВ) → паспорт варианта → отбраковка `validate` → ЛСП вне коридора
-`[0,8·W₀; 1,03·W₀]` → темп отбойки → окно 8 мс. W₀ берётся из базового
+цепочки» (СИНВ) → паспорт варианта → отбраковка (коды `validate`) и ЛСП вне коридора
+`[0,8·W₀; 1,03·W₀]` за один расчёт подошвы → темп отбойки → окно 8 мс. W₀ — из базового
 паспорта и с перебором b не меняется.
 """
 from __future__ import annotations
@@ -10,17 +10,23 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field, replace
 
-from design.analysis import validate
+from design.analysis import collar_crest_warnings
 from design.layout_search.space import Candidate
 from design.models import BlastDesign, BlastDomain, Hole, InitiationNetwork
 from design.pattern import generate_pattern
 from design.relief import RELIEF_MIN_MS_M, burden_relief
 from design.spatial.surfaces import SurfaceSet
 from design.timing import resolve_times
-from design.toe_line import FLOOR_BURDEN_MIN_RATIO, TOE_BURDEN_TOLERANCE, design_burden_m, floor_report
+from design.toe_line import (
+    FLOOR_BURDEN_MIN_RATIO,
+    TOE_BURDEN_TOLERANCE,
+    FloorBurden,
+    design_burden_m,
+    floor_checks,
+)
 from design.trunk_network import build_trunk_chains_network
 
-# Коды `validate`, отбраковывающие вариант.
+# Коды `validate`, отбраковывающие вариант (`reject_codes_and_lsp` выводит их сам).
 REJECT_CODES = ("floor_beyond_toe", "collar_too_close_to_crest", "floor_row_gap_excess")
 # Код отбраковки пустой сетки.
 EMPTY_CODE = "empty"
@@ -111,18 +117,41 @@ def _domains(items: list | None) -> list[BlastDomain]:
     return [d if isinstance(d, BlastDomain) else BlastDomain.from_dict(d) for d in items or []]
 
 
-def _lsp_out(design: BlastDesign, w0_m: float | None) -> int:
+def _lsp_out(burdens: dict[str, FloorBurden], w0_m: float | None) -> int:
     """Скважины с ЛСП вне коридора `[0,8·W₀; 1,03·W₀]` или за подошвой; без W₀ — 0."""
     if w0_m is None:
         return 0
     low = FLOOR_BURDEN_MIN_RATIO * w0_m - _EPS
     high = (1.0 + TOE_BURDEN_TOLERANCE) * w0_m + _EPS
-    burdens, _ = floor_report(design)
     return sum(1 for item in burdens.values() if item.beyond_toe or not low <= item.value_m <= high)
 
 
+def reject_codes_and_lsp(design: BlastDesign, w0_m: float | None) -> tuple[list[str], int]:
+    """Коды отбраковки и `lsp_out` за один расчёт подошвы (`floor_checks`).
+
+    Коды выводятся так же, как в `validate`: `floor_beyond_toe` — есть скважины
+    за подошвой, `floor_row_gap_excess` — есть разрыв у подошвы с `excess`,
+    `collar_too_close_to_crest` — `collar_crest_warnings`. Полный `validate`
+    не зовётся: остальные его проверки (тайминг, ЛНС, заряды) отбраковке не нужны.
+    """
+    burdens, beyond_toe, row_gaps = floor_checks(design)
+    codes: set[str] = set()
+    if beyond_toe:
+        codes.add("floor_beyond_toe")
+    if any(gap.excess for gap in row_gaps.values()):
+        codes.add("floor_row_gap_excess")
+    if collar_crest_warnings(design):
+        codes.add("collar_too_close_to_crest")
+    return sorted(codes), _lsp_out(burdens, w0_m)
+
+
 def window_max_holes(times: dict[str, float], window_ms: float = WINDOW_MS) -> int:
-    """Наибольшее число скважин, срабатывающих в одном окне `[t, t + window_ms)`."""
+    """Наибольшее число скважин, срабатывающих в одном окне `[t, t + window_ms)`.
+
+    Окно полуоткрытое, в отличие от МИС `charge_per_delay` (там `≤ window_ms`):
+    скважины ровно через 8 мс (2·25 против 42 мс) в одно окно не попадают.
+    Показатель только показывается и в ранжировании не участвует.
+    """
     values = sorted(times.values())
     best = left = 0
     for right, t in enumerate(values):
@@ -155,8 +184,7 @@ def evaluate(ctx: SearchContext, candidate: Candidate) -> Evaluation:
     )
     design = replace(base, holes=holes, network=network, pattern_params=dict(candidate.params))
 
-    reject_codes = sorted({w["code"] for w in validate(design) if w.get("code") in REJECT_CODES})
-    lsp_out = _lsp_out(design, ctx.w0_m)
+    reject_codes, lsp_out = reject_codes_and_lsp(design, ctx.w0_m)
 
     enabled = [h for h in holes if h.enabled]
     times, timing_warnings = resolve_times(network, enabled)

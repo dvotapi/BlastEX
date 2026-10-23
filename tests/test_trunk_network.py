@@ -416,8 +416,8 @@ BLOCK66_PARAMS = {
 
 
 @lru_cache(maxsize=1)
-def _block66_holes() -> tuple[Hole, ...]:
-    """Сетка на контуре №66: готовый контур (handle 769), откосы и отметки — как в импорте чертежа."""
+def _block66_contour() -> BlockContour:
+    """Контур №66: готовый контур (handle 769), откосы и отметки — как в импорте чертежа."""
     drawing = read_cad(BLOCK66.read_bytes(), "block66.dxf")
     assign_roles(drawing.entities, {}, RoleParams())
     entities = drawing.entities
@@ -427,14 +427,19 @@ def _block66_holes() -> tuple[Hole, ...]:
     face_lines = [StitchedLine(points=[(x, y, 0.0) for x, y in draft.crest_line])] if draft.crest_line else None
     two = two_contours(draft.ring, tops, bottoms, face_lines=face_lines)
     levels = bench_levels(draft.ring, two.free_faces, tops, bottoms, 410.0)
-    contour = BlockContour.from_dict(
+    return BlockContour.from_dict(
         {
             "vertices": [{"x": x, "y": y, "z": 0.0} for x, y in draft.ring],
             "free_faces": [list(edge) for edge in two.free_faces],
             "bench": {"crest_z_m": levels.crest_z_m, "toe_z_m": levels.toe_z_m},
         }
     )
-    return tuple(generate_pattern(contour, BLOCK66_PARAMS))
+
+
+@lru_cache(maxsize=1)
+def _block66_holes() -> tuple[Hole, ...]:
+    """Сетка паспорта №66 на его контуре."""
+    return tuple(generate_pattern(_block66_contour(), BLOCK66_PARAMS))
 
 
 class Block66Tests(unittest.TestCase):

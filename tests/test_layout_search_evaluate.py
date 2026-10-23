@@ -3,21 +3,30 @@ import math
 import unittest
 from dataclasses import replace
 
+from design.analysis import validate
 from design.geometry import crest_azimuth_deg
-from design.layout_search.evaluate import Evaluation, SearchContext, evaluate
+from design.layout_search.evaluate import (
+    REJECT_CODES,
+    Evaluation,
+    SearchContext,
+    evaluate,
+    reject_codes_and_lsp,
+)
 from design.layout_search.space import Candidate
 from design.models import BlastDesign, InitiationNetwork
 from design.toe_line import floor_report
-from tests.front_rows_fixtures import _rect_contour
+from tests.front_rows_fixtures import GAP_PATTERN, _rect_contour, design_with, grid_rows
+from tests.test_trunk_network import BLOCK66_PARAMS, _block66_contour
 
-# Прямоугольник 40×30, грань — нижнее ребро y = 0, уступ 10 м.
-CONTOUR = _rect_contour(40.0, 30.0)
+# Прямоугольник 40×30, грань — нижнее ребро y = 0, уступ 10 м, откос 75°:
+# подошва в 10 / tg 75° ≈ 2,68 м от кромки, ЛСП первого ряда = отступ + 2,68 м.
+CONTOUR = _rect_contour(40.0, 30.0, face_angle_deg=75.0)
 BASE = {
     "pattern": "rectangular",
     "spacing_a_m": 4.0,
     "burden_b_m": 4.0,
     "row_azimuth_deg": crest_azimuth_deg(CONTOUR),
-    "offset_from_face_m": 2.0,
+    "offset_from_face_m": 1.0,  # ЛСП ≈ 3,68 м — в коридоре [3,2; 4,12] при W₀ = 4
     "edge_margin_m": 1.0,
     "subdrill_m": 1.0,
 }
@@ -47,20 +56,25 @@ class EvaluateTests(unittest.TestCase):
         self.assertIn(ev.downhole_ms, (500.0, 700.0, 1000.0))
         self.assertEqual(ev.fast_share, 0.0)
         self.assertGreaterEqual(ev.window8_max_holes, 1)
+        self.assertEqual(ev.lsp_out, 0)
 
     def test_w0_fixed(self):
+        # Отступ 1,5 м: ЛСП всех 9 скважин первого ряда ≈ 4,18 м. Это вне коридора
+        # по W₀ = 4 (сверху 4,12), но внутри коридора по b варианта 4,12 (сверху
+        # 4,2436): счёт по b дал бы 0.
         ctx = _ctx()
         self.assertEqual(ctx.w0_m, 4.0)
-        params = {**BASE, "burden_b_m": round(4.0 * 1.03, 4)}
+        params = {**BASE, "burden_b_m": 4.12, "offset_from_face_m": 1.5}
         ev = evaluate(ctx, Candidate(params, "left"))
         design = replace(ctx.design, holes=ev.holes, network=ev.network, pattern_params=params)
         burdens, _ = floor_report(design)
-        expected = sum(
-            1 for item in burdens.values()
-            if item.beyond_toe or not (0.8 * 4.0 - 1e-6 <= item.value_m <= 1.03 * 4.0 + 1e-6)
-        )
-        self.assertGreater(len(burdens), 0)
-        self.assertEqual(ev.lsp_out, expected)
+        self.assertEqual(len(burdens), 9)
+        for item in burdens.values():
+            self.assertAlmostEqual(item.value_m, 4.179, places=2)
+        self.assertEqual(ev.lsp_out, 9)
+        # Тот же вариант с W₀ = b варианта — ни одной скважины вне коридора.
+        own_b = SearchContext.from_design(replace(ctx.design, pattern_params=params))
+        self.assertEqual(evaluate(own_b, Candidate(params, "left")).lsp_out, 0)
 
     def test_w0_none_counts_nothing(self):
         params = {k: v for k, v in BASE.items() if k != "burden_b_m"}
@@ -120,6 +134,51 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(ev.hole_count, 16)
         self.assertEqual(ev.window8_max_holes, 1)
         self.assertTrue(math.isfinite(ev.downhole_ms))
+
+
+class RejectEquivalenceTests(unittest.TestCase):
+    """Отбраковка за один проход подошвы совпадает с кодами полного `validate`."""
+
+    def _assert_same(self, design):
+        codes, _ = reject_codes_and_lsp(design, 4.0)
+        expected = sorted({w["code"] for w in validate(design)} & set(REJECT_CODES))
+        self.assertEqual(codes, expected)
+        return codes
+
+    def _variant(self, contour, base, params, flank="left"):
+        ctx = SearchContext.from_design(BlastDesign(design_id="t", contour=contour, pattern_params=dict(base)))
+        ev = evaluate(ctx, Candidate(params, flank))
+        self.assertEqual(ev.reject_codes, self._assert_same(
+            replace(ctx.design, holes=ev.holes, network=ev.network, pattern_params=params)
+        ))
+        return ev
+
+    def test_generated_variants(self):
+        cases = [
+            ({}, []),
+            ({"min_crest_offset_m": 3.0}, ["collar_too_close_to_crest"]),
+            ({"angle_deg": 30, "azimuth_deg": 180}, ["floor_beyond_toe"]),
+            ({"burden_b_m": 4.12, "offset_from_face_m": 1.5}, []),
+            ({"front_rows_mode": "taper", "front_rows_tilt_count": 2, "front_rows_tilt_deg": 30,
+              "offset_from_face_m": 3.5}, []),
+        ]
+        for extra, codes in cases:
+            with self.subTest(extra=extra):
+                self.assertEqual(self._variant(CONTOUR, BASE, {**BASE, **extra}).reject_codes, codes)
+
+    def test_row_gap_and_crest_on_hand_built_rows(self):
+        # Первый ряд наклонён на 15° к откосу, устья второго не сдвинуты — разрыв у подошвы.
+        design = design_with(grid_rows(15.0), pattern_params={**GAP_PATTERN, "min_crest_offset_m": 3.0})
+        self.assertEqual(self._assert_same(design), ["collar_too_close_to_crest", "floor_row_gap_excess"])
+
+    def test_block66(self):
+        contour = _block66_contour()
+        for extra in ({}, {"min_crest_offset_m": 3.0}):
+            params = {**BLOCK66_PARAMS, **extra}
+            for flank in ("left", "right"):
+                with self.subTest(extra=extra, flank=flank):
+                    ev = self._variant(contour, BLOCK66_PARAMS, params, flank)
+                    self.assertGreater(ev.hole_count, 100)
 
 
 if __name__ == "__main__":

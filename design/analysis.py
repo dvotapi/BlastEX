@@ -247,6 +247,32 @@ def _two_numbers(value: float, limit: float) -> tuple[str, str]:
     return f"{value:.{digits}f}".replace(".", ","), f"{limit:.{digits}f}".replace(".", ",")
 
 
+def collar_crest_warnings(design: BlastDesign) -> list[dict[str, Any]]:
+    """Устья скважин сетки ближе минимального отступа к кромке (верхней бровке).
+
+    Проверяется только когда отступ или схема первого ряда заданы
+    (`crest_offset_checked`): старые черновики без этих ключей предупреждениями
+    не засыпаются. Часть `validate`; перебор раскладки зовёт её отдельно.
+    """
+    pattern_params = design.pattern_params or {}
+    crest = crest_geometry(design.contour) if crest_offset_checked(pattern_params) else None
+    grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
+    if crest is None or not grid:
+        return []
+    min_offset = min_crest_offset_m(pattern_params)
+    crest_d = shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in grid]), crest)
+    label = f"{min_offset:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+    return [
+        {
+            "code": "collar_too_close_to_crest",
+            "hole_id": h.id,
+            "message": f"Устье {h.id} ближе {label} м к кромке уступа.",
+        }
+        for h, distance in zip(grid, crest_d)
+        if distance < min_offset - 1e-6
+    ]
+
+
 def validate(
     design: BlastDesign,
     *,
@@ -393,24 +419,7 @@ def validate(
                 }
             )
 
-    # Устье скважины сетки ближе минимального отступа к кромке (верхней бровке) —
-    # только когда отступ или схема первого ряда заданы: старые черновики без
-    # этих ключей предупреждениями не засыпаются.
-    crest = crest_geometry(design.contour) if crest_offset_checked(pattern_params) else None
-    grid = [h for h in enabled if row_family(h.kind) == "grid"]
-    if crest is not None and grid:
-        min_offset = min_crest_offset_m(pattern_params)
-        crest_d = shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in grid]), crest)
-        label = f"{min_offset:.2f}".rstrip("0").rstrip(".").replace(".", ",")
-        for h, distance in zip(grid, crest_d):
-            if distance < min_offset - 1e-6:
-                warnings.append(
-                    {
-                        "code": "collar_too_close_to_crest",
-                        "hole_id": h.id,
-                        "message": f"Устье {h.id} ближе {label} м к кромке уступа.",
-                    }
-                )
+    warnings.extend(collar_crest_warnings(design))
 
     for load in design.loads:
         hole = holes_by_id.get(load.hole_id)

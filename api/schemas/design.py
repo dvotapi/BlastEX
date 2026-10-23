@@ -1012,6 +1012,7 @@ class TieGenerateResponse(BaseModel):
     network: InitiationNetworkSchema
     starters_count: int
     connectors_count: int
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ValidationWarningSchema(BaseModel):
@@ -1165,6 +1166,59 @@ class AnalyzeRequest(BaseModel):
     isoline_step_ms: float = Field(25.0, gt=0)
     mic_window_ms: float = Field(8.0, gt=0)
     ppv: PpvRequestSchema | None = None
+
+
+class LayoutSearchStartRequest(BaseModel):
+    design_id: str
+    design: BlastDesignSchema
+    # Отпечаток входа, по которому фронт узнаёт устаревший итог.
+    fingerprint: str
+
+
+class LayoutSearchVariantSchema(BaseModel):
+    """Вариант раскладки: параметры сетки, скважины, сеть и показатели (None — нет данных)."""
+
+    params: dict[str, Any]
+    cut_flank: str
+    holes: list[HoleSchema]
+    network: InitiationNetworkSchema
+    rejected: bool = False
+    reject_codes: list[str] = Field(default_factory=list)
+    lsp_out: int = 0
+    fast_share: float | None = None
+    converging_length_m: float | None = None
+    outside_share: float | None = None
+    robust_spread: float | None = None
+    hole_count: int = 0
+    window8_max_holes: int = 0
+    downhole_ms: float | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class LayoutSearchResultSchema(BaseModel):
+    best: list[LayoutSearchVariantSchema]
+    evaluated: int = 0
+    rejected: int = 0
+    stopped_early: bool = False
+    elapsed_s: float = 0.0
+    all_rejected: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    # Границы темпа отбойки, с которыми шёл подбор (у итогов прежней версии — None).
+    relief_min_ms_m: float | None = None
+    relief_max_ms_m: float | None = None
+
+
+class LayoutSearchStatusResponse(BaseModel):
+    state: str
+    stage: str | None = None
+    done: int = 0
+    total: int = 0
+    elapsed_s: float | None = None
+    fingerprint: str | None = None
+    result: LayoutSearchResultSchema | None = None
+    error: str | None = None
+    # Границы темпа породы итога в справочнике уже другие: итог устарел.
+    bounds_changed: bool = False
 
 
 class ReliefTriangleSchema(BaseModel):

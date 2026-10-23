@@ -108,6 +108,45 @@ OWN_ROW_FAMILY_KINDS = ("contour", "presplit", "trim", "buffer")
 def row_family(kind: str) -> str:
     """Группа рядов, в которой ищется ряд позади."""
     return kind if kind in OWN_ROW_FAMILY_KINDS else "grid"
+
+
+def main_grid_kind(params: dict | None) -> str:
+    """Вид основной сетки (`pattern_params.default_kind`), как его берёт генератор."""
+    kind = str((params or {}).get("default_kind") or "production").strip().lower()
+    return kind if kind in HOLE_KINDS else "production"
+
+
+def is_main_grid_row(row: int) -> bool:
+    """Ряд основной сетки: с нуля вглубь или ряд впереди первого (ниже
+    FRONT_ROW_BASE). Номера −1…−n (контурные) и −10 (буферный) — отдельные
+    стеночные ряды, −1000 — ручные скважины."""
+    return row >= 0 or row < FRONT_ROW_BASE
+
+
+def is_lattice_hole(hole: "Hole") -> bool:
+    """Сгенерированная скважина ряда решётки основной сетки при любом виде.
+
+    Принадлежность — по номеру ряда (`is_main_grid_row`), а не по виду: ряд
+    сетки variable, которому `row_params` дал стеночный вид, — тоже решётка.
+    Отдельные стеночные ряды (−1…−n, −10), ручные скважины и пары у откоса —
+    не решётка. Вставки стабилизации и сателлиты носят номер ряда своей
+    скважины, их отличает вид (см. `trunk_network._is_column_member`).
+    """
+    return hole.source != "manual" and hole.kind != FACE_TOE_KIND and is_main_grid_row(hole.row)
+
+
+def in_main_grid(hole: "Hole") -> bool:
+    """Скважина основной сетки для проверок у подошвы и кромки.
+
+    Семейство `grid` (рядовые, пары у откоса, сателлиты, ручные и т. п.) — как
+    прежде; скважина стеночного вида — когда она в ряду решётки
+    (`is_lattice_hole`): основная сетка стеночного вида (`default_kind`) и ряд
+    variable со стеночным видом из `row_params`. Отдельный стеночный ряд и
+    ручная скважина стеночного вида членами сетки не считаются.
+    """
+    return row_family(hole.kind) == "grid" or is_lattice_hole(hole)
+
+
 MPA_TO_PA = 1_000_000.0
 GPA_TO_PA = 1_000_000_000.0
 

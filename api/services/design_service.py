@@ -1,8 +1,10 @@
 """Сервис проекта БВР: раскладка сетки и хранение паспортов команды."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from Blast import ExplosiveProperties
@@ -22,6 +24,8 @@ from api.schemas.cost import (
     InitiationConfigSchema,
 )
 from api.schemas.design import (
+    LayoutSearchStartRequest,
+    LayoutSearchStatusResponse,
     AnalyzeRequest,
     AnalyzeResponse,
     BlastDesignSchema,
@@ -103,6 +107,8 @@ from design.geometry import block_volume, mean_bench_height
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.hole_recompute import recompute_holes as run_recompute_holes
 from design.maps import engineering_maps
+from design.layout_search.evaluate import wired_wall_holes
+from design.layout_search.jobs import LayoutSearchJobs
 from design.relief import RELIEF_MIN_MS_M, burden_relief
 from design.models import (
     AsChargedHole,
@@ -121,9 +127,11 @@ from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
+from design.trunk_network import TRUNK_SCHEME, build_trunk_chains_network
 from cost.v2.legacy_adapter import LegacyReferences
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 
+logger = logging.getLogger(__name__)
 
 def _surfaces_from_request(payload) -> SurfaceSet | None:
     if payload is None:
@@ -237,14 +245,19 @@ def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
     holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
     if not holes:
         raise InvalidDesignError("Список скважин пуст — нечего коммутировать.")
+    warnings: list[str] = []
     try:
-        network = build_template_network(holes, request.scheme, request.params)
+        if request.scheme == TRUNK_SCHEME:
+            network, warnings = build_trunk_chains_network(holes, request.params)
+        else:
+            network = build_template_network(holes, request.scheme, request.params)
     except TimingExprError as exc:
         raise InvalidDesignError(str(exc)) from exc
     return TieGenerateResponse(
         network=network.to_dict(),
         starters_count=len(network.starters),
         connectors_count=len(network.connectors),
+        warnings=warnings,
     )
 
 
@@ -297,6 +310,198 @@ def _rock_by_name(snapshot, rock_name: str):
     return None
 
 
+def current_rock_bounds(
+    rock_name: str,
+    *,
+    organization_id: str,
+    repository: EconomicsRepository,
+) -> tuple[float, float | None]:
+    """Текущие границы темпа породы по справочнику (как в `resolve_relief_bounds`).
+
+    Сбой хранилища не глотается: решать, что делать без справочника, — вызывающему.
+    """
+    if not rock_name.strip():
+        return RELIEF_MIN_MS_M, None
+    bounds = relief_bounds_for_rock(repository.get_reference_snapshot(organization_id), rock_name)
+    return bounds.min_ms_m, bounds.max_ms_m
+
+
+def resolve_relief_bounds(
+    design: BlastDesign,
+    *,
+    organization_id: str | None,
+    repository: EconomicsRepository | None,
+) -> tuple[float, float | None, list[str], bool]:
+    """Границы темпа отбойки по породе блока: (нижняя, верхняя, предупреждения, порода найдена).
+
+    Общая для анализа и подбора раскладки: предупреждения о породе одинаковы.
+    """
+    min_ms_m, max_ms_m = RELIEF_MIN_MS_M, None
+    # Предупреждения о границах темпа — свои, не «Нет связи» сети коммутации.
+    relief_warnings: list[str] = []
+    rock_used = False
+    # Без имени породы искать нечего — справочник не читаем вовсе.
+    if repository is not None and organization_id is not None and design.rock_name.strip():
+        try:
+            bounds = relief_bounds_for_rock(repository.get_reference_snapshot(organization_id), design.rock_name)
+            min_ms_m, max_ms_m = bounds.min_ms_m, bounds.max_ms_m
+            rock_used = bounds.found
+            if not bounds.found:
+                relief_warnings.append(
+                    f"Порода «{design.rock_name.strip()}» не найдена в справочнике — "
+                    f"для темпа отбойки взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м."
+                )
+            elif bounds.max_dropped:
+                relief_warnings.append(
+                    f"Верхняя граница темпа для породы «{design.rock_name.strip()}» "
+                    "не больше нижней — не учитывается."
+                )
+        except (EconomicsRepositoryError, SQLAlchemyError):
+            # Сбой хранилища не должен ронять анализ: считаем по умолчанию.
+            relief_warnings.append(
+                f"Диапазон темпа для породы не прочитан — взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м."
+            )
+    return min_ms_m, max_ms_m, relief_warnings, rock_used
+
+
+# Поля паспорта, нужные перебору: сеть — ради системы инициирования, замедления
+# в скважине и контурного ряда. Скважины в этот список не входят: из них уходят
+# только связанные базовой сетью контурные скважины (`wired_wall_holes`), — по
+# ним (и по виду основной сетки) перебор решает, монтировать ли контурный ряд.
+LAYOUT_SEARCH_FIELDS = ("contour", "surfaces", "domains", "pattern_params", "rock_name", "name", "network")
+
+
+def _layout_search_inputs(design: BlastDesign) -> dict:
+    """В дочерний процесс подбора уходят только поля, нужные перебору."""
+    data = design.to_dict()
+    inputs = {key: data[key] for key in LAYOUT_SEARCH_FIELDS}
+    inputs["holes"] = [h.to_dict() for h in wired_wall_holes(design)]
+    return inputs
+
+
+DESIGN_ID_MISMATCH_MESSAGE = "Номер паспорта не совпадает с данными подбора."
+
+
+class LayoutSearchInputError(ValueError):
+    """Запрос подбора противоречив (HTTP 400)."""
+
+
+def start_layout_search(
+    request: LayoutSearchStartRequest,
+    *,
+    organization_id: str,
+    repository: EconomicsRepository,
+    jobs: LayoutSearchJobs,
+) -> LayoutSearchStatusResponse:
+    """Запускает подбор раскладки блока в фоне.
+
+    Занято — `LayoutSearchBusyError`; паспорт не сохранён — `DesignNotFoundError` (404);
+    номер паспорта в данных не тот, что в запросе, — `LayoutSearchInputError` (400):
+    итог записался бы к одному паспорту по данным другого.
+    """
+    design = BlastDesign.from_dict(request.design.model_dump())
+    if design.design_id and design.design_id != request.design_id:
+        raise LayoutSearchInputError(DESIGN_ID_MISMATCH_MESSAGE)
+    min_ms_m, max_ms_m, warnings, _ = resolve_relief_bounds(
+        design, organization_id=organization_id, repository=repository
+    )
+    jobs.start(
+        organization_id,
+        request.design_id,
+        design.name,
+        _layout_search_inputs(design),
+        request.fingerprint,
+        min_ms_m,
+        max_ms_m,
+        warnings,
+        rock_name=design.rock_name,
+    )
+    return layout_search_status(organization_id, request.design_id, jobs=jobs, repository=repository)
+
+
+# Границы темпа сравниваются с допуском: в файле итога — float из JSON.
+_BOUNDS_TOLERANCE = 1e-9
+
+
+def _same_bound(stored: object, current: float | None) -> bool:
+    if stored is None or current is None:
+        return stored is None and current is None
+    try:
+        return abs(float(stored) - current) <= _BOUNDS_TOLERANCE
+    except (TypeError, ValueError):
+        return False
+
+
+def _relief_bounds_changed(
+    result: object,
+    rock_name: str | None,
+    *,
+    organization_id: str,
+    repository: EconomicsRepository | None,
+) -> bool:
+    """Границы темпа итога разошлись с текущими границами его породы.
+
+    Итог прежней версии (без границ) и непрочитанный справочник — не «устарел»:
+    сравнивать не с чем.
+    """
+    if repository is None or not isinstance(result, dict) or result.get("relief_min_ms_m") is None:
+        return False
+    try:
+        current_min, current_max = current_rock_bounds(
+            rock_name or "", organization_id=organization_id, repository=repository
+        )
+    except (EconomicsRepositoryError, SQLAlchemyError):
+        logger.warning("Справочник пород не прочитан — границы темпа итога подбора не сверены", exc_info=True)
+        return False
+    return not (
+        _same_bound(result.get("relief_min_ms_m"), current_min)
+        and _same_bound(result.get("relief_max_ms_m"), current_max)
+    )
+
+
+def layout_search_status(
+    organization_id: str,
+    design_id: str,
+    *,
+    jobs: LayoutSearchJobs,
+    repository: EconomicsRepository | None = None,
+) -> LayoutSearchStatusResponse:
+    """Статус подбора блока; у сохранённого итога — сверка границ темпа породы
+    со справочником (`bounds_changed`), если передан репозиторий."""
+    status = dict(jobs.status(organization_id, design_id))
+    rock_name = status.pop("rock_name", None)
+    status["bounds_changed"] = _relief_bounds_changed(
+        status.get("result"), rock_name, organization_id=organization_id, repository=repository
+    )
+    try:
+        return LayoutSearchStatusResponse(**status)
+    except ValidationError:
+        # Файл итога прежней версии, который схема ответа уже не принимает:
+        # как «нет итога», чтобы панель блока открывалась (а не 500).
+        logger.warning(
+            "Несовместимый итог подбора раскладки блока %s — показан как «нет подбора»",
+            design_id,
+            exc_info=True,
+        )
+        failed = status.get("state") == "failed"
+        return LayoutSearchStatusResponse(
+            state="failed" if failed else "idle",
+            elapsed_s=status.get("elapsed_s") if failed else None,
+            error=status.get("error") if failed else None,
+        )
+
+
+def stop_layout_search(
+    organization_id: str,
+    design_id: str,
+    *,
+    jobs: LayoutSearchJobs,
+    repository: EconomicsRepository | None = None,
+) -> LayoutSearchStatusResponse:
+    jobs.stop(organization_id, design_id)
+    return layout_search_status(organization_id, design_id, jobs=jobs, repository=repository)
+
+
 def analyze_design(
     request: AnalyzeRequest,
     *,
@@ -317,32 +522,9 @@ def analyze_design(
     if request.ppv is not None:
         ppv_mm_s = estimate_ppv(mic_data["mic_kg"], request.ppv.distance_m, request.ppv.k, request.ppv.n)
 
-    min_ms_m, max_ms_m = RELIEF_MIN_MS_M, None
-    # Предупреждения о границах темпа — свои, не «Нет связи» сети коммутации.
-    relief_warnings: list[str] = []
-    rock_used = False
-    # Без имени породы искать нечего — справочник не читаем вовсе.
-    if repository is not None and organization_id is not None and design.rock_name.strip():
-        try:
-            snapshot = repository.get_reference_snapshot(organization_id)
-            bounds = relief_bounds_for_rock(snapshot, design.rock_name)
-            min_ms_m, max_ms_m = bounds.min_ms_m, bounds.max_ms_m
-            rock_used = bounds.found
-            if not bounds.found:
-                relief_warnings.append(
-                    f"Порода «{design.rock_name.strip()}» не найдена в справочнике — "
-                    f"для темпа отбойки взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м."
-                )
-            elif bounds.max_dropped:
-                relief_warnings.append(
-                    f"Верхняя граница темпа для породы «{design.rock_name.strip()}» "
-                    "не больше нижней — не учитывается."
-                )
-        except (EconomicsRepositoryError, SQLAlchemyError):
-            # Сбой хранилища не должен ронять анализ: считаем по умолчанию.
-            relief_warnings.append(
-                f"Диапазон темпа для породы не прочитан — взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м."
-            )
+    min_ms_m, max_ms_m, relief_warnings, rock_used = resolve_relief_bounds(
+        design, organization_id=organization_id, repository=repository
+    )
     relief = burden_relief(design, times, min_ms_m=min_ms_m, max_ms_m=max_ms_m)
 
     return AnalyzeResponse(

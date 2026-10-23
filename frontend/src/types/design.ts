@@ -1050,7 +1050,12 @@ export type DesignSummary = {
   parent_design_id?: string;
 };
 
-export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid";
+export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid" | "trunk_chains";
+
+// Ступени поверхностных замедлений НСИ, мс.
+export const SURFACE_NSI_MS_OPTIONS = [17, 25, 42, 67, 109] as const;
+// Номиналы пиротехнических реле ДШ, мс (design/timing.py::DETCORD_RELAY_MS_OPTIONS).
+export const DETCORD_RELAY_MS_OPTIONS = [10, 20, 25, 35, 42] as const;
 export type SystemType = InitiationNetwork["system"];
 
 export type TieParams = {
@@ -1064,13 +1069,19 @@ export type TieParams = {
   gradient_from_ms: number;
   gradient_to_ms: number;
   base_ms: number;
+  trunk_ms: number;
+  chain_ms: number;
+  cut_flank: "left" | "right";
   selected_hole_ids: string[];
+  /** Вид основной сетки паспорта (`pattern_params.default_kind`); подставляется при построении. */
+  main_kind?: string;
 };
 
 export type TieGenerateResponse = {
   network: InitiationNetwork;
   starters_count: number;
   connectors_count: number;
+  warnings: string[];
 };
 
 export type ValidationWarning = {
@@ -1757,6 +1768,9 @@ export const DEFAULT_TIE_PARAMS: TieParams = {
   gradient_from_ms: 0,
   gradient_to_ms: 250,
   base_ms: 0,
+  trunk_ms: 25,
+  chain_ms: 42,
+  cut_flank: "left",
   selected_hole_ids: [],
 };
 
@@ -3469,4 +3483,54 @@ export type DriftReport = {
   live_model_unchanged: boolean;
   action: string;
   next_step: string;
+};
+
+// Подбор раскладки блока (оптимизатор, часть 4в): зеркало схем API
+// `/design/layout-search`.
+export type LayoutSearchState = "idle" | "running" | "done" | "stopped" | "failed";
+export type LayoutSearchStage = "geometry" | "front_rows" | "refine";
+
+export type LayoutSearchVariant = {
+  params: Record<string, unknown>;
+  cut_flank: "left" | "right";
+  holes: Hole[];
+  network: InitiationNetwork;
+  rejected: boolean;
+  reject_codes: string[];
+  lsp_out: number;
+  fast_share: number | null;
+  converging_length_m: number | null;
+  outside_share: number | null;
+  robust_spread: number | null;
+  hole_count: number;
+  window8_max_holes: number;
+  downhole_ms: number | null;
+  warnings: string[];
+};
+
+export type LayoutSearchResult = {
+  best: LayoutSearchVariant[];
+  evaluated: number;
+  rejected: number;
+  stopped_early: boolean;
+  elapsed_s: number;
+  all_rejected: boolean;
+  warnings: string[];
+  /** Границы темпа отбойки, с которыми шёл подбор (у итогов прежней версии — нет). */
+  relief_min_ms_m?: number | null;
+  relief_max_ms_m?: number | null;
+};
+
+export type LayoutSearchStatus = {
+  state: LayoutSearchState;
+  stage: LayoutSearchStage | null;
+  done: number;
+  total: number;
+  elapsed_s: number | null;
+  /** Отпечаток входов, по которым посчитан результат. */
+  fingerprint: string | null;
+  result: LayoutSearchResult | null;
+  error: string | null;
+  /** Границы темпа породы итога в справочнике уже другие — итог устарел. */
+  bounds_changed?: boolean;
 };

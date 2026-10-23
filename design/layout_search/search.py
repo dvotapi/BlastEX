@@ -3,8 +3,10 @@
 Этапы идут по порядку. Семена следующего этапа — лучшие по `Evaluation.rank_key()`
 среди всех оценённых вариантов (не только текущего этапа); отбракованные в семена
 не идут, пока есть прошедшие. Перед каждой оценкой проверяются бюджет времени и
-запрос остановки; при срабатывании возвращается лучшее найденное. Поиск
-последовательный, без процессов и потоков: параллельность — решение части 4в.
+запрос остановки (и в начале каждого этапа); при срабатывании возвращается
+лучшее найденное, а если не оценено ничего — пустой `best` и предупреждение
+`NOTHING_EVALUATED`. Поиск последовательный, без процессов и потоков:
+параллельность — решение части 4в.
 """
 from __future__ import annotations
 
@@ -18,6 +20,8 @@ from design.layout_search.space import Candidate, stage1, stage2, stage3
 STAGE_GEOMETRY = "geometry"
 STAGE_FRONT_ROWS = "front_rows"
 STAGE_REFINE = "refine"
+# Остановка (бюджет ≤ 0, запрос) раньше первой оценки: `best` пуст.
+NOTHING_EVALUATED = "Подбор остановлен до первой оценки."
 # Округление координат устьев при сравнении сеток, м.
 _COORD_DIGITS = 2
 
@@ -110,6 +114,10 @@ def search_layout(
         (STAGE_REFINE, lambda: stage3(_seeds(list(cache.values()), stage3_seeds), base)),
     )
     for name, make in stages:
+        # Остановка проверяется и в начале этапа: этап без новых вариантов её не пропускает.
+        if out_of_time():
+            stopped = True
+            break
         if not run_stage(name, make()):
             break
 
@@ -123,7 +131,9 @@ def search_layout(
         for text in ev.warnings:
             if text not in warnings:
                 warnings.append(text)
-    if stopped:
+    if stopped and not evaluations:
+        warnings.append(NOTHING_EVALUATED)
+    elif stopped:
         warnings.append("Перебор остановлен до конца: показан лучший из найденных вариантов.")
     if all_rejected:
         warnings.append("Ни один вариант не прошёл отбраковку: показаны лучшие из отбракованных.")

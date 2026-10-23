@@ -68,7 +68,8 @@ def _is_square(params: dict) -> bool:
 
 
 def _azimuth(value: float) -> float:
-    return round(value % 360.0, 4)
+    """Азимут в [0; 360) до 0,0001°: после округления ещё раз `% 360` — 359,99999 даёт 0, а не 360."""
+    return round(value % 360.0, 4) % 360.0 + 0.0
 
 
 def _with_shift(params: dict, shift: float) -> dict:

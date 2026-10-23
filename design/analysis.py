@@ -247,15 +247,17 @@ def _two_numbers(value: float, limit: float) -> tuple[str, str]:
     return f"{value:.{digits}f}".replace(".", ","), f"{limit:.{digits}f}".replace(".", ",")
 
 
-def collar_crest_warnings(design: BlastDesign) -> list[dict[str, Any]]:
+def collar_crest_warnings(design: BlastDesign, *, force: bool = False) -> list[dict[str, Any]]:
     """Устья скважин сетки ближе минимального отступа к кромке (верхней бровке).
 
     Проверяется только когда отступ или схема первого ряда заданы
     (`crest_offset_checked`): старые черновики без этих ключей предупреждениями
-    не засыпаются. Часть `validate`; перебор раскладки зовёт её отдельно.
+    не засыпаются. Часть `validate`; перебор раскладки зовёт её отдельно с
+    `force=True` — там отступ проверяется всегда (без ключа — 1 м).
     """
     pattern_params = design.pattern_params or {}
-    crest = crest_geometry(design.contour) if crest_offset_checked(pattern_params) else None
+    checked = force or crest_offset_checked(pattern_params)
+    crest = crest_geometry(design.contour) if checked else None
     grid = [h for h in design.holes if h.enabled and row_family(h.kind) == "grid"]
     if crest is None or not grid:
         return []

@@ -73,6 +73,34 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(res.evaluated, len(stage1(BASE, CONTOUR)))
         self.assertTrue(res.best)
 
+    def test_zero_budget_nothing_evaluated(self):
+        for kwargs in ({"budget_s": 0.0}, {"budget_s": -1.0}, {"budget_s": 1e9, "should_stop": lambda: True}):
+            with self.subTest(kwargs=kwargs):
+                res = search_layout(_ctx(), **kwargs)
+                self.assertTrue(res.stopped_early)
+                self.assertEqual(res.evaluated, 0)
+                self.assertEqual(res.best, [])
+                self.assertFalse(res.all_rejected)
+                self.assertEqual(res.warnings, [search_module.NOTHING_EVALUATED])
+
+    def test_stop_checked_at_stage_start(self):
+        # Этап 2 без новых вариантов: остановка, запрошенная после этапа 1,
+        # срабатывает в начале этапа, и этап 3 не строится.
+        stage3_calls = []
+        flag = {"stop": False}
+
+        def progress(stage, done, total):
+            if stage == "geometry" and done == total:
+                flag["stop"] = True
+
+        with mock.patch.object(search_module, "stage2", lambda seeds, base: []), \
+                mock.patch.object(search_module, "stage3", lambda seeds, base: stage3_calls.append(1) or []):
+            res = search_layout(_ctx(), budget_s=1e9, progress=progress, should_stop=lambda: flag["stop"])
+        self.assertTrue(res.stopped_early)
+        self.assertEqual(stage3_calls, [])
+        self.assertEqual(res.evaluated, len(stage1(BASE, CONTOUR)))
+        self.assertTrue(res.best)
+
     def test_progress_reports_stages(self):
         events = []
         search_layout(_ctx(), budget_s=1e9, stage2_seeds=2, stage3_seeds=1,
@@ -130,7 +158,10 @@ class Block66SearchTests(unittest.TestCase):
         ]
         self.assertEqual({c.cut_flank for c in bases}, {"left", "right"})
         self.assertEqual(len(bases), 2)
-        base_key = min(evaluate(ctx, c).rank_key() for c in bases)
+        base_evals = [evaluate(ctx, c) for c in bases]
+        # Сама база отбраковку проходит (иначе сравнение с ней ничего не значит).
+        self.assertTrue(all(not ev.rejected for ev in base_evals), [ev.reject_codes for ev in base_evals])
+        base_key = min(ev.rank_key() for ev in base_evals)
 
         res = search_layout(ctx, budget_s=150.0)
         self.assertEqual(len(res.best), 3)

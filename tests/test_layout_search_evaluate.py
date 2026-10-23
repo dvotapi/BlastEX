@@ -3,7 +3,9 @@ import math
 import unittest
 from dataclasses import replace
 
-from design.analysis import validate
+import shapely
+
+from design.analysis import collar_crest_warnings, validate
 from design.geometry import crest_azimuth_deg
 from design.layout_search.evaluate import (
     REJECT_CODES,
@@ -12,10 +14,16 @@ from design.layout_search.evaluate import (
     evaluate,
     reject_codes_and_lsp,
 )
-from design.layout_search.space import Candidate
+from design.layout_search.space import Candidate, stage1
 from design.models import BlastDesign, InitiationNetwork
-from design.toe_line import floor_report
-from tests.front_rows_fixtures import GAP_PATTERN, _rect_contour, design_with, grid_rows
+from design.toe_line import crest_geometry, floor_report, min_crest_offset_m
+from tests.front_rows_fixtures import (
+    GAP_PATTERN,
+    _contour_of,
+    _rect_contour,
+    design_with,
+    grid_rows,
+)
 from tests.test_trunk_network import BLOCK66_PARAMS, _block66_contour
 
 # Прямоугольник 40×30, грань — нижнее ребро y = 0, уступ 10 м, откос 75°:
@@ -89,6 +97,50 @@ class EvaluateTests(unittest.TestCase):
         self.assertTrue(ev.rejected)
         self.assertIn("collar_too_close_to_crest", ev.reject_codes)
 
+    def test_collar_checked_without_keys_on_convex_crest(self):
+        # Выпуклая бровка (мыс): откос — два первых ребра, без ключей отступа и
+        # схемы. Отступ первого ряда меряется от средней точки бровки, концы
+        # бровки позади — обычные ряды встают к ней вплотную. Перебор отступ
+        # проверяет всегда (1 м), `validate` без ключей — нет.
+        contour = _contour_of([(0, 4), (20, 0), (40, 4), (40, 30), (0, 30)], ((0, 1), (1, 2)), 75.0)
+        base = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 4.0,
+                "row_azimuth_deg": 90.0, "edge_margin_m": 0.0, "subdrill_m": 1.0}
+        ctx = SearchContext.from_design(BlastDesign(design_id="c", contour=contour, pattern_params=base))
+        crest = crest_geometry(contour)
+        close = 0
+        for cand in stage1(base, contour):
+            ev = evaluate(ctx, cand)
+            grid = [h for h in ev.holes if h.enabled]
+            nearest = float(shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in grid]), crest).min())
+            too_close = nearest < 1.0 - 1e-6
+            self.assertEqual("collar_too_close_to_crest" in ev.reject_codes, too_close, cand.params)
+            if not too_close:
+                continue
+            close += 1
+            self.assertTrue(ev.rejected)
+            design = replace(ctx.design, holes=ev.holes, network=ev.network, pattern_params=cand.params)
+            self.assertNotIn("collar_too_close_to_crest", {w["code"] for w in validate(design)})
+            self.assertEqual(collar_crest_warnings(design), [])
+        self.assertGreater(close, 0)
+
+    def test_relief_none_ranks_worst(self):
+        # Один ряд скважин — треугольников темпа нет: доли и стыки — inf.
+        params = {**BASE, "offset_from_face_m": 1.0}
+        contour = _rect_contour(20.0, 3.0, face_angle_deg=75.0)
+        ctx = SearchContext.from_design(BlastDesign(design_id="t", contour=contour, pattern_params=params))
+        ev = evaluate(ctx, Candidate(params, "left"))
+        self.assertFalse(ev.rejected, ev.reject_codes)
+        self.assertGreater(ev.hole_count, 0)
+        self.assertEqual(ev.fast_share, math.inf)
+        self.assertEqual(ev.converging_length_m, math.inf)
+        self.assertEqual(ev.outside_share, math.inf)
+        self.assertIsNone(ev.robust_spread)
+        self.assertEqual(ev.rank_key()[2:6], (math.inf,) * 4)
+        # Вариант с темпом, но хуже по всем его показателям, всё равно впереди.
+        with_relief = _evaluation(fast_share=0.9, converging_length_m=500.0, outside_share=0.9,
+                                  robust_spread=5.0, hole_count=ev.hole_count + 100)
+        self.assertLess(with_relief.rank_key(), ev.rank_key())
+
     def test_empty_pattern_rejected(self):
         params = {**BASE, "spacing_a_m": 80.0, "burden_b_m": 80.0, "offset_from_face_m": 40.0}
         ev = evaluate(_ctx(), Candidate(params, "left"))
@@ -137,11 +189,15 @@ class EvaluateTests(unittest.TestCase):
 
 
 class RejectEquivalenceTests(unittest.TestCase):
-    """Отбраковка за один проход подошвы совпадает с кодами полного `validate`."""
+    """Отбраковка за один проход подошвы совпадает с кодами полного `validate`
+    при заданном отступе от кромки: перебор проверяет устье всегда (без ключа —
+    1 м), `validate` — только по ключам, поэтому ему отступ передаётся явно."""
 
     def _assert_same(self, design):
         codes, _ = reject_codes_and_lsp(design, 4.0)
-        expected = sorted({w["code"] for w in validate(design)} & set(REJECT_CODES))
+        params = design.pattern_params or {}
+        keyed = replace(design, pattern_params={**params, "min_crest_offset_m": min_crest_offset_m(params)})
+        expected = sorted({w["code"] for w in validate(keyed)} & set(REJECT_CODES))
         self.assertEqual(codes, expected)
         return codes
 

@@ -42,6 +42,22 @@ class SpaceTests(unittest.TestCase):
         self.assertEqual(min(azs), 23.0)
         self.assertEqual(max(azs), 43.0)
 
+    def test_azimuth_wraps_near_zero(self):
+        # Опорный азимут у самого 360°: 360 не появляется, 0 и 357,5 — да.
+        cands = stage1({**RECT, "row_azimuth_deg": 359.99999}, _contour([]))
+        azs = {c.params["row_azimuth_deg"] for c in cands}
+        self.assertTrue(all(0.0 <= az < 360.0 for az in azs), azs)
+        self.assertIn(0.0, azs)
+        self.assertIn(357.5, azs)
+        self.assertEqual(len(azs), 9)
+        # Подстройка ±1,25° вокруг семени с азимутом 0 / 358,75.
+        seed = next(c for c in cands if c.params["row_azimuth_deg"] == 0.0)
+        fine = {c.params["row_azimuth_deg"] for c in stage3([seed], RECT)}
+        self.assertEqual(fine, {358.75, 0.0, 1.25})
+        seed = Candidate({**seed.params, "row_azimuth_deg": 358.75}, seed.cut_flank)
+        fine = {c.params["row_azimuth_deg"] for c in stage3([seed], RECT)}
+        self.assertEqual(fine, {357.5, 358.75, 0.0})
+
     def test_stage2_variants_per_seed(self):
         seed = stage1(RECT, _contour([[0, 1]]))[0]
         out = stage2([seed], RECT)

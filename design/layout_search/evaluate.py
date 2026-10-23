@@ -86,8 +86,9 @@ class Evaluation:
     def rank_key(self) -> tuple:
         """Ключ сравнения, меньше — лучше: отбраковка, ЛСП вне коридора, быстрые
         доли, стыки, доля вне ±25 %, разброс (None — хуже любого числа), число
-        скважин. Доли и разброс — до 0,01, стыки — до 0,5 м: шум генератора
-        порядок не решает. Окно 8 мс и замедление в сравнении не участвуют."""
+        скважин. Без статистики темпа (`relief` None) доли и стыки — `inf`.
+        Доли и разброс — до 0,01, стыки — до 0,5 м: шум генератора порядок не
+        решает. Окно 8 мс и замедление в сравнении не участвуют."""
         spread = math.inf if self.robust_spread is None else _round_step(self.robust_spread, SHARE_STEP)
         return (
             self.rejected,
@@ -101,6 +102,8 @@ class Evaluation:
 
 
 def _round_step(value: float, step: float) -> float:
+    if not math.isfinite(value):
+        return value
     return round(round(value / step) * step, 6) + 0.0  # + 0.0 убирает «-0.0»
 
 
@@ -131,8 +134,11 @@ def reject_codes_and_lsp(design: BlastDesign, w0_m: float | None) -> tuple[list[
 
     Коды выводятся так же, как в `validate`: `floor_beyond_toe` — есть скважины
     за подошвой, `floor_row_gap_excess` — есть разрыв у подошвы с `excess`,
-    `collar_too_close_to_crest` — `collar_crest_warnings`. Полный `validate`
-    не зовётся: остальные его проверки (тайминг, ЛНС, заряды) отбраковке не нужны.
+    `collar_too_close_to_crest` — `collar_crest_warnings(force=True)`: в отличие
+    от `validate`, отступ устья от кромки проверяется всегда, даже без ключей
+    отступа и схемы первого ряда (у выпуклой бровки обычные ряды встают к ней
+    вплотную). Полный `validate` не зовётся: остальные его проверки (тайминг,
+    ЛНС, заряды) отбраковке не нужны.
     """
     burdens, beyond_toe, row_gaps = floor_checks(design)
     codes: set[str] = set()
@@ -140,7 +146,7 @@ def reject_codes_and_lsp(design: BlastDesign, w0_m: float | None) -> tuple[list[
         codes.add("floor_beyond_toe")
     if any(gap.excess for gap in row_gaps.values()):
         codes.add("floor_row_gap_excess")
-    if collar_crest_warnings(design):
+    if collar_crest_warnings(design, force=True):
         codes.add("collar_too_close_to_crest")
     return sorted(codes), _lsp_out(burdens, w0_m)
 
@@ -164,8 +170,8 @@ def window_max_holes(times: dict[str, float], window_ms: float = WINDOW_MS) -> i
 def _empty(candidate: Candidate) -> Evaluation:
     return Evaluation(
         candidate=candidate, holes=[], network=InitiationNetwork(system="nonel"), rejected=True,
-        reject_codes=[EMPTY_CODE], lsp_out=0, fast_share=0.0, converging_length_m=0.0, outside_share=0.0,
-        robust_spread=None, hole_count=0, window8_max_holes=0, downhole_ms=0.0, warnings=[],
+        reject_codes=[EMPTY_CODE], lsp_out=0, fast_share=math.inf, converging_length_m=math.inf,
+        outside_share=math.inf, robust_spread=None, hole_count=0, window8_max_holes=0, downhole_ms=0.0, warnings=[],
     )
 
 
@@ -199,9 +205,10 @@ def evaluate(ctx: SearchContext, candidate: Candidate) -> Evaluation:
         rejected=bool(reject_codes),
         reject_codes=reject_codes,
         lsp_out=lsp_out,
-        fast_share=stats.fast_share if stats else 0.0,
-        converging_length_m=stats.converging_length_m if stats else 0.0,
-        outside_share=stats.outside_share if stats else 0.0,
+        # Без темпа (мало скважин, все треугольники отброшены) — хуже любого числа.
+        fast_share=stats.fast_share if stats else math.inf,
+        converging_length_m=stats.converging_length_m if stats else math.inf,
+        outside_share=stats.outside_share if stats else math.inf,
         robust_spread=stats.robust_spread if stats else None,
         hole_count=len(holes),
         window8_max_holes=window_max_holes(times),

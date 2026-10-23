@@ -1,0 +1,143 @@
+"""HTTP-маршруты подбора раскладки: старт, ход, остановка, чужая организация."""
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from api.routers import design
+from api.security import current_team_id, require_internal_access
+from api.services.economics_service import get_economics_repository
+from cost.v2.repository import InMemoryEconomicsRepository
+from design.layout_search.jobs import LayoutSearchJobs, get_layout_search_jobs
+from tests.test_layout_search_jobs import _inputs
+
+BASE = "/api/v1/design"
+WAIT_S = 120.0
+
+
+@pytest.fixture()
+def jobs(tmp_path: Path):
+    with patch("cost.persistence.data_root", return_value=tmp_path):
+        instance = LayoutSearchJobs(runner="thread", budget_s=20.0)
+        yield instance
+        for design_id in ("d1", "d2"):
+            instance.stop("org-a", design_id)
+        _wait(instance, "org-a", "d1")
+
+
+def _client(jobs: LayoutSearchJobs, org: str = "org-a") -> TestClient:
+    app = FastAPI()
+    app.include_router(design.router, prefix="/api/v1")
+    app.dependency_overrides[require_internal_access] = lambda: {"sub": "a@example.ru", "role": "admin", "org": org}
+    app.dependency_overrides[current_team_id] = lambda: org
+    app.dependency_overrides[get_economics_repository] = lambda: InMemoryEconomicsRepository()
+    app.dependency_overrides[get_layout_search_jobs] = lambda: jobs
+    return TestClient(app)
+
+
+def _wait(jobs: LayoutSearchJobs, org: str, design_id: str) -> dict:
+    deadline = time.monotonic() + WAIT_S
+    while time.monotonic() < deadline:
+        status = jobs.status(org, design_id)
+        if status["state"] != "running":
+            return status
+        time.sleep(0.05)
+    raise AssertionError("подбор не закончился вовремя")
+
+
+def _body(design_id: str = "d1", name: str = "Блок 1", rock: str = "", fingerprint: str = "fp1") -> dict:
+    payload = _inputs(name=name, design_id=design_id)
+    payload["rock_name"] = rock
+    return {"design_id": design_id, "design": payload, "fingerprint": fingerprint}
+
+
+def _poll(client: TestClient, design_id: str = "d1") -> dict:
+    deadline = time.monotonic() + WAIT_S
+    while time.monotonic() < deadline:
+        data = client.get(f"{BASE}/layout-search/{design_id}").json()
+        if data["state"] != "running":
+            return data
+        time.sleep(0.05)
+    raise AssertionError("подбор не закончился вовремя")
+
+
+def test_start_poll_result(jobs):
+    client = _client(jobs)
+    response = client.post(f"{BASE}/layout-search", json=_body())
+    assert response.status_code == 202
+    assert response.json()["state"] == "running"
+    assert response.json()["fingerprint"] == "fp1"
+
+    data = _poll(client)
+    assert data["state"] == "done"
+    assert data["fingerprint"] == "fp1"
+    variants = data["result"]["best"]
+    assert 1 <= len(variants) <= 3
+    for variant in variants:
+        assert variant["holes"]
+        assert "connectors" in variant["network"]
+        assert variant["cut_flank"] in ("left", "right")
+        assert "row_azimuth_deg" in variant["params"]
+
+
+def test_second_start_conflict(jobs):
+    client = _client(jobs)
+    assert client.post(f"{BASE}/layout-search", json=_body()).status_code == 202
+    again = client.post(f"{BASE}/layout-search", json=_body())
+    assert again.status_code == 409
+    assert again.json()["detail"] == (
+        "Подбор раскладки уже идёт: блок «Блок 1». Дождитесь окончания или остановите его."
+    )
+    other = client.post(f"{BASE}/layout-search", json=_body("d2", "Блок 2"))
+    assert other.status_code == 409
+
+
+def test_stop(jobs):
+    client = _client(jobs)
+    assert client.post(f"{BASE}/layout-search", json=_body()).status_code == 202
+    stopped = client.post(f"{BASE}/layout-search/d1/stop")
+    assert stopped.status_code == 200
+    data = _poll(client)
+    assert data["state"] in ("stopped", "done")
+
+
+def test_other_organization_sees_idle(jobs):
+    client = _client(jobs)
+    assert client.post(f"{BASE}/layout-search", json=_body()).status_code == 202
+    assert _poll(client)["state"] == "done"
+    foreign = _client(jobs, org="org-b").get(f"{BASE}/layout-search/d1").json()
+    assert foreign["state"] == "idle"
+    assert foreign["result"] is None
+
+
+def test_bad_design_id_is_404(jobs):
+    client = _client(jobs)
+    assert client.get(f"{BASE}/layout-search/..").status_code == 404
+    assert client.post(f"{BASE}/layout-search/../stop").status_code in (404, 405)
+    assert client.post(f"{BASE}/layout-search/%2E%2E/stop").status_code == 404
+    assert client.post(f"{BASE}/layout-search", json=_body("..")).status_code == 404
+
+
+def test_unknown_rock_warning_in_result(jobs):
+    client = _client(jobs)
+    assert client.post(f"{BASE}/layout-search", json=_body(rock="Нет такой")).status_code == 202
+    data = _poll(client)
+    assert any("Нет такой" in w for w in data["result"]["warnings"])
+
+
+def test_analyze_rock_warning_unchanged():
+    from tests.test_relief_api import _analyze
+
+    from cost.v2.repository import InMemoryEconomicsRepository
+
+    response = _analyze(
+        16.0, rock_name="Нет такой", organization_id="org-a", repository=InMemoryEconomicsRepository()
+    )
+    assert response.relief_rock_used is False
+    assert len(response.relief_warnings) == 1
+    assert "Нет такой" in response.relief_warnings[0]

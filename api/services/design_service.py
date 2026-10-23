@@ -22,6 +22,8 @@ from api.schemas.cost import (
     InitiationConfigSchema,
 )
 from api.schemas.design import (
+    LayoutSearchStartRequest,
+    LayoutSearchStatusResponse,
     AnalyzeRequest,
     AnalyzeResponse,
     BlastDesignSchema,
@@ -103,6 +105,7 @@ from design.geometry import block_volume, mean_bench_height
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.hole_recompute import recompute_holes as run_recompute_holes
 from design.maps import engineering_maps
+from design.layout_search.jobs import LayoutSearchJobs
 from design.relief import RELIEF_MIN_MS_M, burden_relief
 from design.models import (
     AsChargedHole,
@@ -303,26 +306,16 @@ def _rock_by_name(snapshot, rock_name: str):
     return None
 
 
-def analyze_design(
-    request: AnalyzeRequest,
+def resolve_relief_bounds(
+    design: BlastDesign,
     *,
-    organization_id: str | None = None,
-    repository: EconomicsRepository | None = None,
-) -> AnalyzeResponse:
-    design = BlastDesign.from_dict(request.design.model_dump())
-    enabled_holes = [h for h in design.holes if h.enabled]
+    organization_id: str | None,
+    repository: EconomicsRepository | None,
+) -> tuple[float, float | None, list[str], bool]:
+    """Границы темпа отбойки по породе блока: (нижняя, верхняя, предупреждения, порода найдена).
 
-    result = resolve_network(design.network, enabled_holes, design.loads)
-    times, timing_warnings = result.times_ms, result.warnings
-    validation_warnings = run_validate(design)
-    summary_data = run_summary(design)
-    mic_data = charge_per_delay(times, design.loads, window_ms=request.mic_window_ms, events=result.events)
-    isolines_data = timing_isolines(times, enabled_holes, step_ms=request.isoline_step_ms)
-
-    ppv_mm_s = None
-    if request.ppv is not None:
-        ppv_mm_s = estimate_ppv(mic_data["mic_kg"], request.ppv.distance_m, request.ppv.k, request.ppv.n)
-
+    Общая для анализа и подбора раскладки: предупреждения о породе одинаковы.
+    """
     min_ms_m, max_ms_m = RELIEF_MIN_MS_M, None
     # Предупреждения о границах темпа — свои, не «Нет связи» сети коммутации.
     relief_warnings: list[str] = []
@@ -349,6 +342,70 @@ def analyze_design(
             relief_warnings.append(
                 f"Диапазон темпа для породы не прочитан — взята нижняя граница {RELIEF_MIN_MS_M:g} мс/м."
             )
+    return min_ms_m, max_ms_m, relief_warnings, rock_used
+
+
+def start_layout_search(
+    request: LayoutSearchStartRequest,
+    *,
+    organization_id: str,
+    repository: EconomicsRepository,
+    jobs: LayoutSearchJobs,
+) -> LayoutSearchStatusResponse:
+    """Запускает подбор раскладки блока в фоне; занято — `LayoutSearchBusyError`."""
+    design = BlastDesign.from_dict(request.design.model_dump())
+    min_ms_m, max_ms_m, warnings, _ = resolve_relief_bounds(
+        design, organization_id=organization_id, repository=repository
+    )
+    jobs.start(
+        organization_id,
+        request.design_id,
+        design.name,
+        design.to_dict(),
+        request.fingerprint,
+        min_ms_m,
+        max_ms_m,
+        warnings,
+    )
+    return layout_search_status(organization_id, request.design_id, jobs=jobs)
+
+
+def layout_search_status(
+    organization_id: str, design_id: str, *, jobs: LayoutSearchJobs
+) -> LayoutSearchStatusResponse:
+    return LayoutSearchStatusResponse(**jobs.status(organization_id, design_id))
+
+
+def stop_layout_search(
+    organization_id: str, design_id: str, *, jobs: LayoutSearchJobs
+) -> LayoutSearchStatusResponse:
+    jobs.stop(organization_id, design_id)
+    return layout_search_status(organization_id, design_id, jobs=jobs)
+
+
+def analyze_design(
+    request: AnalyzeRequest,
+    *,
+    organization_id: str | None = None,
+    repository: EconomicsRepository | None = None,
+) -> AnalyzeResponse:
+    design = BlastDesign.from_dict(request.design.model_dump())
+    enabled_holes = [h for h in design.holes if h.enabled]
+
+    result = resolve_network(design.network, enabled_holes, design.loads)
+    times, timing_warnings = result.times_ms, result.warnings
+    validation_warnings = run_validate(design)
+    summary_data = run_summary(design)
+    mic_data = charge_per_delay(times, design.loads, window_ms=request.mic_window_ms, events=result.events)
+    isolines_data = timing_isolines(times, enabled_holes, step_ms=request.isoline_step_ms)
+
+    ppv_mm_s = None
+    if request.ppv is not None:
+        ppv_mm_s = estimate_ppv(mic_data["mic_kg"], request.ppv.distance_m, request.ppv.k, request.ppv.n)
+
+    min_ms_m, max_ms_m, relief_warnings, rock_used = resolve_relief_bounds(
+        design, organization_id=organization_id, repository=repository
+    )
     relief = burden_relief(design, times, min_ms_m=min_ms_m, max_ms_m=max_ms_m)
 
     return AnalyzeResponse(

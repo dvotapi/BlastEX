@@ -4,7 +4,7 @@
 // каждой загрузки с сервера, а на сервер паспорт уходит только с тем, что в
 // его статусе можно править, — замороженные части как хранятся.
 import { canEdit, MUTATION_PAYLOAD_KEYS, type MutationKind } from "../../lib/lifecycle";
-import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, type BenchSurface, type BlastDesign, type ChargeRules, type PatternParams } from "../../types/design";
+import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, type BenchSurface, type BlastDesign, type ChargeRules, type PatternParams, type TieParams } from "../../types/design";
 import { clampFaceAngleFromVertical } from "../../lib/faceAngle";
 import type { DesignState } from "./designReducer";
 
@@ -102,4 +102,13 @@ export function rockNameFromTransfer(
   if (!canEdit(design.lifecycle_status, "designed")) return null;
   if (design.design_id && design.rock_name.trim()) return null;
   return name === design.rock_name ? null : name;
+}
+
+/**
+ * Параметры построения коммутации. Вид основной сетки (`main_kind`) нужен
+ * схеме «Магистраль + цепочки»: сетка контурного вида — столбцы с магистралью,
+ * а не стенки; отдельные стеночные ряды того же вида остаются стенками.
+ */
+export function tieRequestParams(tieParams: TieParams, selectedHoleIds: string[], mainKind: string): TieParams {
+  return { ...tieParams, selected_hole_ids: selectedHoleIds, main_kind: mainKind };
 }

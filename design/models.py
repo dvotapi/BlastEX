@@ -108,6 +108,34 @@ OWN_ROW_FAMILY_KINDS = ("contour", "presplit", "trim", "buffer")
 def row_family(kind: str) -> str:
     """Группа рядов, в которой ищется ряд позади."""
     return kind if kind in OWN_ROW_FAMILY_KINDS else "grid"
+
+
+def main_grid_kind(params: dict | None) -> str:
+    """Вид основной сетки (`pattern_params.default_kind`), как его берёт генератор."""
+    kind = str((params or {}).get("default_kind") or "production").strip().lower()
+    return kind if kind in HOLE_KINDS else "production"
+
+
+def is_main_grid_row(row: int) -> bool:
+    """Ряд основной сетки: с нуля вглубь или ряд впереди первого (ниже
+    FRONT_ROW_BASE). Номера −1…−n (контурные) и −10 (буферный) — отдельные
+    стеночные ряды, −1000 — ручные скважины."""
+    return row >= 0 or row < FRONT_ROW_BASE
+
+
+def in_main_grid(hole: "Hole", main_kind: str) -> bool:
+    """Скважина основной сетки для проверок у подошвы и кромки.
+
+    Семейство `grid` (рядовые, пары у откоса, сателлиты, ручные и т. п.) — как
+    прежде; основная сетка стеночного вида (`main_kind` из `main_grid_kind`) —
+    по номеру ряда: отдельный стеночный ряд того же вида и ручная скважина
+    этого вида членами сетки не считаются.
+    """
+    if row_family(hole.kind) == "grid":
+        return True
+    return hole.kind == main_kind and is_main_grid_row(hole.row)
+
+
 MPA_TO_PA = 1_000_000.0
 GPA_TO_PA = 1_000_000_000.0
 

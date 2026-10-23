@@ -1,6 +1,7 @@
 """Построитель графа «магистраль + цепочки»: вруб у фланга, магистраль по головам
 столбцов, цепочки назад по рядам, пара у откоса и прочие скважины."""
 import math
+import random
 import unittest
 from collections import Counter
 from functools import lru_cache
@@ -183,14 +184,17 @@ class AfterRowsAheadTests(unittest.TestCase):
     }
 
     def test_every_hole_fires_after_all_rows_ahead(self):
+        # Шахматка на этих контурах — неровные края рядов: предшественница
+        # одного столбца бывала раньше соседки другого (замечание Codex к #123).
         for name, (vertices, faces) in self.CONTOURS.items():
-            holes = generate_pattern(_contour_of(vertices, faces), RECT)
-            self.assertGreater(len(holes), 10, msg=name)
-            for flank in ("left", "right"):
-                with self.subTest(contour=name, flank=flank):
-                    plan = plan_trunk_chains(holes, cut_flank=flank)
-                    self.assertEqual(set(plan.surface_ms), {h.id for h in holes})
-                    _assert_fires_after_all_rows_ahead(self, holes, plan, 4.0)
+            for pattern in ("rectangular", "staggered"):
+                holes = generate_pattern(_contour_of(vertices, faces), RECT | {"pattern": pattern})
+                self.assertGreater(len(holes), 10, msg=name)
+                for flank in ("left", "right"):
+                    with self.subTest(contour=name, pattern=pattern, flank=flank):
+                        plan = plan_trunk_chains(holes, cut_flank=flank)
+                        self.assertEqual(set(plan.surface_ms), {h.id for h in holes})
+                        _assert_fires_after_all_rows_ahead(self, holes, plan, 4.0)
 
 
 class SingleHoleRowsTests(unittest.TestCase):
@@ -329,6 +333,113 @@ class StaggeredTests(unittest.TestCase):
         # 25 мс — и магистраль, и цепочка; занятый предшественник — реле 35 мс.
         self.assertGreater(steps[35.0], 0)
         self.assertEqual(set(steps), {25.0, 35.0})
+
+
+class SparseStaggeredTests(unittest.TestCase):
+    """Шахматка с пропусками: скважина, привязанная к одной предшественнице,
+    не срабатывает раньше другой скважины впереди в 0,75·a по оси."""
+
+    SEEDS = range(12)
+    SIZES = ((20.0, 16.0), (28.0, 24.0), (40.0, 30.0))
+
+    def _cases(self):
+        for width, depth in self.SIZES:
+            full = generate_pattern(_rect_contour(width, depth), RECT | {"pattern": "staggered"})
+            for seed in self.SEEDS:
+                rng = random.Random(seed)
+                holes = [h for h in full if rng.random() > 0.25]
+                for flank in ("left", "right"):
+                    yield (width, depth, seed, flank), holes, flank
+
+    def test_every_hole_fires_after_all_rows_ahead(self):
+        for case, holes, flank in self._cases():
+            for system, chain in (("nonel", 42.0), ("detcord", 42.0), ("detcord", 25.0), ("electronic", 50.0)):
+                with self.subTest(case=case, system=system, chain=chain):
+                    plan = plan_trunk_chains(holes, cut_flank=flank, system=system, chain_ms=chain)
+                    self.assertEqual(set(plan.surface_ms), {h.id for h in holes})
+                    incoming = Counter(to for _, to, _ in plan.ties)
+                    self.assertTrue(all(incoming[h.id] == 1 for h in holes if h.id not in plan.starters))
+                    _assert_fires_after_all_rows_ahead(self, holes, plan, 4.0)
+
+
+class DetcordExhaustedStepTests(unittest.TestCase):
+    """ДШ, цепочка 42 мс: реле выше нет — вторая скважина с общей предшественницей
+    привязывается к соседке по ряду, уже взявшей её, наименьшим реле (10 мс)."""
+
+    def test_row_neighbours_never_fire_together(self):
+        fallback_seen = False
+        for width, depth in StaggeredTests.SIZES:
+            holes = generate_pattern(_rect_contour(width, depth), RECT | {"pattern": "staggered"})
+            by_id = {h.id: h for h in holes}
+            for flank in ("left", "right"):
+                with self.subTest(size=(width, depth), flank=flank):
+                    plan = plan_trunk_chains(holes, cut_flank=flank, chain_ms=42.0, system="detcord")
+                    steps = {ms for *_, ms in plan.ties}
+                    fallback_seen |= 10.0 in steps
+                    self.assertTrue(steps <= {25.0, 42.0, 10.0}, steps)
+                    # Связь 10 мс — от соседки по тому же ряду.
+                    for frm, to, ms in plan.ties:
+                        if ms == 10.0:
+                            self.assertEqual(logical_row(by_id[frm].row), logical_row(by_id[to].row))
+                    rows: dict[int, list[Hole]] = {}
+                    for h in holes:
+                        rows.setdefault(logical_row(h.row), []).append(h)
+                    for items in rows.values():
+                        times = [plan.surface_ms[h.id] for h in items]
+                        self.assertEqual(len(times), len(set(times)), msg=sorted(times))
+                    _assert_fires_after_all_rows_ahead(self, holes, plan, 4.0)
+        self.assertTrue(fallback_seen)
+
+    def test_nonel_top_step_falls_back_to_smallest_nsi(self):
+        holes = generate_pattern(_rect_contour(20.0, 16.0), RECT | {"pattern": "staggered"})
+        plan = plan_trunk_chains(holes, chain_ms=109.0)
+        self.assertIn(17.0, {ms for *_, ms in plan.ties})
+        _assert_fires_after_all_rows_ahead(self, holes, plan, 4.0)
+
+
+class MainKindTests(unittest.TestCase):
+    """Основная сетка стеночного вида (`main_kind`) — члены столбцов; отдельный
+    стеночный ряд того же вида (свой номер ряда < 0) — «прочие»."""
+
+    def setUp(self):
+        self.grid = generate_pattern(_rect_contour(20.0, 16.0), RECT | {"default_kind": "contour"})
+        self.assertTrue(all(h.kind == "contour" for h in self.grid))
+        self.assertTrue(all(h.row >= 0 for h in self.grid))
+        self.wall = [vertical_hole(f"K{i}", 4.0 * i, -3.0, row=-1, kind="contour") for i in range(6)]
+        self.holes = self.grid + self.wall
+
+    def test_main_grid_gets_trunk_and_wall_row_is_other(self):
+        plan = plan_trunk_chains(self.holes, main_kind="contour")
+        min_row = min(logical_row(h.row) for h in self.grid)
+        for h in self.grid:
+            col_rank = round(h.collar.x / 4.0)
+            row_rank = logical_row(h.row) - min_row
+            self.assertAlmostEqual(plan.surface_ms[h.id], 25 * col_rank + 42 * row_rank, msg=h.id)
+        grid_ids = {h.id for h in self.grid}
+        self.assertTrue(set(plan.starters) <= grid_ids)
+        for wall in self.wall:
+            frm, ms = next((f, m) for f, t, m in plan.ties if t == wall.id)
+            self.assertEqual(ms, 42.0)
+            self.assertIn(wall.id, plan.surface_ms)
+
+    def test_network_includes_contour_grid_without_include_contour(self):
+        network, warnings = build_trunk_chains_network(self.holes, {"system": "nonel", "main_kind": "contour"})
+        # Основная сетка — не стенки: предупреждения о стенках нет.
+        self.assertNotIn(WALLS_AFTER_GRID_WARNING, warnings)
+        times, _ = resolve_times(network, self.holes)
+        self.assertTrue({h.id for h in self.grid} <= set(times))
+        self.assertTrue(any(c.delay_ms == 25.0 for c in network.surface_connectors))
+        # Отдельный контурный ряд без include_contour в сеть не входит.
+        self.assertFalse({h.id for h in self.wall} & set(times))
+        with_walls, _ = build_trunk_chains_network(
+            self.holes, {"system": "nonel", "main_kind": "contour", "include_contour": True}
+        )
+        times, _ = resolve_times(with_walls, self.holes)
+        self.assertEqual(set(times), {h.id for h in self.holes})
+
+    def test_without_main_kind_contour_grid_is_others(self):
+        plan = plan_trunk_chains(self.grid)
+        self.assertNotIn(25.0, {ms for *_, ms in plan.ties})
 
 
 class StrayTests(unittest.TestCase):

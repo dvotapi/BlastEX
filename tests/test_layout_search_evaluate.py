@@ -276,14 +276,57 @@ class MountingFromBaseTests(unittest.TestCase):
         self.assertEqual({h.kind for h in wired}, {"contour"})
 
     def test_contour_default_kind_without_base_network(self):
-        # Основная сетка строится видом contour: без флага сеть варианта была бы пустой.
+        # Основная сетка строится видом contour: сеть варианта не пуста и без
+        # флага `include_contour` — сетку берёт `main_kind`.
         params = {**BASE, "default_kind": "contour"}
         design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(params))
-        self.assertTrue(network_params(design)["include_contour"])
+        self.assertFalse(network_params(design)["include_contour"])
         ev = evaluate(SearchContext.from_design(design), Candidate(dict(params), "left"))
         self.assertTrue(ev.holes)
         self.assertTrue(ev.network.starters)
         self.assertTrue(ev.network.connectors)
+
+    def test_contour_main_grid_base_network_does_not_wire_walls(self):
+        # Базовая сеть монтирует основную сетку вида contour, но не отдельный
+        # контурный ряд: это не «контурные скважины в сети», ряд в сеть
+        # варианта не входит.
+        params = {**BASE, "default_kind": "contour", "contour_row": True, "contour_spacing_m": 3.0}
+        holes = generate_pattern(CONTOUR, params)
+        walls = {h.id for h in holes if h.kind == "contour" and h.row < 0}
+        self.assertTrue(walls)
+        network, _ = build_trunk_chains_network(holes, {"main_kind": "contour"})
+        design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(params), holes=holes,
+                             network=network)
+        self.assertEqual(wired_wall_holes(design), [])
+        self.assertFalse(network_params(design)["include_contour"])
+        ev = evaluate(SearchContext.from_design(design), Candidate(dict(params), "left"))
+        times, _ = resolve_times(ev.network, ev.holes)
+        self.assertFalse({h.id for h in ev.holes if h.kind == "contour" and h.row < 0} & set(times))
+        self.assertTrue(any(c.delay_ms == 25.0 for c in ev.network.surface_connectors))
+
+    def test_contour_main_grid_gets_trunk(self):
+        # Основная сетка вида contour — члены столбцов: магистраль 25 мс по
+        # головам, а не дерево «прочих» по 42 мс.
+        params = {**BASE, "default_kind": "contour"}
+        design = BlastDesign(design_id="t", contour=CONTOUR, pattern_params=dict(params))
+        self.assertEqual(network_params(design)["main_kind"], "contour")
+        ev = evaluate(SearchContext.from_design(design), Candidate(dict(params), "left"))
+        self.assertTrue(all(h.kind == "contour" for h in ev.holes))
+        self.assertTrue(any(c.delay_ms == 25.0 for c in ev.network.surface_connectors))
+        self.assertEqual(len(ev.network.starters), 1)
+        production = evaluate(_ctx(), Candidate(dict(BASE), "left"))
+        times, _ = resolve_times(ev.network, ev.holes)
+        base_times, _ = resolve_times(production.network, production.holes)
+        xy = lambda holes, t: sorted((round(h.collar.x, 6), round(h.collar.y, 6), t[h.id]) for h in holes)
+        self.assertEqual(xy(ev.holes, times), xy(production.holes, base_times))
+
+    def test_contour_main_grid_checked(self):
+        # Основная сетка вида contour проверяется как рядовая: отступ устья и ЛСП.
+        params = {**BASE, "default_kind": "contour", "min_crest_offset_m": 3.0}
+        ev = evaluate(_ctx(params), Candidate(dict(params), "left"))
+        self.assertIn("collar_too_close_to_crest", ev.reject_codes)
+        params = {**BASE, "default_kind": "contour", "offset_from_face_m": 1.5}
+        self.assertEqual(evaluate(_ctx(params), Candidate(params, "left")).lsp_out, 9)
 
     def test_downhole_delay_from_base_network(self):
         # У ДШ и электронной замедление в скважине — из базовой сети, а не умолчание системы.

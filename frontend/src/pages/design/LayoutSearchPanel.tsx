@@ -1,7 +1,6 @@
 // Панель «Подбор раскладки» (часть 4в): запуск перебора на сервере, ход по
 // этапам, три лучших варианта карточками, показ варианта на плане и
 // «Применить». Сам опрос — в useLayoutSearch, применение — на странице.
-import type { KeyboardEvent } from "react";
 import { ruNumber } from "../../lib/format";
 import type { LayoutSearchStage, LayoutSearchState, LayoutSearchStatus, LayoutSearchVariant } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
@@ -149,14 +148,6 @@ export function LayoutSearchPanel({
     onPreview(previewIndex === index ? null : index);
   }
 
-  function onCardKey(e: KeyboardEvent<HTMLElement>, index: number) {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      togglePreview(index);
-    }
-  }
-
   return (
     <section className="panel layout-search">
       <header><b>Подбор раскладки</b><RoleBadge role="designed" /></header>
@@ -173,7 +164,7 @@ export function LayoutSearchPanel({
         {designId === null && <small>{NO_DESIGN_HINT}</small>}
         {error && <small role="alert" className="frag-warnings">{error}</small>}
 
-        {status && status.state !== "idle" && !running && (
+        {status && status.state !== "idle" && (
           <small className="layout-search-state">Подбор: {STATE_LABELS[status.state]}</small>
         )}
         {status?.state === "failed" && status.error && <small className="frag-warnings">{status.error}</small>}
@@ -207,15 +198,18 @@ export function LayoutSearchPanel({
                 return (
                   <article
                     key={index}
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={shown}
-                    aria-label={`Вариант ${index + 1}`}
                     className={`layout-variant-card${shown ? " active" : ""}${variant.rejected ? " rejected" : ""}`}
-                    onClick={() => togglePreview(index)}
-                    onKeyDown={(e) => onCardKey(e, index)}
                   >
-                    <b>Вариант {index + 1}</b>
+                    {/* Заголовок — кнопка показа на плане; повторное нажатие снимает показ. */}
+                    <button
+                      type="button"
+                      className="layout-variant-toggle"
+                      aria-pressed={shown}
+                      title={shown ? "Убрать с плана" : "Показать на плане"}
+                      onClick={() => togglePreview(index)}
+                    >
+                      Вариант {index + 1}
+                    </button>
                     {variant.rejected && (
                       <div className="frag-warnings">
                         <small>не прошёл проверки</small>
@@ -228,14 +222,7 @@ export function LayoutSearchPanel({
                     <Rows rows={rows.metrics} />
                     <div className="layout-variant-actions">
                       {shown && (
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onPreview(null);
-                          }}
-                        >
+                        <button type="button" className="secondary-button" onClick={() => onPreview(null)}>
                           Скрыть
                         </button>
                       )}
@@ -243,10 +230,7 @@ export function LayoutSearchPanel({
                         type="button"
                         className="secondary-button"
                         disabled={locked}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          apply(variant);
-                        }}
+                        onClick={() => apply(variant)}
                       >
                         Применить
                       </button>

@@ -274,11 +274,11 @@
 .layout-search-state { color:#7b8982; font-size:11px; }
 .layout-search-marks { margin:0; padding-left:16px; font-size:11px; }
 .layout-variant-list { display:grid; gap:6px; }
-.layout-variant-card { display:grid; gap:6px; padding:8px 10px; border:1px solid #d9e2dd; border-radius:9px; background:#fff; cursor:pointer; text-align:left; }
-.layout-variant-card:focus-visible { outline:2px solid #2d7556; outline-offset:1px; }
+.layout-variant-card { display:grid; gap:6px; padding:8px 10px; border:1px solid #d9e2dd; border-radius:9px; background:#fff; text-align:left; }
+.layout-variant-toggle { justify-self:stretch; padding:0; border:0; background:none; color:inherit; font:inherit; font-size:12px; font-weight:var(--font-weight-title); text-align:left; cursor:pointer; }
+.layout-variant-toggle:focus-visible { outline:2px solid #2d7556; outline-offset:2px; }
 .layout-variant-card.active { border-color:#2d7556; background:#edf7f1; }
 .layout-variant-card.rejected { border-color:#e4c4ad; }
-.layout-variant-card > b { font-size:12px; }
 .layout-variant-card ul { margin:2px 0 0; padding-left:16px; font-size:11px; }
 .layout-variant-rows { display:grid; gap:2px; margin:0; font-size:11px; }
 .layout-variant-rows > div { display:flex; justify-content:space-between; gap:8px; }

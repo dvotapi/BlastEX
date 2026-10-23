@@ -34,7 +34,6 @@ import {
   type HoleKind,
   type HoleLoad,
   type OverlayMetric,
-  type LayoutSearchVariant,
   type PatternParams,
   type Point3,
   type PpvRequest,
@@ -114,7 +113,7 @@ import { HoleInspector } from "./HoleInspector";
 import { layersToMapLegend } from "./MapLegend";
 import { PatternPanel } from "./PatternPanel";
 import { LayoutSearchPanel } from "./LayoutSearchPanel";
-import { layoutFingerprint, useLayoutSearch } from "./useLayoutSearch";
+import { useLayoutSearchApply } from "./useLayoutSearchApply";
 import { PlanCanvas, type PlanMeasureState } from "./PlanCanvas";
 import { StageInspector } from "./StageInspector";
 import { VisibilityPanel } from "./VisibilityPanel";
@@ -309,51 +308,6 @@ export function DesignPage({
   const [tieScheme, setTieScheme] = useState<SchemeType>("row");
   const [tieParams, setTieParams] = useState<TieParams>(DEFAULT_TIE_PARAMS);
   const [tieWarnings, setTieWarnings] = useState<string[]>([]);
-
-  // Подбор раскладки (часть 4в). Отпечаток входов — по тому, что ушло бы на
-  // сервер: контур, съёмка, домены, параметры формы «Сетка» и порода.
-  const layoutPatternParams = useMemo(
-    () => Object.fromEntries(Object.entries(patternParams).filter(([, v]) => v !== undefined)),
-    [patternParams],
-  );
-  const [layoutInputsFingerprint, setLayoutInputsFingerprint] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    void layoutFingerprint({
-      contour: document.contour,
-      surfaces: document.surfaces,
-      domains: document.domains,
-      pattern_params: layoutPatternParams,
-      rock_name: document.rock_name,
-    }).then((value) => {
-      if (alive) setLayoutInputsFingerprint(value);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [document.contour, document.surfaces, document.domains, layoutPatternParams, document.rock_name]);
-  const layoutSearch = useLayoutSearch(document.design_id || null, layoutInputsFingerprint);
-  const layoutResult = layoutSearch.status?.state === "running" ? null : layoutSearch.status?.result ?? null;
-  const [layoutPreviewIndex, setLayoutPreviewIndex] = useState<number | null>(null);
-  // Новый результат (запуск, другой паспорт) — прежний показ снимается.
-  useEffect(() => setLayoutPreviewIndex(null), [layoutResult]);
-  const layoutPreview = layoutPreviewIndex === null ? null : layoutResult?.best[layoutPreviewIndex] ?? null;
-  // Применённый вариант меняет параметры сетки — отпечаток входов расходится с
-  // подбором, хотя результат не устарел: входы после применения помним отдельно.
-  const [appliedLayout, setAppliedLayout] = useState<{ result: string | null; inputs: string } | null>(null);
-  const layoutStale =
-    layoutSearch.stale &&
-    !(appliedLayout && appliedLayout.result === layoutSearch.status?.fingerprint && appliedLayout.inputs === layoutInputsFingerprint);
-  // Параметры, записанные в документ «Применить» (и до него): когда отмена или
-  // повтор возвращают документ с одним из них, форма «Сетка» берётся оттуда.
-  const appliedPatternParams = useRef(new WeakSet<object>());
-  const syncedPatternParams = useRef(document.pattern_params);
-  useEffect(() => {
-    if (syncedPatternParams.current === document.pattern_params) return;
-    syncedPatternParams.current = document.pattern_params;
-    if (!appliedPatternParams.current.has(document.pattern_params)) return;
-    setPatternParams({ ...DEFAULT_PATTERN_PARAMS, ...(document.pattern_params as Partial<PatternParams>) });
-  }, [document.pattern_params]);
   const [tieBusy, setTieBusy] = useState(false);
   const [pendingTieFromId, setPendingTieFromId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
@@ -764,43 +718,29 @@ export function DesignPage({
     }
   }
 
-  function applyLayoutVariant(variant: LayoutSearchVariant) {
-    if (rejectLocked("designed")) return;
-    const nextParams: PatternParams = { ...DEFAULT_PATTERN_PARAMS, ...(variant.params as Partial<PatternParams>) };
-    const params = Object.fromEntries(Object.entries(nextParams).filter(([, v]) => v !== undefined));
-    const previous = layoutPatternParams;
-    appliedPatternParams.current.add(params);
-    appliedPatternParams.current.add(previous);
-    dispatch({
-      type: "APPLY_LAYOUT",
-      holes: variant.holes,
-      network: variant.network,
-      pattern_params: params,
-      previous_pattern_params: previous,
-    });
-    setLayoutPreviewIndex(null);
-    // «Коммутация» — схема варианта: «Магистраль + цепочки» с его флангом.
-    setTieScheme("trunk_chains");
-    setTieParams((prev) => ({ ...prev, system: variant.network.system, cut_flank: variant.cut_flank, timing_mode: "" }));
-    setChargeRules((prev) => ({ ...prev, grid_a_m: nextParams.spacing_a_m, grid_b_m: nextParams.burden_b_m }));
-    setFragResult(null);
-    setAsDrilledResult(null);
-    setAsChargedResult(null);
-    setAsFiredResult(null);
-    setExecutionResult(null);
-    setBlastResultCompare(null);
-    setSelected(new Set());
-    setError("");
-    const resultFingerprint = layoutSearch.status?.fingerprint ?? null;
-    void layoutFingerprint({
-      contour: document.contour,
-      surfaces: document.surfaces,
-      domains: document.domains,
-      pattern_params: params,
-      rock_name: document.rock_name,
-    }).then((inputs) => setAppliedLayout({ result: resultFingerprint, inputs }));
-    void refreshMaps({ ...document, holes: variant.holes, network: variant.network });
-  }
+  // Подбор раскладки (часть 4в): опрос, показ варианта и «Применить».
+  const layout = useLayoutSearchApply({
+    state,
+    dispatch,
+    patternParams,
+    setPatternParams,
+    setTieScheme,
+    setTieParams,
+    rejectLocked: () => rejectLocked("designed"),
+    setError,
+    onApplied: (variant, holes, params) => {
+      // Как после «Сгенерировать сетку»: шаги в правилах зарядов, сброс результатов.
+      setChargeRules((prev) => ({ ...prev, grid_a_m: params.spacing_a_m, grid_b_m: params.burden_b_m }));
+      setFragResult(null);
+      setAsDrilledResult(null);
+      setAsChargedResult(null);
+      setAsFiredResult(null);
+      setExecutionResult(null);
+      setBlastResultCompare(null);
+      setSelected(new Set());
+      void refreshMaps({ ...document, holes, network: variant.network });
+    },
+  });
 
   function onContourChange(vertices: Point3[], freeFaces?: number[][], coalesce?: boolean) {
     if (rejectLocked("designed")) return;
@@ -2997,19 +2937,19 @@ export function DesignPage({
           {workflowStage === "pattern" && (
             <LayoutSearchPanel
               designId={document.design_id || null}
-              status={layoutSearch.status}
-              stale={layoutStale}
-              error={layoutSearch.error}
+              status={layout.search.status}
+              stale={layout.stale}
+              error={layout.search.error}
               manualCount={document.holes.filter((hole) => hole.source === "manual").length}
               locked={designedLocked}
-              previewIndex={layoutPreviewIndex}
+              previewIndex={layout.previewIndex}
               onStart={() => {
                 if (rejectLocked("designed")) return;
-                void layoutSearch.start(designPayload());
+                void layout.search.start(designPayload());
               }}
-              onStop={() => void layoutSearch.stop()}
-              onPreview={setLayoutPreviewIndex}
-              onApply={applyLayoutVariant}
+              onStop={() => void layout.search.stop()}
+              onPreview={layout.setPreviewIndex}
+              onApply={(variant) => void layout.apply(variant)}
             />
           )}
           {workflowStage === "charge" && (
@@ -3498,7 +3438,7 @@ export function DesignPage({
               insertKind={insertKind}
               onInsertKindChange={setInsertKind}
               situation={situationPlan}
-              preview={workflowStage === "pattern" && layoutPreview ? { holes: layoutPreview.holes, network: layoutPreview.network } : null}
+              preview={workflowStage === "pattern" && layout.preview ? { holes: layout.preview.holes, network: layout.preview.network } : null}
             />
           )}
           <VisibilityPanel

@@ -78,8 +78,13 @@ function mount(extra: Partial<Props> = {}) {
 
 const START = "Подобрать раскладку";
 
+/** Кнопки показа «Вариант N» — заголовки карточек. */
 function cards(): HTMLElement[] {
   return screen.getAllByRole("button", { name: /^Вариант \d/ });
+}
+
+function card(index: number): HTMLElement {
+  return cards()[index].closest(".layout-variant-card") as HTMLElement;
 }
 
 describe("LayoutSearchPanel: запуск", () => {
@@ -118,6 +123,17 @@ describe("LayoutSearchPanel: ход подбора", () => {
     expect(screen.getByText(/37 с/)).toBeTruthy();
   });
 
+  it("статус «идёт» подписан и во время подбора", () => {
+    mount({ status: status({ state: "running", stage: "refine", done: 1, total: 2, result: null }) });
+    expect(screen.getByText("Подбор: идёт")).toBeTruthy();
+  });
+
+  it("карточка не вкладывает кнопки в кнопку", () => {
+    mount();
+    expect(card(0).getAttribute("role")).toBeNull();
+    expect(cards()[0].tagName).toBe("BUTTON");
+  });
+
   it("«Остановить» вызывает остановку, запуск неактивен", () => {
     const { props } = mount({ status: status({ state: "running", stage: "geometry", done: 1, total: 10, result: null }) });
     fireEvent.click(screen.getByRole("button", { name: "Остановить" }));
@@ -135,7 +151,7 @@ describe("LayoutSearchPanel: карточки", () => {
   it("три карточки с параметрами и подписями показателей", () => {
     mount();
     expect(cards()).toHaveLength(3);
-    const first = within(cards()[0]);
+    const first = within(card(0));
     for (const label of [
       "Азимут рядов, °",
       "Шаги a × b, м",
@@ -157,14 +173,14 @@ describe("LayoutSearchPanel: карточки", () => {
     expect(first.getByText("левого")).toBeTruthy();
     expect(first.getByText("18")).toBeTruthy(); // 0,184 → 18 %
     expect(first.getByText("64")).toBeTruthy();
-    expect(within(cards()[1]).getByText("пара 15°")).toBeTruthy();
-    expect(within(cards()[1]).getByText("правого")).toBeTruthy();
-    expect(within(cards()[2]).getByText("переход, 2 ряда, 12°")).toBeTruthy();
+    expect(within(card(1)).getByText("пара 15°")).toBeTruthy();
+    expect(within(card(1)).getByText("правого")).toBeTruthy();
+    expect(within(card(2)).getByText("переход, 2 ряда, 12°")).toBeTruthy();
   });
 
   it("показатель без значения — прочерк, без служебных имён", () => {
     mount({ status: status({ result: result({ best: [variant({ fast_share: null, robust_spread: null })] }) }) });
-    expect(within(cards()[0]).getAllByText("—").length).toBe(2);
+    expect(within(card(0)).getAllByText("—").length).toBe(2);
     expect(screen.queryByText(/fast_share|row_azimuth/)).toBeNull();
   });
 
@@ -176,17 +192,17 @@ describe("LayoutSearchPanel: карточки", () => {
         }),
       }),
     });
-    const card = within(cards()[0]);
-    expect(card.getByText("не прошёл проверки")).toBeTruthy();
-    expect(card.getByText(/забой за подошвой откоса/)).toBeTruthy();
-    expect(card.getByText(/устье ближе допустимого к кромке/)).toBeTruthy();
-    expect(card.getByText(/не прошёл проверку/)).toBeTruthy();
+    const scope = within(card(0));
+    expect(scope.getByText("не прошёл проверки")).toBeTruthy();
+    expect(scope.getByText(/забой за подошвой откоса/)).toBeTruthy();
+    expect(scope.getByText(/устье ближе допустимого к кромке/)).toBeTruthy();
+    expect(scope.getByText(/не прошёл проверку/)).toBeTruthy();
     expect(screen.queryByText(/floor_beyond_toe/)).toBeNull();
   });
 
   it("пустая сетка — «сетка не построилась»", () => {
     mount({ status: status({ result: result({ best: [variant({ rejected: true, reject_codes: ["empty"] })] }) }) });
-    expect(within(cards()[0]).getByText(/сетка не построилась/)).toBeTruthy();
+    expect(within(card(0)).getByText(/сетка не построилась/)).toBeTruthy();
   });
 });
 
@@ -232,13 +248,13 @@ describe("LayoutSearchPanel: предпросмотр и «Применить»"
 
   it("«Скрыть» убирает показ", () => {
     const { props } = mount({ previewIndex: 1 });
-    fireEvent.click(within(cards()[1]).getByRole("button", { name: "Скрыть" }));
+    fireEvent.click(within(card(1)).getByRole("button", { name: "Скрыть" }));
     expect(props.onPreview).toHaveBeenLastCalledWith(null);
   });
 
   it("«Применить» на варианте 2 при показе варианта 1 применяет вариант 2", () => {
     const { props } = mount({ previewIndex: 0 });
-    fireEvent.click(within(cards()[1]).getByRole("button", { name: "Применить" }));
+    fireEvent.click(within(card(1)).getByRole("button", { name: "Применить" }));
     expect(props.onApply).toHaveBeenCalledTimes(1);
     expect(props.onApply).toHaveBeenCalledWith(props.status!.result!.best[1]);
     // Кнопка внутри карточки не переключает показ.
@@ -248,19 +264,19 @@ describe("LayoutSearchPanel: предпросмотр и «Применить»"
   it("ручные скважины — сначала подтверждение; отказ ничего не меняет", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const { props } = mount({ manualCount: 3 });
-    fireEvent.click(within(cards()[0]).getByRole("button", { name: "Применить" }));
+    fireEvent.click(within(card(0)).getByRole("button", { name: "Применить" }));
     expect(confirm).toHaveBeenCalledWith("Ручные правки (3) будут потеряны. Применить вариант?");
     expect(props.onApply).not.toHaveBeenCalled();
 
     confirm.mockReturnValue(true);
-    fireEvent.click(within(cards()[0]).getByRole("button", { name: "Применить" }));
+    fireEvent.click(within(card(0)).getByRole("button", { name: "Применить" }));
     expect(props.onApply).toHaveBeenCalledWith(props.status!.result!.best[0]);
   });
 
   it("без ручных скважин и свежий результат — без подтверждения", () => {
     const confirm = vi.spyOn(window, "confirm");
     const { props } = mount();
-    fireEvent.click(within(cards()[0]).getByRole("button", { name: "Применить" }));
+    fireEvent.click(within(card(0)).getByRole("button", { name: "Применить" }));
     expect(confirm).not.toHaveBeenCalled();
     expect(props.onApply).toHaveBeenCalledTimes(1);
   });
@@ -268,7 +284,7 @@ describe("LayoutSearchPanel: предпросмотр и «Применить»"
   it("устаревший результат — подтверждение перед применением", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const { props } = mount({ stale: true });
-    fireEvent.click(within(cards()[0]).getByRole("button", { name: "Применить" }));
+    fireEvent.click(within(card(0)).getByRole("button", { name: "Применить" }));
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(confirm.mock.calls[0][0]).toMatch(/Устарел/);
     expect(props.onApply).not.toHaveBeenCalled();
@@ -276,7 +292,7 @@ describe("LayoutSearchPanel: предпросмотр и «Применить»"
 
   it("закрытый паспорт — «Применить» неактивно, показ доступен", () => {
     const { props } = mount({ locked: true });
-    expect((within(cards()[0]).getByRole("button", { name: "Применить" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(card(0)).getByRole("button", { name: "Применить" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(cards()[0]);
     expect(props.onPreview).toHaveBeenCalledWith(0);
   });

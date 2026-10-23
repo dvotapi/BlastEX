@@ -107,7 +107,7 @@ import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
-import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer } from "./designParams";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -1101,10 +1101,11 @@ export function DesignPage({
     setError("");
     setTieWarnings(null);
     try {
-      const result = await api.design.tie(document.holes, tieScheme, {
-        ...tieParams,
-        selected_hole_ids: Array.from(selected),
-      });
+      const result = await api.design.tie(
+        document.holes,
+        tieScheme,
+        tieRequestParams(tieParams, Array.from(selected), patternParams.default_kind),
+      );
       dispatch({ type: "SET_NETWORK", network: result.network });
       setTieWarnings(withTieWarnings(result.network, result.warnings ?? []));
       setPendingTieFromId(null);

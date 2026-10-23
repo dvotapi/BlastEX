@@ -4,9 +4,9 @@
 // — как хранятся. Иначе «Сохранить» факта бурения падает на FrozenDesignError
 // (аудит замечаний Codex к PR #34, BDX-026).
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
+import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, DEFAULT_TIE_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
 import { designReducer, initDesignState, type DesignAction, type DesignState } from "./designReducer";
-import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, type DesignParams } from "./designParams";
+import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 
 const DEFAULT_EXPLOSIVE = "ГРАНУЛИТ-РП";
 
@@ -230,5 +230,14 @@ describe("наклон рядов: возврат к 0", () => {
     const written = designWithParams(state, back);
     expect(Object.keys(written.pattern_params)).not.toContain("front_rows_tilt_count");
     expect(Object.keys(written.pattern_params)).not.toContain("front_rows_tilt_deg");
+  });
+});
+
+describe("параметры построения коммутации", () => {
+  it("передают вид основной сетки и выбранные скважины", () => {
+    const params = tieRequestParams(DEFAULT_TIE_PARAMS, ["1-01", "1-02"], "contour");
+    expect(params.main_kind).toBe("contour");
+    expect(params.selected_hole_ids).toEqual(["1-01", "1-02"]);
+    expect(params.trunk_ms).toBe(DEFAULT_TIE_PARAMS.trunk_ms);
   });
 });

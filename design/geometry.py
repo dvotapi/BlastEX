@@ -468,6 +468,34 @@ def local_basis(row_azimuth_deg: float) -> tuple[Point2, Point2]:
     return row_dir, advance_dir
 
 
+def crest_azimuth_deg(contour: BlockContour) -> float | None:
+    """Азимут линии бровки в градусах [0, 180): 0° = +Y, по часовой (как у `local_basis`).
+
+    Направление усредняется по длинам отрезков свободных поверхностей: углы
+    удваиваются (линия не имеет «вперёд/назад»), векторы суммируются, угол
+    суммы делится пополам. Без свободных поверхностей — None.
+    """
+    verts = contour.points_xy
+    if not verts or not contour.free_faces:
+        return None
+    sx = sy = 0.0
+    for edge in contour.free_faces:
+        for i in range(len(edge) - 1):
+            if not (0 <= edge[i] < len(verts) and 0 <= edge[i + 1] < len(verts)):
+                continue
+            a, b = verts[edge[i]], verts[edge[i + 1]]
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            length = math.hypot(dx, dy)
+            if length < 1e-12:
+                continue
+            theta = math.atan2(dx, dy)
+            sx += length * math.sin(2.0 * theta)
+            sy += length * math.cos(2.0 * theta)
+    if math.hypot(sx, sy) < 1e-9:
+        return None
+    return (math.degrees(0.5 * math.atan2(sx, sy)) % 180.0) % 180.0
+
+
 def _face_reference_point(contour: BlockContour) -> Point2 | None:
     verts = contour.points_xy
     if not verts or not contour.free_faces:

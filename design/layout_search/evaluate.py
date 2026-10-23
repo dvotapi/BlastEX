@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, replace
 
 from design.analysis import collar_crest_warnings
 from design.layout_search.space import Candidate
-from design.models import BlastDesign, BlastDomain, Hole, InitiationNetwork
+from design.models import BlastDesign, BlastDomain, Hole, InitiationNetwork, in_main_grid, main_grid_kind
 from design.pattern import generate_pattern
 from design.relief import RELIEF_MIN_MS_M, burden_relief
 from design.spatial.surfaces import SurfaceSet
@@ -187,21 +187,26 @@ def window_max_holes(times: dict[str, float], window_ms: float = WINDOW_MS) -> i
 
 
 def network_params(base: BlastDesign) -> dict:
-    """Система, контурный ряд и замедление в скважине монтажа варианта — по базе.
+    """Система, вид основной сетки, контурный ряд и замедление в скважине
+    монтажа варианта — по базе.
 
-    Система — `network.system` базы (неизвестная — СИНВ). Флаг `include_contour`
-    управляет только видом contour (предщелевой и оконтуривающий ряды монтаж
-    включает всегда): он ставится, если базовая сеть монтирует хотя бы одну
-    контурную скважину или основная сетка строится видом contour
-    (`pattern_params.default_kind`) — иначе сеть варианта была бы пустой.
-    У ДШ и электронной замедление в скважине — из базовой сети
-    (`base_downhole_ms`); у СИНВ его выбирает построитель.
+    Система — `network.system` базы (неизвестная — СИНВ). `main_kind` — вид
+    основной сетки (`pattern_params.default_kind`): сетка стеночного вида
+    (например, contour) — члены столбцов магистрали, а отдельные стеночные
+    ряды того же вида — нет. Флаг `include_contour` управляет только
+    отдельными рядами вида contour (предщелевой и оконтуривающий ряды монтаж
+    включает всегда) и ставится, если базовая сеть монтирует хотя бы одну
+    контурную скважину. У ДШ и электронной замедление в скважине — из базовой
+    сети (`base_downhole_ms`); у СИНВ его выбирает построитель.
     """
     system = str(getattr(base.network, "system", "") or "nonel")
     if system not in SYSTEM_TYPES:
         system = "nonel"
-    contour_grid = (base.pattern_params or {}).get("default_kind") == CONTOUR_KIND
-    params: dict = {"system": system, "include_contour": contour_grid or bool(wired_wall_holes(base))}
+    params: dict = {
+        "system": system,
+        "main_kind": main_grid_kind(base.pattern_params),
+        "include_contour": bool(wired_wall_holes(base)),
+    }
     if system != "nonel":
         downhole_ms = base_downhole_ms(base.network)
         if downhole_ms is not None:
@@ -211,13 +216,15 @@ def network_params(base: BlastDesign) -> dict:
 
 def wired_wall_holes(base: BlastDesign) -> list[Hole]:
     """Контурные скважины, которые монтирует базовая сеть: у них есть связи или
-    они стартовые.
+    они стартовые. Основная сетка вида contour (`default_kind`) — не стенки:
+    её монтирует `main_kind`, в счёт она не идёт.
 
     Только по ним решается флаг `include_contour` (`network_params`), поэтому
     фоновый подбор передаёт в дочерний процесс лишь их, а не все скважины.
     """
     network = base.network
-    walls = [h for h in base.holes or [] if h.kind == CONTOUR_KIND]
+    main_kind = main_grid_kind(base.pattern_params)
+    walls = [h for h in base.holes or [] if h.kind == CONTOUR_KIND and not in_main_grid(h, main_kind)]
     if network is None or not walls:
         return []
     wired: set[str] = set(network.starters)

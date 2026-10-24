@@ -118,6 +118,12 @@ ELECTRONIC_MODE_IGNORED_WARNING = (
     "Электронный режим тайминга не применяется к схеме „Магистраль + цепочки“: "
     "времена — по связям."
 )
+ROWS_ACROSS_CREST_WARNING = (
+    "Ряды идут поперёк бровки — магистраль ляжет вдоль фронта, цепочки длинные; "
+    "проверьте азимут рядов."
+)
+# Ось рядов отклоняется от бровки больше этого угла — ряды «поперёк», град.
+_ROWS_ACROSS_CREST_DEG = 45.0
 
 Vec = tuple[float, float]
 
@@ -145,6 +151,24 @@ def _is_column_member(hole: Hole, main_kind: str = "") -> bool:
     # Вставки стабилизации и сателлиты носят номер ряда своей скважины: их
     # отличает вид, а не ряд.
     return hole.kind not in _INSERT_KINDS or hole.kind == main_kind
+
+
+def rows_across_crest(axis: Vec, crest_azimuth_deg: Any) -> bool:
+    """Ось рядов отклоняется от линии бровки больше чем на 45°.
+
+    Азимут бровки — как у `geometry.crest_azimuth_deg` (0° = +Y, по часовой);
+    не задан или не число — False. Обе линии без направления: угол между ними
+    берётся по модулю 180°.
+    """
+    try:
+        crest = float(crest_azimuth_deg)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(crest):
+        return False
+    rows = math.degrees(math.atan2(axis[0], axis[1]))
+    diff = abs(rows - crest) % 180.0
+    return min(diff, 180.0 - diff) > _ROWS_ACROSS_CREST_DEG + 1e-9
 
 
 def _xy(holes: list[Hole]) -> np.ndarray:
@@ -601,6 +625,9 @@ def build_trunk_chains_network(
         warnings.append(ELECTRONIC_MODE_IGNORED_WARNING)
     if any(h.kind in _WALL_KINDS and not _is_column_member(h, main_kind) for h in eligible):
         warnings.append(WALLS_AFTER_GRID_WARNING)
+    # Азимут бровки приносит запрос (по контуру блока); нет — проверки нет.
+    if rows_across_crest(row_axis(eligible, main_kind)[0], params.get("crest_azimuth_deg")):
+        warnings.append(ROWS_ACROSS_CREST_WARNING)
 
     if system == "nonel":
         downhole_ms, extra = pick_downhole_ms(eligible, plan.surface_ms, _burning_front_radius(params))

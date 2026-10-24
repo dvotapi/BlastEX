@@ -475,6 +475,15 @@ describe("useLayoutSearchApply: «Применить» на странице", (
     await waitFor(() => expect(probe.current.inputsFingerprint).not.toBeNull());
   });
 
+  it("квадратная сетка варианта: сетка для q — a × a, как строит генератор", async () => {
+    // У квадрата генератор берёт b = a; burden_b_m в параметрах остаётся прежним.
+    const square = variant({ params: { ...variant().params, pattern: "square", spacing_a_m: 4.6, burden_b_m: 3.7 } });
+    const probe = await mount(base(), undefined, [square]);
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.chargeGrid).toEqual({ grid_a_m: 4.6, grid_b_m: 4.6 }));
+    expect(probe.current.applied[0][3]).toEqual({ grid_a_m: 4.6, grid_b_m: 4.6 });
+  });
+
   it("onApplied получает скважины, параметры и сетку варианта — для карт", async () => {
     const withWater = variant().holes.map((h) => ({ ...h, water_intervals: [{ from_m: 0, to_m: 3 }] as unknown as Hole["water_intervals"] }));
     vi.spyOn(api.design, "interceptGeology").mockResolvedValue({ holes: withWater } as never);

@@ -54,6 +54,13 @@ class ScenarioEngineTests(unittest.TestCase):
             self.assertAlmostEqual(value, 0.65, places=3)
         self.assertEqual(design.loads[0].total_charge_kg, charged_design().loads[0].total_charge_kg)
 
+    def test_square_grid_charge_rules_use_spacing_for_burden(self):
+        # Генератор строит квадрат с b = a: сетка для q в правилах зарядов — a × a.
+        overlay = apply_params(charged_design(), ScenarioParams(pattern="square", spacing_a_m=5.0, burden_b_m=4.0))
+        self.assertEqual((overlay.charge_rules["grid_a_m"], overlay.charge_rules["grid_b_m"]), (5.0, 5.0))
+        overlay = apply_params(charged_design(), ScenarioParams(spacing_a_m=5.0, burden_b_m=4.0))
+        self.assertEqual(overlay.charge_rules["grid_b_m"], 4.0)
+
     def test_rejects_non_positive_diameter(self):
         with self.assertRaises(InvalidScenarioParamsError):
             apply_params(charged_design(), ScenarioParams(diameter_mm=0.0))

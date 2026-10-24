@@ -10,6 +10,21 @@ import type { DesignState } from "./designReducer";
 
 export type DesignParams = { patternParams: PatternParams; chargeRules: ChargeRules; explosiveKey: string };
 
+/** Сетка для q в правилах зарядов: шаги a × b раскладки. */
+export interface ChargeGrid {
+  grid_a_m: number;
+  grid_b_m: number;
+}
+
+/** Виды сетки со своим шагом b; прочие (нет ключа, «square», неизвестный) — квадрат. */
+const OWN_BURDEN_PATTERNS: ReadonlySet<unknown> = new Set(["rectangular", "staggered", "variable", "domain_dependent"]);
+
+/** Сетка для q по параметрам раскладки: у квадрата b = a, как строит генератор (`design/pattern.py`). */
+export function chargeGridOf(params: Pick<PatternParams, "pattern" | "spacing_a_m" | "burden_b_m">): ChargeGrid {
+  const b = OWN_BURDEN_PATTERNS.has(params.pattern) ? params.burden_b_m : params.spacing_a_m;
+  return { grid_a_m: params.spacing_a_m, grid_b_m: b };
+}
+
 const MUTATION_KINDS: MutationKind[] = ["designed", "execution", "measured", "metadata"];
 
 /** Формы по паспорту: чего в паспорте нет — умолчание (ВВ — умолчание справочника). */

@@ -19,10 +19,11 @@ function lastBody(): Record<string, unknown> {
 }
 
 describe("api: построение коммутации", () => {
-  it("контур передаётся; без него ключа нет", async () => {
-    const contour = { vertices: [], free_faces: [[0, 1]] } as unknown as BlockContour;
+  it("контур передаётся без сведений чертежа; без него ключа нет", async () => {
+    const vertices = [{ x: 0, y: 0, z: 0 }];
+    const contour = { vertices, free_faces: [[0, 1]], name: "Блок", cad: { situation: {} } } as unknown as BlockContour;
     await api.design.tie([], "trunk_chains", { system: "nonel" } as never, contour);
-    expect(lastBody().contour).toEqual(contour);
+    expect(lastBody().contour).toEqual({ vertices, free_faces: [[0, 1]] });
     await api.design.tie([], "row", { system: "nonel" } as never);
     expect(lastBody()).not.toHaveProperty("contour");
   });

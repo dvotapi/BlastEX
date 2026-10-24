@@ -189,6 +189,18 @@ class TimingApiTests(unittest.TestCase):
         # Бровка — нижнее ребро (азимут 90°): ряды по 0° идут поперёк.
         self.assertTrue(any("поперёк бровки" in w for w in warnings(0.0)))
         self.assertFalse(any("поперёк бровки" in w for w in warnings(90.0)))
+        # Угловой блок: откосы 40 и 32 м под прямым углом — у бровки нет
+        # преобладающего направления, проверки нет.
+        corner = _contour_payload(40.0, 32.0) | {"free_faces": [[0, 1], [1, 2]]}
+        holes = design_service.generate_pattern(
+            PatternGenerateRequest(contour=contour, params=base | {"row_azimuth_deg": 0.0})
+        ).holes
+        response = design_service.generate_tie(
+            TieGenerateRequest(
+                holes=[h.model_dump() for h in holes], scheme="trunk_chains", params={"system": "nonel"}, contour=corner
+            )
+        )
+        self.assertFalse(any("поперёк бровки" in w for w in response.warnings))
         # Без контура бровки не знаем — молчим.
         self.assertFalse(any("поперёк бровки" in w for w in warnings(0.0, with_contour=False)))
 

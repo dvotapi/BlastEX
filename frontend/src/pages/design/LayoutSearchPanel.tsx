@@ -3,6 +3,7 @@
 // «Применить». Сам опрос — в useLayoutSearch, применение — на странице.
 import { ruNumber } from "../../lib/format";
 import type { LayoutSearchStage, LayoutSearchState, LayoutSearchStatus, LayoutSearchVariant } from "../../types/design";
+import { isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
 
 const STATE_LABELS: Record<LayoutSearchState, string> = {
@@ -78,12 +79,10 @@ function frontRowsText(params: Record<string, unknown>): string {
   return "вертикальный";
 }
 
-/** Виды сетки со своим шагом b; прочие (нет ключа, «square», неизвестный) — квадрат, b = a, как в генераторе. */
-const OWN_BURDEN_PATTERNS: ReadonlySet<unknown> = new Set(["rectangular", "staggered", "variable", "domain_dependent"]);
-
+/** Шаги раскладки: у квадратной сетки генератор берёт b = a. */
 function stepsRow(params: Record<string, unknown>): [string, string] {
   const a = ruNumber(numberOf(params.spacing_a_m));
-  if (!OWN_BURDEN_PATTERNS.has(params.pattern)) return ["Шаг a × a, м", `${a} × ${a}`];
+  if (isSquarePattern(params.pattern)) return ["Шаг a × a, м", `${a} × ${a}`];
   return ["Шаги a × b, м", `${a} × ${ruNumber(numberOf(params.burden_b_m))}`];
 }
 

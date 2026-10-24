@@ -241,6 +241,11 @@ def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
     )
 
 
+# Бровка с меньшей сосредоточенностью направлений (угловой блок: откосы под
+# прямым углом, короткий длиннее трети длинного) не сверяется с рядами.
+CREST_CONCENTRATION_MIN = 0.5
+
+
 def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
     holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
     if not holes:
@@ -250,7 +255,8 @@ def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
         if request.scheme == TRUNK_SCHEME:
             params = dict(request.params)
             if request.contour is not None:
-                params["crest_azimuth_deg"] = crest_azimuth_deg(BlockContour.from_dict(request.contour.model_dump()))
+                contour = BlockContour.from_dict(request.contour.model_dump())
+                params["crest_azimuth_deg"] = crest_azimuth_deg(contour, min_concentration=CREST_CONCENTRATION_MIN)
             network, warnings = build_trunk_chains_network(holes, params)
         else:
             network = build_template_network(holes, request.scheme, request.params)

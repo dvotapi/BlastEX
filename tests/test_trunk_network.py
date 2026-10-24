@@ -901,6 +901,26 @@ class RowsAcrossCrestTests(unittest.TestCase):
         for crest in (0.0, 180.0, 44.0, 136.0, 3.0):
             self.assertIn(ROWS_ACROSS_CREST_WARNING, self._warnings(crest_azimuth_deg=crest), msg=crest)
 
+    def test_axis_unknown_no_warning(self):
+        # По одной скважине в ряду (столбец вглубь): ось рядов по рядам не
+        # определяется, главная ось столбца — не ось рядов. Проверки нет.
+        column = [_hole(f"c{i}", 10.0, 4.0 * i) for i in range(5)]
+        for i, h in enumerate(column):
+            h.row = i
+        for crest in (0.0, 90.0):
+            _, warnings = build_trunk_chains_network(column, {"system": "nonel", "crest_azimuth_deg": crest})
+            self.assertNotIn(ROWS_ACROSS_CREST_WARNING, warnings, msg=crest)
+        _, warnings = build_trunk_chains_network(column[:1], {"system": "nonel", "crest_azimuth_deg": 0.0})
+        self.assertNotIn(ROWS_ACROSS_CREST_WARNING, warnings)
+
+    def test_plan_keeps_rows_axis(self):
+        plan = plan_trunk_chains(self.holes)
+        self.assertEqual(plan.rows_axis, row_axis(self.holes)[0])
+        column = [_hole(f"c{i}", 10.0, 4.0 * i) for i in range(3)]
+        for i, h in enumerate(column):
+            h.row = i
+        self.assertIsNone(plan_trunk_chains(column).rows_axis)
+
     def test_text_has_no_service_names(self):
         self.assertNotRegex(ROWS_ACROSS_CREST_WARNING, r"[A-Za-z_]")
 

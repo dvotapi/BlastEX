@@ -61,6 +61,12 @@ class ScenarioEngineTests(unittest.TestCase):
         overlay = apply_params(charged_design(), ScenarioParams(spacing_a_m=5.0, burden_b_m=4.0))
         self.assertEqual(overlay.charge_rules["grid_b_m"], 4.0)
 
+    def test_square_grid_outcomes_report_built_burden(self):
+        # Итог сценария — шаг b построенной сетки (у квадрата a), а не введённый.
+        params = ScenarioParams(pattern="square", spacing_a_m=5.0, burden_b_m=4.0)
+        _, outcomes, _, _ = build_and_evaluate(charged_design(), params)
+        self.assertEqual((outcomes.spacing_a_m, outcomes.burden_b_m), (5.0, 5.0))
+
     def test_rejects_non_positive_diameter(self):
         with self.assertRaises(InvalidScenarioParamsError):
             apply_params(charged_design(), ScenarioParams(diameter_mm=0.0))

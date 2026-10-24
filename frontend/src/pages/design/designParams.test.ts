@@ -255,4 +255,10 @@ describe("chargeGridOf: сетка для q в правилах зарядов",
   it.each(["rectangular", "staggered", "variable", "domain_dependent"] as const)("%s — свой шаг b", (pattern) => {
     expect(chargeGridOf({ ...DEFAULT_PATTERN_PARAMS, pattern, spacing_a_m: 5, burden_b_m: 4 })).toEqual({ grid_a_m: 5, grid_b_m: 4 });
   });
+
+  it("шаг b не задан — b = a, как в генераторе", () => {
+    const params = { ...DEFAULT_PATTERN_PARAMS, pattern: "rectangular" as const, spacing_a_m: 5, burden_b_m: null as never };
+    expect(chargeGridOf(params)).toEqual({ grid_a_m: 5, grid_b_m: 5 });
+    expect(chargeGridOf({ ...params, burden_b_m: 0 })).toEqual({ grid_a_m: 5, grid_b_m: 5 });
+  });
 });

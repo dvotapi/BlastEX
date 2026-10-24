@@ -1,5 +1,6 @@
 import type { HoleKind, PatternParams, PatternType, RowPatternParams } from "../../types/design";
 import { SELECTABLE_HOLE_KINDS } from "../../types/design";
+import { isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
 
 const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
@@ -88,7 +89,7 @@ export function PatternPanel({
         <div className="field-pair">
           <label>Шаг вдоль ряда a, м<input type="number" min="1" step="0.1" {...num("spacing_a_m")} /></label>
           <label>Шаг между рядами b, м
-            <input type="number" min="1" step="0.1" {...num("burden_b_m")} disabled={params.pattern === "square"} value={params.pattern === "square" ? params.spacing_a_m : params.burden_b_m} onChange={num("burden_b_m").onChange} />
+            <input type="number" min="1" step="0.1" {...num("burden_b_m")} disabled={isSquarePattern(params.pattern)} value={isSquarePattern(params.pattern) ? params.spacing_a_m : params.burden_b_m} onChange={num("burden_b_m").onChange} />
           </label>
         </div>
 

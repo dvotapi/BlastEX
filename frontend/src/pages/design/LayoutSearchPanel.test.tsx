@@ -13,7 +13,7 @@ afterEach(() => {
 
 function variant(extra: Partial<LayoutSearchVariant> = {}): LayoutSearchVariant {
   return {
-    params: { row_azimuth_deg: 30, spacing_a_m: 4.41, burden_b_m: 3.53 },
+    params: { pattern: "rectangular", row_azimuth_deg: 30, spacing_a_m: 4.41, burden_b_m: 3.53 },
     cut_flank: "left",
     holes: [],
     network: emptyNetwork(),
@@ -36,9 +36,9 @@ function result(extra: Partial<LayoutSearchResult> = {}): LayoutSearchResult {
   return {
     best: [
       variant(),
-      variant({ cut_flank: "right", params: { row_azimuth_deg: 35, spacing_a_m: 4.6, burden_b_m: 3.7, front_rows_mode: "pair", front_rows_tilt_deg: 15 } }),
+      variant({ cut_flank: "right", params: { pattern: "rectangular", row_azimuth_deg: 35, spacing_a_m: 4.6, burden_b_m: 3.7, front_rows_mode: "pair", front_rows_tilt_deg: 15 } }),
       variant({
-        params: { row_azimuth_deg: 40, spacing_a_m: 4.2, burden_b_m: 3.4, front_rows_mode: "taper", front_rows_tilt_count: 2, front_rows_tilt_deg: 12 },
+        params: { pattern: "rectangular", row_azimuth_deg: 40, spacing_a_m: 4.2, burden_b_m: 3.4, front_rows_mode: "taper", front_rows_tilt_count: 2, front_rows_tilt_deg: 12 },
       }),
     ],
     evaluated: 120,
@@ -77,6 +77,8 @@ function mount(extra: Partial<Props> = {}) {
 }
 
 const START = "Подобрать раскладку";
+const GRID_FROM_PARAMS_HINT =
+  "Подбор строит сетку заново по параметрам вкладки „Сетка“: скважины на плане, если их правили или строили по другим параметрам, не учитываются.";
 
 /** Кнопки показа «Вариант N» — заголовки карточек. */
 function cards(): HTMLElement[] {
@@ -97,6 +99,14 @@ describe("LayoutSearchPanel: запуск", () => {
   it("при закрытом паспорте кнопка неактивна", () => {
     mount({ locked: true, status: null });
     expect((screen.getByRole("button", { name: START }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("постоянная подсказка: подбор строит сетку заново по параметрам", () => {
+    mount({ status: null });
+    expect(screen.getByText(GRID_FROM_PARAMS_HINT)).toBeTruthy();
+    cleanup();
+    mount();
+    expect(screen.getByText(GRID_FROM_PARAMS_HINT)).toBeTruthy();
   });
 
   it("кнопка запускает подбор", () => {
@@ -183,6 +193,24 @@ describe("LayoutSearchPanel: карточки", () => {
     expect(within(card(1)).getByText("пара 15°")).toBeTruthy();
     expect(within(card(1)).getByText("правого")).toBeTruthy();
     expect(within(card(2)).getByText("переход, 2 ряда, 12°")).toBeTruthy();
+  });
+
+  it("квадратная сетка — «Шаг a × a»: генератор берёт b = a", () => {
+    for (const pattern of [undefined, "square", "непонятный"]) {
+      const params = { row_azimuth_deg: 30, spacing_a_m: 4.45, burden_b_m: 3.25, ...(pattern ? { pattern } : {}) };
+      mount({ status: status({ result: result({ best: [variant({ params })] }) }) });
+      const first = within(card(0));
+      expect(first.getByText("Шаг a × a, м")).toBeTruthy();
+      expect(first.getByText("4,45 × 4,45")).toBeTruthy();
+      expect(first.queryByText("Шаги a × b, м")).toBeNull();
+      cleanup();
+    }
+    for (const pattern of ["rectangular", "staggered", "variable", "domain_dependent"]) {
+      const params = { pattern, row_azimuth_deg: 30, spacing_a_m: 4.45, burden_b_m: 3.25 };
+      mount({ status: status({ result: result({ best: [variant({ params })] }) }) });
+      expect(within(card(0)).getByText("4,45 × 3,25")).toBeTruthy();
+      cleanup();
+    }
   });
 
   it("показатель без значения — прочерк, без служебных имён", () => {

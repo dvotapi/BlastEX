@@ -594,8 +594,20 @@ export const api = {
         contour: extras?.contour,
         explosives: extras?.explosives ?? [],
       }),
-    tie: (holes: Hole[], scheme: SchemeType, params: TieParams & Record<string, unknown>) =>
-      post<TieGenerateResponse>(`${V1}/design/tie/generate`, { holes, scheme, params }),
+    tie: (
+      holes: Hole[],
+      scheme: SchemeType,
+      params: TieParams & Record<string, unknown>,
+      contour?: BlockContour,
+    ) =>
+      // Контур — для сверки рядов с бровкой у «Магистраль + цепочки»: нужны
+      // только вершины и свободные поверхности, сведения чертежа не шлём.
+      post<TieGenerateResponse>(`${V1}/design/tie/generate`, {
+        holes,
+        scheme,
+        params,
+        contour: contour && { vertices: contour.vertices, free_faces: contour.free_faces },
+      }),
     analyze: (design: BlastDesign, isolineStepMs: number, micWindowMs: number, ppv: PpvRequest | null) =>
       post<AnalyzeResponse>(`${V1}/design/analyze`, {
         design,

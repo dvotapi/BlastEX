@@ -160,6 +160,50 @@ class TimingApiTests(unittest.TestCase):
         )
         self.assertEqual(row.warnings, [])
 
+    def test_tie_generate_trunk_chains_warns_rows_across_crest(self):
+        from api.schemas.design import PatternGenerateRequest
+
+        contour = _contour_payload(40.0, 40.0)
+        base = {
+            "pattern": "rectangular",
+            "spacing_a_m": 4.0,
+            "burden_b_m": 4.0,
+            "offset_from_face_m": 0.0,
+            "edge_margin_m": 0.0,
+        }
+
+        def warnings(row_azimuth: float, with_contour: bool = True) -> list[str]:
+            holes = design_service.generate_pattern(
+                PatternGenerateRequest(contour=contour, params=base | {"row_azimuth_deg": row_azimuth})
+            ).holes
+            response = design_service.generate_tie(
+                TieGenerateRequest(
+                    holes=[h.model_dump() for h in holes],
+                    scheme="trunk_chains",
+                    params={"system": "nonel"},
+                    contour=contour if with_contour else None,
+                )
+            )
+            return response.warnings
+
+        # Бровка — нижнее ребро (азимут 90°): ряды по 0° идут поперёк.
+        self.assertTrue(any("поперёк бровки" in w for w in warnings(0.0)))
+        self.assertFalse(any("поперёк бровки" in w for w in warnings(90.0)))
+        # Угловой блок: откосы 40 и 32 м под прямым углом — у бровки нет
+        # преобладающего направления, проверки нет.
+        corner = _contour_payload(40.0, 32.0) | {"free_faces": [[0, 1], [1, 2]]}
+        holes = design_service.generate_pattern(
+            PatternGenerateRequest(contour=contour, params=base | {"row_azimuth_deg": 0.0})
+        ).holes
+        response = design_service.generate_tie(
+            TieGenerateRequest(
+                holes=[h.model_dump() for h in holes], scheme="trunk_chains", params={"system": "nonel"}, contour=corner
+            )
+        )
+        self.assertFalse(any("поперёк бровки" in w for w in response.warnings))
+        # Без контура бровки не знаем — молчим.
+        self.assertFalse(any("поперёк бровки" in w for w in warnings(0.0, with_contour=False)))
+
 
 if __name__ == "__main__":
     unittest.main()

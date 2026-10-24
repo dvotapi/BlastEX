@@ -20,6 +20,7 @@ from design.trunk_network import (
     BURNING_FRONT_RADIUS_M,
     DOWNHOLE_LATE_WARNING,
     ELECTRONIC_MODE_IGNORED_WARNING,
+    ROWS_ACROSS_CREST_WARNING,
     WALLS_AFTER_GRID_WARNING,
     _is_column_member,
     build_trunk_chains_network,
@@ -873,6 +874,55 @@ class BurningFrontRadiusLimitTests(unittest.TestCase):
             if _math.hypot(a.collar.x - b.collar.x, a.collar.y - b.collar.y) <= 6.0:
                 expected = max(expected, abs(times[a.id] - times[b.id]))
         self.assertAlmostEqual(local_front_lag_ms(holes, times, 6.0), expected)
+
+
+class RowsAcrossCrestTests(unittest.TestCase):
+    """Ряды поперёк бровки: ось рядов отклоняется от бровки больше чем на 45°."""
+
+    def setUp(self):
+        # Ряды по +X — азимут оси 90°.
+        self.holes = _rect_holes()
+
+    def _warnings(self, **params) -> list[str]:
+        _, warnings = build_trunk_chains_network(self.holes, {"system": "nonel", **params})
+        return warnings
+
+    def test_no_crest_no_warning(self):
+        self.assertNotIn(ROWS_ACROSS_CREST_WARNING, self._warnings())
+        self.assertNotIn(ROWS_ACROSS_CREST_WARNING, self._warnings(crest_azimuth_deg=None))
+        self.assertNotIn(ROWS_ACROSS_CREST_WARNING, self._warnings(crest_azimuth_deg="испорчено"))
+
+    def test_rows_along_crest_no_warning(self):
+        # Линия без направления: 90° и 270° — одна бровка; 45° отклонения — ещё вдоль.
+        for crest in (90.0, 270.0, 87.0, 45.0, 135.0, 315.0):
+            self.assertNotIn(ROWS_ACROSS_CREST_WARNING, self._warnings(crest_azimuth_deg=crest), msg=crest)
+
+    def test_rows_across_crest_warn(self):
+        for crest in (0.0, 180.0, 44.0, 136.0, 3.0):
+            self.assertIn(ROWS_ACROSS_CREST_WARNING, self._warnings(crest_azimuth_deg=crest), msg=crest)
+
+    def test_axis_unknown_no_warning(self):
+        # По одной скважине в ряду (столбец вглубь): ось рядов по рядам не
+        # определяется, главная ось столбца — не ось рядов. Проверки нет.
+        column = [_hole(f"c{i}", 10.0, 4.0 * i) for i in range(5)]
+        for i, h in enumerate(column):
+            h.row = i
+        for crest in (0.0, 90.0):
+            _, warnings = build_trunk_chains_network(column, {"system": "nonel", "crest_azimuth_deg": crest})
+            self.assertNotIn(ROWS_ACROSS_CREST_WARNING, warnings, msg=crest)
+        _, warnings = build_trunk_chains_network(column[:1], {"system": "nonel", "crest_azimuth_deg": 0.0})
+        self.assertNotIn(ROWS_ACROSS_CREST_WARNING, warnings)
+
+    def test_plan_keeps_rows_axis(self):
+        plan = plan_trunk_chains(self.holes)
+        self.assertEqual(plan.rows_axis, row_axis(self.holes)[0])
+        column = [_hole(f"c{i}", 10.0, 4.0 * i) for i in range(3)]
+        for i, h in enumerate(column):
+            h.row = i
+        self.assertIsNone(plan_trunk_chains(column).rows_axis)
+
+    def test_text_has_no_service_names(self):
+        self.assertNotRegex(ROWS_ACROSS_CREST_WARNING, r"[A-Za-z_]")
 
 
 def _hole(hole_id: str, x: float, y: float) -> Hole:

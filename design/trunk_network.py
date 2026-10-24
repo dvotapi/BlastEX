@@ -118,6 +118,12 @@ ELECTRONIC_MODE_IGNORED_WARNING = (
     "Электронный режим тайминга не применяется к схеме „Магистраль + цепочки“: "
     "времена — по связям."
 )
+ROWS_ACROSS_CREST_WARNING = (
+    "Ряды идут поперёк бровки — магистраль ляжет вдоль фронта, цепочки длинные; "
+    "проверьте азимут рядов."
+)
+# Ось рядов отклоняется от бровки больше этого угла — ряды «поперёк», град.
+_ROWS_ACROSS_CREST_DEG = 45.0
 
 Vec = tuple[float, float]
 
@@ -133,6 +139,9 @@ class TrunkPlan:
     # Ступени после привязки к номиналам системы.
     trunk_ms: float = 25.0
     chain_ms: float = 42.0
+    # Ось рядов, если её задали сами ряды (в каком-то ряду есть разброс устьев);
+    # None — ось взята запасным путём (столбец, одна скважина).
+    rows_axis: Vec | None = None
 
 
 def _is_column_member(hole: Hole, main_kind: str = "") -> bool:
@@ -145,6 +154,26 @@ def _is_column_member(hole: Hole, main_kind: str = "") -> bool:
     # Вставки стабилизации и сателлиты носят номер ряда своей скважины: их
     # отличает вид, а не ряд.
     return hole.kind not in _INSERT_KINDS or hole.kind == main_kind
+
+
+def rows_across_crest(axis: Vec | None, crest_azimuth_deg: Any) -> bool:
+    """Ось рядов отклоняется от линии бровки больше чем на 45°.
+
+    Азимут бровки — как у `geometry.crest_azimuth_deg` (0° = +Y, по часовой);
+    ось или азимут не заданы, азимут не число — False. Обе линии без направления: угол между ними
+    берётся по модулю 180°.
+    """
+    if axis is None:
+        return False
+    try:
+        crest = float(crest_azimuth_deg)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(crest):
+        return False
+    rows = math.degrees(math.atan2(axis[0], axis[1]))
+    diff = abs(rows - crest) % 180.0
+    return min(diff, 180.0 - diff) > _ROWS_ACROSS_CREST_DEG + 1e-9
 
 
 def _xy(holes: list[Hole]) -> np.ndarray:
@@ -168,6 +197,12 @@ def row_axis(holes: list[Hole], main_kind: str = "") -> tuple[Vec, Vec]:
     Вглубь — ось, повёрнутая на +90°: наименьшая проекция на ось — левый фланг,
     если смотреть с откоса вглубь блока.
     """
+    axis, deep, _from_rows = _row_axis(holes, main_kind)
+    return axis, deep
+
+
+def _row_axis(holes: list[Hole], main_kind: str) -> tuple[Vec, Vec, bool]:
+    """`row_axis` и признак, что ось задали сами ряды, а не запасной путь."""
     members = [h for h in holes if _is_column_member(h, main_kind)] or list(holes)
     groups: dict[int, list[Hole]] = {}
     for h in members:
@@ -184,7 +219,8 @@ def row_axis(holes: list[Hole], main_kind: str = "") -> tuple[Vec, Vec]:
         elif float(axis @ reference) < 0:
             axis = -axis
         total += axis * len(group)
-    if float(np.hypot(*total)) <= 1e-9:
+    from_rows = float(np.hypot(*total)) > 1e-9
+    if not from_rows:
         total = _principal_axis(_xy(members))
         if total is None:
             total = np.array([1.0, 0.0])
@@ -196,7 +232,7 @@ def row_axis(holes: list[Hole], main_kind: str = "") -> tuple[Vec, Vec]:
         proj = _xy(members) @ deep
         if float(((proj - proj.mean()) * (rows - rows.mean())).sum()) < 0:
             axis, deep = -axis, -deep
-    return (float(axis[0]), float(axis[1])), (float(deep[0]), float(deep[1]))
+    return (float(axis[0]), float(axis[1])), (float(deep[0]), float(deep[1])), from_rows
 
 
 def _row_step(rows: dict[int, list[tuple[float, Hole]]]) -> float:
@@ -277,7 +313,7 @@ def plan_trunk_chains(
         return TrunkPlan(starters=[], ties=[], surface_ms={}, warnings=warnings, trunk_ms=trunk, chain_ms=chain)
 
     by_id = {h.id: h for h in holes}
-    (ax, ay), (dx, dy) = row_axis(holes, main_kind)
+    (ax, ay), (dx, dy), from_rows = _row_axis(holes, main_kind)
 
     def along(h: Hole) -> float:
         return h.collar.x * ax + h.collar.y * ay
@@ -375,7 +411,8 @@ def plan_trunk_chains(
     ties = [(frm, to, ms) for to, (frm, ms) in incoming.items()]
     surface_ms = _times_from_starters(starters, ties)
     return TrunkPlan(
-        starters=starters, ties=ties, surface_ms=surface_ms, warnings=warnings, trunk_ms=trunk, chain_ms=chain
+        starters=starters, ties=ties, surface_ms=surface_ms, warnings=warnings, trunk_ms=trunk, chain_ms=chain,
+        rows_axis=(ax, ay) if from_rows else None,
     )
 
 
@@ -601,6 +638,9 @@ def build_trunk_chains_network(
         warnings.append(ELECTRONIC_MODE_IGNORED_WARNING)
     if any(h.kind in _WALL_KINDS and not _is_column_member(h, main_kind) for h in eligible):
         warnings.append(WALLS_AFTER_GRID_WARNING)
+    # Азимут бровки приносит запрос (по контуру блока); нет — проверки нет.
+    if rows_across_crest(plan.rows_axis, params.get("crest_azimuth_deg")):
+        warnings.append(ROWS_ACROSS_CREST_WARNING)
 
     if system == "nonel":
         downhole_ms, extra = pick_downhole_ms(eligible, plan.surface_ms, _burning_front_radius(params))

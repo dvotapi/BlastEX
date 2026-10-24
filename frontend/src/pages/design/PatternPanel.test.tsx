@@ -136,3 +136,19 @@ describe("PatternPanel: первый ряд у откоса", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("PatternPanel: шаг b у квадратной сетки", () => {
+  it("квадрат — и без вида сетки (старый паспорт): b заблокирован и равен a", () => {
+    for (const pattern of ["square", undefined, "непонятный"]) {
+      mount({ ...DEFAULT_PATTERN_PARAMS, pattern, spacing_a_m: 4.6, burden_b_m: 3.7 } as unknown as PatternParams);
+      const b = screen.getByLabelText("Шаг между рядами b, м") as HTMLInputElement;
+      expect(b.disabled).toBe(true);
+      expect(b.value).toBe("4.6");
+      cleanup();
+    }
+    mount({ ...RECT, spacing_a_m: 4.6, burden_b_m: 3.7 });
+    const b = screen.getByLabelText("Шаг между рядами b, м") as HTMLInputElement;
+    expect(b.disabled).toBe(false);
+    expect(b.value).toBe("3.7");
+  });
+});

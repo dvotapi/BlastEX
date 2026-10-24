@@ -103,7 +103,7 @@ from design.charging import apply_charge_rules
 from design.editing import apply_hole_geometry, insert_manual_hole
 from design.export import holes_csv
 from design.reporting.html import passport_html
-from design.geometry import block_volume, mean_bench_height
+from design.geometry import block_volume, crest_azimuth_deg, mean_bench_height
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.hole_recompute import recompute_holes as run_recompute_holes
 from design.maps import engineering_maps
@@ -241,6 +241,11 @@ def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
     )
 
 
+# Бровка с меньшей сосредоточенностью направлений (угловой блок: откосы под
+# прямым углом, короткий длиннее трети длинного) не сверяется с рядами.
+CREST_CONCENTRATION_MIN = 0.5
+
+
 def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
     holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
     if not holes:
@@ -248,7 +253,11 @@ def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
     warnings: list[str] = []
     try:
         if request.scheme == TRUNK_SCHEME:
-            network, warnings = build_trunk_chains_network(holes, request.params)
+            params = dict(request.params)
+            if request.contour is not None:
+                contour = BlockContour.from_dict(request.contour.model_dump())
+                params["crest_azimuth_deg"] = crest_azimuth_deg(contour, min_concentration=CREST_CONCENTRATION_MIN)
+            network, warnings = build_trunk_chains_network(holes, params)
         else:
             network = build_template_network(holes, request.scheme, request.params)
     except TimingExprError as exc:

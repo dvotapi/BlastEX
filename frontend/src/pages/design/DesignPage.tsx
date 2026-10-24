@@ -1141,6 +1141,7 @@ export function DesignPage({
         document.holes,
         tieScheme,
         tieRequestParams(tieParams, Array.from(selected), patternParams.default_kind),
+        document.contour,
       );
       dispatch({ type: "SET_NETWORK", network: result.network });
       setTieWarnings(withTieWarnings(result.network, result.warnings ?? []));

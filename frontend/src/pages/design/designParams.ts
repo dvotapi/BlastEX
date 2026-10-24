@@ -10,6 +10,17 @@ import type { DesignState } from "./designReducer";
 
 export type DesignParams = { patternParams: PatternParams; chargeRules: ChargeRules; explosiveKey: string };
 
+/** Виды сетки со своим шагом b. */
+const OWN_BURDEN_PATTERNS: ReadonlySet<unknown> = new Set(["rectangular", "staggered", "variable", "domain_dependent"]);
+
+/**
+ * Квадратная ли сетка — как решает генератор (`design/pattern.py`): нет вида,
+ * «square» или неизвестный вид — квадрат, шаг b = a.
+ */
+export function isSquarePattern(pattern: unknown): boolean {
+  return !OWN_BURDEN_PATTERNS.has(pattern);
+}
+
 const MUTATION_KINDS: MutationKind[] = ["designed", "execution", "measured", "metadata"];
 
 /** Формы по паспорту: чего в паспорте нет — умолчание (ВВ — умолчание справочника). */

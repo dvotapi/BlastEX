@@ -121,6 +121,38 @@ def test_share_checked_at_plan_and_ceiling_with_warning_on_ceiling() -> None:
     assert round(ceiling["main_share"], 4) == 0.3315
     assert [flag["code"] for flag in margin["flags"]] == ["MARGIN_SHARE_ABOVE_WARN"]
     assert "на потолке" in margin["flags"][0]["message"]
+    # Флаг виден и в предупреждениях модели — ровно один раз.
+    assert sum("на потолке" in warning for warning in economics.warnings) == 1
+
+
+def test_share_under_threshold_gives_no_share_warning() -> None:
+    """Рентабельность 100 %: маржа метра растёт, доля на потолке ниже порога — ни флага, ни предупреждения."""
+
+    economics = _economics(_references(), target_margin_rate=D("1"))
+    margin = economics.payroll["margin"]
+    assert margin["status"] == "CHECKED"
+    assert margin["ceiling"]["crew_share"] < margin["threshold"]
+    assert margin["flags"] == []
+    assert not any("маржи метра" in warning for warning in economics.warnings)
+
+
+def test_time_pay_crew_share_not_applicable_warns_once() -> None:
+    """Экипаж из повременщиков: доля в марже не применима — одно предупреждение."""
+
+    references = _references(
+        **F17_REFERENCES,
+        positions=tuple(
+            fx.item(item.code, item.name, {**item.payload, "pay_system": "TIME_BONUS"})
+            if item.code in ("P_DRILLER", "P_ASSISTANT")
+            else item
+            for item in _references().sections["positions"]
+        ),
+    )
+    economics = _economics(references)
+    margin = economics.payroll["margin"]
+    assert margin["status"] == "NOT_APPLICABLE"
+    assert margin["plan"] is None and margin["ceiling"] is None
+    assert sum("Доля в марже не проверена" in warning for warning in economics.warnings) == 1
 
 
 def test_base_row_share_at_plan_is_below_ceiling() -> None:

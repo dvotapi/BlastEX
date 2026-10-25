@@ -521,6 +521,12 @@ def margin(
     )
     for message in check.warnings:
         context.warn(message)
+    # Флаг доли — и в блоке ФОТ, и в предупреждениях модели (Т13): его должен
+    # видеть сметчик и там, где блока ФОТ ещё не показывают.
+    for flag in check.flags:
+        context.warn(flag.message)
+    if check.status == "NOT_APPLICABLE":
+        context.warn("Доля в марже не проверена: в экипаже нет сдельщика со шкалой на приведённых метрах.")
     if price is None:
         context.warn("Метров бурения нет: доля экипажа в марже метра не считается.")
     return replace(check, lineage={**lineage, **check.lineage})

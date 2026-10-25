@@ -39,3 +39,17 @@ def test_every_line_serializes_its_origins() -> None:
     for line in _lines().values():
         payload = line.to_dict()
         assert "quantity_origin" in payload and "price_origin" in payload
+
+
+def test_cost_line_accepts_payroll_origin() -> None:
+    from api.schemas.block_economics import CostLineSchema
+
+    line = CostLineSchema(
+        cost_item_code="X",
+        cost_item_name="X",
+        layer="variable",
+        amount_rub=1.0,
+        quantity_origin="PAYROLL",
+        price_origin="PAYROLL",
+    )
+    assert line.price_origin == "PAYROLL"

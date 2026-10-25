@@ -91,6 +91,7 @@ class ModelParametersSchema(BaseModel):
     overhead_rate: Decimal | None = Field(None, ge=0, le=1)
     target_margin_rate: Decimal | None = Field(None, ge=0, le=1)
     vat_rate: Decimal | None = Field(None, ge=0, le=1)
+    payroll_source: Literal["RATES", "PAYROLL"] = "RATES"
 
     def to_domain(self) -> ModelParameters:
         return ModelParameters.from_dict(self.model_dump(mode="json"))
@@ -130,8 +131,8 @@ class CostLineSchema(BaseModel):
     role_label: str | None = None
     # Откуда взяты количество и цена строки: паспорт, расчёт модели,
     # справочник, норматив или ручной ввод сметчика.
-    quantity_origin: Literal["PASSPORT", "CALC", "REFERENCE", "NORM", "MANUAL", ""] = ""
-    price_origin: Literal["PASSPORT", "CALC", "REFERENCE", "NORM", "MANUAL", ""] = ""
+    quantity_origin: Literal["PASSPORT", "CALC", "REFERENCE", "NORM", "MANUAL", "PAYROLL", ""] = ""
+    price_origin: Literal["PASSPORT", "CALC", "REFERENCE", "NORM", "MANUAL", "PAYROLL", ""] = ""
 
 
 class NaturalDriversSchema(BaseModel):

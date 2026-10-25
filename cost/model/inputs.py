@@ -296,6 +296,9 @@ class ModelParameters:
     # бы скачок оклада; множитель ложится на уже округлённый штат. С вкладки не
     # приходит и не сохраняется.
     crew_scale: Decimal = Decimal("1")
+    # Откуда брать ФОТ: «RATES» — ставки справочников (как всегда), «PAYROLL» —
+    # модель ФОТ по объектам. С вкладки приходит и сохраняется.
+    payroll_source: Literal["RATES", "PAYROLL"] = "RATES"
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ModelParameters":
@@ -334,6 +337,7 @@ class ModelParameters:
             overhead_rate=_optional_number(data.get("overhead_rate")),
             target_margin_rate=_optional_number(data.get("target_margin_rate")),
             vat_rate=_optional_number(data.get("vat_rate")),
+            payroll_source="PAYROLL" if data.get("payroll_source") == "PAYROLL" else "RATES",
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -362,6 +366,7 @@ class ModelParameters:
                 str(self.target_margin_rate) if self.target_margin_rate is not None else None
             ),
             "vat_rate": str(self.vat_rate) if self.vat_rate is not None else None,
+            "payroll_source": self.payroll_source,
         }
 
 

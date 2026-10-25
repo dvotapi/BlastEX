@@ -23,7 +23,7 @@ export type ServiceChargeInput = {
 
 /** Происхождение величины в строке сметы: паспорт, расчёт модели, справочник,
  * норматив справочника или ручной ввод на вкладке. Пусто — не применимо. */
-export type ValueOrigin = "PASSPORT" | "CALC" | "REFERENCE" | "NORM" | "MANUAL" | "";
+export type ValueOrigin = "PASSPORT" | "CALC" | "REFERENCE" | "NORM" | "MANUAL" | "PAYROLL" | "";
 
 export type ServiceToReference = {
   section: "cost_rules";

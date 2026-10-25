@@ -963,3 +963,17 @@ def test_saved_run_survives_passport_deletion(client) -> None:
         "/api/v1/economics/runs", json={**_parameters(passport_id), "name": "Ещё один"}
     )
     assert repeated.status_code == 409, repeated.text
+
+
+def test_payroll_source_is_accepted_and_unknown_value_rejected(client) -> None:
+    test_client, _, passport_id = client
+    ok = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(passport_id, payroll_source="PAYROLL"),
+    )
+    assert ok.status_code == 200
+    bad = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(passport_id, payroll_source="OTHER"),
+    )
+    assert bad.status_code == 422

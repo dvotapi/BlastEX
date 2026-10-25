@@ -446,3 +446,28 @@ def test_delivery_truck_driver_rotation_follows_machine_plan_shifts() -> None:
     assert context.value("crew_rotation.POS_VM_DELIVERY_DRIVER") == Decimal("1")
     # 50 000 ₽/мес × 1 чел / 20 см × 2 см
     assert driver.amount_rub == Decimal("50000") * 1 / 20 * 2
+
+
+def test_positions_counted_by_payroll_methodology_are_skipped() -> None:
+    """Должность, уже посчитанная методикой ФОТ, не даёт второй строки, взносов и суточных (Т4)."""
+
+    rates_item = fx.item("ORG_RATES_DEFAULT", "Ставки организации", {"per_diem_rub": "1000", "lodging_rub": "1000"})
+
+    def context_with(skipped: set[str]) -> tuple[ModelContext, tuple]:
+        context = ModelContext(fx.references(organization_rates=(rates_item,)), fx.parameters(), fx.physical())
+        drilling.compute(context)
+        context.payroll_positions.update(skipped)
+        return context, labor.compute(context)
+
+    full, _ = context_with(set())
+    context, lines = context_with({"POS_DRILLER"})
+
+    assert [line.position_code for line in lines] == ["POS_BLASTER", "POS_SZM_DRIVER"]
+    assert "LABOR_POS_DRILLER" not in {line.cost_item_code for line in context.lines}
+    accrued = sum((line.accrued_rub for line in lines), Decimal("0"))
+    rate = context.rates.social_contribution_rate + context.rates.injury_insurance_rate
+    assert _line(context, "LABOR_CONTRIBUTIONS").amount_rub == accrued * rate
+    # Суточные бурильщика ушли: остались только взрывники и водитель.
+    per_diem = _line(context, "LABOR_PER_DIEM")
+    assert per_diem.quantity == sum((line.shifts_per_block * line.headcount for line in lines), Decimal("0"))
+    assert per_diem.quantity < _line(full, "LABOR_PER_DIEM").quantity

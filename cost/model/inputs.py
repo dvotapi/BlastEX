@@ -513,6 +513,9 @@ class ModelContext:
         self.warnings: list[str] = []
         self.capacity: list[CapacityWarning] = []
         self.lines: list[CostLine] = []
+        # Должности, чей ФОТ уже посчитан методикой (`block_payroll`):
+        # `labor.compute` их пропускает.
+        self.payroll_positions: set[str] = set()
         self.rates = OrganizationRates.from_item(self._first("organization_rates"))
         if self._first("organization_rates") is None:
             self.warn(

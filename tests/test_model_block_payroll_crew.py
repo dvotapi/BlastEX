@@ -92,4 +92,12 @@ def test_zero_headcount_means_one_per_shift() -> None:
 def test_crew_rotation_is_public() -> None:
     assert callable(labor.crew_rotation)
     assert not hasattr(labor, "_crew_rotation")
-    assert block_payroll.__doc__
+
+
+def test_per_shift_headcount_is_public_and_shared_with_block_crew() -> None:
+    """Одно правило «0 → один человек в смене» у `labor` и экипажа блока."""
+
+    assert labor.per_shift_headcount(D("0")) == D("1")
+    assert labor.per_shift_headcount(D("2")) == D("2")
+    assert not hasattr(labor, "_per_shift_headcount")
+    assert "labor.per_shift_headcount" in (block_payroll.block_crew.__doc__ or "")

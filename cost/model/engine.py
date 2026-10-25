@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal, ROUND_CEILING
 from typing import Any, Mapping
 
-from cost.model import drilling, equipment, labor, logistics, markup, materials, services, unit
+from cost.model import block_payroll, drilling, equipment, labor, logistics, markup, materials, services, unit
 from cost.model.inputs import (
     BlockEconomics,
     ModelContext,
@@ -48,9 +48,12 @@ def compute_block_economics(
 
     # Порядок важен: смены станка и СЗМ нужны ФОТ и затратам техники, а
     # разделение массы ВВ на насыпную и патронированную — статьям ВМ.
-    drilling.compute(context)
+    norms = drilling.compute(context)
     logistics.compute(context)
     nomenclature = materials.compute(context)
+    # ФОТ экипажа бурения по методике — до ставок: `labor` пропускает
+    # посчитанные здесь должности (`context.payroll_positions`).
+    block_payroll.compute(context, norms)
     labor.compute(context)
     equipment.compute(context)
     rules = _cost_rule_lines(

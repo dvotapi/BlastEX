@@ -10,6 +10,12 @@ import type { DesignState } from "./designReducer";
 
 export type DesignParams = { patternParams: PatternParams; chargeRules: ChargeRules; explosiveKey: string };
 
+/** Сетка для q в правилах зарядов: шаги a × b раскладки. */
+export interface ChargeGrid {
+  grid_a_m: number;
+  grid_b_m: number;
+}
+
 /** Виды сетки со своим шагом b. */
 const OWN_BURDEN_PATTERNS: ReadonlySet<unknown> = new Set(["rectangular", "staggered", "variable", "domain_dependent"]);
 
@@ -19,6 +25,16 @@ const OWN_BURDEN_PATTERNS: ReadonlySet<unknown> = new Set(["rectangular", "stagg
  */
 export function isSquarePattern(pattern: unknown): boolean {
   return !OWN_BURDEN_PATTERNS.has(pattern);
+}
+
+/**
+ * Сетка для q по параметрам раскладки — как строит генератор (`design/pattern.py`):
+ * у квадрата b = a, у остальных `burden_b_m`, без него (пусто или 0) — тоже a.
+ */
+export function chargeGridOf(params: Pick<PatternParams, "pattern" | "spacing_a_m" | "burden_b_m">): ChargeGrid {
+  const own = !isSquarePattern(params.pattern) && params.burden_b_m > 0;
+  const b = own ? params.burden_b_m : params.spacing_a_m;
+  return { grid_a_m: params.spacing_a_m, grid_b_m: b };
 }
 
 const MUTATION_KINDS: MutationKind[] = ["designed", "execution", "measured", "metadata"];

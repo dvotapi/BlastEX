@@ -107,7 +107,7 @@ import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
-import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
+import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -710,7 +710,7 @@ export function DesignPage({
       await refreshMaps({ ...document, holes: result.holes });
       setSelected(new Set());
       setPendingFit(true);
-      setChargeRules((prev) => ({ ...prev, grid_a_m: patternParams.spacing_a_m, grid_b_m: patternParams.burden_b_m }));
+      setChargeRules((prev) => ({ ...prev, ...chargeGridOf(patternParams) }));
       if (document.domains.length) {
         await interceptHoles(result.holes, document.domains, document.water_table_z_m);
       }

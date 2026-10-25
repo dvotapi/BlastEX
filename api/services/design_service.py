@@ -127,6 +127,7 @@ from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
+from design.toe_line import grid_steps_m
 from design.trunk_network import TRUNK_SCHEME, build_trunk_chains_network
 from cost.v2.legacy_adapter import LegacyReferences
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
@@ -1183,9 +1184,11 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
 
     intermediate_per_hole = max(1, round(total_primers / total_holes)) if total_holes else 1
 
+    # Шаги — как их берёт генератор: у квадратной сетки b = a.
+    grid_a_m, grid_b_m = grid_steps_m(design.pattern_params)
     hole = HoleGeometrySchema(
-        grid_a_m=float(design.pattern_params.get("spacing_a_m") or 1.0),
-        grid_b_m=float(design.pattern_params.get("burden_b_m") or 1.0),
+        grid_a_m=grid_a_m,
+        grid_b_m=grid_b_m,
         depth_m=avg_depth_m,
         overdrill_m=avg_subdrill_m,
         undercharge_m=avg_undercharge_m,

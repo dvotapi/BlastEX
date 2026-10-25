@@ -61,6 +61,21 @@ class DesignCostConversionTests(unittest.TestCase):
         self.assertGreater(result.total_amount_rub, 0.0)
         self.assertIsNotNone(result.drilling_total_cost)
 
+    def test_square_grid_uses_spacing_for_burden(self):
+        # У квадрата генератор строит с b = a: burden_b_m в параметрах не действует.
+        from api.services.design_service import _design_to_hole_and_block
+
+        design = _design()
+        design.pattern_params = {**design.pattern_params, "pattern": "square", "burden_b_m": 3.0}
+        hole, _, _ = _design_to_hole_and_block(design)
+        self.assertEqual((hole.grid_a_m, hole.grid_b_m), (4.0, 4.0))
+        # Без ключа и с неизвестным видом — тоже квадрат.
+        for params in ({"spacing_a_m": 4.0, "burden_b_m": 3.0}, {"pattern": "hex", "spacing_a_m": 4.0, "burden_b_m": 3.0}):
+            design.pattern_params = params
+            self.assertEqual(_design_to_hole_and_block(design)[0].grid_b_m, 4.0)
+        design.pattern_params = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.0}
+        self.assertEqual(_design_to_hole_and_block(design)[0].grid_b_m, 3.0)
+
     def test_empty_design_raises(self):
         design = BlastDesign(design_id="empty")
         request = DesignCostRequest(

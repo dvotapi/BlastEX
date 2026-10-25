@@ -24,6 +24,7 @@ import {
   type SchemeType,
   type TieParams,
 } from "../../types/design";
+import { chargeGridOf, type ChargeGrid } from "./designParams";
 import type { DesignAction, DesignState } from "./designReducer";
 import {
   fingerprintOfJson,
@@ -40,11 +41,7 @@ function definedParams(params: PatternParams): Record<string, unknown> {
   return Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
 }
 
-/** Сетка для q в правилах зарядов: шаги a × b раскладки. */
-export interface ChargeGrid {
-  grid_a_m: number;
-  grid_b_m: number;
-}
+export type { ChargeGrid };
 
 const SCHEMES: ReadonlySet<string> = new Set<SchemeType>(["row", "echelon", "diagonal_v", "trapezoid", "trunk_chains"]);
 
@@ -212,7 +209,7 @@ export function useLayoutSearchApply({
     if (paramsApplied) {
       const params: PatternParams = { ...DEFAULT_PATTERN_PARAMS, ...(document.pattern_params as Partial<PatternParams>) };
       setPatternParams(params);
-      setChargeGrid({ grid_a_m: params.spacing_a_m, grid_b_m: params.burden_b_m });
+      setChargeGrid(chargeGridOf(params));
     }
     if (!paramsApplied && !networkApplied) return;
     const tie = tieFormFromNetwork(document.network, DEFAULT_TIE_PARAMS);
@@ -271,7 +268,7 @@ export function useLayoutSearchApply({
       // Формы «Сетка», «Коммутация» и сетка для q — из документа (эффект выше):
       // «Магистраль + цепочки» с флангом варианта.
       setError(geologyError);
-      onApplied?.(variant, holes, nextParams, { grid_a_m: nextParams.spacing_a_m, grid_b_m: nextParams.burden_b_m });
+      onApplied?.(variant, holes, nextParams, chargeGridOf(nextParams));
       if (!wasStale) {
         // Входы документа после применения: скважины и сеть — варианта.
         const inputs = await layoutFingerprint(layoutSearchInputs({ ...now, holes, network: variant.network }, params));

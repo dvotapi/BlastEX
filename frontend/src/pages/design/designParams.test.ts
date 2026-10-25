@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, DEFAULT_TIE_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
 import { designReducer, initDesignState, type DesignAction, type DesignState } from "./designReducer";
-import { benchPatchFromObjectAngle, designWithParams, hasUnsavedChanges, isSquarePattern, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
+import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, hasUnsavedChanges, isSquarePattern, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 
 const DEFAULT_EXPLOSIVE = "ГРАНУЛИТ-РП";
 
@@ -246,5 +246,26 @@ describe("isSquarePattern — как генератор: свой шаг b то�
   it("нет вида, «square» и неизвестный — квадрат", () => {
     for (const pattern of [undefined, null, "", "square", "непонятный"]) expect(isSquarePattern(pattern)).toBe(true);
     for (const pattern of ["rectangular", "staggered", "variable", "domain_dependent"]) expect(isSquarePattern(pattern)).toBe(false);
+  });
+});
+
+describe("chargeGridOf: сетка для q в правилах зарядов", () => {
+  it("квадрат — b = a, как строит генератор (burden_b_m не действует)", () => {
+    expect(chargeGridOf({ ...DEFAULT_PATTERN_PARAMS, pattern: "square", spacing_a_m: 4.6, burden_b_m: 3.7 })).toEqual({ grid_a_m: 4.6, grid_b_m: 4.6 });
+  });
+
+  it("неизвестный вид — тоже квадрат", () => {
+    const params = { ...DEFAULT_PATTERN_PARAMS, pattern: "hex" as never, spacing_a_m: 5, burden_b_m: 4 };
+    expect(chargeGridOf(params)).toEqual({ grid_a_m: 5, grid_b_m: 5 });
+  });
+
+  it.each(["rectangular", "staggered", "variable", "domain_dependent"] as const)("%s — свой шаг b", (pattern) => {
+    expect(chargeGridOf({ ...DEFAULT_PATTERN_PARAMS, pattern, spacing_a_m: 5, burden_b_m: 4 })).toEqual({ grid_a_m: 5, grid_b_m: 4 });
+  });
+
+  it("шаг b не задан — b = a, как в генераторе", () => {
+    const params = { ...DEFAULT_PATTERN_PARAMS, pattern: "rectangular" as const, spacing_a_m: 5, burden_b_m: null as never };
+    expect(chargeGridOf(params)).toEqual({ grid_a_m: 5, grid_b_m: 5 });
+    expect(chargeGridOf({ ...params, burden_b_m: 0 })).toEqual({ grid_a_m: 5, grid_b_m: 5 });
   });
 });

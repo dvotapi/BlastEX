@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 from cost.model import labor
 from cost.model.drilling import DrillingNorms
@@ -179,6 +179,10 @@ def compute(context: ModelContext, norms: DrillingNorms | None) -> BlockPayroll 
         # экипаж по ставкам.
         context.warn(f"ФОТ экипажа бурения посчитан по ставкам, а не по методике: {exc}")
         return None
+    if not pending:
+        # У всех должностей экипажа ноль смен: методике нечего писать, а
+        # `labor` пропустит их так же.
+        return None
     _write(context, pending, payroll, meters_source, effective_source)
     return payroll
 
@@ -256,6 +260,8 @@ def _position_payroll(
     if pay.is_piece_on_meters:
         # Премия на среднем темпе вахты: P / M = p(m) / m, S_эфф сокращается.
         premium = piece_premium(pace.pace * effective, pay.scale, effective)
+        if premium.mean_rate is None:
+            raise PayrollInputError("плановый темп равен нулю — цену приведённого метра не посчитать.")
         c_var = premium.mean_rate * cost_factor
         c_var_source = f"p({fn(pace.pace)}) / {fn(pace.pace)} × {factor_formula}"
         variable = c_var * block_meters * per_shift
@@ -296,6 +302,14 @@ def _write(
 ) -> None:
     for message in payroll.pace.warnings:
         context.warn(message)
+    lodging = context.rates.lodging_rub
+    if context.site is not None and bool(context.site.payload.get("is_remote", False)) and lodging > 0:
+        # Проживание — статья ставок (`labor._per_diem`), методика его не несёт:
+        # не начисляем, но и не теряем молча.
+        context.warn(
+            f"Проживание экипажа бурения ({formula_number(lodging)} ₽/чел·см) в режиме «ФОТ по методике» "
+            "не начислено: методика учитывает только суточные/вахтовую надбавку."
+        )
     context.set_value("payroll_planned_pace", payroll.pace.pace, payroll.pace.lineage.get("planned_pace", ""))
     context.set_value("payroll_normalized_meters", payroll.normalized_meters, meters_source)
     context.set_value("payroll_effective_shifts", payroll.effective_shifts, effective_source)
@@ -332,14 +346,19 @@ def _write(
 # --- Приведённые метры блока -------------------------------------------------
 
 
-def block_meter_items(context: ModelContext, pace: PlannedPace) -> tuple[MeterItem, ...]:
+def block_meter_items(
+    context: ModelContext, pace: PlannedPace, warnings: list[str] | None = None
+) -> tuple[MeterItem, ...]:
     """Строки приведения метров блока: породы объекта, Ø — коронки строки матрицы.
 
     Плановая геология объекта делит метры по долям; без неё — одна строка по
     породе объекта, без породы — строка с f = None (k_f = 1, предупреждение).
     Нет Ø — в строке 0 мм, коэффициент диаметра подставляет `_block_meters`.
+    Предупреждения копятся в `warnings`, если список передан (расчёт ещё может
+    откатиться на ставки), иначе сразу уходят в контекст.
     """
 
+    warn = warnings.append if warnings is not None else context.warn
     drilling_m = context.value("drilling_m")
     diameter = pace.diameter_mm or ZERO
     site = context.site
@@ -353,24 +372,24 @@ def block_meter_items(context: ModelContext, pace: PlannedPace) -> tuple[MeterIt
     if not rows:
         rock_code = payload_text(site, "rock_code")
         if not rock_code:
-            context.warn(
+            warn(
                 "У объекта работ не задана ни плановая геология, ни порода: "
                 "коэффициент крепости приведённых метров блока принят 1."
             )
             return (MeterItem(drilling_m, diameter, None, "порода не задана"),)
         rows = [(rock_code, ONE)]
-    return tuple(MeterItem(drilling_m * share, diameter, _rock_f(context, code), code) for code, share in rows)
+    return tuple(MeterItem(drilling_m * share, diameter, _rock_f(context, code, warn), code) for code, share in rows)
 
 
-def _rock_f(context: ModelContext, rock_code: str) -> Decimal | None:
+def _rock_f(context: ModelContext, rock_code: str, warn: Callable[[str], None]) -> Decimal | None:
     try:
         f = rock_hardness(context.references, rock_code)
     except PayrollInputError as exc:
-        context.warn(f"{exc} Коэффициент крепости приведённых метров блока принят 1.")
+        warn(f"{exc} Коэффициент крепости приведённых метров блока принят 1.")
         return None
     if f is None:
         rock = context.item("rocks", rock_code)
-        context.warn(
+        warn(
             f"У породы «{rock.name}» ({rock_code}) объекта не задана крепость f: "
             "коэффициент крепости приведённых метров блока принят 1."
         )
@@ -395,9 +414,9 @@ def _block_meters(
             "коэффициент диаметра приведённых метров блока принят 1."
         )
         tables = replace(tables, diameter={ZERO: ONE})
-        items = tuple(replace(item, diameter_mm=ZERO) for item in block_meter_items(context, pace))
+        items = tuple(replace(item, diameter_mm=ZERO) for item in block_meter_items(context, pace, warnings))
     else:
-        items = block_meter_items(context, pace)
+        items = block_meter_items(context, pace, warnings)
     meters = normalized_meters(items, tables, contract_k)
     unnamed_f = hardness_factor(None, ())[2]
     warnings.extend(message for message in meters.warnings if message != unnamed_f)

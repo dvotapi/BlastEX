@@ -8,13 +8,14 @@
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
 from cost.model import block_payroll, drilling, labor, logistics, materials
 from cost.model.engine import compute_block_economics
 from cost.model.inputs import CrewMember, ModelContext
-from cost.model.payroll import payroll_month
+from cost.model.payroll import PayrollInputError, payroll_month
 from cost.model.payroll_inputs import payroll_inputs
 from cost.v2.models import CostLayer
 from tests import model_fixtures as fx
@@ -469,3 +470,79 @@ def test_line_origin_is_payroll_and_code_kept() -> None:
 def test_block_payroll_module_documents_the_formulas() -> None:
     doc = block_payroll.__doc__ or ""
     assert "M_блока" in doc and "c_var" in doc and "payroll_positions" in doc
+
+
+# --- Правки ревью (раунд 1) ----------------------------------------------------
+
+
+def _org_rates(**payload: str):
+    item = pfx.PAYROLL_SECTIONS["organization_rates"][0]
+    return (fx.item(item.code, item.name, {**item.payload, **payload}),)
+
+
+def _lodging_warnings(context: ModelContext) -> list[str]:
+    return [w for w in context.warnings if w.startswith("Проживание экипажа бурения")]
+
+
+def test_lodging_is_not_lost_silently_on_remote_site() -> None:
+    context = _context(_references(organization_rates=_org_rates(lodging_rub="500")))
+    _, result = _run(context)
+
+    assert result is not None
+    assert _lodging_warnings(context) == [
+        "Проживание экипажа бурения (500 ₽/чел·см) в режиме «ФОТ по методике» не начислено: "
+        "методика учитывает только суточные/вахтовую надбавку."
+    ]
+
+
+def test_no_lodging_warning_without_lodging_or_off_remote_site() -> None:
+    no_lodging = _context()
+    _run(no_lodging)
+    assert _lodging_warnings(no_lodging) == []
+
+    city = _context(_references(site={"is_remote": False}, organization_rates=_org_rates(lodging_rub="500")))
+    _, result = _run(city)
+    assert result is not None
+    assert _lodging_warnings(city) == []
+
+
+def test_crew_without_shifts_writes_nothing() -> None:
+    crew = (CrewMember("P_DRILLER", D("1"), D("0")), CrewMember("P_ASSISTANT", D("1"), D("0")), *CREW[2:])
+    context = _context(crew=crew)
+    _, result = _run(context)
+
+    assert result is None
+    assert context.payroll_positions == set()
+    assert not any(key.startswith("payroll_") for key in context.values)
+    assert not any(line.price_origin == "PAYROLL" for line in context.lines)
+
+
+def test_zero_planned_pace_falls_back_to_rates(monkeypatch) -> None:
+    """Нулевой темп (mean_rate = None) — откат на ставки с предупреждением, не TypeError."""
+
+    real = block_payroll.planned_pace
+    monkeypatch.setattr(block_payroll, "planned_pace", lambda context, norms: replace(real(context, norms), pace=D("0")))
+    context = _context()
+    _, result = _run(context)
+
+    assert result is None
+    assert context.payroll_positions == set()
+    assert [w for w in context.warnings if "по ставкам" in w] == [
+        "ФОТ экипажа бурения посчитан по ставкам, а не по методике: "
+        "плановый темп равен нулю — цену приведённого метра не посчитать."
+    ]
+
+
+def test_fallback_after_meters_leaves_no_meter_warnings(monkeypatch) -> None:
+    """Откат после приведения метров: предупреждения о породе блока не остаются в смете."""
+
+    def broken(*args, **kwargs):
+        raise PayrollInputError("месячный ФОТ не считается.")
+
+    monkeypatch.setattr(block_payroll, "payroll_month", broken)
+    context = _context(_references(site={"rock_code": "ROCK_NO_F"}, drilling_conditions=(COND_BASE,)))
+    _, result = _run(context)
+
+    assert result is None
+    assert not any("приведённых метров" in w for w in context.warnings)
+    assert len([w for w in context.warnings if "по ставкам" in w]) == 1

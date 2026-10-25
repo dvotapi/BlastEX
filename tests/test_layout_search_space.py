@@ -35,6 +35,15 @@ class SpaceTests(unittest.TestCase):
         self.assertEqual({c.cut_flank for c in cands}, {"left", "right"})
         self.assertTrue(any("grid_shift_along_m" not in c.params for c in cands))
 
+    def test_crest_azimuth_min_concentration(self):
+        # Один откос — направление чёткое при любом пороге.
+        self.assertAlmostEqual(crest_azimuth_deg(_contour([[0, 1]]), min_concentration=0.5), 90.0)
+        # Откосы 40 и 30 м под прямым углом: сосредоточенность (40 − 30)/70 ≈ 0,14.
+        corner = _contour([[0, 1], [1, 2]])
+        self.assertIsNotNone(crest_azimuth_deg(corner))
+        self.assertIsNone(crest_azimuth_deg(corner, min_concentration=0.5))
+        self.assertIsNotNone(crest_azimuth_deg(corner, min_concentration=0.1))
+
     def test_stage1_without_face_uses_base_azimuth(self):
         cands = stage1(RECT, _contour([]))
         azs = {c.params["row_azimuth_deg"] for c in cands}

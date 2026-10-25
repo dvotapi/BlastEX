@@ -1006,6 +1006,8 @@ class TieGenerateRequest(BaseModel):
     holes: list[HoleSchema]
     scheme: str
     params: dict[str, Any] = Field(default_factory=dict)
+    # Контур блока: по нему «Магистраль + цепочки» сверяет ряды с бровкой.
+    contour: BlockContourSchema | None = None
 
 
 class TieGenerateResponse(BaseModel):

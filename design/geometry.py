@@ -468,17 +468,21 @@ def local_basis(row_azimuth_deg: float) -> tuple[Point2, Point2]:
     return row_dir, advance_dir
 
 
-def crest_azimuth_deg(contour: BlockContour) -> float | None:
+def crest_azimuth_deg(contour: BlockContour, min_concentration: float = 0.0) -> float | None:
     """Азимут линии бровки в градусах [0, 180): 0° = +Y, по часовой (как у `local_basis`).
 
     Направление усредняется по длинам отрезков свободных поверхностей: углы
     удваиваются (линия не имеет «вперёд/назад»), векторы суммируются, угол
     суммы делится пополам. Без свободных поверхностей — None.
+
+    Сосредоточенность — длина суммы к сумме длин (1 — прямая бровка, около 0 —
+    угловой блок с равными откосами под прямым углом, где среднее направление
+    случайно). Ниже `min_concentration` — None.
     """
     verts = contour.points_xy
     if not verts or not contour.free_faces:
         return None
-    sx = sy = 0.0
+    sx = sy = total = 0.0
     for edge in contour.free_faces:
         for i in range(len(edge) - 1):
             if not (0 <= edge[i] < len(verts) and 0 <= edge[i + 1] < len(verts)):
@@ -491,7 +495,9 @@ def crest_azimuth_deg(contour: BlockContour) -> float | None:
             theta = math.atan2(dx, dy)
             sx += length * math.sin(2.0 * theta)
             sy += length * math.cos(2.0 * theta)
-    if math.hypot(sx, sy) < 1e-9:
+            total += length
+    resultant = math.hypot(sx, sy)
+    if resultant < 1e-9 or resultant < min_concentration * total:
         return None
     return (math.degrees(0.5 * math.atan2(sx, sy)) % 180.0) % 180.0
 

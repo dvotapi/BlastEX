@@ -3,6 +3,7 @@
 // «Применить». Сам опрос — в useLayoutSearch, применение — на странице.
 import { ruNumber } from "../../lib/format";
 import type { LayoutSearchStage, LayoutSearchState, LayoutSearchStatus, LayoutSearchVariant } from "../../types/design";
+import { isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
 
 const STATE_LABELS: Record<LayoutSearchState, string> = {
@@ -29,6 +30,10 @@ const REJECT_LABELS: Record<string, string> = {
 const UNKNOWN_REJECT = "не прошёл проверку";
 
 const NO_DESIGN_HINT = "Сохраните паспорт, чтобы подобрать раскладку";
+// Перебор генерирует сетку из `pattern_params`, а не берёт скважины плана:
+// у паспорта, чью сетку правили или строили по другим параметрам, итог с ней не сравним.
+const GRID_FROM_PARAMS_HINT =
+  "Подбор строит сетку заново по параметрам вкладки „Сетка“: скважины на плане, если их правили или строили по другим параметрам, не учитываются.";
 const STALE_TEXT = "Устарел: контур, съёмка или параметры изменились после подбора";
 const BOUNDS_CHANGED_TEXT = "Устарел: границы темпа отбойки породы изменились после подбора";
 /** Нижняя граница темпа у итогов прежней версии (без сохранённых границ), мс/м. */
@@ -74,6 +79,13 @@ function frontRowsText(params: Record<string, unknown>): string {
   return "вертикальный";
 }
 
+/** Шаги раскладки: у квадратной сетки генератор берёт b = a. */
+function stepsRow(params: Record<string, unknown>): [string, string] {
+  const a = ruNumber(numberOf(params.spacing_a_m));
+  if (isSquarePattern(params.pattern)) return ["Шаг a × a, м", `${a} × ${a}`];
+  return ["Шаги a × b, м", `${a} × ${ruNumber(numberOf(params.burden_b_m))}`];
+}
+
 function percent(share: number | null): string {
   return share === null ? "—" : String(Math.round(share * 100));
 }
@@ -86,7 +98,7 @@ function variantRows(
   return {
     params: [
       ["Азимут рядов, °", azimuth === null ? "—" : plain(azimuth)],
-      ["Шаги a × b, м", `${ruNumber(numberOf(v.params.spacing_a_m))} × ${ruNumber(numberOf(v.params.burden_b_m))}`],
+      stepsRow(v.params),
       ["Первый ряд", frontRowsText(v.params)],
       ["Вруб у фланга", v.cut_flank === "right" ? "правого" : "левого"],
     ],
@@ -182,6 +194,7 @@ export function LayoutSearchPanel({
           Подобрать раскладку
         </button>
         {designId === null && <small>{NO_DESIGN_HINT}</small>}
+        <small>{GRID_FROM_PARAMS_HINT}</small>
         {error && <small role="alert" className="frag-warnings">{error}</small>}
 
         {/* «Остановлен» говорит пометка результата — строка состояния её не повторяет. */}

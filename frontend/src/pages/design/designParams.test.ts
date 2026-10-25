@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, DEFAULT_TIE_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
 import { designReducer, initDesignState, type DesignAction, type DesignState } from "./designReducer";
-import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
+import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, hasUnsavedChanges, isSquarePattern, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 
 const DEFAULT_EXPLOSIVE = "ГРАНУЛИТ-РП";
 
@@ -239,6 +239,13 @@ describe("параметры построения коммутации", () => {
     expect(params.main_kind).toBe("contour");
     expect(params.selected_hole_ids).toEqual(["1-01", "1-02"]);
     expect(params.trunk_ms).toBe(DEFAULT_TIE_PARAMS.trunk_ms);
+  });
+});
+
+describe("isSquarePattern — как генератор: свой шаг b только у четырёх видов", () => {
+  it("нет вида, «square» и неизвестный — квадрат", () => {
+    for (const pattern of [undefined, null, "", "square", "непонятный"]) expect(isSquarePattern(pattern)).toBe(true);
+    for (const pattern of ["rectangular", "staggered", "variable", "domain_dependent"]) expect(isSquarePattern(pattern)).toBe(false);
   });
 });
 

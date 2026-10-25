@@ -1041,3 +1041,23 @@ def test_result_without_payroll_key_still_loads() -> None:
     data = compute_block_economics(fx.snapshot(), fx.parameters(), fx.references()).to_dict()
     data.pop("payroll", None)
     assert BlockEconomicsSchema.model_validate(data).payroll is None
+
+
+def test_export_names_the_payroll_source(client) -> None:
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    test_client, _, passport_id = client
+    for source, label in (("RATES", "Ставки"), ("PAYROLL", "Методика ФОТ")):
+        run = test_client.post(
+            "/api/v1/economics/runs",
+            json={**_parameters(passport_id, payroll_source=source), "name": f"Экспорт {source}"},
+        ).json()
+        content = test_client.get(f"/api/v1/economics/runs/{run['id']}/export.xlsx").content
+        rows = [
+            [cell for cell in row if cell is not None]
+            for sheet in load_workbook(BytesIO(content)).worksheets
+            for row in sheet.iter_rows(values_only=True)
+        ]
+        assert ["Источник ФОТ", label] in rows

@@ -22,6 +22,7 @@ from cost.v2.models import (
     decimal_value,
 )
 from cost.v2.packages import PackageDefinition, package_map
+from cost.v2.schemas.organization import resolve_shift_hours
 
 
 MODEL_VERSION = "cost-model-v1"
@@ -537,11 +538,12 @@ class ModelContext:
     def shift_hours(self) -> Decimal:
         """Длительность смены: у объекта работ, иначе из ставок организации.
 
-        Единственный источник часов смены для бурения, логистики и ФОТ.
+        Часы смены для бурения, логистики и ФОТ блока; правило выбора —
+        `resolve_shift_hours`, общее с методикой ФОТ и проверкой потолка шкалы.
         """
 
-        site_hours = decimal_value(self.site.payload.get("shift_hours"), Decimal("0")) if self.site else Decimal("0")
-        return site_hours if site_hours > 0 else self.rates.shift_hours
+        site_hours = decimal_value(self.site.payload.get("shift_hours"), Decimal("0")) if self.site else None
+        return resolve_shift_hours(site_hours, self.rates.shift_hours)
 
     # --- справочники -------------------------------------------------
 

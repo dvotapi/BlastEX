@@ -506,6 +506,28 @@ def test_no_lodging_warning_without_lodging_or_off_remote_site() -> None:
     assert _lodging_warnings(city) == []
 
 
+def test_no_lodging_warning_when_crew_has_no_per_diem() -> None:
+    """Проживание ставки начисляют только должностям с `per_diem_applies`: без них предупреждать не о чем."""
+
+    positions = tuple(
+        fx.item(item.code, item.name, {**item.payload, "per_diem_applies": False}) if item.code in CREW_CODES else item
+        for item in (*fx.POSITIONS, *CREW_POSITIONS)
+    )
+    context = _context(_references(positions=positions, organization_rates=_org_rates(lodging_rub="500")))
+    _, result = _run(context)
+    assert result is not None
+    assert _lodging_warnings(context) == []
+
+    # Хотя бы одна должность экипажа с суточными — предупреждение остаётся.
+    one = tuple(
+        fx.item(item.code, item.name, {**item.payload, "per_diem_applies": False}) if item.code == "P_ASSISTANT" else item
+        for item in (*fx.POSITIONS, *CREW_POSITIONS)
+    )
+    context = _context(_references(positions=one, organization_rates=_org_rates(lodging_rub="500")))
+    _run(context)
+    assert len(_lodging_warnings(context)) == 1
+
+
 def test_crew_without_shifts_writes_nothing() -> None:
     crew = (CrewMember("P_DRILLER", D("1"), D("0")), CrewMember("P_ASSISTANT", D("1"), D("0")), *CREW[2:])
     context = _context(crew=crew)

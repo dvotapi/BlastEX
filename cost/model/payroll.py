@@ -510,7 +510,7 @@ class PayrollCalendar:
 
 
 # Системы оплаты со сдельной премией (определение живёт здесь, чтобы предикат
-# сдельщика был методом должности; payroll_inputs реэкспортирует имя).
+# сдельщика был методом должности).
 PIECE_PAY_SYSTEMS = frozenset({"PIECE_PROGRESSIVE", "PIECE_BONUS"})
 
 

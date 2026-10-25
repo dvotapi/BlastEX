@@ -34,8 +34,9 @@ from cost.v2.models import ReferenceItem, ReferenceSnapshot
 from cost.v2.payroll_params import payroll_params_for_year
 from cost.v2.schemas.labor import LaborRatePayload, PositionPayload
 from cost.v2.schemas.misc import RockPayload
-from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload
+from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload, resolve_shift_hours
 from cost.v2.schemas.payroll import DowntimeReasonPayload, DrillingDifficultyPayload
+
 
 @dataclass(frozen=True)
 class PayrollContext:
@@ -122,7 +123,7 @@ def payroll_context(snapshot: ReferenceSnapshot, *, site_code: str, year: int) -
         sfr_rate=rates_payload.social_contribution_rate,
         injury_rate=rates_payload.injury_insurance_rate,
         shift_allowance_per_day=rates_payload.per_diem_rub,
-        shift_hours=rates_payload.shift_hours if site_payload.shift_hours is None else site_payload.shift_hours,
+        shift_hours=resolve_shift_hours(site_payload.shift_hours, rates_payload.shift_hours),
         extra_tariffs={row.work_conditions_class: row.rate for row in rates_payload.extra_tariffs},
         source=rates_source,
     )

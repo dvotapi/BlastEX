@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 from cost.v2.models import ReferenceItem, finite_decimal
 from cost.v2.references import ValidationIssue
 from cost.v2.schemas.labor import CURVE_SCALES, HAZARDOUS_CLASSES
-from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload
+from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload, resolve_shift_hours
 
 __all__ = ["payroll_issues"]
 
@@ -173,7 +173,12 @@ def _bit_diameters(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
 
 
 def _ceiling_above_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
-    """Потолок шкалы машиниста выше того, что станок бурит за смену по базовым условиям."""
+    """Потолок шкалы машиниста выше того, что станок бурит за смену по базовым условиям.
+
+    Максимум берётся по строкам матрицы без породы — базовым и строкам объектов
+    (со сменой объекта); это смягчение для общей шкалы: она одна на все строки,
+    и предупреждение — только когда потолок выше лучшей из них.
+    """
 
     rates = next(iter(_active(sections, "organization_rates")), None)
     shift_hours = finite_decimal(rates.payload.get("shift_hours")) if rates is not None else None
@@ -182,15 +187,11 @@ def _ceiling_above_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -> list
     if shift_hours is None:
         shift_hours = OrganizationRatesPayload.model_fields["shift_hours"].default
     # Смена строки матрицы с объектом — смена этого объекта, если она задана.
-    site_hours = {
-        site.code: hours
-        for site in _active(sections, "sites")
-        if (hours := finite_decimal(site.payload.get("shift_hours"))) is not None and hours > 0
-    }
+    site_hours = {site.code: finite_decimal(site.payload.get("shift_hours")) for site in _active(sections, "sites")}
     per_shift = [
         speed
         * max(
-            site_hours.get(str(item.payload.get("site_code") or ""), shift_hours)
+            resolve_shift_hours(site_hours.get(str(item.payload.get("site_code") or "")), shift_hours)
             - (finite_decimal(item.payload.get("unproductive_h_per_shift")) or Decimal("0")),
             Decimal("0"),
         )

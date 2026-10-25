@@ -61,6 +61,16 @@ class CounterpartyPayload(ReferencePayload):
     )
 
 
+def resolve_shift_hours(site_hours: Decimal | None, organization_hours: Decimal) -> Decimal:
+    """Часы смены объекта: значение объекта, если оно задано и больше нуля, иначе ставок организации.
+
+    Одно правило для модели блока (`ModelContext.shift_hours`), методики ФОТ
+    (`payroll_inputs`) и проверки потолка шкалы (`payroll_checks`).
+    """
+
+    return site_hours if site_hours is not None and site_hours > 0 else organization_hours
+
+
 class SitePayload(ReferencePayload):
     customer_code: str | None = RefField("counterparties", description="Заказчик объекта", default=None)
     customer_legal_name: str | None = Field(

@@ -526,6 +526,16 @@ class ModelContext:
         if params.site_code and self.site is None:
             self.warn(f"Объект работ {params.site_code} не найден в справочнике карьеров.")
 
+    @property
+    def shift_hours(self) -> Decimal:
+        """Длительность смены: у объекта работ, иначе из ставок организации.
+
+        Единственный источник часов смены для бурения, логистики и ФОТ.
+        """
+
+        site_hours = decimal_value(self.site.payload.get("shift_hours"), Decimal("0")) if self.site else Decimal("0")
+        return site_hours if site_hours > 0 else self.rates.shift_hours
+
     # --- справочники -------------------------------------------------
 
     def items(self, section: str) -> tuple[ReferenceItem, ...]:

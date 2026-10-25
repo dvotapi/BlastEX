@@ -89,6 +89,11 @@ def test_missing_organization_rates_warn_and_use_defaults() -> None:
     assert any("Ставки и надбавки организации" in warning for warning in warnings)
 
 
+def test_payroll_context_takes_shift_hours_of_the_site() -> None:
+    inputs, _, _ = read(sites=(fx.item("SITE_LOM", "Ломовское", {"shift_hours": "12"}),))
+    assert inputs.rates.shift_hours == D("12")
+
+
 def test_tables_reasons_and_rock_hardness_are_read_from_the_snapshot() -> None:
     snapshot = payroll_references()
     tables = difficulty_tables(snapshot)

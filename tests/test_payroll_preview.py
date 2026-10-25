@@ -92,6 +92,17 @@ def test_fact_with_downtime_keeps_the_fixed_part() -> None:
         assert fact.result.amount(code) == plan.result.amount(code)
 
 
+def test_effective_shifts_use_site_shift_hours() -> None:
+    sites = (fx.item("SITE_LOM", "Ломовское месторождение", {"is_remote": True, "shift_hours": "12"}),)
+    fact = preview(
+        payroll_references(sites=sites),
+        meters_total=D("2000"),
+        shifts=D("13"),
+        downtime=(DowntimeEntry("DT_RIG_REPAIR", D("33")),),
+    )
+    assert fact.shifts.effective == D("13") - D("33") / D("12")
+
+
 def test_downtime_for_the_whole_rotation_is_an_input_error() -> None:
     with pytest.raises(PayrollInputError):
         preview(meters_total=D("2000"), shifts=D("13"), downtime=(DowntimeEntry("DT_RIG_REPAIR", D("143")),))

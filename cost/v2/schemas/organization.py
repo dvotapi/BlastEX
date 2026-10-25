@@ -149,6 +149,14 @@ class SitePayload(ReferencePayload):
     contract_k: Decimal = UnitField(
         "", title="Договорной коэффициент", description="Множитель приведённых метров по договору объекта", default=Decimal("1")
     )
+    shift_hours: Decimal | None = UnitField(
+        "ч",
+        title="Длительность смены",
+        description="Часов в смене на объекте; пусто — берётся из ставок организации",
+        default=None,
+        gt=0,
+        le=24,
+    )
     geology: list[GeologyShare] = Field(
         default_factory=list,
         title="Плановая геология",

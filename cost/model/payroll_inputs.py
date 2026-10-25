@@ -125,7 +125,7 @@ def payroll_context(snapshot: ReferenceSnapshot, *, site_code: str, year: int) -
         sfr_rate=rates_payload.social_contribution_rate,
         injury_rate=rates_payload.injury_insurance_rate,
         shift_allowance_per_day=rates_payload.per_diem_rub,
-        shift_hours=rates_payload.shift_hours,
+        shift_hours=rates_payload.shift_hours if site_payload.shift_hours is None else site_payload.shift_hours,
         extra_tariffs={row.work_conditions_class: row.rate for row in rates_payload.extra_tariffs},
         source=rates_source,
     )

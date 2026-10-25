@@ -181,11 +181,22 @@ def _ceiling_above_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -> list
     # схемы (11 ч) заменяется только отсутствующее/битое значение, не ноль.
     if shift_hours is None:
         shift_hours = OrganizationRatesPayload.model_fields["shift_hours"].default
+    # Смена строки матрицы с объектом — смена этого объекта, если она задана.
+    site_hours = {
+        site.code: hours
+        for site in _active(sections, "sites")
+        if (hours := finite_decimal(site.payload.get("shift_hours"))) is not None and hours > 0
+    }
     per_shift = [
-        speed * max(shift_hours - (finite_decimal(item.payload.get("unproductive_h_per_shift")) or Decimal("0")), Decimal("0"))
+        speed
+        * max(
+            site_hours.get(str(item.payload.get("site_code") or ""), shift_hours)
+            - (finite_decimal(item.payload.get("unproductive_h_per_shift")) or Decimal("0")),
+            Decimal("0"),
+        )
         for item in _active(sections, "drilling_conditions")
-        # Базовая строка — без породы и карьера: шкала задана для базовых условий.
-        if not item.payload.get("rock_code") and not item.payload.get("site_code")
+        # Строка без породы: базовая (без объекта) или объекта — шкала задана для неё.
+        if not item.payload.get("rock_code")
         and (speed := finite_decimal(item.payload.get("tech_speed_m_per_h"))) is not None
     ]
     if not per_shift:

@@ -229,6 +229,23 @@ def test_ceiling_within_rig_capacity_passes():
     assert _about(issues, "labor_rates") == []
 
 
+def test_ceiling_check_uses_site_shift_hours():
+    # Строка матрицы объекта на 12 ч: 10 м/ч × (12 − 1) ч = 110 м/смену, а не 100 по 11 ч организации.
+    issues = _issues(
+        **_drilling_rate(COND_SITE={"site_code": "SITE", "tech_speed_m_per_h": "10", "unproductive_h_per_shift": "1"}),
+        sites=(_item("SITE", {"shift_hours": "12"}),),
+    )
+    assert _about(issues, "labor_rates") == [
+        (
+            "warning",
+            "RATE_DRILLER",
+            "ceiling_per_shift",
+            "Потолок 184.6154 м/смену выше производительности станков по базовым условиям бурения "
+            "(до 110 м/смену): машинист не дойдёт до потолка.",
+        )
+    ]
+
+
 # Явный shift_hours=0 — «станок не бурит», как читает `cost/model/drilling.py`
 # (context.rates.shift_hours без подстановки умолчания). `_ceiling_above_rigs`
 # не должен заменять его умолчанием схемы (11 ч) — тогда потолок шкалы всегда

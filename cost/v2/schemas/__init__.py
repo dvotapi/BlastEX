@@ -131,7 +131,7 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("Условия", ("diesel_price_ton_rub", "customer_provides_fuel", "is_watered", "is_remote")),
         ("Вахта и оплата труда", (
             "shift_days_on", "shift_days_off", "travel_days", "night_shift_share", "maintenance_shifts",
-            "regional_coefficient", "northern_pct", "contract_k",
+            "regional_coefficient", "northern_pct", "contract_k", "shift_hours",
         )),
         ("Геология", ("geology",)),
     ),

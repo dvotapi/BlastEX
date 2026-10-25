@@ -164,9 +164,9 @@ def _vehicle_fuel(
         fuel_l_per_h = payload_number(vehicle, "fuel_l_per_h")
         if fuel_l_per_h <= 0:
             return
-        hours = trips * context.rates.shift_hours
+        hours = trips * context.shift_hours
         litres = hours * fuel_l_per_h
-        formula = f"{formula_number(trips)} см × {formula_number(context.rates.shift_hours)} ч × {formula_number(fuel_l_per_h)} л/ч × {formula_number(price)} ₽/л"
+        formula = f"{formula_number(trips)} см × {formula_number(context.shift_hours)} ч × {formula_number(fuel_l_per_h)} л/ч × {formula_number(price)} ₽/л"
     context.set_value(f"{cost_item_code.lower()}_l", litres, "расход по норме техники")
     context.add_line(
         operation_code=operation_code,

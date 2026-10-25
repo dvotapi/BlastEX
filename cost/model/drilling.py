@@ -127,7 +127,7 @@ def compute(context: ModelContext) -> DrillingNorms | None:
 
     tech_speed = payload_number(condition, "tech_speed_m_per_h")
     unproductive = payload_number(condition, "unproductive_h_per_shift")
-    shift_hours = context.rates.shift_hours
+    shift_hours = context.shift_hours
     productive_hours = shift_hours - unproductive
     if tech_speed <= 0 or productive_hours <= 0:
         context.warn(

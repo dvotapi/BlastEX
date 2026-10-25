@@ -177,8 +177,17 @@ class TestSitePayroll:
         assert site.northern_pct == Decimal("0")
         assert site.contract_k == Decimal("1")
         assert site.geology == []
-        # Длительность смены объекта заводится в PR 3a вместе с резолвером.
-        assert "shift_hours" not in SitePayload.model_fields
+
+    def test_site_shift_hours_none_by_default(self):
+        assert SitePayload.model_validate({}).shift_hours is None
+        assert SitePayload.model_validate({"shift_hours": "12"}).shift_hours == Decimal("12")
+
+    @pytest.mark.parametrize("value", ["0", "-1", "24.5"])
+    def test_site_shift_hours_must_be_positive_and_le_24(self, value):
+        with pytest.raises(ValidationError) as exc:
+            SitePayload.model_validate({"shift_hours": value})
+        assert exc.value.errors()[0]["loc"] == ("shift_hours",)
+        assert SitePayload.model_validate({"shift_hours": "24"}).shift_hours == Decimal("24")
 
     def test_geology_shares_sum_to_one_within_a_thousandth(self):
         thirds = [{"rock_code": code, "share": "0.333"} for code in ("R1", "R2", "R3")]

@@ -255,20 +255,34 @@ def test_explicit_crew_member_paid_not_by_normalized_meters_is_left_out() -> Non
 
 def test_explicit_crew_member_on_time_pay_is_left_out() -> None:
     """Повременщик премии по шкале не получает — в долю он не входит, даже со шкалой."""
-    timed = {**dict(payroll_references().sections["positions"][1].payload), "pay_system": "TIME_BONUS"}
-    positions = (
-        payroll_references().sections["positions"][0],
-        fx.item("P_ASSISTANT", "Помощник машиниста", timed),
-    )
-    result = preview(
-        payroll_references(positions=positions),
-        meters_total=D("2000"),
-        price_rub_per_m=D("800"),
-        variable_rub_per_m=D("250"),
-        crew=(("P_DRILLER", D("1")), ("P_ASSISTANT", D("1"))),
-    )
+    base = {item.code: item for item in payroll_references().sections["positions"]}
+    timed = {**dict(base["P_ASSISTANT"].payload), "pay_system": "TIME_BONUS"}
+    positions = (base["P_DRILLER"], fx.item("P_ASSISTANT", "Помощник машиниста", timed))
+    snapshot = payroll_references(positions=positions)
+    fields = {"meters_total": D("2000"), "price_rub_per_m": D("800"), "variable_rub_per_m": D("250")}
+    result = preview(snapshot, crew=(("P_DRILLER", D("1")), ("P_ASSISTANT", D("1"))), **fields)
+    alone = preview(snapshot, crew=(("P_DRILLER", D("1")),), **fields)
     assert [member.position_code for member in result.margin.crew] == ["P_DRILLER"]
+    # Доля — ровно доля экипажа из одного машиниста: повременщик в неё ничего не добавил.
+    assert result.margin.ceiling.crew_share == alone.margin.ceiling.crew_share
+    assert cents(result.margin.ceiling.crew_share * 100) == D("48.23")
     assert any("Помощник машиниста" in warning and "повременн" in warning for warning in result.warnings)
+
+
+def test_explicit_crew_without_main_adds_main_with_warning() -> None:
+    """Явный экипаж без машиниста: машинист добавляется (1 чел.), запрос не отклоняется (находка 1)."""
+    fields = {"meters_total": D("2000"), "price_rub_per_m": D("800"), "variable_rub_per_m": D("250")}
+    result = preview(crew=(("P_ASSISTANT", D("1")),), **fields)
+    default = preview(**fields)
+    assert [(member.position_code, member.headcount) for member in result.margin.crew] == [
+        ("P_DRILLER", D("1")),
+        ("P_ASSISTANT", D("1")),
+    ]
+    # Премия машиниста входит в долю: доля та же, что у экипажа по умолчанию.
+    assert result.margin.ceiling.crew_share == default.margin.ceiling.crew_share
+    assert cents(result.margin.ceiling.crew_share * 100) == D("96.46")
+    assert any("добавлена в экипаж" in warning for warning in result.warnings)
+    assert not any("добавлена в экипаж" in warning for warning in default.warnings)
 
 
 def _position_pay(**changes: object) -> PositionPay:

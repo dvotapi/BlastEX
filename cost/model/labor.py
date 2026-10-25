@@ -150,7 +150,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         # Читаем один раз: норма нужна и экипажу техники (штат ротации), и
         # обычной ставке человеко-смены (F2 ревью PR #80).
         norm_shifts = payload_number(position, "norm_shifts_per_month", Decimal("21"))
-        rotation = _crew_rotation(context, position, operation_code, per_shift, fixed_monthly, norm_shifts)
+        rotation = crew_rotation(context, position, operation_code, per_shift, fixed_monthly, norm_shifts)
         per_shift, rotation = _apply_crew_scale(context.params.crew_scale, per_shift, rotation)
         fixed_block, fixed_formula = _fixed_amount(fixed_monthly, shifts, per_shift, rotation, norm_shifts)
         piece_block, piece_formula = _piece_amount(context, position, rate_item, per_shift)
@@ -319,7 +319,7 @@ def _apply_crew_scale(
     return per_shift * scale, rotation
 
 
-def _crew_rotation(
+def crew_rotation(
     context: ModelContext,
     position: ReferenceItem,
     operation_code: str,

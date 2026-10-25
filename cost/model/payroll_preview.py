@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Mapping
 
+from cost.model.block_payroll import crew_roster
 from cost.model.payroll import (
     PIECE_PAY_SYSTEMS,
     ZERO,
@@ -257,12 +258,15 @@ def _crew(
     """Сдельщики экипажа: из запроса, иначе все сдельщики с приведёнными метрами и шкалой.
 
     У машиниста по умолчанию экипаж — машинист и помощник, по одному в смене:
-    оба получают премию по шкале на те же приведённые метры.
+    оба получают премию по шкале на те же приведённые метры. В явный экипаж
+    без основной должности она добавляется (`block_payroll.crew_roster`).
     """
 
     warnings: list[str] = []
     if request.crew:
-        members = list(request.crew)
+        roster, roster_warnings = crew_roster(request.crew, main.code)
+        members = list(roster)
+        warnings.extend(roster_warnings)
     else:
         members = [
             (item.code, Decimal("1"))

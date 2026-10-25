@@ -514,6 +514,12 @@ class PayrollCalendar:
 PIECE_PAY_SYSTEMS = frozenset({"PIECE_PROGRESSIVE", "PIECE_BONUS"})
 
 
+def pays_by_meters(pay_system: str | None, difficulty: str | None) -> bool:
+    """Сдельная оплата за приведённые метры; шкала не проверяется (она в ставке, не в должности)."""
+
+    return pay_system in PIECE_PAY_SYSTEMS and difficulty == "NORMALIZED_METERS"
+
+
 @dataclass(frozen=True)
 class PositionPay:
     """Должность для методики: нормы из «Должностей», деньги из «Ставок персонала»."""
@@ -535,10 +541,14 @@ class PositionPay:
     per_diem_applies: bool = True
 
     @property
+    def pays_by_meters(self) -> bool:
+        return pays_by_meters(self.pay_system, self.difficulty)
+
+    @property
     def is_piece_on_meters(self) -> bool:
         """Сдельщик со шкалой на приведённых метрах: только такой входит в долю в марже."""
 
-        return self.pay_system in PIECE_PAY_SYSTEMS and self.scale is not None and self.difficulty == "NORMALIZED_METERS"
+        return self.pays_by_meters and self.scale is not None
 
     @property
     def piece_skip_reason(self) -> str | None:

@@ -33,6 +33,7 @@ from cost.model.payroll import (
     margin_check,
     normalized_meters,
     pace_flags,
+    pays_by_meters,
     payroll_month,
     piece_premium,
     plan_effective_shifts,
@@ -266,7 +267,7 @@ def _crew(
         members = [
             (item.code, Decimal("1"))
             for item in snapshot.active_items("positions")
-            if position_pay(snapshot, item.code, inputs.calendar)[0].is_piece_on_meters
+            if pays_by_meters(item.payload.get("pay_system"), item.payload.get("difficulty"))
         ]
     crew: list[CrewCost] = []
     for code, headcount in members:

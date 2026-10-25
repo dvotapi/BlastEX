@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 
-from cost.model.payroll import DowntimeEntry, PayrollInputError, PositionPay, Scale, ScaleTier
+from cost.model.payroll import DowntimeEntry, PayrollInputError, PositionPay, Scale, ScaleTier, pays_by_meters
 from cost.model.payroll_preview import PreviewItem, PreviewRequest, payroll_preview
 from tests import model_fixtures as fx
 from tests.payroll_fixtures import cents, payroll_references
@@ -313,3 +313,31 @@ def test_skip_reason_texts_match_preview_warnings() -> None:
     assert _position_pay(difficulty="PLAIN").piece_skip_reason == (
         "Должность «Машинист» в экипаже получает премию не за приведённые метры: в долю в марже не входит."
     )
+
+
+@pytest.mark.parametrize(
+    ("pay_system", "difficulty", "expected"),
+    [
+        ("PIECE_PROGRESSIVE", "NORMALIZED_METERS", True),
+        ("PIECE_BONUS", "NORMALIZED_METERS", True),
+        ("TIME_BONUS", "NORMALIZED_METERS", False),
+        ("PIECE_BONUS", "PLAIN", False),
+        ("PIECE_BONUS", None, False),
+        (None, "NORMALIZED_METERS", False),
+    ],
+)
+def test_pays_by_meters_truth_table(pay_system: str | None, difficulty: str | None, expected: bool) -> None:
+    assert pays_by_meters(pay_system, difficulty) is expected
+    if pay_system is not None and difficulty is not None:
+        assert _position_pay(pay_system=pay_system, difficulty=difficulty).pays_by_meters is expected
+
+
+def test_default_crew_keeps_a_piece_position_without_scale_and_warns() -> None:
+    """Сдельщик на метрах без шкалы входит в экипаж по умолчанию и даёт предупреждение «без шкалы»."""
+    base = payroll_references()
+    snapshot = payroll_references(
+        labor_rates=tuple(item for item in base.sections["labor_rates"] if item.code != "LR_ASSISTANT")
+    )
+    result = preview(snapshot, meters_total=D("2000"), price_rub_per_m=D("800"), variable_rub_per_m=D("250"))
+    assert [member.position_code for member in result.margin.crew] == ["P_DRILLER"]
+    assert any("Помощник машиниста" in w and "без шкалы сдельной премии" in w for w in result.warnings)

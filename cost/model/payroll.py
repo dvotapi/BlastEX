@@ -509,6 +509,11 @@ class PayrollCalendar:
     source: str = "payroll_params"
 
 
+# Системы оплаты со сдельной премией (определение живёт здесь, чтобы предикат
+# сдельщика был методом должности; payroll_inputs реэкспортирует имя).
+PIECE_PAY_SYSTEMS = frozenset({"PIECE_PROGRESSIVE", "PIECE_BONUS"})
+
+
 @dataclass(frozen=True)
 class PositionPay:
     """Должность для методики: нормы из «Должностей», деньги из «Ставок персонала»."""
@@ -528,6 +533,26 @@ class PositionPay:
     scale: Scale | None = None
     # Суточные и вахтовая надбавка положены должности (флаг «Суточные и проживание»).
     per_diem_applies: bool = True
+
+    @property
+    def is_piece_on_meters(self) -> bool:
+        """Сдельщик со шкалой на приведённых метрах: только такой входит в долю в марже."""
+
+        return self.pay_system in PIECE_PAY_SYSTEMS and self.scale is not None and self.difficulty == "NORMALIZED_METERS"
+
+    @property
+    def piece_skip_reason(self) -> str | None:
+        """Почему должность не входит в долю в марже; None — входит."""
+
+        if self.pay_system not in PIECE_PAY_SYSTEMS:
+            # Повременщику премия по шкале не начисляется, даже если шкала заведена.
+            return f"Должность «{self.name}» в экипаже на повременной оплате: в долю в марже не входит."
+        if self.scale is None:
+            return f"Должность «{self.name}» в экипаже без шкалы сдельной премии: в долю в марже не входит."
+        if self.difficulty != "NORMALIZED_METERS":
+            # Шкалу за километр или тонну на темпе бурения не оценить.
+            return f"Должность «{self.name}» в экипаже получает премию не за приведённые метры: в долю в марже не входит."
+        return None
 
 
 @dataclass(frozen=True)

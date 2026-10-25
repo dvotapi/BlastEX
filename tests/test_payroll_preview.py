@@ -1,11 +1,12 @@
 """Превью ФОТ должности: план и факт, приведённые метры, доля в марже, график (TASK-010)."""
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 
-from cost.model.payroll import DowntimeEntry, PayrollInputError
+from cost.model.payroll import DowntimeEntry, PayrollInputError, PositionPay, Scale, ScaleTier
 from cost.model.payroll_preview import PreviewItem, PreviewRequest, payroll_preview
 from tests import model_fixtures as fx
 from tests.payroll_fixtures import cents, payroll_references
@@ -268,3 +269,47 @@ def test_explicit_crew_member_on_time_pay_is_left_out() -> None:
     )
     assert [member.position_code for member in result.margin.crew] == ["P_DRILLER"]
     assert any("Помощник машиниста" in warning and "повременн" in warning for warning in result.warnings)
+
+
+def _position_pay(**changes: object) -> PositionPay:
+    """Должность-сдельщик на приведённых метрах; поля меняются точечно."""
+    base = PositionPay(
+        code="P_X",
+        name="Машинист",
+        salary=D("100000"),
+        salary_source="test",
+        week_hours=40,
+        pay_system="PIECE_PROGRESSIVE",
+        difficulty="NORMALIZED_METERS",
+        scale=Scale("STEP", (ScaleTier(None, D("10")),)),
+    )
+    return replace(base, **changes)
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    [
+        ({}, True),
+        ({"pay_system": "PIECE_BONUS"}, True),
+        ({"pay_system": "TIME_BONUS"}, False),
+        ({"scale": None}, False),
+        ({"difficulty": "PLAIN"}, False),
+        ({"difficulty": "KM"}, False),
+    ],
+)
+def test_is_piece_on_meters_truth_table(changes: dict[str, object], expected: bool) -> None:
+    position = _position_pay(**changes)
+    assert position.is_piece_on_meters is expected
+    assert (position.piece_skip_reason is None) is expected
+
+
+def test_skip_reason_texts_match_preview_warnings() -> None:
+    assert _position_pay(pay_system="TIME_BONUS").piece_skip_reason == (
+        "Должность «Машинист» в экипаже на повременной оплате: в долю в марже не входит."
+    )
+    assert _position_pay(scale=None).piece_skip_reason == (
+        "Должность «Машинист» в экипаже без шкалы сдельной премии: в долю в марже не входит."
+    )
+    assert _position_pay(difficulty="PLAIN").piece_skip_reason == (
+        "Должность «Машинист» в экипаже получает премию не за приведённые метры: в долю в марже не входит."
+    )

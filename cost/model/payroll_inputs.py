@@ -37,9 +37,6 @@ from cost.v2.schemas.misc import RockPayload
 from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload
 from cost.v2.schemas.payroll import DowntimeReasonPayload, DrillingDifficultyPayload
 
-PIECE_PAY_SYSTEMS = frozenset({"PIECE_PROGRESSIVE", "PIECE_BONUS"})
-
-
 @dataclass(frozen=True)
 class PayrollContext:
     """Общее для всех должностей одного расчёта: год, объект, ставки организации."""

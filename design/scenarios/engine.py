@@ -21,6 +21,7 @@ from design.scenarios.types import (
     ScenarioParams,
 )
 from design.timing import TimingExprError, build_template_network, resolve_network
+from design.toe_line import grid_steps_m
 from simulation.fragmentation.models import MODEL_KUZRAM
 
 DEFAULT_EXPLOSIVE = ExplosiveProperties("Гранулит-РП", 0.85, 3.76)
@@ -178,10 +179,9 @@ def apply_params(design: BlastDesign, params: ScenarioParams) -> BlastDesign:
             overlay.holes = [apply_inclination(hole, angle) for hole in overlay.holes]
 
     rules = dict(overlay.charge_rules or {})
-    if geometry["spacing_a_m"] is not None:
-        rules["grid_a_m"] = geometry["spacing_a_m"]
-    if geometry["burden_b_m"] is not None:
-        rules["grid_b_m"] = geometry["burden_b_m"]
+    if geometry["spacing_a_m"] is not None or geometry["burden_b_m"] is not None:
+        # Шаги — как их берёт генератор: у квадратной сетки b = a.
+        rules["grid_a_m"], rules["grid_b_m"] = grid_steps_m(pattern)
     if params.stemming_m is not None:
         rules["stemming_m"] = float(params.stemming_m)
     if params.powder_factor_kg_m3 is not None:
@@ -349,7 +349,8 @@ def evaluate_overlay(overlay: BlastDesign, params: ScenarioParams) -> ScenarioOu
         block_volume_m3=float(stats.get("block_volume_m3") or 0.0),
         diameter_mm=geometry["diameter_mm"],
         spacing_a_m=geometry["spacing_a_m"],
-        burden_b_m=geometry["burden_b_m"],
+        # Шаг b построенной сетки: у квадратной — a, введённый b не действует.
+        burden_b_m=grid_steps_m(overlay.pattern_params)[1] if geometry["spacing_a_m"] is not None else geometry["burden_b_m"],
         fragmentation_source=SOURCE_ENGINEERING,
         vibration_source=SOURCE_ENGINEERING,
         cost_source=SOURCE_ENGINEERING,

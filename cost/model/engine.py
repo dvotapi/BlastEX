@@ -48,7 +48,11 @@ def compute_block_economics(
 
     # Порядок важен: смены станка и СЗМ нужны ФОТ и затратам техники, а
     # разделение массы ВВ на насыпную и патронированную — статьям ВМ.
+    drilling_start = len(context.lines)
     norms = drilling.compute(context)
+    # Строки самого бурения — уже в стоимости 1 п.м.; цена метра для доли в
+    # марже добавляет к ней только переменные строки бурения правил и услуг.
+    drilling_lines = range(drilling_start, len(context.lines))
     logistics.compute(context)
     nomenclature = materials.compute(context)
     # ФОТ экипажа бурения по методике — до ставок: `labor` пропускает
@@ -71,7 +75,7 @@ def compute_block_economics(
     unit.compute(context)
     # Доля экипажа в марже метра — когда все строки на месте, до надбавок:
     # переменные метра берутся из строк после правил затрат и услуг.
-    margin = block_payroll.margin(context, norms, payroll, context.lines)
+    margin = block_payroll.margin(context, norms, payroll, context.lines, drilling_lines=drilling_lines)
 
     lines = tuple(context.lines)
     totals = markup.layer_totals(lines)

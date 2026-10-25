@@ -13,7 +13,7 @@ import pytest
 
 from cost.model import block_payroll, drilling, markup
 from cost.model.engine import compute_block_economics
-from cost.model.inputs import ModelContext
+from cost.model.inputs import ModelContext, ServiceCharge
 from cost.model.payroll import margin_check
 from cost.v2.models import CostLayer
 from tests import model_fixtures as fx
@@ -192,7 +192,7 @@ def test_subcontract_margin_check_is_none() -> None:
         _references(), fx.parameters(crew=CREW, payroll_source="PAYROLL", drilling_executor="SUBCONTRACTOR"),
         fx.physical(), as_of=AS_OF,
     )
-    assert block_payroll.margin(context, None, None, ()) is None
+    assert block_payroll.margin(context, None, None, (), drilling_lines=range(0)) is None
 
 
 def test_rates_mode_payroll_block_is_none() -> None:
@@ -276,3 +276,58 @@ def test_documenting_price_includes_crew_payroll() -> None:
         threshold=result.threshold,
     )
     assert float(contract.ceiling.crew_share) == pytest.approx(2 * share_one, rel=1e-9)
+
+
+# --- Переменные бурения вне drilling.compute ------------------------------------
+
+
+_EXTRA_RATE = D("15")
+_EXTRA_RULE = fx.item(
+    "RULE_DRILL_EXTRA",
+    "Буровой раствор",
+    {
+        "operation_code": "PRODUCTION_DRILLING",
+        "cost_item_code": "DRILL_FLUID",
+        "behavior_type": "VARIABLE",
+        "cost_layer": "variable",
+        "driver": "drilling_m",
+        "rate_rub": str(_EXTRA_RATE),
+        "estimate_section": "DRILLING",
+    },
+)
+_SERVICE_PER_SHIFT = D("1200")
+
+
+def _with_extra(**kwargs):
+    references = _references(**F17_REFERENCES, cost_rules=(*fx.COST_RULES, _EXTRA_RULE))
+    return _economics(
+        references,
+        services=(
+            ServiceCharge(
+                "Геофизика скважин", _SERVICE_PER_SHIFT, layer="variable", operation_code="PRODUCTION_DRILLING", per_shift=True
+            ),
+        ),
+        **kwargs,
+    )
+
+
+def test_variable_drilling_lines_outside_drilling_module_enter_price_once() -> None:
+    """Правило затрат и услуга на бурении: цена растёт на X × 1,21, переменные — на X, маржа — на X × 0,21."""
+
+    base, extra = _economics(), _with_extra()
+    drilling_m = extra.natural.values["drilling_m"]
+    codes = {line.cost_item_code for line in extra.lines if line.operation_code == "PRODUCTION_DRILLING"}
+    assert "DRILL_FLUID" in codes
+    service = [
+        line for line in extra.lines if line.operation_code == "PRODUCTION_DRILLING" and line.layer is CostLayer.VARIABLE
+        and line.cost_item_code not in {l.cost_item_code for l in base.lines}
+    ]
+    assert len(service) == 2, [line.cost_item_code for line in service]
+    x = float(sum((line.amount_rub for line in service), D("0")) / drilling_m)
+    rig_shifts = float(extra.natural.values["rig_shifts"])
+    assert x == pytest.approx(float(_EXTRA_RATE) + float(_SERVICE_PER_SHIFT) * rig_shifts / float(drilling_m))
+
+    b, e = base.payroll, extra.payroll
+    assert e["price_rub_per_m"] - b["price_rub_per_m"] == pytest.approx(x * 1.21, rel=1e-9)
+    assert e["variable_rub_per_m"] - b["variable_rub_per_m"] == pytest.approx(x, rel=1e-9)
+    assert e["margin"]["margin_rub_per_m"] - b["margin"]["margin_rub_per_m"] == pytest.approx(x * 0.21, rel=1e-9)

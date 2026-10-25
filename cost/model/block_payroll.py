@@ -40,7 +40,8 @@
 Раздел «цена метра и доля в марже» (решения §2.1–§2.2). `margin` зовётся
 движком, когда все строки на месте, до надбавок:
 
-- price_m = (стоимость 1 п.м. бурения + Σ строк ФОТ методики / drilling_m) ×
+- price_m = (стоимость 1 п.м. бурения + (Σ строк ФОТ методики + переменные
+  строки бурения правил затрат и услуг) / drilling_m) ×
   (1 + ОХР) × (1 + рентабельность) — ставки `markup.rates`, как у цены блока;
   цена по себестоимости, а не договорная: ФОТ экипажа входит и в цену, и в
   долю, поэтому доля растёт с ФОТ медленнее, чем при договорной цене;
@@ -343,9 +344,11 @@ def _write(
     for message in payroll.pace.warnings:
         context.warn(message)
     lodging = context.rates.lodging_rub
-    if context.site is not None and bool(context.site.payload.get("is_remote", False)) and lodging > 0:
+    per_diem_crew = any(bool(item.position.payload.get("per_diem_applies", True)) for item in pending)
+    if context.site is not None and bool(context.site.payload.get("is_remote", False)) and lodging > 0 and per_diem_crew:
         # Проживание — статья ставок (`labor._per_diem`), методика его не несёт:
-        # не начисляем, но и не теряем молча.
+        # не начисляем, но и не теряем молча. Должности без суточных его и в
+        # ставках не получают — о них предупреждать не о чем.
         context.warn(
             f"Проживание экипажа бурения ({formula_number(lodging)} ₽/чел·см) в режиме «ФОТ по методике» "
             "не начислено: методика учитывает только суточные/вахтовую надбавку."
@@ -474,12 +477,18 @@ def margin(
     norms: DrillingNorms | None,
     payroll: BlockPayroll | None,
     lines: Sequence[CostLine],
+    *,
+    drilling_lines: range,
 ) -> MarginCheck | None:
     """Доля экипажа в марже метра бурения; None — блок на ставках или субподряд.
 
     Зовётся, когда все строки уже на месте (после правил затрат, услуг и
     юнита), и до надбавок: переменные метра — строки слоя VARIABLE операции
     бурения, без амортизации, страхования и ТО станка (они не переменные).
+    `drilling_lines` — индексы строк, записанных `drilling.compute`: они уже в
+    стоимости 1 п.м.; переменные строки бурения правил затрат и услуг идут в
+    цену отдельно, ровно один раз — иначе они снижали бы маржу, не поднимая
+    цены, и завышали бы долю.
     Предупреждения проверки уходят в контекст.
     """
 
@@ -492,20 +501,23 @@ def margin(
     if drilling_m > 0:
         overhead_rate, margin_rate, _ = markup.rates(context)
         crew_rub = sum((position.amount_rub for position in payroll.positions), ZERO)
-        price = (norms.cost_rub_per_m + crew_rub / drilling_m) * (ONE + overhead_rate) * (ONE + margin_rate)
-        variable_rub = sum(
-            (
-                line.amount_rub
-                for line in lines
-                if line.layer is CostLayer.VARIABLE and line.operation_code == DRILLING_OPERATION
-            ),
-            ZERO,
+        variable_rub = ZERO
+        added_rub = ZERO
+        for index, line in enumerate(lines):
+            if line.layer is not CostLayer.VARIABLE or line.operation_code != DRILLING_OPERATION:
+                continue
+            variable_rub += line.amount_rub
+            if index not in drilling_lines:
+                added_rub += line.amount_rub
+        price = (norms.cost_rub_per_m + (added_rub + crew_rub) / drilling_m) * (ONE + overhead_rate) * (
+            ONE + margin_rate
         )
         variable = variable_rub / drilling_m
+        added = f" + {fn(added_rub)} ₽ переменных правил и услуг" if added_rub else ""
         lineage = {
             "price_rub_per_m": (
-                f"({fn(norms.cost_rub_per_m)} ₽/м бурения + {fn(crew_rub)} ₽ ФОТ экипажа / {fn(drilling_m)} м) × "
-                f"(1 + {fn(overhead_rate)}) × (1 + {fn(margin_rate)}) — по себестоимости с надбавками"
+                f"({fn(norms.cost_rub_per_m)} ₽/м бурения + ({fn(crew_rub)} ₽ ФОТ экипажа{added}) / "
+                f"{fn(drilling_m)} м) × (1 + {fn(overhead_rate)}) × (1 + {fn(margin_rate)}) — по себестоимости с надбавками"
             ),
             "variable_rub_per_m": f"Σ переменных строк бурения {fn(variable_rub)} ₽ / {fn(drilling_m)} м",
         }

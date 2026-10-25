@@ -53,7 +53,7 @@ def compute_block_economics(
     nomenclature = materials.compute(context)
     # ФОТ экипажа бурения по методике — до ставок: `labor` пропускает
     # посчитанные здесь должности (`context.payroll_positions`).
-    block_payroll.compute(context, norms)
+    payroll = block_payroll.compute(context, norms)
     labor.compute(context)
     equipment.compute(context)
     rules = _cost_rule_lines(
@@ -69,6 +69,9 @@ def compute_block_economics(
     # правило затрат; говорить об этом можно только после прохода правил.
     materials.report_gaps(context, nomenclature, rules.drivers)
     unit.compute(context)
+    # Доля экипажа в марже метра — когда все строки на месте, до надбавок:
+    # переменные метра берутся из строк после правил затрат и услуг.
+    margin = block_payroll.margin(context, norms, payroll, context.lines)
 
     lines = tuple(context.lines)
     totals = markup.layer_totals(lines)
@@ -82,6 +85,7 @@ def compute_block_economics(
         warnings=tuple(context.warnings),
         markup=markup_values,
         block_volume_m3=context.block_volume_m3,
+        payroll=block_payroll.to_dict(payroll, margin) if payroll is not None and margin is not None else None,
     )
 
 

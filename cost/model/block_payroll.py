@@ -36,14 +36,27 @@
 экипажу или ни к кому: нет ставки, нет шкалы у сдельщика, нет «Параметров
 ФОТ» года или объекта — весь экипаж на ставках и одно предупреждение
 (частичный экипаж исказил бы долю в марже).
+
+Раздел «цена метра и доля в марже» (решения §2.1–§2.2). `margin` зовётся
+движком, когда все строки на месте, до надбавок:
+
+- price_m = (стоимость 1 п.м. бурения + Σ строк ФОТ методики / drilling_m) ×
+  (1 + ОХР) × (1 + рентабельность) — ставки `markup.rates`, как у цены блока;
+  цена по себестоимости, а не договорная: ФОТ экипажа входит и в цену, и в
+  долю, поэтому доля растёт с ФОТ медленнее, чем при договорной цене;
+- var_m = Σ строк слоя VARIABLE операции бурения / drilling_m — без
+  амортизации, страхования и ТО станка;
+- доля — `payroll.margin_check` по сдельщикам экипажа на приведённых метрах,
+  при плановом темпе и на потолке, приведённых метров на п.м. = M_блока /
+  drilling_m (с договорным k), порог — `margin_share_warn` года.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
-from typing import Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
-from cost.model import labor
+from cost.model import labor, markup
 from cost.model.drilling import DrillingNorms
 from cost.model.inputs import ModelContext, formula_number, payload_number, payload_text
 from cost.model.pace import PlannedPace, planned_pace
@@ -51,13 +64,18 @@ from cost.model.payroll import (
     ONE,
     PIECE_PAY_SYSTEMS,
     ZERO,
+    CrewCost,
     DifficultyTables,
+    MarginCheck,
     MeterItem,
     NormalizedMeters,
     PayrollInputError,
     PayrollInputs,
+    Scale,
+    SharePoint,
     fn,
     hardness_factor,
+    margin_check,
     normalized_meters,
     payroll_month,
     piece_premium,
@@ -65,7 +83,7 @@ from cost.model.payroll import (
     premium_cost_factor,
 )
 from cost.model.payroll_inputs import difficulty_tables, payroll_inputs, rock_hardness
-from cost.v2.models import CostLayer, ReferenceItem, decimal_value
+from cost.v2.models import CostLayer, CostLine, ReferenceItem, decimal_value
 
 
 @dataclass(frozen=True)
@@ -144,6 +162,13 @@ class BlockPayroll:
     normalized_meters: Decimal
     # План вахты: смены минус плановое ТОиР; в c_var не входит.
     effective_shifts: Decimal
+    # Сдельщики экипажа на приведённых метрах — для доли в марже (§2.2);
+    # шкала основной — первой такой должности экипажа («получает машинист»).
+    crew: tuple[CrewCost, ...] = ()
+    main_scale: Scale | None = None
+    # Порог доли — `margin_share_warn` календаря «Параметров ФОТ» года.
+    threshold: Decimal = ZERO
+    lineage: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -216,17 +241,32 @@ def _plan(
     meters, meter_warnings = _block_meters(context, pace, difficulty_tables(context.references), site.contract_k)
 
     pending: list[_Pending] = []
+    crew_costs: list[CrewCost] = []
     for slot, position, inputs, warnings in readings:
         item = _position_payroll(context, norms, slot, position, inputs, pace, meters.total, effective.effective)
-        if item is not None:
-            pending.append(replace(item, warnings=(*warnings, *item.warnings)))
+        if item is None:
+            continue
+        pending.append(replace(item, warnings=(*warnings, *item.warnings)))
+        if inputs.position.is_piece_on_meters:
+            factor, _ = premium_cost_factor(inputs)
+            crew_costs.append(CrewCost(slot.position_code, position.name, item.result.headcount, inputs.position.scale, factor))
+    meters_source, effective_source = meters.lineage["normalized_meters"], effective.lineage["effective_shifts"]
     payroll = BlockPayroll(
         positions=tuple(item.result for item in pending),
         pace=replace(pace, warnings=(*pace.warnings, *meter_warnings)),
         normalized_meters=meters.total,
         effective_shifts=effective.effective,
+        crew=tuple(crew_costs),
+        main_scale=crew_costs[0].scale if crew_costs else None,
+        threshold=readings[0][2].calendar.margin_share_warn,
+        lineage={
+            "planned_pace": pace.lineage.get("planned_pace", ""),
+            "normalized_meters": meters_source,
+            "effective_shifts": effective_source,
+            **{f"c_var.{item.result.position_code}": item.c_var_source for item in pending},
+        },
     )
-    return tuple(pending), payroll, meters.lineage["normalized_meters"], effective.lineage["effective_shifts"]
+    return tuple(pending), payroll, meters_source, effective_source
 
 
 def _has_rate(context: ModelContext, position_code: str) -> bool:
@@ -421,3 +461,116 @@ def _block_meters(
     unnamed_f = hardness_factor(None, ())[2]
     warnings.extend(message for message in meters.warnings if message != unnamed_f)
     return meters, tuple(warnings)
+
+
+# --- Цена метра и доля в марже (§2.1–§2.2) ----------------------------------
+
+
+DRILLING_OPERATION = "PRODUCTION_DRILLING"
+
+
+def margin(
+    context: ModelContext,
+    norms: DrillingNorms | None,
+    payroll: BlockPayroll | None,
+    lines: Sequence[CostLine],
+) -> MarginCheck | None:
+    """Доля экипажа в марже метра бурения; None — блок на ставках или субподряд.
+
+    Зовётся, когда все строки уже на месте (после правил затрат, услуг и
+    юнита), и до надбавок: переменные метра — строки слоя VARIABLE операции
+    бурения, без амортизации, страхования и ТО станка (они не переменные).
+    Предупреждения проверки уходят в контекст.
+    """
+
+    if payroll is None or norms is None:
+        return None
+    drilling_m = context.value("drilling_m")
+    price: Decimal | None = None
+    variable: Decimal | None = None
+    lineage: dict[str, str] = {}
+    if drilling_m > 0:
+        overhead_rate, margin_rate, _ = markup.rates(context)
+        crew_rub = sum((position.amount_rub for position in payroll.positions), ZERO)
+        price = (norms.cost_rub_per_m + crew_rub / drilling_m) * (ONE + overhead_rate) * (ONE + margin_rate)
+        variable_rub = sum(
+            (
+                line.amount_rub
+                for line in lines
+                if line.layer is CostLayer.VARIABLE and line.operation_code == DRILLING_OPERATION
+            ),
+            ZERO,
+        )
+        variable = variable_rub / drilling_m
+        lineage = {
+            "price_rub_per_m": (
+                f"({fn(norms.cost_rub_per_m)} ₽/м бурения + {fn(crew_rub)} ₽ ФОТ экипажа / {fn(drilling_m)} м) × "
+                f"(1 + {fn(overhead_rate)}) × (1 + {fn(margin_rate)}) — по себестоимости с надбавками"
+            ),
+            "variable_rub_per_m": f"Σ переменных строк бурения {fn(variable_rub)} ₽ / {fn(drilling_m)} м",
+        }
+    meters_factor = payroll.normalized_meters / drilling_m if drilling_m > 0 else ONE
+    check = margin_check(
+        main_scale=payroll.main_scale,
+        crew=payroll.crew,
+        pace=payroll.pace.pace,
+        meters_factor=meters_factor,
+        price=price,
+        variable=variable,
+        threshold=payroll.threshold,
+    )
+    for message in check.warnings:
+        context.warn(message)
+    if price is None:
+        context.warn("Метров бурения нет: доля экипажа в марже метра не считается.")
+    return replace(check, lineage={**lineage, **check.lineage})
+
+
+def _num(value: Decimal | None) -> float | None:
+    return float(value) if value is not None else None
+
+
+def _point(point: SharePoint | None) -> dict[str, float] | None:
+    if point is None:
+        return None
+    return {"pace": float(point.pace), "crew_share": float(point.crew_share), "main_share": float(point.main_share)}
+
+
+def to_dict(payroll: BlockPayroll, check: MarginCheck) -> dict[str, Any]:
+    """Блок «ФОТ по методике» результата экономики: числа — float, как остальной `to_dict`."""
+
+    pace = payroll.pace
+    return {
+        "pace": {
+            "m_plan": float(pace.pace),
+            "k_hardness": float(pace.k_hardness),
+            "k_diameter": float(pace.k_diameter),
+            "diameter_mm": _num(pace.diameter_mm),
+            "condition_code": pace.condition_code,
+        },
+        "normalized_meters": float(payroll.normalized_meters),
+        "effective_shifts": float(payroll.effective_shifts),
+        "positions": [
+            {
+                "position_code": position.position_code,
+                "headcount": float(position.headcount),
+                "c_var": float(position.c_var_rub_per_reduced_m),
+                "fixed_rub": float(position.fixed_rub),
+                "variable_rub": float(position.variable_rub),
+                "amount_rub": float(position.amount_rub),
+            }
+            for position in payroll.positions
+        ],
+        "price_rub_per_m": _num(check.price),
+        "variable_rub_per_m": _num(check.variable),
+        "margin": {
+            "status": check.status,
+            "margin_rub_per_m": _num(check.margin),
+            "plan": _point(check.plan),
+            "ceiling": _point(check.ceiling),
+            "threshold": float(check.threshold),
+            "flags": [{"code": flag.code, "message": flag.message} for flag in check.flags],
+            "lineage": dict(check.lineage),
+        },
+        "lineage": dict(payroll.lineage),
+    }

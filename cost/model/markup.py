@@ -29,20 +29,32 @@ def layer_totals(lines: tuple[CostLine, ...] | list[CostLine]) -> dict[CostLayer
     }
 
 
+def rates(context: ModelContext) -> tuple[Decimal, Decimal, Decimal]:
+    """ОХР, рентабельность и НДС: параметр вкладки, иначе ставка организации.
+
+    Одни и те же ставки берут лестница цен блока и цена метра бурения для доли
+    экипажа в марже (`block_payroll.margin`): иначе цена метра разошлась бы с
+    ценой блока при первой же правке надбавки на вкладке.
+    """
+
+    params = context.params
+    organization = context.rates
+    overhead_rate = params.overhead_rate if params.overhead_rate is not None else organization.overhead_rate
+    margin_rate = (
+        params.target_margin_rate
+        if params.target_margin_rate is not None
+        else organization.target_margin_rate
+    )
+    vat_rate = params.vat_rate if params.vat_rate is not None else organization.vat_rate
+    return overhead_rate, margin_rate, vat_rate
+
+
 def apply(
     context: ModelContext, totals: dict[CostLayer, Decimal]
 ) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
     """Вернуть цены за м³ и суммы надбавок по блоку."""
 
-    params = context.params
-    rates = context.rates
-    overhead_rate = params.overhead_rate if params.overhead_rate is not None else rates.overhead_rate
-    margin_rate = (
-        params.target_margin_rate
-        if params.target_margin_rate is not None
-        else rates.target_margin_rate
-    )
-    vat_rate = params.vat_rate if params.vat_rate is not None else rates.vat_rate
+    overhead_rate, margin_rate, vat_rate = rates(context)
 
     marginal_cost = totals[CostLayer.PROJECT_DIRECT]
     full_cost = totals[CostLayer.FULL]

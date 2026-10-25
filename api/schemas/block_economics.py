@@ -150,6 +150,59 @@ class CapacityWarningSchema(BaseModel):
     message: str
 
 
+class PayrollPaceSchema(BaseModel):
+    m_plan: float
+    k_hardness: float
+    k_diameter: float
+    diameter_mm: float | None = None
+    condition_code: str = ""
+
+
+class PayrollPositionSchema(BaseModel):
+    position_code: str
+    headcount: float
+    # ₽ на приведённый метр на человека; повременщику — 0.
+    c_var: float
+    fixed_rub: float
+    variable_rub: float
+    amount_rub: float
+
+
+class PayrollSharePointSchema(BaseModel):
+    pace: float
+    crew_share: float
+    main_share: float
+
+
+class PayrollFlagSchema(BaseModel):
+    code: str
+    message: str
+
+
+class PayrollMarginSchema(BaseModel):
+    # CHECKED / NOT_CHECKED / NO_MARGIN / NOT_APPLICABLE — как у превью ФОТ.
+    status: str
+    margin_rub_per_m: float | None = None
+    plan: PayrollSharePointSchema | None = None
+    ceiling: PayrollSharePointSchema | None = None
+    threshold: float
+    flags: list[PayrollFlagSchema] = Field(default_factory=list)
+    lineage: dict[str, str] = Field(default_factory=dict)
+
+
+class PayrollBlockSchema(BaseModel):
+    """ФОТ экипажа бурения по методике: темп, строки, цена метра и доля в марже."""
+
+    pace: PayrollPaceSchema
+    normalized_meters: float
+    effective_shifts: float
+    positions: list[PayrollPositionSchema]
+    price_rub_per_m: float | None = None
+    variable_rub_per_m: float | None = None
+    margin: PayrollMarginSchema
+    lineage: dict[str, str] = Field(default_factory=dict)
+
+
 class BlockEconomicsSchema(BaseModel):
     model_version: str
     block_volume_m3: float
@@ -160,6 +213,8 @@ class BlockEconomicsSchema(BaseModel):
     natural: NaturalDriversSchema
     capacity: list[CapacityWarningSchema] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # None — режим ставок; прогоны, сохранённые до блока, ключа не несут.
+    payroll: PayrollBlockSchema | None = None
     # Ревизия справочников, на которой посчитано: при пустой ревизии в
     # параметрах это актуальная, и сметчик должен видеть какая.
     reference_revision_id: str = ""

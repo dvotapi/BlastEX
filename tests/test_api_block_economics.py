@@ -977,3 +977,67 @@ def test_payroll_source_is_accepted_and_unknown_value_rejected(client) -> None:
         json=_parameters(passport_id, payroll_source="OTHER"),
     )
     assert bad.status_code == 422
+
+
+def _publish_payroll_references(repository) -> None:
+    """Ревизия с экипажем бурения на методике: машинист и помощник на кривой X."""
+
+    from tests.test_model_block_payroll import _references
+
+    head = repository.list_reference_revisions("default")[0].id
+    sections = {section: [item.to_dict() for item in items] for section, items in _references().sections.items()}
+    repository.publish_references("default", "tester", head, sections, "ФОТ по методике")
+
+
+_PAYROLL_CREW = [
+    {"position_code": "P_DRILLER", "headcount": "1"},
+    {"position_code": "P_ASSISTANT", "headcount": "1"},
+    {"position_code": "POS_BLASTER", "headcount": "2"},
+]
+
+
+def test_payroll_mode_returns_the_payroll_block(client) -> None:
+    test_client, repository, passport_id = client
+    _publish_payroll_references(repository)
+
+    body = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(passport_id, payroll_source="PAYROLL", crew=_PAYROLL_CREW),
+    ).json()
+    payroll = body["payroll"]
+    assert payroll is not None
+    assert payroll["pace"]["m_plan"] == pytest.approx(120)
+    assert [row["position_code"] for row in payroll["positions"]] == ["P_DRILLER", "P_ASSISTANT"]
+    assert payroll["price_rub_per_m"] > payroll["variable_rub_per_m"] > 0
+    assert payroll["margin"]["status"] == "CHECKED"
+    assert payroll["margin"]["ceiling"]["crew_share"] > payroll["margin"]["plan"]["crew_share"]
+
+    run = test_client.post(
+        "/api/v1/economics/runs",
+        json={**_parameters(passport_id, payroll_source="PAYROLL", crew=_PAYROLL_CREW), "name": "ФОТ по методике"},
+    )
+    assert run.status_code == 201, run.text
+    stored = test_client.get(f"/api/v1/economics/runs/{run.json()['id']}").json()
+    assert stored["result"]["payroll"]["price_rub_per_m"] == pytest.approx(payroll["price_rub_per_m"])
+
+
+def test_rates_mode_payroll_block_is_null(client) -> None:
+    test_client, repository, passport_id = client
+    _publish_payroll_references(repository)
+
+    body = test_client.post(
+        "/api/v1/economics/block-economics",
+        json=_parameters(passport_id, payroll_source="RATES", crew=_PAYROLL_CREW),
+    ).json()
+    assert body["payroll"] is None
+
+
+def test_result_without_payroll_key_still_loads() -> None:
+    """Прогоны, сохранённые до блока ФОТ, читаются: ключа нет — None."""
+
+    from api.schemas.block_economics import BlockEconomicsSchema
+    from cost.model.engine import compute_block_economics
+
+    data = compute_block_economics(fx.snapshot(), fx.parameters(), fx.references()).to_dict()
+    data.pop("payroll", None)
+    assert BlockEconomicsSchema.model_validate(data).payroll is None

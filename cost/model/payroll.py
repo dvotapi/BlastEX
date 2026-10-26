@@ -19,9 +19,11 @@ ONE = Decimal("1")
 HUNDRED = Decimal("100")
 
 # Верх шкалы Протодьяконова. Крепость выше берёт коэффициент последней строки
-# таблицы, но такое значение скорее ошибка ввода — предупреждаем.
+# таблицы, но такое значение скорее ошибка ввода — предупреждаем. Значение
+# справочника — `hardness_scale_max` «Сложности бурения»; здесь умолчание.
 PROTODYAKONOV_MAX = Decimal("20")
 # Флаги на проверку начальнику участка (TASK-010 §2.3): расчёт не блокируют.
+# Пороги — из «Параметров ФОТ» года; здесь умолчания схемы.
 WRITE_OFF_FLAG_SHARE = Decimal("0.25")
 PACE_FLAG_RATIO = Decimal("1.2")
 # Классы условий труда с 36-часовой неделей (ст. 92 ТК РФ).
@@ -75,6 +77,8 @@ class DifficultyTables:
     hardness: tuple[HardnessBand, ...] = ()
     diameter: Mapping[Decimal, Decimal] = field(default_factory=dict)
     source: str = "drilling_difficulty"
+    # Крепость выше — коэффициент последней строки с предупреждением.
+    hardness_scale_max: Decimal = PROTODYAKONOV_MAX
 
 
 @dataclass(frozen=True)
@@ -114,7 +118,9 @@ class NormalizedMeters:
         return self.total / self.physical if self.physical > 0 else ONE
 
 
-def hardness_factor(f: Decimal | None, bands: Sequence[HardnessBand]) -> tuple[Decimal, str, str]:
+def hardness_factor(
+    f: Decimal | None, bands: Sequence[HardnessBand], max_f: Decimal = PROTODYAKONOV_MAX
+) -> tuple[Decimal, str, str]:
     """Коэффициент крепости, пояснение для происхождения и предупреждение (пусто — нет)."""
 
     if f is None:
@@ -126,9 +132,9 @@ def hardness_factor(f: Decimal | None, bands: Sequence[HardnessBand]) -> tuple[D
         # Разрывы не пропускает проверка ревизии; на битой таблице — 1, а не падение.
         return ONE, f"f = {fn(f)} вне таблицы → 1", f"Крепость f = {fn(f)} не попала ни в одну строку таблицы крепости: коэффициент принят 1."
     warning = ""
-    if f > PROTODYAKONOV_MAX:
+    if f > max_f:
         warning = (
-            f"Крепость f = {fn(f)} выше шкалы Протодьяконова (до {fn(PROTODYAKONOV_MAX)}): "
+            f"Крепость f = {fn(f)} выше шкалы Протодьяконова (до {fn(max_f)}): "
             "взят коэффициент последней строки таблицы."
         )
     return band.k, f"{band.label()} → {fn(band.k)}", warning
@@ -149,7 +155,7 @@ def normalized_meters(
     lineage: dict[str, str] = {}
     warnings: list[str] = []
     for index, entry in enumerate(items):
-        k_f, f_note, warning = hardness_factor(entry.f, tables.hardness)
+        k_f, f_note, warning = hardness_factor(entry.f, tables.hardness, tables.hardness_scale_max)
         if warning and warning not in warnings:
             warnings.append(warning)
         if tables.diameter:
@@ -344,15 +350,15 @@ def piece_premium(output: Decimal, scale: Scale, effective: Decimal) -> PiecePre
     )
 
 
-def pace_flags(scale: Scale, pace: Decimal) -> tuple[PayrollFlag, ...]:
-    """Темп выше 1,2 потолка — сигнал проверить метры или списанные простои."""
+def pace_flags(scale: Scale, pace: Decimal, *, ratio: Decimal = PACE_FLAG_RATIO) -> tuple[PayrollFlag, ...]:
+    """Темп выше `ratio` × потолка (по умолчанию 1,2) — сигнал проверить метры или списанные простои."""
 
-    if not scale.is_curve or pace <= PACE_FLAG_RATIO * scale.ceiling_per_shift:
+    if not scale.is_curve or pace <= ratio * scale.ceiling_per_shift:
         return ()
     return (
         PayrollFlag(
             "PACE_ABOVE_CEILING",
-            f"Темп {fn(pace)} за смену выше {fn(PACE_FLAG_RATIO)} × потолка ({fn(scale.ceiling_per_shift)}): "
+            f"Темп {fn(pace)} за смену выше {fn(ratio)} × потолка ({fn(scale.ceiling_per_shift)}): "
             "проверьте метры и списанные простои.",
         ),
     )
@@ -435,12 +441,16 @@ def effective_shifts(
     shift_hours: Decimal,
     downtime: Sequence[DowntimeEntry],
     reasons: Mapping[str, DowntimeReason],
+    *,
+    flag_share: Decimal = WRITE_OFF_FLAG_SHARE,
 ) -> EffectiveShifts:
     """Факт: S_эфф = смены − Σ часов простоя не по вине машиниста / часы смены.
 
     Простой по вине машиниста не вычитается. Предела списания нет (решение
     владельца), но вход проверяется: больше часов, чем в вахте, или ноль
     эффективных смен — ошибка, а не деление на ноль и не премия «45 × M».
+    Списано больше `flag_share` часов вахты — флаг на проверку; код флага
+    `DOWNTIME_OVER_25` остаётся прежним и при другом пороге.
     """
 
     if shift_hours <= 0:
@@ -469,12 +479,12 @@ def effective_shifts(
     base = available - maintenance
     share = (excusable - maintenance) / base if base > 0 else None
     flags: list[PayrollFlag] = []
-    if share is not None and share > WRITE_OFF_FLAG_SHARE:
+    if share is not None and share > flag_share:
         flags.append(
             PayrollFlag(
                 "DOWNTIME_OVER_25",
                 f"Списано {percent(share)} часов вахты не по вине машиниста (без планового ТОиР) — "
-                f"больше {percent(WRITE_OFF_FLAG_SHARE)}: проверьте коды простоев.",
+                f"больше {percent(flag_share)}: проверьте коды простоев.",
             )
         )
     return EffectiveShifts(
@@ -507,6 +517,9 @@ class PayrollCalendar:
     vacation_days_base: Decimal
     margin_share_warn: Decimal
     source: str = "payroll_params"
+    # Пороги флагов превью: списанные часы и темп выше потолка шкалы.
+    write_off_flag_share: Decimal = WRITE_OFF_FLAG_SHARE
+    pace_flag_ratio: Decimal = PACE_FLAG_RATIO
 
 
 # Системы оплаты со сдельной премией (определение живёт здесь, чтобы предикат

@@ -84,3 +84,13 @@ def test_unknown_downtime_code_is_an_input_error() -> None:
 def test_maintenance_for_the_whole_rotation_is_an_input_error() -> None:
     with pytest.raises(PayrollInputError):
         plan_effective_shifts(D("2"), D("2"))
+
+
+def test_write_off_threshold_comes_from_the_argument() -> None:
+    downtime = [DowntimeEntry("DT_WAIT_BLOCK", D("40"))]
+    # Те же 40 ч из 143 (27,97 %): при пороге 40 % флага нет, при 20 % — есть.
+    assert effective_shifts(D("13"), D("11"), downtime, REASONS, flag_share=D("0.40")).flags == ()
+    strict = effective_shifts(D("13"), D("11"), downtime, REASONS, flag_share=D("0.20"))
+    assert [flag.code for flag in strict.flags] == ["DOWNTIME_OVER_25"]
+    assert "больше 20 %" in strict.flags[0].message
+    assert "27,97 %" in strict.flags[0].message

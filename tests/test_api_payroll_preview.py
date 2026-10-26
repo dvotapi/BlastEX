@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from api.routers import block_economics
 from api.services.economics_service import get_economics_repository
 from cost.v2.repository import InMemoryEconomicsRepository
+from cost.v2.payroll_defaults import PAYROLL_PARAMS
+from tests import model_fixtures as fx
 from tests.payroll_fixtures import payroll_references
 
 URL = "/api/v1/economics/payroll/preview"
@@ -15,10 +17,13 @@ URL = "/api/v1/economics/payroll/preview"
 
 @pytest.fixture
 def api(monkeypatch) -> TestClient:
+    return client(monkeypatch, payroll_references())
+
+
+def client(monkeypatch, references) -> TestClient:
     monkeypatch.setenv("BLASTEX_API_KEY", "test-api-key")
     monkeypatch.setenv("BLASTEX_SESSION_SECRET", "test-session-secret")
     repository = InMemoryEconomicsRepository()
-    references = payroll_references()
     repository.publish_references(
         "default",
         "tester",
@@ -118,3 +123,38 @@ def test_unknown_crew_member_is_422_with_its_code(api: TestClient) -> None:
     response = api.post(URL, json=body(meters_total="2000", crew=[{"position_code": "NOPE"}]))
     assert response.status_code == 422
     assert "NOPE" in response.json()["detail"]
+
+
+# 2571,2 прив. м за 13 − 40/11 смен — темп 274,6 (1,487 × потолка), списано 27,97 %:
+# на умолчаниях оба флага.
+FLAGGED = body(
+    items=[
+        {"meters": "800", "diameter_mm": "152", "rock_code": "ROCK_F10"},
+        {"meters": "900", "diameter_mm": "250", "rock_code": "ROCK_F17"},
+    ],
+    shifts="13",
+    downtime=[{"code": "DT_WAIT_BLOCK", "hours": "40"}],
+)
+
+
+def _flag_codes(api: TestClient) -> list[str]:
+    response = api.post(URL, json=FLAGGED)
+    assert response.status_code == 200
+    return [flag["code"] for flag in response.json()["flags"]]
+
+
+@pytest.mark.parametrize(
+    ("thresholds", "silenced", "kept"),
+    [
+        ({"pace_flag_ratio": "1.5"}, "PACE_ABOVE_CEILING", "DOWNTIME_OVER_25"),
+        ({"write_off_flag_share": "0.40"}, "DOWNTIME_OVER_25", "PACE_ABOVE_CEILING"),
+    ],
+)
+def test_flag_thresholds_come_from_the_year_record(
+    monkeypatch, api: TestClient, thresholds: dict, silenced: str, kept: str
+) -> None:
+    assert {silenced, kept} <= set(_flag_codes(api))
+    record = fx.item("PAYROLL_PARAMS_2026", "Параметры ФОТ 2026", {**PAYROLL_PARAMS, **thresholds})
+    codes = _flag_codes(client(monkeypatch, payroll_references(payroll_params=(record,))))
+    assert silenced not in codes
+    assert kept in codes

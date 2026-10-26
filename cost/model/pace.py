@@ -62,7 +62,7 @@ def _hardness(
             "не задана крепость f: коэффициент крепости планового темпа принят 1."
         )
         return ONE, f"{rock_code}: крепость не задана → 1"
-    k_f, note, warning = hardness_factor(f, tables.hardness)
+    k_f, note, warning = hardness_factor(f, tables.hardness, tables.hardness_scale_max)
     if warning:
         warnings.append(warning)
     return k_f, f"{rock_code}: {note}"

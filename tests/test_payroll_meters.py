@@ -1,6 +1,7 @@
 """Приведённые метры: коэффициенты крепости и диаметра, договорной коэффициент (TASK-010 §2.1)."""
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -62,3 +63,20 @@ def test_rock_without_hardness_gives_one_with_a_warning() -> None:
 def test_diameter_written_with_a_trailing_zero_is_the_same_diameter() -> None:
     meters = normalized_meters([MeterItem(D("100"), D("152.0"), D("10"))], TABLES)
     assert meters.total == D("100")
+
+
+def test_hardness_scale_max_comes_from_the_argument() -> None:
+    factor, _, warning = hardness_factor(D("25"), TABLES.hardness, D("30"))
+    assert factor == D("1.3")
+    assert warning == ""
+    factor, _, warning = hardness_factor(D("25"), TABLES.hardness, D("20"))
+    assert factor == D("1.3")
+    assert "до 20" in warning
+
+
+def test_normalized_meters_use_the_scale_max_of_the_tables() -> None:
+    items = [MeterItem(D("100"), D("152"), D("25"))]
+    assert any("выше шкалы" in message for message in normalized_meters(items, TABLES).warnings)
+    wide = normalized_meters(items, replace(TABLES, hardness_scale_max=D("30")))
+    assert wide.warnings == ()
+    assert wide.rows[0].k_f == D("1.3")

@@ -218,7 +218,13 @@ def _shifts(snapshot: ReferenceSnapshot, request: PreviewRequest, context: Payro
         if request.downtime:
             raise PayrollInputError("Простои задаются вместе с фактическими сменами вахты.")
         return plan_effective_shifts(context.site.shift_days_on, context.site.maintenance_shifts)
-    return effective_shifts(request.shifts, context.rates.shift_hours, request.downtime, downtime_reasons(snapshot))
+    return effective_shifts(
+        request.shifts,
+        context.rates.shift_hours,
+        request.downtime,
+        downtime_reasons(snapshot),
+        flag_share=context.calendar.write_off_flag_share,
+    )
 
 
 def _output(
@@ -318,7 +324,7 @@ def payroll_preview(snapshot: ReferenceSnapshot, request: PreviewRequest) -> Pay
             lineage["contract_k"] = f"sites.{context.site.code}.contract_k = {fn(meters.contract_k)}"
         premium = piece_premium(meters.total, scale, shifts.effective)
         lineage.update(premium.lineage)
-        flags.extend(pace_flags(scale, premium.pace))
+        flags.extend(pace_flags(scale, premium.pace, ratio=context.calendar.pace_flag_ratio))
 
     result = payroll_month(inputs, premium.total if premium is not None else ZERO)
     warnings.extend(result.warnings)

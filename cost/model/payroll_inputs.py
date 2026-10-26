@@ -218,9 +218,22 @@ def payroll_inputs(
     """Входы `payroll_month` для должности на объекте и предупреждения чтения."""
 
     context = payroll_context(snapshot, site_code=site_code, year=year)
+    inputs, warnings = position_inputs(snapshot, context, position_code)
+    return inputs, context, warnings
+
+
+def position_inputs(
+    snapshot: ReferenceSnapshot, context: PayrollContext, position_code: str
+) -> tuple[PayrollInputs, tuple[str, ...]]:
+    """Входы должности на уже прочитанном общем контексте (год, объект, ставки).
+
+    Экипаж блока читает контекст один раз на расчёт, а не на каждую должность;
+    предупреждения — те же, что у `payroll_inputs`: контекста и должности.
+    """
+
     position, warnings = position_pay(snapshot, position_code, context.calendar)
     inputs = PayrollInputs(context.calendar, position, context.site, context.rates)
-    return inputs, context, (*context.warnings, *warnings)
+    return inputs, (*context.warnings, *warnings)
 
 
 def difficulty_tables(snapshot: ReferenceSnapshot) -> DifficultyTables:

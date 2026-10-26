@@ -543,7 +543,9 @@ def test_zero_planned_pace_falls_back_to_rates(monkeypatch) -> None:
     """Нулевой темп (mean_rate = None) — откат на ставки с предупреждением, не TypeError."""
 
     real = block_payroll.planned_pace
-    monkeypatch.setattr(block_payroll, "planned_pace", lambda context, norms: replace(real(context, norms), pace=D("0")))
+    monkeypatch.setattr(
+        block_payroll, "planned_pace", lambda context, norms, tables=None: replace(real(context, norms, tables), pace=D("0"))
+    )
     context = _context()
     _, result = _run(context)
 
@@ -568,3 +570,43 @@ def test_fallback_after_meters_leaves_no_meter_warnings(monkeypatch) -> None:
     assert result is None
     assert not any("приведённых метров" in w for w in context.warnings)
     assert len([w for w in context.warnings if "по ставкам" in w]) == 1
+
+
+def test_shared_inputs_are_read_once_per_run(monkeypatch) -> None:
+    """Год, объект и ставки, «Сложность бурения» — один раз на расчёт, а не на каждую должность экипажа."""
+
+    from cost.model import pace as pace_module
+
+    calls = {"context": 0, "tables": 0}
+    real_context, real_tables = block_payroll.payroll_context, block_payroll.difficulty_tables
+
+    def counted_context(*args, **kwargs):
+        calls["context"] += 1
+        return real_context(*args, **kwargs)
+
+    def counted_tables(*args, **kwargs):
+        calls["tables"] += 1
+        return real_tables(*args, **kwargs)
+
+    monkeypatch.setattr(block_payroll, "payroll_context", counted_context)
+    monkeypatch.setattr(block_payroll, "difficulty_tables", counted_tables)
+    monkeypatch.setattr(pace_module, "difficulty_tables", counted_tables)
+    _, result = _run(_context())
+
+    assert result is not None and len(result.positions) == 2
+    assert calls == {"context": 1, "tables": 1}
+
+
+def test_block_meter_items_returns_warnings_without_writing_context() -> None:
+    context = _context(_references(site={"rock_code": None}, drilling_conditions=(COND_BASE,)))
+    norms = drilling.compute(context)
+    pace = block_payroll.planned_pace(context, norms)
+    before = list(context.warnings)
+
+    items, warnings = block_payroll.block_meter_items(context, pace)
+    assert len(items) == 1 and items[0].f is None
+    assert warnings == (
+        "У объекта работ не задана ни плановая геология, ни порода: "
+        "коэффициент крепости приведённых метров блока принят 1.",
+    )
+    assert context.warnings == before

@@ -105,8 +105,14 @@ def _diameter(
     return k_d, diameter, f"{bit_code}: Ø {fn(diameter)} мм → {fn(k_d)}"
 
 
-def planned_pace(context: ModelContext, norms: DrillingNorms) -> PlannedPace:
-    """Плановый темп по строке матрицы, подобранной для блока (`norms.condition`)."""
+def planned_pace(
+    context: ModelContext, norms: DrillingNorms, tables: DifficultyTables | None = None
+) -> PlannedPace:
+    """Плановый темп по строке матрицы, подобранной для блока (`norms.condition`).
+
+    `tables` — уже прочитанная «Сложность бурения» (ФОТ блока читает её один
+    раз на расчёт); без неё таблица читается здесь.
+    """
 
     v_commercial = norms.v_commercial_m_per_shift
     condition = norms.condition
@@ -118,7 +124,8 @@ def planned_pace(context: ModelContext, norms: DrillingNorms) -> PlannedPace:
             {"planned_pace": f"v_коммерч = {fn(v_commercial)} (строка не подобрана)"},
         )
 
-    tables = _tables(context, warnings)
+    if tables is None:
+        tables = _tables(context, warnings)
     k_f, f_note = _hardness(context, condition.code, payload_text(condition, "rock_code"), tables, warnings)
     k_d, diameter, d_note = _diameter(
         context, condition.code, payload_text(condition, "bit_material_code"), tables, warnings

@@ -36,7 +36,7 @@
 `cost/model/payroll_inputs.py`, превью — `POST /economics/payroll/preview`
 (`cost/model/payroll_preview.py`). Премия — только на среднем темпе вахты, не
 посменно; НДФЛ в затраты компании не входит; взносы — из ставок организации,
-календарь и МРОТ — из «Параметров ФОТ» года. Экипаж бурения блока считается по методике при параметре вкладки `payroll_source = PAYROLL` (`cost/model/block_payroll.py`, плановый темп — `cost/model/pace.py`), по умолчанию `RATES`. Подробности — `Docs/PAYROLL_MODEL.md`.
+календарь и МРОТ — из «Параметров ФОТ» года. Экипаж бурения блока считается по методике при параметре вкладки `payroll_source = PAYROLL` (`cost/model/block_payroll.py`, плановый темп — `cost/model/pace.py`, цена метра и доля в марже — `cost/model/block_margin.py`), по умолчанию `RATES`. Подробности — `Docs/PAYROLL_MODEL.md`.
 
 ## Модель подбора q (Kuz-Ram)
 

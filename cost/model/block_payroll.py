@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
-from typing import Callable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from cost.model import labor
 from cost.model.drilling import DrillingNorms
@@ -68,7 +68,7 @@ from cost.model.payroll import (
     plan_effective_shifts,
     premium_cost_factor,
 )
-from cost.model.payroll_inputs import difficulty_tables, payroll_inputs, rock_hardness
+from cost.model.payroll_inputs import PayrollContext, difficulty_tables, payroll_context, position_inputs, rock_hardness
 from cost.v2.models import CostLayer, ReferenceItem, decimal_value
 
 
@@ -169,6 +169,8 @@ class _Pending:
     rotation: labor.CrewRotation | None
     formula: str
     c_var_source: str
+    # Затраты на рубль премии должности — и для c_var, и для доли в марже.
+    cost_factor: Decimal = ZERO
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -207,13 +209,16 @@ def _plan(
     if not site_code:
         raise PayrollInputError("не выбран объект работ — вахта и надбавки методики берутся из него.")
     readings: list[tuple[CrewSlot, ReferenceItem, PayrollInputs, tuple[str, ...]]] = []
+    shared: PayrollContext | None = None
     for slot in crew:
         position = context.item("positions", slot.position_code)
         if not _has_rate(context, slot.position_code):
             raise PayrollInputError(f"у должности «{position.name}» нет ставки в «Ставках персонала».")
-        inputs, _, warnings = payroll_inputs(
-            context.references, position_code=slot.position_code, site_code=site_code, year=context.as_of.year
-        )
+        if shared is None:
+            # Год, объект и ставки — один раз на расчёт; читаются после проверки
+            # ставки первой должности, как раньше, чтобы причина отката не сменилась.
+            shared = payroll_context(context.references, site_code=site_code, year=context.as_of.year)
+        inputs, warnings = position_inputs(context.references, shared, slot.position_code)
         pay = inputs.position
         if pay.pay_system in PIECE_PAY_SYSTEMS and not pay.is_piece_on_meters:
             raise PayrollInputError(
@@ -223,8 +228,11 @@ def _plan(
 
     site = readings[0][2].site
     effective = plan_effective_shifts(site.shift_days_on, site.maintenance_shifts)
-    pace = planned_pace(context, norms)
-    meters, meter_warnings = _block_meters(context, pace, difficulty_tables(context.references), site.contract_k)
+    # «Сложность бурения» — одна на темп и приведённые метры; нечитаемая
+    # запись возвращает экипаж на ставки.
+    tables = difficulty_tables(context.references)
+    pace = planned_pace(context, norms, tables)
+    meters, meter_warnings = _block_meters(context, pace, tables, site.contract_k)
 
     pending: list[_Pending] = []
     crew_costs: list[CrewCost] = []
@@ -234,8 +242,9 @@ def _plan(
             continue
         pending.append(replace(item, warnings=(*warnings, *item.warnings)))
         if inputs.position.is_piece_on_meters:
-            factor, _ = premium_cost_factor(inputs)
-            crew_costs.append(CrewCost(slot.position_code, position.name, item.result.headcount, inputs.position.scale, factor))
+            crew_costs.append(
+                CrewCost(slot.position_code, position.name, item.result.headcount, inputs.position.scale, item.cost_factor)
+            )
     meters_source, effective_source = meters.lineage["normalized_meters"], effective.lineage["effective_shifts"]
     payroll = BlockPayroll(
         positions=tuple(item.result for item in pending),
@@ -315,6 +324,7 @@ def _position_payroll(
         rotation=rotation,
         formula=formula,
         c_var_source=c_var_source,
+        cost_factor=cost_factor,
         warnings=base.warnings,
     )
 
@@ -374,19 +384,17 @@ def _write(
 # --- Приведённые метры блока -------------------------------------------------
 
 
-def block_meter_items(
-    context: ModelContext, pace: PlannedPace, warnings: list[str] | None = None
-) -> tuple[MeterItem, ...]:
+def block_meter_items(context: ModelContext, pace: PlannedPace) -> tuple[tuple[MeterItem, ...], tuple[str, ...]]:
     """Строки приведения метров блока: породы объекта, Ø — коронки строки матрицы.
 
     Плановая геология объекта делит метры по долям; без неё — одна строка по
     породе объекта, без породы — строка с f = None (k_f = 1, предупреждение).
     Нет Ø — в строке 0 мм, коэффициент диаметра подставляет `_block_meters`.
-    Предупреждения копятся в `warnings`, если список передан (расчёт ещё может
-    откатиться на ставки), иначе сразу уходят в контекст.
+    Предупреждения возвращаются, а не пишутся в контекст: расчёт ещё может
+    откатиться на ставки.
     """
 
-    warn = warnings.append if warnings is not None else context.warn
+    warnings: list[str] = []
     drilling_m = context.value("drilling_m")
     diameter = pace.diameter_mm or ZERO
     site = context.site
@@ -400,24 +408,25 @@ def block_meter_items(
     if not rows:
         rock_code = payload_text(site, "rock_code")
         if not rock_code:
-            warn(
+            warnings.append(
                 "У объекта работ не задана ни плановая геология, ни порода: "
                 "коэффициент крепости приведённых метров блока принят 1."
             )
-            return (MeterItem(drilling_m, diameter, None, "порода не задана"),)
+            return (MeterItem(drilling_m, diameter, None, "порода не задана"),), tuple(warnings)
         rows = [(rock_code, ONE)]
-    return tuple(MeterItem(drilling_m * share, diameter, _rock_f(context, code, warn), code) for code, share in rows)
+    items = tuple(MeterItem(drilling_m * share, diameter, _rock_f(context, code, warnings), code) for code, share in rows)
+    return items, tuple(warnings)
 
 
-def _rock_f(context: ModelContext, rock_code: str, warn: Callable[[str], None]) -> Decimal | None:
+def _rock_f(context: ModelContext, rock_code: str, warnings: list[str]) -> Decimal | None:
     try:
         f = rock_hardness(context.references, rock_code)
     except PayrollInputError as exc:
-        warn(f"{exc} Коэффициент крепости приведённых метров блока принят 1.")
+        warnings.append(f"{exc} Коэффициент крепости приведённых метров блока принят 1.")
         return None
     if f is None:
         rock = context.item("rocks", rock_code)
-        warn(
+        warnings.append(
             f"У породы «{rock.name}» ({rock_code}) объекта не задана крепость f: "
             "коэффициент крепости приведённых метров блока принят 1."
         )
@@ -429,6 +438,7 @@ def _block_meters(
 ) -> tuple[NormalizedMeters, tuple[str, ...]]:
     """M_блока и предупреждения приведения (о крепости без f — уже названной выше — не повторяются)."""
 
+    items, item_warnings = block_meter_items(context, pace)
     warnings: list[str] = []
     diameter = pace.diameter_mm
     if diameter is None or (tables.diameter and diameter not in tables.diameter):
@@ -442,9 +452,8 @@ def _block_meters(
             "коэффициент диаметра приведённых метров блока принят 1."
         )
         tables = replace(tables, diameter={ZERO: ONE})
-        items = tuple(replace(item, diameter_mm=ZERO) for item in block_meter_items(context, pace, warnings))
-    else:
-        items = block_meter_items(context, pace, warnings)
+        items = tuple(replace(item, diameter_mm=ZERO) for item in items)
+    warnings.extend(item_warnings)
     meters = normalized_meters(items, tables, contract_k)
     unnamed_f = hardness_factor(None, ())[2]
     warnings.extend(message for message in meters.warnings if message != unnamed_f)

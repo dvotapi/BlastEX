@@ -118,6 +118,10 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
     per_diem_shifts = Decimal("0")
 
     for position_code, headcount, manual_shifts in crew_members(context):
+        if position_code in context.payroll_positions:
+            # Должность уже посчитана методикой ФОТ (`block_payroll`): вторая
+            # строка, взносы и суточные на неё дали бы двойной ФОТ (Т4).
+            continue
         position = context.item("positions", position_code)
         if position is None:
             context.warn(f"Должность {position_code} не найдена в справочнике.")
@@ -139,7 +143,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         shifts = _shifts_per_block(context, position, operation_code, manual_shifts)
         if shifts <= 0:
             continue
-        per_shift = _per_shift_headcount(headcount)
+        per_shift = per_shift_headcount(headcount)
 
         rate_item = _labor_rate(context, position_code)
         if rate_item is None:
@@ -150,9 +154,9 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         # Читаем один раз: норма нужна и экипажу техники (штат ротации), и
         # обычной ставке человеко-смены (F2 ревью PR #80).
         norm_shifts = payload_number(position, "norm_shifts_per_month", Decimal("21"))
-        rotation = _crew_rotation(context, position, operation_code, per_shift, fixed_monthly, norm_shifts)
-        per_shift, rotation = _apply_crew_scale(context.params.crew_scale, per_shift, rotation)
-        fixed_block, fixed_formula = _fixed_amount(fixed_monthly, shifts, per_shift, rotation, norm_shifts)
+        rotation = crew_rotation(context, position, operation_code, per_shift, fixed_monthly, norm_shifts)
+        per_shift, rotation = apply_crew_scale(context.params.crew_scale, per_shift, rotation)
+        fixed_block, fixed_formula = fixed_amount(fixed_monthly, shifts, per_shift, rotation, norm_shifts)
         piece_block, piece_formula = _piece_amount(context, position, rate_item, per_shift)
         accrued = fixed_block + piece_block
         if rates.salary_basis == "NET" and rates.income_tax_rate < 1:
@@ -290,7 +294,7 @@ def _shifts_per_block(
     return Decimal("1")
 
 
-def _per_shift_headcount(explicit: Decimal) -> Decimal:
+def per_shift_headcount(explicit: Decimal) -> Decimal:
     """Человек в смене из состава бригады.
 
     Ноль — прежнее «по экипажу техники»: в смене один человек, а штат на
@@ -301,7 +305,7 @@ def _per_shift_headcount(explicit: Decimal) -> Decimal:
     return explicit if explicit > 0 else Decimal("1")
 
 
-def _apply_crew_scale(
+def apply_crew_scale(
     scale: Decimal, per_shift: Decimal, rotation: CrewRotation | None
 ) -> tuple[Decimal, CrewRotation | None]:
     """Множитель чувствительности — на людей в смене и на округлённый штат.
@@ -319,7 +323,7 @@ def _apply_crew_scale(
     return per_shift * scale, rotation
 
 
-def _crew_rotation(
+def crew_rotation(
     context: ModelContext,
     position: ReferenceItem,
     operation_code: str,
@@ -370,7 +374,7 @@ def _equipment_plan_shifts(context: ModelContext, param_name: str, equipment: Re
     return context.machine_plan_shifts(equipment)
 
 
-def _fixed_amount(
+def fixed_amount(
     fixed_monthly: Decimal,
     shifts: Decimal,
     per_shift: Decimal,

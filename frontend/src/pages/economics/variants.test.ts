@@ -34,6 +34,7 @@ function baseParameters(): ModelParameters {
     overhead_rate: null,
     target_margin_rate: null,
     vat_rate: null,
+    payroll_source: "RATES",
   };
 }
 

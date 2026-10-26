@@ -34,10 +34,8 @@ from cost.v2.models import ReferenceItem, ReferenceSnapshot
 from cost.v2.payroll_params import payroll_params_for_year
 from cost.v2.schemas.labor import LaborRatePayload, PositionPayload
 from cost.v2.schemas.misc import RockPayload
-from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload
+from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload, resolve_shift_hours
 from cost.v2.schemas.payroll import DowntimeReasonPayload, DrillingDifficultyPayload
-
-PIECE_PAY_SYSTEMS = frozenset({"PIECE_PROGRESSIVE", "PIECE_BONUS"})
 
 
 @dataclass(frozen=True)
@@ -125,7 +123,7 @@ def payroll_context(snapshot: ReferenceSnapshot, *, site_code: str, year: int) -
         sfr_rate=rates_payload.social_contribution_rate,
         injury_rate=rates_payload.injury_insurance_rate,
         shift_allowance_per_day=rates_payload.per_diem_rub,
-        shift_hours=rates_payload.shift_hours,
+        shift_hours=resolve_shift_hours(site_payload.shift_hours, rates_payload.shift_hours),
         extra_tariffs={row.work_conditions_class: row.rate for row in rates_payload.extra_tariffs},
         source=rates_source,
     )
@@ -220,9 +218,22 @@ def payroll_inputs(
     """Входы `payroll_month` для должности на объекте и предупреждения чтения."""
 
     context = payroll_context(snapshot, site_code=site_code, year=year)
+    inputs, warnings = position_inputs(snapshot, context, position_code)
+    return inputs, context, warnings
+
+
+def position_inputs(
+    snapshot: ReferenceSnapshot, context: PayrollContext, position_code: str
+) -> tuple[PayrollInputs, tuple[str, ...]]:
+    """Входы должности на уже прочитанном общем контексте (год, объект, ставки).
+
+    Экипаж блока читает контекст один раз на расчёт, а не на каждую должность;
+    предупреждения — те же, что у `payroll_inputs`: контекста и должности.
+    """
+
     position, warnings = position_pay(snapshot, position_code, context.calendar)
     inputs = PayrollInputs(context.calendar, position, context.site, context.rates)
-    return inputs, context, (*context.warnings, *warnings)
+    return inputs, (*context.warnings, *warnings)
 
 
 def difficulty_tables(snapshot: ReferenceSnapshot) -> DifficultyTables:

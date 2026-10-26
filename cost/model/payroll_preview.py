@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Mapping
 
+from cost.model.block_payroll import crew_roster
 from cost.model.payroll import (
+    PIECE_PAY_SYSTEMS,
     ZERO,
     CrewCost,
     DowntimeEntry,
@@ -32,6 +34,7 @@ from cost.model.payroll import (
     margin_check,
     normalized_meters,
     pace_flags,
+    pays_by_meters,
     payroll_month,
     piece_premium,
     plan_effective_shifts,
@@ -39,7 +42,6 @@ from cost.model.payroll import (
     scale_series,
 )
 from cost.model.payroll_inputs import (
-    PIECE_PAY_SYSTEMS,
     PayrollContext,
     difficulty_tables,
     downtime_reasons,
@@ -256,18 +258,20 @@ def _crew(
     """Сдельщики экипажа: из запроса, иначе все сдельщики с приведёнными метрами и шкалой.
 
     У машиниста по умолчанию экипаж — машинист и помощник, по одному в смене:
-    оба получают премию по шкале на те же приведённые метры.
+    оба получают премию по шкале на те же приведённые метры. В явный экипаж
+    без основной должности она добавляется (`block_payroll.crew_roster`).
     """
 
     warnings: list[str] = []
     if request.crew:
-        members = list(request.crew)
+        roster, roster_warnings = crew_roster(request.crew, main.code)
+        members = list(roster)
+        warnings.extend(roster_warnings)
     else:
         members = [
             (item.code, Decimal("1"))
             for item in snapshot.active_items("positions")
-            if item.payload.get("difficulty") == "NORMALIZED_METERS"
-            and item.payload.get("pay_system") in PIECE_PAY_SYSTEMS
+            if pays_by_meters(item.payload.get("pay_system"), item.payload.get("difficulty"))
         ]
     crew: list[CrewCost] = []
     for code, headcount in members:
@@ -277,19 +281,9 @@ def _crew(
             # Предупреждения чтения соседа по экипажу (оклад по МРОТ) здесь
             # лишние: долю в марже считает шкала, а не оклад.
             position, _ = position_pay(snapshot, code, inputs.calendar)
-        if position.pay_system not in PIECE_PAY_SYSTEMS:
-            # Повременщику премия по шкале не начисляется, даже если шкала заведена.
-            warnings.append(f"Должность «{position.name}» в экипаже на повременной оплате: в долю в марже не входит.")
-            continue
-        if position.scale is None:
-            warnings.append(f"Должность «{position.name}» в экипаже без шкалы сдельной премии: в долю в марже не входит.")
-            continue
-        if position.difficulty != "NORMALIZED_METERS":
-            # Шкалу за километр или тонну на темпе бурения не оценить.
-            warnings.append(
-                f"Должность «{position.name}» в экипаже получает премию не за приведённые метры: "
-                "в долю в марже не входит."
-            )
+        reason = position.piece_skip_reason
+        if reason is not None:
+            warnings.append(reason)
             continue
         factor, _ = premium_cost_factor(PayrollInputs(inputs.calendar, position, inputs.site, inputs.rates))
         crew.append(CrewCost(position.code, position.name, headcount, position.scale, factor))
@@ -333,7 +327,7 @@ def payroll_preview(snapshot: ReferenceSnapshot, request: PreviewRequest) -> Pay
 
     # Доля считается в марже метра бурения: только у сдельщиков на приведённых
     # метрах. Расценку водителя за километр с маржой метра не сравнить.
-    if premium is not None and position.difficulty == "NORMALIZED_METERS":
+    if premium is not None and position.is_piece_on_meters:
         crew, crew_warnings = _crew(snapshot, request, position, inputs)
         warnings.extend(crew_warnings)
         margin = margin_check(

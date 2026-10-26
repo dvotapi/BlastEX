@@ -1,11 +1,12 @@
 """Превью ФОТ должности: план и факт, приведённые метры, доля в марже, график (TASK-010)."""
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 
-from cost.model.payroll import DowntimeEntry, PayrollInputError
+from cost.model.payroll import DowntimeEntry, PayrollInputError, PositionPay, Scale, ScaleTier, pays_by_meters
 from cost.model.payroll_preview import PreviewItem, PreviewRequest, payroll_preview
 from tests import model_fixtures as fx
 from tests.payroll_fixtures import cents, payroll_references
@@ -90,6 +91,17 @@ def test_fact_with_downtime_keeps_the_fixed_part() -> None:
     assert cents(fact.premium.total) == D("120000.52")
     for code in FIXED_ROWS:
         assert fact.result.amount(code) == plan.result.amount(code)
+
+
+def test_effective_shifts_use_site_shift_hours() -> None:
+    sites = (fx.item("SITE_LOM", "Ломовское месторождение", {"is_remote": True, "shift_hours": "12"}),)
+    fact = preview(
+        payroll_references(sites=sites),
+        meters_total=D("2000"),
+        shifts=D("13"),
+        downtime=(DowntimeEntry("DT_RIG_REPAIR", D("33")),),
+    )
+    assert fact.shifts.effective == D("13") - D("33") / D("12")
 
 
 def test_downtime_for_the_whole_rotation_is_an_input_error() -> None:
@@ -243,17 +255,103 @@ def test_explicit_crew_member_paid_not_by_normalized_meters_is_left_out() -> Non
 
 def test_explicit_crew_member_on_time_pay_is_left_out() -> None:
     """Повременщик премии по шкале не получает — в долю он не входит, даже со шкалой."""
-    timed = {**dict(payroll_references().sections["positions"][1].payload), "pay_system": "TIME_BONUS"}
-    positions = (
-        payroll_references().sections["positions"][0],
-        fx.item("P_ASSISTANT", "Помощник машиниста", timed),
-    )
-    result = preview(
-        payroll_references(positions=positions),
-        meters_total=D("2000"),
-        price_rub_per_m=D("800"),
-        variable_rub_per_m=D("250"),
-        crew=(("P_DRILLER", D("1")), ("P_ASSISTANT", D("1"))),
-    )
+    base = {item.code: item for item in payroll_references().sections["positions"]}
+    timed = {**dict(base["P_ASSISTANT"].payload), "pay_system": "TIME_BONUS"}
+    positions = (base["P_DRILLER"], fx.item("P_ASSISTANT", "Помощник машиниста", timed))
+    snapshot = payroll_references(positions=positions)
+    fields = {"meters_total": D("2000"), "price_rub_per_m": D("800"), "variable_rub_per_m": D("250")}
+    result = preview(snapshot, crew=(("P_DRILLER", D("1")), ("P_ASSISTANT", D("1"))), **fields)
+    alone = preview(snapshot, crew=(("P_DRILLER", D("1")),), **fields)
     assert [member.position_code for member in result.margin.crew] == ["P_DRILLER"]
+    # Доля — ровно доля экипажа из одного машиниста: повременщик в неё ничего не добавил.
+    assert result.margin.ceiling.crew_share == alone.margin.ceiling.crew_share
+    assert cents(result.margin.ceiling.crew_share * 100) == D("48.23")
     assert any("Помощник машиниста" in warning and "повременн" in warning for warning in result.warnings)
+
+
+def test_explicit_crew_without_main_adds_main_with_warning() -> None:
+    """Явный экипаж без машиниста: машинист добавляется (1 чел.), запрос не отклоняется (находка 1)."""
+    fields = {"meters_total": D("2000"), "price_rub_per_m": D("800"), "variable_rub_per_m": D("250")}
+    result = preview(crew=(("P_ASSISTANT", D("1")),), **fields)
+    default = preview(**fields)
+    assert [(member.position_code, member.headcount) for member in result.margin.crew] == [
+        ("P_DRILLER", D("1")),
+        ("P_ASSISTANT", D("1")),
+    ]
+    # Премия машиниста входит в долю: доля та же, что у экипажа по умолчанию.
+    assert result.margin.ceiling.crew_share == default.margin.ceiling.crew_share
+    assert cents(result.margin.ceiling.crew_share * 100) == D("96.46")
+    assert any("добавлена в экипаж" in warning for warning in result.warnings)
+    assert not any("добавлена в экипаж" in warning for warning in default.warnings)
+
+
+def _position_pay(**changes: object) -> PositionPay:
+    """Должность-сдельщик на приведённых метрах; поля меняются точечно."""
+    base = PositionPay(
+        code="P_X",
+        name="Машинист",
+        salary=D("100000"),
+        salary_source="test",
+        week_hours=40,
+        pay_system="PIECE_PROGRESSIVE",
+        difficulty="NORMALIZED_METERS",
+        scale=Scale("STEP", (ScaleTier(None, D("10")),)),
+    )
+    return replace(base, **changes)
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    [
+        ({}, True),
+        ({"pay_system": "PIECE_BONUS"}, True),
+        ({"pay_system": "TIME_BONUS"}, False),
+        ({"scale": None}, False),
+        ({"difficulty": "PLAIN"}, False),
+        ({"difficulty": "KM"}, False),
+    ],
+)
+def test_is_piece_on_meters_truth_table(changes: dict[str, object], expected: bool) -> None:
+    position = _position_pay(**changes)
+    assert position.is_piece_on_meters is expected
+    assert (position.piece_skip_reason is None) is expected
+
+
+def test_skip_reason_texts_match_preview_warnings() -> None:
+    assert _position_pay(pay_system="TIME_BONUS").piece_skip_reason == (
+        "Должность «Машинист» в экипаже на повременной оплате: в долю в марже не входит."
+    )
+    assert _position_pay(scale=None).piece_skip_reason == (
+        "Должность «Машинист» в экипаже без шкалы сдельной премии: в долю в марже не входит."
+    )
+    assert _position_pay(difficulty="PLAIN").piece_skip_reason == (
+        "Должность «Машинист» в экипаже получает премию не за приведённые метры: в долю в марже не входит."
+    )
+
+
+@pytest.mark.parametrize(
+    ("pay_system", "difficulty", "expected"),
+    [
+        ("PIECE_PROGRESSIVE", "NORMALIZED_METERS", True),
+        ("PIECE_BONUS", "NORMALIZED_METERS", True),
+        ("TIME_BONUS", "NORMALIZED_METERS", False),
+        ("PIECE_BONUS", "PLAIN", False),
+        ("PIECE_BONUS", None, False),
+        (None, "NORMALIZED_METERS", False),
+    ],
+)
+def test_pays_by_meters_truth_table(pay_system: str | None, difficulty: str | None, expected: bool) -> None:
+    assert pays_by_meters(pay_system, difficulty) is expected
+    if pay_system is not None and difficulty is not None:
+        assert _position_pay(pay_system=pay_system, difficulty=difficulty).pays_by_meters is expected
+
+
+def test_default_crew_keeps_a_piece_position_without_scale_and_warns() -> None:
+    """Сдельщик на метрах без шкалы входит в экипаж по умолчанию и даёт предупреждение «без шкалы»."""
+    base = payroll_references()
+    snapshot = payroll_references(
+        labor_rates=tuple(item for item in base.sections["labor_rates"] if item.code != "LR_ASSISTANT")
+    )
+    result = preview(snapshot, meters_total=D("2000"), price_rub_per_m=D("800"), variable_rub_per_m=D("250"))
+    assert [member.position_code for member in result.margin.crew] == ["P_DRILLER"]
+    assert any("Помощник машиниста" in w and "без шкалы сдельной премии" in w for w in result.warnings)

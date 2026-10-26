@@ -23,7 +23,7 @@ export type ServiceChargeInput = {
 
 /** Происхождение величины в строке сметы: паспорт, расчёт модели, справочник,
  * норматив справочника или ручной ввод на вкладке. Пусто — не применимо. */
-export type ValueOrigin = "PASSPORT" | "CALC" | "REFERENCE" | "NORM" | "MANUAL" | "";
+export type ValueOrigin = "PASSPORT" | "CALC" | "REFERENCE" | "NORM" | "MANUAL" | "PAYROLL" | "";
 
 export type ServiceToReference = {
   section: "cost_rules";
@@ -65,6 +65,8 @@ export type ModelParameters = {
   overhead_rate: Numeric | null;
   target_margin_rate: Numeric | null;
   vat_rate: Numeric | null;
+  /** Откуда брать ФОТ экипажа бурения: ставки справочников или методика ФОТ (переключателя в интерфейсе пока нет). */
+  payroll_source: "RATES" | "PAYROLL";
 };
 
 export type CostLayer = "variable" | "project_direct" | "production" | "full";

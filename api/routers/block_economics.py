@@ -349,6 +349,7 @@ def export_run(
             "Исполнитель бурения": (
                 "субподряд" if params.drilling_executor == "SUBCONTRACTOR" else "свой станок"
             ),
+            "Источник ФОТ": "Методика ФОТ" if params.payroll_source == "PAYROLL" else "Ставки",
             "Состав бригады": [
                 f"{member.position_code} × {member.headcount}" for member in params.crew
             ],

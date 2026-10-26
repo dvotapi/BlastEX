@@ -264,3 +264,32 @@ def test_rig_depreciation_names_the_unit_by_its_inventory_number() -> None:
 
     line = next(row for row in context.lines if row.cost_item_code == "DRILL_DEPRECIATION")
     assert "инв. 001" in line.cost_item_name
+
+
+def _site_shift_references(shift_hours: str | None):
+    sites = tuple(
+        fx.item(site.code, site.name, {**site.payload, **({"shift_hours": shift_hours} if shift_hours else {})})
+        for site in fx.references().sections["sites"]
+    )
+    return fx.references(sites=sites)
+
+
+def test_context_shift_hours_uses_site_override() -> None:
+    """Организация — 11 ч; смена объекта 12 ч перекрывает её, пустая — нет."""
+
+    rates = fx.references().sections["organization_rates"][0]
+    organization = fx.item(rates.code, rates.name, {**rates.payload, "shift_hours": "11"})
+    for override, expected in (("12", Decimal("12")), (None, Decimal("11"))):
+        references = _site_shift_references(override)
+        references = fx.references(sites=references.sections["sites"], organization_rates=(organization,))
+        context = ModelContext(references, fx.parameters(), fx.physical())
+        assert context.shift_hours == expected
+
+
+def test_override_changes_v_commercial_fuel_and_effective_shifts_alike() -> None:
+    """При смене 12 ч v_commercial = 12 м/ч × (12 − 1) ч, топливо — часы × 12."""
+
+    base = ModelContext(_site_shift_references(None), fx.parameters(), fx.physical())
+    long = ModelContext(_site_shift_references("12"), fx.parameters(), fx.physical())
+    assert drilling.compute(base).v_commercial_m_per_shift == Decimal("120")
+    assert drilling.compute(long).v_commercial_m_per_shift == Decimal("132")

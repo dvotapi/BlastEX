@@ -22,6 +22,7 @@ from cost.v2.models import (
     decimal_value,
 )
 from cost.v2.packages import PackageDefinition, package_map
+from cost.v2.schemas.organization import resolve_shift_hours
 
 
 MODEL_VERSION = "cost-model-v1"
@@ -296,6 +297,9 @@ class ModelParameters:
     # бы скачок оклада; множитель ложится на уже округлённый штат. С вкладки не
     # приходит и не сохраняется.
     crew_scale: Decimal = Decimal("1")
+    # Откуда брать ФОТ: «RATES» — ставки справочников (как всегда), «PAYROLL» —
+    # модель ФОТ по объектам. С вкладки приходит и сохраняется.
+    payroll_source: Literal["RATES", "PAYROLL"] = "RATES"
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ModelParameters":
@@ -334,6 +338,7 @@ class ModelParameters:
             overhead_rate=_optional_number(data.get("overhead_rate")),
             target_margin_rate=_optional_number(data.get("target_margin_rate")),
             vat_rate=_optional_number(data.get("vat_rate")),
+            payroll_source="PAYROLL" if data.get("payroll_source") == "PAYROLL" else "RATES",
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -362,6 +367,7 @@ class ModelParameters:
                 str(self.target_margin_rate) if self.target_margin_rate is not None else None
             ),
             "vat_rate": str(self.vat_rate) if self.vat_rate is not None else None,
+            "payroll_source": self.payroll_source,
         }
 
 
@@ -417,6 +423,9 @@ class BlockEconomics:
     markup: dict[str, Decimal] = field(default_factory=dict)
     block_volume_m3: Decimal = Decimal("0")
     model_version: str = MODEL_VERSION
+    # Блок «ФОТ по методике» (`block_margin.to_dict`): темп, строки экипажа,
+    # цена метра и доля в марже. None — режим ставок, субподряд или откат на ставки.
+    payroll: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -429,6 +438,7 @@ class BlockEconomics:
             "natural": self.natural.to_dict(),
             "capacity": [item.to_dict() for item in self.capacity],
             "warnings": list(self.warnings),
+            "payroll": self.payroll,
         }
 
 
@@ -508,6 +518,9 @@ class ModelContext:
         self.warnings: list[str] = []
         self.capacity: list[CapacityWarning] = []
         self.lines: list[CostLine] = []
+        # Должности, чей ФОТ уже посчитан методикой (`block_payroll`):
+        # `labor.compute` их пропускает.
+        self.payroll_positions: set[str] = set()
         self.rates = OrganizationRates.from_item(self._first("organization_rates"))
         if self._first("organization_rates") is None:
             self.warn(
@@ -520,6 +533,17 @@ class ModelContext:
         self.site = self.item("sites", params.site_code) if params.site_code else None
         if params.site_code and self.site is None:
             self.warn(f"Объект работ {params.site_code} не найден в справочнике карьеров.")
+
+    @property
+    def shift_hours(self) -> Decimal:
+        """Длительность смены: у объекта работ, иначе из ставок организации.
+
+        Часы смены для бурения, логистики и ФОТ блока; правило выбора —
+        `resolve_shift_hours`, общее с методикой ФОТ и проверкой потолка шкалы.
+        """
+
+        site_hours = decimal_value(self.site.payload.get("shift_hours"), Decimal("0")) if self.site else None
+        return resolve_shift_hours(site_hours, self.rates.shift_hours)
 
     # --- справочники -------------------------------------------------
 

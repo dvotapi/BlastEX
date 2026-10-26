@@ -61,6 +61,16 @@ class CounterpartyPayload(ReferencePayload):
     )
 
 
+def resolve_shift_hours(site_hours: Decimal | None, organization_hours: Decimal) -> Decimal:
+    """Часы смены объекта: значение объекта, если оно задано и больше нуля, иначе ставок организации.
+
+    Одно правило для модели блока (`ModelContext.shift_hours`), методики ФОТ
+    (`payroll_inputs`) и проверки потолка шкалы (`payroll_checks`).
+    """
+
+    return site_hours if site_hours is not None and site_hours > 0 else organization_hours
+
+
 class SitePayload(ReferencePayload):
     customer_code: str | None = RefField("counterparties", description="Заказчик объекта", default=None)
     customer_legal_name: str | None = Field(
@@ -148,6 +158,14 @@ class SitePayload(ReferencePayload):
     )
     contract_k: Decimal = UnitField(
         "", title="Договорной коэффициент", description="Множитель приведённых метров по договору объекта", default=Decimal("1")
+    )
+    shift_hours: Decimal | None = UnitField(
+        "ч",
+        title="Длительность смены",
+        description="Часов в смене на объекте; пусто — берётся из ставок организации",
+        default=None,
+        gt=0,
+        le=24,
     )
     geology: list[GeologyShare] = Field(
         default_factory=list,

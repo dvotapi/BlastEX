@@ -7,6 +7,7 @@ export const ORIGIN_LABELS: Record<Exclude<ValueOrigin, "">, { label: string; ti
   REFERENCE: { label: "Справочник", title: "Из опубликованной ревизии справочников" },
   NORM: { label: "Норматив", title: "Норматив справочника, не изменялся" },
   MANUAL: { label: "Ручной", title: "Введено на вкладке" },
+  PAYROLL: { label: "Расчёт ФОТ", title: "Посчитано моделью ФОТ по объектам" },
 };
 
 /**

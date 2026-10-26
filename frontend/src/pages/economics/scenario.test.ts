@@ -25,6 +25,7 @@ function baseParameters(): ModelParameters {
     overhead_rate: null,
     target_margin_rate: null,
     vat_rate: null,
+    payroll_source: "RATES",
   };
 }
 
@@ -102,6 +103,20 @@ describe("draftFromRun", () => {
 
     expect(draft.parameters.subcontract_rate_code).toBe("RATE_A");
     expect(draft.parameters.subcontract_rate_rub).toBeNull();
+  });
+
+  it("сохранённый источник ФОТ «PAYROLL» не сбрасывается на ставки при повторном открытии", () => {
+    const run = baseRun({
+      parameters: { ...baseParameters(), payroll_source: "PAYROLL" } as unknown as Record<string, unknown>,
+    });
+
+    const draft = draftFromRun(run, "Сценарий по методике");
+
+    expect(draft.parameters.payroll_source).toBe("PAYROLL");
+    // Прогон старой эпохи без поля — ставки, как и считалось.
+    const legacy = baseParameters() as unknown as Record<string, unknown>;
+    delete legacy.payroll_source;
+    expect(draftFromRun(baseRun({ parameters: legacy }), "Старый").parameters.payroll_source).toBe("RATES");
   });
 
   it("подставляет пустые коллекции вместо полей, которых нет в старом прогоне", () => {

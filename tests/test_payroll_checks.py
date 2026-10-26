@@ -229,6 +229,34 @@ def test_ceiling_within_rig_capacity_passes():
     assert _about(issues, "labor_rates") == []
 
 
+def test_ceiling_check_uses_site_shift_hours():
+    # Строка матрицы объекта на 12 ч: 10 м/ч × (12 − 1) ч = 110 м/смену, а не 100 по 11 ч организации.
+    issues = _issues(
+        **_drilling_rate(COND_SITE={"site_code": "SITE", "tech_speed_m_per_h": "10", "unproductive_h_per_shift": "1"}),
+        sites=(_item("SITE", {"shift_hours": "12"}),),
+    )
+    assert _about(issues, "labor_rates") == [
+        (
+            "warning",
+            "RATE_DRILLER",
+            "ceiling_per_shift",
+            "Потолок 184.6154 м/смену выше производительности станков по базовым условиям бурения "
+            "(до 110 м/смену): машинист не дойдёт до потолка.",
+        )
+    ]
+
+
+def test_ceiling_check_site_shift_hours_follow_the_shared_rule():
+    """Смена объекта 0 или пусто — смена организации (11 ч), 12 — объекта: как `resolve_shift_hours`."""
+
+    for site_payload, best in (({"shift_hours": "0"}, "100"), ({}, "100"), ({"shift_hours": "12"}, "110")):
+        issues = _issues(
+            **_drilling_rate(COND_SITE={"site_code": "SITE", "tech_speed_m_per_h": "10", "unproductive_h_per_shift": "1"}),
+            sites=(_item("SITE", site_payload),),
+        )
+        assert f"(до {best} м/смену)" in _about(issues, "labor_rates")[0][3]
+
+
 # Явный shift_hours=0 — «станок не бурит», как читает `cost/model/drilling.py`
 # (context.rates.shift_hours без подстановки умолчания). `_ceiling_above_rigs`
 # не должен заменять его умолчанием схемы (11 ч) — тогда потолок шкалы всегда

@@ -103,13 +103,14 @@
 .estimate-section-head .estimate-col-amount, .estimate-section-head .estimate-col-perm3, .estimate-section-head .estimate-col-share { font-weight:var(--font-weight-strong); }
 .estimate-col-actions { display:flex; align-items:center; justify-content:flex-end; gap:4px; }
 
-/* Бейдж происхождения величины: паспорт/расчёт/справочник/норматив/ручной. */
+/* Бейдж происхождения величины: паспорт/расчёт/справочник/норматив/ручной/расчёт ФОТ. */
 .origin-badge { display:inline-flex; align-items:center; max-width:100%; overflow:hidden; text-overflow:ellipsis; padding:2px 6px; border-radius:6px; font-size:10px; font-weight:var(--font-weight-strong); white-space:nowrap; }
 .origin-passport { background:#e8f1fb; color:#1f4e8c; }
 .origin-calc { background:#eef3f1; color:#31483d; }
 .origin-reference { background:#eaf6ef; color:#1f6a4a; }
 .origin-norm { background:#f3f0fb; color:#4f3d9e; }
 .origin-manual { background:#fff4e5; color:#8a5a10; }
+.origin-payroll { background:#eef2ff; color:#2a3a7a; }
 
 /* Комбобокс справочника в строке сметы. */
 .catalog-select { position:relative; }

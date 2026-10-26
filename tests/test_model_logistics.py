@@ -75,3 +75,21 @@ def test_delivery_fuel_formula_declines_the_trips(cartridge_kg: int, trips: str)
 
     line = next(row for row in context.lines if row.cost_item_code == "VM_TRANSPORT_FUEL")
     assert line.formula.startswith(f"{trips} × ")
+
+
+def test_shift_fuel_uses_site_shift_hours() -> None:
+    """Топливо СЗМ: смены × часы смены объекта (12 ч, а не 11 ч организации) × л/ч."""
+
+    def fuel_line(shift_hours: str | None):
+        sites = tuple(
+            fx.item(site.code, site.name, {**site.payload, **({"shift_hours": shift_hours} if shift_hours else {})})
+            for site in fx.references().sections["sites"]
+        )
+        context = ModelContext(fx.references(sites=sites), fx.parameters(), fx.physical(cartridge_kg=2200, bulk_kg=39800))
+        logistics.compute(context)
+        return next(row for row in context.lines if " л/ч " in row.formula)
+
+    base, long = fuel_line(None), fuel_line("12")
+    assert " × 11 ч × " in base.formula
+    assert " × 12 ч × " in long.formula
+    assert long.quantity / base.quantity == Decimal("12") / Decimal("11")

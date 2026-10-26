@@ -89,6 +89,11 @@ def test_missing_organization_rates_warn_and_use_defaults() -> None:
     assert any("Ставки и надбавки организации" in warning for warning in warnings)
 
 
+def test_payroll_context_takes_shift_hours_of_the_site() -> None:
+    inputs, _, _ = read(sites=(fx.item("SITE_LOM", "Ломовское", {"shift_hours": "12"}),))
+    assert inputs.rates.shift_hours == D("12")
+
+
 def test_tables_reasons_and_rock_hardness_are_read_from_the_snapshot() -> None:
     snapshot = payroll_references()
     tables = difficulty_tables(snapshot)
@@ -142,3 +147,31 @@ def test_remote_site_and_per_diem_flags_are_read() -> None:
     inputs, _, _ = read(positions=positions, sites=(fx.item("SITE_LOM", "Ломовское", {}),))
     assert inputs.site.is_remote is False
     assert inputs.position.per_diem_applies is False
+
+
+def test_three_shift_hours_resolvers_agree() -> None:
+    """Модель блока, методика ФОТ и проверка потолка — одно правило: смена объекта > 0, иначе организации."""
+
+    from cost.model.inputs import ModelContext
+    from cost.v2.schemas.organization import resolve_shift_hours
+
+    assert resolve_shift_hours(None, D("11")) == D("11")
+    assert resolve_shift_hours(D("0"), D("11")) == D("11")
+    assert resolve_shift_hours(D("12"), D("11")) == D("12")
+
+    rates = fx.references().sections["organization_rates"][0]
+    organization = fx.item(rates.code, rates.name, {**rates.payload, "shift_hours": "11"})
+    for site_hours, expected in ((None, D("11")), ("0", D("11")), ("12", D("12"))):
+        site = fx.SITES[0]
+        payload = {**site.payload, **({"shift_hours": site_hours} if site_hours is not None else {})}
+        references = fx.references(sites=(fx.item(site.code, site.name, payload),), organization_rates=(organization,))
+        context = ModelContext(references, fx.parameters(), fx.physical())
+        assert context.shift_hours == expected
+        if site_hours == "0":
+            # Схема объекта не пускает 0: методика ФОТ отклоняет запись, а не подменяет смену.
+            with pytest.raises(PayrollInputError):
+                read(sites=(fx.item("SITE_LOM", "Ломовское", {"shift_hours": "0"}),))
+        else:
+            sites = (fx.item("SITE_LOM", "Ломовское", {} if site_hours is None else {"shift_hours": site_hours}),)
+            inputs, _, _ = read(sites=sites, organization_rates=(organization,))
+            assert inputs.rates.shift_hours == expected

@@ -175,11 +175,12 @@ def _bit_diameters(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
 
 
 def _hardness_scale_max_below_bands(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
-    """Верх шкалы крепости не выше наибольшей конечной границы таблицы крепости.
+    """Верх шкалы крепости ниже наибольшей конечной границы таблицы крепости.
 
-    Предупреждение «f выше шкалы» поднимается на f больше верха шкалы — при
-    верхе ниже границ таблицы оно сработало бы на породах внутри таблицы.
-    Публикацию это не блокирует: коэффициент берётся по таблице как обычно.
+    Предупреждение «f выше шкалы» поднимается на f строго больше верха шкалы —
+    при верхе ниже границ таблицы оно сработало бы на породах внутри таблицы;
+    верх, равный границе, такого не даёт. Публикацию это не блокирует:
+    коэффициент берётся по таблице как обычно.
     """
 
     difficulty = next(iter(_active(sections, "drilling_difficulty")), None)
@@ -199,14 +200,14 @@ def _hardness_scale_max_below_bands(sections: Mapping[str, Sequence[ReferenceIte
         for row in _rows(difficulty.payload.get("hardness"))
         if isinstance(row, Mapping) and (bound := finite_decimal(row.get("f_to"))) is not None
     ]
-    if not bounds or scale_max > max(bounds):
+    if not bounds or scale_max >= max(bounds):
         return []
     return [
         ValidationIssue(
             "warning",
             "drilling_difficulty",
             difficulty.code,
-            f"Верх шкалы крепости f {_plain(scale_max)} не выше границ таблицы крепости (до f {_plain(max(bounds))}): "
+            f"Верх шкалы крепости f {_plain(scale_max)} ниже границ таблицы крепости (до f {_plain(max(bounds))}): "
             "предупреждение о f выше шкалы будет срабатывать на строках таблицы.",
             field="hardness_scale_max",
         )

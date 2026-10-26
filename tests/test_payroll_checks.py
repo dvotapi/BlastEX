@@ -122,7 +122,7 @@ def test_hardness_scale_max_below_last_band_warns():
             "warning",
             "DD",
             "hardness_scale_max",
-            "Верх шкалы крепости f 15 не выше границ таблицы крепости (до f 18): "
+            "Верх шкалы крепости f 15 ниже границ таблицы крепости (до f 18): "
             "предупреждение о f выше шкалы будет срабатывать на строках таблицы.",
         )
     ]
@@ -133,6 +133,12 @@ def test_hardness_scale_max_above_bands_is_silent():
     for fields in ({"hardness_scale_max": "20"}, {"hardness_scale_max": "18.5"}, {}):
         issues = _issues(drilling_difficulty=(_item("DD", _scaled_difficulty(**fields)),))
         assert _about(issues, "drilling_difficulty") == [], fields
+
+
+def test_hardness_scale_max_equal_to_last_bound_is_silent():
+    # Предупреждение модели — на f строго выше верха: f = 18 лежит в (16, 18] и его не получает.
+    issues = _issues(drilling_difficulty=(_item("DD", _scaled_difficulty(hardness_scale_max="18")),))
+    assert _about(issues, "drilling_difficulty") == []
 
 
 def test_hardness_scale_max_check_takes_the_default_without_the_key():

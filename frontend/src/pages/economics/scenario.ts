@@ -129,6 +129,8 @@ export function draftFromRun(
     overhead_rate: pick(raw, fallback, "overhead_rate", null),
     target_margin_rate: pick(raw, fallback, "target_margin_rate", null),
     vat_rate: pick(raw, fallback, "vat_rate", null),
+    // Источник ФОТ — часть прогона: без поля сохранённый «PAYROLL» молча стал бы «RATES».
+    payroll_source: pick(raw, fallback, "payroll_source", "RATES"),
   };
   return { ...makeVariant(name, parameters), sourceRunId: run.id, savedKey: paramsKey(parameters) };
 }

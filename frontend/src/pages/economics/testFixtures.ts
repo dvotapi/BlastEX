@@ -63,6 +63,7 @@ export function paramsFixture(): ModelParameters {
     overhead_rate: "0.15",
     target_margin_rate: "0.2",
     vat_rate: "0.2",
+    payroll_source: "RATES",
   };
 }
 

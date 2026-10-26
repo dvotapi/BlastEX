@@ -448,4 +448,4 @@ def test_thresholds_have_unit_title_and_description():
             assert "x-unit" in prop and prop["x-unit"] is not None, name
     shares = section_json_schema("payroll_params")["properties"]
     assert shares["write_off_flag_share"]["x-unit"] == "доля"
-    assert shares["pace_flag_ratio"]["x-unit"] == ""
+    assert shares["pace_flag_ratio"]["x-unit"] == "раз"

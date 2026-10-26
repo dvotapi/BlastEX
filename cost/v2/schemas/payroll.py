@@ -75,7 +75,7 @@ class PayrollParamsPayload(ReferencePayload):
         le=1,
     )
     pace_flag_ratio: Decimal = UnitField(
-        "",
+        "раз",
         title="Порог превышения темпа",
         description="Во сколько раз темп может превысить потолок шкалы, прежде чем предупреждать",
         default=Decimal("1.2"),

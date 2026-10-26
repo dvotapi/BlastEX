@@ -134,7 +134,7 @@ def hardness_factor(
     warning = ""
     if f > max_f:
         warning = (
-            f"Крепость f = {fn(f)} выше шкалы Протодьяконова (до {fn(max_f)}): "
+            f"Крепость f = {fn(f)} выше верха шкалы крепости (до {fn(max_f)}): "
             "взят коэффициент последней строки таблицы."
         )
     return band.k, f"{band.label()} → {fn(band.k)}", warning

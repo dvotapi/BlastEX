@@ -193,7 +193,8 @@ def _hardness_scale_max_below_bands(sections: Mapping[str, Sequence[ReferenceIte
         scale_max = DrillingDifficultyPayload.model_fields["hardness_scale_max"].default
     else:
         scale_max = finite_decimal(raw)
-    if scale_max is None:
+    # Нуль и меньше — ошибка схемы (gt=0); второго шума от этой проверки не нужно.
+    if scale_max is None or scale_max <= 0:
         return []
     bounds = [
         bound

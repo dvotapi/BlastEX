@@ -161,8 +161,8 @@ def _pace_f25(scale_max: str | None):
 
 def test_hardness_scale_max_comes_from_the_difficulty_record() -> None:
     narrow = _pace_f25(None)
-    assert any("выше шкалы" in w and "до 20" in w for w in narrow.warnings)
+    assert any("выше верха шкалы" in w and "до 20" in w for w in narrow.warnings)
     wide = _pace_f25("30")
-    assert not any("выше шкалы" in w for w in wide.warnings)
+    assert not any("выше верха шкалы" in w for w in wide.warnings)
     # Коэффициент последней строки таблицы крепости.
     assert wide.k_hardness == Decimal("1.3")

@@ -51,7 +51,7 @@ def test_upper_bound_of_a_hardness_band_is_included(f: str, k: str) -> None:
 def test_hardness_above_the_scale_takes_the_last_band_with_a_warning() -> None:
     factor, _, warning = hardness_factor(D("25"), TABLES.hardness)
     assert factor == D("1.3")
-    assert "выше шкалы" in warning
+    assert "выше верха шкалы" in warning
 
 
 def test_rock_without_hardness_gives_one_with_a_warning() -> None:
@@ -72,11 +72,18 @@ def test_hardness_scale_max_comes_from_the_argument() -> None:
     factor, _, warning = hardness_factor(D("25"), TABLES.hardness, D("20"))
     assert factor == D("1.3")
     assert "до 20" in warning
+    assert "выше верха шкалы крепости" in warning
+
+
+def test_hardness_scale_max_message_names_the_configured_top() -> None:
+    factor, _, warning = hardness_factor(D("35"), TABLES.hardness, D("30"))
+    assert factor == D("1.3")
+    assert "выше верха шкалы крепости (до 30)" in warning
 
 
 def test_normalized_meters_use_the_scale_max_of_the_tables() -> None:
     items = [MeterItem(D("100"), D("152"), D("25"))]
-    assert any("выше шкалы" in message for message in normalized_meters(items, TABLES).warnings)
+    assert any("выше верха шкалы" in message for message in normalized_meters(items, TABLES).warnings)
     wide = normalized_meters(items, replace(TABLES, hardness_scale_max=D("30")))
     assert wide.warnings == ()
     assert wide.rows[0].k_f == D("1.3")

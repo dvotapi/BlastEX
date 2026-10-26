@@ -141,6 +141,12 @@ def test_hardness_scale_max_equal_to_last_bound_is_silent():
     assert _about(issues, "drilling_difficulty") == []
 
 
+def test_hardness_scale_max_zero_gives_no_warning_from_this_check():
+    # Ноль — ошибка схемы (gt=0); эта проверка молчит, чтобы не добавлять шум.
+    issues = _issues(drilling_difficulty=(_item("DD", _scaled_difficulty(hardness_scale_max="0")),))
+    assert [issue for issue in issues if issue.level == "warning" and issue.field == "hardness_scale_max"] == []
+
+
 def test_hardness_scale_max_check_takes_the_default_without_the_key():
     # Записи без ключа читаются с умолчанием 20 — и проверяются с ним же.
     bands = [{"f_from": None, "f_to": "22", "k": "1"}, {"f_from": "22", "f_to": None, "k": "1.3"}]

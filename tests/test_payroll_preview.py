@@ -116,7 +116,7 @@ def test_downtime_without_shifts_is_an_input_error() -> None:
 
 def test_flags_for_downtime_and_pace() -> None:
     result = preview(meters_total=D("3000"), shifts=D("13"), downtime=(DowntimeEntry("DT_WAIT_BLOCK", D("40")),))
-    assert [flag.code for flag in result.flags] == ["DOWNTIME_OVER_25", "PACE_ABOVE_CEILING"]
+    assert [flag.code for flag in result.flags] == ["DOWNTIME_OVER_THRESHOLD", "PACE_ABOVE_CEILING"]
 
 
 def test_time_bonus_position_has_no_premium() -> None:

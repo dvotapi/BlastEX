@@ -209,7 +209,8 @@ def _hardness_scale_max_below_bands(sections: Mapping[str, Sequence[ReferenceIte
             "drilling_difficulty",
             difficulty.code,
             f"Верх шкалы крепости f {_plain(scale_max)} ниже границ таблицы крепости (до f {_plain(max(bounds))}): "
-            "предупреждение о f выше шкалы будет срабатывать на строках таблицы.",
+            f"на породах с крепостью от f {_plain(scale_max)} до f {_plain(max(bounds))} будет выводиться предупреждение "
+            "о крепости выше шкалы, хотя они внутри таблицы.",
             field="hardness_scale_max",
         )
     ]

@@ -118,15 +118,6 @@ class DiameterFactor(ReferencePayload):
 class DrillingDifficultyPayload(ReferencePayload):
     """Коэффициенты приведения метров к базовым условиям: f = 10, Ø 152 мм, k = 1."""
 
-    hardness_scale_max: Decimal = UnitField(
-        "f",
-        title="Верх шкалы крепости",
-        description=(
-            "Верх шкалы крепости: выше берётся коэффициент последней строки и выводится предупреждение"
-        ),
-        default=Decimal("20"),
-        gt=0,
-    )
     hardness: list[HardnessBand] = Field(
         default_factory=list,
         title="Крепость породы",
@@ -139,6 +130,16 @@ class DrillingDifficultyPayload(ReferencePayload):
         default_factory=list,
         title="Диаметр коронки",
         description="Коэффициент на каждый диаметр коронок из условий бурения; база Ø 152 мм → коэффициент 1",
+    )
+    hardness_scale_max: Decimal = UnitField(
+        "f",
+        title="Верх шкалы крепости",
+        description=(
+            "Крепость f, выше которой берётся коэффициент последней строки таблицы и выводится предупреждение; "
+            "по умолчанию 20 (шкала Протодьяконова). Должна быть не ниже наибольшей границы таблицы крепости."
+        ),
+        default=Decimal("20"),
+        gt=0,
     )
 
     @model_validator(mode="after")

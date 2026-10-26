@@ -157,7 +157,7 @@ class PayrollSeriesPointSchema(BaseModel):
 
 
 class PayrollFlagSchema(BaseModel):
-    code: Literal["DOWNTIME_OVER_25", "PACE_ABOVE_CEILING", "MARGIN_SHARE_ABOVE_WARN"]
+    code: Literal["DOWNTIME_OVER_THRESHOLD", "PACE_ABOVE_CEILING", "MARGIN_SHARE_ABOVE_WARN"]
     message: str
 
 

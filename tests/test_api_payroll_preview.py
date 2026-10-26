@@ -80,7 +80,7 @@ def test_meters_by_rock_and_downtime_flags(api: TestClient) -> None:
     data = response.json()
     assert data["meters"]["total"] == pytest.approx(2571.2)
     assert data["shifts"]["written_off_share"] == pytest.approx(40 / 143)
-    assert "DOWNTIME_OVER_25" in [flag["code"] for flag in data["flags"]]
+    assert "DOWNTIME_OVER_THRESHOLD" in [flag["code"] for flag in data["flags"]]
 
 
 @pytest.mark.parametrize("hours", ["143", "150"])
@@ -146,8 +146,8 @@ def _flag_codes(api: TestClient) -> list[str]:
 @pytest.mark.parametrize(
     ("thresholds", "silenced", "kept"),
     [
-        ({"pace_flag_ratio": "1.5"}, "PACE_ABOVE_CEILING", "DOWNTIME_OVER_25"),
-        ({"write_off_flag_share": "0.40"}, "DOWNTIME_OVER_25", "PACE_ABOVE_CEILING"),
+        ({"pace_flag_ratio": "1.5"}, "PACE_ABOVE_CEILING", "DOWNTIME_OVER_THRESHOLD"),
+        ({"write_off_flag_share": "0.40"}, "DOWNTIME_OVER_THRESHOLD", "PACE_ABOVE_CEILING"),
     ],
 )
 def test_flag_thresholds_come_from_the_year_record(

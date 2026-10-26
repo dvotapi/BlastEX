@@ -450,7 +450,7 @@ def effective_shifts(
     владельца), но вход проверяется: больше часов, чем в вахте, или ноль
     эффективных смен — ошибка, а не деление на ноль и не премия «45 × M».
     Списано больше `flag_share` часов вахты — флаг на проверку; код флага
-    `DOWNTIME_OVER_25` остаётся прежним и при другом пороге.
+    `DOWNTIME_OVER_THRESHOLD` не зависит от значения порога.
     """
 
     if shift_hours <= 0:
@@ -482,7 +482,7 @@ def effective_shifts(
     if share is not None and share > flag_share:
         flags.append(
             PayrollFlag(
-                "DOWNTIME_OVER_25",
+                "DOWNTIME_OVER_THRESHOLD",
                 f"Списано {percent(share)} часов вахты не по вине машиниста (без планового ТОиР) — "
                 f"больше {percent(flag_share)}: проверьте коды простоев.",
             )

@@ -55,7 +55,7 @@ def test_downtime_by_drillers_fault_is_not_written_off() -> None:
 def test_writing_off_more_than_a_quarter_raises_a_flag() -> None:
     shifts = fact(13, ("DT_WAIT_BLOCK", 40))
     assert shifts.written_off_share == D("40") / D("143")
-    assert [flag.code for flag in shifts.flags] == ["DOWNTIME_OVER_25"]
+    assert [flag.code for flag in shifts.flags] == ["DOWNTIME_OVER_THRESHOLD"]
     assert "27,97 %" in shifts.flags[0].message
     assert shifts.effective == D("13") - D("40") / D("11")
 
@@ -63,7 +63,7 @@ def test_writing_off_more_than_a_quarter_raises_a_flag() -> None:
 def test_planned_maintenance_neither_raises_nor_hides_the_flag() -> None:
     with_maintenance = fact(15, ("DT_PLANNED_MAINTENANCE", 22), ("DT_WAIT_BLOCK", 40))
     assert with_maintenance.written_off_share == D("40") / D("143")
-    assert [flag.code for flag in with_maintenance.flags] == ["DOWNTIME_OVER_25"]
+    assert [flag.code for flag in with_maintenance.flags] == ["DOWNTIME_OVER_THRESHOLD"]
     assert with_maintenance.maintenance_hours == D("22")
     only_maintenance = fact(15, ("DT_PLANNED_MAINTENANCE", 22))
     assert only_maintenance.flags == ()
@@ -91,6 +91,6 @@ def test_write_off_threshold_comes_from_the_argument() -> None:
     # Те же 40 ч из 143 (27,97 %): при пороге 40 % флага нет, при 20 % — есть.
     assert effective_shifts(D("13"), D("11"), downtime, REASONS, flag_share=D("0.40")).flags == ()
     strict = effective_shifts(D("13"), D("11"), downtime, REASONS, flag_share=D("0.20"))
-    assert [flag.code for flag in strict.flags] == ["DOWNTIME_OVER_25"]
+    assert [flag.code for flag in strict.flags] == ["DOWNTIME_OVER_THRESHOLD"]
     assert "больше 20 %" in strict.flags[0].message
     assert "27,97 %" in strict.flags[0].message

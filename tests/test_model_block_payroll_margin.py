@@ -7,11 +7,12 @@
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 
-from cost.model import block_payroll, drilling, markup
+from cost.model import block_margin, block_payroll, drilling, markup
 from cost.model.engine import compute_block_economics
 from cost.model.inputs import ModelContext, ServiceCharge
 from cost.model.payroll import margin_check
@@ -192,7 +193,7 @@ def test_subcontract_margin_check_is_none() -> None:
         _references(), fx.parameters(crew=CREW, payroll_source="PAYROLL", drilling_executor="SUBCONTRACTOR"),
         fx.physical(), as_of=AS_OF,
     )
-    assert block_payroll.margin(context, None, None, (), drilling_lines=range(0)) is None
+    assert block_margin.margin(context, None, None, ()) is None
 
 
 def test_rates_mode_payroll_block_is_none() -> None:
@@ -331,3 +332,28 @@ def test_variable_drilling_lines_outside_drilling_module_enter_price_once() -> N
     assert e["price_rub_per_m"] - b["price_rub_per_m"] == pytest.approx(x * 1.21, rel=1e-9)
     assert e["variable_rub_per_m"] - b["variable_rub_per_m"] == pytest.approx(x, rel=1e-9)
     assert e["margin"]["margin_rub_per_m"] - b["margin"]["margin_rub_per_m"] == pytest.approx(x * 0.21, rel=1e-9)
+
+
+def test_own_drilling_lines_found_by_identity_not_by_position() -> None:
+    """Строки бурения узнаются по самим объектам `norms.lines`: порядок строк и чужая строка впереди цену не меняют."""
+
+    context = ModelContext(
+        _references(**F17_REFERENCES), fx.parameters(crew=CREW, payroll_source="PAYROLL"), fx.physical(), as_of=AS_OF
+    )
+    norms = drilling.compute(context)
+    payroll = block_payroll.compute(context, norms)
+    assert norms.lines and all(any(line is own for own in context.lines) for line in norms.lines)
+    lines = list(context.lines)
+    base = block_margin.margin(context, norms, payroll, lines)
+
+    unrelated = replace(lines[-1], operation_code="BLAST_EXECUTION", cost_item_code="OTHER")
+    moved = block_margin.margin(context, norms, payroll, [unrelated, *reversed(lines)])
+    assert (moved.price, moved.variable) == (base.price, base.variable)
+
+    # Копия своей строки — уже не строка `drilling.compute`: она входит в цену как добавка.
+    own_variable = next(line for line in norms.lines if line.layer is CostLayer.VARIABLE)
+    copy = replace(own_variable)
+    extra = block_margin.margin(context, norms, payroll, [copy, *lines])
+    drilling_m = context.value("drilling_m")
+    assert extra.variable - base.variable == copy.amount_rub / drilling_m
+    assert extra.price - base.price == copy.amount_rub / drilling_m * D("1.1") * D("1.1")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Sequence
 
 from cost.model.inputs import ModelContext, asset_label, formula_number, payload_number, payload_text
 from cost.model.prices import material_price
@@ -34,6 +35,10 @@ class DrillingNorms:
     plan_metres: Decimal
     variable_rub_per_m: Decimal
     fixed_rub_per_m: Decimal
+    # Строки, записанные самим расчётом бурения (те, из которых сложена
+    # стоимость 1 п.м.): по ним цена метра для доли в марже отличает свои
+    # строки от строк правил затрат и услуг той же операции.
+    lines: tuple[CostLine, ...] = ()
 
     @property
     def cost_rub_per_m(self) -> Decimal:
@@ -168,7 +173,8 @@ def compute(context: ModelContext) -> DrillingNorms | None:
     _inspection_line(context, rig_type, rig_shifts + maintenance_shifts)
     # Цена метра считается по добавленным строкам, а не отдельной формулой:
     # иначе показатель на вкладке расходится со структурой затрат.
-    variable_per_m, fixed_per_m = _cost_per_metre(context.lines[line_start:], drilling_m)
+    own_lines = tuple(context.lines[line_start:])
+    variable_per_m, fixed_per_m = _cost_per_metre(own_lines, drilling_m)
 
     context.set_value("drilling_variable_rub_per_m", variable_per_m, "сумма переменных строк / м")
     context.set_value(
@@ -185,6 +191,7 @@ def compute(context: ModelContext) -> DrillingNorms | None:
         plan_metres=plan_metres,
         variable_rub_per_m=variable_per_m,
         fixed_rub_per_m=fixed_per_m,
+        lines=own_lines,
     )
 
 
@@ -192,7 +199,7 @@ def compute(context: ModelContext) -> DrillingNorms | None:
 FIXED_COST_ITEMS = frozenset({"DRILL_DEPRECIATION", "DRILL_INSURANCE"})
 
 
-def _cost_per_metre(lines: list[CostLine], drilling_m: Decimal) -> tuple[Decimal, Decimal]:
+def _cost_per_metre(lines: Sequence[CostLine], drilling_m: Decimal) -> tuple[Decimal, Decimal]:
     if drilling_m <= 0:
         return Decimal("0"), Decimal("0")
     fixed = sum(

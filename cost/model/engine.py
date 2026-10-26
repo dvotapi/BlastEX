@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal, ROUND_CEILING
 from typing import Any, Mapping
 
-from cost.model import block_payroll, drilling, equipment, labor, logistics, markup, materials, services, unit
+from cost.model import block_margin, block_payroll, drilling, equipment, labor, logistics, markup, materials, services, unit
 from cost.model.inputs import (
     BlockEconomics,
     ModelContext,
@@ -48,11 +48,7 @@ def compute_block_economics(
 
     # Порядок важен: смены станка и СЗМ нужны ФОТ и затратам техники, а
     # разделение массы ВВ на насыпную и патронированную — статьям ВМ.
-    drilling_start = len(context.lines)
     norms = drilling.compute(context)
-    # Строки самого бурения — уже в стоимости 1 п.м.; цена метра для доли в
-    # марже добавляет к ней только переменные строки бурения правил и услуг.
-    drilling_lines = range(drilling_start, len(context.lines))
     logistics.compute(context)
     nomenclature = materials.compute(context)
     # ФОТ экипажа бурения по методике — до ставок: `labor` пропускает
@@ -75,7 +71,7 @@ def compute_block_economics(
     unit.compute(context)
     # Доля экипажа в марже метра — когда все строки на месте, до надбавок:
     # переменные метра берутся из строк после правил затрат и услуг.
-    margin = block_payroll.margin(context, norms, payroll, context.lines, drilling_lines=drilling_lines)
+    margin = block_margin.margin(context, norms, payroll, context.lines)
 
     lines = tuple(context.lines)
     totals = markup.layer_totals(lines)
@@ -89,7 +85,7 @@ def compute_block_economics(
         warnings=tuple(context.warnings),
         markup=markup_values,
         block_volume_m3=context.block_volume_m3,
-        payroll=block_payroll.to_dict(payroll, margin) if payroll is not None and margin is not None else None,
+        payroll=block_margin.to_dict(payroll, margin) if payroll is not None and margin is not None else None,
     )
 
 

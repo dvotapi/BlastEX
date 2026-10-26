@@ -423,7 +423,7 @@ class BlockEconomics:
     markup: dict[str, Decimal] = field(default_factory=dict)
     block_volume_m3: Decimal = Decimal("0")
     model_version: str = MODEL_VERSION
-    # Блок «ФОТ по методике» (`block_payroll.to_dict`): темп, строки экипажа,
+    # Блок «ФОТ по методике» (`block_margin.to_dict`): темп, строки экипажа,
     # цена метра и доля в марже. None — режим ставок, субподряд или откат на ставки.
     payroll: dict[str, Any] | None = None
 

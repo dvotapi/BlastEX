@@ -380,6 +380,7 @@ def test_write_off_and_pace_thresholds_do_not_touch_block_economics() -> None:
     )
     assert loose.lines == base.lines
     assert loose.payroll == base.payroll
+    assert loose.warnings == base.warnings
 
 
 def test_margin_share_threshold_comes_from_the_year_record() -> None:

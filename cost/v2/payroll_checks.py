@@ -15,6 +15,7 @@ from cost.v2.models import ReferenceItem, finite_decimal
 from cost.v2.references import ValidationIssue
 from cost.v2.schemas.labor import CURVE_SCALES, HAZARDOUS_CLASSES
 from cost.v2.schemas.organization import OrganizationRatesPayload, SitePayload, resolve_shift_hours
+from cost.v2.schemas.payroll import DrillingDifficultyPayload
 
 __all__ = ["payroll_issues"]
 
@@ -35,6 +36,7 @@ def payroll_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
     issues.extend(_duplicate_years(sections))
     issues.extend(_single_difficulty(sections))
     issues.extend(_bit_diameters(sections))
+    issues.extend(_hardness_scale_max_below_bands(sections))
     issues.extend(_ceiling_above_rigs(sections))
     issues.extend(_maintenance_against_rigs(sections))
     issues.extend(_missing_extra_tariffs(sections))
@@ -170,6 +172,45 @@ def _bit_diameters(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[Vali
                 )
             )
     return issues
+
+
+def _hardness_scale_max_below_bands(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
+    """Верх шкалы крепости не выше наибольшей конечной границы таблицы крепости.
+
+    Предупреждение «f выше шкалы» поднимается на f больше верха шкалы — при
+    верхе ниже границ таблицы оно сработало бы на породах внутри таблицы.
+    Публикацию это не блокирует: коэффициент берётся по таблице как обычно.
+    """
+
+    difficulty = next(iter(_active(sections, "drilling_difficulty")), None)
+    if difficulty is None:
+        return []
+    raw = difficulty.payload.get("hardness_scale_max")
+    # Запись без ключа читается с умолчанием схемы (20) — с ним и проверяется;
+    # битое значение — уже ошибка схемы, сравнивать его не с чем.
+    if raw is None or raw == "":
+        scale_max = DrillingDifficultyPayload.model_fields["hardness_scale_max"].default
+    else:
+        scale_max = finite_decimal(raw)
+    if scale_max is None:
+        return []
+    bounds = [
+        bound
+        for row in _rows(difficulty.payload.get("hardness"))
+        if isinstance(row, Mapping) and (bound := finite_decimal(row.get("f_to"))) is not None
+    ]
+    if not bounds or scale_max > max(bounds):
+        return []
+    return [
+        ValidationIssue(
+            "warning",
+            "drilling_difficulty",
+            difficulty.code,
+            f"Верх шкалы крепости f {_plain(scale_max)} не выше границ таблицы крепости (до f {_plain(max(bounds))}): "
+            "предупреждение о f выше шкалы будет срабатывать на строках таблицы.",
+            field="hardness_scale_max",
+        )
+    ]
 
 
 def _ceiling_above_rigs(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:

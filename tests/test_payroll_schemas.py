@@ -369,3 +369,83 @@ class TestDowntimeReasons:
         assert _error(exc) == (
             "planned_maintenance", "Плановое ТОиР — простой не по вине машиниста: отметьте оба признака"
         )
+
+
+# --- Пороги методики ФОТ в справочниках (TASK-010) ---
+
+# Запись года, сохранённая до появления порогов: девять ключей, записаны прямо здесь —
+# боевой PAYROLL_PARAMS расширяется и старой записью быть перестанет.
+OLD_PARAMS_RECORD = {
+    "year": 2026,
+    "mrot": "27093",
+    "annual_hours_40": "1972",
+    "annual_hours_36": "1774",
+    "work_days_year": "247",
+    "holidays_year": "14",
+    "night_pct": "0.20",
+    "vacation_days_base": "28",
+    "margin_share_warn": "0.70",
+}
+
+
+def _params(**extra: object) -> PayrollParamsPayload:
+    return PayrollParamsPayload.model_validate({**OLD_PARAMS_RECORD, **extra})
+
+
+def test_thresholds_default_to_the_former_constants():
+    params = _params()
+    assert params.write_off_flag_share == Decimal("0.25")
+    assert params.pace_flag_ratio == Decimal("1.2")
+    assert DrillingDifficultyPayload().hardness_scale_max == Decimal("20")
+
+
+def test_old_record_without_thresholds_still_validates():
+    params = PayrollParamsPayload.model_validate(OLD_PARAMS_RECORD)
+    assert params.margin_share_warn == Decimal("0.70")
+    assert params.write_off_flag_share == Decimal("0.25")
+    assert params.pace_flag_ratio == Decimal("1.2")
+
+
+def test_write_off_share_is_a_share_above_zero():
+    for bad in ("0", "-0.1", "1.5"):
+        with pytest.raises(ValidationError):
+            _params(write_off_flag_share=bad)
+    assert _params(write_off_flag_share="1").write_off_flag_share == Decimal("1")
+
+
+def test_pace_ratio_below_one_is_rejected():
+    with pytest.raises(ValidationError):
+        _params(pace_flag_ratio="0.9")
+    assert _params(pace_flag_ratio="1").pace_flag_ratio == Decimal("1")
+
+
+def test_hardness_scale_max_must_be_positive():
+    for bad in ("0", "-5"):
+        with pytest.raises(ValidationError):
+            DrillingDifficultyPayload.model_validate({"hardness_scale_max": bad})
+    assert DrillingDifficultyPayload.model_validate({"hardness_scale_max": "25"}).hardness_scale_max == Decimal("25")
+
+
+def test_margin_share_warn_accepts_values_above_one():
+    assert PayrollParamsPayload.model_fields["margin_share_warn"].default == Decimal("0.70")
+    for good in ("1.2", "10", "0"):
+        assert _params(margin_share_warn=good).margin_share_warn == Decimal(good)
+    for bad in ("10.01", "-0.1"):
+        with pytest.raises(ValidationError):
+            _params(margin_share_warn=bad)
+
+
+def test_thresholds_have_unit_title_and_description():
+    for section, names in (
+        ("payroll_params", ("margin_share_warn", "write_off_flag_share", "pace_flag_ratio")),
+        ("drilling_difficulty", ("hardness_scale_max",)),
+    ):
+        properties = section_json_schema(section)["properties"]
+        for name in names:
+            prop = properties[name]
+            assert prop.get("title"), name
+            assert prop.get("description"), name
+            assert "x-unit" in prop and prop["x-unit"] is not None, name
+    shares = section_json_schema("payroll_params")["properties"]
+    assert shares["write_off_flag_share"]["x-unit"] == "доля"
+    assert shares["pace_flag_ratio"]["x-unit"] == ""

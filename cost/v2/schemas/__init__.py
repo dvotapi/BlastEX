@@ -95,7 +95,7 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "payroll_params": (
         ("Календарь", ("year", "work_days_year", "holidays_year", "annual_hours_40", "annual_hours_36")),
         ("Оплата", ("mrot", "night_pct", "vacation_days_base")),
-        ("Контроль", ("margin_share_warn",)),
+        ("Контроль", ("margin_share_warn", "write_off_flag_share", "pace_flag_ratio")),
     ),
     "organization_rates": (
         ("Налоги и взносы", (

@@ -18,6 +18,7 @@ from cost.v2.payroll_defaults import (
     _fill,
     seed_payroll_references,
 )
+from cost.v2.payroll_checks import payroll_issues
 from cost.v2.references import has_validation_errors, validate_reference_sections
 from cost.v2.repository import InMemoryEconomicsRepository
 from scripts.seed_payroll_references import run
@@ -547,7 +548,7 @@ def test_active_difficulty_record_with_empty_tables_gets_owner_tables():
     assert item.code == "DD_EXISTING"
     assert [row["k"] for row in item.payload["hardness"]] == ["0.9", "1.0", "1.1", "1.2", "1.3"]
     assert item.payload["diameter"] == _OWNER_DIAMETER_TABLE
-    assert "drilling_difficulty:DD_EXISTING: hardness, diameter" in report.filled
+    assert "drilling_difficulty:DD_EXISTING: hardness, diameter, hardness_scale_max" in report.filled
 
 
 def test_active_difficulty_record_with_diameter_empty_keeps_hardness():
@@ -561,13 +562,90 @@ def test_active_difficulty_record_with_diameter_empty_keeps_hardness():
     # Заданная таблица крепости не меняется.
     assert item.payload["hardness"] == filled_hardness
     assert item.payload["diameter"] == _OWNER_DIAMETER_TABLE
-    assert "drilling_difficulty:DD_EXISTING: diameter" in report.filled
+    assert "drilling_difficulty:DD_EXISTING: diameter, hardness_scale_max" in report.filled
     assert not any(line.startswith("drilling_difficulty:") and line.endswith("hardness") for line in report.filled)
 
 
 def test_active_difficulty_record_seed_is_idempotent():
     existing = ReferenceItem(code="DD_EXISTING", name="Действующая", payload={"hardness": [], "diameter": []})
     snapshot = fx.references(drilling_difficulty=(existing,))
+    first, _ = seed_payroll_references(snapshot)
+    again, report = seed_payroll_references(_as_snapshot(snapshot, first))
+
+    assert again == first
+    assert report.added == [] and report.filled == []
+
+
+# Пороги методики (TASK-010): сид заводит их на новых записях и дописывает в
+# пустые ключи существующих; заданный порог не трогает.
+
+
+def _threshold_snapshot() -> ReferenceSnapshot:
+    params = ReferenceItem(
+        code="PAYROLL_PARAMS_CUSTOM",
+        name="ФОТ 2026 (свой порог)",
+        payload={**PAYROLL_PARAMS, "write_off_flag_share": "0.40", "pace_flag_ratio": ""},
+    )
+    difficulty = ReferenceItem(
+        code="DD_EXISTING", name="Действующая", payload={"hardness": [], "diameter": [], "hardness_scale_max": None}
+    )
+    return fx.references(payroll_params=(params,), drilling_difficulty=(difficulty,))
+
+
+def test_new_records_get_threshold_defaults():
+    sections, _ = seed_payroll_references(imported_snapshot())
+    params = _by_code(sections, "payroll_params")["PAYROLL_PARAMS_2026"].payload
+    assert (params["write_off_flag_share"], params["pace_flag_ratio"]) == ("0.25", "1.2")
+    assert _by_code(sections, "drilling_difficulty")["DRILLING_DIFFICULTY_BASE"].payload["hardness_scale_max"] == "20"
+
+
+def test_seed_fills_new_threshold_keys_only_when_empty():
+    sections, report = seed_payroll_references(_threshold_snapshot())
+
+    params = _by_code(sections, "payroll_params")["PAYROLL_PARAMS_CUSTOM"].payload
+    assert params["write_off_flag_share"] == "0.40"
+    assert params["pace_flag_ratio"] == "1.2"
+    assert "payroll_params:PAYROLL_PARAMS_CUSTOM: pace_flag_ratio" in report.filled
+    assert "payroll_params:PAYROLL_PARAMS_CUSTOM: write_off_flag_share=0.40 (файл: 0.25)" in report.kept
+    assert _by_code(sections, "drilling_difficulty")["DD_EXISTING"].payload["hardness_scale_max"] == "20"
+    assert "drilling_difficulty:DD_EXISTING: hardness, diameter, hardness_scale_max" in report.filled
+    assert not has_validation_errors(validate_reference_sections(sections))
+
+    # Заданный верх шкалы сид тоже не меняет.
+    set_max = fx.references(
+        drilling_difficulty=(
+            ReferenceItem(code="DD_EXISTING", name="Действующая", payload={"hardness": [], "diameter": [], "hardness_scale_max": "25"}),
+        )
+    )
+    kept, kept_report = seed_payroll_references(set_max)
+    assert _by_code(kept, "drilling_difficulty")["DD_EXISTING"].payload["hardness_scale_max"] == "25"
+    assert "drilling_difficulty:DD_EXISTING: hardness_scale_max=25 (файл: 20)" in kept_report.kept
+
+
+def test_seed_filled_scale_max_below_a_wider_table_is_reported_by_the_check():
+    # Своя таблица с конечной границей 22 и пустым верхом: сид дописывает 20,
+    # и проверка ревизии предупреждает, что верх ниже границ таблицы.
+    bands = [{"f_from": None, "f_to": "22", "k": "1"}, {"f_from": "22", "f_to": None, "k": "1.3"}]
+    existing = ReferenceItem(
+        code="DD_EXISTING",
+        name="Действующая",
+        payload={"hardness": bands, "diameter": [{"diameter_mm": "152", "k": "1"}]},
+    )
+    sections, report = seed_payroll_references(fx.references(drilling_difficulty=(existing,)))
+
+    assert _by_code(sections, "drilling_difficulty")["DD_EXISTING"].payload["hardness_scale_max"] == "20"
+    assert "drilling_difficulty:DD_EXISTING: hardness_scale_max" in report.filled
+    warnings = [
+        issue
+        for issue in payroll_issues(sections)
+        if issue.section == "drilling_difficulty" and issue.field == "hardness_scale_max"
+    ]
+    assert [(issue.level, issue.code) for issue in warnings] == [("warning", "DD_EXISTING")]
+    assert "f 20 ниже границ таблицы крепости (до f 22)" in warnings[0].message
+
+
+def test_seed_is_idempotent_with_thresholds():
+    snapshot = _threshold_snapshot()
     first, _ = seed_payroll_references(snapshot)
     again, report = seed_payroll_references(_as_snapshot(snapshot, first))
 

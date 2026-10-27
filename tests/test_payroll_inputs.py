@@ -175,3 +175,25 @@ def test_three_shift_hours_resolvers_agree() -> None:
             sites = (fx.item("SITE_LOM", "Ломовское", {} if site_hours is None else {"shift_hours": site_hours}),)
             inputs, _, _ = read(sites=sites, organization_rates=(organization,))
             assert inputs.rates.shift_hours == expected
+
+
+def test_payroll_context_takes_flag_thresholds_of_the_year() -> None:
+    record = fx.item(
+        "PAYROLL_PARAMS_2026",
+        "Параметры ФОТ 2026",
+        {**PAYROLL_PARAMS, "write_off_flag_share": "0.5", "pace_flag_ratio": "1.5"},
+    )
+    inputs, _, _ = read(payroll_params=(record,))
+    assert inputs.calendar.write_off_flag_share == D("0.5")
+    assert inputs.calendar.pace_flag_ratio == D("1.5")
+    # Запись, заведённая до порогов, считается по умолчаниям схемы.
+    inputs, _, _ = read()
+    assert inputs.calendar.write_off_flag_share == D("0.25")
+    assert inputs.calendar.pace_flag_ratio == D("1.2")
+
+
+def test_difficulty_tables_read_the_hardness_scale_max() -> None:
+    assert difficulty_tables(payroll_references()).hardness_scale_max == D("20")
+    record = payroll_references().item("drilling_difficulty", "DD_MAIN")
+    wide = fx.item(record.code, record.name, {**record.payload, "hardness_scale_max": "30"})
+    assert difficulty_tables(payroll_references(drilling_difficulty=(wide,))).hardness_scale_max == D("30")

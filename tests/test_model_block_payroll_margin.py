@@ -18,6 +18,7 @@ from cost.model.inputs import ModelContext, ServiceCharge
 from cost.model.payroll import margin_check
 from cost.v2.models import CostLayer
 from tests import model_fixtures as fx
+from tests import payroll_fixtures as pfx
 from tests.test_model_block_payroll import AS_OF, COND_F17, CREW, _references
 
 D = Decimal
@@ -357,3 +358,36 @@ def test_own_drilling_lines_found_by_identity_not_by_position() -> None:
     drilling_m = context.value("drilling_m")
     assert extra.variable - base.variable == copy.amount_rub / drilling_m
     assert extra.price - base.price == copy.amount_rub / drilling_m * D("1.1") * D("1.1")
+
+
+# --- Пороги методики из «Параметров ФОТ» -------------------------------------------
+
+
+def _year_params(**fields):
+    record = pfx.PAYROLL_SECTIONS["payroll_params"][0]
+    return (fx.item(record.code, record.name, {**record.payload, **fields}),)
+
+
+def test_write_off_and_pace_thresholds_do_not_touch_block_economics() -> None:
+    """Флаги списаний и темпа — только в превью: экономика блока от их порогов не зависит."""
+
+    base = _economics()
+    loose = _economics(
+        _references(
+            **F17_REFERENCES,
+            payroll_params=_year_params(write_off_flag_share="0.9", pace_flag_ratio="3"),
+        )
+    )
+    assert loose.lines == base.lines
+    assert loose.payroll == base.payroll
+    assert loose.warnings == base.warnings
+
+
+def test_margin_share_threshold_comes_from_the_year_record() -> None:
+    economics = _economics(_references(**F17_REFERENCES, payroll_params=_year_params(margin_share_warn="1.2")))
+    margin = economics.payroll["margin"]
+    # Доля на потолке 104,27 % ниже порога 120 %: флага нет ни в блоке, ни в предупреждениях.
+    assert round(margin["ceiling"]["crew_share"], 4) == 1.0427
+    assert margin["threshold"] == pytest.approx(1.2)
+    assert margin["flags"] == []
+    assert not any("на потолке" in warning for warning in economics.warnings)

@@ -159,3 +159,11 @@ def test_series_contains_nodes_pace_and_reaches_beyond_the_ceiling() -> None:
     rates = [point.rate for point in series]
     assert rates == sorted(rates)
     assert series[-1].rate == D("168.66")
+
+
+def test_pace_flag_ratio_comes_from_the_argument() -> None:
+    # 230 — 1,2461 × потолка: при множителе 1,5 флага нет.
+    assert pace_flags(CURVE_X, D("230"), ratio=D("1.5")) == ()
+    flags = pace_flags(CURVE_X, D("190"), ratio=D("1.0"))
+    assert [flag.code for flag in flags] == ["PACE_ABOVE_CEILING"]
+    assert "выше 1 × потолка" in flags[0].message

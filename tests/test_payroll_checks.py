@@ -5,7 +5,12 @@ from decimal import Decimal
 
 from cost.v2.models import ReferenceItem, finite_decimal
 from cost.v2.payroll_checks import payroll_issues
-from cost.v2.references import ValidationIssue, default_reference_sections, validate_reference_sections
+from cost.v2.references import (
+    ValidationIssue,
+    default_reference_sections,
+    has_validation_errors,
+    validate_reference_sections,
+)
 
 
 def _item(code: str, payload: dict, name: str = "Запись") -> ReferenceItem:
@@ -92,6 +97,62 @@ def test_active_difficulty_record_with_empty_diameter_table_is_a_warning():
     assert _about(issues, "drilling_difficulty") == [
         ("warning", "", "", "Не заведены коэффициенты сложности бурения: приведённые метры не посчитать.")
     ]
+
+
+# Верх шкалы крепости (TASK-010, пороги методики): ниже границ таблицы —
+# предупреждение «f выше шкалы» сработало бы на породах внутри таблицы.
+
+_OWNER_BANDS = [
+    {"f_from": None, "f_to": "8", "k": "0.9"},
+    {"f_from": "8", "f_to": "12", "k": "1.0"},
+    {"f_from": "12", "f_to": "16", "k": "1.1"},
+    {"f_from": "16", "f_to": "18", "k": "1.2"},
+    {"f_from": "18", "f_to": None, "k": "1.3"},
+]
+
+
+def _scaled_difficulty(**fields) -> dict:
+    return {"hardness": _OWNER_BANDS, "diameter": [{"diameter_mm": "152", "k": "1"}], **fields}
+
+
+def test_hardness_scale_max_below_last_band_warns():
+    issues = _issues(drilling_difficulty=(_item("DD", _scaled_difficulty(hardness_scale_max="15")),))
+    assert _about(issues, "drilling_difficulty") == [
+        (
+            "warning",
+            "DD",
+            "hardness_scale_max",
+            "Верх шкалы крепости f 15 ниже границ таблицы крепости (до f 18): "
+            "на породах с крепостью от f 15 до f 18 будет выводиться предупреждение "
+            "о крепости выше шкалы, хотя они внутри таблицы.",
+        )
+    ]
+    assert not has_validation_errors(issues)
+
+
+def test_hardness_scale_max_above_bands_is_silent():
+    for fields in ({"hardness_scale_max": "20"}, {"hardness_scale_max": "18.5"}, {}):
+        issues = _issues(drilling_difficulty=(_item("DD", _scaled_difficulty(**fields)),))
+        assert _about(issues, "drilling_difficulty") == [], fields
+
+
+def test_hardness_scale_max_equal_to_last_bound_is_silent():
+    # Предупреждение модели — на f строго выше верха: f = 18 лежит в (16, 18] и его не получает.
+    issues = _issues(drilling_difficulty=(_item("DD", _scaled_difficulty(hardness_scale_max="18")),))
+    assert _about(issues, "drilling_difficulty") == []
+
+
+def test_hardness_scale_max_zero_gives_no_warning_from_this_check():
+    # Ноль — ошибка схемы (gt=0); эта проверка молчит, чтобы не добавлять шум.
+    issues = _issues(drilling_difficulty=(_item("DD", _scaled_difficulty(hardness_scale_max="0")),))
+    assert [issue for issue in issues if issue.level == "warning" and issue.field == "hardness_scale_max"] == []
+
+
+def test_hardness_scale_max_check_takes_the_default_without_the_key():
+    # Записи без ключа читаются с умолчанием 20 — и проверяются с ним же.
+    bands = [{"f_from": None, "f_to": "22", "k": "1"}, {"f_from": "22", "f_to": None, "k": "1.3"}]
+    issues = _issues(drilling_difficulty=(_item("DD", _scaled_difficulty(hardness=bands)),))
+    assert [issue.field for issue in issues if issue.section == "drilling_difficulty"] == ["hardness_scale_max"]
 
 
 def _bits(material: dict, diameters: list[str]) -> dict:

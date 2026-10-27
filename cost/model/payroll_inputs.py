@@ -83,6 +83,8 @@ def payroll_context(snapshot: ReferenceSnapshot, *, site_code: str, year: int) -
         vacation_days_base=params.vacation_days_base,
         margin_share_warn=params.margin_share_warn,
         source=f"payroll_params.{choice.item.code}",
+        write_off_flag_share=params.write_off_flag_share,
+        pace_flag_ratio=params.pace_flag_ratio,
     )
     lineage["calendar"] = f"{calendar.source} ({calendar.year} год)"
 
@@ -247,6 +249,7 @@ def difficulty_tables(snapshot: ReferenceSnapshot) -> DifficultyTables:
         hardness=tuple(HardnessBand(band.f_from, band.f_to, band.k) for band in payload.hardness),
         diameter={row.diameter_mm: row.k for row in payload.diameter},
         source=f"drilling_difficulty.{item.code}",
+        hardness_scale_max=payload.hardness_scale_max,
     )
 
 

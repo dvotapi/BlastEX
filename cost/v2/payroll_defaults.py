@@ -38,6 +38,10 @@ PAYROLL_PARAMS: dict[str, str] = {
     "night_pct": "0.20",
     "vacation_days_base": "28",
     "margin_share_warn": "0.70",
+    # Пороги флагов превью ФОТ: списание простоя больше 25 % смен и темп выше
+    # 1,2 × потолка шкалы — прежние константы методики.
+    "write_off_flag_share": "0.25",
+    "pace_flag_ratio": "1.2",
 }
 
 # Кривая машиниста и помощника: 45 ₽ на норме 1 500 м за 13 смен, 168,66 ₽ на
@@ -67,6 +71,8 @@ HARDNESS_BANDS: tuple[dict[str, str | None], ...] = (
     {"f_from": "16", "f_to": "18", "k": "1.2"},
     {"f_from": "18", "f_to": None, "k": "1.3"},
 )
+# Верх шкалы Протодьяконова: выше — коэффициент последней строки с предупреждением.
+HARDNESS_SCALE_MAX = "20"
 BASE_DIAMETER_MM = Decimal("152")
 OWNER_DIAMETERS_MM: tuple[str, ...] = ("110", "127", "140", "152", "165", "190", "215", "250")
 
@@ -400,8 +406,9 @@ def _bit_diameters(sections: dict[str, list[ReferenceItem]]) -> set[Decimal]:
     return found
 
 
-def _drilling_difficulty_tables(sections: dict[str, list[ReferenceItem]]) -> dict[str, list[dict[str, Any]]]:
-    """Таблицы владельца: полосы крепости и диаметры владельца ∪ коронок условий.
+def _drilling_difficulty_tables(sections: dict[str, list[ReferenceItem]]) -> dict[str, Any]:
+    """Таблицы владельца: полосы крепости и диаметры владельца ∪ коронок условий,
+    и верх шкалы крепости.
 
     Общая для новой записи и для заполнения пустых таблиц действующей —
     те же данные не должны собираться по-разному в двух местах.
@@ -416,6 +423,7 @@ def _drilling_difficulty_tables(sections: dict[str, list[ReferenceItem]]) -> dic
             {"diameter_mm": format(diameter, "f"), "k": format(_difficulty_factor(diameter), "f")}
             for diameter in diameters
         ],
+        "hardness_scale_max": HARDNESS_SCALE_MAX,
     }
 
 

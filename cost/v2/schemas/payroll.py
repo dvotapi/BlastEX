@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from pydantic import Field, model_validator
 
-from cost.v2.schemas.base import RateField, ReferencePayload, UnitField, field_error
+from cost.v2.schemas.base import SHARE, RateField, ReferencePayload, UnitField, field_error
 
 __all__ = [
     "PayrollParamsPayload",
@@ -52,13 +52,34 @@ class PayrollParamsPayload(ReferencePayload):
         default=Decimal("28"),
         le=366,
     )
-    margin_share_warn: Decimal = RateField(
+    # Доля экипажа на потолке шкалы бывает больше 100 % маржи, поэтому порог — до 10:
+    # 10 фактически выключает предупреждение.
+    margin_share_warn: Decimal = UnitField(
+        SHARE,
         title="Порог доли в марже",
         description=(
             "Предупреждение, если стоимость последнего метра по экипажу станка с начислениями "
             "выше этой доли маржи метра"
         ),
         default=Decimal("0.70"),
+        ge=0,
+        le=10,
+    )
+    # Нулевой порог означал бы «предупреждать всегда», поэтому строго больше нуля.
+    write_off_flag_share: Decimal = UnitField(
+        SHARE,
+        title="Порог списанных часов",
+        description="Доля часов вахты, списанных не по вине машиниста, выше которой — предупреждение",
+        default=Decimal("0.25"),
+        gt=0,
+        le=1,
+    )
+    pace_flag_ratio: Decimal = UnitField(
+        "раз",
+        title="Порог превышения темпа",
+        description="Во сколько раз темп может превысить потолок шкалы, прежде чем предупреждать",
+        default=Decimal("1.2"),
+        ge=1,
     )
 
     @model_validator(mode="after")
@@ -109,6 +130,16 @@ class DrillingDifficultyPayload(ReferencePayload):
         default_factory=list,
         title="Диаметр коронки",
         description="Коэффициент на каждый диаметр коронок из условий бурения; база Ø 152 мм → коэффициент 1",
+    )
+    hardness_scale_max: Decimal = UnitField(
+        "f",
+        title="Верх шкалы крепости",
+        description=(
+            "Крепость f, выше которой берётся коэффициент последней строки таблицы и выводится предупреждение; "
+            "по умолчанию 20 (шкала Протодьяконова). Должна быть не ниже наибольшей границы таблицы крепости."
+        ),
+        default=Decimal("20"),
+        gt=0,
     )
 
     @model_validator(mode="after")

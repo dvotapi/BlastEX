@@ -139,3 +139,30 @@ def test_block_k_does_not_change_pace() -> None:
     other_block = _context(conditions, site_rock="ROCK_F10")
 
     assert planned_pace(other_block, norms).pace == pace.pace
+
+
+def _pace_f25(scale_max: str | None):
+    """Строка f 25 / Ø 152; верх шкалы крепости — из записи «Сложности бурения»."""
+
+    record = pfx.PAYROLL_SECTIONS["drilling_difficulty"][0]
+    payload = dict(record.payload) if scale_max is None else {**record.payload, "hardness_scale_max": scale_max}
+    references = fx.references(
+        rocks=(*ROCKS, fx.item("ROCK_F25", "Порода f25", {"hardness_f": "25"})),
+        sites=_sites("ROCK_F25"),
+        materials=MATERIALS,
+        drilling_conditions=(_condition("COND_F25", rock_code="ROCK_F25"),),
+        drilling_difficulty=(fx.item(record.code, record.name, payload),),
+    )
+    context = ModelContext(references, fx.parameters(), fx.physical())
+    norms = drilling.compute(context)
+    assert norms is not None
+    return planned_pace(context, norms)
+
+
+def test_hardness_scale_max_comes_from_the_difficulty_record() -> None:
+    narrow = _pace_f25(None)
+    assert any("выше верха шкалы" in w and "до 20" in w for w in narrow.warnings)
+    wide = _pace_f25("30")
+    assert not any("выше верха шкалы" in w for w in wide.warnings)
+    # Коэффициент последней строки таблицы крепости.
+    assert wide.k_hardness == Decimal("1.3")

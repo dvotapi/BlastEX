@@ -219,6 +219,8 @@ def test_payroll_block_shape() -> None:
         "margin",
         "lineage",
     }
+    # Название записи условий бурения — для человека; код остаётся для связей.
+    assert isinstance(payroll["pace"].pop("condition_name"), str)
     assert payroll["pace"] == {
         "m_plan": pytest.approx(236.16),
         "k_hardness": pytest.approx(1.2),

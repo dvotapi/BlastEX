@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chartGeometry, shareView } from "./payrollModel";
+import { chartGeometry, labelLevels, shareView } from "./payrollModel";
 import { economicsFixture, payrollFixture } from "./testFixtures";
 
 const SIZE = { width: 400, height: 200, padding: 20 };
@@ -109,5 +109,13 @@ describe("chartGeometry: нулевые ряды", () => {
     expect(geometry.xAxis.map((t) => t.value)).toEqual([0, 1]);
     expect(geometry.yAxis.map((t) => t.value)).toEqual([0, 1]);
     expect(geometry.ratePath).not.toContain("NaN");
+  });
+});
+
+describe("labelLevels", () => {
+  it("далёкие отметки на одном ярусе, близкие — выше", () => {
+    expect(labelLevels([10, 300, 600], 100)).toEqual([0, 0, 0]);
+    expect(labelLevels([100, 120, 130], 100)).toEqual([0, 1, 2]);
+    expect(labelLevels([300, 100, 320], 100)).toEqual([0, 0, 1]);
   });
 });

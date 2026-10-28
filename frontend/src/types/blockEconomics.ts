@@ -131,6 +131,8 @@ export type PayrollPace = {
   k_diameter: number;
   diameter_mm: number | null;
   condition_code: string;
+  /** Название записи условий бурения; прогоны до PR 3b его не несут. */
+  condition_name?: string;
 };
 
 export type PayrollPosition = {

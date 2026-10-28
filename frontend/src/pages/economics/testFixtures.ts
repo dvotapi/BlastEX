@@ -405,7 +405,7 @@ export function payrollFixture(options: { scale?: "CURVE_POWER" | "STEP" } = {})
   });
   const planShare = step ? 0.42 : 0.2998;
   return {
-    pace: { m_plan: 120, k_hardness: 1, k_diameter: 1, diameter_mm: 160, condition_code: "COND_GRANITE" },
+    pace: { m_plan: 120, k_hardness: 1, k_diameter: 1, diameter_mm: 160, condition_code: "COND_GRANITE", condition_name: "Гранит, коронка 160" },
     normalized_meters: 1500,
     effective_shifts: 12.5,
     positions: [

@@ -156,6 +156,8 @@ class PayrollPaceSchema(BaseModel):
     k_diameter: float
     diameter_mm: float | None = None
     condition_code: str = ""
+    # Название записи условий бурения; прогоны до PR 3b его не несут.
+    condition_name: str = ""
 
 
 class PayrollPositionSchema(BaseModel):

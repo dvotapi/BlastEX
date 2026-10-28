@@ -99,7 +99,7 @@ describe("PayrollBreakdown", () => {
     expect(text).toContain("по себестоимости с надбавками");
     expect(text).toContain(`${money(300)} ₽/м`);
     expect(text).toContain("30 %");
-    expect(text).toContain("получает машинист");
+    expect(text).toContain("получает машинист бурового станка");
   });
 
   it("NO_MARGIN: вместо долей пояснение, графика нет при пустом ряде", () => {
@@ -111,6 +111,49 @@ describe("PayrollBreakdown", () => {
     expect(container.querySelector(".payroll-share-warn")).toBeNull();
     expect(screen.queryByRole("img", { name: "График шкалы сдельной премии" })).toBeNull();
     expect(container.querySelector(".payroll-shares")).toBeNull();
+  });
+});
+
+describe("PayrollBreakdown: названия и подписи", () => {
+  it("строка матрицы показывает название, но не код", () => {
+    const { container } = render(<PayrollBreakdown payroll={payrollFixture()} />);
+    expect(container.textContent).toContain("Строка матрицы");
+    expect(container.textContent).toContain("Гранит, коронка 160");
+    expect(container.textContent).not.toContain("COND_GRANITE");
+  });
+
+  it("без названия строка матрицы не показывается, код не выводится", () => {
+    const payroll = payrollFixture();
+    delete payroll.pace.condition_name;
+    const { container } = render(<PayrollBreakdown payroll={payroll} />);
+    expect(container.textContent).not.toContain("Строка матрицы");
+    expect(container.textContent).not.toContain("COND_GRANITE");
+  });
+
+  it("заголовок ставки и нейтральная подпись без главной должности", () => {
+    const payroll = payrollFixture();
+    payroll.main_position_code = null;
+    const { container } = render(<PayrollBreakdown payroll={payroll} />);
+    expect(container.querySelector(".payroll-table th:nth-child(3)")?.textContent).toBe("Ставка, ₽ за пр. м на человека");
+    expect(container.textContent).toContain("получает главный по шкале");
+    expect(container.querySelector(".payroll-table-wrap .payroll-table")).not.toBeNull();
+  });
+
+  it("svg несёт title и desc с темпом, нормой и потолком", () => {
+    render(<PayrollBreakdown payroll={payrollFixture()} />);
+    const chart = screen.getByRole("img", { name: "График шкалы сдельной премии" });
+    expect(chart.querySelector("title")?.textContent).toBe("График шкалы сдельной премии");
+    const desc = chart.querySelector("desc")?.textContent ?? "";
+    expect(desc).toContain("плановый темп 120");
+    expect(desc).toContain("норма 115,38");
+    expect(desc).toContain("потолок 184,62");
+  });
+
+  it("близкие маркеры (темп 120 и норма 115) подписаны на разной высоте", () => {
+    render(<PayrollBreakdown payroll={payrollFixture()} />);
+    const chart = screen.getByRole("img", { name: "График шкалы сдельной премии" });
+    const ys = ["norm", "pace"].map((kind) => chart.querySelector(`.payroll-chart-marker-${kind} text`)?.getAttribute("y"));
+    expect(ys[0]).not.toBe(ys[1]);
   });
 });
 

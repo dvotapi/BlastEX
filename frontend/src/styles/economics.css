@@ -424,6 +424,7 @@
 .payroll-facts > div { display:grid; gap:3px; min-width:0; }
 .payroll-facts dt { color:var(--ec-muted, #78857f); font-size:10px; font-weight:var(--font-weight-strong); }
 .payroll-facts dd { margin:0; font-size:13px; font-variant-numeric:tabular-nums; }
+.payroll-table-wrap { overflow-x:auto; }
 .payroll-table { width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
 .payroll-table th { padding:6px 8px; text-align:right; color:var(--ec-muted, #78857f); font-size:10px; font-weight:var(--font-weight-strong); border-bottom:1px solid var(--ec-border, #dde5e1); }
 .payroll-table td { padding:6px 8px; text-align:right; border-bottom:1px solid #eef3f1; }

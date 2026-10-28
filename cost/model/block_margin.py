@@ -152,6 +152,7 @@ def to_dict(payroll: BlockPayroll, check: MarginCheck) -> dict[str, Any]:
             "k_diameter": float(pace.k_diameter),
             "diameter_mm": _num(pace.diameter_mm),
             "condition_code": pace.condition_code,
+            "condition_name": pace.condition_name,
         },
         "normalized_meters": float(payroll.normalized_meters),
         "effective_shifts": float(payroll.effective_shifts),

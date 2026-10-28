@@ -99,3 +99,22 @@ export function chartGeometry(
     },
   };
 }
+
+/**
+ * Ярус подписи над графиком для каждой вертикальной отметки: близкие по x
+ * подписи уходят на ярус выше, чтобы не наезжать друг на друга.
+ */
+export function labelLevels(xs: number[], minGap: number): number[] {
+  const levels: number[] = new Array(xs.length).fill(0);
+  const lastX: number[] = [];
+  xs
+    .map((x, index) => ({ x, index }))
+    .sort((a, b) => a.x - b.x)
+    .forEach(({ x, index }) => {
+      let level = 0;
+      while (lastX[level] !== undefined && x - lastX[level] < minGap) level += 1;
+      lastX[level] = x;
+      levels[index] = level;
+    });
+  return levels;
+}

@@ -4,12 +4,12 @@ import { OriginBadge } from "./estimate/OriginBadge";
 import { PayrollChart } from "./PayrollChart";
 import { shareView } from "./payrollModel";
 
-function ShareRow({ title, point }: { title: string; point: PayrollSharePoint }) {
+function ShareRow({ title, point, who }: { title: string; point: PayrollSharePoint; who: string }) {
   return (
     <div className="payroll-share-row">
       <span>{title} · {amount(point.pace)} м/см</span>
       <b>{percent(point.crew_share)}</b>
-      <small>получает машинист: {percent(point.main_share)}</small>
+      <small>получает {who}: {percent(point.main_share)}</small>
     </div>
   );
 }
@@ -20,6 +20,8 @@ export function PayrollBreakdown({ payroll }: { payroll: BlockPayroll }) {
   const { margin, pace } = payroll;
   const checked = margin.status === "CHECKED";
   const indicator = view.tone === "muted" ? view.value : `доля ${view.label} ${view.value} при пороге ${percent(margin.threshold)}`;
+  const mainPosition = payroll.positions.find((item) => item.position_code === payroll.main_position_code);
+  const who = mainPosition?.position_name ? mainPosition.position_name.toLowerCase() : "главный по шкале";
   const priceNote = margin.lineage.price_rub_per_m;
 
   return (
@@ -37,10 +39,10 @@ export function PayrollBreakdown({ payroll }: { payroll: BlockPayroll }) {
             <dt>Плановый темп</dt>
             <dd>{amount(pace.m_plan)} м/см</dd>
           </div>
-          {pace.condition_code && (
+          {pace.condition_name && (
             <div>
               <dt>Строка матрицы</dt>
-              <dd>{pace.condition_code}</dd>
+              <dd>{pace.condition_name}</dd>
             </div>
           )}
           <div>
@@ -60,10 +62,11 @@ export function PayrollBreakdown({ payroll }: { payroll: BlockPayroll }) {
           </div>
         </dl>
 
+        <div className="payroll-table-wrap">
         <table className="payroll-table">
           <thead>
             <tr>
-              <th>Должность</th><th>Человек в смене</th><th>c_var, ₽/пр. м</th>
+              <th>Должность</th><th>Человек в смене</th><th>Ставка, ₽ за пр. м на человека</th>
               <th>Постоянная часть, ₽</th><th>Переменная часть, ₽</th><th>Итого, ₽</th>
             </tr>
           </thead>
@@ -80,6 +83,7 @@ export function PayrollBreakdown({ payroll }: { payroll: BlockPayroll }) {
             ))}
           </tbody>
         </table>
+        </div>
 
         <div className="payroll-price">
           {payroll.price_rub_per_m != null && (
@@ -105,8 +109,8 @@ export function PayrollBreakdown({ payroll }: { payroll: BlockPayroll }) {
 
         {checked ? (
           <div className="payroll-shares">
-            {margin.plan && <ShareRow title="Доля экипажа в марже, плановый темп" point={margin.plan} />}
-            {margin.ceiling && <ShareRow title="Доля экипажа в марже, потолок шкалы" point={margin.ceiling} />}
+            {margin.plan && <ShareRow title="Доля экипажа в марже, плановый темп" point={margin.plan} who={who} />}
+            {margin.ceiling && <ShareRow title="Доля экипажа в марже, потолок шкалы" point={margin.ceiling} who={who} />}
             <small>Порог предупреждения: {percent(margin.threshold)}</small>
           </div>
         ) : (

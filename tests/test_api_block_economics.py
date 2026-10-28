@@ -1009,6 +1009,10 @@ def test_payroll_mode_returns_the_payroll_block(client) -> None:
     assert payroll["pace"]["m_plan"] == pytest.approx(120)
     assert [row["position_code"] for row in payroll["positions"]] == ["P_DRILLER", "P_ASSISTANT"]
     assert payroll["price_rub_per_m"] > payroll["variable_rub_per_m"] > 0
+    assert len(payroll["series"]) >= 2
+    assert payroll["scale"]["scale_type"] == "CURVE_POWER"
+    assert payroll["main_position_code"] == "P_DRILLER"
+    assert all(row["position_name"] for row in payroll["positions"])
     assert payroll["margin"]["status"] == "CHECKED"
     assert payroll["margin"]["ceiling"]["crew_share"] > payroll["margin"]["plan"]["crew_share"]
 
@@ -1061,3 +1065,23 @@ def test_export_names_the_payroll_source(client) -> None:
             for row in sheet.iter_rows(values_only=True)
         ]
         assert ["Источник ФОТ", label] in rows
+
+
+def test_payroll_block_without_scale_keys_still_validates() -> None:
+    """Прогоны, сохранённые до шкалы и рядов, читаются: ключей нет — None и пусто."""
+
+    from api.schemas.block_economics import PayrollBlockSchema
+
+    schema = PayrollBlockSchema.model_validate(
+        {
+            "pace": {"m_plan": 1.0, "k_hardness": 1.0, "k_diameter": 1.0},
+            "normalized_meters": 1.0,
+            "effective_shifts": 1.0,
+            "positions": [
+                {"position_code": "P", "headcount": 1.0, "c_var": 0.0, "fixed_rub": 0.0, "variable_rub": 0.0, "amount_rub": 0.0}
+            ],
+            "margin": {"status": "NOT_APPLICABLE", "threshold": 0.3},
+        }
+    )
+    assert schema.scale is None and schema.series == [] and schema.main_position_code is None
+    assert schema.positions[0].position_name == ""

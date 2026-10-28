@@ -211,6 +211,9 @@ def test_payroll_block_shape() -> None:
         "normalized_meters",
         "effective_shifts",
         "positions",
+        "main_position_code",
+        "scale",
+        "series",
         "price_rub_per_m",
         "variable_rub_per_m",
         "margin",
@@ -226,7 +229,7 @@ def test_payroll_block_shape() -> None:
     assert payroll["effective_shifts"] == 13.0
     assert [row["position_code"] for row in payroll["positions"]] == ["P_DRILLER", "P_ASSISTANT"]
     driller = payroll["positions"][0]
-    assert set(driller) == {"position_code", "headcount", "c_var", "fixed_rub", "variable_rub", "amount_rub"}
+    assert set(driller) == {"position_code", "position_name", "headcount", "c_var", "fixed_rub", "variable_rub", "amount_rub"}
     assert driller["c_var"] == pytest.approx(137.82, abs=0.01)
     assert driller["amount_rub"] == pytest.approx(driller["fixed_rub"] + driller["variable_rub"])
     assert set(payroll["margin"]) == {
@@ -391,3 +394,61 @@ def test_margin_share_threshold_comes_from_the_year_record() -> None:
     assert margin["threshold"] == pytest.approx(1.2)
     assert margin["flags"] == []
     assert not any("на потолке" in warning for warning in economics.warnings)
+
+
+# --- Шкала и ряды графика (PR 3b) ---------------------------------------------
+
+
+def test_payroll_block_has_scale_and_series_for_curve_scale() -> None:
+    economics = _economics()
+    payroll = economics.to_dict()["payroll"]
+    scale = payroll["scale"]
+
+    assert scale["scale_type"] == "CURVE_POWER"
+    assert scale["norm_per_shift"] == pytest.approx(115.3846)
+    assert scale["ceiling_per_shift"] == pytest.approx(184.6154)
+    assert scale["rate_norm"] == pytest.approx(45)
+    assert scale["rate_ceiling"] == pytest.approx(168.66)
+    assert scale["gamma"] is not None
+
+    series = payroll["series"]
+    paces = [point["pace"] for point in series]
+    assert paces == sorted(paces)
+    assert len(series) >= 2
+    for node in (scale["norm_per_shift"], scale["ceiling_per_shift"], payroll["pace"]["m_plan"]):
+        assert any(pace == pytest.approx(node) for pace in paces)
+    curve = pfx.CURVE_X
+    for point in series:
+        assert point["rate"] == pytest.approx(float(curve.rate_at(D(str(point["pace"])))), rel=1e-6)
+        assert point["per_shift"] == pytest.approx(float(curve.per_shift(D(str(point["pace"])))), rel=1e-6)
+
+
+def test_positions_carry_names_from_reference() -> None:
+    references = _references(**F17_REFERENCES)
+    names = {item.code: item.name for item in references.sections["positions"]}
+    payroll = _economics(references).to_dict()["payroll"]
+
+    for row in payroll["positions"]:
+        assert row["position_name"] == names[row["position_code"]]
+        assert row["position_name"] != row["position_code"]
+    assert payroll["main_position_code"] in {row["position_code"] for row in payroll["positions"]}
+
+
+def test_series_empty_when_main_has_no_scale() -> None:
+    references = _references(
+        **F17_REFERENCES,
+        positions=tuple(
+            fx.item(item.code, item.name, {**item.payload, "pay_system": "TIME_BONUS"})
+            if item.code in ("P_DRILLER", "P_ASSISTANT")
+            else item
+            for item in _references().sections["positions"]
+        ),
+    )
+    payroll = _economics(references).to_dict()["payroll"]
+    assert payroll["scale"] is None
+    assert payroll["series"] == []
+    assert payroll["main_position_code"] is None
+
+
+def test_drilling_operation_constant_is_shared() -> None:
+    assert block_margin.DRILLING_OPERATION is drilling.DRILLING_OPERATION

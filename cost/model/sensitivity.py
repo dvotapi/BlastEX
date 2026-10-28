@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import date
 from decimal import Decimal
 from typing import Any, Callable, Mapping
 
@@ -98,6 +99,40 @@ def _scale_reference(
     return transform
 
 
+def _scale_piece_rates(inputs: Inputs, factor: Decimal) -> Inputs:
+    """Сдельные расценки: `piece_rate_rub` и шкалы методики ФОТ.
+
+    Шкала (расценка на норме и потолке, ставки ступеней) задаёт цену метра в
+    режиме `PAYROLL`; пороги выработки не трогаются. Пустые и отсутствующие
+    поля пропускаются, записи не изменяются на месте.
+    """
+
+    physical, params, references = _scale_reference("labor_rates", "piece_rate_rub")(inputs, factor)
+    scaled: list[ReferenceItem] = []
+    for item in references.sections.get("labor_rates", ()):
+        payload = dict(item.payload)
+        changed = False
+        for field in ("rate_norm", "rate_ceiling"):
+            value = payload.get(field)
+            if value not in (None, ""):
+                payload[field] = str(decimal_value(value) * factor)
+                changed = True
+        tiers = payload.get("tiers")
+        if tiers:
+            payload["tiers"] = [_scale_tier(tier, factor) for tier in tiers]
+            changed = True
+        scaled.append(replace(item, payload=payload) if changed else item)
+    sections = dict(references.sections)
+    sections["labor_rates"] = tuple(scaled)
+    return physical, params, replace(references, sections=sections)
+
+
+def _scale_tier(tier: Any, factor: Decimal) -> Any:
+    if not isinstance(tier, Mapping) or tier.get("rate") in (None, ""):
+        return tier
+    return {**tier, "rate": str(decimal_value(tier["rate"]) * factor)}
+
+
 def _is_explosive_driver(item: ReferenceItem) -> bool:
     return str(item.payload.get("driver", "")) in {"explosive_kg", "bulk_kg", "cartridge_kg"}
 
@@ -145,7 +180,7 @@ PARAMETERS: tuple[tuple[str, str, Transform], ...] = (
     ("RIG_PLAN_SHIFTS", "Плановые смены станка", _scale_param("rig_plan_shifts")),
     ("CREW_HEADCOUNT", "Численность бригады", _scale_crew),
     ("DIESEL_PRICE", "Цена дизельного топлива", _scale_reference("sites", "diesel_price_ton_rub")),
-    ("PIECE_RATE", "Сдельные расценки", _scale_reference("labor_rates", "piece_rate_rub")),
+    ("PIECE_RATE", "Сдельные расценки", _scale_piece_rates),
 )
 
 
@@ -155,6 +190,7 @@ def compute(
     references: ReferenceSnapshot,
     *,
     passport_name: str = "Блок",
+    as_of: date | None = None,
 ) -> list[SensitivityRow]:
     physical = _physical(snapshot)
     base = compute_block_economics(
@@ -162,6 +198,7 @@ def compute(
         params,
         references,
         passport_name=passport_name,
+        as_of=as_of,
     )
     base_price = base.price_per_m3.get("full", Decimal("0"))
     lineage = _lineage(snapshot)
@@ -178,6 +215,7 @@ def compute(
                 changed_params,
                 changed_references,
                 passport_name=passport_name,
+                as_of=as_of,
             )
             prices.append(result.price_per_m3.get("full", Decimal("0")))
         rows.append(

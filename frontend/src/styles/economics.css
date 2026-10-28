@@ -446,9 +446,9 @@
 .payroll-share-row b { font-variant-numeric:tabular-nums; }
 .payroll-share-row small, .payroll-shares > small { color:var(--ec-muted, #78857f); font-size:12px; }
 .payroll-note { margin:0; color:#5f7168; font-size:12px; }
-.payroll-chart { display:grid; gap:6px; margin:0; max-width:920px; width:100%; }
+.payroll-chart { display:grid; gap:6px; margin:0; max-width:820px; width:100%; }
 .payroll-chart-title { font-size:12px; font-weight:var(--font-weight-strong); }
-.payroll-chart svg { width:100%; height:auto; color:var(--ec-accent, #1f6a4a); font-size:11px; }
+.payroll-chart svg { width:100%; height:auto; color:var(--ec-accent, #1f6a4a); font-size:8.5px; }
 .payroll-chart text { fill:var(--ec-muted, #78857f); }
 .payroll-chart-grid { stroke:#eef3f1; }
 .payroll-chart-axis { stroke:#cfd9d4; }
@@ -462,5 +462,5 @@
 .payroll-chart-swatch { display:inline-block; width:16px; height:0; margin-right:6px; vertical-align:middle; border-top:2px solid var(--ec-accent, #1f6a4a); }
 .payroll-chart-swatch-shift { border-top:2px dashed #9a5a12; }
 .payroll-chart-tick { font-variant-numeric:tabular-nums; }
-.payroll-chart-axis-label { font-size:11px; }
+.payroll-chart-axis-label { font-size:9px; }
 .payroll-chart-swatch-rate { border-top-style:solid; }

@@ -38,6 +38,7 @@ export type ChartGeometry = {
 
 /** Круглые деления оси от 0 до `max` (последнее не меньше `max`). */
 function niceTicks(max: number, count = 5): number[] {
+  if (!(max > 0)) return [0, 1];
   const rough = max / count;
   const magnitude = 10 ** Math.floor(Math.log10(rough));
   const step = ([1, 2, 5, 10].find((m) => m * magnitude >= rough) ?? 10) * magnitude;

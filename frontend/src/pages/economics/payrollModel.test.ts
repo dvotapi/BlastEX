@@ -97,3 +97,17 @@ describe("chartGeometry", () => {
     for (const tick of [...geometry.xAxis, ...geometry.yAxis]) expect(tick.label).toBeTruthy();
   });
 });
+
+describe("chartGeometry: нулевые ряды", () => {
+  it("все значения нулевые — оси [0, 1], без NaN", () => {
+    const series = [
+      { pace: 0, rate: 0, per_shift: 0 },
+      { pace: 0, rate: 0, per_shift: 0 },
+    ];
+    const scale = { scale_type: "STEP", gamma: null, norm_per_shift: null, rate_norm: null, ceiling_per_shift: null, rate_ceiling: null };
+    const geometry = chartGeometry(series, scale, 0, SIZE)!;
+    expect(geometry.xAxis.map((t) => t.value)).toEqual([0, 1]);
+    expect(geometry.yAxis.map((t) => t.value)).toEqual([0, 1]);
+    expect(geometry.ratePath).not.toContain("NaN");
+  });
+});

@@ -11,9 +11,10 @@ import { AddMenu } from "../estimate/AddMenu";
 import { lineNumber } from "../estimateModel";
 import { amount as formatAmount, money } from "../format";
 import { crewOrigin } from "../origin";
+import { PayrollBreakdown } from "../PayrollBreakdown";
 import { lineByCode, lineShare } from "./lineHelpers";
 import type { SectionEditorProps } from "./types";
-import type { CrewMemberInput } from "../../../types/blockEconomics";
+import type { CrewMemberInput, ModelParameters } from "../../../types/blockEconomics";
 
 export function LaborSection({ group, params, defaults, economics, volume, canEdit, onChange }: SectionEditorProps) {
   // Должность выбирают только из прямых — косвенные (начальник участка и
@@ -46,8 +47,44 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
   const usedCodes = new Set(params.crew.map((member) => `LABOR_${member.position_code}`));
   const readOnlyLines = group.lines.filter((line) => !usedCodes.has(line.cost_item_code));
 
+  const payroll = economics?.payroll ?? null;
+  const subcontracted = params.drilling_executor === "SUBCONTRACTOR";
+
+  function setSource(source: ModelParameters["payroll_source"]) {
+    onChange({ payroll_source: source });
+  }
+
   return (
     <>
+      <fieldset className="labor-source" disabled={!canEdit || subcontracted}>
+        <legend>Источник ФОТ экипажа бурения</legend>
+        <label>
+          <input
+            type="radio"
+            name="payroll_source"
+            value="RATES"
+            checked={params.payroll_source === "RATES"}
+            onChange={() => setSource("RATES")}
+          />
+          Ставки
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="payroll_source"
+            value="PAYROLL"
+            checked={params.payroll_source === "PAYROLL"}
+            onChange={() => setSource("PAYROLL")}
+          />
+          Методика ФОТ
+        </label>
+        {subcontracted && (
+          <p className="labor-source-note">Бурение на субподряде: ФОТ экипажа считает подрядчик</p>
+        )}
+      </fieldset>
+      {params.payroll_source === "PAYROLL" && !subcontracted && economics !== null && payroll === null && (
+        <p className="labor-source-note">Методика не применена — причина в блоке «Модель сообщает»</p>
+      )}
       {params.crew.map((member, index) => {
         const position = defaults.positions.find((item) => item.code === member.position_code);
         const options: CatalogOption[] = directPositions.map((item) => ({
@@ -59,6 +96,9 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
         const origin = crewOrigin(member, template);
         const line = lineByCode(group.lines, `LABOR_${member.position_code}`);
         const positionLabel = position?.name ?? member.position_code;
+        // Должность экипажа бурения на методике: оклада нет, цена — ставка
+        // за приведённый метр, а сумма делится на постоянную и переменную части.
+        const payrollPosition = payroll?.positions.find((item) => item.position_code === member.position_code);
         // Штат на ротацию модель выводит только экипажу техники — у остальных
         // должностей ключа нет, и подпись не показывается.
         const rotation = economics?.natural.values[`crew_rotation.${member.position_code}`];
@@ -87,6 +127,20 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
             // Смены на блок своей колонки в смете не имеют: они видны серой
             // подписью под должностью, а правятся из меню строки.
             captions={[
+              ...(payrollPosition
+                ? [
+                    {
+                      label: "ФОТ по методике",
+                      value: `${money(payrollPosition.amount_rub, 0)} ₽`,
+                      origin: "PAYROLL" as const,
+                    },
+                    { label: "Ставка", value: `${money(payrollPosition.c_var)} ₽/прив. м` },
+                    {
+                      label: "Части",
+                      value: `Постоянная ${money(payrollPosition.fixed_rub, 0)} ₽ · переменная ${money(payrollPosition.variable_rub, 0)} ₽`,
+                    },
+                  ]
+                : []),
               {
                 label: "Смены на блок",
                 // Без бейджа: происхождение записи бригады уже стоит в колонке
@@ -116,7 +170,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
               />
             }
             unit="чел./см"
-            price={position?.fixed_monthly_rub ?? null}
+            price={payrollPosition ? null : (position?.fixed_monthly_rub ?? null)}
             amount={line?.amount_rub ?? 0}
             volume={volume}
             share={line ? lineShare(line, economics) : 0}
@@ -157,6 +211,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
           </button>
         </div>
       )}
+      {payroll && <PayrollBreakdown payroll={payroll} />}
       {readOnlyLines.map((line, index) => (
         <EstimateLine
           key={line.cost_item_code}

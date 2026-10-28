@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LaborSection } from "./LaborSection";
 import { buildEstimate } from "../estimateModel";
-import { defaultsFixture, economicsFixture, paramsFixture } from "../testFixtures";
+import { defaultsFixture, economicsFixture, paramsFixture, payrollFixture } from "../testFixtures";
+import type { BlockEconomics, BlockPayroll } from "../../../types/blockEconomics";
 
 afterEach(cleanup);
 
@@ -201,5 +202,93 @@ describe("LaborSection", () => {
     );
 
     expect(screen.queryByText(/В смене/)).not.toBeInTheDocument();
+  });
+
+  describe("источник ФОТ экипажа бурения", () => {
+    // Должность методики совпадает с кодом из состава бригады фикстуры.
+    function payrollOf(): BlockPayroll {
+      const payroll = payrollFixture();
+      return {
+        ...payroll,
+        positions: [{ ...payroll.positions[0], position_code: "MASTER_BVR", position_name: "Мастер БВР" }],
+        main_position_code: "MASTER_BVR",
+      };
+    }
+
+    function view(options: { source?: "RATES" | "PAYROLL"; executor?: "OWN" | "SUBCONTRACTOR"; canEdit?: boolean; economics?: BlockEconomics | null; onChange?: () => void }) {
+      const base = setup();
+      const economics = options.economics === undefined ? base.economics : options.economics;
+      const params = { ...base.params, payroll_source: options.source ?? "RATES", drilling_executor: options.executor ?? "OWN" };
+      const onChange = options.onChange ?? vi.fn();
+      render(
+        <LaborSection
+          group={base.group}
+          params={params}
+          defaults={base.defaults}
+          economics={economics}
+          volume={base.economics.block_volume_m3}
+          canEdit={options.canEdit ?? true}
+          onChange={onChange}
+        />,
+      );
+      return onChange;
+    }
+
+    it("выбор «Методика ФОТ» передаёт payroll_source", async () => {
+      const onChange = vi.fn();
+      view({ onChange });
+      await userEvent.setup().click(screen.getByRole("radio", { name: "Методика ФОТ" }));
+      expect(onChange).toHaveBeenCalledWith({ payroll_source: "PAYROLL" });
+      expect(screen.getByRole("radio", { name: "Ставки" })).toBeChecked();
+    });
+
+    it("без права правки переключатель недоступен", () => {
+      view({ canEdit: false });
+      expect(screen.getByRole("radio", { name: "Ставки" })).toBeDisabled();
+      expect(screen.getByRole("radio", { name: "Методика ФОТ" })).toBeDisabled();
+    });
+
+    it("при субподряде обе кнопки недоступны и есть подсказка", () => {
+      view({ executor: "SUBCONTRACTOR" });
+      expect(screen.getByRole("radio", { name: "Ставки" })).toBeDisabled();
+      expect(screen.getByRole("radio", { name: "Методика ФОТ" })).toBeDisabled();
+      expect(screen.getByText("Бурение на субподряде: ФОТ экипажа считает подрядчик")).toBeInTheDocument();
+    });
+
+    it("в режиме ставок подсказки субподряда нет", () => {
+      view({});
+      expect(screen.queryByText(/Бурение на субподряде/)).not.toBeInTheDocument();
+    });
+
+    it("строка должности методики показывает c_var и разделение частей, прочие остаются", () => {
+      const { economics } = setup();
+      view({ source: "PAYROLL", economics: { ...economics, payroll: payrollOf() } });
+      expect(screen.getByText(/Ставка: 45,00 ₽\/прив\. м/)).toBeInTheDocument();
+      expect(screen.getByText(/Постоянная 90\s000 ₽ · переменная 67\s500 ₽/)).toBeInTheDocument();
+      // Взрывник вне positions[] остаётся со своей подписью смен и окладом.
+      expect(screen.getAllByText(/Смены на блок: норматив/)).toHaveLength(2);
+      expect(screen.getByText(/ФОТ по методике: 157\s500 ₽/)).toBeInTheDocument();
+    });
+
+    it("под строками стоит разбивка методики", () => {
+      const { economics } = setup();
+      view({ source: "PAYROLL", economics: { ...economics, payroll: payrollOf() } });
+      expect(document.querySelector(".payroll-breakdown")).not.toBeNull();
+    });
+
+    it("методика выбрана, а блока нет — пояснение; при economics = null — нет", () => {
+      const { economics } = setup();
+      view({ source: "PAYROLL", economics });
+      expect(screen.getByText("Методика не применена — причина в блоке «Модель сообщает»")).toBeInTheDocument();
+      cleanup();
+      view({ source: "PAYROLL", economics: null });
+      expect(screen.queryByText(/Методика не применена/)).not.toBeInTheDocument();
+    });
+
+    it("в режиме ставок пояснения и разбивки нет", () => {
+      view({});
+      expect(screen.queryByText(/Методика не применена/)).not.toBeInTheDocument();
+      expect(document.querySelector(".payroll-breakdown")).toBeNull();
+    });
   });
 });

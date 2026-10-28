@@ -252,7 +252,7 @@ describe("LaborSection", () => {
       view({ executor: "SUBCONTRACTOR" });
       expect(screen.getByRole("radio", { name: "Ставки" })).toBeDisabled();
       expect(screen.getByRole("radio", { name: "Методика ФОТ" })).toBeDisabled();
-      expect(screen.getByText("Бурение на субподряде: ФОТ экипажа считает подрядчик")).toBeInTheDocument();
+      expect(screen.getByText("Бурение на субподряде: ФОТ экипажа считает подрядчик. Сохранённый выбор не применяется")).toBeInTheDocument();
     });
 
     it("при субподряде сохранённый PAYROLL остаётся выбранным", () => {

@@ -65,7 +65,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
 
   return (
     <>
-      <fieldset className="labor-source" disabled={!canEdit || subcontracted}>
+      <fieldset className={subcontracted ? "labor-source labor-source-inactive" : "labor-source"} disabled={!canEdit || subcontracted}>
         <legend>Источник ФОТ экипажа бурения</legend>
         <label>
           <input
@@ -88,7 +88,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
           Методика ФОТ
         </label>
         {subcontracted && (
-          <p className="labor-source-note">Бурение на субподряде: ФОТ экипажа считает подрядчик</p>
+          <p className="labor-source-note">Бурение на субподряде: ФОТ экипажа считает подрядчик. Сохранённый выбор не применяется</p>
         )}
       </fieldset>
       {params.payroll_source === "PAYROLL" && !subcontracted && methodReason && payroll === null && (

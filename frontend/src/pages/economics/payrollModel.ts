@@ -74,9 +74,26 @@ export function chartGeometry(
   const path = (project: (p: PayrollSeriesPoint) => number) =>
     points.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.pace).toFixed(2)},${project(p).toFixed(2)}`).join(" ");
 
-  /** Ставка на темпе: линейно между узлами ряда, за краями — крайнее значение. */
+  const isStep = scale.scale_type === "STEP";
+  /**
+   * Ступени: сервер ставит узел границы со ставкой нижней ступени, а выше границы
+   * действует верхняя, так что скачок — на x узла i: вертикаль от ставки i к ставке
+   * i+1, затем горизонталь до узла i+1.
+   */
+  const stepPath = () => {
+    const parts = [`M${x(points[0].pace).toFixed(2)},${y(points[0].rate).toFixed(2)}`];
+    for (let i = 1; i < points.length; i += 1) {
+      const [a, b] = [points[i - 1], points[i]];
+      if (b.rate !== a.rate) parts.push(`L${x(a.pace).toFixed(2)},${y(b.rate).toFixed(2)}`);
+      parts.push(`L${x(b.pace).toFixed(2)},${y(b.rate).toFixed(2)}`);
+    }
+    return parts.join(" ");
+  };
+
+  /** Ставка на темпе: линейно между узлами ряда (у ступеней — ставка ступени, куда попал темп), за краями — крайнее значение. */
   const rateAt = (at: number) => {
     if (at <= points[0].pace) return points[0].rate;
+    if (isStep) return (points.find((p) => at <= p.pace) ?? points[points.length - 1]).rate;
     for (let i = 1; i < points.length; i += 1) {
       if (at <= points[i].pace) {
         const [a, b] = [points[i - 1], points[i]];
@@ -88,7 +105,7 @@ export function chartGeometry(
   const marker = (at: number, rate: number): Marker => ({ x: x(at), y: y(rate), value: at });
 
   return {
-    ratePath: path((p) => y(p.rate)),
+    ratePath: isStep ? stepPath() : path((p) => y(p.rate)),
     perShiftPath: path((p) => yShift(p.per_shift)),
     xAxis: xTicks.map((value) => ({ value, pos: x(value), label: amount(value) })),
     yAxis: yTicks.map((value) => ({ value, pos: y(value), label: amount(value) })),

@@ -82,6 +82,23 @@ describe("chartGeometry", () => {
     expect(inside(geometry.markers.pace.x, geometry.markers.pace.y)).toBe(true);
   });
 
+  it("ступени: линия ставки идёт ступенями, маркер темпа — на ставке своей ступени", () => {
+    const payroll = payrollFixture({ scale: "STEP" });
+    const geometry = chartGeometry(payroll.series, payroll.scale!, 120, SIZE)!;
+    const pts = [...geometry.ratePath.matchAll(/[ML]\s*(-?[\d.]+),(-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+    let jumps = 0;
+    for (let i = 1; i < pts.length; i += 1) {
+      const [dx, dy] = [pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]];
+      expect(dx === 0 || dy === 0).toBe(true);
+      if (dx === 0 && dy !== 0) jumps += 1;
+    }
+    expect(jumps).toBe(3);
+    const yOf = (rate: number) => geometry.yAxis.length && SIZE.height - SIZE.padding - (rate / geometry.yAxis[geometry.yAxis.length - 1].value) * (SIZE.height - 2 * SIZE.padding);
+    // темп 120 лежит в (115,4; 150] — ставка 110
+    expect(geometry.markers.pace.y).toBeCloseTo(yOf(110), 1);
+    expect(chartGeometry(payroll.series, payroll.scale!, 60, SIZE)!.markers.pace.y).toBeCloseTo(yOf(75), 1);
+  });
+
   it("пустой или короткий ряд — null", () => {
     const payroll = payrollFixture();
     expect(chartGeometry([], payroll.scale!, 120, SIZE)).toBeNull();

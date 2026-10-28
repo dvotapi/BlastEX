@@ -380,4 +380,4 @@ def test_splits_are_measured_along_the_line_by_segment():
     up = line("U", [(15, 5), (15, 15)])
     splits, points = split_lines([zigzag, cross, up])
     assert splits["Z"] == pytest.approx([5.0, 25.0])
-    assert sorted(points) == pytest.approx(sorted([(5.0, 0.0), (15.0, 10.0)]))
+    assert [c for point in sorted(points) for c in point] == pytest.approx([5.0, 0.0, 15.0, 10.0])

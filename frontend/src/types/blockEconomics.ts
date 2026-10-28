@@ -125,6 +125,71 @@ export type CapacityWarning = {
   message: string;
 };
 
+export type PayrollPace = {
+  m_plan: number;
+  k_hardness: number;
+  k_diameter: number;
+  diameter_mm: number | null;
+  condition_code: string;
+};
+
+export type PayrollPosition = {
+  position_code: string;
+  /** Название из справочника; прогоны до PR 3b его не несут. */
+  position_name: string;
+  headcount: number;
+  /** ₽ на приведённый метр на человека; повременщику — 0. */
+  c_var: number;
+  fixed_rub: number;
+  variable_rub: number;
+  amount_rub: number;
+};
+
+/** Шкала сдельной премии основной должности. У «Ступеней» нормы и потолка нет. */
+export type PayrollScale = {
+  scale_type: string;
+  gamma: number | null;
+  norm_per_shift: number | null;
+  rate_norm: number | null;
+  ceiling_per_shift: number | null;
+  rate_ceiling: number | null;
+};
+
+export type PayrollSeriesPoint = { pace: number; rate: number; per_shift: number };
+
+export type PayrollSharePoint = { pace: number; crew_share: number; main_share: number };
+
+export type PayrollFlag = { code: string; message: string };
+
+export type PayrollMarginStatus = "CHECKED" | "NOT_CHECKED" | "NO_MARGIN" | "NOT_APPLICABLE";
+
+export type PayrollMargin = {
+  status: PayrollMarginStatus;
+  margin_rub_per_m: number | null;
+  plan: PayrollSharePoint | null;
+  /** У шкалы «Ступени» потолка нет — null. */
+  ceiling: PayrollSharePoint | null;
+  /** Доля, выше которой показывается предупреждение; может быть больше 1. */
+  threshold: number;
+  flags: PayrollFlag[];
+  lineage: Record<string, string>;
+};
+
+/** ФОТ экипажа бурения по методике: темп, строки, цена метра и доля в марже. */
+export type BlockPayroll = {
+  pace: PayrollPace;
+  normalized_meters: number;
+  effective_shifts: number;
+  positions: PayrollPosition[];
+  main_position_code: string | null;
+  scale: PayrollScale | null;
+  series: PayrollSeriesPoint[];
+  price_rub_per_m: number | null;
+  variable_rub_per_m: number | null;
+  margin: PayrollMargin;
+  lineage: Record<string, string>;
+};
+
 export type BlockEconomics = {
   model_version: string;
   block_volume_m3: number;
@@ -135,6 +200,8 @@ export type BlockEconomics = {
   natural: NaturalDrivers;
   capacity: CapacityWarning[];
   warnings: string[];
+  /** null — режим ставок; прогоны до блока ключа не несут. */
+  payroll?: BlockPayroll | null;
   /** Ревизия справочников, на которой посчитано. */
   reference_revision_id: string;
 };

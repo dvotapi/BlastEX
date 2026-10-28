@@ -14,6 +14,7 @@
 import type {
   BlockCostLine,
   BlockEconomics,
+  BlockPayroll,
   CostLayer,
   ModelDefaults,
   ModelParameters,
@@ -175,7 +176,7 @@ function makeLine(patch: Partial<BlockCostLine> & Pick<BlockCostLine, "cost_item
   };
 }
 
-export function economicsFixture(): BlockEconomics {
+export function economicsFixture(options: { payroll?: BlockPayroll | null } = {}): BlockEconomics {
   const lines: BlockCostLine[] = [
     // Взрывчатые материалы — роли сопоставляются по `cost_item_code`, а не
     // по `role_label`: бэкенд (`cost/model/materials.py`, `Role.label`)
@@ -338,6 +339,7 @@ export function economicsFixture(): BlockEconomics {
   const vat = price * vatRate;
 
   return {
+    payroll: options.payroll ?? null,
     model_version: "v1",
     block_volume_m3: volume,
     lines,
@@ -383,5 +385,49 @@ export function economicsFixture(): BlockEconomics {
     capacity: [],
     warnings: [],
     reference_revision_id: "REV-1",
+  };
+}
+
+/**
+ * Блок «ФОТ по методике»: кривая X машиниста (норма 115,3846 м/смену по 45 ₽,
+ * потолок 184,6154 по 168,66 ₽, γ = 2,811088) или ступени 45/75/110/140 с
+ * порогами 1500/1800/2400. Плановый темп 120 м/смену, доли — 29,98 % на плане
+ * и 100,65 % на потолке при пороге 30 %.
+ */
+export function payrollFixture(options: { scale?: "CURVE_POWER" | "STEP" } = {}): BlockPayroll {
+  const step = options.scale === "STEP";
+  const norm = 115.3846;
+  const ceiling = 184.6154;
+  const gamma = 2.811088;
+  const series = [0, 40, 80, 115.3846, 150, 184.6154].map((pace) => {
+    const rate = step ? [45, 75, 110, 140][Math.min(3, Math.floor(pace / 60))] : 45 * (Math.max(pace, 1e-9) / norm) ** gamma;
+    return { pace, rate, per_shift: rate * pace };
+  });
+  const planShare = step ? 0.42 : 0.2998;
+  return {
+    pace: { m_plan: 120, k_hardness: 1, k_diameter: 1, diameter_mm: 160, condition_code: "COND_GRANITE" },
+    normalized_meters: 1500,
+    effective_shifts: 12.5,
+    positions: [
+      { position_code: "DRILLER", position_name: "Машинист бурового станка", headcount: 1, c_var: 45, fixed_rub: 90000, variable_rub: 67500, amount_rub: 157500 },
+      { position_code: "ASSISTANT", position_name: "Помощник машиниста", headcount: 1, c_var: 45, fixed_rub: 70000, variable_rub: 67500, amount_rub: 137500 },
+    ],
+    main_position_code: "DRILLER",
+    scale: step
+      ? { scale_type: "STEP", gamma: null, norm_per_shift: null, rate_norm: null, ceiling_per_shift: null, rate_ceiling: null }
+      : { scale_type: "CURVE_POWER", gamma, norm_per_shift: norm, rate_norm: 45, ceiling_per_shift: ceiling, rate_ceiling: 168.66 },
+    series,
+    price_rub_per_m: 800,
+    variable_rub_per_m: 250,
+    margin: {
+      status: "CHECKED",
+      margin_rub_per_m: 300,
+      plan: { pace: 120, crew_share: planShare, main_share: planShare / 2 },
+      ceiling: step ? null : { pace: ceiling, crew_share: 1.0065, main_share: 0.5 },
+      threshold: 0.3,
+      flags: [],
+      lineage: {},
+    },
+    lineage: {},
   };
 }

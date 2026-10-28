@@ -284,13 +284,40 @@ describe("LaborSection", () => {
       expect(document.querySelector(".payroll-breakdown")).not.toBeNull();
     });
 
-    it("методика выбрана, а блока нет — пояснение; при economics = null — нет", () => {
+    it("методика выбрана, ответ несёт причину — пояснение показано", () => {
       const { economics } = setup();
-      view({ source: "PAYROLL", economics });
-      expect(screen.getByText("Методика не применена — причина в блоке «Модель сообщает»")).toBeInTheDocument();
+      for (const warning of [
+        "Методика ФОТ не применена: нет норм бурения.",
+        "ФОТ экипажа бурения посчитан по ставкам, а не по методике: ошибка",
+      ]) {
+        view({ source: "PAYROLL", economics: { ...economics, warnings: [warning] } });
+        expect(screen.getByText("Методика не применена — причина в блоке «Модель сообщает»")).toBeInTheDocument();
+        cleanup();
+      }
+    });
+
+    it("ответ без причины (устаревший, после переключения), economics = null и субподряд — пояснения нет", () => {
+      const { economics } = setup();
+      view({ source: "PAYROLL", economics: { ...economics, warnings: ["Другое предупреждение"] } });
+      expect(screen.queryByText(/Методика не применена/)).not.toBeInTheDocument();
       cleanup();
       view({ source: "PAYROLL", economics: null });
       expect(screen.queryByText(/Методика не применена/)).not.toBeInTheDocument();
+      cleanup();
+      view({
+        source: "PAYROLL",
+        executor: "SUBCONTRACTOR",
+        economics: { ...economics, warnings: ["Методика ФОТ не применена: нет норм бурения."] },
+      });
+      expect(screen.queryByText(/Методика не применена —/)).not.toBeInTheDocument();
+    });
+
+    it("имя группы радио уникально у каждого экземпляра раздела", () => {
+      const { economics } = setup();
+      view({ economics });
+      view({ economics });
+      const names = new Set(Array.from(document.querySelectorAll<HTMLInputElement>("input[type=radio]")).map((i) => i.name));
+      expect(names.size).toBe(2);
     });
 
     it("в режиме ставок пояснения и разбивки нет", () => {

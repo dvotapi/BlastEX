@@ -90,7 +90,8 @@ function drillingConditionHints(
   const techSpeed = parseNumber(payload.tech_speed_m_per_h);
   if (techSpeed === null) return [];
   const unproductive = parseNumber(payload.unproductive_h_per_shift) ?? 0;
-  const productiveHours = Math.max(shiftHours(context, typeof payload.site_code === "string" ? payload.site_code : null) - unproductive, 0);
+  const siteCode = typeof payload.site_code === "string" ? payload.site_code : null;
+  const productiveHours = Math.max(shiftHours(context, siteCode) - unproductive, 0);
   const perShift = techSpeed * productiveHours;
 
   const rig = findByCode(context, "equipment_types", payload.equipment_type_code);

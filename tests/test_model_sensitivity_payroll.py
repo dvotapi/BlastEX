@@ -81,3 +81,28 @@ def test_piece_rate_scales_tier_rates() -> None:
     assert D(str(payload["rate_ceiling"])) == D("187.0")
     assert D(str(payload["piece_rate_rub"])) == D("11.0")
     assert rate.payload["tiers"] == tiers and tiers[0]["rate"] == "40"
+
+
+def test_piece_rate_skips_bad_values() -> None:
+    """Нечисловые расценки и не-списочные `tiers` пропускаются без исключения."""
+
+    rate = fx.item(
+        "LR_BAD",
+        "Мусор",
+        {"position_code": "P_X", "tiers": "oops", "rate_norm": "abc", "rate_ceiling": "170"},
+    )
+    tiered = fx.item(
+        "LR_TIERS",
+        "Ступени",
+        {"position_code": "P_Y", "tiers": [{"rate": "x"}, {"rate": "60"}, "bad", None]},
+    )
+    references = fx.references(labor_rates=(rate, tiered))
+
+    _, _, changed = sensitivity._scale_piece_rates((fx.physical(), fx.parameters(), references), D("1.1"))
+    first, second = (item.payload for item in changed.sections["labor_rates"])
+
+    assert first["tiers"] == "oops" and first["rate_norm"] == "abc"
+    assert D(str(first["rate_ceiling"])) == D("187.0")
+    assert second["tiers"][0] == {"rate": "x"}
+    assert D(str(second["tiers"][1]["rate"])) == D("66.0")
+    assert second["tiers"][2:] == ["bad", None]

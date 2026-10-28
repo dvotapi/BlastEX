@@ -94,10 +94,9 @@ describe("PayrollBreakdown", () => {
     for (const position of payroll.positions) position.position_name = "";
     const { container } = render(<PayrollBreakdown payroll={payroll} />);
     const title = container.querySelector(".payroll-chart-title");
-    if (title) {
-      expect(title.textContent).toContain("должность");
-      expect(title.textContent).not.toContain(String(payroll.main_position_code));
-    }
+    expect(title).not.toBeNull();
+    expect(title!.textContent).toContain("должность");
+    expect(title!.textContent).not.toContain(String(payroll.main_position_code));
   });
 
   it("темп, приведённые метры, смены, цена метра с подписью и две доли", () => {

@@ -113,12 +113,12 @@ def _scale_piece_rates(inputs: Inputs, factor: Decimal) -> Inputs:
         payload = dict(item.payload)
         changed = False
         for field in ("rate_norm", "rate_ceiling"):
-            value = payload.get(field)
-            if value not in (None, ""):
-                payload[field] = str(decimal_value(value) * factor)
+            scaled_value = _scaled_number(payload.get(field), factor)
+            if scaled_value is not None:
+                payload[field] = scaled_value
                 changed = True
         tiers = payload.get("tiers")
-        if tiers:
+        if isinstance(tiers, (list, tuple)) and tiers:
             payload["tiers"] = [_scale_tier(tier, factor) for tier in tiers]
             changed = True
         scaled.append(replace(item, payload=payload) if changed else item)
@@ -127,10 +127,23 @@ def _scale_piece_rates(inputs: Inputs, factor: Decimal) -> Inputs:
     return physical, params, replace(references, sections=sections)
 
 
+def _scaled_number(value: Any, factor: Decimal) -> str | None:
+    """Число справочника, умноженное на множитель; пустое и нечисловое — None (пропуск)."""
+
+    if value in (None, ""):
+        return None
+    try:
+        result = decimal_value(value) * factor
+    except (ArithmeticError, ValueError, TypeError):
+        return None
+    return str(result) if result.is_finite() else None
+
+
 def _scale_tier(tier: Any, factor: Decimal) -> Any:
-    if not isinstance(tier, Mapping) or tier.get("rate") in (None, ""):
+    if not isinstance(tier, Mapping):
         return tier
-    return {**tier, "rate": str(decimal_value(tier["rate"]) * factor)}
+    scaled_value = _scaled_number(tier.get("rate"), factor)
+    return tier if scaled_value is None else {**tier, "rate": scaled_value}
 
 
 def _is_explosive_driver(item: ReferenceItem) -> bool:

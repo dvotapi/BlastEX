@@ -4,6 +4,7 @@
  * сметчик; строки взносов, резерва и суточных, которых нет в составе
  * бригады напрямую, показываются под ними только для чтения.
  */
+import { useId } from "react";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
 import { NumericInput } from "../NumericInput";
@@ -50,6 +51,14 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
   const payroll = economics?.payroll ?? null;
   const subcontracted = params.drilling_executor === "SUBCONTRACTOR";
 
+  const sourceName = `payroll_source-${useId()}`;
+  // Причина видна, только если её несёт текущий ответ: сразу после
+  // переключения ответ ещё посчитан по ставкам и текста про методику нет.
+  const methodReason =
+    economics?.warnings.some(
+      (text) => text.startsWith("Методика ФОТ не применена") || text.startsWith("ФОТ экипажа бурения посчитан по ставкам"),
+    ) ?? false;
+
   function setSource(source: ModelParameters["payroll_source"]) {
     onChange({ payroll_source: source });
   }
@@ -61,7 +70,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
         <label>
           <input
             type="radio"
-            name="payroll_source"
+            name={sourceName}
             value="RATES"
             checked={params.payroll_source === "RATES"}
             onChange={() => setSource("RATES")}
@@ -71,7 +80,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
         <label>
           <input
             type="radio"
-            name="payroll_source"
+            name={sourceName}
             value="PAYROLL"
             checked={params.payroll_source === "PAYROLL"}
             onChange={() => setSource("PAYROLL")}
@@ -82,7 +91,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
           <p className="labor-source-note">Бурение на субподряде: ФОТ экипажа считает подрядчик</p>
         )}
       </fieldset>
-      {params.payroll_source === "PAYROLL" && !subcontracted && economics !== null && payroll === null && (
+      {params.payroll_source === "PAYROLL" && !subcontracted && methodReason && payroll === null && (
         <p className="labor-source-note">Методика не применена — причина в блоке «Модель сообщает»</p>
       )}
       {params.crew.map((member, index) => {

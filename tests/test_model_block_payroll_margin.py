@@ -7,6 +7,9 @@
 """
 from __future__ import annotations
 
+import inspect
+import re
+
 from dataclasses import replace
 from decimal import Decimal
 
@@ -454,3 +457,4 @@ def test_series_empty_when_main_has_no_scale() -> None:
 
 def test_drilling_operation_constant_is_shared() -> None:
     assert block_margin.DRILLING_OPERATION is drilling.DRILLING_OPERATION
+    assert not re.search(r"^DRILLING_OPERATION\s*[:=]", inspect.getsource(block_margin), re.MULTILINE)

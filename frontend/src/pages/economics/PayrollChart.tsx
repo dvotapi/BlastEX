@@ -19,7 +19,7 @@ export function PayrollChart({ payroll }: { payroll: BlockPayroll }) {
   if (!geometry) return null;
   const { width, height, padding } = SIZE;
   const position = payroll.positions.find((item) => item.position_code === payroll.main_position_code);
-  const name = position ? position.position_name || position.position_code : "основная должность";
+  const name = position ? position.position_name || "должность" : "основная должность";
   const { norm, ceiling, pace } = geometry.markers;
 
   const items = [

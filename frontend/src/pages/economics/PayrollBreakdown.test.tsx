@@ -81,11 +81,23 @@ describe("PayrollBreakdown", () => {
     });
   });
 
-  it("без названия должности показывает код как запасной вариант", () => {
+  it("без названия должности показывает нейтральное слово, а не код", () => {
     const payroll = payrollFixture();
     payroll.positions[0].position_name = "";
     const { container } = render(<PayrollBreakdown payroll={payroll} />);
-    expect(container.querySelector(".payroll-table tbody tr")?.textContent).toContain("DRILLER");
+    expect(container.querySelector(".payroll-table tbody tr")?.textContent).toContain("должность");
+    expect(container.textContent).not.toContain(payroll.positions[0].position_code);
+  });
+
+  it("заголовок графика без названия основной должности не показывает код", () => {
+    const payroll = payrollFixture();
+    for (const position of payroll.positions) position.position_name = "";
+    const { container } = render(<PayrollBreakdown payroll={payroll} />);
+    const title = container.querySelector(".payroll-chart-title");
+    if (title) {
+      expect(title.textContent).toContain("должность");
+      expect(title.textContent).not.toContain(String(payroll.main_position_code));
+    }
   });
 
   it("темп, приведённые метры, смены, цена метра с подписью и две доли", () => {

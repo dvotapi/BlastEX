@@ -73,7 +73,7 @@ export function PayrollBreakdown({ payroll }: { payroll: BlockPayroll }) {
           <tbody>
             {payroll.positions.map((position) => (
               <tr key={position.position_code}>
-                <td>{position.position_name || position.position_code}</td>
+                <td>{position.position_name || "должность"}</td>
                 <td>{amount(position.headcount)}</td>
                 <td>{money(position.c_var)}</td>
                 <td>{money(position.fixed_rub, 0)}</td>

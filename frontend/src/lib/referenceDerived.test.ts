@@ -125,7 +125,7 @@ describe("ставки организации", () => {
 describe("смена объекта в подсказке скорости", () => {
   const site = (code: string, hours: unknown) => ({ code, name: code, is_active: true, payload: { shift_hours: hours } });
   const ctx = context({
-    organization_rates: [{ ...RATES, payload: { ...RATES.payload, shift_hours: "11" } }],
+    organization_rates: [{ ...RATES, payload: { ...RATES.payload, shift_hours: "10" } }],
     sites: [site("S12", "12"), site("S_EMPTY", null), site("S_ZERO", "0")],
   });
 
@@ -134,11 +134,11 @@ describe("смена объекта в подсказке скорости", () 
   });
 
   it("без значения, с нулём, неизвестный объект или без кода — смена организации", () => {
-    expect(shiftHours(ctx, "S_EMPTY")).toBe(11);
-    expect(shiftHours(ctx, "S_ZERO")).toBe(11);
-    expect(shiftHours(ctx, "UNKNOWN")).toBe(11);
-    expect(shiftHours(ctx, null)).toBe(11);
-    expect(shiftHours(ctx)).toBe(11);
+    expect(shiftHours(ctx, "S_EMPTY")).toBe(10);
+    expect(shiftHours(ctx, "S_ZERO")).toBe(10);
+    expect(shiftHours(ctx, "UNKNOWN")).toBe(10);
+    expect(shiftHours(ctx, null)).toBe(10);
+    expect(shiftHours(ctx)).toBe(10);
   });
 
   it("подсказка строки с site_code считает по смене объекта", () => {
@@ -146,6 +146,6 @@ describe("смена объекта в подсказке скорости", () 
     const withSite = derivedHints("drilling_conditions", "X", { ...base, site_code: "S12" }, ctx);
     const without = derivedHints("drilling_conditions", "X", base, ctx);
     expect(withSite[0].value.replace(/\s/g, " ")).toBe("110 м/смену");
-    expect(without[0].value.replace(/\s/g, " ")).toBe("100 м/смену");
+    expect(without[0].value.replace(/\s/g, " ")).toBe("90 м/смену");
   });
 });

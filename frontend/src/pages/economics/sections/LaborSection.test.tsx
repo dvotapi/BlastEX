@@ -255,6 +255,14 @@ describe("LaborSection", () => {
       expect(screen.getByText("Бурение на субподряде: ФОТ экипажа считает подрядчик")).toBeInTheDocument();
     });
 
+    it("при субподряде сохранённый PAYROLL остаётся выбранным", () => {
+      view({ executor: "SUBCONTRACTOR", source: "PAYROLL" });
+      expect(screen.getByRole("radio", { name: "Методика ФОТ" })).toBeChecked();
+      expect(screen.getByRole("radio", { name: "Методика ФОТ" })).toBeDisabled();
+      expect(screen.getByRole("radio", { name: "Ставки" })).not.toBeChecked();
+      expect(screen.getByRole("radio", { name: "Ставки" })).toBeDisabled();
+    });
+
     it("в режиме ставок подсказки субподряда нет", () => {
       view({});
       expect(screen.queryByText(/Бурение на субподряде/)).not.toBeInTheDocument();

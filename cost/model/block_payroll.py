@@ -182,12 +182,18 @@ def compute(context: ModelContext, norms: DrillingNorms | None) -> BlockPayroll 
     """Строки ФОТ экипажа бурения по методике; None — блок считается по ставкам."""
 
     params = context.params
-    if params.payroll_source != "PAYROLL" or norms is None:
+    if params.payroll_source != "PAYROLL" or params.drilling_executor == "SUBCONTRACTOR":
         return None
-    if params.drilling_executor == "SUBCONTRACTOR" or context.value("drilling_m") <= 0:
+    # Режим методики включён, но считать нечего: причина видна в «Модель сообщает».
+    if context.value("drilling_m") <= 0:
+        context.warn("Методика ФОТ не применена: нет метров бурения.")
+        return None
+    if norms is None:
+        context.warn("Методика ФОТ не применена: нет норм бурения.")
         return None
     crew = block_crew(context)
     if not crew:
+        context.warn("Методика ФОТ не применена: нет экипажа бурения.")
         return None
     try:
         pending, payroll, meters_source, effective_source = _plan(context, norms, crew)
@@ -199,6 +205,7 @@ def compute(context: ModelContext, norms: DrillingNorms | None) -> BlockPayroll 
     if not pending:
         # У всех должностей экипажа ноль смен: методике нечего писать, а
         # `labor` пропустит их так же.
+        context.warn("Методика ФОТ не применена: у всех должностей экипажа бурения ноль смен.")
         return None
     _write(context, pending, payroll, meters_source, effective_source)
     return payroll

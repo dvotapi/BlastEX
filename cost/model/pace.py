@@ -138,7 +138,7 @@ def planned_pace(
         "k_f": f"{tables.source}: {f_note}",
         "k_d": f"{tables.source}: {d_note}",
         "planned_pace": (
-            f"{condition.code}: {fn(v_commercial)} × {fn(k_f)} × {fn(k_d)} = {fn(pace)} м/смену"
+            f"{condition.name or condition.code}: {fn(v_commercial)} × {fn(k_f)} × {fn(k_d)} = {fn(pace)} м/смену"
         ),
     }
     return PlannedPace(pace, k_f, k_d, diameter, condition.code, tuple(dict.fromkeys(warnings)), lineage,

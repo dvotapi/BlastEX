@@ -41,7 +41,7 @@ def test_straight_crest_gives_a_rectangle_on_the_side_away_from_the_toe():
     draft = build([STRAIGHT_TOP], [STRAIGHT_BOTTOM], (20, 0), (60, 0), 20.0)
     assert draft.ok, draft.issues
     assert ring_area(draft.ring) == pytest.approx(800.0)
-    assert sorted(draft.ring) == pytest.approx(sorted([(20, 0), (60, 0), (60, 20), (20, 20)]))
+    assert [c for point in sorted(draft.ring) for c in point] == pytest.approx([20, 0, 20, 20, 60, 0, 60, 20])
     kinds = [item.kind for item in draft.items]
     assert kinds.count("part") == 1 and kinds.count("segment") == 2 and kinds.count("polyline") == 1
 

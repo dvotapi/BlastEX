@@ -247,15 +247,33 @@ var_m      = Σ строк слоя VARIABLE операции бурения / �
 
 | Ключ | Что |
 |---|---|
-| `pace` | `m_plan`, `k_hardness`, `k_diameter`, `diameter_mm`, `condition_code` |
+| `pace` | `m_plan`, `k_hardness`, `k_diameter`, `diameter_mm`, `condition_code`, `condition_name` |
 | `normalized_meters`, `effective_shifts` | `M_блока`; смены вахты за вычетом ТОиР (справочно) |
-| `positions[]` | `position_code`, `headcount`, `c_var`, `fixed_rub`, `variable_rub`, `amount_rub` |
+| `positions[]` | `position_code`, `position_name`, `headcount`, `c_var`, `fixed_rub`, `variable_rub`, `amount_rub` |
+| `main_position_code`, `scale`, `series` | главная по шкале должность; её шкала (`scale_type`, `gamma`, `norm_per_shift`, `rate_norm`, `ceiling_per_shift`, `rate_ceiling`) и ряды графика `{pace, rate, per_shift}` (пусто без шкалы) |
 | `price_rub_per_m`, `variable_rub_per_m` | цена метра и `var_m` (`null`, если метров бурения нет) |
 | `margin` | `status`, `margin_rub_per_m`, `plan` и `ceiling` (`pace`, `crew_share`, `main_share`), `threshold`, `flags[]` (`code`, `message`), `lineage` |
 | `lineage` | происхождение планового темпа, `M_блока`, смен и `c_var` по должностям |
 
 Отдельного флага «темп выше потолка» (порог `pace_flag_ratio`, по умолчанию
 1,2) и флага списанных часов в экономике блока нет — они есть только в превью. На блоке сигнал даёт флаг доли в марже.
+
+## Интерфейс блока
+
+Переключатель «Источник ФОТ экипажа бурения» стоит вверху раздела «Персонал»
+вкладки «Экономика блока» и пишет `payroll_source` в параметры прогона
+(«Ставки» — `RATES`, «Методика ФОТ» — `PAYROLL`); при субподряде он
+недоступен. Под строками экипажа на методике — свёрнутая разбивка: цена
+метра, доля в марже, плановый темп с названием строки матрицы, таблица
+должностей и график шкалы. График строится только по `payroll.series` и
+`payroll.scale`; формул шкалы фронт не знает, а линия «премия за смену» —
+относительная (масштаб по максимуму ряда). Статусы доли в марже: `CHECKED`,
+`NOT_CHECKED` (нет цены метра), `NO_MARGIN` (нет маржи), `NOT_APPLICABLE`
+(нет сдельщика со шкалой); у шкалы «Ступени» потолка нет, и доля показана
+«при плановом темпе». При откате на `RATES` и при субподряде `payroll`
+равен `null`, разбивки нет. Чувствительность «Сдельные расценки» масштабирует
+и шкалы методики (`rate_norm`, `rate_ceiling`, ставки ступеней). Подробности
+экрана — `Docs/BLOCK_ECONOMICS_UI.md`.
 
 ## Что остаётся в коде
 

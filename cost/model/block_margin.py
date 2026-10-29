@@ -25,13 +25,11 @@ from typing import Any, Sequence
 
 from cost.model import markup
 from cost.model.block_payroll import BlockPayroll
-from cost.model.drilling import DrillingNorms
+from cost.model.drilling import DRILLING_OPERATION, DrillingNorms
 from cost.model.inputs import ModelContext
-from cost.model.payroll import ONE, ZERO, MarginCheck, SharePoint, fn, margin_check
+from cost.model.payroll import ONE, ZERO, MarginCheck, Scale, SharePoint, fn, margin_check, scale_series
 from cost.v2.models import CostLayer, CostLine
 
-
-DRILLING_OPERATION = "PRODUCTION_DRILLING"
 
 
 def margin(
@@ -117,6 +115,32 @@ def _point(point: SharePoint | None) -> dict[str, float] | None:
     return {"pace": float(point.pace), "crew_share": float(point.crew_share), "main_share": float(point.main_share)}
 
 
+def _scale_dict(scale: Scale | None) -> dict[str, float | str | None] | None:
+    """Шкала основной должности — те же поля и единицы, что `premium` превью ФОТ."""
+
+    if scale is None:
+        return None
+    return {
+        "scale_type": scale.scale_type,
+        "gamma": _num(scale.gamma),
+        "norm_per_shift": _num(scale.norm_per_shift),
+        "rate_norm": _num(scale.rate_norm),
+        "ceiling_per_shift": _num(scale.ceiling_per_shift),
+        "rate_ceiling": _num(scale.rate_ceiling),
+    }
+
+
+def _series(scale: Scale | None, pace: Decimal) -> list[dict[str, float]]:
+    """Ряды графика r(m) и p(m) от плановой точки блока; нет шкалы — пусто."""
+
+    if scale is None:
+        return []
+    return [
+        {"pace": float(point.pace), "rate": float(point.rate), "per_shift": float(point.per_shift)}
+        for point in scale_series(scale, pace)
+    ]
+
+
 def to_dict(payroll: BlockPayroll, check: MarginCheck) -> dict[str, Any]:
     """Блок «ФОТ по методике» результата экономики: числа — float, как остальной `to_dict`."""
 
@@ -128,12 +152,14 @@ def to_dict(payroll: BlockPayroll, check: MarginCheck) -> dict[str, Any]:
             "k_diameter": float(pace.k_diameter),
             "diameter_mm": _num(pace.diameter_mm),
             "condition_code": pace.condition_code,
+            "condition_name": pace.condition_name,
         },
         "normalized_meters": float(payroll.normalized_meters),
         "effective_shifts": float(payroll.effective_shifts),
         "positions": [
             {
                 "position_code": position.position_code,
+                "position_name": position.position_name,
                 "headcount": float(position.headcount),
                 "c_var": float(position.c_var_rub_per_reduced_m),
                 "fixed_rub": float(position.fixed_rub),
@@ -142,6 +168,9 @@ def to_dict(payroll: BlockPayroll, check: MarginCheck) -> dict[str, Any]:
             }
             for position in payroll.positions
         ],
+        "main_position_code": payroll.main_position_code,
+        "scale": _scale_dict(payroll.main_scale),
+        "series": _series(payroll.main_scale, pace.pace),
         "price_rub_per_m": _num(check.price),
         "variable_rub_per_m": _num(check.variable),
         "margin": {

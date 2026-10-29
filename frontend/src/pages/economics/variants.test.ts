@@ -54,6 +54,13 @@ describe("варианты расчёта", () => {
     expect(next[1].parameters).not.toBe(base.parameters);
   });
 
+  it("дублирует источник ФОТ вместе с остальными параметрами", () => {
+    const base = makeVariant("Вариант 1", { ...baseParameters(), payroll_source: "PAYROLL" });
+    const next = duplicateVariant([base], base.id);
+    expect(next[1].parameters.payroll_source).toBe("PAYROLL");
+    expect(patchVariant(next, next[1].id, { payroll_source: "RATES" })[0].parameters.payroll_source).toBe("PAYROLL");
+  });
+
   it("не даёт больше четырёх", () => {
     const four = [1, 2, 3, 4].map((n) => ({ ...makeVariants()[0], id: `v${n}` }));
     expect(duplicateVariant(four, "v1")).toHaveLength(4);

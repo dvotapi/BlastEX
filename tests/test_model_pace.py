@@ -58,6 +58,12 @@ def _pace(conditions: tuple, *, site_rock: str = "ROCK_GRANITE"):
     return planned_pace(context, norms), norms
 
 
+def test_lineage_shows_condition_name_not_code() -> None:
+    pace, _ = _pace((_condition("COND_BASE"),))
+
+    assert pace.lineage["planned_pace"].startswith("JK830 COND_BASE:")
+
+
 def test_base_row_gives_pace_120() -> None:
     """Строка без породы и коронки — базовая: 12 м/ч × (11 − 1) ч = 120, k = 1."""
 

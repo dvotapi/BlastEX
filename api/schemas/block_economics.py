@@ -156,16 +156,37 @@ class PayrollPaceSchema(BaseModel):
     k_diameter: float
     diameter_mm: float | None = None
     condition_code: str = ""
+    # Название записи условий бурения; прогоны до PR 3b его не несут.
+    condition_name: str = ""
 
 
 class PayrollPositionSchema(BaseModel):
     position_code: str
+    # Название из справочника; прогоны до PR 3b его не несут.
+    position_name: str = ""
     headcount: float
     # ₽ на приведённый метр на человека; повременщику — 0.
     c_var: float
     fixed_rub: float
     variable_rub: float
     amount_rub: float
+
+
+class PayrollScaleSchema(BaseModel):
+    """Шкала сдельной премии основной должности: узлы кривой, ₽ за единицу и за смену."""
+
+    scale_type: str
+    gamma: float | None = None
+    norm_per_shift: float | None = None
+    rate_norm: float | None = None
+    ceiling_per_shift: float | None = None
+    rate_ceiling: float | None = None
+
+
+class PayrollSeriesPointSchema(BaseModel):
+    pace: float
+    rate: float
+    per_shift: float
 
 
 class PayrollSharePointSchema(BaseModel):
@@ -197,6 +218,11 @@ class PayrollBlockSchema(BaseModel):
     normalized_meters: float
     effective_shifts: float
     positions: list[PayrollPositionSchema]
+    # Основная сдельная должность, её шкала и ряды графика; нет шкалы —
+    # None и пусто, прогоны без ключей читаются.
+    main_position_code: str | None = None
+    scale: PayrollScaleSchema | None = None
+    series: list[PayrollSeriesPointSchema] = Field(default_factory=list)
     price_rub_per_m: float | None = None
     variable_rub_per_m: float | None = None
     margin: PayrollMarginSchema

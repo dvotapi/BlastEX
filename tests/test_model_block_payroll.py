@@ -93,6 +93,11 @@ def _run(context: ModelContext):
     return norms, block_payroll.compute(context, norms)
 
 
+def _condition_name(context: ModelContext) -> str:
+    condition = drilling.compute(context).condition
+    return condition.name or condition.code
+
+
 def _position(result, code: str):
     return next(position for position in result.positions if position.position_code == code)
 
@@ -442,6 +447,40 @@ def test_no_norm_no_payroll() -> None:
     context = _context()
     assert block_payroll.compute(context, None) is None
     assert context.payroll_positions == set()
+    assert any("нет норм бурения" in w for w in context.warnings)
+
+
+def test_no_drilling_metres_warns_in_payroll_mode() -> None:
+    context = _context(physical=fx.physical(drilling_m=0))
+    _run(context)
+    assert any("нет метров бурения" in w for w in context.warnings)
+
+
+def test_subcontract_and_rates_modes_stay_silent() -> None:
+    sub = _context(drilling_executor="SUBCONTRACTOR")
+    _run(sub)
+    rates = _context(payroll_source="RATES")
+    _run(rates)
+    for context in (sub, rates):
+        assert not any("Методика ФОТ не применена" in w for w in context.warnings)
+
+
+def test_all_zero_shifts_warns_in_payroll_mode() -> None:
+    crew = tuple(CrewMember(member.position_code, member.headcount, D("0")) for member in CREW)
+    context = _context(crew=crew)
+    _, result = _run(context)
+
+    assert result is None
+    assert any("ноль смен" in w for w in context.warnings)
+
+
+def test_no_crew_warns_in_payroll_mode(monkeypatch) -> None:
+    monkeypatch.setattr(block_payroll, "block_crew", lambda context: ())
+    context = _context()
+    _, result = _run(context)
+
+    assert result is None
+    assert any("нет экипажа бурения" in w for w in context.warnings)
 
 
 # --- Происхождение строки ------------------------------------------------------
@@ -464,7 +503,9 @@ def test_line_origin_is_payroll_and_code_kept() -> None:
     assert context.value("payroll_effective_shifts") == D("13")
     assert "ТОиР" in context.lineage["payroll_effective_shifts"]
     assert "1,572827" in context.lineage["payroll_c_var.P_DRILLER"]
-    assert "COND_GRANITE" in context.lineage["payroll_planned_pace"]
+    pace_source = context.lineage["payroll_planned_pace"]
+    assert "COND_GRANITE" not in pace_source
+    assert pace_source.startswith(_condition_name(context))
 
 
 def test_block_payroll_module_documents_the_formulas() -> None:

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ESTIMATE_GROUPS, buildEstimate, groupOf, lineNumber } from "./estimateModel";
+import { economicsFixture, payrollFixture } from "./testFixtures";
 import type { BlockCostLine, BlockEconomics } from "../../types/blockEconomics";
 
 const line = (patch: Partial<BlockCostLine>): BlockCostLine => ({
@@ -142,5 +143,22 @@ describe("lineNumber", () => {
     } as BlockEconomics);
     expect(lineNumber(explosives, 0)).toBe("1.1");
     expect(lineNumber(explosives, 2)).toBe("1.3");
+  });
+});
+
+describe("buildEstimate с блоком ФОТ по методике", () => {
+  it("группа «Персонал» строится с payroll и без него, строки PAYROLL попадают в неё", () => {
+    const plain = buildEstimate(economicsFixture());
+    const base = economicsFixture();
+    const withPayroll = buildEstimate({
+      ...base,
+      payroll: payrollFixture(),
+      lines: base.lines.map((l) => (l.cost_item_code === "LABOR_MASTER_BVR" ? { ...l, price_origin: "PAYROLL" as const } : l)),
+    });
+    const labor = withPayroll.find((g) => g.code === "LABOR")!;
+    const plainLabor = plain.find((g) => g.code === "LABOR")!;
+    expect(withPayroll.map((g) => g.code)).toEqual(plain.map((g) => g.code));
+    expect(labor.lines.some((l) => l.cost_item_code.startsWith("LABOR_") && l.price_origin === "PAYROLL")).toBe(true);
+    expect(labor.total).toBe(plainLabor.total);
   });
 });

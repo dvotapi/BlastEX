@@ -132,6 +132,8 @@ def block_crew(context: ModelContext) -> tuple[CrewSlot, ...]:
 @dataclass(frozen=True)
 class PositionPayroll:
     position_code: str
+    # Название должности из справочника — пользователю коды не показываются.
+    position_name: str
     # Человек в смене (с множителем чувствительности).
     headcount: Decimal
     # ₽ на приведённый метр на человека; повременщику — 0.
@@ -152,6 +154,8 @@ class BlockPayroll:
     # шкала основной — первой такой должности экипажа («получает машинист»).
     crew: tuple[CrewCost, ...] = ()
     main_scale: Scale | None = None
+    # Код первой сдельной должности экипажа — той, чья шкала в `main_scale`.
+    main_position_code: str | None = None
     # Порог доли — `margin_share_warn` календаря «Параметров ФОТ» года.
     threshold: Decimal = ZERO
     lineage: Mapping[str, str] = field(default_factory=dict)
@@ -178,12 +182,18 @@ def compute(context: ModelContext, norms: DrillingNorms | None) -> BlockPayroll 
     """Строки ФОТ экипажа бурения по методике; None — блок считается по ставкам."""
 
     params = context.params
-    if params.payroll_source != "PAYROLL" or norms is None:
+    if params.payroll_source != "PAYROLL" or params.drilling_executor == "SUBCONTRACTOR":
         return None
-    if params.drilling_executor == "SUBCONTRACTOR" or context.value("drilling_m") <= 0:
+    # Режим методики включён, но считать нечего: причина видна в «Модель сообщает».
+    if context.value("drilling_m") <= 0:
+        context.warn("Методика ФОТ не применена: нет метров бурения.")
+        return None
+    if norms is None:
+        context.warn("Методика ФОТ не применена: нет норм бурения.")
         return None
     crew = block_crew(context)
     if not crew:
+        context.warn("Методика ФОТ не применена: нет экипажа бурения.")
         return None
     try:
         pending, payroll, meters_source, effective_source = _plan(context, norms, crew)
@@ -195,6 +205,7 @@ def compute(context: ModelContext, norms: DrillingNorms | None) -> BlockPayroll 
     if not pending:
         # У всех должностей экипажа ноль смен: методике нечего писать, а
         # `labor` пропустит их так же.
+        context.warn("Методика ФОТ не применена: у всех должностей экипажа бурения ноль смен.")
         return None
     _write(context, pending, payroll, meters_source, effective_source)
     return payroll
@@ -253,6 +264,7 @@ def _plan(
         effective_shifts=effective.effective,
         crew=tuple(crew_costs),
         main_scale=crew_costs[0].scale if crew_costs else None,
+        main_position_code=crew_costs[0].position_code if crew_costs else None,
         threshold=readings[0][2].calendar.margin_share_warn,
         lineage={
             "planned_pace": pace.lineage.get("planned_pace", ""),
@@ -309,6 +321,7 @@ def _position_payroll(
         c_var_source = "повременная оплата: премии по шкале нет"
     result = PositionPayroll(
         position_code=slot.position_code,
+        position_name=position.name,
         headcount=per_shift,
         c_var_rub_per_reduced_m=c_var,
         fixed_rub=fixed,

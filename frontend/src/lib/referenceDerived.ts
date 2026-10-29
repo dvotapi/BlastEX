@@ -48,7 +48,13 @@ export function vatRate(context: DerivedContext): number {
   return value === null ? DEFAULT_VAT_RATE : value;
 }
 
-export function shiftHours(context: DerivedContext): number {
+/**
+ * Часы смены: значение объекта, если оно больше нуля, иначе ставок организации,
+ * иначе умолчание (как `resolve_shift_hours` на сервере).
+ */
+export function shiftHours(context: DerivedContext, siteCode?: string | null): number {
+  const site = parseNumber(findByCode(context, "sites", siteCode)?.payload?.shift_hours);
+  if (site !== null && site > 0) return site;
   const rates = firstActive(context, "organization_rates");
   const value = parseNumber(rates?.payload?.shift_hours);
   return value === null || value <= 0 ? DEFAULT_SHIFT_HOURS : value;
@@ -84,7 +90,8 @@ function drillingConditionHints(
   const techSpeed = parseNumber(payload.tech_speed_m_per_h);
   if (techSpeed === null) return [];
   const unproductive = parseNumber(payload.unproductive_h_per_shift) ?? 0;
-  const productiveHours = Math.max(shiftHours(context) - unproductive, 0);
+  const siteCode = typeof payload.site_code === "string" ? payload.site_code : null;
+  const productiveHours = Math.max(shiftHours(context, siteCode) - unproductive, 0);
   const perShift = techSpeed * productiveHours;
 
   const rig = findByCode(context, "equipment_types", payload.equipment_type_code);

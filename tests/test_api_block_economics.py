@@ -1009,6 +1009,10 @@ def test_payroll_mode_returns_the_payroll_block(client) -> None:
     assert payroll["pace"]["m_plan"] == pytest.approx(120)
     assert [row["position_code"] for row in payroll["positions"]] == ["P_DRILLER", "P_ASSISTANT"]
     assert payroll["price_rub_per_m"] > payroll["variable_rub_per_m"] > 0
+    assert len(payroll["series"]) >= 2
+    assert payroll["scale"]["scale_type"] == "CURVE_POWER"
+    assert payroll["main_position_code"] == "P_DRILLER"
+    assert all(row["position_name"] for row in payroll["positions"])
     assert payroll["margin"]["status"] == "CHECKED"
     assert payroll["margin"]["ceiling"]["crew_share"] > payroll["margin"]["plan"]["crew_share"]
 
@@ -1061,3 +1065,57 @@ def test_export_names_the_payroll_source(client) -> None:
             for row in sheet.iter_rows(values_only=True)
         ]
         assert ["Источник ФОТ", label] in rows
+
+
+def test_payroll_block_without_scale_keys_still_validates() -> None:
+    """Прогоны, сохранённые до шкалы и рядов, читаются: ключей нет — None и пусто."""
+
+    from api.schemas.block_economics import PayrollBlockSchema
+
+    schema = PayrollBlockSchema.model_validate(
+        {
+            "pace": {"m_plan": 1.0, "k_hardness": 1.0, "k_diameter": 1.0},
+            "normalized_meters": 1.0,
+            "effective_shifts": 1.0,
+            "positions": [
+                {"position_code": "P", "headcount": 1.0, "c_var": 0.0, "fixed_rub": 0.0, "variable_rub": 0.0, "amount_rub": 0.0}
+            ],
+            "margin": {"status": "NOT_APPLICABLE", "threshold": 0.3},
+        }
+    )
+    assert schema.scale is None and schema.series == [] and schema.main_position_code is None
+    assert schema.positions[0].position_name == ""
+
+
+def test_compare_runs_with_different_payroll_modes(client) -> None:
+    test_client, repository, passport_id = client
+    _publish_payroll_references(repository)
+    rates = test_client.post(
+        "/api/v1/economics/runs",
+        json={**_parameters(passport_id, payroll_source="RATES", crew=_PAYROLL_CREW), "name": "Ставки"},
+    ).json()
+    payroll = test_client.post(
+        "/api/v1/economics/runs",
+        json={**_parameters(passport_id, payroll_source="PAYROLL", crew=_PAYROLL_CREW), "name": "Методика"},
+    ).json()
+
+    response = test_client.post(
+        "/api/v1/economics/runs/compare", json={"run_ids": [rates["id"], payroll["id"]]}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    rows = {row["cost_item_code"]: row for row in body["rows"]}
+    codes = {line["cost_item_code"] for run in (rates, payroll) for line in run["result"]["lines"]}
+    assert set(rows) == codes
+    for code, row in rows.items():
+        assert len(row["amounts"]) == 2
+        for run, cell in zip((rates, payroll), row["amounts"]):
+            present = [line for line in run["result"]["lines"] if line["cost_item_code"] == code]
+            if not present:
+                assert cell["amount_rub"] == 0
+    # Строки ФОТ экипажа бурения считаются по-разному, и разница видна в сравнении.
+    labor = [row for code, row in rows.items() if code.startswith("LABOR_")]
+    assert any(row["delta_rub"] != 0 for row in labor)
+    contributions = rows["LABOR_CONTRIBUTIONS"]
+    assert contributions["amounts"][1]["amount_rub"] < contributions["amounts"][0]["amount_rub"]
+    assert contributions["delta_rub"] < 0

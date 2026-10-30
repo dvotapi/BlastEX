@@ -464,3 +464,17 @@
 .payroll-chart-tick { font-variant-numeric:tabular-nums; }
 .payroll-chart-axis-label { font-size:9px; }
 .payroll-chart-swatch-rate { border-top-style:solid; }
+
+/* Страница «Бурение»: зарплата экипажа и сводка блока */
+.drilling-block-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:0 0 14px; }
+.drilling-block-facts > div { padding:10px 12px; border:1px solid #dce4e0; border-radius:12px; background:#fff; }
+.drilling-block-facts dt { margin:0 0 4px; color:#78857f; font-size:11px; }
+.drilling-block-facts dd { margin:0; font-size:15px; font-weight:var(--font-weight-strong); }
+.drilling-payroll { padding:12px 14px; margin-bottom:14px; }
+.drilling-payroll h3 { margin:0 0 6px; font-size:15px; }
+.drilling-payroll-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px 16px; margin:8px 0; }
+.drilling-payroll-facts dt { color:#78857f; font-size:11px; }
+.drilling-payroll-facts dd { margin:2px 0 0; font-size:13px; }
+.drilling-payroll-hint { grid-column:1 / -1; margin:4px 0 0; color:#5f7168; font-size:12px; }
+.drilling-legacy { margin-top:18px; padding:10px 14px; }
+.drilling-legacy > summary { cursor:pointer; font-weight:var(--font-weight-strong); font-size:13px; }

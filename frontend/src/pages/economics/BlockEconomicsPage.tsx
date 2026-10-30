@@ -149,7 +149,7 @@ function BlockEconomicsPageBody({ onOpenDrilling }: PageProps) {
       case "DRILLING":
         return <DrillingSection {...common} onOpenDrillingPage={onOpenDrilling} onDefaultsChanged={() => void reloadDefaults()} />;
       case "LABOR":
-        return <LaborSection {...common} />;
+        return <LaborSection {...common} onOpenDrillingPage={onOpenDrilling} />;
       case "EQUIPMENT":
         return <EquipmentSection {...common} onOpenDrillingGroup={() => selectGroupFromChart("DRILLING")} />;
       case "FUEL":

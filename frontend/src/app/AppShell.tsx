@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type { BlastVariant, User } from "../types";
 import { BRAND } from "./brand";
 import { ComplexLogo } from "../assets/ComplexLogo";
@@ -12,6 +12,7 @@ import { DrillingPage } from "../pages/DrillingPage";
 import { LaborPage } from "../pages/LaborPage";
 import { EconomicsPage } from "../pages/EconomicsPage";
 import { BlockEconomicsPage } from "../pages/economics/BlockEconomicsPage";
+import { BlockEconomicsSessionProvider } from "../pages/economics/BlockEconomicsSessionContext";
 import { ReferencesPage } from "../pages/references/ReferencesPage";
 
 const PAGES = ["Расчёт", "Проектирование", "Экономика", "Экономика юнита", "Бурение", "ФОТ", "Справочники"] as const;
@@ -79,6 +80,17 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
     });
   }
 
+  // Расчёт блока (черновики сметы) нужен «Экономике» и «Бурению» и после первого
+  // захода живёт дальше: правки не теряются при переходе между этими страницами.
+  const blockSessionStarted = useRef(false);
+  if (page === "Экономика" || page === "Бурение") blockSessionStarted.current = true;
+  const withBlockSession = (children: ReactNode) =>
+    blockSessionStarted.current ? (
+      <BlockEconomicsSessionProvider passportId={economicsPassportId}>{children}</BlockEconomicsSessionProvider>
+    ) : (
+      children
+    );
+
   return (
     <WorkspaceProvider user={user}>
       <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}${page === "Проектирование" ? " design-mode" : ""}`}>
@@ -140,24 +152,28 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
             <div className="topbar-trailing-slot" ref={setTrailingSlot} />
           </header>
           <TopbarSlotProvider slot={topbarSlot} titleSlot={titleSlot} trailingSlot={trailingSlot}>
-            {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
-            {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
-            {page === "Проектирование" && (
-              <DesignPage
-                user={user}
-                incomingVariant={pendingVariant}
-                incomingFaceAngleFromVerticalDeg={pendingFaceAngle}
-                incomingRockName={pendingRockName}
-                onVariantConsumed={() => { setPendingVariant(null); setPendingFaceAngle(null); setPendingRockName(null); }}
-              />
+            {withBlockSession(
+              <>
+              {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
+              {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
+              {page === "Проектирование" && (
+                <DesignPage
+                  user={user}
+                  incomingVariant={pendingVariant}
+                  incomingFaceAngleFromVerticalDeg={pendingFaceAngle}
+                  incomingRockName={pendingRockName}
+                  onVariantConsumed={() => { setPendingVariant(null); setPendingFaceAngle(null); setPendingRockName(null); }}
+                />
+              )}
+              {page === "Экономика" && (
+                <BlockEconomicsPage passportId={economicsPassportId} onOpenDrilling={() => setPage("Бурение")} />
+              )}
+              {page === "Экономика юнита" && <EconomicsPage />}
+              {page === "Бурение" && <DrillingPage />}
+              {page === "ФОТ" && <LaborPage />}
+              {page === "Справочники" && <ReferencesPage user={user} />}
+              </>,
             )}
-            {page === "Экономика" && (
-              <BlockEconomicsPage passportId={economicsPassportId} onOpenDrilling={() => setPage("Бурение")} />
-            )}
-            {page === "Экономика юнита" && <EconomicsPage />}
-            {page === "Бурение" && <DrillingPage />}
-            {page === "ФОТ" && <LaborPage />}
-            {page === "Справочники" && <ReferencesPage user={user} />}
           </TopbarSlotProvider>
         </main>
         <nav className="mobile-nav">

@@ -123,4 +123,30 @@ describe("BlockEconomicsSessionProvider", () => {
 
     expect(screen.getByTestId("selected")).toHaveTextContent("PASSPORT-1");
   });
+
+  it("refresh подхватывает новый паспорт, когда список был пуст", async () => {
+    vi.mocked(api.economics.technicalPassports).mockResolvedValueOnce([]);
+    function Selected() {
+      const session = useBlockEconomicsSessionContext();
+      return (
+        <>
+          <output data-testid="selected">{session.selectedPassport || "—"}</output>
+          <button type="button" onClick={() => session.refresh()}>
+            обновить
+          </button>
+        </>
+      );
+    }
+    render(
+      <BlockEconomicsSessionProvider>
+        <Selected />
+      </BlockEconomicsSessionProvider>,
+    );
+    await waitFor(() => expect(api.economics.technicalPassports).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("selected")).toHaveTextContent("—");
+
+    await act(async () => screen.getByRole("button", { name: "обновить" }).click());
+
+    await waitFor(() => expect(screen.getByTestId("selected")).toHaveTextContent(defaultsFixture().passport.id));
+  });
 });

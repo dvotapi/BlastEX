@@ -178,10 +178,21 @@ export function useBlockEconomicsSession(passportId?: string | null, requestKey 
   /**
    * Сессия живёт между заходами на страницы, а справочники за это время могли
    * получить новую ревизию: перечитываем каталог и список прогонов, черновики
-   * не трогаем и пересчитываем на свежих данных. Пока первая загрузка не
-   * закончилась, ничего не делает — она и так читает свежее.
+   * не трогаем и пересчитываем на свежих данных. Пока первая загрузка блока
+   * не закончилась, обновляется только список паспортов.
    */
   const refresh = useCallback(() => {
+    // Список паспортов обновляется всегда: пока сессия жила, в «Расчёте» мог
+    // появиться новый паспорт, а при пустом списке каталога ещё нет.
+    api.economics
+      .technicalPassports()
+      .then((items) => {
+        setPassports(items);
+        setSelectedPassport((current) => current || items[0]?.id || "");
+      })
+      .catch(() => {
+        // Прежний список остаётся.
+      });
     if (!defaultsRef.current || !selectedPassportRef.current) return;
     void reloadDefaults();
     const passportAtStart = selectedPassportRef.current;

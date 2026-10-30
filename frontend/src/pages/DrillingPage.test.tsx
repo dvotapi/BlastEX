@@ -7,7 +7,7 @@ import { renderWithWorkspace } from "../test/render";
 vi.mock("../api/endpoints", () => ({
   api: {
     economics: { technicalPassports: vi.fn(), revisions: vi.fn(), referenceSnapshot: vi.fn() },
-    blockEconomics: { modelDefaults: vi.fn(), runs: vi.fn(), variants: vi.fn(), exportUrl: (id: string) => `/x/${id}` },
+    blockEconomics: { modelDefaults: vi.fn(), runs: vi.fn(), variants: vi.fn(), saveRun: vi.fn(), exportUrl: (id: string) => `/x/${id}` },
     drillingUnit: vi.fn(),
   },
 }));
@@ -66,5 +66,29 @@ describe("DrillingPage", () => {
     const legacy = document.querySelector("details.drilling-legacy") as HTMLDetailsElement;
     expect(legacy).not.toBeNull();
     expect(legacy.open).toBe(false);
+  });
+
+  it("правка источника ФОТ сохраняется кнопкой сценария блока, а не полосой рабочего пространства", async () => {
+    vi.mocked(api.blockEconomics.saveRun).mockResolvedValue({ id: "RUN-1" } as never);
+    renderWithWorkspace(
+      <BlockEconomicsSessionProvider passportId="PASSPORT-1">
+        <DrillingPage />
+      </BlockEconomicsSessionProvider>,
+    );
+    const user = userEvent.setup();
+    const save = await screen.findByRole("button", { name: "Сохранить сценарий блока" });
+    // Свежий сценарий ещё ни разу не сохранялся.
+    expect(save).toBeEnabled();
+
+    await user.click(await screen.findByRole("radio", { name: "Методика ФОТ" }));
+    expect(screen.getByText(/не сохранён/)).toBeInTheDocument();
+
+    await user.click(save);
+
+    await waitFor(() => expect(api.blockEconomics.saveRun).toHaveBeenCalledTimes(1));
+    const saved = vi.mocked(api.blockEconomics.saveRun).mock.calls[0];
+    expect(saved[1].payroll_source).toBe("PAYROLL");
+    await waitFor(() => expect(screen.getByText("Сценарий блока сохранён.")).toBeInTheDocument());
+    expect(save).toBeDisabled();
   });
 });

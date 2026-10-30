@@ -22,6 +22,9 @@ export function DrillingPage() {
     siteLabel,
     patchDraft,
     refresh,
+    dirty,
+    busy,
+    saveActive,
   } = useBlockEconomicsSessionContext();
   const [legacyOpen, setLegacyOpen] = useState(false);
 
@@ -80,6 +83,18 @@ export function DrillingPage() {
             />
           ) : (
             <p className="page-caption">Расчёт блока загружается…</p>
+          )}
+          {activeDraft && (
+            <div className="drilling-save">
+              <button type="button" disabled={!canEdit || !dirty || busy} onClick={() => void saveActive(activeDraft.name)}>
+                Сохранить сценарий блока
+              </button>
+              <span>
+                {dirty
+                  ? "Сценарий блока не сохранён. Источник ФОТ и другие параметры блока хранятся в нём, кнопка «Сохранить» вверху их не сохраняет."
+                  : "Сценарий блока сохранён."}
+              </span>
+            </div>
           )}
         </>
       )}

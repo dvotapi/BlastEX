@@ -38,7 +38,12 @@ function formatRevisionLabel(revisionId: string, revisions: ReferenceRevision[])
   return `Ревизия ${found.sequence_no} от ${date}`;
 }
 
-export function useBlockEconomicsSession(passportId?: string | null) {
+/**
+ * `requestKey` растёт при каждом новом запросе открыть тот же паспорт (кнопка
+ * «в экономику» в листе «Расчёт»): сессия живёт между заходами, и без него
+ * повторный запрос с тем же `passportId` не менял бы выбранный паспорт.
+ */
+export function useBlockEconomicsSession(passportId?: string | null, requestKey = 0) {
   const [passports, setPassports] = useState<TechnicalPassport[]>([]);
   const [selectedPassport, setSelectedPassport] = useState(passportId ?? "");
   const [defaults, setDefaults] = useState<ModelDefaults | null>(null);
@@ -61,6 +66,8 @@ export function useBlockEconomicsSession(passportId?: string | null) {
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
   const [compare, setCompare] = useState<RunCompare | null>(null);
   const [sensitivity, setSensitivity] = useState<SensitivityRow[]>([]);
+  // Растёт при `refresh`: заставляет пересчитать текущие черновики на свежих справочниках.
+  const [refreshTick, setRefreshTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [sensitivityBusy, setSensitivityBusy] = useState(false);
   const [error, setError] = useState("");
@@ -107,7 +114,7 @@ export function useBlockEconomicsSession(passportId?: string | null) {
 
   useEffect(() => {
     if (passportId) setSelectedPassport(passportId);
-  }, [passportId]);
+  }, [passportId, requestKey]);
 
   // Паспорт сменился — начинаем заново с одного черновика на нормативном
   // пакете. Смену пакета у уже открытого черновика отслеживает эффект ниже:
@@ -169,6 +176,27 @@ export function useBlockEconomicsSession(passportId?: string | null) {
   }, [selectedPassport, activePackageCode]);
 
   /**
+   * Сессия живёт между заходами на страницы, а справочники за это время могли
+   * получить новую ревизию: перечитываем каталог и список прогонов, черновики
+   * не трогаем и пересчитываем на свежих данных. Пока первая загрузка не
+   * закончилась, ничего не делает — она и так читает свежее.
+   */
+  const refresh = useCallback(() => {
+    if (!defaultsRef.current || !selectedPassportRef.current) return;
+    void reloadDefaults();
+    const passportAtStart = selectedPassportRef.current;
+    api.blockEconomics
+      .runs(passportAtStart)
+      .then((saved) => {
+        if (passportAtStart === selectedPassportRef.current) setRuns(saved);
+      })
+      .catch(() => {
+        // Прежний список прогонов остаётся.
+      });
+    setRefreshTick((tick) => tick + 1);
+  }, [reloadDefaults]);
+
+  /**
    * Пакет работ сменили у уже открытого черновика — обновляем каталог
    * (станки, операции, номенклатуру) под него, но список черновиков не
    * трогаем. Раньше это делал `loadDefaults`, и смена пакета у одного
@@ -221,7 +249,7 @@ export function useBlockEconomicsSession(passportId?: string | null) {
         });
     }, RECALC_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [drafts, selectedPassport]);
+  }, [drafts, selectedPassport, refreshTick]);
 
   const activeDraft = drafts.find((draft) => draft.id === activeId) ?? null;
   const dirty = activeDraft ? isDirty(activeDraft) : false;
@@ -556,6 +584,7 @@ export function useBlockEconomicsSession(passportId?: string | null) {
     passportContextLabel,
     exportUrl,
     reloadDefaults,
+    refresh,
     patchDraft,
     selectDraft,
     duplicateActive,

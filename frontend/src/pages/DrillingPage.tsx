@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useWorkspace } from "../app/useWorkspace";
 import { useBlockEconomicsSessionContext } from "./economics/BlockEconomicsSessionContext";
 import { DrillingPayrollPanel } from "./economics/drilling/DrillingPayrollPanel";
@@ -20,7 +21,15 @@ export function DrillingPage() {
     passport,
     siteLabel,
     patchDraft,
+    refresh,
   } = useBlockEconomicsSessionContext();
+  const [legacyOpen, setLegacyOpen] = useState(false);
+
+  // Зашли на страницу заново: справочники могли обновиться, пока сессия жила дальше.
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const params = activeDraft?.parameters ?? null;
   const rigName = params && defaults ? defaults.rigs.find((rig) => rig.code === params.rig_code)?.name : undefined;
@@ -75,9 +84,10 @@ export function DrillingPage() {
         </>
       )}
 
-      <details className="panel drilling-legacy">
+      <details className="panel drilling-legacy" onToggle={(event) => setLegacyOpen(event.currentTarget.open)}>
         <summary>Калькулятор цены п.м. для листа «Расчёт» (Excel-смета)</summary>
-        <LegacyDrillingCalculator />
+        {/* Считает по запросу только раскрытым: свёрнутому он ни к чему. */}
+        {legacyOpen && <LegacyDrillingCalculator />}
       </details>
     </div>
   );

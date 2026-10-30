@@ -22,7 +22,7 @@ import { FuelSection } from "./sections/FuelSection";
 import { LaborSection } from "./sections/LaborSection";
 import { ServicesSection } from "./sections/ServicesSection";
 import { EconomicsSidebar } from "./sidebar/EconomicsSidebar";
-import { BlockEconomicsSessionProvider, useBlockEconomicsSessionContext, useOptionalBlockEconomicsSession } from "./BlockEconomicsSessionContext";
+import { useBlockEconomicsSessionContext } from "./BlockEconomicsSessionContext";
 import type { ModelParameters } from "../../types/blockEconomics";
 
 /** Сколько раздел сметы остаётся подсвеченным после клика по сегменту диаграммы. */
@@ -59,32 +59,17 @@ function writeExpandedToStorage(expanded: Set<EstimateGroupCode>) {
 }
 
 type PageProps = {
-  passportId?: string | null;
   /** Открыть страницу «Бурение». */
   onOpenDrilling: () => void;
 };
 
-/**
- * Над страницей обычно стоит общий провайдер расчёта блока (его ставит
- * `AppShell`, чтобы черновики переживали переход на «Бурение»). Без него
- * страница заводит собственную сессию — так она работает отдельно, например в тестах.
- */
-export function BlockEconomicsPage(props: PageProps) {
-  const shared = useOptionalBlockEconomicsSession();
-  if (shared) return <BlockEconomicsPageBody {...props} />;
-  return (
-    <BlockEconomicsSessionProvider passportId={props.passportId}>
-      <BlockEconomicsPageBody {...props} />
-    </BlockEconomicsSessionProvider>
-  );
-}
-
-function BlockEconomicsPageBody({ onOpenDrilling }: PageProps) {
+/** Расчёт блока приходит из `BlockEconomicsSessionProvider` (его ставит `AppShell`). */
+export function BlockEconomicsPage({ onOpenDrilling }: PageProps) {
   const {
     passports, selectedPassport, setSelectedPassport, defaults, drafts, activeId, activeDraft, dirty,
     results, runs, selectedRuns, setSelectedRuns, compare, sensitivity, busy, sensitivityBusy, error,
     status, movingService, resultsMatchDrafts, activeEconomics, volume, groups, passport, siteLabel,
-    revisionLabel, passportRevisionLabel, passportContextLabel, exportUrl, reloadDefaults, patchDraft,
+    revisionLabel, passportRevisionLabel, passportContextLabel, exportUrl, reloadDefaults, refresh, patchDraft,
     selectDraft, duplicateActive, resetActiveDraft, removeDraft, renameDraft, moveServiceToReference,
     saveActive, openRun, computeSensitivity, compareRuns,
   } = useBlockEconomicsSessionContext();
@@ -96,6 +81,12 @@ function BlockEconomicsPageBody({ onOpenDrilling }: PageProps) {
   const highlightTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearTimeout(highlightTimer.current), []);
+
+  // Зашли на страницу заново: справочники могли обновиться, пока сессия жила дальше.
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Раскрытые разделы переживают перезагрузку вкладки в пределах вкладки
   // браузера: запоминаем набор при каждом изменении.

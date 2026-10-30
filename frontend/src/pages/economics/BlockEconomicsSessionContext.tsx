@@ -9,18 +9,16 @@ const BlockEconomicsSessionContext = createContext<BlockEconomicsSession | null>
  */
 export function BlockEconomicsSessionProvider({
   passportId,
+  requestKey,
   children,
 }: {
   passportId?: string | null;
+  /** См. `useBlockEconomicsSession`. */
+  requestKey?: number;
   children: ReactNode;
 }) {
-  const session = useBlockEconomicsSession(passportId);
+  const session = useBlockEconomicsSession(passportId, requestKey);
   return <BlockEconomicsSessionContext.Provider value={session}>{children}</BlockEconomicsSessionContext.Provider>;
-}
-
-/** `null` — над компонентом нет провайдера. */
-export function useOptionalBlockEconomicsSession(): BlockEconomicsSession | null {
-  return useContext(BlockEconomicsSessionContext);
 }
 
 export function useBlockEconomicsSessionContext(): BlockEconomicsSession {

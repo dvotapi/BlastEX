@@ -68,14 +68,15 @@ describe("DrillingPayrollPanel", () => {
         natural: {
           ...economics.natural,
           values: { ...economics.natural.values, drilling_tech_speed_m_per_h: "15.5", v_commercial_m_per_shift: "155" },
-          lineage: { ...economics.natural.lineage, drilling_condition: "drilling_conditions.NORM_LOM (станок + карьер)" },
         },
       },
     });
     expect(document.querySelector(".payroll-breakdown")).not.toBeNull();
     expect(screen.getByText("Технологическая скорость").nextElementSibling).toHaveTextContent("15,5 м/ч");
     expect(screen.getByText("Коммерческая скорость").nextElementSibling).toHaveTextContent("155 м/смену");
-    expect(screen.getByText("drilling_conditions.NORM_LOM (станок + карьер)")).toBeInTheDocument();
+    // Название строки матрицы, а не служебный код записи.
+    expect(screen.getByText("Откуда скорость").nextElementSibling).toHaveTextContent("Гранит, коронка 160");
+    expect(document.body.textContent).not.toMatch(/drilling_conditions\./);
     expect(screen.queryByRole("spinbutton")).toBeNull();
   });
 
@@ -87,6 +88,7 @@ describe("DrillingPayrollPanel", () => {
     ]) {
       view({ source: "PAYROLL", economics: { ...economics, payroll: null, warnings: [warning] } });
       expect(screen.getByText(warning)).toBeInTheDocument();
+      expect(screen.queryByText("Расчёт выполняется…")).not.toBeInTheDocument();
       cleanup();
     }
   });

@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { BlastVariant, User } from "../types";
 import { BRAND } from "./brand";
 import { ComplexLogo } from "../assets/ComplexLogo";
@@ -44,6 +44,9 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
   // Порода листа «Расчёт» (имя записи справочника) — тоже едет с вариантом.
   const [pendingRockName, setPendingRockName] = useState<string | null>(null);
   const [economicsPassportId, setEconomicsPassportId] = useState<string | null>(null);
+  // Номер запроса «открыть экономику паспорта»: сессия блока живёт между заходами,
+  // и повторный запрос того же паспорта должен снова выбрать его.
+  const [economicsRequestKey, setEconomicsRequestKey] = useState(0);
   // Узел в шапке, куда лист «Расчёт» переносит свою полосу инструментов
   // через createPortal (см. topbarSlot.tsx); callback-ref, чтобы страницы
   // узнали об узле сразу после его монтирования.
@@ -69,6 +72,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
 
   function openEconomics(passportId: string) {
     setEconomicsPassportId(passportId);
+    setEconomicsRequestKey((key) => key + 1);
     setPage("Экономика");
   }
 
@@ -82,11 +86,14 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
 
   // Расчёт блока (черновики сметы) нужен «Экономике» и «Бурению» и после первого
   // захода живёт дальше: правки не теряются при переходе между этими страницами.
-  const blockSessionStarted = useRef(false);
-  if (page === "Экономика" || page === "Бурение") blockSessionStarted.current = true;
+  const needsBlockSession = page === "Экономика" || page === "Бурение";
+  const [blockSessionStarted, setBlockSessionStarted] = useState(needsBlockSession);
+  if (needsBlockSession && !blockSessionStarted) setBlockSessionStarted(true);
   const withBlockSession = (children: ReactNode) =>
-    blockSessionStarted.current ? (
-      <BlockEconomicsSessionProvider passportId={economicsPassportId}>{children}</BlockEconomicsSessionProvider>
+    blockSessionStarted || needsBlockSession ? (
+      <BlockEconomicsSessionProvider passportId={economicsPassportId} requestKey={economicsRequestKey}>
+        {children}
+      </BlockEconomicsSessionProvider>
     ) : (
       children
     );
@@ -166,7 +173,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
                 />
               )}
               {page === "Экономика" && (
-                <BlockEconomicsPage passportId={economicsPassportId} onOpenDrilling={() => setPage("Бурение")} />
+                <BlockEconomicsPage onOpenDrilling={() => setPage("Бурение")} />
               )}
               {page === "Экономика юнита" && <EconomicsPage />}
               {page === "Бурение" && <DrillingPage />}

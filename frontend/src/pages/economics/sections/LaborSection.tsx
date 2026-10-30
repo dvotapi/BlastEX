@@ -56,7 +56,7 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
 
   return (
     <>
-      {params.payroll_source === "PAYROLL" && !subcontracted && (
+      {params.payroll_source === "PAYROLL" && !subcontracted && economics?.payroll != null && (
         <p className="labor-source-note">
           ФОТ экипажа бурения посчитан по методике.{" "}
           {onOpenDrillingPage && (

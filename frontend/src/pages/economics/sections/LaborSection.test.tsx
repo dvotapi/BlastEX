@@ -271,6 +271,11 @@ describe("LaborSection", () => {
       expect(screen.queryByText(/посчитан по методике/)).not.toBeInTheDocument();
     });
 
+    it("методика выбрана, но расчёт откатился на ставки — ссылки нет", () => {
+      view({ source: "PAYROLL", economics: { ...setup().economics, payroll: null } });
+      expect(screen.queryByText(/посчитан по методике/)).not.toBeInTheDocument();
+    });
+
     it("при субподряде ссылки нет", () => {
       view({ source: "PAYROLL", executor: "SUBCONTRACTOR" });
       expect(screen.queryByText(/посчитан по методике/)).not.toBeInTheDocument();

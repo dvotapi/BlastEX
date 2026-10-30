@@ -29,7 +29,7 @@ export function DrillingPayrollPanel({ params, economics, canEdit, onChange }: D
   const reason =
     economics?.warnings.find((text) => METHOD_NOT_APPLIED.some((prefix) => text.startsWith(prefix))) ?? "";
   const values = economics?.natural.values ?? {};
-  const conditionTitle = economics?.natural.lineage.drilling_condition;
+  const conditionName = payroll?.pace.condition_name || undefined;
 
   return (
     <section className="panel drilling-payroll" aria-label="Зарплата экипажа бурения">
@@ -72,7 +72,7 @@ export function DrillingPayrollPanel({ params, economics, canEdit, onChange }: D
 
       {methodology && !subcontracted && (
         <dl className="drilling-payroll-facts">
-          <div title={conditionTitle || undefined}>
+          <div>
             <dt>Технологическая скорость</dt>
             <dd>
               {values.drilling_tech_speed_m_per_h === undefined
@@ -90,18 +90,20 @@ export function DrillingPayrollPanel({ params, economics, canEdit, onChange }: D
           </div>
           <div>
             <dt>Откуда скорость</dt>
-            <dd>{conditionTitle ?? "—"}</dd>
+            <dd>{conditionName ?? "—"}</dd>
           </div>
-          <p className="drilling-payroll-hint">
-            Скорость и простой берутся из справочника «Условия бурения» (станок, объект, порода) и здесь не правятся.
-          </p>
         </dl>
+      )}
+      {methodology && !subcontracted && (
+        <p className="drilling-payroll-hint">
+          Скорость и простой берутся из справочника «Условия бурения» (станок, объект, порода) и здесь не правятся.
+        </p>
       )}
 
       {payroll ? (
         <PayrollBreakdown payroll={payroll} />
       ) : (
-        methodology && !subcontracted && <p className="labor-source-note">Расчёт выполняется…</p>
+        methodology && !subcontracted && !reason && <p className="labor-source-note">Расчёт выполняется…</p>
       )}
 
       {payroll === null && !methodology && economics && (

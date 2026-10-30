@@ -18,6 +18,9 @@ function Reader() {
   const session = useBlockEconomicsSessionContext();
   return (
     <>
+      <button type="button" onClick={() => session.refresh()}>
+        обновить
+      </button>
       <output data-testid="source">{session.activeDraft?.parameters.payroll_source ?? "—"}</output>
       <button type="button" onClick={() => session.patchDraft(session.activeId, { payroll_source: "PAYROLL" })}>
         на методику
@@ -70,5 +73,54 @@ describe("BlockEconomicsSessionProvider", () => {
 
     expect(screen.getByTestId("source")).toHaveTextContent("PAYROLL");
     expect(api.blockEconomics.modelDefaults).toHaveBeenCalledTimes(1);
+  });
+
+  it("refresh перечитывает каталог и пересчитывает черновики, не теряя правок", async () => {
+    render(<Pages />);
+    await waitFor(() => expect(screen.getByTestId("source")).toHaveTextContent("RATES"));
+    await act(async () => screen.getByRole("button", { name: "на методику" }).click());
+    await waitFor(() => expect(api.blockEconomics.variants).toHaveBeenCalled());
+    const before = vi.mocked(api.blockEconomics.variants).mock.calls.length;
+
+    await act(async () => screen.getByRole("button", { name: "обновить" }).click());
+
+    await waitFor(() => expect(vi.mocked(api.blockEconomics.variants).mock.calls.length).toBeGreaterThan(before));
+    expect(api.blockEconomics.modelDefaults).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("source")).toHaveTextContent("PAYROLL");
+  });
+
+  it("повторный запрос того же паспорта (новый requestKey) снова выбирает его", async () => {
+    const second = { ...defaultsFixture().passport, id: "PASSPORT-2" };
+    vi.mocked(api.economics.technicalPassports).mockResolvedValue([defaultsFixture().passport, second]);
+    function Selector() {
+      const session = useBlockEconomicsSessionContext();
+      return (
+        <>
+          <output data-testid="selected">{session.selectedPassport}</output>
+          <button type="button" onClick={() => session.setSelectedPassport("PASSPORT-2")}>
+            выбрать второй
+          </button>
+        </>
+      );
+    }
+    function Host() {
+      const [key, setKey] = useState(0);
+      return (
+        <BlockEconomicsSessionProvider passportId="PASSPORT-1" requestKey={key}>
+          <button type="button" onClick={() => setKey((value) => value + 1)}>
+            запрос
+          </button>
+          <Selector />
+        </BlockEconomicsSessionProvider>
+      );
+    }
+    render(<Host />);
+    await waitFor(() => expect(screen.getByTestId("selected")).toHaveTextContent("PASSPORT-1"));
+    await act(async () => screen.getByRole("button", { name: "выбрать второй" }).click());
+    expect(screen.getByTestId("selected")).toHaveTextContent("PASSPORT-2");
+
+    await act(async () => screen.getByRole("button", { name: "запрос" }).click());
+
+    expect(screen.getByTestId("selected")).toHaveTextContent("PASSPORT-1");
   });
 });

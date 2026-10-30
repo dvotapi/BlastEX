@@ -28,6 +28,7 @@ vi.mock("../../api/endpoints", () => ({
 
 import { api } from "../../api/endpoints";
 import { BlockEconomicsPage } from "./BlockEconomicsPage";
+import { BlockEconomicsSessionProvider } from "./BlockEconomicsSessionContext";
 import { money } from "./format";
 import { defaultsFixture, economicsFixture, paramsFixture } from "./testFixtures";
 import type {
@@ -85,7 +86,7 @@ async function expandAllGroups(user: ReturnType<typeof userEvent.setup>) {
 
 describe("BlockEconomicsPage", () => {
   it("смета строится из ответа API: семь разделов и итог себестоимости", async () => {
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
 
     expect(await screen.findByRole("heading", { name: "Экономика блока", level: 1 })).toBeInTheDocument();
     expect(await explosivesGroupHeading()).toBeInTheDocument();
@@ -109,7 +110,7 @@ describe("BlockEconomicsPage", () => {
     vi.mocked(api.blockEconomics.variants).mockResolvedValue(variantsResponse(economicsOnLaterRevision));
 
     const { container } = renderWithWorkspace(
-      <BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />,
+      <BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>,
     );
     await screen.findByRole("heading", { name: "Экономика блока", level: 1 });
 
@@ -133,7 +134,7 @@ describe("BlockEconomicsPage", () => {
       .mockResolvedValueOnce(variantsResponse(economicsFixture()))
       .mockResolvedValueOnce(variantsResponse(withExplosiveAmount(1500000)));
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await expandAllGroups(user);
 
     await user.click(screen.getByRole("combobox", { name: "Основное ВВ" }));
@@ -174,7 +175,7 @@ describe("BlockEconomicsPage", () => {
     vi.mocked(api.blockEconomics.saveRun).mockResolvedValue(savedRun);
     vi.mocked(api.blockEconomics.runs).mockResolvedValueOnce([]).mockResolvedValueOnce([runSummary]);
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await explosivesGroupHeading();
 
     await user.click(screen.getByRole("button", { name: "Сохранить" }));
@@ -215,7 +216,7 @@ describe("BlockEconomicsPage", () => {
     vi.mocked(api.blockEconomics.run).mockResolvedValue(savedRun);
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await explosivesGroupHeading();
     // Свежий черновик от умолчаний ещё не сохранён — savedKey пуст, поэтому «грязный» с самого начала.
     expect(screen.getByText("Черновик · не сохранено")).toBeInTheDocument();
@@ -284,7 +285,7 @@ describe("BlockEconomicsPage", () => {
     vi.mocked(api.blockEconomics.run).mockResolvedValue(savedRun);
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await explosivesGroupHeading();
 
     await user.click(screen.getByRole("tab", { name: "История" }));
@@ -331,7 +332,7 @@ describe("BlockEconomicsPage", () => {
     vi.mocked(api.blockEconomics.run).mockResolvedValue(savedRun);
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await explosivesGroupHeading();
 
     await user.click(screen.getByRole("button", { name: "Сохранить" }));
@@ -353,7 +354,7 @@ describe("BlockEconomicsPage", () => {
       .mockResolvedValueOnce(variantsResponse(economicsFixture()))
       .mockRejectedValueOnce(new Error("Сервис недоступен"));
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await expandAllGroups(user);
 
     await user.click(screen.getByRole("combobox", { name: "Основное ВВ" }));
@@ -366,7 +367,7 @@ describe("BlockEconomicsPage", () => {
 
   it("клик по сегменту диаграммы раскрывает раздел сметы", async () => {
     const user = userEvent.setup();
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await explosivesGroupHeading();
 
     const donutButtons = screen.getAllByRole("button", { name: /Взрывчатые материалы/ });
@@ -380,7 +381,7 @@ describe("BlockEconomicsPage", () => {
   it("ссылка «Перейти к расчёту бурения» зовёт onOpenDrilling без лишнего пересчёта", async () => {
     const user = userEvent.setup();
     const onOpenDrilling = vi.fn();
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={onOpenDrilling} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={onOpenDrilling} /></BlockEconomicsSessionProvider>);
     await expandAllGroups(user);
     await waitFor(() => expect(api.blockEconomics.variants).toHaveBeenCalledTimes(1));
 
@@ -392,7 +393,7 @@ describe("BlockEconomicsPage", () => {
 
   it("раскрытые разделы сметы сохраняются в sessionStorage и восстанавливаются при новом монтировании", async () => {
     const user = userEvent.setup();
-    const { unmount } = renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    const { unmount } = renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     const heading = await explosivesGroupHeading();
     expect(heading).toHaveAttribute("aria-expanded", "false");
 
@@ -401,7 +402,7 @@ describe("BlockEconomicsPage", () => {
     expect(JSON.parse(window.sessionStorage.getItem("blastex.economics.expanded") ?? "[]")).toEqual(["EXPLOSIVES"]);
 
     unmount();
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
 
     expect(await explosivesGroupHeading()).toHaveAttribute("aria-expanded", "true");
   });
@@ -409,14 +410,14 @@ describe("BlockEconomicsPage", () => {
   it("повреждённая запись в sessionStorage не ломает вкладку — разделы открываются свёрнутыми", async () => {
     window.sessionStorage.setItem("blastex.economics.expanded", "не json");
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
 
     expect(await explosivesGroupHeading()).toHaveAttribute("aria-expanded", "false");
   });
 
   it("вкладки «Чувствительность», «Сравнение сценариев» и «История» открываются", async () => {
     const user = userEvent.setup();
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await explosivesGroupHeading();
 
     await user.click(screen.getByRole("tab", { name: "Чувствительность" }));
@@ -450,7 +451,7 @@ describe("BlockEconomicsPage", () => {
       variants: variants.map((variant) => ({ name: variant.name, economics: economicsFixture() })),
     }));
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await expandAllGroups(user);
 
     // «Вариант 1» переходит на субподряд — подрядчик по умолчанию (первая
@@ -518,7 +519,7 @@ describe("BlockEconomicsPage", () => {
     // подтверждение потери несохранённых правок, отвечаем согласием.
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await explosivesGroupHeading();
 
     await user.click(screen.getByRole("tab", { name: "История" }));
@@ -574,7 +575,7 @@ describe("BlockEconomicsPage", () => {
     });
     vi.mocked(api.blockEconomics.subcontractRateToReference).mockReturnValue(publishPromise);
 
-    renderWithWorkspace(<BlockEconomicsPage passportId="PASSPORT-1" onOpenDrilling={vi.fn()} />);
+    renderWithWorkspace(<BlockEconomicsSessionProvider passportId="PASSPORT-1"><BlockEconomicsPage onOpenDrilling={vi.fn()} /></BlockEconomicsSessionProvider>);
     await expandAllGroups(user);
 
     // «Вариант 1» (активный на момент начала публикации) переходит на субподряд

@@ -80,6 +80,12 @@ describe("DrillingPayrollPanel", () => {
     expect(screen.queryByRole("spinbutton")).toBeNull();
   });
 
+  it("методика не применилась — скорости и подсказки про матрицу нет", () => {
+    view({ source: "PAYROLL", economics: { ...economicsFixture(), payroll: null, warnings: ["Методика ФОТ не применена: нет экипажа бурения."] } });
+    expect(screen.queryByText("Технологическая скорость")).not.toBeInTheDocument();
+    expect(screen.queryByText(/здесь не правятся/)).not.toBeInTheDocument();
+  });
+
   it("методика выбрана, ответ несёт причину — причина показана", () => {
     const economics = economicsFixture();
     for (const warning of [

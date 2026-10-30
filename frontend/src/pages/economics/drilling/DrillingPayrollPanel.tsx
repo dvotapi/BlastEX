@@ -70,7 +70,7 @@ export function DrillingPayrollPanel({ params, economics, canEdit, onChange }: D
         <p className="labor-source-note">{reason}</p>
       )}
 
-      {methodology && !subcontracted && (
+      {methodology && !subcontracted && payroll !== null && (
         <dl className="drilling-payroll-facts">
           <div>
             <dt>Технологическая скорость</dt>
@@ -94,7 +94,7 @@ export function DrillingPayrollPanel({ params, economics, canEdit, onChange }: D
           </div>
         </dl>
       )}
-      {methodology && !subcontracted && (
+      {methodology && !subcontracted && payroll !== null && (
         <p className="drilling-payroll-hint">
           Скорость и простой берутся из справочника «Условия бурения» (станок, объект, порода) и здесь не правятся.
         </p>

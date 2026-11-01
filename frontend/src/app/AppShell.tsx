@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { BlastVariant, User } from "../types";
 import { BRAND } from "./brand";
 import { ComplexLogo } from "../assets/ComplexLogo";
@@ -12,6 +12,7 @@ import { DrillingPage } from "../pages/DrillingPage";
 import { LaborPage } from "../pages/LaborPage";
 import { EconomicsPage } from "../pages/EconomicsPage";
 import { BlockEconomicsPage } from "../pages/economics/BlockEconomicsPage";
+import { BlockEconomicsSessionProvider } from "../pages/economics/BlockEconomicsSessionContext";
 import { ReferencesPage } from "../pages/references/ReferencesPage";
 
 const PAGES = ["Расчёт", "Проектирование", "Экономика", "Экономика юнита", "Бурение", "ФОТ", "Справочники"] as const;
@@ -43,6 +44,9 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
   // Порода листа «Расчёт» (имя записи справочника) — тоже едет с вариантом.
   const [pendingRockName, setPendingRockName] = useState<string | null>(null);
   const [economicsPassportId, setEconomicsPassportId] = useState<string | null>(null);
+  // Номер запроса «открыть экономику паспорта»: сессия блока живёт между заходами,
+  // и повторный запрос того же паспорта должен снова выбрать его.
+  const [economicsRequestKey, setEconomicsRequestKey] = useState(0);
   // Узел в шапке, куда лист «Расчёт» переносит свою полосу инструментов
   // через createPortal (см. topbarSlot.tsx); callback-ref, чтобы страницы
   // узнали об узле сразу после его монтирования.
@@ -68,6 +72,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
 
   function openEconomics(passportId: string) {
     setEconomicsPassportId(passportId);
+    setEconomicsRequestKey((key) => key + 1);
     setPage("Экономика");
   }
 
@@ -78,6 +83,20 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
       return next;
     });
   }
+
+  // Расчёт блока (черновики сметы) нужен «Экономике» и «Бурению» и после первого
+  // захода живёт дальше: правки не теряются при переходе между этими страницами.
+  const needsBlockSession = page === "Экономика" || page === "Бурение";
+  const [blockSessionStarted, setBlockSessionStarted] = useState(needsBlockSession);
+  if (needsBlockSession && !blockSessionStarted) setBlockSessionStarted(true);
+  const withBlockSession = (children: ReactNode) =>
+    blockSessionStarted || needsBlockSession ? (
+      <BlockEconomicsSessionProvider passportId={economicsPassportId} requestKey={economicsRequestKey}>
+        {children}
+      </BlockEconomicsSessionProvider>
+    ) : (
+      children
+    );
 
   return (
     <WorkspaceProvider user={user}>
@@ -140,24 +159,28 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
             <div className="topbar-trailing-slot" ref={setTrailingSlot} />
           </header>
           <TopbarSlotProvider slot={topbarSlot} titleSlot={titleSlot} trailingSlot={trailingSlot}>
-            {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
-            {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
-            {page === "Проектирование" && (
-              <DesignPage
-                user={user}
-                incomingVariant={pendingVariant}
-                incomingFaceAngleFromVerticalDeg={pendingFaceAngle}
-                incomingRockName={pendingRockName}
-                onVariantConsumed={() => { setPendingVariant(null); setPendingFaceAngle(null); setPendingRockName(null); }}
-              />
+            {withBlockSession(
+              <>
+              {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
+              {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
+              {page === "Проектирование" && (
+                <DesignPage
+                  user={user}
+                  incomingVariant={pendingVariant}
+                  incomingFaceAngleFromVerticalDeg={pendingFaceAngle}
+                  incomingRockName={pendingRockName}
+                  onVariantConsumed={() => { setPendingVariant(null); setPendingFaceAngle(null); setPendingRockName(null); }}
+                />
+              )}
+              {page === "Экономика" && (
+                <BlockEconomicsPage onOpenDrilling={() => setPage("Бурение")} />
+              )}
+              {page === "Экономика юнита" && <EconomicsPage />}
+              {page === "Бурение" && <DrillingPage />}
+              {page === "ФОТ" && <LaborPage />}
+              {page === "Справочники" && <ReferencesPage user={user} />}
+              </>,
             )}
-            {page === "Экономика" && (
-              <BlockEconomicsPage passportId={economicsPassportId} onOpenDrilling={() => setPage("Бурение")} />
-            )}
-            {page === "Экономика юнита" && <EconomicsPage />}
-            {page === "Бурение" && <DrillingPage />}
-            {page === "ФОТ" && <LaborPage />}
-            {page === "Справочники" && <ReferencesPage user={user} />}
           </TopbarSlotProvider>
         </main>
         <nav className="mobile-nav">

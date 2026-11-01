@@ -4,7 +4,6 @@
  * сметчик; строки взносов, резерва и суточных, которых нет в составе
  * бригады напрямую, показываются под ними только для чтения.
  */
-import { useId } from "react";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
 import { NumericInput } from "../NumericInput";
@@ -12,12 +11,16 @@ import { AddMenu } from "../estimate/AddMenu";
 import { lineNumber } from "../estimateModel";
 import { amount as formatAmount, money } from "../format";
 import { crewOrigin } from "../origin";
-import { PayrollBreakdown } from "../PayrollBreakdown";
 import { lineByCode, lineShare } from "./lineHelpers";
 import type { SectionEditorProps } from "./types";
-import type { CrewMemberInput, ModelParameters } from "../../../types/blockEconomics";
+import type { CrewMemberInput } from "../../../types/blockEconomics";
 
-export function LaborSection({ group, params, defaults, economics, volume, canEdit, onChange }: SectionEditorProps) {
+export type LaborSectionProps = SectionEditorProps & {
+  /** Открыть страницу «Бурение», где настраивается ФОТ экипажа бурения. */
+  onOpenDrillingPage?: () => void;
+};
+
+export function LaborSection({ group, params, defaults, economics, volume, canEdit, onChange, onOpenDrillingPage }: LaborSectionProps) {
   // Должность выбирают только из прямых — косвенные (начальник участка и
   // т.п.) заложены в ОХР, а не в состав бригады блока.
   const directPositions = defaults.positions.filter((position) => position.category === "DIRECT");
@@ -51,48 +54,17 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
   const payroll = economics?.payroll ?? null;
   const subcontracted = params.drilling_executor === "SUBCONTRACTOR";
 
-  const sourceName = `payroll_source-${useId()}`;
-  // Причина видна, только если её несёт текущий ответ: сразу после
-  // переключения ответ ещё посчитан по ставкам и текста про методику нет.
-  const methodReason =
-    economics?.warnings.some(
-      (text) => text.startsWith("Методика ФОТ не применена") || text.startsWith("ФОТ экипажа бурения посчитан по ставкам"),
-    ) ?? false;
-
-  function setSource(source: ModelParameters["payroll_source"]) {
-    onChange({ payroll_source: source });
-  }
-
   return (
     <>
-      <fieldset className={subcontracted ? "labor-source labor-source-inactive" : "labor-source"} disabled={!canEdit || subcontracted}>
-        <legend>Источник ФОТ экипажа бурения</legend>
-        <label>
-          <input
-            type="radio"
-            name={sourceName}
-            value="RATES"
-            checked={params.payroll_source === "RATES"}
-            onChange={() => setSource("RATES")}
-          />
-          Ставки
-        </label>
-        <label>
-          <input
-            type="radio"
-            name={sourceName}
-            value="PAYROLL"
-            checked={params.payroll_source === "PAYROLL"}
-            onChange={() => setSource("PAYROLL")}
-          />
-          Методика ФОТ
-        </label>
-        {subcontracted && (
-          <p className="labor-source-note">Бурение на субподряде: ФОТ экипажа считает подрядчик. Сохранённый выбор не применяется</p>
-        )}
-      </fieldset>
-      {params.payroll_source === "PAYROLL" && !subcontracted && methodReason && payroll === null && (
-        <p className="labor-source-note">Методика не применена — причина в блоке «Модель сообщает»</p>
+      {params.payroll_source === "PAYROLL" && !subcontracted && economics?.payroll != null && (
+        <p className="labor-source-note">
+          ФОТ экипажа бурения посчитан по методике.{" "}
+          {onOpenDrillingPage && (
+            <button type="button" className="link-button" onClick={onOpenDrillingPage}>
+              Настройка и разбивка — на странице «Бурение»
+            </button>
+          )}
+        </p>
       )}
       {params.crew.map((member, index) => {
         const position = defaults.positions.find((item) => item.code === member.position_code);
@@ -220,7 +192,6 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
           </button>
         </div>
       )}
-      {payroll && <PayrollBreakdown payroll={payroll} />}
       {readOnlyLines.map((line, index) => (
         <EstimateLine
           key={line.cost_item_code}

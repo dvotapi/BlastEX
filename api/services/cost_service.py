@@ -1,6 +1,7 @@
 """Сервис сметного расчёта."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from api.schemas.cost import AggregatedCostResultSchema, CostCalculateRequest
@@ -62,11 +63,11 @@ def design_drilling_price_source(
     )
 
 
-def default_design_price_source(request: Any, organization_id: str = "default") -> DrillingPriceSource | None:
+def default_design_price_source(request: Any, organization_id: str) -> DrillingPriceSource | None:
     """Источник цены метра для сервисов без репозитория в аргументах (сценарии, рекомендации, оптимизация).
 
-    Они всегда считали по справочникам команды по умолчанию — см. комментарий в
-    их `_apply_cost`; сбой чтения справочников не должен ронять сравнение.
+    Справочники читаются ревизией организации вызывающего (не чужой «default»);
+    сбой чтения не должен ронять сравнение — тогда цены бурения нет, и это в warnings.
     """
 
     from api.services.economics_service import get_economics_repository
@@ -79,6 +80,7 @@ def default_design_price_source(request: Any, organization_id: str = "default") 
         )
         return design_drilling_price_source(cost_request, get_economics_repository(), organization_id)
     except Exception:
+        logging.getLogger(__name__).warning("Источник цены бурения не собран", exc_info=True)
         return None
 
 

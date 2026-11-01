@@ -76,7 +76,9 @@ def _scenario_schema(item: DesignScenario) -> DesignScenarioSchema:
     return DesignScenarioSchema(**item.to_dict())
 
 
-def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes) -> None:
+def _apply_cost(
+    overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes, team_id: str
+) -> None:
     # Справочники — фиксированные значения Cost V1 по умолчанию. Per-org данные
     # этот сервис не читал никогда: до переезда справочников он так же брал
     # команду по умолчанию. Чтобы включить ревизию организации, роутеру сервиса
@@ -87,7 +89,7 @@ def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: Scenario
             scenario_id=params.cost_scenario_id or "drill_blast",
         )
         result = estimate_design_cost(
-            request, default_legacy_references(), default_design_price_source(request)
+            request, default_legacy_references(), default_design_price_source(request, team_id)
         )
     except Exception as exc:
         outcomes.warnings.append(f"Смета недоступна: {exc}")
@@ -273,7 +275,7 @@ def _build_scenario(
     scenario_id: str,
 ) -> tuple[DesignScenario, BlastDesign]:
     overlay, outcomes, source_hash, overlay_hash = build_and_evaluate(design, params)
-    _apply_cost(overlay, params, outcomes)
+    _apply_cost(overlay, params, outcomes, team_id)
     _apply_ml_overlays(team_id, overlay, params, outcomes)
     geometry = resolved_geometry(overlay, params)
     outcomes.diameter_mm = geometry["diameter_mm"]
@@ -359,7 +361,7 @@ def _baseline_scenario(team_id: str, design: BlastDesign, params: ScenarioParams
     baseline_params = params or ScenarioParams()
     overlay = clone_design(design)
     outcomes = evaluate_overlay(overlay, baseline_params)
-    _apply_cost(overlay, baseline_params, outcomes)
+    _apply_cost(overlay, baseline_params, outcomes, team_id)
     _apply_ml_overlays(team_id, overlay, baseline_params, outcomes)
     geometry = resolved_geometry(overlay, baseline_params)
     outcomes.diameter_mm = geometry["diameter_mm"]

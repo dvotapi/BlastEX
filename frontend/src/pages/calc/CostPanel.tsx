@@ -261,7 +261,7 @@ export function CostPanel({
           <p className="cost-caption">
             Цена метра — из модели блока: станок, экипаж и надбавки берутся из активного черновика сметы («Экономика блока»).
           </p>
-          {result.notes.map((note) => <p key={note} className="cost-caption">{note}</p>)}
+          {[...new Set(result.notes)].map((note) => <p key={note} className="cost-caption">{note}</p>)}
         </div>
       )}
 

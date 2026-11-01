@@ -179,7 +179,7 @@ def test_sheet_without_draft_gets_zero_price_and_a_note(monkeypatch) -> None:
     body = response.json()
     assert body["drilling_total_cost"]["price_per_m"] == 0
     assert body["drilling_total_cost"]["amount"] == 0
-    assert any("нет черновика сметы" in note for note in body["notes"])
+    assert any("нет параметров бурения" in note for note in body["notes"])
 
 
 def test_sheet_without_rig_gets_zero_price_and_a_note(monkeypatch) -> None:
@@ -193,3 +193,20 @@ def test_sheet_without_rig_gets_zero_price_and_a_note(monkeypatch) -> None:
     body = response.json()
     assert body["drilling_total_cost"]["price_per_m"] == 0
     assert any("не выбран буровой станок" in note for note in body["notes"])
+
+
+def test_design_source_reads_the_callers_organization(monkeypatch) -> None:
+    """Расчёты «Проектирования» берут цену из ревизии организации вызывающего, а не «default»."""
+
+    from api.schemas.cost import CostCalculateRequest
+    from api.services import economics_service
+    from api.services.cost_service import default_design_price_source
+
+    repository = InMemoryEconomicsRepository()
+    base = repository.get_reference_snapshot("org-a")
+    repository.publish_references("org-a", "tester", base.revision_id, dict(fx.references().sections), "test")
+    monkeypatch.setattr(economics_service, "get_economics_repository", lambda: repository)
+    request = CostCalculateRequest(scenario_id="drill_blast")
+
+    assert default_design_price_source(request, "org-a") is not None
+    assert default_design_price_source(request, "org-b") is None

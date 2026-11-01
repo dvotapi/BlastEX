@@ -54,7 +54,9 @@ def _assert_unchanged(before: dict[str, Any], design: BlastDesign, action: str) 
         )
 
 
-def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes) -> None:
+def _apply_cost(
+    overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes, team_id: str
+) -> None:
     # Справочники — фиксированные значения Cost V1 по умолчанию. Per-org данные
     # этот сервис не читал никогда: до переезда справочников он так же брал
     # команду по умолчанию. Чтобы включить ревизию организации, роутеру сервиса
@@ -65,7 +67,7 @@ def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: Scenario
             scenario_id=params.cost_scenario_id or "drill_blast",
         )
         result = estimate_design_cost(
-            request, default_legacy_references(), default_design_price_source(request)
+            request, default_legacy_references(), default_design_price_source(request, team_id)
         )
     except Exception as exc:
         outcomes.warnings.append(f"Смета недоступна: {exc}")
@@ -169,7 +171,7 @@ def run_recommendation(
             max_candidates=int(request.max_candidates),
             base_params=params,
             constraints=constraints,
-            cost_fn=_apply_cost,
+            cost_fn=lambda overlay, params, outcomes: _apply_cost(overlay, params, outcomes, team_id),
             assess_fn=assess if (params.use_production_overlays or params.outcome_model_ids) else None,
         )
     except RecommendationError as exc:

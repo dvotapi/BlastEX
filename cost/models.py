@@ -8,11 +8,8 @@ from cost.drilling_data import DrillRig, WorkObject
 
 if TYPE_CHECKING:
     from cost.catalog import CatalogItem
-    from cost.drilling import (
-        DrillingCostResult,
-        DrillingUnitCostInput,
-        DrillingUnitCostResult,
-    )
+    from cost.drilling_cost import DrillingCostResult
+    from cost.model.drilling_price import DrillingPriceSource
     from cost.fixed_costs import FixedCostItem, FixedCostsResult
     from cost.labor import JobPosition, LaborAssignment, LaborFOTResult, LaborFOTSettings
     from cost.materials import MaterialsSelection, VariableMaterialsResult
@@ -109,11 +106,13 @@ class CalculationContext:
     labor_catalog: list[JobPosition]
     labor_assignments: list[LaborAssignment]
     fixed_costs_items: list[FixedCostItem]
-    drilling_input_base: DrillingUnitCostInput
     labor_settings: LaborFOTSettings = field(default_factory=lambda: _default_labor_settings())
     scenario_phase_overrides: dict[str, bool] = field(default_factory=dict)
     work_objects: list[WorkObject] = field(default_factory=list)
     drill_rigs: list[DrillRig] = field(default_factory=list)
+    # Параметры черновика сметы блока: по ним модель считает цену метра бурения.
+    # None — черновика нет, цена метра нулевая с предупреждением.
+    drilling_price_source: DrillingPriceSource | None = None
 
 
 def _default_labor_settings() -> LaborFOTSettings:
@@ -129,7 +128,6 @@ class AggregatedCostResult:
     scenario_id: str
     work_object_name: str = ""
     block_geometry: BlockGeometry | None = None
-    drilling_unit_cost: DrillingUnitCostResult | None = None
     drilling_total_cost: DrillingCostResult | None = None
     materials_cost: VariableMaterialsResult | None = None
     labor_fot: LaborFOTResult | None = None

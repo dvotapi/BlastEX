@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.block_economics import ModelParametersSchema
 from api.schemas.references import CatalogItemSchema
 
 
@@ -90,45 +91,6 @@ class ManualScenarioInputSchema(BaseModel):
     explosive_key: str = ""
 
 
-class DrillingUnitCostInputSchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    volume_m: float = Field(2343.688167787891, gt=0)
-    crown_mm: float = Field(152.0, gt=0)
-    rig_name: str = "JK 830-3"
-    tech_speed_m_h: float = Field(12.0, gt=0)
-    nonproductive_h_per_shift: float = Field(1.0, ge=0)
-
-    crown_m_per_piece: float = Field(700.0, gt=0)
-    crown_price_rub: float = Field(25_000.0, ge=0)
-    ppu_m_per_piece: float = Field(7_000.0, gt=0)
-    ppu_price_rub: float = Field(100_000.0, ge=0)
-    rig_tools_m_per_set: float = Field(15_000.0, gt=0)
-    rig_tools_set_price_rub: float = Field(155_000.0, ge=0)
-    casing_m_per_drill_m: float = Field(0.03, ge=0)
-    casing_price_rub_per_m: float = Field(450.0, ge=0)
-
-    shifts_toir: float = Field(2.0, ge=0)
-    shifts_cleaning: float = Field(1.0, ge=0)
-
-    spares_rub_per_m: float = Field(30.0, ge=0)
-    consumables_rub_per_m: float = Field(10.0, ge=0)
-    fot_rub_per_m: float = Field(150.0, ge=0)
-
-    object_name: str = ""
-    mobilization_km: float | None = None
-    diesel_price_ton_rub: float | None = None
-    mobilization_rub_per_km: float = Field(450.0, ge=0)
-    mobilization_divisor: float = Field(6.0, gt=0)
-
-    line_release_rub_per_shift: float = Field(200.0, ge=0)
-    include_med_exams: bool = True
-
-    overhead_production_rub: float = Field(100_000.0, ge=0)
-    overhead_admin_rub: float = Field(100_000.0, ge=0)
-    profit_factor: float = Field(1.2, gt=0)
-
-
 class LaborFOTSettingsSchema(BaseModel):
     shifts_per_month: float = Field(5.0, gt=0)
     net_to_gross_factor: float = Field(0.85, gt=0, le=1)
@@ -167,6 +129,10 @@ class FixedCostItemSchema(BaseModel):
     enabled: bool = True
 
 
+class DrillingModelInputSchema(BaseModel):
+    parameters: ModelParametersSchema
+
+
 class CalculationContextInputSchema(BaseModel):
     """Переопределения контекста сметы; пустые поля — значения по умолчанию."""
 
@@ -174,7 +140,9 @@ class CalculationContextInputSchema(BaseModel):
     labor_catalog: list[JobPositionSchema] | None = None
     labor_assignments: list[LaborAssignmentSchema] | None = None
     fixed_costs_items: list[FixedCostItemSchema] | None = None
-    drilling_input: DrillingUnitCostInputSchema | None = None
+    # Параметры активного черновика сметы блока: по ним модель считает цену
+    # метра бурения (блок 1.2). Нет — цена нулевая с предупреждением в `notes`.
+    drilling_model: DrillingModelInputSchema | None = None
     labor_settings: LaborFOTSettingsSchema | None = None
     scenario_phase_overrides: dict[str, bool] = Field(default_factory=dict)
 
@@ -214,26 +182,6 @@ class MaterialLineSchema(BaseModel):
 class VariableMaterialsResultSchema(BaseModel):
     lines: list[MaterialLineSchema]
     total_amount: float
-
-
-class DrillingCostLineSchema(BaseModel):
-    section: str
-    name: str
-    quantity: float | None
-    unit: str
-    total_rub: float | None
-    price_per_m: float
-    note: str = ""
-
-
-class DrillingUnitCostResultSchema(BaseModel):
-    commercial_speed_m_per_shift: float
-    fuel_l_per_m: float
-    direct_cost_per_m: float
-    cost_per_m: float
-    price_per_m: float
-    diesel_share: float
-    lines: list[DrillingCostLineSchema] = Field(default_factory=list)
 
 
 class DrillingCostResultSchema(BaseModel):
@@ -286,7 +234,6 @@ class AggregatedCostResultSchema(BaseModel):
     scenario_id: str
     work_object_name: str = ""
     block_geometry: BlockGeometrySchema | None = None
-    drilling_unit_cost: DrillingUnitCostResultSchema | None = None
     drilling_total_cost: DrillingCostResultSchema | None = None
     materials_cost: VariableMaterialsResultSchema | None = None
     labor_fot: LaborFOTResultSchema | None = None
@@ -306,15 +253,6 @@ AggregatedCostResultSchema.model_rebuild()
 
 
 # --- Отдельные калькуляторы (бурение, ФОТ, авто-подбор номенклатуры) ---
-
-
-class DrillingUnitCalculateRequest(BaseModel):
-    input: DrillingUnitCostInputSchema
-
-
-class DrillingUnitCalculateResponse(BaseModel):
-    result: DrillingUnitCostResultSchema
-    summary_rows: list[tuple[str, str]]
 
 
 class LaborCalculateRequest(BaseModel):

@@ -18,6 +18,7 @@ from api.schemas.optimization import (
     OptimizationRunSummarySchema,
 )
 from api.schemas.scenarios import ScenarioCreateRequest, ScenarioCreateResponse, ScenarioParamsSchema
+from api.services.cost_service import apply_estimate_to_outcomes, default_design_price_source
 from api.services.design_service import estimate_design_cost
 from api.services.fragmentation_settings import with_scenario_settings
 from api.services.scenario_service import create_scenario
@@ -50,26 +51,25 @@ def _assert_unchanged(before: dict[str, Any], design: BlastDesign, action: str) 
         )
 
 
-def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes) -> None:
+def _apply_cost(
+    overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes, price_source: Any
+) -> None:
     # Справочники — фиксированные значения Cost V1 по умолчанию. Per-org данные
     # этот сервис не читал никогда: до переезда справочников он так же брал
     # команду по умолчанию. Чтобы включить ревизию организации, роутеру сервиса
     # нужен `Depends(current_legacy_references)`.
     try:
+        request = DesignCostRequest(
+            design=BlastDesignSchema(**overlay.to_dict()),
+            scenario_id=params.cost_scenario_id or "drill_blast",
+        )
         result = estimate_design_cost(
-            DesignCostRequest(
-                design=BlastDesignSchema(**overlay.to_dict()),
-                scenario_id=params.cost_scenario_id or "drill_blast",
-            ),
-            default_legacy_references(),
+            request, default_legacy_references(), price_source
         )
     except Exception as exc:
         outcomes.warnings.append(f"Смета недоступна: {exc}")
         return
-    outcomes.total_predicted_cost_rub = float(result.total_amount_rub)
-    outcomes.direct_cost_rub = float(result.variable_total_rub)
-    outcomes.cost_per_m3 = float(result.cost_per_m3)
-    outcomes.cost_source = "engineering"
+    apply_estimate_to_outcomes(result, outcomes)
 
 
 def run_optimization(
@@ -90,6 +90,8 @@ def run_optimization(
         "max_cost_rub": request.constraints.max_cost_rub,
     }
     try:
+        # Один снимок справочников на весь прогон: смета считается по каждому кандидату.
+        price_source = default_design_price_source(team_id)
         result = optimize(
             design,
             bounds,
@@ -99,7 +101,7 @@ def run_optimization(
             include_baseline=bool(request.include_baseline),
             base_params=params,
             constraints=constraints,
-            cost_fn=_apply_cost,
+            cost_fn=lambda overlay, params, outcomes: _apply_cost(overlay, params, outcomes, price_source),
         )
     except OptimizationError as exc:
         raise InvalidOptimizationError(str(exc)) from exc

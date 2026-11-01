@@ -384,6 +384,9 @@ class ModelDefaultsResponse(BaseModel):
     # Роль номенклатуры → позиции с ценой на дату расчёта.
     nomenclature: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     rigs: list[dict[str, str]]
+    # Код станка → экипаж его класса из шаблонов (только станко-зависимая часть):
+    # при смене станка на вкладке черновик заменяет прежний экипаж бурения новым.
+    rig_crews: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
     szm: list[dict[str, str]]
     delivery_trucks: list[dict[str, str]]
     emulsion_trucks: list[dict[str, str]] = Field(default_factory=list)

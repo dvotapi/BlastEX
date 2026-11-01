@@ -19,6 +19,7 @@ from api.schemas.scenarios import (
     ScenarioListResponse,
     ScenarioSummarySchema,
 )
+from api.services.cost_service import apply_estimate_to_outcomes, default_design_price_source
 from api.services.design_service import estimate_design_cost
 from api.services.fragmentation_settings import with_scenario_settings
 from cost.v2.legacy_adapter import default_legacy_references
@@ -75,26 +76,25 @@ def _scenario_schema(item: DesignScenario) -> DesignScenarioSchema:
     return DesignScenarioSchema(**item.to_dict())
 
 
-def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes) -> None:
+def _apply_cost(
+    overlay: BlastDesign, params: ScenarioParams, outcomes: ScenarioOutcomes, team_id: str
+) -> None:
     # Справочники — фиксированные значения Cost V1 по умолчанию. Per-org данные
     # этот сервис не читал никогда: до переезда справочников он так же брал
     # команду по умолчанию. Чтобы включить ревизию организации, роутеру сервиса
     # нужен `Depends(current_legacy_references)`.
     try:
+        request = DesignCostRequest(
+            design=BlastDesignSchema(**overlay.to_dict()),
+            scenario_id=params.cost_scenario_id or "drill_blast",
+        )
         result = estimate_design_cost(
-            DesignCostRequest(
-                design=BlastDesignSchema(**overlay.to_dict()),
-                scenario_id=params.cost_scenario_id or "drill_blast",
-            ),
-            default_legacy_references(),
+            request, default_legacy_references(), default_design_price_source(team_id)
         )
     except Exception as exc:
         outcomes.warnings.append(f"Смета недоступна: {exc}")
         return
-    outcomes.total_predicted_cost_rub = float(result.total_amount_rub)
-    outcomes.direct_cost_rub = float(result.variable_total_rub)
-    outcomes.cost_per_m3 = float(result.cost_per_m3)
-    outcomes.cost_source = "engineering"
+    apply_estimate_to_outcomes(result, outcomes)
 
 
 def _overlay_target(prediction, name: str) -> float | None:
@@ -272,7 +272,7 @@ def _build_scenario(
     scenario_id: str,
 ) -> tuple[DesignScenario, BlastDesign]:
     overlay, outcomes, source_hash, overlay_hash = build_and_evaluate(design, params)
-    _apply_cost(overlay, params, outcomes)
+    _apply_cost(overlay, params, outcomes, team_id)
     _apply_ml_overlays(team_id, overlay, params, outcomes)
     geometry = resolved_geometry(overlay, params)
     outcomes.diameter_mm = geometry["diameter_mm"]
@@ -358,7 +358,7 @@ def _baseline_scenario(team_id: str, design: BlastDesign, params: ScenarioParams
     baseline_params = params or ScenarioParams()
     overlay = clone_design(design)
     outcomes = evaluate_overlay(overlay, baseline_params)
-    _apply_cost(overlay, baseline_params, outcomes)
+    _apply_cost(overlay, baseline_params, outcomes, team_id)
     _apply_ml_overlays(team_id, overlay, baseline_params, outcomes)
     geometry = resolved_geometry(overlay, baseline_params)
     outcomes.diameter_mm = geometry["diameter_mm"]

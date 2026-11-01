@@ -278,9 +278,9 @@ class LegacyCostScenarioRow(Base):
     labor_assignment_records: Mapped[list[dict[str, Any]]] = mapped_column(
         JsonType, nullable=False, default=list
     )
-    drilling_calculator_input: Mapped[dict[str, Any]] = mapped_column(
-        JsonType, nullable=False, default=dict
-    )
+    # Колонка `drilling_calculator_input` осталась в таблице (NOT NULL, по
+    # умолчанию '{}'), но код её не читает и не пишет: цена бурения листа
+    # «Расчёт» считается моделью блока. Удаление колонки — отдельная миграция.
     scenario_phase_overrides: Mapped[dict[str, Any]] = mapped_column(
         JsonType, nullable=False, default=dict
     )
@@ -1009,7 +1009,6 @@ class PostgresEconomicsRepository:
             return {
                 **dict(row.payload or {}),
                 "labor_assignment_records": list(row.labor_assignment_records or []),
-                "drilling_calculator_input": dict(row.drilling_calculator_input or {}),
                 "scenario_phase_overrides": dict(row.scenario_phase_overrides or {}),
                 "reference_revision_id": row.reference_revision_id,
             }
@@ -1080,7 +1079,6 @@ class PostgresEconomicsRepository:
                 row = existing.get(scenario_key)
                 values = {
                     "labor_assignment_records": list(payload.get("labor_assignment_records") or []),
-                    "drilling_calculator_input": dict(payload.get("drilling_calculator_input") or {}),
                     "scenario_phase_overrides": dict(payload.get("scenario_phase_overrides") or {}),
                     "payload": dict(payload),
                     "reference_revision_id": reference_revision_id,

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_CEILING
+from typing import Iterable
 
 from cost.model.inputs import (
     ModelContext,
@@ -73,31 +74,63 @@ class CrewRotation:
     headcount: Decimal
 
 
+def template_crew(
+    templates: Iterable[ReferenceItem], package_code: str, rig_class: str | None
+) -> tuple[tuple[str, Decimal], ...]:
+    """Состав из шаблонов пакета: общие (без класса станка) и подходящие под класс.
+
+    Шаблон с `rig_class` действует только для станков этого класса: экипаж
+    бурения зависит от типа машины (гусеничный интегрированный — один
+    машинист, станок с отдельным компрессором — машинист и помощник), а
+    остальная бригада блока от станка не зависит.
+    """
+
+    members: list[tuple[str, Decimal]] = []
+    for item in templates:
+        if payload_text(item, "package_code") != package_code:
+            continue
+        template_class = payload_text(item, "rig_class")
+        if template_class and template_class != (rig_class or ""):
+            continue
+        members.extend(
+            (str(member.get("position_code", "")), payload_number_dict(member, "headcount", Decimal("1")))
+            for member in item.payload.get("members", [])
+        )
+    return tuple(members)
+
+
+def rig_specific_crew(
+    templates: Iterable[ReferenceItem], package_code: str, rig_class: str | None
+) -> tuple[tuple[str, Decimal], ...]:
+    """Только состав класса станка (без общих шаблонов): им черновик заменяет экипаж при смене станка."""
+
+    if not rig_class:
+        return ()
+    members: list[tuple[str, Decimal]] = []
+    for item in templates:
+        if payload_text(item, "package_code") == package_code and payload_text(item, "rig_class") == rig_class:
+            members.extend(
+                (str(member.get("position_code", "")), payload_number_dict(member, "headcount", Decimal("1")))
+                for member in item.payload.get("members", [])
+            )
+    return tuple(members)
+
+
 def crew_members(context: ModelContext) -> tuple[tuple[str, Decimal, Decimal | None], ...]:
-    """Состав бригады: параметры вкладки, иначе шаблон пакета."""
+    """Состав бригады: параметры вкладки, иначе шаблоны пакета (с учётом станка)."""
 
     if context.params.crew:
         return tuple(
             (member.position_code, member.headcount, member.shifts_per_block)
             for member in context.params.crew
         )
-    template = next(
-        (
-            item
-            for item in context.items("crew_templates")
-            if payload_text(item, "package_code") == context.params.package_code
-        ),
-        None,
-    )
-    if template is None:
-        return ()
     return tuple(
-        (
-            str(member.get("position_code", "")),
-            payload_number_dict(member, "headcount", Decimal("1")),
-            None,
+        (code, headcount, None)
+        for code, headcount in template_crew(
+            context.items("crew_templates"),
+            context.params.package_code,
+            payload_text(context.item("equipment_types", context.params.rig_code), "rig_class") or None,
         )
-        for member in template.payload.get("members", [])
     )
 
 

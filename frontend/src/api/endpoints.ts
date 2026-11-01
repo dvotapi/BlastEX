@@ -6,8 +6,6 @@ import type {
   CalcObjectInputs,
   CatalogItem,
   DefaultReferences,
-  DrillingUnitCostInput,
-  DrillingUnitCostResult,
   DrillRig,
   Explosive,
   FixedAssetDepreciation,
@@ -269,10 +267,6 @@ export const api = {
   // --- смета ---
   calculateCost: (payload: Record<string, unknown>) =>
     post<AggregatedCostResult>(`${V1}/cost/calculate`, payload),
-  drillingUnit: (input: DrillingUnitCostInput) =>
-    post<{ result: DrillingUnitCostResult; summary_rows: [string, string][] }>(`${V1}/cost/drilling-unit`, {
-      input,
-    }),
   labor: (payload: {
     labor_catalog: JobPosition[];
     labor_assignments: LaborAssignment[];

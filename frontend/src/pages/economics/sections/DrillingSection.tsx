@@ -10,7 +10,7 @@ import type { ModelParameters } from "../../../types/blockEconomics";
 import type { SectionEditorProps } from "./types";
 
 export type DrillingSectionProps = SectionEditorProps & {
-  /** Открыть отдельный калькулятор бурения (Cost V1, вкладка «Бурение»); подключает задача 9. */
+  /** Открыть страницу «Бурение» (зарплата экипажа, стоимость метра). */
   onOpenDrillingPage: () => void;
   /**
    * Каталог (`defaults`) устарел и его нужно перечитать — зовёт

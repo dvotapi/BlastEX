@@ -338,6 +338,8 @@ export type ModelDefaults = {
   /** Номенклатура блока по ролям: списки для выбора с ценами. */
   nomenclature: Record<string, MaterialOption[]>;
   rigs: CodeName[];
+  /** Код станка → экипаж его класса из шаблонов; при смене станка заменяет прежний экипаж бурения. */
+  rig_crews?: Record<string, CrewMemberInput[]>;
   szm: CodeName[];
   delivery_trucks: CodeName[];
   emulsion_trucks: CodeName[];

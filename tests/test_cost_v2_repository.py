@@ -53,7 +53,7 @@ def test_in_memory_legacy_scenario_has_the_same_shape_as_postgresql() -> None:
     stored = repository.get_legacy_scenario("org", "drill_blast")
     assert stored is not None
     assert stored["labor_assignment_records"] == []
-    assert stored["drilling_calculator_input"] == {}
+    assert "drilling_calculator_input" not in stored
     assert stored["scenario_phase_overrides"] == {}
     assert stored["labor_shifts_per_month"] == 7
     assert stored["reference_revision_id"] is None

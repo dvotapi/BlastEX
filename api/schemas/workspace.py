@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from api.schemas.cost import DrillingUnitCostInputSchema, FixedCostItemSchema, JobPositionSchema, LaborAssignmentSchema
+from api.schemas.cost import FixedCostItemSchema, JobPositionSchema, LaborAssignmentSchema
 from api.schemas.references import (
     CatalogItemSchema,
     DrillRigSchema,
@@ -34,7 +34,6 @@ class WorkspaceSnapshotSchema(BaseModel):
     labor_catalog_records: list[dict[str, Any]] = Field(default_factory=list)
     labor_assignment_records: list[dict[str, Any]] = Field(default_factory=list)
     labor_shifts_per_month: float = 5.0
-    drilling_calculator_input: dict[str, Any] = Field(default_factory=dict)
     scenario_phase_overrides: dict[str, bool] = Field(default_factory=dict)
 
 
@@ -55,7 +54,6 @@ class WorkspaceStateSchema(BaseModel):
     settings: TeamSettingsSchema
     snapshot: WorkspaceSnapshotSchema
     references: TeamReferencesSchema
-    drilling_price_per_m: float = 0.0
     # Чего не хватило в ревизии и что взято взамен: пользователь должен видеть,
     # что смета частично считается на значениях по умолчанию.
     warnings: list[str] = Field(default_factory=list)
@@ -132,4 +130,3 @@ class DefaultReferencesResponse(BaseModel):
     fixed_costs: list[FixedCostItemSchema]
     labor_catalog: list[JobPositionSchema]
     labor_assignments: list[LaborAssignmentSchema]
-    drilling_unit_cost_input: DrillingUnitCostInputSchema

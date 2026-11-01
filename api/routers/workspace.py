@@ -7,7 +7,7 @@ from dataclasses import asdict, replace
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.schemas.cost import DrillingUnitCostInputSchema, FixedCostItemSchema, JobPositionSchema, LaborAssignmentSchema
+from api.schemas.cost import FixedCostItemSchema, JobPositionSchema, LaborAssignmentSchema
 from api.schemas.references import (
     CatalogItemSchema,
     DrillRigSchema,
@@ -35,7 +35,6 @@ from api.services.economics_service import get_economics_repository, repository_
 from api.services.legacy_references import load_legacy_references
 from cost.catalog import DEFAULT_CATALOG, catalog_to_records
 from cost.depreciation_data import DEFAULT_DEPRECIATION_ASSETS, depreciation_assets_to_records
-from cost.drilling import DrillingUnitCostInput, calculate_drilling_unit_cost
 from cost.drilling_data import (
     DEFAULT_DRILL_RIGS,
     DEFAULT_OBJECT_NAME,
@@ -70,7 +69,6 @@ MAX_CALC_INPUTS_BYTES = 32_768
 _EDITABLE_SNAPSHOT_FIELDS = (
     "labor_assignment_records",
     "labor_shifts_per_month",
-    "drilling_calculator_input",
     "scenario_phase_overrides",
 )
 
@@ -132,17 +130,6 @@ def _references_schema(legacy: LegacyReferences) -> TeamReferencesSchema:
     )
 
 
-def _drilling_price_per_m(snapshot: WorkspaceSnapshot, legacy: LegacyReferences, work_object_name: str) -> float:
-    from cost.strategies.common import apply_work_object_to_drilling_input
-
-    drilling_dict = dict(snapshot.drilling_calculator_input) or DrillingUnitCostInput().__dict__
-    drilling_input = DrillingUnitCostInput(**drilling_dict)
-    drilling_input = apply_work_object_to_drilling_input(drilling_input, work_object_name)
-    return calculate_drilling_unit_cost(
-        drilling_input, work_objects=list(legacy.work_objects), drill_rigs=list(legacy.drill_rigs)
-    ).price_per_m
-
-
 def _load_state(repository: EconomicsRepository, organization_id: str) -> WorkspaceStateSchema:
     legacy = load_legacy_references(repository, organization_id)
     stored_settings = _settings(repository, organization_id)
@@ -159,7 +146,6 @@ def _load_state(repository: EconomicsRepository, organization_id: str) -> Worksp
         settings=_settings_schema(organization_id, settings),
         snapshot=WorkspaceSnapshotSchema(**asdict(snapshot)),
         references=_references_schema(legacy),
-        drilling_price_per_m=_drilling_price_per_m(snapshot, legacy, settings.active_work_object_name),
         warnings=list(legacy.warnings),
     )
 
@@ -195,7 +181,6 @@ def put_workspace_snapshot(
                 "scenario_id": scenario_id,
                 "labor_assignment_records": payload.snapshot.labor_assignment_records,
                 "labor_shifts_per_month": payload.snapshot.labor_shifts_per_month,
-                "drilling_calculator_input": payload.snapshot.drilling_calculator_input,
                 "scenario_phase_overrides": payload.snapshot.scenario_phase_overrides,
             }
         },
@@ -340,9 +325,6 @@ def workspace_defaults() -> DefaultReferencesResponse:
         labor_assignments=[
             LaborAssignmentSchema.model_validate(i) for i in DEFAULT_LABOR_ASSIGNMENTS
         ],
-        drilling_unit_cost_input=DrillingUnitCostInputSchema.model_validate(
-            DrillingUnitCostInput().__dict__
-        ),
     )
 
 

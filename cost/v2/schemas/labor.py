@@ -292,4 +292,12 @@ class CrewMember(ReferencePayload):
 
 class CrewTemplatePayload(ReferencePayload):
     package_code: str = RefField("work_packages", description="Пакет работ")
+    rig_class: Literal["CRAWLER_INTEGRATED", "COMPRESSOR_SEPARATE"] | None = Field(
+        default=None,
+        title="Класс станка",
+        description=(
+            "Класс бурового станка (см. «Типы техники»), для которого действует состав; "
+            "пусто — для любого. Экипаж бурения зависит от класса станка"
+        ),
+    )
     members: list[CrewMember] = Field(default_factory=list, description="Состав бригады")

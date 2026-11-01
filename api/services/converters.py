@@ -21,7 +21,7 @@ from api.schemas.cost import (
     MaterialsSelectionSchema,
 )
 from cost.catalog import catalog_from_records
-from cost.drilling import DrillingUnitCostInput
+from cost.model.drilling_price import DrillingPriceSource
 from cost.drilling_data import DEFAULT_OBJECT_NAME, find_object
 from cost.fixed_costs import fixed_costs_from_records
 from cost.geometry import build_manual_block_input
@@ -118,8 +118,13 @@ def resolve_work_object_name(name: str | None, legacy: LegacyReferences) -> str:
 def build_calculation_context(
     request: CostCalculateRequest,
     legacy: LegacyReferences,
+    drilling_price_source: "DrillingPriceSource | None" = None,
 ) -> CalculationContext:
-    """Контекст сметы: справочники — из опубликованной ревизии, переопределения — из запроса."""
+    """Контекст сметы: справочники — из опубликованной ревизии, переопределения — из запроса.
+
+    `drilling_price_source` — параметры черновика сметы блока и справочники его
+    ревизии: по ним модель считает цену метра бурения (см. `cost_service`).
+    """
 
     from api.exceptions import WorkObjectNotFoundError
 
@@ -152,14 +157,6 @@ def build_calculation_context(
         else fixed_costs_from_records([item.model_dump() for item in ctx_input.fixed_costs_items])
     )
 
-    drilling_defaults = DrillingUnitCostInput(object_name=work_object_name)
-    if ctx_input.drilling_input is not None:
-        drilling_dict = drilling_defaults.__dict__ | ctx_input.drilling_input.model_dump(exclude_unset=True)
-        drilling_dict["object_name"] = work_object_name
-        drilling_input = DrillingUnitCostInput(**drilling_dict)
-    else:
-        drilling_input = DrillingUnitCostInput(**(drilling_defaults.__dict__ | {"object_name": work_object_name}))
-
     labor_settings = (
         LaborFOTSettings()
         if ctx_input.labor_settings is None
@@ -174,7 +171,7 @@ def build_calculation_context(
         labor_catalog=labor_catalog,
         labor_assignments=labor_assignments,
         fixed_costs_items=fixed_costs,
-        drilling_input_base=drilling_input,
+        drilling_price_source=drilling_price_source,
         labor_settings=labor_settings,
         scenario_phase_overrides=dict(ctx_input.scenario_phase_overrides),
     )
@@ -223,17 +220,6 @@ def aggregated_result_to_schema(result: AggregatedCostResult) -> AggregatedCostR
     payload["labor_total_rub"] = result.labor_total_rub
     if result.fixed_costs is not None:
         payload["fixed_costs"]["total_per_m3"] = result.fixed_costs.total_per_m3
-    if result.drilling_unit_cost is not None:
-        unit = result.drilling_unit_cost
-        payload["drilling_unit_cost"] = {
-            "commercial_speed_m_per_shift": unit.commercial_speed_m_per_shift,
-            "fuel_l_per_m": unit.fuel_l_per_m,
-            "direct_cost_per_m": unit.direct_cost_per_m,
-            "cost_per_m": unit.cost_per_m,
-            "price_per_m": unit.price_per_m,
-            "diesel_share": unit.diesel_share,
-            "lines": _serialize_value(unit.lines),
-        }
     payload["child_results"] = [
         aggregated_result_to_schema(child).model_dump()
         for child in result.child_results

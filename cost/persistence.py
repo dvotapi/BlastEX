@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from cost.catalog import DEFAULT_CATALOG, catalog_to_records
-from cost.drilling import DrillingUnitCostInput
 from cost.fixed_costs import DEFAULT_FIXED_COSTS, fixed_costs_to_records
 from cost.labor import (
     DEFAULT_LABOR_ASSIGNMENTS,
@@ -36,7 +35,6 @@ class WorkspaceSnapshot:
     labor_catalog_records: list[dict] = field(default_factory=list)
     labor_assignment_records: list[dict] = field(default_factory=list)
     labor_shifts_per_month: float = 5.0
-    drilling_calculator_input: dict[str, Any] = field(default_factory=dict)
     scenario_phase_overrides: dict[str, bool] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -53,7 +51,6 @@ class WorkspaceSnapshot:
             labor_catalog_records=list(data.get("labor_catalog_records", [])),
             labor_assignment_records=list(data.get("labor_assignment_records", [])),
             labor_shifts_per_month=float(data.get("labor_shifts_per_month", 5.0)),
-            drilling_calculator_input=dict(data.get("drilling_calculator_input", {})),
             scenario_phase_overrides={
                 str(k): bool(v) for k, v in dict(data.get("scenario_phase_overrides", {})).items()
             },
@@ -90,6 +87,5 @@ def build_default_snapshot(scenario_id: str) -> WorkspaceSnapshot:
         labor_catalog_records=labor_catalog_to_records(DEFAULT_LABOR_CATALOG),
         labor_assignment_records=labor_assignments_to_records(DEFAULT_LABOR_ASSIGNMENTS),
         labor_shifts_per_month=5.0,
-        drilling_calculator_input=DrillingUnitCostInput().__dict__,
         scenario_phase_overrides=phase_overrides,
     )

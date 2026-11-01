@@ -1,5 +1,5 @@
-"""api.routers.cost: калькуляторы бурения и ФОТ дают те же цифры, что и
-прежние Streamlit-калькуляторы (cost/drilling_ui.py, cost/labor_ui.py)."""
+"""api.routers.cost: калькулятор ФОТ даёт те же цифры, что и прежний
+Streamlit-калькулятор (cost/labor_ui.py); цена бурения — из модели блока."""
 import unittest
 
 import pytest
@@ -8,27 +8,16 @@ from fastapi.testclient import TestClient
 
 from api.routers import cost as cost_router
 from api.schemas.cost import (
-    DrillingUnitCalculateRequest,
-    DrillingUnitCostInputSchema,
     JobPositionSchema,
     LaborAssignmentSchema,
     LaborCalculateRequest,
 )
-from api.services.cost_service import calculate_drilling_unit, calculate_labor
+from api.services.cost_service import calculate_labor
 from api.services.economics_service import get_economics_repository
-from cost.drilling import DEFAULT_DRILLING_PRICE_PER_M
 from cost.labor import LaborFOTSettings, calculate_labor_fot, labor_assignments_from_records, labor_catalog_from_records
 from cost.v2.legacy_adapter import default_legacy_references, legacy_references_from_snapshot
 from cost.v2.models import ReferenceItem
 from cost.v2.repository import InMemoryEconomicsRepository
-
-
-class DrillingUnitCalculatorTests(unittest.TestCase):
-    def test_default_input_matches_excel_reference_price(self):
-        request = DrillingUnitCalculateRequest(input=DrillingUnitCostInputSchema())
-        response = calculate_drilling_unit(request, default_legacy_references())
-        self.assertAlmostEqual(response.result.price_per_m, DEFAULT_DRILLING_PRICE_PER_M)
-        self.assertTrue(response.summary_rows)
 
 
 class LaborCalculatorTests(unittest.TestCase):
@@ -64,45 +53,6 @@ def _client(monkeypatch) -> tuple[TestClient, InMemoryEconomicsRepository]:
     return TestClient(app, headers={"X-API-Key": "test-api-key"}), repository
 
 
-def test_drilling_unit_endpoint_reads_organization_reference_snapshot(monkeypatch):
-    """current_legacy_references должна доставлять реальную ревизию организации до
-    calculate_drilling_unit — не молча падать обратно на DEFAULT_* из кода."""
-    client, repository = _client(monkeypatch)
-
-    snapshot = repository.get_reference_snapshot("default")
-    sections = dict(snapshot.sections)
-    sections["sites"] = (
-        ReferenceItem(
-            "SITE_FAR",
-            "Дальний карьер",
-            {"mobilization_km": "1500", "diesel_price_ton_rub": "120000"},
-        ),
-    )
-    repository.publish_references("default", "tester", snapshot.revision_id, sections, "test")
-
-    response = client.post(
-        "/api/v1/cost/drilling-unit",
-        json={"input": {"object_name": "Дальний карьер"}},
-    )
-    assert response.status_code == 200
-    price_per_m = response.json()["result"]["price_per_m"]
-
-    # Публикация далёкого объекта (1500 км, дорогое топливо) должна ощутимо изменить
-    # цену за метр — иначе эндпойнт тихо считает по DEFAULT_WORK_OBJECTS из кода.
-    assert price_per_m != pytest.approx(DEFAULT_DRILLING_PRICE_PER_M)
-
-    legacy = legacy_references_from_snapshot(repository.get_reference_snapshot("default"))
-    expected = calculate_drilling_unit(
-        DrillingUnitCalculateRequest(input=DrillingUnitCostInputSchema(object_name="Дальний карьер")),
-        legacy,
-    )
-    assert price_per_m == pytest.approx(expected.result.price_per_m)
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 def _snapshot_without_the_default_object(repository: InMemoryEconomicsRepository):
     """Ревизия организации, в которой объекта Cost V1 по умолчанию нет."""
 
@@ -128,7 +78,7 @@ def test_context_without_object_name_takes_an_object_from_the_revision(monkeypat
     context = build_calculation_context(CostCalculateRequest(scenario_id="drill_blast"), legacy)
 
     assert context.work_object.name == "Дальний карьер"
-    assert context.drilling_input_base.object_name == "Дальний карьер"
+    assert context.drilling_price_source is None
 
 
 def test_unknown_object_name_is_still_an_error(monkeypatch):

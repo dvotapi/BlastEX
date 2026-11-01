@@ -27,6 +27,15 @@ class EquipmentTypePayload(ReferencePayload):
             "под эмульсию, лёгкий транспорт, трактор или прочая техника без норм модели"
         ),
     )
+    rig_class: Literal["CRAWLER_INTEGRATED", "COMPRESSOR_SEPARATE"] | None = Field(
+        default=None,
+        title="Класс станка",
+        description=(
+            "Только для бурового станка: гусеничный интегрированный (компрессор на борту, "
+            "как правило один машинист) или станок с отдельным компрессором (машинист и "
+            "помощник). По классу выбирается состав экипажа бурения в «Составах бригад»"
+        ),
+    )
     brand: str | None = Field(
         default=None, title="Марка", description="Производитель или марка по журналу"
     )

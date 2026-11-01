@@ -36,6 +36,7 @@ from cost.model import sensitivity
 from cost.model.engine import compute_block_economics
 from cost.model.export_xlsx import export_bytes
 from cost.model.inputs import BlockEconomics, ModelParameters, payload_number, payload_text
+from cost.model import labor
 from cost.model.materials import ROLES, quantity_in_price_units
 from cost.model.payroll import DowntimeEntry, PayrollInputError
 from cost.model.payroll_preview import PreviewItem, PreviewRequest, payroll_preview
@@ -392,14 +393,12 @@ def model_defaults(
     package = package_map(references).get(package_code)
 
     crew = [
-        {
-            "position_code": str(member.get("position_code", "")),
-            "headcount": str(member.get("headcount", "1")),
-            "shifts_per_block": None,
-        }
-        for template in references.active_items("crew_templates")
-        if payload_text(template, "package_code") == package_code
-        for member in template.payload.get("members", [])
+        {"position_code": code, "headcount": str(headcount), "shifts_per_block": None}
+        for code, headcount in labor.template_crew(
+            references.active_items("crew_templates"),
+            package_code,
+            payload_text(rig_type, "rig_class") or None
+        )
     ]
 
     parameters = ModelParametersSchema.model_validate(
@@ -434,6 +433,17 @@ def model_defaults(
             "operations": _package_operations(references, package),
             "nomenclature": nomenclature,
             "rigs": rigs,
+            "rig_crews": {
+                rig["code"]: [
+                    {"position_code": code, "headcount": str(headcount)}
+                    for code, headcount in labor.rig_specific_crew(
+                        references.active_items("crew_templates"),
+                        package_code,
+                        payload_text(references.item("equipment_types", rig["code"]), "rig_class") or None,
+                    )
+                ]
+                for rig in rigs
+            },
             "szm": szm,
             "delivery_trucks": trucks,
             "emulsion_trucks": emulsion_trucks,

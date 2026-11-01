@@ -21,6 +21,11 @@ export function BlockEconomicsSessionProvider({
   return <BlockEconomicsSessionContext.Provider value={session}>{children}</BlockEconomicsSessionContext.Provider>;
 }
 
+/** Сессия блока, если над компонентом есть провайдер; иначе null (тесты, встраиваемые панели). */
+export function useOptionalBlockEconomicsSession(): BlockEconomicsSession | null {
+  return useContext(BlockEconomicsSessionContext);
+}
+
 export function useBlockEconomicsSessionContext(): BlockEconomicsSession {
   const session = useContext(BlockEconomicsSessionContext);
   if (!session) throw new Error("BlockEconomicsSessionProvider не найден над компонентом.");

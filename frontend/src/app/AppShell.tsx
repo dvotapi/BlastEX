@@ -84,9 +84,10 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
     });
   }
 
-  // Расчёт блока (черновики сметы) нужен «Экономике» и «Бурению» и после первого
-  // захода живёт дальше: правки не теряются при переходе между этими страницами.
-  const needsBlockSession = page === "Экономика" || page === "Бурение";
+  // Расчёт блока (черновики сметы) нужен «Экономике», «Бурению» и листу «Расчёт»
+  // (цена метра бурения в блоке 1.2 — по параметрам активного черновика) и после
+  // первого захода живёт дальше: правки не теряются при переходе между страницами.
+  const needsBlockSession = page === "Экономика" || page === "Бурение" || page === "Расчёт";
   const [blockSessionStarted, setBlockSessionStarted] = useState(needsBlockSession);
   if (needsBlockSession && !blockSessionStarted) setBlockSessionStarted(true);
   const withBlockSession = (children: ReactNode) =>

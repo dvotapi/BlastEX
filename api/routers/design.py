@@ -296,8 +296,22 @@ def post_blast_result_compare(request: BlastResultCompareRequest) -> BlastResult
 def post_design_cost(
     request: DesignCostRequest,
     legacy: LegacyReferences = Depends(current_legacy_references),
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> AggregatedCostResultSchema:
-    return design_service.estimate_design_cost(request, legacy)
+    from api.schemas.cost import CostCalculateRequest
+    from api.services.cost_service import design_drilling_price_source
+
+    source = design_drilling_price_source(
+        CostCalculateRequest(
+            scenario_id=request.scenario_id,
+            work_object_name=request.work_object_name,
+            context=request.context,
+        ),
+        repository,
+        organization_id,
+    )
+    return design_service.estimate_design_cost(request, legacy, source)
 
 
 @router.get("/plans", response_model=DesignListResponse)

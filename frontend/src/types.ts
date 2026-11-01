@@ -155,7 +155,6 @@ export type WorkspaceSnapshot = {
   labor_catalog_records: JobPosition[];
   labor_assignment_records: LaborAssignment[];
   labor_shifts_per_month: number;
-  drilling_calculator_input: Record<string, unknown>;
   scenario_phase_overrides: Record<string, boolean>;
 };
 
@@ -172,7 +171,6 @@ export type WorkspaceState = {
   settings: TeamSettings;
   snapshot: WorkspaceSnapshot;
   references: TeamReferences;
-  drilling_price_per_m: number;
   /** Чего не хватило в опубликованной ревизии и что взято взамен. */
   warnings: string[];
 };
@@ -195,7 +193,6 @@ export type DefaultReferences = {
   fixed_costs: FixedCostItem[];
   labor_catalog: JobPosition[];
   labor_assignments: LaborAssignment[];
-  drilling_unit_cost_input: DrillingUnitCostInput;
 };
 
 // --- Технологический расчёт БВР ---
@@ -449,31 +446,10 @@ export type FixedCostsResult = {
   total_per_m3: number;
 };
 
-export type DrillingCostLine = {
-  section: string;
-  name: string;
-  quantity: number | null;
-  unit: string;
-  total_rub: number | null;
-  price_per_m: number;
-  note: string;
-};
-
-export type DrillingUnitCostResult = {
-  commercial_speed_m_per_shift: number;
-  fuel_l_per_m: number;
-  direct_cost_per_m: number;
-  cost_per_m: number;
-  price_per_m: number;
-  diesel_share: number;
-  lines: DrillingCostLine[];
-};
-
 export type AggregatedCostResult = {
   scenario_id: string;
   work_object_name: string;
   block_geometry: BlockGeometry | null;
-  drilling_unit_cost: DrillingUnitCostResult | null;
   drilling_total_cost: DrillingCostResult | null;
   materials_cost: VariableMaterialsResult | null;
   labor_fot: LaborFOTResult | null;
@@ -488,33 +464,3 @@ export type AggregatedCostResult = {
   notes: string[];
 };
 
-export type DrillingUnitCostInput = {
-  volume_m: number;
-  crown_mm: number;
-  rig_name: string;
-  tech_speed_m_h: number;
-  nonproductive_h_per_shift: number;
-  crown_m_per_piece: number;
-  crown_price_rub: number;
-  ppu_m_per_piece: number;
-  ppu_price_rub: number;
-  rig_tools_m_per_set: number;
-  rig_tools_set_price_rub: number;
-  casing_m_per_drill_m: number;
-  casing_price_rub_per_m: number;
-  shifts_toir: number;
-  shifts_cleaning: number;
-  spares_rub_per_m: number;
-  consumables_rub_per_m: number;
-  fot_rub_per_m: number;
-  object_name: string;
-  mobilization_km: number | null;
-  diesel_price_ton_rub: number | null;
-  mobilization_rub_per_km: number;
-  mobilization_divisor: number;
-  line_release_rub_per_shift: number;
-  include_med_exams: boolean;
-  overhead_production_rub: number;
-  overhead_admin_rub: number;
-  profit_factor: number;
-};

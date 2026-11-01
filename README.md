@@ -512,7 +512,6 @@ BlastEX живут в схеме `blastex`, журнал — в схеме `publ
 | POST | `/blast/geometry` | Геометрия скважины и блока (заряд/контур/бурение) |
 | POST | `/blast/hole-scheme` | SVG-схема заряда скважины |
 | POST | `/cost/calculate` | Расчёт сметы по сценарию |
-| POST | `/cost/drilling-unit` | Калькулятор цены бурения за 1 п.м. |
 | POST | `/cost/labor` | Расчёт ФОТ производственного персонала |
 | POST | `/cost/materials-auto` | Автоподбор номенклатуры ВВ/СВ/СИ |
 | POST | `/economics/technical-drivers` | Явное преобразование `BlastGeometry.block` в физические драйверы Cost V2 с происхождением |

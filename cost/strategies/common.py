@@ -1,14 +1,10 @@
 """Общие функции оркестрации модулей расчёта для стратегий сценариев."""
 from __future__ import annotations
 
-from dataclasses import replace
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from cost.drilling import (
-    DrillingUnitCostInput,
-    calculate_drilling_cost,
-    calculate_drilling_unit_cost,
-)
+from cost.drilling_cost import calculate_drilling_cost
 from cost.fixed_costs import FixedCostItem, calculate_fixed_costs
 from cost.labor import LaborFOTSettings, calculate_labor_fot
 from cost.materials import MaterialsSelection, calculate_variable_materials
@@ -18,41 +14,37 @@ if TYPE_CHECKING:
     from cost.catalog import CatalogItem
 
 
-def apply_work_object_to_drilling_input(
-    base: DrillingUnitCostInput,
-    work_object_name: str,
-    *,
-    volume_m: float | None = None,
-) -> DrillingUnitCostInput:
-    """Подставляет объект работ: мобилизация и цена ДТ из справочника WorkObject."""
-    params = replace(base, object_name=work_object_name)
-    if volume_m is not None:
-        params = replace(params, volume_m=volume_m)
-    return params
-
-
 def run_drilling_module(
     result: AggregatedCostResult,
     block_data: BlockCalculationInput,
     ctx: CalculationContext,
 ) -> None:
-    drilling_input = apply_work_object_to_drilling_input(
-        ctx.drilling_input_base,
-        ctx.work_object.name,
-        volume_m=block_data.block.drilling_footage_m,
-    )
-    unit_cost = calculate_drilling_unit_cost(
-        drilling_input,
-        work_objects=ctx.work_objects or [ctx.work_object],
-        drill_rigs=ctx.drill_rigs or None,
-    )
-    total_cost = calculate_drilling_cost(
+    """Блок 1.2: погонаж × цена метра из модели блока (`cost/model/drilling_price.py`).
+
+    Нет черновика сметы или станка — цена нулевая, а причина уходит в `notes`:
+    молча подставлять цену из другого места нельзя.
+    """
+    from cost.model import drilling_price
+
+    footage = block_data.block.drilling_footage_m
+    price_per_m = 0.0
+    source = ctx.drilling_price_source
+    if source is None:
+        result.notes.append(
+            "Цена бурения не рассчитана: нет черновика сметы блока. Откройте «Экономику» "
+            "и выберите технический паспорт — параметры станка и экипажа берутся оттуда."
+        )
+    elif not source.params.rig_code and source.params.drilling_executor != "SUBCONTRACTOR":
+        result.notes.append("Цена бурения не рассчитана: в черновике сметы не выбран буровой станок.")
+    else:
+        price = drilling_price.compute(source.params, source.references, drilling_m=Decimal(str(footage)))
+        price_per_m = float(price.price_rub_per_m)
+        result.notes.extend(price.warnings)
+    result.drilling_total_cost = calculate_drilling_cost(
         block=block_data.block,
         hole_depth_m=block_data.hole_depth_m,
-        price_per_m=unit_cost.price_per_m,
+        price_per_m=price_per_m,
     )
-    result.drilling_unit_cost = unit_cost
-    result.drilling_total_cost = total_cost
     result.block_geometry = block_data.block
 
 
@@ -160,8 +152,6 @@ def merge_partial_results(
     for part in parts:
         if part.block_geometry is not None:
             merged.block_geometry = part.block_geometry
-        if part.drilling_unit_cost is not None:
-            merged.drilling_unit_cost = part.drilling_unit_cost
         if part.drilling_total_cost is not None:
             merged.drilling_total_cost = part.drilling_total_cost
         if part.materials_cost is not None:

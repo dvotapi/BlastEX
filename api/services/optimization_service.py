@@ -18,6 +18,7 @@ from api.schemas.optimization import (
     OptimizationRunSummarySchema,
 )
 from api.schemas.scenarios import ScenarioCreateRequest, ScenarioCreateResponse, ScenarioParamsSchema
+from api.services.cost_service import default_design_price_source
 from api.services.design_service import estimate_design_cost
 from api.services.fragmentation_settings import with_scenario_settings
 from api.services.scenario_service import create_scenario
@@ -56,12 +57,12 @@ def _apply_cost(overlay: BlastDesign, params: ScenarioParams, outcomes: Scenario
     # команду по умолчанию. Чтобы включить ревизию организации, роутеру сервиса
     # нужен `Depends(current_legacy_references)`.
     try:
+        request = DesignCostRequest(
+            design=BlastDesignSchema(**overlay.to_dict()),
+            scenario_id=params.cost_scenario_id or "drill_blast",
+        )
         result = estimate_design_cost(
-            DesignCostRequest(
-                design=BlastDesignSchema(**overlay.to_dict()),
-                scenario_id=params.cost_scenario_id or "drill_blast",
-            ),
-            default_legacy_references(),
+            request, default_legacy_references(), default_design_price_source(request)
         )
     except Exception as exc:
         outcomes.warnings.append(f"Смета недоступна: {exc}")

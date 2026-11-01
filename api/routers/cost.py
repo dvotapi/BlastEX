@@ -6,8 +6,6 @@ from fastapi import APIRouter, Depends
 from api.schemas.cost import (
     AggregatedCostResultSchema,
     CostCalculateRequest,
-    DrillingUnitCalculateRequest,
-    DrillingUnitCalculateResponse,
     LaborCalculateRequest,
     LaborCalculateResponse,
     MaterialsAutoRequest,
@@ -15,12 +13,15 @@ from api.schemas.cost import (
 )
 from api.services.cost_service import (
     calculate_cost,
-    calculate_drilling_unit,
     calculate_labor,
+    resolve_drilling_price_source,
     resolve_materials_auto,
 )
+from api.security import current_team_id
+from api.services.economics_service import get_economics_repository
 from api.services.legacy_references import current_legacy_references
 from cost.v2.legacy_adapter import LegacyReferences
+from cost.v2.repository import EconomicsRepository
 
 router = APIRouter(prefix="/cost", tags=["cost"])
 
@@ -29,16 +30,11 @@ router = APIRouter(prefix="/cost", tags=["cost"])
 def post_cost_calculate(
     request: CostCalculateRequest,
     legacy: LegacyReferences = Depends(current_legacy_references),
+    organization_id: str = Depends(current_team_id),
+    repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> AggregatedCostResultSchema:
-    return calculate_cost(request, legacy)
-
-
-@router.post("/drilling-unit", response_model=DrillingUnitCalculateResponse)
-def post_drilling_unit(
-    request: DrillingUnitCalculateRequest,
-    legacy: LegacyReferences = Depends(current_legacy_references),
-) -> DrillingUnitCalculateResponse:
-    return calculate_drilling_unit(request, legacy)
+    source = resolve_drilling_price_source(request, repository, organization_id)
+    return calculate_cost(request, legacy, source)
 
 
 @router.post("/labor", response_model=LaborCalculateResponse)

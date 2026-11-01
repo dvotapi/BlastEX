@@ -41,7 +41,6 @@ def test_fresh_organization_gets_defaults(monkeypatch) -> None:
     assert [p["id"] for p in state["snapshot"]["labor_catalog_records"]] == [p.id for p in DEFAULT_LABOR_CATALOG]
     assert state["snapshot"]["cost_catalog_records"]
     assert state["snapshot"]["fixed_cost_records"]
-    assert state["drilling_price_per_m"] > 0
 
 
 def test_snapshot_and_active_object_are_persisted(monkeypatch) -> None:
@@ -52,7 +51,6 @@ def test_snapshot_and_active_object_are_persisted(monkeypatch) -> None:
     snapshot["labor_assignment_records"] = [
         {"id": "la_x", "position_id": "labor_master", "headcount": 2, "volume_m3": 100, "employee_shifts": 1}
     ]
-    snapshot["drilling_calculator_input"] = {**snapshot["drilling_calculator_input"], "volume_m": 500}
     saved = client.put(
         "/api/v1/workspace/snapshot",
         json={"snapshot": snapshot, "active_work_object_name": DEFAULT_WORK_OBJECTS[1].name},
@@ -62,7 +60,6 @@ def test_snapshot_and_active_object_are_persisted(monkeypatch) -> None:
     assert body["settings"]["active_work_object_name"] == DEFAULT_WORK_OBJECTS[1].name
     assert body["snapshot"]["labor_shifts_per_month"] == 9
     assert body["snapshot"]["labor_assignment_records"][0]["id"] == "la_x"
-    assert body["snapshot"]["drilling_calculator_input"]["volume_m"] == 500
 
     stored = repository.get_legacy_scenario("default", "drill_blast")
     assert stored["labor_shifts_per_month"] == 9
@@ -122,7 +119,6 @@ def test_stale_active_object_falls_back_to_an_existing_one(monkeypatch) -> None:
     state = client.get("/api/v1/workspace").json()
     names = [o["name"] for o in state["references"]["work_object_records"]]
     assert state["settings"]["active_work_object_name"] in names
-    assert state["drilling_price_per_m"] > 0
 
 
 def test_warnings_of_the_adapter_reach_the_client(monkeypatch) -> None:

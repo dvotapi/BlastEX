@@ -1,6 +1,8 @@
 """Сервис сметного расчёта."""
 from __future__ import annotations
 
+from typing import Any
+
 from api.schemas.cost import AggregatedCostResultSchema, CostCalculateRequest
 from api.services.converters import (
     aggregated_result_to_schema,
@@ -10,13 +12,83 @@ from api.services.converters import (
     validate_scenario_exists,
 )
 from cost.engine import CostEngine
+from cost.model.drilling_price import DrillingPriceSource
+from cost.model.inputs import ModelParameters
 from cost.scenarios import get_scenario_calc_profile
 from cost.v2.legacy_adapter import LegacyReferences
+from cost.v2.repository import EconomicsRepository
 
 
-def calculate_cost(request: CostCalculateRequest, legacy: LegacyReferences) -> AggregatedCostResultSchema:
+def resolve_drilling_price_source(
+    request: CostCalculateRequest,
+    repository: EconomicsRepository,
+    organization_id: str,
+) -> DrillingPriceSource | None:
+    """Параметры черновика сметы блока + справочники его ревизии; нет черновика — None.
+
+    Ревизия берётся та же, что у вкладки «Экономика»: пустая — актуальная, иначе
+    цена метра на листе расходилась бы с ценой в смете блока.
+    """
+
+    model = request.context.drilling_model if request.context else None
+    if model is None:
+        return None
+    parameters = ModelParameters.from_dict(model.parameters.model_dump(mode="json"))
+    references = repository.get_reference_snapshot(
+        organization_id, parameters.reference_revision_id or None
+    )
+    return DrillingPriceSource(params=parameters, references=references)
+
+
+def design_drilling_price_source(
+    request: CostCalculateRequest,
+    repository: EconomicsRepository,
+    organization_id: str,
+) -> DrillingPriceSource | None:
+    """Источник цены метра для расчётов «Проектирования», у которых нет вкладки «Экономика».
+
+    Явный `drilling_model` главнее; иначе — параметры по умолчанию из актуальной
+    ревизии организации (`drilling_price.default_source`).
+    """
+
+    explicit = resolve_drilling_price_source(request, repository, organization_id)
+    if explicit is not None:
+        return explicit
+    from cost.model import drilling_price
+
+    return drilling_price.default_source(
+        repository.get_reference_snapshot(organization_id, None),
+        site_name=request.work_object_name,
+    )
+
+
+def default_design_price_source(request: Any, organization_id: str = "default") -> DrillingPriceSource | None:
+    """Источник цены метра для сервисов без репозитория в аргументах (сценарии, рекомендации, оптимизация).
+
+    Они всегда считали по справочникам команды по умолчанию — см. комментарий в
+    их `_apply_cost`; сбой чтения справочников не должен ронять сравнение.
+    """
+
+    from api.services.economics_service import get_economics_repository
+
+    try:
+        cost_request = CostCalculateRequest(
+            scenario_id=request.scenario_id,
+            work_object_name=request.work_object_name,
+            context=request.context,
+        )
+        return design_drilling_price_source(cost_request, get_economics_repository(), organization_id)
+    except Exception:
+        return None
+
+
+def calculate_cost(
+    request: CostCalculateRequest,
+    legacy: LegacyReferences,
+    drilling_price_source: DrillingPriceSource | None = None,
+) -> AggregatedCostResultSchema:
     validate_scenario_exists(request.scenario_id)
-    context = build_calculation_context(request, legacy)
+    context = build_calculation_context(request, legacy, drilling_price_source)
     block_data = resolve_block_data(request)
     profile = get_scenario_calc_profile(request.scenario_id)
 
@@ -56,38 +128,6 @@ def calculate_cost(request: CostCalculateRequest, legacy: LegacyReferences) -> A
         explosive_id=materials_selection.explosive_id if materials_selection else None,
     )
     return aggregated_result_to_schema(result)
-
-
-def calculate_drilling_unit(
-    request: "DrillingUnitCalculateRequest", legacy: LegacyReferences
-) -> "DrillingUnitCalculateResponse":
-    from dataclasses import asdict
-
-    from api.schemas.cost import (
-        DrillingCostLineSchema,
-        DrillingUnitCalculateResponse,
-        DrillingUnitCostResultSchema,
-    )
-    from cost.drilling import DrillingUnitCostInput, calculate_drilling_unit_cost, unit_cost_summary_rows
-
-    params = DrillingUnitCostInput(**request.input.model_dump())
-    result = calculate_drilling_unit_cost(
-        params, work_objects=list(legacy.work_objects), drill_rigs=list(legacy.drill_rigs)
-    )
-
-    result_schema = DrillingUnitCostResultSchema(
-        commercial_speed_m_per_shift=result.commercial_speed_m_per_shift,
-        fuel_l_per_m=result.fuel_l_per_m,
-        direct_cost_per_m=result.direct_cost_per_m,
-        cost_per_m=result.cost_per_m,
-        price_per_m=result.price_per_m,
-        diesel_share=result.diesel_share,
-        lines=[DrillingCostLineSchema(**asdict(line)) for line in result.lines],
-    )
-    return DrillingUnitCalculateResponse(
-        result=result_schema,
-        summary_rows=unit_cost_summary_rows(result),
-    )
 
 
 def calculate_labor(request: "LaborCalculateRequest") -> "LaborCalculateResponse":

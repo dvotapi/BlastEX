@@ -11,14 +11,12 @@ function workspace(overrides: {
   objectName: string;
   shiftsPerMonth: number;
   objects: string[];
-  price: number;
   warnings: string[];
 }): WorkspaceState {
   return {
     settings: { active_work_object_name: overrides.objectName },
     snapshot: { labor_shifts_per_month: overrides.shiftsPerMonth },
     references: { work_object_records: overrides.objects.map((name) => ({ name })) },
-    drilling_price_per_m: overrides.price,
     warnings: overrides.warnings,
   } as unknown as WorkspaceState;
 }
@@ -54,14 +52,12 @@ describe("mergeWorkspaceAfterObjectSwitch", () => {
     objectName: "Карьер А",
     shiftsPerMonth: 9,
     objects: ["Карьер А"],
-    price: 100,
     warnings: ["старое предупреждение"],
   });
   const next = workspace({
     objectName: "Карьер Б",
     shiftsPerMonth: 5,
     objects: ["Карьер А", "Карьер Б"],
-    price: 200,
     warnings: ["новое предупреждение"],
   });
 
@@ -70,12 +66,11 @@ describe("mergeWorkspaceAfterObjectSwitch", () => {
     expect(merged.snapshot).toBe(prev.snapshot);
   });
 
-  it("берёт из ответа настройки, справочники, предупреждения и цену бурения", () => {
+  it("берёт из ответа настройки, справочники и предупреждения", () => {
     const merged = mergeWorkspaceAfterObjectSwitch(prev, next);
     expect(merged.settings.active_work_object_name).toBe("Карьер Б");
     expect(merged.references).toBe(next.references);
     expect(merged.warnings).toBe(next.warnings);
-    expect(merged.drilling_price_per_m).toBe(200);
   });
 
   it("не меняет исходные состояния", () => {

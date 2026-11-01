@@ -95,6 +95,7 @@ from api.schemas.design import (
     BlastResultCompareResponse,
 )
 from api.services.cost_service import calculate_cost
+from cost.model.drilling_price import DrillingPriceSource
 from design import lifecycle as design_lifecycle
 from design import persistence as design_persistence
 from design import workstation as design_workstation
@@ -1236,7 +1237,11 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
     return hole, block, initiation
 
 
-def estimate_design_cost(request: DesignCostRequest, legacy: LegacyReferences) -> AggregatedCostResultSchema:
+def estimate_design_cost(
+    request: DesignCostRequest,
+    legacy: LegacyReferences,
+    drilling_price_source: DrillingPriceSource | None = None,
+) -> AggregatedCostResultSchema:
     from api.schemas.cost import BlockCalculationInputSchema
 
     design = BlastDesign.from_dict(request.design.model_dump())
@@ -1261,7 +1266,7 @@ def estimate_design_cost(request: DesignCostRequest, legacy: LegacyReferences) -
         materials_selection=request.materials_selection,
         production_volume_tons=0.0,
     )
-    return calculate_cost(cost_request, legacy)
+    return calculate_cost(cost_request, legacy, drilling_price_source)
 
 
 def export_plan_passport(team_id: str, design_id: str) -> str:

@@ -18,7 +18,7 @@ import { DrillingCard, type DrillingFact } from "./DrillingCard";
 import { DrillingDrawer } from "./DrillingDrawer";
 
 export type OwnDrillingEditorProps = SectionEditorProps & {
-  /** Открыть отдельный калькулятор бурения (Cost V1, вкладка «Бурение»). */
+  /** Открыть страницу «Бурение» (зарплата экипажа, стоимость метра). */
   onOpenDrillingPage: () => void;
   /** Переключатель «Исполнение» — рисует `DrillingSection`, показывает карточка. */
   executor: ReactNode;

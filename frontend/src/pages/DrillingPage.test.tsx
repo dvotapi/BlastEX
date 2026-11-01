@@ -8,7 +8,6 @@ vi.mock("../api/endpoints", () => ({
   api: {
     economics: { technicalPassports: vi.fn(), revisions: vi.fn(), referenceSnapshot: vi.fn() },
     blockEconomics: { modelDefaults: vi.fn(), runs: vi.fn(), variants: vi.fn(), saveRun: vi.fn(), exportUrl: (id: string) => `/x/${id}` },
-    drillingUnit: vi.fn(),
   },
 }));
 
@@ -28,7 +27,6 @@ beforeEach(() => {
     reference_revision_id: "REV-1",
     variants: [{ name: "Вариант 1", economics: economicsFixture() }],
   });
-  vi.mocked(api.drillingUnit).mockResolvedValue(new Promise(() => {}) as never);
 });
 
 afterEach(() => {
@@ -56,16 +54,15 @@ describe("DrillingPage", () => {
     });
   });
 
-  it("старый калькулятор спрятан в сворачиваемый блок", async () => {
+  it("старого калькулятора цены п.м. на странице нет", async () => {
     renderWithWorkspace(
       <BlockEconomicsSessionProvider passportId="PASSPORT-1">
         <DrillingPage />
       </BlockEconomicsSessionProvider>,
     );
     await screen.findByRole("radio", { name: "Методика ФОТ" });
-    const legacy = document.querySelector("details.drilling-legacy") as HTMLDetailsElement;
-    expect(legacy).not.toBeNull();
-    expect(legacy.open).toBe(false);
+    expect(document.querySelector("details.drilling-legacy")).toBeNull();
+    expect(screen.queryByText(/Калькулятор цены п\.м\./)).toBeNull();
   });
 
   it("правка источника ФОТ сохраняется кнопкой сценария блока, а не полосой рабочего пространства", async () => {

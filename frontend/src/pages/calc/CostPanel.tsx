@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/endpoints";
 import { activeModules, buildCostContext } from "../../app/costContext";
 import { useWorkspace } from "../../app/useWorkspace";
+import { useOptionalBlockEconomicsSession } from "../economics/BlockEconomicsSessionContext";
 import { DataTable } from "../../components/DataTable";
 import type {
   AggregatedCostResult,
@@ -62,6 +63,9 @@ export function CostPanel({
   blockDataOverride?: BlockDataOverride;
 }) {
   const { state, activeScenario, setBlastContext } = useWorkspace();
+  // Цену метра бурения (1.2) считает модель блока по параметрам активного
+  // черновика сметы; без сессии (или черновика) сервер вернёт нулевую цену с пояснением.
+  const drillingParameters = useOptionalBlockEconomicsSession()?.activeDraft?.parameters ?? null;
   const overrides = state?.snapshot.scenario_phase_overrides ?? {};
   const modules = useMemo(() => activeModules(activeScenario, overrides), [activeScenario, overrides]);
   const showMaterials = modules.has("materials");
@@ -120,7 +124,7 @@ export function CostPanel({
         const payload: Record<string, unknown> = {
           scenario_id: activeScenario.id,
           work_object_name: state.settings.active_work_object_name,
-          context: buildCostContext(state),
+          context: buildCostContext(state, drillingParameters),
           materials_selection: showMaterials ? selection : null,
           production_volume_tons: showManufacturing ? productionTons : 0,
         };
@@ -153,7 +157,7 @@ export function CostPanel({
     return () => { controller.cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    state, activeScenario, selection, productionTons, showManufacturing, showMaterials,
+    state, activeScenario, selection, productionTons, showManufacturing, showMaterials, drillingParameters,
     effHole.charge_mass_kg, effBlock.total_holes, effBlock.block_volume_m3, effExplosiveKey, effHoleDepthM,
   ]);
 
@@ -165,7 +169,7 @@ export function CostPanel({
     <div className="cost-panel" data-panel={panelKey}>
       <h4>Смета затрат — сценарий «{activeScenario.name}»</h4>
       {state?.settings.active_work_object_name && (
-        <p className="cost-caption">Объект работ: <b>{state.settings.active_work_object_name}</b> (мобилизация и цена ДТ учитываются в бурении).</p>
+        <p className="cost-caption">Объект работ: <b>{state.settings.active_work_object_name}</b>.</p>
       )}
       {error && <div className="page-error">{error}</div>}
 
@@ -254,6 +258,10 @@ export function CostPanel({
               <tr><td>Сумма 1.2, руб</td><td>{money(result.drilling_total_cost.amount)}</td></tr>
             </tbody>
           </table>
+          <p className="cost-caption">
+            Цена метра — из модели блока: станок, экипаж и надбавки берутся из активного черновика сметы («Экономика блока»).
+          </p>
+          {result.notes.map((note) => <p key={note} className="cost-caption">{note}</p>)}
         </div>
       )}
 

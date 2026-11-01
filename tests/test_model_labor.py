@@ -522,3 +522,15 @@ def test_template_crew_without_rig_class_skips_class_templates() -> None:
 
     assert template_crew(_rig_templates(), "DRILL_AND_BLAST", None) == (("POS_BLASTER", Decimal("2")),)
     assert template_crew(_rig_templates(), "OTHER_PACKAGE", "CRAWLER_INTEGRATED") == ()
+
+
+def test_rig_specific_crew_returns_only_class_members() -> None:
+    from decimal import Decimal
+
+    from cost.model.labor import rig_specific_crew
+
+    assert rig_specific_crew(_rig_templates(), "DRILL_AND_BLAST", "COMPRESSOR_SEPARATE") == (
+        ("POS_DRILLER", Decimal("1")),
+        ("POS_ASSISTANT", Decimal("1")),
+    )
+    assert rig_specific_crew(_rig_templates(), "DRILL_AND_BLAST", None) == ()

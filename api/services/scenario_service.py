@@ -19,7 +19,7 @@ from api.schemas.scenarios import (
     ScenarioListResponse,
     ScenarioSummarySchema,
 )
-from api.services.cost_service import default_design_price_source
+from api.services.cost_service import apply_estimate_to_outcomes, default_design_price_source
 from api.services.design_service import estimate_design_cost
 from api.services.fragmentation_settings import with_scenario_settings
 from cost.v2.legacy_adapter import default_legacy_references
@@ -89,15 +89,12 @@ def _apply_cost(
             scenario_id=params.cost_scenario_id or "drill_blast",
         )
         result = estimate_design_cost(
-            request, default_legacy_references(), default_design_price_source(request, team_id)
+            request, default_legacy_references(), default_design_price_source(team_id)
         )
     except Exception as exc:
         outcomes.warnings.append(f"Смета недоступна: {exc}")
         return
-    outcomes.total_predicted_cost_rub = float(result.total_amount_rub)
-    outcomes.direct_cost_rub = float(result.variable_total_rub)
-    outcomes.cost_per_m3 = float(result.cost_per_m3)
-    outcomes.cost_source = "engineering"
+    apply_estimate_to_outcomes(result, outcomes)
 
 
 def _overlay_target(prediction, name: str) -> float | None:

@@ -198,7 +198,6 @@ def test_sheet_without_rig_gets_zero_price_and_a_note(monkeypatch) -> None:
 def test_design_source_reads_the_callers_organization(monkeypatch) -> None:
     """Расчёты «Проектирования» берут цену из ревизии организации вызывающего, а не «default»."""
 
-    from api.schemas.cost import CostCalculateRequest
     from api.services import economics_service
     from api.services.cost_service import default_design_price_source
 
@@ -206,7 +205,34 @@ def test_design_source_reads_the_callers_organization(monkeypatch) -> None:
     base = repository.get_reference_snapshot("org-a")
     repository.publish_references("org-a", "tester", base.revision_id, dict(fx.references().sections), "test")
     monkeypatch.setattr(economics_service, "get_economics_repository", lambda: repository)
-    request = CostCalculateRequest(scenario_id="drill_blast")
 
-    assert default_design_price_source(request, "org-a") is not None
-    assert default_design_price_source(request, "org-b") is None
+    assert default_design_price_source("org-a") is not None
+    assert default_design_price_source("org-b") is None
+
+
+def test_estimate_without_drilling_price_is_not_published_to_outcomes() -> None:
+    """Смета с нулевой ценой бурения не должна стать «дешёвым» итогом сценария или кандидата."""
+
+    from types import SimpleNamespace
+
+    from api.schemas.cost import AggregatedCostResultSchema, DrillingCostResultSchema
+    from api.services.cost_service import apply_estimate_to_outcomes
+
+    def result(price: float, notes: list[str]) -> AggregatedCostResultSchema:
+        return AggregatedCostResultSchema(
+            scenario_id="drill_blast",
+            drilling_total_cost=DrillingCostResultSchema(
+                total_holes=10, hole_depth_m=10, drilling_footage_m=100, yield_per_meter_m3=5, price_per_m=price, amount=100 * price
+            ),
+            total_amount_rub=100 * price,
+            notes=notes,
+        )
+
+    broken = SimpleNamespace(warnings=[], total_predicted_cost_rub=None, direct_cost_rub=None, cost_per_m3=None, cost_source="")
+    assert apply_estimate_to_outcomes(result(0, ["нет параметров бурения"]), broken) is False
+    assert broken.total_predicted_cost_rub is None
+    assert any("цена бурения не определена" in w and "нет параметров бурения" in w for w in broken.warnings)
+
+    fine = SimpleNamespace(warnings=[], total_predicted_cost_rub=None, direct_cost_rub=None, cost_per_m3=None, cost_source="")
+    assert apply_estimate_to_outcomes(result(500, []), fine) is True
+    assert fine.total_predicted_cost_rub == 50000 and fine.cost_source == "engineering"

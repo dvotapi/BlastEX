@@ -63,8 +63,13 @@ def design_drilling_price_source(
     )
 
 
-def default_design_price_source(request: Any, organization_id: str) -> DrillingPriceSource | None:
+def default_design_price_source(
+    organization_id: str, *, work_object_name: str | None = None, context: Any = None
+) -> DrillingPriceSource | None:
     """Источник цены метра для сервисов без репозитория в аргументах (сценарии, рекомендации, оптимизация).
+
+    Зовётся один раз на прогон: оптимизация считает смету по каждому кандидату,
+    снимок справочников для всех один.
 
     Справочники читаются ревизией организации вызывающего (не чужой «default»);
     сбой чтения не должен ронять сравнение — тогда цены бурения нет, и это в warnings.
@@ -74,14 +79,35 @@ def default_design_price_source(request: Any, organization_id: str) -> DrillingP
 
     try:
         cost_request = CostCalculateRequest(
-            scenario_id=request.scenario_id,
-            work_object_name=request.work_object_name,
-            context=request.context,
+            scenario_id="drill_blast", work_object_name=work_object_name, context=context
         )
         return design_drilling_price_source(cost_request, get_economics_repository(), organization_id)
     except Exception:
         logging.getLogger(__name__).warning("Источник цены бурения не собран", exc_info=True)
         return None
+
+
+def apply_estimate_to_outcomes(result: AggregatedCostResultSchema, outcomes: Any) -> bool:
+    """Смета «Проектирования» → итоги сценария; без цены бурения итог не публикуется.
+
+    Нулевая цена метра при ненулевом погонаже означает, что бурение в смете
+    пропущено: такой итог занизил бы стоимость и сделал кандидата оптимизации
+    «дешёвым». Причина уходит в предупреждения сценария.
+    """
+
+    drilling = result.drilling_total_cost
+    if drilling is not None and drilling.drilling_footage_m > 0 and drilling.price_per_m <= 0:
+        reason = "; ".join(result.notes) or "нет параметров бурения"
+        outcomes.warnings.append(f"Смета не посчитана: цена бурения не определена ({reason}).")
+        return False
+    for note in result.notes:
+        if note not in outcomes.warnings:
+            outcomes.warnings.append(note)
+    outcomes.total_predicted_cost_rub = float(result.total_amount_rub)
+    outcomes.direct_cost_rub = float(result.variable_total_rub)
+    outcomes.cost_per_m3 = float(result.cost_per_m3)
+    outcomes.cost_source = "engineering"
+    return True
 
 
 def calculate_cost(

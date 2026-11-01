@@ -6,7 +6,7 @@
  * ними не переносятся (см. «Решения и допущения», п. 1).
  */
 import { useState, type ReactNode } from "react";
-import type { Numeric, ValueOrigin } from "../../../types/blockEconomics";
+import type { ModelDefaults, ModelParameters, Numeric, ValueOrigin } from "../../../types/blockEconomics";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
 import { NumericInput } from "../NumericInput";
@@ -16,6 +16,24 @@ import { lineShare } from "../sections/lineHelpers";
 import type { SectionEditorProps } from "../sections/types";
 import { DrillingCard, type DrillingFact } from "./DrillingCard";
 import { DrillingDrawer } from "./DrillingDrawer";
+
+/**
+ * Смена станка: экипаж бурения зависит от класса станка, поэтому должности
+ * станко-зависимой части состава (`defaults.rig_crews`) заменяются составом
+ * нового станка; остальная бригада блока не меняется.
+ */
+export function rigChangePatch(
+  params: ModelParameters,
+  defaults: ModelDefaults,
+  rigCode: string | null,
+): Partial<ModelParameters> {
+  const rigCrews = defaults.rig_crews ?? {};
+  const rigPositions = new Set(Object.values(rigCrews).flatMap((members) => members.map((member) => member.position_code)));
+  if (rigPositions.size === 0) return { rig_code: rigCode };
+  const kept = params.crew.filter((member) => !rigPositions.has(member.position_code));
+  const added = (rigCode ? rigCrews[rigCode] ?? [] : []).map((member) => ({ ...member, shifts_per_block: member.shifts_per_block ?? null }));
+  return { rig_code: rigCode, crew: [...kept, ...added] };
+}
 
 export type OwnDrillingEditorProps = SectionEditorProps & {
   /** Открыть страницу «Бурение» (зарплата экипажа, стоимость метра). */
@@ -100,7 +118,7 @@ export function OwnDrillingEditor({
               label="Буровая установка"
               value={params.rig_code ?? ""}
               options={rigOptions}
-              onChange={(code) => onChange({ rig_code: code || null })}
+              onChange={(code) => onChange(rigChangePatch(params, defaults, code || null))}
               disabled={!canEdit}
               variant="field"
             />

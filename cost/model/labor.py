@@ -99,6 +99,23 @@ def template_crew(
     return tuple(members)
 
 
+def rig_specific_crew(
+    templates: Iterable[ReferenceItem], package_code: str, rig_class: str | None
+) -> tuple[tuple[str, Decimal], ...]:
+    """Только состав класса станка (без общих шаблонов): им черновик заменяет экипаж при смене станка."""
+
+    if not rig_class:
+        return ()
+    members: list[tuple[str, Decimal]] = []
+    for item in templates:
+        if payload_text(item, "package_code") == package_code and payload_text(item, "rig_class") == rig_class:
+            members.extend(
+                (str(member.get("position_code", "")), payload_number_dict(member, "headcount", Decimal("1")))
+                for member in item.payload.get("members", [])
+            )
+    return tuple(members)
+
+
 def crew_members(context: ModelContext) -> tuple[tuple[str, Decimal, Decimal | None], ...]:
     """Состав бригады: параметры вкладки, иначе шаблоны пакета (с учётом станка)."""
 

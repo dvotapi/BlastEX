@@ -433,6 +433,17 @@ def model_defaults(
             "operations": _package_operations(references, package),
             "nomenclature": nomenclature,
             "rigs": rigs,
+            "rig_crews": {
+                rig["code"]: [
+                    {"position_code": code, "headcount": str(headcount)}
+                    for code, headcount in labor.rig_specific_crew(
+                        references.active_items("crew_templates"),
+                        package_code,
+                        payload_text(references.item("equipment_types", rig["code"]), "rig_class") or None,
+                    )
+                ]
+                for rig in rigs
+            },
             "szm": szm,
             "delivery_trucks": trucks,
             "emulsion_trucks": emulsion_trucks,

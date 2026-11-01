@@ -26,6 +26,16 @@ class RecommendationIsolationTests(unittest.TestCase):
         patcher = patch("cost.persistence.data_root", return_value=Path(self._tmp.name))
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Цена метра бурения — из справочников модели; в тестах репозитория с ними нет.
+        from cost.model import drilling_price
+        from tests import model_fixtures as fx
+
+        price_patcher = patch(
+            "api.services.recommendation_service.default_design_price_source",
+            return_value=drilling_price.default_source(fx.references()),
+        )
+        price_patcher.start()
+        self.addCleanup(price_patcher.stop)
 
     def _saved(self):
         return save_design(TEAM_ID, charged_design("rec-iso-design"))

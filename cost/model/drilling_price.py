@@ -139,7 +139,7 @@ def default_source(
     crew = [
         {"position_code": code, "headcount": str(headcount), "shifts_per_block": None}
         for code, headcount in labor.template_crew(
-            references.active_items("crew_templates"), package_code, rig.code
+            references.active_items("crew_templates"), package_code, payload_text(rig, "rig_class") or None
         )
     ]
     params = ModelParameters.from_dict(

@@ -484,12 +484,12 @@ def _rig_templates():
         ),
         fx.item(
             "CREW_RIG_A", "Экипаж станка A",
-            {"package_code": "DRILL_AND_BLAST", "rig_type_code": "RIG_A", "members": [{"position_code": "POS_DRILLER", "headcount": "1"}]},
+            {"package_code": "DRILL_AND_BLAST", "rig_class": "CRAWLER_INTEGRATED", "members": [{"position_code": "POS_DRILLER", "headcount": "1"}]},
         ),
         fx.item(
             "CREW_RIG_B", "Экипаж станка B",
             {
-                "package_code": "DRILL_AND_BLAST", "rig_type_code": "RIG_B",
+                "package_code": "DRILL_AND_BLAST", "rig_class": "COMPRESSOR_SEPARATE",
                 "members": [
                     {"position_code": "POS_DRILLER", "headcount": "1"},
                     {"position_code": "POS_ASSISTANT", "headcount": "1"},
@@ -504,21 +504,21 @@ def test_template_crew_takes_common_and_matching_rig_templates() -> None:
 
     from cost.model.labor import template_crew
 
-    assert template_crew(_rig_templates(), "DRILL_AND_BLAST", "RIG_A") == (
+    assert template_crew(_rig_templates(), "DRILL_AND_BLAST", "CRAWLER_INTEGRATED") == (
         ("POS_BLASTER", Decimal("2")),
         ("POS_DRILLER", Decimal("1")),
     )
-    assert template_crew(_rig_templates(), "DRILL_AND_BLAST", "RIG_B") == (
+    assert template_crew(_rig_templates(), "DRILL_AND_BLAST", "COMPRESSOR_SEPARATE") == (
         ("POS_BLASTER", Decimal("2")),
         ("POS_DRILLER", Decimal("1")),
         ("POS_ASSISTANT", Decimal("1")),
     )
 
 
-def test_template_crew_without_rig_skips_rig_templates() -> None:
+def test_template_crew_without_rig_class_skips_class_templates() -> None:
     from decimal import Decimal
 
     from cost.model.labor import template_crew
 
     assert template_crew(_rig_templates(), "DRILL_AND_BLAST", None) == (("POS_BLASTER", Decimal("2")),)
-    assert template_crew(_rig_templates(), "OTHER_PACKAGE", "RIG_A") == ()
+    assert template_crew(_rig_templates(), "OTHER_PACKAGE", "CRAWLER_INTEGRATED") == ()

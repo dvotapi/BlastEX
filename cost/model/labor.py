@@ -75,21 +75,22 @@ class CrewRotation:
 
 
 def template_crew(
-    templates: Iterable[ReferenceItem], package_code: str, rig_code: str | None
+    templates: Iterable[ReferenceItem], package_code: str, rig_class: str | None
 ) -> tuple[tuple[str, Decimal], ...]:
-    """Состав из шаблонов пакета: общие (без типа техники) и подходящие под станок.
+    """Состав из шаблонов пакета: общие (без класса станка) и подходящие под класс.
 
-    Шаблон с `rig_type_code` действует только для этого станка: экипаж бурения
-    зависит от типа машины (у JK 830-2 один машинист, у УРБ — машинист и
-    помощник), а остальная бригада блока от станка не зависит.
+    Шаблон с `rig_class` действует только для станков этого класса: экипаж
+    бурения зависит от типа машины (гусеничный интегрированный — один
+    машинист, станок с отдельным компрессором — машинист и помощник), а
+    остальная бригада блока от станка не зависит.
     """
 
     members: list[tuple[str, Decimal]] = []
     for item in templates:
         if payload_text(item, "package_code") != package_code:
             continue
-        template_rig = payload_text(item, "rig_type_code")
-        if template_rig and template_rig != (rig_code or ""):
+        template_class = payload_text(item, "rig_class")
+        if template_class and template_class != (rig_class or ""):
             continue
         members.extend(
             (str(member.get("position_code", "")), payload_number_dict(member, "headcount", Decimal("1")))
@@ -109,7 +110,9 @@ def crew_members(context: ModelContext) -> tuple[tuple[str, Decimal, Decimal | N
     return tuple(
         (code, headcount, None)
         for code, headcount in template_crew(
-            context.items("crew_templates"), context.params.package_code, context.params.rig_code
+            context.items("crew_templates"),
+            context.params.package_code,
+            payload_text(context.item("equipment_types", context.params.rig_code), "rig_class") or None,
         )
     )
 

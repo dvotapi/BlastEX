@@ -395,7 +395,9 @@ def model_defaults(
     crew = [
         {"position_code": code, "headcount": str(headcount), "shifts_per_block": None}
         for code, headcount in labor.template_crew(
-            references.active_items("crew_templates"), package_code, rig_code
+            references.active_items("crew_templates"),
+            package_code,
+            payload_text(rig_type, "rig_class") or None
         )
     ]
 

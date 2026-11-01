@@ -292,4 +292,10 @@ class CrewMember(ReferencePayload):
 
 class CrewTemplatePayload(ReferencePayload):
     package_code: str = RefField("work_packages", description="Пакет работ")
+    rig_type_code: str | None = RefField(
+        "equipment_types",
+        description="Тип техники, для которого действует состав; пусто — для любой",
+        title="Тип техники",
+        default=None,
+    )
     members: list[CrewMember] = Field(default_factory=list, description="Состав бригады")

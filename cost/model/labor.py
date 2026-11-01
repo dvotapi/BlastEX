@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_CEILING
+from typing import Iterable
 
 from cost.model.inputs import (
     ModelContext,
@@ -73,31 +74,43 @@ class CrewRotation:
     headcount: Decimal
 
 
+def template_crew(
+    templates: Iterable[ReferenceItem], package_code: str, rig_code: str | None
+) -> tuple[tuple[str, Decimal], ...]:
+    """Состав из шаблонов пакета: общие (без типа техники) и подходящие под станок.
+
+    Шаблон с `rig_type_code` действует только для этого станка: экипаж бурения
+    зависит от типа машины (у JK 830-2 один машинист, у УРБ — машинист и
+    помощник), а остальная бригада блока от станка не зависит.
+    """
+
+    members: list[tuple[str, Decimal]] = []
+    for item in templates:
+        if payload_text(item, "package_code") != package_code:
+            continue
+        template_rig = payload_text(item, "rig_type_code")
+        if template_rig and template_rig != (rig_code or ""):
+            continue
+        members.extend(
+            (str(member.get("position_code", "")), payload_number_dict(member, "headcount", Decimal("1")))
+            for member in item.payload.get("members", [])
+        )
+    return tuple(members)
+
+
 def crew_members(context: ModelContext) -> tuple[tuple[str, Decimal, Decimal | None], ...]:
-    """Состав бригады: параметры вкладки, иначе шаблон пакета."""
+    """Состав бригады: параметры вкладки, иначе шаблоны пакета (с учётом станка)."""
 
     if context.params.crew:
         return tuple(
             (member.position_code, member.headcount, member.shifts_per_block)
             for member in context.params.crew
         )
-    template = next(
-        (
-            item
-            for item in context.items("crew_templates")
-            if payload_text(item, "package_code") == context.params.package_code
-        ),
-        None,
-    )
-    if template is None:
-        return ()
     return tuple(
-        (
-            str(member.get("position_code", "")),
-            payload_number_dict(member, "headcount", Decimal("1")),
-            None,
+        (code, headcount, None)
+        for code, headcount in template_crew(
+            context.items("crew_templates"), context.params.package_code, context.params.rig_code
         )
-        for member in template.payload.get("members", [])
     )
 
 

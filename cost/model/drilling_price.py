@@ -22,6 +22,7 @@ from decimal import Decimal
 
 from cost.model.drilling import DRILLING_OPERATION
 from cost.model.engine import compute_block_economics
+from cost.model import labor
 from cost.model.inputs import ModelParameters, payload_number, payload_text
 from cost.v2.models import ReferenceSnapshot
 
@@ -136,14 +137,10 @@ def default_source(
     rates = references.active_items("organization_rates")
     rate = rates[0] if rates else None
     crew = [
-        {
-            "position_code": str(member.get("position_code", "")),
-            "headcount": str(member.get("headcount", "1")),
-            "shifts_per_block": None,
-        }
-        for template in references.active_items("crew_templates")
-        if payload_text(template, "package_code") == package_code
-        for member in template.payload.get("members", [])
+        {"position_code": code, "headcount": str(headcount), "shifts_per_block": None}
+        for code, headcount in labor.template_crew(
+            references.active_items("crew_templates"), package_code, rig.code
+        )
     ]
     params = ModelParameters.from_dict(
         {

@@ -36,6 +36,7 @@ from cost.model import sensitivity
 from cost.model.engine import compute_block_economics
 from cost.model.export_xlsx import export_bytes
 from cost.model.inputs import BlockEconomics, ModelParameters, payload_number, payload_text
+from cost.model import labor
 from cost.model.materials import ROLES, quantity_in_price_units
 from cost.model.payroll import DowntimeEntry, PayrollInputError
 from cost.model.payroll_preview import PreviewItem, PreviewRequest, payroll_preview
@@ -392,14 +393,10 @@ def model_defaults(
     package = package_map(references).get(package_code)
 
     crew = [
-        {
-            "position_code": str(member.get("position_code", "")),
-            "headcount": str(member.get("headcount", "1")),
-            "shifts_per_block": None,
-        }
-        for template in references.active_items("crew_templates")
-        if payload_text(template, "package_code") == package_code
-        for member in template.payload.get("members", [])
+        {"position_code": code, "headcount": str(headcount), "shifts_per_block": None}
+        for code, headcount in labor.template_crew(
+            references.active_items("crew_templates"), package_code, rig_code
+        )
     ]
 
     parameters = ModelParametersSchema.model_validate(

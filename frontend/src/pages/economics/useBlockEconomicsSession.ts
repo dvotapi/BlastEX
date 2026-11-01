@@ -166,8 +166,16 @@ export function useBlockEconomicsSession(passportId?: string | null, requestKey 
    */
   const reloadDefaults = useCallback(async () => {
     if (!selectedPassport || !activePackageCode) return;
+    // Ответ годится, только пока не сменился паспорт и не началась новая
+    // полная загрузка: иначе каталог старого паспорта перекроет свежий.
+    const requestAtStart = defaultsRequestId.current;
     try {
       const loaded = await api.blockEconomics.modelDefaults(selectedPassport, activePackageCode);
+      if (
+        selectedPassport !== selectedPassportRef.current ||
+        requestAtStart !== defaultsRequestId.current
+      )
+        return;
       setDefaults(loaded);
     } catch {
       // Прежний каталог остаётся видимым и рабочим — обновление не критично

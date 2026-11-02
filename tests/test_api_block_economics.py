@@ -116,6 +116,9 @@ def test_model_defaults_come_from_references(client) -> None:
         "POS_SZM_DRIVER",
     ]
     assert "PRODUCTION_DRILLING" in body["package_operations"]
+    # Норматив смен — по каждому станку, а не только у первого в `parameters`.
+    assert Decimal(body["rig_shift_norms"]["RIG_JK830"]) == Decimal("40")
+    assert set(body["rig_shift_norms"]) == {rig["code"] for rig in body["rigs"]}
 
 
 def test_defaults_offer_subcontract_rates_with_counterparties(client) -> None:

@@ -15,7 +15,7 @@ import { lineShare } from "../sections/lineHelpers";
 import type { SectionEditorProps } from "../sections/types";
 import { DrillingCard, type DrillingFact } from "./DrillingCard";
 import { DrillingDrawer } from "./DrillingDrawer";
-import { RigPlanShiftsSlider, shiftsNumber } from "./RigPlanShiftsSlider";
+import { RigPlanShiftsSlider, rigShiftNorm, shiftsNumber } from "./RigPlanShiftsSlider";
 
 /**
  * Смена станка: экипаж бурения зависит от класса станка, поэтому должности
@@ -60,11 +60,11 @@ export function OwnDrillingEditor({
   const rubPerM = economics?.natural.values.drilling_rub_per_m;
   const conditionTitle = economics?.natural.lineage.drilling_condition;
 
-  // Норматив плановых смен станка — тот же, что заведён в шаблоне пакета:
-  // совпадает с ним — «Норматив», сметчик поправил — «Ручной». Сравнение —
+  // Норматив плановых смен — у выбранного станка (модель при пустом поле берёт
+  // его же): совпадает — «Норматив», сметчик поправил — «Ручной». Сравнение —
   // числами, как у бегунка: пусто и 0 модель считает нормативом, «40.0» — это 40.
-  const rigPlanOrigin: ValueOrigin =
-    shiftsNumber(params.rig_plan_shifts) === shiftsNumber(defaults.parameters.rig_plan_shifts) ? "NORM" : "MANUAL";
+  const rigNorm = rigShiftNorm(defaults, params.rig_code);
+  const rigPlanOrigin: ValueOrigin = shiftsNumber(params.rig_plan_shifts) === shiftsNumber(rigNorm) ? "NORM" : "MANUAL";
 
   const otherLines = group.lines.filter((line) => line.cost_item_code !== "DRILL_SUBCONTRACT");
 
@@ -89,7 +89,7 @@ export function OwnDrillingEditor({
       editor: (
         <RigPlanShiftsSlider
           value={params.rig_plan_shifts}
-          norm={defaults.parameters.rig_plan_shifts}
+          norm={rigNorm}
           disabled={!canEdit}
           onChange={(value) => onChange({ rig_plan_shifts: value })}
         />

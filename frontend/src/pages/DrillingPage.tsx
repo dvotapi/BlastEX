@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useWorkspace } from "../app/useWorkspace";
 import { useBlockEconomicsSessionContext } from "./economics/BlockEconomicsSessionContext";
 import { DrillingPayrollPanel } from "./economics/drilling/DrillingPayrollPanel";
-import { RigPlanShiftsSlider } from "./economics/drilling/RigPlanShiftsSlider";
+import { RigPlanShiftsSlider, rigShiftNorm } from "./economics/drilling/RigPlanShiftsSlider";
 import { amount, money } from "./economics/format";
 
 /**
@@ -81,7 +81,7 @@ export function DrillingPage() {
                 <>
                   <RigPlanShiftsSlider
                     value={params.rig_plan_shifts}
-                    norm={defaults.parameters.rig_plan_shifts}
+                    norm={rigShiftNorm(defaults, params.rig_code)}
                     rubPerM={rubPerM}
                     rubPerMStale={recalculating}
                     disabled={!canEdit}

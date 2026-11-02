@@ -10,12 +10,13 @@
  * справочника (`defaults.parameters.rig_plan_shifts`). Пересчёт блока идёт по
  * черновику с задержкой, но черновик не должен меняться на каждый пиксель:
  * движение держится в локальном состоянии и уходит наружу один раз — по
- * отпусканию ползунка, а при шагах клавиатурой — после короткой паузы
- * (отпускание клавиши паузу не обрывает, иначе каждый шаг — отдельный патч).
+ * отпусканию ползунка (пока указатель прижат, пауза в движении ничего не
+ * отправляет), а при шагах клавиатурой — после короткой паузы (отпускание
+ * клавиши паузу не обрывает, иначе каждый шаг — отдельный патч).
  */
 import { useEffect, useRef, useState } from "react";
 import { plural } from "../../../lib/plural";
-import type { Numeric } from "../../../types/blockEconomics";
+import type { ModelDefaults, Numeric } from "../../../types/blockEconomics";
 import { money } from "../format";
 
 export const RIG_PLAN_SHIFTS_MIN = 10;
@@ -30,6 +31,17 @@ export function shiftsNumber(value: Numeric | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * Норматив смен выбранного станка. `defaults.parameters.rig_plan_shifts` —
+ * норматив первого станка списка, а модель при пустом поле берёт норматив
+ * станка из `rig_code`; старый ответ без карты нормативов — прежнее поле.
+ */
+export function rigShiftNorm(defaults: ModelDefaults, rigCode: string | null): Numeric | null {
+  const norms = defaults.rig_shift_norms;
+  if (norms && rigCode && rigCode in norms) return norms[rigCode] ?? null;
+  return defaults.parameters.rig_plan_shifts;
 }
 
 export type RigPlanShiftsSliderProps = {
@@ -56,6 +68,9 @@ export function RigPlanShiftsSlider({ value, norm, rubPerM, rubPerMStale, disabl
   // а не того, где начался шаг: иначе патч уйдёт в черновик, активный 250 мс назад.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  // Указатель прижат к ползунку: пауза в движении — не конец выбора, значение
+  // уходит только по отпусканию (иначе одно перетаскивание — несколько пересчётов).
+  const holding = useRef(false);
 
   // Черновик принял значение (или сменился снаружи) — показываем его, а
   // незавершённый шаг к прежнему черновику не отправляем.
@@ -95,10 +110,16 @@ export function RigPlanShiftsSlider({ value, norm, rubPerM, rubPerMStale, disabl
     if (!Number.isFinite(next)) return;
     setPending(next);
     clearTimer();
-    timer.current = window.setTimeout(() => commit(next), RIG_PLAN_SHIFTS_SETTLE_MS);
+    if (!holding.current) timer.current = window.setTimeout(() => commit(next), RIG_PLAN_SHIFTS_SETTLE_MS);
   }
 
-  function flush() {
+  function hold() {
+    holding.current = true;
+    clearTimer();
+  }
+
+  function release() {
+    holding.current = false;
     if (pending !== null) commit(pending);
   }
 
@@ -127,8 +148,10 @@ export function RigPlanShiftsSlider({ value, norm, rubPerM, rubPerMStale, disabl
           aria-label="Плановые смены станка в месяц"
           aria-valuetext={shownText}
           onChange={(event) => handleMove(event.target.value)}
-          onPointerUp={flush}
-          onBlur={flush}
+          onPointerDown={hold}
+          onPointerUp={release}
+          onPointerCancel={release}
+          onBlur={release}
         />
         <output className="rig-shifts-value">{shownText}</output>
       </div>

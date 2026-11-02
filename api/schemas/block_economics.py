@@ -387,6 +387,9 @@ class ModelDefaultsResponse(BaseModel):
     # Код станка → экипаж его класса из шаблонов (только станко-зависимая часть):
     # при смене станка на вкладке черновик заменяет прежний экипаж бурения новым.
     rig_crews: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
+    # Код станка → норматив плановых смен в месяц (`norm_shifts_per_month` типа);
+    # None — у типа норматива нет.
+    rig_shift_norms: dict[str, str | None] = Field(default_factory=dict)
     szm: list[dict[str, str]]
     delivery_trucks: list[dict[str, str]]
     emulsion_trucks: list[dict[str, str]] = Field(default_factory=list)

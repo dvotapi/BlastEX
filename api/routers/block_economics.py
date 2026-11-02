@@ -433,6 +433,15 @@ def model_defaults(
             "operations": _package_operations(references, package),
             "nomenclature": nomenclature,
             "rigs": rigs,
+            # Норматив плановых смен по каждому станку: бегунок смен показывает
+            # норматив выбранного станка, а `parameters.rig_plan_shifts` — только первого.
+            "rig_shift_norms": {
+                rig["code"]: str(norm) if norm else None
+                for rig in rigs
+                for norm in (
+                    payload_number(references.item("equipment_types", rig["code"]), "norm_shifts_per_month", Decimal("0")),
+                )
+            },
             "rig_crews": {
                 rig["code"]: [
                     {"position_code": code, "headcount": str(headcount)}

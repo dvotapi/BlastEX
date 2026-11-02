@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RIG_PLAN_SHIFTS_SETTLE_MS, RigPlanShiftsSlider } from "./RigPlanShiftsSlider";
+import { RIG_PLAN_SHIFTS_SETTLE_MS, RigPlanShiftsSlider, rigShiftNorm } from "./RigPlanShiftsSlider";
+import { defaultsFixture } from "../testFixtures";
 
 afterEach(() => {
   cleanup();
@@ -46,6 +47,22 @@ describe("RigPlanShiftsSlider", () => {
     });
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith("42");
+  });
+
+  it("пока указатель прижат, пауза в движении ничего не отправляет — только отпускание", () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    render(<RigPlanShiftsSlider value="40" norm={40} onChange={onChange} />);
+    fireEvent.pointerDown(slider());
+    fireEvent.change(slider(), { target: { value: "35" } });
+    act(() => {
+      vi.advanceTimersByTime(RIG_PLAN_SHIFTS_SETTLE_MS * 4);
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.change(slider(), { target: { value: "30" } });
+    fireEvent.pointerUp(slider());
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith("30");
   });
 
   it("отпускание клавиши паузу не обрывает: шаг уходит один раз после паузы, а не на каждое нажатие", () => {
@@ -109,5 +126,26 @@ describe("RigPlanShiftsSlider", () => {
     render(<RigPlanShiftsSlider value="25" norm={40} onChange={vi.fn()} disabled />);
     expect(slider()).toBeDisabled();
     expect(screen.getByRole("button", { name: "Сбросить к нормативу" })).toBeDisabled();
+  });
+});
+
+describe("rigShiftNorm", () => {
+  it("норматив — у выбранного станка, а не у первого в списке", () => {
+    const defaults = defaultsFixture();
+    defaults.parameters.rig_plan_shifts = 40;
+    defaults.rig_shift_norms = { RIG_SOLO: "40", RIG_ATLAS: "32", RIG_NONE: null };
+    expect(rigShiftNorm(defaults, "RIG_ATLAS")).toBe("32");
+    expect(rigShiftNorm(defaults, "RIG_SOLO")).toBe("40");
+    // У типа норматива нет — null, а не норматив первого станка.
+    expect(rigShiftNorm(defaults, "RIG_NONE")).toBeNull();
+  });
+
+  it("без карты нормативов (старый ответ) или без станка — норматив параметров", () => {
+    const defaults = defaultsFixture();
+    defaults.parameters.rig_plan_shifts = 40;
+    expect(rigShiftNorm(defaults, "RIG_ATLAS")).toBe(40);
+    defaults.rig_shift_norms = { RIG_SOLO: "40" };
+    expect(rigShiftNorm(defaults, null)).toBe(40);
+    expect(rigShiftNorm(defaults, "RIG_UNKNOWN")).toBe(40);
   });
 });

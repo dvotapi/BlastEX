@@ -119,6 +119,28 @@ describe("DrillingSection", () => {
     expect(onChange).toHaveBeenLastCalledWith({ rig_plan_shifts: null });
   });
 
+  it("норматив и бейдж смен — по выбранному станку, а не по первому в списке", () => {
+    const { params, defaults, economics, group } = setup({ rig_code: "RIG_ATLAS", rig_plan_shifts: "32" });
+    defaults.parameters.rig_plan_shifts = 40;
+    defaults.rig_shift_norms = { RIG_SOLO: "40", RIG_ATLAS: "32" };
+    render(
+      <DrillingSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={() => {}}
+        onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
+      />,
+    );
+    expect(screen.getByText("норматив 32")).toBeInTheDocument();
+    expect(screen.getByText("Норматив")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Сбросить к нормативу" })).toBeDisabled();
+  });
+
   it("панель расчёта бурения открывается, берёт фокус и закрывается по Escape", async () => {
     const { params, defaults, economics, group } = setup();
     const user = userEvent.setup();

@@ -98,7 +98,9 @@ def _kind(prop: Mapping[str, Any]) -> str:
         return "json"
     if "number" in types or "integer" in types:
         return "decimal"
-    if prop.get("format") == "date":
+    # `date | None` прячет формат в вариант anyOf — иначе дата ввода в
+    # эксплуатацию уезжала бы в xlsx и возвращалась обратно текстом.
+    if prop.get("format") == "date" or any(variant.get("format") == "date" for variant in prop.get("anyOf", ())):
         return "date"
     return "text"
 

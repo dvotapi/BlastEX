@@ -1,6 +1,7 @@
 """Схемы разделов «Техника»: типы, основные средства, пулы, нормы, условия бурения."""
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
@@ -9,12 +10,31 @@ from pydantic import Field, model_validator
 from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_error
 
 __all__ = [
+    "MaintenanceAgeTier",
     "EquipmentTypePayload",
     "EquipmentAssetPayload",
     "ResourcePoolPayload",
     "ResourceNormPayload",
     "DrillingConditionPayload",
 ]
+
+
+class MaintenanceAgeTier(ReferencePayload):
+    """Ступень шкалы ТОиР по возрасту: проценты от первоначальной стоимости в год."""
+
+    upto_years: Decimal | None = UnitField(
+        "лет",
+        title="До возраста",
+        description="Ступень действует, пока возраст с даты ввода меньше этой границы в годах; у последней ступени пусто",
+        default=None,
+        ge=0,
+    )
+    maintenance_pct: Decimal = UnitField(
+        "%/год", title="ТОиР", description="Ремонтные работы: процент первоначальной стоимости в год", default=Decimal("0"), ge=0
+    )
+    spare_parts_pct: Decimal = UnitField(
+        "%/год", title="Запчасти", description="Запчасти и расходники: процент первоначальной стоимости в год", default=Decimal("0"), ge=0
+    )
 
 
 class EquipmentTypePayload(ReferencePayload):
@@ -53,9 +73,20 @@ class EquipmentTypePayload(ReferencePayload):
     maintenance_ratio: Decimal = UnitField(
         "доля", title="Доля ТОиР", description="Смен ТОиР на одну рабочую смену", default=Decimal("0"), ge=0, le=1
     )
-    maintenance_mode: Literal["PER_SHIFT", "MONTHLY_BUDGET"] = Field(
+    maintenance_mode: Literal["PER_SHIFT", "MONTHLY_BUDGET", "AGE_SCALE"] = Field(
         default="PER_SHIFT",
-        description="ТОиР по сменам (износ от наработки) или месячным бюджетом (делится на плановые смены)",
+        description=(
+            "ТОиР по сменам (износ от наработки), месячным бюджетом (делится на плановые смены) "
+            "или по возрасту машины (шкала процентов от первоначальной стоимости)"
+        ),
+    )
+    maintenance_age_tiers: list[MaintenanceAgeTier] = Field(
+        default_factory=list,
+        title="Шкала ТОиР по возрасту",
+        description=(
+            "Ступени «до N лет — % стоимости в год на ТОиР и на запчасти» для режима «по возрасту»; "
+            "возраст считается с даты ввода основного средства на дату расчёта"
+        ),
     )
     maintenance_rub_per_shift: Decimal = UnitField("₽/см", description="ТОиР за смену", default=Decimal("0"))
     maintenance_monthly_rub: Decimal | None = UnitField(
@@ -77,7 +108,31 @@ class EquipmentTypePayload(ReferencePayload):
             field_error(
                 type(self), "maintenance_monthly_rub", "Для режима «месячный бюджет» нужно указать бюджет ТОиР в месяц"
             )
+        if self.maintenance_mode == "AGE_SCALE":
+            self._check_age_tiers()
+        elif self.maintenance_age_tiers:
+            field_error(type(self), "maintenance_age_tiers", "Шкала по возрасту заполняется только у режима ТОиР «по возрасту»")
         return self
+
+    def _check_age_tiers(self) -> None:
+        tiers = self.maintenance_age_tiers
+        if not tiers:
+            field_error(type(self), "maintenance_age_tiers", "Для режима «по возрасту» нужна хотя бы одна ступень")
+        if tiers[-1].upto_years is not None:
+            field_error(type(self), ("maintenance_age_tiers", len(tiers) - 1, "upto_years"), "У последней ступени граница возраста пустая")
+        for index, tier in enumerate(tiers):
+            if index == 0:
+                continue
+            previous = tiers[index - 1]
+            if previous.upto_years is None:
+                field_error(type(self), ("maintenance_age_tiers", index - 1, "upto_years"), "Граница возраста пуста только у последней ступени")
+            if tier.upto_years is not None and tier.upto_years <= previous.upto_years:
+                field_error(type(self), ("maintenance_age_tiers", index, "upto_years"), "Границы ступеней должны возрастать", tier.upto_years)
+            # Машина с возрастом не дешевеет в обслуживании: убывающая ступень — опечатка.
+            if tier.maintenance_pct < previous.maintenance_pct:
+                field_error(type(self), ("maintenance_age_tiers", index, "maintenance_pct"), "Процент ТОиР не может быть ниже предыдущей ступени", tier.maintenance_pct)
+            if tier.spare_parts_pct < previous.spare_parts_pct:
+                field_error(type(self), ("maintenance_age_tiers", index, "spare_parts_pct"), "Процент запчастей не может быть ниже предыдущей ступени", tier.spare_parts_pct)
 
 
 class EquipmentAssetPayload(ReferencePayload):
@@ -90,6 +145,11 @@ class EquipmentAssetPayload(ReferencePayload):
         "мес", title="Срок использования", description="Срок полезного использования", default=Decimal("60"), ge=0
     )
     insurance_monthly_rub: Decimal = UnitField("₽/мес", description="Страхование (ОСАГО)", default=Decimal("0"))
+    commissioned_on: date | None = Field(
+        default=None,
+        title="Дата ввода в эксплуатацию",
+        description="С неё считается возраст машины для шкалы ТОиР по возрасту типа техники",
+    )
     inventory_number: str | None = Field(default=None, description="Инвентарный номер")
     serial_number: str | None = Field(default=None, title="Заводской номер", description="Серийный номер по журналу")
     # Cost V1 хранил амортизацию уже посчитанной за смену; поле сохраняется при

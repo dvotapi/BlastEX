@@ -39,6 +39,9 @@ const ENUM_LABELS: Record<string, string> = {
   TRACTOR: "Трактор",
   PER_SHIFT: "По сменам",
   MONTHLY_BUDGET: "Месячный бюджет",
+  AGE_SCALE: "По возрасту машины",
+  CRAWLER_INTEGRATED: "Гусеничный интегрированный",
+  COMPRESSOR_SEPARATE: "С отдельным компрессором",
   // Контрагенты
   CUSTOMER: "Заказчик",
   SUPPLIER: "Поставщик",

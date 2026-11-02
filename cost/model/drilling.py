@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Sequence
 
+from cost.model import age_scale
 from cost.model.inputs import ModelContext, asset_label, formula_number, payload_number, payload_text
 from cost.model.prices import material_price
 from cost.v2.models import CostLayer, CostLine, ReferenceItem, ValueOrigin
@@ -166,10 +167,17 @@ def compute(context: ModelContext) -> DrillingNorms | None:
     context.set_value("rig_plan_metres", plan_metres, f"{plan_shifts} см × {v_commercial} м/см")
 
     line_start = len(context.lines)
+    # Ставки ТОиР и запчастей по возрасту станка — один раз на обе строки:
+    # шкала в типе техники, дата ввода — в основном средстве.
+    ages = (
+        age_scale.age_rates(context, rig_type, _rig_asset(context, rig_type.code), plan_shifts)
+        if age_scale.uses_age_scale(rig_type)
+        else None
+    )
     _tooling_lines(context, condition, drilling_m)
     _fuel_line(context, condition, drilling_m)
-    _spare_parts_line(context, rig_type, rig_shifts)
-    _fixed_lines(context, rig_type, rig_shifts, maintenance_shifts, plan_shifts)
+    _spare_parts_line(context, rig_type, rig_shifts, ages)
+    _fixed_lines(context, rig_type, rig_shifts, maintenance_shifts, plan_shifts, ages)
     _inspection_line(context, rig_type, rig_shifts + maintenance_shifts)
     # Цена метра считается по добавленным строкам, а не отдельной формулой:
     # иначе показатель на вкладке расходится со структурой затрат.
@@ -291,9 +299,19 @@ def _fuel_line(context: ModelContext, condition: ReferenceItem, drilling_m: Deci
 
 
 def _spare_parts_line(
-    context: ModelContext, rig_type: ReferenceItem, rig_shifts: Decimal
+    context: ModelContext,
+    rig_type: ReferenceItem,
+    rig_shifts: Decimal,
+    ages: age_scale.AgeRates | None = None,
 ) -> None:
-    rate = payload_number(rig_type, "spare_parts_rub_per_shift")
+    if ages is not None:
+        rate = ages.spare_parts_rub_per_shift
+        formula = f"{formula_number(rig_shifts)} см × {ages.formula(ages.spare_parts_pct, rate)}"
+        origin: ValueOrigin = "CALC"
+    else:
+        rate = payload_number(rig_type, "spare_parts_rub_per_shift")
+        formula = f"{formula_number(rig_shifts)} см × {formula_number(rate)} ₽/см"
+        origin = "REFERENCE"
     if rate <= 0:
         return
     amount = rig_shifts * rate
@@ -303,13 +321,13 @@ def _spare_parts_line(
         cost_item_name="Запчасти и расходники станка",
         layer=CostLayer.VARIABLE,
         amount_rub=amount,
-        formula=f"{formula_number(rig_shifts)} см × {formula_number(rate)} ₽/см",
+        formula=formula,
         section="DRILLING",
         quantity=rig_shifts,
         unit="см",
         unit_price_rub=rate,
         quantity_origin="CALC",
-        price_origin="REFERENCE",
+        price_origin=origin,
     )
 
 
@@ -319,6 +337,7 @@ def _fixed_lines(
     rig_shifts: Decimal,
     maintenance_shifts: Decimal,
     plan_shifts: Decimal,
+    ages: age_scale.AgeRates | None = None,
 ) -> None:
     if plan_shifts <= 0:
         context.warn(
@@ -383,7 +402,7 @@ def _fixed_lines(
             "амортизация и страховка не начислены."
         )
 
-    _maintenance_lines(context, rig_type, rig_shifts, maintenance_shifts, plan_shifts)
+    _maintenance_lines(context, rig_type, rig_shifts, maintenance_shifts, plan_shifts, ages)
 
 
 def _inspection_line(
@@ -417,8 +436,34 @@ def _maintenance_lines(
     rig_shifts: Decimal,
     maintenance_shifts: Decimal,
     plan_shifts: Decimal,
+    ages: age_scale.AgeRates | None = None,
 ) -> None:
     mode = payload_text(rig_type, "maintenance_mode", "PER_SHIFT")
+    if ages is not None:
+        # Ставка по возрасту начисляется, как и ставка за смену, на рабочие
+        # смены и смены ТОиР: станок стареет в ремонте так же, как в работе.
+        shifts = rig_shifts + maintenance_shifts
+        rate = ages.maintenance_rub_per_shift
+        if rate <= 0:
+            return
+        context.add_line(
+            operation_code=DRILLING_OPERATION,
+            cost_item_code="DRILL_MAINTENANCE",
+            cost_item_name="ТОиР бурового станка",
+            layer=CostLayer.PROJECT_DIRECT,
+            amount_rub=shifts * rate,
+            formula=(
+                f"({formula_number(rig_shifts)} + {formula_number(maintenance_shifts)}) см × "
+                + ages.formula(ages.maintenance_pct, rate)
+            ),
+            section="DRILLING",
+            quantity=shifts,
+            unit="см",
+            unit_price_rub=rate,
+            quantity_origin="CALC",
+            price_origin="CALC",
+        )
+        return
     if mode == "MONTHLY_BUDGET":
         budget = payload_number(rig_type, "maintenance_monthly_rub")
         if budget <= 0:

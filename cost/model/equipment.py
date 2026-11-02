@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from cost.model import age_scale
 from cost.model.inputs import ModelContext, asset_label, formula_number, payload_number, payload_text
-from cost.v2.models import CostLayer, ReferenceItem
+from cost.v2.models import CostLayer, ReferenceItem, ValueOrigin
 
 
 # Параметр модели → (драйвер смен, операция пакета, префикс статьи).
@@ -91,7 +92,13 @@ def _machine_lines(
             "амортизация и страховка не начислены."
         )
 
-    _maintenance(context, equipment, shifts, plan_shifts, operation_code, prefix)
+    # Ставки ТОиР и запчастей по возрасту — один раз на обе строки.
+    ages = (
+        age_scale.age_rates(context, equipment, asset, plan_shifts)
+        if age_scale.uses_age_scale(equipment)
+        else None
+    )
+    _maintenance(context, equipment, shifts, plan_shifts, operation_code, prefix, ages)
 
     per_shift = payload_number(equipment, "inspection_rub_per_shift") + payload_number(
         equipment, "medical_rub_per_shift"
@@ -112,7 +119,14 @@ def _machine_lines(
             price_origin="REFERENCE",
         )
 
-    spare_parts = payload_number(equipment, "spare_parts_rub_per_shift")
+    if ages is not None:
+        spare_parts = ages.spare_parts_rub_per_shift
+        spare_formula = f"{formula_number(shifts)} см × {ages.formula(ages.spare_parts_pct, spare_parts)}"
+        spare_origin: ValueOrigin = "CALC"
+    else:
+        spare_parts = payload_number(equipment, "spare_parts_rub_per_shift")
+        spare_formula = f"{formula_number(shifts)} см × {formula_number(spare_parts)} ₽/см"
+        spare_origin = "REFERENCE"
     if spare_parts > 0:
         context.add_line(
             operation_code=operation_code,
@@ -120,13 +134,13 @@ def _machine_lines(
             cost_item_name=f"Запчасти: {equipment.name}",
             layer=CostLayer.VARIABLE,
             amount_rub=shifts * spare_parts,
-            formula=f"{formula_number(shifts)} см × {formula_number(spare_parts)} ₽/см",
+            formula=spare_formula,
             section="OVERHEAD",
             quantity=shifts,
             unit="см",
             unit_price_rub=spare_parts,
             quantity_origin="CALC",
-            price_origin="REFERENCE",
+            price_origin=spare_origin,
         )
 
 
@@ -137,9 +151,19 @@ def _maintenance(
     plan_shifts: Decimal,
     operation_code: str,
     prefix: str,
+    ages: age_scale.AgeRates | None = None,
 ) -> None:
     mode = payload_text(equipment, "maintenance_mode", "PER_SHIFT")
-    if mode == "MONTHLY_BUDGET":
+    origin: ValueOrigin = "REFERENCE"
+    if ages is not None:
+        rate = ages.maintenance_rub_per_shift
+        if rate <= 0:
+            return
+        maintenance_shifts = shifts * (Decimal("1") + payload_number(equipment, "maintenance_ratio"))
+        amount = maintenance_shifts * rate
+        formula = f"{formula_number(maintenance_shifts)} см × {ages.formula(ages.maintenance_pct, rate)}"
+        charged_shifts, rate_per_shift, origin = maintenance_shifts, rate, "CALC"
+    elif mode == "MONTHLY_BUDGET":
         budget = payload_number(equipment, "maintenance_monthly_rub")
         if budget <= 0 or plan_shifts <= 0:
             return
@@ -168,7 +192,7 @@ def _maintenance(
         unit="см",
         unit_price_rub=rate_per_shift,
         quantity_origin="CALC",
-        price_origin="REFERENCE",
+        price_origin=origin,
     )
 
 

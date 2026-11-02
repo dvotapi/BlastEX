@@ -138,9 +138,10 @@
 | `operation_code` | операция, чьи смены потребляет | `BULK_CHARGING_SZM` |
 | `norm_shifts_per_month` | число | 40 (станок), 20 (СЗМ) |
 | `maintenance_ratio` | доля | 0,14 — смен ТОиР на рабочую смену |
-| `maintenance_mode` | `PER_SHIFT` / `MONTHLY_BUDGET` | PER\_SHIFT |
-| `maintenance_rub_per_shift` | руб | 750 |
-| `spare_parts_rub_per_shift` | руб | 2 750 |
+| `maintenance_mode` | `PER_SHIFT` / `MONTHLY_BUDGET` / `AGE_SCALE` | AGE\_SCALE |
+| `maintenance_rub_per_shift` | руб | 750 — запасной путь при `PER_SHIFT` или когда шкала не применилась |
+| `spare_parts_rub_per_shift` | руб | 2 750 — то же |
+| `maintenance_age_tiers` | список `{upto_years, maintenance_pct, spare_parts_pct}` | до 2 лет — 2 % / 4 %; до 4 — 4 % / 6 %; до 7 — 6 % / 8 %; старше — 8 % / 10 % |
 | `inspection_rub_per_shift` | руб | 200 — выпуск на линию |
 | `medical_rub_per_shift` | руб | 200 — медосмотр водителя |
 | `fuel_l_per_h` или `fuel_l_per_km` | число | 50 л/ч (станок), 0,45 л/км (СЗМ) |
@@ -155,9 +156,12 @@
 | `initial_cost_rub` | руб | 28 450 000 |
 | `useful_life_months` | мес | 60 |
 | `insurance_monthly_rub` | руб/мес | 500 — ОСАГО |
+| `commissioned_on` | дата | 2026-04-01 — ввод в эксплуатацию, от неё возраст для шкалы ТОиР |
 | `monthly_depreciation_rub` | вычисляется | initial / life |
 
 Амортизация за смену \= `monthly_depreciation / norm_shifts_per_month` типа техники — плановая загрузка явная, а не «/40» в ячейке.
+
+**ТОиР и запчасти по возрасту** (`maintenance_mode = AGE_SCALE`, `cost/model/age_scale.py`): бюджет ремонта растёт с возрастом машины, поэтому норма — ступень шкалы типа техники, процент первоначальной стоимости в год. Возраст — с `commissioned_on` основного средства на дату расчёта; ступень — первая, чья граница больше возраста, последняя без границы. ₽ за смену = `initial_cost_rub × % / (плановые смены × 12)`; база — первоначальная стоимость, не остаточная. ТОиР начисляется на рабочие смены и смены ТОиР, запчасти — на рабочие. Нет даты, стоимости, плановых смен или ступени — предупреждение и прежние ставки «₽ за смену». Шкала одна на все станки (решение владельца 02.11.2026); у ступеней границы растут, проценты не убывают.
 
 ### `drilling_conditions` — условия бурения (новый; заменяет `drilling_productivity`)
 

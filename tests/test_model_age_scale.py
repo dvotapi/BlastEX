@@ -47,8 +47,20 @@ def _line(context, code):
 
 
 def test_age_is_counted_from_commissioning_to_the_calculation_date() -> None:
-    assert age_scale.age_in_years(date(2024, 11, 2), AS_OF) == pytest.approx(Decimal("2.0"), abs=Decimal("0.01"))
+    # Ровно в день годовщины — ровно 2 года, без «1,998…» от деления на 365,25.
+    assert age_scale.age_in_years(date(2024, 11, 2), AS_OF) == Decimal("2")
+    assert age_scale.age_in_years(date(2024, 11, 3), AS_OF) < Decimal("2")
+    assert age_scale.age_in_years(date(2026, 4, 1), AS_OF) == pytest.approx(Decimal("0.589"), abs=Decimal("0.001"))
     assert age_scale.age_in_years(date(2027, 1, 1), AS_OF) == 0
+    # 29 февраля: годовщина в невисокосном году — 28 февраля.
+    assert age_scale.age_in_years(date(2024, 2, 29), date(2025, 2, 28)) == Decimal("1")
+
+
+def test_second_anniversary_moves_the_rig_to_the_next_tier() -> None:
+    context = _context(_rig_type(), _rig_asset("2024-11-02"))
+    drilling.compute(context)
+
+    assert _line(context, "DRILL_MAINTENANCE").unit_price_rub == Decimal("28450000") * Decimal("4") / 100 / (Decimal("40") * 12)
 
 
 @pytest.mark.parametrize(

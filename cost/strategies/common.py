@@ -38,7 +38,12 @@ def run_drilling_module(
     elif not source.params.rig_code and source.params.drilling_executor != "SUBCONTRACTOR":
         result.notes.append("Цена бурения не рассчитана: в черновике сметы не выбран буровой станок.")
     else:
-        price = drilling_price.compute(source.params, source.references, drilling_m=Decimal(str(footage)))
+        price = drilling_price.compute(
+            source.params,
+            source.references,
+            drilling_m=Decimal(str(footage)),
+            rock_volume_m3=Decimal(str(block_data.block.block_volume_m3)),
+        )
         price_per_m = float(price.price_rub_per_m)
         result.notes.extend(price.warnings)
     result.drilling_total_cost = calculate_drilling_cost(

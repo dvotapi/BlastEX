@@ -70,6 +70,23 @@ def test_payroll_mode_price_is_computed() -> None:
     assert price.price_rub_per_m > 0
 
 
+def test_subcontract_keeps_unallocated_rig_costs_when_block_volume_is_given() -> None:
+    """Субподряд с собственным станком: доля блока в юните даёт нераспределённые постоянные."""
+
+    params = fx.parameters(drilling_executor="SUBCONTRACTOR", subcontract_rate_rub=Decimal("400"))
+    without = drilling_price.compute(params, fx.references(), drilling_m=DRILLING_M)
+    with_volume = drilling_price.compute(params, fx.references(), drilling_m=DRILLING_M, rock_volume_m3=Decimal("60000"))
+
+    assert with_volume.price_rub_per_m > without.price_rub_per_m
+    economics = compute_block_economics(
+        {"physical": {"drilling_m": DRILLING_M, "rock_volume_m3": Decimal("60000")}, "lineage": {}},
+        params,
+        fx.references(),
+    )
+    unallocated = next(line for line in economics.lines if line.cost_item_code == "DRILL_UNALLOCATED_FIXED")
+    assert with_volume.cost_rub_per_m - without.cost_rub_per_m == pytest.approx(unallocated.amount_rub / DRILLING_M)
+
+
 def test_no_metres_gives_zero_price_and_warning() -> None:
     price = drilling_price.compute(fx.parameters(), fx.references(), drilling_m=Decimal("0"))
 

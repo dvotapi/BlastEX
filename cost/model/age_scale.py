@@ -24,7 +24,6 @@ from cost.v2.models import ReferenceItem, decimal_value
 
 AGE_SCALE_MODE = "AGE_SCALE"
 MONTHS_PER_YEAR = Decimal("12")
-DAYS_PER_YEAR = Decimal("365.25")
 
 
 @dataclass(frozen=True)
@@ -53,8 +52,32 @@ def uses_age_scale(equipment: ReferenceItem) -> bool:
 
 
 def age_in_years(commissioned_on: date, as_of: date) -> Decimal:
-    days = Decimal((as_of - commissioned_on).days)
-    return max(days / DAYS_PER_YEAR, Decimal("0"))
+    """Возраст в годах: целые — по календарным годовщинам, остаток — долей текущего года.
+
+    Деление дней на 365,25 оставляло бы машину на предыдущей ступени в день
+    самой годовщины (между вводом и годовщиной не всегда есть високосный день);
+    граница ступени должна срабатывать ровно в день годовщины.
+    """
+
+    if as_of <= commissioned_on:
+        return Decimal("0")
+    years = as_of.year - commissioned_on.year
+    anniversary = _anniversary(commissioned_on, years)
+    if anniversary > as_of:
+        years -= 1
+        anniversary = _anniversary(commissioned_on, years)
+    next_anniversary = _anniversary(commissioned_on, years + 1)
+    year_length = Decimal((next_anniversary - anniversary).days)
+    fraction = Decimal((as_of - anniversary).days) / year_length
+    return Decimal(years) + fraction
+
+
+def _anniversary(start: date, years: int) -> date:
+    try:
+        return start.replace(year=start.year + years)
+    except ValueError:
+        # 29 февраля в невисокосном году — годовщина 28 февраля.
+        return start.replace(year=start.year + years, day=28)
 
 
 def pick_tier(tiers: list[dict], age_years: Decimal) -> dict | None:

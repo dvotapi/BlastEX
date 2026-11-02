@@ -10,7 +10,8 @@
  * справочника (`defaults.parameters.rig_plan_shifts`). Пересчёт блока идёт по
  * черновику с задержкой, но черновик не должен меняться на каждый пиксель:
  * движение держится в локальном состоянии и уходит наружу один раз — по
- * отпусканию ползунка (или с короткой паузой при клавиатуре).
+ * отпусканию ползунка, а при шагах клавиатурой — после короткой паузы
+ * (отпускание клавиши паузу не обрывает, иначе каждый шаг — отдельный патч).
  */
 import { useEffect, useRef, useState } from "react";
 import { plural } from "../../../lib/plural";
@@ -38,21 +39,32 @@ export type RigPlanShiftsSliderProps = {
   norm: Numeric | null;
   /** Стоимость 1 п.м. из текущего расчёта — эффект загрузки виден рядом. */
   rubPerM?: Numeric;
+  /** Пересчёт по новому черновику ещё не пришёл: показанная цена — прежняя. */
+  rubPerMStale?: boolean;
   disabled?: boolean;
   /** Новое значение смен строкой либо null — сброс к нормативу. */
   onChange: (value: string | null) => void;
 };
 
-export function RigPlanShiftsSlider({ value, norm, rubPerM, disabled, onChange }: RigPlanShiftsSliderProps) {
+export function RigPlanShiftsSlider({ value, norm, rubPerM, rubPerMStale, disabled, onChange }: RigPlanShiftsSliderProps) {
   const normNumber = shiftsNumber(norm);
   const committed = shiftsNumber(value) ?? normNumber;
   // Движение ползунка до того, как значение ушло в черновик.
   const [pending, setPending] = useState<number | null>(null);
   const timer = useRef<number | null>(null);
+  // Отложенная отправка зовёт обработчик того рендера, в котором сработает,
+  // а не того, где начался шаг: иначе патч уйдёт в черновик, активный 250 мс назад.
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
-  // Черновик принял значение (или сменился снаружи) — показываем его.
+  // Черновик принял значение (или сменился снаружи) — показываем его, а
+  // незавершённый шаг к прежнему черновику не отправляем.
   useEffect(() => {
     setPending(null);
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current);
+      timer.current = null;
+    }
   }, [value, norm]);
 
   useEffect(
@@ -75,7 +87,7 @@ export function RigPlanShiftsSlider({ value, norm, rubPerM, disabled, onChange }
       setPending(null);
       return;
     }
-    onChange(String(next));
+    onChangeRef.current(String(next));
   }
 
   function handleMove(raw: string) {
@@ -93,7 +105,7 @@ export function RigPlanShiftsSlider({ value, norm, rubPerM, disabled, onChange }
   function reset() {
     clearTimer();
     setPending(null);
-    onChange(null);
+    onChangeRef.current(null);
   }
 
   const shown = pending ?? committed;
@@ -116,12 +128,9 @@ export function RigPlanShiftsSlider({ value, norm, rubPerM, disabled, onChange }
           aria-valuetext={shownText}
           onChange={(event) => handleMove(event.target.value)}
           onPointerUp={flush}
-          onKeyUp={flush}
           onBlur={flush}
         />
-        <output className="rig-shifts-value" aria-live="polite">
-          {shownText}
-        </output>
+        <output className="rig-shifts-value">{shownText}</output>
       </div>
       <div className="rig-shifts-caption">
         <span>{normText}</span>
@@ -131,8 +140,9 @@ export function RigPlanShiftsSlider({ value, norm, rubPerM, disabled, onChange }
           </button>
         )}
         {rubPerM !== undefined && (
-          <span className="rig-shifts-effect">
+          <span className={rubPerMStale ? "rig-shifts-effect is-stale" : "rig-shifts-effect"}>
             Стоимость 1 п.м.: <b>{money(Number(rubPerM))} ₽/м</b>
+            {rubPerMStale && <span className="rig-shifts-stale"> считается…</span>}
           </span>
         )}
       </div>

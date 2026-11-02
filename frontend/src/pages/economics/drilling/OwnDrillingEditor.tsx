@@ -6,7 +6,7 @@
  * ними не переносятся (см. «Решения и допущения», п. 1).
  */
 import { useState, type ReactNode } from "react";
-import type { ModelDefaults, ModelParameters, Numeric, ValueOrigin } from "../../../types/blockEconomics";
+import type { ModelDefaults, ModelParameters, ValueOrigin } from "../../../types/blockEconomics";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
 import { lineNumber } from "../estimateModel";
@@ -15,7 +15,7 @@ import { lineShare } from "../sections/lineHelpers";
 import type { SectionEditorProps } from "../sections/types";
 import { DrillingCard, type DrillingFact } from "./DrillingCard";
 import { DrillingDrawer } from "./DrillingDrawer";
-import { RigPlanShiftsSlider } from "./RigPlanShiftsSlider";
+import { RigPlanShiftsSlider, shiftsNumber } from "./RigPlanShiftsSlider";
 
 /**
  * Смена станка: экипаж бурения зависит от класса станка, поэтому должности
@@ -42,12 +42,6 @@ export type OwnDrillingEditorProps = SectionEditorProps & {
   executor: ReactNode;
 };
 
-function sameNumeric(a: Numeric | null | undefined, b: Numeric | null | undefined): boolean {
-  const na = a === null || a === undefined || a === "" ? null : String(a);
-  const nb = b === null || b === undefined || b === "" ? null : String(b);
-  return na === nb;
-}
-
 export function OwnDrillingEditor({
   group,
   params,
@@ -67,10 +61,10 @@ export function OwnDrillingEditor({
   const conditionTitle = economics?.natural.lineage.drilling_condition;
 
   // Норматив плановых смен станка — тот же, что заведён в шаблоне пакета:
-  // совпадает с ним — «Норматив», сметчик поправил — «Ручной».
-  const rigPlanOrigin: ValueOrigin = sameNumeric(params.rig_plan_shifts, defaults.parameters.rig_plan_shifts)
-    ? "NORM"
-    : "MANUAL";
+  // совпадает с ним — «Норматив», сметчик поправил — «Ручной». Сравнение —
+  // числами, как у бегунка: пусто и 0 модель считает нормативом, «40.0» — это 40.
+  const rigPlanOrigin: ValueOrigin =
+    shiftsNumber(params.rig_plan_shifts) === shiftsNumber(defaults.parameters.rig_plan_shifts) ? "NORM" : "MANUAL";
 
   const otherLines = group.lines.filter((line) => line.cost_item_code !== "DRILL_SUBCONTRACT");
 

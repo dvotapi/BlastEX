@@ -48,6 +48,35 @@ describe("RigPlanShiftsSlider", () => {
     expect(onChange).toHaveBeenCalledWith("42");
   });
 
+  it("отпускание клавиши паузу не обрывает: шаг уходит один раз после паузы, а не на каждое нажатие", () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    render(<RigPlanShiftsSlider value="40" norm={40} onChange={onChange} />);
+    fireEvent.change(slider(), { target: { value: "41" } });
+    fireEvent.keyUp(slider(), { key: "ArrowRight" });
+    fireEvent.change(slider(), { target: { value: "42" } });
+    fireEvent.keyUp(slider(), { key: "ArrowRight" });
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(RIG_PLAN_SHIFTS_SETTLE_MS);
+    });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith("42");
+  });
+
+  it("значение сменилось снаружи до паузы — незавершённый шаг не отправляется", () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const { rerender } = render(<RigPlanShiftsSlider value="40" norm={40} onChange={onChange} />);
+    fireEvent.change(slider(), { target: { value: "45" } });
+    rerender(<RigPlanShiftsSlider value="30" norm={40} onChange={onChange} />);
+    act(() => {
+      vi.advanceTimersByTime(RIG_PLAN_SHIFTS_SETTLE_MS);
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(slider().value).toBe("30");
+  });
+
   it("сброс возвращает норматив (null), на нормативе кнопка выключена", () => {
     const onChange = vi.fn();
     const { rerender } = render(<RigPlanShiftsSlider value="25" norm={40} onChange={onChange} />);
@@ -68,6 +97,12 @@ describe("RigPlanShiftsSlider", () => {
     expect(screen.getByText("80 смен")).toBeInTheDocument();
     expect(slider().value).toBe("60");
     expect(screen.getByText("260,50 ₽/м")).toBeInTheDocument();
+    expect(screen.queryByText("считается…")).toBeNull();
+  });
+
+  it("пока расчёт не пришёл, цена метра помечена «считается…»", () => {
+    render(<RigPlanShiftsSlider value="25" norm={40} onChange={vi.fn()} rubPerM="260" rubPerMStale />);
+    expect(screen.getByText("считается…")).toBeInTheDocument();
   });
 
   it("без права правки бегунок и сброс выключены", () => {

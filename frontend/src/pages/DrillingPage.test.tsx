@@ -124,4 +124,52 @@ describe("DrillingPage", () => {
     });
     expect(slider.value).toBe("40");
   });
+
+  it("пока пересчёт по новому черновику не пришёл, цена метра у бегунка помечена «считается…»", async () => {
+    const defaults = defaultsFixture();
+    defaults.parameters.rig_plan_shifts = 40;
+    vi.mocked(api.blockEconomics.modelDefaults).mockResolvedValue(defaults);
+    renderWithWorkspace(
+      <BlockEconomicsSessionProvider passportId="PASSPORT-1">
+        <DrillingPage />
+      </BlockEconomicsSessionProvider>,
+    );
+    const slider = (await screen.findByRole("slider", { name: "Плановые смены станка в месяц" })) as HTMLInputElement;
+    // Первый расчёт пришёл: цена метра у бегунка есть и не помечена.
+    await waitFor(() => expect(screen.getAllByText("260,00 ₽/м").length).toBeGreaterThan(1));
+    // Страница при монтировании делает refresh — ждём и его ответа.
+    await waitFor(() => expect(screen.queryByText("считается…")).toBeNull());
+
+    type Variants = Awaited<ReturnType<typeof api.blockEconomics.variants>>;
+    let release: (value: Variants) => void = () => {};
+    vi.mocked(api.blockEconomics.variants).mockImplementationOnce(
+      () =>
+        new Promise<Variants>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const before = vi.mocked(api.blockEconomics.variants).mock.calls.length;
+    fireEvent.change(slider, { target: { value: "25" } });
+    fireEvent.pointerUp(slider);
+
+    // Признак появляется сразу с правкой черновика, запрос уходит с задержкой пересчёта.
+    expect(await screen.findByText("считается…")).toBeInTheDocument();
+    await waitFor(() => expect(vi.mocked(api.blockEconomics.variants).mock.calls.length).toBe(before + 1));
+    expect(screen.getByText("считается…")).toBeInTheDocument();
+    release({ reference_revision_id: "REV-1", variants: [{ name: "Вариант 1", economics: economicsFixture() }] });
+    await waitFor(() => expect(screen.queryByText("считается…")).toBeNull());
+  });
+
+  it("при субподряде вместо бегунка — пояснение, что загрузка станка цену метра не меняет", async () => {
+    const defaults = defaultsFixture();
+    defaults.parameters.drilling_executor = "SUBCONTRACTOR";
+    vi.mocked(api.blockEconomics.modelDefaults).mockResolvedValue(defaults);
+    renderWithWorkspace(
+      <BlockEconomicsSessionProvider passportId="PASSPORT-1">
+        <DrillingPage />
+      </BlockEconomicsSessionProvider>,
+    );
+    expect(await screen.findByText(/Бурение отдано субподряду/)).toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: "Плановые смены станка в месяц" })).toBeNull();
+  });
 });

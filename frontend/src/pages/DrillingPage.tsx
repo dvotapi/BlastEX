@@ -18,6 +18,7 @@ export function DrillingPage() {
     defaults,
     activeDraft,
     activeEconomics,
+    recalculating,
     passport,
     siteLabel,
     patchDraft,
@@ -82,6 +83,7 @@ export function DrillingPage() {
                     value={params.rig_plan_shifts}
                     norm={defaults.parameters.rig_plan_shifts}
                     rubPerM={rubPerM}
+                    rubPerMStale={recalculating}
                     disabled={!canEdit}
                     onChange={(value) => activeDraft && patchDraft(activeDraft.id, { rig_plan_shifts: value })}
                   />

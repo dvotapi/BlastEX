@@ -62,6 +62,9 @@ export function useBlockEconomicsSession(passportId?: string | null, requestKey 
   // приходит позже, и без сверки по id вкладка «B» показала бы цифры
   // удалённого черновика «A», просто оказавшегося на его месте.
   const [resultsForIds, setResultsForIds] = useState<string[]>([]);
+  // Черновики изменились, а ответ расчёта по ним ещё не пришёл: числа на
+  // экране — от прежних параметров.
+  const [recalculating, setRecalculating] = useState(false);
   const [runs, setRuns] = useState<EconomicsRunSummary[]>([]);
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
   const [compare, setCompare] = useState<RunCompare | null>(null);
@@ -248,6 +251,7 @@ export function useBlockEconomicsSession(passportId?: string | null, requestKey 
     // На момент ответа список черновиков мог уже смениться (сметчик удалил
     // или дублировал вкладку) — запрос помнит, для кого он был отправлен.
     const requestedIds = drafts.map((draft) => draft.id);
+    setRecalculating(true);
     const timer = window.setTimeout(() => {
       api.blockEconomics
         .variants(
@@ -259,11 +263,13 @@ export function useBlockEconomicsSession(passportId?: string | null, requestKey 
             setResults(response.variants);
             setResultsForIds(requestedIds);
             setError("");
+            setRecalculating(false);
           }
         })
         .catch((reason) => {
           if (id === requestId.current) {
             setError(reason instanceof Error ? reason.message : "Не удалось посчитать блок.");
+            setRecalculating(false);
           }
         });
     }, RECALC_DELAY_MS);
@@ -593,6 +599,7 @@ export function useBlockEconomicsSession(passportId?: string | null, requestKey 
     status,
     movingService,
     resultsMatchDrafts,
+    recalculating,
     activeEconomics,
     volume,
     groups,

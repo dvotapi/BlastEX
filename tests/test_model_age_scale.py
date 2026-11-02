@@ -113,6 +113,22 @@ def test_rig_without_commissioning_date_falls_back_to_per_shift_rates_with_a_war
     assert any("дата ввода" in warning for warning in context.warnings)
 
 
+def test_future_commissioning_date_counts_as_new_but_warns() -> None:
+    context = _context(_rig_type(), _rig_asset("2062-04-01"))
+    drilling.compute(context)
+
+    assert _line(context, "DRILL_MAINTENANCE").unit_price_rub == Decimal("28450000") * Decimal("2") / 100 / (Decimal("40") * 12)
+    assert any("позже даты расчёта" in warning for warning in context.warnings)
+
+
+def test_broken_commissioning_date_falls_back_and_names_the_value() -> None:
+    context = _context(_rig_type(), _rig_asset("01.04.2026"))
+    drilling.compute(context)
+
+    assert _line(context, "DRILL_MAINTENANCE").unit_price_rub == Decimal("750")
+    assert any("не разобрана" in warning and "01.04.2026" in warning for warning in context.warnings)
+
+
 def test_rig_without_initial_cost_falls_back_with_a_warning() -> None:
     context = _context(_rig_type(), _rig_asset("2026-04-01", initial_cost_rub="0", depreciation_per_shift_rub="1000"))
     drilling.compute(context)
@@ -157,10 +173,9 @@ def test_szm_uses_the_same_scale() -> None:
         equipment_assets=tuple(szm_asset if item.code == "ASSET_SZM" else item for item in fx.EQUIPMENT_ASSETS),
     )
     context = ModelContext(references, fx.parameters(), fx.physical(), as_of=AS_OF)
-    drilling.compute(context)
-    from cost.model import logistics
-
-    logistics.compute(context)
+    # Смены СЗМ — драйвер логистики; здесь он задаётся напрямую, чтобы тест не
+    # зависел от порядка модулей движка.
+    context.set_value("szm_shifts", Decimal("10"), "тест")
     equipment.compute(context)
 
     plan = Decimal("20")
@@ -209,3 +224,11 @@ def test_schema_rejects_a_decreasing_percent() -> None:
     with pytest.raises(ValidationError) as exc:
         _type(maintenance_mode="AGE_SCALE", maintenance_age_tiers=tiers)
     assert "запчастей" in str(exc.value)
+
+
+def test_commissioning_date_round_trips_through_xlsx_as_a_date() -> None:
+    from cost.v2.reference_files import section_columns
+
+    kinds = {column.key: column.kind for column in section_columns("equipment_assets")}
+    assert kinds["commissioned_on"] == "date"
+    assert {column.key: column.kind for column in section_columns("equipment_types")}["maintenance_age_tiers"] == "json"

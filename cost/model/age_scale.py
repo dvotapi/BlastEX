@@ -58,7 +58,11 @@ def age_in_years(commissioned_on: date, as_of: date) -> Decimal:
 
 
 def pick_tier(tiers: list[dict], age_years: Decimal) -> dict | None:
-    """Первая ступень, чья верхняя граница не меньше возраста; последняя — без границы."""
+    """Первая ступень, чья граница строго больше возраста; последняя — без границы.
+
+    «До 2 лет» — возраст меньше двух: ровно в день второй годовщины машина
+    переходит на следующую ступень.
+    """
 
     for tier in tiers:
         upto = tier.get("upto_years")
@@ -85,13 +89,22 @@ def age_rates(
     if asset is None:
         context.warn(f"Для техники {label} не заведено основное средство: ТОиР и запчасти по ставкам за смену.")
         return None
-    commissioned = _commissioned_on(asset)
+    raw_commissioned = asset.payload.get("commissioned_on")
+    commissioned = _commissioned_on(raw_commissioned)
     if commissioned is None:
+        reason = "не разобрана" if raw_commissioned else "не задана"
         context.warn(
-            f"У основного средства {asset.code} не задана дата ввода в эксплуатацию: "
-            "ТОиР и запчасти по ставкам за смену."
+            f"У основного средства {asset.code} {reason} дата ввода в эксплуатацию"
+            + (f" ({raw_commissioned!r})" if raw_commissioned else "")
+            + ": ТОиР и запчасти по ставкам за смену."
         )
         return None
+    if commissioned > context.as_of:
+        # Опечатка в годе дала бы «новую» машину на нижней ступени без следа.
+        context.warn(
+            f"У основного средства {asset.code} дата ввода {commissioned.isoformat()} позже даты расчёта "
+            f"{context.as_of.isoformat()}: возраст принят за ноль, проверьте дату."
+        )
     initial = payload_number(asset, "initial_cost_rub")
     if initial <= 0:
         context.warn(f"У основного средства {asset.code} не задана первоначальная стоимость: ТОиР и запчасти по ставкам за смену.")
@@ -121,8 +134,7 @@ def age_rates(
     )
 
 
-def _commissioned_on(asset: ReferenceItem) -> date | None:
-    raw = asset.payload.get("commissioned_on")
+def _commissioned_on(raw: object) -> date | None:
     if not raw:
         return None
     if isinstance(raw, date):

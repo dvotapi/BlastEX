@@ -25,7 +25,7 @@ class MaintenanceAgeTier(ReferencePayload):
     upto_years: Decimal | None = UnitField(
         "лет",
         title="До возраста",
-        description="Верхняя граница ступени в годах с даты ввода; у последней ступени пусто",
+        description="Ступень действует, пока возраст с даты ввода меньше этой границы в годах; у последней ступени пусто",
         default=None,
         ge=0,
     )

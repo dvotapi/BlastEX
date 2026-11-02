@@ -9,13 +9,13 @@ import { useState, type ReactNode } from "react";
 import type { ModelDefaults, ModelParameters, Numeric, ValueOrigin } from "../../../types/blockEconomics";
 import { CatalogSelect, type CatalogOption } from "../estimate/CatalogSelect";
 import { EstimateLine } from "../estimate/EstimateLine";
-import { NumericInput } from "../NumericInput";
 import { lineNumber } from "../estimateModel";
 import { amount as formatAmount, money } from "../format";
 import { lineShare } from "../sections/lineHelpers";
 import type { SectionEditorProps } from "../sections/types";
 import { DrillingCard, type DrillingFact } from "./DrillingCard";
 import { DrillingDrawer } from "./DrillingDrawer";
+import { RigPlanShiftsSlider } from "./RigPlanShiftsSlider";
 
 /**
  * Смена станка: экипаж бурения зависит от класса станка, поэтому должности
@@ -89,15 +89,13 @@ export function OwnDrillingEditor({
       originTitle: conditionTitle,
     },
     {
+      // Загрузка станка: постоянные затраты станка делятся на плановые смены,
+      // поэтому бегунок рядом со стоимостью метра — метр меняется на глазах.
       label: "Плановые смены станка",
       editor: (
-        <NumericInput
+        <RigPlanShiftsSlider
           value={params.rig_plan_shifts}
-          allowEmpty
-          min={0}
-          step={1}
-          placeholder="норматив"
-          ariaLabel="Плановые смены станка"
+          norm={defaults.parameters.rig_plan_shifts}
           disabled={!canEdit}
           onChange={(value) => onChange({ rig_plan_shifts: value })}
         />

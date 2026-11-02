@@ -477,3 +477,17 @@
 .drilling-payroll-facts dd { margin:2px 0 0; font-size:13px; }
 .drilling-payroll-hint { grid-column:1 / -1; margin:4px 0 0; color:#5f7168; font-size:12px; }
 .drilling-save { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:0 0 14px; font-size:12px; color:#5f7168; }
+
+/* Бегунок плановых смен станка: карточка бурения и страница «Бурение» */
+.rig-shifts { display:grid; gap:4px; min-width:200px; }
+.rig-shifts-row { display:flex; align-items:center; gap:10px; }
+.rig-shifts-row input[type="range"] { flex:1 1 120px; width:auto; min-width:100px; margin:0; }
+.rig-shifts-value { min-width:64px; font-size:13px; font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.rig-shifts-caption { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; color:#78857f; font-size:11px; }
+.rig-shifts-caption .link-button { font-size:11px; }
+.rig-shifts-effect { font-variant-numeric:tabular-nums; }
+.drilling-card-fact-value .rig-shifts { flex:1 1 220px; }
+.drilling-rig-load { padding:12px 14px; margin-bottom:14px; }
+.drilling-rig-load h3 { margin:0 0 6px; font-size:15px; }
+.drilling-rig-load .rig-shifts { max-width:520px; }
+.drilling-rig-load p { margin:6px 0 0; color:#5f7168; font-size:12px; }

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useWorkspace } from "../app/useWorkspace";
 import { useBlockEconomicsSessionContext } from "./economics/BlockEconomicsSessionContext";
 import { DrillingPayrollPanel } from "./economics/drilling/DrillingPayrollPanel";
+import { RigPlanShiftsSlider } from "./economics/drilling/RigPlanShiftsSlider";
 import { amount, money } from "./economics/format";
 
 /**
@@ -72,6 +73,28 @@ export function DrillingPage() {
               <dd>{rubPerM === undefined ? "—" : `${money(Number(rubPerM))} ₽/м`}</dd>
             </div>
           </dl>
+          {params && defaults && (
+            <section className="panel drilling-rig-load" aria-label="Загрузка станка">
+              <h3>Загрузка станка</h3>
+              {params.drilling_executor === "OWN" ? (
+                <>
+                  <RigPlanShiftsSlider
+                    value={params.rig_plan_shifts}
+                    norm={defaults.parameters.rig_plan_shifts}
+                    rubPerM={rubPerM}
+                    disabled={!canEdit}
+                    onChange={(value) => activeDraft && patchDraft(activeDraft.id, { rig_plan_shifts: value })}
+                  />
+                  <p>
+                    Амортизация, страховка, ТОиР и запчасти станка делятся на плановые смены месяца: больше смен — дешевле
+                    метр. Это тот же параметр, что в карточке бурения «Экономики блока».
+                  </p>
+                </>
+              ) : (
+                <p>Бурение отдано субподряду: постоянные затраты станка на блок не распределяются, загрузка станка цену метра не меняет.</p>
+              )}
+            </section>
+          )}
           {params ? (
             <DrillingPayrollPanel
               params={params}

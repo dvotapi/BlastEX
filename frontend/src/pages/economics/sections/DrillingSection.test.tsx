@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -81,8 +81,42 @@ describe("DrillingSection", () => {
     expect(screen.getByText("Объём бурения")).toBeInTheDocument();
     expect(screen.getByText("Стоимость 1 п.м.")).toBeInTheDocument();
     expect(screen.getByText("Сумма")).toBeInTheDocument();
-    // Плановые смены станка правятся прямо в карточке — это поле, а не подпись.
-    expect(screen.getByLabelText("Плановые смены станка")).toBeInTheDocument();
+    // Плановые смены станка правятся прямо в карточке — бегунком, а не подписью.
+    expect(screen.getByRole("slider", { name: "Плановые смены станка в месяц" })).toBeInTheDocument();
+  });
+
+  it("бегунок смен станка в карточке патчит rig_plan_shifts по отпусканию, сброс возвращает норматив", () => {
+    const { params, defaults, economics, group } = setup({ rig_plan_shifts: "25" });
+    defaults.parameters.rig_plan_shifts = 40;
+    const onChange = vi.fn();
+    render(
+      <DrillingSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={economics}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={onChange}
+        onOpenDrillingPage={() => {}}
+        onDefaultsChanged={() => {}}
+      />,
+    );
+
+    const slider = screen.getByRole("slider", { name: "Плановые смены станка в месяц" }) as HTMLInputElement;
+    expect(slider.value).toBe("25");
+    // Отличается от норматива пакета — «Ручной».
+    expect(screen.getByText("Ручной")).toBeInTheDocument();
+
+    fireEvent.change(slider, { target: { value: "30" } });
+    fireEvent.change(slider, { target: { value: "32" } });
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.pointerUp(slider);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ rig_plan_shifts: "32" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Сбросить к нормативу" }));
+    expect(onChange).toHaveBeenLastCalledWith({ rig_plan_shifts: null });
   });
 
   it("панель расчёта бурения открывается, берёт фокус и закрывается по Escape", async () => {

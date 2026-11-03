@@ -340,6 +340,8 @@ export type ModelDefaults = {
   rigs: CodeName[];
   /** Код станка → экипаж его класса из шаблонов; при смене станка заменяет прежний экипаж бурения. */
   rig_crews?: Record<string, CrewMemberInput[]>;
+  /** Код станка → норматив плановых смен в месяц; null — у типа норматива нет. */
+  rig_shift_norms?: Record<string, Numeric | null>;
   szm: CodeName[];
   delivery_trucks: CodeName[];
   emulsion_trucks: CodeName[];

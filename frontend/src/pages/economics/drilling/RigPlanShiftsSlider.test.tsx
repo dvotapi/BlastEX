@@ -112,7 +112,7 @@ describe("RigPlanShiftsSlider", () => {
     expect(screen.queryByRole("button", { name: "Сбросить к нормативу" })).toBeNull();
     expect(screen.getByText("норматив не задан")).toBeInTheDocument();
     expect(screen.getByText("80 смен")).toBeInTheDocument();
-    expect(slider().value).toBe("60");
+    expect(slider().value).toBe("62");
     expect(screen.getByText("260,50 ₽/м")).toBeInTheDocument();
     expect(screen.queryByText("считается…")).toBeNull();
   });

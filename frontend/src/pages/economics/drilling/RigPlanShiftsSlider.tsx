@@ -20,7 +20,8 @@ import type { ModelDefaults, Numeric } from "../../../types/blockEconomics";
 import { money } from "../format";
 
 export const RIG_PLAN_SHIFTS_MIN = 10;
-export const RIG_PLAN_SHIFTS_MAX = 60;
+/** Предел физический: 31 день × 2 смены. */
+export const RIG_PLAN_SHIFTS_MAX = 62;
 /** Пауза после последнего шага клавиатурой, после которой значение уходит в черновик. */
 export const RIG_PLAN_SHIFTS_SETTLE_MS = 250;
 

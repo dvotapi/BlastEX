@@ -347,6 +347,21 @@ class SensitivityResponse(BaseModel):
     reference_revision_id: str = ""
 
 
+class DrillingComponentSchema(BaseModel):
+    code: str
+    label: str
+    rub_per_m: float
+
+
+class DrillingPremiumCurveSchema(BaseModel):
+    """Шкала и ряд графика r(m), p(m) — те же поля, что `payroll.scale`/`payroll.series`."""
+
+    scale: PayrollScaleSchema
+    series: list[PayrollSeriesPointSchema]
+    # Плановый темп блока; None — методика не применилась.
+    pace: float | None = None
+
+
 class DrillingPricesSchema(BaseModel):
     """Две цены метра собственного бурения (себестоимость, без ОХР и рентабельности).
 
@@ -359,6 +374,10 @@ class DrillingPricesSchema(BaseModel):
     payroll_source: str
     payroll_applied: bool
     warnings: list[str] = Field(default_factory=list)
+    # Слагаемые метра для кольца (статьи строк бурения и ФОТ экипажа), ₽/м.
+    components: list[DrillingComponentSchema] = Field(default_factory=list)
+    # Кривая премии машиниста по шкале с подменами; None — шкалы нет.
+    premium_curve: DrillingPremiumCurveSchema | None = None
 
 
 class DrillingKnobSchema(BaseModel):

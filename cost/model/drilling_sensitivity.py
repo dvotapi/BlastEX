@@ -37,8 +37,9 @@ from pydantic import ValidationError
 from cost.model import drilling, labor
 from cost.model.engine import compute_block_economics
 from cost.model.inputs import BlockEconomics, ModelContext, ModelParameters, payload_number, payload_text
-from cost.model.payroll import pays_by_meters
-from cost.model.payroll_inputs import _first_error, _labor_rate
+from cost.model.block_margin import _scale_dict
+from cost.model.payroll import Scale, pays_by_meters, scale_series
+from cost.model.payroll_inputs import _first_error, _labor_rate, _scale
 from cost.model.prices import price_lookup
 from cost.v2.models import ReferenceItem, ReferenceSnapshot, decimal_value
 from cost.v2.schemas.labor import LaborRatePayload
@@ -54,6 +55,43 @@ class WhatIfError(ValueError):
     """Подмена не применима: неизвестная ручка или шкала нарушает правила справочника."""
 
 
+# Статьи строк самой модели бурения в порядке кольца; ФОТ экипажа идёт последним.
+COMPONENT_LABELS: tuple[tuple[str, str], ...] = (
+    ("DRILL_TOOLING", "Оснастка"),
+    ("DRILL_FUEL", "ДТ"),
+    ("DRILL_SPARE_PARTS", "Запчасти"),
+    ("DRILL_DEPRECIATION", "Амортизация"),
+    ("DRILL_INSURANCE", "Страховка"),
+    ("DRILL_MAINTENANCE", "ТОиР"),
+    ("DRILL_INSPECTION", "Выпуск и медосмотр"),
+)
+CREW_COMPONENT = ("CREW_PAYROLL", "ФОТ экипажа")
+
+
+@dataclass(frozen=True)
+class Component:
+    """Слагаемое стоимости метра: статья строк бурения или ФОТ экипажа, ₽/м."""
+
+    code: str
+    label: str
+    rub_per_m: Decimal
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"code": self.code, "label": self.label, "rub_per_m": float(self.rub_per_m)}
+
+
+@dataclass(frozen=True)
+class PremiumCurve:
+    """Шкала премии машиниста с подменами и ряд графика r(m), p(m); темп — плановый, если методика применилась."""
+
+    scale: dict[str, Any]
+    series: list[dict[str, float]]
+    pace: Decimal | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"scale": self.scale, "series": self.series, "pace": _num(self.pace)}
+
+
 @dataclass(frozen=True)
 class Prices:
     """Две цены метра собственного бурения; None — бурение не посчитано (нет нормы, субподряд)."""
@@ -65,6 +103,10 @@ class Prices:
     # Методика ФОТ реально применилась (блок `payroll` в ответе есть).
     payroll_applied: bool
     warnings: tuple[str, ...] = ()
+    # Слагаемые метра для кольца; пусто, когда бурение не посчитано.
+    components: tuple[Component, ...] = ()
+    # Кривая премии машиниста (по шкале с подменами); None — шкалы нет.
+    premium_curve: PremiumCurve | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -74,6 +116,8 @@ class Prices:
             "payroll_source": self.payroll_source,
             "payroll_applied": self.payroll_applied,
             "warnings": list(self.warnings),
+            "components": [component.to_dict() for component in self.components],
+            "premium_curve": self.premium_curve.to_dict() if self.premium_curve is not None else None,
         }
 
 
@@ -160,22 +204,39 @@ class Sensitivity:
 # --- Цены ------------------------------------------------------------------
 
 
-def prices(result: BlockEconomics, params: ModelParameters) -> Prices:
-    """Две цены метра из посчитанного блока."""
+def prices(
+    result: BlockEconomics,
+    params: ModelParameters,
+    references: ReferenceSnapshot | None = None,
+    *,
+    premium_rate_code: str | None = None,
+) -> Prices:
+    """Две цены метра из посчитанного блока, слагаемые для кольца и кривая премии.
+
+    `premium_rate_code` — ставка машиниста (из `premium`): по ней из `references`
+    (уже с подменами) строится кривая шкалы.
+    """
 
     values = result.natural.values
     drilling_m = values.get("drilling_m", ZERO)
+    curve = _premium_curve(references, premium_rate_code, result)
     if params.drilling_executor != "OWN" or drilling_m <= 0 or values.get("rig_shifts", ZERO) <= 0:
-        return Prices(None, None, drilling_m, params.payroll_source, False, tuple(result.warnings))
+        return Prices(None, None, drilling_m, params.payroll_source, False, tuple(result.warnings), premium_curve=curve)
     without = values.get("drilling_rub_per_m", ZERO)
-    crew_rub = sum(
-        (
-            line.amount_rub
-            for line in result.lines
-            if line.operation_code in labor.DRILLING_OPERATIONS and line.cost_item_code.startswith("LABOR_")
-        ),
-        ZERO,
+    by_item: dict[str, Decimal] = {}
+    crew_rub = ZERO
+    for line in result.lines:
+        if line.operation_code not in labor.DRILLING_OPERATIONS:
+            continue
+        if line.cost_item_code.startswith("LABOR_"):
+            crew_rub += line.amount_rub
+        elif line.cost_item_code in dict(COMPONENT_LABELS):
+            by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
+    components = tuple(
+        Component(code, label, by_item[code] / drilling_m) for code, label in COMPONENT_LABELS if by_item.get(code)
     )
+    if crew_rub:
+        components = (*components, Component(*CREW_COMPONENT, crew_rub / drilling_m))
     return Prices(
         without_payroll=without,
         with_payroll=without + crew_rub / drilling_m,
@@ -183,15 +244,52 @@ def prices(result: BlockEconomics, params: ModelParameters) -> Prices:
         payroll_source=params.payroll_source,
         payroll_applied=result.payroll is not None,
         warnings=tuple(result.warnings),
+        components=components,
+        premium_curve=curve,
     )
 
 
-def _run(inputs: Inputs, lineage: Mapping[str, str], *, passport_name: str, as_of: date | None) -> Prices:
+def _premium_curve(
+    references: ReferenceSnapshot | None, rate_code: str | None, result: BlockEconomics
+) -> PremiumCurve | None:
+    if references is None or not rate_code:
+        return None
+    item = references.item("labor_rates", rate_code)
+    if item is None:
+        return None
+    try:
+        scale = _scale(LaborRatePayload.model_validate(item.payload), f"labor_rates.{rate_code}")
+    except ValidationError:
+        return None
+    if scale is None:
+        return None
+    # Плановый темп есть только у применившейся методики; без него ряд — по узлам шкалы.
+    pace = decimal_value(result.payroll["pace"]["m_plan"]) if result.payroll is not None else None
+    return PremiumCurve(_scale_dict(scale) or {}, _curve_points(scale, pace), pace)
+
+
+def _curve_points(scale: Scale, pace: Decimal | None) -> list[dict[str, float]]:
+    """Те же точки, что `payroll.series` блока экономики (Т6): кривая одна — по которой считают премию."""
+
+    return [
+        {"pace": float(point.pace), "rate": float(point.rate), "per_shift": float(point.per_shift)}
+        for point in scale_series(scale, pace)
+    ]
+
+
+def _run(
+    inputs: Inputs,
+    lineage: Mapping[str, str],
+    *,
+    passport_name: str,
+    as_of: date | None,
+    premium_rate_code: str | None = None,
+) -> Prices:
     physical, params, references = inputs
     result = compute_block_economics(
         {"physical": physical, "lineage": dict(lineage)}, params, references, passport_name=passport_name, as_of=as_of
     )
-    return prices(result, params)
+    return prices(result, params, references, premium_rate_code=premium_rate_code)
 
 
 # --- Подмены ----------------------------------------------------------------
@@ -552,7 +650,10 @@ def compute(
     physical = _physical(snapshot)
     lineage = _lineage(snapshot)
     inputs: Inputs = (physical, params, references)
-    base = _run(inputs, lineage, passport_name=passport_name, as_of=as_of)
+    scale = premium(params, references, physical)
+    base = _run(
+        inputs, lineage, passport_name=passport_name, as_of=as_of, premium_rate_code=scale.rate_code if scale else None
+    )
     rows = _rows(
         knobs(params, references, physical, as_of=as_of), inputs, lineage, passport_name=passport_name, as_of=as_of
     )
@@ -623,9 +724,11 @@ def what_if(
 
     physical = _physical(snapshot)
     lineage = _lineage(snapshot)
-    base = _run((physical, params, references), lineage, passport_name=passport_name, as_of=as_of)
+    scale = premium(params, references, physical)
+    rate_code = scale.rate_code if scale is not None else None
+    base = _run((physical, params, references), lineage, passport_name=passport_name, as_of=as_of, premium_rate_code=rate_code)
     changed = apply_overrides(params, references, physical, overrides, as_of=as_of)
-    return base, _run(changed, lineage, passport_name=passport_name, as_of=as_of)
+    return base, _run(changed, lineage, passport_name=passport_name, as_of=as_of, premium_rate_code=rate_code)
 
 
 def _num(value: Decimal | None) -> float | None:

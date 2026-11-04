@@ -48,12 +48,51 @@ describe("DrillingPriceDrivers", () => {
     // Эффект +10 % — половина размаха между плечами.
     expect(screen.getByText("+10 %: −20,00 ₽/м")).toBeInTheDocument();
 
-    const premium = screen.getByRole("heading", { name: "Премия машинистов" }).parentElement as HTMLElement;
+    const premium = screen.getByRole("heading", { name: /Премия машинистов/ }).parentElement as HTMLElement;
     expect(within(premium).getByRole("slider", { name: "Норма за смену" })).toBeInTheDocument();
     expect(within(premium).getByRole("slider", { name: "Расценка на потолке" })).toBeInTheDocument();
     expect(within(premium).getByText(/Машинист буровой установки/)).toBeInTheDocument();
     // Запросов «что если» без подмен нет.
     expect(api.blockEconomics.drillingWhatIf).not.toHaveBeenCalled();
+
+    // Кольцо слагаемых: четыре сегмента, в легенде доли и ₽/м; график премии с отметками.
+    const donut = screen.getByRole("figure", { name: "Слагаемые стоимости метра" });
+    expect(within(donut).getAllByRole("listitem")).toHaveLength(4);
+    expect(within(donut).getByText("ФОТ экипажа")).toBeInTheDocument();
+    expect(within(donut).getByText("35,29 %")).toBeInTheDocument();
+    expect(within(donut).getByText("340")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "График шкалы премии машиниста" })).toBeInTheDocument();
+    expect(screen.getByText(/норма 115/)).toBeInTheDocument();
+    expect(screen.getByText(/темп 120/)).toBeInTheDocument();
+    expect(screen.queryByTestId("premium-curve-base")).toBeNull();
+  });
+
+  it("пробная шкала рисуется поверх справочной: кольцо и график берутся из ответа «что если»", async () => {
+    const fixture = drillingSensitivityFixture();
+    const result = {
+      ...fixture.base,
+      with_payroll_rub_per_m: 360,
+      components: fixture.base.components.map((c) => (c.code === "CREW_PAYROLL" ? { ...c, rub_per_m: 100 } : c)),
+      premium_curve: {
+        ...fixture.base.premium_curve!,
+        scale: { ...fixture.base.premium_curve!.scale, rate_norm: 60 },
+        series: fixture.base.premium_curve!.series.map((p) => ({ ...p, rate: Math.max(p.rate, 60) })),
+      },
+    };
+    vi.mocked(api.blockEconomics.drillingWhatIf).mockResolvedValue({ base: fixture.base, result, reference_revision_id: "REV-1" });
+    render(<DrillingPriceDrivers passportId="PASSPORT-1" params={params} />);
+    await screen.findByText("260,00 ₽/м");
+
+    const rate = slider("Расценка на норме");
+    fireEvent.change(rate, { target: { value: "60" } });
+    fireEvent.pointerUp(rate);
+
+    await screen.findByText("360,00 ₽/м");
+    const donut = screen.getByRole("figure", { name: "Слагаемые стоимости метра" });
+    expect(within(donut).getByText("360")).toBeInTheDocument();
+    expect(screen.getByTestId("premium-curve-base")).toBeInTheDocument();
+    expect(screen.getByText(/норма 115 · 60,0 ₽/)).toBeInTheDocument();
+    expect(screen.getByText("справочник")).toBeInTheDocument();
   });
 
   it("отпускание бегунка шлёт один запрос «что если», цена помечена «считается…», «Вернуть» возвращает базу", async () => {

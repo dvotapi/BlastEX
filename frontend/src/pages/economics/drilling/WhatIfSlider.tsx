@@ -185,10 +185,12 @@ export function WhatIfSlider({
         <output className="what-if-knob-value">{formatKnobValue(shown, unit)}</output>
       </div>
       <div className="what-if-knob-caption">
-        <span>справочник: {formatKnobValue(base, unit)}</span>
-        <button type="button" className="link-button" disabled={disabled || !changed} onClick={reset}>
-          Вернуть
-        </button>
+        <span>справочник {formatKnobValue(base, unit)}</span>
+        {changed && (
+          <button type="button" className="link-button" disabled={disabled} onClick={reset}>
+            Вернуть
+          </button>
+        )}
       </div>
     </div>
   );

@@ -282,6 +282,19 @@ export type DrillingPrices = {
   /** Методика ФОТ реально применилась к экипажу. */
   payroll_applied: boolean;
   warnings: string[];
+  /** Слагаемые метра для кольца: статьи строк бурения и ФОТ экипажа, ₽/м. */
+  components: DrillingComponent[];
+  /** Кривая премии машиниста по шкале с подменами; null — шкалы нет. */
+  premium_curve: DrillingPremiumCurve | null;
+};
+
+export type DrillingComponent = { code: string; label: string; rub_per_m: number };
+
+export type DrillingPremiumCurve = {
+  scale: PayrollScale;
+  series: PayrollSeriesPoint[];
+  /** Плановый темп блока; null — методика не применилась. */
+  pace: number | null;
 };
 
 /** Ручка цены метра: текущее значение справочника и эффект ±10 % на цену с ФОТ экипажа. */

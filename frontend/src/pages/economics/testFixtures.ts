@@ -463,6 +463,23 @@ export function drillingSensitivityFixture(options: { applies?: boolean } = {}):
       payroll_source: applies ? "PAYROLL" : "RATES",
       payroll_applied: applies,
       warnings: [],
+      components: [
+        { code: "DRILL_TOOLING", label: "Оснастка", rub_per_m: 90 },
+        { code: "DRILL_FUEL", label: "ДТ", rub_per_m: 120 },
+        { code: "DRILL_DEPRECIATION", label: "Амортизация", rub_per_m: 50 },
+        { code: "CREW_PAYROLL", label: "ФОТ экипажа", rub_per_m: 80 },
+      ],
+      premium_curve: {
+        scale: { scale_type: "CURVE_POWER", gamma: 2.8, norm_per_shift: 115, rate_norm: 45, ceiling_per_shift: 185, rate_ceiling: 169 },
+        series: [
+          { pace: 0, rate: 45, per_shift: 0 },
+          { pace: 115, rate: 45, per_shift: 5175 },
+          { pace: 150, rate: 94, per_shift: 7500 },
+          { pace: 185, rate: 169, per_shift: 12000 },
+          { pace: 240, rate: 169, per_shift: 21000 },
+        ],
+        pace: applies ? 120 : null,
+      },
     },
     knobs: [
       drillingKnobFixture({ code: "TECH_SPEED", label: "Техническая скорость станка", unit: "м/ч", base_value: 12, delta_rub_per_m: -40 }),

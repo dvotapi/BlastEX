@@ -497,30 +497,52 @@
 .drilling-rig-load h3 { margin:0 0 6px; font-size:15px; }
 .drilling-rig-load .rig-shifts { max-width:520px; }
 .drilling-price-drivers { padding:12px 14px; margin-bottom:14px; }
-.drilling-price-drivers h3 { margin:0 0 6px; font-size:15px; }
-.drilling-price-drivers h4 { margin:12px 0 6px; font-size:13px; color:#4f5d57; }
-.what-if-note { margin:0 0 10px; color:#78857f; font-size:12px; }
-.what-if-error { margin:0 0 10px; color:#b3261e; font-size:12px; }
-.what-if-prices { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:0 0 6px; }
-.what-if-prices > div { padding:10px 12px; border:1px solid #dce4e0; border-radius:12px; background:#fff; }
-.what-if-prices dt { margin:0 0 4px; color:#78857f; font-size:11px; }
-.what-if-prices dd { margin:0; font-size:15px; font-variant-numeric:tabular-nums; }
+.drilling-price-drivers h3 { margin:0; font-size:15px; }
+.drilling-price-drivers h4 { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin:10px 0 6px; font-size:13px; color:#4f5d57; }
+.what-if-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin-bottom:8px; }
+.what-if-note { color:#78857f; font-size:11px; }
+.what-if-group-note { font-weight:normal; color:#78857f; font-size:11px; }
+.what-if-error { margin:0 0 8px; color:#b3261e; font-size:12px; }
+.what-if-overview { display:grid; grid-template-columns:minmax(180px,220px) minmax(260px,1fr) minmax(280px,1.3fr); gap:12px; align-items:start; }
+@media (max-width: 1100px) { .what-if-overview { grid-template-columns:1fr 1fr; } }
+@media (max-width: 760px) { .what-if-overview { grid-template-columns:1fr; } }
+.what-if-prices { display:grid; gap:8px; margin:0; }
+.what-if-prices > div { padding:8px 10px; border:1px solid #dce4e0; border-radius:10px; background:#fff; }
+.what-if-prices dt { margin:0 0 2px; color:#78857f; font-size:11px; }
+.what-if-prices dd { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; margin:0; font-size:15px; font-variant-numeric:tabular-nums; }
 .what-if-prices.is-stale b { color:#9aa8a1; }
-.what-if-stale { font-style:italic; font-size:12px; color:#78857f; }
-.what-if-delta { font-size:12px; color:#4f5d57; }
-.what-if-group { display:grid; gap:10px; max-width:560px; }
-.what-if-premium { margin-top:4px; }
-.what-if-knob { display:grid; gap:4px; padding:8px 10px; border:1px solid #e4ebe7; border-radius:10px; background:#fbfcfb; }
+.what-if-prices .page-caption { margin:0; font-size:11px; }
+.what-if-stale { font-style:italic; font-size:11px; color:#78857f; }
+.what-if-delta { font-size:11px; color:#4f5d57; }
+.price-donut { display:grid; grid-template-columns:110px minmax(0,1fr); gap:8px; align-items:center; margin:0; padding:8px 10px; border:1px solid #dce4e0; border-radius:10px; background:#fff; }
+.price-donut svg { width:110px; height:110px; }
+.price-donut.is-stale svg { opacity:.6; }
+.price-donut-legend { list-style:none; margin:0; padding:0; display:grid; gap:1px; font-size:11px; }
+.price-donut-legend li { display:grid; grid-template-columns:8px minmax(0,1fr) auto auto; align-items:center; gap:6px; padding:1px 4px; border-radius:5px; }
+.price-donut-legend li.is-active { background:#eaf3ee; }
+.price-donut-legend .donut-legend-color { width:8px; height:8px; }
+.premium-curve { display:grid; gap:2px; margin:0; padding:6px 8px 4px; border:1px solid #dce4e0; border-radius:10px; background:#fff; }
+.premium-curve.is-inactive { opacity:.65; }
+.premium-curve-title { font-size:11px; color:#4f5d57; }
+.premium-curve svg { width:100%; height:auto; color:var(--ec-accent, #1f6a4a); font-size:8px; }
+.premium-curve text { fill:var(--ec-muted, #78857f); }
+.premium-curve-base { stroke:#9aa8a1; stroke-dasharray:4 3; }
+.premium-curve-legend { font-size:11px; gap:12px; }
+.premium-curve-swatch-base { border-top:2px dashed #9aa8a1; }
+.what-if-group { display:grid; gap:4px; }
+.what-if-premium { margin-top:2px; }
+.what-if-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:6px 10px; }
+.what-if-knob { display:grid; gap:2px; padding:6px 8px; border:1px solid #e4ebe7; border-radius:8px; background:#fbfcfb; }
 .what-if-knob.is-changed { border-color:#9fc2b1; background:#f3faf6; }
 .what-if-knob.is-inactive { opacity:0.7; }
 .what-if-knob.is-draft { background:#f6f7f6; }
-.what-if-knob-head { display:flex; justify-content:space-between; gap:10px; font-size:13px; }
+.what-if-knob-head { display:flex; justify-content:space-between; gap:8px; font-size:12px; }
 .what-if-knob-label { font-weight:var(--font-weight-strong); }
-.what-if-knob-effect { color:#4f5d57; font-variant-numeric:tabular-nums; white-space:nowrap; }
-.what-if-knob-row { display:flex; align-items:center; gap:10px; }
-.what-if-knob-row input[type="range"] { flex:1 1 120px; width:auto; min-width:100px; margin:0; padding:0; border:0; border-radius:1px; background:#d3dcd7; box-shadow:none; }
-.what-if-knob-value { min-width:96px; font-size:13px; font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; white-space:nowrap; }
-.what-if-knob-caption { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; color:#78857f; font-size:11px; }
-.what-if-knob-caption .link-button { font-size:11px; }
-.what-if-reset-all { margin-top:10px; font-size:12px; }
+.what-if-knob-effect { color:#4f5d57; font-size:11px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.what-if-knob-row { display:flex; align-items:center; gap:8px; }
+.what-if-knob-row input[type="range"] { flex:1 1 100px; width:auto; min-width:80px; margin:0; padding:0; border:0; border-radius:1px; background:#d3dcd7; box-shadow:none; }
+.what-if-knob-value { min-width:88px; font-size:12px; font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; }
+.what-if-knob-caption { display:flex; justify-content:space-between; align-items:center; gap:8px; color:#78857f; font-size:10px; }
+.what-if-knob-caption .link-button { font-size:10px; }
+.what-if-reset-all { font-size:11px; }
 .drilling-rig-load p { margin:6px 0 0; color:#5f7168; font-size:12px; }

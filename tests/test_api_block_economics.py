@@ -1162,6 +1162,9 @@ def test_drilling_what_if_changes_price_without_touching_references(client) -> N
     assert body["result"]["without_payroll_rub_per_m"] < body["base"]["without_payroll_rub_per_m"]
     assert body["result"]["with_payroll_rub_per_m"] != body["base"]["with_payroll_rub_per_m"]
     assert body["base"]["payroll_applied"] is True
+    assert body["result"]["premium_curve"]["scale"]["rate_norm"] == 60
+    assert body["base"]["premium_curve"]["pace"] == pytest.approx(120)
+    assert [c["code"] for c in body["result"]["components"]][-1] == "CREW_PAYROLL"
 
     # Справочники не тронуты: ревизия та же, скорость и расценка прежние.
     assert repository.list_reference_revisions("default")[0].id == head

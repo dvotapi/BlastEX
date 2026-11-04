@@ -210,3 +210,19 @@ def test_premium_skips_time_paid_position_with_a_scale() -> None:
     premium = ds.premium(fx.parameters(crew=crew, payroll_source="PAYROLL"), references, fx.physical())
 
     assert premium is not None and premium.position_code == "P_DRILLER"
+
+
+def test_prices_components_add_up_and_follow_overrides() -> None:
+    """Слагаемые кольца складываются в цену с ФОТ; кривая премии строится по шкале с подменами."""
+
+    references = bp._references()
+    base, changed = ds.what_if(fx.snapshot(), _payroll_params(), references, {"PREMIUM_RATE_NORM": D("60")}, as_of=bp.AS_OF)
+
+    assert [c.code for c in base.components][-1] == "CREW_PAYROLL"
+    assert abs(sum((c.rub_per_m for c in base.components), D("0")) - base.with_payroll) < D("0.000001")
+    assert base.premium_curve is not None and base.premium_curve.scale["rate_norm"] == 45.0
+    assert changed.premium_curve is not None and changed.premium_curve.scale["rate_norm"] == 60.0
+    assert base.premium_curve.pace == D("120") and len(base.premium_curve.series) > 2
+    # На ставках шкалы в кривой нет (у бурильщика фикстуры её нет), слагаемые — есть.
+    plain = ds.compute(fx.snapshot(), fx.parameters(), fx.references()).base
+    assert plain.premium_curve is None and plain.components

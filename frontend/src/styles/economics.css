@@ -468,16 +468,17 @@
 /* Страница «Бурение»: зарплата экипажа и сводка блока */
 .drilling-topbar .topbar-selector > b.is-stale { color:#9aa8a1; }
 .drilling-topbar .rig-shifts-stale { font-weight:normal; }
-.drilling-rig-load { padding:8px 14px 10px; margin-bottom:10px; }
-.drilling-rig-load h3 { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin:0 0 4px; font-size:14px; }
+.drilling-rig-load { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:6px 24px; align-items:start; padding:8px 14px 10px; margin-bottom:10px; }
+.drilling-rig-load h3 { margin:0 0 4px; font-size:14px; cursor:help; }
 .drilling-rig-load .rig-shifts { max-width:560px; }
+.drilling-payroll-source { padding:0; gap:2px 16px; }
+.drilling-payroll-source legend { float:left; margin:0 6px 0 0; font-size:14px; color:inherit; }
+.drilling-payroll-source .labor-source-note { font-size:11px; color:#78857f; }
+.drilling-payroll-breakdown { grid-column:1 / -1; }
+.drilling-payroll-breakdown .payroll-breakdown { margin:0; border:0; border-top:1px solid #e6ece9; border-radius:0; box-shadow:none; }
+.drilling-payroll-breakdown .payroll-summary { padding:6px 0 0; }
+@media (max-width: 760px) { .drilling-rig-load { grid-template-columns:1fr; } }
 .drilling-rig-load p { margin:0; color:#5f7168; font-size:12px; }
-.drilling-payroll { padding:12px 14px; margin-bottom:14px; }
-.drilling-payroll h3 { margin:0 0 6px; font-size:15px; }
-.drilling-payroll-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px 16px; margin:8px 0; }
-.drilling-payroll-facts dt { color:#78857f; font-size:11px; }
-.drilling-payroll-facts dd { margin:2px 0 0; font-size:13px; }
-.drilling-payroll-hint { grid-column:1 / -1; margin:4px 0 0; color:#5f7168; font-size:12px; }
 .drilling-save { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:0 0 14px; font-size:12px; color:#5f7168; }
 
 /* Бегунок плановых смен станка: карточка бурения и страница «Бурение» */

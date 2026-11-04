@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useWorkspace } from "../app/useWorkspace";
 import { useBlockEconomicsSessionContext } from "./economics/BlockEconomicsSessionContext";
-import { DrillingPayrollPanel } from "./economics/drilling/DrillingPayrollPanel";
+import { DrillingPayrollBreakdown, DrillingPayrollSource } from "./economics/drilling/DrillingPayrollPanel";
 import { DrillingPriceDrivers } from "./economics/drilling/DrillingPriceDrivers";
 import { DrillingTopbar } from "./economics/drilling/DrillingTopbar";
 import { RigPlanShiftsSlider, rigShiftNorm } from "./economics/drilling/RigPlanShiftsSlider";
@@ -67,40 +67,38 @@ export function DrillingPage() {
             priceLabel={rubPerM === undefined ? "—" : `${money(Number(rubPerM))} ₽/м`}
             priceStale={recalculating}
           />
-          {params && defaults && (
-            <section className="panel drilling-rig-load" aria-label="Загрузка станка">
-              {params.drilling_executor === "OWN" ? (
-                <>
-                  <h3>
-                    Загрузка станка
-                    <span className="what-if-group-note">
-                      амортизация, страховка, ТОиР и запчасти станка делятся на плановые смены месяца — тот же параметр, что в карточке бурения «Экономики блока»
-                    </span>
-                  </h3>
-                  <RigPlanShiftsSlider
-                    value={params.rig_plan_shifts}
-                    norm={rigShiftNorm(defaults, params.rig_code)}
-                    disabled={!canEdit}
-                    onChange={(value) => activeDraft && patchDraft(activeDraft.id, { rig_plan_shifts: value })}
-                  />
-                </>
-              ) : (
-                <p>Бурение отдано субподряду: постоянные затраты станка на блок не распределяются, загрузка станка цену метра не меняет.</p>
-              )}
+          {params && defaults ? (
+            <section className="panel drilling-rig-load" aria-label="Загрузка станка и ФОТ экипажа">
+              <div className="drilling-rig-load-shifts">
+                {params.drilling_executor === "OWN" ? (
+                  <>
+                    <h3 title="Амортизация, страховка, ТОиР и запчасти станка делятся на плановые смены месяца. Тот же параметр, что в карточке бурения «Экономики блока».">
+                      Загрузка станка
+                    </h3>
+                    <RigPlanShiftsSlider
+                      value={params.rig_plan_shifts}
+                      norm={rigShiftNorm(defaults, params.rig_code)}
+                      disabled={!canEdit}
+                      onChange={(value) => activeDraft && patchDraft(activeDraft.id, { rig_plan_shifts: value })}
+                    />
+                  </>
+                ) : (
+                  <p>Бурение отдано субподряду: постоянные затраты станка на блок не распределяются, загрузка станка цену метра не меняет.</p>
+                )}
+              </div>
+              <DrillingPayrollSource
+                params={params}
+                economics={activeEconomics}
+                canEdit={canEdit}
+                onChange={(patch) => activeDraft && patchDraft(activeDraft.id, patch)}
+              />
+              <DrillingPayrollBreakdown params={params} economics={activeEconomics} />
             </section>
+          ) : (
+            <p className="page-caption">Расчёт блока загружается…</p>
           )}
           {params && defaults && params.drilling_executor === "OWN" && (
             <DrillingPriceDrivers passportId={selectedPassport} params={params} />
-          )}
-          {params ? (
-            <DrillingPayrollPanel
-              params={params}
-              economics={activeEconomics}
-              canEdit={canEdit}
-              onChange={(patch) => activeDraft && patchDraft(activeDraft.id, patch)}
-            />
-          ) : (
-            <p className="page-caption">Расчёт блока загружается…</p>
           )}
           {activeDraft && (
             <div className="drilling-save">

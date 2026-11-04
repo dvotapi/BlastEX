@@ -34,11 +34,21 @@ export function snap(value: number, step: number): number {
   return Number((Math.round(value / step) * step).toFixed(digits));
 }
 
-/** Диапазон ±30 % от значения справочника, сжатый внешними границами. */
-export function whatIfRange(base: number, min?: number, max?: number): { min: number; max: number; step: number } {
-  const step = niceStep(base * WHAT_IF_SPAN * 2);
-  let low = snap(base * (1 - WHAT_IF_SPAN), step);
-  let high = snap(base * (1 + WHAT_IF_SPAN), step);
+/**
+ * Диапазон ±30 % от значения справочника, сжатый внешними границами. Ручка может
+ * задать свой шаг и размах (`options`): сумма трала на блок двигается по 20 000 ₽
+ * в пределах от шага до двойной суммы.
+ */
+export function whatIfRange(
+  base: number,
+  min?: number,
+  max?: number,
+  options: { step?: number | null; span?: number | null } = {},
+): { min: number; max: number; step: number } {
+  const span = options.span && options.span > 0 ? options.span : WHAT_IF_SPAN;
+  const step = options.step && options.step > 0 ? options.step : niceStep(base * span * 2);
+  let low = snap(base * (1 - span), step);
+  let high = snap(base * (1 + span), step);
   if (low <= 0) low = step;
   if (min !== undefined) low = Math.max(low, min);
   if (max !== undefined) high = Math.min(high, max);
@@ -77,6 +87,9 @@ export type WhatIfSliderProps = {
   disabled?: boolean;
   /** Эффект самой сильной ручки списка, ₽/м (половина размаха): масштаб полоски. */
   barScale?: number;
+  /** Свой шаг и размах бегунка (доля от значения в каждую сторону). */
+  step?: number | null;
+  span?: number | null;
   /** Подпись под названием: что ещё двигает ручка (темп машиниста у скорости). */
   sub?: string;
   /** Новое пробное значение либо null — вернуть значение справочника. */
@@ -96,6 +109,8 @@ export function WhatIfSlider({
   disabled,
   barScale,
   sub,
+  step,
+  span,
   onChange,
 }: WhatIfSliderProps) {
   const committed = value ?? base;
@@ -160,7 +175,7 @@ export function WhatIfSlider({
     onChangeRef.current(null);
   }
 
-  const range = whatIfRange(base, min, max);
+  const range = whatIfRange(base, min, max, { step, span });
   const shown = pending ?? committed;
   const sliderValue = Math.min(range.max, Math.max(range.min, shown));
   const changed = value !== null && value !== base;

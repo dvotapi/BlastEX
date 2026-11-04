@@ -347,6 +347,9 @@ def test_site_knobs_cover_services_staff_salaries_and_camp() -> None:
     site = {code for code, knob in knobs.items() if knob.group == ds.SITE_GROUP}
     assert {"RULE:RULE_TRAWL", "STAFF:LR_WH_HEAD", "LODGING", "MEALS"} <= site
     assert knobs["RULE:RULE_TRAWL"].base == D("70000") and knobs["RULE:RULE_TRAWL"].unit == "₽ на блок"
+    # Сумма на блок — крупный круглый шаг и размах до двойной суммы.
+    assert knobs["RULE:RULE_TRAWL"].step == D("20000") and knobs["RULE:RULE_TRAWL"].span == D("1")
+    assert knobs["MEALS"].step is None
     assert knobs["STAFF:LR_WH_HEAD"].base == D("40000") and knobs["STAFF:LR_WH_HEAD"].label == "Оклад: Заведующий складом"
     assert knobs["MEALS"].base == D("600")
     # Ручки станка в группе участка не числятся.
@@ -397,3 +400,93 @@ def test_manual_drilling_service_has_a_knob() -> None:
     _, changed = ds.what_if(fx.snapshot(), params, fx.references(), {code: D("100000")})
     base, _ = ds.what_if(fx.snapshot(), params, fx.references(), {})
     assert abs(changed.with_payroll - base.with_payroll - D("50000") / base.drilling_m) < D("0.000001")
+
+
+
+@pytest.mark.parametrize(("value", "step"), [(D("100000"), D("20000")), (D("70000"), D("20000")), (D("180000"), D("50000")), (D("3000"), D("1000"))])
+def test_block_sum_step_is_a_round_fifth(value, step) -> None:
+    assert ds._nice_step(value) == step
+
+
+
+def _fitter_inputs():
+    """Слесарь по сменам на блок: 137 931 ₽ до НДФЛ / 15 смен × 2 смены, операция бурения."""
+
+    from cost.model.inputs import CrewMember
+
+    fitter = fx.item(
+        "POS_FITTER",
+        "Слесарь по ремонту оборудования",
+        {"category": "DIRECT", "operation_code": "PRODUCTION_DRILLING", "norm_shifts_per_month": "15", "shifts_per_block": "2", "per_diem_applies": False},
+    )
+    rate = fx.item("LR_FITTER", "Слесарь", {"position_code": "POS_FITTER", "fixed_monthly_rub": "137931"})
+    references = fx.references(positions=(*fx.POSITIONS, fitter), labor_rates=(*fx.LABOR_RATES, rate))
+    params = fx.parameters(crew=(*fx.parameters().crew, CrewMember("POS_FITTER", D("1"))))
+    return params, references
+
+
+def test_fitter_by_block_shifts_is_site_staff_of_the_meter() -> None:
+    params, references = _fitter_inputs()
+    result = compute_block_economics(fx.snapshot(), params, references)
+    line = next(line for line in result.lines if line.cost_item_code == "LABOR_POS_FITTER")
+
+    # Ставка человеко-смены × 2 смены, без штата ротации станка.
+    assert line.amount_rub == D("137931") / D("15") * D("2")
+    assert line.operation_code == "PRODUCTION_DRILLING"
+
+    prices = ds.prices(result, params, references)
+    staff = next(c for c in prices.components if c.code == "SITE_STAFF")
+    assert [part.label for part in staff.parts] == ["Слесарь по ремонту оборудования"]
+    crew = next(c for c in prices.components if c.code == "CREW_PAYROLL")
+    assert "Слесарь" not in {part.label for part in crew.parts}
+
+    knob = next(knob for knob in ds.knobs(params, references, fx.physical()) if knob.code == "STAFF:LR_FITTER")
+    assert knob.base == D("137931") and knob.group == ds.SITE_GROUP
+
+
+def test_fitter_by_block_shifts_is_not_in_the_methodology_crew() -> None:
+    from cost.model import block_payroll
+    from cost.model.inputs import ModelContext
+
+    params, references = _fitter_inputs()
+    context = ModelContext(references, replace(params, payroll_source="PAYROLL"), fx.physical())
+    assert "POS_FITTER" not in {slot.position_code for slot in block_payroll.block_crew(context)}
+
+
+
+def test_staff_salary_knob_uses_the_condition_specific_rate() -> None:
+    """Ставка слесаря для условия бурения блока — та, что в расчёте; ручка подменяет её же."""
+
+    params, references = _fitter_inputs()
+    condition = fx.DRILLING_CONDITIONS[0].code
+    special = fx.item("LR_FITTER_COND", "Слесарь на условии", {"position_code": "POS_FITTER", "fixed_monthly_rub": "150000", "condition_code": condition})
+    references = replace(references, sections={**references.sections, "labor_rates": (*references.sections["labor_rates"], special)})
+
+    result = compute_block_economics(fx.snapshot(), params, references)
+    line = next(line for line in result.lines if line.cost_item_code == "LABOR_POS_FITTER")
+    knob = next(knob for knob in ds.knobs(params, references, fx.physical()) if knob.code.startswith("STAFF:") and "FITTER" in knob.code)
+    assert line.amount_rub == knob.base / D("15") * D("2")
+
+
+def test_block_shift_staff_is_never_the_premium_position() -> None:
+    """Сдельщик со шкалой, но со сменами на блок, не становится «машинистом» блока премии."""
+
+    from cost.model.inputs import CrewMember
+
+    references = bp._references()
+    driller = references.item("positions", "P_DRILLER")
+    staff = fx.item("POS_STAFF_PIECE", "Сдельщик участка", {**driller.payload, "shifts_per_block": "2"})
+    rate = next(item for item in references.sections["labor_rates"] if item.payload.get("position_code") == "P_DRILLER")
+    staff_rate = fx.item("LR_STAFF_PIECE", "Сдельщик участка", {**rate.payload, "position_code": "POS_STAFF_PIECE"})
+    references = replace(
+        references,
+        sections={
+            **references.sections,
+            "positions": (*references.sections["positions"], staff),
+            "labor_rates": (*references.sections["labor_rates"], staff_rate),
+        },
+    )
+    # Сдельщик участка стоит в составе первым — без исключения шкала была бы его.
+    params = fx.parameters(crew=(CrewMember("POS_STAFF_PIECE", D("1")), *bp.CREW), payroll_source="PAYROLL")
+    block = ds.premium(params, references, fx.physical())
+    assert block is not None and block.position_code == "P_DRILLER"

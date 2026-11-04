@@ -495,7 +495,7 @@ export function drillingSensitivityFixture(options: { applies?: boolean } = {}):
       drillingKnobFixture({ code: "RIG_PLAN_SHIFTS", label: "Плановые смены станка", unit: "см/мес", base_value: 40, draft_param: true, delta_rub_per_m: -30 }),
       drillingKnobFixture({ code: "HAMMER_LIFE", label: "Стойкость ППУ", unit: "м", base_value: 4000, delta_rub_per_m: 20 }),
       drillingKnobFixture({ code: "BIT_LIFE", label: "Стойкость коронки", unit: "м", base_value: 700, delta_rub_per_m: -10 }),
-      drillingKnobFixture({ code: "RULE:RULE_TRAWL", label: "Услуги трала", unit: "₽ на блок", base_value: 70000, delta_rub_per_m: 1, group: "site" }),
+      drillingKnobFixture({ code: "RULE:RULE_TRAWL", label: "Услуги трала", unit: "₽ на блок", base_value: 70000, delta_rub_per_m: 1, group: "site", step: 20000, span: 1 }),
       drillingKnobFixture({ code: "STAFF:LR_MECH", label: "Оклад: Механик", unit: "₽/мес", base_value: 75000, delta_rub_per_m: 0.4, group: "site" }),
       drillingKnobFixture({ code: "MEALS", label: "Питание", unit: "₽/чел·см", base_value: 600, delta_rub_per_m: 0.6, group: "site" }),
     ],

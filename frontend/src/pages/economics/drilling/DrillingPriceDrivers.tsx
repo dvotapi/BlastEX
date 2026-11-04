@@ -331,6 +331,8 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
                   value={overrides[knob.code] ?? null}
                   deltaRubPerM={knob.delta_rub_per_m}
                   barScale={barScale}
+                  step={knob.step}
+                  span={knob.span}
                   onChange={(value) => setOverride(knob.code, value)}
                 />
               ))}

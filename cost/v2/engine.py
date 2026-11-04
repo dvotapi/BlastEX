@@ -61,6 +61,12 @@ class _Portfolio:
     warnings: list[str] = field(default_factory=list)
 
 
+
+def _text(payload: Mapping[str, Any], key: str) -> str:
+    """Текстовое поле записи: незаданное поле формы приходит как null — это пустая строка, а не «None»."""
+
+    return str(payload.get(key) or "")
+
 def calculate_scenario(
     scenario: EconomicScenario,
     references: ReferenceSnapshot,
@@ -405,7 +411,7 @@ def _apply_operation_cost_rules(
     matching = [
         rule
         for rule in rules
-        if str(rule.payload.get("operation_code", "")) == operation.code
+        if _text(rule.payload, "operation_code") == operation.code
         and _rule_scope_matches(rule, production_unit_code, line)
     ]
     if not matching:
@@ -431,7 +437,7 @@ def _apply_operation_cost_rules(
                 layer=_cost_layer(rule.payload.get("cost_layer")),
                 amount_rub=amount,
                 formula=formula,
-                resource_code=str(rule.payload.get("resource_code", operation.resource_code)),
+                resource_code=_text(rule.payload, "resource_code") or operation.resource_code,
             )
         )
 
@@ -733,11 +739,11 @@ def _apply_unit_cost_rules(
     months: Sequence[str],
     rules: Sequence[ReferenceItem],
 ) -> None:
-    unit_rules = [rule for rule in rules if not str(rule.payload.get("operation_code", ""))]
+    unit_rules = [rule for rule in rules if not _text(rule.payload, "operation_code")]
     for rule in unit_rules:
-        if str(rule.payload.get("production_unit_code", "")) not in ("", production_unit_code):
+        if _text(rule.payload, "production_unit_code") not in ("", production_unit_code):
             continue
-        resource_code = str(rule.payload.get("resource_code", ""))
+        resource_code = _text(rule.payload, "resource_code")
         allocation_driver = str(rule.payload.get("allocation_driver", "revenue"))
         for month in months:
             if resource_code:

@@ -393,6 +393,9 @@ class DrillingKnobSchema(BaseModel):
     # «cost» — ранжируемые ручки станка, «site» — услуги, оклады ИТР и ремонтного
     # персонала, проживание и питание: показываются все, не по силе.
     group: str = "cost"
+    # Шаг и размах бегунка (доля от значения в каждую сторону); нет — по умолчанию (±30 %).
+    step: float | None = None
+    span: float | None = None
     price_minus_rub_per_m: float | None
     price_plus_rub_per_m: float | None
     delta_rub_per_m: float

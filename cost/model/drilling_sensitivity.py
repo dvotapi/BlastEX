@@ -162,6 +162,10 @@ class Knob:
     # показывается, но «что если» по ней не нужно — есть свой бегунок.
     draft_param: bool = False
     group: str = "cost"
+    # Шаг и размах бегунка (доля от значения в каждую сторону), если не по
+    # умолчанию: у сумм «на блок» сметчик двигает крупными круглыми шагами.
+    step: Decimal | None = None
+    span: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +190,8 @@ class KnobRow:
             "source": knob.source,
             "draft_param": knob.draft_param,
             "group": knob.group,
+            "step": _num(knob.step),
+            "span": _num(knob.span),
             "price_minus_rub_per_m": _num(self.price_minus),
             "price_plus_rub_per_m": _num(self.price_plus),
             "delta_rub_per_m": float(self.delta),
@@ -265,13 +271,16 @@ def prices(
     # группой «Станок: затраты по правилам», иначе `drilling_rub_per_m` и
     # кольцо разошлись бы.
     own = {id(line) for line in result.drilling_lines}
+    # ФОТ должностей со сменами на блок (слесарь, механик участка) — персонал
+    # участка, а не экипаж станка: в группе ИТР и ремонтного персонала.
+    staff_items = _block_shift_items(references)
     for line in result.lines:
         if line.operation_code not in labor.DRILLING_OPERATIONS:
             continue
         if id(line) in own and line.cost_item_code not in SERVICE_OWN_ITEMS:
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
             continue
-        group, label = _group(line)
+        group, label = _group(line, staff_items)
         key = (line.cost_item_code, label)
         groups[group][key] = groups[group].get(key, ZERO) + line.amount_rub
     components = [
@@ -314,9 +323,21 @@ def _part_code(item_code: str, index: int) -> str:
     return f"{item_code}#{index}"
 
 
-def _group(line: Any) -> tuple[str, str]:
+def _block_shift_items(references: ReferenceSnapshot | None) -> frozenset[str]:
+    """Статьи ФОТ должностей со сменами на блок: `LABOR_<должность>`."""
+
+    if references is None:
+        return frozenset()
+    return frozenset(
+        f"LABOR_{item.code}" for item in references.active_items("positions") if labor.block_shifts(item) > 0
+    )
+
+
+def _group(line: Any, staff_items: frozenset[str] = frozenset()) -> tuple[str, str]:
     """Группа кольца и подпись подстроки для строки операции бурения, кроме строк станка."""
 
+    if line.cost_item_code in staff_items:
+        return STAFF_COMPONENT[0], _part_label(line.cost_item_name)
     if line.cost_item_code.startswith("LABOR_"):
         return CREW_COMPONENT[0], _part_label(line.cost_item_name)
     if line.cost_item_code.startswith("CAMP_"):
@@ -482,7 +503,11 @@ def knobs(
     context = ModelContext(references, params, physical, as_of=as_of)
     result: list[Knob] = []
     rock_code = payload_text(context.site, "rock_code") or None
-    condition, _ = drilling.pick_condition(context, params.rig_code, rock_code, params.site_code)
+    condition, condition_lineage = drilling.pick_condition(context, params.rig_code, rock_code, params.site_code)
+    # Как в расчёте (`drilling.compute`): по этой отметке `labor._labor_rate` берёт
+    # ставку условия бурения, иначе ручка оклада подменяла бы неиспользуемую строку.
+    if condition is not None:
+        context.lineage["drilling_condition"] = condition_lineage
     rig_type = context.item("equipment_types", params.rig_code) if params.rig_code else None
     if condition is not None:
         where = f"drilling_conditions.{condition.code}"
@@ -590,6 +615,25 @@ CAMP_RATES: tuple[tuple[str, str, str], ...] = (
 )
 
 
+# Сумма «на блок» (трал, услуга): бегунок от шага до двойной суммы, шаг — пятая
+# часть суммы, округлённая до 1/2/5 × 10ⁿ (100 000 ₽ → шаг 20 000 ₽).
+BLOCK_SUM_SPAN = Decimal("1")
+
+
+def _nice_step(value: Decimal) -> Decimal:
+    raw = value / 5
+    if raw <= 0:
+        return Decimal("1")
+    power = Decimal(10) ** (raw.adjusted())
+    unit = raw / power
+    factor = Decimal(1) if unit <= 1 else Decimal(2) if unit <= 2 else Decimal(5) if unit <= 5 else Decimal(10)
+    return factor * power
+
+
+def _block_sum_range(value: Decimal) -> dict[str, Decimal]:
+    return {"step": _nice_step(value), "span": BLOCK_SUM_SPAN}
+
+
 def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
     """Ручки участка бурения: услуги, оклады ИТР и ремонтного персонала, проживание и питание.
 
@@ -616,6 +660,7 @@ def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
                 f"cost_rules.{rule.code}.{field_name}",
                 _set_reference("cost_rules", rule.code, field_name),
                 group=SITE_GROUP,
+                **(_block_sum_range(value) if field_name == "fixed_rub" else {}),
             )
         )
     seen_services: set[str] = set()
@@ -638,6 +683,7 @@ def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
                 "услуга вкладки",
                 _set_service(code),
                 group=SITE_GROUP,
+                **({} if charge.per_shift else _block_sum_range(charge.amount_rub)),
             )
         )
     unit_code = payload_text(context.site, "production_unit_code")
@@ -663,6 +709,29 @@ def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
             Knob(
                 f"STAFF:{rate.code}",
                 f"Оклад: {position.name if position is not None else item.name}",
+                "₽/мес",
+                salary,
+                f"labor_rates.{rate.code}.fixed_monthly_rub",
+                _set_reference("labor_rates", rate.code, "fixed_monthly_rub"),
+                group=SITE_GROUP,
+            )
+        )
+    # Должности участка со сменами на блок (слесарь) — оклад из «Ставок персонала».
+    for position_code, _headcount, _shifts in labor.crew_members(context):
+        position = context.item("positions", position_code)
+        if position is None or labor.block_shifts(position) <= 0:
+            continue
+        if payload_text(position, "operation_code") not in labor.DRILLING_OPERATIONS:
+            continue
+        rate = labor._labor_rate(context, position_code)
+        salary = payload_number(rate, "fixed_monthly_rub") if rate is not None else ZERO
+        if rate is None or salary <= 0 or rate.code in seen:
+            continue
+        seen.add(rate.code)
+        knob_list.append(
+            Knob(
+                f"STAFF:{rate.code}",
+                f"Оклад: {position.name}",
                 "₽/мес",
                 salary,
                 f"labor_rates.{rate.code}.fixed_monthly_rub",
@@ -716,6 +785,10 @@ def premium(
     for position_code, _headcount, _shifts in labor.crew_members(context):
         position = context.item("positions", position_code)
         if position is None or payload_text(position, "operation_code") not in labor.DRILLING_OPERATIONS:
+            continue
+        # Персонал участка со сменами на блок методика не считает (`block_payroll.block_crew`):
+        # его шкала цену не двигает и в блок премии не идёт.
+        if labor.block_shifts(position) > 0:
             continue
         # Та же проверка, что у `block_payroll`: премию по шкале получает только
         # сдельщик за приведённые метры; у повременщика шкала в ставке не действует.

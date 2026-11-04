@@ -698,3 +698,28 @@ class TestNumericBoundMessages:
         issues = _errors(validate_reference_sections(sections))
         message = next(issue.message for issue in issues if issue.field == "shift_days_on")
         assert message == "Поле «Дней вахты»: должно быть не больше 366."
+
+
+
+def test_cost_rule_without_resource_pool_from_the_form_is_valid() -> None:
+    """Форма пишет незаданные «Ресурсный пул» и «Операцию» как null — это не неизвестный код."""
+
+    sections = {key: list(items) for key, items in default_reference_sections().items()}
+    sections["cost_rules"] = [
+        ReferenceItem(
+            "RULE_TRAWL",
+            "Услуги трала",
+            {
+                "operation_code": "PRODUCTION_DRILLING",
+                "resource_code": None,
+                "cost_item_code": None,
+                "behavior_type": "FIXED",
+                "cost_layer": "project_direct",
+                "fixed_rub": "100000",
+            },
+        ),
+        ReferenceItem("RULE_NO_OPERATION", "Без операции", {"operation_code": None, "fixed_rub": "1"}),
+    ]
+    issues = validate_reference_sections(sections)
+    messages = [issue.message for issue in issues if issue.section == "cost_rules"]
+    assert not any("None" in message for message in messages), messages

@@ -86,6 +86,7 @@ def compute_block_economics(
         markup=markup_values,
         block_volume_m3=context.block_volume_m3,
         payroll=block_margin.to_dict(payroll, margin) if payroll is not None and margin is not None else None,
+        drilling_lines=norms.lines if norms is not None else (),
     )
 
 

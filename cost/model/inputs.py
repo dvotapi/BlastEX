@@ -426,6 +426,10 @@ class BlockEconomics:
     # Блок «ФОТ по методике» (`block_margin.to_dict`): темп, строки экипажа,
     # цена метра и доля в марже. None — режим ставок, субподряд или откат на ставки.
     payroll: dict[str, Any] | None = None
+    # Строки самой модели бурения (`drilling.compute`, из них сложен
+    # `drilling_rub_per_m`): по ним панель цены метра отличает слагаемые станка
+    # от строк правил затрат с той же статьёй. В `to_dict` не попадают.
+    drilling_lines: tuple[CostLine, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {

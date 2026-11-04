@@ -80,7 +80,11 @@ export type PremiumCurveChartProps = {
 
 export function PremiumCurveChart({ current, base, positionName, inactive }: PremiumCurveChartProps) {
   if (current.series.length < 2) return null;
-  const changed = base !== null && base !== undefined && JSON.stringify(base.scale) !== JSON.stringify(current.scale);
+  // Сравниваются и узлы, и ряд: у ступеней расценки ступеней в `scale` не входят, разница видна только по ряду.
+  const changed =
+    base !== null &&
+    base !== undefined &&
+    (JSON.stringify(base.scale) !== JSON.stringify(current.scale) || JSON.stringify(base.series) !== JSON.stringify(current.series));
   const axis = curveAxes(current, changed ? base : null);
   const { width, height, padding } = SIZE;
   const markers = [

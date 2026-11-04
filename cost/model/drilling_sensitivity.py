@@ -227,12 +227,16 @@ def prices(
     without = values.get("drilling_rub_per_m", ZERO)
     by_item: dict[str, Decimal] = {}
     crew_rub = ZERO
+    # Слагаемые станка — только строки самой модели бурения (тождество объекта,
+    # как в `block_margin`): правило затрат с той же статьёй в `drilling_rub_per_m`
+    # не входит и в кольцо попасть не должно.
+    own = {id(line) for line in result.drilling_lines}
     for line in result.lines:
         if line.operation_code not in labor.DRILLING_OPERATIONS:
             continue
         if line.cost_item_code.startswith("LABOR_"):
             crew_rub += line.amount_rub
-        elif line.cost_item_code in dict(COMPONENT_LABELS):
+        elif id(line) in own:
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
     components = tuple(
         Component(code, label, by_item[code] / drilling_m) for code, label in COMPONENT_LABELS if by_item.get(code)

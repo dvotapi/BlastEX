@@ -226,3 +226,25 @@ def test_prices_components_add_up_and_follow_overrides() -> None:
     # На ставках шкалы в кривой нет (у бурильщика фикстуры её нет), слагаемые — есть.
     plain = ds.compute(fx.snapshot(), fx.parameters(), fx.references()).base
     assert plain.premium_curve is None and plain.components
+
+
+def test_components_skip_cost_rules_with_the_same_item() -> None:
+    """Правило затрат со статьёй DRILL_TOOLING не входит в кольцо: слагаемые — только строки станка."""
+
+    rule = fx.item(
+        "RULE_TOOLING_EXTRA",
+        "Доп. оснастка",
+        {
+            "operation_code": "PRODUCTION_DRILLING",
+            "cost_item_code": "DRILL_TOOLING",
+            "behavior_type": "VARIABLE",
+            "cost_layer": "variable",
+            "driver": "drilling_m",
+            "rate_rub": "10",
+            "estimate_section": "DRILLING",
+        },
+    )
+    references = fx.references(cost_rules=(*fx.COST_RULES, rule))
+    plain = ds.compute(fx.snapshot(), fx.parameters(), references).base
+    rig_only = sum((c.rub_per_m for c in plain.components if c.code != "CREW_PAYROLL"), D("0"))
+    assert abs(rig_only - plain.without_payroll) < D("0.000001")

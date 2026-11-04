@@ -1122,3 +1122,88 @@ def test_compare_runs_with_different_payroll_modes(client) -> None:
     contributions = rows["LABOR_CONTRIBUTIONS"]
     assert contributions["amounts"][1]["amount_rub"] < contributions["amounts"][0]["amount_rub"]
     assert contributions["delta_rub"] < 0
+
+
+def test_drilling_sensitivity_ranks_knobs_and_reports_both_prices(client) -> None:
+    test_client, _, passport_id = client
+    response = test_client.post(
+        "/api/v1/economics/block-economics/drilling-sensitivity", json=_parameters(passport_id)
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["base"]["with_payroll_rub_per_m"] > body["base"]["without_payroll_rub_per_m"] > 0
+    assert body["base"]["payroll_source"] == "RATES"
+    deltas = [abs(row["delta_rub_per_m"]) for row in body["knobs"]]
+    assert deltas == sorted(deltas, reverse=True)
+    assert {row["code"] for row in body["knobs"]} >= {"TECH_SPEED", "DIESEL_PRICE", "RIG_PLAN_SHIFTS"}
+    assert next(row for row in body["knobs"] if row["code"] == "RIG_PLAN_SHIFTS")["draft_param"] is True
+    assert body["premium"] is None
+    assert body["reference_revision_id"]
+
+
+def test_drilling_what_if_changes_price_without_touching_references(client) -> None:
+    test_client, repository, passport_id = client
+    _publish_payroll_references(repository)
+    head = repository.list_reference_revisions("default")[0].id
+    params = _parameters(passport_id, payroll_source="PAYROLL", crew=_PAYROLL_CREW)
+
+    ranking = test_client.post("/api/v1/economics/block-economics/drilling-sensitivity", json=params).json()
+    assert ranking["premium"]["applies"] is True
+    assert ranking["premium"]["position_code"] == "P_DRILLER"
+    assert [knob["code"] for knob in ranking["premium"]["knobs"]][:2] == ["PREMIUM_NORM", "PREMIUM_RATE_NORM"]
+
+    response = test_client.post(
+        "/api/v1/economics/block-economics/drilling-what-if",
+        json={**params, "overrides": {"TECH_SPEED": "15", "PREMIUM_RATE_NORM": "60"}},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["result"]["without_payroll_rub_per_m"] < body["base"]["without_payroll_rub_per_m"]
+    assert body["result"]["with_payroll_rub_per_m"] != body["base"]["with_payroll_rub_per_m"]
+    assert body["base"]["payroll_applied"] is True
+
+    # Справочники не тронуты: ревизия та же, скорость и расценка прежние.
+    assert repository.list_reference_revisions("default")[0].id == head
+    snapshot = repository.get_reference_snapshot("default", None)
+    assert snapshot.item("drilling_conditions", "COND_GRANITE").payload["tech_speed_m_per_h"] == "12"
+    assert snapshot.item("labor_rates", "LR_DRILLER").payload["rate_norm"] == "45"
+    again = test_client.post("/api/v1/economics/block-economics", json=params).json()
+    assert again["natural"]["values"]["drilling_tech_speed_m_per_h"].startswith("12")
+
+
+def test_drilling_what_if_rejects_broken_scale_and_unknown_knob(client) -> None:
+    test_client, repository, passport_id = client
+    _publish_payroll_references(repository)
+    params = _parameters(passport_id, payroll_source="PAYROLL", crew=_PAYROLL_CREW)
+
+    broken = test_client.post(
+        "/api/v1/economics/block-economics/drilling-what-if",
+        json={**params, "overrides": {"PREMIUM_CEILING": "100"}},
+    )
+    assert broken.status_code == 422
+    assert "Потолок должен быть выше нормы" in broken.json()["detail"]
+
+    unknown = test_client.post(
+        "/api/v1/economics/block-economics/drilling-what-if",
+        json={**params, "overrides": {"NO_SUCH": "1"}},
+    )
+    assert unknown.status_code == 422
+    assert "недоступна" in unknown.json()["detail"]
+
+
+def test_drilling_what_if_rates_mode_marks_premium_inactive(client) -> None:
+    test_client, repository, passport_id = client
+    _publish_payroll_references(repository)
+    params = _parameters(passport_id, payroll_source="RATES", crew=_PAYROLL_CREW)
+
+    ranking = test_client.post("/api/v1/economics/block-economics/drilling-sensitivity", json=params).json()
+    assert ranking["premium"]["applies"] is False
+    assert "Методика ФОТ" in ranking["premium"]["note"]
+    response = test_client.post(
+        "/api/v1/economics/block-economics/drilling-what-if",
+        json={**params, "overrides": {"PREMIUM_RATE_NORM": "90"}},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result"]["with_payroll_rub_per_m"] == body["base"]["with_payroll_rub_per_m"]

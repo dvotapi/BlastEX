@@ -7,13 +7,21 @@ import { renderWithWorkspace } from "../test/render";
 vi.mock("../api/endpoints", () => ({
   api: {
     economics: { technicalPassports: vi.fn(), revisions: vi.fn(), referenceSnapshot: vi.fn() },
-    blockEconomics: { modelDefaults: vi.fn(), runs: vi.fn(), variants: vi.fn(), saveRun: vi.fn(), exportUrl: (id: string) => `/x/${id}` },
+    blockEconomics: {
+      modelDefaults: vi.fn(),
+      runs: vi.fn(),
+      variants: vi.fn(),
+      saveRun: vi.fn(),
+      drillingSensitivity: vi.fn(),
+      drillingWhatIf: vi.fn(),
+      exportUrl: (id: string) => `/x/${id}`,
+    },
   },
 }));
 
 import { api } from "../api/endpoints";
 import { BlockEconomicsSessionProvider } from "./economics/BlockEconomicsSessionContext";
-import { defaultsFixture, economicsFixture } from "./economics/testFixtures";
+import { defaultsFixture, drillingSensitivityFixture, economicsFixture } from "./economics/testFixtures";
 import { DrillingPage } from "./DrillingPage";
 
 beforeEach(() => {
@@ -26,6 +34,12 @@ beforeEach(() => {
   vi.mocked(api.blockEconomics.variants).mockResolvedValue({
     reference_revision_id: "REV-1",
     variants: [{ name: "Вариант 1", economics: economicsFixture() }],
+  });
+  vi.mocked(api.blockEconomics.drillingSensitivity).mockResolvedValue(drillingSensitivityFixture());
+  vi.mocked(api.blockEconomics.drillingWhatIf).mockResolvedValue({
+    base: drillingSensitivityFixture().base,
+    result: { ...drillingSensitivityFixture().base, without_payroll_rub_per_m: 240, with_payroll_rub_per_m: 320 },
+    reference_revision_id: "REV-1",
   });
 });
 

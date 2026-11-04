@@ -273,6 +273,55 @@ export type SensitivityRow = {
   delta_rub_m3: number;
 };
 
+/** Две цены метра собственного бурения (себестоимость): null — бурение не посчитано. */
+export type DrillingPrices = {
+  without_payroll_rub_per_m: number | null;
+  with_payroll_rub_per_m: number | null;
+  drilling_m: number;
+  payroll_source: "RATES" | "PAYROLL";
+  /** Методика ФОТ реально применилась к экипажу. */
+  payroll_applied: boolean;
+  warnings: string[];
+};
+
+/** Ручка цены метра: текущее значение справочника и эффект ±10 % на цену с ФОТ экипажа. */
+export type DrillingKnob = {
+  code: string;
+  label: string;
+  unit: string;
+  base_value: number;
+  source: string;
+  /** Настоящий параметр черновика (плановые смены): у него свой бегунок, «что если» не нужно. */
+  draft_param: boolean;
+  price_minus_rub_per_m: number | null;
+  price_plus_rub_per_m: number | null;
+  delta_rub_per_m: number;
+};
+
+export type DrillingPremium = {
+  position_code: string;
+  position_name: string;
+  scale_type: string;
+  /** Шкала двигает цену метра только при методике ФОТ. */
+  applies: boolean;
+  note: string;
+  knobs: DrillingKnob[];
+};
+
+export type DrillingSensitivity = {
+  base: DrillingPrices;
+  /** По убыванию |Δ|. */
+  knobs: DrillingKnob[];
+  premium: DrillingPremium | null;
+  reference_revision_id: string;
+};
+
+export type DrillingWhatIf = {
+  base: DrillingPrices;
+  result: DrillingPrices;
+  reference_revision_id: string;
+};
+
 export type CodeName = { code: string; name: string };
 
 export type TechnicalPassport = {

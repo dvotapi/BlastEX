@@ -315,6 +315,9 @@ export type DrillingKnob = {
   /** «cost» — ранжируемые ручки станка; «site» — услуги, оклады ИТР и ремонтного персонала,
    * проживание и питание: показываются все. Нет поля — «cost». */
   group?: string;
+  /** Шаг и размах бегунка (доля от значения в каждую сторону); нет — ±30 % с «круглым» шагом. */
+  step?: number | null;
+  span?: number | null;
   price_minus_rub_per_m: number | null;
   price_plus_rub_per_m: number | null;
   delta_rub_per_m: number;

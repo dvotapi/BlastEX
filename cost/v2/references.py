@@ -398,8 +398,10 @@ def validate_reference_sections(
     resource_codes = {item.code for item in sections["resource_pools"] if item.is_active}
     for item in sections["cost_rules"]:
         payload = item.payload
-        operation_code = str(payload.get("operation_code", ""))
-        resource_code = str(payload.get("resource_code", ""))
+        # Форма справочника пишет незаданное поле как null: str(None) дал бы
+        # «Неизвестный ресурс None» у любого правила без ресурсного пула.
+        operation_code = str(payload.get("operation_code") or "")
+        resource_code = str(payload.get("resource_code") or "")
         if operation_code and operation_code not in operation_codes:
             issues.append(ValidationIssue("error", "cost_rules", item.code, f"Неизвестная операция {operation_code}."))
         if resource_code and resource_code not in resource_codes:

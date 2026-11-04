@@ -280,6 +280,8 @@ describe("whatIfRange", () => {
     expect(whatIfRange(1)).toEqual({ min: 0.7, max: 1.3, step: 0.01 });
     expect(whatIfRange(115, undefined, 100)).toEqual({ min: 80, max: 100, step: 2 });
     expect(whatIfRange(185, 190)).toEqual({ min: 190, max: 240, step: 2 });
+    // Сумма на блок: шаг и размах ручки — от шага до двойной суммы.
+    expect(whatIfRange(100000, undefined, undefined, { step: 20000, span: 1 })).toEqual({ min: 20000, max: 200000, step: 20000 });
   });
 });
 
@@ -288,6 +290,8 @@ describe("DrillingPriceDrivers: ручки участка", () => {
     render(<DrillingPriceDrivers passportId="PASSPORT-1" params={params} />);
     await screen.findByText("260,00 ₽/м");
     const trawl = slider("Услуги трала");
+    // Шаг ручки — 20 000 ₽, диапазон — от шага до двойной суммы.
+    expect([trawl.step, trawl.min, trawl.max]).toEqual(["20000", "20000", "140000"]);
     fireEvent.change(trawl, { target: { value: "80000" } });
     fireEvent.pointerUp(trawl);
     await waitFor(() =>

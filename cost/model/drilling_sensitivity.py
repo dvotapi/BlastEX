@@ -162,6 +162,10 @@ class Knob:
     # показывается, но «что если» по ней не нужно — есть свой бегунок.
     draft_param: bool = False
     group: str = "cost"
+    # Шаг и размах бегунка (доля от значения в каждую сторону), если не по
+    # умолчанию: у сумм «на блок» сметчик двигает крупными круглыми шагами.
+    step: Decimal | None = None
+    span: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +190,8 @@ class KnobRow:
             "source": knob.source,
             "draft_param": knob.draft_param,
             "group": knob.group,
+            "step": _num(knob.step),
+            "span": _num(knob.span),
             "price_minus_rub_per_m": _num(self.price_minus),
             "price_plus_rub_per_m": _num(self.price_plus),
             "delta_rub_per_m": float(self.delta),
@@ -590,6 +596,25 @@ CAMP_RATES: tuple[tuple[str, str, str], ...] = (
 )
 
 
+# Сумма «на блок» (трал, услуга): бегунок от шага до двойной суммы, шаг — пятая
+# часть суммы, округлённая до 1/2/5 × 10ⁿ (100 000 ₽ → шаг 20 000 ₽).
+BLOCK_SUM_SPAN = Decimal("1")
+
+
+def _nice_step(value: Decimal) -> Decimal:
+    raw = value / 5
+    if raw <= 0:
+        return Decimal("1")
+    power = Decimal(10) ** (raw.adjusted())
+    unit = raw / power
+    factor = Decimal(1) if unit <= 1 else Decimal(2) if unit <= 2 else Decimal(5) if unit <= 5 else Decimal(10)
+    return factor * power
+
+
+def _block_sum_range(value: Decimal) -> dict[str, Decimal]:
+    return {"step": _nice_step(value), "span": BLOCK_SUM_SPAN}
+
+
 def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
     """Ручки участка бурения: услуги, оклады ИТР и ремонтного персонала, проживание и питание.
 
@@ -616,6 +641,7 @@ def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
                 f"cost_rules.{rule.code}.{field_name}",
                 _set_reference("cost_rules", rule.code, field_name),
                 group=SITE_GROUP,
+                **(_block_sum_range(value) if field_name == "fixed_rub" else {}),
             )
         )
     seen_services: set[str] = set()
@@ -638,6 +664,7 @@ def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
                 "услуга вкладки",
                 _set_service(code),
                 group=SITE_GROUP,
+                **({} if charge.per_shift else _block_sum_range(charge.amount_rub)),
             )
         )
     unit_code = payload_text(context.site, "production_unit_code")

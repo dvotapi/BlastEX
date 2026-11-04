@@ -347,6 +347,9 @@ def test_site_knobs_cover_services_staff_salaries_and_camp() -> None:
     site = {code for code, knob in knobs.items() if knob.group == ds.SITE_GROUP}
     assert {"RULE:RULE_TRAWL", "STAFF:LR_WH_HEAD", "LODGING", "MEALS"} <= site
     assert knobs["RULE:RULE_TRAWL"].base == D("70000") and knobs["RULE:RULE_TRAWL"].unit == "₽ на блок"
+    # Сумма на блок — крупный круглый шаг и размах до двойной суммы.
+    assert knobs["RULE:RULE_TRAWL"].step == D("20000") and knobs["RULE:RULE_TRAWL"].span == D("1")
+    assert knobs["MEALS"].step is None
     assert knobs["STAFF:LR_WH_HEAD"].base == D("40000") and knobs["STAFF:LR_WH_HEAD"].label == "Оклад: Заведующий складом"
     assert knobs["MEALS"].base == D("600")
     # Ручки станка в группе участка не числятся.
@@ -397,3 +400,9 @@ def test_manual_drilling_service_has_a_knob() -> None:
     _, changed = ds.what_if(fx.snapshot(), params, fx.references(), {code: D("100000")})
     base, _ = ds.what_if(fx.snapshot(), params, fx.references(), {})
     assert abs(changed.with_payroll - base.with_payroll - D("50000") / base.drilling_m) < D("0.000001")
+
+
+
+@pytest.mark.parametrize(("value", "step"), [(D("100000"), D("20000")), (D("70000"), D("20000")), (D("180000"), D("50000")), (D("3000"), D("1000"))])
+def test_block_sum_step_is_a_round_fifth(value, step) -> None:
+    assert ds._nice_step(value) == step

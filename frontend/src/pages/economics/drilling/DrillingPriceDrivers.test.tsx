@@ -57,10 +57,10 @@ describe("DrillingPriceDrivers", () => {
 
     // Кольцо слагаемых: четыре сегмента, в легенде доли и ₽/м; график премии с отметками.
     const donut = screen.getByRole("figure", { name: "Слагаемые стоимости метра" });
-    // Четыре слагаемых и две подстатьи ФОТ экипажа: машинист 50 из 80 — 62,5 % ФОТ.
+    // Четыре слагаемых и две подстатьи ФОТ экипажа: машинист 50 из 340 — 14,71 % цены метра.
     expect(within(donut).getAllByRole("listitem")).toHaveLength(6);
-    expect(within(donut).getByText("Машинист буровой установки")).toBeInTheDocument();
-    expect(within(donut).getByText("62,5 % ФОТ")).toBeInTheDocument();
+    const driller = within(donut).getByText("Машинист буровой установки").closest("li") as HTMLElement;
+    expect(within(driller).getByText("14,71 %")).toBeInTheDocument();
     expect(within(donut).getByText("ФОТ экипажа")).toBeInTheDocument();
     expect(within(donut).getByText("35,29 %")).toBeInTheDocument();
     expect(within(donut).getByText("340")).toBeInTheDocument();

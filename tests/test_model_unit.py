@@ -103,3 +103,35 @@ def test_site_without_unit_takes_only_unbound_costs_and_warns() -> None:
     assert "UNIT_UFC_ORG" in codes
     assert "UNIT_UFC_BASE" not in codes
     assert any("не указан производственный юнит" in warning for warning in context.warnings)
+
+
+def _with_operation(operation: str) -> ModelContext:
+    """Заведующий складом как «механик бурения»: та же затрата, закреплённая за операцией."""
+
+    costs = tuple(
+        fx.item(item.code, item.name, {**item.payload, "operation_code": operation}) if item.code == "UFC_WH_HEAD" else item
+        for item in fx.UNIT_FIXED_COSTS
+    )
+    return ModelContext(fx.references(unit_fixed_costs=costs), fx.parameters(), fx.physical())
+
+
+def test_cost_bound_to_an_operation_carries_its_code() -> None:
+    """Персонал, закреплённый за бурением, несёт код операции: его доля входит в себестоимость метра."""
+
+    context = _with_operation("PRODUCTION_DRILLING")
+    unit.compute(context)
+
+    line = _line(context, "UNIT_UFC_WH_HEAD")
+    assert line.operation_code == "PRODUCTION_DRILLING"
+    # Сумма та же, что у общей затраты юнита: распределение по плановому объёму не меняется.
+    plain = _context()
+    unit.compute(plain)
+    assert line.amount_rub == _line(plain, "UNIT_UFC_WH_HEAD").amount_rub
+    assert _line(plain, "UNIT_UFC_WH_HEAD").operation_code == ""
+
+
+def test_operation_outside_the_package_leaves_a_unit_cost() -> None:
+    context = _with_operation("NO_SUCH_OPERATION")
+    unit.compute(context)
+
+    assert _line(context, "UNIT_UFC_WH_HEAD").operation_code == ""

@@ -67,8 +67,14 @@ def compute(context: ModelContext) -> None:
         if monthly <= 0:
             continue
         category = payload_text(item, "category", "OTHER")
+        # Затрата, закреплённая за операцией (косвенный персонал бурения),
+        # несёт её код: так её доля попадает в себестоимость метра. Операции нет
+        # в пакете — затрата остаётся общей затратой юнита.
+        operation = payload_text(item, "operation_code")
+        if operation and not context.has_operation(operation):
+            operation = ""
         context.add_line(
-            operation_code="",
+            operation_code=operation,
             cost_item_code=f"UNIT_{item.code}",
             cost_item_name=f"{CATEGORY_NAMES.get(category, category)}: {item.name}",
             layer=CostLayer.PRODUCTION,

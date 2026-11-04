@@ -23,14 +23,14 @@ def _payroll_params(**overrides):
 
 
 def test_prices_split_rig_lines_and_crew_payroll() -> None:
-    """Без ФОТ — `drilling_rub_per_m`; с ФОТ — плюс строки ФОТ экипажа бурения на метр."""
+    """Без услуг и персонала участка: без ФОТ — `drilling_rub_per_m`; с ФОТ — плюс ФОТ экипажа на метр."""
 
     result = compute_block_economics(fx.snapshot(), fx.parameters(), fx.references())
     prices = ds.prices(result, fx.parameters())
 
-    assert prices.without_payroll == result.natural.values["drilling_rub_per_m"]
+    assert abs(prices.without_payroll - result.natural.values["drilling_rub_per_m"]) < D("0.000001")
     driller = next(line for line in result.lines if line.cost_item_code == "LABOR_POS_DRILLER")
-    assert prices.with_payroll == prices.without_payroll + driller.amount_rub / result.natural.values["drilling_m"]
+    assert abs(prices.with_payroll - prices.without_payroll - driller.amount_rub / result.natural.values["drilling_m"]) < D("0.000001")
     assert prices.payroll_source == "RATES" and not prices.payroll_applied
 
 
@@ -229,29 +229,84 @@ def test_prices_components_add_up_and_follow_overrides() -> None:
     assert len(crew.parts) > 1
     assert abs(sum((p.rub_per_m for p in crew.parts), D("0")) - crew.rub_per_m) < D("0.000001")
     assert all(p.code.startswith("LABOR_") and not p.label.startswith("ФОТ: ") for p in crew.parts)
+    assert len({p.code for p in crew.parts}) == len(crew.parts)
     assert crew.to_dict()["parts"][0]["label"] == crew.parts[0].label
     # На ставках шкалы в кривой нет (у бурильщика фикстуры её нет), слагаемые — есть.
     plain = ds.compute(fx.snapshot(), fx.parameters(), fx.references()).base
     assert plain.premium_curve is None and plain.components
 
 
-def test_components_skip_cost_rules_with_the_same_item() -> None:
-    """Правило затрат со статьёй DRILL_TOOLING не входит в кольцо: слагаемые — только строки станка."""
+def test_rules_and_services_of_drilling_go_to_services_not_to_the_rig() -> None:
+    """Правило затрат бурения (трал, доп. оснастка) и выпуск/медосмотр — группа услуг, не станок.
 
-    rule = fx.item(
-        "RULE_TOOLING_EXTRA",
-        "Доп. оснастка",
-        {
-            "operation_code": "PRODUCTION_DRILLING",
-            "cost_item_code": "DRILL_TOOLING",
-            "behavior_type": "VARIABLE",
-            "cost_layer": "variable",
-            "driver": "drilling_m",
-            "rate_rub": "10",
-            "estimate_section": "DRILLING",
-        },
+    Станок в кольце — только строки самой модели бурения; цена с ФОТ — все
+    строки операций бурения, как цена метра листа «Расчёт».
+    """
+
+    rules = [
+        fx.item(
+            "RULE_TOOLING_EXTRA",
+            "Доп. оснастка",
+            {
+                "operation_code": "PRODUCTION_DRILLING",
+                "cost_item_code": "DRILL_TOOLING",
+                "behavior_type": "VARIABLE",
+                "cost_layer": "variable",
+                "driver": "drilling_m",
+                "rate_rub": "10",
+                "estimate_section": "DRILLING",
+            },
+        ),
+        fx.item(
+            "RULE_TRAWL",
+            "Услуги трала",
+            {
+                "operation_code": "PRODUCTION_DRILLING",
+                "cost_item_code": "DRILL_TOOLING",
+                "behavior_type": "FIXED",
+                "cost_layer": "project_direct",
+                "fixed_rub": "70000",
+                "estimate_section": "DRILLING",
+            },
+        ),
+    ]
+    references = fx.references(cost_rules=(*fx.COST_RULES, *rules))
+    result = compute_block_economics(fx.snapshot(), fx.parameters(), references)
+    plain = ds.prices(result, fx.parameters())
+    drilling_m = result.natural.values["drilling_m"]
+
+    rig = sum((c.rub_per_m for c in plain.components if c.code.startswith("DRILL_")), D("0"))
+    inspection = next(line for line in result.drilling_lines if line.cost_item_code == "DRILL_INSPECTION")
+    # Станок без выпуска и медосмотра — строки модели бурения.
+    assert abs(rig + inspection.amount_rub / drilling_m - result.natural.values["drilling_rub_per_m"]) < D("0.000001")
+    services = next(c for c in plain.components if c.code == "SERVICES")
+    assert abs(services.rub_per_m - (inspection.amount_rub + D("10") * drilling_m + D("70000")) / drilling_m) < D("0.000001")
+    # Доп. оснастка и трал — одна статья, но разные строки услуг.
+    assert {"Доп. оснастка", "Услуги трала"} <= {part.label for part in services.parts}
+    assert len({part.code for part in services.parts}) == len(services.parts)
+    total = sum((line.amount_rub for line in result.lines if line.operation_code == "PRODUCTION_DRILLING"), D("0"))
+    assert abs(plain.with_payroll - total / drilling_m) < D("0.000001")
+    assert abs(sum((c.rub_per_m for c in plain.components), D("0")) - plain.with_payroll) < D("0.000001")
+
+
+def test_site_staff_bound_to_drilling_is_payroll_of_the_meter() -> None:
+    """Механик, мастер, слесарь — постоянные затраты юнита с операцией бурения: своя группа ФОТ."""
+
+    costs = tuple(
+        fx.item(item.code, item.name, {**item.payload, "operation_code": "PRODUCTION_DRILLING"}) if item.code == "UFC_WH_HEAD" else item
+        for item in fx.UNIT_FIXED_COSTS
     )
-    references = fx.references(cost_rules=(*fx.COST_RULES, rule))
-    plain = ds.compute(fx.snapshot(), fx.parameters(), references).base
-    rig_only = sum((c.rub_per_m for c in plain.components if c.code != "CREW_PAYROLL"), D("0"))
-    assert abs(rig_only - plain.without_payroll) < D("0.000001")
+    references = fx.references(unit_fixed_costs=costs)
+    result = compute_block_economics(fx.snapshot(), fx.parameters(), references)
+    plain = ds.prices(result, fx.parameters())
+    drilling_m = result.natural.values["drilling_m"]
+
+    staff_line = next(line for line in result.lines if line.cost_item_code == "UNIT_UFC_WH_HEAD")
+    staff = next(c for c in plain.components if c.code == "SITE_STAFF")
+    assert staff.rub_per_m == staff_line.amount_rub / drilling_m
+    # Подстрока — название записи без префикса категории.
+    assert [part.label for part in staff.parts] == ["Заведующий складом"]
+    # ФОТ персонала участка в «без ФОТ» не входит; содержание базы без операции — не в метре.
+    crew = next(c for c in plain.components if c.code == "CREW_PAYROLL")
+    assert abs(plain.with_payroll - plain.without_payroll - crew.rub_per_m - staff.rub_per_m) < D("0.000001")
+    assert not any(c.code == "UNIT_FIXED" for c in plain.components)

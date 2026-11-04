@@ -12,8 +12,9 @@
  * бегунком «Загрузка станка», поэтому в ранжировании они показываются, а
  * пробного бегунка у них нет.
  *
- * Цены — себестоимость метра (без ОХР и рентабельности), как «Стоимость
- * 1 п.м.» на странице: без ФОТ (строки станка) и с ФОТ экипажа бурения.
+ * Цены — себестоимость метра (без ОХР и рентабельности) по всем строкам
+ * операций бурения, как цена метра листа «Расчёт»: с ФОТ (экипажа и
+ * закреплённого за бурением персонала участка) и без него.
  * Рядом — кольцо слагаемых метра (`DrillingPriceDonut`) и график шкалы премии
  * (`PremiumCurveChart`); оба следуют за пробными значениями.
  */
@@ -213,7 +214,7 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
       <div className="what-if-overview">
         <dl className={`what-if-prices${stale ? " is-stale" : ""}`} aria-label="Цена метра">
           <div>
-            <dt>Без ФОТ</dt>
+            <dt title="Станок и услуги сторонних организаций">Без ФОТ</dt>
             <dd>
               <b>{priceText(shown?.without_payroll_rub_per_m)}</b>
               {stale && <span className="what-if-stale"> считается…</span>}
@@ -223,7 +224,7 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
             </dd>
           </div>
           <div>
-            <dt>С ФОТ экипажа</dt>
+            <dt title="ФОТ экипажа и ИТР и ремонтного персонала, закреплённого за бурением">С ФОТ</dt>
             <dd>
               <b>{priceText(shown?.with_payroll_rub_per_m)}</b>
               {stale && <span className="what-if-stale"> считается…</span>}

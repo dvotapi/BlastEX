@@ -1,9 +1,11 @@
 /**
- * Кольцо слагаемых стоимости погонного метра: статьи строк бурения (оснастка,
- * ДТ, запчасти, амортизация, страховка, ТОиР, медосмотр) и ФОТ экипажа.
+ * Кольцо слагаемых стоимости погонного метра: статьи станка (оснастка, ДТ,
+ * запчасти, амортизация, страховка, ТОиР), услуги сторонних организаций
+ * (выпуск на линию и медосмотр, трал, правила затрат бурения), ФОТ экипажа и
+ * ФОТ ИТР и ремонтного персонала, закреплённого за бурением.
  * Геометрия — `ringSegmentPath` из кольца структуры себестоимости; в центре —
  * цена метра с ФОТ. Легенда — доли и ₽/м; пробные значения меняют и кольцо.
- * Подстатьи слагаемого (у ФОТ экипажа — строки должностей) идут тонким внешним кольцом напротив своего сегмента и
+ * Подстатьи групп (должности, услуги, персонал участка) идут тонким внешним кольцом напротив своего сегмента и
  * подстроками легенды.
  */
 import { useState } from "react";
@@ -17,8 +19,14 @@ const THICKNESS = 16;
 const OUTER_GAP = 2;
 const OUTER_THICKNESS = 5;
 const OUTER = RADIUS + OUTER_GAP + OUTER_THICKNESS;
-/** Оттенки подстатей ФОТ — от тёмного к светлому зелёному. */
-const PART_COLORS = ["#145c44", "#2f8f6a", "#5fb08d", "#93cdb3", "#c3e3d4", "#e0f0e8"];
+/** Оттенки подстатей по группе — от тёмного к светлому тону своего сегмента. */
+const PART_PALETTES: Record<string, string[]> = {
+  CREW_PAYROLL: ["#145c44", "#2f8f6a", "#5fb08d", "#93cdb3", "#c3e3d4"],
+  SERVICES: ["#8e3f6b", "#b05b8a", "#cc84ab", "#e2b0cb", "#f0d6e4"],
+  SITE_STAFF: ["#245f72", "#3f8fa8", "#6fb2c6", "#a3d0de", "#d1e8ef"],
+  UNIT_FIXED: ["#7d6c3a", "#a48f55", "#c4b27f", "#ddd0aa", "#eee7d3"],
+};
+const DEFAULT_PALETTE = ["#6b7680", "#8a949d", "#aab2b9", "#c9cfd4"];
 
 /** Цвета по коду слагаемого; неизвестный код — серый. */
 export const COMPONENT_COLORS: Record<string, string> = {
@@ -29,7 +37,10 @@ export const COMPONENT_COLORS: Record<string, string> = {
   DRILL_INSURANCE: "#c9b2f0",
   DRILL_MAINTENANCE: "#f2a93b",
   DRILL_INSPECTION: "#9aa5b1",
+  SERVICES: "#c46a9a",
   CREW_PAYROLL: "#1f7a5c",
+  SITE_STAFF: "#3f8fa8",
+  UNIT_FIXED: "#b8a36a",
 };
 
 export type DonutPart = DrillingComponent & { share: number; path: string; color: string };
@@ -49,11 +60,13 @@ export function donutSlices(components: DrillingComponent[]): DonutSlice[] {
     (item.parts ?? []).forEach((part, index) => {
       if (!(part.rub_per_m > 0)) return;
       const partShare = part.rub_per_m / total;
+      const palette = PART_PALETTES[item.code] ?? DEFAULT_PALETTE;
       partSlices.push({
         ...part,
-        share: part.rub_per_m / item.rub_per_m,
+        // Доля подстроки — от всей цены метра, как у слагаемых: строки легенды сравнимы.
+        share: partShare,
         path: ringSegmentPath(OUTER, OUTER - OUTER_THICKNESS, partAngle, partAngle + partShare * 360),
-        color: PART_COLORS[index % PART_COLORS.length],
+        color: palette[index % palette.length],
       });
       partAngle += partShare * 360;
     });
@@ -140,7 +153,7 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
             >
               <i className="donut-legend-color" style={{ background: part.color }} />
               <span className="donut-legend-label">{part.label}</span>
-              <span className="donut-legend-percent">{percent(part.share)} ФОТ</span>
+              <span className="donut-legend-percent">{percent(part.share)}</span>
               <span className="donut-legend-value">{money(part.rub_per_m, 0)}</span>
             </li>
           )),

@@ -40,6 +40,7 @@ from cost.model.inputs import BlockEconomics, ModelContext, ModelParameters, pay
 from cost.model.block_margin import _scale_dict
 from cost.model.payroll import Scale, pays_by_meters, scale_series
 from cost.model.payroll_inputs import _first_error, _labor_rate, _scale
+from cost.model import unit
 from cost.model.prices import price_lookup
 from cost.v2.models import ReferenceItem, ReferenceSnapshot, decimal_value
 from cost.v2.schemas.labor import LaborRatePayload
@@ -55,7 +56,9 @@ class WhatIfError(ValueError):
     """Подмена не применима: неизвестная ручка или шкала нарушает правила справочника."""
 
 
-# Статьи строк самой модели бурения в порядке кольца; ФОТ экипажа идёт последним.
+# Статьи строк самой модели станка в порядке кольца. Выпуск на линию и
+# медосмотр — тоже строка модели, но это услуга сторонней организации: она
+# идёт в группу услуг.
 COMPONENT_LABELS: tuple[tuple[str, str], ...] = (
     ("DRILL_TOOLING", "Оснастка"),
     ("DRILL_FUEL", "ДТ"),
@@ -63,9 +66,16 @@ COMPONENT_LABELS: tuple[tuple[str, str], ...] = (
     ("DRILL_DEPRECIATION", "Амортизация"),
     ("DRILL_INSURANCE", "Страховка"),
     ("DRILL_MAINTENANCE", "ТОиР"),
-    ("DRILL_INSPECTION", "Выпуск и медосмотр"),
 )
+SERVICE_OWN_ITEMS = frozenset({"DRILL_INSPECTION"})
+# Группы прочих строк операций бурения, в порядке кольца после станка.
+SERVICES_COMPONENT = ("SERVICES", "Услуги сторонних организаций")
 CREW_COMPONENT = ("CREW_PAYROLL", "ФОТ экипажа")
+STAFF_COMPONENT = ("SITE_STAFF", "ФОТ ИТР и ремонтного персонала")
+UNIT_COMPONENT = ("UNIT_FIXED", "Прочие постоянные затраты участка")
+# Группы, чьи строки — ФОТ: «без ФОТ» их не содержит.
+PAYROLL_GROUPS = frozenset({CREW_COMPONENT[0], STAFF_COMPONENT[0]})
+_INDIRECT_LABOR_PREFIX = f"{unit.CATEGORY_NAMES['INDIRECT_LABOR']}: "
 
 
 @dataclass(frozen=True)
@@ -231,41 +241,79 @@ def prices(
     curve = _premium_curve(references, premium_rate_code, result)
     if params.drilling_executor != "OWN" or drilling_m <= 0 or values.get("rig_shifts", ZERO) <= 0:
         return Prices(None, None, drilling_m, params.payroll_source, False, tuple(result.warnings), premium_curve=curve)
-    without = values.get("drilling_rub_per_m", ZERO)
+    # Себестоимость метра — все строки операций бурения, как цена метра листа
+    # «Расчёт» (`drilling_price`): станок, услуги и правила затрат, ФОТ экипажа
+    # и закреплённый за бурением персонал участка. Взносы и суточные лежат без
+    # операции и в неё не входят.
     by_item: dict[str, Decimal] = {}
-    crew_rub = ZERO
-    crew_parts: dict[str, tuple[str, Decimal]] = {}
+    # Подстроки группы — по паре «статья, название»: два правила с одной статьёй
+    # (доп. оснастка и трал) — разные строки, а одна должность — одна строка.
+    groups: dict[str, dict[tuple[str, str], Decimal]] = {
+        code: {} for code, _ in (SERVICES_COMPONENT, CREW_COMPONENT, STAFF_COMPONENT, UNIT_COMPONENT)
+    }
     # Слагаемые станка — только строки самой модели бурения (тождество объекта,
-    # как в `block_margin`): правило затрат с той же статьёй в `drilling_rub_per_m`
-    # не входит и в кольцо попасть не должно.
+    # как в `block_margin`): правило затрат с той же статьёй — это уже не
+    # станок, а прочая затрата бурения, и идёт в группу услуг.
     own = {id(line) for line in result.drilling_lines}
     for line in result.lines:
         if line.operation_code not in labor.DRILLING_OPERATIONS:
             continue
-        if line.cost_item_code.startswith("LABOR_"):
-            crew_rub += line.amount_rub
-            name, amount = crew_parts.get(line.cost_item_code, (_part_label(line.cost_item_name), ZERO))
-            crew_parts[line.cost_item_code] = (name, amount + line.amount_rub)
-        elif id(line) in own:
+        if id(line) in own and line.cost_item_code not in SERVICE_OWN_ITEMS:
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
-    components = tuple(
+            continue
+        group, label = _group(line)
+        key = (line.cost_item_code, label)
+        groups[group][key] = groups[group].get(key, ZERO) + line.amount_rub
+    components = [
         Component(code, label, by_item[code] / drilling_m) for code, label in COMPONENT_LABELS if by_item.get(code)
-    )
-    if crew_rub:
+    ]
+    payroll_rub = ZERO
+    total_rub = sum(by_item.values(), ZERO)
+    for code, label in (SERVICES_COMPONENT, CREW_COMPONENT, STAFF_COMPONENT, UNIT_COMPONENT):
+        total = sum(groups[code].values(), ZERO)
+        if not total:
+            continue
+        total_rub += total
+        if code in PAYROLL_GROUPS:
+            payroll_rub += total
         parts = tuple(
-            Component(code, name, amount / drilling_m) for code, (name, amount) in crew_parts.items() if amount
+            Component(_part_code(item, index), name, amount / drilling_m)
+            for index, ((item, name), amount) in enumerate(groups[code].items())
+            if amount
         )
-        components = (*components, Component(*CREW_COMPONENT, crew_rub / drilling_m, parts if len(parts) > 1 else ()))
+        # У ФОТ экипажа одна должность подстрокой не показывается — она и есть слагаемое;
+        # услуги и персонал участка называются подстроками всегда.
+        if code == CREW_COMPONENT[0] and len(parts) < 2:
+            parts = ()
+        components.append(Component(code, label, total / drilling_m, parts))
     return Prices(
-        without_payroll=without,
-        with_payroll=without + crew_rub / drilling_m,
+        without_payroll=(total_rub - payroll_rub) / drilling_m,
+        with_payroll=total_rub / drilling_m,
         drilling_m=drilling_m,
         payroll_source=params.payroll_source,
         payroll_applied=result.payroll is not None,
         warnings=tuple(result.warnings),
-        components=components,
+        components=tuple(components),
         premium_curve=curve,
     )
+
+
+def _part_code(item_code: str, index: int) -> str:
+    """Код подстроки: статья и порядковый номер — у двух правил статья бывает одна."""
+
+    return f"{item_code}#{index}"
+
+
+def _group(line: Any) -> tuple[str, str]:
+    """Группа кольца и подпись подстроки для строки операции бурения, кроме строк станка."""
+
+    if line.cost_item_code.startswith("LABOR_"):
+        return CREW_COMPONENT[0], _part_label(line.cost_item_name)
+    if line.cost_item_code.startswith("UNIT_"):
+        if line.cost_item_name.startswith(_INDIRECT_LABOR_PREFIX):
+            return STAFF_COMPONENT[0], line.cost_item_name.removeprefix(_INDIRECT_LABOR_PREFIX).strip()
+        return UNIT_COMPONENT[0], line.cost_item_name
+    return SERVICES_COMPONENT[0], line.cost_item_name
 
 
 def _part_label(name: str) -> str:

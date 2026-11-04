@@ -50,6 +50,16 @@ class PositionPayload(ReferencePayload):
     norm_operations_per_month: Decimal | None = UnitField(
         "оп/мес", description="Нормативных операций (взрывов, зарядок) в месяц", default=None
     )
+    shifts_per_block: Decimal | None = UnitField(
+        "см",
+        title="Смен на блок",
+        description=(
+            "Сколько смен должности относится на блок (слесарь, механик участка): оклад / норма смен × "
+            "эти смены. Такая должность не экипаж техники — смены станка и штат ротации к ней не применяются"
+        ),
+        default=None,
+        ge=0,
+    )
     piece_driver: PieceDriver | None = Field(
         default=None, description="Драйвер сдельной оплаты"
     )

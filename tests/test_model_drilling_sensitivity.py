@@ -406,3 +406,48 @@ def test_manual_drilling_service_has_a_knob() -> None:
 @pytest.mark.parametrize(("value", "step"), [(D("100000"), D("20000")), (D("70000"), D("20000")), (D("180000"), D("50000")), (D("3000"), D("1000"))])
 def test_block_sum_step_is_a_round_fifth(value, step) -> None:
     assert ds._nice_step(value) == step
+
+
+
+def _fitter_inputs():
+    """Слесарь по сменам на блок: 137 931 ₽ до НДФЛ / 15 смен × 2 смены, операция бурения."""
+
+    from cost.model.inputs import CrewMember
+
+    fitter = fx.item(
+        "POS_FITTER",
+        "Слесарь по ремонту оборудования",
+        {"category": "DIRECT", "operation_code": "PRODUCTION_DRILLING", "norm_shifts_per_month": "15", "shifts_per_block": "2", "per_diem_applies": False},
+    )
+    rate = fx.item("LR_FITTER", "Слесарь", {"position_code": "POS_FITTER", "fixed_monthly_rub": "137931"})
+    references = fx.references(positions=(*fx.POSITIONS, fitter), labor_rates=(*fx.LABOR_RATES, rate))
+    params = fx.parameters(crew=(*fx.parameters().crew, CrewMember("POS_FITTER", D("1"))))
+    return params, references
+
+
+def test_fitter_by_block_shifts_is_site_staff_of_the_meter() -> None:
+    params, references = _fitter_inputs()
+    result = compute_block_economics(fx.snapshot(), params, references)
+    line = next(line for line in result.lines if line.cost_item_code == "LABOR_POS_FITTER")
+
+    # Ставка человеко-смены × 2 смены, без штата ротации станка.
+    assert line.amount_rub == D("137931") / D("15") * D("2")
+    assert line.operation_code == "PRODUCTION_DRILLING"
+
+    prices = ds.prices(result, params, references)
+    staff = next(c for c in prices.components if c.code == "SITE_STAFF")
+    assert [part.label for part in staff.parts] == ["Слесарь по ремонту оборудования"]
+    crew = next(c for c in prices.components if c.code == "CREW_PAYROLL")
+    assert "Слесарь" not in {part.label for part in crew.parts}
+
+    knob = next(knob for knob in ds.knobs(params, references, fx.physical()) if knob.code == "STAFF:LR_FITTER")
+    assert knob.base == D("137931") and knob.group == ds.SITE_GROUP
+
+
+def test_fitter_by_block_shifts_is_not_in_the_methodology_crew() -> None:
+    from cost.model import block_payroll
+    from cost.model.inputs import ModelContext
+
+    params, references = _fitter_inputs()
+    context = ModelContext(references, replace(params, payroll_source="PAYROLL"), fx.physical())
+    assert "POS_FITTER" not in {slot.position_code for slot in block_payroll.block_crew(context)}

@@ -199,7 +199,12 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         # Читаем один раз: норма нужна и экипажу техники (штат ротации), и
         # обычной ставке человеко-смены (F2 ревью PR #80).
         norm_shifts = payload_number(position, "norm_shifts_per_month", Decimal("21"))
-        rotation = crew_rotation(context, position, operation_code, per_shift, fixed_monthly, norm_shifts)
+        # Персонал участка со сменами на блок — ставка человеко-смены, без штата ротации техники.
+        rotation = (
+            None
+            if block_shifts(position) > 0
+            else crew_rotation(context, position, operation_code, per_shift, fixed_monthly, norm_shifts)
+        )
         per_shift, rotation = apply_crew_scale(context.params.crew_scale, per_shift, rotation)
         fixed_block, fixed_formula = fixed_amount(fixed_monthly, shifts, per_shift, rotation, norm_shifts)
         piece_block, piece_formula = _piece_amount(context, position, rate_item, per_shift)
@@ -317,6 +322,16 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
     return tuple(results)
 
 
+def block_shifts(position: ReferenceItem | None) -> Decimal:
+    """Смены на блок, заданные должности (слесарь, механик участка); 0 — не задано.
+
+    Такая должность — персонал участка, а не экипаж техники: её смены не берутся
+    у станка, штат ротации и методика ФОТ к ней не применяются.
+    """
+
+    return payload_number(position, "shifts_per_block") if position is not None else Decimal("0")
+
+
 def _shifts_per_block(
     context: ModelContext,
     position: ReferenceItem,
@@ -325,6 +340,8 @@ def _shifts_per_block(
 ) -> Decimal:
     if manual_shifts is not None:
         return manual_shifts
+    if block_shifts(position) > 0:
+        return block_shifts(position)
     driver = DERIVED_SHIFT_DRIVERS.get(operation_code)
     if driver:
         derived = context.value(driver)

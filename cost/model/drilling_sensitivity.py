@@ -271,13 +271,16 @@ def prices(
     # группой «Станок: затраты по правилам», иначе `drilling_rub_per_m` и
     # кольцо разошлись бы.
     own = {id(line) for line in result.drilling_lines}
+    # ФОТ должностей со сменами на блок (слесарь, механик участка) — персонал
+    # участка, а не экипаж станка: в группе ИТР и ремонтного персонала.
+    staff_items = _block_shift_items(references)
     for line in result.lines:
         if line.operation_code not in labor.DRILLING_OPERATIONS:
             continue
         if id(line) in own and line.cost_item_code not in SERVICE_OWN_ITEMS:
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
             continue
-        group, label = _group(line)
+        group, label = _group(line, staff_items)
         key = (line.cost_item_code, label)
         groups[group][key] = groups[group].get(key, ZERO) + line.amount_rub
     components = [
@@ -320,9 +323,21 @@ def _part_code(item_code: str, index: int) -> str:
     return f"{item_code}#{index}"
 
 
-def _group(line: Any) -> tuple[str, str]:
+def _block_shift_items(references: ReferenceSnapshot | None) -> frozenset[str]:
+    """Статьи ФОТ должностей со сменами на блок: `LABOR_<должность>`."""
+
+    if references is None:
+        return frozenset()
+    return frozenset(
+        f"LABOR_{item.code}" for item in references.active_items("positions") if labor.block_shifts(item) > 0
+    )
+
+
+def _group(line: Any, staff_items: frozenset[str] = frozenset()) -> tuple[str, str]:
     """Группа кольца и подпись подстроки для строки операции бурения, кроме строк станка."""
 
+    if line.cost_item_code in staff_items:
+        return STAFF_COMPONENT[0], _part_label(line.cost_item_name)
     if line.cost_item_code.startswith("LABOR_"):
         return CREW_COMPONENT[0], _part_label(line.cost_item_name)
     if line.cost_item_code.startswith("CAMP_"):
@@ -690,6 +705,29 @@ def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
             Knob(
                 f"STAFF:{rate.code}",
                 f"Оклад: {position.name if position is not None else item.name}",
+                "₽/мес",
+                salary,
+                f"labor_rates.{rate.code}.fixed_monthly_rub",
+                _set_reference("labor_rates", rate.code, "fixed_monthly_rub"),
+                group=SITE_GROUP,
+            )
+        )
+    # Должности участка со сменами на блок (слесарь) — оклад из «Ставок персонала».
+    for position_code, _headcount, _shifts in labor.crew_members(context):
+        position = context.item("positions", position_code)
+        if position is None or labor.block_shifts(position) <= 0:
+            continue
+        if payload_text(position, "operation_code") not in labor.DRILLING_OPERATIONS:
+            continue
+        rate = labor._labor_rate(context, position_code)
+        salary = payload_number(rate, "fixed_monthly_rub") if rate is not None else ZERO
+        if rate is None or salary <= 0 or rate.code in seen:
+            continue
+        seen.add(rate.code)
+        knob_list.append(
+            Knob(
+                f"STAFF:{rate.code}",
+                f"Оклад: {position.name}",
                 "₽/мес",
                 salary,
                 f"labor_rates.{rate.code}.fixed_monthly_rub",

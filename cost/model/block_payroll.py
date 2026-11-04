@@ -122,6 +122,10 @@ def block_crew(context: ModelContext) -> tuple[CrewSlot, ...]:
         operation_code = payload_text(position, "operation_code")
         if operation_code not in labor.DRILLING_OPERATIONS or not context.has_operation(operation_code):
             continue
+        # Персонал участка со сменами на блок (слесарь) — не экипаж станка:
+        # его ФОТ считают ставки, а методика «всё или ничего» его не касается.
+        if labor.block_shifts(position) > 0:
+            continue
         slots.append(CrewSlot(position_code, labor.per_shift_headcount(headcount), manual_shifts))
     return tuple(slots)
 

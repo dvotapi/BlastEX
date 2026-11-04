@@ -13,6 +13,9 @@ from api.schemas.block_economics import (
     BlockEconomicsRequest,
     BlockEconomicsRunRequest,
     BlockEconomicsSchema,
+    DrillingSensitivityResponse,
+    DrillingWhatIfRequest,
+    DrillingWhatIfResponse,
     EconomicsRunSchema,
     EconomicsRunSummarySchema,
     ModelDefaultsResponse,
@@ -32,7 +35,7 @@ from api.schemas.payroll import PayrollPreviewRequest, PayrollPreviewResponse
 from api.security import require_internal_access, require_reference_editor
 from api.services.economics_service import get_economics_repository, repository_error
 from api.services.public_sync_service import PublicReader, get_public_reader, reference_issues
-from cost.model import sensitivity
+from cost.model import drilling_sensitivity, sensitivity
 from cost.model.engine import compute_block_economics
 from cost.model.export_xlsx import export_bytes
 from cost.model.inputs import BlockEconomics, ModelParameters, payload_number, payload_text
@@ -186,6 +189,77 @@ def block_economics_sensitivity(
     )
     return SensitivityResponse.model_validate(
         {"rows": [row.to_dict() for row in rows], "reference_revision_id": references.revision_id}
+    )
+
+
+@router.post("/block-economics/drilling-sensitivity", response_model=DrillingSensitivityResponse)
+def drilling_sensitivity_endpoint(
+    payload: BlockEconomicsRequest,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> DrillingSensitivityResponse:
+    """Что двигает цену метра бурения: ручки по |Δ| при ±10 % и шкала премии машиниста.
+
+    Ничего не сохраняет: страница «Бурение» показывает ранжирование и строит
+    по нему бегунки «что если».
+    """
+
+    organization_id, _ = _identity(session)
+    try:
+        passport, references = _load(
+            repository,
+            organization_id,
+            payload.technical_passport_id,
+            payload.parameters.reference_revision_id,
+        )
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    result = drilling_sensitivity.compute(
+        {"physical": passport.physical, "lineage": passport.lineage},
+        _params_with_site(payload.parameters, passport),
+        references,
+        passport_name=passport.object_name,
+    )
+    return DrillingSensitivityResponse.model_validate(
+        {**result.to_dict(), "reference_revision_id": references.revision_id}
+    )
+
+
+@router.post("/block-economics/drilling-what-if", response_model=DrillingWhatIfResponse)
+def drilling_what_if_endpoint(
+    payload: DrillingWhatIfRequest,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: EconomicsRepository = Depends(get_economics_repository),
+) -> DrillingWhatIfResponse:
+    """Цена метра с пробными значениями ручек: подмена в памяти запроса.
+
+    Справочники и черновик не меняются, поэтому `require_human` не нужен.
+    Неизвестная ручка или шкала премии, нарушающая правила справочника
+    (потолок не выше нормы, расценка на потолке ниже расценки на норме), — 422.
+    """
+
+    organization_id, _ = _identity(session)
+    try:
+        passport, references = _load(
+            repository,
+            organization_id,
+            payload.technical_passport_id,
+            payload.parameters.reference_revision_id,
+        )
+    except Exception as exc:
+        raise repository_error(exc) from exc
+    try:
+        base, result = drilling_sensitivity.what_if(
+            {"physical": passport.physical, "lineage": passport.lineage},
+            _params_with_site(payload.parameters, passport),
+            references,
+            payload.overrides,
+            passport_name=passport.object_name,
+        )
+    except drilling_sensitivity.WhatIfError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return DrillingWhatIfResponse.model_validate(
+        {"base": base.to_dict(), "result": result.to_dict(), "reference_revision_id": references.revision_id}
     )
 
 

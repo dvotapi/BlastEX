@@ -16,6 +16,8 @@ import type {
   BlockEconomics,
   BlockPayroll,
   CostLayer,
+  DrillingKnob,
+  DrillingSensitivity,
   ModelDefaults,
   ModelParameters,
   TechnicalPassport,
@@ -429,5 +431,59 @@ export function payrollFixture(options: { scale?: "CURVE_POWER" | "STEP" } = {})
       lineage: {},
     },
     lineage: {},
+  };
+}
+
+
+/** Ручка цены метра: эффект ±10 % на цену с ФОТ, значение справочника. */
+export function drillingKnobFixture(overrides: Partial<DrillingKnob> & Pick<DrillingKnob, "code" | "label">): DrillingKnob {
+  return {
+    unit: "м/ч",
+    base_value: 12,
+    source: "drilling_conditions.COND_1",
+    draft_param: false,
+    price_minus_rub_per_m: 280,
+    price_plus_rub_per_m: 240,
+    delta_rub_per_m: -40,
+    ...overrides,
+  };
+}
+
+/**
+ * Ответ `drilling-sensitivity`: пять ручек по убыванию |Δ| (плановые смены —
+ * параметр черновика) и шкала премии машиниста на кривой.
+ */
+export function drillingSensitivityFixture(options: { applies?: boolean } = {}): DrillingSensitivity {
+  const applies = options.applies ?? true;
+  return {
+    base: {
+      without_payroll_rub_per_m: 260,
+      with_payroll_rub_per_m: 340,
+      drilling_m: 12000,
+      payroll_source: applies ? "PAYROLL" : "RATES",
+      payroll_applied: applies,
+      warnings: [],
+    },
+    knobs: [
+      drillingKnobFixture({ code: "TECH_SPEED", label: "Техническая скорость станка", unit: "м/ч", base_value: 12, delta_rub_per_m: -40 }),
+      drillingKnobFixture({ code: "DIESEL_PRICE", label: "Цена дизельного топлива", unit: "₽/т", base_value: 52200, delta_rub_per_m: 36 }),
+      drillingKnobFixture({ code: "RIG_PLAN_SHIFTS", label: "Плановые смены станка", unit: "см/мес", base_value: 40, draft_param: true, delta_rub_per_m: -30 }),
+      drillingKnobFixture({ code: "CREW_SCALE", label: "Численность экипажа", unit: "×", base_value: 1, delta_rub_per_m: 20 }),
+      drillingKnobFixture({ code: "BIT_LIFE", label: "Стойкость коронки", unit: "м", base_value: 700, delta_rub_per_m: -10 }),
+    ],
+    premium: {
+      position_code: "P_DRILLER",
+      position_name: "Машинист буровой установки",
+      scale_type: "CURVE_POWER",
+      applies,
+      note: applies ? "" : "Шкала премии действует только при источнике ФОТ «Методика ФОТ».",
+      knobs: [
+        drillingKnobFixture({ code: "PREMIUM_NORM", label: "Норма за смену", unit: "прив. м/см", base_value: 115, delta_rub_per_m: applies ? -2 : 0 }),
+        drillingKnobFixture({ code: "PREMIUM_RATE_NORM", label: "Расценка на норме", unit: "₽/прив. м", base_value: 45, delta_rub_per_m: applies ? 14 : 0 }),
+        drillingKnobFixture({ code: "PREMIUM_CEILING", label: "Потолок за смену", unit: "прив. м/см", base_value: 185, delta_rub_per_m: 0 }),
+        drillingKnobFixture({ code: "PREMIUM_RATE_CEILING", label: "Расценка на потолке", unit: "₽/прив. м", base_value: 169, delta_rub_per_m: 0 }),
+      ],
+    },
+    reference_revision_id: "REV-1",
   };
 }

@@ -347,6 +347,63 @@ class SensitivityResponse(BaseModel):
     reference_revision_id: str = ""
 
 
+class DrillingPricesSchema(BaseModel):
+    """Две цены метра собственного бурения (себестоимость, без ОХР и рентабельности).
+
+    `None` — бурение не посчитано: субподряд, нет метров или нормы бурения.
+    """
+
+    without_payroll_rub_per_m: float | None
+    with_payroll_rub_per_m: float | None
+    drilling_m: float
+    payroll_source: str
+    payroll_applied: bool
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DrillingKnobSchema(BaseModel):
+    code: str
+    label: str
+    unit: str
+    base_value: float
+    source: str
+    # Настоящий параметр черновика (плановые смены): «что если» по нему не нужно.
+    draft_param: bool = False
+    price_minus_rub_per_m: float | None
+    price_plus_rub_per_m: float | None
+    delta_rub_per_m: float
+
+
+class DrillingPremiumSchema(BaseModel):
+    position_code: str
+    position_name: str
+    scale_type: str
+    # Шкала двигает цену метра только при методике ФОТ.
+    applies: bool
+    note: str = ""
+    knobs: list[DrillingKnobSchema]
+
+
+class DrillingSensitivityResponse(BaseModel):
+    base: DrillingPricesSchema
+    # Отсортированы по |Δ| цены метра с ФОТ экипажа при ±10 %.
+    knobs: list[DrillingKnobSchema]
+    premium: DrillingPremiumSchema | None = None
+    reference_revision_id: str = ""
+
+
+class DrillingWhatIfRequest(BlockEconomicsRequest):
+    """Код ручки → абсолютное пробное значение; в справочники и черновик не пишется."""
+
+    overrides: dict[str, Decimal] = Field(default_factory=dict, max_length=32)
+
+
+class DrillingWhatIfResponse(BaseModel):
+    base: DrillingPricesSchema
+    result: DrillingPricesSchema
+    reference_revision_id: str = ""
+
+
 class CodeName(BaseModel):
     code: str
     name: str

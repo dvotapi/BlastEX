@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useWorkspace } from "../app/useWorkspace";
 import { useBlockEconomicsSessionContext } from "./economics/BlockEconomicsSessionContext";
 import { DrillingPayrollPanel } from "./economics/drilling/DrillingPayrollPanel";
+import { DrillingPriceDrivers } from "./economics/drilling/DrillingPriceDrivers";
 import { RigPlanShiftsSlider, rigShiftNorm } from "./economics/drilling/RigPlanShiftsSlider";
 import { amount, money } from "./economics/format";
 
@@ -96,6 +97,9 @@ export function DrillingPage() {
                 <p>Бурение отдано субподряду: постоянные затраты станка на блок не распределяются, загрузка станка цену метра не меняет.</p>
               )}
             </section>
+          )}
+          {params && defaults && params.drilling_executor === "OWN" && (
+            <DrillingPriceDrivers passportId={selectedPassport} params={params} />
           )}
           {params ? (
             <DrillingPayrollPanel

@@ -132,6 +132,8 @@ import type {
 } from "../types/economics";
 import type {
   BlockEconomics,
+  DrillingSensitivity,
+  DrillingWhatIf,
   EconomicsRun,
   EconomicsRunSummary,
   ModelDefaults,
@@ -417,6 +419,19 @@ export const api = {
       post<{ rows: SensitivityRow[] }>(`${V1}/economics/block-economics/sensitivity`, {
         technical_passport_id: technicalPassportId,
         parameters,
+      }),
+    /** Что двигает цену метра бурения: ручки по |Δ| и шкала премии машиниста. Ничего не сохраняет. */
+    drillingSensitivity: (technicalPassportId: string, parameters: ModelParameters) =>
+      post<DrillingSensitivity>(`${V1}/economics/block-economics/drilling-sensitivity`, {
+        technical_passport_id: technicalPassportId,
+        parameters,
+      }),
+    /** Цена метра с пробными значениями ручек: подмена в памяти запроса, справочники и черновик не меняются. */
+    drillingWhatIf: (technicalPassportId: string, parameters: ModelParameters, overrides: Record<string, Numeric>) =>
+      post<DrillingWhatIf>(`${V1}/economics/block-economics/drilling-what-if`, {
+        technical_passport_id: technicalPassportId,
+        parameters,
+        overrides,
       }),
     saveRun: (technicalPassportId: string, parameters: ModelParameters, name: string) =>
       post<EconomicsRun>(`${V1}/economics/runs`, {

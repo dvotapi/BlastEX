@@ -123,7 +123,8 @@ describe("DrillingPriceDrivers", () => {
     fireEvent.change(speed, { target: { value: "13.2" } });
     fireEvent.pointerUp(speed);
 
-    await screen.findByText("330,00 ₽/м");
+    // Ответ «что если» приходит после паузы бегунка: в CI под нагрузкой дольше секунды.
+    await screen.findByText("330,00 ₽/м", undefined, { timeout: 5000 });
     expect(screen.getByText(/темп машиниста 120 → 132 прив\. м\/см/)).toBeInTheDocument();
     expect(screen.getByText(/темп 120 → 132 ·/)).toBeInTheDocument();
     expect(screen.getByTestId("premium-curve-pace-base")).toBeInTheDocument();

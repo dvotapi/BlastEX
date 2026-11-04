@@ -231,3 +231,32 @@ def test_price_below_full_cost_can_still_improve_unit_result() -> None:
     assert result["after"]["totals"]["full_cost_margin"] == -800
     assert result["delta"]["totals"]["full_cost_margin"] == 200
     assert result["after"]["totals"]["contribution_margin"] == 200
+
+
+
+def _rule_cost(result: dict, name: str) -> float:
+    return sum(float(line["amount_rub"]) for line in result["cost_lines"] if line.get("cost_item_name") == name)
+
+
+def test_unit_rule_with_null_operation_from_the_form_is_allocated() -> None:
+    """Форма пишет незаданную операцию как null: это правило юнита, как и с пустой строкой."""
+
+    def rule(operation):
+        return ReferenceItem(
+            "RULE_UNIT",
+            "Постоянная затрата",
+            {
+                "operation_code": operation,
+                "resource_code": None,
+                "behavior_type": "FIXED",
+                "fixed_rub": "100000",
+                "cost_layer": "production",
+            },
+        )
+
+    line = _line("DRILL_AND_BLAST", price=1000, billed=100)
+    empty = calculate_scenario(_scenario(candidate=[line]), _references(cost_rules=(rule(""),)))["after"]
+    null = calculate_scenario(_scenario(candidate=[line]), _references(cost_rules=(rule(None),)))["after"]
+
+    assert _rule_cost(empty, "Постоянная затрата") == pytest.approx(100000)
+    assert _rule_cost(null, "Постоянная затрата") == pytest.approx(100000)

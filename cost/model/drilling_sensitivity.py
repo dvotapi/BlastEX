@@ -503,7 +503,11 @@ def knobs(
     context = ModelContext(references, params, physical, as_of=as_of)
     result: list[Knob] = []
     rock_code = payload_text(context.site, "rock_code") or None
-    condition, _ = drilling.pick_condition(context, params.rig_code, rock_code, params.site_code)
+    condition, condition_lineage = drilling.pick_condition(context, params.rig_code, rock_code, params.site_code)
+    # Как в расчёте (`drilling.compute`): по этой отметке `labor._labor_rate` берёт
+    # ставку условия бурения, иначе ручка оклада подменяла бы неиспользуемую строку.
+    if condition is not None:
+        context.lineage["drilling_condition"] = condition_lineage
     rig_type = context.item("equipment_types", params.rig_code) if params.rig_code else None
     if condition is not None:
         where = f"drilling_conditions.{condition.code}"
@@ -781,6 +785,10 @@ def premium(
     for position_code, _headcount, _shifts in labor.crew_members(context):
         position = context.item("positions", position_code)
         if position is None or payload_text(position, "operation_code") not in labor.DRILLING_OPERATIONS:
+            continue
+        # Персонал участка со сменами на блок методика не считает (`block_payroll.block_crew`):
+        # его шкала цену не двигает и в блок премии не идёт.
+        if labor.block_shifts(position) > 0:
             continue
         # Та же проверка, что у `block_payroll`: премию по шкале получает только
         # сдельщик за приведённые метры; у повременщика шкала в ставке не действует.

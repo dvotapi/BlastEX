@@ -451,3 +451,42 @@ def test_fitter_by_block_shifts_is_not_in_the_methodology_crew() -> None:
     params, references = _fitter_inputs()
     context = ModelContext(references, replace(params, payroll_source="PAYROLL"), fx.physical())
     assert "POS_FITTER" not in {slot.position_code for slot in block_payroll.block_crew(context)}
+
+
+
+def test_staff_salary_knob_uses_the_condition_specific_rate() -> None:
+    """Ставка слесаря для условия бурения блока — та, что в расчёте; ручка подменяет её же."""
+
+    params, references = _fitter_inputs()
+    condition = fx.DRILLING_CONDITIONS[0].code
+    special = fx.item("LR_FITTER_COND", "Слесарь на условии", {"position_code": "POS_FITTER", "fixed_monthly_rub": "150000", "condition_code": condition})
+    references = replace(references, sections={**references.sections, "labor_rates": (*references.sections["labor_rates"], special)})
+
+    result = compute_block_economics(fx.snapshot(), params, references)
+    line = next(line for line in result.lines if line.cost_item_code == "LABOR_POS_FITTER")
+    knob = next(knob for knob in ds.knobs(params, references, fx.physical()) if knob.code.startswith("STAFF:") and "FITTER" in knob.code)
+    assert line.amount_rub == knob.base / D("15") * D("2")
+
+
+def test_block_shift_staff_is_never_the_premium_position() -> None:
+    """Сдельщик со шкалой, но со сменами на блок, не становится «машинистом» блока премии."""
+
+    from cost.model.inputs import CrewMember
+
+    references = bp._references()
+    driller = references.item("positions", "P_DRILLER")
+    staff = fx.item("POS_STAFF_PIECE", "Сдельщик участка", {**driller.payload, "shifts_per_block": "2"})
+    rate = next(item for item in references.sections["labor_rates"] if item.payload.get("position_code") == "P_DRILLER")
+    staff_rate = fx.item("LR_STAFF_PIECE", "Сдельщик участка", {**rate.payload, "position_code": "POS_STAFF_PIECE"})
+    references = replace(
+        references,
+        sections={
+            **references.sections,
+            "positions": (*references.sections["positions"], staff),
+            "labor_rates": (*references.sections["labor_rates"], staff_rate),
+        },
+    )
+    # Сдельщик участка стоит в составе первым — без исключения шкала была бы его.
+    params = fx.parameters(crew=(CrewMember("POS_STAFF_PIECE", D("1")), *bp.CREW), payroll_source="PAYROLL")
+    block = ds.premium(params, references, fx.physical())
+    assert block is not None and block.position_code == "P_DRILLER"

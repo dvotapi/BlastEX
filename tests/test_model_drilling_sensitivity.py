@@ -168,3 +168,45 @@ def test_zero_unproductive_time_is_allowed() -> None:
     assert changed.without_payroll < base.without_payroll
     with pytest.raises(ds.WhatIfError, match="не меньше нуля"):
         ds.what_if(fx.snapshot(), fx.parameters(), fx.references(), {"UNPRODUCTIVE_H": D("-1")})
+
+
+def test_premium_probes_stay_within_scale_rules() -> None:
+    """Расценка на норме равна расценке на потолке: плечо +10 % упирается в границу, а не ломает шкалу."""
+
+    rates = tuple(
+        fx.item(item.code, item.name, {**item.payload, "rate_norm": "168.66"}) if item.code == "LR_DRILLER" else item
+        for item in bp.LABOR_RATES
+    )
+    references = bp._references(labor_rates=rates)
+    result = ds.compute(fx.snapshot(), _payroll_params(), references, as_of=bp.AS_OF)
+
+    assert result.base.payroll_applied
+    rate_norm = next(row for row in result.premium_rows if row.knob.code == "PREMIUM_RATE_NORM")
+    assert rate_norm.price_plus == result.base.with_payroll
+    assert rate_norm.price_minus < result.base.with_payroll
+    rate_ceiling = next(row for row in result.premium_rows if row.knob.code == "PREMIUM_RATE_CEILING")
+    assert rate_ceiling.price_minus == result.base.with_payroll
+    assert rate_ceiling.price_plus >= result.base.with_payroll
+
+
+def test_premium_bounds_follow_neighbours() -> None:
+    knobs = ds.premium(_payroll_params(), bp._references(), fx.physical()).knobs
+    bounds = ds.premium_bounds(knobs)
+    assert bounds["PREMIUM_NORM"] == (None, D("184.6154") - 1)
+    assert bounds["PREMIUM_CEILING"] == (D("115.3846") + 1, None)
+    assert bounds["PREMIUM_RATE_NORM"] == (None, D("168.66"))
+    assert bounds["PREMIUM_RATE_CEILING"] == (D("45"), None)
+
+
+def test_premium_skips_time_paid_position_with_a_scale() -> None:
+    """Повременщик со шкалой в ставке идёт в экипаже первым — премию получает сдельщик за ним."""
+
+    positions = tuple(
+        fx.item(item.code, item.name, {**item.payload, "pay_system": "TIME_BONUS"}) if item.code == "P_ASSISTANT" else item
+        for item in bp.CREW_POSITIONS
+    )
+    references = bp._references(positions=(*fx.POSITIONS, *positions))
+    crew = (bp.CREW[1], bp.CREW[0], *bp.CREW[2:])
+    premium = ds.premium(fx.parameters(crew=crew, payroll_source="PAYROLL"), references, fx.physical())
+
+    assert premium is not None and premium.position_code == "P_DRILLER"

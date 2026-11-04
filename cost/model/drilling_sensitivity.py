@@ -37,6 +37,7 @@ from pydantic import ValidationError
 from cost.model import drilling, labor
 from cost.model.engine import compute_block_economics
 from cost.model.inputs import BlockEconomics, ModelContext, ModelParameters, payload_number, payload_text
+from cost.model.payroll import pays_by_meters
 from cost.model.payroll_inputs import _first_error, _labor_rate
 from cost.model.prices import price_lookup
 from cost.v2.models import ReferenceItem, ReferenceSnapshot, decimal_value
@@ -403,6 +404,10 @@ def premium(
         position = context.item("positions", position_code)
         if position is None or payload_text(position, "operation_code") not in labor.DRILLING_OPERATIONS:
             continue
+        # Та же проверка, что у `block_payroll`: премию по шкале получает только
+        # сдельщик за приведённые метры; у повременщика шкала в ставке не действует.
+        if not pays_by_meters(payload_text(position, "pay_system") or None, payload_text(position, "difficulty") or None):
+            continue
         rate_item, _note = _labor_rate(references, position_code)
         if rate_item is None or not rate_item.payload.get("scale_type"):
             continue
@@ -455,6 +460,43 @@ def premium(
     return None
 
 
+# Соседние поля кривой: (ручка, поле-ограничитель, зазор, «это верхняя граница»).
+# Потолок строго выше нормы, расценка на потолке не ниже расценки на норме.
+_CURVE_LIMITS: tuple[tuple[str, str, Decimal, bool], ...] = (
+    ("PREMIUM_NORM", "PREMIUM_CEILING", Decimal("1"), True),
+    ("PREMIUM_CEILING", "PREMIUM_NORM", Decimal("1"), False),
+    ("PREMIUM_RATE_NORM", "PREMIUM_RATE_CEILING", ZERO, True),
+    ("PREMIUM_RATE_CEILING", "PREMIUM_RATE_NORM", ZERO, False),
+)
+
+
+def premium_bounds(knob_list: Sequence[Knob]) -> dict[str, tuple[Decimal | None, Decimal | None]]:
+    """Границы (min, max) ручек кривой по значениям соседних ручек — правила `LaborRatePayload`.
+
+    Плечо ±10 %, вышедшее за границу, сделало бы шкалу недопустимой: методика
+    откатилась бы на ставки, и «эффект премии» мерил бы смену способа расчёта.
+    """
+
+    values = {knob.code: knob.base for knob in knob_list}
+    bounds: dict[str, tuple[Decimal | None, Decimal | None]] = {}
+    for code, neighbour, gap, upper in _CURVE_LIMITS:
+        if code not in values or neighbour not in values:
+            continue
+        bounds[code] = (None, values[neighbour] - gap) if upper else (values[neighbour] + gap, None)
+    return bounds
+
+
+def _clamp(value: Decimal, bounds: tuple[Decimal | None, Decimal | None] | None) -> Decimal:
+    if bounds is None:
+        return value
+    low, high = bounds
+    if low is not None and value < low:
+        return low
+    if high is not None and value > high:
+        return high
+    return value
+
+
 # --- Расчёт -------------------------------------------------------------------
 
 
@@ -472,14 +514,26 @@ def _price_of(result: Prices) -> Decimal | None:
 
 
 def _rows(
-    knob_list: Sequence[Knob], inputs: Inputs, lineage: Mapping[str, str], *, passport_name: str, as_of: date | None
+    knob_list: Sequence[Knob],
+    inputs: Inputs,
+    lineage: Mapping[str, str],
+    *,
+    passport_name: str,
+    as_of: date | None,
+    base_price: Decimal | None = None,
+    bounds: Mapping[str, tuple[Decimal | None, Decimal | None]] | None = None,
 ) -> list[KnobRow]:
     rows: list[KnobRow] = []
     for knob in knob_list:
         side: list[Decimal | None] = []
         for factor in (Decimal("1") - STEP, Decimal("1") + STEP):
+            probe = _clamp(knob.base * factor, bounds.get(knob.code) if bounds else None)
+            if probe == knob.base:
+                # Плечо упёрлось в границу шкалы: двигать нечего, цена — базовая.
+                side.append(base_price)
+                continue
             physical, params, references = inputs
-            changed = knob.setter((dict(physical), params, references), knob.base * factor)
+            changed = knob.setter((dict(physical), params, references), probe)
             side.append(_price_of(_run(changed, lineage, passport_name=passport_name, as_of=as_of)))
         rows.append(KnobRow(knob, side[0], side[1]))
     return rows
@@ -506,7 +560,15 @@ def compute(
     scale = premium(params, references, physical, payroll_applied=base.payroll_applied)
     # Недействующая шкала цену не двигает: прогоны ±10 % были бы холостыми.
     premium_rows = (
-        _rows(scale.knobs, inputs, lineage, passport_name=passport_name, as_of=as_of)
+        _rows(
+            scale.knobs,
+            inputs,
+            lineage,
+            passport_name=passport_name,
+            as_of=as_of,
+            base_price=base.with_payroll,
+            bounds=premium_bounds(scale.knobs),
+        )
         if scale is not None and scale.applies
         else [KnobRow(knob, base.with_payroll, base.with_payroll) for knob in scale.knobs]
         if scale is not None

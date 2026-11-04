@@ -506,8 +506,9 @@
 .what-if-group-note { font-weight:normal; color:#78857f; font-size:11px; }
 .what-if-error { margin:0 0 8px; color:#b3261e; font-size:12px; }
 .what-if-overview { display:grid; grid-template-columns:minmax(300px,1fr) minmax(320px,1fr); grid-template-rows:auto 1fr; gap:8px 12px; align-items:start; }
-@media (max-width: 760px) { .what-if-overview { grid-template-columns:1fr; } .what-if-overview .premium-curve { grid-column:1; grid-row:auto; } }
 .what-if-overview .premium-curve { grid-column:2; grid-row:1 / span 2; }
+/* После правила широкого экрана: при равной специфичности побеждает последнее. */
+@media (max-width: 760px) { .what-if-overview { grid-template-columns:1fr; } .what-if-overview .premium-curve { grid-column:1; grid-row:auto; } }
 .what-if-prices { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:0; }
 .what-if-prices > div { padding:8px 10px; border:1px solid #dce4e0; border-radius:10px; background:#fff; }
 .what-if-prices dt { margin:0 0 2px; color:#78857f; font-size:11px; }
@@ -537,15 +538,17 @@
 .premium-curve-pace-base line { stroke:#9aa8a1; stroke-dasharray:none; }
 .premium-curve-legend { font-size:11px; gap:12px; }
 .premium-curve-swatch-base { border-top:2px dashed #9aa8a1; }
-.what-if-lists { display:grid; grid-template-columns:repeat(auto-fit,minmax(440px,1fr)); gap:8px 16px; margin-top:8px; align-items:start; }
+/* Колонка списка — не уже полной строки ручки (дорожки 436 + зазоры 32 + поля 14 = 482 px);
+   уже — строка сама перестраивается в две строки по ширине своего списка (@container ниже). */
+.what-if-lists { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(490px,100%),1fr)); gap:8px 16px; margin-top:8px; align-items:start; }
 @media (max-width: 520px) { .what-if-lists { grid-template-columns:1fr; } }
 .what-if-group { display:grid; gap:4px; min-width:0; }
 .what-if-group h4 { margin:0; }
 .what-if-premium { min-width:0; }
 .what-if-site { grid-column:1 / -1; min-width:0; }
-.what-if-site .what-if-list { grid-template-columns:repeat(auto-fit,minmax(440px,1fr)); column-gap:16px; }
+.what-if-site .what-if-list { grid-template-columns:repeat(auto-fit,minmax(min(490px,100%),1fr)); column-gap:16px; }
 @media (max-width: 520px) { .what-if-site .what-if-list { grid-template-columns:1fr; } }
-.what-if-list { display:grid; gap:2px; }
+.what-if-list { display:grid; gap:2px; container-type:inline-size; }
 .what-if-knob { border-radius:8px; }
 .what-if-row { display:grid; grid-template-columns:minmax(110px,1.1fr) 118px minmax(80px,1fr) 84px 44px; align-items:center; gap:8px; padding:3px 6px; border:1px solid transparent; font-size:12px; }
 .what-if-row:hover { background:#f6f9f7; }
@@ -563,7 +566,7 @@
 .what-if-knob-value { font-size:12px; font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; }
 .what-if-knob-reset { font-size:10px; text-align:right; }
 .what-if-knob-note { grid-column:3 / -1; color:#78857f; font-size:10.5px; line-height:1.2; }
-@media (max-width: 520px) {
+@container (max-width: 489px) {
   .what-if-row { grid-template-columns:1fr auto; row-gap:2px; }
   .what-if-row .what-if-knob-effect { grid-column:2; grid-row:1; }
   .what-if-row input[type="range"] { grid-column:1 / 2; }

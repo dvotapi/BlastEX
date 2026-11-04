@@ -10,6 +10,7 @@ import { api } from "../../../api/endpoints";
 import { DrillingPriceDrivers, premiumBounds } from "./DrillingPriceDrivers";
 import { drillingSensitivityFixture, paramsFixture } from "../testFixtures";
 import { whatIfRange } from "./WhatIfSlider";
+import { scaleChanged } from "./PremiumCurveChart";
 
 beforeEach(() => {
   vi.mocked(api.blockEconomics.drillingSensitivity).mockResolvedValue(drillingSensitivityFixture());
@@ -292,5 +293,25 @@ describe("DrillingPriceDrivers: ручки участка", () => {
     await waitFor(() =>
       expect(api.blockEconomics.drillingWhatIf).toHaveBeenCalledWith("PASSPORT-1", params, { "RULE:RULE_TRAWL": 80000 }),
     );
+  });
+});
+
+describe("scaleChanged", () => {
+  const curve = drillingSensitivityFixture().base.premium_curve!;
+
+  it("та же шкала при другом темпе не считается сдвинутой, хотя ряд другой", () => {
+    // Темп 132 вставлен в ряд и растянул его — шкала прежняя.
+    const moved = {
+      ...curve,
+      pace: 132,
+      series: [...curve.series, { pace: 132, rate: 999, per_shift: 0 }, { pace: 400, rate: 999, per_shift: 0 }],
+    };
+    expect(scaleChanged(curve, moved)).toBe(false);
+  });
+
+  it("ставка в общей точке темпа сдвинута — шкала изменена (так видны расценки ступеней)", () => {
+    const changed = { ...curve, series: curve.series.map((point, index) => (index === 1 ? { ...point, rate: point.rate + 5 } : point)) };
+    expect(scaleChanged(curve, changed)).toBe(true);
+    expect(scaleChanged(curve, { ...curve, scale: { ...curve.scale, rate_norm: 60 } })).toBe(true);
   });
 });

@@ -91,6 +91,22 @@ export function rateAt(curve: DrillingPremiumCurve, pace: number): number {
   return points[points.length - 1].rate;
 }
 
+/**
+ * Шкала сдвинута ручками премии: отличаются узлы шкалы или ставка в одной и той
+ * же точке темпа. Ряды целиком не сравниваются: `scale_series` вставляет в ряд
+ * плановый темп и по нему растягивает диапазон, так что одна и та же шкала при
+ * другой скорости станка даёт другой ряд. У ступеней расценки ступеней в
+ * `scale` не входят — их разница видна по ставкам в общих точках.
+ */
+export function scaleChanged(base: DrillingPremiumCurve, current: DrillingPremiumCurve): boolean {
+  if (JSON.stringify(base.scale) !== JSON.stringify(current.scale)) return true;
+  const rates = new Map(base.series.map((point) => [point.pace, point.rate]));
+  return current.series.some((point) => {
+    const rate = rates.get(point.pace);
+    return rate !== undefined && Math.abs(rate - point.rate) > 1e-9;
+  });
+}
+
 export type PremiumCurveChartProps = {
   current: DrillingPremiumCurve;
   /** Шкала справочника; показывается пунктиром, когда отличается от текущей. */
@@ -102,11 +118,7 @@ export type PremiumCurveChartProps = {
 
 export function PremiumCurveChart({ current, base, positionName, inactive }: PremiumCurveChartProps) {
   if (current.series.length < 2) return null;
-  // Сравниваются и узлы, и ряд: у ступеней расценки ступеней в `scale` не входят, разница видна только по ряду.
-  const changed =
-    base !== null &&
-    base !== undefined &&
-    (JSON.stringify(base.scale) !== JSON.stringify(current.scale) || JSON.stringify(base.series) !== JSON.stringify(current.series));
+  const changed = base !== null && base !== undefined && scaleChanged(base, current);
   // Темп сдвинула ручка скорости (или плановых смен): справочный темп остаётся серой точкой.
   const paceMoved = base != null && base.pace != null && current.pace != null && Math.abs(base.pace - current.pace) >= 0.05;
   const axis = curveAxes(current, changed ? base : paceMoved ? base : null);

@@ -122,19 +122,34 @@ describe("DrillingPriceDrivers", () => {
     expect(Number(slider("Расценка на потолке").min)).toBe(whatIfRange(169, 45).min);
   });
 
-  it("ошибка сервера (422 по шкале) показывается текстом", async () => {
+  it("ошибка сервера (422 по шкале) показывается текстом, а прежний результат не выдаётся за актуальный", async () => {
+    render(<DrillingPriceDrivers passportId="PASSPORT-1" params={params} />);
+    await screen.findByText("260,00 ₽/м");
+    // Первая подмена удалась: на экране 240 и разница к смете.
+    const speed = slider("Техническая скорость станка");
+    fireEvent.change(speed, { target: { value: "15" } });
+    fireEvent.pointerUp(speed);
+    await screen.findByText("240,00 ₽/м");
+
     vi.mocked(api.blockEconomics.drillingWhatIf).mockRejectedValueOnce(
       new Error("Шкала премии не проходит проверку справочника: ceiling_per_shift: Потолок должен быть выше нормы"),
     );
-    render(<DrillingPriceDrivers passportId="PASSPORT-1" params={params} />);
-    await screen.findByText("260,00 ₽/м");
-
     const rate = slider("Расценка на норме");
     fireEvent.change(rate, { target: { value: "50" } });
     fireEvent.pointerUp(rate);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Потолок должен быть выше нормы");
     expect(screen.queryByText("считается…")).toBeNull();
+    // Старые 240 ₽/м и «к смете» ушли: цены недоступны, пока ручки не согласованы.
+    expect(screen.queryByText("240,00 ₽/м")).toBeNull();
+    expect(screen.queryByText(/к смете/)).toBeNull();
+    expect(screen.getAllByText("—").length).toBe(2);
+
+    // «Вернуть» сломавшую ручку — подмены снова считаются, ошибка уходит.
+    const knob = rate.closest(".what-if-knob") as HTMLElement;
+    fireEvent.click(within(knob).getByRole("button", { name: "Вернуть" }));
+    expect(await screen.findByText("240,00 ₽/м")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

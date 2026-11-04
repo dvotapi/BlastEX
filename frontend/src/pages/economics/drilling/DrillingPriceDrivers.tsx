@@ -83,6 +83,9 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
   const [whatIf, setWhatIf] = useState<DrillingWhatIf | null>(null);
   const [whatIfBusy, setWhatIfBusy] = useState(false);
   const [error, setError] = useState("");
+  // Последний запрос упал: числа на экране не отвечают текущим ручкам, и
+  // показывать прежний результат как актуальный нельзя — только «—» и ошибку.
+  const [failed, setFailed] = useState(false);
   const rankingRequest = useRef(0);
   const whatIfRequest = useRef(0);
 
@@ -106,11 +109,13 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
             return Object.keys(kept).length === Object.keys(current).length ? current : kept;
           });
           setRankingBusy(false);
+          setFailed(false);
           setError("");
         })
         .catch((reason) => {
           if (id !== rankingRequest.current) return;
           setRankingBusy(false);
+          setFailed(true);
           setError(reason instanceof Error ? reason.message : "Не удалось посчитать ручки цены метра.");
         });
     }, RANKING_DELAY_MS);
@@ -125,6 +130,8 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
     if (!passportId || Object.keys(overrides).length === 0) {
       setWhatIf(null);
       setWhatIfBusy(false);
+      setFailed(false);
+      setError("");
       return;
     }
     setWhatIfBusy(true);
@@ -134,11 +141,16 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
         if (id !== whatIfRequest.current) return;
         setWhatIf(response);
         setWhatIfBusy(false);
+        setFailed(false);
         setError("");
       })
       .catch((reason) => {
         if (id !== whatIfRequest.current) return;
+        // Прежний результат отвечал другим ручкам: убираем, иначе разница «к
+        // смете» останется на экране рядом с новыми значениями бегунков.
+        setWhatIf(null);
         setWhatIfBusy(false);
+        setFailed(true);
         setError(reason instanceof Error ? reason.message : "Не удалось посчитать пробную цену метра.");
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -157,7 +169,7 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
   }
 
   const base: DrillingPrices | null = whatIf?.base ?? ranking?.base ?? null;
-  const shown: DrillingPrices | null = whatIf?.result ?? ranking?.base ?? null;
+  const shown: DrillingPrices | null = failed ? null : whatIf?.result ?? ranking?.base ?? null;
   const hasOverrides = Object.keys(overrides).length > 0;
   // Черновик изменился, ответ ранжирования ещё не пришёл — цены на экране от прежних параметров.
   const stale = whatIfBusy || rankingBusy;

@@ -40,7 +40,7 @@ from cost.model.inputs import BlockEconomics, ModelContext, ModelParameters, pay
 from cost.model.block_margin import _scale_dict
 from cost.model.payroll import Scale, pays_by_meters, scale_series
 from cost.model.payroll_inputs import _first_error, _labor_rate, _scale
-from cost.model import unit
+from cost.model import services, unit
 from cost.model.prices import price_lookup
 from cost.v2.models import ReferenceItem, ReferenceSnapshot, decimal_value
 from cost.v2.schemas.labor import LaborRatePayload
@@ -74,7 +74,11 @@ CAMP_COMPONENT = ("CAMP", "Проживание и питание экипажа
 CREW_COMPONENT = ("CREW_PAYROLL", "ФОТ экипажа")
 STAFF_COMPONENT = ("SITE_STAFF", "ФОТ ИТР и ремонтного персонала")
 UNIT_COMPONENT = ("UNIT_FIXED", "Прочие постоянные затраты участка")
-GROUPS = (SERVICES_COMPONENT, CAMP_COMPONENT, CREW_COMPONENT, STAFF_COMPONENT, UNIT_COMPONENT)
+# Правило затрат со статьёй станка (доп. оснастка, доп. ДТ) — затрата станка,
+# а не услуга: своя группа, чтобы не выдавать её за работу подрядчика.
+RIG_RULES_COMPONENT = ("RIG_RULES", "Станок: затраты по правилам")
+_RIG_ITEMS = frozenset(code for code, _ in COMPONENT_LABELS)
+GROUPS = (RIG_RULES_COMPONENT, SERVICES_COMPONENT, CAMP_COMPONENT, CREW_COMPONENT, STAFF_COMPONENT, UNIT_COMPONENT)
 # Группы, где одна строка подстрокой не показывается: она и есть слагаемое.
 SINGLE_HIDDEN = frozenset({CREW_COMPONENT[0], CAMP_COMPONENT[0]})
 # Группы, чьи строки — ФОТ: «без ФОТ» их не содержит.
@@ -257,8 +261,9 @@ def prices(
         code: {} for code, _ in GROUPS
     }
     # Слагаемые станка — только строки самой модели бурения (тождество объекта,
-    # как в `block_margin`): правило затрат с той же статьёй — это уже не
-    # станок, а прочая затрата бурения, и идёт в группу услуг.
+    # как в `block_margin`): правило затрат с той же статьёй идёт отдельной
+    # группой «Станок: затраты по правилам», иначе `drilling_rub_per_m` и
+    # кольцо разошлись бы.
     own = {id(line) for line in result.drilling_lines}
     for line in result.lines:
         if line.operation_code not in labor.DRILLING_OPERATIONS:
@@ -316,6 +321,8 @@ def _group(line: Any) -> tuple[str, str]:
         return CREW_COMPONENT[0], _part_label(line.cost_item_name)
     if line.cost_item_code.startswith("CAMP_"):
         return CAMP_COMPONENT[0], line.cost_item_name
+    if line.cost_item_code in _RIG_ITEMS:
+        return RIG_RULES_COMPONENT[0], line.cost_item_name
     if line.cost_item_code.startswith("UNIT_"):
         if line.cost_item_name.startswith(_INDIRECT_LABOR_PREFIX):
             return STAFF_COMPONENT[0], line.cost_item_name.removeprefix(_INDIRECT_LABOR_PREFIX).strip()
@@ -403,13 +410,16 @@ def _set_material_price(material_code: str) -> Setter:
     return setter
 
 
-def _set_service(index: int) -> Setter:
-    """Сумма ручной услуги вкладки: подмена в параметрах прогона, черновик не меняется."""
+def _set_service(code: str) -> Setter:
+    """Сумма ручной услуги вкладки по её коду: подмена в параметрах прогона, черновик не меняется."""
 
     def setter(inputs: Inputs, value: Decimal) -> Inputs:
         physical, params, references = inputs
-        services = tuple(replace(charge, amount_rub=value) if i == index else charge for i, charge in enumerate(params.services))
-        return physical, replace(params, services=services), references
+        charges = tuple(
+            replace(charge, amount_rub=value) if services.service_code(charge.name) == code else charge
+            for charge in params.services
+        )
+        return physical, replace(params, services=charges), references
 
     return setter
 
@@ -608,17 +618,25 @@ def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
                 group=SITE_GROUP,
             )
         )
-    for index, charge in enumerate(params.services):
+    seen_services: set[str] = set()
+    for charge in params.services:
         if charge.operation_code not in labor.DRILLING_OPERATIONS or charge.amount_rub <= 0:
             continue
+        # Код — по названию, как строка услуги в смете (`services.service_code`):
+        # номер в списке сдвигается при правке вкладки, и сохранённая подмена
+        # молча переехала бы на соседнюю услугу.
+        code = services.service_code(charge.name)
+        if code in seen_services:
+            continue
+        seen_services.add(code)
         knob_list.append(
             Knob(
-                f"SERVICE:{index}",
+                f"SERVICE:{code}",
                 charge.name,
                 "₽/см" if charge.per_shift else "₽ на блок",
                 charge.amount_rub,
                 "услуга вкладки",
-                _set_service(index),
+                _set_service(code),
                 group=SITE_GROUP,
             )
         )
@@ -652,7 +670,7 @@ def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
                 group=SITE_GROUP,
             )
         )
-    rates_item = context.items("organization_rates")[0] if context.items("organization_rates") else None
+    rates_item = context.first("organization_rates")
     remote = context.site is not None and bool(context.site.payload.get("is_remote", False))
     if rates_item is not None and remote:
         for code, field_name, label in CAMP_RATES:

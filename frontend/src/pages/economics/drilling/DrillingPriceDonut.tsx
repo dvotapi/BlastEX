@@ -1,6 +1,6 @@
 /**
  * Кольцо слагаемых стоимости погонного метра: статьи станка (оснастка, ДТ,
- * запчасти, амортизация, страховка, ТОиР), услуги сторонних организаций
+ * запчасти, амортизация, страховка, ТОиР; затраты станка по правилам), услуги сторонних организаций
  * (выпуск на линию и медосмотр, трал, правила затрат бурения), ФОТ экипажа и
  * ФОТ ИТР и ремонтного персонала, закреплённого за бурением.
  * Геометрия — `ringSegmentPath` из кольца структуры себестоимости; в центре —
@@ -23,6 +23,8 @@ const OUTER = RADIUS + OUTER_GAP + OUTER_THICKNESS;
 const PART_PALETTES: Record<string, string[]> = {
   CREW_PAYROLL: ["#145c44", "#2f8f6a", "#5fb08d", "#93cdb3", "#c3e3d4"],
   SERVICES: ["#8e3f6b", "#b05b8a", "#cc84ab", "#e2b0cb", "#f0d6e4"],
+  RIG_RULES: ["#a88a2a", "#c9a940", "#e0c25a", "#ecd894", "#f5ebc8"],
+  CAMP: ["#4f45a0", "#7a6fd0", "#a59de0", "#cdc8ef"],
   SITE_STAFF: ["#245f72", "#3f8fa8", "#6fb2c6", "#a3d0de", "#d1e8ef"],
   UNIT_FIXED: ["#7d6c3a", "#a48f55", "#c4b27f", "#ddd0aa", "#eee7d3"],
 };
@@ -37,7 +39,9 @@ export const COMPONENT_COLORS: Record<string, string> = {
   DRILL_INSURANCE: "#c9b2f0",
   DRILL_MAINTENANCE: "#f2a93b",
   DRILL_INSPECTION: "#9aa5b1",
+  RIG_RULES: "#e0c25a",
   SERVICES: "#c46a9a",
+  CAMP: "#7a6fd0",
   CREW_PAYROLL: "#1f7a5c",
   SITE_STAFF: "#3f8fa8",
   UNIT_FIXED: "#b8a36a",

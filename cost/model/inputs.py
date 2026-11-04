@@ -561,9 +561,13 @@ class ModelContext:
             return None
         return self.references.item(section, code)
 
-    def _first(self, section: str) -> ReferenceItem | None:
+    def first(self, section: str) -> ReferenceItem | None:
+        """Первая действующая запись раздела — так читаются одиночные разделы (ставки организации)."""
+
         items = self.items(section)
         return items[0] if items else None
+
+    _first = first
 
     # --- натуральные величины ---------------------------------------
 

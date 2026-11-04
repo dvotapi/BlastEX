@@ -467,6 +467,8 @@
 
 /* Страница «Бурение»: зарплата экипажа и сводка блока */
 .drilling-topbar .topbar-selector > b.is-stale { color:#9aa8a1; }
+.drilling-reference-warnings { margin:0 0 8px; font-size:12px; color:#6e7c75; }
+.drilling-reference-warnings ul { margin:4px 0 0; padding-left:18px; }
 .drilling-topbar .rig-shifts-stale { font-weight:normal; }
 .drilling-rig-load { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:6px 24px; align-items:start; padding:8px 14px 10px; margin-bottom:10px; }
 .drilling-rig-load h3 { margin:0 0 4px; font-size:14px; cursor:help; }

@@ -186,4 +186,24 @@ describe("DrillingPage", () => {
     expect(await screen.findByText(/Бурение отдано субподряду/)).toBeInTheDocument();
     expect(screen.queryByRole("slider", { name: "Плановые смены станка в месяц" })).toBeNull();
   });
+
+  it("предупреждения справочников видны на странице, хотя полосы рабочего пространства нет", async () => {
+    renderWithWorkspace(
+      <BlockEconomicsSessionProvider passportId="PASSPORT-1">
+        <DrillingPage />
+      </BlockEconomicsSessionProvider>,
+      { warnings: ["У станка RIG_1 не заведено основное средство."] },
+    );
+    expect(await screen.findByText("Предупреждения справочников (1)")).toBeInTheDocument();
+    expect(screen.getByText("У станка RIG_1 не заведено основное средство.")).toBeInTheDocument();
+  });
+
+  it("цена в шапке подписана как цена станка", async () => {
+    renderWithWorkspace(
+      <BlockEconomicsSessionProvider passportId="PASSPORT-1">
+        <DrillingPage />
+      </BlockEconomicsSessionProvider>,
+    );
+    expect(await screen.findByText("Станок, 1 п.м. в смете")).toBeInTheDocument();
+  });
 });

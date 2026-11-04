@@ -13,7 +13,10 @@ import { amount, money } from "./economics/format";
  * экипажа настраивается здесь.
  */
 export function DrillingPage() {
-  const { canEdit } = useWorkspace();
+  const { canEdit, state } = useWorkspace();
+  // Полосы рабочего пространства на «Бурении» нет: предупреждения справочников —
+  // здесь же, свёрнутым списком, иначе они пропали бы со страницы, где считаются.
+  const referenceWarnings = state?.warnings ?? [];
   const {
     passports,
     selectedPassport,
@@ -49,6 +52,16 @@ export function DrillingPage() {
         <div className="page-error" role="alert">
           {error}
         </div>
+      )}
+      {referenceWarnings.length > 0 && (
+        <details className="drilling-reference-warnings">
+          <summary>Предупреждения справочников ({referenceWarnings.length})</summary>
+          <ul>
+            {referenceWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </details>
       )}
       {!selectedPassport ? (
         <p className="page-caption">

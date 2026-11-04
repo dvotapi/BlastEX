@@ -238,7 +238,7 @@ def test_prices_components_add_up_and_follow_overrides() -> None:
 
 
 def test_rules_and_services_of_drilling_go_to_services_not_to_the_rig() -> None:
-    """Правило затрат бурения (трал, доп. оснастка) и выпуск/медосмотр — группа услуг, не станок.
+    """Трал и выпуск/медосмотр — услуги; правило со статьёй станка (доп. оснастка) — своя группа.
 
     Станок в кольце — только строки самой модели бурения; цена с ФОТ — все
     строки операций бурения, как цена метра листа «Расчёт».
@@ -263,7 +263,7 @@ def test_rules_and_services_of_drilling_go_to_services_not_to_the_rig() -> None:
             "Услуги трала",
             {
                 "operation_code": "PRODUCTION_DRILLING",
-                "cost_item_code": "DRILL_TOOLING",
+                "cost_item_code": "VM_DELIVERY",
                 "behavior_type": "FIXED",
                 "cost_layer": "project_direct",
                 "fixed_rub": "70000",
@@ -281,10 +281,13 @@ def test_rules_and_services_of_drilling_go_to_services_not_to_the_rig() -> None:
     # Станок без выпуска и медосмотра — строки модели бурения.
     assert abs(rig + inspection.amount_rub / drilling_m - result.natural.values["drilling_rub_per_m"]) < D("0.000001")
     services = next(c for c in plain.components if c.code == "SERVICES")
-    assert abs(services.rub_per_m - (inspection.amount_rub + D("10") * drilling_m + D("70000")) / drilling_m) < D("0.000001")
-    # Доп. оснастка и трал — одна статья, но разные строки услуг.
-    assert {"Доп. оснастка", "Услуги трала"} <= {part.label for part in services.parts}
+    assert abs(services.rub_per_m - (inspection.amount_rub + D("70000")) / drilling_m) < D("0.000001")
+    assert "Услуги трала" in {part.label for part in services.parts}
     assert len({part.code for part in services.parts}) == len(services.parts)
+    # Доп. оснастка по правилу — затрата станка, не услуга подрядчика.
+    rig_rules = next(c for c in plain.components if c.code == "RIG_RULES")
+    assert [part.label for part in rig_rules.parts] == ["Доп. оснастка"]
+    assert rig_rules.rub_per_m == D("10")
     total = sum((line.amount_rub for line in result.lines if line.operation_code == "PRODUCTION_DRILLING"), D("0"))
     assert abs(plain.with_payroll - total / drilling_m) < D("0.000001")
     assert abs(sum((c.rub_per_m for c in plain.components), D("0")) - plain.with_payroll) < D("0.000001")
@@ -325,7 +328,7 @@ def _site_references():
         "Услуги трала",
         {
             "operation_code": "PRODUCTION_DRILLING",
-            "cost_item_code": "DRILL_TOOLING",
+            "cost_item_code": "VM_DELIVERY",
             "behavior_type": "FIXED",
             "cost_layer": "project_direct",
             "fixed_rub": "70000",
@@ -376,9 +379,21 @@ def test_site_knobs_move_the_meter_price() -> None:
 def test_manual_drilling_service_has_a_knob() -> None:
     from cost.model.inputs import ServiceCharge
 
-    params = replace(fx.parameters(), services=(ServiceCharge("Медосмотр подрядчика", D("50000"), operation_code="PRODUCTION_DRILLING"),))
-    knob = next(knob for knob in ds.knobs(params, fx.references(), fx.physical()) if knob.code == "SERVICE:0")
+    from cost.model.services import service_code
+
+    params = replace(
+        fx.parameters(),
+        services=(
+            ServiceCharge("Охрана площадки", D("20000"), operation_code="BLAST_EXECUTION"),
+            ServiceCharge("Медосмотр подрядчика", D("50000"), operation_code="PRODUCTION_DRILLING"),
+        ),
+    )
+    code = f"SERVICE:{service_code('Медосмотр подрядчика')}"
+    knob = next(knob for knob in ds.knobs(params, fx.references(), fx.physical()) if knob.code == code)
     assert knob.group == ds.SITE_GROUP and knob.base == D("50000")
-    _, changed = ds.what_if(fx.snapshot(), params, fx.references(), {"SERVICE:0": D("100000")})
+    # Код — по названию, не по номеру: услуга взрывных работ перед ней ручку не сдвигает,
+    # а сама она ручки не получает (операция не бурения).
+    assert not any(k.label == "Охрана площадки" for k in ds.knobs(params, fx.references(), fx.physical()))
+    _, changed = ds.what_if(fx.snapshot(), params, fx.references(), {code: D("100000")})
     base, _ = ds.what_if(fx.snapshot(), params, fx.references(), {})
     assert abs(changed.with_payroll - base.with_payroll - D("50000") / base.drilling_m) < D("0.000001")

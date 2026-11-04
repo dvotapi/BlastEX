@@ -62,8 +62,11 @@ export function DrillingTopbar({
         <span>Станок</span>
         <b>{rigLabel}</b>
       </div>
-      <div className="topbar-selector" title="Себестоимость метра бурения по активному черновику сметы">
-        <span>Стоимость 1 п.м. в смете</span>
+      <div
+        className="topbar-selector"
+        title="Только строки станка по активному черновику сметы: оснастка, ДТ, запчасти, амортизация, страховка, ТОиР, выпуск и медосмотр. Полная себестоимость метра — «С ФОТ» и «Без ФОТ» на панели «Что двигает цену метра»."
+      >
+        <span>Станок, 1 п.м. в смете</span>
         <b className={priceStale ? "is-stale" : undefined}>
           {priceLabel}
           {priceStale && <small className="rig-shifts-stale"> считается…</small>}

@@ -1210,3 +1210,32 @@ def test_drilling_what_if_rates_mode_marks_premium_inactive(client) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["result"]["with_payroll_rub_per_m"] == body["base"]["with_payroll_rub_per_m"]
+
+
+
+def test_site_knobs_come_with_their_group_and_take_coded_overrides(client) -> None:
+    """Ручки участка — `group = "site"`; подмена по коду с двоеточием проходит через API."""
+
+    from tests.test_model_drilling_sensitivity import _site_references
+
+    test_client, repository, passport_id = client
+    head = repository.list_reference_revisions("default")[0].id
+    sections = {section: [item.to_dict() for item in items] for section, items in _site_references().sections.items()}
+    repository.publish_references("default", "tester", head, sections, "участок бурения")
+    params = _parameters(passport_id)
+
+    ranking = test_client.post("/api/v1/economics/block-economics/drilling-sensitivity", json=params)
+    assert ranking.status_code == 200, ranking.text
+    knobs = {row["code"]: row for row in ranking.json()["knobs"]}
+    assert knobs["RULE:RULE_TRAWL"]["group"] == "site"
+    assert knobs["TECH_SPEED"]["group"] == "cost"
+
+    response = test_client.post(
+        "/api/v1/economics/block-economics/drilling-what-if",
+        json={**params, "overrides": {"RULE:RULE_TRAWL": "140000"}},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["result"]["with_payroll_rub_per_m"] > body["base"]["with_payroll_rub_per_m"]
+    groups = [component["code"] for component in body["result"]["components"]]
+    assert "SERVICES" in groups and "SITE_STAFF" in groups

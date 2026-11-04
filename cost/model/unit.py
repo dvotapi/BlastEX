@@ -15,6 +15,7 @@ from cost.model.inputs import (
     payload_number,
     payload_text,
 )
+from cost.model.labor import DRILLING_OPERATIONS
 from cost.v2.models import CostLayer, ReferenceItem
 
 
@@ -72,6 +73,10 @@ def compute(context: ModelContext) -> None:
         # в пакете — затрата остаётся общей затратой юнита.
         operation = payload_text(item, "operation_code")
         if operation and not context.has_operation(operation):
+            operation = ""
+        # Бурение на субподряде: свой участок бурения на блоке не работает, его
+        # персонал — общая затрата юнита, а не часть цены метра подрядчика.
+        if operation in DRILLING_OPERATIONS and context.params.drilling_executor == "SUBCONTRACTOR":
             operation = ""
         context.add_line(
             operation_code=operation,

@@ -135,3 +135,16 @@ def test_operation_outside_the_package_leaves_a_unit_cost() -> None:
     unit.compute(context)
 
     assert _line(context, "UNIT_UFC_WH_HEAD").operation_code == ""
+
+
+def test_drilling_staff_is_a_unit_cost_when_drilling_is_subcontracted() -> None:
+    """Свой участок бурения на субподряде не работает: его персонал не входит в цену метра подрядчика."""
+
+    costs = tuple(
+        fx.item(item.code, item.name, {**item.payload, "operation_code": "PRODUCTION_DRILLING"}) if item.code == "UFC_WH_HEAD" else item
+        for item in fx.UNIT_FIXED_COSTS
+    )
+    context = ModelContext(fx.references(unit_fixed_costs=costs), fx.parameters(drilling_executor="SUBCONTRACTOR"), fx.physical())
+    unit.compute(context)
+
+    assert _line(context, "UNIT_UFC_WH_HEAD").operation_code == ""

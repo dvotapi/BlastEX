@@ -75,9 +75,16 @@ class Component:
     code: str
     label: str
     rub_per_m: Decimal
+    # Подстатьи слагаемого: у ФОТ экипажа — строки должностей операций бурения
+    # (по статье строки, в порядке строк блока; взносы и суточные лежат без
+    # операции и в цену метра не входят).
+    parts: tuple["Component", ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return {"code": self.code, "label": self.label, "rub_per_m": float(self.rub_per_m)}
+        result: dict[str, Any] = {"code": self.code, "label": self.label, "rub_per_m": float(self.rub_per_m)}
+        if self.parts:
+            result["parts"] = [part.to_dict() for part in self.parts]
+        return result
 
 
 @dataclass(frozen=True)
@@ -227,6 +234,7 @@ def prices(
     without = values.get("drilling_rub_per_m", ZERO)
     by_item: dict[str, Decimal] = {}
     crew_rub = ZERO
+    crew_parts: dict[str, tuple[str, Decimal]] = {}
     # Слагаемые станка — только строки самой модели бурения (тождество объекта,
     # как в `block_margin`): правило затрат с той же статьёй в `drilling_rub_per_m`
     # не входит и в кольцо попасть не должно.
@@ -236,13 +244,18 @@ def prices(
             continue
         if line.cost_item_code.startswith("LABOR_"):
             crew_rub += line.amount_rub
+            name, amount = crew_parts.get(line.cost_item_code, (_part_label(line.cost_item_name), ZERO))
+            crew_parts[line.cost_item_code] = (name, amount + line.amount_rub)
         elif id(line) in own:
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
     components = tuple(
         Component(code, label, by_item[code] / drilling_m) for code, label in COMPONENT_LABELS if by_item.get(code)
     )
     if crew_rub:
-        components = (*components, Component(*CREW_COMPONENT, crew_rub / drilling_m))
+        parts = tuple(
+            Component(code, name, amount / drilling_m) for code, (name, amount) in crew_parts.items() if amount
+        )
+        components = (*components, Component(*CREW_COMPONENT, crew_rub / drilling_m, parts if len(parts) > 1 else ()))
     return Prices(
         without_payroll=without,
         with_payroll=without + crew_rub / drilling_m,
@@ -253,6 +266,12 @@ def prices(
         components=components,
         premium_curve=curve,
     )
+
+
+def _part_label(name: str) -> str:
+    """«ФОТ: Машинист буровой установки» → «Машинист буровой установки»: подстрока уже под «ФОТ экипажа»."""
+
+    return name.removeprefix("ФОТ: ").strip() or name
 
 
 def _premium_curve(

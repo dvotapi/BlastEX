@@ -224,6 +224,12 @@ def test_prices_components_add_up_and_follow_overrides() -> None:
     assert base.premium_curve is not None and base.premium_curve.scale["rate_norm"] == 45.0
     assert changed.premium_curve is not None and changed.premium_curve.scale["rate_norm"] == 60.0
     assert base.premium_curve.pace == D("120") and len(base.premium_curve.series) > 2
+    # ФОТ экипажа разложен по строкам: должности без префикса «ФОТ: », сумма — сам ФОТ.
+    crew = base.components[-1]
+    assert len(crew.parts) > 1
+    assert abs(sum((p.rub_per_m for p in crew.parts), D("0")) - crew.rub_per_m) < D("0.000001")
+    assert all(p.code.startswith("LABOR_") and not p.label.startswith("ФОТ: ") for p in crew.parts)
+    assert crew.to_dict()["parts"][0]["label"] == crew.parts[0].label
     # На ставках шкалы в кривой нет (у бурильщика фикстуры её нет), слагаемые — есть.
     plain = ds.compute(fx.snapshot(), fx.parameters(), fx.references()).base
     assert plain.premium_curve is None and plain.components

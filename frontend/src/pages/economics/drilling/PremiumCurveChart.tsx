@@ -9,10 +9,20 @@ import type { DrillingPremiumCurve, PayrollSeriesPoint } from "../../../types/bl
 import { amount } from "../format";
 import { labelLevels, niceTicks } from "../payrollModel";
 
-const SIZE = { width: 520, height: 170, padding: 32 };
+const SIZE = { width: 520, height: 230, padding: 34 };
+/** Справа места больше: подписи правой оси. */
+const RIGHT_PAD = 46;
 const LABEL_GAP = 70;
 
-type Axis = { x: (value: number) => number; y: (value: number) => number; xTicks: number[]; yTicks: number[] };
+type Axis = {
+  x: (value: number) => number;
+  y: (value: number) => number;
+  /** Правая ось — премия за смену, ₽. */
+  y2: (value: number) => number;
+  xTicks: number[];
+  yTicks: number[];
+  y2Ticks: number[];
+};
 
 function sorted(series: PayrollSeriesPoint[]): PayrollSeriesPoint[] {
   return [...series].sort((a, b) => a.pace - b.pace);
@@ -25,17 +35,22 @@ export function curveAxes(current: DrillingPremiumCurve, base: DrillingPremiumCu
     ...curves.flatMap((c) => [...c.series.map((p) => p.pace), c.scale.norm_per_shift ?? 0, c.scale.ceiling_per_shift ?? 0, c.pace ?? 0]),
   );
   const yMax = Math.max(...curves.flatMap((c) => [...c.series.map((p) => p.rate), c.scale.rate_ceiling ?? 0, c.scale.rate_norm ?? 0]));
+  const y2Max = Math.max(...curves.flatMap((c) => c.series.map((p) => p.per_shift)));
   const xTicks = niceTicks(xMax, 4);
   const yTicks = niceTicks(yMax, 4);
-  const innerW = SIZE.width - 2 * SIZE.padding;
+  const y2Ticks = niceTicks(y2Max, 4);
+  const innerW = SIZE.width - SIZE.padding - RIGHT_PAD;
   const innerH = SIZE.height - 2 * SIZE.padding;
   const xTop = xTicks[xTicks.length - 1] || 1;
   const yTop = yTicks[yTicks.length - 1] || 1;
+  const y2Top = y2Ticks[y2Ticks.length - 1] || 1;
   return {
     x: (value) => SIZE.padding + (value / xTop) * innerW,
     y: (value) => SIZE.height - SIZE.padding - (value / yTop) * innerH,
+    y2: (value) => SIZE.height - SIZE.padding - (value / y2Top) * innerH,
     xTicks,
     yTicks,
+    y2Ticks,
   };
 }
 
@@ -52,6 +67,13 @@ export function ratePath(curve: DrillingPremiumCurve, axis: Axis): string {
     parts.push(`L${at(b)}`);
   }
   return parts.join(" ");
+}
+
+/** Путь p(m) по правой оси: премия за смену, ломаная по точкам ряда. */
+export function perShiftPath(curve: DrillingPremiumCurve, axis: Axis): string {
+  return sorted(curve.series)
+    .map((p, i) => `${i === 0 ? "M" : "L"}${axis.x(p.pace).toFixed(2)},${axis.y2(p.per_shift).toFixed(2)}`)
+    .join(" ");
 }
 
 /** Ставка на темпе: у ступеней — ставка ступени, куда попал темп; у кривых — линейно между точками, за краями — крайняя. */
@@ -104,7 +126,7 @@ export function PremiumCurveChart({ current, base, positionName, inactive }: Pre
         <title>График шкалы премии машиниста</title>
         {axis.yTicks.map((value) => (
           <g key={`y${value}`} className="payroll-chart-tick">
-            <line className="payroll-chart-grid" x1={padding} x2={width - padding} y1={axis.y(value)} y2={axis.y(value)} />
+            <line className="payroll-chart-grid" x1={padding} x2={width - RIGHT_PAD} y1={axis.y(value)} y2={axis.y(value)} />
             <text x={padding - 5} y={axis.y(value) + 3} textAnchor="end">{amount(value)}</text>
           </g>
         ))}
@@ -113,8 +135,15 @@ export function PremiumCurveChart({ current, base, positionName, inactive }: Pre
             {amount(value)}
           </text>
         ))}
-        <line className="payroll-chart-axis" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
+        {axis.y2Ticks.map((value) => (
+          <text key={`y2${value}`} className="payroll-chart-tick premium-curve-tick-shift" x={width - RIGHT_PAD + 5} y={axis.y2(value) + 3} textAnchor="start">
+            {amount(value)}
+          </text>
+        ))}
+        <line className="payroll-chart-axis" x1={padding} x2={width - RIGHT_PAD} y1={height - padding} y2={height - padding} />
         <line className="payroll-chart-axis" x1={padding} x2={padding} y1={padding} y2={height - padding} />
+        <line className="payroll-chart-axis" x1={width - RIGHT_PAD} x2={width - RIGHT_PAD} y1={padding} y2={height - padding} />
+        <path className="payroll-chart-line payroll-chart-line-shift" d={perShiftPath(current, axis)} data-testid="premium-curve-shift" />
         {changed && base && <path className="payroll-chart-line premium-curve-base" d={ratePath(base, axis)} data-testid="premium-curve-base" />}
         <path className="payroll-chart-line payroll-chart-line-rate" d={ratePath(current, axis)} data-testid="premium-curve-current" />
         {paceMoved && base?.pace != null && (
@@ -132,17 +161,19 @@ export function PremiumCurveChart({ current, base, positionName, inactive }: Pre
             </text>
           </g>
         ))}
-        <text className="payroll-chart-axis-label" x={width / 2} y={height - 4} textAnchor="middle">темп, прив. м за смену</text>
+        <text className="payroll-chart-axis-label" x={(padding + width - RIGHT_PAD) / 2} y={height - 4} textAnchor="middle">темп, прив. м за смену</text>
+        <text className="payroll-chart-axis-label" x={width - 8} y={height / 2} textAnchor="middle" transform={`rotate(90 ${width - 8} ${height / 2})`}>
+          премия за смену, ₽
+        </text>
         <text className="payroll-chart-axis-label" x={10} y={height / 2} textAnchor="middle" transform={`rotate(-90 10 ${height / 2})`}>
           ₽ за прив. метр
         </text>
       </svg>
-      {changed && (
-        <ul className="payroll-chart-legend premium-curve-legend">
-          <li><i className="payroll-chart-swatch payroll-chart-swatch-rate" />пробная шкала</li>
-          <li><i className="payroll-chart-swatch premium-curve-swatch-base" />справочник</li>
-        </ul>
-      )}
+      <ul className="payroll-chart-legend premium-curve-legend">
+        <li><i className="payroll-chart-swatch payroll-chart-swatch-rate" />{changed ? "пробная шкала, ₽ за прив. м" : "₽ за прив. м"}</li>
+        {changed && <li><i className="payroll-chart-swatch premium-curve-swatch-base" />справочник</li>}
+        <li><i className="payroll-chart-swatch payroll-chart-swatch-shift" />премия за смену, ₽</li>
+      </ul>
     </figure>
   );
 }

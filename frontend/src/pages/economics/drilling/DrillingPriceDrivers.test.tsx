@@ -57,11 +57,17 @@ describe("DrillingPriceDrivers", () => {
 
     // Кольцо слагаемых: четыре сегмента, в легенде доли и ₽/м; график премии с отметками.
     const donut = screen.getByRole("figure", { name: "Слагаемые стоимости метра" });
-    expect(within(donut).getAllByRole("listitem")).toHaveLength(4);
+    // Четыре слагаемых и две подстатьи ФОТ экипажа: машинист 50 из 80 — 62,5 % ФОТ.
+    expect(within(donut).getAllByRole("listitem")).toHaveLength(6);
+    expect(within(donut).getByText("Машинист буровой установки")).toBeInTheDocument();
+    expect(within(donut).getByText("62,5 % ФОТ")).toBeInTheDocument();
     expect(within(donut).getByText("ФОТ экипажа")).toBeInTheDocument();
     expect(within(donut).getByText("35,29 %")).toBeInTheDocument();
     expect(within(donut).getByText("340")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "График шкалы премии машиниста" })).toBeInTheDocument();
+    // Вторая линия — премия за смену по правой оси.
+    expect(screen.getByTestId("premium-curve-shift").getAttribute("d")).toMatch(/^M/);
+    expect(screen.getByText("премия за смену, ₽", { selector: "li" })).toBeInTheDocument();
     expect(screen.getByText(/норма 115/)).toBeInTheDocument();
     expect(screen.getByText(/темп 120/)).toBeInTheDocument();
     expect(screen.queryByTestId("premium-curve-base")).toBeNull();
@@ -93,6 +99,7 @@ describe("DrillingPriceDrivers", () => {
     expect(screen.getByTestId("premium-curve-base")).toBeInTheDocument();
     expect(screen.getByText(/норма 115 · 60,0 ₽/)).toBeInTheDocument();
     expect(screen.getByText("справочник")).toBeInTheDocument();
+    expect(screen.getByText("пробная шкала, ₽ за прив. м")).toBeInTheDocument();
   });
 
   it("скорость станка двигает темп машиниста: подпись у ручки и две отметки темпа на графике", async () => {

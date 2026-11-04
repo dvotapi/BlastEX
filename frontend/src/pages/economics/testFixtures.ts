@@ -467,7 +467,15 @@ export function drillingSensitivityFixture(options: { applies?: boolean } = {}):
         { code: "DRILL_TOOLING", label: "Оснастка", rub_per_m: 90 },
         { code: "DRILL_FUEL", label: "ДТ", rub_per_m: 120 },
         { code: "DRILL_DEPRECIATION", label: "Амортизация", rub_per_m: 50 },
-        { code: "CREW_PAYROLL", label: "ФОТ экипажа", rub_per_m: 80 },
+        {
+          code: "CREW_PAYROLL",
+          label: "ФОТ экипажа",
+          rub_per_m: 80,
+          parts: [
+            { code: "LABOR_P_DRILLER", label: "Машинист буровой установки", rub_per_m: 50 },
+            { code: "LABOR_P_ASSISTANT", label: "Помощник машиниста", rub_per_m: 30 },
+          ],
+        },
       ],
       premium_curve: {
         scale: { scale_type: "CURVE_POWER", gamma: 2.8, norm_per_shift: 115, rate_norm: 45, ceiling_per_shift: 185, rate_ceiling: 169 },

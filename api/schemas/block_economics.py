@@ -351,6 +351,8 @@ class DrillingComponentSchema(BaseModel):
     code: str
     label: str
     rub_per_m: float
+    # Подстатьи (у ФОТ экипажа — строки должностей).
+    parts: list["DrillingComponentSchema"] = Field(default_factory=list)
 
 
 class DrillingPremiumCurveSchema(BaseModel):

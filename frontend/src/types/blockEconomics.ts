@@ -288,7 +288,13 @@ export type DrillingPrices = {
   premium_curve: DrillingPremiumCurve | null;
 };
 
-export type DrillingComponent = { code: string; label: string; rub_per_m: number };
+export type DrillingComponent = {
+  code: string;
+  label: string;
+  rub_per_m: number;
+  /** Подстатьи: у ФОТ экипажа — строки должностей. */
+  parts?: DrillingComponent[];
+};
 
 export type DrillingPremiumCurve = {
   scale: PayrollScale;

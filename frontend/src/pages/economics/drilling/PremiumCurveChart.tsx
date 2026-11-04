@@ -55,7 +55,7 @@ export function ratePath(curve: DrillingPremiumCurve, axis: Axis): string {
 }
 
 /** Ставка на темпе: у ступеней — ставка ступени, куда попал темп; у кривых — линейно между точками, за краями — крайняя. */
-function rateAt(curve: DrillingPremiumCurve, pace: number): number {
+export function rateAt(curve: DrillingPremiumCurve, pace: number): number {
   const points = sorted(curve.series);
   if (points.length === 0) return 0;
   if (pace <= points[0].pace) return points[0].rate;
@@ -85,13 +85,16 @@ export function PremiumCurveChart({ current, base, positionName, inactive }: Pre
     base !== null &&
     base !== undefined &&
     (JSON.stringify(base.scale) !== JSON.stringify(current.scale) || JSON.stringify(base.series) !== JSON.stringify(current.series));
-  const axis = curveAxes(current, changed ? base : null);
+  // Темп сдвинула ручка скорости (или плановых смен): справочный темп остаётся серой точкой.
+  const paceMoved = base != null && base.pace != null && current.pace != null && Math.abs(base.pace - current.pace) >= 0.05;
+  const axis = curveAxes(current, changed ? base : paceMoved ? base : null);
   const { width, height, padding } = SIZE;
+  const paceLabel = paceMoved && base?.pace != null ? `темп ${amount(base.pace)} → ${amount(current.pace ?? 0)}` : "темп";
   const markers = [
     current.scale.norm_per_shift != null && { kind: "norm", label: "норма", at: current.scale.norm_per_shift, rate: current.scale.rate_norm ?? rateAt(current, current.scale.norm_per_shift) },
     current.scale.ceiling_per_shift != null && { kind: "ceiling", label: "потолок", at: current.scale.ceiling_per_shift, rate: current.scale.rate_ceiling ?? rateAt(current, current.scale.ceiling_per_shift) },
-    current.pace != null && { kind: "pace", label: "темп", at: current.pace, rate: rateAt(current, current.pace) },
-  ].filter((item): item is { kind: string; label: string; at: number; rate: number } => Boolean(item));
+    current.pace != null && { kind: "pace", label: paceLabel, at: current.pace, rate: rateAt(current, current.pace), withAt: !paceMoved },
+  ].filter((item): item is { kind: string; label: string; at: number; rate: number; withAt?: boolean } => Boolean(item));
   const levels = labelLevels(markers.map((m) => axis.x(m.at)), LABEL_GAP);
 
   return (
@@ -114,12 +117,18 @@ export function PremiumCurveChart({ current, base, positionName, inactive }: Pre
         <line className="payroll-chart-axis" x1={padding} x2={padding} y1={padding} y2={height - padding} />
         {changed && base && <path className="payroll-chart-line premium-curve-base" d={ratePath(base, axis)} data-testid="premium-curve-base" />}
         <path className="payroll-chart-line payroll-chart-line-rate" d={ratePath(current, axis)} data-testid="premium-curve-current" />
+        {paceMoved && base?.pace != null && (
+          <g className="payroll-chart-marker premium-curve-pace-base" data-testid="premium-curve-pace-base">
+            <line x1={axis.x(base.pace)} x2={axis.x(base.pace)} y1={padding} y2={height - padding} />
+            <circle cx={axis.x(base.pace)} cy={axis.y(rateAt(base, base.pace))} r={3} />
+          </g>
+        )}
         {markers.map((m, i) => (
           <g key={m.kind} className={`payroll-chart-marker payroll-chart-marker-${m.kind}`}>
             <line x1={axis.x(m.at)} x2={axis.x(m.at)} y1={padding} y2={height - padding} />
             <circle cx={axis.x(m.at)} cy={axis.y(m.rate)} r={3} />
             <text x={axis.x(m.at)} y={padding - 5 - levels[i] * 11} textAnchor="middle">
-              {m.label} {amount(m.at)} · {amount(m.rate, 1)} ₽
+              {m.label}{m.withAt === false ? "" : ` ${amount(m.at)}`} · {amount(m.rate, 1)} ₽
             </text>
           </g>
         ))}

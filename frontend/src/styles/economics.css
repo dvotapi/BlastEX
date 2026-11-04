@@ -528,6 +528,8 @@
 .premium-curve svg { width:100%; height:auto; color:var(--ec-accent, #1f6a4a); font-size:8px; }
 .premium-curve text { fill:var(--ec-muted, #78857f); }
 .premium-curve-base { stroke:#9aa8a1; stroke-dasharray:4 3; }
+.premium-curve-pace-base { color:#9aa8a1; }
+.premium-curve-pace-base line { stroke:#9aa8a1; stroke-dasharray:none; }
 .premium-curve-legend { font-size:11px; gap:12px; }
 .premium-curve-swatch-base { border-top:2px dashed #9aa8a1; }
 .what-if-lists { display:grid; grid-template-columns:repeat(auto-fit,minmax(440px,1fr)); gap:8px 16px; margin-top:8px; align-items:start; }
@@ -543,7 +545,8 @@
 .what-if-row.is-inactive { opacity:0.7; }
 .what-if-row.is-draft { background:#f6f7f6; }
 .what-if-row input[type="range"] { width:100%; min-width:0; margin:0; padding:0; border:0; border-radius:1px; background:#d3dcd7; box-shadow:none; }
-.what-if-knob-label { font-weight:var(--font-weight-strong); line-height:1.2; }
+.what-if-knob-label { display:grid; font-weight:var(--font-weight-strong); line-height:1.2; }
+.what-if-knob-sub { font-weight:normal; color:#78857f; font-size:10px; }
 .what-if-knob-effect { display:grid; gap:2px; color:#4f5d57; font-size:10.5px; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .what-if-bar { position:relative; display:block; height:4px; border-radius:2px; background:#e8eeea; }
 .what-if-bar i { position:absolute; top:0; bottom:0; border-radius:2px; }

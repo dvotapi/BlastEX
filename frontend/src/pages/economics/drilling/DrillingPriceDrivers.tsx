@@ -26,9 +26,9 @@ import type {
   DrillingWhatIf,
   ModelParameters,
 } from "../../../types/blockEconomics";
-import { money } from "../format";
+import { amount, money } from "../format";
 import { DrillingPriceDonut } from "./DrillingPriceDonut";
-import { PremiumCurveChart } from "./PremiumCurveChart";
+import { PremiumCurveChart, rateAt } from "./PremiumCurveChart";
 import { EffectCell, WhatIfSlider, effectText } from "./WhatIfSlider";
 
 /** Сколько самых сильных ручек показывать, не считая премии. */
@@ -179,6 +179,14 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
   const stale = whatIfBusy || rankingBusy;
   const top = (ranking?.knobs ?? []).slice(0, TOP_KNOBS);
   const premium = ranking?.premium ?? null;
+  // Скорость станка двигает плановый темп машиниста, а с ним ставку шкалы: подпись у ручки.
+  const paceSub = (() => {
+    const curve = shown?.premium_curve;
+    if (!premium?.applies || !curve || curve.pace === null) return undefined;
+    const moved = base?.premium_curve?.pace != null && Math.abs(base.premium_curve.pace - curve.pace) >= 0.05;
+    const paceText = moved ? `${amount(base!.premium_curve!.pace!)} → ${amount(curve.pace)}` : amount(curve.pace);
+    return `темп машиниста ${paceText} прив. м/см · ${amount(rateAt(curve, curve.pace), 1)} ₽/прив. м`;
+  })();
   // Масштаб полосок один на оба списка: длины ручек и премии сравнимы между собой.
   const barScale = Math.max(
     0,
@@ -261,6 +269,7 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
                     value={overrides[knob.code] ?? null}
                     deltaRubPerM={knob.delta_rub_per_m}
                     barScale={barScale}
+                    sub={knob.code === "TECH_SPEED" ? paceSub : undefined}
                     onChange={(value) => setOverride(knob.code, value)}
                   />
                 ),

@@ -77,6 +77,8 @@ export type WhatIfSliderProps = {
   disabled?: boolean;
   /** Эффект самой сильной ручки списка, ₽/м (половина размаха): масштаб полоски. */
   barScale?: number;
+  /** Подпись под названием: что ещё двигает ручка (темп машиниста у скорости). */
+  sub?: string;
   /** Новое пробное значение либо null — вернуть значение справочника. */
   onChange: (value: number | null) => void;
 };
@@ -93,6 +95,7 @@ export function WhatIfSlider({
   inactive,
   disabled,
   barScale,
+  sub,
   onChange,
 }: WhatIfSliderProps) {
   const committed = value ?? base;
@@ -169,7 +172,10 @@ export function WhatIfSlider({
       data-knob={code}
       title={`справочник ${formatKnobValue(base, unit)}`}
     >
-      <span className="what-if-knob-label">{label}</span>
+      <span className="what-if-knob-label">
+        {label}
+        {sub && <small className="what-if-knob-sub">{sub}</small>}
+      </span>
       <EffectCell effect={effect} deltaRubPerM={deltaRubPerM} barScale={barScale} />
       <input
         type="range"

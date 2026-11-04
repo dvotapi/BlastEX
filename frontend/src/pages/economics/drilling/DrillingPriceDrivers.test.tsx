@@ -95,6 +95,27 @@ describe("DrillingPriceDrivers", () => {
     expect(screen.getByText("справочник")).toBeInTheDocument();
   });
 
+  it("скорость станка двигает темп машиниста: подпись у ручки и две отметки темпа на графике", async () => {
+    const fixture = drillingSensitivityFixture();
+    const result = { ...fixture.base, with_payroll_rub_per_m: 330, premium_curve: { ...fixture.base.premium_curve!, pace: 132 } };
+    vi.mocked(api.blockEconomics.drillingWhatIf).mockResolvedValue({ base: fixture.base, result, reference_revision_id: "REV-1" });
+    render(<DrillingPriceDrivers passportId="PASSPORT-1" params={params} />);
+    await screen.findByText("260,00 ₽/м");
+    expect(screen.getByText(/темп машиниста 120 прив\. м\/см/)).toBeInTheDocument();
+    expect(screen.queryByTestId("premium-curve-pace-base")).toBeNull();
+
+    const speed = slider("Техническая скорость станка");
+    fireEvent.change(speed, { target: { value: "13.2" } });
+    fireEvent.pointerUp(speed);
+
+    await screen.findByText("330,00 ₽/м");
+    expect(screen.getByText(/темп машиниста 120 → 132 прив\. м\/см/)).toBeInTheDocument();
+    expect(screen.getByText(/темп 120 → 132 ·/)).toBeInTheDocument();
+    expect(screen.getByTestId("premium-curve-pace-base")).toBeInTheDocument();
+    // Шкала не менялась — справочной пунктирной кривой нет.
+    expect(screen.queryByTestId("premium-curve-base")).toBeNull();
+  });
+
   it("отпускание бегунка шлёт один запрос «что если», цена помечена «считается…», «Вернуть» возвращает базу", async () => {
     type WhatIf = Awaited<ReturnType<typeof api.blockEconomics.drillingWhatIf>>;
     let release: (value: WhatIf) => void = () => {};

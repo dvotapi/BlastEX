@@ -140,7 +140,7 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
           {/* На вкладке экономики заголовок страницы живёт на самой странице
               (как в концепте), а его место в шапке занимают селекторы объекта
               и паспорта — см. `TopbarSelectors`. Другие страницы не затронуты. */}
-          <header className={`topbar${page === "Экономика" ? " topbar-economics" : ""}${page === "Расчёт" ? " topbar-calc" : ""}`}>
+          <header className={`topbar${page === "Экономика" ? " topbar-economics" : ""}${page === "Бурение" ? " topbar-drilling" : ""}${page === "Расчёт" ? " topbar-calc" : ""}`}>
             <div className="topbar-lead">
               {/* Бренд поставщика сервиса — не орг-данные пользователя: та же
                   строка раньше показывала `user.organization_name`, это поле
@@ -162,7 +162,9 @@ export function AppShell({ user, onLogout }: { user: User; onLogout: () => void 
           <TopbarSlotProvider slot={topbarSlot} titleSlot={titleSlot} trailingSlot={trailingSlot}>
             {withBlockSession(
               <>
-              {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
+              {/* «Бурение» берёт паспорт и объект из сессии блока и кладёт их в шапку
+                  (`DrillingTopbar`); полоса рабочего пространства ей не нужна. */}
+              {page !== "Расчёт" && page !== "Проектирование" && page !== "Экономика" && page !== "Бурение" && page !== "Экономика юнита" && page !== "Справочники" && <WorkspaceBar />}
               {page === "Расчёт" && <CalcPage onSendToDesign={sendToDesign} onOpenEconomics={openEconomics} />}
               {page === "Проектирование" && (
                 <DesignPage

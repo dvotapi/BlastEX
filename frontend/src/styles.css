@@ -107,6 +107,11 @@ input[type="range"]:disabled::-moz-range-thumb { background:#a9b6af; box-shadow:
 .topbar-economics .topbar-lead { flex:1 1 auto; }
 .topbar-economics .topbar-title-slot { flex:1 1 auto; min-width:0; }
 .topbar-economics > .topbar-slot { flex:none; }
+/* На «Бурении» заголовок остаётся, а слот рядом с ним растёт под контекст
+   страницы (паспорт, объект, объём, станок, цена метра — `DrillingTopbar`). */
+.topbar-drilling .topbar-lead { flex:1 1 auto; }
+.topbar-drilling .topbar-title-slot { flex:1 1 auto; min-width:0; }
+.topbar-drilling > .topbar-slot { flex:none; }
 .topbar-title-slot:empty { display:none; }
 .topbar span { color:#69776f; font-size:11px; }
 /* Слот для полосы листа «Расчёт» (см. topbarSlot.tsx): занимает пустующее

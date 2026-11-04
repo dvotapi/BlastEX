@@ -466,16 +466,12 @@
 .payroll-chart-swatch-rate { border-top-style:solid; }
 
 /* Страница «Бурение»: зарплата экипажа и сводка блока */
-.drilling-block-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin:0 0 10px; }
-.drilling-block-facts > div { padding:8px 12px; border:1px solid #dce4e0; border-radius:10px; background:#fff; min-width:0; }
-.drilling-block-facts > .drilling-block-fact-load { grid-column:span 2; }
-.drilling-block-facts dt { margin:0 0 2px; color:#78857f; font-size:11px; }
-.drilling-block-facts dd { margin:0; font-size:15px; font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; }
-.drilling-block-facts dd.is-stale { color:#9aa8a1; }
-.drilling-block-fact-load dd { font-size:13px; }
-.drilling-block-fact-load .rig-shifts { min-width:0; gap:2px; }
-.drilling-block-fact-note { font-size:11px; font-weight:normal; color:#5f7168; }
-@media (max-width: 700px) { .drilling-block-facts > .drilling-block-fact-load { grid-column:1 / -1; } }
+.drilling-topbar .topbar-selector > b.is-stale { color:#9aa8a1; }
+.drilling-topbar .rig-shifts-stale { font-weight:normal; }
+.drilling-rig-load { padding:8px 14px 10px; margin-bottom:10px; }
+.drilling-rig-load h3 { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin:0 0 4px; font-size:14px; }
+.drilling-rig-load .rig-shifts { max-width:560px; }
+.drilling-rig-load p { margin:0; color:#5f7168; font-size:12px; }
 .drilling-payroll { padding:12px 14px; margin-bottom:14px; }
 .drilling-payroll h3 { margin:0 0 6px; font-size:15px; }
 .drilling-payroll-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px 16px; margin:8px 0; }

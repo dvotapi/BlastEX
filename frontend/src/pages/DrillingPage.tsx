@@ -3,6 +3,7 @@ import { useWorkspace } from "../app/useWorkspace";
 import { useBlockEconomicsSessionContext } from "./economics/BlockEconomicsSessionContext";
 import { DrillingPayrollPanel } from "./economics/drilling/DrillingPayrollPanel";
 import { DrillingPriceDrivers } from "./economics/drilling/DrillingPriceDrivers";
+import { DrillingTopbar } from "./economics/drilling/DrillingTopbar";
 import { RigPlanShiftsSlider, rigShiftNorm } from "./economics/drilling/RigPlanShiftsSlider";
 import { amount, money } from "./economics/format";
 
@@ -14,7 +15,10 @@ import { amount, money } from "./economics/format";
 export function DrillingPage() {
   const { canEdit } = useWorkspace();
   const {
+    passports,
     selectedPassport,
+    setSelectedPassport,
+    siteLabel,
     error,
     defaults,
     activeDraft,
@@ -41,7 +45,6 @@ export function DrillingPage() {
 
   return (
     <div className="page-content drilling-page">
-      <h2>Бурение</h2>
       {error && (
         <div className="page-error" role="alert">
           {error}
@@ -53,52 +56,39 @@ export function DrillingPage() {
         </p>
       ) : (
         <>
-          <p className="page-caption">
-            Объём — из паспорта блока, станок и исполнитель — из сметы («Экономика блока»); объект работ выбран вверху. Зарплату экипажа настройте ниже.
-          </p>
-          <dl className="drilling-block-facts" aria-label="Блок">
-            <div>
-              <dt>Паспорт</dt>
-              <dd>{passport ? `вер. ${passport.version_no}` : "—"}</dd>
-            </div>
-            <div>
-              <dt>Объём бурения</dt>
-              <dd>{drillingM === null ? "—" : `${amount(Number(drillingM))} п.м.`}</dd>
-            </div>
-            <div>
-              <dt>Станок</dt>
-              <dd>{rigName ?? params?.rig_code ?? "—"}</dd>
-            </div>
-            {params && defaults && (
-              <div
-                className="drilling-block-fact-load"
-                title="Амортизация, страховка, ТОиР и запчасти станка делятся на плановые смены месяца: больше смен — дешевле метр. Тот же параметр, что в карточке бурения «Экономики блока»."
-              >
-                <dt>Загрузка станка</dt>
-                <dd>
-                  {params.drilling_executor === "OWN" ? (
-                    <RigPlanShiftsSlider
-                      value={params.rig_plan_shifts}
-                      norm={rigShiftNorm(defaults, params.rig_code)}
-                      disabled={!canEdit}
-                      onChange={(value) => activeDraft && patchDraft(activeDraft.id, { rig_plan_shifts: value })}
-                    />
-                  ) : (
-                    <span className="drilling-block-fact-note">
-                      Бурение отдано субподряду: постоянные затраты станка на блок не распределяются, загрузка станка цену метра не меняет.
+          <DrillingTopbar
+            passports={passports}
+            selectedId={selectedPassport}
+            onSelect={setSelectedPassport}
+            siteLabel={siteLabel}
+            siteTitle={passport?.site_code}
+            volumeLabel={drillingM === null ? "—" : `${amount(Number(drillingM))} п.м.`}
+            rigLabel={rigName ?? params?.rig_code ?? "—"}
+            priceLabel={rubPerM === undefined ? "—" : `${money(Number(rubPerM))} ₽/м`}
+            priceStale={recalculating}
+          />
+          {params && defaults && (
+            <section className="panel drilling-rig-load" aria-label="Загрузка станка">
+              {params.drilling_executor === "OWN" ? (
+                <>
+                  <h3>
+                    Загрузка станка
+                    <span className="what-if-group-note">
+                      амортизация, страховка, ТОиР и запчасти станка делятся на плановые смены месяца — тот же параметр, что в карточке бурения «Экономики блока»
                     </span>
-                  )}
-                </dd>
-              </div>
-            )}
-            <div>
-              <dt>Стоимость 1 п.м. в смете</dt>
-              <dd className={recalculating ? "is-stale" : undefined}>
-                {rubPerM === undefined ? "—" : `${money(Number(rubPerM))} ₽/м`}
-                {recalculating && <span className="rig-shifts-stale"> считается…</span>}
-              </dd>
-            </div>
-          </dl>
+                  </h3>
+                  <RigPlanShiftsSlider
+                    value={params.rig_plan_shifts}
+                    norm={rigShiftNorm(defaults, params.rig_code)}
+                    disabled={!canEdit}
+                    onChange={(value) => activeDraft && patchDraft(activeDraft.id, { rig_plan_shifts: value })}
+                  />
+                </>
+              ) : (
+                <p>Бурение отдано субподряду: постоянные затраты станка на блок не распределяются, загрузка станка цену метра не меняет.</p>
+              )}
+            </section>
+          )}
           {params && defaults && params.drilling_executor === "OWN" && (
             <DrillingPriceDrivers passportId={selectedPassport} params={params} />
           )}
@@ -119,7 +109,7 @@ export function DrillingPage() {
               </button>
               <span>
                 {dirty
-                  ? "Сценарий блока не сохранён. Источник ФОТ и другие параметры блока хранятся в нём, кнопка «Сохранить» вверху их не сохраняет."
+                  ? "Сценарий блока не сохранён. Источник ФОТ, загрузка станка и другие параметры блока хранятся в нём."
                   : "Сценарий блока сохранён."}
               </span>
             </div>

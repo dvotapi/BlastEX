@@ -139,7 +139,7 @@ describe("DrillingPage", () => {
     expect(slider.value).toBe("40");
   });
 
-  it("пока пересчёт по новому черновику не пришёл, цена метра у бегунка помечена «считается…»", async () => {
+  it("пока пересчёт по новому черновику не пришёл, цена метра в сводке помечена «считается…»", async () => {
     const defaults = defaultsFixture();
     defaults.parameters.rig_plan_shifts = 40;
     vi.mocked(api.blockEconomics.modelDefaults).mockResolvedValue(defaults);
@@ -149,8 +149,8 @@ describe("DrillingPage", () => {
       </BlockEconomicsSessionProvider>,
     );
     const slider = (await screen.findByRole("slider", { name: "Плановые смены станка в месяц" })) as HTMLInputElement;
-    // Первый расчёт пришёл: цена метра у бегунка есть и не помечена.
-    await waitFor(() => expect(screen.getAllByText("260,00 ₽/м").length).toBeGreaterThan(1));
+    // Первый расчёт пришёл: цена метра в сводке есть и не помечена.
+    await waitFor(() => expect(screen.getAllByText("260,00 ₽/м").length).toBeGreaterThan(0));
     // Страница при монтировании делает refresh — ждём и его ответа.
     await waitFor(() => expect(screen.queryByText("считается…")).toBeNull());
 
@@ -167,9 +167,9 @@ describe("DrillingPage", () => {
     fireEvent.pointerUp(slider);
 
     // Признак появляется сразу с правкой черновика, запрос уходит с задержкой пересчёта.
-    expect(await screen.findByText("считается…")).toBeInTheDocument();
+    expect((await screen.findAllByText("считается…")).length).toBeGreaterThan(0);
     await waitFor(() => expect(vi.mocked(api.blockEconomics.variants).mock.calls.length).toBe(before + 1));
-    expect(screen.getByText("считается…")).toBeInTheDocument();
+    expect(screen.getAllByText("считается…").length).toBeGreaterThan(0);
     release({ reference_revision_id: "REV-1", variants: [{ name: "Вариант 1", economics: economicsFixture() }] });
     await waitFor(() => expect(screen.queryByText("считается…")).toBeNull());
   });

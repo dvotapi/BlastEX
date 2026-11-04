@@ -111,11 +111,6 @@ export function DrillingPayrollPanel({ params, economics, canEdit, onChange }: D
           ФОТ экипажа считается по ставкам должностей. Для расчёта по методике выберите «Методика ФОТ».
         </p>
       )}
-      {economics?.natural.values.drilling_rub_per_m !== undefined && (
-        <p className="drilling-payroll-hint">
-          Стоимость 1 п.м. бурения в смете: {money(Number(economics.natural.values.drilling_rub_per_m))} ₽/м.
-        </p>
-      )}
     </section>
   );
 }

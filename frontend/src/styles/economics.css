@@ -521,6 +521,7 @@
 .price-donut-legend li { display:grid; grid-template-columns:8px minmax(0,1fr) auto auto; align-items:center; gap:6px; padding:1px 4px; border-radius:5px; }
 .price-donut-legend li.is-active { background:#eaf3ee; }
 .price-donut-legend .donut-legend-color { width:8px; height:8px; }
+@media (max-width: 760px) { .price-donut { grid-template-columns:1fr; justify-items:center; } .price-donut-legend { width:100%; } }
 .premium-curve { display:grid; gap:2px; margin:0; padding:6px 8px 4px; border:1px solid #dce4e0; border-radius:10px; background:#fff; }
 .premium-curve.is-inactive { opacity:.65; }
 .premium-curve-title { font-size:11px; color:#4f5d57; }

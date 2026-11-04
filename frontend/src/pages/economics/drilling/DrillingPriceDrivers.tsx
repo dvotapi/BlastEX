@@ -98,6 +98,13 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
         .then((response) => {
           if (id !== rankingRequest.current) return;
           setRanking(response);
+          // Ручки, которых в новом ранжировании нет (сменили станок или условие),
+          // теряют пробные значения: иначе каждый «что если» отвечал бы 422.
+          const known = new Set([...response.knobs, ...(response.premium?.knobs ?? [])].map((knob) => knob.code));
+          setOverrides((current) => {
+            const kept = Object.fromEntries(Object.entries(current).filter(([code]) => known.has(code)));
+            return Object.keys(kept).length === Object.keys(current).length ? current : kept;
+          });
           setRankingBusy(false);
           setError("");
         })
@@ -152,7 +159,8 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
   const base: DrillingPrices | null = whatIf?.base ?? ranking?.base ?? null;
   const shown: DrillingPrices | null = whatIf?.result ?? ranking?.base ?? null;
   const hasOverrides = Object.keys(overrides).length > 0;
-  const stale = whatIfBusy || (rankingBusy && ranking === null);
+  // Черновик изменился, ответ ранжирования ещё не пришёл — цены на экране от прежних параметров.
+  const stale = whatIfBusy || rankingBusy;
   const top = (ranking?.knobs ?? []).slice(0, TOP_KNOBS);
   const premium = ranking?.premium ?? null;
 

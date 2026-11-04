@@ -138,6 +138,32 @@ describe("DrillingPriceDrivers", () => {
   });
 });
 
+describe("DrillingPriceDrivers: смена черновика", () => {
+  it("пока ранжирование по новому черновику не пришло, цены помечены «считается…», а подмены исчезнувших ручек снимаются", async () => {
+    const { rerender } = render(<DrillingPriceDrivers passportId="PASSPORT-1" params={params} />);
+    await screen.findByText("260,00 ₽/м");
+    const bit = slider("Цена дизельного топлива");
+    fireEvent.change(bit, { target: { value: "60000" } });
+    fireEvent.pointerUp(bit);
+    await waitFor(() => expect(api.blockEconomics.drillingWhatIf).toHaveBeenCalledTimes(1));
+    await screen.findByText("240,00 ₽/м");
+
+    // Новый черновик: ранжирование без цены ДТ (объект без цены топлива).
+    const next = drillingSensitivityFixture();
+    next.knobs = next.knobs.filter((knob) => knob.code !== "DIESEL_PRICE");
+    vi.mocked(api.blockEconomics.drillingSensitivity).mockResolvedValueOnce(next);
+    rerender(<DrillingPriceDrivers passportId="PASSPORT-1" params={{ ...params, rig_code: "RIG_OTHER" }} />);
+    expect(await screen.findAllByText("считается…")).toHaveLength(2);
+
+    await waitFor(() => expect(api.blockEconomics.drillingSensitivity).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText("считается…")).toBeNull());
+    expect(screen.queryByRole("slider", { name: "Цена дизельного топлива" })).toBeNull();
+    // Подмена снята: цена — из ранжирования, запроса «что если» по пустым подменам нет.
+    expect(screen.getByText("260,00 ₽/м")).toBeInTheDocument();
+    expect(screen.queryByText(/к смете/)).toBeNull();
+  });
+});
+
 describe("premiumBounds", () => {
   it("считает границы по пробным значениям соседних ручек", () => {
     const knobs = drillingSensitivityFixture().premium!.knobs;

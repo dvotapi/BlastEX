@@ -86,6 +86,8 @@ class Knob:
     # Откуда взято: `drilling_conditions.COND_1.tech_speed_m_per_h`, `параметр вкладки`.
     source: str
     setter: Setter = field(repr=False, compare=False)
+    # Ноль допустим (непроизводительное время); у прочих ручек значение больше нуля.
+    allow_zero: bool = False
     # Ручка — настоящий параметр черновика (плановые смены): в ранжировании
     # показывается, но «что если» по ней не нужно — есть свой бегунок.
     draft_param: bool = False
@@ -265,10 +267,19 @@ TOOLING_LABELS = {
 }
 
 
-def knobs(params: ModelParameters, references: ReferenceSnapshot, physical: Mapping[str, Any]) -> tuple[Knob, ...]:
-    """Ручки стоимости метра по параметрам черновика; чего нет в справочниках — нет и ручки."""
+def knobs(
+    params: ModelParameters,
+    references: ReferenceSnapshot,
+    physical: Mapping[str, Any],
+    *,
+    as_of: date | None = None,
+) -> tuple[Knob, ...]:
+    """Ручки стоимости метра по параметрам черновика; чего нет в справочниках — нет и ручки.
 
-    context = ModelContext(references, params, physical)
+    `as_of` — дата расчёта: по ней берётся действующая цена оснастки, как в самом расчёте.
+    """
+
+    context = ModelContext(references, params, physical, as_of=as_of)
     result: list[Knob] = []
     rock_code = payload_text(context.site, "rock_code") or None
     condition, _ = drilling.pick_condition(context, params.rig_code, rock_code, params.site_code)
@@ -293,6 +304,7 @@ def knobs(params: ModelParameters, references: ReferenceSnapshot, physical: Mapp
                 payload_number(condition, "unproductive_h_per_shift"),
                 f"{where}.unproductive_h_per_shift",
                 _set_reference("drilling_conditions", condition.code, "unproductive_h_per_shift"),
+                allow_zero=True,
             )
         )
         for code_field, life_field, _label in drilling.TOOLING_PARTS:
@@ -372,8 +384,19 @@ PREMIUM_FIELDS: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
-def premium(params: ModelParameters, references: ReferenceSnapshot, physical: Mapping[str, Any]) -> Premium | None:
-    """Шкала премии машиниста: первая сдельная должность экипажа бурения со шкалой; нет — None."""
+def premium(
+    params: ModelParameters,
+    references: ReferenceSnapshot,
+    physical: Mapping[str, Any],
+    *,
+    payroll_applied: bool | None = None,
+) -> Premium | None:
+    """Шкала премии машиниста: первая сдельная должность экипажа бурения со шкалой; нет — None.
+
+    `payroll_applied` — применилась ли методика в базовом прогоне: режим
+    «Методика ФОТ» может откатиться на ставки (нет «Параметров ФОТ» года,
+    ставки помощника), и тогда шкала цену не двигает, хотя режим выбран.
+    """
 
     context = ModelContext(references, params, physical)
     for position_code, _headcount, _shifts in labor.crew_members(context):
@@ -420,8 +443,14 @@ def premium(params: ModelParameters, references: ReferenceSnapshot, physical: Ma
                         group="premium",
                     )
                 )
-        applies = params.payroll_source == "PAYROLL" and params.drilling_executor == "OWN"
-        note = "" if applies else "Шкала премии действует только при источнике ФОТ «Методика ФОТ»."
+        mode_on = params.payroll_source == "PAYROLL" and params.drilling_executor == "OWN"
+        applies = mode_on and payroll_applied is not False
+        if applies:
+            note = ""
+        elif mode_on:
+            note = "Методика ФОТ к экипажу не применилась (см. «Модель сообщает»): шкала премии цену не двигает."
+        else:
+            note = "Шкала премии действует только при источнике ФОТ «Методика ФОТ»."
         return Premium(position_code, position.name, rate_item.code, scale_type, tuple(knob_list), applies, note)
     return None
 
@@ -470,11 +499,18 @@ def compute(
     lineage = _lineage(snapshot)
     inputs: Inputs = (physical, params, references)
     base = _run(inputs, lineage, passport_name=passport_name, as_of=as_of)
-    rows = _rows(knobs(params, references, physical), inputs, lineage, passport_name=passport_name, as_of=as_of)
+    rows = _rows(
+        knobs(params, references, physical, as_of=as_of), inputs, lineage, passport_name=passport_name, as_of=as_of
+    )
     rows.sort(key=lambda row: abs(row.delta), reverse=True)
-    scale = premium(params, references, physical)
+    scale = premium(params, references, physical, payroll_applied=base.payroll_applied)
+    # Недействующая шкала цену не двигает: прогоны ±10 % были бы холостыми.
     premium_rows = (
-        _rows(scale.knobs, inputs, lineage, passport_name=passport_name, as_of=as_of) if scale is not None else []
+        _rows(scale.knobs, inputs, lineage, passport_name=passport_name, as_of=as_of)
+        if scale is not None and scale.applies
+        else [KnobRow(knob, base.with_payroll, base.with_payroll) for knob in scale.knobs]
+        if scale is not None
+        else []
     )
     return Sensitivity(base, tuple(rows), scale, tuple(premium_rows))
 
@@ -484,10 +520,12 @@ def apply_overrides(
     references: ReferenceSnapshot,
     physical: Mapping[str, Any],
     overrides: Mapping[str, Decimal],
+    *,
+    as_of: date | None = None,
 ) -> Inputs:
     """Абсолютные значения ручек поверх снимка; неизвестная ручка или кривая шкала — `WhatIfError`."""
 
-    known = {knob.code: knob for knob in knobs(params, references, physical)}
+    known = {knob.code: knob for knob in knobs(params, references, physical, as_of=as_of)}
     scale = premium(params, references, physical)
     if scale is not None:
         known.update({knob.code: knob for knob in scale.knobs})
@@ -496,8 +534,10 @@ def apply_overrides(
         knob = known.get(code)
         if knob is None:
             raise WhatIfError(f"Ручка {code} недоступна для этого блока.")
-        if value <= 0:
-            raise WhatIfError(f"«{knob.label}»: значение должно быть больше нуля.")
+        if value < 0 or (value == 0 and not knob.allow_zero):
+            raise WhatIfError(
+                f"«{knob.label}»: значение должно быть " + ("не меньше нуля." if knob.allow_zero else "больше нуля.")
+            )
         inputs = knob.setter(inputs, value)
     if scale is not None and any(code in {knob.code for knob in scale.knobs} for code in overrides):
         rate_item = inputs[2].item("labor_rates", scale.rate_code)
@@ -522,7 +562,7 @@ def what_if(
     physical = _physical(snapshot)
     lineage = _lineage(snapshot)
     base = _run((physical, params, references), lineage, passport_name=passport_name, as_of=as_of)
-    changed = apply_overrides(params, references, physical, overrides)
+    changed = apply_overrides(params, references, physical, overrides, as_of=as_of)
     return base, _run(changed, lineage, passport_name=passport_name, as_of=as_of)
 
 

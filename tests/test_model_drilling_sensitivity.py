@@ -149,3 +149,22 @@ def test_step_scale_exposes_tier_rates() -> None:
     _, _, changed = ds.apply_overrides(_payroll_params(), references, fx.physical(), {"PREMIUM_TIER_RATE_1": D("70")})
     assert changed.item("labor_rates", "LR_DRILLER").payload["tiers"][1]["rate"] == "70"
     assert references.item("labor_rates", "LR_DRILLER").payload["tiers"][1]["rate"] == "60"
+
+
+def test_premium_marked_inactive_when_methodology_falls_back_to_rates() -> None:
+    """Режим «Методика ФОТ» выбран, но без «Параметров ФОТ» года экипаж считается по ставкам."""
+
+    references = bp._references(payroll_params=())
+    result = ds.compute(fx.snapshot(), _payroll_params(), references, as_of=bp.AS_OF)
+
+    assert result.base.payroll_source == "PAYROLL" and not result.base.payroll_applied
+    assert result.premium is not None and not result.premium.applies
+    assert "не применилась" in result.premium.note
+    assert all(row.delta == 0 for row in result.premium_rows)
+
+
+def test_zero_unproductive_time_is_allowed() -> None:
+    base, changed = ds.what_if(fx.snapshot(), fx.parameters(), fx.references(), {"UNPRODUCTIVE_H": D("0")})
+    assert changed.without_payroll < base.without_payroll
+    with pytest.raises(ds.WhatIfError, match="не меньше нуля"):
+        ds.what_if(fx.snapshot(), fx.parameters(), fx.references(), {"UNPRODUCTIVE_H": D("-1")})

@@ -67,6 +67,7 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
             onMouseLeave={() => setActive("")}
             onFocus={() => setActive(slice.code)}
             onBlur={() => setActive("")}
+            onClick={() => setActive((current) => (current === slice.code ? "" : slice.code))}
             tabIndex={0}
             aria-label={`${slice.label}: ${money(slice.rub_per_m)} ₽/м, ${percent(slice.share)}`}
           />
@@ -80,7 +81,13 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
       </svg>
       <ul className="price-donut-legend">
         {slices.map((slice) => (
-          <li key={slice.code} className={active === slice.code ? "is-active" : ""} onMouseEnter={() => setActive(slice.code)} onMouseLeave={() => setActive("")}>
+          <li
+            key={slice.code}
+            className={active === slice.code ? "is-active" : ""}
+            onMouseEnter={() => setActive(slice.code)}
+            onMouseLeave={() => setActive("")}
+            onClick={() => setActive((current) => (current === slice.code ? "" : slice.code))}
+          >
             <i className="donut-legend-color" style={{ background: slice.color }} />
             <span className="donut-legend-label">{slice.label}</span>
             <span className="donut-legend-percent">{percent(slice.share)}</span>

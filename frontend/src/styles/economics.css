@@ -511,7 +511,7 @@
 .what-if-prices dt { margin:0 0 2px; color:#78857f; font-size:11px; }
 .what-if-prices dd { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; margin:0; font-size:15px; font-variant-numeric:tabular-nums; }
 .what-if-prices.is-stale b { color:#9aa8a1; }
-.what-if-prices .page-caption { margin:0; font-size:11px; }
+.what-if-overview .page-caption { grid-column:1 / -1; margin:0; font-size:11px; }
 .what-if-stale { font-style:italic; font-size:11px; color:#78857f; }
 .what-if-delta { font-size:11px; color:#4f5d57; }
 .price-donut { display:grid; grid-template-columns:110px minmax(0,1fr); gap:8px; align-items:center; margin:0; padding:8px 10px; border:1px solid #dce4e0; border-radius:10px; background:#fff; }

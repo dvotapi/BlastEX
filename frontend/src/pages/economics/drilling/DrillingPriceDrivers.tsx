@@ -218,11 +218,11 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
               )}
             </dd>
           </div>
-          {ranking === null && !error && <p className="page-caption">Ранжирование ручек считается…</p>}
-          {ranking !== null && shown !== null && shown.without_payroll_rub_per_m === null && (
-            <p className="page-caption">Бурение не посчитано: нет нормы бурения у станка или метров бурения.</p>
-          )}
         </dl>
+        {ranking === null && !error && <p className="page-caption">Ранжирование ручек считается…</p>}
+        {ranking !== null && shown !== null && shown.without_payroll_rub_per_m === null && (
+          <p className="page-caption">Бурение не посчитано: нет нормы бурения у станка или метров бурения.</p>
+        )}
         {shown && shown.components.length > 0 && <DrillingPriceDonut components={shown.components} stale={stale} />}
         {premium !== null && shown?.premium_curve && (
           <PremiumCurveChart

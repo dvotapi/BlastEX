@@ -54,11 +54,12 @@ export function ratePath(curve: DrillingPremiumCurve, axis: Axis): string {
   return parts.join(" ");
 }
 
-/** Ставка на темпе — линейно между точками ряда, за краями — крайняя. */
+/** Ставка на темпе: у ступеней — ставка ступени, куда попал темп; у кривых — линейно между точками, за краями — крайняя. */
 function rateAt(curve: DrillingPremiumCurve, pace: number): number {
   const points = sorted(curve.series);
   if (points.length === 0) return 0;
   if (pace <= points[0].pace) return points[0].rate;
+  if (curve.scale.scale_type === "STEP") return (points.find((p) => pace <= p.pace) ?? points[points.length - 1]).rate;
   for (let i = 1; i < points.length; i += 1) {
     if (pace <= points[i].pace) {
       const [a, b] = [points[i - 1], points[i]];

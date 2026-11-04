@@ -178,6 +178,8 @@ class Premium:
     # Шкала двигает цену метра только при методике ФОТ.
     applies: bool
     note: str = ""
+    # Режим «Методика ФОТ» выбран (своими силами); applies ещё сверяется с базовым прогоном.
+    mode_on: bool = False
 
 
 @dataclass(frozen=True)
@@ -547,15 +549,35 @@ def premium(
                     )
                 )
         mode_on = params.payroll_source == "PAYROLL" and params.drilling_executor == "OWN"
-        applies = mode_on and payroll_applied is not False
-        if applies:
-            note = ""
-        elif mode_on:
-            note = "Методика ФОТ к экипажу не применилась (см. «Модель сообщает»): шкала премии цену не двигает."
-        else:
-            note = "Шкала премии действует только при источнике ФОТ «Методика ФОТ»."
-        return Premium(position_code, position.name, rate_item.code, scale_type, tuple(knob_list), applies, note)
+        premium_block = Premium(
+            position_code,
+            position.name,
+            rate_item.code,
+            scale_type,
+            tuple(knob_list),
+            applies=mode_on,
+            note="" if mode_on else _NOTE_RATES,
+            mode_on=mode_on,
+        )
+        return premium_block if payroll_applied is None else _with_applied(premium_block, payroll_applied)
     return None
+
+
+def _with_applied(block: Premium, payroll_applied: bool) -> Premium:
+    """Сверка с базовым прогоном: режим выбран, но методика откатилась на ставки — шкала не действует."""
+
+    applies = block.mode_on and payroll_applied
+    if applies:
+        note = ""
+    elif block.mode_on:
+        note = _NOTE_FALLBACK
+    else:
+        note = _NOTE_RATES
+    return replace(block, applies=applies, note=note)
+
+
+_NOTE_FALLBACK = "Методика ФОТ к экипажу не применилась (см. «Модель сообщает»): шкала премии цену не двигает."
+_NOTE_RATES = "Шкала премии действует только при источнике ФОТ «Методика ФОТ»."
 
 
 # Соседние поля кривой: (ручка, поле-ограничитель, зазор, «это верхняя граница»).
@@ -650,6 +672,7 @@ def compute(
     physical = _physical(snapshot)
     lineage = _lineage(snapshot)
     inputs: Inputs = (physical, params, references)
+    # Шкала читается один раз: `applies` зависит от базового прогона и ставится ниже.
     scale = premium(params, references, physical)
     base = _run(
         inputs, lineage, passport_name=passport_name, as_of=as_of, premium_rate_code=scale.rate_code if scale else None
@@ -658,7 +681,8 @@ def compute(
         knobs(params, references, physical, as_of=as_of), inputs, lineage, passport_name=passport_name, as_of=as_of
     )
     rows.sort(key=lambda row: abs(row.delta), reverse=True)
-    scale = premium(params, references, physical, payroll_applied=base.payroll_applied)
+    if scale is not None:
+        scale = _with_applied(scale, base.payroll_applied)
     # Недействующая шкала цену не двигает: прогоны ±10 % были бы холостыми.
     premium_rows = (
         _rows(
@@ -685,11 +709,15 @@ def apply_overrides(
     overrides: Mapping[str, Decimal],
     *,
     as_of: date | None = None,
+    scale: Premium | None = None,
 ) -> Inputs:
-    """Абсолютные значения ручек поверх снимка; неизвестная ручка или кривая шкала — `WhatIfError`."""
+    """Абсолютные значения ручек поверх снимка; неизвестная ручка или кривая шкала — `WhatIfError`.
+
+    `scale` — уже прочитанная шкала премии (из `what_if`), чтобы не читать её второй раз.
+    """
 
     known = {knob.code: knob for knob in knobs(params, references, physical, as_of=as_of)}
-    scale = premium(params, references, physical)
+    scale = scale if scale is not None else premium(params, references, physical)
     if scale is not None:
         known.update({knob.code: knob for knob in scale.knobs})
     inputs: Inputs = (_physical({"physical": physical}), params, references)
@@ -727,7 +755,7 @@ def what_if(
     scale = premium(params, references, physical)
     rate_code = scale.rate_code if scale is not None else None
     base = _run((physical, params, references), lineage, passport_name=passport_name, as_of=as_of, premium_rate_code=rate_code)
-    changed = apply_overrides(params, references, physical, overrides, as_of=as_of)
+    changed = apply_overrides(params, references, physical, overrides, as_of=as_of, scale=scale)
     return base, _run(changed, lineage, passport_name=passport_name, as_of=as_of, premium_rate_code=rate_code)
 
 

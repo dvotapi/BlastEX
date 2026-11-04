@@ -460,6 +460,7 @@ class OrganizationRates:
     vat_rate: Decimal = Decimal("0.20")
     per_diem_rub: Decimal = Decimal("0")
     lodging_rub: Decimal = Decimal("0")
+    meals_rub: Decimal = Decimal("0")
     shift_hours: Decimal = Decimal("11")
 
     @classmethod
@@ -487,6 +488,7 @@ class OrganizationRates:
             vat_rate=decimal_value(payload.get("vat_rate"), defaults.vat_rate),
             per_diem_rub=decimal_value(payload.get("per_diem_rub"), defaults.per_diem_rub),
             lodging_rub=decimal_value(payload.get("lodging_rub"), defaults.lodging_rub),
+            meals_rub=decimal_value(payload.get("meals_rub"), defaults.meals_rub),
             shift_hours=decimal_value(payload.get("shift_hours"), defaults.shift_hours),
         )
 

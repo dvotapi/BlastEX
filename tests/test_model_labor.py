@@ -277,9 +277,12 @@ def test_per_diem_counts_people_in_shift_not_rotation() -> None:
     labor.compute(context)
 
     per_diem = _line(context, "LABOR_PER_DIEM")
-    # 116,28 чел·см × 2 000 ₽; со штатом ротации было 697 674,42 ₽.
-    assert per_diem.quantity == context.value("rig_shifts")
-    assert _money(per_diem.amount_rub) == Decimal("232558.14")
+    camp = _line(context, "CAMP_PRODUCTION_DRILLING")
+    # 116,28 чел·см × (1 000 суточных + 1 000 проживания); со штатом ротации было 697 674,42 ₽.
+    assert per_diem.quantity == context.value("rig_shifts") == camp.quantity
+    assert _money(per_diem.amount_rub + camp.amount_rub) == Decimal("232558.14")
+    # Проживание — в операции бурения, суточные — общей строкой без операции.
+    assert camp.operation_code == "PRODUCTION_DRILLING" and per_diem.operation_code == ""
 
 
 def test_indirect_position_stays_out_of_block_labor() -> None:
@@ -378,7 +381,8 @@ def test_per_diem_only_on_remote_site() -> None:
         fx.physical(),
     )
     labor.compute(remote)
-    assert _line(remote, "LABOR_PER_DIEM").amount_rub == Decimal("2.1") * 2 * 2000
+    assert _line(remote, "LABOR_PER_DIEM").amount_rub == Decimal("2.1") * 2 * 1000
+    assert _line(remote, "CAMP_BLAST_EXECUTION").amount_rub == Decimal("2.1") * 2 * 1000
 
     city_site = tuple(
         fx.item(site.code, site.name, {**site.payload, "is_remote": False})
@@ -390,7 +394,27 @@ def test_per_diem_only_on_remote_site() -> None:
         fx.physical(),
     )
     labor.compute(city)
-    assert not [line for line in city.lines if line.cost_item_code == "LABOR_PER_DIEM"]
+    assert not [line for line in city.lines if line.cost_item_code in ("LABOR_PER_DIEM", "CAMP_BLAST_EXECUTION")]
+
+
+def test_meals_join_lodging_in_the_camp_line() -> None:
+    rates_item = fx.item(
+        "ORG_RATES_DEFAULT",
+        "Ставки организации",
+        {"per_diem_rub": "0", "lodging_rub": "1000", "meals_rub": "600"},
+    )
+    context = ModelContext(
+        fx.references(organization_rates=(rates_item,)),
+        fx.parameters(crew=(CrewMember("POS_BLASTER", Decimal("2")),)),
+        fx.physical(),
+    )
+    labor.compute(context)
+
+    camp = _line(context, "CAMP_BLAST_EXECUTION")
+    assert camp.unit_price_rub == Decimal("1600")
+    assert camp.cost_item_name.startswith("Проживание и питание: ")
+    # Суточных нет — нет и строки суточных.
+    assert not [line for line in context.lines if line.cost_item_code == "LABOR_PER_DIEM"]
 
 
 def test_subcontracted_drilling_removes_own_driller() -> None:

@@ -40,6 +40,13 @@ describe("DrillingPriceDrivers", () => {
     expect(slider("Техническая скорость станка").value).toBe("12");
     expect(slider("Цена дизельного топлива")).toBeInTheDocument();
     expect(slider("Стойкость ППУ")).toBeInTheDocument();
+    // Ручки участка — отдельным списком, все, хотя по силе они слабее пятой.
+    const site = screen.getByRole("heading", { name: /Участок бурения/ }).parentElement as HTMLElement;
+    expect(within(site).getAllByRole("slider").map((input) => input.getAttribute("aria-label"))).toEqual([
+      "Услуги трала",
+      "Оклад: Механик",
+      "Питание",
+    ]);
     // Пятая ручка в четвёрку не вошла.
     expect(screen.queryByRole("slider", { name: "Стойкость коронки" })).toBeNull();
     // Плановые смены — параметр черновика: строка есть, бегунка нет.
@@ -272,5 +279,18 @@ describe("whatIfRange", () => {
     expect(whatIfRange(1)).toEqual({ min: 0.7, max: 1.3, step: 0.01 });
     expect(whatIfRange(115, undefined, 100)).toEqual({ min: 80, max: 100, step: 2 });
     expect(whatIfRange(185, 190)).toEqual({ min: 190, max: 240, step: 2 });
+  });
+});
+
+describe("DrillingPriceDrivers: ручки участка", () => {
+  it("бегунок услуги шлёт подмену по её коду", async () => {
+    render(<DrillingPriceDrivers passportId="PASSPORT-1" params={params} />);
+    await screen.findByText("260,00 ₽/м");
+    const trawl = slider("Услуги трала");
+    fireEvent.change(trawl, { target: { value: "80000" } });
+    fireEvent.pointerUp(trawl);
+    await waitFor(() =>
+      expect(api.blockEconomics.drillingWhatIf).toHaveBeenCalledWith("PASSPORT-1", params, { "RULE:RULE_TRAWL": 80000 }),
+    );
   });
 });

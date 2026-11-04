@@ -70,9 +70,13 @@ COMPONENT_LABELS: tuple[tuple[str, str], ...] = (
 SERVICE_OWN_ITEMS = frozenset({"DRILL_INSPECTION"})
 # Группы прочих строк операций бурения, в порядке кольца после станка.
 SERVICES_COMPONENT = ("SERVICES", "Услуги сторонних организаций")
+CAMP_COMPONENT = ("CAMP", "Проживание и питание экипажа")
 CREW_COMPONENT = ("CREW_PAYROLL", "ФОТ экипажа")
 STAFF_COMPONENT = ("SITE_STAFF", "ФОТ ИТР и ремонтного персонала")
 UNIT_COMPONENT = ("UNIT_FIXED", "Прочие постоянные затраты участка")
+GROUPS = (SERVICES_COMPONENT, CAMP_COMPONENT, CREW_COMPONENT, STAFF_COMPONENT, UNIT_COMPONENT)
+# Группы, где одна строка подстрокой не показывается: она и есть слагаемое.
+SINGLE_HIDDEN = frozenset({CREW_COMPONENT[0], CAMP_COMPONENT[0]})
 # Группы, чьи строки — ФОТ: «без ФОТ» их не содержит.
 PAYROLL_GROUPS = frozenset({CREW_COMPONENT[0], STAFF_COMPONENT[0]})
 _INDIRECT_LABOR_PREFIX = f"{unit.CATEGORY_NAMES['INDIRECT_LABOR']}: "
@@ -177,6 +181,7 @@ class KnobRow:
             "base_value": float(knob.base),
             "source": knob.source,
             "draft_param": knob.draft_param,
+            "group": knob.group,
             "price_minus_rub_per_m": _num(self.price_minus),
             "price_plus_rub_per_m": _num(self.price_plus),
             "delta_rub_per_m": float(self.delta),
@@ -249,7 +254,7 @@ def prices(
     # Подстроки группы — по паре «статья, название»: два правила с одной статьёй
     # (доп. оснастка и трал) — разные строки, а одна должность — одна строка.
     groups: dict[str, dict[tuple[str, str], Decimal]] = {
-        code: {} for code, _ in (SERVICES_COMPONENT, CREW_COMPONENT, STAFF_COMPONENT, UNIT_COMPONENT)
+        code: {} for code, _ in GROUPS
     }
     # Слагаемые станка — только строки самой модели бурения (тождество объекта,
     # как в `block_margin`): правило затрат с той же статьёй — это уже не
@@ -269,7 +274,7 @@ def prices(
     ]
     payroll_rub = ZERO
     total_rub = sum(by_item.values(), ZERO)
-    for code, label in (SERVICES_COMPONENT, CREW_COMPONENT, STAFF_COMPONENT, UNIT_COMPONENT):
+    for code, label in GROUPS:
         total = sum(groups[code].values(), ZERO)
         if not total:
             continue
@@ -281,9 +286,9 @@ def prices(
             for index, ((item, name), amount) in enumerate(groups[code].items())
             if amount
         )
-        # У ФОТ экипажа одна должность подстрокой не показывается — она и есть слагаемое;
-        # услуги и персонал участка называются подстроками всегда.
-        if code == CREW_COMPONENT[0] and len(parts) < 2:
+        # У ФОТ экипажа и проживания одна строка подстрокой не показывается — она и есть
+        # слагаемое; услуги и персонал участка называются подстроками всегда.
+        if code in SINGLE_HIDDEN and len(parts) < 2:
             parts = ()
         components.append(Component(code, label, total / drilling_m, parts))
     return Prices(
@@ -309,6 +314,8 @@ def _group(line: Any) -> tuple[str, str]:
 
     if line.cost_item_code.startswith("LABOR_"):
         return CREW_COMPONENT[0], _part_label(line.cost_item_name)
+    if line.cost_item_code.startswith("CAMP_"):
+        return CAMP_COMPONENT[0], line.cost_item_name
     if line.cost_item_code.startswith("UNIT_"):
         if line.cost_item_name.startswith(_INDIRECT_LABOR_PREFIX):
             return STAFF_COMPONENT[0], line.cost_item_name.removeprefix(_INDIRECT_LABOR_PREFIX).strip()
@@ -392,6 +399,17 @@ def _set_material_price(material_code: str) -> Setter:
             for item in references.sections.get("material_prices", ())
         )
         return physical, params, replace(references, sections={**references.sections, "material_prices": updated})
+
+    return setter
+
+
+def _set_service(index: int) -> Setter:
+    """Сумма ручной услуги вкладки: подмена в параметрах прогона, черновик не меняется."""
+
+    def setter(inputs: Inputs, value: Decimal) -> Inputs:
+        physical, params, references = inputs
+        services = tuple(replace(charge, amount_rub=value) if i == index else charge for i, charge in enumerate(params.services))
+        return physical, replace(params, services=services), references
 
     return setter
 
@@ -524,6 +542,22 @@ def knobs(
                 draft_param=True,
             )
         )
+    if rig_type is not None:
+        for field_name, label in (("inspection_rub_per_shift", "Выпуск на линию"), ("medical_rub_per_shift", "Медосмотр")):
+            value = payload_number(rig_type, field_name)
+            if value > 0:
+                result.append(
+                    Knob(
+                        f"RIG_{field_name.upper()}",
+                        label,
+                        "₽/см",
+                        value,
+                        f"equipment_types.{rig_type.code}.{field_name}",
+                        _set_reference("equipment_types", rig_type.code, field_name),
+                        group=SITE_GROUP,
+                    )
+                )
+    result.extend(_site_knobs(context, params))
     if context.site is not None and payload_number(context.site, "diesel_price_ton_rub") > 0:
         result.append(
             Knob(
@@ -536,6 +570,106 @@ def knobs(
             )
         )
     return tuple(result)
+
+
+SITE_GROUP = "site"
+# Ставки организации на человеко-смену вахты: проживание и питание.
+CAMP_RATES: tuple[tuple[str, str, str], ...] = (
+    ("LODGING", "lodging_rub", "Проживание"),
+    ("MEALS", "meals_rub", "Питание"),
+)
+
+
+def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
+    """Ручки участка бурения: услуги, оклады ИТР и ремонтного персонала, проживание и питание.
+
+    Показываются всегда, а не по силе: их в смете видно отдельной группой, и
+    сметчик хочет покрутить каждую. Нулевая ставка — нет ручки: ±30 % от нуля —
+    тот же ноль.
+    """
+
+    knob_list: list[Knob] = []
+    for rule in context.items("cost_rules"):
+        if payload_text(rule, "operation_code") not in labor.DRILLING_OPERATIONS:
+            continue
+        rate = payload_number(rule, "rate_rub")
+        field_name, unit_label = ("rate_rub", "₽/ед.") if rate > 0 else ("fixed_rub", "₽ на блок")
+        value = rate if rate > 0 else payload_number(rule, "fixed_rub")
+        if value <= 0:
+            continue
+        knob_list.append(
+            Knob(
+                f"RULE:{rule.code}",
+                rule.name,
+                unit_label,
+                value,
+                f"cost_rules.{rule.code}.{field_name}",
+                _set_reference("cost_rules", rule.code, field_name),
+                group=SITE_GROUP,
+            )
+        )
+    for index, charge in enumerate(params.services):
+        if charge.operation_code not in labor.DRILLING_OPERATIONS or charge.amount_rub <= 0:
+            continue
+        knob_list.append(
+            Knob(
+                f"SERVICE:{index}",
+                charge.name,
+                "₽/см" if charge.per_shift else "₽ на блок",
+                charge.amount_rub,
+                "услуга вкладки",
+                _set_service(index),
+                group=SITE_GROUP,
+            )
+        )
+    unit_code = payload_text(context.site, "production_unit_code")
+    seen: set[str] = set()
+    for item in context.items("unit_fixed_costs"):
+        if payload_text(item, "category") != "INDIRECT_LABOR":
+            continue
+        if payload_text(item, "operation_code") not in labor.DRILLING_OPERATIONS:
+            continue
+        item_unit = payload_text(item, "production_unit_code")
+        if payload_text(item, "scope", "UNIT") == "UNIT" and item_unit and item_unit != unit_code:
+            continue
+        position_code = payload_text(item, "position_code")
+        rate = next(
+            (row for row in context.items("labor_rates") if payload_text(row, "position_code") == position_code), None
+        )
+        salary = payload_number(rate, "fixed_monthly_rub") if rate is not None else ZERO
+        if rate is None or salary <= 0 or rate.code in seen:
+            continue
+        seen.add(rate.code)
+        position = context.item("positions", position_code)
+        knob_list.append(
+            Knob(
+                f"STAFF:{rate.code}",
+                f"Оклад: {position.name if position is not None else item.name}",
+                "₽/мес",
+                salary,
+                f"labor_rates.{rate.code}.fixed_monthly_rub",
+                _set_reference("labor_rates", rate.code, "fixed_monthly_rub"),
+                group=SITE_GROUP,
+            )
+        )
+    rates_item = context.items("organization_rates")[0] if context.items("organization_rates") else None
+    remote = context.site is not None and bool(context.site.payload.get("is_remote", False))
+    if rates_item is not None and remote:
+        for code, field_name, label in CAMP_RATES:
+            value = payload_number(rates_item, field_name)
+            if value > 0:
+                knob_list.append(
+                    Knob(
+                        code,
+                        label,
+                        "₽/чел·см",
+                        value,
+                        f"organization_rates.{rates_item.code}.{field_name}",
+                        _set_reference("organization_rates", rates_item.code, field_name),
+                        group=SITE_GROUP,
+                    )
+                )
+    return knob_list
 
 
 PREMIUM_FIELDS: tuple[tuple[str, str, str, str], ...] = (

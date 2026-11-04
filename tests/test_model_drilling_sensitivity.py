@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -310,3 +311,74 @@ def test_site_staff_bound_to_drilling_is_payroll_of_the_meter() -> None:
     crew = next(c for c in plain.components if c.code == "CREW_PAYROLL")
     assert abs(plain.with_payroll - plain.without_payroll - crew.rub_per_m - staff.rub_per_m) < D("0.000001")
     assert not any(c.code == "UNIT_FIXED" for c in plain.components)
+
+
+def _site_references():
+    """Трал правилом, механик с операцией бурения, проживание и питание на вахте, выпуск и медосмотр станка."""
+
+    costs = tuple(
+        fx.item(item.code, item.name, {**item.payload, "operation_code": "PRODUCTION_DRILLING"}) if item.code == "UFC_WH_HEAD" else item
+        for item in fx.UNIT_FIXED_COSTS
+    )
+    trawl = fx.item(
+        "RULE_TRAWL",
+        "Услуги трала",
+        {
+            "operation_code": "PRODUCTION_DRILLING",
+            "cost_item_code": "DRILL_TOOLING",
+            "behavior_type": "FIXED",
+            "cost_layer": "project_direct",
+            "fixed_rub": "70000",
+            "estimate_section": "DRILLING",
+        },
+    )
+    rates = fx.item("ORG_RATES_DEFAULT", "Ставки организации", {"per_diem_rub": "700", "lodging_rub": "1500", "meals_rub": "600"})
+    return fx.references(unit_fixed_costs=costs, cost_rules=(*fx.COST_RULES, trawl), organization_rates=(rates,))
+
+
+def test_site_knobs_cover_services_staff_salaries_and_camp() -> None:
+    references = _site_references()
+    params = fx.parameters()
+    knobs = {knob.code: knob for knob in ds.knobs(params, references, fx.physical())}
+
+    site = {code for code, knob in knobs.items() if knob.group == ds.SITE_GROUP}
+    assert {"RULE:RULE_TRAWL", "STAFF:LR_WH_HEAD", "LODGING", "MEALS"} <= site
+    assert knobs["RULE:RULE_TRAWL"].base == D("70000") and knobs["RULE:RULE_TRAWL"].unit == "₽ на блок"
+    assert knobs["STAFF:LR_WH_HEAD"].base == D("40000") and knobs["STAFF:LR_WH_HEAD"].label == "Оклад: Заведующий складом"
+    assert knobs["MEALS"].base == D("600")
+    # Ручки станка в группе участка не числятся.
+    assert knobs["TECH_SPEED"].group == "cost"
+
+
+def test_site_knobs_move_the_meter_price() -> None:
+    references = _site_references()
+    base, changed = ds.what_if(
+        fx.snapshot(), fx.parameters(), references, {"RULE:RULE_TRAWL": D("140000"), "STAFF:LR_WH_HEAD": D("80000"), "MEALS": D("1200")}
+    )
+    drilling_m = base.drilling_m
+
+    def group(prices, code):
+        return next(c.rub_per_m for c in prices.components if c.code == code)
+
+    # Трал вдвое дороже — +70 000 ₽ на блок в услугах.
+    assert abs(group(changed, "SERVICES") - group(base, "SERVICES") - D("70000") / drilling_m) < D("0.000001")
+    # Оклад механика вдвое — вдвое больше и его доля в метре.
+    assert abs(group(changed, "SITE_STAFF") - 2 * group(base, "SITE_STAFF")) < D("0.000001")
+    # Питание дороже — растёт группа проживания и питания, ФОТ экипажа не меняется.
+    assert group(changed, "CAMP") > group(base, "CAMP")
+    assert group(changed, "CREW_PAYROLL") == group(base, "CREW_PAYROLL")
+    # Проживание и питание — не ФОТ: «без ФОТ» их содержит.
+    camp = group(base, "CAMP")
+    assert abs(base.with_payroll - base.without_payroll - group(base, "CREW_PAYROLL") - group(base, "SITE_STAFF")) < D("0.000001")
+    assert camp > 0
+
+
+def test_manual_drilling_service_has_a_knob() -> None:
+    from cost.model.inputs import ServiceCharge
+
+    params = replace(fx.parameters(), services=(ServiceCharge("Медосмотр подрядчика", D("50000"), operation_code="PRODUCTION_DRILLING"),))
+    knob = next(knob for knob in ds.knobs(params, fx.references(), fx.physical()) if knob.code == "SERVICE:0")
+    assert knob.group == ds.SITE_GROUP and knob.base == D("50000")
+    _, changed = ds.what_if(fx.snapshot(), params, fx.references(), {"SERVICE:0": D("100000")})
+    base, _ = ds.what_if(fx.snapshot(), params, fx.references(), {})
+    assert abs(changed.with_payroll - base.with_payroll - D("50000") / base.drilling_m) < D("0.000001")

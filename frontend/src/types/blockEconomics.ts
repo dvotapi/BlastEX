@@ -312,6 +312,9 @@ export type DrillingKnob = {
   source: string;
   /** Настоящий параметр черновика (плановые смены): у него свой бегунок, «что если» не нужно. */
   draft_param: boolean;
+  /** «cost» — ранжируемые ручки станка; «site» — услуги, оклады ИТР и ремонтного персонала,
+   * проживание и питание: показываются все. Нет поля — «cost». */
+  group?: string;
   price_minus_rub_per_m: number | null;
   price_plus_rub_per_m: number | null;
   delta_rub_per_m: number;

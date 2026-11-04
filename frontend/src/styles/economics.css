@@ -540,6 +540,9 @@
 .what-if-group { display:grid; gap:4px; min-width:0; }
 .what-if-group h4 { margin:0; }
 .what-if-premium { min-width:0; }
+.what-if-site { grid-column:1 / -1; min-width:0; }
+.what-if-site .what-if-list { grid-template-columns:repeat(auto-fit,minmax(440px,1fr)); column-gap:16px; }
+@media (max-width: 520px) { .what-if-site .what-if-list { grid-template-columns:1fr; } }
 .what-if-list { display:grid; gap:2px; }
 .what-if-knob { border-radius:8px; }
 .what-if-row { display:grid; grid-template-columns:minmax(110px,1.1fr) 118px minmax(80px,1fr) 84px 44px; align-items:center; gap:8px; padding:3px 6px; border:1px solid transparent; font-size:12px; }

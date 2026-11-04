@@ -3,8 +3,9 @@
  *
  * Сервер (`POST /economics/block-economics/drilling-sensitivity`) ранжирует
  * ручки цены метра по эффекту ±10 % и отдаёт шкалу сдельной премии машиниста;
- * панель показывает четыре самых сильных ручки и всегда — блок «Премия
- * машинистов», у каждой бегунок «что если» (`WhatIfSlider`). Пробные значения
+ * панель показывает четыре самых сильных ручки станка, все ручки участка
+ * бурения (услуги, оклады ИТР и ремонтного персонала, проживание и питание) и
+ * всегда — блок «Премия машинистов», у каждой бегунок «что если» (`WhatIfSlider`). Пробные значения
  * живут в состоянии панели и уходят только в
  * `POST /economics/block-economics/drilling-what-if`, который подменяет их в
  * памяти запроса: ни черновик, ни справочники не меняются, уход со страницы
@@ -178,7 +179,9 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
   const hasOverrides = Object.keys(overrides).length > 0;
   // Черновик изменился, ответ ранжирования ещё не пришёл — цены на экране от прежних параметров.
   const stale = whatIfBusy || rankingBusy;
-  const top = (ranking?.knobs ?? []).slice(0, TOP_KNOBS);
+  const top = (ranking?.knobs ?? []).filter((knob) => knob.group !== "site").slice(0, TOP_KNOBS);
+  // Ручки участка — все, по силе: услуги, оклады ИТР и ремонтного персонала, проживание и питание.
+  const site = (ranking?.knobs ?? []).filter((knob) => knob.group === "site");
   const premium = ranking?.premium ?? null;
   // Скорость станка двигает плановый темп машиниста, а с ним ставку шкалы: подпись у ручки.
   const paceSub = (() => {
@@ -192,6 +195,7 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
   const barScale = Math.max(
     0,
     ...top.map((knob) => Math.abs(knob.delta_rub_per_m) / 2),
+    ...site.map((knob) => Math.abs(knob.delta_rub_per_m) / 2),
     ...(premium?.applies ? premium.knobs.map((knob) => Math.abs(knob.delta_rub_per_m ?? 0) / 2) : []),
   );
 
@@ -308,6 +312,29 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
                 ))}
               </div>
             )}
+          </div>
+        )}
+        {site.length > 0 && (
+          <div className="what-if-group what-if-site">
+            <h4>
+              Участок бурения
+              <span className="what-if-group-note">услуги, ФОТ ИТР и ремонтного персонала, проживание и питание</span>
+            </h4>
+            <div className="what-if-list">
+              {site.map((knob) => (
+                <WhatIfSlider
+                  key={knob.code}
+                  code={knob.code}
+                  label={knob.label}
+                  unit={knob.unit}
+                  base={knob.base_value}
+                  value={overrides[knob.code] ?? null}
+                  deltaRubPerM={knob.delta_rub_per_m}
+                  barScale={barScale}
+                  onChange={(value) => setOverride(knob.code, value)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

@@ -521,52 +521,42 @@ def _org_rates(**payload: str):
     return (fx.item(item.code, item.name, {**item.payload, **payload}),)
 
 
-def _lodging_warnings(context: ModelContext) -> list[str]:
-    return [w for w in context.warnings if w.startswith("Проживание экипажа бурения")]
+def _camp(context: ModelContext, operation: str = "PRODUCTION_DRILLING"):
+    return next((line for line in context.lines if line.cost_item_code == f"CAMP_{operation}"), None)
 
 
-def test_lodging_is_not_lost_silently_on_remote_site() -> None:
-    context = _context(_references(organization_rates=_org_rates(lodging_rub="500")))
+def test_lodging_and_meals_of_the_crew_are_charged_under_methodology() -> None:
+    """Проживание и питание — не ФОТ: при методике их начисляет `labor` строкой операции бурения."""
+
+    context = _context(_references(organization_rates=_org_rates(lodging_rub="500", meals_rub="300")))
     _, result = _run(context)
-
     assert result is not None
-    assert _lodging_warnings(context) == [
-        "Проживание экипажа бурения (500 ₽/чел·см) в режиме «ФОТ по методике» не начислено: "
-        "методика учитывает только суточные/вахтовую надбавку."
-    ]
+    labor.compute(context)
+
+    line = _camp(context)
+    assert line is not None and line.operation_code == "PRODUCTION_DRILLING"
+    people = sum(
+        (context.value(f"crew_shifts.{code}") * context.value(f"crew_per_shift.{code}") for code in CREW_CODES), D("0")
+    )
+    assert line.quantity == people and line.amount_rub == people * 800
+    # В ФОТ методики проживания нет: строки должностей не изменились.
+    assert not [w for w in context.warnings if w.startswith("Проживание экипажа бурения")]
 
 
-def test_no_lodging_warning_without_lodging_or_off_remote_site() -> None:
-    no_lodging = _context()
-    _run(no_lodging)
-    assert _lodging_warnings(no_lodging) == []
-
+def test_no_camp_off_remote_site_or_without_per_diem() -> None:
     city = _context(_references(site={"is_remote": False}, organization_rates=_org_rates(lodging_rub="500")))
-    _, result = _run(city)
-    assert result is not None
-    assert _lodging_warnings(city) == []
-
-
-def test_no_lodging_warning_when_crew_has_no_per_diem() -> None:
-    """Проживание ставки начисляют только должностям с `per_diem_applies`: без них предупреждать не о чем."""
+    _run(city)
+    labor.compute(city)
+    assert _camp(city) is None
 
     positions = tuple(
         fx.item(item.code, item.name, {**item.payload, "per_diem_applies": False}) if item.code in CREW_CODES else item
         for item in (*fx.POSITIONS, *CREW_POSITIONS)
     )
     context = _context(_references(positions=positions, organization_rates=_org_rates(lodging_rub="500")))
-    _, result = _run(context)
-    assert result is not None
-    assert _lodging_warnings(context) == []
-
-    # Хотя бы одна должность экипажа с суточными — предупреждение остаётся.
-    one = tuple(
-        fx.item(item.code, item.name, {**item.payload, "per_diem_applies": False}) if item.code == "P_ASSISTANT" else item
-        for item in (*fx.POSITIONS, *CREW_POSITIONS)
-    )
-    context = _context(_references(positions=one, organization_rates=_org_rates(lodging_rub="500")))
     _run(context)
-    assert len(_lodging_warnings(context)) == 1
+    labor.compute(context)
+    assert _camp(context) is None
 
 
 def test_crew_without_shifts_writes_nothing() -> None:

@@ -39,7 +39,7 @@ describe("DrillingPriceDrivers", () => {
 
     expect(slider("Техническая скорость станка").value).toBe("12");
     expect(slider("Цена дизельного топлива")).toBeInTheDocument();
-    expect(slider("Численность экипажа")).toBeInTheDocument();
+    expect(slider("Стойкость ППУ")).toBeInTheDocument();
     // Пятая ручка в четвёрку не вошла.
     expect(screen.queryByRole("slider", { name: "Стойкость коронки" })).toBeNull();
     // Плановые смены — параметр черновика: строка есть, бегунка нет.
@@ -146,7 +146,7 @@ describe("DrillingPriceDrivers", () => {
     expect((norm.closest(".what-if-knob") as HTMLElement).classList.contains("is-inactive")).toBe(true);
     // У недействующей ручки эффект не показывается.
     const head = (norm.closest(".what-if-knob") as HTMLElement).querySelector(".what-if-knob-effect");
-    expect(head).toBeNull();
+    expect(head?.textContent ?? "").toBe("");
   });
 
   it("границы шкалы премии: потолок не ниже нормы + 1, расценка на потолке не ниже расценки на норме", async () => {

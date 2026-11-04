@@ -50,7 +50,8 @@ def test_knobs_follow_the_chosen_condition_and_references() -> None:
     assert knobs["DIESEL_PRICE"].base == D("52200")
     assert knobs["BIT_LIFE"].base == D("700") and knobs["BIT_PRICE"].base == D("35000")
     assert knobs["RIG_PLAN_SHIFTS"].draft_param and knobs["RIG_PLAN_SHIFTS"].base == D("40")
-    assert knobs["CREW_SCALE"].base == D("1")
+    # Множителя численности экипажа среди ручек нет: это не параметр блока.
+    assert "CREW_SCALE" not in knobs
     # Обсадки среди ручек нет: в списке только коронка, ППУ и штанги.
     assert "CASING_LIFE" not in knobs
 
@@ -60,7 +61,7 @@ def test_sensitivity_is_sorted_by_absolute_effect_on_price_with_payroll() -> Non
 
     deltas = [abs(row.delta) for row in result.rows]
     assert deltas == sorted(deltas, reverse=True)
-    assert {row.knob.code for row in result.rows} >= {"TECH_SPEED", "DIESEL_PRICE", "CREW_SCALE", "BIT_LIFE"}
+    assert {row.knob.code for row in result.rows} >= {"TECH_SPEED", "DIESEL_PRICE", "BIT_LIFE"}
     speed = next(row for row in result.rows if row.knob.code == "TECH_SPEED")
     # Быстрее бурим — меньше смен станка и дешевле метр.
     assert speed.price_plus < result.base.with_payroll < speed.price_minus

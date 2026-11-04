@@ -468,16 +468,6 @@ def knobs(
                 _set_reference("sites", context.site.code, "diesel_price_ton_rub"),
             )
         )
-    result.append(
-        Knob(
-            "CREW_SCALE",
-            "Численность экипажа",
-            "×",
-            params.crew_scale,
-            "множитель людей в смене",
-            _set_param("crew_scale"),
-        )
-    )
     return tuple(result)
 
 

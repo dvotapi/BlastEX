@@ -9,7 +9,7 @@ import type { DrillingPremiumCurve, PayrollSeriesPoint } from "../../../types/bl
 import { amount } from "../format";
 import { labelLevels, niceTicks } from "../payrollModel";
 
-const SIZE = { width: 360, height: 200, padding: 36 };
+const SIZE = { width: 360, height: 180, padding: 36 };
 const LABEL_GAP = 70;
 
 type Axis = { x: (value: number) => number; y: (value: number) => number; xTicks: number[]; yTicks: number[] };

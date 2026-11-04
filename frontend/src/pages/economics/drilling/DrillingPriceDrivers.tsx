@@ -29,7 +29,7 @@ import type {
 import { money } from "../format";
 import { DrillingPriceDonut } from "./DrillingPriceDonut";
 import { PremiumCurveChart } from "./PremiumCurveChart";
-import { WhatIfSlider, effectText } from "./WhatIfSlider";
+import { EffectCell, WhatIfSlider, effectText } from "./WhatIfSlider";
 
 /** Сколько самых сильных ручек показывать, не считая премии. */
 export const TOP_KNOBS = 4;
@@ -179,6 +179,12 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
   const stale = whatIfBusy || rankingBusy;
   const top = (ranking?.knobs ?? []).slice(0, TOP_KNOBS);
   const premium = ranking?.premium ?? null;
+  // Масштаб полосок один на оба списка: длины ручек и премии сравнимы между собой.
+  const barScale = Math.max(
+    0,
+    ...top.map((knob) => Math.abs(knob.delta_rub_per_m) / 2),
+    ...(premium?.applies ? premium.knobs.map((knob) => Math.abs(knob.delta_rub_per_m ?? 0) / 2) : []),
+  );
 
   return (
     <section className="panel drilling-price-drivers" aria-label="Что двигает цену метра">
@@ -233,68 +239,68 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
           />
         )}
       </div>
-      {top.length > 0 && (
-        <div className="what-if-group">
-          <h4>Самые сильные ручки</h4>
-          <div className="what-if-grid">
-            {top.map((knob) =>
-              knob.draft_param ? (
-                <div className="what-if-knob is-draft" key={knob.code} data-knob={knob.code}>
-                  <div className="what-if-knob-head">
+      <div className="what-if-lists">
+        {top.length > 0 && (
+          <div className="what-if-group">
+            <h4>Самые сильные ручки</h4>
+            <div className="what-if-list">
+              {top.map((knob) =>
+                knob.draft_param ? (
+                  <div className="what-if-knob what-if-row is-draft" key={knob.code} data-knob={knob.code}>
                     <span className="what-if-knob-label">{knob.label}</span>
-                    <span className="what-if-knob-effect">{effectText(knob.delta_rub_per_m)}</span>
+                    <EffectCell effect={effectText(knob.delta_rub_per_m)} deltaRubPerM={knob.delta_rub_per_m} barScale={barScale} />
+                    <span className="what-if-knob-note">Параметр черновика: меняется бегунком «Загрузка станка» выше.</span>
                   </div>
-                  <div className="what-if-knob-caption">
-                    <span>Параметр черновика: меняется бегунком «Загрузка станка» выше.</span>
-                  </div>
-                </div>
-              ) : (
-                <WhatIfSlider
-                  key={knob.code}
-                  code={knob.code}
-                  label={knob.label}
-                  unit={knob.unit}
-                  base={knob.base_value}
-                  value={overrides[knob.code] ?? null}
-                  deltaRubPerM={knob.delta_rub_per_m}
-                  onChange={(value) => setOverride(knob.code, value)}
-                />
-              ),
+                ) : (
+                  <WhatIfSlider
+                    key={knob.code}
+                    code={knob.code}
+                    label={knob.label}
+                    unit={knob.unit}
+                    base={knob.base_value}
+                    value={overrides[knob.code] ?? null}
+                    deltaRubPerM={knob.delta_rub_per_m}
+                    barScale={barScale}
+                    onChange={(value) => setOverride(knob.code, value)}
+                  />
+                ),
+              )}
+            </div>
+          </div>
+        )}
+        {ranking !== null && (
+          <div className="what-if-group what-if-premium">
+            <h4>
+              Премия машинистов
+              {premium !== null && <span className="what-if-group-note">{premium.applies ? `шкала ставки «${premium.position_name}»` : premium.note}</span>}
+            </h4>
+            {premium === null ? (
+              <p className="page-caption">
+                У экипажа бурения нет ставки со шкалой сдельной премии: заведите шкалу в «Ставках персонала».
+              </p>
+            ) : (
+              <div className="what-if-list">
+                {premium.knobs.map((knob) => (
+                  <WhatIfSlider
+                    key={knob.code}
+                    code={knob.code}
+                    label={knob.label}
+                    unit={knob.unit}
+                    base={knob.base_value}
+                    value={overrides[knob.code] ?? null}
+                    min={bounds[knob.code]?.min}
+                    max={bounds[knob.code]?.max}
+                    deltaRubPerM={premium.applies ? knob.delta_rub_per_m : null}
+                    barScale={premium.applies ? barScale : undefined}
+                    inactive={!premium.applies}
+                    onChange={(value) => setOverride(knob.code, value)}
+                  />
+                ))}
+              </div>
             )}
           </div>
-        </div>
-      )}
-      {ranking !== null && (
-        <div className="what-if-group what-if-premium">
-          <h4>
-            Премия машинистов
-            {premium !== null && <span className="what-if-group-note">{premium.applies ? `шкала ставки «${premium.position_name}»` : premium.note}</span>}
-          </h4>
-          {premium === null ? (
-            <p className="page-caption">
-              У экипажа бурения нет ставки со шкалой сдельной премии: заведите шкалу в «Ставках персонала».
-            </p>
-          ) : (
-            <div className="what-if-grid">
-              {premium.knobs.map((knob) => (
-                <WhatIfSlider
-                  key={knob.code}
-                  code={knob.code}
-                  label={knob.label}
-                  unit={knob.unit}
-                  base={knob.base_value}
-                  value={overrides[knob.code] ?? null}
-                  min={bounds[knob.code]?.min}
-                  max={bounds[knob.code]?.max}
-                  deltaRubPerM={premium.applies ? knob.delta_rub_per_m : null}
-                  inactive={!premium.applies}
-                  onChange={(value) => setOverride(knob.code, value)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }

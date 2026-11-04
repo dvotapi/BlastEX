@@ -485,7 +485,7 @@ export function drillingSensitivityFixture(options: { applies?: boolean } = {}):
       drillingKnobFixture({ code: "TECH_SPEED", label: "Техническая скорость станка", unit: "м/ч", base_value: 12, delta_rub_per_m: -40 }),
       drillingKnobFixture({ code: "DIESEL_PRICE", label: "Цена дизельного топлива", unit: "₽/т", base_value: 52200, delta_rub_per_m: 36 }),
       drillingKnobFixture({ code: "RIG_PLAN_SHIFTS", label: "Плановые смены станка", unit: "см/мес", base_value: 40, draft_param: true, delta_rub_per_m: -30 }),
-      drillingKnobFixture({ code: "CREW_SCALE", label: "Численность экипажа", unit: "×", base_value: 1, delta_rub_per_m: 20 }),
+      drillingKnobFixture({ code: "HAMMER_LIFE", label: "Стойкость ППУ", unit: "м", base_value: 4000, delta_rub_per_m: 20 }),
       drillingKnobFixture({ code: "BIT_LIFE", label: "Стойкость коронки", unit: "м", base_value: 700, delta_rub_per_m: -10 }),
     ],
     premium: {

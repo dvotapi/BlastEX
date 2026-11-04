@@ -56,7 +56,7 @@ class PositionPayload(ReferencePayload):
     piece_unit: Decimal = UnitField(
         "ед.", title="За единиц драйвера", description="Расценка задаётся за столько единиц драйвера", default=Decimal("1"), ge=0
     )
-    per_diem_applies: bool = Field(default=True, title="Суточные и проживание", description="Начисляются суточные и проживание")
+    per_diem_applies: bool = Field(default=True, title="Суточные и проживание", description="Начисляются суточные, проживание и питание")
     # Методика ФОТ (TASK-010): нормы должности. Деньги — оклад, шкала, КПЭ —
     # живут в «Ставках персонала».
     department: Literal["DRILLING_BLASTING", "TRANSPORT", "WAREHOUSE", "MAINTENANCE"] | None = Field(

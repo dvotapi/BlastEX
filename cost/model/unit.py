@@ -15,6 +15,7 @@ from cost.model.inputs import (
     payload_number,
     payload_text,
 )
+from cost.model.labor import DRILLING_OPERATIONS
 from cost.v2.models import CostLayer, ReferenceItem
 
 
@@ -67,8 +68,18 @@ def compute(context: ModelContext) -> None:
         if monthly <= 0:
             continue
         category = payload_text(item, "category", "OTHER")
+        # Затрата, закреплённая за операцией (косвенный персонал бурения),
+        # несёт её код: так её доля попадает в себестоимость метра. Операции нет
+        # в пакете — затрата остаётся общей затратой юнита.
+        operation = payload_text(item, "operation_code")
+        if operation and not context.has_operation(operation):
+            operation = ""
+        # Бурение на субподряде: свой участок бурения на блоке не работает, его
+        # персонал — общая затрата юнита, а не часть цены метра подрядчика.
+        if operation in DRILLING_OPERATIONS and context.params.drilling_executor == "SUBCONTRACTOR":
+            operation = ""
         context.add_line(
-            operation_code="",
+            operation_code=operation,
             cost_item_code=f"UNIT_{item.code}",
             cost_item_name=f"{CATEGORY_NAMES.get(category, category)}: {item.name}",
             layer=CostLayer.PRODUCTION,

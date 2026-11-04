@@ -60,7 +60,7 @@ function ringArcPath(outer: number, inner: number, startDeg: number, endDeg: num
  * вырожденный случай: дуга «в саму себя» не рисуется ни в одном SVG-движке
  * и даёт пустой контур, поэтому полный круг делится на два полукольца.
  */
-function ringSegmentPath(outer: number, inner: number, startDeg: number, endDeg: number): string {
+export function ringSegmentPath(outer: number, inner: number, startDeg: number, endDeg: number): string {
   if (endDeg - startDeg >= 360 * FULL_CIRCLE_SHARE) {
     const midDeg = startDeg + 180;
     return `${ringArcPath(outer, inner, startDeg, midDeg)} ${ringArcPath(outer, inner, midDeg, endDeg)}`;

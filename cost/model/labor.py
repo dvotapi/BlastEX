@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_CEILING
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from cost.model.inputs import (
     ModelContext,
@@ -150,10 +150,22 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
     # у строки есть и норма, и цена — как у любой другой статьи сметы.
     per_diem_shifts = Decimal("0")
 
+    # Человеко-смены на вахте по операциям: проживание и питание положены и
+    # должностям методики ФОТ, хотя их ФОТ считает `block_payroll`.
+    camp_shifts: dict[str, Decimal] = {}
+
     for position_code, headcount, manual_shifts in crew_members(context):
         if position_code in context.payroll_positions:
             # Должность уже посчитана методикой ФОТ (`block_payroll`): вторая
             # строка, взносы и суточные на неё дали бы двойной ФОТ (Т4).
+            # Проживание и питание — не ФОТ: смены и людей в смене берём из методики.
+            position = context.item("positions", position_code)
+            if position is not None and on_watch(context, position):
+                operation_code = payload_text(position, "operation_code")
+                quantity = context.values.get(f"crew_shifts.{position_code}", Decimal("0")) * context.values.get(
+                    f"crew_per_shift.{position_code}", Decimal("0")
+                )
+                camp_shifts[operation_code] = camp_shifts.get(operation_code, Decimal("0")) + quantity
             continue
         position = context.item("positions", position_code)
         if position is None:
@@ -232,6 +244,8 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             quantity_origin="MANUAL" if manual_shifts is not None else "NORM",
         )
         accrued_total += accrued
+        if on_watch(context, position):
+            camp_shifts[operation_code] = camp_shifts.get(operation_code, Decimal("0")) + shifts * per_shift
         charge = _per_diem(context, position, shifts, per_shift)
         per_diem_total += charge
         if charge > 0:
@@ -282,12 +296,11 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         context.add_line(
             operation_code="",
             cost_item_code="LABOR_PER_DIEM",
-            cost_item_name="Суточные и проживание",
+            cost_item_name="Суточные",
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=per_diem_total,
             formula=(
-                f"{formula_number(per_diem_shifts)} чел·см × "
-                f"({formula_number(context.rates.per_diem_rub)} + {formula_number(context.rates.lodging_rub)}) ₽"
+                f"{formula_number(per_diem_shifts)} чел·см × {formula_number(context.rates.per_diem_rub)} ₽"
             ),
             section="PER_DIEM",
             quantity=per_diem_shifts,
@@ -299,6 +312,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             quantity_origin="CALC",
             price_origin="REFERENCE",
         )
+    _camp_lines(context, camp_shifts)
 
     return tuple(results)
 
@@ -498,19 +512,67 @@ def _piece_amount(
 
 
 def per_diem_rate(context: ModelContext) -> Decimal:
-    """Суточные и проживание на одну человеко-смену: ставка одна на всех."""
+    """Суточные на одну человеко-смену: ставка одна на всех."""
 
-    return context.rates.per_diem_rub + context.rates.lodging_rub
+    return context.rates.per_diem_rub
+
+
+def camp_rate(context: ModelContext) -> Decimal:
+    """Проживание и питание на одну человеко-смену: ставки одни на всех."""
+
+    return context.rates.lodging_rub + context.rates.meals_rub
+
+
+def on_watch(context: ModelContext, position: ReferenceItem) -> bool:
+    """Должности положены суточные, проживание и питание: флаг должности и вахтовый объект."""
+
+    if not bool(position.payload.get("per_diem_applies", True)):
+        return False
+    return context.site is not None and bool(context.site.payload.get("is_remote", False))
 
 
 def _per_diem(
     context: ModelContext, position: ReferenceItem, shifts: Decimal, per_shift: Decimal
 ) -> Decimal:
-    if not bool(position.payload.get("per_diem_applies", True)):
-        return Decimal("0")
-    if context.site is None or not bool(context.site.payload.get("is_remote", False)):
+    if not on_watch(context, position):
         return Decimal("0")
     per_shift_rate = per_diem_rate(context)
     if per_shift_rate <= 0:
         return Decimal("0")
     return shifts * per_shift * per_shift_rate
+
+
+def _camp_lines(context: ModelContext, person_shifts: Mapping[str, Decimal]) -> None:
+    """Проживание и питание — строкой на операцию, где работают люди.
+
+    Это не ФОТ: взносы на них не начисляются, и при методике ФОТ они не
+    входят в затраты компании по `payroll_month` (там только суточные как
+    вахтовая надбавка). Поэтому строка одна для обоих источников ФОТ, а
+    операция строки относит долю экипажа станка к бурению — в цену метра.
+    """
+
+    rate = camp_rate(context)
+    if rate <= 0:
+        return
+    for operation_code, quantity in person_shifts.items():
+        if quantity <= 0:
+            continue
+        operation = context.item("operations", operation_code) if operation_code else None
+        name = operation.name if operation is not None else (operation_code or "бригада")
+        context.add_line(
+            operation_code=operation_code,
+            cost_item_code=f"CAMP_{operation_code or 'CREW'}",
+            cost_item_name=f"Проживание и питание: {name}",
+            layer=CostLayer.PROJECT_DIRECT,
+            amount_rub=quantity * rate,
+            formula=(
+                f"{formula_number(quantity)} чел·см × "
+                f"({formula_number(context.rates.lodging_rub)} + {formula_number(context.rates.meals_rub)}) ₽"
+            ),
+            section="PER_DIEM",
+            quantity=quantity,
+            unit="чел·см",
+            unit_price_rub=rate,
+            quantity_origin="CALC",
+            price_origin="REFERENCE",
+        )

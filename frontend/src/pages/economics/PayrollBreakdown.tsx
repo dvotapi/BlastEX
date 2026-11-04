@@ -15,7 +15,15 @@ function ShareRow({ title, point, who }: { title: string; point: PayrollSharePoi
 }
 
 /** ФОТ экипажа бурения по методике: свёрнут до цены метра и доли в марже. */
-export function PayrollBreakdown({ payroll }: { payroll: BlockPayroll }) {
+export function PayrollBreakdown({
+  payroll,
+  showPrice = true,
+}: {
+  payroll: BlockPayroll;
+  /** Цена метра «с надбавками» в свёрнутой строке. На «Бурении» не показывается:
+   * рядом стоит себестоимость метра, и две разные «цены метра» путаются. */
+  showPrice?: boolean;
+}) {
   const view = shareView(payroll.margin);
   const { margin, pace } = payroll;
   const checked = margin.status === "CHECKED";
@@ -28,7 +36,7 @@ export function PayrollBreakdown({ payroll }: { payroll: BlockPayroll }) {
     <details className="panel payroll-breakdown">
       <summary className="payroll-summary">
         <b>ФОТ по методике</b>
-        {payroll.price_rub_per_m != null && <span className="payroll-summary-price">{money(payroll.price_rub_per_m)} ₽/м</span>}
+        {showPrice && payroll.price_rub_per_m != null && <span className="payroll-summary-price">{money(payroll.price_rub_per_m)} ₽/м</span>}
         <span className={`payroll-share payroll-share-${view.tone}`}>{indicator}</span>
         <OriginBadge origin="PAYROLL" />
       </summary>

@@ -426,6 +426,10 @@ class BlockEconomics:
     # Блок «ФОТ по методике» (`block_margin.to_dict`): темп, строки экипажа,
     # цена метра и доля в марже. None — режим ставок, субподряд или откат на ставки.
     payroll: dict[str, Any] | None = None
+    # Строки самой модели бурения (`drilling.compute`, из них сложен
+    # `drilling_rub_per_m`): по ним панель цены метра отличает слагаемые станка
+    # от строк правил затрат с той же статьёй. В `to_dict` не попадают.
+    drilling_lines: tuple[CostLine, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -456,6 +460,7 @@ class OrganizationRates:
     vat_rate: Decimal = Decimal("0.20")
     per_diem_rub: Decimal = Decimal("0")
     lodging_rub: Decimal = Decimal("0")
+    meals_rub: Decimal = Decimal("0")
     shift_hours: Decimal = Decimal("11")
 
     @classmethod
@@ -483,6 +488,7 @@ class OrganizationRates:
             vat_rate=decimal_value(payload.get("vat_rate"), defaults.vat_rate),
             per_diem_rub=decimal_value(payload.get("per_diem_rub"), defaults.per_diem_rub),
             lodging_rub=decimal_value(payload.get("lodging_rub"), defaults.lodging_rub),
+            meals_rub=decimal_value(payload.get("meals_rub"), defaults.meals_rub),
             shift_hours=decimal_value(payload.get("shift_hours"), defaults.shift_hours),
         )
 
@@ -555,9 +561,13 @@ class ModelContext:
             return None
         return self.references.item(section, code)
 
-    def _first(self, section: str) -> ReferenceItem | None:
+    def first(self, section: str) -> ReferenceItem | None:
+        """Первая действующая запись раздела — так читаются одиночные разделы (ставки организации)."""
+
         items = self.items(section)
         return items[0] if items else None
+
+    _first = first
 
     # --- натуральные величины ---------------------------------------
 

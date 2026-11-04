@@ -37,8 +37,10 @@ from pydantic import ValidationError
 from cost.model import drilling, labor
 from cost.model.engine import compute_block_economics
 from cost.model.inputs import BlockEconomics, ModelContext, ModelParameters, payload_number, payload_text
-from cost.model.payroll import pays_by_meters
-from cost.model.payroll_inputs import _first_error, _labor_rate
+from cost.model.block_margin import _scale_dict
+from cost.model.payroll import Scale, pays_by_meters, scale_series
+from cost.model.payroll_inputs import _first_error, _labor_rate, _scale
+from cost.model import services, unit
 from cost.model.prices import price_lookup
 from cost.v2.models import ReferenceItem, ReferenceSnapshot, decimal_value
 from cost.v2.schemas.labor import LaborRatePayload
@@ -54,6 +56,67 @@ class WhatIfError(ValueError):
     """Подмена не применима: неизвестная ручка или шкала нарушает правила справочника."""
 
 
+# Статьи строк самой модели станка в порядке кольца. Выпуск на линию и
+# медосмотр — тоже строка модели, но это услуга сторонней организации: она
+# идёт в группу услуг.
+COMPONENT_LABELS: tuple[tuple[str, str], ...] = (
+    ("DRILL_TOOLING", "Оснастка"),
+    ("DRILL_FUEL", "ДТ"),
+    ("DRILL_SPARE_PARTS", "Запчасти"),
+    ("DRILL_DEPRECIATION", "Амортизация"),
+    ("DRILL_INSURANCE", "Страховка"),
+    ("DRILL_MAINTENANCE", "ТОиР"),
+)
+SERVICE_OWN_ITEMS = frozenset({"DRILL_INSPECTION"})
+# Группы прочих строк операций бурения, в порядке кольца после станка.
+SERVICES_COMPONENT = ("SERVICES", "Услуги сторонних организаций")
+CAMP_COMPONENT = ("CAMP", "Проживание и питание экипажа")
+CREW_COMPONENT = ("CREW_PAYROLL", "ФОТ экипажа")
+STAFF_COMPONENT = ("SITE_STAFF", "ФОТ ИТР и ремонтного персонала")
+UNIT_COMPONENT = ("UNIT_FIXED", "Прочие постоянные затраты участка")
+# Правило затрат со статьёй станка (доп. оснастка, доп. ДТ) — затрата станка,
+# а не услуга: своя группа, чтобы не выдавать её за работу подрядчика.
+RIG_RULES_COMPONENT = ("RIG_RULES", "Станок: затраты по правилам")
+_RIG_ITEMS = frozenset(code for code, _ in COMPONENT_LABELS)
+GROUPS = (RIG_RULES_COMPONENT, SERVICES_COMPONENT, CAMP_COMPONENT, CREW_COMPONENT, STAFF_COMPONENT, UNIT_COMPONENT)
+# Группы, где одна строка подстрокой не показывается: она и есть слагаемое.
+SINGLE_HIDDEN = frozenset({CREW_COMPONENT[0], CAMP_COMPONENT[0]})
+# Группы, чьи строки — ФОТ: «без ФОТ» их не содержит.
+PAYROLL_GROUPS = frozenset({CREW_COMPONENT[0], STAFF_COMPONENT[0]})
+_INDIRECT_LABOR_PREFIX = f"{unit.CATEGORY_NAMES['INDIRECT_LABOR']}: "
+
+
+@dataclass(frozen=True)
+class Component:
+    """Слагаемое стоимости метра: статья строк бурения или ФОТ экипажа, ₽/м."""
+
+    code: str
+    label: str
+    rub_per_m: Decimal
+    # Подстатьи слагаемого: у ФОТ экипажа — строки должностей операций бурения
+    # (по статье строки, в порядке строк блока; взносы и суточные лежат без
+    # операции и в цену метра не входят).
+    parts: tuple["Component", ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"code": self.code, "label": self.label, "rub_per_m": float(self.rub_per_m)}
+        if self.parts:
+            result["parts"] = [part.to_dict() for part in self.parts]
+        return result
+
+
+@dataclass(frozen=True)
+class PremiumCurve:
+    """Шкала премии машиниста с подменами и ряд графика r(m), p(m); темп — плановый, если методика применилась."""
+
+    scale: dict[str, Any]
+    series: list[dict[str, float]]
+    pace: Decimal | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"scale": self.scale, "series": self.series, "pace": _num(self.pace)}
+
+
 @dataclass(frozen=True)
 class Prices:
     """Две цены метра собственного бурения; None — бурение не посчитано (нет нормы, субподряд)."""
@@ -65,6 +128,10 @@ class Prices:
     # Методика ФОТ реально применилась (блок `payroll` в ответе есть).
     payroll_applied: bool
     warnings: tuple[str, ...] = ()
+    # Слагаемые метра для кольца; пусто, когда бурение не посчитано.
+    components: tuple[Component, ...] = ()
+    # Кривая премии машиниста (по шкале с подменами); None — шкалы нет.
+    premium_curve: PremiumCurve | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -74,6 +141,8 @@ class Prices:
             "payroll_source": self.payroll_source,
             "payroll_applied": self.payroll_applied,
             "warnings": list(self.warnings),
+            "components": [component.to_dict() for component in self.components],
+            "premium_curve": self.premium_curve.to_dict() if self.premium_curve is not None else None,
         }
 
 
@@ -116,6 +185,7 @@ class KnobRow:
             "base_value": float(knob.base),
             "source": knob.source,
             "draft_param": knob.draft_param,
+            "group": knob.group,
             "price_minus_rub_per_m": _num(self.price_minus),
             "price_plus_rub_per_m": _num(self.price_plus),
             "delta_rub_per_m": float(self.delta),
@@ -134,6 +204,8 @@ class Premium:
     # Шкала двигает цену метра только при методике ФОТ.
     applies: bool
     note: str = ""
+    # Режим «Методика ФОТ» выбран (своими силами); applies ещё сверяется с базовым прогоном.
+    mode_on: bool = False
 
 
 @dataclass(frozen=True)
@@ -160,38 +232,151 @@ class Sensitivity:
 # --- Цены ------------------------------------------------------------------
 
 
-def prices(result: BlockEconomics, params: ModelParameters) -> Prices:
-    """Две цены метра из посчитанного блока."""
+def prices(
+    result: BlockEconomics,
+    params: ModelParameters,
+    references: ReferenceSnapshot | None = None,
+    *,
+    premium_rate_code: str | None = None,
+) -> Prices:
+    """Две цены метра из посчитанного блока, слагаемые для кольца и кривая премии.
+
+    `premium_rate_code` — ставка машиниста (из `premium`): по ней из `references`
+    (уже с подменами) строится кривая шкалы.
+    """
 
     values = result.natural.values
     drilling_m = values.get("drilling_m", ZERO)
+    curve = _premium_curve(references, premium_rate_code, result)
     if params.drilling_executor != "OWN" or drilling_m <= 0 or values.get("rig_shifts", ZERO) <= 0:
-        return Prices(None, None, drilling_m, params.payroll_source, False, tuple(result.warnings))
-    without = values.get("drilling_rub_per_m", ZERO)
-    crew_rub = sum(
-        (
-            line.amount_rub
-            for line in result.lines
-            if line.operation_code in labor.DRILLING_OPERATIONS and line.cost_item_code.startswith("LABOR_")
-        ),
-        ZERO,
-    )
+        return Prices(None, None, drilling_m, params.payroll_source, False, tuple(result.warnings), premium_curve=curve)
+    # Себестоимость метра — все строки операций бурения, как цена метра листа
+    # «Расчёт» (`drilling_price`): станок, услуги и правила затрат, ФОТ экипажа
+    # и закреплённый за бурением персонал участка. Взносы и суточные лежат без
+    # операции и в неё не входят.
+    by_item: dict[str, Decimal] = {}
+    # Подстроки группы — по паре «статья, название»: два правила с одной статьёй
+    # (доп. оснастка и трал) — разные строки, а одна должность — одна строка.
+    groups: dict[str, dict[tuple[str, str], Decimal]] = {
+        code: {} for code, _ in GROUPS
+    }
+    # Слагаемые станка — только строки самой модели бурения (тождество объекта,
+    # как в `block_margin`): правило затрат с той же статьёй идёт отдельной
+    # группой «Станок: затраты по правилам», иначе `drilling_rub_per_m` и
+    # кольцо разошлись бы.
+    own = {id(line) for line in result.drilling_lines}
+    for line in result.lines:
+        if line.operation_code not in labor.DRILLING_OPERATIONS:
+            continue
+        if id(line) in own and line.cost_item_code not in SERVICE_OWN_ITEMS:
+            by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
+            continue
+        group, label = _group(line)
+        key = (line.cost_item_code, label)
+        groups[group][key] = groups[group].get(key, ZERO) + line.amount_rub
+    components = [
+        Component(code, label, by_item[code] / drilling_m) for code, label in COMPONENT_LABELS if by_item.get(code)
+    ]
+    payroll_rub = ZERO
+    total_rub = sum(by_item.values(), ZERO)
+    for code, label in GROUPS:
+        total = sum(groups[code].values(), ZERO)
+        if not total:
+            continue
+        total_rub += total
+        if code in PAYROLL_GROUPS:
+            payroll_rub += total
+        parts = tuple(
+            Component(_part_code(item, index), name, amount / drilling_m)
+            for index, ((item, name), amount) in enumerate(groups[code].items())
+            if amount
+        )
+        # У ФОТ экипажа и проживания одна строка подстрокой не показывается — она и есть
+        # слагаемое; услуги и персонал участка называются подстроками всегда.
+        if code in SINGLE_HIDDEN and len(parts) < 2:
+            parts = ()
+        components.append(Component(code, label, total / drilling_m, parts))
     return Prices(
-        without_payroll=without,
-        with_payroll=without + crew_rub / drilling_m,
+        without_payroll=(total_rub - payroll_rub) / drilling_m,
+        with_payroll=total_rub / drilling_m,
         drilling_m=drilling_m,
         payroll_source=params.payroll_source,
         payroll_applied=result.payroll is not None,
         warnings=tuple(result.warnings),
+        components=tuple(components),
+        premium_curve=curve,
     )
 
 
-def _run(inputs: Inputs, lineage: Mapping[str, str], *, passport_name: str, as_of: date | None) -> Prices:
+def _part_code(item_code: str, index: int) -> str:
+    """Код подстроки: статья и порядковый номер — у двух правил статья бывает одна."""
+
+    return f"{item_code}#{index}"
+
+
+def _group(line: Any) -> tuple[str, str]:
+    """Группа кольца и подпись подстроки для строки операции бурения, кроме строк станка."""
+
+    if line.cost_item_code.startswith("LABOR_"):
+        return CREW_COMPONENT[0], _part_label(line.cost_item_name)
+    if line.cost_item_code.startswith("CAMP_"):
+        return CAMP_COMPONENT[0], line.cost_item_name
+    if line.cost_item_code in _RIG_ITEMS:
+        return RIG_RULES_COMPONENT[0], line.cost_item_name
+    if line.cost_item_code.startswith("UNIT_"):
+        if line.cost_item_name.startswith(_INDIRECT_LABOR_PREFIX):
+            return STAFF_COMPONENT[0], line.cost_item_name.removeprefix(_INDIRECT_LABOR_PREFIX).strip()
+        return UNIT_COMPONENT[0], line.cost_item_name
+    return SERVICES_COMPONENT[0], line.cost_item_name
+
+
+def _part_label(name: str) -> str:
+    """«ФОТ: Машинист буровой установки» → «Машинист буровой установки»: подстрока уже под «ФОТ экипажа»."""
+
+    return name.removeprefix("ФОТ: ").strip() or name
+
+
+def _premium_curve(
+    references: ReferenceSnapshot | None, rate_code: str | None, result: BlockEconomics
+) -> PremiumCurve | None:
+    if references is None or not rate_code:
+        return None
+    item = references.item("labor_rates", rate_code)
+    if item is None:
+        return None
+    try:
+        scale = _scale(LaborRatePayload.model_validate(item.payload), f"labor_rates.{rate_code}")
+    except ValidationError:
+        return None
+    if scale is None:
+        return None
+    # Плановый темп есть только у применившейся методики; без него ряд — по узлам шкалы.
+    pace = decimal_value(result.payroll["pace"]["m_plan"]) if result.payroll is not None else None
+    return PremiumCurve(_scale_dict(scale) or {}, _curve_points(scale, pace), pace)
+
+
+def _curve_points(scale: Scale, pace: Decimal | None) -> list[dict[str, float]]:
+    """Те же точки, что `payroll.series` блока экономики (Т6): кривая одна — по которой считают премию."""
+
+    return [
+        {"pace": float(point.pace), "rate": float(point.rate), "per_shift": float(point.per_shift)}
+        for point in scale_series(scale, pace)
+    ]
+
+
+def _run(
+    inputs: Inputs,
+    lineage: Mapping[str, str],
+    *,
+    passport_name: str,
+    as_of: date | None,
+    premium_rate_code: str | None = None,
+) -> Prices:
     physical, params, references = inputs
     result = compute_block_economics(
         {"physical": physical, "lineage": dict(lineage)}, params, references, passport_name=passport_name, as_of=as_of
     )
-    return prices(result, params)
+    return prices(result, params, references, premium_rate_code=premium_rate_code)
 
 
 # --- Подмены ----------------------------------------------------------------
@@ -221,6 +406,20 @@ def _set_material_price(material_code: str) -> Setter:
             for item in references.sections.get("material_prices", ())
         )
         return physical, params, replace(references, sections={**references.sections, "material_prices": updated})
+
+    return setter
+
+
+def _set_service(code: str) -> Setter:
+    """Сумма ручной услуги вкладки по её коду: подмена в параметрах прогона, черновик не меняется."""
+
+    def setter(inputs: Inputs, value: Decimal) -> Inputs:
+        physical, params, references = inputs
+        charges = tuple(
+            replace(charge, amount_rub=value) if services.service_code(charge.name) == code else charge
+            for charge in params.services
+        )
+        return physical, replace(params, services=charges), references
 
     return setter
 
@@ -353,6 +552,22 @@ def knobs(
                 draft_param=True,
             )
         )
+    if rig_type is not None:
+        for field_name, label in (("inspection_rub_per_shift", "Выпуск на линию"), ("medical_rub_per_shift", "Медосмотр")):
+            value = payload_number(rig_type, field_name)
+            if value > 0:
+                result.append(
+                    Knob(
+                        f"RIG_{field_name.upper()}",
+                        label,
+                        "₽/см",
+                        value,
+                        f"equipment_types.{rig_type.code}.{field_name}",
+                        _set_reference("equipment_types", rig_type.code, field_name),
+                        group=SITE_GROUP,
+                    )
+                )
+    result.extend(_site_knobs(context, params))
     if context.site is not None and payload_number(context.site, "diesel_price_ton_rub") > 0:
         result.append(
             Knob(
@@ -364,17 +579,115 @@ def knobs(
                 _set_reference("sites", context.site.code, "diesel_price_ton_rub"),
             )
         )
-    result.append(
-        Knob(
-            "CREW_SCALE",
-            "Численность экипажа",
-            "×",
-            params.crew_scale,
-            "множитель людей в смене",
-            _set_param("crew_scale"),
-        )
-    )
     return tuple(result)
+
+
+SITE_GROUP = "site"
+# Ставки организации на человеко-смену вахты: проживание и питание.
+CAMP_RATES: tuple[tuple[str, str, str], ...] = (
+    ("LODGING", "lodging_rub", "Проживание"),
+    ("MEALS", "meals_rub", "Питание"),
+)
+
+
+def _site_knobs(context: ModelContext, params: ModelParameters) -> list[Knob]:
+    """Ручки участка бурения: услуги, оклады ИТР и ремонтного персонала, проживание и питание.
+
+    Показываются всегда, а не по силе: их в смете видно отдельной группой, и
+    сметчик хочет покрутить каждую. Нулевая ставка — нет ручки: ±30 % от нуля —
+    тот же ноль.
+    """
+
+    knob_list: list[Knob] = []
+    for rule in context.items("cost_rules"):
+        if payload_text(rule, "operation_code") not in labor.DRILLING_OPERATIONS:
+            continue
+        rate = payload_number(rule, "rate_rub")
+        field_name, unit_label = ("rate_rub", "₽/ед.") if rate > 0 else ("fixed_rub", "₽ на блок")
+        value = rate if rate > 0 else payload_number(rule, "fixed_rub")
+        if value <= 0:
+            continue
+        knob_list.append(
+            Knob(
+                f"RULE:{rule.code}",
+                rule.name,
+                unit_label,
+                value,
+                f"cost_rules.{rule.code}.{field_name}",
+                _set_reference("cost_rules", rule.code, field_name),
+                group=SITE_GROUP,
+            )
+        )
+    seen_services: set[str] = set()
+    for charge in params.services:
+        if charge.operation_code not in labor.DRILLING_OPERATIONS or charge.amount_rub <= 0:
+            continue
+        # Код — по названию, как строка услуги в смете (`services.service_code`):
+        # номер в списке сдвигается при правке вкладки, и сохранённая подмена
+        # молча переехала бы на соседнюю услугу.
+        code = services.service_code(charge.name)
+        if code in seen_services:
+            continue
+        seen_services.add(code)
+        knob_list.append(
+            Knob(
+                f"SERVICE:{code}",
+                charge.name,
+                "₽/см" if charge.per_shift else "₽ на блок",
+                charge.amount_rub,
+                "услуга вкладки",
+                _set_service(code),
+                group=SITE_GROUP,
+            )
+        )
+    unit_code = payload_text(context.site, "production_unit_code")
+    seen: set[str] = set()
+    for item in context.items("unit_fixed_costs"):
+        if payload_text(item, "category") != "INDIRECT_LABOR":
+            continue
+        if payload_text(item, "operation_code") not in labor.DRILLING_OPERATIONS:
+            continue
+        item_unit = payload_text(item, "production_unit_code")
+        if payload_text(item, "scope", "UNIT") == "UNIT" and item_unit and item_unit != unit_code:
+            continue
+        position_code = payload_text(item, "position_code")
+        rate = next(
+            (row for row in context.items("labor_rates") if payload_text(row, "position_code") == position_code), None
+        )
+        salary = payload_number(rate, "fixed_monthly_rub") if rate is not None else ZERO
+        if rate is None or salary <= 0 or rate.code in seen:
+            continue
+        seen.add(rate.code)
+        position = context.item("positions", position_code)
+        knob_list.append(
+            Knob(
+                f"STAFF:{rate.code}",
+                f"Оклад: {position.name if position is not None else item.name}",
+                "₽/мес",
+                salary,
+                f"labor_rates.{rate.code}.fixed_monthly_rub",
+                _set_reference("labor_rates", rate.code, "fixed_monthly_rub"),
+                group=SITE_GROUP,
+            )
+        )
+    rates_item = context.first("organization_rates")
+    remote = context.site is not None and bool(context.site.payload.get("is_remote", False))
+    if rates_item is not None and remote:
+        for code, field_name, label in CAMP_RATES:
+            value = payload_number(rates_item, field_name)
+            if value > 0:
+                knob_list.append(
+                    Knob(
+                        code,
+                        label,
+                        "₽/чел·см",
+                        value,
+                        f"organization_rates.{rates_item.code}.{field_name}",
+                        _set_reference("organization_rates", rates_item.code, field_name),
+                        group=SITE_GROUP,
+                    )
+                )
+    return knob_list
 
 
 PREMIUM_FIELDS: tuple[tuple[str, str, str, str], ...] = (
@@ -449,15 +762,35 @@ def premium(
                     )
                 )
         mode_on = params.payroll_source == "PAYROLL" and params.drilling_executor == "OWN"
-        applies = mode_on and payroll_applied is not False
-        if applies:
-            note = ""
-        elif mode_on:
-            note = "Методика ФОТ к экипажу не применилась (см. «Модель сообщает»): шкала премии цену не двигает."
-        else:
-            note = "Шкала премии действует только при источнике ФОТ «Методика ФОТ»."
-        return Premium(position_code, position.name, rate_item.code, scale_type, tuple(knob_list), applies, note)
+        premium_block = Premium(
+            position_code,
+            position.name,
+            rate_item.code,
+            scale_type,
+            tuple(knob_list),
+            applies=mode_on,
+            note="" if mode_on else _NOTE_RATES,
+            mode_on=mode_on,
+        )
+        return premium_block if payroll_applied is None else _with_applied(premium_block, payroll_applied)
     return None
+
+
+def _with_applied(block: Premium, payroll_applied: bool) -> Premium:
+    """Сверка с базовым прогоном: режим выбран, но методика откатилась на ставки — шкала не действует."""
+
+    applies = block.mode_on and payroll_applied
+    if applies:
+        note = ""
+    elif block.mode_on:
+        note = _NOTE_FALLBACK
+    else:
+        note = _NOTE_RATES
+    return replace(block, applies=applies, note=note)
+
+
+_NOTE_FALLBACK = "Методика ФОТ к экипажу не применилась (см. «Модель сообщает»): шкала премии цену не двигает."
+_NOTE_RATES = "Шкала премии действует только при источнике ФОТ «Методика ФОТ»."
 
 
 # Соседние поля кривой: (ручка, поле-ограничитель, зазор, «это верхняя граница»).
@@ -552,12 +885,17 @@ def compute(
     physical = _physical(snapshot)
     lineage = _lineage(snapshot)
     inputs: Inputs = (physical, params, references)
-    base = _run(inputs, lineage, passport_name=passport_name, as_of=as_of)
+    # Шкала читается один раз: `applies` зависит от базового прогона и ставится ниже.
+    scale = premium(params, references, physical)
+    base = _run(
+        inputs, lineage, passport_name=passport_name, as_of=as_of, premium_rate_code=scale.rate_code if scale else None
+    )
     rows = _rows(
         knobs(params, references, physical, as_of=as_of), inputs, lineage, passport_name=passport_name, as_of=as_of
     )
     rows.sort(key=lambda row: abs(row.delta), reverse=True)
-    scale = premium(params, references, physical, payroll_applied=base.payroll_applied)
+    if scale is not None:
+        scale = _with_applied(scale, base.payroll_applied)
     # Недействующая шкала цену не двигает: прогоны ±10 % были бы холостыми.
     premium_rows = (
         _rows(
@@ -584,11 +922,15 @@ def apply_overrides(
     overrides: Mapping[str, Decimal],
     *,
     as_of: date | None = None,
+    scale: Premium | None = None,
 ) -> Inputs:
-    """Абсолютные значения ручек поверх снимка; неизвестная ручка или кривая шкала — `WhatIfError`."""
+    """Абсолютные значения ручек поверх снимка; неизвестная ручка или кривая шкала — `WhatIfError`.
+
+    `scale` — уже прочитанная шкала премии (из `what_if`), чтобы не читать её второй раз.
+    """
 
     known = {knob.code: knob for knob in knobs(params, references, physical, as_of=as_of)}
-    scale = premium(params, references, physical)
+    scale = scale if scale is not None else premium(params, references, physical)
     if scale is not None:
         known.update({knob.code: knob for knob in scale.knobs})
     inputs: Inputs = (_physical({"physical": physical}), params, references)
@@ -623,9 +965,11 @@ def what_if(
 
     physical = _physical(snapshot)
     lineage = _lineage(snapshot)
-    base = _run((physical, params, references), lineage, passport_name=passport_name, as_of=as_of)
-    changed = apply_overrides(params, references, physical, overrides, as_of=as_of)
-    return base, _run(changed, lineage, passport_name=passport_name, as_of=as_of)
+    scale = premium(params, references, physical)
+    rate_code = scale.rate_code if scale is not None else None
+    base = _run((physical, params, references), lineage, passport_name=passport_name, as_of=as_of, premium_rate_code=rate_code)
+    changed = apply_overrides(params, references, physical, overrides, as_of=as_of, scale=scale)
+    return base, _run(changed, lineage, passport_name=passport_name, as_of=as_of, premium_rate_code=rate_code)
 
 
 def _num(value: Decimal | None) -> float | None:

@@ -466,16 +466,21 @@
 .payroll-chart-swatch-rate { border-top-style:solid; }
 
 /* Страница «Бурение»: зарплата экипажа и сводка блока */
-.drilling-block-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:0 0 14px; }
-.drilling-block-facts > div { padding:10px 12px; border:1px solid #dce4e0; border-radius:12px; background:#fff; }
-.drilling-block-facts dt { margin:0 0 4px; color:#78857f; font-size:11px; }
-.drilling-block-facts dd { margin:0; font-size:15px; font-weight:var(--font-weight-strong); }
-.drilling-payroll { padding:12px 14px; margin-bottom:14px; }
-.drilling-payroll h3 { margin:0 0 6px; font-size:15px; }
-.drilling-payroll-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px 16px; margin:8px 0; }
-.drilling-payroll-facts dt { color:#78857f; font-size:11px; }
-.drilling-payroll-facts dd { margin:2px 0 0; font-size:13px; }
-.drilling-payroll-hint { grid-column:1 / -1; margin:4px 0 0; color:#5f7168; font-size:12px; }
+.drilling-topbar .topbar-selector > b.is-stale { color:#9aa8a1; }
+.drilling-reference-warnings { margin:0 0 8px; font-size:12px; color:#6e7c75; }
+.drilling-reference-warnings ul { margin:4px 0 0; padding-left:18px; }
+.drilling-topbar .rig-shifts-stale { font-weight:normal; }
+.drilling-rig-load { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:6px 24px; align-items:start; padding:8px 14px 10px; margin-bottom:10px; }
+.drilling-rig-load h3 { margin:0 0 4px; font-size:14px; cursor:help; }
+.drilling-rig-load .rig-shifts { max-width:560px; }
+.drilling-payroll-source { padding:0; gap:2px 16px; }
+.drilling-payroll-source legend { float:left; margin:0 6px 0 0; font-size:14px; color:inherit; }
+.drilling-payroll-source .labor-source-note { font-size:11px; color:#78857f; }
+.drilling-payroll-breakdown { grid-column:1 / -1; }
+.drilling-payroll-breakdown .payroll-breakdown { margin:0; border:0; border-top:1px solid #e6ece9; border-radius:0; box-shadow:none; }
+.drilling-payroll-breakdown .payroll-summary { padding:6px 0 0; }
+@media (max-width: 760px) { .drilling-rig-load { grid-template-columns:1fr; } }
+.drilling-rig-load p { margin:0; color:#5f7168; font-size:12px; }
 .drilling-save { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:0 0 14px; font-size:12px; color:#5f7168; }
 
 /* Бегунок плановых смен станка: карточка бурения и страница «Бурение» */
@@ -493,34 +498,78 @@
 .rig-shifts-effect.is-stale b { color:#9aa8a1; }
 .rig-shifts-stale { font-style:italic; }
 .drilling-card-fact-value .rig-shifts { flex:1 1 220px; }
-.drilling-rig-load { padding:12px 14px; margin-bottom:14px; }
-.drilling-rig-load h3 { margin:0 0 6px; font-size:15px; }
-.drilling-rig-load .rig-shifts { max-width:520px; }
 .drilling-price-drivers { padding:12px 14px; margin-bottom:14px; }
-.drilling-price-drivers h3 { margin:0 0 6px; font-size:15px; }
-.drilling-price-drivers h4 { margin:12px 0 6px; font-size:13px; color:#4f5d57; }
-.what-if-note { margin:0 0 10px; color:#78857f; font-size:12px; }
-.what-if-error { margin:0 0 10px; color:#b3261e; font-size:12px; }
-.what-if-prices { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:0 0 6px; }
-.what-if-prices > div { padding:10px 12px; border:1px solid #dce4e0; border-radius:12px; background:#fff; }
-.what-if-prices dt { margin:0 0 4px; color:#78857f; font-size:11px; }
-.what-if-prices dd { margin:0; font-size:15px; font-variant-numeric:tabular-nums; }
+.drilling-price-drivers h3 { margin:0; font-size:15px; }
+.drilling-price-drivers h4 { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin:10px 0 6px; font-size:13px; color:#4f5d57; }
+.what-if-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin-bottom:8px; }
+.what-if-note { color:#78857f; font-size:11px; }
+.what-if-group-note { font-weight:normal; color:#78857f; font-size:11px; }
+.what-if-error { margin:0 0 8px; color:#b3261e; font-size:12px; }
+.what-if-overview { display:grid; grid-template-columns:minmax(300px,1fr) minmax(320px,1fr); grid-template-rows:auto 1fr; gap:8px 12px; align-items:start; }
+.what-if-overview .premium-curve { grid-column:2; grid-row:1 / span 2; }
+/* После правила широкого экрана: при равной специфичности побеждает последнее. */
+@media (max-width: 760px) { .what-if-overview { grid-template-columns:1fr; } .what-if-overview .premium-curve { grid-column:1; grid-row:auto; } }
+.what-if-prices { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:0; }
+.what-if-prices > div { padding:8px 10px; border:1px solid #dce4e0; border-radius:10px; background:#fff; }
+.what-if-prices dt { margin:0 0 2px; color:#78857f; font-size:11px; }
+.what-if-prices dd { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; margin:0; font-size:15px; font-variant-numeric:tabular-nums; }
 .what-if-prices.is-stale b { color:#9aa8a1; }
-.what-if-stale { font-style:italic; font-size:12px; color:#78857f; }
-.what-if-delta { font-size:12px; color:#4f5d57; }
-.what-if-group { display:grid; gap:10px; max-width:560px; }
-.what-if-premium { margin-top:4px; }
-.what-if-knob { display:grid; gap:4px; padding:8px 10px; border:1px solid #e4ebe7; border-radius:10px; background:#fbfcfb; }
-.what-if-knob.is-changed { border-color:#9fc2b1; background:#f3faf6; }
-.what-if-knob.is-inactive { opacity:0.7; }
-.what-if-knob.is-draft { background:#f6f7f6; }
-.what-if-knob-head { display:flex; justify-content:space-between; gap:10px; font-size:13px; }
-.what-if-knob-label { font-weight:var(--font-weight-strong); }
-.what-if-knob-effect { color:#4f5d57; font-variant-numeric:tabular-nums; white-space:nowrap; }
-.what-if-knob-row { display:flex; align-items:center; gap:10px; }
-.what-if-knob-row input[type="range"] { flex:1 1 120px; width:auto; min-width:100px; margin:0; padding:0; border:0; border-radius:1px; background:#d3dcd7; box-shadow:none; }
-.what-if-knob-value { min-width:96px; font-size:13px; font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; white-space:nowrap; }
-.what-if-knob-caption { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; color:#78857f; font-size:11px; }
-.what-if-knob-caption .link-button { font-size:11px; }
-.what-if-reset-all { margin-top:10px; font-size:12px; }
-.drilling-rig-load p { margin:6px 0 0; color:#5f7168; font-size:12px; }
+.what-if-overview .page-caption { grid-column:1 / -1; margin:0; font-size:11px; }
+.what-if-stale { font-style:italic; font-size:11px; color:#78857f; }
+.what-if-delta { font-size:11px; color:#4f5d57; }
+.price-donut { align-self:stretch; display:grid; grid-template-columns:170px minmax(0,1fr); gap:8px; align-items:center; margin:0; padding:8px 10px; border:1px solid #dce4e0; border-radius:10px; background:#fff; }
+.price-donut svg { width:170px; height:170px; }
+.price-donut .donut-part { cursor:default; }
+.price-donut-legend li.price-donut-part { padding-left:16px; color:#5f7168; font-size:10.5px; }
+.price-donut.is-stale svg { opacity:.6; }
+.price-donut-legend { list-style:none; margin:0; padding:0; display:grid; gap:1px; font-size:12px; }
+.price-donut-legend li { display:grid; grid-template-columns:8px minmax(0,1fr) auto auto; align-items:center; gap:6px; padding:1px 4px; border-radius:5px; }
+.price-donut-legend li.is-active { background:#eaf3ee; }
+.price-donut-legend .donut-legend-color { width:8px; height:8px; }
+@media (max-width: 760px) { .price-donut { grid-template-columns:1fr; justify-items:center; } .price-donut-legend { width:100%; } }
+.premium-curve { display:grid; gap:2px; margin:0; padding:6px 8px 4px; border:1px solid #dce4e0; border-radius:10px; background:#fff; }
+.premium-curve.is-inactive { opacity:.65; }
+.premium-curve-title { font-size:11px; color:#4f5d57; }
+.premium-curve svg { width:100%; height:auto; color:var(--ec-accent, #1f6a4a); font-size:9.5px; }
+.premium-curve .premium-curve-tick-shift { fill:#9a5a12; }
+.premium-curve text { fill:var(--ec-muted, #78857f); }
+.premium-curve-base { stroke:#9aa8a1; stroke-dasharray:4 3; }
+.premium-curve-pace-base { color:#9aa8a1; }
+.premium-curve-pace-base line { stroke:#9aa8a1; stroke-dasharray:none; }
+.premium-curve-legend { font-size:11px; gap:12px; }
+.premium-curve-swatch-base { border-top:2px dashed #9aa8a1; }
+/* Колонка списка — не уже полной строки ручки (дорожки 436 + зазоры 32 + поля 14 = 482 px);
+   уже — строка сама перестраивается в две строки по ширине своего списка (@container ниже). */
+.what-if-lists { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(490px,100%),1fr)); gap:8px 16px; margin-top:8px; align-items:start; }
+@media (max-width: 520px) { .what-if-lists { grid-template-columns:1fr; } }
+.what-if-group { display:grid; gap:4px; min-width:0; }
+.what-if-group h4 { margin:0; }
+.what-if-premium { min-width:0; }
+.what-if-site { grid-column:1 / -1; min-width:0; }
+.what-if-site .what-if-list { grid-template-columns:repeat(auto-fit,minmax(min(490px,100%),1fr)); column-gap:16px; }
+@media (max-width: 520px) { .what-if-site .what-if-list { grid-template-columns:1fr; } }
+.what-if-list { display:grid; gap:2px; container-type:inline-size; }
+.what-if-knob { border-radius:8px; }
+.what-if-row { display:grid; grid-template-columns:minmax(110px,1.1fr) 118px minmax(80px,1fr) 84px 44px; align-items:center; gap:8px; padding:3px 6px; border:1px solid transparent; font-size:12px; }
+.what-if-row:hover { background:#f6f9f7; }
+.what-if-row.is-changed { border-color:#9fc2b1; background:#f3faf6; }
+.what-if-row.is-inactive { opacity:0.7; }
+.what-if-row.is-draft { background:#f6f7f6; }
+.what-if-row input[type="range"] { width:100%; min-width:0; margin:0; padding:0; border:0; border-radius:1px; background:#d3dcd7; box-shadow:none; }
+.what-if-knob-label { display:grid; font-weight:var(--font-weight-strong); line-height:1.2; }
+.what-if-knob-sub { font-weight:normal; color:#78857f; font-size:10px; }
+.what-if-knob-effect { display:grid; gap:2px; color:#4f5d57; font-size:10.5px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.what-if-bar { position:relative; display:block; height:4px; border-radius:2px; background:#e8eeea; }
+.what-if-bar i { position:absolute; top:0; bottom:0; border-radius:2px; }
+.what-if-bar i.is-up { background:#c2603f; }
+.what-if-bar i.is-down { background:#1f7a5c; }
+.what-if-knob-value { font-size:12px; font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; }
+.what-if-knob-reset { font-size:10px; text-align:right; }
+.what-if-knob-note { grid-column:3 / -1; color:#78857f; font-size:10.5px; line-height:1.2; }
+@container (max-width: 489px) {
+  .what-if-row { grid-template-columns:1fr auto; row-gap:2px; }
+  .what-if-row .what-if-knob-effect { grid-column:2; grid-row:1; }
+  .what-if-row input[type="range"] { grid-column:1 / 2; }
+  .what-if-knob-note { grid-column:1 / -1; }
+}
+.what-if-reset-all { font-size:11px; }

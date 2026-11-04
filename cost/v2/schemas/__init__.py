@@ -103,7 +103,7 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
             "vacation_reserve_rate", "salary_basis", "extra_tariffs",
         )),
         ("Надбавки", ("overhead_rate", "target_margin_rate", "vat_rate")),
-        ("Вахта и смена", ("per_diem_rub", "lodging_rub", "shift_hours")),
+        ("Вахта и смена", ("per_diem_rub", "lodging_rub", "meals_rub", "shift_hours")),
     ),
     "equipment_types": (
         ("Вид и загрузка", ("kind", "operation_code", "norm_shifts_per_month")),

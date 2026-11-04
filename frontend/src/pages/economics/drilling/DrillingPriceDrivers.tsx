@@ -3,8 +3,9 @@
  *
  * Сервер (`POST /economics/block-economics/drilling-sensitivity`) ранжирует
  * ручки цены метра по эффекту ±10 % и отдаёт шкалу сдельной премии машиниста;
- * панель показывает четыре самых сильных ручки и всегда — блок «Премия
- * машинистов», у каждой бегунок «что если» (`WhatIfSlider`). Пробные значения
+ * панель показывает четыре самых сильных ручки станка, все ручки участка
+ * бурения (услуги, оклады ИТР и ремонтного персонала, проживание и питание) и
+ * всегда — блок «Премия машинистов», у каждой бегунок «что если» (`WhatIfSlider`). Пробные значения
  * живут в состоянии панели и уходят только в
  * `POST /economics/block-economics/drilling-what-if`, который подменяет их в
  * памяти запроса: ни черновик, ни справочники не меняются, уход со страницы
@@ -12,8 +13,11 @@
  * бегунком «Загрузка станка», поэтому в ранжировании они показываются, а
  * пробного бегунка у них нет.
  *
- * Цены — себестоимость метра (без ОХР и рентабельности), как «Стоимость
- * 1 п.м.» на странице: без ФОТ (строки станка) и с ФОТ экипажа бурения.
+ * Цены — себестоимость метра (без ОХР и рентабельности) по всем строкам
+ * операций бурения, как цена метра листа «Расчёт»: с ФОТ (экипажа и
+ * закреплённого за бурением персонала участка) и без него.
+ * Рядом — кольцо слагаемых метра (`DrillingPriceDonut`) и график шкалы премии
+ * (`PremiumCurveChart`); оба следуют за пробными значениями.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../api/endpoints";
@@ -24,8 +28,10 @@ import type {
   DrillingWhatIf,
   ModelParameters,
 } from "../../../types/blockEconomics";
-import { money } from "../format";
-import { WhatIfSlider, effectText } from "./WhatIfSlider";
+import { amount, money } from "../format";
+import { DrillingPriceDonut } from "./DrillingPriceDonut";
+import { PremiumCurveChart, rateAt } from "./PremiumCurveChart";
+import { EffectCell, WhatIfSlider, effectText } from "./WhatIfSlider";
 
 /** Сколько самых сильных ручек показывать, не считая премии. */
 export const TOP_KNOBS = 4;
@@ -173,90 +179,149 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
   const hasOverrides = Object.keys(overrides).length > 0;
   // Черновик изменился, ответ ранжирования ещё не пришёл — цены на экране от прежних параметров.
   const stale = whatIfBusy || rankingBusy;
-  const top = (ranking?.knobs ?? []).slice(0, TOP_KNOBS);
+  const top = (ranking?.knobs ?? []).filter((knob) => knob.group !== "site").slice(0, TOP_KNOBS);
+  // Ручки участка — все, по силе: услуги, оклады ИТР и ремонтного персонала, проживание и питание.
+  const site = (ranking?.knobs ?? []).filter((knob) => knob.group === "site");
   const premium = ranking?.premium ?? null;
+  // Скорость станка двигает плановый темп машиниста, а с ним ставку шкалы: подпись у ручки.
+  const paceSub = (() => {
+    const curve = shown?.premium_curve;
+    if (!premium?.applies || !curve || curve.pace === null) return undefined;
+    const moved = base?.premium_curve?.pace != null && Math.abs(base.premium_curve.pace - curve.pace) >= 0.05;
+    const paceText = moved ? `${amount(base!.premium_curve!.pace!)} → ${amount(curve.pace)}` : amount(curve.pace);
+    return `темп машиниста ${paceText} прив. м/см · ${amount(rateAt(curve, curve.pace), 1)} ₽/прив. м`;
+  })();
+  // Масштаб полосок один на оба списка: длины ручек и премии сравнимы между собой.
+  const barScale = Math.max(
+    0,
+    ...top.map((knob) => Math.abs(knob.delta_rub_per_m) / 2),
+    ...site.map((knob) => Math.abs(knob.delta_rub_per_m) / 2),
+    ...(premium?.applies ? premium.knobs.map((knob) => Math.abs(knob.delta_rub_per_m ?? 0) / 2) : []),
+  );
 
   return (
     <section className="panel drilling-price-drivers" aria-label="Что двигает цену метра">
-      <h3>Что двигает цену метра</h3>
-      <p className="what-if-note">
-        Пробные значения: в смету и справочники не пишутся. Бегунки показывают, как цена метра отзывается на самые
-        сильные ручки; при уходе со страницы всё возвращается к справочнику.
-      </p>
+      <div className="what-if-head">
+        <h3>Что двигает цену метра</h3>
+        <span className="what-if-note">Пробные значения: в смету и справочники не пишутся, сбрасываются при уходе со страницы.</span>
+        {hasOverrides && (
+          <button type="button" className="link-button what-if-reset-all" onClick={() => setOverrides({})}>
+            Вернуть все к справочнику
+          </button>
+        )}
+      </div>
       {error && (
         <p className="what-if-error" role="alert">
           {error}
         </p>
       )}
-      <dl className={`what-if-prices${stale ? " is-stale" : ""}`} aria-label="Цена метра">
-        <div>
-          <dt>Без ФОТ</dt>
-          <dd>
-            <b>{priceText(shown?.without_payroll_rub_per_m)}</b>
-            {stale && <span className="what-if-stale"> считается…</span>}
-            {hasOverrides && !stale && (
-              <span className="what-if-delta"> {deltaText(shown?.without_payroll_rub_per_m, base?.without_payroll_rub_per_m)}</span>
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>С ФОТ экипажа</dt>
-          <dd>
-            <b>{priceText(shown?.with_payroll_rub_per_m)}</b>
-            {stale && <span className="what-if-stale"> считается…</span>}
-            {hasOverrides && !stale && (
-              <span className="what-if-delta"> {deltaText(shown?.with_payroll_rub_per_m, base?.with_payroll_rub_per_m)}</span>
-            )}
-          </dd>
-        </div>
-      </dl>
-      {ranking === null && !error && <p className="page-caption">Ранжирование ручек считается…</p>}
-      {ranking !== null && shown !== null && shown.without_payroll_rub_per_m === null && (
-        <p className="page-caption">Бурение не посчитано: нет нормы бурения у станка или метров бурения.</p>
-      )}
-      {top.length > 0 && (
-        <div className="what-if-group">
-          <h4>Самые сильные ручки</h4>
-          {top.map((knob) =>
-            knob.draft_param ? (
-              <div className="what-if-knob is-draft" key={knob.code} data-knob={knob.code}>
-                <div className="what-if-knob-head">
-                  <span className="what-if-knob-label">{knob.label}</span>
-                  <span className="what-if-knob-effect">{effectText(knob.delta_rub_per_m)}</span>
-                </div>
-                <div className="what-if-knob-caption">
-                  <span>Параметр черновика: меняется бегунком «Загрузка станка» выше.</span>
-                </div>
-              </div>
-            ) : (
-              <WhatIfSlider
-                key={knob.code}
-                code={knob.code}
-                label={knob.label}
-                unit={knob.unit}
-                base={knob.base_value}
-                value={overrides[knob.code] ?? null}
-                deltaRubPerM={knob.delta_rub_per_m}
-                onChange={(value) => setOverride(knob.code, value)}
-              />
-            ),
-          )}
-        </div>
-      )}
-      {ranking !== null && (
-        <div className="what-if-group what-if-premium">
-          <h4>Премия машинистов</h4>
-          {premium === null ? (
-            <p className="page-caption">
-              У экипажа бурения нет ставки со шкалой сдельной премии: заведите шкалу в «Ставках персонала».
-            </p>
-          ) : (
-            <>
+      <div className="what-if-overview">
+        <dl className={`what-if-prices${stale ? " is-stale" : ""}`} aria-label="Цена метра">
+          <div>
+            <dt title="Станок и услуги сторонних организаций">Без ФОТ</dt>
+            <dd>
+              <b>{priceText(shown?.without_payroll_rub_per_m)}</b>
+              {stale && <span className="what-if-stale"> считается…</span>}
+              {hasOverrides && !stale && (
+                <span className="what-if-delta">{deltaText(shown?.without_payroll_rub_per_m, base?.without_payroll_rub_per_m)}</span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt title="ФОТ экипажа и ИТР и ремонтного персонала, закреплённого за бурением">С ФОТ</dt>
+            <dd>
+              <b>{priceText(shown?.with_payroll_rub_per_m)}</b>
+              {stale && <span className="what-if-stale"> считается…</span>}
+              {hasOverrides && !stale && (
+                <span className="what-if-delta">{deltaText(shown?.with_payroll_rub_per_m, base?.with_payroll_rub_per_m)}</span>
+              )}
+            </dd>
+          </div>
+        </dl>
+        {ranking === null && !error && <p className="page-caption">Ранжирование ручек считается…</p>}
+        {ranking !== null && shown !== null && shown.without_payroll_rub_per_m === null && (
+          <p className="page-caption">Бурение не посчитано: нет нормы бурения у станка или метров бурения.</p>
+        )}
+        {shown && shown.components.length > 0 && <DrillingPriceDonut components={shown.components} stale={stale} />}
+        {premium !== null && shown?.premium_curve && (
+          <PremiumCurveChart
+            current={shown.premium_curve}
+            base={base?.premium_curve ?? null}
+            positionName={premium.position_name}
+            inactive={!premium.applies}
+          />
+        )}
+      </div>
+      <div className="what-if-lists">
+        {top.length > 0 && (
+          <div className="what-if-group">
+            <h4>Самые сильные ручки</h4>
+            <div className="what-if-list">
+              {top.map((knob) =>
+                knob.draft_param ? (
+                  <div className="what-if-knob what-if-row is-draft" key={knob.code} data-knob={knob.code}>
+                    <span className="what-if-knob-label">{knob.label}</span>
+                    <EffectCell effect={effectText(knob.delta_rub_per_m)} deltaRubPerM={knob.delta_rub_per_m} barScale={barScale} />
+                    <span className="what-if-knob-note">Параметр черновика: меняется бегунком «Загрузка станка» выше.</span>
+                  </div>
+                ) : (
+                  <WhatIfSlider
+                    key={knob.code}
+                    code={knob.code}
+                    label={knob.label}
+                    unit={knob.unit}
+                    base={knob.base_value}
+                    value={overrides[knob.code] ?? null}
+                    deltaRubPerM={knob.delta_rub_per_m}
+                    barScale={barScale}
+                    sub={knob.code === "TECH_SPEED" ? paceSub : undefined}
+                    onChange={(value) => setOverride(knob.code, value)}
+                  />
+                ),
+              )}
+            </div>
+          </div>
+        )}
+        {ranking !== null && (
+          <div className="what-if-group what-if-premium">
+            <h4>
+              Премия машинистов
+              {premium !== null && <span className="what-if-group-note">{premium.applies ? `шкала ставки «${premium.position_name}»` : premium.note}</span>}
+            </h4>
+            {premium === null ? (
               <p className="page-caption">
-                Шкала ставки «{premium.position_name}»
-                {premium.applies ? "." : `. ${premium.note}`}
+                У экипажа бурения нет ставки со шкалой сдельной премии: заведите шкалу в «Ставках персонала».
               </p>
-              {premium.knobs.map((knob) => (
+            ) : (
+              <div className="what-if-list">
+                {premium.knobs.map((knob) => (
+                  <WhatIfSlider
+                    key={knob.code}
+                    code={knob.code}
+                    label={knob.label}
+                    unit={knob.unit}
+                    base={knob.base_value}
+                    value={overrides[knob.code] ?? null}
+                    min={bounds[knob.code]?.min}
+                    max={bounds[knob.code]?.max}
+                    deltaRubPerM={premium.applies ? knob.delta_rub_per_m : null}
+                    barScale={premium.applies ? barScale : undefined}
+                    inactive={!premium.applies}
+                    onChange={(value) => setOverride(knob.code, value)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {site.length > 0 && (
+          <div className="what-if-group what-if-site">
+            <h4>
+              Участок бурения
+              <span className="what-if-group-note">услуги, ФОТ ИТР и ремонтного персонала, проживание и питание</span>
+            </h4>
+            <div className="what-if-list">
+              {site.map((knob) => (
                 <WhatIfSlider
                   key={knob.code}
                   code={knob.code}
@@ -264,22 +329,15 @@ export function DrillingPriceDrivers({ passportId, params }: DrillingPriceDriver
                   unit={knob.unit}
                   base={knob.base_value}
                   value={overrides[knob.code] ?? null}
-                  min={bounds[knob.code]?.min}
-                  max={bounds[knob.code]?.max}
-                  deltaRubPerM={premium.applies ? knob.delta_rub_per_m : null}
-                  inactive={!premium.applies}
+                  deltaRubPerM={knob.delta_rub_per_m}
+                  barScale={barScale}
                   onChange={(value) => setOverride(knob.code, value)}
                 />
               ))}
-            </>
-          )}
-        </div>
-      )}
-      {hasOverrides && (
-        <button type="button" className="link-button what-if-reset-all" onClick={() => setOverrides({})}>
-          Вернуть все к справочнику
-        </button>
-      )}
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   );
 }

@@ -351,16 +351,8 @@ def _write(
 ) -> None:
     for message in payroll.pace.warnings:
         context.warn(message)
-    lodging = context.rates.lodging_rub
-    per_diem_crew = any(bool(item.position.payload.get("per_diem_applies", True)) for item in pending)
-    if context.site is not None and bool(context.site.payload.get("is_remote", False)) and lodging > 0 and per_diem_crew:
-        # Проживание — статья ставок (`labor._per_diem`), методика его не несёт:
-        # не начисляем, но и не теряем молча. Должности без суточных его и в
-        # ставках не получают — о них предупреждать не о чем.
-        context.warn(
-            f"Проживание экипажа бурения ({formula_number(lodging)} ₽/чел·см) в режиме «ФОТ по методике» "
-            "не начислено: методика учитывает только суточные/вахтовую надбавку."
-        )
+    # Проживание и питание экипажа — не ФОТ: их начисляет `labor` строкой
+    # операции бурения по сменам методики (`crew_shifts.*`, `crew_per_shift.*`).
     context.set_value("payroll_planned_pace", payroll.pace.pace, payroll.pace.lineage.get("planned_pace", ""))
     context.set_value("payroll_normalized_meters", payroll.normalized_meters, meters_source)
     context.set_value("payroll_effective_shifts", payroll.effective_shifts, effective_source)

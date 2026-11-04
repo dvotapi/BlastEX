@@ -122,7 +122,7 @@ class SitePayload(ReferencePayload):
     # Суточные и проживание начисляются только на вахтовом объекте: на
     # городском карьере бригада ночует дома, и норматив к ней не применяется.
     is_remote: bool = Field(
-        default=False, title="Вахтовый объект", description="Начисляются суточные и проживание"
+        default=False, title="Вахтовый объект", description="Начисляются суточные, проживание и питание"
     )
     # Вахта и оплата труда (TASK-010). Умолчания — график компании 15/15:
     # запись, заведённая до появления полей, считается по нему. Дни и смены
@@ -223,6 +223,11 @@ class OrganizationRatesPayload(ReferencePayload):
     )
     lodging_rub: Decimal = UnitField(
         "₽/чел-смена", description="Проживание", default=Decimal("0")
+    )
+    meals_rub: Decimal = UnitField(
+        "₽/чел-смена",
+        description="Питание на вахтовом объекте; вместе с проживанием идёт в затраты операции, где работает человек",
+        default=Decimal("0"),
     )
     shift_hours: Decimal = UnitField("ч", description="Продолжительность смены", default=Decimal("11"))
     extra_tariffs: list[ExtraTariff] = Field(

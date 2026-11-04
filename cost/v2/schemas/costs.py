@@ -98,6 +98,14 @@ class UnitFixedCostPayload(ReferencePayload):
     allocation_driver: str = Field(
         default="rock_volume_m3", title="Драйвер распределения", description="Драйвер распределения на блоки"
     )
+    operation_code: str | None = RefField(
+        "operations",
+        description=(
+            "Операция, которую обслуживает затрата: механик, мастер и слесарь буровых — «Бурение», "
+            "тогда их доля входит в себестоимость метра бурения. Пусто — затрата юнита в целом"
+        ),
+        default=None,
+    )
 
     @model_validator(mode="after")
     def _labor_needs_position(self) -> "UnitFixedCostPayload":

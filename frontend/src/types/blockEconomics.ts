@@ -282,6 +282,25 @@ export type DrillingPrices = {
   /** Методика ФОТ реально применилась к экипажу. */
   payroll_applied: boolean;
   warnings: string[];
+  /** Слагаемые метра для кольца: статьи строк бурения и ФОТ экипажа, ₽/м. */
+  components: DrillingComponent[];
+  /** Кривая премии машиниста по шкале с подменами; null — шкалы нет. */
+  premium_curve: DrillingPremiumCurve | null;
+};
+
+export type DrillingComponent = {
+  code: string;
+  label: string;
+  rub_per_m: number;
+  /** Подстатьи: у ФОТ экипажа — строки должностей. */
+  parts?: DrillingComponent[];
+};
+
+export type DrillingPremiumCurve = {
+  scale: PayrollScale;
+  series: PayrollSeriesPoint[];
+  /** Плановый темп блока; null — методика не применилась. */
+  pace: number | null;
 };
 
 /** Ручка цены метра: текущее значение справочника и эффект ±10 % на цену с ФОТ экипажа. */
@@ -293,6 +312,9 @@ export type DrillingKnob = {
   source: string;
   /** Настоящий параметр черновика (плановые смены): у него свой бегунок, «что если» не нужно. */
   draft_param: boolean;
+  /** «cost» — ранжируемые ручки станка; «site» — услуги, оклады ИТР и ремонтного персонала,
+   * проживание и питание: показываются все. Нет поля — «cost». */
+  group?: string;
   price_minus_rub_per_m: number | null;
   price_plus_rub_per_m: number | null;
   delta_rub_per_m: number;

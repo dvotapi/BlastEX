@@ -335,14 +335,19 @@ def test_a_driver_named_after_its_unit_is_labelled_without_a_table_entry() -> No
 
 
 def test_per_diem_counts_person_shifts_at_its_rate() -> None:
-    """Ставка суточных одна на всех, значит норма и цена у строки есть."""
+    """Ставка суточных одна на всех, значит норма и цена у строки есть; у проживания и питания — тоже."""
 
     result = compute()
 
     line = line_by_code(result, "LABOR_PER_DIEM")
     assert line.unit == "чел·см"
-    assert line.unit_price_rub == Decimal("2200")
+    assert line.unit_price_rub == Decimal("700")
     assert line.quantity * line.unit_price_rub == line.amount_rub
+    camp = [item for item in result.lines if item.cost_item_code.startswith("CAMP_")]
+    assert camp and all(item.unit_price_rub == Decimal("1500") for item in camp)
+    assert all(item.quantity * item.unit_price_rub == item.amount_rub for item in camp)
+    # Суточные и проживание — те же человеко-смены, разложенные по операциям.
+    assert sum((item.quantity for item in camp), Decimal("0")) == line.quantity
 
 
 @pytest.mark.parametrize("code", ["DRILL_FUEL", "DRILL_TOOLING", "VM_DELIVERY"])

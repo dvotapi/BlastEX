@@ -259,6 +259,7 @@ def _system_items() -> dict[str, tuple[ReferenceItem, ...]]:
                 "vat_rate": "0.20",
                 "per_diem_rub": "0",
                 "lodging_rub": "0",
+                "meals_rub": "0",
                 "shift_hours": "11",
             },
         ),

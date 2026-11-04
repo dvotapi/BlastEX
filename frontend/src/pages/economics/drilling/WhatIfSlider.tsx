@@ -75,6 +75,10 @@ export type WhatIfSliderProps = {
   /** Ручка не действует в этом режиме (шкала премии при ставках). */
   inactive?: boolean;
   disabled?: boolean;
+  /** Эффект самой сильной ручки списка, ₽/м (половина размаха): масштаб полоски. */
+  barScale?: number;
+  /** Подпись под названием: что ещё двигает ручка (темп машиниста у скорости). */
+  sub?: string;
   /** Новое пробное значение либо null — вернуть значение справочника. */
   onChange: (value: number | null) => void;
 };
@@ -90,6 +94,8 @@ export function WhatIfSlider({
   deltaRubPerM,
   inactive,
   disabled,
+  barScale,
+  sub,
   onChange,
 }: WhatIfSliderProps) {
   const committed = value ?? base;
@@ -161,35 +167,69 @@ export function WhatIfSlider({
   const effect = deltaRubPerM === undefined || deltaRubPerM === null ? null : effectText(deltaRubPerM);
 
   return (
-    <div className={`what-if-knob${changed ? " is-changed" : ""}${inactive ? " is-inactive" : ""}`} data-knob={code}>
-      <div className="what-if-knob-head">
-        <span className="what-if-knob-label">{label}</span>
-        {effect && <span className="what-if-knob-effect">{effect}</span>}
-      </div>
-      <div className="what-if-knob-row">
-        <input
-          type="range"
-          min={range.min}
-          max={range.max}
-          step={range.step}
-          value={sliderValue}
-          disabled={disabled}
-          aria-label={label}
-          aria-valuetext={formatKnobValue(shown, unit)}
-          onChange={(event) => handleMove(event.target.value)}
-          onPointerDown={hold}
-          onPointerUp={release}
-          onPointerCancel={release}
-          onBlur={release}
-        />
-        <output className="what-if-knob-value">{formatKnobValue(shown, unit)}</output>
-      </div>
-      <div className="what-if-knob-caption">
-        <span>справочник: {formatKnobValue(base, unit)}</span>
-        <button type="button" className="link-button" disabled={disabled || !changed} onClick={reset}>
+    <div
+      className={`what-if-knob what-if-row${changed ? " is-changed" : ""}${inactive ? " is-inactive" : ""}`}
+      data-knob={code}
+      title={`справочник ${formatKnobValue(base, unit)}`}
+    >
+      <span className="what-if-knob-label">
+        {label}
+        {sub && <small className="what-if-knob-sub">{sub}</small>}
+      </span>
+      <EffectCell effect={effect} deltaRubPerM={deltaRubPerM} barScale={barScale} />
+      <input
+        type="range"
+        min={range.min}
+        max={range.max}
+        step={range.step}
+        value={sliderValue}
+        disabled={disabled}
+        aria-label={label}
+        aria-valuetext={formatKnobValue(shown, unit)}
+        onChange={(event) => handleMove(event.target.value)}
+        onPointerDown={hold}
+        onPointerUp={release}
+        onPointerCancel={release}
+        onBlur={release}
+      />
+      <output className="what-if-knob-value">{formatKnobValue(shown, unit)}</output>
+      {changed ? (
+        <button type="button" className="link-button what-if-knob-reset" disabled={disabled} onClick={reset}>
           Вернуть
         </button>
-      </div>
+      ) : (
+        <span className="what-if-knob-reset" aria-hidden="true" />
+      )}
     </div>
+  );
+}
+
+/**
+ * Ячейка эффекта: текст «+10 %: …» и под ним полоска от середины — вправо цена
+ * растёт, влево падает; длина полосы — доля от самой сильной ручки списка.
+ */
+export function EffectCell({
+  effect,
+  deltaRubPerM,
+  barScale,
+}: {
+  effect: string | null;
+  deltaRubPerM?: number | null;
+  barScale?: number;
+}) {
+  const half = deltaRubPerM === undefined || deltaRubPerM === null ? 0 : deltaRubPerM / 2;
+  const share = barScale && barScale > 0 ? Math.min(1, Math.abs(half) / barScale) : 0;
+  return (
+    <span className="what-if-knob-effect">
+      {effect}
+      {effect && barScale ? (
+        <span className="what-if-bar" aria-hidden="true">
+          <i
+            className={half > 0 ? "is-up" : "is-down"}
+            style={{ width: `${share * 50}%`, left: half > 0 ? "50%" : `${50 - share * 50}%` }}
+          />
+        </span>
+      ) : null}
+    </span>
   );
 }

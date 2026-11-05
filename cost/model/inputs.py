@@ -487,6 +487,9 @@ class BlockEconomics:
     # отчисления…): панель цены метра раскладывает по ним ФОТ экипажа и ИТР.
     # В `to_dict` не попадают.
     payroll_parts: Mapping[str, tuple[PayrollPart, ...]] = field(default_factory=dict)
+    # Тождества (`id`) строк персонала, которым принадлежат статьи; строка
+    # правила затрат с той же статьёй сюда не входит.
+    payroll_lines: frozenset[int] = frozenset()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -587,6 +590,8 @@ class ModelContext:
         # Статьи ФОТ по статье строки должности `LABOR_<должность>`; у двух
         # строк одной должности (дважды в составе) — сумма статей обеих.
         self.payroll_parts: dict[str, tuple[PayrollPart, ...]] = {}
+        # Тождества строк персонала, к которым относятся статьи.
+        self.payroll_lines: set[int] = set()
         self.rates = OrganizationRates.from_item(self._first("organization_rates"))
         if self._first("organization_rates") is None:
             self.warn(
@@ -639,8 +644,15 @@ class ModelContext:
         self.lineage[key] = source
         return value
 
-    def add_payroll_parts(self, cost_item_code: str, parts: Iterable[PayrollPart]) -> None:
-        """Статьи ФОТ строки должности; вторая строка той же статьи складывается с первой."""
+    def add_payroll_parts(self, line: CostLine, parts: Iterable[PayrollPart]) -> None:
+        """Статьи ФОТ строки персонала; вторая строка той же статьи складывается с первой.
+
+        Строка запоминается по тождеству: правило затрат со статьёй
+        `LABOR_<должность>` — не строка персонала, и раскладка к нему не относится.
+        """
+
+        cost_item_code = line.cost_item_code
+        self.payroll_lines.add(id(line))
 
         amounts: dict[str, Decimal] = {part.code: part.amount_rub for part in self.payroll_parts.get(cost_item_code, ())}
         absorbs: dict[str, str] = {
@@ -679,7 +691,7 @@ class ModelContext:
         role_label: str | None = None,
         quantity_origin: ValueOrigin = "",
         price_origin: ValueOrigin = "",
-    ) -> None:
+    ) -> CostLine:
         self.lines.append(
             CostLine(
                 month="",
@@ -701,6 +713,7 @@ class ModelContext:
                 price_origin=price_origin,
             )
         )
+        return self.lines[-1]
 
     # --- пакет работ -------------------------------------------------
 

@@ -80,7 +80,7 @@ def compute(context: ModelContext) -> None:
         # персонал — общая затрата юнита, а не часть цены метра подрядчика.
         if operation in DRILLING_OPERATIONS and context.params.drilling_executor == "SUBCONTRACTOR":
             operation = ""
-        context.add_line(
+        line = context.add_line(
             operation_code=operation,
             cost_item_code=f"UNIT_{item.code}",
             cost_item_name=f"{CATEGORY_NAMES.get(category, category)}: {item.name}",
@@ -94,7 +94,7 @@ def compute(context: ModelContext) -> None:
         if labor is not None:
             # Статьи ФОТ косвенной должности — для раскладки в кольце цены метра.
             context.add_payroll_parts(
-                f"UNIT_{item.code}", payroll_parts({code: amount * share for code, amount in labor.items()})
+                line, payroll_parts({code: amount * share for code, amount in labor.items()})
             )
     _storage(context, share)
 

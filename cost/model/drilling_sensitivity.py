@@ -301,7 +301,7 @@ def prices(
     # Статьи одной должности сложены по всем её строкам — берём их один раз.
     seen: set[str] = set()
     for line in lines:
-        if line.cost_item_code in seen:
+        if id(line) not in result.payroll_lines or line.cost_item_code in seen:
             continue
         seen.add(line.cost_item_code)
         for part in result.payroll_parts.get(line.cost_item_code, ()):
@@ -322,7 +322,7 @@ def prices(
             continue
         group, label = _group(line, staff_items)
         key = (line.cost_item_code, label)
-        parts = result.payroll_parts.get(line.cost_item_code, ())
+        parts = result.payroll_parts.get(line.cost_item_code, ()) if id(line) in result.payroll_lines else ()
         if parts and group in (CREW_COMPONENT[0], STAFF_COMPONENT[0]):
             # Должность — сумма своих статей: строка ФОТ и доля строк операции.
             # Статьи двух строк одной должности уже сложены — вторую не считаем.

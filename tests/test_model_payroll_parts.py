@@ -218,3 +218,28 @@ def test_charge_rule_with_the_same_item_stays_whole_in_the_ring() -> None:
     lines = [line for line in result.lines if line.operation_code in ("PRODUCTION_DRILLING", "CONTOUR_DRILLING")]
     total = sum((line.amount_rub for line in lines), D("0")) / result.natural.values["drilling_m"]
     assert abs(prices.with_payroll - total) < EPS
+
+
+def test_rule_with_a_position_item_is_not_the_position_payroll() -> None:
+    """Правило затрат со статьёй `LABOR_<должность>` — своя строка: раскладка должности к нему не относится."""
+
+    rule = fx.item(
+        "RULE_DRILLER_BONUS",
+        "Разовая выплата бурильщику",
+        {
+            "operation_code": "PRODUCTION_DRILLING",
+            "cost_item_code": "LABOR_POS_DRILLER",
+            "behavior_type": "FIXED",
+            "cost_layer": "project_direct",
+            "fixed_rub": "5000",
+            "estimate_section": "DRILLING",
+        },
+    )
+    references = fx.references(cost_rules=(*fx.COST_RULES, rule))
+    params = fx.parameters()
+    result = compute_block_economics(fx.snapshot(), params, references)
+    assert len([line for line in result.lines if line.cost_item_code == "LABOR_POS_DRILLER"]) == 2
+    prices = ds.prices(result, params, references)
+    lines = [line for line in result.lines if line.operation_code in ("PRODUCTION_DRILLING", "CONTOUR_DRILLING")]
+    total = sum((line.amount_rub for line in lines), D("0")) / result.natural.values["drilling_m"]
+    assert abs(prices.with_payroll - total) < EPS

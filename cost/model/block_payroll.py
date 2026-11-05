@@ -426,7 +426,6 @@ def _write(
             context.warn(message)
         code = item.result.position_code
         context.payroll_positions.add(code)
-        context.add_payroll_parts(f"LABOR_{code}", item.parts)
         context.set_value(f"crew_shifts.{code}", item.shifts, f"смен на блок должности {code}")
         context.set_value(f"crew_per_shift.{code}", item.result.headcount, "человек в смене")
         if item.rotation is not None:
@@ -437,7 +436,7 @@ def _write(
                 f"{item.rotation.person_shifts} см человека⌉",
             )
         context.set_value(f"payroll_c_var.{code}", item.result.c_var_rub_per_reduced_m, item.c_var_source)
-        context.add_line(
+        line = context.add_line(
             operation_code=item.operation_code,
             cost_item_code=f"LABOR_{code}",
             cost_item_name=f"ФОТ: {item.position.name}",
@@ -450,6 +449,7 @@ def _write(
             quantity_origin="MANUAL" if item.manual else "NORM",
             price_origin="PAYROLL",
         )
+        context.add_payroll_parts(line, item.parts)
 
 
 # --- Приведённые метры блока -------------------------------------------------

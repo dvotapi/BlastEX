@@ -233,7 +233,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
                 f"{rotation.person_shifts} см человека⌉",
             )
 
-        context.add_line(
+        line = context.add_line(
             operation_code=operation_code,
             cost_item_code=f"LABOR_{position_code}",
             cost_item_name=f"ФОТ: {position.name}",
@@ -257,9 +257,7 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         if on_watch(context, position):
             camp_shifts[operation_code] = camp_shifts.get(operation_code, Decimal("0")) + shifts * per_shift
         charge = _per_diem(context, position, shifts, per_shift)
-        context.add_payroll_parts(
-            f"LABOR_{position_code}", _rate_parts(context, fixed_block, piece_block, accrued, charge)
-        )
+        context.add_payroll_parts(line, _rate_parts(context, fixed_block, piece_block, accrued, charge))
         if charge > 0:
             per_diem_by_operation[operation_code] = per_diem_by_operation.get(operation_code, Decimal("0")) + charge
             per_diem_shifts[operation_code] = per_diem_shifts.get(operation_code, Decimal("0")) + shifts * per_shift

@@ -133,7 +133,10 @@ describe("draftFromRun", () => {
     // Совсем старый прогон без поля источника — тоже методика.
     const older = { ...old };
     delete older.payroll_source;
-    expect(draftFromRun(baseRun({ parameters: older }), "Старее").parameters.payroll_source).toBe("PAYROLL");
+    const oldest = draftFromRun(baseRun({ parameters: older }), "Старее");
+    expect(oldest.parameters.payroll_source).toBe("PAYROLL");
+    // Считался он по ставкам — переход на методику тоже несохранённая правка.
+    expect(isDirty(oldest)).toBe(true);
   });
 
   it("подставляет пустые коллекции вместо полей, которых нет в старом прогоне", () => {

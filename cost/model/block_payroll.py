@@ -426,7 +426,7 @@ def _write(
             context.warn(message)
         code = item.result.position_code
         context.payroll_positions.add(code)
-        context.payroll_parts[f"LABOR_{code}"] = item.parts
+        context.add_payroll_parts(f"LABOR_{code}", item.parts)
         context.set_value(f"crew_shifts.{code}", item.shifts, f"смен на блок должности {code}")
         context.set_value(f"crew_per_shift.{code}", item.result.headcount, "человек в смене")
         if item.rotation is not None:

@@ -165,3 +165,26 @@ def test_net_salary_gross_up_is_split_between_salary_and_premium() -> None:
     salary_gross = next(p for p in gross.payroll_parts["LABOR_POS_DRILLER"] if p.code == "SALARY").amount_rub
     salary_net = next(p for p in net.payroll_parts["LABOR_POS_DRILLER"] if p.code == "SALARY").amount_rub
     assert salary_net > salary_gross
+
+
+def test_position_twice_in_the_crew_keeps_both_lines() -> None:
+    """Одна должность дважды в составе (разные смены): статьи обеих строк складываются, цена — как в смете."""
+
+    from cost.model.inputs import CrewMember
+
+    params = fx.parameters(
+        crew=(
+            CrewMember("POS_DRILLER", D("1"), D("1")),
+            CrewMember("POS_DRILLER", D("1"), D("3")),
+            CrewMember("POS_BLASTER", D("2")),
+        )
+    )
+    result = compute_block_economics(fx.snapshot(), params, fx.references())
+    prices = ds.prices(result, params, fx.references())
+    lines = [line for line in result.lines if line.operation_code in ("PRODUCTION_DRILLING", "CONTOUR_DRILLING")]
+    total = sum((line.amount_rub for line in lines), D("0")) / result.natural.values["drilling_m"]
+    assert abs(prices.with_payroll - total) < EPS
+    driller_lines = [line for line in result.lines if line.cost_item_code == "LABOR_POS_DRILLER"]
+    assert len(driller_lines) == 2
+    own = sum((p.amount_rub for p in result.payroll_parts["LABOR_POS_DRILLER"] if p.absorbs is None), D("0"))
+    assert abs(own - sum((line.amount_rub for line in driller_lines), D("0"))) < EPS

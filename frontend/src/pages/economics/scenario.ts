@@ -136,9 +136,11 @@ export function draftFromRun(
   // открывается на «Методике ФОТ» — решение владельца 05.11.2026. Снимок в базе
   // не меняется: черновик помечается несохранённым, пересохранение запишет
   // новый источник вместе с пересчитанным итогом.
-  const migrated: ModelParameters =
-    legacyPayrollSource(run.parameters) ? { ...parameters, payroll_source: "PAYROLL" } : parameters;
-  return { ...makeVariant(name, migrated), sourceRunId: run.id, savedKey: paramsKey(parameters) };
+  const legacy = legacyPayrollSource(run.parameters);
+  const migrated: ModelParameters = legacy ? { ...parameters, payroll_source: "PAYROLL" } : parameters;
+  // Сохранённое — то, чем прогон считался: у старого снимка без поля источника это «Ставки».
+  const saved: ModelParameters = legacy ? { ...parameters, payroll_source: raw.payroll_source ?? "RATES" } : parameters;
+  return { ...makeVariant(name, migrated), sourceRunId: run.id, savedKey: paramsKey(saved) };
 }
 
 /** Версия формата параметров прогона, с которой умолчание ФОТ — «Методика ФОТ» (`PARAMETERS_VERSION` модели). */

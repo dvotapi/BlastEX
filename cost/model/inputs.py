@@ -584,7 +584,8 @@ class ModelContext:
         # Должности, чей ФОТ уже посчитан методикой (`block_payroll`):
         # `labor.compute` их пропускает.
         self.payroll_positions: set[str] = set()
-        # Статьи ФОТ по статье строки должности `LABOR_<должность>`.
+        # Статьи ФОТ по статье строки должности `LABOR_<должность>`; у двух
+        # строк одной должности (дважды в составе) — сумма статей обеих.
         self.payroll_parts: dict[str, tuple[PayrollPart, ...]] = {}
         self.rates = OrganizationRates.from_item(self._first("organization_rates"))
         if self._first("organization_rates") is None:
@@ -637,6 +638,19 @@ class ModelContext:
         self.values[key] = value
         self.lineage[key] = source
         return value
+
+    def add_payroll_parts(self, cost_item_code: str, parts: Iterable[PayrollPart]) -> None:
+        """Статьи ФОТ строки должности; вторая строка той же статьи складывается с первой."""
+
+        amounts: dict[str, Decimal] = {part.code: part.amount_rub for part in self.payroll_parts.get(cost_item_code, ())}
+        absorbs: dict[str, str] = {
+            part.code: part.absorbs for part in self.payroll_parts.get(cost_item_code, ()) if part.absorbs is not None
+        }
+        for part in parts:
+            amounts[part.code] = amounts.get(part.code, Decimal("0")) + part.amount_rub
+            if part.absorbs is not None:
+                absorbs[part.code] = part.absorbs
+        self.payroll_parts[cost_item_code] = payroll_parts(amounts, absorbs)
 
     def warn(self, message: str) -> None:
         if message not in self.warnings:

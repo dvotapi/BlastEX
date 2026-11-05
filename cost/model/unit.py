@@ -93,8 +93,8 @@ def compute(context: ModelContext) -> None:
         )
         if labor is not None:
             # Статьи ФОТ косвенной должности — для раскладки в кольце цены метра.
-            context.payroll_parts[f"UNIT_{item.code}"] = payroll_parts(
-                {code: amount * share for code, amount in labor.items()}
+            context.add_payroll_parts(
+                f"UNIT_{item.code}", payroll_parts({code: amount * share for code, amount in labor.items()})
             )
     _storage(context, share)
 

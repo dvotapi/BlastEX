@@ -298,7 +298,12 @@ def prices(
     # операции; в кольце они — статьи своей должности, а в группе взносов
     # остаётся только то, что ни одной должности не принадлежит.
     absorbed: dict[tuple[str, str], Decimal] = {}
+    # Статьи одной должности сложены по всем её строкам — берём их один раз.
+    seen: set[str] = set()
     for line in lines:
+        if line.cost_item_code in seen:
+            continue
+        seen.add(line.cost_item_code)
         for part in result.payroll_parts.get(line.cost_item_code, ()):
             if part.absorbs is not None:
                 key = (line.operation_code, part.absorbs)
@@ -317,6 +322,9 @@ def prices(
         parts = result.payroll_parts.get(line.cost_item_code, ())
         if parts and group in (CREW_COMPONENT[0], STAFF_COMPONENT[0]):
             # Должность — сумма своих статей: строка ФОТ и доля строк операции.
+            # Статьи двух строк одной должности уже сложены — вторую не считаем.
+            if key in position_parts:
+                continue
             position_parts[key] = parts
             amount = sum((part.amount_rub for part in parts), ZERO)
         groups[group][key] = groups[group].get(key, ZERO) + amount

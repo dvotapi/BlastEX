@@ -1239,3 +1239,23 @@ def test_site_knobs_come_with_their_group_and_take_coded_overrides(client) -> No
     assert body["result"]["with_payroll_rub_per_m"] > body["base"]["with_payroll_rub_per_m"]
     groups = [component["code"] for component in body["result"]["components"]]
     assert "SERVICES" in groups and "SITE_STAFF" in groups
+
+
+def test_compare_merges_one_item_of_several_operations_under_a_name_without_operation(monkeypatch) -> None:
+    """Взносы лежат строкой на операцию: строка сравнения — их сумма, и подпись без операции."""
+
+    from api.routers import block_economics
+
+
+    def line(name: str, amount: float) -> dict:
+        return {"cost_item_code": "LABOR_CONTRIBUTIONS", "cost_item_name": name, "amount_rub": amount, "layer": "PROJECT_DIRECT"}
+
+    runs = [
+        {"id": "a", "result": {"lines": [line("Страховые взносы и НС", 100.0)]}},
+        {"id": "b", "result": {"lines": [line("Страховые взносы и НС: Основное бурение", 80.0), line("Страховые взносы и НС: Взрывные работы", 50.0)]}},
+    ]
+
+    monkeypatch.setattr(block_economics, "_summary", lambda run: run["id"])
+    row = block_economics._compare(runs)["rows"][0]
+    assert row["cost_item_name"] == "Страховые взносы и НС"
+    assert row["delta_rub"] == 30.0

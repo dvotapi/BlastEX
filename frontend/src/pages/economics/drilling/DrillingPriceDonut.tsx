@@ -26,6 +26,7 @@ const PART_PALETTES: Record<string, string[]> = {
   RIG_RULES: ["#a88a2a", "#c9a940", "#e0c25a", "#ecd894", "#f5ebc8"],
   CAMP: ["#4f45a0", "#7a6fd0", "#a59de0", "#cdc8ef"],
   SITE_STAFF: ["#245f72", "#3f8fa8", "#6fb2c6", "#a3d0de", "#d1e8ef"],
+  PAYROLL_CHARGES: ["#4a6b2a", "#6f9440", "#9cbc6e", "#c6dba6"],
   UNIT_FIXED: ["#7d6c3a", "#a48f55", "#c4b27f", "#ddd0aa", "#eee7d3"],
 };
 const DEFAULT_PALETTE = ["#6b7680", "#8a949d", "#aab2b9", "#c9cfd4"];
@@ -44,6 +45,7 @@ export const COMPONENT_COLORS: Record<string, string> = {
   CAMP: "#7a6fd0",
   CREW_PAYROLL: "#1f7a5c",
   SITE_STAFF: "#3f8fa8",
+  PAYROLL_CHARGES: "#7fa34c",
   UNIT_FIXED: "#b8a36a",
 };
 

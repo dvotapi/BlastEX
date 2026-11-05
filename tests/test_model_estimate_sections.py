@@ -339,15 +339,16 @@ def test_per_diem_counts_person_shifts_at_its_rate() -> None:
 
     result = compute()
 
-    line = line_by_code(result, "LABOR_PER_DIEM")
-    assert line.unit == "чел·см"
-    assert line.unit_price_rub == Decimal("700")
-    assert line.quantity * line.unit_price_rub == line.amount_rub
+    per_diem = [item for item in result.lines if item.cost_item_code == "LABOR_PER_DIEM"]
+    assert per_diem and all(item.unit == "чел·см" and item.unit_price_rub == Decimal("700") for item in per_diem)
+    assert all(item.quantity * item.unit_price_rub == item.amount_rub for item in per_diem)
     camp = [item for item in result.lines if item.cost_item_code.startswith("CAMP_")]
     assert camp and all(item.unit_price_rub == Decimal("1500") for item in camp)
     assert all(item.quantity * item.unit_price_rub == item.amount_rub for item in camp)
-    # Суточные и проживание — те же человеко-смены, разложенные по операциям.
-    assert sum((item.quantity for item in camp), Decimal("0")) == line.quantity
+    # Суточные и проживание — те же человеко-смены, по тем же операциям.
+    assert {item.operation_code: item.quantity for item in camp} == {
+        item.operation_code: item.quantity for item in per_diem
+    }
 
 
 @pytest.mark.parametrize("code", ["DRILL_FUEL", "DRILL_TOOLING", "VM_DELIVERY"])

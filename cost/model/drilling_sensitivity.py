@@ -74,15 +74,27 @@ CAMP_COMPONENT = ("CAMP", "Проживание и питание экипажа
 CREW_COMPONENT = ("CREW_PAYROLL", "ФОТ экипажа")
 STAFF_COMPONENT = ("SITE_STAFF", "ФОТ ИТР и ремонтного персонала")
 UNIT_COMPONENT = ("UNIT_FIXED", "Прочие постоянные затраты участка")
+# Страховые взносы и резерв отпусков на ФОТ операций бурения (`labor`): это ФОТ
+# компании, поэтому «без ФОТ» их не содержит, но экипажу и ИТР они общие.
+CHARGES_COMPONENT = ("PAYROLL_CHARGES", "Страховые взносы и резерв отпусков")
+CHARGE_ITEMS = frozenset({"LABOR_CONTRIBUTIONS", "LABOR_VACATION_RESERVE"})
 # Правило затрат со статьёй станка (доп. оснастка, доп. ДТ) — затрата станка,
 # а не услуга: своя группа, чтобы не выдавать её за работу подрядчика.
 RIG_RULES_COMPONENT = ("RIG_RULES", "Станок: затраты по правилам")
 _RIG_ITEMS = frozenset(code for code, _ in COMPONENT_LABELS)
-GROUPS = (RIG_RULES_COMPONENT, SERVICES_COMPONENT, CAMP_COMPONENT, CREW_COMPONENT, STAFF_COMPONENT, UNIT_COMPONENT)
+GROUPS = (
+    RIG_RULES_COMPONENT,
+    SERVICES_COMPONENT,
+    CAMP_COMPONENT,
+    CREW_COMPONENT,
+    STAFF_COMPONENT,
+    CHARGES_COMPONENT,
+    UNIT_COMPONENT,
+)
 # Группы, где одна строка подстрокой не показывается: она и есть слагаемое.
 SINGLE_HIDDEN = frozenset({CREW_COMPONENT[0], CAMP_COMPONENT[0]})
 # Группы, чьи строки — ФОТ: «без ФОТ» их не содержит.
-PAYROLL_GROUPS = frozenset({CREW_COMPONENT[0], STAFF_COMPONENT[0]})
+PAYROLL_GROUPS = frozenset({CREW_COMPONENT[0], STAFF_COMPONENT[0], CHARGES_COMPONENT[0]})
 _INDIRECT_LABOR_PREFIX = f"{unit.CATEGORY_NAMES['INDIRECT_LABOR']}: "
 
 
@@ -93,9 +105,8 @@ class Component:
     code: str
     label: str
     rub_per_m: Decimal
-    # Подстатьи слагаемого: у ФОТ экипажа — строки должностей операций бурения
-    # (по статье строки, в порядке строк блока; взносы и суточные лежат без
-    # операции и в цену метра не входят).
+    # Подстатьи слагаемого: у ФОТ экипажа — строки должностей и суточные
+    # операций бурения (по статье строки, в порядке строк блока).
     parts: tuple["Component", ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -258,8 +269,8 @@ def prices(
         return Prices(None, None, drilling_m, params.payroll_source, False, tuple(result.warnings), premium_curve=curve)
     # Себестоимость метра — все строки операций бурения, как цена метра листа
     # «Расчёт» (`drilling_price`): станок, услуги и правила затрат, ФОТ экипажа
-    # и закреплённый за бурением персонал участка. Взносы и суточные лежат без
-    # операции и в неё не входят.
+    # и закреплённый за бурением персонал участка, взносы, резерв отпусков и
+    # суточные на ФОТ бурения.
     by_item: dict[str, Decimal] = {}
     # Подстроки группы — по паре «статья, название»: два правила с одной статьёй
     # (доп. оснастка и трал) — разные строки, а одна должность — одна строка.
@@ -338,6 +349,10 @@ def _group(line: Any, staff_items: frozenset[str] = frozenset()) -> tuple[str, s
 
     if line.cost_item_code in staff_items:
         return STAFF_COMPONENT[0], _part_label(line.cost_item_name)
+    if line.cost_item_code in CHARGE_ITEMS:
+        return CHARGES_COMPONENT[0], _operation_free(line.cost_item_name)
+    if line.cost_item_code == "LABOR_PER_DIEM":
+        return CREW_COMPONENT[0], _operation_free(line.cost_item_name)
     if line.cost_item_code.startswith("LABOR_"):
         return CREW_COMPONENT[0], _part_label(line.cost_item_name)
     if line.cost_item_code.startswith("CAMP_"):
@@ -349,6 +364,12 @@ def _group(line: Any, staff_items: frozenset[str] = frozenset()) -> tuple[str, s
             return STAFF_COMPONENT[0], line.cost_item_name.removeprefix(_INDIRECT_LABOR_PREFIX).strip()
         return UNIT_COMPONENT[0], line.cost_item_name
     return SERVICES_COMPONENT[0], line.cost_item_name
+
+
+def _operation_free(name: str) -> str:
+    """«Суточные: Основное бурение» → «Суточные»: в цене метра все строки — бурение."""
+
+    return name.split(": ", 1)[0]
 
 
 def _part_label(name: str) -> str:

@@ -1059,6 +1059,11 @@ def _compare(runs: list[dict[str, Any]]) -> dict[str, Any]:
                 order.append(code)
                 amounts[code] = {}
                 names[code] = (str(line.get("cost_item_name", code)), str(line.get("layer", "")))
+            elif names[code][0] != str(line.get("cost_item_name", code)):
+                # Одна статья в нескольких операциях («Страховые взносы и НС:
+                # Основное бурение», «…: Взрывные работы») — строка сравнения
+                # сводит их, поэтому подпись без операции.
+                names[code] = (names[code][0].split(": ", 1)[0], names[code][1])
             amounts[code][run["id"]] = amounts[code].get(run["id"], 0.0) + float(
                 line.get("amount_rub", 0)
             )

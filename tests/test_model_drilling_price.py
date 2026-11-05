@@ -56,6 +56,34 @@ def test_crew_payroll_is_in_the_price() -> None:
     assert with_driller.price_rub_per_m > without_driller.price_rub_per_m
 
 
+def test_contributions_and_vacation_reserve_of_the_crew_are_in_the_price() -> None:
+    """Взносы и резерв отпусков на ФОТ бурильщика — строки операции бурения, а не общие без операции."""
+
+    params = fx.parameters(crew=(CrewMember("POS_DRILLER", Decimal("1")), CrewMember("POS_BLASTER", Decimal("2"))))
+    economics = compute_block_economics(
+        {"physical": {"drilling_m": DRILLING_M}, "lineage": {}}, params, fx.references()
+    )
+    rates = fx.references().active_items("organization_rates")[0].payload
+    driller = next(line for line in economics.lines if line.cost_item_code == "LABOR_POS_DRILLER")
+    charges = {
+        line.cost_item_code: line.amount_rub
+        for line in economics.lines
+        if line.operation_code == DRILLING_OPERATION
+        and line.cost_item_code in ("LABOR_CONTRIBUTIONS", "LABOR_VACATION_RESERVE")
+    }
+    rate = Decimal(str(rates["social_contribution_rate"])) + Decimal(str(rates["injury_insurance_rate"]))
+
+    # Только ФОТ бурильщика: взрывник — в своей операции.
+    assert charges["LABOR_CONTRIBUTIONS"] == driller.amount_rub * rate
+    assert charges["LABOR_VACATION_RESERVE"] > 0
+    price = drilling_price.compute(params, fx.references(), drilling_m=DRILLING_M)
+    total = sum(
+        (line.amount_rub for line in economics.lines if line.operation_code == DRILLING_OPERATION),
+        Decimal("0"),
+    )
+    assert price.cost_rub_per_m == total / DRILLING_M
+
+
 def test_markup_params_move_the_price() -> None:
     base = _price(overhead_rate=Decimal("0"), target_margin_rate=Decimal("0"))
     marked = _price(overhead_rate=Decimal("0.1"), target_margin_rate=Decimal("0.2"))

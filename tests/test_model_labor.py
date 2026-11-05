@@ -281,8 +281,8 @@ def test_per_diem_counts_people_in_shift_not_rotation() -> None:
     # 116,28 чел·см × (1 000 суточных + 1 000 проживания); со штатом ротации было 697 674,42 ₽.
     assert per_diem.quantity == context.value("rig_shifts") == camp.quantity
     assert _money(per_diem.amount_rub + camp.amount_rub) == Decimal("232558.14")
-    # Проживание — в операции бурения, суточные — общей строкой без операции.
-    assert camp.operation_code == "PRODUCTION_DRILLING" and per_diem.operation_code == ""
+    # Проживание и суточные — строками операции бурения: обе входят в цену метра.
+    assert camp.operation_code == per_diem.operation_code == "PRODUCTION_DRILLING"
 
 
 def test_indirect_position_stays_out_of_block_labor() -> None:
@@ -490,11 +490,14 @@ def test_positions_counted_by_payroll_methodology_are_skipped() -> None:
     assert "LABOR_POS_DRILLER" not in {line.cost_item_code for line in context.lines}
     accrued = sum((line.accrued_rub for line in lines), Decimal("0"))
     rate = context.rates.social_contribution_rate + context.rates.injury_insurance_rate
-    assert _line(context, "LABOR_CONTRIBUTIONS").amount_rub == accrued * rate
+    # Взносы — строкой на операцию: взрывник и водитель СЗМ — в двух операциях.
+    contributions = [line for line in context.lines if line.cost_item_code == "LABOR_CONTRIBUTIONS"]
+    assert {line.operation_code for line in contributions} == {line.operation_code for line in lines}
+    assert sum((line.amount_rub for line in contributions), Decimal("0")) == accrued * rate
     # Суточные бурильщика ушли: остались только взрывники и водитель.
-    per_diem = _line(context, "LABOR_PER_DIEM")
-    assert per_diem.quantity == sum((line.shifts_per_block * line.headcount for line in lines), Decimal("0"))
-    assert per_diem.quantity < _line(full, "LABOR_PER_DIEM").quantity
+    per_diem = _quantity(context, "LABOR_PER_DIEM")
+    assert per_diem == sum((line.shifts_per_block * line.headcount for line in lines), Decimal("0"))
+    assert per_diem < _quantity(full, "LABOR_PER_DIEM")
 
 
 # --- экипаж по типу техники ---------------------------------------------------
@@ -558,3 +561,9 @@ def test_rig_specific_crew_returns_only_class_members() -> None:
         ("POS_ASSISTANT", Decimal("1")),
     )
     assert rig_specific_crew(_rig_templates(), "DRILL_AND_BLAST", None) == ()
+
+
+def _quantity(context: ModelContext, code: str) -> Decimal:
+    """Человеко-смены статьи по всем операциям: суточные лежат строкой на операцию."""
+
+    return sum((line.quantity or Decimal("0") for line in context.lines if line.cost_item_code == code), Decimal("0"))

@@ -188,3 +188,33 @@ def test_position_twice_in_the_crew_keeps_both_lines() -> None:
     assert len(driller_lines) == 2
     own = sum((p.amount_rub for p in result.payroll_parts["LABOR_POS_DRILLER"] if p.absorbs is None), D("0"))
     assert abs(own - sum((line.amount_rub for line in driller_lines), D("0"))) < EPS
+
+
+def test_charge_rule_with_the_same_item_stays_whole_in_the_ring() -> None:
+    """Правило затрат бурения со статьёй взносов — вторая строка: разобранное вычитается один раз."""
+
+    rule = fx.item(
+        "RULE_EXTRA_CONTRIBUTIONS",
+        "Доп. взносы бурения",
+        {
+            "operation_code": "PRODUCTION_DRILLING",
+            "cost_item_code": "LABOR_CONTRIBUTIONS",
+            "behavior_type": "FIXED",
+            "cost_layer": "project_direct",
+            "fixed_rub": "10000",
+            "estimate_section": "DRILLING",
+        },
+    )
+    references = fx.references(cost_rules=(*fx.COST_RULES, rule))
+    params = fx.parameters()
+    result = compute_block_economics(fx.snapshot(), params, references)
+    contributions = [
+        line
+        for line in result.lines
+        if line.cost_item_code == "LABOR_CONTRIBUTIONS" and line.operation_code == "PRODUCTION_DRILLING"
+    ]
+    assert len(contributions) == 2
+    prices = ds.prices(result, params, references)
+    lines = [line for line in result.lines if line.operation_code in ("PRODUCTION_DRILLING", "CONTOUR_DRILLING")]
+    total = sum((line.amount_rub for line in lines), D("0")) / result.natural.values["drilling_m"]
+    assert abs(prices.with_payroll - total) < EPS

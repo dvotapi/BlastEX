@@ -313,8 +313,11 @@ def prices(
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
             continue
         absorbed_key = (line.operation_code, line.cost_item_code)
-        amount = line.amount_rub - absorbed.get(absorbed_key, ZERO)
-        if absorbed_key in absorbed and abs(amount) < RESIDUAL_RUB:
+        # Разобранное вычитается один раз: правило затрат с той же статьёй —
+        # вторая строка, и её сумма в кольце остаётся целиком.
+        had_absorbed = absorbed_key in absorbed
+        amount = line.amount_rub - absorbed.pop(absorbed_key, ZERO)
+        if had_absorbed and abs(amount) < RESIDUAL_RUB:
             # Строку взносов или суточных целиком разобрали должности.
             continue
         group, label = _group(line, staff_items)

@@ -1070,6 +1070,30 @@ def test_export_names_the_payroll_source(client) -> None:
         assert ["Источник ФОТ", label] in rows
 
 
+def test_export_of_a_run_without_payroll_source_replays_rates(client) -> None:
+    """Снимок до поля источника ФОТ считался по ставкам — выгрузка повторяет его, а не новое умолчание."""
+
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    test_client, repository, passport_id = client
+    run = test_client.post(
+        "/api/v1/economics/runs",
+        json={**_parameters(passport_id, payroll_source="RATES"), "name": "Старый"},
+    ).json()
+    stored = repository._economics_runs[("default", run["id"])]
+    stored.parameters.pop("payroll_source")
+    stored.parameters.pop("parameters_version", None)
+    content = test_client.get(f"/api/v1/economics/runs/{run['id']}/export.xlsx").content
+    rows = [
+        [cell for cell in row if cell is not None]
+        for sheet in load_workbook(BytesIO(content)).worksheets
+        for row in sheet.iter_rows(values_only=True)
+    ]
+    assert ["Источник ФОТ", "Ставки"] in rows
+
+
 def test_payroll_block_without_scale_keys_still_validates() -> None:
     """Прогоны, сохранённые до шкалы и рядов, читаются: ключей нет — None и пусто."""
 

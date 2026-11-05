@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { DrillingPriceDonut, donutSlices } from "./DrillingPriceDonut";
+import { COMPONENT_COLORS, DrillingPriceDonut, donutSlices } from "./DrillingPriceDonut";
 
 afterEach(cleanup);
 
@@ -49,6 +49,13 @@ describe("DrillingPriceDonut", () => {
     expect(services.partSlices.map((part) => part.share)).toEqual([0.05, 0.15]);
     expect(services.color).not.toBe(staff.color);
     expect(services.partSlices[0].color).not.toBe(staff.partSlices[0].color);
+    // Взносы и резерв отпусков — своя группа своего цвета, не серый по умолчанию.
+    const charges = donutSlices([
+      ...components,
+      { code: "PAYROLL_CHARGES", label: "Страховые взносы и резерв отпусков", rub_per_m: 30 },
+    ]).find((slice) => slice.code === "PAYROLL_CHARGES")!;
+    expect(charges.color).toBe(COMPONENT_COLORS.PAYROLL_CHARGES);
+    expect(new Set(Object.values(COMPONENT_COLORS)).size).toBe(Object.keys(COMPONENT_COLORS).length);
     // У ФОТ экипажа без подстрок внешнего кольца нет.
     expect(slices.find((slice) => slice.code === "CREW_PAYROLL")!.partSlices).toEqual([]);
   });

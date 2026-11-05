@@ -228,12 +228,17 @@ def test_payroll_mode_has_no_double_labor() -> None:
     assert not any(code in ("LABOR_P_DRILLER", "LABOR_P_ASSISTANT") for code in produced)
     accrued = sum((line.accrued_rub for line in labor_lines), D("0"))
     rates = context.rates
-    contributions = _line(context.lines, "LABOR_CONTRIBUTIONS").amount_rub
+    # Взносы, резерв и суточные — строками операций; методика в них не входит.
+    def total(code: str, field: str = "amount_rub") -> D:
+        return sum((getattr(line, field) for line in context.lines if line.cost_item_code == code), D("0"))
+
+    contributions = total("LABOR_CONTRIBUTIONS")
     assert contributions == accrued * (rates.social_contribution_rate + rates.injury_insurance_rate)
-    reserve = _line(context.lines, "LABOR_VACATION_RESERVE").amount_rub
+    reserve = total("LABOR_VACATION_RESERVE")
     assert reserve == (accrued + contributions) * rates.vacation_reserve_rate
-    per_diem = _line(context.lines, "LABOR_PER_DIEM")
-    assert per_diem.quantity == sum((line.shifts_per_block * line.headcount for line in labor_lines), D("0"))
+    assert total("LABOR_PER_DIEM", "quantity") == sum(
+        (line.shifts_per_block * line.headcount for line in labor_lines), D("0")
+    )
 
     # Сумма строк ФОТ методики — затраты компании по payroll_month: постоянная часть
     # при премии 0 и прирост затрат от премии на приведённых метрах блока.

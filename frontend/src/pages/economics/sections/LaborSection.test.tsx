@@ -18,6 +18,34 @@ function setup() {
 }
 
 describe("LaborSection", () => {
+  it("взносы двух операций — две строки только для чтения", () => {
+    const { params, defaults, economics } = setup();
+    const base = economics.lines.find((line) => line.cost_item_code === "LABOR_MASTER_BVR")!;
+    const withCharges = {
+      ...economics,
+      lines: [
+        ...economics.lines,
+        { ...base, cost_item_code: "LABOR_CONTRIBUTIONS", cost_item_name: "Страховые взносы и НС: Основное бурение", operation_code: "PRODUCTION_DRILLING", amount_rub: 30000 },
+        { ...base, cost_item_code: "LABOR_CONTRIBUTIONS", cost_item_name: "Страховые взносы и НС: Взрывные работы", operation_code: "BLAST_EXECUTION", amount_rub: 50000 },
+      ],
+    };
+    const group = buildEstimate(withCharges).find((g) => g.code === "LABOR")!;
+    render(
+      <LaborSection
+        group={group}
+        params={params}
+        defaults={defaults}
+        economics={withCharges}
+        volume={economics.block_volume_m3}
+        canEdit
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Страховые взносы и НС: Основное бурение")).toBeInTheDocument();
+    expect(screen.getByText("Страховые взносы и НС: Взрывные работы")).toBeInTheDocument();
+  });
+
   it("добавляет должность первой незанятой из прямых", async () => {
     const { params, defaults, economics, group } = setup();
     const onChange = vi.fn();

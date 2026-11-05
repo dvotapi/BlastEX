@@ -194,7 +194,8 @@ export function LaborSection({ group, params, defaults, economics, volume, canEd
       )}
       {readOnlyLines.map((line, index) => (
         <EstimateLine
-          key={line.cost_item_code}
+          // Взносы, резерв и суточные — строкой на операцию: код статьи повторяется.
+          key={`${line.cost_item_code}:${line.operation_code}`}
           number={lineNumber(group, params.crew.length + index)}
           name={line.cost_item_name}
           origin={line.price_origin || line.quantity_origin}

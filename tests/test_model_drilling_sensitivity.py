@@ -24,14 +24,24 @@ def _payroll_params(**overrides):
 
 
 def test_prices_split_rig_lines_and_crew_payroll() -> None:
-    """Без услуг и персонала участка: без ФОТ — `drilling_rub_per_m`; с ФОТ — плюс ФОТ экипажа на метр."""
+    """Без услуг и персонала участка: без ФОТ — `drilling_rub_per_m`; с ФОТ — плюс ФОТ экипажа, взносы и резерв на метр."""
 
     result = compute_block_economics(fx.snapshot(), fx.parameters(), fx.references())
     prices = ds.prices(result, fx.parameters())
 
     assert abs(prices.without_payroll - result.natural.values["drilling_rub_per_m"]) < D("0.000001")
-    driller = next(line for line in result.lines if line.cost_item_code == "LABOR_POS_DRILLER")
-    assert abs(prices.with_payroll - prices.without_payroll - driller.amount_rub / result.natural.values["drilling_m"]) < D("0.000001")
+    payroll = sum(
+        (
+            line.amount_rub
+            for line in result.lines
+            if line.operation_code == "PRODUCTION_DRILLING"
+            and line.cost_item_code in ("LABOR_POS_DRILLER", "LABOR_CONTRIBUTIONS", "LABOR_VACATION_RESERVE")
+        ),
+        D("0"),
+    )
+    assert abs(prices.with_payroll - prices.without_payroll - payroll / result.natural.values["drilling_m"]) < D("0.000001")
+    charges = next(item for item in prices.components if item.code == "PAYROLL_CHARGES")
+    assert [part.label for part in charges.parts] == ["Страховые взносы и НС", "Резерв отпусков"]
     assert prices.payroll_source == "RATES" and not prices.payroll_applied
 
 
@@ -312,7 +322,9 @@ def test_site_staff_bound_to_drilling_is_payroll_of_the_meter() -> None:
     assert [part.label for part in staff.parts] == ["Заведующий складом"]
     # ФОТ персонала участка в «без ФОТ» не входит; содержание базы без операции — не в метре.
     crew = next(c for c in plain.components if c.code == "CREW_PAYROLL")
-    assert abs(plain.with_payroll - plain.without_payroll - crew.rub_per_m - staff.rub_per_m) < D("0.000001")
+    charges = next(c for c in plain.components if c.code == "PAYROLL_CHARGES")
+    # Разница цен — ФОТ экипажа и ИТР с их взносами и резервом отпусков.
+    assert abs(plain.with_payroll - plain.without_payroll - crew.rub_per_m - staff.rub_per_m - charges.rub_per_m) < D("0.000001")
     assert not any(c.code == "UNIT_FIXED" for c in plain.components)
 
 
@@ -375,7 +387,8 @@ def test_site_knobs_move_the_meter_price() -> None:
     assert group(changed, "CREW_PAYROLL") == group(base, "CREW_PAYROLL")
     # Проживание и питание — не ФОТ: «без ФОТ» их содержит.
     camp = group(base, "CAMP")
-    assert abs(base.with_payroll - base.without_payroll - group(base, "CREW_PAYROLL") - group(base, "SITE_STAFF")) < D("0.000001")
+    payroll = group(base, "CREW_PAYROLL") + group(base, "SITE_STAFF") + group(base, "PAYROLL_CHARGES")
+    assert abs(base.with_payroll - base.without_payroll - payroll) < D("0.000001")
     assert camp > 0
 
 

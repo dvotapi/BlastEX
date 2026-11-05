@@ -144,11 +144,14 @@ def payload_number_dict(data: dict, key: str, default: Decimal) -> Decimal:
 def compute(context: ModelContext) -> tuple[LaborLine, ...]:
     rates = context.rates
     results: list[LaborLine] = []
-    accrued_total = Decimal("0")
-    per_diem_total = Decimal("0")
+    # Начисленный ФОТ, суточные и их человеко-смены — по операциям: взносы,
+    # резерв отпусков и суточные идут строкой той операции, где работают люди,
+    # иначе цена метра бурения (строки операций бурения) их не видит.
+    accrued_by_operation: dict[str, Decimal] = {}
+    per_diem_by_operation: dict[str, Decimal] = {}
     # Человеко-смены, на которые начислены суточные: ставка у них одна, значит
     # у строки есть и норма, и цена — как у любой другой статьи сметы.
-    per_diem_shifts = Decimal("0")
+    per_diem_shifts: dict[str, Decimal] = {}
 
     # Человеко-смены на вахте по операциям: проживание и питание положены и
     # должностям методики ФОТ, хотя их ФОТ считает `block_payroll`.
@@ -248,13 +251,13 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             # иначе норматив должности или производительность техники.
             quantity_origin="MANUAL" if manual_shifts is not None else "NORM",
         )
-        accrued_total += accrued
+        accrued_by_operation[operation_code] = accrued_by_operation.get(operation_code, Decimal("0")) + accrued
         if on_watch(context, position):
             camp_shifts[operation_code] = camp_shifts.get(operation_code, Decimal("0")) + shifts * per_shift
         charge = _per_diem(context, position, shifts, per_shift)
-        per_diem_total += charge
         if charge > 0:
-            per_diem_shifts += shifts * per_shift
+            per_diem_by_operation[operation_code] = per_diem_by_operation.get(operation_code, Decimal("0")) + charge
+            per_diem_shifts[operation_code] = per_diem_shifts.get(operation_code, Decimal("0")) + shifts * per_shift
         results.append(
             LaborLine(
                 position_code=position_code,
@@ -269,46 +272,78 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             )
         )
 
-    if accrued_total > 0:
-        contribution_rate = rates.social_contribution_rate + rates.injury_insurance_rate
-        contributions = accrued_total * contribution_rate
+    _charge_lines(context, accrued_by_operation)
+    _per_diem_lines(context, per_diem_by_operation, per_diem_shifts)
+    _camp_lines(context, camp_shifts)
+
+    return tuple(results)
+
+
+def _operation_label(context: ModelContext, operation_code: str) -> str:
+    operation = context.item("operations", operation_code) if operation_code else None
+    return operation.name if operation is not None else (operation_code or "бригада")
+
+
+def _charge_lines(context: ModelContext, accrued_by_operation: Mapping[str, Decimal]) -> None:
+    """Страховые взносы и резерв отпусков — строкой на операцию начисленного ФОТ.
+
+    Сумма по блоку та же, что у одной общей строки: взносы линейны по ФОТ.
+    Строка операции бурения входит в цену метра, как и сам ФОТ экипажа.
+    """
+
+    rates = context.rates
+    contribution_rate = rates.social_contribution_rate + rates.injury_insurance_rate
+    for operation_code, accrued in accrued_by_operation.items():
+        if accrued <= 0:
+            continue
+        label = _operation_label(context, operation_code)
+        contributions = accrued * contribution_rate
         context.add_line(
-            operation_code="",
+            operation_code=operation_code,
             cost_item_code="LABOR_CONTRIBUTIONS",
-            cost_item_name="Страховые взносы и НС",
+            cost_item_name=f"Страховые взносы и НС: {label}",
             layer=CostLayer.PROJECT_DIRECT,
             amount_rub=contributions,
-            formula=f"{formula_number(accrued_total)} ₽ × {formula_number(contribution_rate)}",
+            formula=f"{formula_number(accrued)} ₽ × {formula_number(contribution_rate)}",
             section="LABOR",
             quantity_origin="CALC",
             price_origin="REFERENCE",
         )
-        reserve = (accrued_total + contributions) * rates.vacation_reserve_rate
+        reserve = (accrued + contributions) * rates.vacation_reserve_rate
         if reserve > 0:
             context.add_line(
-                operation_code="",
+                operation_code=operation_code,
                 cost_item_code="LABOR_VACATION_RESERVE",
-                cost_item_name="Резерв отпусков",
+                cost_item_name=f"Резерв отпусков: {label}",
                 layer=CostLayer.PROJECT_DIRECT,
                 amount_rub=reserve,
-                formula=f"({formula_number(accrued_total)} + {formula_number(contributions)}) ₽ × {formula_number(rates.vacation_reserve_rate)}",
+                formula=f"({formula_number(accrued)} + {formula_number(contributions)}) ₽ × {formula_number(rates.vacation_reserve_rate)}",
                 section="LABOR",
                 quantity_origin="CALC",
                 price_origin="REFERENCE",
             )
 
-    if per_diem_total > 0:
+
+def _per_diem_lines(
+    context: ModelContext,
+    per_diem_by_operation: Mapping[str, Decimal],
+    per_diem_shifts: Mapping[str, Decimal],
+) -> None:
+    """Суточные — строкой на операцию, как проживание и питание."""
+
+    for operation_code, amount in per_diem_by_operation.items():
+        if amount <= 0:
+            continue
+        quantity = per_diem_shifts.get(operation_code, Decimal("0"))
         context.add_line(
-            operation_code="",
+            operation_code=operation_code,
             cost_item_code="LABOR_PER_DIEM",
-            cost_item_name="Суточные",
+            cost_item_name=f"Суточные: {_operation_label(context, operation_code)}",
             layer=CostLayer.PROJECT_DIRECT,
-            amount_rub=per_diem_total,
-            formula=(
-                f"{formula_number(per_diem_shifts)} чел·см × {formula_number(context.rates.per_diem_rub)} ₽"
-            ),
+            amount_rub=amount,
+            formula=f"{formula_number(quantity)} чел·см × {formula_number(context.rates.per_diem_rub)} ₽",
             section="PER_DIEM",
-            quantity=per_diem_shifts,
+            quantity=quantity,
             unit="чел·см",
             # Ставка берётся из справочника, а не делением суммы на смены:
             # деление вернуло бы её с двоичным хвостом, и «норма × цена» в
@@ -317,9 +352,6 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
             quantity_origin="CALC",
             price_origin="REFERENCE",
         )
-    _camp_lines(context, camp_shifts)
-
-    return tuple(results)
 
 
 def block_shifts(position: ReferenceItem | None) -> Decimal:
@@ -574,8 +606,7 @@ def _camp_lines(context: ModelContext, person_shifts: Mapping[str, Decimal]) -> 
     for operation_code, quantity in person_shifts.items():
         if quantity <= 0:
             continue
-        operation = context.item("operations", operation_code) if operation_code else None
-        name = operation.name if operation is not None else (operation_code or "бригада")
+        name = _operation_label(context, operation_code)
         context.add_line(
             operation_code=operation_code,
             cost_item_code=f"CAMP_{operation_code or 'CREW'}",

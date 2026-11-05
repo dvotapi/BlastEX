@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../api/endpoints", () => ({
@@ -11,6 +11,10 @@ import { DrillingPriceDrivers, premiumBounds } from "./DrillingPriceDrivers";
 import { drillingSensitivityFixture, paramsFixture } from "../testFixtures";
 import { whatIfRange } from "./WhatIfSlider";
 import { scaleChanged } from "./PremiumCurveChart";
+
+// Панель ждёт паузу ранжирования (RANKING_DELAY_MS) и ответ «что если»: на
+// нагруженном CI это дольше секунды по умолчанию, и findBy/waitFor падали без причины.
+configure({ asyncUtilTimeout: 5000 });
 
 beforeEach(() => {
   vi.mocked(api.blockEconomics.drillingSensitivity).mockResolvedValue(drillingSensitivityFixture());
@@ -123,8 +127,7 @@ describe("DrillingPriceDrivers", () => {
     fireEvent.change(speed, { target: { value: "13.2" } });
     fireEvent.pointerUp(speed);
 
-    // Ответ «что если» приходит после паузы бегунка: в CI под нагрузкой дольше секунды.
-    await screen.findByText("330,00 ₽/м", undefined, { timeout: 5000 });
+    await screen.findByText("330,00 ₽/м");
     expect(screen.getByText(/темп машиниста 120 → 132 прив\. м\/см/)).toBeInTheDocument();
     expect(screen.getByText(/темп 120 → 132 ·/)).toBeInTheDocument();
     expect(screen.getByTestId("premium-curve-pace-base")).toBeInTheDocument();

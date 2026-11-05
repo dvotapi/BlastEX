@@ -353,6 +353,9 @@ class DrillingComponentSchema(BaseModel):
     rub_per_m: float
     # Сумма на блок, ₽.
     rub: float | None = None
+    # Пояснение под подписью: у должности — люди в смене, штат и смены блока,
+    # у оклада — оклад одного человека.
+    note: str = ""
     # Подстатьи: у ФОТ экипажа и ИТР — должности, у должности — статьи ФОТ.
     parts: list["DrillingComponentSchema"] = Field(default_factory=list)
 

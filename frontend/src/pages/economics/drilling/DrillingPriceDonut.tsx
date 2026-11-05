@@ -7,7 +7,8 @@
  * цена метра с ФОТ. Легенда — доли и ₽/м; пробные значения меняют и кольцо.
  * Подстатьи групп (должности, услуги, персонал участка) идут тонким внешним кольцом напротив своего сегмента и
  * подстроками легенды; статьи ФОТ должности (оклад, межвахта, отчисления…) — третьим уровнем легенды, без кольца.
- * У каждой строки легенды — доля, ₽/м и сумма на блок.
+ * У каждой строки легенды — доля, ₽/м и сумма на блок; под должностью — сколько людей в смене и в штате и
+ * смен блока, под окладом — оклад одного человека (`note`).
  */
 import { useState } from "react";
 import type { DrillingComponent } from "../../../types/blockEconomics";
@@ -90,6 +91,16 @@ export function donutSlices(components: DrillingComponent[]): DonutSlice[] {
     angle += share * 360;
   }
   return slices;
+}
+
+/** Подпись строки легенды и пояснение под ней (штат должности, оклад на человека). */
+function Label({ item }: { item: DrillingComponent }) {
+  return (
+    <span className="donut-legend-label">
+      {item.label}
+      {item.note && <small className="donut-legend-note">{item.note}</small>}
+    </span>
+  );
 }
 
 export function DrillingPriceDonut({ components, stale }: { components: DrillingComponent[]; stale?: boolean }) {
@@ -177,7 +188,7 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
               onMouseLeave={() => setActive("")}
             >
               <i className="donut-legend-color" style={{ background: part.color }} />
-              <span className="donut-legend-label">{part.label}</span>
+              <Label item={part} />
               <span className="donut-legend-percent">{percent(part.share)}</span>
               <span className="donut-legend-value">{money(part.rub_per_m, 0)}</span>
               <span className="donut-legend-block">{blockSum(part)}</span>
@@ -190,7 +201,7 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
                 onMouseLeave={() => setActive("")}
               >
                 <i />
-                <span className="donut-legend-label">{sub.label}</span>
+                <Label item={sub} />
                 <span className="donut-legend-percent">{total > 0 ? percent(sub.rub_per_m / total) : ""}</span>
                 <span className="donut-legend-value">{money(sub.rub_per_m, 0)}</span>
                 <span className="donut-legend-block">{blockSum(sub)}</span>

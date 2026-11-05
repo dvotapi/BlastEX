@@ -526,6 +526,7 @@
 .price-donut-legend li { display:grid; grid-template-columns:8px minmax(0,1fr) 48px 40px 76px; align-items:center; gap:6px; padding:1px 4px; border-radius:5px; }
 .price-donut-legend li > span:nth-child(n+3) { text-align:right; font-variant-numeric:tabular-nums; }
 .price-donut-legend .donut-legend-block { color:#5f7168; }
+.price-donut-legend .donut-legend-note { display:block; color:#8a978f; font-size:9.5px; line-height:1.2; }
 .price-donut-legend li.price-donut-head { color:#7b8a83; font-size:10px; padding-bottom:2px; }
 .price-donut-legend li.price-donut-subpart { padding-left:30px; color:#7b8a83; font-size:10px; }
 .price-donut-legend li.is-active { background:#eaf3ee; }

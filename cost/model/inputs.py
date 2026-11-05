@@ -433,6 +433,8 @@ class PayrollPart:
     label: str
     amount_rub: Decimal
     absorbs: str | None = None
+    # Пояснение к статье: у оклада — оклад одного человека в месяц.
+    note: str = ""
 
 
 # Порядок и подписи статей ФОТ должности (решение владельца 05.11.2026):
@@ -454,12 +456,23 @@ PAYROLL_PARTS: tuple[tuple[str, str], ...] = (
 PAYROLL_PART_LABELS: Mapping[str, str] = dict(PAYROLL_PARTS)
 
 
-def payroll_parts(amounts: Mapping[str, Decimal], absorbs: Mapping[str, str] | None = None) -> tuple[PayrollPart, ...]:
+def salary_note(monthly: Decimal) -> str:
+    """Пояснение к окладу: оклад одного человека в месяц."""
+
+    return f"{formula_number(monthly)} ₽/мес на человека"
+
+
+def payroll_parts(
+    amounts: Mapping[str, Decimal],
+    absorbs: Mapping[str, str] | None = None,
+    notes: Mapping[str, str] | None = None,
+) -> tuple[PayrollPart, ...]:
     """Статьи в порядке `PAYROLL_PARTS`, нулевые пропущены."""
 
     absorbs = absorbs or {}
+    notes = notes or {}
     return tuple(
-        PayrollPart(code, label, amounts[code], absorbs.get(code))
+        PayrollPart(code, label, amounts[code], absorbs.get(code), notes.get(code, ""))
         for code, label in PAYROLL_PARTS
         if amounts.get(code)
     )
@@ -658,11 +671,14 @@ class ModelContext:
         absorbs: dict[str, str] = {
             part.code: part.absorbs for part in self.payroll_parts.get(cost_item_code, ()) if part.absorbs is not None
         }
+        notes: dict[str, str] = {part.code: part.note for part in self.payroll_parts.get(cost_item_code, ()) if part.note}
         for part in parts:
             amounts[part.code] = amounts.get(part.code, Decimal("0")) + part.amount_rub
             if part.absorbs is not None:
                 absorbs[part.code] = part.absorbs
-        self.payroll_parts[cost_item_code] = payroll_parts(amounts, absorbs)
+            if part.note:
+                notes.setdefault(part.code, part.note)
+        self.payroll_parts[cost_item_code] = payroll_parts(amounts, absorbs, notes)
 
     def warn(self, message: str) -> None:
         if message not in self.warnings:

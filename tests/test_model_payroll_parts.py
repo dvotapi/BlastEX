@@ -243,3 +243,36 @@ def test_rule_with_a_position_item_is_not_the_position_payroll() -> None:
     lines = [line for line in result.lines if line.operation_code in ("PRODUCTION_DRILLING", "CONTOUR_DRILLING")]
     total = sum((line.amount_rub for line in lines), D("0")) / result.natural.values["drilling_m"]
     assert abs(prices.with_payroll - total) < EPS
+
+
+def test_position_and_salary_say_who_the_payroll_is_for() -> None:
+    """Под должностью — люди в смене, штат ротации и смены блока; под окладом — оклад одного человека."""
+
+    result, params = _methodology()
+    prices = ds.prices(result, params, bp._references())
+    crew = next(item for item in prices.components if item.code == "CREW_PAYROLL")
+    driller = next(part for part in crew.parts if part.code.startswith("LABOR_P_DRILLER#"))
+    values = result.natural.values
+    rotation = values["crew_rotation.P_DRILLER"]
+    assert driller.note.startswith("1 в смене · ")
+    assert f"{int(rotation)} в штате" in driller.note
+    assert driller.note.endswith(" см на блок")
+    salary = next(sub for sub in driller.parts if sub.label == "Оклад")
+    assert salary.note.endswith("₽/мес на человека")
+    assert driller.to_dict()["note"] == driller.note
+    # Статьи без пояснения его не несут.
+    assert all(not sub.note for sub in driller.parts if sub.label != "Оклад")
+
+
+def test_staff_without_rotation_has_no_crew_size_in_the_note() -> None:
+    """Персонал участка со сменами на блок — без штата ротации: только люди в смене и смены."""
+
+    params = fx.parameters()
+    result = compute_block_economics(fx.snapshot(), params, fx.references())
+    prices = ds.prices(result, params, fx.references())
+    crew = next(item for item in prices.components if item.code == "CREW_PAYROLL")
+    assert "в штате" in crew.parts[0].note
+    from cost.model.drilling_sensitivity import _crew_note
+
+    assert _crew_note({"crew_shifts.X": D("2.1"), "crew_per_shift.X": D("1")}, "LABOR_X") == "1 в смене · 2,1 см на блок"
+    assert _crew_note({}, "UNIT_X") == ""

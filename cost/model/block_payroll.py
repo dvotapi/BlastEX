@@ -60,6 +60,7 @@ from cost.model.inputs import (
     payload_number,
     payload_text,
     payroll_parts,
+    salary_note,
 )
 from cost.model.pace import PlannedPace, planned_pace
 from cost.model.payroll import (
@@ -368,7 +369,7 @@ def _position_payroll(
         c_var_source=c_var_source,
         cost_factor=cost_factor,
         warnings=base.warnings,
-        parts=payroll_parts(amounts),
+        parts=payroll_parts(amounts, notes={"SALARY": salary_note(inputs.position.salary)}),
     )
 
 

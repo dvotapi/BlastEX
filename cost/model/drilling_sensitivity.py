@@ -38,7 +38,15 @@ from pydantic import ValidationError
 
 from cost.model import drilling, labor
 from cost.model.engine import compute_block_economics
-from cost.model.inputs import BlockEconomics, ModelContext, ModelParameters, PayrollPart, payload_number, payload_text
+from cost.model.inputs import (
+    BlockEconomics,
+    ModelContext,
+    ModelParameters,
+    PayrollPart,
+    formula_number,
+    payload_number,
+    payload_text,
+)
 from cost.model.block_margin import _scale_dict
 from cost.model.payroll import Scale, pays_by_meters, scale_series
 from cost.model.payroll_inputs import _first_error, _labor_rate, _scale
@@ -112,11 +120,16 @@ class Component:
     parts: tuple["Component", ...] = ()
     # Сумма на блок, ₽; None — не задана.
     rub: Decimal | None = None
+    # Пояснение под подписью: у должности — люди в смене, штат и смены блока,
+    # у оклада — оклад одного человека.
+    note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"code": self.code, "label": self.label, "rub_per_m": float(self.rub_per_m)}
         if self.rub is not None:
             result["rub"] = float(self.rub)
+        if self.note:
+            result["note"] = self.note
         if self.parts:
             result["parts"] = [part.to_dict() for part in self.parts]
         return result
@@ -352,6 +365,7 @@ def prices(
                 amount / drilling_m,
                 _payroll_components(_part_code(item, index), position_parts.get((item, name), ()), drilling_m),
                 rub=amount,
+                note=_crew_note(values, item) if (item, name) in position_parts else "",
             )
             for index, ((item, name), amount) in enumerate(groups[code].items())
             if amount
@@ -382,9 +396,29 @@ def _payroll_components(prefix: str, parts: Sequence[PayrollPart], drilling_m: D
     """Статьи ФОТ должности — подстроки её подстроки кольца."""
 
     return tuple(
-        Component(f"{prefix}:{part.code}", part.label, part.amount_rub / drilling_m, rub=part.amount_rub)
+        Component(f"{prefix}:{part.code}", part.label, part.amount_rub / drilling_m, rub=part.amount_rub, note=part.note)
         for part in parts
     )
+
+
+def _crew_note(values: Mapping[str, Decimal], item_code: str) -> str:
+    """«1 в смене · 3 в штате · 17,39 см на блок»: за кого и за сколько смен посчитан ФОТ должности.
+
+    Экипаж техники получает месячный ФОТ всего штата ротации, отнесённый на
+    смены блока; без ротации (персонал участка) штата нет. У строки без
+    смен в натуральных величинах (косвенный персонал юнита) пояснения нет.
+    """
+
+    code = item_code.removeprefix("LABOR_")
+    shifts = values.get(f"crew_shifts.{code}")
+    if shifts is None:
+        return ""
+    parts = [f"{formula_number(values.get(f'crew_per_shift.{code}', ZERO))} в смене"]
+    rotation = values.get(f"crew_rotation.{code}")
+    if rotation is not None:
+        parts.append(f"{formula_number(rotation)} в штате")
+    parts.append(f"{formula_number(shifts)} см на блок")
+    return " · ".join(parts)
 
 
 def _part_code(item_code: str, index: int) -> str:

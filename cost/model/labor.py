@@ -23,6 +23,7 @@ from cost.model.inputs import (
     payload_number,
     payload_text,
     payroll_parts,
+    salary_note,
 )
 from cost.v2.models import CostLayer, ReferenceItem
 
@@ -257,7 +258,9 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         if on_watch(context, position):
             camp_shifts[operation_code] = camp_shifts.get(operation_code, Decimal("0")) + shifts * per_shift
         charge = _per_diem(context, position, shifts, per_shift)
-        context.add_payroll_parts(line, _rate_parts(context, fixed_block, piece_block, accrued, charge))
+        context.add_payroll_parts(
+            line, _rate_parts(context, fixed_block, piece_block, accrued, charge, fixed_monthly)
+        )
         if charge > 0:
             per_diem_by_operation[operation_code] = per_diem_by_operation.get(operation_code, Decimal("0")) + charge
             per_diem_shifts[operation_code] = per_diem_shifts.get(operation_code, Decimal("0")) + shifts * per_shift
@@ -296,7 +299,12 @@ _ABSORBED_ITEMS = {
 
 
 def _rate_parts(
-    context: ModelContext, fixed: Decimal, piece: Decimal, accrued: Decimal, per_diem: Decimal
+    context: ModelContext,
+    fixed: Decimal,
+    piece: Decimal,
+    accrued: Decimal,
+    per_diem: Decimal,
+    monthly_salary: Decimal,
 ) -> tuple[PayrollPart, ...]:
     """Статьи ФОТ должности на ставках: оклад, премиальная часть и её доля взносов, резерва и суточных.
 
@@ -319,6 +327,7 @@ def _rate_parts(
             "CONTRIBUTIONS": contributions,
         },
         _ABSORBED_ITEMS,
+        {"SALARY": salary_note(monthly_salary)},
     )
 
 

@@ -98,6 +98,9 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
   const total = slices.reduce((sum, item) => sum + item.rub_per_m, 0);
   if (slices.length === 0) return null;
   const parts = slices.flatMap((item) => item.partSlices);
+  // Наведена статья ФОТ должности — подсвечиваются её должность и группа.
+  const owner = parts.find((part) => (part.parts ?? []).some((sub) => sub.code === active));
+  const lit = new Set([active, owner?.code ?? "", owner ? (slices.find((slice) => slice.partSlices.includes(owner))?.code ?? "") : ""]);
   const current =
     slices.find((item) => item.code === active) ??
     parts.find((part) => part.code === active) ??
@@ -113,7 +116,7 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
             key={slice.code}
             d={slice.path}
             fill={slice.color}
-            className={`donut-segment${active && active !== slice.code ? " is-dimmed" : ""}${active === slice.code ? " is-selected" : ""}`}
+            className={`donut-segment${active && !lit.has(slice.code) ? " is-dimmed" : ""}${active === slice.code ? " is-selected" : ""}`}
             onMouseEnter={() => setActive(slice.code)}
             onMouseLeave={() => setActive("")}
             onFocus={() => setActive(slice.code)}
@@ -129,7 +132,7 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
               key={part.code}
               d={part.path}
               fill={part.color}
-              className={`donut-segment donut-part${active && active !== part.code && active !== slice.code ? " is-dimmed" : ""}`}
+              className={`donut-segment donut-part${active && !lit.has(part.code) && active !== slice.code ? " is-dimmed" : ""}`}
               onMouseEnter={() => setActive(part.code)}
               onMouseLeave={() => setActive("")}
             >

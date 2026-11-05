@@ -299,7 +299,7 @@ def prices(
     # остаётся только то, что ни одной должности не принадлежит.
     absorbed: dict[tuple[str, str], Decimal] = {}
     for line in lines:
-        for part in result.payroll_parts.get(line.cost_item_code, ()) if line.cost_item_code.startswith("LABOR_") else ():
+        for part in result.payroll_parts.get(line.cost_item_code, ()):
             if part.absorbs is not None:
                 key = (line.operation_code, part.absorbs)
                 absorbed[key] = absorbed.get(key, ZERO) + part.amount_rub
@@ -307,7 +307,11 @@ def prices(
         if id(line) in own and line.cost_item_code not in SERVICE_OWN_ITEMS:
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
             continue
-        amount = line.amount_rub - absorbed.get((line.operation_code, line.cost_item_code), ZERO)
+        absorbed_key = (line.operation_code, line.cost_item_code)
+        amount = line.amount_rub - absorbed.get(absorbed_key, ZERO)
+        if absorbed_key in absorbed and abs(amount) < RESIDUAL_RUB:
+            # Строку взносов или суточных целиком разобрали должности.
+            continue
         group, label = _group(line, staff_items)
         key = (line.cost_item_code, label)
         parts = result.payroll_parts.get(line.cost_item_code, ())
@@ -315,8 +319,6 @@ def prices(
             # Должность — сумма своих статей: строка ФОТ и доля строк операции.
             position_parts[key] = parts
             amount = sum((part.amount_rub for part in parts), ZERO)
-        if abs(amount) < RESIDUAL_RUB:
-            continue
         groups[group][key] = groups[group].get(key, ZERO) + amount
     components = [
         Component(code, label, by_item[code] / drilling_m, rub=by_item[code])

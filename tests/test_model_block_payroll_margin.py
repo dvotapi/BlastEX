@@ -343,8 +343,8 @@ def test_variable_drilling_lines_outside_drilling_module_enter_price_once() -> N
     assert e["margin"]["margin_rub_per_m"] - b["margin"]["margin_rub_per_m"] == pytest.approx(x * 0.21, rel=1e-9)
 
 
-def test_own_drilling_lines_found_by_identity_not_by_position() -> None:
-    """Строки бурения узнаются по самим объектам `norms.lines`: порядок строк и чужая строка впереди цену не меняют."""
+def test_price_counts_each_drilling_line_once_whatever_the_order() -> None:
+    """Порядок строк и строка чужой операции цену не меняют; копия строки станка входит ещё раз."""
 
     context = ModelContext(
         _references(**F17_REFERENCES), fx.parameters(crew=CREW, payroll_source="PAYROLL"), fx.physical(), as_of=AS_OF
@@ -359,7 +359,7 @@ def test_own_drilling_lines_found_by_identity_not_by_position() -> None:
     moved = block_margin.margin(context, norms, payroll, [unrelated, *reversed(lines)])
     assert (moved.price, moved.variable) == (base.price, base.variable)
 
-    # Копия своей строки — уже не строка `drilling.compute`: она входит в цену как добавка.
+    # Копия строки станка — ещё одна строка операции бурения: и в цене, и в переменных.
     own_variable = next(line for line in norms.lines if line.layer is CostLayer.VARIABLE)
     copy = replace(own_variable)
     extra = block_margin.margin(context, norms, payroll, [copy, *lines])

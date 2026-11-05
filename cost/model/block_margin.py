@@ -27,7 +27,7 @@ from typing import Any, Sequence
 
 from cost.model import markup
 from cost.model.block_payroll import BlockPayroll
-from cost.model.drilling import DRILLING_OPERATION, DrillingNorms
+from cost.model.drilling import DRILLING_OPERATION, DrillingNorms, operation_cost_rub
 from cost.model.inputs import ModelContext
 from cost.model.payroll import ONE, ZERO, MarginCheck, Scale, SharePoint, fn, margin_check, scale_series
 from cost.v2.models import CostLayer, CostLine
@@ -50,6 +50,7 @@ def margin(
     Предупреждения проверки уходят в контекст.
     """
 
+    # Без нормы бурения смен станка нет: в цене метра остался бы один ФОТ.
     if payroll is None or norms is None:
         return None
     drilling_m = context.value("drilling_m")
@@ -58,14 +59,15 @@ def margin(
     lineage: dict[str, str] = {}
     if drilling_m > 0:
         overhead_rate, margin_rate, _ = markup.rates(context)
-        total_rub = ZERO
-        variable_rub = ZERO
-        for line in lines:
-            if line.operation_code != DRILLING_OPERATION:
-                continue
-            total_rub += line.amount_rub
-            if line.layer is CostLayer.VARIABLE:
-                variable_rub += line.amount_rub
+        total_rub = operation_cost_rub(lines)
+        variable_rub = sum(
+            (
+                line.amount_rub
+                for line in lines
+                if line.operation_code == DRILLING_OPERATION and line.layer is CostLayer.VARIABLE
+            ),
+            ZERO,
+        )
         price = total_rub / drilling_m * (ONE + overhead_rate) * (ONE + margin_rate)
         variable = variable_rub / drilling_m
         lineage = {

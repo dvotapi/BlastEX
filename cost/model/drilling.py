@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Sequence
+from typing import Iterable, Sequence
 
 from cost.model import age_scale
 from cost.model.inputs import ModelContext, asset_label, formula_number, payload_number, payload_text
@@ -37,13 +37,19 @@ class DrillingNorms:
     variable_rub_per_m: Decimal
     fixed_rub_per_m: Decimal
     # Строки, записанные самим расчётом бурения (те, из которых сложена
-    # стоимость 1 п.м.): по ним цена метра для доли в марже отличает свои
-    # строки от строк правил затрат и услуг той же операции.
+    # стоимость 1 п.м.): по ним панель цены метра отличает слагаемые станка
+    # от строк правил затрат и услуг той же операции.
     lines: tuple[CostLine, ...] = ()
 
     @property
     def cost_rub_per_m(self) -> Decimal:
         return self.variable_rub_per_m + self.fixed_rub_per_m
+
+
+def operation_cost_rub(lines: Iterable[CostLine]) -> Decimal:
+    """Себестоимость операции бурения на блок: Σ её строк — база цены метра листа и доли в марже."""
+
+    return sum((line.amount_rub for line in lines if line.operation_code == DRILLING_OPERATION), Decimal("0"))
 
 
 def pick_condition(

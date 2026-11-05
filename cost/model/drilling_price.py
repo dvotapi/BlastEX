@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from cost.model.drilling import DRILLING_OPERATION
+from cost.model.drilling import operation_cost_rub
 from cost.model.engine import compute_block_economics
 from cost.model import labor
 from cost.model.inputs import ModelParameters, payload_number, payload_text
@@ -98,10 +98,7 @@ def compute(
     # остался бы один ФОТ экипажа: это не цена метра, а обманчивая часть.
     if params.drilling_executor == "OWN" and economics.natural.values.get("rig_shifts", ZERO) <= 0:
         return DrillingPrice(ZERO, ZERO, ZERO, ZERO, drilling_m, params.payroll_source, warnings)
-    total = sum(
-        (line.amount_rub for line in economics.lines if line.operation_code == DRILLING_OPERATION),
-        ZERO,
-    )
+    total = operation_cost_rub(economics.lines)
     overhead_rate = economics.markup.get("overhead_rate", ZERO)
     margin_rate = economics.markup.get("target_margin_rate", ZERO)
     cost_per_m = total / drilling_m

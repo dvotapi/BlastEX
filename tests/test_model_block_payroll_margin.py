@@ -343,8 +343,8 @@ def test_variable_drilling_lines_outside_drilling_module_enter_price_once() -> N
     assert e["margin"]["margin_rub_per_m"] - b["margin"]["margin_rub_per_m"] == pytest.approx(x * 0.21, rel=1e-9)
 
 
-def test_own_drilling_lines_found_by_identity_not_by_position() -> None:
-    """Строки бурения узнаются по самим объектам `norms.lines`: порядок строк и чужая строка впереди цену не меняют."""
+def test_price_counts_each_drilling_line_once_whatever_the_order() -> None:
+    """Порядок строк и строка чужой операции цену не меняют; копия строки станка входит ещё раз."""
 
     context = ModelContext(
         _references(**F17_REFERENCES), fx.parameters(crew=CREW, payroll_source="PAYROLL"), fx.physical(), as_of=AS_OF
@@ -359,13 +359,45 @@ def test_own_drilling_lines_found_by_identity_not_by_position() -> None:
     moved = block_margin.margin(context, norms, payroll, [unrelated, *reversed(lines)])
     assert (moved.price, moved.variable) == (base.price, base.variable)
 
-    # Копия своей строки — уже не строка `drilling.compute`: она входит в цену как добавка.
+    # Копия строки станка — ещё одна строка операции бурения: и в цене, и в переменных.
     own_variable = next(line for line in norms.lines if line.layer is CostLayer.VARIABLE)
     copy = replace(own_variable)
     extra = block_margin.margin(context, norms, payroll, [copy, *lines])
     drilling_m = context.value("drilling_m")
     assert extra.variable - base.variable == copy.amount_rub / drilling_m
     assert extra.price - base.price == copy.amount_rub / drilling_m * D("1.1") * D("1.1")
+
+
+def test_price_is_every_drilling_line_like_the_sheet_price() -> None:
+    """Цена метра маржи — все строки операции бурения с надбавками, как цена метра листа «Расчёт».
+
+    Строка не слоя VARIABLE (персонал участка по ставкам, его взносы и резерв,
+    проживание, постоянное правило) поднимает цену, но не переменные метра.
+    """
+
+    economics = _economics()
+    drilling_m = economics.natural.values["drilling_m"]
+    total = sum((line.amount_rub for line in economics.lines if line.operation_code == "PRODUCTION_DRILLING"), D("0"))
+    assert economics.payroll["price_rub_per_m"] == pytest.approx(float(total / drilling_m * D("1.21")), rel=1e-12)
+
+    context = ModelContext(
+        _references(**F17_REFERENCES), fx.parameters(crew=CREW, payroll_source="PAYROLL"), fx.physical(), as_of=AS_OF
+    )
+    norms = drilling.compute(context)
+    payroll = block_payroll.compute(context, norms)
+    lines = list(context.lines)
+    base = block_margin.margin(context, norms, payroll, lines)
+    staff = replace(
+        lines[0],
+        operation_code="PRODUCTION_DRILLING",
+        cost_item_code="LABOR_CONTRIBUTIONS",
+        layer=CostLayer.PROJECT_DIRECT,
+        amount_rub=D("50000"),
+    )
+    with_staff = block_margin.margin(context, norms, payroll, [*lines, staff])
+    m = context.value("drilling_m")
+    assert abs(with_staff.price - base.price - D("50000") / m * D("1.1") * D("1.1")) < D("0.000001")
+    assert with_staff.variable == base.variable
 
 
 # --- Пороги методики из «Параметров ФОТ» -------------------------------------------

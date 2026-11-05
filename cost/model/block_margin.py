@@ -4,11 +4,13 @@
 услуг и юнита), до надбавок, и только при ФОТ экипажа по методике
 (`block_payroll.compute` вернул `BlockPayroll`):
 
-- price_m = (стоимость 1 п.м. бурения + (Σ строк ФОТ методики + переменные
-  строки бурения правил затрат и услуг) / drilling_m) ×
-  (1 + ОХР) × (1 + рентабельность) — ставки `markup.rates`, как у цены блока;
-  цена по себестоимости, а не договорная: ФОТ экипажа входит и в цену, и в
-  долю, поэтому доля растёт с ФОТ медленнее, чем при договорной цене;
+- price_m = Σ строк операции бурения / drilling_m × (1 + ОХР) ×
+  (1 + рентабельность) — та же себестоимость метра, что у цены листа «Расчёт»
+  (`drilling_price`): станок, ФОТ методики, персонал участка по ставкам с
+  взносами и резервом, суточные, проживание, правила затрат и услуги; ставки —
+  `markup.rates`, как у цены блока. Цена по себестоимости, а не договорная:
+  ФОТ экипажа входит и в цену, и в долю, поэтому доля растёт с ФОТ медленнее,
+  чем при договорной цене;
 - var_m = Σ строк слоя VARIABLE операции бурения / drilling_m — без
   амортизации, страхования и ТО станка;
 - доля — `payroll.margin_check` по сдельщикам экипажа на приведённых метрах,
@@ -25,7 +27,7 @@ from typing import Any, Sequence
 
 from cost.model import markup
 from cost.model.block_payroll import BlockPayroll
-from cost.model.drilling import DRILLING_OPERATION, DrillingNorms
+from cost.model.drilling import DRILLING_OPERATION, DrillingNorms, operation_cost_rub
 from cost.model.inputs import ModelContext
 from cost.model.payroll import ONE, ZERO, MarginCheck, Scale, SharePoint, fn, margin_check, scale_series
 from cost.v2.models import CostLayer, CostLine
@@ -41,15 +43,14 @@ def margin(
     """Доля экипажа в марже метра бурения; None — блок на ставках или субподряд.
 
     Зовётся, когда все строки уже на месте (после правил затрат, услуг и
-    юнита), и до надбавок: переменные метра — строки слоя VARIABLE операции
-    бурения, без амортизации, страхования и ТО станка (они не переменные).
-    Строки самого `drilling.compute` (`norms.lines`) уже в стоимости 1 п.м. и
-    узнаются по объекту, а не по месту в списке; переменные строки бурения
-    правил затрат и услуг идут в цену отдельно, ровно один раз — иначе они
-    снижали бы маржу, не поднимая цены, и завышали бы долю.
+    юнита), и до надбавок: цена — все строки операции бурения, переменные
+    метра — её строки слоя VARIABLE, без амортизации, страхования и ТО станка
+    (они не переменные). Каждая строка входит в цену ровно один раз: строка,
+    которая снижала бы маржу, не поднимая цены, завышала бы долю.
     Предупреждения проверки уходят в контекст.
     """
 
+    # Без нормы бурения смен станка нет: в цене метра остался бы один ФОТ.
     if payroll is None or norms is None:
         return None
     drilling_m = context.value("drilling_m")
@@ -58,27 +59,21 @@ def margin(
     lineage: dict[str, str] = {}
     if drilling_m > 0:
         overhead_rate, margin_rate, _ = markup.rates(context)
-        crew_rub = sum((position.amount_rub for position in payroll.positions), ZERO)
-        # Тождество объекта, а не равенство: строки — значения, и копия своей
-        # строки (правило с той же статьёй) должна попасть в добавку.
-        own = {id(line) for line in norms.lines}
-        variable_rub = ZERO
-        added_rub = ZERO
-        for line in lines:
-            if line.layer is not CostLayer.VARIABLE or line.operation_code != DRILLING_OPERATION:
-                continue
-            variable_rub += line.amount_rub
-            if id(line) not in own:
-                added_rub += line.amount_rub
-        price = (norms.cost_rub_per_m + (added_rub + crew_rub) / drilling_m) * (ONE + overhead_rate) * (
-            ONE + margin_rate
+        total_rub = operation_cost_rub(lines)
+        variable_rub = sum(
+            (
+                line.amount_rub
+                for line in lines
+                if line.operation_code == DRILLING_OPERATION and line.layer is CostLayer.VARIABLE
+            ),
+            ZERO,
         )
+        price = total_rub / drilling_m * (ONE + overhead_rate) * (ONE + margin_rate)
         variable = variable_rub / drilling_m
-        added = f" + {fn(added_rub)} ₽ переменных правил и услуг" if added_rub else ""
         lineage = {
             "price_rub_per_m": (
-                f"({fn(norms.cost_rub_per_m)} ₽/м бурения + ({fn(crew_rub)} ₽ ФОТ экипажа{added}) / "
-                f"{fn(drilling_m)} м) × (1 + {fn(overhead_rate)}) × (1 + {fn(margin_rate)}) — по себестоимости с надбавками"
+                f"{fn(total_rub)} ₽ строк бурения / {fn(drilling_m)} м × (1 + {fn(overhead_rate)}) × "
+                f"(1 + {fn(margin_rate)}) — по себестоимости с надбавками, как цена метра листа «Расчёт»"
             ),
             "variable_rub_per_m": f"Σ переменных строк бурения {fn(variable_rub)} ₽ / {fn(drilling_m)} м",
         }

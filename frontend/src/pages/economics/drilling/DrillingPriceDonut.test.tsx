@@ -76,7 +76,7 @@ describe("DrillingPriceDonut", () => {
                 label: "Машинист буровой установки",
                 rub_per_m: 40,
                 rub: 40000,
-                note: "1 в смене · 3 в штате · 17,39 см на блок",
+                note: "1 в смене · 3 в штате · 17,39 смены блока",
                 parts: [
                   { code: "LABOR_P_DRILLER#0:SALARY", label: "Оклад", rub_per_m: 25, rub: 25000, note: "60 000 ₽/мес на человека" },
                   { code: "LABOR_P_DRILLER#0:CONTRIBUTIONS", label: "Отчисления", rub_per_m: 15, rub: 15000 },
@@ -97,7 +97,7 @@ describe("DrillingPriceDonut", () => {
     expect(within(driller).getByText(/40\s000/)).toBeInTheDocument();
     expect(within(donut).getByText("₽ на блок")).toBeInTheDocument();
     // За кого посчитан ФОТ: люди в смене и штат, оклад одного человека.
-    expect(within(driller).getByText("1 в смене · 3 в штате · 17,39 см на блок")).toBeInTheDocument();
+    expect(within(driller).getByText("1 в смене · 3 в штате · 17,39 смены блока")).toBeInTheDocument();
     expect(within(salary).getByText("60 000 ₽/мес на человека")).toBeInTheDocument();
   });
 });

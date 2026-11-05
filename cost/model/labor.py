@@ -327,7 +327,8 @@ def _rate_parts(
             "CONTRIBUTIONS": contributions,
         },
         _ABSORBED_ITEMS,
-        {"SALARY": salary_note(monthly_salary)},
+        # Оклад человека — с тем же НДФЛ сверху, что и статья «Оклад».
+        {"SALARY": salary_note(monthly_salary * gross_up)},
     )
 
 

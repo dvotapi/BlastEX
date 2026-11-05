@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from cost.model import drilling_sensitivity as ds
 from cost.model.engine import compute_block_economics
-from cost.model.inputs import PARAMETERS_VERSION, ModelParameters
+from cost.model.inputs import PARAMETERS_VERSION, ModelParameters, formula_number
 from tests import model_fixtures as fx
 from tests import test_model_block_payroll as bp
 
@@ -256,7 +256,7 @@ def test_position_and_salary_say_who_the_payroll_is_for() -> None:
     rotation = values["crew_rotation.P_DRILLER"]
     assert driller.note.startswith("1 в смене · ")
     assert f"{int(rotation)} в штате" in driller.note
-    assert driller.note.endswith(" см на блок")
+    assert driller.note.endswith(" смены блока") or driller.note.endswith(" смен блока")
     salary = next(sub for sub in driller.parts if sub.label == "Оклад")
     assert salary.note.endswith("₽/мес на человека")
     assert driller.to_dict()["note"] == driller.note
@@ -274,5 +274,29 @@ def test_staff_without_rotation_has_no_crew_size_in_the_note() -> None:
     assert "в штате" in crew.parts[0].note
     from cost.model.drilling_sensitivity import _crew_note
 
-    assert _crew_note({"crew_shifts.X": D("2.1"), "crew_per_shift.X": D("1")}, "LABOR_X") == "1 в смене · 2,1 см на блок"
+    assert _crew_note({"crew_shifts.X": D("2.1"), "crew_per_shift.X": D("1")}, "LABOR_X") == "1 в смене · 2,1 смены блока"
+    assert _crew_note({"crew_shifts.X": D("40"), "crew_per_shift.X": D("1")}, "LABOR_X").endswith("40 смен блока")
+    assert _crew_note({"crew_shifts.X": D("1"), "crew_per_shift.X": D("1")}, "LABOR_X").endswith("1 смена блока")
     assert _crew_note({}, "UNIT_X") == ""
+
+
+def test_repeated_position_has_no_crew_note() -> None:
+    """Должность дважды в составе: смены и штат в натуральных величинах — от одной строки, пояснения нет."""
+
+    from cost.model.inputs import CrewMember
+
+    params = fx.parameters(
+        crew=(CrewMember("POS_DRILLER", D("1"), D("1")), CrewMember("POS_DRILLER", D("1"), D("3")))
+    )
+    result = compute_block_economics(fx.snapshot(), params, fx.references())
+    crew = next(item for item in ds.prices(result, params, fx.references()).components if item.code == "CREW_PAYROLL")
+    assert all(not part.note for part in crew.parts)
+
+
+def test_net_salary_note_is_the_grossed_up_salary() -> None:
+    """Оклад «на руки»: пояснение — оклад с НДФЛ сверху, как и сумма статьи."""
+
+    rates = (fx.item("ORG_RATES_NET", "Ставки организации", {"salary_basis": "NET", "income_tax_rate": "0.13"}),)
+    result = compute_block_economics(fx.snapshot(), fx.parameters(), fx.references(organization_rates=rates))
+    salary = next(p for p in result.payroll_parts["LABOR_POS_DRILLER"] if p.code == "SALARY")
+    assert salary.note == f"{formula_number(D('60000') / D('0.87'))} ₽/мес на человека"

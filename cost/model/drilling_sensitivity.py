@@ -43,6 +43,7 @@ from cost.model.inputs import (
     ModelContext,
     ModelParameters,
     PayrollPart,
+    _plural_form,
     formula_number,
     payload_number,
     payload_text,
@@ -321,6 +322,11 @@ def prices(
             if part.absorbs is not None:
                 key = (line.operation_code, part.absorbs)
                 absorbed[key] = absorbed.get(key, ZERO) + part.amount_rub
+    counts: dict[str, int] = {}
+    for line in lines:
+        if id(line) in result.payroll_lines:
+            counts[line.cost_item_code] = counts.get(line.cost_item_code, 0) + 1
+    repeated = {code for code, count in counts.items() if count > 1}
     for line in lines:
         if id(line) in own and line.cost_item_code not in SERVICE_OWN_ITEMS:
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
@@ -365,7 +371,9 @@ def prices(
                 amount / drilling_m,
                 _payroll_components(_part_code(item, index), position_parts.get((item, name), ()), drilling_m),
                 rub=amount,
-                note=_crew_note(values, item) if (item, name) in position_parts else "",
+                # У должности дважды в составе смены и штат в натуральных
+                # величинах — от одной строки: пояснение ввело бы в заблуждение.
+                note=_crew_note(values, item) if (item, name) in position_parts and item not in repeated else "",
             )
             for index, ((item, name), amount) in enumerate(groups[code].items())
             if amount
@@ -402,7 +410,7 @@ def _payroll_components(prefix: str, parts: Sequence[PayrollPart], drilling_m: D
 
 
 def _crew_note(values: Mapping[str, Decimal], item_code: str) -> str:
-    """«1 в смене · 3 в штате · 17,39 см на блок»: за кого и за сколько смен посчитан ФОТ должности.
+    """«1 в смене · 3 в штате · 17,39 смены блока»: за кого и за сколько смен посчитан ФОТ должности.
 
     Экипаж техники получает месячный ФОТ всего штата ротации, отнесённый на
     смены блока; без ротации (персонал участка) штата нет. У строки без
@@ -417,7 +425,8 @@ def _crew_note(values: Mapping[str, Decimal], item_code: str) -> str:
     rotation = values.get(f"crew_rotation.{code}")
     if rotation is not None:
         parts.append(f"{formula_number(rotation)} в штате")
-    parts.append(f"{formula_number(shifts)} см на блок")
+    number = formula_number(shifts)
+    parts.append(f"{number} {('смена', 'смены', 'смен')[_plural_form(number)]} блока")
     return " · ".join(parts)
 
 

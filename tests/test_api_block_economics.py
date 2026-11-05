@@ -1247,15 +1247,40 @@ def test_compare_merges_one_item_of_several_operations_under_a_name_without_oper
     from api.routers import block_economics
 
 
-    def line(name: str, amount: float) -> dict:
-        return {"cost_item_code": "LABOR_CONTRIBUTIONS", "cost_item_name": name, "amount_rub": amount, "layer": "PROJECT_DIRECT"}
+    def line(code: str, name: str, operation: str, amount: float) -> dict:
+        return {
+            "cost_item_code": code,
+            "cost_item_name": name,
+            "operation_code": operation,
+            "amount_rub": amount,
+            "layer": "PROJECT_DIRECT",
+        }
 
     runs = [
-        {"id": "a", "result": {"lines": [line("Страховые взносы и НС", 100.0)]}},
-        {"id": "b", "result": {"lines": [line("Страховые взносы и НС: Основное бурение", 80.0), line("Страховые взносы и НС: Взрывные работы", 50.0)]}},
+        {
+            "id": "a",
+            "result": {
+                "lines": [
+                    line("LABOR_CONTRIBUTIONS", "Страховые взносы и НС: Основное бурение", "DRILL", 100.0),
+                    line("TOOLING", "Оснастка: коронки", "DRILL", 10.0),
+                ]
+            },
+        },
+        {
+            "id": "b",
+            "result": {
+                "lines": [
+                    line("LABOR_CONTRIBUTIONS", "Страховые взносы и НС: Основное бурение", "DRILL", 80.0),
+                    line("LABOR_CONTRIBUTIONS", "Страховые взносы и НС: Взрывные работы", "BLAST", 50.0),
+                    line("TOOLING", "Оснастка: штанги", "DRILL", 5.0),
+                ]
+            },
+        },
     ]
 
     monkeypatch.setattr(block_economics, "_summary", lambda run: run["id"])
-    row = block_economics._compare(runs)["rows"][0]
-    assert row["cost_item_name"] == "Страховые взносы и НС"
-    assert row["delta_rub"] == 30.0
+    rows = {row["cost_item_code"]: row for row in block_economics._compare(runs)["rows"]}
+    assert rows["LABOR_CONTRIBUTIONS"]["cost_item_name"] == "Страховые взносы и НС"
+    assert rows["LABOR_CONTRIBUTIONS"]["delta_rub"] == 30.0
+    # Две строки одной операции (правила одной статьи) подпись не теряют.
+    assert rows["TOOLING"]["cost_item_name"] == "Оснастка: коронки"

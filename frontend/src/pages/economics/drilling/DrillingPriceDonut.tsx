@@ -6,7 +6,8 @@
  * Геометрия — `ringSegmentPath` из кольца структуры себестоимости; в центре —
  * цена метра с ФОТ. Легенда — доли и ₽/м; пробные значения меняют и кольцо.
  * Подстатьи групп (должности, услуги, персонал участка) идут тонким внешним кольцом напротив своего сегмента и
- * подстроками легенды.
+ * подстроками легенды; статьи ФОТ должности (оклад, межвахта, отчисления…) — третьим уровнем легенды, без кольца.
+ * У каждой строки легенды — доля, ₽/м и сумма на блок.
  */
 import { useState } from "react";
 import type { DrillingComponent } from "../../../types/blockEconomics";
@@ -50,6 +51,9 @@ export const COMPONENT_COLORS: Record<string, string> = {
 };
 
 export type DonutPart = DrillingComponent & { share: number; path: string; color: string };
+
+/** Сумма на блок: из ответа, а у старого ответа без неё — ₽/м × метры не восстановить, пусто. */
+const blockSum = (item: DrillingComponent) => (item.rub === undefined ? "" : money(item.rub, 0));
 export type DonutSlice = DrillingComponent & { share: number; path: string; color: string; partSlices: DonutPart[] };
 
 /** Сегменты по порядку слагаемых, нулевые и отрицательные пропущены. */
@@ -93,8 +97,15 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
   const slices = donutSlices(components);
   const total = slices.reduce((sum, item) => sum + item.rub_per_m, 0);
   if (slices.length === 0) return null;
+  const parts = slices.flatMap((item) => item.partSlices);
+  // Наведена статья ФОТ должности — подсвечиваются её должность и группа.
+  const owner = parts.find((part) => (part.parts ?? []).some((sub) => sub.code === active));
+  const lit = new Set([active, owner?.code ?? "", owner ? (slices.find((slice) => slice.partSlices.includes(owner))?.code ?? "") : ""]);
   const current =
-    slices.find((item) => item.code === active) ?? slices.flatMap((item) => item.partSlices).find((part) => part.code === active) ?? null;
+    slices.find((item) => item.code === active) ??
+    parts.find((part) => part.code === active) ??
+    parts.flatMap((part) => part.parts ?? []).find((sub) => sub.code === active) ??
+    null;
 
   return (
     <figure className={`price-donut${stale ? " is-stale" : ""}`} aria-label="Слагаемые стоимости метра">
@@ -105,7 +116,7 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
             key={slice.code}
             d={slice.path}
             fill={slice.color}
-            className={`donut-segment${active && active !== slice.code ? " is-dimmed" : ""}${active === slice.code ? " is-selected" : ""}`}
+            className={`donut-segment${active && !lit.has(slice.code) ? " is-dimmed" : ""}${active === slice.code ? " is-selected" : ""}`}
             onMouseEnter={() => setActive(slice.code)}
             onMouseLeave={() => setActive("")}
             onFocus={() => setActive(slice.code)}
@@ -121,7 +132,7 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
               key={part.code}
               d={part.path}
               fill={part.color}
-              className={`donut-segment donut-part${active && active !== part.code && active !== slice.code ? " is-dimmed" : ""}`}
+              className={`donut-segment donut-part${active && !lit.has(part.code) && active !== slice.code ? " is-dimmed" : ""}`}
               onMouseEnter={() => setActive(part.code)}
               onMouseLeave={() => setActive("")}
             >
@@ -137,6 +148,13 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
         </text>
       </svg>
       <ul className="price-donut-legend">
+        <li className="price-donut-head" aria-hidden="true">
+          <i />
+          <span />
+          <span>доля</span>
+          <span>₽/м</span>
+          <span>₽ на блок</span>
+        </li>
         {slices.flatMap((slice) => [
           <li
             key={slice.code}
@@ -149,8 +167,9 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
             <span className="donut-legend-label">{slice.label}</span>
             <span className="donut-legend-percent">{percent(slice.share)}</span>
             <span className="donut-legend-value">{money(slice.rub_per_m, 0)}</span>
+            <span className="donut-legend-block">{blockSum(slice)}</span>
           </li>,
-          ...slice.partSlices.map((part) => (
+          ...slice.partSlices.flatMap((part) => [
             <li
               key={part.code}
               className={`price-donut-part${active === part.code ? " is-active" : ""}`}
@@ -161,8 +180,23 @@ export function DrillingPriceDonut({ components, stale }: { components: Drilling
               <span className="donut-legend-label">{part.label}</span>
               <span className="donut-legend-percent">{percent(part.share)}</span>
               <span className="donut-legend-value">{money(part.rub_per_m, 0)}</span>
-            </li>
-          )),
+              <span className="donut-legend-block">{blockSum(part)}</span>
+            </li>,
+            ...(part.parts ?? []).map((sub) => (
+              <li
+                key={sub.code}
+                className={`price-donut-subpart${active === sub.code ? " is-active" : ""}`}
+                onMouseEnter={() => setActive(sub.code)}
+                onMouseLeave={() => setActive("")}
+              >
+                <i />
+                <span className="donut-legend-label">{sub.label}</span>
+                <span className="donut-legend-percent">{total > 0 ? percent(sub.rub_per_m / total) : ""}</span>
+                <span className="donut-legend-value">{money(sub.rub_per_m, 0)}</span>
+                <span className="donut-legend-block">{blockSum(sub)}</span>
+              </li>
+            )),
+          ]),
         ])}
       </ul>
     </figure>

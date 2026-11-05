@@ -46,18 +46,20 @@ def test_parameters_without_nomenclature_stay_valid() -> None:
     assert params.electric_detonators_qty == Decimal("0")
 
 
-def test_payroll_source_defaults_to_rates() -> None:
+def test_payroll_source_defaults_to_methodology() -> None:
+    """Умолчание — «Методика ФОТ» (решение владельца 05.11.2026)."""
+
     params = ModelParameters.from_dict({})
-    assert params.payroll_source == "RATES"
-    assert params.to_dict()["payroll_source"] == "RATES"
+    assert params.payroll_source == "PAYROLL"
+    assert params.to_dict()["payroll_source"] == "PAYROLL"
 
 
 def test_payroll_source_round_trip() -> None:
-    params = ModelParameters.from_dict({"payroll_source": "PAYROLL"})
-    assert params.payroll_source == "PAYROLL"
-    assert ModelParameters.from_dict(params.to_dict()).payroll_source == "PAYROLL"
+    params = ModelParameters.from_dict({"payroll_source": "RATES"})
+    assert params.payroll_source == "RATES"
+    assert ModelParameters.from_dict(params.to_dict()).payroll_source == "RATES"
 
 
-def test_unknown_payroll_source_falls_back_to_rates() -> None:
-    assert ModelParameters.from_dict({"payroll_source": "payroll"}).payroll_source == "RATES"
-    assert ModelParameters.from_dict({"payroll_source": "OTHER"}).payroll_source == "RATES"
+def test_unknown_payroll_source_falls_back_to_methodology() -> None:
+    assert ModelParameters.from_dict({"payroll_source": "rates"}).payroll_source == "PAYROLL"
+    assert ModelParameters.from_dict({"payroll_source": "OTHER"}).payroll_source == "PAYROLL"

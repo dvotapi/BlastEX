@@ -65,7 +65,7 @@ export type ModelParameters = {
   overhead_rate: Numeric | null;
   target_margin_rate: Numeric | null;
   vat_rate: Numeric | null;
-  /** Откуда брать ФОТ экипажа бурения: ставки справочников или методика ФОТ (переключателя в интерфейсе пока нет). */
+  /** Откуда брать ФОТ экипажа бурения: методика ФОТ (умолчание) или ставки справочников. */
   payroll_source: "RATES" | "PAYROLL";
 };
 
@@ -292,7 +292,9 @@ export type DrillingComponent = {
   code: string;
   label: string;
   rub_per_m: number;
-  /** Подстатьи: у ФОТ экипажа — строки должностей. */
+  /** Сумма на блок, ₽. */
+  rub?: number;
+  /** Подстатьи: у ФОТ экипажа и ИТР — должности, у должности — статьи ФОТ (оклад, межвахта, отчисления…). */
   parts?: DrillingComponent[];
 };
 

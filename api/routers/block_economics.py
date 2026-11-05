@@ -408,7 +408,9 @@ def export_run(
     # с Decimal, из которого собирается книга. Дата — та, на которую прогон
     # считали: иначе истёкшая с тех пор цена материала выпала бы из выгрузки,
     # и книга разошлась бы с сохранённым сценарием.
-    params = ModelParameters.from_dict(stored.parameters)
+    # Снимок без поля источника ФОТ считался по ставкам (тогдашнее умолчание):
+    # выгрузка повторяет снимок, а не новое умолчание «Методика ФОТ».
+    params = ModelParameters.from_dict({"payroll_source": "RATES", **stored.parameters})
     economics = _compute(passport, params, references, as_of=stored.created_at.date())
     content = export_bytes(
         economics,

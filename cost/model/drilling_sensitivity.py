@@ -17,9 +17,11 @@
 Цены — себестоимость, без ОХР и рентабельности, как «Стоимость 1 п.м.» на
 странице: без ФОТ — `drilling_rub_per_m` (строки самой модели бурения:
 оснастка, ДТ, запчасти, амортизация, страховка, ТО); с ФОТ — плюс строки
-ФОТ экипажа операций бурения на метр (ставки или методика — по
-`payroll_source`; взносы и суточные лежат без операции и в цену не входят,
-как и в `block_margin`). Шкала премии двигает цену только при методике ФОТ;
+ФОТ операций бурения на метр (ставки или методика — по `payroll_source`):
+экипаж, персонал участка, взносы, резерв отпусков и суточные. В кольце
+ФОТ разложен по должностям, а должность — по статьям (оклад, межвахта,
+ночные, праздничные, вахтовые, вредность, РК, резерв отпусков, отчисления,
+премиальная часть; `BlockEconomics.payroll_parts`). Шкала премии двигает цену только при методике ФОТ;
 при ставках ручки премии отдаются с пометкой, что не действуют.
 
 Подмены — только в памяти запроса: справочники и черновик не меняются, в
@@ -36,7 +38,7 @@ from pydantic import ValidationError
 
 from cost.model import drilling, labor
 from cost.model.engine import compute_block_economics
-from cost.model.inputs import BlockEconomics, ModelContext, ModelParameters, payload_number, payload_text
+from cost.model.inputs import BlockEconomics, ModelContext, ModelParameters, PayrollPart, payload_number, payload_text
 from cost.model.block_margin import _scale_dict
 from cost.model.payroll import Scale, pays_by_meters, scale_series
 from cost.model.payroll_inputs import _first_error, _labor_rate, _scale
@@ -105,12 +107,16 @@ class Component:
     code: str
     label: str
     rub_per_m: Decimal
-    # Подстатьи слагаемого: у ФОТ экипажа — строки должностей и суточные
-    # операций бурения (по статье строки, в порядке строк блока).
+    # Подстатьи слагаемого: у ФОТ экипажа и ИТР — должности, у должности —
+    # статьи ФОТ (оклад, межвахта, отчисления…), в порядке строк блока.
     parts: tuple["Component", ...] = ()
+    # Сумма на блок, ₽; None — не задана.
+    rub: Decimal | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"code": self.code, "label": self.label, "rub_per_m": float(self.rub_per_m)}
+        if self.rub is not None:
+            result["rub"] = float(self.rub)
         if self.parts:
             result["parts"] = [part.to_dict() for part in self.parts]
         return result
@@ -277,6 +283,8 @@ def prices(
     groups: dict[str, dict[tuple[str, str], Decimal]] = {
         code: {} for code, _ in GROUPS
     }
+    # Статьи ФОТ подстроки-должности (по паре «статья, название»).
+    position_parts: dict[tuple[str, str], tuple[PayrollPart, ...]] = {}
     # Слагаемые станка — только строки самой модели бурения (тождество объекта,
     # как в `block_margin`): правило затрат с той же статьёй идёт отдельной
     # группой «Станок: затраты по правилам», иначе `drilling_rub_per_m` и
@@ -285,17 +293,48 @@ def prices(
     # ФОТ должностей со сменами на блок (слесарь, механик участка) — персонал
     # участка, а не экипаж станка: в группе ИТР и ремонтного персонала.
     staff_items = _block_shift_items(references)
-    for line in result.lines:
-        if line.operation_code not in labor.DRILLING_OPERATIONS:
+    lines = [line for line in result.lines if line.operation_code in labor.DRILLING_OPERATIONS]
+    # Взносы, резерв и суточные должностей на ставках лежат в смете строкой
+    # операции; в кольце они — статьи своей должности, а в группе взносов
+    # остаётся только то, что ни одной должности не принадлежит.
+    absorbed: dict[tuple[str, str], Decimal] = {}
+    # Статьи одной должности сложены по всем её строкам — берём их один раз.
+    seen: set[str] = set()
+    for line in lines:
+        if id(line) not in result.payroll_lines or line.cost_item_code in seen:
             continue
+        seen.add(line.cost_item_code)
+        for part in result.payroll_parts.get(line.cost_item_code, ()):
+            if part.absorbs is not None:
+                key = (line.operation_code, part.absorbs)
+                absorbed[key] = absorbed.get(key, ZERO) + part.amount_rub
+    for line in lines:
         if id(line) in own and line.cost_item_code not in SERVICE_OWN_ITEMS:
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
             continue
+        absorbed_key = (line.operation_code, line.cost_item_code)
+        # Разобранное вычитается один раз: правило затрат с той же статьёй —
+        # вторая строка, и её сумма в кольце остаётся целиком.
+        had_absorbed = absorbed_key in absorbed
+        amount = line.amount_rub - absorbed.pop(absorbed_key, ZERO)
+        if had_absorbed and abs(amount) < RESIDUAL_RUB:
+            # Строку взносов или суточных целиком разобрали должности.
+            continue
         group, label = _group(line, staff_items)
         key = (line.cost_item_code, label)
-        groups[group][key] = groups[group].get(key, ZERO) + line.amount_rub
+        parts = result.payroll_parts.get(line.cost_item_code, ()) if id(line) in result.payroll_lines else ()
+        if parts and group in (CREW_COMPONENT[0], STAFF_COMPONENT[0]):
+            # Должность — сумма своих статей: строка ФОТ и доля строк операции.
+            # Статьи двух строк одной должности уже сложены — вторую не считаем.
+            if key in position_parts:
+                continue
+            position_parts[key] = parts
+            amount = sum((part.amount_rub for part in parts), ZERO)
+        groups[group][key] = groups[group].get(key, ZERO) + amount
     components = [
-        Component(code, label, by_item[code] / drilling_m) for code, label in COMPONENT_LABELS if by_item.get(code)
+        Component(code, label, by_item[code] / drilling_m, rub=by_item[code])
+        for code, label in COMPONENT_LABELS
+        if by_item.get(code)
     ]
     payroll_rub = ZERO
     total_rub = sum(by_item.values(), ZERO)
@@ -307,15 +346,22 @@ def prices(
         if code in PAYROLL_GROUPS:
             payroll_rub += total
         parts = tuple(
-            Component(_part_code(item, index), name, amount / drilling_m)
+            Component(
+                _part_code(item, index),
+                name,
+                amount / drilling_m,
+                _payroll_components(_part_code(item, index), position_parts.get((item, name), ()), drilling_m),
+                rub=amount,
+            )
             for index, ((item, name), amount) in enumerate(groups[code].items())
             if amount
         )
-        # У ФОТ экипажа и проживания одна строка подстрокой не показывается — она и есть
-        # слагаемое; услуги и персонал участка называются подстроками всегда.
-        if code in SINGLE_HIDDEN and len(parts) < 2:
+        # У проживания одна строка подстрокой не показывается — она и есть
+        # слагаемое; должность со статьями ФОТ видна всегда (её название и
+        # раскладка), услуги и персонал участка называются подстроками всегда.
+        if code in SINGLE_HIDDEN and len(parts) < 2 and not any(part.parts for part in parts):
             parts = ()
-        components.append(Component(code, label, total / drilling_m, parts))
+        components.append(Component(code, label, total / drilling_m, parts, rub=total))
     return Prices(
         without_payroll=(total_rub - payroll_rub) / drilling_m,
         with_payroll=total_rub / drilling_m,
@@ -325,6 +371,19 @@ def prices(
         warnings=tuple(result.warnings),
         components=tuple(components),
         premium_curve=curve,
+    )
+
+
+# Остаток строки взносов после статей должностей меньше копейки — не слагаемое.
+RESIDUAL_RUB = Decimal("0.005")
+
+
+def _payroll_components(prefix: str, parts: Sequence[PayrollPart], drilling_m: Decimal) -> tuple[Component, ...]:
+    """Статьи ФОТ должности — подстроки её подстроки кольца."""
+
+    return tuple(
+        Component(f"{prefix}:{part.code}", part.label, part.amount_rub / drilling_m, rub=part.amount_rub)
+        for part in parts
     )
 
 

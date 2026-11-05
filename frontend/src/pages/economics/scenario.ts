@@ -129,10 +129,27 @@ export function draftFromRun(
     overhead_rate: pick(raw, fallback, "overhead_rate", null),
     target_margin_rate: pick(raw, fallback, "target_margin_rate", null),
     vat_rate: pick(raw, fallback, "vat_rate", null),
-    // Источник ФОТ — часть прогона: без поля сохранённый «PAYROLL» молча стал бы «RATES».
-    payroll_source: pick(raw, fallback, "payroll_source", "RATES"),
+    // Источник ФОТ — часть прогона: без поля сохранённый «RATES» молча стал бы «PAYROLL».
+    payroll_source: pick(raw, fallback, "payroll_source", "PAYROLL"),
   };
-  return { ...makeVariant(name, parameters), sourceRunId: run.id, savedKey: paramsKey(parameters) };
+  // Прогон, сохранённый до версии 2 параметров (умолчанием тогда были «Ставки»),
+  // открывается на «Методике ФОТ» — решение владельца 05.11.2026. Снимок в базе
+  // не меняется: черновик помечается несохранённым, пересохранение запишет
+  // новый источник вместе с пересчитанным итогом.
+  const legacy = legacyPayrollSource(run.parameters);
+  const migrated: ModelParameters = legacy ? { ...parameters, payroll_source: "PAYROLL" } : parameters;
+  // Сохранённое — то, чем прогон считался: у старого снимка без поля источника это «Ставки».
+  const saved: ModelParameters = legacy ? { ...parameters, payroll_source: raw.payroll_source ?? "RATES" } : parameters;
+  return { ...makeVariant(name, migrated), sourceRunId: run.id, savedKey: paramsKey(saved) };
+}
+
+/** Версия формата параметров прогона, с которой умолчание ФОТ — «Методика ФОТ» (`PARAMETERS_VERSION` модели). */
+export const PAYROLL_DEFAULT_VERSION = 2;
+
+/** Снимок сохранён до перехода на «Методику ФОТ» по умолчанию. */
+function legacyPayrollSource(parameters: EconomicsRun["parameters"]): boolean {
+  const version = Number((parameters as Record<string, unknown>).parameters_version ?? 0);
+  return !(version >= PAYROLL_DEFAULT_VERSION);
 }
 
 /** Параметры черновика разошлись с последним сохранённым снимком. */

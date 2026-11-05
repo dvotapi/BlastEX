@@ -59,4 +59,41 @@ describe("DrillingPriceDonut", () => {
     // У ФОТ экипажа без подстрок внешнего кольца нет.
     expect(slices.find((slice) => slice.code === "CREW_PAYROLL")!.partSlices).toEqual([]);
   });
+
+  it("должность ФОТ раскладывается на статьи третьим уровнем легенды, у строк — сумма на блок", () => {
+    render(
+      <DrillingPriceDonut
+        components={[
+          { code: "DRILL_FUEL", label: "ДТ", rub_per_m: 60, rub: 60000 },
+          {
+            code: "CREW_PAYROLL",
+            label: "ФОТ экипажа",
+            rub_per_m: 40,
+            rub: 40000,
+            parts: [
+              {
+                code: "LABOR_P_DRILLER#0",
+                label: "Машинист буровой установки",
+                rub_per_m: 40,
+                rub: 40000,
+                parts: [
+                  { code: "LABOR_P_DRILLER#0:SALARY", label: "Оклад", rub_per_m: 25, rub: 25000 },
+                  { code: "LABOR_P_DRILLER#0:CONTRIBUTIONS", label: "Отчисления", rub_per_m: 15, rub: 15000 },
+                ],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+    const donut = screen.getByRole("figure", { name: "Слагаемые стоимости метра" });
+    const salary = within(donut).getByText("Оклад").closest("li")!;
+    expect(salary).toHaveClass("price-donut-subpart");
+    // Оклад 25 из 100 ₽/м — 25 %, 25 000 ₽ на блок.
+    expect(within(salary).getByText("25 %")).toBeInTheDocument();
+    expect(within(salary).getByText(/25\s000/)).toBeInTheDocument();
+    const driller = within(donut).getByText("Машинист буровой установки").closest("li")!;
+    expect(within(driller).getByText(/40\s000/)).toBeInTheDocument();
+    expect(within(donut).getByText("₽ на блок")).toBeInTheDocument();
+  });
 });

@@ -91,7 +91,7 @@ class ModelParametersSchema(BaseModel):
     overhead_rate: Decimal | None = Field(None, ge=0, le=1)
     target_margin_rate: Decimal | None = Field(None, ge=0, le=1)
     vat_rate: Decimal | None = Field(None, ge=0, le=1)
-    payroll_source: Literal["RATES", "PAYROLL"] = "RATES"
+    payroll_source: Literal["RATES", "PAYROLL"] = "PAYROLL"
 
     def to_domain(self) -> ModelParameters:
         return ModelParameters.from_dict(self.model_dump(mode="json"))
@@ -351,7 +351,9 @@ class DrillingComponentSchema(BaseModel):
     code: str
     label: str
     rub_per_m: float
-    # Подстатьи (у ФОТ экипажа — строки должностей).
+    # Сумма на блок, ₽.
+    rub: float | None = None
+    # Подстатьи: у ФОТ экипажа и ИТР — должности, у должности — статьи ФОТ.
     parts: list["DrillingComponentSchema"] = Field(default_factory=list)
 
 

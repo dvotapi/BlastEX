@@ -509,6 +509,9 @@ def parameters(**overrides: Any) -> ModelParameters:
             CrewMember("POS_BLASTER", Decimal("2")),
             CrewMember("POS_SZM_DRIVER", Decimal("1")),
         ),
+        # Фикстуры без справочников методики: тесты ставок называют источник
+        # явно, умолчание модели («Методика ФОТ») проверяют свои тесты.
+        "payroll_source": "RATES",
     }
     defaults.update(overrides)
     return ModelParameters(**defaults)

@@ -42,7 +42,7 @@
 `cost/model/payroll_inputs.py`, превью — `POST /economics/payroll/preview`
 (`cost/model/payroll_preview.py`). Премия — только на среднем темпе вахты, не
 посменно; НДФЛ в затраты компании не входит; взносы — из ставок организации,
-календарь и МРОТ — из «Параметров ФОТ» года. Экипаж бурения блока считается по методике при параметре вкладки `payroll_source = PAYROLL` (`cost/model/block_payroll.py`, плановый темп — `cost/model/pace.py`, цена метра и доля в марже — `cost/model/block_margin.py`), по умолчанию `RATES`. Подробности — `Docs/PAYROLL_MODEL.md`.
+календарь и МРОТ — из «Параметров ФОТ» года. Экипаж бурения блока считается по методике при параметре вкладки `payroll_source = PAYROLL` (`cost/model/block_payroll.py`, плановый темп — `cost/model/pace.py`, цена метра и доля в марже — `cost/model/block_margin.py`), по умолчанию `PAYROLL` (снимок сценария без `parameters_version = 2` открывается на методике). Статьи ФОТ должности для кольца цены метра — `BlockEconomics.payroll_parts` (`inputs.PAYROLL_PARTS`). Подробности — `Docs/PAYROLL_MODEL.md`.
 
 Цена метра бурения для листа «Расчёт» (блок 1.2) — тоже модель блока:
 `cost/model/drilling_price.py`, параметры приходят в `context.drilling_model`

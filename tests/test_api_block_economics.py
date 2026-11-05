@@ -1133,7 +1133,10 @@ def test_drilling_sensitivity_ranks_knobs_and_reports_both_prices(client) -> Non
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["base"]["with_payroll_rub_per_m"] > body["base"]["without_payroll_rub_per_m"] > 0
-    assert body["base"]["payroll_source"] == "RATES"
+    # Источник не задан — умолчание «Методика ФОТ»; без её справочников блок
+    # считается по ставкам (premium ниже — None).
+    assert body["base"]["payroll_source"] == "PAYROLL"
+    assert body["base"]["payroll_applied"] is False
     deltas = [abs(row["delta_rub_per_m"]) for row in body["knobs"]]
     assert deltas == sorted(deltas, reverse=True)
     assert {row["code"] for row in body["knobs"]} >= {"TECH_SPEED", "DIESEL_PRICE", "RIG_PLAN_SHIFTS"}

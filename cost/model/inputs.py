@@ -297,9 +297,10 @@ class ModelParameters:
     # бы скачок оклада; множитель ложится на уже округлённый штат. С вкладки не
     # приходит и не сохраняется.
     crew_scale: Decimal = Decimal("1")
-    # Откуда брать ФОТ: «RATES» — ставки справочников (как всегда), «PAYROLL» —
-    # модель ФОТ по объектам. С вкладки приходит и сохраняется.
-    payroll_source: Literal["RATES", "PAYROLL"] = "RATES"
+    # Откуда брать ФОТ: «PAYROLL» — модель ФОТ по объектам (умолчание с
+    # 05.11.2026, решение владельца), «RATES» — ставки справочников. С вкладки
+    # приходит и сохраняется.
+    payroll_source: Literal["RATES", "PAYROLL"] = "PAYROLL"
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ModelParameters":
@@ -338,7 +339,7 @@ class ModelParameters:
             overhead_rate=_optional_number(data.get("overhead_rate")),
             target_margin_rate=_optional_number(data.get("target_margin_rate")),
             vat_rate=_optional_number(data.get("vat_rate")),
-            payroll_source="PAYROLL" if data.get("payroll_source") == "PAYROLL" else "RATES",
+            payroll_source="RATES" if data.get("payroll_source") == "RATES" else "PAYROLL",
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -368,6 +369,9 @@ class ModelParameters:
             ),
             "vat_rate": str(self.vat_rate) if self.vat_rate is not None else None,
             "payroll_source": self.payroll_source,
+            # Версия формата: снимок без неё сохранён, когда умолчанием были
+            # «Ставки», и вкладка открывает его на «Методике ФОТ».
+            "parameters_version": PARAMETERS_VERSION,
         }
 
 
@@ -412,6 +416,55 @@ class CapacityWarning:
         }
 
 
+# Версия формата параметров в снимке прогона: 2 — умолчание ФОТ «Методика ФОТ».
+PARAMETERS_VERSION = 2
+
+
+@dataclass(frozen=True)
+class PayrollPart:
+    """Статья ФОТ должности на блоке: оклад, межвахта, ночные, отчисления…
+
+    `absorbs` — статья сметы, в которой эти деньги лежат отдельной строкой
+    операции (взносы, резерв отпусков, суточные у должностей на ставках); у
+    статей внутри строки должности — None.
+    """
+
+    code: str
+    label: str
+    amount_rub: Decimal
+    absorbs: str | None = None
+
+
+# Порядок и подписи статей ФОТ должности (решение владельца 05.11.2026):
+# начисления, затем резерв отпусков, отчисления и премиальная часть.
+PAYROLL_PARTS: tuple[tuple[str, str], ...] = (
+    ("SALARY", "Оклад"),
+    ("INTERSHIFT_REST", "Межвахтовый отдых"),
+    ("NIGHT", "Ночные"),
+    ("HOLIDAYS", "Праздничные"),
+    ("SHIFT_ALLOWANCE", "Вахтовые"),
+    ("PER_DIEM", "Суточные"),
+    ("HAZARD", "Вредные условия труда"),
+    ("REGIONAL", "Районный коэффициент"),
+    ("NORTHERN", "Северная надбавка"),
+    ("VACATION_RESERVE", "Резерв отпусков"),
+    ("CONTRIBUTIONS", "Отчисления"),
+    ("PREMIUM", "Премиальная часть"),
+)
+PAYROLL_PART_LABELS: Mapping[str, str] = dict(PAYROLL_PARTS)
+
+
+def payroll_parts(amounts: Mapping[str, Decimal], absorbs: Mapping[str, str] | None = None) -> tuple[PayrollPart, ...]:
+    """Статьи в порядке `PAYROLL_PARTS`, нулевые пропущены."""
+
+    absorbs = absorbs or {}
+    return tuple(
+        PayrollPart(code, label, amounts[code], absorbs.get(code))
+        for code, label in PAYROLL_PARTS
+        if amounts.get(code)
+    )
+
+
 @dataclass(frozen=True)
 class BlockEconomics:
     lines: tuple[CostLine, ...]
@@ -430,6 +483,10 @@ class BlockEconomics:
     # `drilling_rub_per_m`): по ним панель цены метра отличает слагаемые станка
     # от строк правил затрат с той же статьёй. В `to_dict` не попадают.
     drilling_lines: tuple[CostLine, ...] = ()
+    # Статьи ФОТ по строке должности `LABOR_<должность>` (оклад, межвахта,
+    # отчисления…): панель цены метра раскладывает по ним ФОТ экипажа и ИТР.
+    # В `to_dict` не попадают.
+    payroll_parts: Mapping[str, tuple[PayrollPart, ...]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -527,6 +584,8 @@ class ModelContext:
         # Должности, чей ФОТ уже посчитан методикой (`block_payroll`):
         # `labor.compute` их пропускает.
         self.payroll_positions: set[str] = set()
+        # Статьи ФОТ по статье строки должности `LABOR_<должность>`.
+        self.payroll_parts: dict[str, tuple[PayrollPart, ...]] = {}
         self.rates = OrganizationRates.from_item(self._first("organization_rates"))
         if self._first("organization_rates") is None:
             self.warn(

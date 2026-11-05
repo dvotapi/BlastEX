@@ -14,6 +14,7 @@ from cost.model.inputs import (
     formula_number,
     payload_number,
     payload_text,
+    payroll_parts,
 )
 from cost.model.labor import DRILLING_OPERATIONS
 from cost.v2.models import CostLayer, ReferenceItem
@@ -64,7 +65,8 @@ def compute(context: ModelContext) -> None:
         # код карьера повесил бы на блок постоянные затраты всей организации.
         if scope == "UNIT" and item_unit and item_unit != unit_code:
             continue
-        monthly = _monthly_amount(context, item)
+        labor = _indirect_labor_month(context, item)
+        monthly = sum(labor.values(), Decimal("0")) if labor is not None else payload_number(item, "monthly_rub")
         if monthly <= 0:
             continue
         category = payload_text(item, "category", "OTHER")
@@ -89,14 +91,22 @@ def compute(context: ModelContext) -> None:
             quantity_origin="CALC",
             price_origin="REFERENCE",
         )
+        if labor is not None:
+            # Статьи ФОТ косвенной должности — для раскладки в кольце цены метра.
+            context.payroll_parts[f"UNIT_{item.code}"] = payroll_parts(
+                {code: amount * share for code, amount in labor.items()}
+            )
     _storage(context, share)
 
 
-def _monthly_amount(context: ModelContext, item: ReferenceItem) -> Decimal:
-    """Сумма затраты в месяц; для косвенного персонала — из ставок."""
+def _indirect_labor_month(context: ModelContext, item: ReferenceItem) -> dict[str, Decimal] | None:
+    """Месячные статьи ФОТ косвенной должности (оклад, отчисления, резерв); None — не персонал.
+
+    Без ставки — пустой словарь и предупреждение: затрата не начисляется.
+    """
 
     if payload_text(item, "category") != "INDIRECT_LABOR":
-        return payload_number(item, "monthly_rub")
+        return None
     position_code = payload_text(item, "position_code")
     headcount = payload_number(item, "headcount", Decimal("1"))
     rate = next(
@@ -112,13 +122,17 @@ def _monthly_amount(context: ModelContext, item: ReferenceItem) -> Decimal:
             f"Для косвенной должности {position_code} не задана ставка: "
             "затрата юнита не начислена."
         )
-        return Decimal("0")
+        return {}
     rates = context.rates
     accrued = payload_number(rate, "fixed_monthly_rub") * headcount
     if rates.salary_basis == "NET" and rates.income_tax_rate < 1:
         accrued = accrued / (Decimal("1") - rates.income_tax_rate)
     contributions = accrued * (rates.social_contribution_rate + rates.injury_insurance_rate)
-    return accrued + contributions + (accrued + contributions) * rates.vacation_reserve_rate
+    return {
+        "SALARY": accrued,
+        "CONTRIBUTIONS": contributions,
+        "VACATION_RESERVE": (accrued + contributions) * rates.vacation_reserve_rate,
+    }
 
 
 def _storage(context: ModelContext, share: Decimal) -> None:

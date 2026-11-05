@@ -39,7 +39,8 @@ function baseRun(overrides: Partial<EconomicsRun> = {}): EconomicsRun {
     reference_revision_id: "rev-1",
     // На бэкенде это ModelParametersSchema.to_dict(); в тесте достаточно
     // реального набора полей ModelParameters, приведённого к контракту поля.
-    parameters: baseParameters() as unknown as Record<string, unknown>,
+    // Версия 2 — снимок нынешнего формата (`to_dict` модели её пишет).
+    parameters: { ...baseParameters(), parameters_version: 2 } as unknown as Record<string, unknown>,
     result: {} as BlockEconomics,
     created_at: "2026-01-01T00:00:00Z",
     created_by: "user-1",
@@ -107,16 +108,32 @@ describe("draftFromRun", () => {
 
   it("сохранённый источник ФОТ «PAYROLL» не сбрасывается на ставки при повторном открытии", () => {
     const run = baseRun({
-      parameters: { ...baseParameters(), payroll_source: "PAYROLL" } as unknown as Record<string, unknown>,
+      parameters: { ...baseParameters(), payroll_source: "PAYROLL", parameters_version: 2 } as unknown as Record<string, unknown>,
     });
 
     const draft = draftFromRun(run, "Сценарий по методике");
 
     expect(draft.parameters.payroll_source).toBe("PAYROLL");
-    // Прогон старой эпохи без поля — ставки, как и считалось.
-    const legacy = baseParameters() as unknown as Record<string, unknown>;
-    delete legacy.payroll_source;
-    expect(draftFromRun(baseRun({ parameters: legacy }), "Старый").parameters.payroll_source).toBe("RATES");
+    expect(isDirty(draft)).toBe(false);
+  });
+
+  it("снимок нынешнего формата со «Ставками» открывается на ставках", () => {
+    const draft = draftFromRun(baseRun(), "Сценарий на ставках");
+    expect(draft.parameters.payroll_source).toBe("RATES");
+    expect(isDirty(draft)).toBe(false);
+  });
+
+  it("снимок до умолчания «Методика ФОТ» открывается на методике и помечен несохранённым", () => {
+    // Решение владельца 05.11.2026: старые сценарии переходят на методику при
+    // открытии; снимок в базе не меняется, пересохранение запишет новый итог.
+    const old = baseParameters() as unknown as Record<string, unknown>;
+    const draft = draftFromRun(baseRun({ parameters: old }), "Старый");
+    expect(draft.parameters.payroll_source).toBe("PAYROLL");
+    expect(isDirty(draft)).toBe(true);
+    // Совсем старый прогон без поля источника — тоже методика.
+    const older = { ...old };
+    delete older.payroll_source;
+    expect(draftFromRun(baseRun({ parameters: older }), "Старее").parameters.payroll_source).toBe("PAYROLL");
   });
 
   it("подставляет пустые коллекции вместо полей, которых нет в старом прогоне", () => {
@@ -173,7 +190,7 @@ describe("draftFromRun", () => {
     // открытый из него для дальнейшей правки, должен считать на актуальной
     // ревизии (пустая строка), а не на той, что была зафиксирована в прогоне.
     const run = baseRun({
-      parameters: { ...baseParameters(), reference_revision_id: "rev-old" } as unknown as Record<string, unknown>,
+      parameters: { ...baseParameters(), reference_revision_id: "rev-old", parameters_version: 2 } as unknown as Record<string, unknown>,
     });
 
     const draft = draftFromRun(run, "Сценарий с исторической ревизией");

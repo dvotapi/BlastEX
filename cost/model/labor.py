@@ -16,11 +16,13 @@ from typing import Iterable, Mapping
 
 from cost.model.inputs import (
     ModelContext,
+    PayrollPart,
     driver_unit,
     formula_number,
     formula_quantity,
     payload_number,
     payload_text,
+    payroll_parts,
 )
 from cost.v2.models import CostLayer, ReferenceItem
 
@@ -255,6 +257,9 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
         if on_watch(context, position):
             camp_shifts[operation_code] = camp_shifts.get(operation_code, Decimal("0")) + shifts * per_shift
         charge = _per_diem(context, position, shifts, per_shift)
+        context.payroll_parts[f"LABOR_{position_code}"] = _rate_parts(
+            context, fixed_block, piece_block, accrued, charge
+        )
         if charge > 0:
             per_diem_by_operation[operation_code] = per_diem_by_operation.get(operation_code, Decimal("0")) + charge
             per_diem_shifts[operation_code] = per_diem_shifts.get(operation_code, Decimal("0")) + shifts * per_shift
@@ -282,6 +287,41 @@ def compute(context: ModelContext) -> tuple[LaborLine, ...]:
 def _operation_label(context: ModelContext, operation_code: str) -> str:
     operation = context.item("operations", operation_code) if operation_code else None
     return operation.name if operation is not None else (operation_code or "бригада")
+
+
+# Статья должности, которая лежит в смете отдельной строкой операции.
+_ABSORBED_ITEMS = {
+    "CONTRIBUTIONS": "LABOR_CONTRIBUTIONS",
+    "VACATION_RESERVE": "LABOR_VACATION_RESERVE",
+    "PER_DIEM": "LABOR_PER_DIEM",
+}
+
+
+def _rate_parts(
+    context: ModelContext, fixed: Decimal, piece: Decimal, accrued: Decimal, per_diem: Decimal
+) -> tuple[PayrollPart, ...]:
+    """Статьи ФОТ должности на ставках: оклад, премиальная часть и её доля взносов, резерва и суточных.
+
+    Взносы и резерв — по тем же формулам, что строки операции в `_charge_lines`
+    (они линейны по начисленному), суточные — `_per_diem` должности. НДФЛ
+    сверху оклада «на руки» делится между окладом и сдельной частью.
+    """
+
+    rates = context.rates
+    base = fixed + piece
+    gross_up = accrued / base if base > 0 else Decimal("1")
+    contributions = accrued * (rates.social_contribution_rate + rates.injury_insurance_rate) if accrued > 0 else Decimal("0")
+    reserve = (accrued + contributions) * rates.vacation_reserve_rate if accrued > 0 else Decimal("0")
+    return payroll_parts(
+        {
+            "SALARY": fixed * gross_up,
+            "PREMIUM": piece * gross_up,
+            "PER_DIEM": per_diem,
+            "VACATION_RESERVE": reserve,
+            "CONTRIBUTIONS": contributions,
+        },
+        _ABSORBED_ITEMS,
+    )
 
 
 def _charge_lines(context: ModelContext, accrued_by_operation: Mapping[str, Decimal]) -> None:

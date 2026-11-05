@@ -40,8 +40,10 @@ def test_prices_split_rig_lines_and_crew_payroll() -> None:
         D("0"),
     )
     assert abs(prices.with_payroll - prices.without_payroll - payroll / result.natural.values["drilling_m"]) < D("0.000001")
-    charges = next(item for item in prices.components if item.code == "PAYROLL_CHARGES")
-    assert [part.label for part in charges.parts] == ["Страховые взносы и НС", "Резерв отпусков"]
+    # Взносы и резерв — статьи своей должности, отдельной группы нет.
+    assert not any(item.code == "PAYROLL_CHARGES" for item in prices.components)
+    crew = next(item for item in prices.components if item.code == "CREW_PAYROLL")
+    assert [sub.label for sub in crew.parts[0].parts] == ["Оклад", "Резерв отпусков", "Отчисления", "Премиальная часть"]
     assert prices.payroll_source == "RATES" and not prices.payroll_applied
 
 
@@ -317,14 +319,16 @@ def test_site_staff_bound_to_drilling_is_payroll_of_the_meter() -> None:
 
     staff_line = next(line for line in result.lines if line.cost_item_code == "UNIT_UFC_WH_HEAD")
     staff = next(c for c in plain.components if c.code == "SITE_STAFF")
-    assert staff.rub_per_m == staff_line.amount_rub / drilling_m
+    assert abs(staff.rub_per_m - staff_line.amount_rub / drilling_m) < D("0.000001")
+    # Косвенный персонал разложен на оклад, отчисления и резерв отпусков.
+    assert [sub.label for sub in staff.parts[0].parts] == ["Оклад", "Резерв отпусков", "Отчисления"]
     # Подстрока — название записи без префикса категории.
     assert [part.label for part in staff.parts] == ["Заведующий складом"]
     # ФОТ персонала участка в «без ФОТ» не входит; содержание базы без операции — не в метре.
     crew = next(c for c in plain.components if c.code == "CREW_PAYROLL")
-    charges = next(c for c in plain.components if c.code == "PAYROLL_CHARGES")
-    # Разница цен — ФОТ экипажа и ИТР с их взносами и резервом отпусков.
-    assert abs(plain.with_payroll - plain.without_payroll - crew.rub_per_m - staff.rub_per_m - charges.rub_per_m) < D("0.000001")
+    # Разница цен — ФОТ экипажа и ИТР с их взносами и резервом отпусков (статьи должностей).
+    assert not any(c.code == "PAYROLL_CHARGES" for c in plain.components)
+    assert abs(plain.with_payroll - plain.without_payroll - crew.rub_per_m - staff.rub_per_m) < D("0.000001")
     assert not any(c.code == "UNIT_FIXED" for c in plain.components)
 
 
@@ -376,7 +380,7 @@ def test_site_knobs_move_the_meter_price() -> None:
     drilling_m = base.drilling_m
 
     def group(prices, code):
-        return next(c.rub_per_m for c in prices.components if c.code == code)
+        return next((c.rub_per_m for c in prices.components if c.code == code), D("0"))
 
     # Трал вдвое дороже — +70 000 ₽ на блок в услугах.
     assert abs(group(changed, "SERVICES") - group(base, "SERVICES") - D("70000") / drilling_m) < D("0.000001")

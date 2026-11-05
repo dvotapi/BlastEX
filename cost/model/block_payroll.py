@@ -30,6 +30,12 @@
   как оклад в `labor.fixed_amount`; ручная поправка смен вкладки меняет только
   её.
 
+Статьи строки (оклад, межвахта, ночные, праздничные, вахтовые, вредность,
+РК, резерв отпусков, отчисления, премиальная часть) — строки
+`payroll_month` × доля постоянной части (затраты блока / затраты месяца) и
+разность `payroll_month(премия 1 ₽) − payroll_month(0)` × премия блока; их
+сумма — сумма строки. Лежат в `context.payroll_parts` для панели цены метра.
+
 Строка — `LABOR_<должность>` с `price_origin = "PAYROLL"`; код должности
 попадает в `context.payroll_positions`, и `labor.compute` её пропускает:
 ни второй строки, ни взносов, ни суточных. Методика применяется ко всему
@@ -47,7 +53,14 @@ from typing import Mapping, Sequence
 
 from cost.model import labor
 from cost.model.drilling import DrillingNorms
-from cost.model.inputs import ModelContext, formula_number, payload_number, payload_text
+from cost.model.inputs import (
+    ModelContext,
+    PayrollPart,
+    formula_number,
+    payload_number,
+    payload_text,
+    payroll_parts,
+)
 from cost.model.pace import PlannedPace, planned_pace
 from cost.model.payroll import (
     ONE,
@@ -59,6 +72,7 @@ from cost.model.payroll import (
     NormalizedMeters,
     PayrollInputError,
     PayrollInputs,
+    PayrollResult,
     Scale,
     fn,
     hardness_factor,
@@ -180,6 +194,8 @@ class _Pending:
     # Затраты на рубль премии должности — и для c_var, и для доли в марже.
     cost_factor: Decimal = ZERO
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    # Статьи ФОТ строки; их сумма — `result.amount_rub`.
+    parts: tuple[PayrollPart, ...] = ()
 
 
 def compute(context: ModelContext, norms: DrillingNorms | None) -> BlockPayroll | None:
@@ -305,6 +321,9 @@ def _position_payroll(
     rotation = labor.crew_rotation(context, position, operation_code, slot.headcount, base_cost, norm_shifts)
     per_shift, rotation = labor.apply_crew_scale(context.params.crew_scale, slot.headcount, rotation)
     fixed, fixed_formula = labor.fixed_amount(base_cost, shifts, per_shift, rotation, norm_shifts)
+    # Доля месячных затрат, которая ложится на блок: статьи месяца × она же.
+    fixed_share = fixed / base_cost if base_cost > 0 else ZERO
+    amounts = _month_parts(base, fixed_share)
 
     cost_factor, factor_formula = premium_cost_factor(inputs)
     pay = inputs.position
@@ -316,6 +335,12 @@ def _position_payroll(
         c_var = premium.mean_rate * cost_factor
         c_var_source = f"p({fn(pace.pace)}) / {fn(pace.pace)} × {factor_formula}"
         variable = c_var * block_meters * per_shift
+        # Премия и всё, что на неё начисляется (РК, взносы, резервы), — разность
+        # месяца с премией 1 ₽ и без неё, умноженная на премию блока.
+        premium_rub = premium.mean_rate * block_meters * per_shift
+        unit = payroll_month(inputs, ONE)
+        for code, amount in _month_parts(unit, premium_rub, minus=base).items():
+            amounts[code] = amounts.get(code, ZERO) + amount
         formula = (
             f"{fixed_formula} + {formula_number(c_var)} ₽/прив. м × "
             f"{formula_number(block_meters)} прив. м × {formula_number(per_shift)} чел"
@@ -343,7 +368,43 @@ def _position_payroll(
         c_var_source=c_var_source,
         cost_factor=cost_factor,
         warnings=base.warnings,
+        parts=payroll_parts(amounts),
     )
+
+
+# Строка `payroll_month` → статья ФОТ на блоке; итоги и НДФЛ не входят.
+_MONTH_ROW_PARTS = {
+    "SALARY": "SALARY",
+    "HAZARD": "HAZARD",
+    "NIGHT": "NIGHT",
+    "HOLIDAYS": "HOLIDAYS",
+    "INTERSHIFT_REST": "INTERSHIFT_REST",
+    "PIECE_PREMIUM": "PREMIUM",
+    "KPI_BONUS": "PREMIUM",
+    "REGIONAL": "REGIONAL",
+    "NORTHERN": "NORTHERN",
+    "SHIFT_ALLOWANCE": "SHIFT_ALLOWANCE",
+    "SFR": "CONTRIBUTIONS",
+    "EXTRA_TARIFF": "CONTRIBUTIONS",
+    "INJURY": "CONTRIBUTIONS",
+    "RESERVE_EXTRA_VACATION": "VACATION_RESERVE",
+    "RESERVE_VACATION": "VACATION_RESERVE",
+}
+
+
+def _month_parts(
+    month: PayrollResult, factor: Decimal, *, minus: PayrollResult | None = None
+) -> dict[str, Decimal]:
+    """Статьи месяца (или разности двух месяцев) × множитель, по кодам `PAYROLL_PARTS`."""
+
+    amounts: dict[str, Decimal] = {}
+    for row in month.rows:
+        code = _MONTH_ROW_PARTS.get(row.code)
+        if code is None:
+            continue
+        amount = row.amount - (minus.amount(row.code) if minus is not None else ZERO)
+        amounts[code] = amounts.get(code, ZERO) + amount * factor
+    return amounts
 
 
 def _write(
@@ -365,6 +426,7 @@ def _write(
             context.warn(message)
         code = item.result.position_code
         context.payroll_positions.add(code)
+        context.payroll_parts[f"LABOR_{code}"] = item.parts
         context.set_value(f"crew_shifts.{code}", item.shifts, f"смен на блок должности {code}")
         context.set_value(f"crew_per_shift.{code}", item.result.headcount, "человек в смене")
         if item.rotation is not None:

@@ -842,6 +842,77 @@ def _raised_angles(
     return result
 
 
+def face_tilts(
+    contour: BlockContour,
+    holes: list[Hole],
+    collars_xy: list[tuple[float, float]],
+    base_direction: tuple[float, float],
+    tilt_deg: float,
+    target_m: float,
+    allowed_m: float,
+    subdrill_m: float,
+    surfaces: object | None,
+    depth_override: float | None,
+) -> list[tuple[float, float]]:
+    """Наклон к откосу: (угол от вертикали, азимут) для каждого устья `collars_xy`.
+
+    `holes[k]` — скважина, из которой строится наклонная с устьем в
+    `collars_xy[k]` (устье и забой заменяются, остальное — её). Азимут — к
+    ближайшей точке линии подошвы от устья, не дальше
+    `FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG` от `base_direction` (линия столбца к
+    откосу). Угол — наибольший ≤ `tilt_deg`, при котором ЛСП не меньше
+    `target_m` и низ не за подошвой (`_tilt_caps_m` по устью и своей высоте
+    уступа, проверка построенной скважины — `_verified_angles`); если ЛСП с
+    осью, перенесённой из `holes[k]` в новое устье, не больше `allowed_m` —
+    0. При 0 < `tilt_deg` < 30° угол поднимается до 30°, пока ЛСП > `allowed_m`
+    (`_raised_angles`). Общий помощник пары у откоса и конца эшелона шаблона
+    «от тыла».
+    """
+    if not holes:
+        return []
+    block_h = contour.bench.height_m
+    heights = [hole_bench_height_m(h, block_h) for h in holes]
+    candidates = [(k, xy, height) for k, (xy, height) in enumerate(zip(collars_xy, heights))]
+    # ЛСП с осью исходной скважины — по её точке на подошве, перенесённой в новое устье.
+    shifts = [(x - h.collar.x, y - h.collar.y) for h, (x, y) in zip(holes, collars_xy)]
+    plain = toe_positions(
+        contour,
+        [(fx + dx, fy + dy) for (fx, fy), (dx, dy) in zip((floor_point(h) for h in holes), shifts)],
+        heights,
+    ) or []
+
+    # Наклон — к ближайшей точке линии подошвы от устья, не дальше
+    # `FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG` от линии столбца.
+    toward = toe_positions(contour, list(collars_xy), heights) or []
+    directions = [
+        _clamped_direction(base_direction, (p.toe_point[0] - xy[0], p.toe_point[1] - xy[1]), FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG)
+        for xy, p in zip(collars_xy, toward)
+    ] or [base_direction] * len(holes)
+    azimuths = [math.degrees(math.atan2(d[0], d[1])) % 360.0 for d in directions]
+
+    def tilted(k: int, angle: float) -> Hole:
+        x, y = collars_xy[k]
+        collar, toe = drape_collar(x, y, angle, azimuths[k], subdrill_m, contour, surfaces, depth_override)
+        return replace(holes[k], collar=collar, toe=toe)
+
+    # Предел угла — по новому устью (своя отметка кровли и своя высота
+    # уступа), затем проверка построенной скважины (`_verified_angles`).
+    own_h = [hole_bench_height_m(tilted(k, 0.0), block_h) for k in range(len(holes))]
+    caps = _tilt_caps_m(contour, list(collars_xy), own_h, directions, tilt_deg, target_m) or [0.0] * len(holes)
+    angles = [
+        math.degrees(math.atan(cap / h)) if position.distance_m > allowed_m and cap > 1e-12 and h > 0 else 0.0
+        for position, cap, h in zip(plain, caps, own_h)
+    ] or [0.0] * len(holes)
+
+    def holds(keys: list[int], values: list[float]) -> list[bool]:
+        return _tilt_holds(contour, [tilted(k, a) for k, a in zip(keys, values)], target_m)
+
+    angles = _verified_angles(angles, holds)
+    if 0.0 < tilt_deg < FRONT_ROWS_TILT_MAX_DEG:
+        angles = _raised_angles(contour, candidates, angles, own_h, directions, tilted, holds, target_m, allowed_m)
+    return list(zip(angles, azimuths))
+
+
 def _face_pairs(
     grid: list[Hole],
     face_row_count: int,
@@ -903,43 +974,20 @@ def _face_pairs(
     if not candidates:
         return []
 
-    # ЛСП пары с осью вертикальной — по её точке на подошве, сдвинутой на 1 м.
-    plain = toe_positions(
+    tilts = face_tilts(
         contour,
-        [(fx + shift[0], fy + shift[1]) for fx, fy in (floor_point(grid[i]) for i, _, _ in candidates)],
-        [height for _, _, height in candidates],
-    ) or []
-
-    # Наклон — к ближайшей точке линии подошвы от устья пары, не дальше
-    # `FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG` от линии столбца.
-    toward = toe_positions(contour, [xy for _, xy, _ in candidates], [h for _, _, h in candidates]) or []
-    directions = [
-        _clamped_direction(direction, (p.toe_point[0] - xy[0], p.toe_point[1] - xy[1]), FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG)
-        for (_, xy, _), p in zip(candidates, toward)
-    ] or [direction] * len(candidates)
-    azimuths = [math.degrees(math.atan2(d[0], d[1])) % 360.0 for d in directions]
-
-    def tilted(k: int, angle: float) -> Hole:
-        i, (x, y), _ = candidates[k]
-        collar, toe = drape_collar(x, y, angle, azimuths[k], subdrill_m, contour, surfaces, depth_override)
-        return replace(grid[i], collar=collar, toe=toe)
-
-    # Предел угла — по устью пары (на 1 м ближе, своя отметка кровли и своя
-    # высота уступа), затем проверка построенной пары (`_verified_angles`).
-    own_h = [hole_bench_height_m(tilted(k, 0.0), block_h) for k in range(len(candidates))]
-    caps = _tilt_caps_m(
-        contour, [xy for _, xy, _ in candidates], own_h, directions, tilt_deg, target_m
-    ) or [0.0] * len(candidates)
-    angles = [
-        math.degrees(math.atan(cap / h)) if position.distance_m > allowed_m and cap > 1e-12 and h > 0 else 0.0
-        for position, cap, h in zip(plain, caps, own_h)
-    ]
-    def holds(keys: list[int], values: list[float]) -> list[bool]:
-        return _tilt_holds(contour, [tilted(k, a) for k, a in zip(keys, values)], target_m)
-
-    angles = _verified_angles(angles, holds)
-    if 0.0 < tilt_deg < FRONT_ROWS_TILT_MAX_DEG:
-        angles = _raised_angles(contour, candidates, angles, own_h, directions, tilted, holds, target_m, allowed_m)
+        [grid[i] for i, _, _ in candidates],
+        [xy for _, xy, _ in candidates],
+        direction,
+        tilt_deg,
+        target_m,
+        allowed_m,
+        subdrill_m,
+        surfaces,
+        depth_override,
+    )
+    angles = [angle for angle, _ in tilts]
+    azimuths = [azimuth for _, azimuth in tilts]
 
     result: list[tuple[Hole, Hole]] = []
     for k, ((i, (x, y), _height), angle) in enumerate(zip(candidates, angles)):

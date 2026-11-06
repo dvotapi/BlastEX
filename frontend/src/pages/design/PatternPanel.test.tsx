@@ -96,7 +96,7 @@ describe("PatternPanel: первый ряд у откоса", () => {
     const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
     const field = screen.getByLabelText("Мин. отступ устья от кромки, м") as HTMLInputElement;
     expect(field.value).toBe("");
-    expect(field.placeholder).toBe("0,5");
+    expect(field.placeholder).toBe("0,2");
     fireEvent.change(field, { target: { value: "1.5" } });
     expect(onChange).toHaveBeenCalledWith({ min_crest_offset_m: 1.5 });
   });

@@ -243,14 +243,14 @@ export function PatternPanel({
         {/* У вертикального первого ряда отступ генератор не выбирает (это часть 4
             оптимизатора) — поле видно, только если отступ уже задан в паспорте */}
         {(frontScheme !== "vertical" || params.min_crest_offset_m != null) && (
-          <label title="Устье не ближе этого расстояния к верхней кромке уступа. Пусто — 0,5 м (гусеничный станок; у УРБ задайте больше).">
+          <label title="Устье не ближе этого расстояния к верхней кромке уступа. Пусто — 0,2 м (гусеничный станок; у УРБ задайте больше).">
             Мин. отступ устья от кромки, м
             <input
               type="number"
               min="0"
               step="0.1"
               value={params.min_crest_offset_m ?? ""}
-              placeholder="0,5"
+              placeholder="0,2"
               onChange={(e) => onChange({ min_crest_offset_m: e.target.value === "" ? undefined : Number(e.target.value) })}
             />
           </label>

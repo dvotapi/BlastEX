@@ -95,7 +95,7 @@ def generate_pattern(
                               если ЛСП > W + 3 %; 0 — без наклона)
       grid_shift_along_m      сдвиг узлов решётки вдоль ряда, м (по модулю шага a; нет ключа — 0;
                               ряд вдоль бровки не сдвигается)
-      min_crest_offset_m      минимальный отступ устья от кромки (нет ключа — 0,5 м)
+      min_crest_offset_m      минимальный отступ устья от кромки (нет ключа — 0,2 м)
       contour_row / presplit_row / trim_row / buffer_row / stab_row
       satellite_holes / infill_holes
     """

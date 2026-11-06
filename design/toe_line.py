@@ -337,7 +337,13 @@ def min_crest_offset_m(pattern_params: dict | None) -> float:
 
 
 # Ключи, с которыми проверяется отступ устья от кромки (`crest_offset_checked`).
-CREST_OFFSET_KEYS = ("min_crest_offset_m", "front_rows_mode", "front_rows_tilt_count", "front_rows_tilt_deg")
+CREST_OFFSET_KEYS = (
+    "min_crest_offset_m",
+    "front_rows_mode",
+    "front_rows_tilt_count",
+    "front_rows_tilt_deg",
+    "layout_anchor",
+)
 
 
 def crest_offset_checked(pattern_params: dict | None) -> bool:
@@ -355,6 +361,9 @@ def crest_offset_checked(pattern_params: dict | None) -> bool:
     if params.get("min_crest_offset_m") not in (None, ""):
         return True
     if str(params.get("front_rows_mode") or "").strip().lower() == "pair":
+        return True
+    # Шаблон «от тыла» ставит устья у самой кромки (`design/back_layout.py`).
+    if params.get("layout_anchor") == "back":
         return True
     return str(params.get("pattern", "square")) != "staggered"
 

@@ -901,6 +901,11 @@ export type PatternParams = {
   front_rows_tilt_deg?: number;
   // Мин. отступ устья от кромки, м; нет ключа — умолчание сервера (0,2 м)
   min_crest_offset_m?: number;
+  // Опора сетки: "back" — шаблон «от тыла» (только квадратная и прямоугольная);
+  // нет ключа — от бровки
+  layout_anchor?: "back";
+  // Отступ приконтурного ряда от тыла, м; нет ключа — 0,65·b
+  back_offset_m?: number;
   default_kind: HoleKind;
   row_params: RowPatternParams[];
   contour_row: boolean;

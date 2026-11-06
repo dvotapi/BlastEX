@@ -31,7 +31,10 @@ TAPER_COUNTS = (1, 2)
 TAPER_TILTS_DEG = (15, 30)
 FRONT_ROW_KEYS = ("front_rows_mode", "front_rows_tilt_count", "front_rows_tilt_deg")
 # Ключи, которыми перебор управляет сам; из базы они убираются.
-_OWN_KEYS = ("first_row_burden_m", "grid_shift_along_m", "offset_from_face_m", *FRONT_ROW_KEYS)
+# Шаблон «от тыла» (`layout_anchor`, `back_offset_m`) перебор пока не
+# перебирает (PR 3): варианты строятся от бровки, ключи из базы убираются.
+BACK_ANCHOR_KEYS = ("layout_anchor", "back_offset_m")
+_OWN_KEYS = ("first_row_burden_m", "grid_shift_along_m", "offset_from_face_m", *FRONT_ROW_KEYS, *BACK_ANCHOR_KEYS)
 
 
 @dataclass(frozen=True)

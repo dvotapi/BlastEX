@@ -7,6 +7,8 @@ from api.schemas.cost import AggregatedCostResultSchema
 from api.schemas.design import (
     AnalyzeRequest,
     AnalyzeResponse,
+    BackAzimuthRequest,
+    BackAzimuthResponse,
     BlastDesignSchema,
     ChargeGenerateRequest,
     ChargeGenerateResponse,
@@ -80,6 +82,12 @@ from design import persistence as design_persistence
 from design.layout_search.jobs import LayoutSearchBusyError, LayoutSearchJobs, get_layout_search_jobs
 
 router = APIRouter(prefix="/design", tags=["design"])
+
+
+@router.post("/back-azimuth", response_model=BackAzimuthResponse)
+def post_back_azimuth(request: BackAzimuthRequest) -> BackAzimuthResponse:
+    """Азимут тыла для шаблона «от тыла»: вкладка «Сетка» ставит по нему азимут рядов."""
+    return design_service.back_azimuth(request)
 
 
 @router.post("/pattern", response_model=PatternGenerateResponse)

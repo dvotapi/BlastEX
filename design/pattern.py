@@ -65,6 +65,10 @@ FACE_PAIR_OFFSET_M = 1.0
 # Азимут наклонной пары — к ближайшей точке линии подошвы (по нормали к
 # откосу), но не дальше этого от линии столбца (решение владельца 06.11.2026).
 FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG = 15.0
+# Шаблон раскладки «от тыла» (`layout_anchor`; нет ключа — от бровки):
+# `design/back_layout.py`. Только квадратная и прямоугольная сетки.
+LAYOUT_ANCHOR_BACK = "back"
+LAYOUT_ANCHOR_PATTERNS = ("square", "rectangular")
 
 
 def generate_pattern(
@@ -92,11 +96,18 @@ def generate_pattern(
       front_rows_mode         pair | taper — схема первого ряда у откоса (нет ключа — taper при count > 0)
       front_rows_tilt_count   0–2 рядов у откоса с наклоном к откосу (нет ключа — 0)
       front_rows_tilt_deg     угол наклона от вертикали, 0–30° (нет ключа — 15°): у перехода —
-                              наибольший, у пары — предпочтительный (поднимается до 30°,
-                              если ЛСП > W + 3 %; 0 — без наклона)
+                              наибольший; у пары 0 — без наклона, иначе наклон до 30°, наименьший
+                              до ЛСП ≈ W (после сдвига устья к кромке)
       grid_shift_along_m      сдвиг узлов решётки вдоль ряда, м (по модулю шага a; нет ключа — 0;
                               ряд вдоль бровки не сдвигается)
       min_crest_offset_m      минимальный отступ устья от кромки (нет ключа — 0,2 м)
+      layout_anchor           "back" — шаблон «от тыла» (`design/back_layout.py`; только
+                              square/rectangular, нужен тыл); нет ключа — от бровки.
+                              Схема первого ряда (`front_rows_mode`, `front_rows_tilt_count`)
+                              и ряд вдоль бровки не применяются — их заменяет конец эшелона
+      back_offset_m           отступ приконтурного ряда от тыла, м (нет ключа — 0,65·b)
+                              У «от тыла» `front_rows_tilt_deg` — верхний предел наклона
+                              последней скважины эшелона: берётся наименьший угол до ЛСП ≈ W
       contour_row / presplit_row / trim_row / buffer_row / stab_row
       satellite_holes / infill_holes
     """
@@ -118,12 +129,7 @@ def generate_pattern(
     follow_face = bool(params.get("first_row_follow_face", False))
     grid_shift = float(params.get("grid_shift_along_m", 0.0) or 0.0)
     edge_margin = float(params.get("edge_margin_m", 0.0))
-    diameter_mm = float(params.get("diameter_mm", 152.0))
-    subdrill_m = float(params.get("subdrill_m", 1.0))
-    angle_deg = float(params.get("angle_deg", 0.0))
-    azimuth_deg = float(params.get("azimuth_deg", row_azimuth_deg))
-    depth_override = params.get("depth_m")
-    depth_override = float(depth_override) if depth_override is not None else None
+    diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override = hole_spec(params, row_azimuth_deg)
     default_kind = _normalize_kind(params.get("default_kind", "production"), "production")
     domain_list = list(domains or [])
     tilt_count, tilt_deg = _front_rows_tilt(params)
@@ -143,6 +149,16 @@ def generate_pattern(
     boundary = offset_polygon(verts, edge_margin) if edge_margin > 0 else verts
     row_dir, advance_dir = local_basis(row_azimuth_deg)
     origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
+
+    if params.get("layout_anchor") == LAYOUT_ANCHOR_BACK and pattern in LAYOUT_ANCHOR_PATTERNS:
+        from design.back_layout import back_grid, back_side
+
+        if back_side(contour) is not None:
+            return _finish_pattern(
+                back_grid(contour, params, boundary, surfaces),
+                contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
+                spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
+            )
 
     us = [(vx - origin[0]) * row_dir[0] + (vy - origin[1]) * row_dir[1] for vx, vy in verts]
     vs = [
@@ -431,6 +447,53 @@ def generate_pattern(
         # `min_crest_offset_m` к кромке — после сдвига плавного перехода.
         holes = _off_crest(holes, contour, min_crest_offset_m(params))
 
+    return _finish_pattern(
+        holes, contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
+        spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
+        lattice_xy=lattice_xy, pair_of=pair_of,
+    )
+
+
+def hole_spec(
+    params: dict[str, Any], row_azimuth_deg: float
+) -> tuple[float, float, float, float, float | None]:
+    """Параметры скважин сетки: диаметр, перебур, угол, азимут (нет ключа —
+    азимут рядов) и заданная глубина (`depth_m`, нет ключа — None). Один разбор
+    для сетки от бровки и шаблона «от тыла» (`design/back_layout.py`)."""
+    depth = params.get("depth_m")
+    return (
+        float(params.get("diameter_mm", 152.0)),
+        float(params.get("subdrill_m", 1.0)),
+        float(params.get("angle_deg", 0.0)),
+        float(params.get("azimuth_deg", row_azimuth_deg)),
+        float(depth) if depth is not None else None,
+    )
+
+
+def _finish_pattern(
+    holes: list[Hole],
+    contour: BlockContour,
+    params: dict[str, Any],
+    existing_holes: list[Hole] | None,
+    surfaces: object | None,
+    boundary: list[tuple[float, float]],
+    origin: tuple[float, float],
+    row_dir: tuple[float, float],
+    advance_dir: tuple[float, float],
+    spacing_a: float,
+    burden_b: float,
+    diameter_mm: float,
+    subdrill_m: float,
+    angle_deg: float,
+    azimuth_deg: float,
+    depth_override: float | None,
+    lattice_xy: dict[int, tuple[float, float]] | None = None,
+    pair_of: dict[int, int] | None = None,
+) -> list[Hole]:
+    """Стенки, буфер, стабилизация, сателлиты, вставки и нумерация поверх основной сетки."""
+    holes = list(holes)
+    lattice_xy = lattice_xy or {}
+    pair_of = pair_of or {}
     holes.extend(
         _generate_wall_row(
             contour, params, "contour", "K", "contour_row", "contour_spacing_m",
@@ -777,6 +840,73 @@ def _floor_burdens_of(contour: BlockContour, holes: list[Hole]) -> list[float]:
     return [p.distance_m for p in found] if found else [0.0] * len(holes)
 
 
+def _raised_angles(
+    contour: BlockContour,
+    candidates: list[tuple[int, tuple[float, float], float]],
+    angles: list[float],
+    own_h: list[float],
+    directions: list[tuple[float, float]],
+    tilted: Callable[[int, float], Hole],
+    holds: Callable[[list[int], list[float]], list[bool]],
+    target_m: float,
+    allowed_m: float,
+) -> list[float]:
+    """Угол пары, у которой ЛСП больше `allowed_m`: наименьший до
+    `FRONT_ROWS_TILT_MAX_DEG`, при котором ЛСП ≤ `allowed_m`, но не больше
+    наибольшего, при котором ЛСП ≥ `target_m` и забой не за подошвой
+    (решение владельца 06.11.2026: не хватает ЛСП — поднимать угол).
+
+    Деление пополам — пакетом по всем таким парам (один `toe_positions` на
+    шаг). Итог проверяется `holds`: у скачка съёмка ↔ развал ЛСП немонотонна,
+    и угол, не прошедший нижнюю границу, заменяется наибольшим допустимым.
+    """
+
+    def lsp(keys: list[int], values: list[float]) -> list[float]:
+        return _floor_burdens_of(contour, [tilted(k, a) for k, a in zip(keys, values)])
+
+    keys = list(range(len(candidates)))
+    over = [k for k, value in zip(keys, lsp(keys, [angles[k] for k in keys])) if value > allowed_m + 1e-9]
+    if not over:
+        return angles
+    caps = _tilt_caps_m(
+        contour, [candidates[k][1] for k in over], [own_h[k] for k in over], [directions[k] for k in over],
+        FRONT_ROWS_TILT_MAX_DEG, target_m,
+    ) or [0.0] * len(over)
+    ceiling = [
+        math.degrees(math.atan(cap / own_h[k])) if cap > 1e-12 and own_h[k] > 0 else 0.0
+        for k, cap in zip(over, caps)
+    ]
+    ceiling = _verified_angles(ceiling, lambda ks, vs: holds([over[i] for i in ks], vs))
+    result = list(angles)
+    top = {k: c for k, c in zip(over, ceiling) if c > angles[k] + 1e-9}
+    if not top:
+        return result
+    live = list(top)
+    at_top = lsp(live, [top[k] for k in live])
+    low: dict[int, float] = {}
+    high: dict[int, float] = {}
+    for k, value in zip(live, at_top):
+        if value > allowed_m + 1e-9:
+            result[k] = top[k]  # и 30° не хватает — наибольший допустимый
+        else:
+            low[k], high[k] = angles[k], top[k]
+    todo = list(low)
+    for _ in range(40):
+        if not todo:
+            break
+        mids = [0.5 * (low[k] + high[k]) for k in todo]
+        for k, mid, value in zip(todo, mids, lsp(todo, mids)):
+            if value > allowed_m:
+                low[k] = mid
+            else:
+                high[k] = mid
+        todo = [k for k in todo if high[k] - low[k] > 1e-6]
+    found = list(high)
+    for k, ok in zip(found, holds(found, [high[k] for k in found])):
+        result[k] = high[k] if ok else top[k]
+    return result
+
+
 def _smallest_angles(
     contour: BlockContour,
     keys: list[int],
@@ -858,6 +988,77 @@ def _collar_reach_m(
         low = np.where(good, mid, low)
         high = np.where(good, high, mid)
     return [float(limit) if whole else float(lo) for limit, whole, lo in zip(limits, full, low)]
+
+
+def face_tilts(
+    contour: BlockContour,
+    holes: list[Hole],
+    collars_xy: list[tuple[float, float]],
+    base_direction: tuple[float, float],
+    tilt_deg: float,
+    target_m: float,
+    allowed_m: float,
+    subdrill_m: float,
+    surfaces: object | None,
+    depth_override: float | None,
+) -> list[tuple[float, float]]:
+    """Наклон к откосу: (угол от вертикали, азимут) для каждого устья `collars_xy`.
+
+    `holes[k]` — скважина, из которой строится наклонная с устьем в
+    `collars_xy[k]` (устье и забой заменяются, остальное — её). Азимут — к
+    ближайшей точке линии подошвы от устья, не дальше
+    `FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG` от `base_direction` (линия столбца к
+    откосу). Угол — наибольший ≤ `tilt_deg`, при котором ЛСП не меньше
+    `target_m` и низ не за подошвой (`_tilt_caps_m` по устью и своей высоте
+    уступа, проверка построенной скважины — `_verified_angles`); если ЛСП с
+    осью, перенесённой из `holes[k]` в новое устье, не больше `allowed_m` —
+    0. При 0 < `tilt_deg` < 30° угол поднимается до 30°, пока ЛСП > `allowed_m`
+    (`_raised_angles`). Общий помощник пары у откоса и конца эшелона шаблона
+    «от тыла».
+    """
+    if not holes:
+        return []
+    block_h = contour.bench.height_m
+    heights = [hole_bench_height_m(h, block_h) for h in holes]
+    candidates = [(k, xy, height) for k, (xy, height) in enumerate(zip(collars_xy, heights))]
+    # ЛСП с осью исходной скважины — по её точке на подошве, перенесённой в новое устье.
+    shifts = [(x - h.collar.x, y - h.collar.y) for h, (x, y) in zip(holes, collars_xy)]
+    plain = toe_positions(
+        contour,
+        [(fx + dx, fy + dy) for (fx, fy), (dx, dy) in zip((floor_point(h) for h in holes), shifts)],
+        heights,
+    ) or []
+
+    # Наклон — к ближайшей точке линии подошвы от устья, не дальше
+    # `FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG` от линии столбца.
+    toward = toe_positions(contour, list(collars_xy), heights) or []
+    directions = [
+        _clamped_direction(base_direction, (p.toe_point[0] - xy[0], p.toe_point[1] - xy[1]), FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG)
+        for xy, p in zip(collars_xy, toward)
+    ] or [base_direction] * len(holes)
+    azimuths = [math.degrees(math.atan2(d[0], d[1])) % 360.0 for d in directions]
+
+    def tilted(k: int, angle: float) -> Hole:
+        x, y = collars_xy[k]
+        collar, toe = drape_collar(x, y, angle, azimuths[k], subdrill_m, contour, surfaces, depth_override)
+        return replace(holes[k], collar=collar, toe=toe)
+
+    # Предел угла — по новому устью (своя отметка кровли и своя высота
+    # уступа), затем проверка построенной скважины (`_verified_angles`).
+    own_h = [hole_bench_height_m(tilted(k, 0.0), block_h) for k in range(len(holes))]
+    caps = _tilt_caps_m(contour, list(collars_xy), own_h, directions, tilt_deg, target_m) or [0.0] * len(holes)
+    angles = [
+        math.degrees(math.atan(cap / h)) if position.distance_m > allowed_m and cap > 1e-12 and h > 0 else 0.0
+        for position, cap, h in zip(plain, caps, own_h)
+    ] or [0.0] * len(holes)
+
+    def holds(keys: list[int], values: list[float]) -> list[bool]:
+        return _tilt_holds(contour, [tilted(k, a) for k, a in zip(keys, values)], target_m)
+
+    angles = _verified_angles(angles, holds)
+    if 0.0 < tilt_deg < FRONT_ROWS_TILT_MAX_DEG:
+        angles = _raised_angles(contour, candidates, angles, own_h, directions, tilted, holds, target_m, allowed_m)
+    return list(zip(angles, azimuths))
 
 
 def _face_pairs(

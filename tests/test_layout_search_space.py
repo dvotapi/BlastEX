@@ -35,6 +35,14 @@ class SpaceTests(unittest.TestCase):
         self.assertEqual({c.cut_flank for c in cands}, {"left", "right"})
         self.assertTrue(any("grid_shift_along_m" not in c.params for c in cands))
 
+    def test_stage1_drops_back_anchor_keys(self):
+        # Шаблон «от тыла» перебор пока не знает (PR 3): варианты строятся от
+        # бровки, ключи опоры и отступа от тыла в них не попадают.
+        cands = stage1({**RECT, "layout_anchor": "back", "back_offset_m": 2.0}, _contour([[0, 1]]))
+        for c in cands:
+            self.assertNotIn("layout_anchor", c.params)
+            self.assertNotIn("back_offset_m", c.params)
+
     def test_crest_azimuth_min_concentration(self):
         # Один откос — направление чёткое при любом пороге.
         self.assertAlmostEqual(crest_azimuth_deg(_contour([[0, 1]]), min_concentration=0.5), 90.0)

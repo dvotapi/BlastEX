@@ -2946,7 +2946,7 @@ export function DesignPage({
           )}
           {workflowStage === "pattern" && (
             <fieldset className="workstation-lock" disabled={designedLocked}>
-              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} />
+              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} contour={document.contour} />
             </fieldset>
           )}
           {/* Вне блокировки: показ вариантов и «Остановить» доступны и у закрытого

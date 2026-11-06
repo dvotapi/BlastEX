@@ -31,8 +31,10 @@ AZIMUTH_STEPS = range(-4, 5)
 FINE_AZIMUTH_DEG = 1.25
 # Этап 3: множители шагов сетки (±3 %).
 STEP_MULTIPLIERS = (0.97, 1.0, 1.03)
-# Этап 2: параметры схем первого ряда.
-PAIR_TILTS_DEG = (15, 20, 25, 30)
+# Этап 2: параметры схем первого ряда. Пара одна: устье генератор сдвигает к
+# кромке, угол — наименьший до ЛСП ≈ W (решение владельца 06.11.2026), так что
+# разные `front_rows_tilt_deg` > 0 дают одну раскладку.
+PAIR_TILTS_DEG = (15,)
 TAPER_COUNTS = (1, 2)
 TAPER_TILTS_DEG = (15, 30)
 FRONT_ROW_KEYS = ("front_rows_mode", "front_rows_tilt_count", "front_rows_tilt_deg")

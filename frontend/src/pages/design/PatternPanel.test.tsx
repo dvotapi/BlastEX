@@ -18,8 +18,9 @@ function mount(params: PatternParams = DEFAULT_PATTERN_PARAMS) {
 }
 
 const SCHEME = "Первый ряд у откоса";
-const TILT = "Предпочтительный наклон, ° от вертикали";
+const TILT = "Разрешить наклон пары";
 const TAPER_TILT = "Наибольший наклон, ° от вертикали";
+const BACK_TILT = "Предпочтительный наклон, ° от вертикали";
 const RECT: PatternParams = { ...DEFAULT_PATTERN_PARAMS, pattern: "rectangular" };
 const STAGGERED_HINT = /не применяется к шахматной сетке/;
 
@@ -62,9 +63,9 @@ describe("PatternPanel: первый ряд у откоса", () => {
     expect((screen.getByLabelText("Рядов перехода") as HTMLSelectElement).value).toBe("2");
   });
 
-  it("угол по умолчанию 15, ввод 40 пишется как 30", () => {
-    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
-    const field = screen.getByLabelText(TILT) as HTMLInputElement;
+  it("угол перехода по умолчанию 15, ввод 40 пишется как 30", () => {
+    const onChange = mount({ ...RECT, front_rows_mode: "taper", front_rows_tilt_count: 1 });
+    const field = screen.getByLabelText(TAPER_TILT) as HTMLInputElement;
     expect(field.value).toBe("");
     expect(field.placeholder).toBe("15");
     fireEvent.change(field, { target: { value: "40" } });
@@ -72,8 +73,8 @@ describe("PatternPanel: первый ряд у откоса", () => {
   });
 
   it("пустой наклон убирает ключ, а не пишет 0", () => {
-    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair", front_rows_tilt_deg: 20 });
-    fireEvent.change(screen.getByLabelText(TILT), { target: { value: "" } });
+    const onChange = mount({ ...RECT, front_rows_mode: "taper", front_rows_tilt_count: 1, front_rows_tilt_deg: 20 });
+    fireEvent.change(screen.getByLabelText(TAPER_TILT), { target: { value: "" } });
     const [patch] = onChange.mock.calls[0];
     expect("front_rows_tilt_deg" in patch).toBe(true);
     expect(patch.front_rows_tilt_deg).toBeUndefined();
@@ -99,7 +100,7 @@ describe("PatternPanel: первый ряд у откоса", () => {
     const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
     const field = screen.getByLabelText("Мин. отступ устья от кромки, м") as HTMLInputElement;
     expect(field.value).toBe("");
-    expect(field.placeholder).toBe("0,5");
+    expect(field.placeholder).toBe("0,2");
     fireEvent.change(field, { target: { value: "1.5" } });
     expect(onChange).toHaveBeenCalledWith({ min_crest_offset_m: 1.5 });
   });
@@ -156,11 +157,23 @@ describe("PatternPanel: шаг b у квадратной сетки", () => {
     expect(b.disabled).toBe(false);
     expect(b.value).toBe("3.7");
   });
-  it("у пары наклон предпочтительный: подсказка про подъём до 30° и 0 — без наклона", () => {
-    mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
-    const label = screen.getByLabelText(TILT).closest("label") as HTMLLabelElement;
-    expect(label.title).toContain("до 30°");
-    expect(label.title).toContain("0 — без наклона");
+  it("у пары — флажок «Разрешить наклон пары»: снят пишет 0, поставлен убирает ключ", () => {
+    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
+    const box = screen.getByLabelText(TILT) as HTMLInputElement;
+    expect(box.type).toBe("checkbox");
+    expect(box.checked).toBe(true);
+    expect((box.closest("label") as HTMLLabelElement).title).toContain("к кромке");
+    expect(screen.queryByLabelText(TAPER_TILT)).toBeNull();
+    fireEvent.click(box);
+    expect(onChange).toHaveBeenCalledWith({ front_rows_tilt_deg: 0 });
+    cleanup();
+    const onChange2 = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair", front_rows_tilt_deg: 0 });
+    const off = screen.getByLabelText(TILT) as HTMLInputElement;
+    expect(off.checked).toBe(false);
+    fireEvent.click(off);
+    const [patch] = onChange2.mock.calls[0];
+    expect("front_rows_tilt_deg" in patch).toBe(true);
+    expect(patch.front_rows_tilt_deg).toBeUndefined();
   });
 
   it("у плавного перехода наклон по-прежнему наибольший", () => {
@@ -258,14 +271,15 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
     mountWithContour({ ...RECT, layout_anchor: "back" });
     expect(screen.queryByLabelText(SCHEME)).toBeNull();
     expect(screen.queryByLabelText("Рядов перехода")).toBeNull();
-    expect(screen.getByLabelText(TILT)).toBeTruthy();
+    expect(screen.getByLabelText(BACK_TILT)).toBeTruthy();
+    expect(screen.queryByLabelText(TILT)).toBeNull();
     expect(screen.getByLabelText("Мин. отступ устья от кромки, м")).toBeTruthy();
     expect(screen.queryByLabelText(BACK_OFFSET)).toBeTruthy();
   });
 
   it("«от тыла»: подсказка наклона — наименьший угол до ЛСП ≈ W", () => {
     mountWithContour({ ...RECT, layout_anchor: "back" });
-    const title = (screen.getByLabelText(TILT).closest("label") as HTMLLabelElement).title;
+    const title = (screen.getByLabelText(BACK_TILT).closest("label") as HTMLLabelElement).title;
     expect(title).toMatch(/наименьший/);
     expect(title).toMatch(/ЛСП ≈ W/);
   });

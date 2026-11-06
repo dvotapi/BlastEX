@@ -59,67 +59,84 @@ def _design(holes, params=BASE, contour=CONTOUR) -> BlastDesign:
 
 def test_constants():
     assert FACE_PAIR_OFFSET_M == 1.0
-    assert MIN_CREST_OFFSET_DEFAULT_M == 0.5
+    assert MIN_CREST_OFFSET_DEFAULT_M == 0.2
     assert FRONT_ROWS_MODE_PAIR == "pair"
     assert "face_toe" not in PRESERVED_HOLE_KINDS
 
 
-def test_pair_added_one_metre_closer_along_column():
+# Откос 60° от горизонтали: в плане 10·tg 30° = 5,77 м — пара у кромки
+# всё ещё не укладывается без наклона.
+STEEP_SLOPE_M = H * math.tan(math.radians(30.0))
+
+
+def _steep_contour(width=40.0, height=30.0) -> BlockContour:
+    verts = [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+    return BlockContour(
+        vertices=[Point3(x=x, y=y, z=0.0) for x, y in verts],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=60.0),
+    )
+
+
+W = 3.5
+GAP_MAX = 1.03 * W
+
+
+def test_pair_collar_moves_toward_crest_instead_of_tilting():
+    # Вертикальная в 3 м: ЛСП 5,68. Пара сдвигается к кромке, пока ЛСП не станет W:
+    # сдвиг 5,68 − 3,5 = 2,18 м, устье в 0,82 м от кромки, без наклона.
     holes = generate_pattern(CONTOUR, BASE)
     first = _first_row(holes)
     pairs = _pairs(holes)
-    assert len(first) == 11
-    assert len(pairs) == len(first)
+    assert len(pairs) == len(first) == 11
     by_id = {h.id: h for h in holes}
+    burdens = floor_burdens(_design(holes))
     for pair in pairs:
-        assert pair.id.endswith("T")
         vertical = by_id[pair.id[:-1]]
-        assert vertical.kind == "production"
-        assert vertical.collar.y == pytest.approx(3.0)
-        assert (pair.row, pair.col) == (vertical.row, vertical.col)
-        # Устье на 1 м ближе к откосу по линии столбца, без сдвига вдоль ряда.
+        assert pair.id.endswith("T") and (pair.row, pair.col) == (vertical.row, vertical.col)
         assert pair.collar.x == pytest.approx(vertical.collar.x, abs=1e-9)
-        assert pair.collar.y == pytest.approx(vertical.collar.y - 1.0, abs=1e-9)
-        # Азимут вдоль линии столбца к откосу.
-        assert pair.toe.x == pytest.approx(pair.collar.x, abs=1e-9)
-        assert pair.toe.y < pair.collar.y
-        assert pair.azimuth_deg == pytest.approx(180.0, abs=1e-6)
-        # Наибольший угол ≤ 15°, при котором ЛСП ≥ max(0,8·W, 1) = 2,8:
-        # ЛСП = 2 + 2,68 − 10·tg α = 2,8 → tg α = 0,188.
-        expected = math.degrees(math.atan((2.0 + SLOPE_M - 2.8) / H))
-        assert pair.angle_deg == pytest.approx(expected, abs=1e-3)
-        assert pair.angle_deg <= 15.0
-        assert pair.source == "generated"
-        # Вертикальная осталась на месте.
+        assert pair.collar.y == pytest.approx(W - SLOPE_M, abs=1e-3)
+        assert pair.angle_deg == pytest.approx(0.0, abs=1e-9)
+        assert burdens[pair.id].value_m == pytest.approx(W, abs=1e-3)
         assert vertical.angle_deg == pytest.approx(0.0)
-    ids = [h.id for h in holes]
-    assert len(ids) == len(set(ids))
 
 
-def test_pair_angle_raised_above_preferred_when_lsp_exceeds():
-    # α = 5°: ЛСП 4,68 − 10·tg 5° = 3,81 > 3,605 → угол поднимается до tg α = (4,68 − 3,605)/10.
-    holes = generate_pattern(CONTOUR, BASE | {"front_rows_tilt_deg": 5})
-    expected = math.degrees(math.atan((2.0 + SLOPE_M - 3.5 * 1.03) / H))
-    assert _pairs(holes)
-    assert all(p.angle_deg == pytest.approx(expected, abs=0.05) for p in _pairs(holes))
+def test_pair_collar_stops_at_crest_offset_then_smallest_tilt():
+    # Откос 60°, вертикальная в 1,2 м: ЛСП 6,97; пара упирается в 0,2 м от
+    # кромки (сдвиг 1 м), ЛСП 5,97 — наименьший наклон до ЛСП = W: tg α = 2,47/10.
+    holes = generate_pattern(_steep_contour(), BASE | {"offset_from_face_m": 1.2})
+    pairs = _pairs(holes)
+    assert pairs
+    expected = math.degrees(math.atan((1.2 - 1.0 + STEEP_SLOPE_M - W) / H))
+    burdens = floor_burdens(_design(holes, contour=_steep_contour()))
+    for pair in pairs:
+        assert pair.collar.y == pytest.approx(0.2, abs=1e-3)
+        assert pair.angle_deg == pytest.approx(expected, abs=0.05)
+        assert burdens[pair.id].value_m == pytest.approx(W, abs=0.01)
 
 
-def test_preferred_angle_kept_when_lsp_fits():
-    # 15°: угол ограничен ЛСП ≥ 2,8 и выше 15° не поднимается.
-    holes = generate_pattern(CONTOUR, BASE)
-    expected = math.degrees(math.atan((2.0 + SLOPE_M - 2.8) / H))
-    assert all(p.angle_deg == pytest.approx(expected, abs=1e-3) for p in _pairs(holes))
+def test_pair_shift_limited_by_floor_gap():
+    # Вертикальная в 4,5 м: ЛСП 7,18; сдвиг не больше b + 3 % = 3,605 м (разрыв у
+    # подошвы между парой и её вертикальной), ЛСП 3,575 ≤ 3,605 — без наклона.
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 4.5})
+    pairs = _pairs(holes)
+    assert pairs
+    for pair in pairs:
+        assert pair.collar.y == pytest.approx(4.5 - GAP_MAX, abs=1e-3)
+        assert pair.angle_deg == pytest.approx(0.0, abs=1e-9)
 
 
-def test_pair_capped_at_thirty_degrees_when_even_that_is_not_enough():
-    # Первый ряд в 9 м: устье пары в 8 м, ЛСП при 30° = 8 + 2,68 − 10·tg 30° = 4,91 > 3,605.
+def test_far_first_row_pair_keeps_excess_without_breaking_floor_gap():
+    # Вертикальная в 9 м: сдвиг упирается в 3,605 м, на наклон разрыва не остаётся —
+    # пара вертикальная, ЛСП больше допуска с предупреждением.
     from design.analysis import validate
 
-    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 9.0})
+    params = BASE | {"offset_from_face_m": 9.0}
+    holes = generate_pattern(CONTOUR, params)
     pairs = _pairs(holes)
-    assert pairs and all(p.angle_deg == pytest.approx(30.0, abs=0.05) for p in pairs)
-    codes = {w["code"] for w in validate(_design(holes, BASE | {"offset_from_face_m": 9.0}))}
-    assert "floor_burden_excess" in codes
+    assert pairs and all(p.angle_deg == pytest.approx(0.0, abs=1e-9) for p in pairs)
+    assert all(p.collar.y == pytest.approx(9.0 - GAP_MAX, abs=1e-3) for p in pairs)
+    assert "floor_burden_excess" in {w["code"] for w in validate(_design(holes, params))}
 
 
 def test_numbering_of_grid_is_unchanged_by_pairs():
@@ -144,14 +161,14 @@ def test_pair_is_vertical_when_it_fits_w_at_zero_degrees():
 
 
 def test_no_pair_when_collar_too_close_to_crest():
-    # Первый ряд в 1,4 м: устье пары в 0,4 м < 0,5 м от кромки (умолчание).
-    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.4})
+    # Первый ряд в 1,15 м: устье пары в 0,15 м < 0,2 м от кромки (умолчание).
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.15})
     assert _pairs(holes) == []
-    # Отступ 0,3 м — пара ставится.
-    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.4, "min_crest_offset_m": 0.3})
+    # Отступ 0,05 м — пара ставится (ЛСП 2,83 ≥ 0,8·W).
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.15, "min_crest_offset_m": 0.05})
     assert len(_pairs(holes)) == len(_first_row(holes))
-    # Первый ряд в 1,8 м: устье пары в 0,8 м — по умолчанию (0,5 м) пара ставится.
-    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.8})
+    # Первый ряд в 1,4 м: устье пары в 0,4 м — по умолчанию (0,2 м) пара ставится.
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.4})
     assert len(_pairs(holes)) == len(_first_row(holes))
 
 
@@ -168,7 +185,7 @@ def test_floor_burden_counted_at_pair_vertical_closed():
     assert {p.id for p in pairs} <= set(burdens)
     for pair in pairs:
         assert pair.id[:-1] not in burdens
-        assert burdens[pair.id].value_m == pytest.approx(2.8, abs=1e-3)
+        assert burdens[pair.id].value_m == pytest.approx(W, abs=1e-3)
         assert not burdens[pair.id].short and not burdens[pair.id].excess
 
 
@@ -216,7 +233,7 @@ def test_pair_floor_point_lies_toward_face():
     for pair in _pairs(holes):
         fx, fy = floor_point(pair)
         assert fx == pytest.approx(pair.collar.x, abs=1e-9)
-        assert fy == pytest.approx(2.8 - SLOPE_M, abs=1e-3)
+        assert fy == pytest.approx(W - SLOPE_M, abs=1e-3)
 
 
 def test_no_pair_when_collar_outside_boundary():
@@ -271,8 +288,8 @@ def test_tilt_cap_holds_across_survey_to_spoil_switch(mode):
 
 
 def test_pair_cap_uses_own_collar_on_sloped_roof():
-    # Кровля опускается вглубь блока: у пары (1 м ближе к откосу) H больше,
-    # чем у вертикальной. Предел по H вертикальной дал бы ЛСП чуть меньше 0,8·W.
+    # Кровля опускается вглубь блока: у пары (ближе к откосу) H своя — сдвиг
+    # подбирается по её собственной точке на подошве, ЛСП = W.
     from design.spatial.surfaces import SurfaceSet, top_surface
 
     roof = [Point3(x=x, y=y, z=2.0 - 0.3 * y) for x in (-10.0, 20.0, 50.0) for y in (-20.0, 5.0, 40.0)]
@@ -284,7 +301,7 @@ def test_pair_cap_uses_own_collar_on_sloped_roof():
     for pair in pairs:
         burden = burdens[pair.id]
         assert not burden.short
-        assert burden.value_m == pytest.approx(0.8 * 3.5, abs=1e-5)
+        assert burden.value_m == pytest.approx(W, abs=1e-3)
 
 
 def test_pair_added_when_variable_row_gives_front_row_another_kind():
@@ -320,13 +337,13 @@ def _slanted_contour(deg: float) -> BlockContour:
     return BlockContour(
         vertices=[Point3(x=x, y=y, z=0.0) for x, y in verts],
         free_faces=[[0, 1]],
-        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=75.0),
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=60.0),
     )
 
 
 def test_pair_tilts_toward_slanted_face_within_limit():
     # Ряды — азимут 90°, бровка повёрнута на 10°: азимут пары — нормаль к бровке, 170°.
-    holes = generate_pattern(_slanted_contour(10.0), BASE)
+    holes = generate_pattern(_slanted_contour(10.0), BASE | {"offset_from_face_m": 1.6})
     # Пара на самом фланге (x = 40) смотрит на конец линии подошвы — ей своё направление.
     pairs = [p for p in _pairs(holes) if p.angle_deg > 1e-6 and p.collar.x < 39.0]
     assert pairs
@@ -335,7 +352,7 @@ def test_pair_tilts_toward_slanted_face_within_limit():
 
 
 def test_pair_azimuth_clamped_to_fifteen_degrees_from_column():
-    holes = generate_pattern(_slanted_contour(30.0), BASE)
+    holes = generate_pattern(_slanted_contour(30.0), BASE | {"offset_from_face_m": 1.6})
     pairs = [p for p in _pairs(holes) if p.angle_deg > 1e-6]
     assert pairs
     for pair in pairs:
@@ -343,13 +360,14 @@ def test_pair_azimuth_clamped_to_fifteen_degrees_from_column():
 
 
 def test_pair_on_straight_face_keeps_column_azimuth():
-    holes = generate_pattern(CONTOUR, BASE)
-    assert all(p.azimuth_deg == pytest.approx(180.0, abs=1e-6) for p in _pairs(holes))
+    holes = generate_pattern(_steep_contour(), BASE | {"offset_from_face_m": 1.2})
+    pairs = [p for p in _pairs(holes) if p.angle_deg > 1e-6]
+    assert pairs and all(p.azimuth_deg == pytest.approx(180.0, abs=1e-6) for p in pairs)
 
 
 def test_zero_preferred_tilt_keeps_pairs_vertical():
     # 0° — наклона пары нет совсем, подъём не включается (решение по ревью 06.11.2026).
-    holes = generate_pattern(CONTOUR, BASE | {"front_rows_tilt_deg": 0})
+    holes = generate_pattern(_steep_contour(), BASE | {"offset_from_face_m": 1.2, "front_rows_tilt_deg": 0})
     assert _pairs(holes)
     assert all(p.angle_deg == pytest.approx(0.0, abs=1e-9) for p in _pairs(holes))
 
@@ -366,24 +384,164 @@ def test_raise_checks_floor_burden_in_batches(monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr(pattern, "toe_positions", counting)
-    wide = _contour(width=200.0)
-    holes = generate_pattern(wide, BASE | {"front_rows_tilt_deg": 5})
+    wide = _steep_contour(width=200.0)
+    holes = generate_pattern(wide, BASE | {"offset_from_face_m": 1.2})
     assert len(_pairs(holes)) > 40
     assert calls["n"] < 120
 
 
-def test_raised_angle_falls_back_to_ceiling_when_it_breaks_lower_bound(monkeypatch):
-    # У скачка съёмка ↔ развал ЛСП немонотонна: угол подъёма, не прошедший
+def test_smallest_angle_falls_back_to_ceiling_when_it_breaks_lower_bound(monkeypatch):
+    # У скачка съёмка ↔ развал ЛСП немонотонна: наименьший угол, не прошедший
     # проверку ЛСП ≥ max(0,8·W, 1 м), заменяется наибольшим допустимым.
     import design.pattern as pattern
 
     real = pattern._tilt_holds
+    expected = math.degrees(math.atan((1.2 - 1.0 + STEEP_SLOPE_M - W) / H))
 
     def jumpy(contour, holes, target_m):
-        return [ok and not (5.5 < h.angle_deg < 8.0) for h, ok in zip(holes, real(contour, holes, target_m))]
+        return [ok and not (abs(h.angle_deg - expected) < 0.5) for h, ok in zip(holes, real(contour, holes, target_m))]
 
     monkeypatch.setattr(pattern, "_tilt_holds", jumpy)
-    holes = generate_pattern(CONTOUR, BASE | {"front_rows_tilt_deg": 5})
-    ceiling = math.degrees(math.atan((2.0 + SLOPE_M - 2.8) / H))
+    holes = generate_pattern(_steep_contour(), BASE | {"offset_from_face_m": 1.2})
+    # Наибольший допустимый: ЛСП ≥ 2,8 и разрыв у подошвы 1 + t ≤ 3,605.
+    ceiling = math.degrees(math.atan(min(1.2 - 1.0 + STEEP_SLOPE_M - 2.8, GAP_MAX - 1.0) / H))
     assert _pairs(holes)
     assert all(p.angle_deg == pytest.approx(ceiling, abs=0.05) for p in _pairs(holes))
+
+
+def _contour_at(face_angle_deg: float) -> BlockContour:
+    verts = [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)]
+    return BlockContour(
+        vertices=[Point3(x=x, y=y, z=0.0) for x, y in verts],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=face_angle_deg),
+    )
+
+
+def test_no_pair_when_minimum_shift_undershoots_lower_bound():
+    # Откос 85° (в плане 0,875 м), вертикальная в 2,83 м: ЛСП 3,705 > 3,605.
+    # Пара на 1 м ближе дала бы 2,705 < 0,8·W = 2,8 — её не ставим.
+    holes = generate_pattern(_contour_at(85.0), BASE | {"offset_from_face_m": 2.83})
+    assert _first_row(holes)
+    assert _pairs(holes) == []
+
+
+def test_floor_gap_limit_uses_row_own_burden():
+    # Переменная сетка: у первого ряда b = 3,0 — сдвиг пары не больше 3,09 м, а не 3,605.
+    params = BASE | {"pattern": "variable", "offset_from_face_m": 4.5, "row_params": [{"burden_b_m": 3.0}, {}]}
+    holes = generate_pattern(CONTOUR, params)
+    pairs = _pairs(holes)
+    assert pairs
+    assert all(p.collar.y == pytest.approx(4.5 - 3.0 * 1.03, abs=1e-3) for p in pairs)
+
+
+# --- Замечания Codex к PR #153 ---------------------------------------------
+
+
+def test_pair_shift_uses_pair_own_bench_height_on_sloping_floor():
+    # Съёмка подошвы в 10,2 м от бровки, подошва круто поднимается к откосу
+    # (z = −10,5 + (3 − y)): чем ближе пара к кромке, тем ниже её уступ и тем
+    # раньше съёмка сменяется развалом. Сдвиг считается по высоте самой пары —
+    # ЛСП не меньше 0,8·W и низ не за подошвой.
+    from design.spatial.surfaces import SurfaceSet, floor_surface
+
+    contour = _contour()
+    contour.cad = {"bottom": [[0.0, -10.2], [40.0, -10.2], [40.0, 30.0], [0.0, 30.0]]}
+    points = [Point3(x=x, y=y, z=-10.5 + (3.0 - y)) for x in (-10.0, 20.0, 50.0) for y in (-20.0, 5.0, 40.0)]
+    surfaces = SurfaceSet(floor=floor_surface(points))
+    params = BASE | {"front_rows_tilt_deg": 0.0}
+    holes = generate_pattern(contour, params, [], surfaces)
+    burdens = floor_burdens(_design(holes, params, contour))
+    for pair in _pairs(holes):
+        burden = burdens[pair.id]
+        assert not burden.beyond_toe
+        assert burden.value_m >= 0.8 * W - 1e-6, (pair.id, burden.value_m)
+
+
+def test_pair_collar_not_in_concave_notch():
+    # Выемка у бокового края (x 0–8, y 0,6–1,0): упор сдвига внутри блока, но
+    # промежуточный сдвиг попал бы в выемку — устье пары всегда внутри контура.
+    import shapely
+
+    ring = [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0), (0.0, 1.0), (8.0, 1.0), (8.0, 0.6), (0.0, 0.6)]
+    contour = BlockContour(
+        vertices=[Point3(x=x, y=y, z=0.0) for x, y in ring],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=75.0),
+    )
+    holes = generate_pattern(contour, BASE | {"offset_from_face_m": 4.0})
+    polygon = shapely.Polygon(ring).buffer(1e-6)
+    pairs = _pairs(holes)
+    assert pairs
+    for pair in pairs:
+        assert polygon.contains(shapely.Point(pair.collar.x, pair.collar.y)), (pair.id, pair.collar)
+
+
+def test_floor_gap_limit_uses_domain_burden():
+    # Сетка по доменам: у домена b = 7 м — предел разрыва у подошвы 7,21 м, а
+    # не общий 3,605: пара доходит до ЛСП ≤ W + 3 %.
+    from design.models import BlastDomain
+
+    domain = BlastDomain(id="d", name="d", spacing_a_m=4.0, burden_b_m=7.0)
+    params = BASE | {"pattern": "domain_dependent", "offset_from_face_m": 6.0}
+    holes = generate_pattern(CONTOUR, params, domains=[domain])
+    pairs = _pairs(holes)
+    assert pairs
+    burdens = floor_burdens(BlastDesign(design_id="t", contour=CONTOUR, holes=holes, pattern_params=params, domains=[domain]))
+    for pair in pairs:
+        assert burdens[pair.id].value_m <= GAP_MAX + 1e-6, (pair.id, burdens[pair.id].value_m)
+
+
+def test_collar_reach_clips_huge_limit_to_block_size():
+    # Огромный b домена не раздувает проход: предел сдвига — не больше
+    # размера контура (дальше устье всё равно вне блока).
+    import time
+
+    from design.pattern import _collar_reach_m
+    from design.toe_line import crest_geometry
+
+    boundary = [(v.x, v.y) for v in CONTOUR.vertices]
+    started = time.perf_counter()
+    reach = _collar_reach_m([(4.0, 3.0)], (0.0, -1.0), boundary, crest_geometry(CONTOUR), 0.2, [1e9])
+    assert time.perf_counter() - started < 1.0
+    assert reach == [pytest.approx(2.8, abs=1e-6)]
+
+
+def test_tilted_pair_floor_gap_checked_on_deepening_floor():
+    # Пример Codex: откос 45°, ряд в 1,2 м, подошва углубляется к откосу
+    # (z = −10 + 0,5·y) — без проверки разрыв 4,0 м при пределе 3,605. Наклонная ось уходит
+    # ниже, чем у вертикальной, и точка на подошве — дальше. Разрыв у подошвы
+    # между парой и её вертикальной проверяется по построенной паре: ≤ b + 3 %.
+    from design.spatial.surfaces import SurfaceSet, floor_surface
+
+    contour = _contour_at(45.0)
+    points = [Point3(x=x, y=y, z=-10.0 + 0.5 * y) for x in (-10.0, 20.0, 50.0) for y in (-20.0, 5.0, 40.0)]
+    surfaces = SurfaceSet(floor=floor_surface(points))
+    holes = generate_pattern(contour, BASE | {"offset_from_face_m": 1.2}, [], surfaces)
+    by_id = {h.id: h for h in holes}
+    pairs = _pairs(holes)
+    assert pairs
+    for pair in pairs:
+        vertical = by_id[pair.id[:-1]]
+        (px, py), (vx, vy) = floor_point(pair), floor_point(vertical)
+        assert math.hypot(px - vx, py - vy) <= GAP_MAX + 1e-6, (pair.id, math.hypot(px - vx, py - vy))
+
+
+@pytest.mark.parametrize("angle_deg", [15.0, 20.0])
+def test_plain_pair_floor_gap_checked_with_tilted_grid(angle_deg):
+    # Пример Codex к 540fa85: основная сетка наклонная (20° к откосу), наклон
+    # пары запрещён (0°), подошва углубляется к откосу (z = −10 + 0,5·y). Пара
+    # без наклона сохраняет ось сетки, и на подошве её точка уходит дальше
+    # сдвига устья — было 4,41 м при пределе 3,605. Разрыв ограничивает сдвиг.
+    from design.spatial.surfaces import SurfaceSet, floor_surface
+
+    points = [Point3(x=x, y=y, z=-10.0 + 0.5 * y) for x in (-10.0, 20.0, 50.0) for y in (-20.0, 5.0, 40.0)]
+    surfaces = SurfaceSet(floor=floor_surface(points))
+    params = BASE | {"offset_from_face_m": 9.0, "angle_deg": angle_deg, "azimuth_deg": 180.0, "front_rows_tilt_deg": 0}
+    holes = generate_pattern(CONTOUR, params, [], surfaces)
+    by_id = {h.id: h for h in holes}
+    pairs = _pairs(holes)
+    assert pairs
+    for pair in pairs:
+        gap = math.dist(floor_point(pair), floor_point(by_id[pair.id[:-1]]))
+        assert gap <= GAP_MAX + 1e-6, (pair.id, gap)

@@ -94,8 +94,12 @@ def test_fixture_is_local_and_has_the_face():
 
 
 def test_block67_back_layout_beats_crest_layout():
-    """Устья первого ряда ближе к бровке, отбраковки нет, ЛСП в коридоре — у
-    половины первого ряда.
+    """Устья первого ряда не дальше от бровки, чем у пары, отбраковки нет, ЛСП
+    в коридоре — у половины первого ряда.
+
+    Пара у откоса сама сдвигает устье к кромке (PR #153), поэтому медиана
+    расстояния устья до бровки у обоих шаблонов — отступ 0,5 м; у пары после
+    сдвига наклонных 15, ЛСП в коридоре — 41 %.
 
     Доля ЛСП в коридоре на блоке 67 у шаблона «от тыла» ниже, чем у пары от
     бровки: подошва здесь в 3,2–4,8 м от бровки (≈ W), и там, где последний
@@ -107,7 +111,7 @@ def test_block67_back_layout_beats_crest_layout():
     """
     back = _report({**_base(), "layout_anchor": "back"})
     crest = _report({**_base(), "front_rows_mode": "pair"})
-    assert back["median_m"] < crest["median_m"]
+    assert back["median_m"] <= crest["median_m"] + 1e-3
     assert not back["codes"] & REJECT, back["codes"]
     assert back["in_corridor"] > 0.4
 

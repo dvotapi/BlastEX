@@ -33,6 +33,7 @@ from design.models import (
 )
 from design.toe_line import (
     MIN_CREST_OFFSET_DEFAULT_M,
+    TOE_BURDEN_TOLERANCE,
     allowed_floor_burden_m,
     corridor_blocker_pairs,
     crest_geometry,
@@ -61,6 +62,8 @@ FRONT_TILT_MIN_FLOOR_BURDEN_M = 1.0
 # Пара у откоса: устье наклонной на столько ближе к уступу, чем у вертикальной
 # первого ряда, по линии столбца, м (решение владельца 22.10.2026).
 FACE_PAIR_OFFSET_M = 1.0
+# Шаг прохода при поиске упора устья пары (`_collar_reach_m`), м.
+COLLAR_REACH_STEP_M = 0.05
 # Азимут наклонной пары — к ближайшей точке линии подошвы (по нормали к
 # откосу), но не дальше этого от линии столбца (решение владельца 06.11.2026).
 FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG = 15.0
@@ -95,11 +98,11 @@ def generate_pattern(
       front_rows_mode         pair | taper — схема первого ряда у откоса (нет ключа — taper при count > 0)
       front_rows_tilt_count   0–2 рядов у откоса с наклоном к откосу (нет ключа — 0)
       front_rows_tilt_deg     угол наклона от вертикали, 0–30° (нет ключа — 15°): у перехода —
-                              наибольший, у пары — предпочтительный (поднимается до 30°,
-                              если ЛСП > W + 3 %; 0 — без наклона)
+                              наибольший; у пары 0 — без наклона, иначе наклон до 30°, наименьший
+                              до ЛСП ≈ W (после сдвига устья к кромке)
       grid_shift_along_m      сдвиг узлов решётки вдоль ряда, м (по модулю шага a; нет ключа — 0;
                               ряд вдоль бровки не сдвигается)
-      min_crest_offset_m      минимальный отступ устья от кромки (нет ключа — 0,5 м)
+      min_crest_offset_m      минимальный отступ устья от кромки (нет ключа — 0,2 м)
       layout_anchor           "back" — шаблон «от тыла» (`design/back_layout.py`; только
                               square/rectangular, нужен тыл); нет ключа — от бровки.
                               Схема первого ряда (`front_rows_mode`, `front_rows_tilt_count`)
@@ -403,6 +406,15 @@ def generate_pattern(
     if mode == FRONT_ROWS_MODE_PAIR:
         # Устья основной сетки не ближе `min_crest_offset_m` к кромке — до
         # постановки пар (у пары свой отступ проверяется при постановке).
+        def pair_row_burden(hole: Hole) -> float:
+            # Шаг b ряда скважины — как у генератора и проверки разрыва
+            # (`toe_line._hole_steps`): у сетки по доменам — b домена у устья.
+            if pattern == "domain_dependent" and domain_list:
+                domain = domain_at(domain_list, Point3(x=hole.collar.x, y=hole.collar.y, z=crest_z))
+                if domain is not None and domain.burden_b_m:
+                    return float(domain.burden_b_m)
+            return row_steps_m(params, pattern, max(logical_row(hole.row), 0), spacing_a, burden_b)[1]
+
         face_row = holes[:face_row_count]
         holes = _off_crest(holes, contour, min_crest_offset_m(params))
         face_row_count = len(_off_crest(face_row, contour, min_crest_offset_m(params)))
@@ -421,6 +433,7 @@ def generate_pattern(
             subdrill_m,
             surfaces,
             depth_override,
+            row_burden=pair_row_burden,
         ):
             pair_of[id(pair)] = id(partner)
             holes.append(pair)
@@ -905,6 +918,109 @@ def _raised_angles(
     return result
 
 
+def _smallest_angles(
+    contour: BlockContour,
+    keys: list[int],
+    ceiling: dict[int, float],
+    tilted: Callable[[int, float], Hole],
+    holds: Callable[[list[int], list[float]], list[bool]],
+    goal_m: float,
+) -> dict[int, float]:
+    """Наименьший угол в [0, `ceiling[k]`], при котором ЛСП пары ≤ `goal_m`
+    (решение владельца 06.11.2026: наклон — наименьший, до ЛСП ≈ W).
+
+    Не хватает и `ceiling` — он сам. Деление пополам — пакетом (один
+    `toe_positions` на шаг); итог проверяется `holds`: у скачка съёмка ↔
+    развал ЛСП немонотонна, и угол, не прошедший нижнюю границу, заменяется
+    наибольшим допустимым.
+    """
+
+    def lsp(ks: list[int], values: list[float]) -> list[float]:
+        return _floor_burdens_of(contour, [tilted(k, a) for k, a in zip(ks, values)])
+
+    result: dict[int, float] = {}
+    live = [k for k in keys if ceiling[k] > 1e-9]
+    for k in keys:
+        if ceiling[k] <= 1e-9:
+            result[k] = 0.0
+    low: dict[int, float] = {}
+    high: dict[int, float] = {}
+    for k, value in zip(live, lsp(live, [ceiling[k] for k in live])):
+        if value > goal_m + 1e-9:
+            result[k] = ceiling[k]
+        else:
+            low[k], high[k] = 0.0, ceiling[k]
+    todo = list(low)
+    for _ in range(40):
+        if not todo:
+            break
+        mids = [0.5 * (low[k] + high[k]) for k in todo]
+        for k, mid, value in zip(todo, mids, lsp(todo, mids)):
+            if value > goal_m:
+                low[k] = mid
+            else:
+                high[k] = mid
+        todo = [k for k in todo if high[k] - low[k] > 1e-6]
+    found = list(high)
+    for k, ok in zip(found, holds(found, [high[k] for k in found])):
+        result[k] = high[k] if ok else ceiling[k]
+    return result
+
+
+def _collar_reach_m(
+    starts: list[tuple[float, float]],
+    direction: tuple[float, float],
+    boundary: list[tuple[float, float]],
+    crest,
+    min_crest_m: float,
+    limits_m: list[float],
+) -> list[float]:
+    """Наибольший сдвиг устья вдоль `direction` в [0, `limits_m[k]`], при
+    котором устье на всём пути внутри контура и не ближе `min_crest_m` к
+    кромке (пакетом)."""
+    if not starts:
+        return []
+    # Допуск 1 мкм: узел на самом краю контура (x = −1e-16) — внутри, как у `point_in_polygon`.
+    polygon = shapely.Polygon(boundary).buffer(1e-6)
+    xs = np.asarray([p[0] for p in starts], dtype=float)
+    ys = np.asarray([p[1] for p in starts], dtype=float)
+    # Дальше размера контура устье всё равно вне блока: предел обрезается,
+    # чтобы огромный b (домен, ввод) не раздувал проход.
+    xmin, ymin, xmax, ymax = polygon.bounds
+    span = math.hypot(xmax - xmin, ymax - ymin)
+    limits = np.clip(np.nan_to_num(np.asarray(limits_m, dtype=float), nan=0.0, posinf=span), 0.0, span)
+
+    def ok(bx: np.ndarray, by: np.ndarray, t: np.ndarray) -> np.ndarray:
+        px, py = bx + direction[0] * t, by + direction[1] * t
+        return shapely.intersects_xy(polygon, px, py) & (
+            shapely.distance(shapely.points(px, py), crest) >= min_crest_m - 1e-9
+        )
+
+    # У вогнутого контура годный упор не значит, что годен каждый меньший
+    # сдвиг: первый негодный ищется проходом шагом `COLLAR_REACH_STEP_M`, затем
+    # делением пополам между ним и последним годным — весь [0, итог] годен.
+    count = int(np.ceil(float(limits.max(initial=0.0)) / COLLAR_REACH_STEP_M)) + 1
+    fractions = np.linspace(0.0, 1.0, max(count, 2))
+    samples = limits[:, None] * fractions[None, :]
+    width = samples.shape[1]
+    good = ok(np.repeat(xs, width), np.repeat(ys, width), samples.ravel()).reshape(samples.shape)
+    bad_any = ~good.all(axis=1)
+    first_bad = np.where(bad_any, np.argmin(good, axis=1), samples.shape[1])
+    result = limits.copy()
+    rows = np.nonzero(bad_any)[0]
+    if rows.size:
+        low = np.where(first_bad[rows] > 0, samples[rows, np.maximum(first_bad[rows] - 1, 0)], 0.0)
+        high = samples[rows, first_bad[rows]]
+        start_ok = first_bad[rows] > 0
+        for _ in range(40):
+            mid = 0.5 * (low + high)
+            fine = ok(xs[rows], ys[rows], mid)
+            low = np.where(fine, mid, low)
+            high = np.where(fine, high, mid)
+        result[rows] = np.where(start_ok, low, 0.0)
+    return [float(v) for v in result]
+
+
 def face_tilts(
     contour: BlockContour,
     holes: list[Hole],
@@ -991,19 +1107,26 @@ def _face_pairs(
     subdrill_m: float,
     surfaces: object | None,
     depth_override: float | None,
+    row_burden: Callable[[Hole], float] | None = None,
 ) -> list[tuple[Hole, Hole]]:
     """Пара у откоса: (вертикальная, наклонная у откоса) для скважин ранга 1.
+
+    `row_burden(hole)` — шаг b ряда скважины (у переменной сетки свой у ряда);
+    без него — `burden_b`. От него — предел разрыва у подошвы b + 3 %.
 
     Пара ставится к скважине основной сетки (`grid` — только она;
     `_front_rows_member`) ранга 1
     (`front_row_ranks`), у которой ЛСП больше допустимой `allowed_m` (W + 3 %).
-    Устье пары — на `FACE_PAIR_OFFSET_M` ближе к откосу по линии столбца
-    (−`advance_dir`), без смещения вдоль ряда; азимут наклона — то же
-    направление. Угол — наибольший ≤ `tilt_deg`, при котором ЛСП пары не
-    меньше `target_m` и низ не за подошвой (`_tilt_caps_m` по устью и высоте
-    уступа пары, проверка построенной пары — `_verified_angles`); если ЛСП пары и
-    без наклона в допуске — ось как у вертикальной. Пара не ставится, если её
-    устье вне контура (`boundary`) или ближе `min_crest_m` к кромке. Без W
+    Устье пары — ближе к откосу по линии столбца (−`advance_dir`), без
+    смещения вдоль ряда: сдвиг не меньше `FACE_PAIR_OFFSET_M`, наименьший, при
+    котором ЛСП вертикальной пары ≤ W, но не дальше упора в `min_crest_m` от
+    кромки и в разрыв у подошвы с вертикальной b + 3 %. Если и у упора ЛСП
+    больше W, а `tilt_deg` > 0, — наклон к откосу (азимут к ближайшей точке
+    подошвы, не дальше 15° от столбца): наименьший угол до ЛСП ≈ W, не больше
+    30°, ЛСП не меньше `target_m`, разрыв у подошвы — те же b + 3 %
+    (`_smallest_angles`, проверка построенной пары — `_verified_angles`;
+    решение владельца 06.11.2026). Пара не ставится, если устье и при сдвиге
+    1 м вне контура (`boundary`) или ближе `min_crest_m` к кромке. Без W
     (`allowed_m` None) пар нет: сравнивать не с чем. Вертикальная остаётся
     на месте. Номер пары — номер вертикальной с «T», ряд и столбец — её.
     """
@@ -1013,7 +1136,6 @@ def _face_pairs(
     if crest is None:
         return []
     direction = (-advance_dir[0], -advance_dir[1])
-    azimuth = math.degrees(math.atan2(direction[0], direction[1])) % 360.0
     block_h = contour.bench.height_m
     collars = [(h.collar.x, h.collar.y) for h in grid]
     ranks = front_row_ranks(collars, contour, spacing_a, burden_b, forced_first=face_row_count)
@@ -1023,41 +1145,28 @@ def _face_pairs(
     heights = [hole_bench_height_m(grid[i], block_h) for i in picked]
     own = toe_positions(contour, [floor_point(grid[i]) for i in picked], heights) or []
 
-    shift = (direction[0] * FACE_PAIR_OFFSET_M, direction[1] * FACE_PAIR_OFFSET_M)
-    candidates: list[tuple[int, tuple[float, float], float]] = []
-    for i, height, position in zip(picked, heights, own):
-        if position.beyond or position.distance_m <= allowed_m:
-            continue
-        x, y = collars[i][0] + shift[0], collars[i][1] + shift[1]
-        if not point_in_polygon((x, y), boundary):
-            continue
-        if shapely.distance(shapely.Point(x, y), crest) < min_crest_m - 1e-9:
-            continue
-        candidates.append((i, (x, y), height))
-    if not candidates:
+    # Сдвиг устья пары к кромке вдоль столбца: от `FACE_PAIR_OFFSET_M` до упора
+    # в отступ от кромки и в разрыв у подошвы между парой и её вертикальной
+    # (не больше b + 3 %). Наименьший сдвиг, при котором ЛСП вертикальной
+    # пары ≤ W; не хватает — наибольший, и дальше наклон (решение владельца
+    # 06.11.2026: ближе к кромке вместо наклона).
+    goal_m = allowed_m / (1.0 + TOE_BURDEN_TOLERANCE)
+    over = [(i, h) for i, h, p in zip(picked, heights, own) if not p.beyond and p.distance_m > allowed_m]
+    gap_of = {
+        i: (row_burden(grid[i]) if row_burden is not None else burden_b) * (1.0 + TOE_BURDEN_TOLERANCE)
+        for i, _ in over
+    }
+    reach = _collar_reach_m(
+        [collars[i] for i, _ in over], direction, boundary, crest, min_crest_m, [gap_of[i] for i, _ in over]
+    )
+    pending = [(i, h, r) for (i, h), r in zip(over, reach) if r >= FACE_PAIR_OFFSET_M - 1e-9]
+    if not pending:
         return []
 
-    tilts = face_tilts(
-        contour,
-        [grid[i] for i, _, _ in candidates],
-        [xy for _, xy, _ in candidates],
-        direction,
-        tilt_deg,
-        target_m,
-        allowed_m,
-        subdrill_m,
-        surfaces,
-        depth_override,
-    )
-    angles = [angle for angle, _ in tilts]
-    azimuths = [azimuth for _, azimuth in tilts]
-
-    result: list[tuple[Hole, Hole]] = []
-    for k, ((i, (x, y), _height), angle) in enumerate(zip(candidates, angles)):
+    def plain_pair(i: int, x: float, y: float) -> Hole:
+        """Пара без наклона с устьем (x, y): ось вертикальной `grid[i]`."""
         hole = grid[i]
-        if angle > 1e-9:
-            collar, toe = drape_collar(x, y, angle, azimuths[k], subdrill_m, contour, surfaces, depth_override)
-        elif surfaces is None:
+        if surfaces is None:
             # Ось вертикальной на плоском уступе — перенос.
             collar = Point3(x=x, y=y, z=hole.collar.z)
             toe = Point3(x=x + (hole.toe.x - hole.collar.x), y=y + (hole.toe.y - hole.collar.y), z=hole.toe.z)
@@ -1066,6 +1175,165 @@ def _face_pairs(
             angle = math.degrees(math.atan2(math.hypot(dx, dy), -dz)) if dz < 0 else 0.0
             own_azimuth = math.degrees(math.atan2(dx, dy)) % 360.0 if (dx or dy) else 0.0
             collar, toe = drape_collar(x, y, angle, own_azimuth, subdrill_m, contour, surfaces, depth_override)
+        return replace(hole, collar=collar, toe=toe)
+
+    def vertical_lsp(items: list[tuple[int, float]], shifts: list[float]) -> list[float]:
+        """ЛСП пары без наклона на сдвиге — по её собственной оси и высоте
+        уступа (у наклонной подошвы и смены съёмки на развал своя); низ за
+        подошвой — −inf (нижняя граница не пройдена)."""
+        built = [
+            plain_pair(i, collars[i][0] + direction[0] * t, collars[i][1] + direction[1] * t)
+            for (i, _), t in zip(items, shifts)
+        ]
+        found = toe_positions(
+            contour, [floor_point(h) for h in built], [hole_bench_height_m(h, block_h) for h in built]
+        ) or []
+        if not found:
+            return [0.0] * len(items)
+        return [-math.inf if p.beyond else p.distance_m for p in found]
+
+    def plain_gap_ok(items: list[tuple[int, float]], shifts: list[float]) -> list[bool]:
+        """Разрыв у подошвы между парой без наклона на сдвиге и её вертикальной
+        не больше b + 3 %: у наклонной сетки на наклонной подошве точка пары на
+        подошве уходит дальше сдвига устья (замечание Codex к 540fa85)."""
+        return [
+            math.dist(
+                floor_point(plain_pair(i, collars[i][0] + direction[0] * t, collars[i][1] + direction[1] * t)),
+                floor_point(grid[i]),
+            )
+            <= gap_of[i] + 1e-9
+            for (i, _), t in zip(items, shifts)
+        ]
+
+    # Упор сдвига — ещё и по разрыву у подошвы построенной пары: где у упора
+    # разрыв больше b + 3 %, упор уменьшается делением пополам.
+    over_gap = [
+        k for k, ok in enumerate(plain_gap_ok([(i, h) for i, h, _ in pending], [r for _, _, r in pending])) if not ok
+    ]
+    if over_gap:
+        lo = {k: 0.0 for k in over_gap}
+        hi = {k: pending[k][2] for k in over_gap}
+        todo = list(over_gap)
+        for _ in range(40):
+            if not todo:
+                break
+            mids = [0.5 * (lo[k] + hi[k]) for k in todo]
+            for k, mid, ok in zip(todo, mids, plain_gap_ok([pending[k][:2] for k in todo], mids)):
+                if ok:
+                    lo[k] = mid
+                else:
+                    hi[k] = mid
+            todo = [k for k in todo if hi[k] - lo[k] > 1e-6]
+        pending = [(i, h, lo[k] if k in lo else r) for k, (i, h, r) in enumerate(pending)]
+        pending = [item for item in pending if item[2] >= FACE_PAIR_OFFSET_M - 1e-9]
+        if not pending:
+            return []
+
+    # Пара не ближе 1 м к вертикальной: если уже при этом сдвиге ЛСП меньше
+    # нижней границы `target_m`, пара перегрузила бы откос — её нет.
+    at_start = vertical_lsp([(i, h) for i, h, _ in pending], [FACE_PAIR_OFFSET_M] * len(pending))
+    kept = [k for k, value in enumerate(at_start) if value >= target_m - 1e-9]
+    pending = [pending[k] for k in kept]
+    at_start = [at_start[k] for k in kept]
+    if not pending:
+        return []
+    shifts = [FACE_PAIR_OFFSET_M] * len(pending)
+    at_reach = vertical_lsp([(i, h) for i, h, _ in pending], [r for _, _, r in pending])
+    low = {k: FACE_PAIR_OFFSET_M for k in range(len(pending))}
+    high = {}
+    for k, ((_, _, r), first, last) in enumerate(zip(pending, at_start, at_reach)):
+        if first <= goal_m:
+            del low[k]
+        elif last > goal_m:
+            shifts[k] = r
+            del low[k]
+        else:
+            high[k] = r
+    todo = list(low)
+    for _ in range(40):
+        if not todo:
+            break
+        mids = [0.5 * (low[k] + high[k]) for k in todo]
+        for k, mid, value in zip(todo, mids, vertical_lsp([pending[k][:2] for k in todo], mids)):
+            if value > goal_m:
+                low[k] = mid
+            else:
+                high[k] = mid
+        todo = [k for k in todo if high[k] - low[k] > 1e-6]
+    for k, value in high.items():
+        shifts[k] = value
+
+    candidates: list[tuple[int, tuple[float, float], float]] = [
+        (i, (collars[i][0] + direction[0] * t, collars[i][1] + direction[1] * t), h)
+        for (i, h, _), t in zip(pending, shifts)
+    ]
+    plain_lsp = vertical_lsp([(i, h) for i, h, _ in pending], shifts)
+
+    # Наклон — к ближайшей точке линии подошвы от устья пары, не дальше
+    # `FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG` от линии столбца.
+    toward = toe_positions(contour, [xy for _, xy, _ in candidates], [h for _, _, h in candidates]) or []
+    directions = [
+        _clamped_direction(direction, (p.toe_point[0] - xy[0], p.toe_point[1] - xy[1]), FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG)
+        for (_, xy, _), p in zip(candidates, toward)
+    ] or [direction] * len(candidates)
+    azimuths = [math.degrees(math.atan2(d[0], d[1])) % 360.0 for d in directions]
+
+    def tilted(k: int, angle: float) -> Hole:
+        i, (x, y), _ = candidates[k]
+        collar, toe = drape_collar(x, y, angle, azimuths[k], subdrill_m, contour, surfaces, depth_override)
+        return replace(grid[i], collar=collar, toe=toe)
+
+    # Наклон — только если и у кромки ЛСП вертикальной пары больше W, и только
+    # при `tilt_deg` > 0: наименьший угол до ЛСП ≈ W, не больше 30°, ЛСП не
+    # меньше `target_m`, разрыв у подошвы с вертикальной не больше b + 3 %.
+    own_h = [hole_bench_height_m(tilted(k, 0.0), block_h) for k in range(len(candidates))]
+    need = [k for k, value in enumerate(plain_lsp) if value > goal_m + 1e-9] if tilt_deg > 0.0 else []
+    angles = [0.0] * len(candidates)
+
+    def holds(keys: list[int], values: list[float]) -> list[bool]:
+        # ЛСП и низ — `_tilt_holds`; разрыв у подошвы с вертикальной — по
+        # построенной паре: у наклонной подошвы ось уходит ниже оценки по
+        # высоте вертикальной, и точка на подошве — дальше.
+        built = [tilted(k, a) for k, a in zip(keys, values)]
+        gaps = [
+            math.dist(floor_point(hole), floor_point(grid[candidates[k][0]])) <= gap_of[candidates[k][0]] + 1e-9
+            for k, hole in zip(keys, built)
+        ]
+        return [ok and gap for ok, gap in zip(_tilt_holds(contour, built, target_m), gaps)]
+
+    if need:
+        caps = _tilt_caps_m(
+            contour, [candidates[k][1] for k in need], [own_h[k] for k in need], [directions[k] for k in need],
+            FRONT_ROWS_TILT_MAX_DEG, target_m,
+        ) or [0.0] * len(need)
+        ceiling_list = []
+        for k, cap in zip(need, caps):
+            along = directions[k][0] * direction[0] + directions[k][1] * direction[1]
+            room = (gap_of[candidates[k][0]] - shifts[k]) / along if along > 1e-9 else 0.0
+            reach_t = max(0.0, min(cap, room))
+            ceiling_list.append(math.degrees(math.atan(reach_t / own_h[k])) if reach_t > 1e-12 and own_h[k] > 0 else 0.0)
+        ceiling_list = _verified_angles(ceiling_list, lambda ks, vs: holds([need[i] for i in ks], vs))
+        chosen = _smallest_angles(contour, need, dict(zip(need, ceiling_list)), tilted, holds, goal_m)
+        for k, angle in chosen.items():
+            angles[k] = angle
+
+    # Пара без наклона: ЛСП вдоль сдвига может быть немонотонной (смена
+    # съёмки на развал) и разрыв у подошвы — немонотонным — итог проверяется:
+    # не прошла нижнюю границу или разрыв больше b + 3 % — пары нет.
+    plain_keys = [k for k, angle in enumerate(angles) if angle <= 1e-9]
+    plain_holds = _tilt_holds(contour, [plain_pair(candidates[k][0], *candidates[k][1]) for k in plain_keys], target_m)
+    plain_gaps = plain_gap_ok([pending[k][:2] for k in plain_keys], [shifts[k] for k in plain_keys])
+    plain_ok = {k: lsp and gap for k, lsp, gap in zip(plain_keys, plain_holds, plain_gaps)}
+    result: list[tuple[Hole, Hole]] = []
+    for k, ((i, (x, y), _height), angle) in enumerate(zip(candidates, angles)):
+        hole = grid[i]
+        if angle > 1e-9:
+            collar, toe = drape_collar(x, y, angle, azimuths[k], subdrill_m, contour, surfaces, depth_override)
+        elif not plain_ok[k]:
+            continue
+        else:
+            built = plain_pair(i, x, y)
+            collar, toe = built.collar, built.toe
         pair = replace(
             hole,
             id=hole.id + FACE_PAIR_ID_SUFFIX,

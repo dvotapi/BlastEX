@@ -326,7 +326,7 @@ def test_variable_row_step_is_not_a_gap():
 def test_validate_warns_when_collar_is_too_close_to_crest():
     from tests.front_rows_fixtures import PATTERN, rect_contour, vertical_hole
 
-    near = vertical_hole("1-01", x=10, y=0.4, row=0)
+    near = vertical_hole("1-01", x=10, y=0.1, row=0)
     ok = vertical_hole("1-03", x=30, y=1.3, row=0)
 
     def close(params):
@@ -338,8 +338,8 @@ def test_validate_warns_when_collar_is_too_close_to_crest():
     assert found[0]["message"] == "Устье 1-01 ближе 1 м к кромке уступа."
     found = close(PATTERN | {"min_crest_offset_m": 1.25})
     assert [w["message"] for w in found] == ["Устье 1-01 ближе 1,25 м к кромке уступа."]
-    assert not close(PATTERN | {"min_crest_offset_m": 0.3})
-    # Схема первого ряда задана — отступ по умолчанию 0,5 м.
+    assert not close(PATTERN | {"min_crest_offset_m": 0.05})
+    # Схема первого ряда задана — отступ по умолчанию 0,2 м.
     assert [w["hole_id"] for w in close(PATTERN | {"front_rows_mode": "pair"})] == ["1-01"]
     # Старый паспорт без ключей — не проверяется.
     assert not close(PATTERN)
@@ -356,13 +356,13 @@ def test_front_row_schemes_skip_collars_near_crest(mode):
     from design.toe_line import crest_geometry
     from tests.front_rows_fixtures import BASE, CONTOUR
 
-    params = BASE | {"offset_from_face_m": 0.3} | mode
+    params = BASE | {"offset_from_face_m": 0.1} | mode
     crest = crest_geometry(CONTOUR)
-    plain = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 0.3})
-    assert any(shapely.Point(h.collar.x, h.collar.y).distance(crest) < 0.5 for h in plain)
+    plain = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 0.1})
+    assert any(shapely.Point(h.collar.x, h.collar.y).distance(crest) < 0.2 for h in plain)
     holes = generate_pattern(CONTOUR, params)
     grid = [h for h in holes if h.kind in ("production", "face_toe")]
-    assert grid and all(shapely.Point(h.collar.x, h.collar.y).distance(crest) >= 0.5 - 1e-9 for h in grid)
+    assert grid and all(shapely.Point(h.collar.x, h.collar.y).distance(crest) >= 0.2 - 1e-9 for h in grid)
     assert not _codes(_validate(CONTOUR, params), "collar_too_close_to_crest")
 
 

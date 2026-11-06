@@ -307,14 +307,20 @@ def hole_depth_m(
     surfaces: object | None = None,
     depth_m: float | None = None,
 ) -> float:
-    """Глубина по оси: явный параметр, иначе до подошвы + перебур вдоль оси.
+    """Глубина по оси: от явного параметра или до подошвы + перебур вдоль оси.
+
+    Явный `depth_m` («Глубина» в параметрах сетки) — глубина вертикальной
+    скважины (решение владельца 06.11.2026): у наклонной длина по оси —
+    `depth_m / cos α`, забой на той же отметке.
 
     Без TIN подошвы — проектная отметка подошвы: L = (S − Z)/cos α + Δ, где S —
     отметка устья (кровля), Z — подошва, α — угол от вертикали, Δ — перебур
     (решение владельца 02.10.2026, TASK-013 PR 3).
     """
     if depth_m is not None:
-        return max(0.0, float(depth_m))
+        vertical = max(0.0, float(depth_m))
+        cos_explicit = math.cos(math.radians(angle_deg))
+        return vertical / cos_explicit if abs(cos_explicit) >= 1e-9 else vertical
     floor = getattr(surfaces, "floor", None) if surfaces is not None else None
     if floor is not None and getattr(floor, "has_tin", False):
         probe = hole_from_collar(collar, contour.bench.height_m + subdrill_m + 50.0, angle_deg, azimuth_deg)

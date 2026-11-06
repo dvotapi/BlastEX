@@ -209,8 +209,14 @@ export function PatternPanel({
             </label>
           )}
           {frontScheme !== "vertical" && (
-            <label title="Наибольший наклон от вертикали в сторону откоса, от 0 до 30°.">
-              Наибольший наклон, ° от вертикали
+            <label
+              title={
+                frontScheme === "pair"
+                  ? "Наклон пары от вертикали в сторону откоса, от 0 до 30°. Если ЛСП не укладывается в W + 3 %, наклон поднимается до 30°; 0 — без наклона."
+                  : "Наибольший наклон от вертикали в сторону откоса, от 0 до 30°."
+              }
+            >
+              {frontScheme === "pair" ? "Предпочтительный наклон, ° от вертикали" : "Наибольший наклон, ° от вертикали"}
               <input
                 type="number"
                 min="0"
@@ -237,14 +243,14 @@ export function PatternPanel({
         {/* У вертикального первого ряда отступ генератор не выбирает (это часть 4
             оптимизатора) — поле видно, только если отступ уже задан в паспорте */}
         {(frontScheme !== "vertical" || params.min_crest_offset_m != null) && (
-          <label title="Устье не ближе этого расстояния к верхней кромке уступа. Пусто — 1 м.">
+          <label title="Устье не ближе этого расстояния к верхней кромке уступа. Пусто — 0,5 м (гусеничный станок; у УРБ задайте больше).">
             Мин. отступ устья от кромки, м
             <input
               type="number"
               min="0"
               step="0.1"
               value={params.min_crest_offset_m ?? ""}
-              placeholder="1"
+              placeholder="0,5"
               onChange={(e) => onChange({ min_crest_offset_m: e.target.value === "" ? undefined : Number(e.target.value) })}
             />
           </label>
@@ -263,7 +269,7 @@ export function PatternPanel({
         {(params.buffer_row || params.stab_row || params.contour_row || params.presplit_row || params.trim_row) && (
           <div className="field-pair">
             {params.buffer_row && <label>Буфер: отступ, м<input type="number" min="0" step="0.1" {...num("buffer_offset_m")} /></label>}
-            {params.stab_row && <label>Глубина коротких, м<input type="number" min="0.5" step="0.1" {...num("stab_depth_m")} /></label>}
+            {params.stab_row && <label title="Глубина вертикальной скважины; у наклонной длина по оси = глубина / cos α.">Глубина коротких (по вертикали), м<input type="number" min="0.5" step="0.1" {...num("stab_depth_m")} /></label>}
             {params.contour_row && <label>Контур: шаг, м<input type="number" min="0.5" step="0.1" {...num("contour_spacing_m")} /></label>}
             {params.presplit_row && <label>Предщель: шаг, м<input type="number" min="0.3" step="0.1" {...num("presplit_spacing_m")} /></label>}
           </div>

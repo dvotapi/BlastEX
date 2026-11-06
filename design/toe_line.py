@@ -71,8 +71,10 @@ TOE_BURDEN_TOLERANCE = 0.03
 FLOOR_BURDEN_MIN_RATIO = 0.8
 
 # Минимальный отступ устья от кромки (верхней бровки) по умолчанию, м:
-# `pattern_params.min_crest_offset_m` (решение владельца 22.10.2026).
-MIN_CREST_OFFSET_DEFAULT_M = 1.0
+# `pattern_params.min_crest_offset_m` (решение владельца 22.10.2026; 0,5 м —
+# гусеничная буровая ставит устье стрелой, решение 06.11.2026; у УРБ больше —
+# задаётся в паспорте).
+MIN_CREST_OFFSET_DEFAULT_M = 0.5
 
 Polyline = list[tuple[float, float]]
 

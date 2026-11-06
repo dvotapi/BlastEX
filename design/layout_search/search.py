@@ -104,6 +104,9 @@ def search_layout(
             return True
         return bool(should_stop and should_stop())
 
+    # Оценки по раскладке: разные параметры, давшие одни скважины, считаются раз.
+    layouts: dict = {}
+
     def run_stage(name: str, candidates: list[Candidate]) -> bool:
         """Оценивает новые варианты этапа; False — поиск остановлен."""
         nonlocal stopped
@@ -116,7 +119,7 @@ def search_layout(
             if out_of_time():
                 stopped = True
                 return False
-            cache[candidate.key()] = evaluate(ctx, candidate)
+            cache[candidate.key()] = evaluate(ctx, candidate, layouts)
             if progress:
                 progress(name, done, total)
         return True

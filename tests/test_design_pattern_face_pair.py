@@ -490,3 +490,18 @@ def test_floor_gap_limit_uses_domain_burden():
     burdens = floor_burdens(BlastDesign(design_id="t", contour=CONTOUR, holes=holes, pattern_params=params, domains=[domain]))
     for pair in pairs:
         assert burdens[pair.id].value_m <= GAP_MAX + 1e-6, (pair.id, burdens[pair.id].value_m)
+
+
+def test_collar_reach_clips_huge_limit_to_block_size():
+    # Огромный b домена не раздувает проход: предел сдвига — не больше
+    # размера контура (дальше устье всё равно вне блока).
+    import time
+
+    from design.pattern import _collar_reach_m
+    from design.toe_line import crest_geometry
+
+    boundary = [(v.x, v.y) for v in CONTOUR.vertices]
+    started = time.perf_counter()
+    reach = _collar_reach_m([(4.0, 3.0)], (0.0, -1.0), boundary, crest_geometry(CONTOUR), 0.2, [1e9])
+    assert time.perf_counter() - started < 1.0
+    assert reach == [pytest.approx(2.8, abs=1e-6)]

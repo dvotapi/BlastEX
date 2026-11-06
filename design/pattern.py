@@ -984,7 +984,11 @@ def _collar_reach_m(
     polygon = shapely.Polygon(boundary).buffer(1e-6)
     xs = np.asarray([p[0] for p in starts], dtype=float)
     ys = np.asarray([p[1] for p in starts], dtype=float)
-    limits = np.asarray(limits_m, dtype=float)
+    # Дальше размера контура устье всё равно вне блока: предел обрезается,
+    # чтобы огромный b (домен, ввод) не раздувал проход.
+    xmin, ymin, xmax, ymax = polygon.bounds
+    span = math.hypot(xmax - xmin, ymax - ymin)
+    limits = np.clip(np.nan_to_num(np.asarray(limits_m, dtype=float), nan=0.0, posinf=span), 0.0, span)
 
     def ok(bx: np.ndarray, by: np.ndarray, t: np.ndarray) -> np.ndarray:
         px, py = bx + direction[0] * t, by + direction[1] * t

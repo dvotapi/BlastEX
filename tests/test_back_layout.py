@@ -216,6 +216,8 @@ END = {
     "burden_b_m": W,
     "row_azimuth_deg": 90.0,
     "subdrill_m": 1.0,
+    # Явно: умолчание бэкенда меняется отдельным PR (решение владельца 06.11.2026).
+    "min_crest_offset_m": 0.5,
 }
 
 
@@ -270,6 +272,21 @@ def test_last_hole_tilted_toward_face():
         assert 0.8 * W - 1e-6 <= _lsp(c, last) <= ALLOWED + 1e-6
         assert _floor_gap(echelon[-2], last) <= ALLOWED + 1e-6
         assert all(_angle(h) == pytest.approx(0.0, abs=1e-9) for h in echelon[:-1])
+
+
+def test_last_hole_tilt_is_the_least_angle_to_w():
+    """Эшелон из одного узла (y = 1,0, ЛСП 3,68, предыдущей нет — разрыв не
+    ограничивает): угол — наименьший, при котором ЛСП ≈ W, а не наибольший до
+    0,8·W (решение владельца 06.11.2026, как у пары)."""
+    c = rect(40, 3)
+    holes = back_grid(c, _end_params(2.0), c.points_xy)
+    assert holes
+    for echelon in _echelons(holes):
+        assert len(echelon) == 1
+        last = echelon[0]
+        assert last.collar.y == pytest.approx(1.0)
+        assert _angle(last) > 0.0
+        assert _lsp(c, last) == pytest.approx(W, abs=0.01)
 
 
 def test_tilt_breaking_floor_gap_gives_way_to_remainder():

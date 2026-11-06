@@ -56,6 +56,8 @@ def _base() -> dict:
         "burden_b_m": W,
         "row_azimuth_deg": back_azimuth_deg(_contour()),
         "subdrill_m": 1.0,
+        # Явно: умолчание бэкенда меняется отдельным PR (решение владельца 06.11.2026).
+        "min_crest_offset_m": 0.5,
     }
 
 

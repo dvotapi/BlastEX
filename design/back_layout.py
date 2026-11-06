@@ -307,7 +307,8 @@ def back_grid(
        столбца, угол `front_rows_tilt_deg`, при недоборе — до 30°), но не
        больше угла, при котором точка оси на подошве уходит от предыдущей
        скважины эшелона дальше b + 3 % (`floor_row_gap_excess` — анти-цель
-       спецификации); ЛСП вошла в допуск — наклонённая.
+       спецификации), и из допустимых — наименьший, при котором ЛСП ≈ W
+       (`_least_angle_to`); ЛСП вошла в допуск — наклонённая.
     4. Иначе — вертикальная на остатке: на линии эшелона ближе к бровке, ЛСП ≈ W
        (не меньше 0,8·W), устье не ближе отступа к бровке, не ближе
        max(`REMAINDER_MIN_STEP_M`, 0,4·min(a, b)) к последней и ближе b; член основной сетки
@@ -419,6 +420,8 @@ def back_grid(
         prev = echelons[k][-2] if len(echelons[k]) > 1 else None
         angle = _gap_limited_angle(contour, h, prev, angle, azimuth, advance, burden_b, make)
         if angle > 1e-9:
+            angle = _least_angle_to(contour, h, angle, azimuth, w, make)
+        if angle > 1e-9:
             tilted[k] = make(h.collar.x, h.collar.y, h.row, h.col, angle, azimuth)
     fixed = {
         k for k, (lsp, beyond) in zip(tilted, _floor_burdens(contour, list(tilted.values())))
@@ -505,6 +508,27 @@ def _corridor(contour: BlockContour, hole: Hole) -> Point2:
     dx, dy = found[0].toe_point[0] - fx, found[0].toe_point[1] - fy
     norm = math.hypot(dx, dy)
     return (dx / norm, dy / norm) if norm > 1e-9 else (0.0, 0.0)
+
+
+def _least_angle_to(contour: BlockContour, hole: Hole, angle: float, azimuth: float, w: float, make: Any) -> float:
+    """Наименьший угол ≤ `angle`, при котором ЛСП наклонённой `hole` не больше
+    `w` (ЛСП ≈ W; решение владельца 06.11.2026 — как у пары, наклон не больше
+    нужного). ЛСП и при `angle` больше `w` — `angle`."""
+
+    def lsp(value: float) -> float:
+        found, beyond = _floor_burdens(contour, [make(hole.collar.x, hole.collar.y, hole.row, hole.col, value, azimuth)])[0]
+        return math.inf if beyond else found
+
+    if lsp(angle) > w:
+        return angle
+    lo, hi = 0.0, angle  # lsp(lo) > w ≥ lsp(hi)
+    for _ in range(50):
+        mid = 0.5 * (lo + hi)
+        if lsp(mid) <= w:
+            hi = mid
+        else:
+            lo = mid
+    return hi
 
 
 def _gap_limited_angle(

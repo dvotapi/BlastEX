@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import shapely
@@ -143,7 +143,8 @@ class BackColumn:
 
     `nodes` — регулярные узлы от тыла к бровке с шагом b; `rows` — номер ряда
     решётки у каждого узла (один на всю сетку: узлы на одной линии ряда — один
-    номер, первый ряд решётки — 0); `index` — номер столбца решётки по оси ряда.
+    номер; здесь от тыла, ряд у тыла — 0; `back_grid` перенумеровывает от
+    откоса — `_face_rows`); `index` — номер столбца решётки по оси ряда.
     """
 
     index: int
@@ -296,7 +297,7 @@ def back_grid(
     """Основная сетка шаблона «от тыла»: эшелоны `back_columns` и конец каждого у бровки.
 
     Регулярные узлы — скважины вида основной сетки (`default_kind`), `row` —
-    ряд решётки, `col` — столбец; угол и азимут — `angle_deg`/`azimuth_deg`,
+    ряд решётки от откоса (передний — 0, `_face_rows`), `col` — столбец; угол и азимут — `angle_deg`/`azimuth_deg`,
     как у прежней сетки. Устья ближе `min_crest_offset_m` к бровке и низ за
     подошвой убираются. С W (`allowed_floor_burden_m`) — конец эшелона по
     последней регулярной (решение владельца 06.11.2026):
@@ -312,7 +313,7 @@ def back_grid(
     4. Иначе — вертикальная на остатке: на линии эшелона ближе к бровке, ЛСП ≈ W
        (не меньше 0,8·W), устье не ближе отступа к бровке, не ближе
        max(`REMAINDER_MIN_STEP_M`, 0,4·min(a, b)) к последней и ближе b; член основной сетки
-       (ряд — следующий за последней, столбец — её). Вертикальная не
+       (ряд — на один впереди последней, столбец — её). Вертикальная не
        помещается, а наклон не выключен (`front_rows_tilt_deg` > 0) — остаток
        с устьем как можно ближе к бровке (не ближе 1 м к последней) и
        наименьшим наклоном к откосу, при котором у подошвы он впереди
@@ -366,7 +367,7 @@ def back_grid(
     ]
     crest = crest_geometry(contour)
     if crest is None:
-        return [h for echelon in echelons for h in echelon]
+        return _face_rows([h for echelon in echelons for h in echelon])
     min_crest = min_crest_offset_m(params)
 
     def off_crest(holes: list[Hole]) -> list[bool]:
@@ -383,7 +384,7 @@ def back_grid(
     w = design_burden_m(params)
     lower = min_floor_burden_m(params)
     if allowed is None or w is None or lower is None:
-        return [h for echelon in echelons for h in echelon]
+        return _face_rows([h for echelon in echelons for h in echelon])
 
     # 1. С конца — регулярные с ЛСП меньше 0,8·W.
     for echelon in echelons:
@@ -393,7 +394,7 @@ def back_grid(
     lasts = [echelons[k][-1] for k in ends]
     over = [k for k, (lsp, _) in zip(ends, _floor_burdens(contour, lasts)) if lsp > allowed + 1e-9]
     if not over:
-        return [h for echelon in echelons for h in echelon]
+        return _face_rows([h for echelon in echelons for h in echelon])
 
     # 3. Наклон к откосу — пакетом по всем таким эшелонам.
     _, advance = back_frame(contour, row_azimuth)
@@ -464,7 +465,10 @@ def back_grid(
         reach = 1.05 * max(spacing_a, burden_b) + burden_b
         for _ in range(3):
             flat = [h for echelon in echelons for h in echelon]
-            flagged = _gap_excess_ids(contour, params, flat)
+            regular = [h for h in flat if all(h is not extra for extra in remainders.values())]
+            numbered = _face_rows(flat, regular)
+            checked = _gap_excess_ids(contour, params, numbered)
+            flagged = {h.id for h, n in zip(flat, numbered) if n.id in checked}
             if not flagged:
                 break
             by_id = {h.id: h for h in flat}
@@ -485,7 +489,30 @@ def back_grid(
                 if k in tilted:
                     echelons[k][-1] = tilted[k]
                 del remainders[k]
-    return [h for echelon in echelons for h in echelon]
+    flat = [h for echelon in echelons for h in echelon]
+    return _face_rows(flat, [h for h in flat if all(h is not extra for extra in remainders.values())])
+
+
+def _face_rows(holes: list[Hole], regular: list[Hole] | None = None) -> list[Hole]:
+    """Ряды — от откоса, как у всего конвейера (нумерация, тайминг, монтаж,
+    стабилизация, «ряд позади»): передний ряд регулярных узлов (`regular`, по
+    умолчанию все) — 0, к тылу номера растут. Внутри `back_grid` ряды идут от
+    тыла (остаток — `last.row + 1`); остаток впереди ряда 0 получает ряд
+    впереди первого (`FRONT_ROW_BASE − 1`, как у раскладки от бровки). Номера
+    скважин — по новым рядам."""
+    from design.models import FRONT_ROW_BASE
+    from design.pattern import _grid_id
+
+    if not holes:
+        return []
+    top = max(h.row for h in (regular if regular else holes))
+    result = []
+    for h in holes:
+        row = top - h.row
+        if row < 0:
+            row = FRONT_ROW_BASE + row
+        result.append(replace(h, row=row, id=_grid_id(h.kind, row, h.col)))
+    return result
 
 
 def _gap_excess_ids(contour: BlockContour, params: dict[str, Any], holes: list[Hole]) -> set[str]:

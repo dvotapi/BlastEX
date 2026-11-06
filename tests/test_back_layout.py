@@ -4,7 +4,7 @@ import math
 import pytest
 
 from design.back_layout import BACK_SPLIT_TURN_DEG, back_azimuth_deg, back_side
-from design.models import BenchSurface, BlockContour, Point3
+from design.models import BenchSurface, BlockContour, Point3, logical_row
 
 H = 10.0
 
@@ -325,7 +325,7 @@ def test_remainder_tilts_when_vertical_does_not_fit():
         advance = floor_point(last)[1] - floor_point(extra)[1]
         assert advance == pytest.approx(0.4 * W, abs=0.01)
         assert 0.8 * W - 1e-6 <= _lsp(c, extra) <= ALLOWED + 1e-6
-        assert (extra.row, extra.col) == (last.row + 1, last.col)
+        assert (logical_row(extra.row), extra.col) == (logical_row(last.row) - 1, last.col)
     burdens = floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))
     assert all(not v.excess and not v.short for v in burdens.values())
 
@@ -374,7 +374,7 @@ def test_remainder_hole_added_when_tilt_is_not_enough():
         assert 1.0 <= step < W
         assert extra.collar.y >= 0.5
         assert extra.collar.x == pytest.approx(last.collar.x)
-        assert (extra.row, extra.col) == (last.row + 1, last.col)
+        assert (logical_row(extra.row), extra.col) == (logical_row(last.row) - 1, last.col)
         assert extra.kind == "production"
 
 
@@ -405,7 +405,7 @@ def test_last_regular_too_close_is_dropped():
     for echelon in _echelons(holes):
         last, extra = echelon[-2], echelon[-1]
         assert last.collar.y == pytest.approx(3.8)
-        assert extra.row == last.row + 1
+        assert logical_row(extra.row) == logical_row(last.row) - 1
         assert _lsp(c, extra) <= ALLOWED + 1e-6
 
 
@@ -498,3 +498,47 @@ def test_back_mode_passes_validate_rejects():
         design = BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params)
         codes = {w["code"] for w in validate(design)}
         assert not codes & {"floor_beyond_toe", "floor_row_gap_excess", "collar_too_close_to_crest"}, (offset, codes)
+
+
+# --- Ряды от откоса, как у всего конвейера (финальное ревью) ----------------------
+
+
+
+def test_rows_are_numbered_from_the_face():
+    """Ряд 0 — у бровки, к тылу номера растут (как у раскладки от бровки:
+    тайминг, монтаж, стабилизация считают ряд 0 первым у откоса)."""
+    c = rect(40, 30)
+    holes = generate_pattern(c, {**BACK_MODE, "back_offset_m": 1.2})
+    front = min(logical_row(h.row) for h in holes)
+    assert front == 0
+    nearest = min(holes, key=lambda h: h.collar.y)
+    farthest = max(holes, key=lambda h: h.collar.y)
+    assert logical_row(nearest.row) == 0
+    assert logical_row(farthest.row) == max(logical_row(h.row) for h in holes)
+
+
+def test_remainder_is_one_row_ahead_of_the_last():
+    """Остаток — на ряд впереди последней: у последней в ряду 0 — ряд впереди
+    (`FRONT_ROW_BASE − 1`, логический −1)."""
+    c = rect(40, 30)
+    holes = back_grid(c, _end_params(2.5), c.points_xy)
+    for echelon in _echelons(holes):
+        last, extra = echelon[-2], echelon[-1]
+        assert logical_row(extra.row) == logical_row(last.row) - 1
+        assert logical_row(last.row) == 0
+
+
+def test_stab_row_and_row_timing_start_at_the_face():
+    from design.timing import build_template_network, resolve_times
+
+    c = rect(40, 30)
+    params = {**BACK_MODE, "back_offset_m": 1.2, "stab_row": True}
+    holes = generate_pattern(c, params)
+    stab = [h for h in holes if h.kind == "stab"]
+    assert stab and max(h.collar.y for h in stab) < 5.0
+    network = build_template_network(holes, "row", {})
+    times, _ = resolve_times(network, holes)
+    by_id = {h.id: h for h in holes}
+    first = min(times, key=times.get)
+    last = max(times, key=times.get)
+    assert by_id[first].collar.y < by_id[last].collar.y

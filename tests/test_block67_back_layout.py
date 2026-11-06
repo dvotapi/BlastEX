@@ -148,3 +148,29 @@ def test_block66_back_layout_compared_with_crest_layout():
     crest, _ = share({**BLOCK66_PARAMS, "front_rows_mode": "pair"})
     assert not back_codes & REJECT, back_codes
     assert back >= crest
+
+
+def test_block67_back_layout_fires_from_the_crest():
+    """Монтаж «магистраль + цепочки» и стабилизация на шаблоне «от тыла» — от
+    бровки, как у раскладки от бровки: ряд 0 — у откоса (финальное ревью PR 2)."""
+    from design.timing import resolve_times
+    from design.trunk_network import build_trunk_chains_network
+
+    contour = _contour()
+    crest = crest_geometry(contour)
+    params = {**_base(), "layout_anchor": "back", "stab_row": True}
+    holes = generate_pattern(contour, params)
+    network, _ = build_trunk_chains_network(holes, {"main_kind": "production"})
+    times, _ = resolve_times(network, holes)
+    by_id = {h.id: h for h in holes}
+
+    def to_crest(hole_id):
+        hole = by_id[hole_id]
+        return float(shapely.distance(shapely.Point(hole.collar.x, hole.collar.y), crest))
+
+    order = sorted(times, key=times.get)
+    early = statistics.mean(to_crest(k) for k in order[:8])
+    late = statistics.mean(to_crest(k) for k in order[-8:])
+    assert early < late
+    stab = [h for h in holes if h.kind == "stab"]
+    assert stab and statistics.mean(to_crest(h.id) for h in stab) < 6.0

@@ -505,3 +505,23 @@ def test_collar_reach_clips_huge_limit_to_block_size():
     reach = _collar_reach_m([(4.0, 3.0)], (0.0, -1.0), boundary, crest_geometry(CONTOUR), 0.2, [1e9])
     assert time.perf_counter() - started < 1.0
     assert reach == [pytest.approx(2.8, abs=1e-6)]
+
+
+def test_tilted_pair_floor_gap_checked_on_deepening_floor():
+    # Пример Codex: откос 45°, ряд в 1,2 м, подошва углубляется к откосу
+    # (z = −10 + 0,5·y) — без проверки разрыв 4,0 м при пределе 3,605. Наклонная ось уходит
+    # ниже, чем у вертикальной, и точка на подошве — дальше. Разрыв у подошвы
+    # между парой и её вертикальной проверяется по построенной паре: ≤ b + 3 %.
+    from design.spatial.surfaces import SurfaceSet, floor_surface
+
+    contour = _contour_at(45.0)
+    points = [Point3(x=x, y=y, z=-10.0 + 0.5 * y) for x in (-10.0, 20.0, 50.0) for y in (-20.0, 5.0, 40.0)]
+    surfaces = SurfaceSet(floor=floor_surface(points))
+    holes = generate_pattern(contour, BASE | {"offset_from_face_m": 1.2}, [], surfaces)
+    by_id = {h.id: h for h in holes}
+    pairs = _pairs(holes)
+    assert pairs
+    for pair in pairs:
+        vertical = by_id[pair.id[:-1]]
+        (px, py), (vx, vy) = floor_point(pair), floor_point(vertical)
+        assert math.hypot(px - vx, py - vy) <= GAP_MAX + 1e-6, (pair.id, math.hypot(px - vx, py - vy))

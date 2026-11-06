@@ -1254,7 +1254,15 @@ def _face_pairs(
     angles = [0.0] * len(candidates)
 
     def holds(keys: list[int], values: list[float]) -> list[bool]:
-        return _tilt_holds(contour, [tilted(k, a) for k, a in zip(keys, values)], target_m)
+        # ЛСП и низ — `_tilt_holds`; разрыв у подошвы с вертикальной — по
+        # построенной паре: у наклонной подошвы ось уходит ниже оценки по
+        # высоте вертикальной, и точка на подошве — дальше.
+        built = [tilted(k, a) for k, a in zip(keys, values)]
+        gaps = [
+            math.dist(floor_point(hole), floor_point(grid[candidates[k][0]])) <= gap_of[candidates[k][0]] + 1e-9
+            for k, hole in zip(keys, built)
+        ]
+        return [ok and gap for ok, gap in zip(_tilt_holds(contour, built, target_m), gaps)]
 
     if need:
         caps = _tilt_caps_m(

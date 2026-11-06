@@ -293,3 +293,36 @@ def test_wall_row_from_row_params_gets_no_pair_and_keeps_crest_offset(kind):
     # Отступ 4 м больше расстояния ряда до кромки (3 м): стенка остаётся.
     far = generate_pattern(CONTOUR, params | {"min_crest_offset_m": 4.0})
     assert len([h for h in far if h.kind == kind]) == 11
+
+
+def _slanted_contour(deg: float) -> BlockContour:
+    """Откос — ребро (0, 0)–(40, 40·tg deg) к рядам под углом deg; его нормаль наружу — 180° − deg."""
+    verts = [(0.0, 0.0), (40.0, 40.0 * math.tan(math.radians(deg))), (40.0, 30.0), (0.0, 30.0)]
+    return BlockContour(
+        vertices=[Point3(x=x, y=y, z=0.0) for x, y in verts],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=75.0),
+    )
+
+
+def test_pair_tilts_toward_slanted_face_within_limit():
+    # Ряды — азимут 90°, бровка повёрнута на 10°: азимут пары — нормаль к бровке, 170°.
+    holes = generate_pattern(_slanted_contour(10.0), BASE)
+    # Пара на самом фланге (x = 40) смотрит на конец линии подошвы — ей своё направление.
+    pairs = [p for p in _pairs(holes) if p.angle_deg > 1e-6 and p.collar.x < 39.0]
+    assert pairs
+    for pair in pairs:
+        assert pair.azimuth_deg == pytest.approx(170.0, abs=0.5)
+
+
+def test_pair_azimuth_clamped_to_fifteen_degrees_from_column():
+    holes = generate_pattern(_slanted_contour(30.0), BASE)
+    pairs = [p for p in _pairs(holes) if p.angle_deg > 1e-6]
+    assert pairs
+    for pair in pairs:
+        assert pair.azimuth_deg == pytest.approx(165.0, abs=0.5)
+
+
+def test_pair_on_straight_face_keeps_column_azimuth():
+    holes = generate_pattern(CONTOUR, BASE)
+    assert all(p.azimuth_deg == pytest.approx(180.0, abs=1e-6) for p in _pairs(holes))

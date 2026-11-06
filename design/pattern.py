@@ -61,6 +61,9 @@ FRONT_TILT_MIN_FLOOR_BURDEN_M = 1.0
 # Пара у откоса: устье наклонной на столько ближе к уступу, чем у вертикальной
 # первого ряда, по линии столбца, м (решение владельца 22.10.2026).
 FACE_PAIR_OFFSET_M = 1.0
+# Азимут наклонной пары — к ближайшей точке линии подошвы (по нормали к
+# откосу), но не дальше этого от линии столбца (решение владельца 06.11.2026).
+FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG = 15.0
 
 
 def generate_pattern(
@@ -611,11 +614,12 @@ def _tilt_caps_m(
     contour: BlockContour,
     collars: list[tuple[float, float]],
     heights: list[float],
-    direction: tuple[float, float],
+    directions: list[tuple[float, float]],
     tilt_deg: float,
     target_m: float,
 ) -> list[float] | None:
-    """Наибольший вынос точки оси на уровне подошвы вдоль `direction`, м, по скважинам.
+    """Наибольший вынос точки оси на уровне подошвы вдоль своего направления
+    (`directions[i]` — у каждой скважины), м, по скважинам.
 
     Вынос t = H·tg α не больше H·tg `tilt_deg`; точка устье + t·direction не
     ближе `target_m` к линии подошвы (та же линия, что у ЛСП, с правилом
@@ -633,7 +637,7 @@ def _tilt_caps_m(
         return None
     tan_max = math.tan(math.radians(tilt_deg))
     caps: list[float] = []
-    for (x, y), height, position in zip(collars, heights, base):
+    for (x, y), height, position, direction in zip(collars, heights, base, directions):
         room = position.distance_m - target_m
         if height <= 0 or room <= 1e-6 or position.beyond:
             caps.append(0.0)
@@ -645,7 +649,9 @@ def _tilt_caps_m(
         caps.append(min(limit, room / cos) if cos > 1e-9 else limit)
 
     def failing(indices: list[int], shifts: list[float]) -> list[bool]:
-        points = [(collars[i][0] + direction[0] * t, collars[i][1] + direction[1] * t) for i, t in zip(indices, shifts)]
+        points = [
+            (collars[i][0] + directions[i][0] * t, collars[i][1] + directions[i][1] * t) for i, t in zip(indices, shifts)
+        ]
         found = toe_positions(contour, points, [heights[i] for i in indices]) or []
         return [p.beyond or p.distance_m < target_m - 1e-6 for p in found]
 
@@ -740,6 +746,26 @@ def _verified_angles(
     return result
 
 
+def _clamped_direction(base: tuple[float, float], wanted: tuple[float, float], max_deg: float) -> tuple[float, float]:
+    """Единичный `wanted`, повёрнутый к `base` так, чтобы угол между ними был не
+    больше `max_deg`; нулевой `wanted` или смотрящий назад — `base`."""
+    norm = math.hypot(*wanted)
+    if norm < 1e-12:
+        return base
+    wx, wy = wanted[0] / norm, wanted[1] / norm
+    cross = base[0] * wy - base[1] * wx
+    dot = base[0] * wx + base[1] * wy
+    if dot <= 0:
+        return base
+    angle = math.atan2(cross, dot)
+    limit = math.radians(max_deg)
+    if abs(angle) <= limit:
+        return (wx, wy)
+    turn = math.copysign(limit, angle)
+    c, s = math.cos(turn), math.sin(turn)
+    return (base[0] * c - base[1] * s, base[0] * s + base[1] * c)
+
+
 def _face_pairs(
     grid: list[Hole],
     face_row_count: int,
@@ -808,16 +834,25 @@ def _face_pairs(
         [height for _, _, height in candidates],
     ) or []
 
+    # Наклон — к ближайшей точке линии подошвы от устья пары, не дальше
+    # `FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG` от линии столбца.
+    toward = toe_positions(contour, [xy for _, xy, _ in candidates], [h for _, _, h in candidates]) or []
+    directions = [
+        _clamped_direction(direction, (p.toe_point[0] - xy[0], p.toe_point[1] - xy[1]), FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG)
+        for (_, xy, _), p in zip(candidates, toward)
+    ] or [direction] * len(candidates)
+    azimuths = [math.degrees(math.atan2(d[0], d[1])) % 360.0 for d in directions]
+
     def tilted(k: int, angle: float) -> Hole:
         i, (x, y), _ = candidates[k]
-        collar, toe = drape_collar(x, y, angle, azimuth, subdrill_m, contour, surfaces, depth_override)
+        collar, toe = drape_collar(x, y, angle, azimuths[k], subdrill_m, contour, surfaces, depth_override)
         return replace(grid[i], collar=collar, toe=toe)
 
     # Предел угла — по устью пары (на 1 м ближе, своя отметка кровли и своя
     # высота уступа), затем проверка построенной пары (`_verified_angles`).
     own_h = [hole_bench_height_m(tilted(k, 0.0), block_h) for k in range(len(candidates))]
     caps = _tilt_caps_m(
-        contour, [xy for _, xy, _ in candidates], own_h, direction, tilt_deg, target_m
+        contour, [xy for _, xy, _ in candidates], own_h, directions, tilt_deg, target_m
     ) or [0.0] * len(candidates)
     angles = [
         math.degrees(math.atan(cap / h)) if position.distance_m > allowed_m and cap > 1e-12 and h > 0 else 0.0
@@ -828,10 +863,10 @@ def _face_pairs(
     )
 
     result: list[tuple[Hole, Hole]] = []
-    for (i, (x, y), _height), angle in zip(candidates, angles):
+    for k, ((i, (x, y), _height), angle) in enumerate(zip(candidates, angles)):
         hole = grid[i]
         if angle > 1e-9:
-            collar, toe = drape_collar(x, y, angle, azimuth, subdrill_m, contour, surfaces, depth_override)
+            collar, toe = drape_collar(x, y, angle, azimuths[k], subdrill_m, contour, surfaces, depth_override)
         elif surfaces is None:
             # Ось вертикальной на плоском уступе — перенос.
             collar = Point3(x=x, y=y, z=hole.collar.z)
@@ -1092,7 +1127,9 @@ def _taper_front_rows(
     tan_first = [0.0] * len(grid)
     if picked:
         heights = [grid[i].bench_height_m for i in picked]
-        caps = _tilt_caps_m(contour, [tuple(collars[i]) for i in picked], heights, direction, tilt_deg, target_m)
+        caps = _tilt_caps_m(
+            contour, [tuple(collars[i]) for i in picked], heights, [direction] * len(picked), tilt_deg, target_m
+        )
         if caps is not None:
             tan_of = {i: (cap / height if height > 0 else 0.0) for i, cap, height in zip(picked, caps, heights)}
             # Угол участка — наименьший из допустимых по его скважинам и не

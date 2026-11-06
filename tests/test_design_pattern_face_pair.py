@@ -59,7 +59,7 @@ def _design(holes, params=BASE, contour=CONTOUR) -> BlastDesign:
 
 def test_constants():
     assert FACE_PAIR_OFFSET_M == 1.0
-    assert MIN_CREST_OFFSET_DEFAULT_M == 1.0
+    assert MIN_CREST_OFFSET_DEFAULT_M == 0.5
     assert FRONT_ROWS_MODE_PAIR == "pair"
     assert "face_toe" not in PRESERVED_HOLE_KINDS
 
@@ -125,11 +125,14 @@ def test_pair_is_vertical_when_it_fits_w_at_zero_degrees():
 
 
 def test_no_pair_when_collar_too_close_to_crest():
-    # Первый ряд в 1,8 м: устье пары в 0,8 м < 1 м от кромки.
-    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.8})
+    # Первый ряд в 1,4 м: устье пары в 0,4 м < 0,5 м от кромки (умолчание).
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.4})
     assert _pairs(holes) == []
-    # Отступ 0,5 м — пара ставится.
-    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.8, "min_crest_offset_m": 0.5})
+    # Отступ 0,3 м — пара ставится.
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.4, "min_crest_offset_m": 0.3})
+    assert len(_pairs(holes)) == len(_first_row(holes))
+    # Первый ряд в 1,8 м: устье пары в 0,8 м — по умолчанию (0,5 м) пара ставится.
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.8})
     assert len(_pairs(holes)) == len(_first_row(holes))
 
 

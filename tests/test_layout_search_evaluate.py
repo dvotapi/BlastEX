@@ -109,7 +109,7 @@ class EvaluateTests(unittest.TestCase):
         # Выпуклая бровка (мыс): откос — два первых ребра, без ключей отступа и
         # схемы. Отступ первого ряда меряется от средней точки бровки, концы
         # бровки позади — обычные ряды встают к ней вплотную. Перебор отступ
-        # проверяет всегда (1 м), `validate` без ключей — нет.
+        # проверяет всегда (0,5 м), `validate` без ключей — нет.
         contour = _contour_of([(0, 4), (20, 0), (40, 4), (40, 30), (0, 30)], ((0, 1), (1, 2)), 75.0)
         base = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 4.0,
                 "row_azimuth_deg": 90.0, "edge_margin_m": 0.0, "subdrill_m": 1.0}
@@ -120,7 +120,7 @@ class EvaluateTests(unittest.TestCase):
             ev = evaluate(ctx, cand)
             grid = [h for h in ev.holes if h.enabled]
             nearest = float(shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in grid]), crest).min())
-            too_close = nearest < 1.0 - 1e-6
+            too_close = nearest < 0.5 - 1e-6
             self.assertEqual("collar_too_close_to_crest" in ev.reject_codes, too_close, cand.params)
             if not too_close:
                 continue

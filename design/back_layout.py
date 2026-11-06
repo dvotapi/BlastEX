@@ -40,6 +40,10 @@ BACK_SPLIT_TURN_DEG = 45.0
 # 0,65·b, допустимый диапазон 0,5–0,8·b (решение владельца 06.11.2026).
 BACK_OFFSET_DEFAULT_RATIO = 0.65
 BACK_OFFSET_RANGE = (0.5, 0.8)
+# Точность делений пополам, где каждый шаг — запрос к линии подошвы: шаг
+# остатка, м, и угол наклона, °. Перебор (PR 3) зовёт генератор сотни раз.
+BISECT_TOLERANCE_M = 1e-4
+BISECT_TOLERANCE_DEG = 1e-3
 # Скважина на остатке — не ближе этого к последней регулярной своего эшелона
 # (станок), м; и не ближе порога «впереди» у ЛСП (`toe_line.shadow_limits`:
 # 0,4·min(a, b)) — иначе проверка ЛСП не считает последнюю закрытой.
@@ -387,9 +391,14 @@ def back_grid(
         return _face_rows([h for echelon in echelons for h in echelon])
 
     # 1. С конца — регулярные с ЛСП меньше 0,8·W.
-    for echelon in echelons:
-        while echelon and _floor_burdens(contour, [echelon[-1]])[0][0] < lower - 1e-9:
-            echelon.pop()
+    # Пакетом: ЛСП всех последних за один запрос, повтор — только где убрали.
+    todo = [k for k, echelon in enumerate(echelons) if echelon]
+    while todo:
+        values = _floor_burdens(contour, [echelons[k][-1] for k in todo])
+        short = [k for k, (lsp, _) in zip(todo, values) if lsp < lower - 1e-9]
+        for k in short:
+            echelons[k].pop()
+        todo = [k for k in short if echelons[k]]
     ends = [k for k, echelon in enumerate(echelons) if echelon]
     lasts = [echelons[k][-1] for k in ends]
     over = [k for k, (lsp, _) in zip(ends, _floor_burdens(contour, lasts)) if lsp > allowed + 1e-9]
@@ -414,12 +423,15 @@ def back_grid(
         depth_override,
     )
     gap_limit = burden_b * (1.0 + TOE_BURDEN_TOLERANCE)
+    # Коридоры ЛСП последних и предыдущих — двумя запросами на все эшелоны.
+    prevs = [echelons[k][-2] if len(echelons[k]) > 1 else None for k in over]
+    prev_corridors = _corridors(contour, prevs)
+    last_corridors = dict(zip(over, _corridors(contour, over_holes)))
     tilted: dict[int, Hole] = {}
-    for k, h, (angle, azimuth) in zip(over, over_holes, tilts):
+    for k, h, (angle, azimuth), prev, prev_corridor in zip(over, over_holes, tilts, prevs, prev_corridors):
         if angle <= 1e-9:
             continue
-        prev = echelons[k][-2] if len(echelons[k]) > 1 else None
-        angle = _gap_limited_angle(contour, h, prev, angle, azimuth, advance, burden_b, make)
+        angle = _gap_limited_angle(contour, h, prev, prev_corridor, angle, azimuth, advance, burden_b, make)
         if angle > 1e-9:
             angle = _least_angle_to(contour, h, angle, azimuth, w, make)
         if angle > 1e-9:
@@ -437,7 +449,7 @@ def back_grid(
         # «Впереди» у ЛСП — по пути от точки последней на подошве к ближайшей
         # точке линии подошвы (`toe_line.corridor_blockers`), а не по столбцу.
         shadow = shadow_limits(spacing_a, burden_b)[0]
-        corridor = _corridor(contour, last)
+        corridor = last_corridors[k]
         along = advance[0] * corridor[0] + advance[1] * corridor[1]
         if along < 0.1:
             extra = None
@@ -525,16 +537,21 @@ def _gap_excess_ids(contour: BlockContour, params: dict[str, Any], holes: list[H
     return {hole_id for hole_id, gap in gaps.items() if gap.excess}
 
 
-def _corridor(contour: BlockContour, hole: Hole) -> Point2:
-    """Единичное направление от точки оси `hole` на подошве к ближайшей точке
-    линии подошвы (коридор ЛСП); (0, 0) — линии нет или точка на ней."""
-    fx, fy = floor_point(hole)
-    found = toe_positions(contour, [(fx, fy)], [hole_bench_height_m(hole, contour.bench.height_m)])
-    if not found:
-        return (0.0, 0.0)
-    dx, dy = found[0].toe_point[0] - fx, found[0].toe_point[1] - fy
-    norm = math.hypot(dx, dy)
-    return (dx / norm, dy / norm) if norm > 1e-9 else (0.0, 0.0)
+def _corridors(contour: BlockContour, holes: list[Hole | None]) -> list[Point2]:
+    """Единичное направление от точки оси на подошве к ближайшей точке линии
+    подошвы (коридор ЛСП) у каждой скважины — одним запросом; (0, 0) — линии
+    нет, точка на ней или скважины нет (None)."""
+    present = [h for h in holes if h is not None]
+    if not present:
+        return [(0.0, 0.0)] * len(holes)
+    floors = [floor_point(h) for h in present]
+    found = toe_positions(contour, floors, [hole_bench_height_m(h, contour.bench.height_m) for h in present]) or []
+    by_id: dict[int, Point2] = {}
+    for h, (fx, fy), position in zip(present, floors, found):
+        dx, dy = position.toe_point[0] - fx, position.toe_point[1] - fy
+        norm = math.hypot(dx, dy)
+        by_id[id(h)] = (dx / norm, dy / norm) if norm > 1e-9 else (0.0, 0.0)
+    return [by_id.get(id(h), (0.0, 0.0)) if h is not None else (0.0, 0.0) for h in holes]
 
 
 def _least_angle_to(contour: BlockContour, hole: Hole, angle: float, azimuth: float, w: float, make: Any) -> float:
@@ -549,7 +566,7 @@ def _least_angle_to(contour: BlockContour, hole: Hole, angle: float, azimuth: fl
     if lsp(angle) > w:
         return angle
     lo, hi = 0.0, angle  # lsp(lo) > w ≥ lsp(hi)
-    for _ in range(50):
+    while hi - lo > BISECT_TOLERANCE_DEG:
         mid = 0.5 * (lo + hi)
         if lsp(mid) <= w:
             hi = mid
@@ -562,6 +579,7 @@ def _gap_limited_angle(
     contour: BlockContour,
     hole: Hole,
     prev: Hole | None,
+    corridor: Point2,
     angle: float,
     azimuth: float,
     advance: Point2,
@@ -571,12 +589,11 @@ def _gap_limited_angle(
     """Наибольший угол ≤ `angle`, при котором наклонённая `hole` не даёт у
     предыдущей скважины эшелона `prev` разрыва у подошвы (`floor_row_gap_excess`,
     анти-цель спецификации). Как у проверки (`toe_line._row_gaps`): продвижение
-    точки `hole` на подошве от точки `prev` по коридору `prev` к подошве — не
+    точки `hole` на подошве от точки `prev` по коридору `prev` к подошве (`corridor`) — не
     больше (1 + 3 %) решёточного шага b, спроецированного на этот коридор; и
     расстояние между точками на подошве — не больше b + 3 %. Без предыдущей — `angle`."""
     if prev is None:
         return angle
-    corridor = _corridor(contour, prev)
     expected = burden_b * (advance[0] * corridor[0] + advance[1] * corridor[1])
     limit_along = expected * (1.0 + TOE_BURDEN_TOLERANCE) - 1e-6
     limit_gap = burden_b * (1.0 + TOE_BURDEN_TOLERANCE) - 1e-6
@@ -637,7 +654,10 @@ def _remainder(
         return -1.0 if beyond else value
 
     low = min_step
-    if low >= burden_b or not placeable(low) or lsp(low) < lower - 1e-9:
+    if low >= burden_b or not placeable(low):
+        return None
+    low_lsp = lsp(low)
+    if low_lsp < lower - 1e-9:
         return None
     # Наибольший допустимый шаг: устье в контуре и не ближе отступа к бровке.
     high = burden_b - 1e-6
@@ -653,20 +673,16 @@ def _remainder(
     if lsp(high) >= w:
         return at(high)
     lo, hi = low, high  # lsp(lo) ≥ W > lsp(hi)
-    if lsp(lo) < w:
+    if low_lsp < w:
         return at(lo)
-    for _ in range(50):
+    # Точность шага — `BISECT_TOLERANCE_M`: каждое деление — запрос к линии подошвы.
+    while hi - lo > BISECT_TOLERANCE_M:
         mid = 0.5 * (lo + hi)
         if lsp(mid) >= w:
             lo = mid
         else:
             hi = mid
-    t = lo if lsp(lo) >= lower - 1e-9 else hi
-    return at(t)
-
-
-# Шаг перебора угла наклонного остатка, °.
-TILTED_REMAINDER_STEP_DEG = 0.25
+    return at(lo)
 
 
 def _tilted_remainder(
@@ -689,7 +705,7 @@ def _tilted_remainder(
     Устье — на линии эшелона на наибольшем шаге t ∈ [`REMAINDER_MIN_STEP_M`, b),
     при котором оно внутри `boundary` и не ближе `min_crest` к бровке. Азимут —
     к ближайшей точке линии подошвы, не дальше 15° от столбца (как у пары).
-    Угол — наименьший до 30° (шаг `TILTED_REMAINDER_STEP_DEG`), при котором
+    Угол — наименьший до 30° (деления пополам), при котором
     точка на подошве впереди точки `last` по коридору ЛСП `corridor` не меньше `shadow`, не
     дальше `gap_limit`, ЛСП в [`lower`; `allowed`] и низ не за подошвой.
     """
@@ -728,35 +744,60 @@ def _tilted_remainder(
         FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG,
     )
     azimuth = math.degrees(math.atan2(direction[0], direction[1])) % 360.0
+
     def ahead_of(angle: float) -> tuple[Hole, float, float]:
         hole = make(x, y, last.row + 1, last.col, angle, azimuth)
         fx, fy = floor_point(hole)
         ahead = (fx - base_floor[0]) * corridor[0] + (fy - base_floor[1]) * corridor[1]
         return hole, ahead, math.hypot(fx - base_floor[0], fy - base_floor[1])
 
-    steps = int(round(FRONT_ROWS_TILT_MAX_DEG / TILTED_REMAINDER_STEP_DEG))
-    previous = 0.0
-    for k in range(steps + 1):
-        angle = k * TILTED_REMAINDER_STEP_DEG
-        hole, ahead, gap = ahead_of(angle)
-        if ahead < shadow - 1e-9:
-            previous = angle
-            continue
-        if k > 0 and ahead_of(previous)[1] < shadow - 1e-9:
-            # Наименьший угол, при котором остаток впереди на `shadow`: деление пополам.
-            lo, hi = previous, angle
-            for _ in range(40):
-                mid = 0.5 * (lo + hi)
-                if ahead_of(mid)[1] >= shadow:
-                    hi = mid
-                else:
-                    lo = mid
-            hole, ahead, gap = ahead_of(hi)
-        if gap > gap_limit + 1e-9:
+    def lsp(angle: float) -> float:
+        found, beyond = _floor_burdens(contour, [ahead_of(angle)[0]])[0]
+        return -1.0 if beyond else found
+
+    def bisect(lo: float, hi: float, ok: Any, tolerance: float) -> float:
+        """Наименьший угол в (lo, hi], при котором `ok` (ok(lo) — нет, ok(hi) — да)."""
+        while hi - lo > tolerance:
+            mid = 0.5 * (lo + hi)
+            if ok(mid):
+                hi = mid
+            else:
+                lo = mid
+        return hi
+
+    top = FRONT_ROWS_TILT_MAX_DEG
+    # Наименьший угол, при котором остаток у подошвы впереди на `shadow`
+    # (продвижение растёт с углом; без запросов к линии подошвы).
+    if ahead_of(0.0)[1] >= shadow:
+        least = 0.0
+    elif ahead_of(top)[1] < shadow:
+        return None
+    else:
+        least = bisect(0.0, top, lambda a: ahead_of(a)[1] >= shadow, BISECT_TOLERANCE_DEG * 1e-2)
+    # Наибольший угол, при котором разрыв у подошвы до последней ≤ b + 3 %.
+    if ahead_of(least)[2] > gap_limit + 1e-9:
+        return None
+    most = top
+    if ahead_of(top)[2] > gap_limit + 1e-9:
+        lo, hi = least, top  # разрыв при lo в допуске, при hi — нет
+        while hi - lo > BISECT_TOLERANCE_DEG * 1e-2:
+            mid = 0.5 * (lo + hi)
+            if ahead_of(mid)[2] <= gap_limit:
+                lo = mid
+            else:
+                hi = mid
+        most = lo
+    first = lsp(least)
+    if first < lower - 1e-9:
+        return None
+    if first > allowed + 1e-9:
+        # Наименьший угол до ЛСП ≤ W + 3 %: ЛСП убывает с углом; не хватает и при
+        # наибольшем — места нет.
+        if lsp(most) > allowed + 1e-9:
             return None
-        lsp, beyond = _floor_burdens(contour, [hole])[0]
-        if beyond or lsp < lower - 1e-9:
-            return None
-        if lsp <= allowed + 1e-9:
-            return hole
-    return None
+        least = bisect(least, most, lambda a: 0.0 <= lsp(a) <= allowed, BISECT_TOLERANCE_DEG)
+    hole, _, gap = ahead_of(least)
+    value, beyond = _floor_burdens(contour, [hole])[0]
+    if beyond or not lower - 1e-9 <= value <= allowed + 1e-9 or gap > gap_limit + 1e-9:
+        return None
+    return hole

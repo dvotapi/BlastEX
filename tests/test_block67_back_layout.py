@@ -174,3 +174,24 @@ def test_block67_back_layout_fires_from_the_crest():
     assert early < late
     stab = [h for h in holes if h.kind == "stab"]
     assert stab and statistics.mean(to_crest(h.id) for h in stab) < 6.0
+
+
+def test_block67_back_layout_toe_queries_are_bounded(monkeypatch):
+    """Перебор (PR 3) зовёт генератор сотни раз: ЛСП считается пакетами, а
+    деления пополам останавливаются по точности — не больше 150 запросов к
+    линии подошвы на генерацию блока 67 (было 330)."""
+    import design.back_layout as back_layout
+    import design.pattern as pattern
+    import design.toe_line as toe_line
+
+    calls = []
+    original = toe_line.toe_positions
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    for module in (toe_line, back_layout, pattern):
+        monkeypatch.setattr(module, "toe_positions", counted)
+    generate_pattern(_contour(), {**_base(), "layout_anchor": "back"})
+    assert len(calls) <= 150, len(calls)

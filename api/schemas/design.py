@@ -982,6 +982,24 @@ class PatternGenerateRequest(BaseModel):
     domains: list[BlastDomainSchema] = Field(default_factory=list)
 
 
+class BackAzimuthRequest(BaseModel):
+    """Контур блока для азимута тыла (шаблон «от тыла»)."""
+
+    contour: BlockContourSchema
+
+    @model_validator(mode="after")
+    def _enough_vertices(self) -> BackAzimuthRequest:
+        if len(self.contour.vertices) < 3:
+            raise ValueError("Контур блока должен содержать не менее трёх точек.")
+        return self
+
+
+class BackAzimuthResponse(BaseModel):
+    """Азимут хорды тыла в [0, 180), °; null — у контура нет несвободной стороны."""
+
+    azimuth_deg: float | None = None
+
+
 class PatternGenerateResponse(BaseModel):
     holes: list[HoleSchema]
     hole_count: int

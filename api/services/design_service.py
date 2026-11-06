@@ -53,6 +53,8 @@ from api.schemas.design import (
     HoleRecomputeRequest,
     HoleRecomputeResponse,
     MicSchema,
+    BackAzimuthRequest,
+    BackAzimuthResponse,
     PatternGenerateRequest,
     PatternGenerateResponse,
     SummarySchema,
@@ -140,6 +142,14 @@ def _surfaces_from_request(payload) -> SurfaceSet | None:
     if payload is None:
         return None
     return SurfaceSet.from_dict(payload.model_dump())
+
+
+def back_azimuth(request: BackAzimuthRequest) -> BackAzimuthResponse:
+    """Азимут тыла — наиболее длинной несвободной стороны контура (`design/back_layout.py`)."""
+    from design.back_layout import back_azimuth_deg
+
+    contour = BlockContour.from_dict(request.contour.model_dump())
+    return BackAzimuthResponse(azimuth_deg=back_azimuth_deg(contour))
 
 
 def generate_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse:

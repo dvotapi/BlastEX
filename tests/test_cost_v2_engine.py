@@ -192,6 +192,32 @@ def test_subcontract_drilling_does_not_consume_own_rig_capacity() -> None:
     assert rig["demand"] == 0
 
 
+def test_resource_norm_from_the_reference_schema_drives_demand() -> None:
+    """Норма справочника лежит в `norm_per_unit`: спрос = драйвер × норма, а не ноль."""
+
+    norm = ReferenceItem(
+        "NORM_RIG",
+        "Часы станка на метр",
+        {"operation_code": "PRODUCTION_DRILLING", "resource_code": "DRILL_RIG_HOUR", "norm_per_unit": "0.2", "driver": "drilling_m"},
+    )
+    line = _line("DRILLING", physical={"drilling_m": 100, "base_drilling_productivity_m_h": 10})
+    result = calculate_scenario(_scenario(candidate=[line]), _references(extra_sections={"resource_norms": (norm,)}))["after"]
+    rig = next(row for row in result["resource_utilization"] if row["resource_code"] == "DRILL_RIG_HOUR")
+    assert rig["demand"] == 20
+
+
+def test_resource_norm_with_the_old_field_name_still_counts() -> None:
+    norm = ReferenceItem(
+        "NORM_RIG",
+        "Часы станка на метр",
+        {"operation_code": "PRODUCTION_DRILLING", "resource_code": "DRILL_RIG_HOUR", "amount_per_unit": "0.3", "driver": "drilling_m"},
+    )
+    line = _line("DRILLING", physical={"drilling_m": 100, "base_drilling_productivity_m_h": 10})
+    result = calculate_scenario(_scenario(candidate=[line]), _references(extra_sections={"resource_norms": (norm,)}))["after"]
+    rig = next(row for row in result["resource_utilization"] if row["resource_code"] == "DRILL_RIG_HOUR")
+    assert rig["demand"] == 30
+
+
 def test_internal_warehouse_transfer_has_no_revenue() -> None:
     line = _line(
         "VM_WAREHOUSE_TRANSFER",

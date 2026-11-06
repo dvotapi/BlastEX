@@ -499,7 +499,11 @@ def _add_operation_resources(
             continue
         driver_code = str(norm.payload.get("driver", operation.driver))
         driver = drivers.get(driver_code, operation_quantity)
-        rate = decimal_value(norm.payload.get("amount_per_unit"))
+        # Справочник хранит норму в `norm_per_unit` (схема ResourceNormPayload);
+        # `amount_per_unit` — прежнее имя движка, читается для старых записей.
+        # Без этого норма из интерфейса давала нулевой спрос и вдобавок
+        # отключала прямой учёт ресурса операции ниже.
+        rate = decimal_value(norm.payload.get("norm_per_unit", norm.payload.get("amount_per_unit")))
         portfolio.resource_demands[(month, resource_code, line.id)] += driver * rate
     if operation.resource_code in _DIRECT_RESOURCE_CODES and not any(
         str(norm.payload.get("resource_code", "")) == operation.resource_code for norm in matched

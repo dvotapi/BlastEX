@@ -161,11 +161,11 @@ def test_pair_is_vertical_when_it_fits_w_at_zero_degrees():
 
 
 def test_no_pair_when_collar_too_close_to_crest():
-    # Первый ряд в 1,1 м: устье пары в 0,1 м < 0,2 м от кромки (умолчание).
-    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.1})
+    # Первый ряд в 1,15 м: устье пары в 0,15 м < 0,2 м от кромки (умолчание).
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.15})
     assert _pairs(holes) == []
-    # Отступ 0,05 м — пара ставится.
-    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.1, "min_crest_offset_m": 0.05})
+    # Отступ 0,05 м — пара ставится (ЛСП 2,83 ≥ 0,8·W).
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.15, "min_crest_offset_m": 0.05})
     assert len(_pairs(holes)) == len(_first_row(holes))
     # Первый ряд в 1,4 м: устье пары в 0,4 м — по умолчанию (0,2 м) пара ставится.
     holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 1.4})
@@ -407,3 +407,29 @@ def test_smallest_angle_falls_back_to_ceiling_when_it_breaks_lower_bound(monkeyp
     ceiling = math.degrees(math.atan(min(1.2 - 1.0 + STEEP_SLOPE_M - 2.8, GAP_MAX - 1.0) / H))
     assert _pairs(holes)
     assert all(p.angle_deg == pytest.approx(ceiling, abs=0.05) for p in _pairs(holes))
+
+
+def _contour_at(face_angle_deg: float) -> BlockContour:
+    verts = [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)]
+    return BlockContour(
+        vertices=[Point3(x=x, y=y, z=0.0) for x, y in verts],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=face_angle_deg),
+    )
+
+
+def test_no_pair_when_minimum_shift_undershoots_lower_bound():
+    # Откос 85° (в плане 0,875 м), вертикальная в 2,83 м: ЛСП 3,705 > 3,605.
+    # Пара на 1 м ближе дала бы 2,705 < 0,8·W = 2,8 — её не ставим.
+    holes = generate_pattern(_contour_at(85.0), BASE | {"offset_from_face_m": 2.83})
+    assert _first_row(holes)
+    assert _pairs(holes) == []
+
+
+def test_floor_gap_limit_uses_row_own_burden():
+    # Переменная сетка: у первого ряда b = 3,0 — сдвиг пары не больше 3,09 м, а не 3,605.
+    params = BASE | {"pattern": "variable", "offset_from_face_m": 4.5, "row_params": [{"burden_b_m": 3.0}, {}]}
+    holes = generate_pattern(CONTOUR, params)
+    pairs = _pairs(holes)
+    assert pairs
+    assert all(p.collar.y == pytest.approx(4.5 - 3.0 * 1.03, abs=1e-3) for p in pairs)

@@ -208,15 +208,23 @@ export function PatternPanel({
               </select>
             </label>
           )}
-          {frontScheme !== "vertical" && (
+          {frontScheme === "pair" && (
             <label
-              title={
-                frontScheme === "pair"
-                  ? "Устье пары сначала сдвигается к кромке; наклон — только если и у кромки ЛСП больше W: наименьший угол до ЛСП ≈ W, не больше 30°. 0 — без наклона."
-                  : "Наибольший наклон от вертикали в сторону откоса, от 0 до 30°."
-              }
+              className="checkbox-row"
+              title="Устье пары сначала сдвигается к кромке; наклон — только если и у кромки ЛСП больше W: наименьший угол до ЛСП ≈ W, не больше 30°."
             >
-              {frontScheme === "pair" ? "Наклон пары, ° от вертикали" : "Наибольший наклон, ° от вертикали"}
+              <input
+                type="checkbox"
+                checked={(params.front_rows_tilt_deg ?? 15) > 0}
+                // Снят — 0 (без наклона), поставлен — ключ убираем (умолчание сервера).
+                onChange={(e) => onChange({ front_rows_tilt_deg: e.target.checked ? undefined : 0 })}
+              />
+              Разрешить наклон пары
+            </label>
+          )}
+          {frontScheme === "taper" && (
+            <label title="Наибольший наклон от вертикали в сторону откоса, от 0 до 30°.">
+              Наибольший наклон, ° от вертикали
               <input
                 type="number"
                 min="0"

@@ -406,6 +406,7 @@ def generate_pattern(
             subdrill_m,
             surfaces,
             depth_override,
+            row_burden=lambda hole: row_steps_m(params, pattern, max(logical_row(hole.row), 0), spacing_a, burden_b)[1],
         ):
             pair_of[id(pair)] = id(partner)
             holes.append(pair)
@@ -831,28 +832,32 @@ def _collar_reach_m(
     boundary: list[tuple[float, float]],
     crest,
     min_crest_m: float,
-    limit_m: float,
+    limits_m: list[float],
 ) -> list[float]:
-    """Наибольший сдвиг устья вдоль `direction` в [0, `limit_m`]: внутри
-    контура и не ближе `min_crest_m` к кромке (деление пополам)."""
+    """Наибольший сдвиг устья вдоль `direction` в [0, `limits_m[k]`]: внутри
+    контура и не ближе `min_crest_m` к кромке (деление пополам пакетом)."""
+    if not starts:
+        return []
+    # Допуск 1 мкм: узел на самом краю контура (x = −1e-16) — внутри, как у `point_in_polygon`.
+    polygon = shapely.Polygon(boundary).buffer(1e-6)
+    xs = np.asarray([p[0] for p in starts], dtype=float)
+    ys = np.asarray([p[1] for p in starts], dtype=float)
+    limits = np.asarray(limits_m, dtype=float)
 
-    def ok(x: float, y: float) -> bool:
-        return point_in_polygon((x, y), boundary) and shapely.distance(shapely.Point(x, y), crest) >= min_crest_m - 1e-9
+    def ok(t: np.ndarray) -> np.ndarray:
+        px, py = xs + direction[0] * t, ys + direction[1] * t
+        inside = shapely.intersects_xy(polygon, px, py)
+        return inside & (shapely.distance(shapely.points(px, py), crest) >= min_crest_m - 1e-9)
 
-    reach: list[float] = []
-    for x, y in starts:
-        if ok(x + direction[0] * limit_m, y + direction[1] * limit_m):
-            reach.append(limit_m)
-            continue
-        low, high = 0.0, limit_m
-        for _ in range(40):
-            mid = 0.5 * (low + high)
-            if ok(x + direction[0] * mid, y + direction[1] * mid):
-                low = mid
-            else:
-                high = mid
-        reach.append(low)
-    return reach
+    full = ok(limits)
+    low = np.zeros_like(limits)
+    high = limits.copy()
+    for _ in range(40):
+        mid = 0.5 * (low + high)
+        good = ok(mid)
+        low = np.where(good, mid, low)
+        high = np.where(good, high, mid)
+    return [float(limit) if whole else float(lo) for limit, whole, lo in zip(limits, full, low)]
 
 
 def _face_pairs(
@@ -870,8 +875,12 @@ def _face_pairs(
     subdrill_m: float,
     surfaces: object | None,
     depth_override: float | None,
+    row_burden: Callable[[Hole], float] | None = None,
 ) -> list[tuple[Hole, Hole]]:
     """Пара у откоса: (вертикальная, наклонная у откоса) для скважин ранга 1.
+
+    `row_burden(hole)` — шаг b ряда скважины (у переменной сетки свой у ряда);
+    без него — `burden_b`. От него — предел разрыва у подошвы b + 3 %.
 
     Пара ставится к скважине основной сетки (`grid` — только она;
     `_front_rows_member`) ранга 1
@@ -910,9 +919,14 @@ def _face_pairs(
     # пары ≤ W; не хватает — наибольший, и дальше наклон (решение владельца
     # 06.11.2026: ближе к кромке вместо наклона).
     goal_m = allowed_m / (1.0 + TOE_BURDEN_TOLERANCE)
-    gap_max = burden_b * (1.0 + TOE_BURDEN_TOLERANCE)
     over = [(i, h) for i, h, p in zip(picked, heights, own) if not p.beyond and p.distance_m > allowed_m]
-    reach = _collar_reach_m([collars[i] for i, _ in over], direction, boundary, crest, min_crest_m, gap_max)
+    gap_of = {
+        i: (row_burden(grid[i]) if row_burden is not None else burden_b) * (1.0 + TOE_BURDEN_TOLERANCE)
+        for i, _ in over
+    }
+    reach = _collar_reach_m(
+        [collars[i] for i, _ in over], direction, boundary, crest, min_crest_m, [gap_of[i] for i, _ in over]
+    )
     pending = [(i, h, r) for (i, h), r in zip(over, reach) if r >= FACE_PAIR_OFFSET_M - 1e-9]
     if not pending:
         return []
@@ -926,9 +940,16 @@ def _face_pairs(
         found = toe_positions(contour, points, [h for _, h in items]) or []
         return [p.distance_m for p in found] if found else [0.0] * len(items)
 
+    # Пара не ближе 1 м к вертикальной: если уже при этом сдвиге ЛСП меньше
+    # нижней границы `target_m`, пара перегрузила бы откос — её нет.
+    at_start = vertical_lsp([(i, h) for i, h, _ in pending], [FACE_PAIR_OFFSET_M] * len(pending))
+    kept = [k for k, value in enumerate(at_start) if value >= target_m - 1e-9]
+    pending = [pending[k] for k in kept]
+    at_start = [at_start[k] for k in kept]
+    if not pending:
+        return []
     shifts = [FACE_PAIR_OFFSET_M] * len(pending)
     at_reach = vertical_lsp([(i, h) for i, h, _ in pending], [r for _, _, r in pending])
-    at_start = vertical_lsp([(i, h) for i, h, _ in pending], shifts)
     low = {k: FACE_PAIR_OFFSET_M for k in range(len(pending))}
     high = {}
     for k, ((_, _, r), first, last) in enumerate(zip(pending, at_start, at_reach)):
@@ -991,7 +1012,7 @@ def _face_pairs(
         ceiling_list = []
         for k, cap in zip(need, caps):
             along = directions[k][0] * direction[0] + directions[k][1] * direction[1]
-            room = (gap_max - shifts[k]) / along if along > 1e-9 else 0.0
+            room = (gap_of[candidates[k][0]] - shifts[k]) / along if along > 1e-9 else 0.0
             reach_t = max(0.0, min(cap, room))
             ceiling_list.append(math.degrees(math.atan(reach_t / own_h[k])) if reach_t > 1e-12 and own_h[k] > 0 else 0.0)
         ceiling_list = _verified_angles(ceiling_list, lambda ks, vs: holds([need[i] for i in ks], vs))

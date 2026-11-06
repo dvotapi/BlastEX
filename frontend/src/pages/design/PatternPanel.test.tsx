@@ -15,7 +15,7 @@ function mount(params: PatternParams = DEFAULT_PATTERN_PARAMS) {
 }
 
 const SCHEME = "Первый ряд у откоса";
-const TILT = "Наклон пары, ° от вертикали";
+const TILT = "Разрешить наклон пары";
 const TAPER_TILT = "Наибольший наклон, ° от вертикали";
 const RECT: PatternParams = { ...DEFAULT_PATTERN_PARAMS, pattern: "rectangular" };
 const STAGGERED_HINT = /не применяется к шахматной сетке/;
@@ -59,9 +59,9 @@ describe("PatternPanel: первый ряд у откоса", () => {
     expect((screen.getByLabelText("Рядов перехода") as HTMLSelectElement).value).toBe("2");
   });
 
-  it("угол по умолчанию 15, ввод 40 пишется как 30", () => {
-    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
-    const field = screen.getByLabelText(TILT) as HTMLInputElement;
+  it("угол перехода по умолчанию 15, ввод 40 пишется как 30", () => {
+    const onChange = mount({ ...RECT, front_rows_mode: "taper", front_rows_tilt_count: 1 });
+    const field = screen.getByLabelText(TAPER_TILT) as HTMLInputElement;
     expect(field.value).toBe("");
     expect(field.placeholder).toBe("15");
     fireEvent.change(field, { target: { value: "40" } });
@@ -69,8 +69,8 @@ describe("PatternPanel: первый ряд у откоса", () => {
   });
 
   it("пустой наклон убирает ключ, а не пишет 0", () => {
-    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair", front_rows_tilt_deg: 20 });
-    fireEvent.change(screen.getByLabelText(TILT), { target: { value: "" } });
+    const onChange = mount({ ...RECT, front_rows_mode: "taper", front_rows_tilt_count: 1, front_rows_tilt_deg: 20 });
+    fireEvent.change(screen.getByLabelText(TAPER_TILT), { target: { value: "" } });
     const [patch] = onChange.mock.calls[0];
     expect("front_rows_tilt_deg" in patch).toBe(true);
     expect(patch.front_rows_tilt_deg).toBeUndefined();
@@ -153,12 +153,23 @@ describe("PatternPanel: шаг b у квадратной сетки", () => {
     expect(b.disabled).toBe(false);
     expect(b.value).toBe("3.7");
   });
-  it("у пары: подсказка — сначала к кромке, наименьший угол до 30°, 0 — без наклона", () => {
-    mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
-    const label = screen.getByLabelText(TILT).closest("label") as HTMLLabelElement;
-    expect(label.title).toContain("к кромке");
-    expect(label.title).toContain("не больше 30°");
-    expect(label.title).toContain("0 — без наклона");
+  it("у пары — флажок «Разрешить наклон пары»: снят пишет 0, поставлен убирает ключ", () => {
+    const onChange = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
+    const box = screen.getByLabelText(TILT) as HTMLInputElement;
+    expect(box.type).toBe("checkbox");
+    expect(box.checked).toBe(true);
+    expect((box.closest("label") as HTMLLabelElement).title).toContain("к кромке");
+    expect(screen.queryByLabelText(TAPER_TILT)).toBeNull();
+    fireEvent.click(box);
+    expect(onChange).toHaveBeenCalledWith({ front_rows_tilt_deg: 0 });
+    cleanup();
+    const onChange2 = mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair", front_rows_tilt_deg: 0 });
+    const off = screen.getByLabelText(TILT) as HTMLInputElement;
+    expect(off.checked).toBe(false);
+    fireEvent.click(off);
+    const [patch] = onChange2.mock.calls[0];
+    expect("front_rows_tilt_deg" in patch).toBe(true);
+    expect(patch.front_rows_tilt_deg).toBeUndefined();
   });
 
   it("у плавного перехода наклон по-прежнему наибольший", () => {

@@ -70,8 +70,9 @@ class SpaceTests(unittest.TestCase):
     def test_stage2_variants_per_seed(self):
         seed = stage1(RECT, _contour([[0, 1]]))[0]
         out = stage2([seed], RECT)
-        self.assertEqual(len(out), 9)
-        self.assertEqual(sum(c.params.get("front_rows_mode") == "pair" for c in out), 4)
+        # Пара одна: угол генератор подбирает сам (наименьший до ЛСП ≈ W).
+        self.assertEqual(len(out), 6)
+        self.assertEqual(sum(c.params.get("front_rows_mode") == "pair" for c in out), 1)
         self.assertEqual(sum(c.params.get("front_rows_mode") == "taper" for c in out), 4)
         self.assertTrue(all(c.cut_flank == seed.cut_flank for c in out))
 
@@ -79,7 +80,7 @@ class SpaceTests(unittest.TestCase):
         base = {**RECT, "pattern": "staggered"}
         seed = stage1(base, _contour([[0, 1]]))[0]
         out = stage2([seed], base)
-        self.assertEqual(len(out), 5)
+        self.assertEqual(len(out), 2)
         self.assertFalse(any(c.params.get("front_rows_mode") == "taper" for c in out))
 
     def test_stage3_steps_within_3_percent(self):
@@ -130,7 +131,7 @@ class SpaceTests(unittest.TestCase):
         seed = stage1(RECT, _contour([[0, 1]]))[0]
         twin = Candidate(dict(seed.params, row_azimuth_deg=seed.params["row_azimuth_deg"] + 0.001), seed.cut_flank)
         self.assertEqual(seed.key(), twin.key())
-        self.assertEqual(len(stage2([seed, twin], RECT)), 9)
+        self.assertEqual(len(stage2([seed, twin], RECT)), 6)
         keys = [c.key() for c in stage1(RECT, _contour([[0, 1]]))]
         self.assertEqual(len(keys), len(set(keys)))
 

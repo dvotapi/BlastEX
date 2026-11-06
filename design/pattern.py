@@ -773,41 +773,70 @@ def _floor_burdens_of(contour: BlockContour, holes: list[Hole]) -> list[float]:
     return [p.distance_m for p in found] if found else [0.0] * len(holes)
 
 
-def _raised_angles(contour, candidates, angles, own_h, directions, tilted, holds, target_m, allowed_m) -> list[float]:
+def _raised_angles(
+    contour: BlockContour,
+    candidates: list[tuple[int, tuple[float, float], float]],
+    angles: list[float],
+    own_h: list[float],
+    directions: list[tuple[float, float]],
+    tilted: Callable[[int, float], Hole],
+    holds: Callable[[list[int], list[float]], list[bool]],
+    target_m: float,
+    allowed_m: float,
+) -> list[float]:
     """Угол пары, у которой ЛСП больше `allowed_m`: наименьший до
     `FRONT_ROWS_TILT_MAX_DEG`, при котором ЛСП ≤ `allowed_m`, но не больше
     наибольшего, при котором ЛСП ≥ `target_m` и забой не за подошвой
-    (решение владельца 06.11.2026: не хватает ЛСП — поднимать угол)."""
+    (решение владельца 06.11.2026: не хватает ЛСП — поднимать угол).
+
+    Деление пополам — пакетом по всем таким парам (один `toe_positions` на
+    шаг). Итог проверяется `holds`: у скачка съёмка ↔ развал ЛСП немонотонна,
+    и угол, не прошедший нижнюю границу, заменяется наибольшим допустимым.
+    """
+
+    def lsp(keys: list[int], values: list[float]) -> list[float]:
+        return _floor_burdens_of(contour, [tilted(k, a) for k, a in zip(keys, values)])
+
     keys = list(range(len(candidates)))
-    over = [k for k, lsp in zip(keys, _floor_burdens_of(contour, [tilted(k, angles[k]) for k in keys]))
-            if lsp > allowed_m + 1e-9]
+    over = [k for k, value in zip(keys, lsp(keys, [angles[k] for k in keys])) if value > allowed_m + 1e-9]
     if not over:
         return angles
     caps = _tilt_caps_m(
         contour, [candidates[k][1] for k in over], [own_h[k] for k in over], [directions[k] for k in over],
         FRONT_ROWS_TILT_MAX_DEG, target_m,
     ) or [0.0] * len(over)
-    ceiling = [math.degrees(math.atan(cap / own_h[k])) if cap > 1e-12 and own_h[k] > 0 else 0.0
-               for k, cap in zip(over, caps)]
+    ceiling = [
+        math.degrees(math.atan(cap / own_h[k])) if cap > 1e-12 and own_h[k] > 0 else 0.0
+        for k, cap in zip(over, caps)
+    ]
     ceiling = _verified_angles(ceiling, lambda ks, vs: holds([over[i] for i in ks], vs))
     result = list(angles)
-    for k, top in zip(over, ceiling):
-        low = angles[k]
-        if top <= low + 1e-9:
-            continue
-        if _floor_burdens_of(contour, [tilted(k, top)])[0] > allowed_m + 1e-9:
-            result[k] = top
-            continue
-        high = top
-        for _ in range(40):
-            mid = 0.5 * (low + high)
-            if _floor_burdens_of(contour, [tilted(k, mid)])[0] > allowed_m:
-                low = mid
+    top = {k: c for k, c in zip(over, ceiling) if c > angles[k] + 1e-9}
+    if not top:
+        return result
+    live = list(top)
+    at_top = lsp(live, [top[k] for k in live])
+    low: dict[int, float] = {}
+    high: dict[int, float] = {}
+    for k, value in zip(live, at_top):
+        if value > allowed_m + 1e-9:
+            result[k] = top[k]  # и 30° не хватает — наибольший допустимый
+        else:
+            low[k], high[k] = angles[k], top[k]
+    todo = list(low)
+    for _ in range(40):
+        if not todo:
+            break
+        mids = [0.5 * (low[k] + high[k]) for k in todo]
+        for k, mid, value in zip(todo, mids, lsp(todo, mids)):
+            if value > allowed_m:
+                low[k] = mid
             else:
-                high = mid
-            if high - low < 1e-6:
-                break
-        result[k] = high
+                high[k] = mid
+        todo = [k for k in todo if high[k] - low[k] > 1e-6]
+    found = list(high)
+    for k, ok in zip(found, holds(found, [high[k] for k in found])):
+        result[k] = high[k] if ok else top[k]
     return result
 
 
@@ -907,7 +936,7 @@ def _face_pairs(
         return _tilt_holds(contour, [tilted(k, a) for k, a in zip(keys, values)], target_m)
 
     angles = _verified_angles(angles, holds)
-    if tilt_deg < FRONT_ROWS_TILT_MAX_DEG:
+    if 0.0 < tilt_deg < FRONT_ROWS_TILT_MAX_DEG:
         angles = _raised_angles(contour, candidates, angles, own_h, directions, tilted, holds, target_m, allowed_m)
 
     result: list[tuple[Hole, Hole]] = []

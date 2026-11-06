@@ -345,3 +345,45 @@ def test_pair_azimuth_clamped_to_fifteen_degrees_from_column():
 def test_pair_on_straight_face_keeps_column_azimuth():
     holes = generate_pattern(CONTOUR, BASE)
     assert all(p.azimuth_deg == pytest.approx(180.0, abs=1e-6) for p in _pairs(holes))
+
+
+def test_zero_preferred_tilt_keeps_pairs_vertical():
+    # 0° — наклона пары нет совсем, подъём не включается (решение по ревью 06.11.2026).
+    holes = generate_pattern(CONTOUR, BASE | {"front_rows_tilt_deg": 0})
+    assert _pairs(holes)
+    assert all(p.angle_deg == pytest.approx(0.0, abs=1e-9) for p in _pairs(holes))
+
+
+def test_raise_checks_floor_burden_in_batches(monkeypatch):
+    # Подъём угла — делением пополам пакетом: число вызовов линии подошвы не растёт с числом пар.
+    import design.pattern as pattern
+
+    calls = {"n": 0}
+    real = pattern.toe_positions
+
+    def counting(*args, **kwargs):
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pattern, "toe_positions", counting)
+    wide = _contour(width=200.0)
+    holes = generate_pattern(wide, BASE | {"front_rows_tilt_deg": 5})
+    assert len(_pairs(holes)) > 40
+    assert calls["n"] < 120
+
+
+def test_raised_angle_falls_back_to_ceiling_when_it_breaks_lower_bound(monkeypatch):
+    # У скачка съёмка ↔ развал ЛСП немонотонна: угол подъёма, не прошедший
+    # проверку ЛСП ≥ max(0,8·W, 1 м), заменяется наибольшим допустимым.
+    import design.pattern as pattern
+
+    real = pattern._tilt_holds
+
+    def jumpy(contour, holes, target_m):
+        return [ok and not (5.5 < h.angle_deg < 8.0) for h, ok in zip(holes, real(contour, holes, target_m))]
+
+    monkeypatch.setattr(pattern, "_tilt_holds", jumpy)
+    holes = generate_pattern(CONTOUR, BASE | {"front_rows_tilt_deg": 5})
+    ceiling = math.degrees(math.atan((2.0 + SLOPE_M - 2.8) / H))
+    assert _pairs(holes)
+    assert all(p.angle_deg == pytest.approx(ceiling, abs=0.05) for p in _pairs(holes))

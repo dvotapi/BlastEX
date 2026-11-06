@@ -15,7 +15,8 @@ function mount(params: PatternParams = DEFAULT_PATTERN_PARAMS) {
 }
 
 const SCHEME = "Первый ряд у откоса";
-const TILT = "Наибольший наклон, ° от вертикали";
+const TILT = "Предпочтительный наклон, ° от вертикали";
+const TAPER_TILT = "Наибольший наклон, ° от вертикали";
 const RECT: PatternParams = { ...DEFAULT_PATTERN_PARAMS, pattern: "rectangular" };
 const STAGGERED_HINT = /не применяется к шахматной сетке/;
 
@@ -28,6 +29,7 @@ describe("PatternPanel: первый ряд у откоса", () => {
     mount();
     expect((screen.getByLabelText(SCHEME) as HTMLSelectElement).value).toBe("vertical");
     expect(screen.queryByLabelText(TILT)).toBeNull();
+    expect(screen.queryByLabelText(TAPER_TILT)).toBeNull();
     expect(screen.queryByLabelText("Рядов перехода")).toBeNull();
   });
 
@@ -150,5 +152,16 @@ describe("PatternPanel: шаг b у квадратной сетки", () => {
     const b = screen.getByLabelText("Шаг между рядами b, м") as HTMLInputElement;
     expect(b.disabled).toBe(false);
     expect(b.value).toBe("3.7");
+  });
+  it("у пары наклон предпочтительный: подсказка про подъём до 30° и 0 — без наклона", () => {
+    mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
+    const label = screen.getByLabelText(TILT).closest("label") as HTMLLabelElement;
+    expect(label.title).toContain("до 30°");
+    expect(label.title).toContain("0 — без наклона");
+  });
+
+  it("у плавного перехода наклон по-прежнему наибольший", () => {
+    mount({ ...RECT, front_rows_mode: "taper", front_rows_tilt_count: 1 });
+    expect(screen.getByLabelText(TAPER_TILT)).toBeTruthy();
   });
 });

@@ -198,3 +198,79 @@ def test_block67_back_layout_toe_queries_are_bounded(monkeypatch):
         monkeypatch.setattr(module, "toe_positions", counted)
     generate_pattern(_contour(), {**_base(), "layout_anchor": "back"})
     assert len(calls) <= 300, len(calls)
+
+
+def _block(name: str):
+    """Контур и базовые параметры блока для перебора; отступ от кромки — явно."""
+    if name == "67":
+        return _contour(), _base()
+    from tests.test_trunk_network import BLOCK66_PARAMS, _block66_contour
+
+    return _block66_contour(), {**BLOCK66_PARAMS, "min_crest_offset_m": 0.5}
+
+
+def _search_ctx(contour, params):
+    from design.layout_search.evaluate import SearchContext
+
+    return SearchContext.from_design(BlastDesign(design_id="search", contour=contour, pattern_params=dict(params)))
+
+
+@pytest.mark.parametrize("block", ["67", "66"])
+def test_search_back_variants_pass(block):
+    """Перебор (PR 3): варианты «от тыла» этапа 1 на блоках 67 и 66 — у тыла,
+    без отбраковки; у варианта от бровки того же блока — свой ключ опоры нет."""
+    from design.layout_search.evaluate import evaluate
+    from design.layout_search.space import is_back, stage1
+
+    contour, base = _block(block)
+    ref = back_azimuth_deg(contour)
+    cands = stage1(base, contour)
+    back = [
+        c for c in cands
+        if is_back(c.params) and c.cut_flank == "left" and "grid_shift_along_m" not in c.params
+        and abs((c.params["row_azimuth_deg"] - ref + 180.0) % 360.0 - 180.0) < 1e-3
+    ]
+    assert len(back) == 4
+    assert any(not is_back(c.params) for c in cands)
+    ctx = _search_ctx(contour, base)
+    cache: dict = {}
+    for candidate in back:
+        ev = evaluate(ctx, candidate, cache)
+        assert not ev.rejected, (candidate.params["back_offset_m"], ev.reject_codes)
+        assert ev.hole_count > 0
+        assert ev.candidate.params["layout_anchor"] == "back"
+
+
+@pytest.mark.skipif(not __import__("os").environ.get("BLASTEX_SLOW"), reason="медленный тест (≈2 мин): BLASTEX_SLOW=1")
+@pytest.mark.parametrize("block", ["67", "66"])
+def test_full_search_tries_both_templates(block):
+    """Полный перебор блока с бюджетом 150 с: оба шаблона оценены и проходят
+    отбраковку, итог — лучшие из обоих, бюджет хватает на все этапы."""
+    from unittest import mock
+
+    from design.layout_search import search as search_module
+    from design.layout_search.space import is_back
+
+    contour, base = _block(block)
+    evaluations = []
+    real = search_module.evaluate
+
+    def recording(ctx, candidate, cache=None):
+        ev = real(ctx, candidate, cache)
+        evaluations.append(ev)
+        return ev
+
+    with mock.patch.object(search_module, "evaluate", recording):
+        res = search_module.search_layout(_search_ctx(contour, base), budget_s=150.0)
+    assert not res.stopped_early, res.elapsed_s
+    assert len(res.best) == 3
+    assert all(not ev.rejected for ev in res.best)
+    best_by_template = {}
+    for ev in evaluations:
+        if ev.rejected:
+            continue
+        key = is_back(ev.candidate.params)
+        if key not in best_by_template or ev.rank_key() < best_by_template[key].rank_key():
+            best_by_template[key] = ev
+    assert set(best_by_template) == {False, True}
+    assert res.best[0].rank_key() <= min(ev.rank_key() for ev in best_by_template.values())

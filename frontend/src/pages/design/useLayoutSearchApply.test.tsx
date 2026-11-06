@@ -451,6 +451,46 @@ describe("useLayoutSearchApply: «Применить» на странице", (
     expect(probe.current.patternParams.spacing_a_m).toBe(5);
   });
 
+  it("вариант «от тыла»: документ и форма — с опорой и отступом, отмена их убирает", async () => {
+    const back = variant({
+      params: { ...DEFAULT_PATTERN_PARAMS, pattern: "rectangular", row_azimuth_deg: 179.8, spacing_a_m: 3.81, burden_b_m: 3.8, layout_anchor: "back", back_offset_m: 2.47 },
+    });
+    const probe = await mount(base(), undefined, [back]);
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.patternParams.layout_anchor).toBe("back"));
+    expect(probe.current.patternParams.back_offset_m).toBe(2.47);
+    expect(probe.current.state.present.pattern_params).toMatchObject({ layout_anchor: "back", back_offset_m: 2.47 });
+    // Свежий результат после применения варианта «от тыла» не устаревает.
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    expect(screen.queryByText(/Устарел/)).toBeNull();
+
+    act(() => probe.current.dispatch({ type: "UNDO" }));
+    await waitFor(() => expect(probe.current.patternParams.layout_anchor).toBeUndefined());
+    expect(probe.current.patternParams.back_offset_m).toBeUndefined();
+  });
+
+  it("вариант от бровки убирает опору «от тыла» из документа и формы", async () => {
+    const design = base({ pattern_params: { pattern: "rectangular", spacing_a_m: 4, burden_b_m: 4, layout_anchor: "back", back_offset_m: 2.6 } });
+    const probe = await mount(design);
+    expect(probe.current.patternParams.layout_anchor).toBe("back");
+    await applyVariant(0);
+    await waitFor(() => expect(probe.current.patternParams.spacing_a_m).toBe(4.6));
+    expect(probe.current.patternParams.layout_anchor).toBeUndefined();
+    expect(probe.current.patternParams.back_offset_m).toBeUndefined();
+    expect(probe.current.state.present.pattern_params).not.toHaveProperty("layout_anchor");
+    expect(probe.current.state.present.pattern_params).not.toHaveProperty("back_offset_m");
+  });
+
+  it("смена опоры или отступа от тыла в форме — итог «Устарел»", async () => {
+    for (const change of [{ layout_anchor: "back" as const }, { back_offset_m: 2.2 }]) {
+      const probe = await mount(base({ pattern_params: { pattern: "rectangular", spacing_a_m: 4, burden_b_m: 4 } }));
+      expect(screen.queryByText(/Устарел/)).toBeNull();
+      act(() => probe.current.setPatternParams({ ...probe.current.patternParams, ...change }));
+      await screen.findByText(/^Устарел/);
+      cleanup();
+    }
+  });
+
   it("смена системы инициирования базовой сети — итог «Устарел»", async () => {
     const probe = await mount(base());
     expect(screen.queryByText(/Устарел/)).toBeNull();

@@ -2,7 +2,10 @@
 
 Этапы идут по порядку. Семена следующего этапа — лучшие по `Evaluation.rank_key()`
 среди всех оценённых вариантов (не только текущего этапа), с разными сетками;
-отбракованные в семена не идут, пока есть прошедшие. Перед каждой оценкой
+отбракованные в семена не идут, пока есть прошедшие. Шаблоны от бровки и «от
+тыла» делят один бюджет: на этапах 1 и 3 их варианты оцениваются через один
+(`interleave_templates`), семена этапа 2 — только от бровки (схемы первого
+ряда), этапа 3 — лучшие каждого шаблона. Отбраковка и сравнение общие. Перед каждой оценкой
 проверяются бюджет времени и запрос остановки (и в начале каждого этапа); при
 срабатывании возвращается лучшее найденное, а если не оценено ничего — пустой
 `best` и предупреждение `NOTHING_EVALUATED`; бюджет, кончившийся до конца
@@ -16,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from design.layout_search.evaluate import Evaluation, SearchContext, evaluate
-from design.layout_search.space import Candidate, stage1, stage2, stage3
+from design.layout_search.space import Candidate, interleave_templates, is_back, stage1, stage2, stage3
 
 STAGE_GEOMETRY = "geometry"
 STAGE_FRONT_ROWS = "front_rows"
@@ -59,6 +62,11 @@ def _ranked(evaluations: list[Evaluation]) -> list[Evaluation]:
 def _seeds(evaluations: list[Evaluation], count: int) -> list[Candidate]:
     """Лучшие варианты с разными сетками (`_grid_key`): дубли сетки семя не тратят."""
     return [ev.candidate for ev in _top_distinct(evaluations, count)]
+
+
+def _template_seeds(evaluations: list[Evaluation], count: int, *, back: bool) -> list[Candidate]:
+    """`_seeds` среди вариантов одного шаблона."""
+    return _seeds([ev for ev in evaluations if is_back(ev.candidate.params) == back], count)
 
 
 def _top_distinct(evaluations: list[Evaluation], top_n: int) -> list[Evaluation]:
@@ -124,10 +132,21 @@ def search_layout(
                 progress(name, done, total)
         return True
 
+    contour = ctx.design.contour
+
+    def refine() -> list[Candidate]:
+        # Семена — лучшие каждого шаблона: шаблон, отставший на грубой сетке
+        # этапа 1, после подстройки может обойти другой.
+        evaluations = list(cache.values())
+        seeds = _template_seeds(evaluations, stage3_seeds, back=False)
+        seeds += _template_seeds(evaluations, stage3_seeds, back=True)
+        return interleave_templates(stage3(seeds, base, contour))
+
     stages = (
-        (STAGE_GEOMETRY, lambda: stage1(base, ctx.design.contour)),
-        (STAGE_FRONT_ROWS, lambda: stage2(_seeds(list(cache.values()), stage2_seeds), base)),
-        (STAGE_REFINE, lambda: stage3(_seeds(list(cache.values()), stage3_seeds), base)),
+        (STAGE_GEOMETRY, lambda: interleave_templates(stage1(base, contour))),
+        # Схемы первого ряда есть только у шаблона от бровки.
+        (STAGE_FRONT_ROWS, lambda: stage2(_template_seeds(list(cache.values()), stage2_seeds, back=False), base)),
+        (STAGE_REFINE, refine),
     )
     for name, make in stages:
         # Остановка проверяется и в начале этапа: этап без новых вариантов её не пропускает.

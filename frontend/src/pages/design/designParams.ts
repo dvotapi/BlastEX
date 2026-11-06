@@ -23,6 +23,9 @@ const OWN_BURDEN_PATTERNS: ReadonlySet<unknown> = new Set(["rectangular", "stagg
  * Квадратная ли сетка — как решает генератор (`design/pattern.py`): нет вида,
  * «square» или неизвестный вид — квадрат, шаг b = a.
  */
+/** Отступ приконтурного ряда «от тыла» без ключа `back_offset_m` — доля b (`back_layout.BACK_OFFSET_DEFAULT_RATIO`). */
+export const BACK_OFFSET_DEFAULT_RATIO = 0.65;
+
 export function isSquarePattern(pattern: unknown): boolean {
   return !OWN_BURDEN_PATTERNS.has(pattern);
 }

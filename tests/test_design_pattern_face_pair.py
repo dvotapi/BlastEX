@@ -433,3 +433,60 @@ def test_floor_gap_limit_uses_row_own_burden():
     pairs = _pairs(holes)
     assert pairs
     assert all(p.collar.y == pytest.approx(4.5 - 3.0 * 1.03, abs=1e-3) for p in pairs)
+
+
+# --- Замечания Codex к PR #153 ---------------------------------------------
+
+
+def test_pair_shift_uses_pair_own_bench_height_on_sloping_floor():
+    # Съёмка подошвы в 10,2 м от бровки, подошва круто поднимается к откосу
+    # (z = −10,5 + (3 − y)): чем ближе пара к кромке, тем ниже её уступ и тем
+    # раньше съёмка сменяется развалом. Сдвиг считается по высоте самой пары —
+    # ЛСП не меньше 0,8·W и низ не за подошвой.
+    from design.spatial.surfaces import SurfaceSet, floor_surface
+
+    contour = _contour()
+    contour.cad = {"bottom": [[0.0, -10.2], [40.0, -10.2], [40.0, 30.0], [0.0, 30.0]]}
+    points = [Point3(x=x, y=y, z=-10.5 + (3.0 - y)) for x in (-10.0, 20.0, 50.0) for y in (-20.0, 5.0, 40.0)]
+    surfaces = SurfaceSet(floor=floor_surface(points))
+    params = BASE | {"front_rows_tilt_deg": 0.0}
+    holes = generate_pattern(contour, params, [], surfaces)
+    burdens = floor_burdens(_design(holes, params, contour))
+    for pair in _pairs(holes):
+        burden = burdens[pair.id]
+        assert not burden.beyond_toe
+        assert burden.value_m >= 0.8 * W - 1e-6, (pair.id, burden.value_m)
+
+
+def test_pair_collar_not_in_concave_notch():
+    # Выемка у бокового края (x 0–8, y 0,6–1,0): упор сдвига внутри блока, но
+    # промежуточный сдвиг попал бы в выемку — устье пары всегда внутри контура.
+    import shapely
+
+    ring = [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0), (0.0, 1.0), (8.0, 1.0), (8.0, 0.6), (0.0, 0.6)]
+    contour = BlockContour(
+        vertices=[Point3(x=x, y=y, z=0.0) for x, y in ring],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=75.0),
+    )
+    holes = generate_pattern(contour, BASE | {"offset_from_face_m": 4.0})
+    polygon = shapely.Polygon(ring).buffer(1e-6)
+    pairs = _pairs(holes)
+    assert pairs
+    for pair in pairs:
+        assert polygon.contains(shapely.Point(pair.collar.x, pair.collar.y)), (pair.id, pair.collar)
+
+
+def test_floor_gap_limit_uses_domain_burden():
+    # Сетка по доменам: у домена b = 7 м — предел разрыва у подошвы 7,21 м, а
+    # не общий 3,605: пара доходит до ЛСП ≤ W + 3 %.
+    from design.models import BlastDomain
+
+    domain = BlastDomain(id="d", name="d", spacing_a_m=4.0, burden_b_m=7.0)
+    params = BASE | {"pattern": "domain_dependent", "offset_from_face_m": 6.0}
+    holes = generate_pattern(CONTOUR, params, domains=[domain])
+    pairs = _pairs(holes)
+    assert pairs
+    burdens = floor_burdens(BlastDesign(design_id="t", contour=CONTOUR, holes=holes, pattern_params=params, domains=[domain]))
+    for pair in pairs:
+        assert burdens[pair.id].value_m <= GAP_MAX + 1e-6, (pair.id, burdens[pair.id].value_m)

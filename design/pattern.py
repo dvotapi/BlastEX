@@ -62,6 +62,8 @@ FRONT_TILT_MIN_FLOOR_BURDEN_M = 1.0
 # Пара у откоса: устье наклонной на столько ближе к уступу, чем у вертикальной
 # первого ряда, по линии столбца, м (решение владельца 22.10.2026).
 FACE_PAIR_OFFSET_M = 1.0
+# Шаг прохода при поиске упора устья пары (`_collar_reach_m`), м.
+COLLAR_REACH_STEP_M = 0.05
 # Азимут наклонной пары — к ближайшей точке линии подошвы (по нормали к
 # откосу), но не дальше этого от линии столбца (решение владельца 06.11.2026).
 FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG = 15.0
@@ -404,6 +406,15 @@ def generate_pattern(
     if mode == FRONT_ROWS_MODE_PAIR:
         # Устья основной сетки не ближе `min_crest_offset_m` к кромке — до
         # постановки пар (у пары свой отступ проверяется при постановке).
+        def pair_row_burden(hole: Hole) -> float:
+            # Шаг b ряда скважины — как у генератора и проверки разрыва
+            # (`toe_line._hole_steps`): у сетки по доменам — b домена у устья.
+            if pattern == "domain_dependent" and domain_list:
+                domain = domain_at(domain_list, Point3(x=hole.collar.x, y=hole.collar.y, z=crest_z))
+                if domain is not None and domain.burden_b_m:
+                    return float(domain.burden_b_m)
+            return row_steps_m(params, pattern, max(logical_row(hole.row), 0), spacing_a, burden_b)[1]
+
         face_row = holes[:face_row_count]
         holes = _off_crest(holes, contour, min_crest_offset_m(params))
         face_row_count = len(_off_crest(face_row, contour, min_crest_offset_m(params)))
@@ -422,7 +433,7 @@ def generate_pattern(
             subdrill_m,
             surfaces,
             depth_override,
-            row_burden=lambda hole: row_steps_m(params, pattern, max(logical_row(hole.row), 0), spacing_a, burden_b)[1],
+            row_burden=pair_row_burden,
         ):
             pair_of[id(pair)] = id(partner)
             holes.append(pair)
@@ -964,8 +975,9 @@ def _collar_reach_m(
     min_crest_m: float,
     limits_m: list[float],
 ) -> list[float]:
-    """Наибольший сдвиг устья вдоль `direction` в [0, `limits_m[k]`]: внутри
-    контура и не ближе `min_crest_m` к кромке (деление пополам пакетом)."""
+    """Наибольший сдвиг устья вдоль `direction` в [0, `limits_m[k]`], при
+    котором устье на всём пути внутри контура и не ближе `min_crest_m` к
+    кромке (пакетом)."""
     if not starts:
         return []
     # Допуск 1 мкм: узел на самом краю контура (x = −1e-16) — внутри, как у `point_in_polygon`.
@@ -974,20 +986,35 @@ def _collar_reach_m(
     ys = np.asarray([p[1] for p in starts], dtype=float)
     limits = np.asarray(limits_m, dtype=float)
 
-    def ok(t: np.ndarray) -> np.ndarray:
-        px, py = xs + direction[0] * t, ys + direction[1] * t
-        inside = shapely.intersects_xy(polygon, px, py)
-        return inside & (shapely.distance(shapely.points(px, py), crest) >= min_crest_m - 1e-9)
+    def ok(bx: np.ndarray, by: np.ndarray, t: np.ndarray) -> np.ndarray:
+        px, py = bx + direction[0] * t, by + direction[1] * t
+        return shapely.intersects_xy(polygon, px, py) & (
+            shapely.distance(shapely.points(px, py), crest) >= min_crest_m - 1e-9
+        )
 
-    full = ok(limits)
-    low = np.zeros_like(limits)
-    high = limits.copy()
-    for _ in range(40):
-        mid = 0.5 * (low + high)
-        good = ok(mid)
-        low = np.where(good, mid, low)
-        high = np.where(good, high, mid)
-    return [float(limit) if whole else float(lo) for limit, whole, lo in zip(limits, full, low)]
+    # У вогнутого контура годный упор не значит, что годен каждый меньший
+    # сдвиг: первый негодный ищется проходом шагом `COLLAR_REACH_STEP_M`, затем
+    # делением пополам между ним и последним годным — весь [0, итог] годен.
+    count = int(np.ceil(float(limits.max(initial=0.0)) / COLLAR_REACH_STEP_M)) + 1
+    fractions = np.linspace(0.0, 1.0, max(count, 2))
+    samples = limits[:, None] * fractions[None, :]
+    width = samples.shape[1]
+    good = ok(np.repeat(xs, width), np.repeat(ys, width), samples.ravel()).reshape(samples.shape)
+    bad_any = ~good.all(axis=1)
+    first_bad = np.where(bad_any, np.argmin(good, axis=1), samples.shape[1])
+    result = limits.copy()
+    rows = np.nonzero(bad_any)[0]
+    if rows.size:
+        low = np.where(first_bad[rows] > 0, samples[rows, np.maximum(first_bad[rows] - 1, 0)], 0.0)
+        high = samples[rows, first_bad[rows]]
+        start_ok = first_bad[rows] > 0
+        for _ in range(40):
+            mid = 0.5 * (low + high)
+            fine = ok(xs[rows], ys[rows], mid)
+            low = np.where(fine, mid, low)
+            high = np.where(fine, high, mid)
+        result[rows] = np.where(start_ok, low, 0.0)
+    return [float(v) for v in result]
 
 
 def face_tilts(
@@ -1132,14 +1159,34 @@ def _face_pairs(
     if not pending:
         return []
 
+    def plain_pair(i: int, x: float, y: float) -> Hole:
+        """Пара без наклона с устьем (x, y): ось вертикальной `grid[i]`."""
+        hole = grid[i]
+        if surfaces is None:
+            # Ось вертикальной на плоском уступе — перенос.
+            collar = Point3(x=x, y=y, z=hole.collar.z)
+            toe = Point3(x=x + (hole.toe.x - hole.collar.x), y=y + (hole.toe.y - hole.collar.y), z=hole.toe.z)
+        else:
+            dx, dy, dz = hole.toe.x - hole.collar.x, hole.toe.y - hole.collar.y, hole.toe.z - hole.collar.z
+            angle = math.degrees(math.atan2(math.hypot(dx, dy), -dz)) if dz < 0 else 0.0
+            own_azimuth = math.degrees(math.atan2(dx, dy)) % 360.0 if (dx or dy) else 0.0
+            collar, toe = drape_collar(x, y, angle, own_azimuth, subdrill_m, contour, surfaces, depth_override)
+        return replace(hole, collar=collar, toe=toe)
+
     def vertical_lsp(items: list[tuple[int, float]], shifts: list[float]) -> list[float]:
-        points = [
-            (fx + direction[0] * t, fy + direction[1] * t)
+        """ЛСП пары без наклона на сдвиге — по её собственной оси и высоте
+        уступа (у наклонной подошвы и смены съёмки на развал своя); низ за
+        подошвой — −inf (нижняя граница не пройдена)."""
+        built = [
+            plain_pair(i, collars[i][0] + direction[0] * t, collars[i][1] + direction[1] * t)
             for (i, _), t in zip(items, shifts)
-            for fx, fy in [floor_point(grid[i])]
         ]
-        found = toe_positions(contour, points, [h for _, h in items]) or []
-        return [p.distance_m for p in found] if found else [0.0] * len(items)
+        found = toe_positions(
+            contour, [floor_point(h) for h in built], [hole_bench_height_m(h, block_h) for h in built]
+        ) or []
+        if not found:
+            return [0.0] * len(items)
+        return [-math.inf if p.beyond else p.distance_m for p in found]
 
     # Пара не ближе 1 м к вертикальной: если уже при этом сдвиге ЛСП меньше
     # нижней границы `target_m`, пара перегрузила бы откос — её нет.
@@ -1221,20 +1268,20 @@ def _face_pairs(
         for k, angle in chosen.items():
             angles[k] = angle
 
+    # Пара без наклона: ЛСП вдоль сдвига может быть немонотонной (смена
+    # съёмки на развал) — итог проверяется, не прошла нижнюю границу — пары нет.
+    plain_keys = [k for k, angle in enumerate(angles) if angle <= 1e-9]
+    plain_ok = dict(zip(plain_keys, _tilt_holds(contour, [plain_pair(candidates[k][0], *candidates[k][1]) for k in plain_keys], target_m)))
     result: list[tuple[Hole, Hole]] = []
     for k, ((i, (x, y), _height), angle) in enumerate(zip(candidates, angles)):
         hole = grid[i]
         if angle > 1e-9:
             collar, toe = drape_collar(x, y, angle, azimuths[k], subdrill_m, contour, surfaces, depth_override)
-        elif surfaces is None:
-            # Ось вертикальной на плоском уступе — перенос.
-            collar = Point3(x=x, y=y, z=hole.collar.z)
-            toe = Point3(x=x + (hole.toe.x - hole.collar.x), y=y + (hole.toe.y - hole.collar.y), z=hole.toe.z)
+        elif not plain_ok[k]:
+            continue
         else:
-            dx, dy, dz = hole.toe.x - hole.collar.x, hole.toe.y - hole.collar.y, hole.toe.z - hole.collar.z
-            angle = math.degrees(math.atan2(math.hypot(dx, dy), -dz)) if dz < 0 else 0.0
-            own_azimuth = math.degrees(math.atan2(dx, dy)) % 360.0 if (dx or dy) else 0.0
-            collar, toe = drape_collar(x, y, angle, own_azimuth, subdrill_m, contour, surfaces, depth_override)
+            built = plain_pair(i, x, y)
+            collar, toe = built.collar, built.toe
         pair = replace(
             hole,
             id=hole.id + FACE_PAIR_ID_SUFFIX,

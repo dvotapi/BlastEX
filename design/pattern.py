@@ -105,6 +105,8 @@ def generate_pattern(
                               Схема первого ряда (`front_rows_mode`, `front_rows_tilt_count`)
                               и ряд вдоль бровки не применяются — их заменяет конец эшелона
       back_offset_m           отступ приконтурного ряда от тыла, м (нет ключа — 0,65·b)
+                              У «от тыла» `front_rows_tilt_deg` — верхний предел наклона
+                              последней скважины эшелона: берётся наименьший угол до ЛСП ≈ W
       contour_row / presplit_row / trim_row / buffer_row / stab_row
       satellite_holes / infill_holes
     """

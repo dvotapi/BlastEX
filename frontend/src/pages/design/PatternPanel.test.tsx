@@ -263,6 +263,13 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
     expect(screen.queryByLabelText(BACK_OFFSET)).toBeTruthy();
   });
 
+  it("«от тыла»: подсказка наклона — наименьший угол до ЛСП ≈ W", () => {
+    mountWithContour({ ...RECT, layout_anchor: "back" });
+    const title = (screen.getByLabelText(TILT).closest("label") as HTMLLabelElement).title;
+    expect(title).toMatch(/наименьший/);
+    expect(title).toMatch(/ЛСП ≈ W/);
+  });
+
   it("«Азимут по тылу» ставит азимут рядов, без контура недоступна", async () => {
     vi.mocked(api.design.backAzimuth).mockReset().mockResolvedValue({ azimuth_deg: 12 });
     const onChange = mountWithContour({ ...RECT, layout_anchor: "back" });

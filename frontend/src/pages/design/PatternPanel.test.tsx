@@ -164,4 +164,9 @@ describe("PatternPanel: шаг b у квадратной сетки", () => {
     mount({ ...RECT, front_rows_mode: "taper", front_rows_tilt_count: 1 });
     expect(screen.getByLabelText(TAPER_TILT)).toBeTruthy();
   });
+  it("глубина коротких — по вертикали: у наклонной длина по оси больше", () => {
+    mount({ ...DEFAULT_PATTERN_PARAMS, stab_row: true });
+    const field = screen.getByLabelText("Глубина коротких (по вертикали), м");
+    expect((field.closest("label") as HTMLLabelElement).title).toContain("cos α");
+  });
 });

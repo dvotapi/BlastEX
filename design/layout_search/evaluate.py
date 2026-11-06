@@ -272,8 +272,22 @@ def _empty(candidate: Candidate, system: str) -> Evaluation:
     )
 
 
-def evaluate(ctx: SearchContext, candidate: Candidate) -> Evaluation:
-    """Строит вариант и считает показатели ранжирования."""
+def _layout_key(holes: list[Hole], cut_flank: str) -> tuple:
+    """Отпечаток раскладки: устья, забои, вид и включение скважин до 1 мм и фланг вруба."""
+    return (cut_flank, tuple(
+        (h.id, h.kind, h.enabled, round(h.collar.x, 3), round(h.collar.y, 3), round(h.collar.z, 3),
+         round(h.toe.x, 3), round(h.toe.y, 3), round(h.toe.z, 3))
+        for h in holes
+    ))
+
+
+def evaluate(ctx: SearchContext, candidate: Candidate, seen: dict | None = None) -> Evaluation:
+    """Строит вариант и считает показатели ранжирования.
+
+    `seen` — оценки уже построенных раскладок за этот поиск: варианты с теми
+    же скважинами и флангом (пара с подъёмом угла даёт одно и то же при разных
+    `front_rows_tilt_deg`) берут готовую оценку со своим `candidate`.
+    """
     base = ctx.design
     # Ручные скважины перебор не использует: сетка без `existing_holes`.
     holes = generate_pattern(
@@ -282,6 +296,17 @@ def evaluate(ctx: SearchContext, candidate: Candidate) -> Evaluation:
     mounting = network_params(base)
     if not holes:
         return _empty(candidate, mounting["system"])
+    key = _layout_key(holes, candidate.cut_flank) if seen is not None else None
+    if key is not None and key in seen:
+        return replace(seen[key], candidate=candidate)
+    result = _evaluated(ctx, candidate, holes, mounting)
+    if key is not None:
+        seen[key] = result
+    return result
+
+
+def _evaluated(ctx: SearchContext, candidate: Candidate, holes: list[Hole], mounting: dict) -> Evaluation:
+    base = ctx.design
 
     network, warnings = build_trunk_chains_network(holes, {**mounting, "cut_flank": candidate.cut_flank})
     design = replace(base, holes=holes, network=network, pattern_params=dict(candidate.params))

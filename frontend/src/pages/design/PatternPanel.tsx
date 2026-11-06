@@ -269,7 +269,7 @@ export function PatternPanel({
         {(params.buffer_row || params.stab_row || params.contour_row || params.presplit_row || params.trim_row) && (
           <div className="field-pair">
             {params.buffer_row && <label>Буфер: отступ, м<input type="number" min="0" step="0.1" {...num("buffer_offset_m")} /></label>}
-            {params.stab_row && <label>Глубина коротких, м<input type="number" min="0.5" step="0.1" {...num("stab_depth_m")} /></label>}
+            {params.stab_row && <label title="Глубина вертикальной скважины; у наклонной длина по оси = глубина / cos α.">Глубина коротких (по вертикали), м<input type="number" min="0.5" step="0.1" {...num("stab_depth_m")} /></label>}
             {params.contour_row && <label>Контур: шаг, м<input type="number" min="0.5" step="0.1" {...num("contour_spacing_m")} /></label>}
             {params.presplit_row && <label>Предщель: шаг, м<input type="number" min="0.3" step="0.1" {...num("presplit_spacing_m")} /></label>}
           </div>

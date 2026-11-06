@@ -46,9 +46,9 @@ class SearchTests(unittest.TestCase):
         calls = {"n": 0}
         real = search_module.evaluate
 
-        def counting(ctx, candidate):
+        def counting(ctx, candidate, seen=None):
             calls["n"] += 1
-            return real(ctx, candidate)
+            return real(ctx, candidate, seen)
 
         # Часы показывают превышение бюджета после 10 оценок.
         clock = lambda: 0.0 if calls["n"] < 10 else 1000.0  # noqa: E731
@@ -67,9 +67,9 @@ class SearchTests(unittest.TestCase):
         calls = {"n": 0}
         real = search_module.evaluate
 
-        def counting(ctx, candidate):
+        def counting(ctx, candidate, seen=None):
             calls["n"] += 1
-            return real(ctx, candidate)
+            return real(ctx, candidate, seen)
 
         stage1_total = len(stage1(BASE, CONTOUR))
         cases = (

@@ -39,3 +39,23 @@ def test_recompute_keeps_length_of_saved_draft_with_explicit_depth():
                 diameter_mm=152.0, subdrill_m=1.0)
     out = recompute_hole(hole, CONTOUR, None, {"depth_m": 11.0}).hole
     assert out.length_m == pytest.approx(11.0)
+
+
+def test_moving_inclined_hole_keeps_its_axis_length():
+    from design.editing import apply_collar_xy
+
+    collar = Point3(10.0, 10.0, 0.0)
+    hole = Hole(id="1-01T", row=0, col=0, collar=collar, toe=hole_from_collar(collar, 11.55, 30.0, 180.0),
+                diameter_mm=152.0, subdrill_m=1.0)
+    moved = apply_collar_xy(hole, 10.5, 10.0, CONTOUR)
+    again = apply_collar_xy(moved, 11.0, 10.0, CONTOUR)
+    assert moved.length_m == pytest.approx(11.55)
+    assert again.length_m == pytest.approx(11.55)
+    assert again.angle_deg == pytest.approx(30.0)
+
+
+def test_manual_inclined_hole_with_depth_param_reaches_same_elevation():
+    from design.editing import insert_manual_hole
+
+    hole = insert_manual_hole([], 10.0, 10.0, CONTOUR, {"angle_deg": 20.0, "azimuth_deg": 180.0, "depth_m": 11.0})
+    assert hole.collar.z - hole.toe.z == pytest.approx(11.0)

@@ -7,6 +7,7 @@ from typing import Any
 
 from design.geometry import (
     angle_azimuth,
+    collar_elevation,
     distance_to_free_faces,
     drape_collar,
     hole_from_collar,
@@ -127,10 +128,10 @@ def apply_collar_xy(
 ) -> Hole:
     """Move the collar in plan and drape onto the top surface, keeping axis geometry."""
     angle_deg, azimuth_deg = angle_azimuth(hole.collar, hole.toe)
-    depth_m = hole.length_m
-    collar, toe = drape_collar(
-        x, y, angle_deg, azimuth_deg, hole.subdrill_m, contour, surfaces, depth_m
-    )
+    # Длина по оси сохраняется как есть: `drape_collar` с `depth_m` считал бы
+    # её глубиной вертикальной скважины и делил на cos α при каждом переносе.
+    collar = Point3(x=x, y=y, z=collar_elevation(x, y, contour, surfaces))
+    toe = hole_from_collar(collar, hole.length_m, angle_deg, azimuth_deg)
     return replace(hole, collar=collar, toe=toe, source=hole.source)
 
 

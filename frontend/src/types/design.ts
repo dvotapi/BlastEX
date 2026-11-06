@@ -899,7 +899,7 @@ export type PatternParams = {
   front_rows_mode?: "pair" | "taper";
   front_rows_tilt_count?: 0 | 1 | 2;
   front_rows_tilt_deg?: number;
-  // Мин. отступ устья от кромки, м; нет ключа — умолчание сервера (1 м)
+  // Мин. отступ устья от кромки, м; нет ключа — умолчание сервера (0,5 м)
   min_crest_offset_m?: number;
   default_kind: HoleKind;
   row_params: RowPatternParams[];

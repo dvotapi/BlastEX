@@ -463,3 +463,27 @@ class RejectEquivalenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SameLayoutTests(unittest.TestCase):
+    def test_identical_layouts_are_evaluated_once(self):
+        # Пара с подъёмом угла: 15° и 20° дают одни и те же скважины — второй
+        # вариант берёт оценку первого, монтаж и темп не пересчитываются.
+        from unittest import mock
+
+        import design.layout_search.evaluate as module
+
+        ctx = _ctx()
+        seen: dict = {}
+        first = Candidate({**BASE, "front_rows_mode": "pair", "front_rows_tilt_deg": 15}, "left")
+        second = Candidate({**BASE, "front_rows_mode": "pair", "front_rows_tilt_deg": 20}, "left")
+        with mock.patch.object(module, "build_trunk_chains_network", wraps=module.build_trunk_chains_network) as built:
+            a = evaluate(ctx, first, seen)
+            b = evaluate(ctx, second, seen)
+        self.assertEqual(built.call_count, 1)
+        self.assertIs(b.candidate, second)
+        self.assertEqual(b.rank_key(), a.rank_key())
+        # Другой фланг — другой монтаж: оценивается заново.
+        with mock.patch.object(module, "build_trunk_chains_network", wraps=module.build_trunk_chains_network) as built:
+            evaluate(ctx, Candidate(second.params, "right"), seen)
+        self.assertEqual(built.call_count, 1)

@@ -15,6 +15,10 @@ import { scaleChanged } from "./PremiumCurveChart";
 // Панель ждёт паузу ранжирования (RANKING_DELAY_MS) и ответ «что если»: на
 // нагруженном CI это дольше секунды по умолчанию, и findBy/waitFor падали без причины.
 configure({ asyncUtilTimeout: 5000 });
+// Тест в целом ждёт несколько таких ожиданий подряд: по умолчанию vitest даёт
+// ему те же 5 с, и под нагрузкой тест обрывался раньше своего waitFor (сборка
+// main 7c6a43f). Запас — втрое больше одного ожидания.
+vi.setConfig({ testTimeout: 15000 });
 
 beforeEach(() => {
   vi.mocked(api.blockEconomics.drillingSensitivity).mockResolvedValue(drillingSensitivityFixture());

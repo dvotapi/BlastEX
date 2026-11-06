@@ -96,11 +96,30 @@ def test_pair_added_one_metre_closer_along_column():
     assert len(ids) == len(set(ids))
 
 
-def test_pair_angle_capped_by_max_tilt():
-    # α = 5°: ЛСП пары 4,68 − 10·tg 5° = 3,81 ≥ 2,8 — угол не ограничен ЛСП.
+def test_pair_angle_raised_above_preferred_when_lsp_exceeds():
+    # α = 5°: ЛСП 4,68 − 10·tg 5° = 3,81 > 3,605 → угол поднимается до tg α = (4,68 − 3,605)/10.
     holes = generate_pattern(CONTOUR, BASE | {"front_rows_tilt_deg": 5})
+    expected = math.degrees(math.atan((2.0 + SLOPE_M - 3.5 * 1.03) / H))
     assert _pairs(holes)
-    assert all(p.angle_deg == pytest.approx(5.0, abs=1e-6) for p in _pairs(holes))
+    assert all(p.angle_deg == pytest.approx(expected, abs=0.05) for p in _pairs(holes))
+
+
+def test_preferred_angle_kept_when_lsp_fits():
+    # 15°: угол ограничен ЛСП ≥ 2,8 и выше 15° не поднимается.
+    holes = generate_pattern(CONTOUR, BASE)
+    expected = math.degrees(math.atan((2.0 + SLOPE_M - 2.8) / H))
+    assert all(p.angle_deg == pytest.approx(expected, abs=1e-3) for p in _pairs(holes))
+
+
+def test_pair_capped_at_thirty_degrees_when_even_that_is_not_enough():
+    # Первый ряд в 9 м: устье пары в 8 м, ЛСП при 30° = 8 + 2,68 − 10·tg 30° = 4,91 > 3,605.
+    from design.analysis import validate
+
+    holes = generate_pattern(CONTOUR, BASE | {"offset_from_face_m": 9.0})
+    pairs = _pairs(holes)
+    assert pairs and all(p.angle_deg == pytest.approx(30.0, abs=0.05) for p in pairs)
+    codes = {w["code"] for w in validate(_design(holes, BASE | {"offset_from_face_m": 9.0}))}
+    assert "floor_burden_excess" in codes
 
 
 def test_numbering_of_grid_is_unchanged_by_pairs():

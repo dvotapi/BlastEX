@@ -525,3 +525,23 @@ def test_tilted_pair_floor_gap_checked_on_deepening_floor():
         vertical = by_id[pair.id[:-1]]
         (px, py), (vx, vy) = floor_point(pair), floor_point(vertical)
         assert math.hypot(px - vx, py - vy) <= GAP_MAX + 1e-6, (pair.id, math.hypot(px - vx, py - vy))
+
+
+@pytest.mark.parametrize("angle_deg", [15.0, 20.0])
+def test_plain_pair_floor_gap_checked_with_tilted_grid(angle_deg):
+    # Пример Codex к 540fa85: основная сетка наклонная (20° к откосу), наклон
+    # пары запрещён (0°), подошва углубляется к откосу (z = −10 + 0,5·y). Пара
+    # без наклона сохраняет ось сетки, и на подошве её точка уходит дальше
+    # сдвига устья — было 4,41 м при пределе 3,605. Разрыв ограничивает сдвиг.
+    from design.spatial.surfaces import SurfaceSet, floor_surface
+
+    points = [Point3(x=x, y=y, z=-10.0 + 0.5 * y) for x in (-10.0, 20.0, 50.0) for y in (-20.0, 5.0, 40.0)]
+    surfaces = SurfaceSet(floor=floor_surface(points))
+    params = BASE | {"offset_from_face_m": 9.0, "angle_deg": angle_deg, "azimuth_deg": 180.0, "front_rows_tilt_deg": 0}
+    holes = generate_pattern(CONTOUR, params, [], surfaces)
+    by_id = {h.id: h for h in holes}
+    pairs = _pairs(holes)
+    assert pairs
+    for pair in pairs:
+        gap = math.dist(floor_point(pair), floor_point(by_id[pair.id[:-1]]))
+        assert gap <= GAP_MAX + 1e-6, (pair.id, gap)

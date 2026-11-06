@@ -1192,6 +1192,43 @@ def _face_pairs(
             return [0.0] * len(items)
         return [-math.inf if p.beyond else p.distance_m for p in found]
 
+    def plain_gap_ok(items: list[tuple[int, float]], shifts: list[float]) -> list[bool]:
+        """Разрыв у подошвы между парой без наклона на сдвиге и её вертикальной
+        не больше b + 3 %: у наклонной сетки на наклонной подошве точка пары на
+        подошве уходит дальше сдвига устья (замечание Codex к 540fa85)."""
+        return [
+            math.dist(
+                floor_point(plain_pair(i, collars[i][0] + direction[0] * t, collars[i][1] + direction[1] * t)),
+                floor_point(grid[i]),
+            )
+            <= gap_of[i] + 1e-9
+            for (i, _), t in zip(items, shifts)
+        ]
+
+    # Упор сдвига — ещё и по разрыву у подошвы построенной пары: где у упора
+    # разрыв больше b + 3 %, упор уменьшается делением пополам.
+    over_gap = [
+        k for k, ok in enumerate(plain_gap_ok([(i, h) for i, h, _ in pending], [r for _, _, r in pending])) if not ok
+    ]
+    if over_gap:
+        lo = {k: 0.0 for k in over_gap}
+        hi = {k: pending[k][2] for k in over_gap}
+        todo = list(over_gap)
+        for _ in range(40):
+            if not todo:
+                break
+            mids = [0.5 * (lo[k] + hi[k]) for k in todo]
+            for k, mid, ok in zip(todo, mids, plain_gap_ok([pending[k][:2] for k in todo], mids)):
+                if ok:
+                    lo[k] = mid
+                else:
+                    hi[k] = mid
+            todo = [k for k in todo if hi[k] - lo[k] > 1e-6]
+        pending = [(i, h, lo[k] if k in lo else r) for k, (i, h, r) in enumerate(pending)]
+        pending = [item for item in pending if item[2] >= FACE_PAIR_OFFSET_M - 1e-9]
+        if not pending:
+            return []
+
     # Пара не ближе 1 м к вертикальной: если уже при этом сдвиге ЛСП меньше
     # нижней границы `target_m`, пара перегрузила бы откос — её нет.
     at_start = vertical_lsp([(i, h) for i, h, _ in pending], [FACE_PAIR_OFFSET_M] * len(pending))
@@ -1281,9 +1318,12 @@ def _face_pairs(
             angles[k] = angle
 
     # Пара без наклона: ЛСП вдоль сдвига может быть немонотонной (смена
-    # съёмки на развал) — итог проверяется, не прошла нижнюю границу — пары нет.
+    # съёмки на развал) и разрыв у подошвы — немонотонным — итог проверяется:
+    # не прошла нижнюю границу или разрыв больше b + 3 % — пары нет.
     plain_keys = [k for k, angle in enumerate(angles) if angle <= 1e-9]
-    plain_ok = dict(zip(plain_keys, _tilt_holds(contour, [plain_pair(candidates[k][0], *candidates[k][1]) for k in plain_keys], target_m)))
+    plain_holds = _tilt_holds(contour, [plain_pair(candidates[k][0], *candidates[k][1]) for k in plain_keys], target_m)
+    plain_gaps = plain_gap_ok([pending[k][:2] for k in plain_keys], [shifts[k] for k in plain_keys])
+    plain_ok = {k: lsp and gap for k, lsp, gap in zip(plain_keys, plain_holds, plain_gaps)}
     result: list[tuple[Hole, Hole]] = []
     for k, ((i, (x, y), _height), angle) in enumerate(zip(candidates, angles)):
         hole = grid[i]

@@ -15,7 +15,7 @@ function mount(params: PatternParams = DEFAULT_PATTERN_PARAMS) {
 }
 
 const SCHEME = "Первый ряд у откоса";
-const TILT = "Предпочтительный наклон, ° от вертикали";
+const TILT = "Наклон пары, ° от вертикали";
 const TAPER_TILT = "Наибольший наклон, ° от вертикали";
 const RECT: PatternParams = { ...DEFAULT_PATTERN_PARAMS, pattern: "rectangular" };
 const STAGGERED_HINT = /не применяется к шахматной сетке/;
@@ -153,10 +153,11 @@ describe("PatternPanel: шаг b у квадратной сетки", () => {
     expect(b.disabled).toBe(false);
     expect(b.value).toBe("3.7");
   });
-  it("у пары наклон предпочтительный: подсказка про подъём до 30° и 0 — без наклона", () => {
+  it("у пары: подсказка — сначала к кромке, наименьший угол до 30°, 0 — без наклона", () => {
     mount({ ...DEFAULT_PATTERN_PARAMS, front_rows_mode: "pair" });
     const label = screen.getByLabelText(TILT).closest("label") as HTMLLabelElement;
-    expect(label.title).toContain("до 30°");
+    expect(label.title).toContain("к кромке");
+    expect(label.title).toContain("не больше 30°");
     expect(label.title).toContain("0 — без наклона");
   });
 

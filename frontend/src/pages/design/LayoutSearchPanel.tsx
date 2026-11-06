@@ -82,9 +82,9 @@ function frontRowsText(params: Record<string, unknown>): string {
   return "вертикальный";
 }
 
-/** Вариант шаблона «от тыла» (перебор строит его только у квадратной и прямоугольной сетки). */
+/** Вариант шаблона «от тыла»: генератор применяет ключ только у квадратной и прямоугольной сетки. */
 function isBackVariant(params: Record<string, unknown>): boolean {
-  return params.layout_anchor === "back";
+  return params.layout_anchor === "back" && (isSquarePattern(params.pattern) || params.pattern === "rectangular");
 }
 
 /** Отступ приконтурного ряда от тыла: ключ, без него — 0,65·b, как у генератора. */

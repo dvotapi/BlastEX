@@ -43,12 +43,14 @@ BACK_ANCHOR_KEYS = ("layout_anchor", "back_offset_m")
 # диапазоне 0,5–0,8·b (`back_layout.BACK_OFFSET_RANGE`).
 BACK_TURNS_DEG = (-5.0, -2.5, 0.0, 2.5, 5.0)
 BACK_TURN_LIMIT_DEG = 5.0
+# Допуск предела поворота: азимут варианта округлён до 0,0001° (`_azimuth`),
+# и семя на краю (±5°) читается как 5,00003° — без допуска его подстройка терялась.
+BACK_TURN_TOLERANCE_DEG = 1e-3
 BACK_OFFSET_RATIOS = (0.5, 0.6, 0.7, 0.8)
 # Этап 3 «от тыла»: подстройка отступа, доля b.
 BACK_FINE_OFFSET_RATIO = 0.05
 # Ключи, которыми перебор управляет сам; из базы они убираются.
 _OWN_KEYS = ("first_row_burden_m", "grid_shift_along_m", "offset_from_face_m", *FRONT_ROW_KEYS, *BACK_ANCHOR_KEYS)
-_EPS = 1e-6
 
 
 @dataclass(frozen=True)
@@ -147,12 +149,17 @@ def stage1(base: dict, contour: BlockContour) -> list[Candidate]:
 
 def _back_stage1(base: dict, contour: BlockContour) -> list[Candidate]:
     """«От тыла»: поворот около азимута тыла × отступ от тыла × сдвиг вдоль × фланг
-    (5 × 4 × 4 × 2 = 160). Схем первого ряда нет, `offset_from_face_m` не пишется."""
+    (5 × 4 × 4 × 2 = 160). Схем первого ряда нет, `offset_from_face_m` не пишется;
+    `front_rows_tilt_deg` базы (предел наклона конца эшелона) сохраняется."""
     ref = back_azimuth_deg(contour)
     if ref is None:
         return []
     a, b = grid_steps_m(base)
     plain = {k: v for k, v in base.items() if k not in _OWN_KEYS}
+    # `front_rows_tilt_deg` у «от тыла» — предел наклона конца эшелона (0 — без
+    # наклона), а не угол схемы первого ряда: он берётся из базы.
+    if "front_rows_tilt_deg" in base:
+        plain["front_rows_tilt_deg"] = base["front_rows_tilt_deg"]
     out: list[Candidate] = []
     for turn in BACK_TURNS_DEG:
         az = _azimuth(ref + turn)
@@ -249,7 +256,7 @@ def _back_stage3(seeds: list[Candidate], base: dict, ref: float | None) -> list[
         of0 = float(p.get("back_offset_m", 0.65 * b0) or 0.65 * b0)
         for daz in (-FINE_AZIMUTH_DEG, 0.0, FINE_AZIMUTH_DEG):
             az = az0 + daz
-            if ref is not None and abs(_turn(az, ref)) > BACK_TURN_LIMIT_DEG + _EPS:
+            if ref is not None and abs(_turn(az, ref)) > BACK_TURN_LIMIT_DEG + BACK_TURN_TOLERANCE_DEG:
                 continue
             for dsh in (-a0 / 8.0, 0.0, a0 / 8.0):
                 for dof in (-BACK_FINE_OFFSET_RATIO * b0, 0.0, BACK_FINE_OFFSET_RATIO * b0):

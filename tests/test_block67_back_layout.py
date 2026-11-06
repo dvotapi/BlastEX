@@ -274,3 +274,24 @@ def test_full_search_tries_both_templates(block):
             best_by_template[key] = ev
     assert set(best_by_template) == {False, True}
     assert res.best[0].rank_key() <= min(ev.rank_key() for ev in best_by_template.values())
+
+
+@pytest.mark.parametrize("block", ["67", "66"])
+def test_search_refines_around_edge_turn_seed(block):
+    """Семя на краю поворота (±5°): азимут округлён до 0,0001°, но подстройка
+    отступа и сдвига при азимуте самого семени не теряется (ревью PR 3)."""
+    from design.layout_search.space import is_back, stage1, stage3
+
+    contour, base = _block(block)
+    ref = back_azimuth_deg(contour)
+
+    def turn(c):
+        return (c.params["row_azimuth_deg"] - ref + 180.0) % 360.0 - 180.0
+
+    for sign in (1.0, -1.0):
+        edge = next(c for c in stage1(base, contour) if is_back(c.params) and abs(turn(c) - 5.0 * sign) < 1e-3)
+        out = stage3([edge], base, contour)
+        same_azimuth = [c for c in out if c.params["row_azimuth_deg"] == edge.params["row_azimuth_deg"]]
+        offsets = {c.params["back_offset_m"] for c in same_azimuth}
+        assert len(offsets) >= 2, (sign, offsets)
+        assert all(abs(turn(c)) <= 5.0 + 1e-3 for c in out)

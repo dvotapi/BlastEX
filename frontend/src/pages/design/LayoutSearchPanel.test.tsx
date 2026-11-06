@@ -221,6 +221,13 @@ describe("LayoutSearchPanel: карточки", () => {
     expect(within(card(2)).getByText("2,60")).toBeTruthy();
   });
 
+  it("ключ «от тыла» у шахматной сетки генератор не применяет — карточка «от бровки»", () => {
+    const params = { pattern: "staggered", row_azimuth_deg: 30, spacing_a_m: 4, burden_b_m: 3.5, layout_anchor: "back", back_offset_m: 2 };
+    mount({ status: status({ result: result({ best: [variant({ params })] }) }) });
+    expect(within(card(0)).getByText("от бровки")).toBeTruthy();
+    expect(within(card(0)).queryByText("Отступ от тыла, м")).toBeNull();
+  });
+
   it("квадратная сетка — «Шаг a × a»: генератор берёт b = a", () => {
     for (const pattern of [undefined, "square", "непонятный"]) {
       const params = { row_azimuth_deg: 30, spacing_a_m: 4.45, burden_b_m: 3.25, ...(pattern ? { pattern } : {}) };

@@ -86,6 +86,17 @@ class SpaceTests(unittest.TestCase):
             self.assertEqual(c.params["spacing_a_m"], 4.0)
             self.assertEqual(c.params["burden_b_m"], 5.0)
 
+    def test_back_keeps_base_tilt_limit(self):
+        # У «от тыла» `front_rows_tilt_deg` — предел наклона конца эшелона
+        # (0 — без наклона): перебор берёт его из базы, а не умолчание.
+        contour = _contour([[0, 1]])
+        back = _back(stage1({**RECT, "front_rows_tilt_deg": 0}, contour))
+        self.assertTrue(back)
+        self.assertTrue(all(c.params["front_rows_tilt_deg"] == 0 for c in back))
+        self.assertTrue(all("front_rows_tilt_deg" not in c.params for c in _back(stage1(RECT, contour))))
+        # Варианты от бровки угол схемы первого ряда выбирают сами (этап 2).
+        self.assertTrue(all("front_rows_tilt_deg" not in c.params for c in _crest(stage1({**RECT, "front_rows_tilt_deg": 0}, contour))))
+
     def test_stage1_ignores_base_anchor(self):
         # Опора базы не важна: перебор пробует оба шаблона, отступ от тыла —
         # свой, а не базы.

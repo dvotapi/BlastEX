@@ -273,18 +273,73 @@ def test_last_hole_tilted_toward_face():
 
 
 def test_tilt_breaking_floor_gap_gives_way_to_remainder():
-    """Последняя в y = 1,82: ЛСП 4,5. Наклон, который вводит ЛСП в допуск,
+    """Последняя в y = 3,0: ЛСП 5,68. Наклон, который вводит ЛСП в допуск,
     разрывает подошву до предыдущей больше b + 3 % — вместо него скважина на остатке."""
     c = rect(40, 30)
-    holes = back_grid(c, _end_params(3.68), c.points_xy)
+    holes = back_grid(c, _end_params(2.5), c.points_xy)
+    for echelon in _echelons(holes):
+        assert len(echelon) == 9
+        last, extra = echelon[-2], echelon[-1]
+        assert last.collar.y == pytest.approx(3.0)
+        assert _angle(last) == pytest.approx(0.0, abs=1e-9)
+        assert _angle(extra) == pytest.approx(0.0, abs=1e-9)
+        assert _lsp(c, extra) == pytest.approx(W, abs=0.01)
+
+
+def test_remainder_tilts_when_vertical_does_not_fit():
+    """Последняя в y = 1,82: ЛСП 4,5. Вертикальный остаток должен встать на
+    0,4·min(a, b) = 1,4 м впереди (y = 0,42) — ближе отступа 0,5 м к бровке.
+    Остаток — устье в 0,5 м от бровки (1,32 м от последней) с наклоном к
+    откосу ровно таким, чтобы у подошвы он стоял впереди последней на 1,4 м."""
+    from design.toe_line import floor_burdens
+
+    c = rect(40, 30)
+    params = _end_params(3.68)
+    holes = back_grid(c, params, c.points_xy)
     for echelon in _echelons(holes):
         assert len(echelon) == 9
         last, extra = echelon[-2], echelon[-1]
         assert last.collar.y == pytest.approx(1.82)
         assert _angle(last) == pytest.approx(0.0, abs=1e-9)
-        assert _angle(extra) == pytest.approx(0.0, abs=1e-9)
+        assert extra.collar.y == pytest.approx(0.5, abs=1e-3)
+        assert last.collar.y - extra.collar.y >= 1.0
+        assert 0.0 < _angle(extra) <= 30.0
+        assert extra.toe.y < extra.collar.y
+        advance = floor_point(last)[1] - floor_point(extra)[1]
+        assert advance == pytest.approx(0.4 * W, abs=0.01)
         assert 0.8 * W - 1e-6 <= _lsp(c, extra) <= ALLOWED + 1e-6
-        assert last.collar.y - extra.collar.y >= 1.0 - 1e-6
+        assert (extra.row, extra.col) == (last.row + 1, last.col)
+    burdens = floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))
+    assert all(not v.excess and not v.short for v in burdens.values())
+
+
+def test_remainder_is_ahead_along_the_corridor_not_the_column():
+    """Ряды косо к бровке (азимут 80°): путь к подошве отклонён от столбца на
+    10°. Остаток должен стоять впереди последней на 0,4·min(a, b) по этому
+    пути (как считает проверка ЛСП), а не только по столбцу."""
+    from design.toe_line import floor_burdens
+
+    c = rect(60, 30)
+    params = {**_end_params(3.3, front_rows_tilt_deg=0), "row_azimuth_deg": 80.0}
+    holes = back_grid(c, params, c.points_xy)
+    burdens = floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))
+    remainders = 0
+    for echelon in _echelons(holes):
+        last, extra = echelon[-2], echelon[-1]
+        if math.dist((last.collar.x, last.collar.y), (extra.collar.x, extra.collar.y)) < W - 1e-6:
+            remainders += 1
+            assert last.id not in burdens  # остаток закрывает последнюю
+            assert not burdens[extra.id].excess
+    assert remainders >= 5
+
+
+def test_no_tilted_remainder_when_tilt_is_off():
+    """Наклон выключен (0°): наклонного остатка нет — последняя остаётся вертикальной."""
+    c = rect(40, 30)
+    holes = back_grid(c, _end_params(3.68, front_rows_tilt_deg=0), c.points_xy)
+    for echelon in _echelons(holes):
+        assert len(echelon) == 8
+        assert all(_angle(h) == pytest.approx(0.0, abs=1e-9) for h in echelon)
 
 
 def test_remainder_hole_added_when_tilt_is_not_enough():
@@ -304,6 +359,24 @@ def test_remainder_hole_added_when_tilt_is_not_enough():
         assert extra.collar.x == pytest.approx(last.collar.x)
         assert (extra.row, extra.col) == (last.row + 1, last.col)
         assert extra.kind == "production"
+
+
+def test_remainder_closes_the_last_hole_in_floor_burdens():
+    """Остаток не ближе 0,4·min(a, b) (порог «впереди» у ЛСП) к последней: иначе
+    проверка ЛСП не считает последнюю закрытой и показывает у неё превышение.
+    Последняя в y = 2,2 (ЛСП 4,88), наклон выключен: остаток в 1,1 м с ЛСП = W
+    не закрыл бы её — остаток ставится на 1,4 м (ЛСП 3,48), а не ближе."""
+    from design.toe_line import floor_burdens
+
+    c = rect(40, 30)
+    params = _end_params(3.3, front_rows_tilt_deg=0)
+    holes = back_grid(c, params, c.points_xy)
+    for echelon in _echelons(holes):
+        last, extra = echelon[-2], echelon[-1]
+        assert last.collar.y == pytest.approx(2.2)
+        assert last.collar.y - extra.collar.y == pytest.approx(0.4 * W, abs=1e-4)
+    burdens = floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))
+    assert all(not v.excess for v in burdens.values())
 
 
 def test_last_regular_too_close_is_dropped():

@@ -542,3 +542,56 @@ def test_stab_row_and_row_timing_start_at_the_face():
     first = min(times, key=times.get)
     last = max(times, key=times.get)
     assert by_id[first].collar.y < by_id[last].collar.y
+
+
+# --- Ревью PR #154 ---------------------------------------------------------
+
+
+def test_no_toe_line_keeps_the_lattice(monkeypatch):
+    """Бровка есть, а линию подошвы построить не удалось (`toe_positions` —
+    None): конец эшелона не считается, решётка остаётся, а не стирается
+    шагом «ЛСП < 0,8·W» (ЛСП без подошвы — не 0)."""
+    import design.back_layout as back_layout
+
+    c = rect(40, 30)
+    expected = len(back_grid(c, _end_params(1.2), c.points_xy))
+    monkeypatch.setattr(back_layout, "toe_positions", lambda *a, **k: None)
+    holes = back_grid(c, _end_params(1.2), c.points_xy)
+    assert len(holes) == expected > 0
+    assert all(_angle(h) == pytest.approx(0.0, abs=1e-9) for h in holes)
+
+
+def test_back_anchor_turns_on_crest_offset_check():
+    """У паспорта «от тыла» без `min_crest_offset_m` проверка отступа устья от
+    кромки включена: шаблон ставит устья у самой кромки, перебор проверяет
+    отступ всегда — `validate` не должен молчать."""
+    from design.toe_line import crest_offset_checked
+
+    assert crest_offset_checked({"pattern": "rectangular", "layout_anchor": "back"})
+    assert not crest_offset_checked({"pattern": "rectangular"})
+
+
+def test_gap_limit_counts_skipped_rows():
+    """Эшелон с выходом из контура: предыдущая скважина на два ряда позади.
+    Предел разрыва у подошвы — |Δряд|·b (как у проверки `_row_gaps`), а не b:
+    иначе наклон режется до 0 там, где проверка разрыва не видит (допуск 3 % —
+    тоже от 2b, поэтому угол не меньше, чем при соседней предыдущей)."""
+    from design.back_layout import _gap_limited_angle
+    from design.geometry import drape_collar
+    from design.models import Hole
+
+    c = rect(40, 30)
+
+    def make(x, y, row, col, angle, azimuth):
+        collar, toe = drape_collar(x, y, angle, azimuth, 1.0, c, None, None)
+        return Hole(id=f"{row}-{col}", row=row, col=col, collar=collar, toe=toe, diameter_mm=152.0, subdrill_m=1.0)
+
+    advance = (0.0, -1.0)
+    corridor = (0.0, -1.0)
+    hole = make(20.0, 1.0, 3, 0, 0.0, 180.0)
+    adjacent = make(20.0, 1.0 + W, 2, 0, 0.0, 180.0)
+    skipped = make(20.0, 1.0 + 2 * W, 1, 0, 0.0, 180.0)
+    near = _gap_limited_angle(c, hole, adjacent, corridor, 30.0, 180.0, advance, W, make)
+    far = _gap_limited_angle(c, hole, skipped, corridor, 30.0, 180.0, advance, W, make)
+    assert 0.0 < near < 30.0
+    assert near <= far < 30.0

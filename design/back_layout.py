@@ -283,13 +283,14 @@ def _float(params: dict[str, Any], key: str, default: float) -> float:
     return value if math.isfinite(value) else default
 
 
-def _floor_burdens(contour: BlockContour, holes: list[Hole]) -> list[tuple[float, bool]]:
-    """(ЛСП, за подошвой) построенных скважин: точка оси на подошве и своя высота уступа."""
+def _floor_burdens(contour: BlockContour, holes: list[Hole]) -> list[tuple[float, bool]] | None:
+    """(ЛСП, за подошвой) построенных скважин: точка оси на подошве и своя высота
+    уступа; None — линии подошвы нет (ЛСП неизвестна, а не 0)."""
     if not holes:
         return []
     block_h = contour.bench.height_m
     found = toe_positions(contour, [floor_point(h) for h in holes], [hole_bench_height_m(h, block_h) for h in holes])
-    return [(p.distance_m, p.beyond) for p in found] if found else [(0.0, False)] * len(holes)
+    return [(p.distance_m, p.beyond) for p in found] if found else None
 
 
 def back_grid(
@@ -381,13 +382,18 @@ def back_grid(
         return [float(d) >= min_crest - 1e-9 for d in dist]
 
     flat = [h for echelon in echelons for h in echelon]
-    keep = {id(h) for h, ok, (_, beyond) in zip(flat, off_crest(flat), _floor_burdens(contour, flat)) if ok and not beyond}
+    burdens = _floor_burdens(contour, flat)
+    keep = {
+        id(h) for h, ok, (_, beyond) in zip(flat, off_crest(flat), burdens or [(0.0, False)] * len(flat))
+        if ok and not beyond
+    }
     echelons = [[h for h in echelon if id(h) in keep] for echelon in echelons]
 
     allowed = allowed_floor_burden_m(params)
     w = design_burden_m(params)
     lower = min_floor_burden_m(params)
-    if allowed is None or w is None or lower is None:
+    # Без линии подошвы ЛСП неизвестна: конец эшелона не считается, решётка — как есть.
+    if allowed is None or w is None or lower is None or (flat and burdens is None):
         return _face_rows([h for echelon in echelons for h in echelon])
 
     # 1. С конца — регулярные с ЛСП меньше 0,8·W.
@@ -591,12 +597,15 @@ def _gap_limited_angle(
     анти-цель спецификации). Как у проверки (`toe_line._row_gaps`): продвижение
     точки `hole` на подошве от точки `prev` по коридору `prev` к подошве (`corridor`) — не
     больше (1 + 3 %) решёточного шага b, спроецированного на этот коридор; и
-    расстояние между точками на подошве — не больше b + 3 %. Без предыдущей — `angle`."""
+    расстояние между точками на подошве — не больше b + 3 %. Шаг — |Δряд|·b:
+    у эшелона, вышедшего из контура и вошедшего снова, предыдущая может стоять
+    через пропущенные узлы. Без предыдущей — `angle`."""
     if prev is None:
         return angle
-    expected = burden_b * (advance[0] * corridor[0] + advance[1] * corridor[1])
+    step = burden_b * max(1, abs(hole.row - prev.row))
+    expected = step * (advance[0] * corridor[0] + advance[1] * corridor[1])
     limit_along = expected * (1.0 + TOE_BURDEN_TOLERANCE) - 1e-6
-    limit_gap = burden_b * (1.0 + TOE_BURDEN_TOLERANCE) - 1e-6
+    limit_gap = step * (1.0 + TOE_BURDEN_TOLERANCE) - 1e-6
     px, py = floor_point(prev)
 
     def fits(value: float) -> bool:

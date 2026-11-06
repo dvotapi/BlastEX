@@ -3,7 +3,7 @@
 // «Применить». Сам опрос — в useLayoutSearch, применение — на странице.
 import { ruNumber } from "../../lib/format";
 import type { LayoutSearchStage, LayoutSearchState, LayoutSearchStatus, LayoutSearchVariant } from "../../types/design";
-import { isSquarePattern } from "./designParams";
+import { BACK_OFFSET_DEFAULT_RATIO, isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
 
 const STATE_LABELS: Record<LayoutSearchState, string> = {
@@ -34,6 +34,9 @@ const NO_DESIGN_HINT = "Сохраните паспорт, чтобы подоб
 // у паспорта, чью сетку правили или строили по другим параметрам, итог с ней не сравним.
 const GRID_FROM_PARAMS_HINT =
   "Подбор строит сетку заново по параметрам вкладки „Сетка“: скважины на плане, если их правили или строили по другим параметрам, не учитываются.";
+// Перебор пробует оба шаблона раскладки (`design/layout_search/space.py`).
+const ANCHORS_HINT =
+  "Подбор пробует обе опоры сетки — от бровки и от тыла (от тыла — у квадратной и прямоугольной сетки) — и выбирает лучшие варианты из обеих.";
 const STALE_TEXT = "Устарел: контур, съёмка или параметры изменились после подбора";
 const BOUNDS_CHANGED_TEXT = "Устарел: границы темпа отбойки породы изменились после подбора";
 /** Нижняя граница темпа у итогов прежней версии (без сохранённых границ), мс/м. */
@@ -79,6 +82,19 @@ function frontRowsText(params: Record<string, unknown>): string {
   return "вертикальный";
 }
 
+/** Вариант шаблона «от тыла»: генератор применяет ключ только у квадратной и прямоугольной сетки. */
+function isBackVariant(params: Record<string, unknown>): boolean {
+  return params.layout_anchor === "back" && (isSquarePattern(params.pattern) || params.pattern === "rectangular");
+}
+
+/** Отступ приконтурного ряда от тыла: ключ, без него — 0,65·b, как у генератора. */
+function backOffsetText(params: Record<string, unknown>): string {
+  const own = numberOf(params.back_offset_m);
+  if (own !== null && own > 0) return ruNumber(own);
+  const b = isSquarePattern(params.pattern) ? numberOf(params.spacing_a_m) : numberOf(params.burden_b_m) ?? numberOf(params.spacing_a_m);
+  return b === null ? "—" : ruNumber(BACK_OFFSET_DEFAULT_RATIO * b);
+}
+
 /** Шаги раскладки: у квадратной сетки генератор берёт b = a. */
 function stepsRow(params: Record<string, unknown>): [string, string] {
   const a = ruNumber(numberOf(params.spacing_a_m));
@@ -95,11 +111,18 @@ function variantRows(
   reliefMinMsM: number,
 ): { params: [string, string][]; metrics: [string, string][] } {
   const azimuth = numberOf(v.params.row_azimuth_deg);
+  // «От тыла» схем первого ряда нет: каждый столбец у бровки генератор
+  // заканчивает сам по ЛСП (ничего, наклон или скважина на остатке).
+  const back = isBackVariant(v.params);
+  const anchor: [string, string][] = back
+    ? [["Опора сетки", "от тыла"], ["Отступ от тыла, м", backOffsetText(v.params)]]
+    : [["Опора сетки", "от бровки"]];
   return {
     params: [
+      ...anchor,
       ["Азимут рядов, °", azimuth === null ? "—" : plain(azimuth)],
       stepsRow(v.params),
-      ["Первый ряд", frontRowsText(v.params)],
+      ["Первый ряд", back ? "конец столбца по ЛСП" : frontRowsText(v.params)],
       ["Вруб у фланга", v.cut_flank === "right" ? "правого" : "левого"],
     ],
     metrics: [
@@ -195,6 +218,7 @@ export function LayoutSearchPanel({
         </button>
         {designId === null && <small>{NO_DESIGN_HINT}</small>}
         <small>{GRID_FROM_PARAMS_HINT}</small>
+        <small>{ANCHORS_HINT}</small>
         {error && <small role="alert" className="frag-warnings">{error}</small>}
 
         {/* «Остановлен» говорит пометка результата — строка состояния её не повторяет. */}

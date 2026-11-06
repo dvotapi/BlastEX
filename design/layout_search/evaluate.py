@@ -36,6 +36,8 @@ STEP_KEYS = ("spacing_a_m", "burden_b_m")
 REJECT_CODES = ("floor_beyond_toe", "collar_too_close_to_crest", "floor_row_gap_excess")
 # Код отбраковки пустой сетки.
 EMPTY_CODE = "empty"
+# Метка сеток по параметрам в `seen` (ключи раскладок начинаются с фланга).
+PATTERN_KEY = "pattern"
 # Окно одновременного срабатывания (только показывается), мс.
 WINDOW_MS = 8.0
 # Шаги округления перед сравнением: доли — 0,01, длина стыков — 0,5 м.
@@ -286,13 +288,23 @@ def evaluate(ctx: SearchContext, candidate: Candidate, seen: dict | None = None)
 
     `seen` — оценки уже построенных раскладок за этот поиск: варианты с теми
     же скважинами и флангом (пара с подъёмом угла даёт одно и то же при разных
-    `front_rows_tilt_deg`) берут готовую оценку со своим `candidate`.
+    `front_rows_tilt_deg`) берут готовую оценку со своим `candidate`. Там же —
+    сетки по параметрам (ключ `(PATTERN_KEY, параметры)`): фланг сетку не
+    меняет, и второй фланг того же варианта её не строит заново (генерация
+    «от тыла» — основная часть времени оценки). Скважины после генерации
+    никто не меняет, поэтому оценки делят их объекты (списки — свои).
     """
     base = ctx.design
-    # Ручные скважины перебор не использует: сетка без `existing_holes`.
-    holes = generate_pattern(
-        base.contour, candidate.params, None, _surfaces(base.surfaces), _domains(base.domains)
-    )
+    pattern_key = (PATTERN_KEY, candidate.key()[0]) if seen is not None else None
+    if pattern_key is not None and pattern_key in seen:
+        holes = list(seen[pattern_key])
+    else:
+        # Ручные скважины перебор не использует: сетка без `existing_holes`.
+        holes = generate_pattern(
+            base.contour, candidate.params, None, _surfaces(base.surfaces), _domains(base.domains)
+        )
+        if pattern_key is not None:
+            seen[pattern_key] = list(holes)
     mounting = network_params(base)
     if not holes:
         return _empty(candidate, mounting["system"])

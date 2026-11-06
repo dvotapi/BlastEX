@@ -77,6 +77,8 @@ function mount(extra: Partial<Props> = {}) {
 }
 
 const START = "Подобрать раскладку";
+const ANCHORS_HINT =
+  "Подбор пробует обе опоры сетки — от бровки и от тыла (от тыла — у квадратной и прямоугольной сетки) — и выбирает лучшие варианты из обеих.";
 const GRID_FROM_PARAMS_HINT =
   "Подбор строит сетку заново по параметрам вкладки „Сетка“: скважины на плане, если их правили или строили по другим параметрам, не учитываются.";
 
@@ -107,6 +109,11 @@ describe("LayoutSearchPanel: запуск", () => {
     cleanup();
     mount();
     expect(screen.getByText(GRID_FROM_PARAMS_HINT)).toBeTruthy();
+  });
+
+  it("подсказка: подбор пробует обе опоры сетки", () => {
+    mount({ status: null });
+    expect(screen.getByText(ANCHORS_HINT)).toBeTruthy();
   });
 
   it("кнопка запускает подбор", () => {
@@ -193,6 +200,32 @@ describe("LayoutSearchPanel: карточки", () => {
     expect(within(card(1)).getByText("пара 15°")).toBeTruthy();
     expect(within(card(1)).getByText("правого")).toBeTruthy();
     expect(within(card(2)).getByText("переход, 2 ряда, 12°")).toBeTruthy();
+  });
+
+  it("опора сетки: от бровки и от тыла — с отступом, без схемы первого ряда", () => {
+    const back = { pattern: "rectangular", row_azimuth_deg: 179.8, spacing_a_m: 3.81, burden_b_m: 3.8, layout_anchor: "back", back_offset_m: 2.47 };
+    // Без отступа — умолчание генератора 0,65·b.
+    const backDefault = { pattern: "square", row_azimuth_deg: 179.8, spacing_a_m: 4, layout_anchor: "back" };
+    mount({ status: status({ result: result({ best: [variant(), variant({ params: back }), variant({ params: backDefault })] }) }) });
+    const crest = within(card(0));
+    expect(crest.getByText("Опора сетки")).toBeTruthy();
+    expect(crest.getByText("от бровки")).toBeTruthy();
+    expect(crest.queryByText("Отступ от тыла, м")).toBeNull();
+    expect(crest.getByText("вертикальный")).toBeTruthy();
+    const fromBack = within(card(1));
+    expect(fromBack.getByText("от тыла")).toBeTruthy();
+    expect(fromBack.getByText("Отступ от тыла, м")).toBeTruthy();
+    expect(fromBack.getByText("2,47")).toBeTruthy();
+    expect(fromBack.getByText("конец столбца по ЛСП")).toBeTruthy();
+    expect(fromBack.queryByText("вертикальный")).toBeNull();
+    expect(within(card(2)).getByText("2,60")).toBeTruthy();
+  });
+
+  it("ключ «от тыла» у шахматной сетки генератор не применяет — карточка «от бровки»", () => {
+    const params = { pattern: "staggered", row_azimuth_deg: 30, spacing_a_m: 4, burden_b_m: 3.5, layout_anchor: "back", back_offset_m: 2 };
+    mount({ status: status({ result: result({ best: [variant({ params })] }) }) });
+    expect(within(card(0)).getByText("от бровки")).toBeTruthy();
+    expect(within(card(0)).queryByText("Отступ от тыла, м")).toBeNull();
   });
 
   it("квадратная сетка — «Шаг a × a»: генератор берёт b = a", () => {

@@ -283,7 +283,7 @@ def _float(params: dict[str, Any], key: str, default: float) -> float:
     return value if math.isfinite(value) else default
 
 
-def _floor_burdens(contour: BlockContour, holes: list[Hole]) -> list[tuple[float, bool]] | None:
+def _known_floor_burdens(contour: BlockContour, holes: list[Hole]) -> list[tuple[float, bool]] | None:
     """(ЛСП, за подошвой) построенных скважин: точка оси на подошве и своя высота
     уступа; None — линии подошвы нет (ЛСП неизвестна, а не 0)."""
     if not holes:
@@ -291,6 +291,12 @@ def _floor_burdens(contour: BlockContour, holes: list[Hole]) -> list[tuple[float
     block_h = contour.bench.height_m
     found = toe_positions(contour, [floor_point(h) for h in holes], [hole_bench_height_m(h, block_h) for h in holes])
     return [(p.distance_m, p.beyond) for p in found] if found else None
+
+
+def _floor_burdens(contour: BlockContour, holes: list[Hole]) -> list[tuple[float, bool]]:
+    """`_known_floor_burdens` там, где линия подошвы уже есть (`back_grid` её
+    проверил): без неё — (0, не за подошвой)."""
+    return _known_floor_burdens(contour, holes) or [(0.0, False)] * len(holes)
 
 
 def back_grid(
@@ -377,7 +383,7 @@ def back_grid(
         return [float(d) >= min_crest - 1e-9 for d in dist]
 
     flat = [h for echelon in echelons for h in echelon]
-    burdens = _floor_burdens(contour, flat)
+    burdens = _known_floor_burdens(contour, flat)
     keep = {
         id(h) for h, ok, (_, beyond) in zip(flat, off_crest(flat), burdens or [(0.0, False)] * len(flat))
         if ok and not beyond
@@ -457,11 +463,16 @@ def back_grid(
         else:
             min_step = max(REMAINDER_MIN_STEP_M, shadow / along)
             extra = _remainder(contour, boundary, crest, last, advance, burden_b, min_step, w, lower, min_crest, make)
-        if extra is None and tilt_deg > 0 and along >= 0.1:
+        over_tolerance = False
+        if extra is not None:
+            over_tolerance = _floor_burdens(contour, [extra])[0][0] > allowed + 1e-9
+        if (extra is None or over_tolerance) and tilt_deg > 0 and along >= 0.1:
+            # Вертикальный не помещается или и на наибольшем шаге ЛСП > W + 3 % —
+            # наклонный в допуске лучше; нет его — остаётся вертикальный.
             extra = _tilted_remainder(
                 contour, boundary, crest, last, advance, corridor, burden_b, shadow, lower, allowed, gap_limit,
                 min_crest, make,
-            )
+            ) or extra
         if extra is not None:
             echelons[k].append(extra)
             remainders[k] = extra

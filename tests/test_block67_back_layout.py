@@ -94,20 +94,22 @@ def test_fixture_is_local_and_has_the_face():
 
 
 def test_block67_back_layout_beats_crest_layout():
-    """Устья первого ряда ближе к бровке, наклонных не больше, отбраковки нет.
+    """Устья первого ряда ближе к бровке, отбраковки нет, ЛСП в коридоре — у
+    половины первого ряда.
 
     Доля ЛСП в коридоре на блоке 67 у шаблона «от тыла» ниже, чем у пары от
     бровки: подошва здесь в 3,2–4,8 м от бровки (≈ W), и там, где последний
     узел эшелона в 0,7–1,5 м от бровки, ни остатку (станок — не ближе 1 м к
     последней, устье — не ближе 0,5 м к бровке), ни наклону последней (разрыв
-    у подошвы ≤ b + 3 %) места нет. Шаблоны сравнивает перебор (PR 3).
+    у подошвы ≤ b + 3 %) места нет. Вертикальный остаток с ЛСП > W + 3 %
+    уступает наклонному в допуске (Codex, PR #154): ЛСП в коридоре 24 → 48 %,
+    наклонных 15 → 21 (у пары — 18). Шаблоны сравнивает перебор (PR 3).
     """
     back = _report({**_base(), "layout_anchor": "back"})
     crest = _report({**_base(), "front_rows_mode": "pair"})
     assert back["median_m"] < crest["median_m"]
-    assert back["tilted"] <= crest["tilted"]
     assert not back["codes"] & REJECT, back["codes"]
-    assert back["in_corridor"] > 0.15
+    assert back["in_corridor"] > 0.4
 
 
 @pytest.mark.parametrize(
@@ -178,8 +180,9 @@ def test_block67_back_layout_fires_from_the_crest():
 
 def test_block67_back_layout_toe_queries_are_bounded(monkeypatch):
     """Перебор (PR 3) зовёт генератор сотни раз: ЛСП считается пакетами, а
-    деления пополам останавливаются по точности — не больше 150 запросов к
-    линии подошвы на генерацию блока 67 (было 330)."""
+    деления пополам останавливаются по точности — не больше 300 запросов к
+    линии подошвы на генерацию блока 67 (0,12 с; наклонный остаток вместо
+    вертикального с ЛСП > W + 3 % — около 290, без него было около 150)."""
     import design.back_layout as back_layout
     import design.pattern as pattern
     import design.toe_line as toe_line
@@ -194,4 +197,4 @@ def test_block67_back_layout_toe_queries_are_bounded(monkeypatch):
     for module in (toe_line, back_layout, pattern):
         monkeypatch.setattr(module, "toe_positions", counted)
     generate_pattern(_contour(), {**_base(), "layout_anchor": "back"})
-    assert len(calls) <= 150, len(calls)
+    assert len(calls) <= 300, len(calls)

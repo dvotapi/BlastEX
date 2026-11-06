@@ -595,3 +595,21 @@ def test_gap_limit_counts_skipped_rows():
     far = _gap_limited_angle(c, hole, skipped, corridor, 30.0, 180.0, advance, W, make)
     assert 0.0 < near < 30.0
     assert near <= far < 30.0
+
+
+def test_over_tolerance_vertical_remainder_gives_way_to_tilted():
+    """Codex, PR #154: на наибольшем шаге вертикальный остаток с ЛСП > W + 3 %,
+    а наклонный (~5°) входит в допуск — ставится наклонный. Прямоугольник
+    40×30, подошва в y = −4 (откос ≈ 68,2°), отступ от тыла 3,3: последняя в y = 2,2."""
+    c = BlockContour(
+        vertices=[Point3(x=float(x), y=float(y), z=0.0) for x, y in [(0, 0), (40, 0), (40, 30), (0, 30)]],
+        free_faces=[[0, 1]],
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=math.degrees(math.atan2(H, 4.0))),
+    )
+    holes = back_grid(c, _end_params(3.3), c.points_xy)
+    for echelon in _echelons(holes):
+        last, extra = echelon[-2], echelon[-1]
+        assert last.collar.y == pytest.approx(2.2)
+        assert 0.0 < _angle(extra) <= 30.0
+        assert 0.8 * W - 1e-6 <= _lsp(c, extra) <= ALLOWED + 1e-6
+        assert _floor_gap(last, extra) <= ALLOWED + 1e-6

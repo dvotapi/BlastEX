@@ -128,12 +128,7 @@ def generate_pattern(
     follow_face = bool(params.get("first_row_follow_face", False))
     grid_shift = float(params.get("grid_shift_along_m", 0.0) or 0.0)
     edge_margin = float(params.get("edge_margin_m", 0.0))
-    diameter_mm = float(params.get("diameter_mm", 152.0))
-    subdrill_m = float(params.get("subdrill_m", 1.0))
-    angle_deg = float(params.get("angle_deg", 0.0))
-    azimuth_deg = float(params.get("azimuth_deg", row_azimuth_deg))
-    depth_override = params.get("depth_m")
-    depth_override = float(depth_override) if depth_override is not None else None
+    diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override = hole_spec(params, row_azimuth_deg)
     default_kind = _normalize_kind(params.get("default_kind", "production"), "production")
     domain_list = list(domains or [])
     tilt_count, tilt_deg = _front_rows_tilt(params)
@@ -454,6 +449,22 @@ def generate_pattern(
         holes, contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
         spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
         lattice_xy=lattice_xy, pair_of=pair_of,
+    )
+
+
+def hole_spec(
+    params: dict[str, Any], row_azimuth_deg: float
+) -> tuple[float, float, float, float, float | None]:
+    """Параметры скважин сетки: диаметр, перебур, угол, азимут (нет ключа —
+    азимут рядов) и заданная глубина (`depth_m`, нет ключа — None). Один разбор
+    для сетки от бровки и шаблона «от тыла» (`design/back_layout.py`)."""
+    depth = params.get("depth_m")
+    return (
+        float(params.get("diameter_mm", 152.0)),
+        float(params.get("subdrill_m", 1.0)),
+        float(params.get("angle_deg", 0.0)),
+        float(params.get("azimuth_deg", row_azimuth_deg)),
+        float(depth) if depth is not None else None,
     )
 
 

@@ -328,7 +328,7 @@ def back_grid(
        допустимым), ЛСП покажет проверка. Остаток, у которого проверка видит
        разрыв у подошвы (вне решётки у угла блока), заменяется тем же.
     """
-    from design.pattern import _front_rows_tilt, _grid_id, face_tilts, tilt_floor_burden_target_m
+    from design.pattern import _front_rows_tilt, _grid_id, face_tilts, hole_spec, tilt_floor_burden_target_m
 
     spacing_a, burden_b = grid_steps_m(params)
     row_azimuth = _float(params, "row_azimuth_deg", 0.0)
@@ -344,12 +344,7 @@ def back_grid(
     if not columns:
         return []
     kind = main_grid_kind(params)
-    diameter_mm = _float(params, "diameter_mm", 152.0)
-    subdrill_m = _float(params, "subdrill_m", 1.0)
-    angle_deg = _float(params, "angle_deg", 0.0)
-    azimuth_deg = _float(params, "azimuth_deg", row_azimuth)
-    raw_depth = params.get("depth_m")
-    depth_override = float(raw_depth) if raw_depth is not None else None
+    diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override = hole_spec(params, row_azimuth)
 
     def make(x: float, y: float, row: int, col: int, angle: float, azimuth: float) -> Hole:
         collar, toe = drape_collar(x, y, angle, azimuth, subdrill_m, contour, surfaces, depth_override)
@@ -560,6 +555,40 @@ def _corridors(contour: BlockContour, holes: list[Hole | None]) -> list[Point2]:
     return [by_id.get(id(h), (0.0, 0.0)) if h is not None else (0.0, 0.0) for h in holes]
 
 
+def _bisect(lo: float, hi: float, keep_low: Any, tolerance: float) -> tuple[float, float]:
+    """Деление пополам [lo, hi] до ширины `tolerance`: `keep_low(mid)` — mid
+    становится нижней границей, иначе верхней. Каждый шаг строит скважину
+    (а часто и запрос к линии подошвы), поэтому точность — константы модуля."""
+    while hi - lo > tolerance:
+        mid = 0.5 * (lo + hi)
+        if keep_low(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo, hi
+
+
+def _max_step(
+    last: Hole, advance: Point2, low: float, burden_b: float, boundary: list[Point2], crest: object, min_crest: float
+) -> float | None:
+    """Наибольший шаг t ∈ [`low`, b) от устья `last` по `advance`, при котором
+    устье внутри `boundary` и не ближе `min_crest` к бровке; None — и `low` не годится."""
+    x0, y0 = last.collar.x, last.collar.y
+
+    def placeable(t: float) -> bool:
+        x, y = x0 + advance[0] * t, y0 + advance[1] * t
+        if not point_in_polygon((x, y), boundary):
+            return False
+        return float(shapely.distance(shapely.Point(x, y), crest)) >= min_crest - 1e-9
+
+    if low >= burden_b or not placeable(low):
+        return None
+    high = burden_b - 1e-6
+    if placeable(high):
+        return high
+    return _bisect(low, high, placeable, BISECT_TOLERANCE_M)[0]
+
+
 def _least_angle_to(contour: BlockContour, hole: Hole, angle: float, azimuth: float, w: float, make: Any) -> float:
     """Наименьший угол ≤ `angle`, при котором ЛСП наклонённой `hole` не больше
     `w` (ЛСП ≈ W; решение владельца 06.11.2026 — как у пары, наклон не больше
@@ -571,14 +600,8 @@ def _least_angle_to(contour: BlockContour, hole: Hole, angle: float, azimuth: fl
 
     if lsp(angle) > w:
         return angle
-    lo, hi = 0.0, angle  # lsp(lo) > w ≥ lsp(hi)
-    while hi - lo > BISECT_TOLERANCE_DEG:
-        mid = 0.5 * (lo + hi)
-        if lsp(mid) <= w:
-            hi = mid
-        else:
-            lo = mid
-    return hi
+    # lsp(0) > w ≥ lsp(angle)
+    return _bisect(0.0, angle, lambda a: lsp(a) > w, BISECT_TOLERANCE_DEG)[1]
 
 
 def _gap_limited_angle(
@@ -617,14 +640,7 @@ def _gap_limited_angle(
         return angle
     if not fits(0.0):
         return 0.0
-    lo, hi = 0.0, angle
-    for _ in range(50):
-        mid = 0.5 * (lo + hi)
-        if fits(mid):
-            lo = mid
-        else:
-            hi = mid
-    return lo
+    return _bisect(0.0, angle, fits, BISECT_TOLERANCE_DEG)[0]
 
 
 def _remainder(
@@ -652,46 +668,24 @@ def _remainder(
     def at(t: float) -> Hole:
         return make(x0 + advance[0] * t, y0 + advance[1] * t, last.row + 1, last.col, 0.0, 0.0)
 
-    def placeable(t: float) -> bool:
-        x, y = x0 + advance[0] * t, y0 + advance[1] * t
-        if not point_in_polygon((x, y), boundary):
-            return False
-        return float(shapely.distance(shapely.Point(x, y), crest)) >= min_crest - 1e-9
-
     def lsp(t: float) -> float:
         value, beyond = _floor_burdens(contour, [at(t)])[0]
         return -1.0 if beyond else value
 
     low = min_step
-    if low >= burden_b or not placeable(low):
+    # Наибольший допустимый шаг: устье в контуре и не ближе отступа к бровке.
+    high = _max_step(last, advance, low, burden_b, boundary, crest, min_crest)
+    if high is None:
         return None
     low_lsp = lsp(low)
     if low_lsp < lower - 1e-9:
         return None
-    # Наибольший допустимый шаг: устье в контуре и не ближе отступа к бровке.
-    high = burden_b - 1e-6
-    if not placeable(high):
-        lo, hi = low, high
-        for _ in range(50):
-            mid = 0.5 * (lo + hi)
-            if placeable(mid):
-                lo = mid
-            else:
-                hi = mid
-        high = lo
     if lsp(high) >= w:
         return at(high)
-    lo, hi = low, high  # lsp(lo) ≥ W > lsp(hi)
     if low_lsp < w:
-        return at(lo)
-    # Точность шага — `BISECT_TOLERANCE_M`: каждое деление — запрос к линии подошвы.
-    while hi - lo > BISECT_TOLERANCE_M:
-        mid = 0.5 * (lo + hi)
-        if lsp(mid) >= w:
-            lo = mid
-        else:
-            hi = mid
-    return at(lo)
+        return at(low)
+    # lsp(low) ≥ W > lsp(high); каждое деление — запрос к линии подошвы.
+    return at(_bisect(low, high, lambda t: lsp(t) >= w, BISECT_TOLERANCE_M)[0])
 
 
 def _tilted_remainder(
@@ -720,28 +714,10 @@ def _tilted_remainder(
     """
     from design.pattern import FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG, FRONT_ROWS_TILT_MAX_DEG, _clamped_direction
 
-    x0, y0 = last.collar.x, last.collar.y
-
-    def placeable(t: float) -> bool:
-        x, y = x0 + advance[0] * t, y0 + advance[1] * t
-        if not point_in_polygon((x, y), boundary):
-            return False
-        return float(shapely.distance(shapely.Point(x, y), crest)) >= min_crest - 1e-9
-
-    low = REMAINDER_MIN_STEP_M
-    if low >= burden_b or not placeable(low):
+    t = _max_step(last, advance, REMAINDER_MIN_STEP_M, burden_b, boundary, crest, min_crest)
+    if t is None:
         return None
-    t = burden_b - 1e-6
-    if not placeable(t):
-        lo, hi = low, t
-        for _ in range(50):
-            mid = 0.5 * (lo + hi)
-            if placeable(mid):
-                lo = mid
-            else:
-                hi = mid
-        t = lo
-    x, y = x0 + advance[0] * t, y0 + advance[1] * t
+    x, y = last.collar.x + advance[0] * t, last.collar.y + advance[1] * t
     base_floor = floor_point(last)
     height = hole_bench_height_m(make(x, y, last.row + 1, last.col, 0.0, 0.0), contour.bench.height_m)
     toward = toe_positions(contour, [(x, y)], [height])
@@ -764,15 +740,9 @@ def _tilted_remainder(
         found, beyond = _floor_burdens(contour, [ahead_of(angle)[0]])[0]
         return -1.0 if beyond else found
 
-    def bisect(lo: float, hi: float, ok: Any, tolerance: float) -> float:
+    def least_ok(lo: float, hi: float, ok: Any) -> float:
         """Наименьший угол в (lo, hi], при котором `ok` (ok(lo) — нет, ok(hi) — да)."""
-        while hi - lo > tolerance:
-            mid = 0.5 * (lo + hi)
-            if ok(mid):
-                hi = mid
-            else:
-                lo = mid
-        return hi
+        return _bisect(lo, hi, lambda a: not ok(a), BISECT_TOLERANCE_DEG)[1]
 
     top = FRONT_ROWS_TILT_MAX_DEG
     # Наименьший угол, при котором остаток у подошвы впереди на `shadow`
@@ -782,20 +752,14 @@ def _tilted_remainder(
     elif ahead_of(top)[1] < shadow:
         return None
     else:
-        least = bisect(0.0, top, lambda a: ahead_of(a)[1] >= shadow, BISECT_TOLERANCE_DEG * 1e-2)
+        least = least_ok(0.0, top, lambda a: ahead_of(a)[1] >= shadow)
     # Наибольший угол, при котором разрыв у подошвы до последней ≤ b + 3 %.
     if ahead_of(least)[2] > gap_limit + 1e-9:
         return None
     most = top
     if ahead_of(top)[2] > gap_limit + 1e-9:
-        lo, hi = least, top  # разрыв при lo в допуске, при hi — нет
-        while hi - lo > BISECT_TOLERANCE_DEG * 1e-2:
-            mid = 0.5 * (lo + hi)
-            if ahead_of(mid)[2] <= gap_limit:
-                lo = mid
-            else:
-                hi = mid
-        most = lo
+        # Разрыв при least в допуске, при top — нет.
+        most = _bisect(least, top, lambda a: ahead_of(a)[2] <= gap_limit, BISECT_TOLERANCE_DEG)[0]
     first = lsp(least)
     if first < lower - 1e-9:
         return None
@@ -804,7 +768,7 @@ def _tilted_remainder(
         # наибольшем — места нет.
         if lsp(most) > allowed + 1e-9:
             return None
-        least = bisect(least, most, lambda a: 0.0 <= lsp(a) <= allowed, BISECT_TOLERANCE_DEG)
+        least = least_ok(least, most, lambda a: 0.0 <= lsp(a) <= allowed)
     hole, _, gap = ahead_of(least)
     value, beyond = _floor_burdens(contour, [hole])[0]
     if beyond or not lower - 1e-9 <= value <= allowed + 1e-9 or gap > gap_limit + 1e-9:

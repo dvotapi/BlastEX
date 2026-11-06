@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 // Вкладка «Сетка»: поля наклона рядов у откоса пишут ключи в параметры только
 // когда пользователь их задал.
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_PATTERN_PARAMS, type PatternParams } from "../../types/design";
+import { api } from "../../api/endpoints";
+import { DEFAULT_PATTERN_PARAMS, type BlockContour, type PatternParams } from "../../types/design";
 import { PatternPanel } from "./PatternPanel";
+
+vi.mock("../../api/endpoints", () => ({ api: { design: { backAzimuth: vi.fn() } } }));
 
 afterEach(cleanup);
 
@@ -168,5 +171,157 @@ describe("PatternPanel: шаг b у квадратной сетки", () => {
     mount({ ...DEFAULT_PATTERN_PARAMS, stab_row: true });
     const field = screen.getByLabelText("Глубина коротких (по вертикали), м");
     expect((field.closest("label") as HTMLLabelElement).title).toContain("cos α");
+  });
+});
+
+const ANCHOR = "Опора сетки";
+const BACK_OFFSET = "Отступ от тыла, м";
+const CONTOUR: BlockContour = {
+  vertices: [
+    { x: 0, y: 0, z: 0 },
+    { x: 40, y: 0, z: 0 },
+    { x: 40, y: 22, z: 0 },
+    { x: 0, y: 22, z: 0 },
+  ],
+  free_faces: [[0, 1]],
+  bench: { crest_z_m: 0, toe_z_m: -10, face_angle_deg: 75 },
+  name: "Блок",
+};
+
+function mountWithContour(params: PatternParams, contour: BlockContour | null = CONTOUR) {
+  const onChange = vi.fn();
+  render(<PatternPanel params={params} onChange={onChange} onGenerate={() => {}} busy={false} contour={contour} />);
+  return onChange;
+}
+
+describe("PatternPanel: опора сетки «от тыла»", () => {
+  it("«от тыла» пишет layout_anchor: back и азимут рядов по тылу", async () => {
+    vi.mocked(api.design.backAzimuth).mockReset().mockResolvedValue({ azimuth_deg: 93.5 });
+    const onChange = mountWithContour(RECT);
+    const select = screen.getByLabelText(ANCHOR) as HTMLSelectElement;
+    expect(select.value).toBe("crest");
+    fireEvent.change(select, { target: { value: "back" } });
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({ layout_anchor: "back", row_azimuth_deg: 93.5 }));
+    expect(api.design.backAzimuth).toHaveBeenCalledWith(CONTOUR);
+  });
+
+  it("тыла нет (ответ null) — опора пишется, азимут не меняется", async () => {
+    vi.mocked(api.design.backAzimuth).mockReset().mockResolvedValue({ azimuth_deg: null });
+    const onChange = mountWithContour(RECT);
+    fireEvent.change(screen.getByLabelText(ANCHOR), { target: { value: "back" } });
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({ layout_anchor: "back" }));
+  });
+
+  it("«от бровки» убирает ключи опоры и отступа", () => {
+    const onChange = mountWithContour({ ...RECT, layout_anchor: "back", back_offset_m: 2 });
+    fireEvent.change(screen.getByLabelText(ANCHOR), { target: { value: "crest" } });
+    const [patch] = onChange.mock.calls[0];
+    expect(Object.keys(patch).sort()).toEqual(["back_offset_m", "layout_anchor"]);
+    expect(Object.values(patch).every((v) => v === undefined)).toBe(true);
+  });
+
+  it("у шахматной, переменной и по доменам выбора нет", () => {
+    for (const pattern of ["staggered", "variable", "domain_dependent"] as const) {
+      mountWithContour({ ...DEFAULT_PATTERN_PARAMS, pattern });
+      expect(screen.queryByLabelText(ANCHOR)).toBeNull();
+      cleanup();
+    }
+    mountWithContour({ ...DEFAULT_PATTERN_PARAMS, pattern: "square" });
+    expect(screen.getByLabelText(ANCHOR)).toBeTruthy();
+  });
+
+  it("без контура «от тыла» недоступно", () => {
+    mountWithContour(RECT, null);
+    const option = screen.getByRole("option", { name: /^От тыла/ }) as HTMLOptionElement;
+    expect(option.disabled).toBe(true);
+    cleanup();
+    mountWithContour(RECT, { ...CONTOUR, vertices: CONTOUR.vertices.slice(0, 2) });
+    expect((screen.getByRole("option", { name: /^От тыла/ }) as HTMLOptionElement).disabled).toBe(true);
+  });
+
+  it("«Отступ от тыла»: подсказка 0,65·b, ввод пишет ключ, пусто убирает", () => {
+    const onChange = mountWithContour({ ...RECT, burden_b_m: 4, layout_anchor: "back" });
+    const field = screen.getByLabelText(BACK_OFFSET) as HTMLInputElement;
+    expect(field.value).toBe("");
+    expect(field.placeholder).toBe("2,6");
+    fireEvent.change(field, { target: { value: "3" } });
+    expect(onChange).toHaveBeenCalledWith({ back_offset_m: 3 });
+    cleanup();
+    const onChange2 = mountWithContour({ ...RECT, layout_anchor: "back", back_offset_m: 3 });
+    fireEvent.change(screen.getByLabelText(BACK_OFFSET), { target: { value: "" } });
+    const [patch] = onChange2.mock.calls[0];
+    expect("back_offset_m" in patch).toBe(true);
+    expect(patch.back_offset_m).toBeUndefined();
+  });
+
+  it("«от тыла»: из первого ряда у откоса — только предпочтительный наклон и отступ от кромки", () => {
+    mountWithContour({ ...RECT, layout_anchor: "back" });
+    expect(screen.queryByLabelText(SCHEME)).toBeNull();
+    expect(screen.queryByLabelText("Рядов перехода")).toBeNull();
+    expect(screen.getByLabelText(TILT)).toBeTruthy();
+    expect(screen.getByLabelText("Мин. отступ устья от кромки, м")).toBeTruthy();
+    expect(screen.queryByLabelText(BACK_OFFSET)).toBeTruthy();
+  });
+
+  it("«от тыла»: подсказка наклона — наименьший угол до ЛСП ≈ W", () => {
+    mountWithContour({ ...RECT, layout_anchor: "back" });
+    const title = (screen.getByLabelText(TILT).closest("label") as HTMLLabelElement).title;
+    expect(title).toMatch(/наименьший/);
+    expect(title).toMatch(/ЛСП ≈ W/);
+  });
+
+  it("«Азимут по тылу» ставит азимут рядов, без контура недоступна", async () => {
+    vi.mocked(api.design.backAzimuth).mockReset().mockResolvedValue({ azimuth_deg: 12 });
+    const onChange = mountWithContour({ ...RECT, layout_anchor: "back" });
+    fireEvent.click(screen.getByRole("button", { name: "Азимут по тылу" }));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({ row_azimuth_deg: 12 }));
+    cleanup();
+    mountWithContour({ ...RECT, layout_anchor: "back" }, null);
+    expect((screen.getByRole("button", { name: "Азимут по тылу" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("смена сетки на шахматную убирает ключи «от тыла»", () => {
+    const onChange = mountWithContour({ ...RECT, layout_anchor: "back", back_offset_m: 2 });
+    fireEvent.click(screen.getByRole("button", { name: /Шахматная/ }));
+    const [patch] = onChange.mock.calls[0];
+    expect(patch.pattern).toBe("staggered");
+    expect("layout_anchor" in patch && patch.layout_anchor === undefined).toBe(true);
+    expect("back_offset_m" in patch && patch.back_offset_m === undefined).toBe(true);
+    cleanup();
+    const onChange2 = mountWithContour({ ...RECT, layout_anchor: "back" });
+    fireEvent.click(screen.getByRole("button", { name: /Квадратная/ }));
+    expect(onChange2).toHaveBeenCalledWith({ pattern: "square" });
+  });
+
+  it("ответ азимута после правки параметров не перезаписывает их", async () => {
+    let resolve: (value: { azimuth_deg: number | null }) => void = () => {};
+    vi.mocked(api.design.backAzimuth)
+      .mockReset()
+      .mockReturnValue(new Promise((r) => (resolve = r)));
+    const onChange = vi.fn();
+    const view = render(
+      <PatternPanel params={RECT} onChange={onChange} onGenerate={() => {}} busy={false} contour={CONTOUR} />,
+    );
+    fireEvent.change(screen.getByLabelText(ANCHOR), { target: { value: "back" } });
+    view.rerender(
+      <PatternPanel
+        params={{ ...RECT, row_azimuth_deg: 45 }}
+        onChange={onChange}
+        onGenerate={() => {}}
+        busy={false}
+        contour={CONTOUR}
+      />,
+    );
+    resolve({ azimuth_deg: 93.5 });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange).toHaveBeenCalledWith({ layout_anchor: "back" });
+    expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ row_azimuth_deg: 93.5 }));
+  });
+
+  it("сохранённый «от тыла» у шахматной не показывается и не переписывается", () => {
+    const onChange = mountWithContour({ ...DEFAULT_PATTERN_PARAMS, layout_anchor: "back" });
+    expect(screen.queryByLabelText(ANCHOR)).toBeNull();
+    expect(screen.getByLabelText(SCHEME)).toBeTruthy();
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

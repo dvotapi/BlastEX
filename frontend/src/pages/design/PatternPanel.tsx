@@ -1,4 +1,6 @@
-import type { HoleKind, PatternParams, PatternType, RowPatternParams } from "../../types/design";
+import { useRef, useState } from "react";
+import { api } from "../../api/endpoints";
+import type { BlockContour, HoleKind, PatternParams, PatternType, RowPatternParams } from "../../types/design";
 import { SELECTABLE_HOLE_KINDS } from "../../types/design";
 import { isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
@@ -12,6 +14,13 @@ const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
 ];
 
 const KIND_OPTIONS = SELECTABLE_HOLE_KINDS;
+// Шаблон «от тыла» генератор строит только у квадратной и прямоугольной сетки
+const BACK_ANCHOR_PATTERNS: PatternType[] = ["square", "rectangular"];
+const BACK_OFFSET_DEFAULT_RATIO = 0.65;
+
+function formatNumber(value: number): string {
+  return String(Math.round(value * 100) / 100).replace(".", ",");
+}
 const TAPER_STAGGERED_HINT = "не применяется к шахматной сетке";
 
 function GridPreview({ pattern }: { pattern: PatternType }) {
@@ -38,12 +47,67 @@ export function PatternPanel({
   onChange,
   onGenerate,
   busy,
+  contour = null,
 }: {
   params: PatternParams;
   onChange: (patch: Partial<PatternParams>) => void;
   onGenerate: () => void;
   busy: boolean;
+  // Контур блока: по нему «от тыла» ставит азимут рядов
+  contour?: BlockContour | null;
 }) {
+  const [azimuthBusy, setAzimuthBusy] = useState(false);
+  // Параметры на момент ответа сервера: правки, сделанные, пока шёл запрос, не перезаписываются
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+  const anchorAvailable = BACK_ANCHOR_PATTERNS.includes(params.pattern);
+  // Сохранённый «от тыла» у другой сетки генератор не применяет — показываем как «от бровки»
+  const fromBack = anchorAvailable && params.layout_anchor === "back";
+  const hasContour = (contour?.vertices.length ?? 0) >= 3;
+  const burdenB = isSquarePattern(params.pattern) ? params.spacing_a_m : params.burden_b_m;
+
+  // Азимут тыла с сервера; null — у контура нет несвободной стороны
+  async function backAzimuth(): Promise<number | null> {
+    if (!contour || !hasContour) return null;
+    setAzimuthBusy(true);
+    try {
+      return (await api.design.backAzimuth(contour)).azimuth_deg;
+    } catch {
+      return null;
+    } finally {
+      setAzimuthBusy(false);
+    }
+  }
+
+  async function selectAnchor(value: string) {
+    if (value !== "back") {
+      // «От бровки» — ключи убираем, чтобы паспорт не отличался от нетронутого
+      onChange({ layout_anchor: undefined, back_offset_m: undefined });
+      return;
+    }
+    const before = paramsRef.current;
+    const azimuth = await backAzimuth();
+    const now = paramsRef.current;
+    if (now !== before) {
+      // Пока шёл запрос, параметры поменяли: азимут не трогаем, опору — только если сетка её допускает
+      if (BACK_ANCHOR_PATTERNS.includes(now.pattern)) onChange({ layout_anchor: "back" });
+      return;
+    }
+    onChange(azimuth == null ? { layout_anchor: "back" } : { layout_anchor: "back", row_azimuth_deg: azimuth });
+  }
+
+  async function azimuthFromBack() {
+    const before = paramsRef.current;
+    const azimuth = await backAzimuth();
+    if (azimuth != null && paramsRef.current === before) onChange({ row_azimuth_deg: azimuth });
+  }
+
+  // Сетка без шаблона «от тыла» — ключи опоры убираются, чтобы не попасть в паспорт
+  function selectPattern(pattern: PatternType) {
+    const stale =
+      !BACK_ANCHOR_PATTERNS.includes(pattern) && (params.layout_anchor != null || params.back_offset_m != null);
+    onChange(stale ? { pattern, layout_anchor: undefined, back_offset_m: undefined } : { pattern });
+  }
   const taperCount = params.front_rows_tilt_count ?? 0;
   // Старые проекты хранят только число рядов — это «Плавный переход»
   const frontScheme: "vertical" | "pair" | "taper" =
@@ -77,7 +141,7 @@ export function PatternPanel({
               key={opt.value}
               type="button"
               className={`pattern-type-option${params.pattern === opt.value ? " active" : ""}`}
-              onClick={() => onChange({ pattern: opt.value })}
+              onClick={() => selectPattern(opt.value)}
             >
               <GridPreview pattern={opt.value} />
               <b>{opt.label}</b>
@@ -85,6 +149,33 @@ export function PatternPanel({
             </button>
           ))}
         </div>
+
+        {anchorAvailable && (
+          <div className="field-pair">
+            <label title="От бровки — ряды от верхней бровки вглубь. От тыла — приконтурный ряд параллельно тылу (самой длинной несвободной стороне) в 0,5–0,8·b от него, столбцы к бровке с шагом b, у бровки каждый столбец заканчивается по ЛСП: ничего, наклон или скважина на остатке.">
+              Опора сетки
+              <select value={fromBack ? "back" : "crest"} onChange={(e) => void selectAnchor(e.target.value)} disabled={azimuthBusy}>
+                <option value="crest">От бровки</option>
+                <option value="back" disabled={!hasContour}>
+                  {hasContour ? "От тыла" : "От тыла (нужен контур блока)"}
+                </option>
+              </select>
+            </label>
+            {fromBack && (
+              <label title="Расстояние от тыла до приконтурного ряда. Пусто — 0,65·b; узел берётся в 0,5–0,8·b от тыла, на дуге тыла ряд выходит лесенкой.">
+                Отступ от тыла, м
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={params.back_offset_m ?? ""}
+                  placeholder={formatNumber(BACK_OFFSET_DEFAULT_RATIO * burdenB)}
+                  onChange={(e) => onChange({ back_offset_m: e.target.value === "" ? undefined : Number(e.target.value) })}
+                />
+              </label>
+            )}
+          </div>
+        )}
 
         <div className="field-pair">
           <label>Шаг вдоль ряда a, м<input type="number" min="1" step="0.1" {...num("spacing_a_m")} /></label>
@@ -101,6 +192,17 @@ export function PatternPanel({
           <label>Азимут рядов, °<input type="number" min="0" max="359" step="1" {...num("row_azimuth_deg")} /></label>
           <label>Отступ от откоса, м<input type="number" min="0" step="0.1" {...num("offset_from_face_m")} /></label>
         </div>
+        {fromBack && (
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void azimuthFromBack()}
+            disabled={!hasContour || azimuthBusy}
+            title="Азимут рядов — по хорде тыла (самой длинной несвободной стороны контура)."
+          >
+            Азимут по тылу
+          </button>
+        )}
 
         <div className="field-pair">
           <label>
@@ -170,6 +272,7 @@ export function PatternPanel({
         </div>
 
         <div className="field-pair">
+          {!fromBack && (
           <label title="Как поставить скважины первого ряда у откоса: оставить вертикальными, добавить к каждой наклонную на 1 м ближе к откосу или плавно наклонить ряды. Столбцы сетки остаются на одной линии.">
             Первый ряд у откоса
             <select
@@ -195,7 +298,8 @@ export function PatternPanel({
               </option>
             </select>
           </label>
-          {frontScheme === "taper" && (
+          )}
+          {!fromBack && frontScheme === "taper" && (
             <label title="Сколько первых рядов переходят от наклона к вертикали.">
               Рядов перехода
               <select
@@ -208,15 +312,17 @@ export function PatternPanel({
               </select>
             </label>
           )}
-          {frontScheme !== "vertical" && (
+          {(fromBack || frontScheme !== "vertical") && (
             <label
               title={
-                frontScheme === "pair"
+                fromBack
+                  ? "Наклон последней скважины столбца к откосу, если её ЛСП больше W + 3 %: генератор берёт наименьший угол, при котором ЛСП ≈ W, не больше этого значения (0–30°), а при недоборе поднимает до 30°; 0 — без наклона. Наклон не уводит её от предыдущей у подошвы дальше b + 3 % — иначе ставится скважина на остатке."
+                  : frontScheme === "pair"
                   ? "Наклон пары от вертикали в сторону откоса, от 0 до 30°. Если ЛСП не укладывается в W + 3 %, наклон поднимается до 30°; 0 — без наклона."
                   : "Наибольший наклон от вертикали в сторону откоса, от 0 до 30°."
               }
             >
-              {frontScheme === "pair" ? "Предпочтительный наклон, ° от вертикали" : "Наибольший наклон, ° от вертикали"}
+              {fromBack || frontScheme === "pair" ? "Предпочтительный наклон, ° от вертикали" : "Наибольший наклон, ° от вертикали"}
               <input
                 type="number"
                 min="0"
@@ -234,7 +340,7 @@ export function PatternPanel({
             </label>
           )}
         </div>
-        {taperInactive && (
+        {!fromBack && taperInactive && (
           <small role="note">
             Плавный переход {TAPER_STAGGERED_HINT}: сетка строится с вертикальным первым рядом.
           </small>
@@ -242,7 +348,7 @@ export function PatternPanel({
 
         {/* У вертикального первого ряда отступ генератор не выбирает (это часть 4
             оптимизатора) — поле видно, только если отступ уже задан в паспорте */}
-        {(frontScheme !== "vertical" || params.min_crest_offset_m != null) && (
+        {(fromBack || frontScheme !== "vertical" || params.min_crest_offset_m != null) && (
           <label title="Устье не ближе этого расстояния к верхней кромке уступа. Пусто — 0,5 м (гусеничный станок; у УРБ задайте больше).">
             Мин. отступ устья от кромки, м
             <input

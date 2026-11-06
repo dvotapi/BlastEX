@@ -509,6 +509,9 @@ export const api = {
       get<CadSituationGeometry>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/situation`),
   },
   design: {
+    // Азимут тыла (наиболее длинной несвободной стороны) для шаблона «от тыла»
+    backAzimuth: (contour: BlockContour) =>
+      post<{ azimuth_deg: number | null }>(`${V1}/design/back-azimuth`, { contour }),
     pattern: (
       contour: BlockContour,
       params: Record<string, unknown>,

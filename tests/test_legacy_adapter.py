@@ -166,6 +166,26 @@ class TestMapping:
         assert "Порода «Порода без плотности»: не задана плотность, запись пропущена" in joined
         assert "Порода «Порода с нулём»: не задана плотность, запись пропущена" in joined
 
+    def test_rock_warning_names_the_missing_field(self):
+        # Предупреждение называет пустое поле: «прочность или трещиноватость»
+        # заставляла искать то, что у породы заполнено.
+        legacy = legacy_references_from_snapshot(
+            _snapshot(
+                rocks=[
+                    _item("ROCK_NO_FF", "Без трещиноватости", {"density_t_m3": "2.7", "ucs_mpa": "100"}),
+                    _item("ROCK_NO_UCS", "Без прочности", {"density_t_m3": "2.7", "fissuring_ff": "1"}),
+                    _item("ROCK_NONE", "Без обоих", {"density_t_m3": "2.7"}),
+                    _item("ROCK_OK", "Полная", {"density_t_m3": "2.7", "ucs_mpa": "100", "fissuring_ff": "1"}),
+                ]
+            )
+        )
+        rock_warnings = [w for w in legacy.warnings if w.startswith("Порода")]
+        assert rock_warnings == [
+            "Порода «Без трещиноватости»: не задана трещиноватость, принят 0.",
+            "Порода «Без прочности»: не задана прочность на сжатие, принят 0.",
+            "Порода «Без обоих»: не заданы прочность на сжатие и трещиноватость, приняты нули.",
+        ]
+
     def test_explosive_without_density_or_energy_is_skipped_with_a_warning(self):
         # Такое ВВ фронт отправляет в `/blast/optimize`, где нули не проходят
         # проверку схемы: лучше предупреждение, чем 422 на расчёте.

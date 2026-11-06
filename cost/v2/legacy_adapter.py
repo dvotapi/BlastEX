@@ -256,8 +256,14 @@ def _rock(item: ReferenceItem, warnings: list[str]) -> RockProperties | None:
         return None
     ucs = _optional_number(item.payload.get("ucs_mpa"))
     fissuring = _optional_number(item.payload.get("fissuring_ff"))
-    if ucs is None or fissuring is None:
-        warnings.append(f"Порода «{item.name}»: не заданы прочность или трещиноватость, приняты нули.")
+    # Предупреждение называет именно пустое поле: у большинства пород
+    # не хватает одной трещиноватости, и «прочность или трещиноватость»
+    # заставляла искать то, что заполнено.
+    missing = [label for value, label in ((ucs, "прочность на сжатие"), (fissuring, "трещиноватость")) if value is None]
+    if len(missing) == 2:
+        warnings.append(f"Порода «{item.name}»: не заданы прочность на сжатие и трещиноватость, приняты нули.")
+    elif missing:
+        warnings.append(f"Порода «{item.name}»: не задана {missing[0]}, принят 0.")
     return RockProperties(
         name=item.name,
         density_t_m3=density,

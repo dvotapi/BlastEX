@@ -15,6 +15,7 @@ from cost.model.inputs import (
     payload_number,
     payload_text,
     payroll_parts,
+    salary_note,
 )
 from cost.model.labor import DRILLING_OPERATIONS
 from cost.v2.models import CostLayer, ReferenceItem
@@ -93,8 +94,13 @@ def compute(context: ModelContext) -> None:
         )
         if labor is not None:
             # Статьи ФОТ косвенной должности — для раскладки в кольце цены метра.
+            headcount = payload_number(item, "headcount", Decimal("1")) or Decimal("1")
             context.add_payroll_parts(
-                line, payroll_parts({code: amount * share for code, amount in labor.items()})
+                line,
+                payroll_parts(
+                    {code: amount * share for code, amount in labor.items()},
+                    notes={"SALARY": salary_note(labor.get("SALARY", Decimal("0")) / headcount)},
+                ),
             )
     _storage(context, share)
 

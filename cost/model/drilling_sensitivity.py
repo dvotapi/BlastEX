@@ -38,7 +38,16 @@ from pydantic import ValidationError
 
 from cost.model import drilling, labor
 from cost.model.engine import compute_block_economics
-from cost.model.inputs import BlockEconomics, ModelContext, ModelParameters, PayrollPart, payload_number, payload_text
+from cost.model.inputs import (
+    BlockEconomics,
+    ModelContext,
+    ModelParameters,
+    PayrollPart,
+    _plural_form,
+    formula_number,
+    payload_number,
+    payload_text,
+)
 from cost.model.block_margin import _scale_dict
 from cost.model.payroll import Scale, pays_by_meters, scale_series
 from cost.model.payroll_inputs import _first_error, _labor_rate, _scale
@@ -112,11 +121,16 @@ class Component:
     parts: tuple["Component", ...] = ()
     # Сумма на блок, ₽; None — не задана.
     rub: Decimal | None = None
+    # Пояснение под подписью: у должности — люди в смене, штат и смены блока,
+    # у оклада — оклад одного человека.
+    note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"code": self.code, "label": self.label, "rub_per_m": float(self.rub_per_m)}
         if self.rub is not None:
             result["rub"] = float(self.rub)
+        if self.note:
+            result["note"] = self.note
         if self.parts:
             result["parts"] = [part.to_dict() for part in self.parts]
         return result
@@ -308,6 +322,11 @@ def prices(
             if part.absorbs is not None:
                 key = (line.operation_code, part.absorbs)
                 absorbed[key] = absorbed.get(key, ZERO) + part.amount_rub
+    counts: dict[str, int] = {}
+    for line in lines:
+        if id(line) in result.payroll_lines:
+            counts[line.cost_item_code] = counts.get(line.cost_item_code, 0) + 1
+    repeated = {code for code, count in counts.items() if count > 1}
     for line in lines:
         if id(line) in own and line.cost_item_code not in SERVICE_OWN_ITEMS:
             by_item[line.cost_item_code] = by_item.get(line.cost_item_code, ZERO) + line.amount_rub
@@ -352,6 +371,9 @@ def prices(
                 amount / drilling_m,
                 _payroll_components(_part_code(item, index), position_parts.get((item, name), ()), drilling_m),
                 rub=amount,
+                # У должности дважды в составе смены и штат в натуральных
+                # величинах — от одной строки: пояснение ввело бы в заблуждение.
+                note=_crew_note(values, item) if (item, name) in position_parts and item not in repeated else "",
             )
             for index, ((item, name), amount) in enumerate(groups[code].items())
             if amount
@@ -382,9 +404,30 @@ def _payroll_components(prefix: str, parts: Sequence[PayrollPart], drilling_m: D
     """Статьи ФОТ должности — подстроки её подстроки кольца."""
 
     return tuple(
-        Component(f"{prefix}:{part.code}", part.label, part.amount_rub / drilling_m, rub=part.amount_rub)
+        Component(f"{prefix}:{part.code}", part.label, part.amount_rub / drilling_m, rub=part.amount_rub, note=part.note)
         for part in parts
     )
+
+
+def _crew_note(values: Mapping[str, Decimal], item_code: str) -> str:
+    """«1 в смене · 3 в штате · 17,39 смены блока»: за кого и за сколько смен посчитан ФОТ должности.
+
+    Экипаж техники получает месячный ФОТ всего штата ротации, отнесённый на
+    смены блока; без ротации (персонал участка) штата нет. У строки без
+    смен в натуральных величинах (косвенный персонал юнита) пояснения нет.
+    """
+
+    code = item_code.removeprefix("LABOR_")
+    shifts = values.get(f"crew_shifts.{code}")
+    if shifts is None:
+        return ""
+    parts = [f"{formula_number(values.get(f'crew_per_shift.{code}', ZERO))} в смене"]
+    rotation = values.get(f"crew_rotation.{code}")
+    if rotation is not None:
+        parts.append(f"{formula_number(rotation)} в штате")
+    number = formula_number(shifts)
+    parts.append(f"{number} {('смена', 'смены', 'смен')[_plural_form(number)]} блока")
+    return " · ".join(parts)
 
 
 def _part_code(item_code: str, index: int) -> str:

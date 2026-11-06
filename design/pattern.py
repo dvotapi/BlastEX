@@ -64,6 +64,10 @@ FACE_PAIR_OFFSET_M = 1.0
 # Азимут наклонной пары — к ближайшей точке линии подошвы (по нормали к
 # откосу), но не дальше этого от линии столбца (решение владельца 06.11.2026).
 FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG = 15.0
+# Шаблон раскладки «от тыла» (`layout_anchor`; нет ключа — от бровки):
+# `design/back_layout.py`. Только квадратная и прямоугольная сетки.
+LAYOUT_ANCHOR_BACK = "back"
+LAYOUT_ANCHOR_PATTERNS = ("square", "rectangular")
 
 
 def generate_pattern(
@@ -96,6 +100,11 @@ def generate_pattern(
       grid_shift_along_m      сдвиг узлов решётки вдоль ряда, м (по модулю шага a; нет ключа — 0;
                               ряд вдоль бровки не сдвигается)
       min_crest_offset_m      минимальный отступ устья от кромки (нет ключа — 0,5 м)
+      layout_anchor           "back" — шаблон «от тыла» (`design/back_layout.py`; только
+                              square/rectangular, нужен тыл); нет ключа — от бровки.
+                              Схема первого ряда (`front_rows_mode`, `front_rows_tilt_count`)
+                              и ряд вдоль бровки не применяются — их заменяет конец эшелона
+      back_offset_m           отступ приконтурного ряда от тыла, м (нет ключа — 0,65·b)
       contour_row / presplit_row / trim_row / buffer_row / stab_row
       satellite_holes / infill_holes
     """
@@ -142,6 +151,16 @@ def generate_pattern(
     boundary = offset_polygon(verts, edge_margin) if edge_margin > 0 else verts
     row_dir, advance_dir = local_basis(row_azimuth_deg)
     origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
+
+    if params.get("layout_anchor") == LAYOUT_ANCHOR_BACK and pattern in LAYOUT_ANCHOR_PATTERNS:
+        from design.back_layout import back_grid, back_side
+
+        if back_side(contour) is not None:
+            return _finish_pattern(
+                back_grid(contour, params, boundary, surfaces),
+                contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
+                spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
+            )
 
     us = [(vx - origin[0]) * row_dir[0] + (vy - origin[1]) * row_dir[1] for vx, vy in verts]
     vs = [
@@ -429,6 +448,37 @@ def generate_pattern(
         # `min_crest_offset_m` к кромке — после сдвига плавного перехода.
         holes = _off_crest(holes, contour, min_crest_offset_m(params))
 
+    return _finish_pattern(
+        holes, contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
+        spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
+        lattice_xy=lattice_xy, pair_of=pair_of,
+    )
+
+
+def _finish_pattern(
+    holes: list[Hole],
+    contour: BlockContour,
+    params: dict[str, Any],
+    existing_holes: list[Hole] | None,
+    surfaces: object | None,
+    boundary: list[tuple[float, float]],
+    origin: tuple[float, float],
+    row_dir: tuple[float, float],
+    advance_dir: tuple[float, float],
+    spacing_a: float,
+    burden_b: float,
+    diameter_mm: float,
+    subdrill_m: float,
+    angle_deg: float,
+    azimuth_deg: float,
+    depth_override: float | None,
+    lattice_xy: dict[int, tuple[float, float]] | None = None,
+    pair_of: dict[int, int] | None = None,
+) -> list[Hole]:
+    """Стенки, буфер, стабилизация, сателлиты, вставки и нумерация поверх основной сетки."""
+    holes = list(holes)
+    lattice_xy = lattice_xy or {}
+    pair_of = pair_of or {}
     holes.extend(
         _generate_wall_row(
             contour, params, "contour", "K", "contour_row", "contour_spacing_m",

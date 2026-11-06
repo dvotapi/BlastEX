@@ -251,18 +251,40 @@ def test_last_hole_fits_nothing_added():
     assert all(h.kind == "production" and h.source == "generated" for h in holes)
 
 
+def _floor_gap(a, b):
+    (ax, ay), (bx, by) = floor_point(a), floor_point(b)
+    return math.hypot(ax - bx, ay - by)
+
+
 def test_last_hole_tilted_toward_face():
-    """Последняя в y = 1,82: ЛСП 4,5 — наклон к откосу, ЛСП в коридоре, лишней нет."""
+    """Последняя в y = 1,0: ЛСП 3,68 > 3,605 — наклон к откосу; угол ограничен
+    разрывом у подошвы до предыдущей ≤ b + 3 % (анти-цель спецификации)."""
     c = rect(40, 30)
-    holes = back_grid(c, _end_params(3.68), c.points_xy)
+    holes = back_grid(c, _end_params(1.0), c.points_xy)
     for echelon in _echelons(holes):
-        assert len(echelon) == 8
+        assert len(echelon) == 9
         last = echelon[-1]
-        assert last.collar.y == pytest.approx(1.82)
+        assert last.collar.y == pytest.approx(1.0)
         assert 0.0 < _angle(last) <= 30.0 + 1e-9
         assert last.toe.y < last.collar.y  # к бровке
         assert 0.8 * W - 1e-6 <= _lsp(c, last) <= ALLOWED + 1e-6
+        assert _floor_gap(echelon[-2], last) <= ALLOWED + 1e-6
         assert all(_angle(h) == pytest.approx(0.0, abs=1e-9) for h in echelon[:-1])
+
+
+def test_tilt_breaking_floor_gap_gives_way_to_remainder():
+    """Последняя в y = 1,82: ЛСП 4,5. Наклон, который вводит ЛСП в допуск,
+    разрывает подошву до предыдущей больше b + 3 % — вместо него скважина на остатке."""
+    c = rect(40, 30)
+    holes = back_grid(c, _end_params(3.68), c.points_xy)
+    for echelon in _echelons(holes):
+        assert len(echelon) == 9
+        last, extra = echelon[-2], echelon[-1]
+        assert last.collar.y == pytest.approx(1.82)
+        assert _angle(last) == pytest.approx(0.0, abs=1e-9)
+        assert _angle(extra) == pytest.approx(0.0, abs=1e-9)
+        assert 0.8 * W - 1e-6 <= _lsp(c, extra) <= ALLOWED + 1e-6
+        assert last.collar.y - extra.collar.y >= 1.0 - 1e-6
 
 
 def test_remainder_hole_added_when_tilt_is_not_enough():
@@ -285,15 +307,16 @@ def test_remainder_hole_added_when_tilt_is_not_enough():
 
 
 def test_last_regular_too_close_is_dropped():
-    """Узел в 0,3 м от бровки убран; конец эшелона — от узла в y = 3,8 (наклон)."""
+    """Узел в 0,3 м от бровки убран; конец эшелона — от узла в y = 3,8 (ЛСП
+    6,48): наклон разорвал бы подошву, поэтому скважина на остатке."""
     c = rect(40, 30)
     holes = back_grid(c, _end_params(1.7), c.points_xy)
     assert all(h.collar.y >= 0.5 for h in holes)
     for echelon in _echelons(holes):
-        last = echelon[-1]
+        last, extra = echelon[-2], echelon[-1]
         assert last.collar.y == pytest.approx(3.8)
-        assert _angle(last) > 0.0
-        assert _lsp(c, last) <= ALLOWED + 1e-6
+        assert extra.row == last.row + 1
+        assert _lsp(c, extra) <= ALLOWED + 1e-6
 
 
 def test_echelon_without_nodes_is_empty():
@@ -304,8 +327,9 @@ def test_echelon_without_nodes_is_empty():
 
 
 def test_remainder_closer_than_one_metre_falls_back_to_max_tilt():
-    """Откос 45°: ЛСП последней (y = 1,2) 11,2, наклона 30° мало, места для
-    остатка (0,7 м до отступа 0,5 м) нет — последняя с наибольшим углом."""
+    """Откос 45°: ЛСП последней (y = 1,2) 11,2, наклона мало, места для остатка
+    (0,7 м до отступа 0,5 м) нет — последняя с наибольшим допустимым углом:
+    его ограничивает разрыв у подошвы до предыдущей (≤ b + 3 %)."""
     c = _contour([(0, 0), (40, 0), (40, 30), (0, 30)], [[0, 1]])
     c.bench = BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=45.0)
     holes = back_grid(c, _end_params(0.8), c.points_xy)
@@ -313,7 +337,8 @@ def test_remainder_closer_than_one_metre_falls_back_to_max_tilt():
         assert len(echelon) == 9
         last = echelon[-1]
         assert last.collar.y == pytest.approx(1.2)
-        assert _angle(last) == pytest.approx(30.0, abs=0.01)
+        assert _angle(last) > 0.0
+        assert _floor_gap(echelon[-2], last) == pytest.approx(ALLOWED, abs=1e-3)
         assert _lsp(c, last) > ALLOWED
 
 
@@ -325,3 +350,61 @@ def test_without_w_only_regular_nodes():
     holes = back_grid(c, {**params, "burden_b_m": None}, c.points_xy)
     assert holes
     assert all(_angle(h) == pytest.approx(0.0, abs=1e-9) for h in holes)
+
+
+# --- Режим «от тыла» в generate_pattern (Task 5) ----------------------------------
+
+from design.analysis import validate  # noqa: E402
+from design.models import BlastDesign  # noqa: E402
+from design.pattern import LAYOUT_ANCHOR_BACK, generate_pattern  # noqa: E402
+
+BACK_MODE = {**END, "back_offset_m": 3.68, "layout_anchor": "back"}
+
+
+def _collars(holes):
+    return sorted((round(h.collar.x, 6), round(h.collar.y, 6), round(h.toe.x, 6), round(h.toe.y, 6)) for h in holes)
+
+
+def test_layout_anchor_constant():
+    assert LAYOUT_ANCHOR_BACK == "back"
+
+
+def test_back_mode_generates_back_grid():
+    c = rect(40, 30)
+    holes = generate_pattern(c, BACK_MODE)
+    assert _collars(holes) == _collars(back_grid(c, BACK_MODE, c.points_xy))
+    assert len({h.id for h in holes}) == len(holes)
+    assert not [h for h in holes if h.kind == "face_toe"]
+
+
+def test_back_mode_ignores_front_rows_mode():
+    c = rect(40, 30)
+    holes = generate_pattern(c, {**BACK_MODE, "front_rows_mode": "pair", "front_rows_tilt_count": 1})
+    assert _collars(holes) == _collars(back_grid(c, BACK_MODE, c.points_xy))
+
+
+def test_back_mode_ignored_for_staggered():
+    c = rect(40, 30)
+    plain = {**END, "pattern": "staggered"}
+    assert _collars(generate_pattern(c, {**plain, "layout_anchor": "back"})) == _collars(generate_pattern(c, plain))
+
+
+def test_back_mode_without_back_falls_back():
+    c = rect(40, 30, free=[[0, 1], [1, 2], [2, 3], [3, 0]])
+    assert _collars(generate_pattern(c, BACK_MODE)) == _collars(generate_pattern(c, END))
+
+
+def test_back_mode_keeps_walls():
+    c = rect(40, 30)
+    holes = generate_pattern(c, {**BACK_MODE, "contour_row": True, "contour_spacing_m": 2.0})
+    assert any(h.kind == "contour" for h in holes)
+
+
+def test_back_mode_passes_validate_rejects():
+    c = rect(40, 30)
+    for offset in (1.0, 1.2, 1.7, 2.5, 3.68):
+        params = {**BACK_MODE, "back_offset_m": offset}
+        holes = generate_pattern(c, params)
+        design = BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params)
+        codes = {w["code"] for w in validate(design)}
+        assert not codes & {"floor_beyond_toe", "floor_row_gap_excess", "collar_too_close_to_crest"}, (offset, codes)

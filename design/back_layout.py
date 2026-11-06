@@ -18,6 +18,7 @@ import shapely
 from design.geometry import drape_collar, local_basis, point_in_polygon, polygon_centroid, polygon_signed_area
 from design.models import BlockContour, Hole, main_grid_kind
 from design.toe_line import (
+    TOE_BURDEN_TOLERANCE,
     allowed_floor_burden_m,
     crest_geometry,
     design_burden_m,
@@ -300,8 +301,10 @@ def back_grid(
     1. Регулярные с конца, у которых ЛСП меньше 0,8·W, убираются.
     2. ЛСП последней ≤ W + 3 % — ничего.
     3. Иначе наклон к откосу (`pattern.face_tilts`: азимут к подошве ≤ 15° от
-       столбца, угол `front_rows_tilt_deg`, при недоборе — до 30°); ЛСП вошла
-       в допуск — наклонённая.
+       столбца, угол `front_rows_tilt_deg`, при недоборе — до 30°), но не
+       больше угла, при котором точка оси на подошве уходит от предыдущей
+       скважины эшелона дальше b + 3 % (`floor_row_gap_excess` — анти-цель
+       спецификации); ЛСП вошла в допуск — наклонённая.
     4. Иначе — вертикальная на остатке: на линии эшелона ближе к бровке, ЛСП ≈ W
        (не меньше 0,8·W), устье не ближе отступа к бровке, не ближе
        `REMAINDER_MIN_STEP_M` к последней и ближе b; член основной сетки
@@ -399,11 +402,15 @@ def back_grid(
         surfaces,
         depth_override,
     )
-    tilted = {
-        k: make(h.collar.x, h.collar.y, h.row, h.col, angle, azimuth)
-        for k, h, (angle, azimuth) in zip(over, over_holes, tilts)
-        if angle > 1e-9
-    }
+    gap_limit = burden_b * (1.0 + TOE_BURDEN_TOLERANCE)
+    tilted: dict[int, Hole] = {}
+    for k, h, (angle, azimuth) in zip(over, over_holes, tilts):
+        if angle <= 1e-9:
+            continue
+        prev = echelons[k][-2] if len(echelons[k]) > 1 else None
+        angle = _gap_limited_angle(h, prev, angle, azimuth, gap_limit, make)
+        if angle > 1e-9:
+            tilted[k] = make(h.collar.x, h.collar.y, h.row, h.col, angle, azimuth)
     fixed = {
         k for k, (lsp, beyond) in zip(tilted, _floor_burdens(contour, list(tilted.values())))
         if lsp <= allowed + 1e-9 and not beyond
@@ -420,6 +427,36 @@ def back_grid(
             # 5. Места для остатка нет — наклон с наибольшим допустимым углом.
             echelons[k][-1] = tilted[k]
     return [h for echelon in echelons for h in echelon]
+
+
+def _floor_gap(a: Hole, b: Hole) -> float:
+    (ax, ay), (bx, by) = floor_point(a), floor_point(b)
+    return math.hypot(ax - bx, ay - by)
+
+
+def _gap_limited_angle(hole: Hole, prev: Hole | None, angle: float, azimuth: float, limit: float, make: Any) -> float:
+    """Наибольший угол ≤ `angle`, при котором точка оси наклонённой `hole` на
+    подошве не дальше `limit` (b + 3 %) от точки предыдущей скважины эшелона
+    `prev` — иначе разрыв у подошвы (`floor_row_gap_excess`, анти-цель
+    спецификации). Без предыдущей — `angle`."""
+    if prev is None:
+        return angle
+
+    def gap(value: float) -> float:
+        return _floor_gap(prev, make(hole.collar.x, hole.collar.y, hole.row, hole.col, value, azimuth))
+
+    if gap(angle) <= limit + 1e-9:
+        return angle
+    if gap(0.0) > limit + 1e-9:
+        return 0.0
+    lo, hi = 0.0, angle
+    for _ in range(50):
+        mid = 0.5 * (lo + hi)
+        if gap(mid) <= limit:
+            lo = mid
+        else:
+            hi = mid
+    return lo
 
 
 def _remainder(

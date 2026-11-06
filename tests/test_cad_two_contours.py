@@ -368,3 +368,46 @@ def test_flat_fragment_stitched_to_a_3d_one_does_not_pull_the_crest_to_zero():
     levels = bench_levels(BLOCK, [(1, 2)], top, [], floor_z=410.0)
 
     assert levels.crest_z_m == pytest.approx(420.0)
+
+
+def test_flank_short_of_the_toe_closes_on_its_end():
+    # Блок 67: нижняя бровка кончается за 2,5 м до луча северного фланга.
+    # Откос не выпадает: фланг замыкается на конец бровки.
+    short = crest("B", [(44, -10), (44, 17.5)], 410.0)
+    result = two_contours(BLOCK, stitched(EAST_TOP), stitched(short))
+
+    assert result.area_bottom_m2 == pytest.approx(875.0)
+    assert codes(result) == ["flank_end"]
+    assert result.warnings[0].level == "info"
+    assert [flank.end for flank in result.flanks if flank.end is not None] == [
+        pytest.approx((44.0, 0.0)),
+        pytest.approx((44.0, 17.5)),
+    ]
+
+
+def test_toe_end_far_from_the_flank_is_not_used():
+    short = crest("B", [(44, -10), (44, 10)], 410.0)
+    result = two_contours(BLOCK, stitched(EAST_TOP), stitched(short))
+
+    assert result.area_bottom_m2 == pytest.approx(result.area_top_m2)
+    assert codes(result) == ["flank_miss"]
+
+
+def test_two_toe_pieces_hit_by_both_flanks_are_joined_not_snapped():
+    # Оба фланга дошли — каждый до своего куска: склейка разрыва, а не замыкание на конец.
+    pieces = stitched(crest("A", [(44, -10), (44, 15)], 410.0), crest("B", [(44, 18), (44, 30)], 410.0))
+    result = two_contours(BLOCK, stitched(EAST_TOP), pieces)
+
+    assert result.area_bottom_m2 == pytest.approx(880.0)
+    assert codes(result) == ["toe_gap"]
+
+
+def test_far_toe_line_is_not_snapped_when_a_nearer_toe_exists():
+    # До дальней линии (x = 80) дошёл один фланг, но у откоса есть ближняя нижняя
+    # бровка — дальняя чужая, на её конец фланг не замыкается.
+    near = crest("N", [(44, 2), (44, 18)], 410.0)
+    far = crest("F", [(80, -10), (80, 17.5)], 405.0)
+    result = two_contours(BLOCK, stitched(EAST_TOP), stitched(near, far))
+
+    assert result.area_bottom_m2 == pytest.approx(result.area_top_m2)
+    assert codes(result) == ["flank_miss"]

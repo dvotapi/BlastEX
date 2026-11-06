@@ -77,6 +77,12 @@ describe("SummaryPanel: пересчёт скважин", () => {
 
     expect(screen.getByRole("status").textContent).toContain("Пересчитано: 3 скважины.");
   });
+
+  it("предупреждение: откос из чертежа не учтён", () => {
+    render(<SummaryPanel holes={[]} blockVolumeM3={1} holesSource="—" volumeSource="—" toeWarning="Откос из чертежа не учтён." />);
+
+    expect(screen.getByRole("status").textContent).toContain("Откос из чертежа не учтён.");
+  });
 });
 
 describe("SummaryPanel: наклонные у откоса", () => {

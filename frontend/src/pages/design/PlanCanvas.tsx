@@ -21,7 +21,7 @@ import {
   zoomAt,
   angleAzimuth,
 } from "../../lib/geometry2d";
-import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, VibrationPrediction } from "../../types/design";
+import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, ToeLine, VibrationPrediction } from "../../types/design";
 import { HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
 import { RELIEF_BANDS, reliefBand } from "./relief";
@@ -29,6 +29,7 @@ import { healthColor, holeDepthM, type HoleHealthCode, type HoleHealthMap } from
 import { DEFAULT_MAP_LAYERS, type MapLayerVisibility } from "./MapLegend";
 import { SituationCanvas } from "./SituationCanvas";
 import { situationStrokes, type SituationShown } from "./situationLayer";
+import { lspToeTitle } from "./toeLineText";
 import {
   holeMarkerRadiusPx,
   labelsVisibleAtScale,
@@ -150,6 +151,7 @@ export function PlanCanvas({
   onToolRequestHandled,
   toePolylines,
   angleToePolylines,
+  floorToeLine = null,
   insertKind,
   onInsertKindChange,
   situation,
@@ -222,6 +224,8 @@ export function PlanCanvas({
   toePolylines?: Point3[][];
   /** Подошва по углу там, где съёмка нижней бровки — развал (ЛСП считана по ней): [[x, y], …]. */
   angleToePolylines?: number[][][];
+  /** Линия подошвы, от которой считается ЛСП (`toe_line` пересчёта скважин). */
+  floorToeLine?: ToeLine | null;
   insertKind?: HoleKind;
   onInsertKindChange?: (kind: HoleKind) => void;
   /** Подложка ситуации карьера (TASK-013, PR 4): показанные версии и скрытые слои. */
@@ -1462,6 +1466,18 @@ export function PlanCanvas({
               fill="none"
               points={line.map((v) => { const p = toScreen(v); return `${p.x},${p.y}`; }).join(" ")}
             />
+          ) : null
+        ))}
+        {layers.toe && floorToeLine && floorToeLine.polylines.map((line, lineIndex) => (
+          line.length >= 2 ? (
+            <polyline
+              key={`lsp-toe-${lineIndex}`}
+              className={`lsp-toe${floorToeLine.source === "angle" ? " by-angle" : ""}`}
+              fill="none"
+              points={line.map(([x, y]) => { const p = toScreen({ x, y }); return `${p.x},${p.y}`; }).join(" ")}
+            >
+              <title>{lspToeTitle(floorToeLine, contour.bench.face_angle_deg)}</title>
+            </polyline>
           ) : null
         ))}
         {layers.toe && (angleToePolylines ?? []).map((line, lineIndex) => (

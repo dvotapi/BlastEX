@@ -50,6 +50,12 @@ FLANK_MAX_EXTENSION_M = 100.0
 # Разрыв нижней бровки между флангами до этого закрывается прямой для S низ —
 # как подсвеченные разрывы сшивки (stitch.GAP_REPORT_M).
 TOE_GAP_BRIDGE_M = 5.0
+# Запасной путь, когда до нижней бровки дошёл только один фланг серии: второй
+# замыкается на конец той же линии, если конец лежит впереди по ходу фланга не
+# дальше этого от его луча — маркшейдер оборвал бровку чуть раньше фланга
+# (блок 67), и откос не должен выпадать целиком. Линия должна быть ближайшей к
+# откосу нижней бровкой: чужая подошва дальше не подхватывается.
+FLANK_END_SNAP_M = 5.0
 BENCH_HEIGHT_RANGE_M = (2.0, 25.0)
 # Без свободной поверхности отметка бровки берётся по верхним бровкам у контура.
 CREST_NEAR_CONTOUR_M = 5.0
@@ -191,13 +197,35 @@ def _flank_direction(local: Sequence[XY], vertex: int, step: int, stop: int) -> 
     return (dx / norm, dy / norm)
 
 
+def _flank_ray(origin: XY, direction: XY) -> LineString:
+    """Луч фланга от вершины на `FLANK_MAX_EXTENSION_M`."""
+
+    end = (origin[0] + direction[0] * FLANK_MAX_EXTENSION_M, origin[1] + direction[1] * FLANK_MAX_EXTENSION_M)
+    return LineString([origin, end])
+
+
 def _ray_hit(origin: XY, direction: XY, line: LineString) -> XY | None:
-    ray = LineString([origin, (origin[0] + direction[0] * FLANK_MAX_EXTENSION_M, origin[1] + direction[1] * FLANK_MAX_EXTENSION_M)])
-    hits = [point for point in _points(ray.intersection(line))]
+    hits = [point for point in _points(_flank_ray(origin, direction).intersection(line))]
     if not hits:
         return None
     nearest = min(hits, key=lambda point: math.dist(point, origin))
     return nearest
+
+
+def _end_near_ray(origin: XY, direction: XY, line: LineString) -> XY | None:
+    """Конец линии впереди по лучу фланга не дальше `FLANK_END_SNAP_M` от луча."""
+
+    ray = _flank_ray(origin, direction)
+    best: tuple[float, XY] | None = None
+    for coord in (line.coords[0], line.coords[-1]):
+        end = (float(coord[0]), float(coord[1]))
+        ahead = (end[0] - origin[0]) * direction[0] + (end[1] - origin[1]) * direction[1]
+        if ahead <= 0:
+            continue
+        gap = ray.distance(shapely.Point(end))
+        if gap <= FLANK_END_SNAP_M and (best is None or gap < best[0]):
+            best = (gap, end)
+    return best[1] if best else None
 
 
 def _points(geometry) -> list[XY]:
@@ -264,6 +292,33 @@ def _join_across_gap(
         return None
     path = [hit_first, *_along(line_first, hit_first, end_first), *_along(line_last, end_last, hit_last), hit_last]
     return path, gap, ((end_first[0] + end_last[0]) / 2, (end_first[1] + end_last[1]) / 2)
+
+
+def _snap_missed_flank(
+    local: Sequence[XY],
+    first: int,
+    last: int,
+    direction_first: XY,
+    direction_last: XY,
+    nearest: Sequence[tuple[XY, LineString] | None],
+    bottoms: Sequence[LineString],
+) -> tuple[int, XY, XY, LineString] | None:
+    """Один фланг дошёл до нижней бровки, другой — нет: второй замыкается на
+    конец той же линии (`FLANK_END_SNAP_M`). Линия — ближайшая к откосу нижняя
+    бровка. (вершина без попадания, точка первого фланга, второго, линия)."""
+
+    found = [item for item in nearest if item is not None]
+    if len(found) != 1:
+        return None
+    hit, line = found[0]
+    face = _run_line(local, first, last)
+    if min(bottoms, key=lambda other: other.distance(face)) is not line:
+        return None
+    if nearest[0] is None:
+        end = _end_near_ray(local[first], direction_first, line)
+        return (first, end, hit, line) if end is not None else None
+    end = _end_near_ray(local[last], direction_last, line)
+    return (last, hit, end, line) if end is not None else None
 
 
 def two_contours(
@@ -364,6 +419,24 @@ def two_contours(
                     )
                 )
             else:
+                snapped = _snap_missed_flank(local, first, last, direction_first, direction_last, nearest, bottoms)
+                if snapped is not None:
+                    vertex, hit_first, hit_last, line = snapped
+                    hit = hit_first if vertex == first else hit_last
+                    result.flanks[-2:] = [
+                        Flank(frame.point_to_world(local[v]), frame.point_to_world(h), math.dist(h, local[v]))
+                        for v, h in ((first, hit_first), (last, hit_last))
+                    ]
+                    pieces.append((first, last, [hit_first, *_along(line, hit_first, hit_last, _run_line(local, first, last)), hit_last]))
+                    result.warnings.append(
+                        CadWarning(
+                            "flank_end",
+                            f"Фланг у точки {point_label(frame.point_to_world(local[vertex]))} не доходит до нижней "
+                            f"бровки — откос замкнут на её конец ({ru_number(math.dist(hit, local[vertex]), 1)} м от точки).",
+                            level="info",
+                        )
+                    )
+                    continue
                 result.warnings.append(
                     CadWarning(
                         "flank_miss",

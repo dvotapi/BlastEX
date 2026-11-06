@@ -1121,6 +1121,18 @@ class HoleRecomputeRequest(BaseModel):
         return self
 
 
+class ToeLineSchema(BaseModel):
+    """Линия подошвы откоса, от которой считается ЛСП (`design.toe_line.toe_line`)."""
+
+    # "survey" — нижняя бровка из чертежа, "angle" — от верхней бровки по углу откоса.
+    source: str
+    polylines: list[list[list[float]]] = Field(default_factory=list)
+    # Почему по углу: "no_survey" — нижней бровки в паспорте нет, "edited" —
+    # контур правили после построения, "survey_unmatched" — нижний контур из
+    # чертежа совпал с верхним (откос при импорте не найден). Пусто — по съёмке.
+    reason: str = ""
+
+
 class HoleRecomputeResponse(BaseModel):
     holes: list[HoleSchema]
     # Флаги по скважинам: `outside_surface` — устье вне кровли, `short_bench` —
@@ -1131,6 +1143,8 @@ class HoleRecomputeResponse(BaseModel):
     drilling_m: float
     # Средняя высота уступа (кровля − подошва) по контуру блока: для S ср × H.
     mean_height_m: float
+    # Линия подошвы для ЛСП — для плана и 3D; None, если свободных поверхностей нет.
+    toe_line: ToeLineSchema | None = None
 
 
 class HoleInsertRequest(BaseModel):

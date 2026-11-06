@@ -116,6 +116,7 @@ import { PatternPanel } from "./PatternPanel";
 import { LayoutSearchPanel } from "./LayoutSearchPanel";
 import { useLayoutSearchApply, type ChargeGrid } from "./useLayoutSearchApply";
 import { PlanCanvas, type PlanMeasureState } from "./PlanCanvas";
+import { toeLineWarning } from "./toeLineText";
 import { StageInspector } from "./StageInspector";
 import { VisibilityPanel } from "./VisibilityPanel";
 import { MapStatusBar } from "./MapStatusBar";
@@ -2845,6 +2846,7 @@ export function DesignPage({
               blockVolumeM3={recompute.error ? null : recompute.blockVolumeM3 ?? blockVolumeM3}
               recomputeError={recompute.error}
               recomputeNotice={recompute.notice}
+              toeWarning={toeLineWarning(recompute.toeLine)}
               volumeTitle={
                 recompute.error
                   ? null
@@ -3359,6 +3361,7 @@ export function DesignPage({
                 colorMode={designView.colorMode}
                 holeColors={holeColors3d}
                 situationLines={situationLines}
+                toeLine={recompute.toeLine}
               />
             </Suspense>
           ) : viewMode === "section" ? (
@@ -3450,6 +3453,7 @@ export function DesignPage({
               onToolRequestHandled={() => setToolRequest(null)}
               toePolylines={document.surfaces.floor?.polylines}
               angleToePolylines={maps?.angle_toe_lines}
+              floorToeLine={recompute.toeLine}
               insertKind={insertKind}
               onInsertKindChange={setInsertKind}
               situation={situationPlan}

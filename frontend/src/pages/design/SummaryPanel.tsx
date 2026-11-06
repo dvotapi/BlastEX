@@ -48,6 +48,7 @@ export function SummaryPanel({
   volumeTitle,
   recomputeError = "",
   recomputeNotice = "",
+  toeWarning = "",
 }: {
   holes: Hole[];
   blockVolumeM3: number | null;
@@ -60,6 +61,8 @@ export function SummaryPanel({
   recomputeError?: string;
   /** Что сменил последний пересчёт (заряды и геологию пересчитать). */
   recomputeNotice?: string;
+  /** ЛСП считается по углу, хотя нижняя бровка в чертеже была (`toeLineWarning`). */
+  toeWarning?: string;
 }) {
   const production = holes.filter((h) => h.kind === "production" && h.enabled);
   const contourHoles = holes.filter((h) => (h.kind === "contour" || h.kind === "presplit" || h.kind === "trim") && h.enabled);
@@ -101,6 +104,11 @@ export function SummaryPanel({
       {!recomputeError && recomputeNotice && (
         <p className="metrics-note" role="status">
           {recomputeNotice}
+        </p>
+      )}
+      {!recomputeError && toeWarning && (
+        <p className="metrics-note" role="status">
+          {toeWarning}
         </p>
       )}
       {loads !== undefined && (

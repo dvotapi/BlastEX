@@ -63,6 +63,7 @@ from api.schemas.design import (
     SurfaceStatsSchema,
     TieGenerateRequest,
     TieGenerateResponse,
+    ToeLineSchema,
     ValidationWarningSchema,
     GeologyAssignRequest,
     GeologyAssignResponse,
@@ -128,7 +129,7 @@ from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
-from design.toe_line import grid_steps_m
+from design.toe_line import TOE_SOURCE_ANGLE, grid_steps_m, toe_line
 from design.trunk_network import TRUNK_SCHEME, build_trunk_chains_network
 from cost.v2.legacy_adapter import LegacyReferences
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
@@ -978,6 +979,27 @@ def recompute_holes(request: HoleRecomputeRequest) -> HoleRecomputeResponse:
         block_volume_m3=round(block_volume(contour, surfaces), 2),
         drilling_m=round(sum(item.hole.length_m for item in result if item.hole.enabled), 3),
         mean_height_m=round(mean_bench_height(contour, surfaces), 3),
+        toe_line=_toe_line_schema(contour),
+    )
+
+
+def _toe_line_schema(contour: BlockContour) -> ToeLineSchema | None:
+    line = toe_line(contour)
+    if line is None:
+        return None
+    reason = ""
+    if line.source == TOE_SOURCE_ANGLE:
+        cad = contour.cad or {}
+        if cad.get("edited"):
+            reason = "edited"
+        elif len(cad.get("bottom") or []) >= 3:
+            reason = "survey_unmatched"
+        else:
+            reason = "no_survey"
+    return ToeLineSchema(
+        source=line.source,
+        polylines=[[[round(x, 3), round(y, 3)] for x, y in polyline] for polyline in line.polylines],
+        reason=reason,
     )
 
 

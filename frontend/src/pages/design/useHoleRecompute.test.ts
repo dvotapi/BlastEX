@@ -369,3 +369,40 @@ describe("useHoleRecompute: повторное ревью", () => {
     expect(result.current.meanHeightM).toBeNull();
   });
 });
+
+describe("useHoleRecompute: линия подошвы", () => {
+  const toe = { source: "angle", reason: "no_survey", polylines: [[[42.68, 0], [42.68, 20]]] };
+
+  it("тот же ответ оставляет прежний объект линии", async () => {
+    const fetcher = vi.fn(async () => response(420.1, { toe_line: { ...toe, polylines: [[[42.68, 0], [42.68, 20]]] } }));
+    const { result, rerender } = renderHook(
+      ({ d }) => useHoleRecompute(d, {}, { apply: true, dispatch: vi.fn(), fetcher }),
+      { initialProps: { d: design() } },
+    );
+    await settle();
+    const first = result.current.toeLine;
+    expect(first?.reason).toBe("no_survey");
+
+    rerender({ d: design({ holes: [hole("a", { subdrill_m: 2 })] }) });
+    await settle();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.current.toeLine).toBe(first);
+  });
+
+  it("правка контура прячет старую линию до ответа", async () => {
+    const fetcher = vi.fn(async () => response(420.1, { toe_line: toe }));
+    const { result, rerender } = renderHook(
+      ({ d }) => useHoleRecompute(d, {}, { apply: true, dispatch: vi.fn(), fetcher }),
+      { initialProps: { d: design() } },
+    );
+    await settle();
+    expect(result.current.toeLine).not.toBeNull();
+
+    const moved = design();
+    moved.contour = { ...moved.contour, vertices: moved.contour.vertices.map((v) => ({ ...v, x: v.x + 5 })) };
+    rerender({ d: moved });
+    expect(result.current.toeLine).toBeNull();
+    await settle();
+    expect(result.current.toeLine).not.toBeNull();
+  });
+});

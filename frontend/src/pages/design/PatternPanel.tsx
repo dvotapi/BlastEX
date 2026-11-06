@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import type { BlockContour, HoleKind, PatternParams, PatternType, RowPatternParams } from "../../types/design";
 import { SELECTABLE_HOLE_KINDS } from "../../types/design";
-import { isSquarePattern } from "./designParams";
+import { BACK_OFFSET_DEFAULT_RATIO, isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
 
 const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
@@ -16,7 +16,6 @@ const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
 const KIND_OPTIONS = SELECTABLE_HOLE_KINDS;
 // Шаблон «от тыла» генератор строит только у квадратной и прямоугольной сетки
 const BACK_ANCHOR_PATTERNS: PatternType[] = ["square", "rectangular"];
-const BACK_OFFSET_DEFAULT_RATIO = 0.65;
 
 function formatNumber(value: number): string {
   return String(Math.round(value * 100) / 100).replace(".", ",");

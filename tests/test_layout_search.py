@@ -7,7 +7,7 @@ from design.geometry import crest_azimuth_deg
 from design.layout_search import search as search_module
 from design.layout_search.evaluate import Evaluation, SearchContext, evaluate
 from design.layout_search.search import search_layout
-from design.layout_search.space import Candidate, stage1
+from design.layout_search.space import Candidate, is_back, stage1
 from design.models import BlastDesign, InitiationNetwork
 from design.toe_line import min_crest_offset_m
 from tests.front_rows_fixtures import _rect_contour, vertical_hole
@@ -138,7 +138,7 @@ class SearchTests(unittest.TestCase):
                 flag["stop"] = True
 
         with mock.patch.object(search_module, "stage2", lambda seeds, base: []), \
-                mock.patch.object(search_module, "stage3", lambda seeds, base: stage3_calls.append(1) or []):
+                mock.patch.object(search_module, "stage3", lambda seeds, base, contour=None: stage3_calls.append(1) or []):
             res = search_layout(_ctx(), budget_s=1e9, progress=progress, should_stop=lambda: flag["stop"])
         self.assertTrue(res.stopped_early)
         self.assertEqual(stage3_calls, [])
@@ -167,7 +167,7 @@ class SearchTests(unittest.TestCase):
                  for off in (1.0, 1.25, 1.5, 2.0) for flank in ("left", "right")]
         with mock.patch.object(search_module, "stage1", lambda base, contour: tight), \
                 mock.patch.object(search_module, "stage2", lambda seeds, base: list(seeds)), \
-                mock.patch.object(search_module, "stage3", lambda seeds, base: []):
+                mock.patch.object(search_module, "stage3", lambda seeds, base, contour=None: []):
             res = search_layout(_ctx(params), budget_s=1e9, stage2_seeds=2)
         self.assertTrue(res.all_rejected)
         self.assertEqual(len(res.best), 3)
@@ -181,6 +181,126 @@ class SearchTests(unittest.TestCase):
         res = search_layout(_ctx(contour=contour), budget_s=1e9, stage2_seeds=2, stage3_seeds=1)
         self.assertTrue(res.best)
         self.assertTrue(all(ev.lsp_out == 0 for ev in res.best))
+
+
+def _small_stage1(base, contour):
+    """Этап 1 без большей части вариантов: по 6 каждого шаблона (тесты быстрее)."""
+    cands = stage1(base, contour)
+    crest = [c for c in cands if not is_back(c.params)]
+    back = [c for c in cands if is_back(c.params)]
+    return crest[:6] + back[:6]
+
+
+class TemplateSearchTests(unittest.TestCase):
+    """Перебор пробует оба шаблона: от бровки и «от тыла» (PR 3)."""
+
+    def _recorded(self, **kwargs):
+        """Поиск с записью оценённых вариантов по этапам: [(этап, вариант)]."""
+        stage = {"name": ""}
+        seen = []
+        real = search_module.evaluate
+
+        def recording(ctx, candidate, cache=None):
+            seen.append((stage["name"], candidate))
+            return real(ctx, candidate, cache)
+
+        def progress(name, done, total):
+            stage["name"] = name
+
+        with mock.patch.object(search_module, "evaluate", recording), \
+                mock.patch.object(search_module, "stage1", _small_stage1):
+            res = search_layout(_ctx(), progress=progress, **kwargs)
+        return res, seen
+
+    def test_both_templates_searched(self):
+        res, seen = self._recorded(budget_s=1e9, stage2_seeds=2, stage3_seeds=1)
+        self.assertFalse(res.stopped_early)
+        by_stage = {}
+        for name, candidate in seen:
+            by_stage.setdefault(name, set()).add(is_back(candidate.params))
+        # Геометрия и уточнение — оба шаблона; первый ряд у откоса — только от бровки.
+        self.assertEqual(by_stage["geometry"], {False, True})
+        self.assertEqual(by_stage["front_rows"], {False})
+        self.assertEqual(by_stage["refine"], {False, True})
+        for _, candidate in seen:
+            if is_back(candidate.params):
+                self.assertNotIn("front_rows_mode", candidate.params)
+                self.assertNotIn("offset_from_face_m", candidate.params)
+
+    def test_stage1_budget_shared(self):
+        # Бюджет кончился на 20-й оценке этапа 1: шаблоны чередуются, каждому — половина.
+        calls = {"n": 0}
+        real = search_module.evaluate
+        seen = []
+
+        def counting(ctx, candidate, cache=None):
+            calls["n"] += 1
+            seen.append(candidate)
+            return real(ctx, candidate, cache)
+
+        with mock.patch.object(search_module, "evaluate", counting):
+            res = search_layout(_ctx(), budget_s=100.0, clock=lambda: 0.0 if calls["n"] < 20 else 1000.0)
+        self.assertTrue(res.stopped_early)
+        self.assertEqual(sum(is_back(c.params) for c in seen), 10)
+        self.assertEqual(sum(not is_back(c.params) for c in seen), 10)
+
+    def test_refine_seeds_per_template(self):
+        # Семена уточнения — лучшие каждого шаблона, а не только общий лидер.
+        seeds_seen = []
+        real_stage3 = search_module.stage3
+
+        def spy(seeds, base, contour=None):
+            seeds_seen.extend(seeds)
+            return real_stage3(seeds, base, contour)
+
+        with mock.patch.object(search_module, "stage3", spy), \
+                mock.patch.object(search_module, "stage1", _small_stage1):
+            search_layout(_ctx(), budget_s=1e9, stage2_seeds=2, stage3_seeds=2)
+        self.assertEqual(sum(is_back(c.params) for c in seeds_seen), 2)
+        self.assertEqual(sum(not is_back(c.params) for c in seeds_seen), 2)
+
+    def test_crest_only_base_unchanged(self):
+        # Шахматка — без шаблона «от тыла»: перебор как раньше.
+        params = {**BASE, "pattern": "staggered"}
+        evaluated = []
+        real = search_module.evaluate
+
+        def recording(ctx, candidate, cache=None):
+            evaluated.append(candidate)
+            return real(ctx, candidate, cache)
+
+        flag = {"stop": False}
+
+        def progress(stage, done, total):
+            if stage == "geometry" and done == total:
+                flag["stop"] = True
+
+        with mock.patch.object(search_module, "evaluate", recording):
+            search_layout(_ctx(params), budget_s=1e9, progress=progress, should_stop=lambda: flag["stop"])
+        self.assertTrue(evaluated)
+        self.assertFalse(any(is_back(c.params) for c in evaluated))
+
+    def test_pattern_generated_once_for_both_flanks(self):
+        # Фланг сетку не меняет: два фланга одного варианта строят сетку один раз.
+        from design.layout_search import evaluate as evaluate_module
+
+        ctx = _ctx()
+        back = [c for c in stage1(BASE, CONTOUR) if is_back(c.params)][:1]
+        pair = [Candidate(back[0].params, flank) for flank in ("left", "right")]
+        calls = []
+        real = evaluate_module.generate_pattern
+
+        def counted(*args, **kwargs):
+            calls.append(1)
+            return real(*args, **kwargs)
+
+        cache: dict = {}
+        with mock.patch.object(evaluate_module, "generate_pattern", counted):
+            left, right = (evaluate(ctx, c, cache) for c in pair)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(left.hole_count, right.hole_count)
+        self.assertEqual(right.candidate.cut_flank, "right")
+        self.assertIsNot(left.holes, right.holes)
 
 
 @unittest.skipUnless(os.environ.get("BLASTEX_SLOW"), "медленный тест (≈1 мин): BLASTEX_SLOW=1")

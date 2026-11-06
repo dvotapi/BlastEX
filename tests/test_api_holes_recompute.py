@@ -132,3 +132,52 @@ def test_full_span_triangles_do_not_blow_up_the_index(client):
 
     assert response.status_code == 422
     assert "индекс" in response.text
+
+
+def test_toe_line_comes_with_the_recompute(client):
+    # Линия подошвы для ЛСП — по углу (съёмки нет): восточная сторона смещена
+    # наружу на H · tan(15°) = 10 · 0,268 м.
+    contour = {**CONTOUR, "free_faces": [[1, 2]], "bench": {**CONTOUR["bench"], "face_angle_deg": 75.0}}
+    response = client.post(PATH, json={"holes": [], "contour": contour, "params": {}})
+
+    assert response.status_code == 200
+    toe = response.json()["toe_line"]
+    assert toe["source"] == "angle"
+    assert toe["reason"] == "no_survey"
+    assert len(toe["polylines"]) == 1
+    xs = {round(point[0], 3) for point in toe["polylines"][0]}
+    assert xs == {round(40 + 10 * math.tan(math.radians(15)), 3)}
+
+
+def test_survey_toe_line_is_the_bottom_crest(client):
+    contour = {
+        **CONTOUR,
+        "free_faces": [[1, 2]],
+        "cad": {"bottom": [[0, 0], [40, 0], [44, 0], [44, 20], [40, 20], [0, 20]], "edited": False},
+    }
+    toe = client.post(PATH, json={"holes": [], "contour": contour, "params": {}}).json()["toe_line"]
+
+    assert toe["source"] == "survey"
+    assert toe["reason"] == ""
+    assert toe["polylines"] == [[[44.0, 0.0], [44.0, 20.0]]]
+
+
+def test_bottom_equal_to_top_is_reported_as_unmatched_survey(client):
+    # Блок 67 до исправления импорта: фланг промахнулся, нижний контур = верхнему.
+    ring = [[0, 0], [40, 0], [40, 20], [0, 20]]
+    contour = {**CONTOUR, "free_faces": [[1, 2]], "cad": {"bottom": ring, "edited": False}}
+    toe = client.post(PATH, json={"holes": [], "contour": contour, "params": {}}).json()["toe_line"]
+
+    assert (toe["source"], toe["reason"]) == ("angle", "survey_unmatched")
+
+
+def test_edited_contour_is_reported(client):
+    bottom = [[0, 0], [40, 0], [44, 0], [44, 20], [40, 20], [0, 20]]
+    contour = {**CONTOUR, "free_faces": [[1, 2]], "cad": {"bottom": bottom, "edited": True}}
+    toe = client.post(PATH, json={"holes": [], "contour": contour, "params": {}}).json()["toe_line"]
+
+    assert (toe["source"], toe["reason"]) == ("angle", "edited")
+
+
+def test_no_free_face_no_toe_line(client):
+    assert client.post(PATH, json={"holes": [], "contour": CONTOUR, "params": {}}).json()["toe_line"] is None

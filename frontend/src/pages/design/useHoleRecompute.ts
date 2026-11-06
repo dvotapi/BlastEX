@@ -16,7 +16,7 @@ import { api } from "../../api/endpoints";
 import { ruNumber } from "../../lib/format";
 import { angleAzimuth, holeLength } from "../../lib/geometry2d";
 import { plural } from "../../lib/plural";
-import type { BlastDesign, Hole, HoleRecomputeFlag, HoleRecomputeResponse, TIN } from "../../types/design";
+import type { BlastDesign, Hole, HoleRecomputeFlag, HoleRecomputeResponse, TIN, ToeLine } from "../../types/design";
 import type { DesignAction } from "./designReducer";
 
 export const RECOMPUTE_DELAY_MS = 300;
@@ -31,9 +31,18 @@ export type HoleRecomputeView = {
   error: string;
   /** Что сменил последний применённый пересчёт, если пора пересчитать заряды и геологию. */
   notice: string;
+  /** Линия подошвы, от которой считается ЛСП (для плана и 3D). */
+  toeLine: ToeLine | null;
 };
 
-const EMPTY: HoleRecomputeView = { flags: {}, blockVolumeM3: null, meanHeightM: null, pending: false, error: "", notice: "" };
+const EMPTY: Omit<HoleRecomputeView, "toeLine"> = {
+  flags: {},
+  blockVolumeM3: null,
+  meanHeightM: null,
+  pending: false,
+  error: "",
+  notice: "",
+};
 
 // Параметры сетки, задающие свою глубину видов скважин (как в `hole_recompute.explicit_depth_m`).
 const DEPTH_PARAMS = ["depth_m", "stab_depth_m", "contour_depth_m", "presplit_depth_m", "trim_depth_m", "satellite_depth_m"];
@@ -103,9 +112,10 @@ export function applyKey(design: BlastDesign, params: Record<string, unknown>): 
 }
 
 /**
- * Всё, от чего зависят флаги и объём ответа: триггеры и ещё контур — и то, из
- * чего `geometry.block_volume` берёт объём контура из чертежа: нижний контур,
- * S ср, правка после построения, кровля-плоскость.
+ * Всё, от чего зависят флаги, объём и линия подошвы ответа: триггеры и ещё
+ * контур — и то, из чего `geometry.block_volume` берёт объём контура из
+ * чертежа: нижний контур, S ср, правка после построения, кровля-плоскость;
+ * для линии подошвы — свободные поверхности и угол откоса.
  * Включение скважин ответа не меняет (флаги — у всех скважин, погонаж страница
  * считает сама) — запрос со всей кровлей на каждое включение не нужен.
  */
@@ -114,10 +124,29 @@ export function recomputeKey(design: BlastDesign, params: Record<string, unknown
   return JSON.stringify({
     apply: applyKey(design, params),
     contour: design.contour.vertices.map((vertex) => [round(vertex.x, 3), round(vertex.y, 3)]),
+    faces: design.contour.free_faces,
+    faceAngle: design.contour.bench.face_angle_deg,
     cad: cad
       ? [cad.edited, (cad.bottom ?? []).map((point) => [round(point[0], 3), round(point[1], 3)]), cad.area_mean_m2 ?? null]
       : null,
     plane: design.surfaces.top?.cad?.plane ?? false,
+  });
+}
+
+/**
+ * То, от чего зависит линия подошвы (`toe_line.toe_line`): вершины, свободные
+ * поверхности, уступ (высота и угол) и нижний контур из чертежа. Линия чужого
+ * ключа не показывается: пока правка контура ждёт ответа, старая подошва не
+ * висит поперёк блока.
+ */
+export function toeLineKey(design: BlastDesign): string {
+  const { contour } = design;
+  const cad = contour.cad;
+  return JSON.stringify({
+    vertices: contour.vertices.map((vertex) => [round(vertex.x, 3), round(vertex.y, 3)]),
+    faces: contour.free_faces,
+    bench: [contour.bench.crest_z_m, contour.bench.toe_z_m, contour.bench.face_angle_deg],
+    cad: cad ? [cad.edited, (cad.bottom ?? []).map((point) => [round(point[0], 3), round(point[1], 3)])] : null,
   });
 }
 
@@ -149,9 +178,13 @@ export function useHoleRecompute(
   options: { apply: boolean; dispatch: (action: DesignAction) => void; fetcher?: Fetcher },
 ): HoleRecomputeView {
   const { apply, dispatch, fetcher = api.design.recomputeHoles } = options;
-  const [view, setView] = useState<HoleRecomputeView>(EMPTY);
+  const [view, setView] = useState<Omit<HoleRecomputeView, "toeLine">>(EMPTY);
   const sequence = useRef(0);
   const key = useMemo(() => recomputeKey(design, params), [design, params]);
+  const toeKey = useMemo(() => toeLineKey(design), [design]);
+  // Линия подошвы — с ключом контура, под который посчитана; тот же ответ
+  // оставляет прежний объект, чтобы 3D не перестраивал сцену зря.
+  const [toe, setToe] = useState<{ key: string; line: ToeLine | null }>({ key: "", line: null });
   // Триггеры, под которые посчитаны скважины: при загрузке паспорта — его
   // собственные, дальше — последнего применённого пересчёта. Пока они не
   // сменились, скважины не трогаем — открытие или правка контура только
@@ -176,6 +209,7 @@ export function useHoleRecompute(
     }
     const applyHoles = apply && triggers !== applied.current.triggers;
     const requested = { identity, triggers };
+    const requestedToeKey = toeLineKey(current);
     setView((previous) => ({ ...previous, pending: true }));
     const timer = window.setTimeout(() => {
       fetcher({ holes: current.holes, contour: current.contour, surfaces: current.surfaces, params: latestParams.current })
@@ -194,6 +228,12 @@ export function useHoleRecompute(
             error: "",
             notice: notice || previous.notice,
           }));
+          const line = response.toe_line ?? null;
+          setToe((previous) =>
+            previous.key === requestedToeKey && JSON.stringify(previous.line) === JSON.stringify(line)
+              ? previous
+              : { key: requestedToeKey, line },
+          );
           if (applyHoles) {
             applied.current = requested;
             dispatch({ type: "RECOMPUTE_HOLES", holes: response.holes });
@@ -219,5 +259,6 @@ export function useHoleRecompute(
 
   const owner = noticeOwner.current;
   const ownNotice = owner !== null && owner.identity === identity && owner.loads === design.loads;
-  return ownNotice ? view : { ...view, notice: "" };
+  const toeLine = !view.error && toe.key === toeKey ? toe.line : null;
+  return { ...view, notice: ownNotice ? view.notice : "", toeLine };
 }

@@ -331,6 +331,18 @@ export type Hole = {
 export type HoleRecomputeFlag = "outside_surface" | "short_bench";
 
 /** Ответ `/design/holes/recompute`: устья на кровле, длины до подошвы с перебуром. */
+/** Линия подошвы откоса, от которой считается ЛСП: "survey" — нижняя бровка из чертежа, "angle" — по углу откоса. */
+export type ToeLine = {
+  source: "survey" | "angle" | string;
+  polylines: number[][][];
+  /**
+   * Почему по углу: "no_survey" — нижней бровки нет, "edited" — контур правили
+   * после построения, "survey_unmatched" — нижний контур совпал с верхним
+   * (откос при импорте не найден). Пусто — по съёмке.
+   */
+  reason?: string;
+};
+
 export type HoleRecomputeResponse = {
   holes: Hole[];
   /** Только у скважин с флагами. */
@@ -340,6 +352,8 @@ export type HoleRecomputeResponse = {
   drilling_m: number;
   /** Средняя высота уступа (кровля − подошва) по контуру блока. */
   mean_height_m: number;
+  /** Линия подошвы для ЛСП; null — свободных поверхностей нет. */
+  toe_line?: ToeLine | null;
 };
 
 export type DeckKind =

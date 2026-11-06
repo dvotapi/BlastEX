@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { BlockContour, Hole, SurfaceModel, SurfaceSet } from "../../types/design";
+import type { BlockContour, Hole, SurfaceModel, SurfaceSet, ToeLine } from "../../types/design";
 import { situationSegments, type Situation3dLine } from "./situationLayer";
 
 const KIND_COLOR: Record<string, number> = {
@@ -47,6 +47,7 @@ export function Scene3D({
   colorMode = "kind",
   holeColors,
   situationLines = NO_SITUATION,
+  toeLine = null,
 }: {
   contour: BlockContour;
   holes: Hole[];
@@ -58,6 +59,8 @@ export function Scene3D({
   holeColors?: Record<string, number>;
   /** Ситуация карьера (TASK-013, PR 4): линии видимых слоёв, 2D — на отметке бровки. */
   situationLines?: Situation3dLine[];
+  /** Линия подошвы, от которой считается ЛСП: на отметке подошвы, оранжевым. */
+  toeLine?: ToeLine | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<SceneState | null>(null);
@@ -210,6 +213,18 @@ export function Scene3D({
         addLine(contourGroup, [{ ...a, z: contour.bench.crest_z_m }, { ...a, z: contour.bench.toe_z_m }], toThree, 0xc7d1cc, 1);
       }
     }
+    // Тонкая нижняя рамка выше — проекция контура на подошву; ЛСП считается
+    // от этой линии (нижняя бровка из чертежа или подошва по углу откоса).
+    for (const line of toeLine?.polylines ?? []) {
+      if (line.length < 2) continue;
+      addLine(
+        contourGroup,
+        line.map(([x, y]) => ({ x, y, z: contour.bench.toe_z_m })),
+        toThree,
+        toeLine?.source === "angle" ? 0xb5763a : 0xd9893b,
+        2,
+      );
+    }
 
     clearGroup(holeGroup);
     for (const h of holes) {
@@ -259,7 +274,7 @@ export function Scene3D({
       state.framed = true;
     }
 
-  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, colorMode, holeColors]);
+  }, [contour, holes, surfaces, selected, reframeTick, cameraMode, colorMode, holeColors, toeLine]);
 
   // Ситуация — своим эффектом: правка скважин её не перестраивает. Одна
   // `LineSegments` на цвет; при смене центра сцены группа только сдвигается.

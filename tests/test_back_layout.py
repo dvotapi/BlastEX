@@ -198,3 +198,130 @@ def test_arc_back_first_row_is_a_staircase():
             rows_by_y.setdefault(round(y, 6), set()).add(r)
     assert all(len(rs) == 1 for rs in rows_by_y.values())
     assert min(r for col in columns for r in col.rows) == 0
+
+
+# --- Конец эшелона у бровки (Task 4) --------------------------------------------
+
+from design.back_layout import back_grid  # noqa: E402
+from design.toe_line import floor_point, toe_positions  # noqa: E402
+
+# Прямоугольник 40×30, бровка y = 0, тыл y = 30; уступ 10 м, откос 75°:
+# линия подошвы y = −2,68, ЛСП вертикальной с устьем в y — y + 2,68.
+SLOPE_M = H * math.tan(math.radians(15.0))
+W = 3.5
+ALLOWED = W * 1.03
+END = {
+    "pattern": "rectangular",
+    "spacing_a_m": 4.0,
+    "burden_b_m": W,
+    "row_azimuth_deg": 90.0,
+    "subdrill_m": 1.0,
+}
+
+
+def _end_params(back_offset, **extra):
+    return {**END, "back_offset_m": back_offset, **extra}
+
+
+def _lsp(contour, hole):
+    return toe_positions(contour, [floor_point(hole)], [contour.bench.height_m])[0].distance_m
+
+
+def _angle(hole):
+    dx, dy, dz = hole.toe.x - hole.collar.x, hole.toe.y - hole.collar.y, hole.toe.z - hole.collar.z
+    return math.degrees(math.atan2(math.hypot(dx, dy), -dz))
+
+
+def _echelons(holes):
+    by_col = {}
+    for h in holes:
+        by_col.setdefault(h.col, []).append(h)
+    return [sorted(v, key=lambda h: -h.collar.y) for _, v in sorted(by_col.items())]
+
+
+def test_last_hole_fits_nothing_added():
+    """Последняя в y = 0,8: ЛСП 3,48 ≤ 3,605 — все вертикальные, только узлы решётки."""
+    c = rect(40, 30)
+    holes = back_grid(c, _end_params(1.2), c.points_xy)
+    for echelon in _echelons(holes):
+        assert len(echelon) == 9
+        assert echelon[-1].collar.y == pytest.approx(0.8)
+        assert all(_angle(h) == pytest.approx(0.0, abs=1e-9) for h in echelon)
+        assert _lsp(c, echelon[-1]) <= ALLOWED
+    assert all(h.kind == "production" and h.source == "generated" for h in holes)
+
+
+def test_last_hole_tilted_toward_face():
+    """Последняя в y = 1,82: ЛСП 4,5 — наклон к откосу, ЛСП в коридоре, лишней нет."""
+    c = rect(40, 30)
+    holes = back_grid(c, _end_params(3.68), c.points_xy)
+    for echelon in _echelons(holes):
+        assert len(echelon) == 8
+        last = echelon[-1]
+        assert last.collar.y == pytest.approx(1.82)
+        assert 0.0 < _angle(last) <= 30.0 + 1e-9
+        assert last.toe.y < last.collar.y  # к бровке
+        assert 0.8 * W - 1e-6 <= _lsp(c, last) <= ALLOWED + 1e-6
+        assert all(_angle(h) == pytest.approx(0.0, abs=1e-9) for h in echelon[:-1])
+
+
+def test_remainder_hole_added_when_tilt_is_not_enough():
+    """Наклон выключен (0°), последняя в y = 3: ЛСП 5,68 — вертикальная на остатке с ЛСП ≈ W."""
+    c = rect(40, 30)
+    holes = back_grid(c, _end_params(2.5, front_rows_tilt_deg=0), c.points_xy)
+    for echelon in _echelons(holes):
+        assert len(echelon) == 9
+        last, extra = echelon[-2], echelon[-1]
+        assert last.collar.y == pytest.approx(3.0)
+        assert _angle(last) == pytest.approx(0.0, abs=1e-9)
+        assert _angle(extra) == pytest.approx(0.0, abs=1e-9)
+        assert _lsp(c, extra) == pytest.approx(W, abs=0.01)
+        step = last.collar.y - extra.collar.y
+        assert 1.0 <= step < W
+        assert extra.collar.y >= 0.5
+        assert extra.collar.x == pytest.approx(last.collar.x)
+        assert (extra.row, extra.col) == (last.row + 1, last.col)
+        assert extra.kind == "production"
+
+
+def test_last_regular_too_close_is_dropped():
+    """Узел в 0,3 м от бровки убран; конец эшелона — от узла в y = 3,8 (наклон)."""
+    c = rect(40, 30)
+    holes = back_grid(c, _end_params(1.7), c.points_xy)
+    assert all(h.collar.y >= 0.5 for h in holes)
+    for echelon in _echelons(holes):
+        last = echelon[-1]
+        assert last.collar.y == pytest.approx(3.8)
+        assert _angle(last) > 0.0
+        assert _lsp(c, last) <= ALLOWED + 1e-6
+
+
+def test_echelon_without_nodes_is_empty():
+    """Узкая полоса у бровки: узлы ближе отступа к бровке — эшелонов нет, без ошибок."""
+    c = rect(40, 0.8)
+    assert back_grid(c, _end_params(0.4), c.points_xy) == []
+    assert back_grid(c, _end_params(2.0), c.points_xy) == []
+
+
+def test_remainder_closer_than_one_metre_falls_back_to_max_tilt():
+    """Откос 45°: ЛСП последней (y = 1,2) 11,2, наклона 30° мало, места для
+    остатка (0,7 м до отступа 0,5 м) нет — последняя с наибольшим углом."""
+    c = _contour([(0, 0), (40, 0), (40, 30), (0, 30)], [[0, 1]])
+    c.bench = BenchSurface(crest_z_m=0.0, toe_z_m=-H, face_angle_deg=45.0)
+    holes = back_grid(c, _end_params(0.8), c.points_xy)
+    for echelon in _echelons(holes):
+        assert len(echelon) == 9
+        last = echelon[-1]
+        assert last.collar.y == pytest.approx(1.2)
+        assert _angle(last) == pytest.approx(30.0, abs=0.01)
+        assert _lsp(c, last) > ALLOWED
+
+
+def test_without_w_only_regular_nodes():
+    """Без W (нет `burden_b_m`) — только узлы решётки, без наклона и остатка."""
+    c = rect(40, 30)
+    params = {k: v for k, v in _end_params(3.68).items() if k != "burden_b_m"}
+    params["spacing_a_m"] = 4.0
+    holes = back_grid(c, {**params, "burden_b_m": None}, c.points_xy)
+    assert holes
+    assert all(_angle(h) == pytest.approx(0.0, abs=1e-9) for h in holes)

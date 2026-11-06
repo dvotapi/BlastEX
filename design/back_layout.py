@@ -15,8 +15,19 @@ from typing import Any
 
 import shapely
 
-from design.geometry import local_basis, point_in_polygon, polygon_centroid, polygon_signed_area
-from design.models import BlockContour
+from design.geometry import drape_collar, local_basis, point_in_polygon, polygon_centroid, polygon_signed_area
+from design.models import BlockContour, Hole, main_grid_kind
+from design.toe_line import (
+    allowed_floor_burden_m,
+    crest_geometry,
+    design_burden_m,
+    floor_point,
+    grid_steps_m,
+    hole_bench_height_m,
+    min_crest_offset_m,
+    min_floor_burden_m,
+    toe_positions,
+)
 
 Point2 = tuple[float, float]
 
@@ -27,6 +38,8 @@ BACK_SPLIT_TURN_DEG = 45.0
 # 0,65·b, допустимый диапазон 0,5–0,8·b (решение владельца 06.11.2026).
 BACK_OFFSET_DEFAULT_RATIO = 0.65
 BACK_OFFSET_RANGE = (0.5, 0.8)
+# Скважина на остатке — не ближе этого к последней регулярной своего эшелона, м.
+REMAINDER_MIN_STEP_M = 1.0
 
 
 def _free_edge_indices(contour: BlockContour) -> set[int]:
@@ -148,6 +161,14 @@ def _toward_face(contour: BlockContour, back: list[Point2], advance: Point2) -> 
     return advance if dot >= 0 else (-advance[0], -advance[1])
 
 
+def back_frame(contour: BlockContour, row_azimuth_deg: float) -> tuple[Point2, Point2]:
+    """Направление ряда и направление от тыла к бровке (`local_basis` с
+    развёрнутым к свободной поверхности продвижением); без тыла — как есть."""
+    row_dir, advance = local_basis(row_azimuth_deg)
+    back = back_side(contour)
+    return row_dir, (_toward_face(contour, back, advance) if back is not None else advance)
+
+
 def back_columns(
     contour: BlockContour,
     boundary: list[Point2],
@@ -173,8 +194,7 @@ def back_columns(
     back = back_side(contour)
     if back is None or spacing_a <= 0 or burden_b <= 0 or len(boundary) < 3:
         return []
-    row_dir, advance = local_basis(row_azimuth_deg)
-    advance = _toward_face(contour, back, advance)
+    row_dir, advance = back_frame(contour, row_azimuth_deg)
     origin = (0.5 * (back[0][0] + back[-1][0]), 0.5 * (back[0][1] + back[-1][1]))
 
     def world(u: float, v: float) -> Point2:
@@ -244,3 +264,222 @@ def back_columns(
         for col in columns:
             col.rows = [r - base for r in col.rows]
     return columns
+
+
+def _float(params: dict[str, Any], key: str, default: float) -> float:
+    try:
+        value = float(params.get(key, default))
+    except (TypeError, ValueError):
+        return default
+    return value if math.isfinite(value) else default
+
+
+def _floor_burdens(contour: BlockContour, holes: list[Hole]) -> list[tuple[float, bool]]:
+    """(ЛСП, за подошвой) построенных скважин: точка оси на подошве и своя высота уступа."""
+    if not holes:
+        return []
+    block_h = contour.bench.height_m
+    found = toe_positions(contour, [floor_point(h) for h in holes], [hole_bench_height_m(h, block_h) for h in holes])
+    return [(p.distance_m, p.beyond) for p in found] if found else [(0.0, False)] * len(holes)
+
+
+def back_grid(
+    contour: BlockContour,
+    params: dict[str, Any],
+    boundary: list[Point2],
+    surfaces: object | None = None,
+) -> list[Hole]:
+    """Основная сетка шаблона «от тыла»: эшелоны `back_columns` и конец каждого у бровки.
+
+    Регулярные узлы — скважины вида основной сетки (`default_kind`), `row` —
+    ряд решётки, `col` — столбец; угол и азимут — `angle_deg`/`azimuth_deg`,
+    как у прежней сетки. Устья ближе `min_crest_offset_m` к бровке и низ за
+    подошвой убираются. С W (`allowed_floor_burden_m`) — конец эшелона по
+    последней регулярной (решение владельца 06.11.2026):
+
+    1. Регулярные с конца, у которых ЛСП меньше 0,8·W, убираются.
+    2. ЛСП последней ≤ W + 3 % — ничего.
+    3. Иначе наклон к откосу (`pattern.face_tilts`: азимут к подошве ≤ 15° от
+       столбца, угол `front_rows_tilt_deg`, при недоборе — до 30°); ЛСП вошла
+       в допуск — наклонённая.
+    4. Иначе — вертикальная на остатке: на линии эшелона ближе к бровке, ЛСП ≈ W
+       (не меньше 0,8·W), устье не ближе отступа к бровке, не ближе
+       `REMAINDER_MIN_STEP_M` к последней и ближе b; член основной сетки
+       (ряд — следующий за последней, столбец — её).
+    5. Места для остатка нет — последняя с наклоном из п. 3 (наибольшим
+       допустимым), ЛСП покажет проверка.
+    """
+    from design.pattern import _front_rows_tilt, _grid_id, face_tilts, tilt_floor_burden_target_m
+
+    spacing_a, burden_b = grid_steps_m(params)
+    row_azimuth = _float(params, "row_azimuth_deg", 0.0)
+    columns = back_columns(
+        contour,
+        boundary,
+        row_azimuth,
+        spacing_a,
+        burden_b,
+        back_offset_m(params, burden_b),
+        _float(params, "grid_shift_along_m", 0.0),
+    )
+    if not columns:
+        return []
+    kind = main_grid_kind(params)
+    diameter_mm = _float(params, "diameter_mm", 152.0)
+    subdrill_m = _float(params, "subdrill_m", 1.0)
+    angle_deg = _float(params, "angle_deg", 0.0)
+    azimuth_deg = _float(params, "azimuth_deg", row_azimuth)
+    raw_depth = params.get("depth_m")
+    depth_override = float(raw_depth) if raw_depth is not None else None
+
+    def make(x: float, y: float, row: int, col: int, angle: float, azimuth: float) -> Hole:
+        collar, toe = drape_collar(x, y, angle, azimuth, subdrill_m, contour, surfaces, depth_override)
+        return Hole(
+            id=_grid_id(kind, row, col),
+            row=row,
+            col=col,
+            collar=collar,
+            toe=toe,
+            diameter_mm=diameter_mm,
+            subdrill_m=subdrill_m,
+            kind=kind,
+            source="generated",
+        )
+
+    col_base = min(col.index for col in columns)
+    echelons = [
+        [make(x, y, row, col.index - col_base, angle_deg, azimuth_deg) for (x, y), row in zip(col.nodes, col.rows)]
+        for col in columns
+    ]
+    crest = crest_geometry(contour)
+    if crest is None:
+        return [h for echelon in echelons for h in echelon]
+    min_crest = min_crest_offset_m(params)
+
+    def off_crest(holes: list[Hole]) -> list[bool]:
+        if not holes:
+            return []
+        dist = shapely.distance(shapely.points([(h.collar.x, h.collar.y) for h in holes]), crest)
+        return [float(d) >= min_crest - 1e-9 for d in dist]
+
+    flat = [h for echelon in echelons for h in echelon]
+    keep = {id(h) for h, ok, (_, beyond) in zip(flat, off_crest(flat), _floor_burdens(contour, flat)) if ok and not beyond}
+    echelons = [[h for h in echelon if id(h) in keep] for echelon in echelons]
+
+    allowed = allowed_floor_burden_m(params)
+    w = design_burden_m(params)
+    lower = min_floor_burden_m(params)
+    if allowed is None or w is None or lower is None:
+        return [h for echelon in echelons for h in echelon]
+
+    # 1. С конца — регулярные с ЛСП меньше 0,8·W.
+    for echelon in echelons:
+        while echelon and _floor_burdens(contour, [echelon[-1]])[0][0] < lower - 1e-9:
+            echelon.pop()
+    ends = [k for k, echelon in enumerate(echelons) if echelon]
+    lasts = [echelons[k][-1] for k in ends]
+    over = [k for k, (lsp, _) in zip(ends, _floor_burdens(contour, lasts)) if lsp > allowed + 1e-9]
+    if not over:
+        return [h for echelon in echelons for h in echelon]
+
+    # 3. Наклон к откосу — пакетом по всем таким эшелонам.
+    _, advance = back_frame(contour, row_azimuth)
+    _, tilt_deg = _front_rows_tilt(params)
+    target = tilt_floor_burden_target_m(params)
+    over_holes = [echelons[k][-1] for k in over]
+    tilts = face_tilts(
+        contour,
+        over_holes,
+        [(h.collar.x, h.collar.y) for h in over_holes],
+        advance,
+        tilt_deg,
+        target,
+        allowed,
+        subdrill_m,
+        surfaces,
+        depth_override,
+    )
+    tilted = {
+        k: make(h.collar.x, h.collar.y, h.row, h.col, angle, azimuth)
+        for k, h, (angle, azimuth) in zip(over, over_holes, tilts)
+        if angle > 1e-9
+    }
+    fixed = {
+        k for k, (lsp, beyond) in zip(tilted, _floor_burdens(contour, list(tilted.values())))
+        if lsp <= allowed + 1e-9 and not beyond
+    }
+    for k in over:
+        if k in fixed:
+            echelons[k][-1] = tilted[k]
+            continue
+        last = echelons[k][-1]
+        extra = _remainder(contour, boundary, crest, last, advance, burden_b, w, lower, min_crest, make)
+        if extra is not None:
+            echelons[k].append(extra)
+        elif k in tilted:
+            # 5. Места для остатка нет — наклон с наибольшим допустимым углом.
+            echelons[k][-1] = tilted[k]
+    return [h for echelon in echelons for h in echelon]
+
+
+def _remainder(
+    contour: BlockContour,
+    boundary: list[Point2],
+    crest: object,
+    last: Hole,
+    advance: Point2,
+    burden_b: float,
+    w: float,
+    lower: float,
+    min_crest: float,
+    make: Any,
+) -> Hole | None:
+    """Вертикальная на остатке за `last` по линии эшелона (`advance`) или None.
+
+    Шаг t от последней — в [`REMAINDER_MIN_STEP_M`, b): устье внутри
+    `boundary` и не ближе `min_crest` к бровке. ЛСП убывает с t: берётся t с
+    ЛСП = W (деление пополам), а если и у наибольшего t ЛСП больше W — оно;
+    ЛСП при наименьшем t меньше 0,8·W — места нет.
+    """
+    x0, y0 = last.collar.x, last.collar.y
+
+    def at(t: float) -> Hole:
+        return make(x0 + advance[0] * t, y0 + advance[1] * t, last.row + 1, last.col, 0.0, 0.0)
+
+    def placeable(t: float) -> bool:
+        x, y = x0 + advance[0] * t, y0 + advance[1] * t
+        if not point_in_polygon((x, y), boundary):
+            return False
+        return float(shapely.distance(shapely.Point(x, y), crest)) >= min_crest - 1e-9
+
+    def lsp(t: float) -> float:
+        value, beyond = _floor_burdens(contour, [at(t)])[0]
+        return -1.0 if beyond else value
+
+    low = REMAINDER_MIN_STEP_M
+    if low >= burden_b or not placeable(low) or lsp(low) < lower - 1e-9:
+        return None
+    # Наибольший допустимый шаг: устье в контуре и не ближе отступа к бровке.
+    high = burden_b - 1e-6
+    if not placeable(high):
+        lo, hi = low, high
+        for _ in range(50):
+            mid = 0.5 * (lo + hi)
+            if placeable(mid):
+                lo = mid
+            else:
+                hi = mid
+        high = lo
+    if lsp(high) >= w:
+        return at(high)
+    lo, hi = low, high  # lsp(lo) ≥ W > lsp(hi)
+    if lsp(lo) < w:
+        return at(lo)
+    for _ in range(50):
+        mid = 0.5 * (lo + hi)
+        if lsp(mid) >= w:
+            lo = mid
+        else:
+            hi = mid
+    t = lo if lsp(lo) >= lower - 1e-9 else hi
+    return at(t)

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import type { BlockContour, HoleKind, PatternParams, PatternType, RowPatternParams } from "../../types/design";
 import { SELECTABLE_HOLE_KINDS } from "../../types/design";
@@ -57,6 +57,9 @@ export function PatternPanel({
   contour?: BlockContour | null;
 }) {
   const [azimuthBusy, setAzimuthBusy] = useState(false);
+  // Параметры на момент ответа сервера: правки, сделанные, пока шёл запрос, не перезаписываются
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
   const anchorAvailable = BACK_ANCHOR_PATTERNS.includes(params.pattern);
   // Сохранённый «от тыла» у другой сетки генератор не применяет — показываем как «от бровки»
   const fromBack = anchorAvailable && params.layout_anchor === "back";
@@ -82,13 +85,28 @@ export function PatternPanel({
       onChange({ layout_anchor: undefined, back_offset_m: undefined });
       return;
     }
+    const before = paramsRef.current;
     const azimuth = await backAzimuth();
+    const now = paramsRef.current;
+    if (now !== before) {
+      // Пока шёл запрос, параметры поменяли: азимут не трогаем, опору — только если сетка её допускает
+      if (BACK_ANCHOR_PATTERNS.includes(now.pattern)) onChange({ layout_anchor: "back" });
+      return;
+    }
     onChange(azimuth == null ? { layout_anchor: "back" } : { layout_anchor: "back", row_azimuth_deg: azimuth });
   }
 
   async function azimuthFromBack() {
+    const before = paramsRef.current;
     const azimuth = await backAzimuth();
-    if (azimuth != null) onChange({ row_azimuth_deg: azimuth });
+    if (azimuth != null && paramsRef.current === before) onChange({ row_azimuth_deg: azimuth });
+  }
+
+  // Сетка без шаблона «от тыла» — ключи опоры убираются, чтобы не попасть в паспорт
+  function selectPattern(pattern: PatternType) {
+    const stale =
+      !BACK_ANCHOR_PATTERNS.includes(pattern) && (params.layout_anchor != null || params.back_offset_m != null);
+    onChange(stale ? { pattern, layout_anchor: undefined, back_offset_m: undefined } : { pattern });
   }
   const taperCount = params.front_rows_tilt_count ?? 0;
   // Старые проекты хранят только число рядов — это «Плавный переход»
@@ -123,7 +141,7 @@ export function PatternPanel({
               key={opt.value}
               type="button"
               className={`pattern-type-option${params.pattern === opt.value ? " active" : ""}`}
-              onClick={() => onChange({ pattern: opt.value })}
+              onClick={() => selectPattern(opt.value)}
             >
               <GridPreview pattern={opt.value} />
               <b>{opt.label}</b>

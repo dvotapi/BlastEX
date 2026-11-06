@@ -280,6 +280,44 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
     expect((screen.getByRole("button", { name: "Азимут по тылу" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("смена сетки на шахматную убирает ключи «от тыла»", () => {
+    const onChange = mountWithContour({ ...RECT, layout_anchor: "back", back_offset_m: 2 });
+    fireEvent.click(screen.getByRole("button", { name: /Шахматная/ }));
+    const [patch] = onChange.mock.calls[0];
+    expect(patch.pattern).toBe("staggered");
+    expect("layout_anchor" in patch && patch.layout_anchor === undefined).toBe(true);
+    expect("back_offset_m" in patch && patch.back_offset_m === undefined).toBe(true);
+    cleanup();
+    const onChange2 = mountWithContour({ ...RECT, layout_anchor: "back" });
+    fireEvent.click(screen.getByRole("button", { name: /Квадратная/ }));
+    expect(onChange2).toHaveBeenCalledWith({ pattern: "square" });
+  });
+
+  it("ответ азимута после правки параметров не перезаписывает их", async () => {
+    let resolve: (value: { azimuth_deg: number | null }) => void = () => {};
+    vi.mocked(api.design.backAzimuth)
+      .mockReset()
+      .mockReturnValue(new Promise((r) => (resolve = r)));
+    const onChange = vi.fn();
+    const view = render(
+      <PatternPanel params={RECT} onChange={onChange} onGenerate={() => {}} busy={false} contour={CONTOUR} />,
+    );
+    fireEvent.change(screen.getByLabelText(ANCHOR), { target: { value: "back" } });
+    view.rerender(
+      <PatternPanel
+        params={{ ...RECT, row_azimuth_deg: 45 }}
+        onChange={onChange}
+        onGenerate={() => {}}
+        busy={false}
+        contour={CONTOUR}
+      />,
+    );
+    resolve({ azimuth_deg: 93.5 });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange).toHaveBeenCalledWith({ layout_anchor: "back" });
+    expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ row_azimuth_deg: 93.5 }));
+  });
+
   it("сохранённый «от тыла» у шахматной не показывается и не переписывается", () => {
     const onChange = mountWithContour({ ...DEFAULT_PATTERN_PARAMS, layout_anchor: "back" });
     expect(screen.queryByLabelText(ANCHOR)).toBeNull();

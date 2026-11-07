@@ -63,7 +63,7 @@ class SpaceTests(unittest.TestCase):
     def test_stage1_back_variants(self):
         # Шаблон «от тыла»: сдвиг вдоль ряда четвертями a, поворот ±5° шагом
         # 2,5° около азимута тыла, оба фланга. Отступ от тыла на вкладке пуст —
-        # перебор пробует 20·d·k (ключа нет, его берёт генератор) и 0,5–0,8·b
+        # перебор пробует 20·d (ключа нет, его берёт генератор) и 0,5–0,8·b
         # (решение владельца 07.11.2026).
         contour = _contour([[0, 1]])
         ref = back_azimuth_deg(contour)
@@ -115,7 +115,7 @@ class SpaceTests(unittest.TestCase):
             self.assertTrue(all("back_offset_m" not in c.params for c in _crest(cands)))
             seed = _back(cands)[0]
             self.assertEqual({c.params["back_offset_m"] for c in stage3([seed], RECT, contour)}, {own})
-        # Неверное значение — как пустое поле: 20·d·k (без ключа) и доли b.
+        # Неверное значение — как пустое поле: 20·d (без ключа) и доли b.
         for bad in (0, -1, None, "", "x"):
             back = _back(stage1({**RECT, "back_offset_m": bad}, contour))
             self.assertEqual({c.params.get("back_offset_m") for c in back}, {None, 2.5, 3.0, 3.5, 4.0})

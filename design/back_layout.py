@@ -2,7 +2,7 @@
 
 Владелец раскладывает блок от тыла: приконтурный ряд — параллельно линии
 отрыва (наиболее длинной несвободной стороне контура) на отступе от неё (без
-ключа — 20·d·k: d — диаметр коронки, k — коэффициент разбуривания),
+ключа — 20·d, d — диаметр скважины),
 эшелоны (столбцы) — перпендикулярно ей к свободной поверхности с шагом b, у
 бровки каждый эшелон заканчивается по ЛСП: ничего, наклон к откосу или
 скважина на остатке. Сетка одна, прямоугольная; на дуге тыла приконтурный ряд
@@ -38,12 +38,10 @@ Point2 = tuple[float, float]
 # контура; дуга из мелких рёбер остаётся одной стороной, °.
 BACK_SPLIT_TURN_DEG = 45.0
 # Отступ приконтурного ряда от тыла без ключа `back_offset_m` — линия отрыва
-# за последним рядом: 20·d, d — диаметр коронки × коэффициент разбуривания
-# (маркшейдер, решение владельца 07.11.2026). Коэффициент — из правил заряда
-# (`hole_oversize_coeff`), без него — 1,05, как у заряда.
+# за последним рядом: 20·d, d — диаметр скважины `diameter_mm` (уже с учётом
+# разбуривания; маркшейдер, решение владельца 07.11.2026).
 BACK_BREAK_DIAMETERS = 20.0
-HOLE_OVERSIZE_DEFAULT = 1.05
-# Диаметр коронки без `diameter_mm` — умолчание генератора (`pattern.hole_spec`), мм.
+# Диаметр скважины без `diameter_mm` — умолчание генератора (`pattern.hole_spec`), мм.
 DIAMETER_DEFAULT_MM = 152.0
 # Коридор первого узла столбца: отступ ± доля b (ширина 0,3·b, как у прежних
 # 0,5–0,8·b, но с серединой на отступе — решение владельца 07.11.2026).
@@ -145,17 +143,15 @@ def positive_number(raw: Any) -> float | None:
     return value if value is not None and math.isfinite(value) and value > 0 else None
 
 
-def back_offset_m(params: dict[str, Any], hole_oversize_coeff: Any = None) -> float:
+def back_offset_m(params: dict[str, Any]) -> float:
     """Отступ приконтурного ряда от тыла: `back_offset_m`, без него (или при
-    неверном, не положительном значении) — 20·d·k: d — `diameter_mm` (без
-    него — умолчание генератора), k — `hole_oversize_coeff` (неверный или
-    нет — 1,05)."""
+    неверном, не положительном значении) — 20·d, d — `diameter_mm` (без
+    него — умолчание генератора)."""
     own = positive_number((params or {}).get("back_offset_m"))
     if own is not None:
         return own
     diameter_mm = positive_number((params or {}).get("diameter_mm")) or DIAMETER_DEFAULT_MM
-    k = positive_number(hole_oversize_coeff) or HOLE_OVERSIZE_DEFAULT
-    return BACK_BREAK_DIAMETERS * diameter_mm / 1000.0 * k
+    return BACK_BREAK_DIAMETERS * diameter_mm / 1000.0
 
 
 @dataclass
@@ -322,7 +318,6 @@ def back_grid(
     params: dict[str, Any],
     boundary: list[Point2],
     surfaces: object | None = None,
-    hole_oversize_coeff: float | None = None,
 ) -> list[Hole]:
     """Основная сетка шаблона «от тыла»: эшелоны `back_columns` и конец каждого у бровки.
 
@@ -363,7 +358,7 @@ def back_grid(
         row_azimuth,
         spacing_a,
         burden_b,
-        back_offset_m(params, hole_oversize_coeff),
+        back_offset_m(params),
         _float(params, "grid_shift_along_m", 0.0),
     )
     if not columns:

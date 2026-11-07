@@ -19,22 +19,16 @@ export interface ChargeGrid {
 /** Виды сетки со своим шагом b. */
 const OWN_BURDEN_PATTERNS: ReadonlySet<unknown> = new Set(["rectangular", "staggered", "variable", "domain_dependent"]);
 
-// Отступ от тыла без ключа `back_offset_m` — линия отрыва 20·d·k
-// (`design/back_layout.py`, `back_offset_m`): d — диаметр коронки, k —
-// коэффициент разбуривания из правил заряда; умолчания — как у генератора.
+// Отступ от тыла без ключа `back_offset_m` — линия отрыва 20·d
+// (`design/back_layout.py`, `back_offset_m`): d — диаметр скважины (уже с
+// учётом разбуривания); без него — умолчание генератора 152 мм.
 const BACK_BREAK_DIAMETERS = 20;
 const DIAMETER_DEFAULT_MM = 152;
-const HOLE_OVERSIZE_DEFAULT = 1.05;
 
-function positive(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
-}
-
-/** Отступ приконтурного ряда «от тыла» без ключа: 20·d·k, м. */
-export function backOffsetDefaultM(diameterMm: unknown, holeOversizeCoeff: unknown): number {
-  const d = positive(diameterMm) ?? DIAMETER_DEFAULT_MM;
-  const k = positive(holeOversizeCoeff) ?? HOLE_OVERSIZE_DEFAULT;
-  return (BACK_BREAK_DIAMETERS * d * k) / 1000;
+/** Отступ приконтурного ряда «от тыла» без ключа: 20·d, м. */
+export function backOffsetDefaultM(diameterMm: unknown): number {
+  const d = typeof diameterMm === "number" && Number.isFinite(diameterMm) && diameterMm > 0 ? diameterMm : DIAMETER_DEFAULT_MM;
+  return (BACK_BREAK_DIAMETERS * d) / 1000;
 }
 
 /**

@@ -79,12 +79,8 @@ def generate_pattern(
     existing_holes: list[Hole] | None = None,
     surfaces: object | None = None,
     domains: list[BlastDomain] | None = None,
-    hole_oversize_coeff: float | None = None,
 ) -> list[Hole]:
     """Build a production blast pattern inside the block contour.
-
-    `hole_oversize_coeff` — коэффициент разбуривания из правил заряда: от него
-    отступ от тыла без ключа `back_offset_m` (20·d·k, `back_layout.back_offset_m`).
 
     params:
       pattern                 square | rectangular | staggered | variable | domain_dependent
@@ -161,7 +157,7 @@ def generate_pattern(
 
         if back_side(contour) is not None:
             return _finish_pattern(
-                back_grid(contour, params, boundary, surfaces, hole_oversize_coeff),
+                back_grid(contour, params, boundary, surfaces),
                 contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
                 spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
             )

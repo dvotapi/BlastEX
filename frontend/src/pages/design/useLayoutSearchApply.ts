@@ -114,7 +114,6 @@ export function useLayoutSearchApply({
   setChargeGrid,
   rejectLocked,
   setError,
-  holeOversizeCoeff = null,
   onApplied,
 }: {
   state: DesignState;
@@ -128,8 +127,6 @@ export function useLayoutSearchApply({
   /** true — проектную часть править нельзя (сообщение ставит страница). */
   rejectLocked: () => boolean;
   setError: (message: string) => void;
-  /** Коэффициент разбуривания формы зарядов: уходит с паспортом в подбор и входит в отпечаток. */
-  holeOversizeCoeff?: number | null;
   /**
    * Остальное, что страница сбрасывает после новой раскладки. Скважины (после
    * геологии), параметры и сетка для q — варианта: страница ещё не
@@ -152,10 +149,10 @@ export function useLayoutSearchApply({
   );
   const networkSystem = document.network?.system ?? null;
   const inputsJson = useMemo(
-    () => stableJson(layoutSearchInputs(document, formParams, wiredKey ? wiredKey.split("\n") : [], holeOversizeCoeff)),
+    () => stableJson(layoutSearchInputs(document, formParams, wiredKey ? wiredKey.split("\n") : [])),
     // Сеть и скважины входят только системой и списком связанных контурных.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [document.contour, document.surfaces, document.domains, formParams, document.rock_name, networkSystem, wiredKey, holeOversizeCoeff],
+    [document.contour, document.surfaces, document.domains, formParams, document.rock_name, networkSystem, wiredKey],
   );
   const [inputsFingerprint, setInputsFingerprint] = useState<string | null>(null);
   useEffect(() => {
@@ -274,9 +271,7 @@ export function useLayoutSearchApply({
       onApplied?.(variant, holes, nextParams, chargeGridOf(nextParams));
       if (!wasStale) {
         // Входы документа после применения: скважины и сеть — варианта.
-        const inputs = await layoutFingerprint(
-          layoutSearchInputs({ ...now, holes, network: variant.network }, params, undefined, holeOversizeCoeff),
-        );
+        const inputs = await layoutFingerprint(layoutSearchInputs({ ...now, holes, network: variant.network }, params));
         setApplied({ result: resultFingerprint, inputs });
       }
     } finally {

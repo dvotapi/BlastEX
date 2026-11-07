@@ -487,21 +487,3 @@ class SameLayoutTests(unittest.TestCase):
         with mock.patch.object(module, "build_trunk_chains_network", wraps=module.build_trunk_chains_network) as built:
             evaluate(ctx, Candidate(second.params, "right"), seen)
         self.assertEqual(built.call_count, 1)
-
-
-class BackOffsetOversizeTests(unittest.TestCase):
-    def test_back_variant_uses_design_oversize_coeff(self):
-        # Вариант «от тыла» без `back_offset_m` строится с k паспорта (20·d·k).
-        from design.layout_search.evaluate import evaluate
-
-        params = {**BASE, "layout_anchor": "back", "diameter_mm": 145.0, "row_azimuth_deg": 90.0}
-        params.pop("offset_from_face_m")
-        tops = {}
-        for k in (1.05, 1.1):
-            design = BlastDesign(
-                design_id="t", contour=CONTOUR, pattern_params=dict(params), charge_rules={"hole_oversize_coeff": k}
-            )
-            result = evaluate(SearchContext.from_design(design), Candidate(dict(params), "left"))
-            tops[k] = max(h.collar.y for h in result.holes)
-        self.assertAlmostEqual(tops[1.05], 30.0 - 20 * 0.145 * 1.05, places=6)
-        self.assertAlmostEqual(tops[1.1] - tops[1.05], -20 * 0.145 * 0.05, places=6)

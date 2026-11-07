@@ -100,21 +100,21 @@ def test_block67_back_layout_beats_crest_layout():
     расстояния устья до бровки у обоих шаблонов — отступ 0,5 м; у пары после
     сдвига наклонных 15, ЛСП в коридоре — 41 %.
 
-    Отступ от тыла по умолчанию — 20·d·k (решение владельца 07.11.2026): при
-    коронке 145 мм и k = 1,05 это 3,045 м ≈ 0,82·W, наклонных 19, ЛСП в
-    коридоре — 21 %. При отступе 0,65·W (прежнее умолчание) — 48 %, наклонных
+    Отступ от тыла по умолчанию — 20·d (решение владельца 07.11.2026, d —
+    диаметр скважины): при 145 мм это 2,9 м ≈ 0,76·W, наклонных 19, ЛСП в
+    коридоре — 31 %. При отступе 0,65·W (прежнее умолчание) — 48 %, наклонных
     21: подошва здесь в 3,2–4,8 м от бровки (≈ W), и там, где последний узел
     эшелона в 0,7–1,5 м от бровки, ни остатку (станок — не ближе 1 м к
     последней, устье — не ближе 0,5 м к бровке), ни наклону последней (разрыв
     у подошвы ≤ b + 3 %) места нет. Поэтому перебор при пустом поле пробует и
-    20·d·k, и 0,5–0,8·b.
+    20·d, и 0,5–0,8·b.
     """
     base = {**_base(), "diameter_mm": 145.0}
     back = _report({**base, "layout_anchor": "back"})
     crest = _report({**base, "front_rows_mode": "pair"})
     assert back["median_m"] <= crest["median_m"] + 1e-3
     assert not back["codes"] & REJECT, back["codes"]
-    assert back["in_corridor"] > 0.18
+    assert back["in_corridor"] > 0.28
     share = _report({**base, "layout_anchor": "back", "back_offset_m": round(0.65 * W, 4)})
     assert not share["codes"] & REJECT, share["codes"]
     assert share["in_corridor"] > 0.4
@@ -238,7 +238,7 @@ def test_search_back_variants_pass(block):
         if is_back(c.params) and c.cut_flank == "left" and "grid_shift_along_m" not in c.params
         and abs((c.params["row_azimuth_deg"] - ref + 180.0) % 360.0 - 180.0) < 1e-3
     ]
-    # Отступ: 20·d·k (ключа нет) и 0,5/0,6/0,7/0,8·b.
+    # Отступ: 20·d (ключа нет) и 0,5/0,6/0,7/0,8·b.
     assert len(back) == 5
     assert any(not is_back(c.params) for c in cands)
     ctx = _search_ctx(contour, base)

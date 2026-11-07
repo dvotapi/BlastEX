@@ -699,14 +699,7 @@ export function DesignPage({
     setPatternBusy(true);
     setError("");
     try {
-      const result = await api.design.pattern(
-        document.contour,
-        patternParams,
-        document.holes,
-        document.surfaces,
-        document.domains,
-        chargeRules.hole_oversize_coeff,
-      );
+      const result = await api.design.pattern(document.contour, patternParams, document.holes, document.surfaces, document.domains);
       dispatch({ type: "SET_HOLES", holes: result.holes });
       setBlockVolumeM3(result.block_volume_m3);
       setFragResult(null);
@@ -746,7 +739,6 @@ export function DesignPage({
     setChargeGrid,
     rejectLocked: () => rejectLocked("designed"),
     setError,
-    holeOversizeCoeff: chargeRules.hole_oversize_coeff,
     onApplied: (variant, holes, params, grid) => {
       // Как после «Сгенерировать сетку»: сброс результатов.
       setFragResult(null);
@@ -2954,7 +2946,7 @@ export function DesignPage({
           )}
           {workflowStage === "pattern" && (
             <fieldset className="workstation-lock" disabled={designedLocked}>
-              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} contour={document.contour} holeOversizeCoeff={chargeRules.hole_oversize_coeff} />
+              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} contour={document.contour} />
             </fieldset>
           )}
           {/* Вне блокировки: показ вариантов и «Остановить» доступны и у закрытого
@@ -2966,7 +2958,6 @@ export function DesignPage({
               stale={layout.stale}
               error={layout.search.error}
               manualCount={document.holes.filter((hole) => hole.source === "manual").length}
-              holeOversizeCoeff={chargeRules.hole_oversize_coeff}
               locked={designedLocked}
               previewIndex={layout.previewIndex}
               onStart={() => {

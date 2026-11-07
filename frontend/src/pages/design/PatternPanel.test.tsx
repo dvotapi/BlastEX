@@ -201,18 +201,9 @@ const CONTOUR: BlockContour = {
   name: "Блок",
 };
 
-function mountWithContour(params: PatternParams, contour: BlockContour | null = CONTOUR, holeOversizeCoeff?: number) {
+function mountWithContour(params: PatternParams, contour: BlockContour | null = CONTOUR) {
   const onChange = vi.fn();
-  render(
-    <PatternPanel
-      params={params}
-      onChange={onChange}
-      onGenerate={() => {}}
-      busy={false}
-      contour={contour}
-      holeOversizeCoeff={holeOversizeCoeff}
-    />,
-  );
+  render(<PatternPanel params={params} onChange={onChange} onGenerate={() => {}} busy={false} contour={contour} />);
   return onChange;
 }
 
@@ -261,17 +252,14 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
     expect((screen.getByRole("option", { name: /^От тыла/ }) as HTMLOptionElement).disabled).toBe(true);
   });
 
-  it("«Отступ от тыла»: подсказка 20·d·k", () => {
-    const onChange = mountWithContour({ ...RECT, burden_b_m: 4, diameter_mm: 150, layout_anchor: "back" }, CONTOUR, 1.1);
+  it("«Отступ от тыла»: подсказка 20·d", () => {
+    const onChange = mountWithContour({ ...RECT, burden_b_m: 4, diameter_mm: 145, layout_anchor: "back" });
     const field = screen.getByLabelText(BACK_OFFSET) as HTMLInputElement;
     expect(field.value).toBe("");
-    // 20 × 0,15 × 1,1 = 3,3 м — не зависит от b.
-    expect(field.placeholder).toBe("3,3");
-    expect((field.closest("label") as HTMLLabelElement).title).toMatch(/20·d·k/);
-    cleanup();
-    // k не передан — умолчание 1,05: 20 × 0,15 × 1,05 = 3,15 м.
-    mountWithContour({ ...RECT, diameter_mm: 150, layout_anchor: "back" });
-    expect((screen.getByLabelText(BACK_OFFSET) as HTMLInputElement).placeholder).toBe("3,15");
+    // 20 × 0,145 = 2,9 м — не зависит от b.
+    expect(field.placeholder).toBe("2,9");
+    expect((field.closest("label") as HTMLLabelElement).title).toMatch(/20·d/);
+    expect((field.closest("label") as HTMLLabelElement).title).not.toMatch(/разбуривания/);
     expect(onChange).not.toHaveBeenCalled();
   });
 

@@ -95,7 +95,6 @@ def test_repeated_vertex_does_not_split_the_back():
 from design.back_layout import (  # noqa: E402
     BACK_BREAK_DIAMETERS,
     BACK_OFFSET_HALF_WIDTH_RATIO,
-    HOLE_OVERSIZE_DEFAULT,
     back_columns,
     back_offset_m,
 )
@@ -113,19 +112,16 @@ def _dist_to_back(c, xy):
 
 
 def test_back_offset_constants_and_key():
-    # Линия отрыва за последним рядом — 20·d, d — диаметр коронки × коэффициент
-    # разбуривания (маркшейдер, решение владельца 07.11.2026).
+    # Линия отрыва за последним рядом — 20·d, d — диаметр скважины с вкладки
+    # «Сетка»: он уже с учётом разбуривания (маркшейдер, решение владельца 07.11.2026).
     assert BACK_BREAK_DIAMETERS == 20.0
     assert BACK_OFFSET_HALF_WIDTH_RATIO == 0.15
-    assert HOLE_OVERSIZE_DEFAULT == 1.05
-    assert back_offset_m({"diameter_mm": 145}) == pytest.approx(20 * 0.145 * 1.05)
-    assert back_offset_m({"diameter_mm": 145}, 1.1) == pytest.approx(20 * 0.145 * 1.1)
-    assert back_offset_m({}) == pytest.approx(20 * 0.152 * 1.05)  # диаметр по умолчанию генератора
-    assert back_offset_m({"back_offset_m": 3}, 1.1) == 3.0
-    for bad_k in (None, 0, -1, float("nan"), "x"):
-        assert back_offset_m({"diameter_mm": 145}, bad_k) == pytest.approx(20 * 0.145 * 1.05)
-    for bad in ("", "x", -1, 0):
-        assert back_offset_m({"diameter_mm": 145, "back_offset_m": bad}) == pytest.approx(20 * 0.145 * 1.05)
+    assert back_offset_m({"diameter_mm": 145}) == pytest.approx(2.9)
+    assert back_offset_m({}) == pytest.approx(20 * 0.152)  # диаметр по умолчанию генератора
+    assert back_offset_m({"back_offset_m": 3, "diameter_mm": 145}) == 3.0
+    for bad in (None, 0, -1, float("nan"), "x", ""):
+        assert back_offset_m({"back_offset_m": bad, "diameter_mm": 145}) == pytest.approx(2.9)
+        assert back_offset_m({"diameter_mm": bad}) == pytest.approx(20 * 0.152)
 
 
 def test_first_node_corridor_is_centred_on_offset():
@@ -651,12 +647,10 @@ def test_over_tolerance_vertical_remainder_gives_way_to_tilted():
         assert _floor_gap(last, extra) <= ALLOWED + 1e-6
 
 
-def test_back_mode_default_offset_uses_oversize_coeff():
-    """Без ключа `back_offset_m` приконтурный ряд — в 20·d·k от тыла; k
-    (коэффициент разбуривания из правил заряда) передаётся генератору."""
+def test_back_mode_default_offset_is_twenty_diameters():
+    """Без ключа `back_offset_m` приконтурный ряд — в 20·d от тыла, d — диаметр скважины."""
     c = rect(40, 30)
     params = {k: v for k, v in BACK_MODE.items() if k != "back_offset_m"} | {"diameter_mm": 145.0}
-    for k, expected in ((None, 20 * 0.145 * 1.05), (1.1, 20 * 0.145 * 1.1)):
-        holes = generate_pattern(c, params, hole_oversize_coeff=k)
-        top = max(h.collar.y for h in holes if h.kind == params.get("default_kind", "production"))
-        assert top == pytest.approx(30.0 - expected, abs=1e-6)
+    holes = generate_pattern(c, params)
+    top = max(h.collar.y for h in holes if h.kind == params.get("default_kind", "production"))
+    assert top == pytest.approx(30.0 - 2.9, abs=1e-6)

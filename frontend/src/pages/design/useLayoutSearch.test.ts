@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api/endpoints";
 import { HttpError } from "../../api/client";
 import { emptyDesign, type LayoutSearchStatus } from "../../types/design";
-import { LAYOUT_SEARCH_POLL_MS, layoutFingerprint, layoutSearchInputs, useLayoutSearch } from "./useLayoutSearch";
+import { LAYOUT_SEARCH_POLL_MS, layoutFingerprint, useLayoutSearch } from "./useLayoutSearch";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -285,27 +285,6 @@ describe("useLayoutSearch: сбои и гонки", () => {
     expect(vi.getTimerCount()).toBe(1);
     unmount();
     expect(vi.getTimerCount()).toBe(0);
-  });
-});
-
-describe("layoutSearchInputs: коэффициент разбуривания", () => {
-  it("k правил заряда входит в отпечаток: от него отступ от тыла 20·d·k", async () => {
-    const design = { ...emptyDesign(), holes: [] };
-    const params = { pattern: "rectangular", layout_anchor: "back" };
-    const at = (k: number | null) => layoutSearchInputs(design, params, [], k);
-    expect(at(1.1).hole_oversize_coeff).toBe(1.1);
-    expect(await layoutFingerprint(at(1.1))).not.toBe(await layoutFingerprint(at(1.05)));
-    expect(await layoutFingerprint(at(1.05))).toBe(await layoutFingerprint(at(1.05)));
-  });
-
-  it("k не входит, когда отступ от тыла от него не зависит", async () => {
-    const design = { ...emptyDesign(), holes: [] };
-    // Свой отступ на вкладке — перебор его держит; шахматная — «от тыла» не перебирается.
-    for (const params of [{ pattern: "rectangular", back_offset_m: 3 }, { pattern: "staggered" }]) {
-      expect(layoutSearchInputs(design, params, [], 1.1).hole_oversize_coeff).toBeUndefined();
-    }
-    // Квадратная без ключа вида — тоже «от тыла».
-    expect(layoutSearchInputs(design, {}, [], 1.1).hole_oversize_coeff).toBe(1.1);
   });
 });
 

@@ -188,16 +188,12 @@ def test_child_gets_only_search_inputs(jobs):
         body = _walled_body(wired)
         body["design"]["rock_name"] = "Гранит"
         body["design"]["water_table_z_m"] = 410.0
-        body["design"]["charge_rules"] = {"hole_oversize_coeff": 1.1, "stemming_m": 3.0}
         with patch.object(jobs, "start") as start:
             assert client.post(f"{BASE}/layout-search", json=body).status_code == 202
         inputs = start.call_args.args[3]
         assert set(inputs) == {
-            "contour", "surfaces", "domains", "pattern_params", "rock_name", "name", "network", "holes",
-            "charge_rules",
+            "contour", "surfaces", "domains", "pattern_params", "rock_name", "name", "network", "holes"
         }
-        # Из правил заряда — только коэффициент разбуривания: от него отступ от тыла.
-        assert inputs["charge_rules"] == {"hole_oversize_coeff": 1.1}
         assert inputs["rock_name"] == "Гранит"
         assert inputs["pattern_params"] == body["design"]["pattern_params"]
         walls = [h for h in body["design"]["holes"] if h["kind"] == "contour"]

@@ -980,11 +980,6 @@ class PatternGenerateRequest(BaseModel):
     existing_holes: list[HoleSchema] = Field(default_factory=list)
     surfaces: SurfaceSetSchema | None = None
     domains: list[BlastDomainSchema] = Field(default_factory=list)
-    # Коэффициент разбуривания из правил заряда: от него отступ от тыла без
-    # ключа `back_offset_m` (20·d·k, `design/back_layout.py`). Без границ, как
-    # в правилах заряда паспорта: неверное значение генератор заменяет на 1,05,
-    # а построение сетки от поля вкладки зарядов не падает.
-    hole_oversize_coeff: float | None = None
 
 
 class BackAzimuthRequest(BaseModel):

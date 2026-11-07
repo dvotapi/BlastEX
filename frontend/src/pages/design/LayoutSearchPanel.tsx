@@ -87,11 +87,11 @@ function isBackVariant(params: Record<string, unknown>): boolean {
   return params.layout_anchor === "back" && (isSquarePattern(params.pattern) || params.pattern === "rectangular");
 }
 
-/** Отступ приконтурного ряда от тыла: ключ, без него — 20·d·k, как у генератора. */
-function backOffsetText(params: Record<string, unknown>, holeOversizeCoeff: number | undefined): string {
+/** Отступ приконтурного ряда от тыла: ключ, без него — 20·d, как у генератора. */
+function backOffsetText(params: Record<string, unknown>): string {
   const own = numberOf(params.back_offset_m);
   if (own !== null && own > 0) return ruNumber(own);
-  return ruNumber(backOffsetDefaultM(numberOf(params.diameter_mm), holeOversizeCoeff));
+  return ruNumber(backOffsetDefaultM(numberOf(params.diameter_mm)));
 }
 
 /** Шаги раскладки: у квадратной сетки генератор берёт b = a. */
@@ -108,14 +108,13 @@ function percent(share: number | null): string {
 function variantRows(
   v: LayoutSearchVariant,
   reliefMinMsM: number,
-  holeOversizeCoeff: number | undefined,
 ): { params: [string, string][]; metrics: [string, string][] } {
   const azimuth = numberOf(v.params.row_azimuth_deg);
   // «От тыла» схем первого ряда нет: каждый столбец у бровки генератор
   // заканчивает сам по ЛСП (ничего, наклон или скважина на остатке).
   const back = isBackVariant(v.params);
   const anchor: [string, string][] = back
-    ? [["Опора сетки", "от тыла"], ["Отступ от тыла, м", backOffsetText(v.params, holeOversizeCoeff)]]
+    ? [["Опора сетки", "от тыла"], ["Отступ от тыла, м", backOffsetText(v.params)]]
     : [["Опора сетки", "от бровки"]];
   return {
     params: [
@@ -163,7 +162,6 @@ export function LayoutSearchPanel({
   onStop,
   onPreview,
   onApply,
-  holeOversizeCoeff,
 }: {
   designId: string | null;
   status: LayoutSearchStatus | null;
@@ -180,8 +178,6 @@ export function LayoutSearchPanel({
   onStop: () => void;
   onPreview: (index: number | null) => void;
   onApply: (variant: LayoutSearchVariant) => void;
-  /** Коэффициент разбуривания из правил заряда: от него отступ от тыла 20·d·k у варианта без ключа. */
-  holeOversizeCoeff?: number;
 }) {
   const running = status?.state === "running";
   const result = running ? null : status?.result ?? null;
@@ -255,7 +251,7 @@ export function LayoutSearchPanel({
             )}
             <div className="layout-variant-list">
               {result.best.map((variant, index) => {
-                const rows = variantRows(variant, reliefMinMsM, holeOversizeCoeff);
+                const rows = variantRows(variant, reliefMinMsM);
                 const shown = previewIndex === index;
                 return (
                   <article

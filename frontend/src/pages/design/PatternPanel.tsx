@@ -47,7 +47,6 @@ export function PatternPanel({
   onGenerate,
   busy,
   contour = null,
-  holeOversizeCoeff,
 }: {
   params: PatternParams;
   onChange: (patch: Partial<PatternParams>) => void;
@@ -55,8 +54,6 @@ export function PatternPanel({
   busy: boolean;
   // Контур блока: по нему «от тыла» ставит азимут рядов
   contour?: BlockContour | null;
-  // Коэффициент разбуривания из правил заряда: от него отступ от тыла 20·d·k
-  holeOversizeCoeff?: number;
 }) {
   const [azimuthBusy, setAzimuthBusy] = useState(false);
   // Параметры на момент ответа сервера: правки, сделанные, пока шёл запрос, не перезаписываются
@@ -153,7 +150,7 @@ export function PatternPanel({
 
         {anchorAvailable && (
           <div className="field-pair">
-            <label title="От бровки — ряды от верхней бровки вглубь. От тыла — приконтурный ряд параллельно тылу (самой длинной несвободной стороне) на линии отрыва (по умолчанию 20·d·k от него), столбцы к бровке с шагом b, у бровки каждый столбец заканчивается по ЛСП: ничего, наклон или скважина на остатке.">
+            <label title="От бровки — ряды от верхней бровки вглубь. От тыла — приконтурный ряд параллельно тылу (самой длинной несвободной стороне) на линии отрыва (по умолчанию 20·d от него), столбцы к бровке с шагом b, у бровки каждый столбец заканчивается по ЛСП: ничего, наклон или скважина на остатке.">
               Опора сетки
               <select value={fromBack ? "back" : "crest"} onChange={(e) => void selectAnchor(e.target.value)} disabled={azimuthBusy}>
                 <option value="crest">От бровки</option>
@@ -163,14 +160,14 @@ export function PatternPanel({
               </select>
             </label>
             {fromBack && (
-              <label title="Расстояние от тыла до приконтурного ряда — линия отрыва. Пусто — 20·d·k: d — диаметр скважины, k — коэффициент разбуривания с вкладки зарядов. Узел берётся в пределах ±0,15·b от отступа, на дуге тыла ряд выходит лесенкой. Подбор раскладки введённый отступ не меняет, а при пустом поле пробует 20·d·k и 0,5–0,8·b.">
+              <label title="Расстояние от тыла до приконтурного ряда — линия отрыва. Пусто — 20·d, d — диаметр скважины. Узел берётся в пределах ±0,15·b от отступа, на дуге тыла ряд выходит лесенкой. Подбор раскладки введённый отступ не меняет, а при пустом поле пробует 20·d и 0,5–0,8·b.">
                 Отступ от тыла, м
                 <input
                   type="number"
                   min="0"
                   step="0.1"
                   value={params.back_offset_m ?? ""}
-                  placeholder={formatNumber(backOffsetDefaultM(params.diameter_mm, holeOversizeCoeff))}
+                  placeholder={formatNumber(backOffsetDefaultM(params.diameter_mm))}
                   onChange={(e) => onChange({ back_offset_m: e.target.value === "" ? undefined : Number(e.target.value) })}
                 />
               </label>

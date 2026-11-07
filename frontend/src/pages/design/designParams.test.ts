@@ -272,14 +272,11 @@ describe("chargeGridOf: сетка для q в правилах зарядов",
 
 
 describe("backOffsetDefaultM: отступ от тыла без ключа", () => {
-  it("20·d·k: d — диаметр коронки, k — коэффициент разбуривания", () => {
-    expect(backOffsetDefaultM(145, 1.05)).toBeCloseTo(3.045, 9);
-    expect(backOffsetDefaultM(150, 1.1)).toBeCloseTo(3.3, 9);
+  it("20·d: d — диаметр скважины с вкладки «Сетка», уже с учётом разбуривания", () => {
+    expect(backOffsetDefaultM(145)).toBeCloseTo(2.9, 9);
   });
 
-  it("нет диаметра или k — умолчания генератора: 152 мм и 1,05", () => {
-    expect(backOffsetDefaultM(undefined, undefined)).toBeCloseTo(20 * 0.152 * 1.05, 9);
-    expect(backOffsetDefaultM(0, -1)).toBeCloseTo(20 * 0.152 * 1.05, 9);
-    expect(backOffsetDefaultM(Number.NaN, null)).toBeCloseTo(20 * 0.152 * 1.05, 9);
+  it("нет диаметра — умолчание генератора 152 мм", () => {
+    for (const bad of [undefined, null, 0, -1, Number.NaN]) expect(backOffsetDefaultM(bad)).toBeCloseTo(3.04, 9);
   });
 });

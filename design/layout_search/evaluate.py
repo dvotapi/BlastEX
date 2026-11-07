@@ -301,8 +301,7 @@ def evaluate(ctx: SearchContext, candidate: Candidate, seen: dict | None = None)
     else:
         # Ручные скважины перебор не использует: сетка без `existing_holes`.
         holes = generate_pattern(
-            base.contour, candidate.params, None, _surfaces(base.surfaces), _domains(base.domains),
-            hole_oversize_coeff=(base.charge_rules or {}).get("hole_oversize_coeff"),
+            base.contour, candidate.params, None, _surfaces(base.surfaces), _domains(base.domains)
         )
         if pattern_key is not None:
             seen[pattern_key] = list(holes)

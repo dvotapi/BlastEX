@@ -43,7 +43,9 @@ class ContinuousChargeMatchesCostGeometryTests(unittest.TestCase):
             overdrill_m=1.0,
             undercharge_m=3.0,
             crown_mm=152.0,
-            hole_oversize_coeff=1.05,
+            # Диаметр скважины паспорта — фактический: коэффициент правил заряда
+            # заряд не применяет (решение владельца 07.11.2026).
+            hole_oversize_coeff=1.0,
             explosive=EXPLOSIVE,
         )
 

@@ -28,7 +28,10 @@ DEFAULT_ROCK_UCS_MPA = 120.0
 DEFAULT_ROCK_FISSURING = 2.0
 DEFAULT_EXPLOSIVE_DENSITY_T_M3 = 0.82
 DEFAULT_EXPLOSIVE_ENERGY_MJ_KG = 3.8
-DEFAULT_HOLE_OVERSIZE = 1.05
+# Диаметр скважины паспорта — фактический, уже с разбуриванием (решение
+# владельца 07.11.2026): регионы влияния не умножают его на коэффициент
+# разбуривания правил заряда.
+HOLE_OVERSIZE_DESIGN = 1.0
 
 
 @dataclass
@@ -229,16 +232,13 @@ def collect_hole_regions(
     default_rock: RockSpec,
     default_explosive: ExplosiveSpec,
     explosives: dict[str, ExplosiveSpec] | None = None,
-    hole_oversize_coeff: float | None = None,
 ) -> list[InfluenceRegion]:
     """One influence region per enabled hole with enough inputs to predict."""
     catalog = dict(explosives or {})
     catalog.setdefault(default_explosive.name, default_explosive)
     rules = dict(design.charge_rules or {})
     pattern = dict(design.pattern_params or {})
-    oversize = hole_oversize_coeff
-    if oversize is None:
-        oversize = _finite(rules.get("hole_oversize_coeff"), DEFAULT_HOLE_OVERSIZE)
+    oversize = HOLE_OVERSIZE_DESIGN
     loads = {load.hole_id: load for load in design.loads}
     enabled = [hole for hole in design.holes if hole.enabled]
     fallback_spacing = _finite(pattern.get("spacing_a_m"), _finite(rules.get("grid_a_m"), 0.0))
@@ -401,7 +401,6 @@ def collect_hole_regions_with_warnings(
     default_rock: RockSpec,
     default_explosive: ExplosiveSpec,
     explosives: dict[str, ExplosiveSpec] | None = None,
-    hole_oversize_coeff: float | None = None,
 ) -> tuple[list[InfluenceRegion], list[str]]:
     """Регионы скважин и предупреждения о пропусках — без доменов и блока."""
     holes = collect_hole_regions(
@@ -410,7 +409,6 @@ def collect_hole_regions_with_warnings(
         default_rock=default_rock,
         default_explosive=default_explosive,
         explosives=explosives,
-        hole_oversize_coeff=hole_oversize_coeff,
     )
     warnings = [msg for region in holes for msg in region.warnings]
     enabled_ids = {hole.id for hole in design.holes if hole.enabled}
@@ -427,7 +425,6 @@ def collect_regions(
     default_rock: RockSpec,
     default_explosive: ExplosiveSpec,
     explosives: dict[str, ExplosiveSpec] | None = None,
-    hole_oversize_coeff: float | None = None,
 ) -> tuple[list[InfluenceRegion], list[InfluenceRegion], InfluenceRegion | None, list[str]]:
     """Hole regions, domain regions, site region, and skip warnings."""
     holes, warnings = collect_hole_regions_with_warnings(
@@ -436,7 +433,6 @@ def collect_regions(
         default_rock=default_rock,
         default_explosive=default_explosive,
         explosives=explosives,
-        hole_oversize_coeff=hole_oversize_coeff,
     )
     domains, site = group_regions(design, holes, lump_size_mm=lump_size_mm)
     return holes, domains, site, warnings

@@ -917,7 +917,6 @@ def predict_fragmentation(
             default_rock=rock,
             default_explosive=explosive,
             explosives=catalog or None,
-            hole_oversize_coeff=request.hole_oversize_coeff,
             measured=measured,
             settings=settings,
             settings_source=settings_source,
@@ -1191,7 +1190,6 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
     avg_depth_m = drilling_footage_m / total_holes
     avg_subdrill_m = sum(h.subdrill_m for h in enabled) / total_holes
     avg_diameter_mm = sum(h.diameter_mm for h in enabled) / total_holes
-    hole_oversize_coeff = float(design.charge_rules.get("hole_oversize_coeff") or 1.05) if design.charge_rules else 1.05
 
     loads_by_hole = {ld.hole_id: ld for ld in design.loads}
     charged = [loads_by_hole[h.id] for h in enabled if h.id in loads_by_hole and loads_by_hole[h.id].total_charge_kg > 0]
@@ -1226,7 +1224,8 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
         overdrill_m=avg_subdrill_m,
         undercharge_m=avg_undercharge_m,
         charge_length_m=max(0.0, avg_depth_m - avg_undercharge_m),
-        charge_diameter_m=(avg_diameter_mm / 1000.0) * hole_oversize_coeff,
+        # Диаметр скважины паспорта — фактический (с разбуриванием): он и есть диаметр заряда.
+        charge_diameter_m=avg_diameter_mm / 1000.0,
         capacity_kg_per_m=(total_charge_mass_kg / drilling_footage_m) if drilling_footage_m > 0 else 0.0,
         charge_mass_kg=avg_charge_mass_kg,
         yield_m3=yield_per_hole_m3,

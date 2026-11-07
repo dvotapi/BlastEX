@@ -247,7 +247,6 @@ def _collect_predicted(
                 model=fragmentation_model or DEFAULT_FRAG_MODEL,
                 lump_size_mm=lump_size_mm,
                 max_oversize_pct=max_oversize_pct,
-                hole_oversize_coeff=(design.charge_rules or {}).get("hole_oversize_coeff"),
                 settings=kuzram_settings,
                 settings_source=kuzram_settings_source,
             )

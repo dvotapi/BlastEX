@@ -258,7 +258,6 @@ def _fragmentation_outcomes(overlay: BlastDesign, params: ScenarioParams, outcom
             overlay,
             model=params.fragmentation_model or MODEL_KUZRAM,
             lump_size_mm=params.lump_size_mm,
-            hole_oversize_coeff=(overlay.charge_rules or {}).get("hole_oversize_coeff"),
             settings=settings,
             settings_source=settings_source,
         )

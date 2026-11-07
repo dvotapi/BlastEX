@@ -5,7 +5,8 @@
 прямоугольная сетки, нужны тыл и свободная поверхность).
 
 Этап 1 — азимут рядов, сдвиги сетки и фланг вруба (у «от тыла» — поворот
-около азимута тыла, отступ от тыла и сдвиг вдоль ряда); этап 2 — схема первого
+около азимута тыла, сдвиг вдоль ряда и, если поле пустое, отступ от тыла:
+20·d и доли b); этап 2 — схема первого
 ряда у откоса для лучших семян от бровки («от тыла» схем первого ряда нет:
 конец эшелона генератор выводит сам); этап 3 — тонкая подстройка вокруг лучших
 семян (азимут, сдвиги, шаги a и b в пределах ±3 % от базовых; у переменной
@@ -17,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from design.back_layout import BACK_OFFSET_RANGE, back_azimuth_deg, back_side
+from design.back_layout import positive_number, back_azimuth_deg, back_side
 from design.geometry import crest_azimuth_deg
 from design.models import BlockContour
 from design.pattern import LAYOUT_ANCHOR_BACK, LAYOUT_ANCHOR_PATTERNS, PATTERN_TYPES
@@ -41,16 +42,15 @@ FRONT_ROW_KEYS = ("front_rows_mode", "front_rows_tilt_count", "front_rows_tilt_d
 # Шаблон «от тыла»: ключи опоры и отступа от тыла.
 BACK_ANCHOR_KEYS = ("layout_anchor", "back_offset_m")
 # Этап 1 «от тыла»: поворот около азимута тыла (±5°, шаг 2,5°; этап 3 —
-# ±1,25° внутри тех же ±5°) и отступ приконтурного ряда — доли b в рабочем
-# диапазоне 0,5–0,8·b (`back_layout.BACK_OFFSET_RANGE`).
+# ±1,25° внутри тех же ±5°). Отступ от тыла с вкладки «Сетка» перебор держит;
+# поле пустое — пробует 20·d (без ключа, его берёт генератор) и доли b
+# (решение владельца 07.11.2026). Этап 3 отступ семени не меняет.
+BACK_OFFSET_RATIOS = (0.5, 0.6, 0.7, 0.8)
 BACK_TURNS_DEG = (-5.0, -2.5, 0.0, 2.5, 5.0)
 BACK_TURN_LIMIT_DEG = 5.0
 # Допуск предела поворота: азимут варианта округлён до 0,0001° (`_azimuth`),
 # и семя на краю (±5°) читается как 5,00003° — без допуска его подстройка терялась.
 BACK_TURN_TOLERANCE_DEG = 1e-3
-BACK_OFFSET_RATIOS = (0.5, 0.6, 0.7, 0.8)
-# Этап 3 «от тыла»: подстройка отступа, доля b.
-BACK_FINE_OFFSET_RATIO = 0.05
 # Ключи, которыми перебор управляет сам; из базы они убираются.
 _OWN_KEYS = ("first_row_burden_m", "grid_shift_along_m", "offset_from_face_m", *FRONT_ROW_KEYS, *BACK_ANCHOR_KEYS)
 
@@ -142,7 +142,8 @@ def _with_shift(params: dict, shift: float) -> dict:
 
 
 def stage1(base: dict, contour: BlockContour) -> list[Candidate]:
-    """Этап 1: варианты от бровки (288), затем «от тыла» (160), если шаблон применим."""
+    """Этап 1: варианты от бровки (288), затем «от тыла» (200, с отступом с
+    вкладки — 40), если шаблон применим."""
     out = _crest_stage1(base, contour)
     if back_applicable(base, contour):
         out += _back_stage1(base, contour)
@@ -150,9 +151,11 @@ def stage1(base: dict, contour: BlockContour) -> list[Candidate]:
 
 
 def _back_stage1(base: dict, contour: BlockContour) -> list[Candidate]:
-    """«От тыла»: поворот около азимута тыла × отступ от тыла × сдвиг вдоль × фланг
-    (5 × 4 × 4 × 2 = 160). Схем первого ряда нет, `offset_from_face_m` не пишется;
-    `front_rows_tilt_deg` базы (предел наклона конца эшелона) сохраняется."""
+    """«От тыла»: поворот около азимута тыла × сдвиг вдоль × отступ от тыла ×
+    фланг (5 × 4 × 5 × 2 = 200). Отступ — `back_offset_m` базы, если задан (тогда
+    вариантов 40); иначе 20·d (ключа нет) и 0,5/0,6/0,7/0,8·b. Схем первого
+    ряда нет, `offset_from_face_m` не пишется; `front_rows_tilt_deg` базы
+    (предел наклона конца эшелона) сохраняется."""
     ref = back_azimuth_deg(contour)
     if ref is None:
         return []
@@ -162,15 +165,20 @@ def _back_stage1(base: dict, contour: BlockContour) -> list[Candidate]:
     # наклона), а не угол схемы первого ряда: он берётся из базы.
     if "front_rows_tilt_deg" in base:
         plain["front_rows_tilt_deg"] = base["front_rows_tilt_deg"]
+    # Отступ от тыла — с вкладки «Сетка»; без него — 20·d генератора (None:
+    # ключ не пишется) и доли b.
+    own_offset = positive_number(base.get("back_offset_m"))
+    offsets = [own_offset] if own_offset is not None else [None, *(round(r * b, 4) for r in BACK_OFFSET_RATIOS)]
     out: list[Candidate] = []
     for turn in BACK_TURNS_DEG:
         az = _azimuth(ref + turn)
-        for ratio in BACK_OFFSET_RATIOS:
-            for ks in range(4):
+        for ks in range(4):
+            for offset in offsets:
                 params = _with_shift(dict(plain), ks * a / 4.0)
                 params["row_azimuth_deg"] = az
                 params["layout_anchor"] = LAYOUT_ANCHOR_BACK
-                params["back_offset_m"] = round(ratio * b, 4)
+                if offset is not None:
+                    params["back_offset_m"] = offset
                 for flank in FLANKS:
                     out.append(Candidate(dict(params), flank))
     return out
@@ -240,32 +248,27 @@ def stage3(seeds: list[Candidate], base: dict, contour: BlockContour | None = No
 
 
 def _back_stage3(seeds: list[Candidate], base: dict, ref: float | None) -> list[Candidate]:
-    """«От тыла»: геометрия (поворот ±1,25°, сдвиг ±a/8, отступ ±0,05·b) — 27
-    вариантов, и шаги a и b ×{0,97; 1; 1,03} при геометрии семени — ещё 8 (у
-    квадратной — 2). Шаги не перемножаются с геометрией: генерация «от тыла»
-    в 4–8 раз дольше, чем от бровки, и полное произведение (243 на семя) не
-    уложилось бы в общий бюджет. Поворот — в ±5° от азимута тыла `ref`,
-    отступ — в 0,5–0,8·b (b — базовый)."""
+    """«От тыла»: геометрия (поворот ±1,25°, сдвиг ±a/8) — 9 вариантов, и шаги
+    a и b ×{0,97; 1; 1,03} при геометрии семени — ещё 8 (у квадратной — 2).
+    Шаги не перемножаются с геометрией: генерация «от тыла» в 4–8 раз дольше,
+    чем от бровки. Поворот — в ±5° от азимута тыла `ref`; отступ от тыла —
+    семени (этап 3 его не меняет)."""
     a0, b0 = grid_steps_m(base)
     square = _is_square(base)
-    lo, hi = BACK_OFFSET_RANGE[0] * b0, BACK_OFFSET_RANGE[1] * b0
     mults_b = (1.0,) if square else STEP_MULTIPLIERS
     out: list[Candidate] = []
     for seed in seeds:
         p = seed.params
         az0 = float(p.get("row_azimuth_deg", 0.0) or 0.0)
         sh0 = float(p.get("grid_shift_along_m", 0.0) or 0.0)
-        of0 = float(p.get("back_offset_m", 0.65 * b0) or 0.65 * b0)
         for daz in (-FINE_AZIMUTH_DEG, 0.0, FINE_AZIMUTH_DEG):
             az = az0 + daz
             if ref is not None and abs(_turn(az, ref)) > BACK_TURN_LIMIT_DEG + BACK_TURN_TOLERANCE_DEG:
                 continue
             for dsh in (-a0 / 8.0, 0.0, a0 / 8.0):
-                for dof in (-BACK_FINE_OFFSET_RATIO * b0, 0.0, BACK_FINE_OFFSET_RATIO * b0):
-                    params = _with_shift(dict(p), sh0 + dsh)
-                    params["row_azimuth_deg"] = _azimuth(az)
-                    params["back_offset_m"] = round(min(hi, max(lo, of0 + dof)), 4)
-                    out.append(Candidate(params, seed.cut_flank))
+                params = _with_shift(dict(p), sh0 + dsh)
+                params["row_azimuth_deg"] = _azimuth(az)
+                out.append(Candidate(params, seed.cut_flank))
         for ma in STEP_MULTIPLIERS:
             for mb in mults_b:
                 params = dict(p)

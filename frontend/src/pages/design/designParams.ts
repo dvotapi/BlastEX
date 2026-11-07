@@ -19,13 +19,22 @@ export interface ChargeGrid {
 /** Виды сетки со своим шагом b. */
 const OWN_BURDEN_PATTERNS: ReadonlySet<unknown> = new Set(["rectangular", "staggered", "variable", "domain_dependent"]);
 
+// Отступ от тыла без ключа `back_offset_m` — линия отрыва 20·d
+// (`design/back_layout.py`, `back_offset_m`): d — диаметр скважины (уже с
+// учётом разбуривания); без него — умолчание генератора 152 мм.
+const BACK_BREAK_DIAMETERS = 20;
+const DIAMETER_DEFAULT_MM = 152;
+
+/** Отступ приконтурного ряда «от тыла» без ключа: 20·d, м. */
+export function backOffsetDefaultM(diameterMm: unknown): number {
+  const d = typeof diameterMm === "number" && Number.isFinite(diameterMm) && diameterMm > 0 ? diameterMm : DIAMETER_DEFAULT_MM;
+  return (BACK_BREAK_DIAMETERS * d) / 1000;
+}
+
 /**
  * Квадратная ли сетка — как решает генератор (`design/pattern.py`): нет вида,
  * «square» или неизвестный вид — квадрат, шаг b = a.
  */
-/** Отступ приконтурного ряда «от тыла» без ключа `back_offset_m` — доля b (`back_layout.BACK_OFFSET_DEFAULT_RATIO`). */
-export const BACK_OFFSET_DEFAULT_RATIO = 0.65;
-
 export function isSquarePattern(pattern: unknown): boolean {
   return !OWN_BURDEN_PATTERNS.has(pattern);
 }

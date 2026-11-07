@@ -93,8 +93,9 @@ def test_repeated_vertex_does_not_split_the_back():
 # --- Решётка от тыла (Task 2) ---------------------------------------------------
 
 from design.back_layout import (  # noqa: E402
-    BACK_OFFSET_DEFAULT_RATIO,
-    BACK_OFFSET_RANGE,
+    BACK_BREAK_DIAMETERS,
+    BACK_OFFSET_HALF_WIDTH_RATIO,
+    HOLE_OVERSIZE_DEFAULT,
     back_columns,
     back_offset_m,
 )
@@ -112,13 +113,47 @@ def _dist_to_back(c, xy):
 
 
 def test_back_offset_constants_and_key():
-    assert BACK_OFFSET_DEFAULT_RATIO == 0.65
-    assert BACK_OFFSET_RANGE == (0.5, 0.8)
-    assert back_offset_m({}, 4.0) == pytest.approx(2.6)
-    assert back_offset_m({"back_offset_m": 3}, 4.0) == 3.0
-    assert back_offset_m({"back_offset_m": ""}, 4.0) == pytest.approx(2.6)
-    assert back_offset_m({"back_offset_m": "x"}, 4.0) == pytest.approx(2.6)
-    assert back_offset_m({"back_offset_m": -1}, 4.0) == pytest.approx(2.6)
+    # Линия отрыва за последним рядом — 20·d, d — диаметр коронки × коэффициент
+    # разбуривания (маркшейдер, решение владельца 07.11.2026).
+    assert BACK_BREAK_DIAMETERS == 20.0
+    assert BACK_OFFSET_HALF_WIDTH_RATIO == 0.15
+    assert HOLE_OVERSIZE_DEFAULT == 1.05
+    assert back_offset_m({"diameter_mm": 145}) == pytest.approx(20 * 0.145 * 1.05)
+    assert back_offset_m({"diameter_mm": 145}, 1.1) == pytest.approx(20 * 0.145 * 1.1)
+    assert back_offset_m({}) == pytest.approx(20 * 0.152 * 1.05)  # диаметр по умолчанию генератора
+    assert back_offset_m({"back_offset_m": 3}, 1.1) == 3.0
+    for bad_k in (None, 0, -1, float("nan"), "x"):
+        assert back_offset_m({"diameter_mm": 145}, bad_k) == pytest.approx(20 * 0.145 * 1.05)
+    for bad in ("", "x", -1, 0):
+        assert back_offset_m({"diameter_mm": 145, "back_offset_m": bad}) == pytest.approx(20 * 0.145 * 1.05)
+
+
+def test_first_node_corridor_is_centred_on_offset():
+    """Коридор первого узла — отступ ± 0,15·b, а не 0,5–0,8·b: при отступе
+    3,045 м и b = 3,7 первый узел столбца на дуге тыла — ближайший к коридору
+    вокруг отступа, а не к 1,85–2,96 м (тогда узлы в 4,25–4,9 м от тыла
+    уступали узлу в 0,55–1,2 м)."""
+    from design.geometry import point_in_polygon
+
+    b = 3.7
+    offset = 20 * 0.145 * 1.05
+    lo, hi = offset - 0.15 * b, offset + 0.15 * b
+
+    def gap(d):
+        return max(lo - d, d - hi, 0.0)
+
+    c = arc_back_block()
+    checked = 0
+    for shift in (0.0, 0.9, 1.8, 2.7):
+        for col in back_columns(c, _ring(c), 90.0, 3.7, b, offset, shift):
+            d = _dist_to_back(c, col.nodes[0])
+            x0, y0 = col.nodes[0]
+            for j in (-2, -1, 1, 2):
+                xy = (x0, y0 - j * b)
+                if point_in_polygon(xy, _ring(c)):
+                    assert gap(_dist_to_back(c, xy)) >= gap(d) - 1e-9, (shift, col.index, d)
+                    checked += 1
+    assert checked
 
 
 def test_straight_back_first_row_at_offset():
@@ -165,8 +200,9 @@ def test_shift_along_moves_columns_by_phase():
 
 
 def test_arc_back_first_row_is_a_staircase():
-    """Дуга: первый узел каждого эшелона — узел решётки в 0,5–0,8·b от тыла, а
-    если такого нет — ближайший к диапазону; первые узлы не на одной прямой."""
+    """Дуга: первый узел каждого эшелона — узел решётки в коридоре отступ ± 0,15·b
+    (здесь 0,5–0,8·b), а если такого нет — ближайший к коридору; первые узлы не
+    на одной прямой."""
     from design.geometry import point_in_polygon
 
     b = 4.0
@@ -613,3 +649,14 @@ def test_over_tolerance_vertical_remainder_gives_way_to_tilted():
         assert 0.0 < _angle(extra) <= 30.0
         assert 0.8 * W - 1e-6 <= _lsp(c, extra) <= ALLOWED + 1e-6
         assert _floor_gap(last, extra) <= ALLOWED + 1e-6
+
+
+def test_back_mode_default_offset_uses_oversize_coeff():
+    """Без ключа `back_offset_m` приконтурный ряд — в 20·d·k от тыла; k
+    (коэффициент разбуривания из правил заряда) передаётся генератору."""
+    c = rect(40, 30)
+    params = {k: v for k, v in BACK_MODE.items() if k != "back_offset_m"} | {"diameter_mm": 145.0}
+    for k, expected in ((None, 20 * 0.145 * 1.05), (1.1, 20 * 0.145 * 1.1)):
+        holes = generate_pattern(c, params, hole_oversize_coeff=k)
+        top = max(h.collar.y for h in holes if h.kind == params.get("default_kind", "production"))
+        assert top == pytest.approx(30.0 - expected, abs=1e-6)

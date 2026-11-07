@@ -204,9 +204,12 @@ describe("LayoutSearchPanel: карточки", () => {
 
   it("опора сетки: от бровки и от тыла — с отступом, без схемы первого ряда", () => {
     const back = { pattern: "rectangular", row_azimuth_deg: 179.8, spacing_a_m: 3.81, burden_b_m: 3.8, layout_anchor: "back", back_offset_m: 2.47 };
-    // Без отступа — умолчание генератора 0,65·b.
-    const backDefault = { pattern: "square", row_azimuth_deg: 179.8, spacing_a_m: 4, layout_anchor: "back" };
-    mount({ status: status({ result: result({ best: [variant(), variant({ params: back }), variant({ params: backDefault })] }) }) });
+    // Без отступа — умолчание генератора 20·d·k: 20 × 0,15 × 1,1 = 3,3 м.
+    const backDefault = { pattern: "square", row_azimuth_deg: 179.8, spacing_a_m: 4, diameter_mm: 150, layout_anchor: "back" };
+    mount({
+      status: status({ result: result({ best: [variant(), variant({ params: back }), variant({ params: backDefault })] }) }),
+      holeOversizeCoeff: 1.1,
+    });
     const crest = within(card(0));
     expect(crest.getByText("Опора сетки")).toBeTruthy();
     expect(crest.getByText("от бровки")).toBeTruthy();
@@ -218,7 +221,7 @@ describe("LayoutSearchPanel: карточки", () => {
     expect(fromBack.getByText("2,47")).toBeTruthy();
     expect(fromBack.getByText("конец столбца по ЛСП")).toBeTruthy();
     expect(fromBack.queryByText("вертикальный")).toBeNull();
-    expect(within(card(2)).getByText("2,60")).toBeTruthy();
+    expect(within(card(2)).getByText("3,30")).toBeTruthy();
   });
 
   it("ключ «от тыла» у шахматной сетки генератор не применяет — карточка «от бровки»", () => {

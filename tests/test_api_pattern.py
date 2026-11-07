@@ -116,3 +116,31 @@ class PatternApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BackOffsetOversizeTests(unittest.TestCase):
+    def test_back_offset_default_uses_request_oversize_coeff(self):
+        # «От тыла» без `back_offset_m`: ряд у тыла в 20·d·k, k — коэффициент
+        # разбуривания из правил заряда, который присылает фронт.
+        contour = _contour_payload(40.0, 30.0)
+        params = {
+            "pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 4.0, "row_azimuth_deg": 90.0,
+            "layout_anchor": "back", "diameter_mm": 145.0, "edge_margin_m": 0.0,
+        }
+        for k in (None, 1.1):
+            response = design_service.generate_pattern(
+                PatternGenerateRequest(contour=contour, params=params, hole_oversize_coeff=k)
+            )
+            top = max(h.collar.y for h in response.holes)
+            self.assertAlmostEqual(top, 30.0 - 20 * 0.145 * (k or 1.05), places=6)
+
+
+class OversizeCoeffValidationTests(unittest.TestCase):
+    def test_out_of_range_coeff_does_not_block_generation(self):
+        # k правил заряда вне 1,0–1,5 не ломает построение сетки (схема правил
+        # заряда паспорта его не ограничивает): от бровки k не нужен вовсе.
+        contour = _contour_payload(40.0, 30.0)
+        params = {"pattern": "square", "spacing_a_m": 4.0, "row_azimuth_deg": 90.0}
+        for k in (0.98, 1.6):
+            request = PatternGenerateRequest(contour=contour, params=params, hole_oversize_coeff=k)
+            self.assertTrue(design_service.generate_pattern(request).holes)

@@ -19,13 +19,28 @@ export interface ChargeGrid {
 /** Виды сетки со своим шагом b. */
 const OWN_BURDEN_PATTERNS: ReadonlySet<unknown> = new Set(["rectangular", "staggered", "variable", "domain_dependent"]);
 
+// Отступ от тыла без ключа `back_offset_m` — линия отрыва 20·d·k
+// (`design/back_layout.py`, `back_offset_m`): d — диаметр коронки, k —
+// коэффициент разбуривания из правил заряда; умолчания — как у генератора.
+const BACK_BREAK_DIAMETERS = 20;
+const DIAMETER_DEFAULT_MM = 152;
+const HOLE_OVERSIZE_DEFAULT = 1.05;
+
+function positive(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** Отступ приконтурного ряда «от тыла» без ключа: 20·d·k, м. */
+export function backOffsetDefaultM(diameterMm: unknown, holeOversizeCoeff: unknown): number {
+  const d = positive(diameterMm) ?? DIAMETER_DEFAULT_MM;
+  const k = positive(holeOversizeCoeff) ?? HOLE_OVERSIZE_DEFAULT;
+  return (BACK_BREAK_DIAMETERS * d * k) / 1000;
+}
+
 /**
  * Квадратная ли сетка — как решает генератор (`design/pattern.py`): нет вида,
  * «square» или неизвестный вид — квадрат, шаг b = a.
  */
-/** Отступ приконтурного ряда «от тыла» без ключа `back_offset_m` — доля b (`back_layout.BACK_OFFSET_DEFAULT_RATIO`). */
-export const BACK_OFFSET_DEFAULT_RATIO = 0.65;
-
 export function isSquarePattern(pattern: unknown): boolean {
   return !OWN_BURDEN_PATTERNS.has(pattern);
 }

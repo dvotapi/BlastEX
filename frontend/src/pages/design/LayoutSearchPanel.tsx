@@ -3,7 +3,7 @@
 // «Применить». Сам опрос — в useLayoutSearch, применение — на странице.
 import { ruNumber } from "../../lib/format";
 import type { LayoutSearchStage, LayoutSearchState, LayoutSearchStatus, LayoutSearchVariant } from "../../types/design";
-import { BACK_OFFSET_DEFAULT_RATIO, isSquarePattern } from "./designParams";
+import { backOffsetDefaultM, isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
 
 const STATE_LABELS: Record<LayoutSearchState, string> = {
@@ -87,12 +87,11 @@ function isBackVariant(params: Record<string, unknown>): boolean {
   return params.layout_anchor === "back" && (isSquarePattern(params.pattern) || params.pattern === "rectangular");
 }
 
-/** Отступ приконтурного ряда от тыла: ключ, без него — 0,65·b, как у генератора. */
-function backOffsetText(params: Record<string, unknown>): string {
+/** Отступ приконтурного ряда от тыла: ключ, без него — 20·d·k, как у генератора. */
+function backOffsetText(params: Record<string, unknown>, holeOversizeCoeff: number | undefined): string {
   const own = numberOf(params.back_offset_m);
   if (own !== null && own > 0) return ruNumber(own);
-  const b = isSquarePattern(params.pattern) ? numberOf(params.spacing_a_m) : numberOf(params.burden_b_m) ?? numberOf(params.spacing_a_m);
-  return b === null ? "—" : ruNumber(BACK_OFFSET_DEFAULT_RATIO * b);
+  return ruNumber(backOffsetDefaultM(numberOf(params.diameter_mm), holeOversizeCoeff));
 }
 
 /** Шаги раскладки: у квадратной сетки генератор берёт b = a. */
@@ -109,13 +108,14 @@ function percent(share: number | null): string {
 function variantRows(
   v: LayoutSearchVariant,
   reliefMinMsM: number,
+  holeOversizeCoeff: number | undefined,
 ): { params: [string, string][]; metrics: [string, string][] } {
   const azimuth = numberOf(v.params.row_azimuth_deg);
   // «От тыла» схем первого ряда нет: каждый столбец у бровки генератор
   // заканчивает сам по ЛСП (ничего, наклон или скважина на остатке).
   const back = isBackVariant(v.params);
   const anchor: [string, string][] = back
-    ? [["Опора сетки", "от тыла"], ["Отступ от тыла, м", backOffsetText(v.params)]]
+    ? [["Опора сетки", "от тыла"], ["Отступ от тыла, м", backOffsetText(v.params, holeOversizeCoeff)]]
     : [["Опора сетки", "от бровки"]];
   return {
     params: [
@@ -163,6 +163,7 @@ export function LayoutSearchPanel({
   onStop,
   onPreview,
   onApply,
+  holeOversizeCoeff,
 }: {
   designId: string | null;
   status: LayoutSearchStatus | null;
@@ -179,6 +180,8 @@ export function LayoutSearchPanel({
   onStop: () => void;
   onPreview: (index: number | null) => void;
   onApply: (variant: LayoutSearchVariant) => void;
+  /** Коэффициент разбуривания из правил заряда: от него отступ от тыла 20·d·k у варианта без ключа. */
+  holeOversizeCoeff?: number;
 }) {
   const running = status?.state === "running";
   const result = running ? null : status?.result ?? null;
@@ -252,7 +255,7 @@ export function LayoutSearchPanel({
             )}
             <div className="layout-variant-list">
               {result.best.map((variant, index) => {
-                const rows = variantRows(variant, reliefMinMsM);
+                const rows = variantRows(variant, reliefMinMsM, holeOversizeCoeff);
                 const shown = previewIndex === index;
                 return (
                   <article

@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { HttpError } from "../../api/client";
 import { api } from "../../api/endpoints";
 import type { BlastDesign, Hole, InitiationNetwork, LayoutSearchStatus } from "../../types/design";
+import { isSquarePattern } from "./designParams";
 
 /** Пауза между запросами статуса, пока подбор идёт. */
 export const LAYOUT_SEARCH_POLL_MS = 1000;
@@ -28,6 +29,8 @@ export interface LayoutFingerprintInput {
   network_system: string | null;
   /** Контурные скважины, которые монтирует базовая сеть (по номерам, по порядку). */
   wired_contour_holes: string[];
+  /** Коэффициент разбуривания правил заряда: от него отступ от тыла 20·d·k. */
+  hole_oversize_coeff?: number | null;
 }
 
 /**
@@ -48,6 +51,14 @@ export function wiredContourHoles(holes: Hole[], network: InitiationNetwork | nu
     .sort();
 }
 
+/** Отступ от тыла вариантов подбора считается из k (20·d·k): «от тыла» перебирается, своего отступа нет. */
+function backOffsetFromCoeff(patternParams: Record<string, unknown>): boolean {
+  const pattern = patternParams.pattern;
+  const backTemplate = pattern === "rectangular" || isSquarePattern(pattern);
+  const own = patternParams.back_offset_m;
+  return backTemplate && !(typeof own === "number" && Number.isFinite(own) && own > 0);
+}
+
 /**
  * Входы подбора по паспорту и параметрам формы «Сетка» (как они уйдут на
  * сервер). `wired` — уже посчитанный `wiredContourHoles` (страница держит его
@@ -57,6 +68,7 @@ export function layoutSearchInputs(
   design: Pick<BlastDesign, "contour" | "surfaces" | "domains" | "rock_name" | "network" | "holes">,
   patternParams: Record<string, unknown>,
   wired: string[] = wiredContourHoles(design.holes, design.network),
+  holeOversizeCoeff: number | null = null,
 ): LayoutFingerprintInput {
   return {
     contour: design.contour,
@@ -66,6 +78,9 @@ export function layoutSearchInputs(
     rock_name: design.rock_name,
     network_system: design.network?.system ?? null,
     wired_contour_holes: wired,
+    // k — только когда от него зависит отступ вариантов «от тыла»: шаблон
+    // перебирается (квадратная или прямоугольная) и свой отступ не задан.
+    hole_oversize_coeff: backOffsetFromCoeff(patternParams) ? holeOversizeCoeff : undefined,
   };
 }
 

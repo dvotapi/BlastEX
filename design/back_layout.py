@@ -1,7 +1,8 @@
 """Шаблон раскладки «от тыла» (`pattern_params.layout_anchor = "back"`).
 
 Владелец раскладывает блок от тыла: приконтурный ряд — параллельно линии
-отрыва (наиболее длинной несвободной стороне контура) на 0,5–0,8·b от неё,
+отрыва (наиболее длинной несвободной стороне контура) на отступе от неё (без
+ключа — 20·d·k: d — диаметр коронки, k — коэффициент разбуривания),
 эшелоны (столбцы) — перпендикулярно ей к свободной поверхности с шагом b, у
 бровки каждый эшелон заканчивается по ЛСП: ничего, наклон к откосу или
 скважина на остатке. Сетка одна, прямоугольная; на дуге тыла приконтурный ряд
@@ -36,10 +37,17 @@ Point2 = tuple[float, float]
 # Излом между соседними несвободными рёбрами больше этого делит стороны
 # контура; дуга из мелких рёбер остаётся одной стороной, °.
 BACK_SPLIT_TURN_DEG = 45.0
-# Отступ приконтурного ряда от тыла — доля шага b: без ключа `back_offset_m`
-# 0,65·b, допустимый диапазон 0,5–0,8·b (решение владельца 06.11.2026).
-BACK_OFFSET_DEFAULT_RATIO = 0.65
-BACK_OFFSET_RANGE = (0.5, 0.8)
+# Отступ приконтурного ряда от тыла без ключа `back_offset_m` — линия отрыва
+# за последним рядом: 20·d, d — диаметр коронки × коэффициент разбуривания
+# (маркшейдер, решение владельца 07.11.2026). Коэффициент — из правил заряда
+# (`hole_oversize_coeff`), без него — 1,05, как у заряда.
+BACK_BREAK_DIAMETERS = 20.0
+HOLE_OVERSIZE_DEFAULT = 1.05
+# Диаметр коронки без `diameter_mm` — умолчание генератора (`pattern.hole_spec`), мм.
+DIAMETER_DEFAULT_MM = 152.0
+# Коридор первого узла столбца: отступ ± доля b (ширина 0,3·b, как у прежних
+# 0,5–0,8·b, но с серединой на отступе — решение владельца 07.11.2026).
+BACK_OFFSET_HALF_WIDTH_RATIO = 0.15
 # Точность делений пополам, где каждый шаг — запрос к линии подошвы: шаг
 # остатка, м, и угол наклона, °. Перебор (PR 3) зовёт генератор сотни раз.
 BISECT_TOLERANCE_M = 1e-4
@@ -128,17 +136,26 @@ def back_azimuth_deg(contour: BlockContour) -> float | None:
     return (math.degrees(math.atan2(dx, dy)) % 180.0) % 180.0
 
 
-def back_offset_m(params: dict[str, Any], burden_b: float) -> float:
-    """Отступ приконтурного ряда от тыла: `back_offset_m`, без него (или при
-    неверном, не положительном значении) — `BACK_OFFSET_DEFAULT_RATIO`·b."""
-    raw = (params or {}).get("back_offset_m")
+def positive_number(raw: Any) -> float | None:
+    """Положительное конечное число или None (пусто, текст, 0, nan)."""
     try:
         value = float(raw) if raw not in (None, "") else None
     except (TypeError, ValueError):
-        value = None
-    if value is None or not math.isfinite(value) or value <= 0:
-        return BACK_OFFSET_DEFAULT_RATIO * burden_b
-    return value
+        return None
+    return value if value is not None and math.isfinite(value) and value > 0 else None
+
+
+def back_offset_m(params: dict[str, Any], hole_oversize_coeff: Any = None) -> float:
+    """Отступ приконтурного ряда от тыла: `back_offset_m`, без него (или при
+    неверном, не положительном значении) — 20·d·k: d — `diameter_mm` (без
+    него — умолчание генератора), k — `hole_oversize_coeff` (неверный или
+    нет — 1,05)."""
+    own = positive_number((params or {}).get("back_offset_m"))
+    if own is not None:
+        return own
+    diameter_mm = positive_number((params or {}).get("diameter_mm")) or DIAMETER_DEFAULT_MM
+    k = positive_number(hole_oversize_coeff) or HOLE_OVERSIZE_DEFAULT
+    return BACK_BREAK_DIAMETERS * diameter_mm / 1000.0 * k
 
 
 @dataclass
@@ -193,9 +210,9 @@ def back_columns(
     перпендикулярно; начало по v — хорда тыла, сдвинутая к бровке на
     `back_offset`, по u — середина хорды плюс `shift_along` (по модулю a).
     Первый узел эшелона — узел решётки внутри `boundary`, расстояние которого
-    до тыла в `BACK_OFFSET_RANGE`·b, ближайший по эшелону к линии отступа (тыл,
-    смещённый внутрь на `back_offset`); такого нет — узел, ближайший к
-    диапазону (при равенстве — дальше от тыла). Расстояние до тыла — до
+    до тыла в коридоре `back_offset` ± `BACK_OFFSET_HALF_WIDTH_RATIO`·b,
+    ближайший по эшелону к линии отступа (тыл, смещённый внутрь на
+    `back_offset`); такого нет — узел, ближайший к коридору (при равенстве — дальше от тыла). Расстояние до тыла — до
     ломаной тыла, если эшелон её пересекает, иначе — по эшелону от входа в
     контур. Дальше — узлы внутри `boundary` с шагом b к бровке. Пустые эшелоны
     не возвращаются; без тыла — пусто.
@@ -222,7 +239,8 @@ def back_columns(
     uv = [local(p) for p in boundary]
     u_lo, u_hi = min(u for u, _ in uv), max(u for u, _ in uv)
     v_lo, v_hi = min(v for _, v in uv), max(v for _, v in uv)
-    lo_range, hi_range = BACK_OFFSET_RANGE[0] * burden_b, BACK_OFFSET_RANGE[1] * burden_b
+    half = BACK_OFFSET_HALF_WIDTH_RATIO * burden_b
+    lo_range, hi_range = back_offset - half, back_offset + half
     phase = shift_along % spacing_a
     k_lo = math.floor((u_lo - phase) / spacing_a)
     k_hi = math.ceil((u_hi - phase) / spacing_a)
@@ -304,6 +322,7 @@ def back_grid(
     params: dict[str, Any],
     boundary: list[Point2],
     surfaces: object | None = None,
+    hole_oversize_coeff: float | None = None,
 ) -> list[Hole]:
     """Основная сетка шаблона «от тыла»: эшелоны `back_columns` и конец каждого у бровки.
 
@@ -344,7 +363,7 @@ def back_grid(
         row_azimuth,
         spacing_a,
         burden_b,
-        back_offset_m(params, burden_b),
+        back_offset_m(params, hole_oversize_coeff),
         _float(params, "grid_shift_along_m", 0.0),
     )
     if not columns:

@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, DEFAULT_TIE_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
 import { designReducer, initDesignState, type DesignAction, type DesignState } from "./designReducer";
-import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, hasUnsavedChanges, isSquarePattern, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
+import { backOffsetDefaultM, benchPatchFromObjectAngle, chargeGridOf, designWithParams, hasUnsavedChanges, isSquarePattern, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 
 const DEFAULT_EXPLOSIVE = "ГРАНУЛИТ-РП";
 
@@ -267,5 +267,19 @@ describe("chargeGridOf: сетка для q в правилах зарядов",
     const params = { ...DEFAULT_PATTERN_PARAMS, pattern: "rectangular" as const, spacing_a_m: 5, burden_b_m: null as never };
     expect(chargeGridOf(params)).toEqual({ grid_a_m: 5, grid_b_m: 5 });
     expect(chargeGridOf({ ...params, burden_b_m: 0 })).toEqual({ grid_a_m: 5, grid_b_m: 5 });
+  });
+});
+
+
+describe("backOffsetDefaultM: отступ от тыла без ключа", () => {
+  it("20·d·k: d — диаметр коронки, k — коэффициент разбуривания", () => {
+    expect(backOffsetDefaultM(145, 1.05)).toBeCloseTo(3.045, 9);
+    expect(backOffsetDefaultM(150, 1.1)).toBeCloseTo(3.3, 9);
+  });
+
+  it("нет диаметра или k — умолчания генератора: 152 мм и 1,05", () => {
+    expect(backOffsetDefaultM(undefined, undefined)).toBeCloseTo(20 * 0.152 * 1.05, 9);
+    expect(backOffsetDefaultM(0, -1)).toBeCloseTo(20 * 0.152 * 1.05, 9);
+    expect(backOffsetDefaultM(Number.NaN, null)).toBeCloseTo(20 * 0.152 * 1.05, 9);
   });
 });

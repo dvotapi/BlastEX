@@ -518,6 +518,8 @@ export const api = {
       existingHoles: Hole[] = [],
       surfaces?: SurfaceSet,
       domains: BlastDomain[] = [],
+      // Коэффициент разбуривания правил заряда: от него отступ от тыла 20·d·k
+      holeOversizeCoeff?: number,
     ) =>
       post<PatternGenerateResponse>(`${V1}/design/pattern`, {
         contour,
@@ -525,6 +527,7 @@ export const api = {
         existing_holes: existingHoles,
         surfaces,
         domains,
+        hole_oversize_coeff: holeOversizeCoeff,
       }),
     maps: (design: BlastDesign) => post<EngineeringMaps>(`${V1}/design/maps`, { design }),
     fragmentationModels: () => get<{

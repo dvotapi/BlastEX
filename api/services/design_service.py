@@ -160,7 +160,9 @@ def generate_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse
     existing_holes = [Hole.from_dict(h.model_dump()) for h in request.existing_holes]
     surfaces = _surfaces_from_request(request.surfaces)
     domains = [BlastDomain.from_dict(d.model_dump()) for d in request.domains]
-    holes = run_generate_pattern(contour, request.params, existing_holes, surfaces, domains)
+    holes = run_generate_pattern(
+        contour, request.params, existing_holes, surfaces, domains, hole_oversize_coeff=request.hole_oversize_coeff
+    )
 
     return PatternGenerateResponse(
         holes=[h.to_dict() for h in holes],
@@ -394,9 +396,14 @@ LAYOUT_SEARCH_FIELDS = ("contour", "surfaces", "domains", "pattern_params", "roc
 
 
 def _layout_search_inputs(design: BlastDesign) -> dict:
-    """В дочерний процесс подбора уходят только поля, нужные перебору."""
+    """В дочерний процесс подбора уходят только поля, нужные перебору; из
+    правил заряда — лишь коэффициент разбуривания (отступ от тыла 20·d·k)."""
     data = design.to_dict()
     inputs = {key: data[key] for key in LAYOUT_SEARCH_FIELDS}
+    rules = design.charge_rules or {}
+    inputs["charge_rules"] = (
+        {"hole_oversize_coeff": rules["hole_oversize_coeff"]} if rules.get("hole_oversize_coeff") is not None else {}
+    )
     inputs["holes"] = [h.to_dict() for h in wired_wall_holes(design)]
     return inputs
 

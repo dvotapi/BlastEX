@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import type { BlockContour, HoleKind, PatternParams, PatternType, RowPatternParams } from "../../types/design";
 import { SELECTABLE_HOLE_KINDS } from "../../types/design";
-import { BACK_OFFSET_DEFAULT_RATIO, isSquarePattern } from "./designParams";
+import { backOffsetDefaultM, isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
 
 const PATTERN_OPTIONS: { value: PatternType; label: string; hint: string }[] = [
@@ -47,6 +47,7 @@ export function PatternPanel({
   onGenerate,
   busy,
   contour = null,
+  holeOversizeCoeff,
 }: {
   params: PatternParams;
   onChange: (patch: Partial<PatternParams>) => void;
@@ -54,6 +55,8 @@ export function PatternPanel({
   busy: boolean;
   // Контур блока: по нему «от тыла» ставит азимут рядов
   contour?: BlockContour | null;
+  // Коэффициент разбуривания из правил заряда: от него отступ от тыла 20·d·k
+  holeOversizeCoeff?: number;
 }) {
   const [azimuthBusy, setAzimuthBusy] = useState(false);
   // Параметры на момент ответа сервера: правки, сделанные, пока шёл запрос, не перезаписываются
@@ -63,7 +66,6 @@ export function PatternPanel({
   // Сохранённый «от тыла» у другой сетки генератор не применяет — показываем как «от бровки»
   const fromBack = anchorAvailable && params.layout_anchor === "back";
   const hasContour = (contour?.vertices.length ?? 0) >= 3;
-  const burdenB = isSquarePattern(params.pattern) ? params.spacing_a_m : params.burden_b_m;
 
   // Азимут тыла с сервера; null — у контура нет несвободной стороны
   async function backAzimuth(): Promise<number | null> {
@@ -151,7 +153,7 @@ export function PatternPanel({
 
         {anchorAvailable && (
           <div className="field-pair">
-            <label title="От бровки — ряды от верхней бровки вглубь. От тыла — приконтурный ряд параллельно тылу (самой длинной несвободной стороне) в 0,5–0,8·b от него, столбцы к бровке с шагом b, у бровки каждый столбец заканчивается по ЛСП: ничего, наклон или скважина на остатке.">
+            <label title="От бровки — ряды от верхней бровки вглубь. От тыла — приконтурный ряд параллельно тылу (самой длинной несвободной стороне) на линии отрыва (по умолчанию 20·d·k от него), столбцы к бровке с шагом b, у бровки каждый столбец заканчивается по ЛСП: ничего, наклон или скважина на остатке.">
               Опора сетки
               <select value={fromBack ? "back" : "crest"} onChange={(e) => void selectAnchor(e.target.value)} disabled={azimuthBusy}>
                 <option value="crest">От бровки</option>
@@ -161,14 +163,14 @@ export function PatternPanel({
               </select>
             </label>
             {fromBack && (
-              <label title="Расстояние от тыла до приконтурного ряда. Пусто — 0,65·b; узел берётся в 0,5–0,8·b от тыла, на дуге тыла ряд выходит лесенкой.">
+              <label title="Расстояние от тыла до приконтурного ряда — линия отрыва. Пусто — 20·d·k: d — диаметр скважины, k — коэффициент разбуривания с вкладки зарядов. Узел берётся в пределах ±0,15·b от отступа, на дуге тыла ряд выходит лесенкой. Подбор раскладки введённый отступ не меняет, а при пустом поле пробует 20·d·k и 0,5–0,8·b.">
                 Отступ от тыла, м
                 <input
                   type="number"
                   min="0"
                   step="0.1"
                   value={params.back_offset_m ?? ""}
-                  placeholder={formatNumber(BACK_OFFSET_DEFAULT_RATIO * burdenB)}
+                  placeholder={formatNumber(backOffsetDefaultM(params.diameter_mm, holeOversizeCoeff))}
                   onChange={(e) => onChange({ back_offset_m: e.target.value === "" ? undefined : Number(e.target.value) })}
                 />
               </label>
@@ -189,7 +191,10 @@ export function PatternPanel({
 
         <div className="field-pair">
           <label>Азимут рядов, °<input type="number" min="0" max="359" step="1" {...num("row_azimuth_deg")} /></label>
-          <label>Отступ от откоса, м<input type="number" min="0" step="0.1" {...num("offset_from_face_m")} /></label>
+          {/* «От тыла» ряды идут от тыла: отступ от откоса и ЛНС первого ряда генератор не читает */}
+          {!fromBack && (
+            <label>Отступ от откоса, м<input type="number" min="0" step="0.1" {...num("offset_from_face_m")} /></label>
+          )}
         </div>
         {fromBack && (
           <button
@@ -204,6 +209,7 @@ export function PatternPanel({
         )}
 
         <div className="field-pair">
+          {!fromBack && (
           <label>
             ЛНС первого ряда, м
             <input
@@ -215,17 +221,21 @@ export function PatternPanel({
               onChange={(e) => onChange({ first_row_burden_m: e.target.value === "" ? null : Number(e.target.value) })}
             />
           </label>
+          )}
+          {/* Отступ от контура работает в обоих шаблонах: скважины не ближе к любой стороне блока */}
           <label>Отступ от контура, м<input type="number" min="0" step="0.1" {...num("edge_margin_m")} /></label>
         </div>
 
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={params.first_row_follow_face}
-            onChange={(e) => onChange({ first_row_follow_face: e.target.checked })}
-          />
-          Первый ряд повторяет открытый откос
-        </label>
+        {!fromBack && (
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={params.first_row_follow_face}
+              onChange={(e) => onChange({ first_row_follow_face: e.target.checked })}
+            />
+            Первый ряд повторяет открытый откос
+          </label>
+        )}
 
         <label>
           Тип скважин основной сетки

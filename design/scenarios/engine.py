@@ -166,6 +166,7 @@ def apply_params(design: BlastDesign, params: ScenarioParams) -> BlastDesign:
             overlay.holes,
             overlay.surfaces,
             overlay.domains,
+            hole_oversize_coeff=(overlay.charge_rules or {}).get("hole_oversize_coeff"),
         )
     else:
         if geometry["diameter_mm"] is not None:

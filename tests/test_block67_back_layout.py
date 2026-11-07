@@ -94,26 +94,30 @@ def test_fixture_is_local_and_has_the_face():
 
 
 def test_block67_back_layout_beats_crest_layout():
-    """Устья первого ряда не дальше от бровки, чем у пары, отбраковки нет, ЛСП
-    в коридоре — у половины первого ряда.
+    """Устья первого ряда не дальше от бровки, чем у пары, отбраковки нет.
 
     Пара у откоса сама сдвигает устье к кромке (PR #153), поэтому медиана
     расстояния устья до бровки у обоих шаблонов — отступ 0,5 м; у пары после
     сдвига наклонных 15, ЛСП в коридоре — 41 %.
 
-    Доля ЛСП в коридоре на блоке 67 у шаблона «от тыла» ниже, чем у пары от
-    бровки: подошва здесь в 3,2–4,8 м от бровки (≈ W), и там, где последний
-    узел эшелона в 0,7–1,5 м от бровки, ни остатку (станок — не ближе 1 м к
+    Отступ от тыла по умолчанию — 20·d·k (решение владельца 07.11.2026): при
+    коронке 145 мм и k = 1,05 это 3,045 м ≈ 0,82·W, наклонных 19, ЛСП в
+    коридоре — 21 %. При отступе 0,65·W (прежнее умолчание) — 48 %, наклонных
+    21: подошва здесь в 3,2–4,8 м от бровки (≈ W), и там, где последний узел
+    эшелона в 0,7–1,5 м от бровки, ни остатку (станок — не ближе 1 м к
     последней, устье — не ближе 0,5 м к бровке), ни наклону последней (разрыв
-    у подошвы ≤ b + 3 %) места нет. Вертикальный остаток с ЛСП > W + 3 %
-    уступает наклонному в допуске (Codex, PR #154): ЛСП в коридоре 24 → 48 %,
-    наклонных 15 → 21 (у пары — 18). Шаблоны сравнивает перебор (PR 3).
+    у подошвы ≤ b + 3 %) места нет. Поэтому перебор при пустом поле пробует и
+    20·d·k, и 0,5–0,8·b.
     """
-    back = _report({**_base(), "layout_anchor": "back"})
-    crest = _report({**_base(), "front_rows_mode": "pair"})
+    base = {**_base(), "diameter_mm": 145.0}
+    back = _report({**base, "layout_anchor": "back"})
+    crest = _report({**base, "front_rows_mode": "pair"})
     assert back["median_m"] <= crest["median_m"] + 1e-3
     assert not back["codes"] & REJECT, back["codes"]
-    assert back["in_corridor"] > 0.4
+    assert back["in_corridor"] > 0.18
+    share = _report({**base, "layout_anchor": "back", "back_offset_m": round(0.65 * W, 4)})
+    assert not share["codes"] & REJECT, share["codes"]
+    assert share["in_corridor"] > 0.4
 
 
 @pytest.mark.parametrize(
@@ -234,13 +238,14 @@ def test_search_back_variants_pass(block):
         if is_back(c.params) and c.cut_flank == "left" and "grid_shift_along_m" not in c.params
         and abs((c.params["row_azimuth_deg"] - ref + 180.0) % 360.0 - 180.0) < 1e-3
     ]
-    assert len(back) == 4
+    # Отступ: 20·d·k (ключа нет) и 0,5/0,6/0,7/0,8·b.
+    assert len(back) == 5
     assert any(not is_back(c.params) for c in cands)
     ctx = _search_ctx(contour, base)
     cache: dict = {}
     for candidate in back:
         ev = evaluate(ctx, candidate, cache)
-        assert not ev.rejected, (candidate.params["back_offset_m"], ev.reject_codes)
+        assert not ev.rejected, (candidate.params.get("back_offset_m"), ev.reject_codes)
         assert ev.hole_count > 0
         assert ev.candidate.params["layout_anchor"] == "back"
 
@@ -283,7 +288,7 @@ def test_full_search_tries_both_templates(block):
 @pytest.mark.parametrize("block", ["67", "66"])
 def test_search_refines_around_edge_turn_seed(block):
     """Семя на краю поворота (±5°): азимут округлён до 0,0001°, но подстройка
-    отступа и сдвига при азимуте самого семени не теряется (ревью PR 3)."""
+    сдвига при азимуте самого семени не теряется (ревью PR 3)."""
     from design.layout_search.space import is_back, stage1, stage3
 
     contour, base = _block(block)
@@ -296,6 +301,6 @@ def test_search_refines_around_edge_turn_seed(block):
         edge = next(c for c in stage1(base, contour) if is_back(c.params) and abs(turn(c) - 5.0 * sign) < 1e-3)
         out = stage3([edge], base, contour)
         same_azimuth = [c for c in out if c.params["row_azimuth_deg"] == edge.params["row_azimuth_deg"]]
-        offsets = {c.params["back_offset_m"] for c in same_azimuth}
-        assert len(offsets) >= 2, (sign, offsets)
+        shifts = {c.params.get("grid_shift_along_m", 0.0) for c in same_azimuth}
+        assert len(shifts) >= 2, (sign, shifts)
         assert all(abs(turn(c)) <= 5.0 + 1e-3 for c in out)

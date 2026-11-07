@@ -1,8 +1,9 @@
 """Заряжание скважин: забойка, деки заряда/промежутков, боевики.
 
-Масса заряда считается через `cost.geometry.charge_diameter_m` и
-`linear_capacity_kg_per_m` — теми же функциями, что и смета (`cost/geometry.py`),
-поэтому масса заряда скважины в проекте и в смете совпадает до килограмма.
+Масса заряда — `linear_capacity_kg_per_m` сметы (`cost/geometry.py`) на
+диаметре заряда `charge_templates.hole_charge_diameter_m`: это диаметр
+скважины паспорта, уже с учётом разбуривания (решение владельца 07.11.2026),
+поэтому коэффициент разбуривания заряд не применяет.
 
 Если в `rules["templates"]` есть шаблоны (BDX-004), применяется пространственный
 движок. Иначе — прежние простые правила сплошного / рассредоточенного заряда.
@@ -12,8 +13,8 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from Blast import ExplosiveProperties
-from cost.geometry import charge_diameter_m, linear_capacity_kg_per_m
-from design.charge_templates import apply_charge_templates
+from cost.geometry import linear_capacity_kg_per_m
+from design.charge_templates import apply_charge_templates, hole_charge_diameter_m
 from design.geology import designed_rock_intervals, properties_at
 from design.models import (
     BlockContour,
@@ -68,7 +69,6 @@ def apply_charge_rules(
     """Строит заряжание для каждой скважины по единым правилам.
 
     rules:
-      hole_oversize_coeff  коэффициент разбуривания (диаметр заряда = диаметр коронки × коэфф.)
       stemming_m            длина забойки, м (если не задана — берётся stemming_k × диаметр скважины)
       stemming_k             длина забойки в диаметрах скважины (по умолчанию 20)
       decking                "continuous" | "spaced"
@@ -90,7 +90,6 @@ def apply_charge_rules(
             templates=resolved,
         )
 
-    hole_oversize_coeff = float(rules.get("hole_oversize_coeff", 1.05))
     stemming_m_fixed = rules.get("stemming_m")
     stemming_k = float(rules.get("stemming_k", 20.0))
     decking = str(rules.get("decking", "continuous"))
@@ -108,7 +107,6 @@ def apply_charge_rules(
             _charge_hole(
                 hole,
                 explosive=explosive,
-                hole_oversize_coeff=hole_oversize_coeff,
                 stemming_m_fixed=stemming_m_fixed,
                 stemming_k=stemming_k,
                 decking=decking,
@@ -126,7 +124,6 @@ def _charge_hole(
     hole: Hole,
     *,
     explosive: ExplosiveProperties,
-    hole_oversize_coeff: float,
     stemming_m_fixed: float | None,
     stemming_k: float,
     decking: str,
@@ -143,7 +140,7 @@ def _charge_hole(
     stemming_m = max(0.0, min(stemming_m, length_m))
     charge_length_total = length_m - stemming_m
 
-    charge_diameter = charge_diameter_m(hole.diameter_mm, hole_oversize_coeff)
+    charge_diameter = hole_charge_diameter_m(hole)
     capacity = linear_capacity_kg_per_m(charge_diameter, explosive.density_t_m3)
 
     decks: list[Deck] = []

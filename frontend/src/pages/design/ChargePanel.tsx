@@ -103,7 +103,13 @@ export function ChargePanel({
           </select>
         </label>
 
-        <label>Коэффициент разбуривания<input type="number" min="1" max="1.5" step="0.01" {...num("hole_oversize_coeff")} /></label>
+        {/* Заряд считается по диаметру скважины с вкладки «Сетка» — он уже с
+            учётом разбуривания (решение владельца 07.11.2026); коэффициент
+            пока читает только прогноз кусковатости. */}
+        <label title="Масса заряда считается по диаметру скважины с вкладки «Сетка» — он уже с учётом разбуривания. Коэффициент влияет только на прогноз кусковатости.">
+          Коэффициент разбуривания
+          <input type="number" min="1" max="1.5" step="0.01" {...num("hole_oversize_coeff")} />
+        </label>
 
         <div className="pattern-type-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <button

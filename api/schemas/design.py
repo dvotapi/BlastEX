@@ -1562,7 +1562,6 @@ class FragmentationPredictRequest(BaseModel):
     rock: RockPropertiesSchema | None = None
     explosive: ExplosivePropertiesSchema | None = None
     explosives: list[ExplosivePropertiesSchema] = Field(default_factory=list)
-    hole_oversize_coeff: float | None = Field(None, ge=1.0, le=1.5)
     measured: list[MeasuredFragmentationSchema] = Field(default_factory=list)
     # Объект работ, чьи настройки модели брать; пусто — активный объект
     # организации. Явные настройки kuzram важнее объекта.

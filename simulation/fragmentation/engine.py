@@ -199,7 +199,6 @@ def predict_design(
     default_rock: RockSpec | None = None,
     default_explosive: ExplosiveSpec | None = None,
     explosives: dict[str, ExplosiveSpec] | None = None,
-    hole_oversize_coeff: float | None = None,
     measured: list[MeasuredFragmentation] | None = None,
     settings: KuzRamSettings | None = None,
     settings_source: Mapping[str, Any] | None = None,
@@ -229,7 +228,6 @@ def predict_design(
         default_rock=rock,
         default_explosive=explosive,
         explosives=explosives,
-        hole_oversize_coeff=hole_oversize_coeff,
     )
     if not holes:
         raise ValueError("Недостаточно данных для прогноза дробления: нет скважин с массой заряда и сеткой.")

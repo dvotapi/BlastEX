@@ -917,7 +917,6 @@ def predict_fragmentation(
             default_rock=rock,
             default_explosive=explosive,
             explosives=catalog or None,
-            hole_oversize_coeff=request.hole_oversize_coeff,
             measured=measured,
             settings=settings,
             settings_source=settings_source,

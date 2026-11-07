@@ -923,7 +923,6 @@ export function DesignPage({
           density_t_m3: item.density_t_m3,
           power_mj_kg: item.power_mj_kg,
         })),
-        hole_oversize_coeff: chargeRules.hole_oversize_coeff,
       });
       setFragResult(result);
     } catch (reason) {

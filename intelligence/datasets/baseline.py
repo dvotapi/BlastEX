@@ -149,7 +149,6 @@ def fragmentation_baseline(
         payload = predict_design(
             design,
             model=model_id,
-            hole_oversize_coeff=(design.charge_rules or {}).get("hole_oversize_coeff"),
             settings=settings,
             settings_source=source,
             **kwargs,

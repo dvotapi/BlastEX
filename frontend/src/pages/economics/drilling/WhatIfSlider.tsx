@@ -120,7 +120,14 @@ export function WhatIfSlider({
   onChangeRef.current = onChange;
   const holding = useRef(false);
 
+  // Новое пробное значение или база снаружи — недосказанное движение
+  // снимается. Только при смене, не на монтировании: бегунки появляются с
+  // ответом сервера, и движение до выполнения эффектов монтирования иначе
+  // стиралось бы вместе с таймером.
+  const external = useRef({ value, base });
   useEffect(() => {
+    if (external.current.value === value && external.current.base === base) return;
+    external.current = { value, base };
     setPending(null);
     if (timer.current !== null) {
       window.clearTimeout(timer.current);

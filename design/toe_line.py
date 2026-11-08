@@ -883,51 +883,59 @@ def _spoil_points(heights, points, toe_geom, crest_geom) -> list[int]:
     ]
 
 
+# Смещение подошвы по углу у скважин со своей высотой уступа округляется до
+# миллиметра: линия строится одна на смещение (`_offset_geometry`), а не на
+# каждую скважину неровной кровли.
+ANGLE_OFFSET_STEP_M = 0.001
+
+
 def _angle_points(
     contour: BlockContour, indices, heights, points, crest_geom, inside, crest_d, values, sources, toe_points
 ) -> list[float]:
     """ЛСП точек `indices` по подошве по углу с высотой уступа H_i у точки;
-    возвращает смещения H_i · tan(90° − угол).
+    возвращает смещения H_i · tan(90° − угол) (до миллиметра).
 
-    ЛСП — d(p_i, бровка) + смещение: для точки внутри блока это ровно
-    расстояние до бровки, смещённой наружу (у смещённой кривой с круглыми
-    стыками расстояния складываются). Точка за бровкой (наклонная скважина) —
-    |смещение − d|. Угол — `effective_face_angle_deg`. Так считаются и
-    подошва по умолчанию, и развал под съёмкой.
+    Расстояние — до линии по углу, построенной с этим смещением
+    (`_offset_geometry`): у концов свободной поверхности смещённая линия
+    обрывается плоским торцом, и «расстояние до бровки + смещение» там
+    неверно (замечание Codex к PR #158). Угол — `effective_face_angle_deg`.
+    Так считаются и подошва по умолчанию, и развал под съёмкой.
     """
     if not indices:
         return []
     angle = effective_face_angle_deg(contour.bench)
-    idx = np.asarray(indices, dtype=np.int64)
-    offsets = [_offset_m(float(heights[i]), angle) for i in indices]
-    off = np.asarray(offsets, dtype=float)
-    d = np.asarray(crest_d, dtype=float)[idx]
-    # Точка на границе контура (угол, ошибка округления) — внутри: иначе
-    # вместо d + смещение вышло бы |смещение − d|.
-    selected = points[idx]
-    ins = np.asarray(inside, dtype=bool)[idx] | (shapely.distance(selected, _valid_polygon(contour.points_xy)) <= 1e-6)
-    vals = np.where(ins, d + off, np.abs(off - d))
-    crest_pts = shapely.get_point(shapely.shortest_line(crest_geom, selected), 0)
-    px, py = shapely.get_x(selected), shapely.get_y(selected)
-    cx, cy = shapely.get_x(crest_pts), shapely.get_y(crest_pts)
-    safe = np.where(d > 1e-9, d, 1.0)
-    ux, uy = (cx - px) / safe, (cy - py) / safe
-    # Точка за бровкой, подошва ещё дальше от блока — направление от бровки.
-    flip = ~ins & (off >= d)
-    ux, uy = np.where(flip, -ux, ux), np.where(flip, -uy, uy)
-    fallback_geom = None
-    for k, i in enumerate(indices):
-        values[i] = float(vals[k])
-        sources[i] = TOE_SOURCE_ANGLE
-        if d[k] > 1e-9:
-            toe_points[i] = shapely.Point(px[k] + ux[k] * vals[k], py[k] + uy[k] * vals[k])
-        else:
-            # Точка на самой бровке: направление — к линии по углу блока.
-            if fallback_geom is None:
-                fallback_geom = _geometry(angle_toe_line(contour, angle))
-            if fallback_geom is not None:
-                toe_points[i] = nearest_points(fallback_geom, points[i])[0]
+    free = tuple(tuple(line) for line in _free_polylines(contour))
+    ring = tuple(contour.points_xy)
+    offsets: list[float] = []
+    groups: dict[float, list[int]] = {}
+    for i in indices:
+        offset = round(_offset_m(float(heights[i]), angle) / ANGLE_OFFSET_STEP_M) * ANGLE_OFFSET_STEP_M
+        offsets.append(offset)
+        groups.setdefault(offset, []).append(i)
+    for offset, members in groups.items():
+        geom = _offset_geometry(ring, free, offset)
+        if geom is None:
+            continue
+        selected = points[np.asarray(members, dtype=np.int64)]
+        dist = shapely.distance(selected, geom)
+        nearest = shapely.get_point(shapely.shortest_line(geom, selected), 0)
+        for k, i in enumerate(members):
+            values[i] = float(dist[k])
+            sources[i] = TOE_SOURCE_ANGLE
+            toe_points[i] = nearest[k]
     return offsets
+
+
+@lru_cache(maxsize=1024)
+def _offset_geometry(
+    ring: tuple[tuple[float, float], ...],
+    free: tuple[tuple[tuple[float, float], ...], ...],
+    offset: float,
+) -> MultiLineString | None:
+    """Линия подошвы по углу со смещением `offset` — геометрия, одна на контур и смещение."""
+    lines = _built_cached(ring, free, offset) if offset > 0 else free
+    parts = [LineString(line) for line in lines if len(line) >= 2]
+    return MultiLineString(parts) if parts else None
 
 
 def spoil_angle_toe_lines(design: BlastDesign, burdens: dict[str, FloorBurden]) -> list[Polyline]:

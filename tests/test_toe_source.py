@@ -168,3 +168,19 @@ def test_angle_hole_on_contour_corner_counts_as_inside():
     hole = vertical_hole("1-01", x=-1e-12, y=3.0, row=0, bench_h=6.0)
     fb = floor_burdens(_design(_contour(), [hole]))["1-01"]
     assert fb.value_m == pytest.approx(3.0 + 6.0 * TAN15, abs=1e-3)
+
+
+def test_angle_hole_beyond_face_end_uses_offset_line():
+    # Замечание Codex к PR #158: свободная поверхность (0,0)–(10,0), точка (15, 2)
+    # ближе всего к концу бровки. ЛСП — до линии по углу (плоский торец), без
+    # скачка при высоте 10 м и 10,000001 м.
+    from design.toe_line import toe_positions
+
+    contour = _contour()
+    contour.free_faces = [[0, 1]]
+    contour.vertices = [Point3(0, 0, 0), Point3(10, 0, 0), Point3(40, 0, 0), Point3(40, 22, 0), Point3(0, 22, 0)]
+    a, b = toe_positions(contour, [(15.0, 2.0), (15.0, 2.0)], [10.0, 10.000001])
+    # Смещение со своей высотой округляется до 1 мм (`ANGLE_OFFSET_STEP_M`).
+    assert a.distance_m == pytest.approx(b.distance_m, abs=1e-3)
+    assert a.distance_m == pytest.approx(math.hypot(5.0, 2.0 + 10 * TAN15), abs=1e-3)
+    assert b.toe_point == pytest.approx(a.toe_point, abs=1e-3)

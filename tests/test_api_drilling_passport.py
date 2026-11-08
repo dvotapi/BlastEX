@@ -237,3 +237,12 @@ def test_foreign_organization_sees_nothing(client, repository):
     passport = _create(client)
     repository.passports[passport["id"]]["organization_id"] = "org-b"
     assert client.get(f"{BASE}/{passport['id']}").status_code == 404
+
+
+def test_service_key_cannot_issue_revision(client):
+    """Ревизию выпускает вошедший человек, а не внутренний ключ (как у массового взрыва)."""
+
+    passport = _create(client)
+    client.app.dependency_overrides[require_internal_access] = lambda: {"sub": "api-key", "role": "service", "org": "org-a"}
+    response = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
+    assert response.status_code == 403

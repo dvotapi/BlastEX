@@ -15,7 +15,7 @@ from api.schemas.drilling_passport import (
     DrillingPassportUpdateSchema,
     DrillingPassportValidationSchema,
 )
-from api.security import require_internal_access
+from api.security import require_human, require_internal_access
 from api.services.drilling_passport_service import (
     create_passport,
     create_revision,
@@ -105,7 +105,8 @@ def post_validate(
 def post_revision(
     passport_id: str,
     request: DrillingPassportRevisionCreateSchema,
-    session: dict[str, object] = Depends(require_internal_access),
+    # Ревизию выпускает вошедший человек: внутренний ключ решений не принимает (PR #110).
+    session: dict[str, object] = Depends(require_human),
     repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
     economics_repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> DrillingPassportRevisionSchema:

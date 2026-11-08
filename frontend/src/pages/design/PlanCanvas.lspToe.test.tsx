@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-// Линия подошвы, от которой считается ЛСП: в слое «Нижняя бровка», сплошная
-// по съёмке и пунктиром по углу откоса, с подсказкой об источнике.
+// Линия подошвы, от которой считается ЛСП: в слое «Нижняя бровка», сплошная,
+// с подсказкой об источнике; при подошве по углу снятая нижняя бровка —
+// серым пунктиром для сравнения (решение 07.11.2026).
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { emptyContour, type ToeLine } from "../../types/design";
@@ -51,16 +52,31 @@ describe("PlanCanvas: подошва для ЛСП", () => {
     const { container } = renderPlan({ source: "survey", polylines: [[[44, 0], [44, 20]]] });
     const line = container.querySelector("polyline.lsp-toe");
     expect(line).not.toBeNull();
-    expect(line?.classList.contains("by-angle")).toBe(false);
     expect(line?.querySelector("title")?.textContent).toBe("Подошва для ЛСП — нижняя бровка из чертежа");
+    expect(container.querySelector("polyline.survey-toe")).toBeNull();
   });
 
-  it("по углу — пунктир, с углом от вертикали и причиной", () => {
+  it("по углу — сплошная, с углом от вертикали и причиной", () => {
     const { container } = renderPlan({ source: "angle", reason: "no_survey", polylines: [[[42.68, 0], [42.68, 20]]] });
     const line = container.querySelector("polyline.lsp-toe");
-    expect(line?.classList.contains("by-angle")).toBe(true);
     expect(line?.querySelector("title")?.textContent).toBe(
       "Подошва для ЛСП — по углу откоса 15° от вертикали: нижней бровки в паспорте нет",
+    );
+  });
+
+  it("по углу при снятой бровке — она пунктиром для сравнения", () => {
+    const { container } = renderPlan({
+      source: "angle",
+      reason: "default",
+      polylines: [[[42.68, 0], [42.68, 20]]],
+      survey_polylines: [[[44, 0], [44, 20]]],
+    });
+    expect(container.querySelectorAll("polyline.lsp-toe")).toHaveLength(1);
+    const survey = container.querySelector("polyline.survey-toe");
+    expect(survey).not.toBeNull();
+    expect(survey?.getAttribute("points")?.split(" ")).toHaveLength(2);
+    expect(survey?.querySelector("title")?.textContent).toBe(
+      "Нижняя бровка по съёмке — для сравнения, ЛСП считается по углу",
     );
   });
 
@@ -74,14 +90,18 @@ describe("PlanCanvas: подошва для ЛСП", () => {
     expect(toeLineWarning(null)).toBe("");
   });
 
-  it("угол 90° — подошва совпадает с бровкой", () => {
+  it("угол 90° — не задан, подошва с 15° от вертикали", () => {
     expect(lspToeTitle({ source: "angle", reason: "no_survey", polylines: [] }, 90)).toBe(
-      "Подошва для ЛСП совпадает с бровкой — угол откоса не задан: нижней бровки в паспорте нет",
+      "Подошва для ЛСП — по углу откоса 15° от вертикали (угол не задан): нижней бровки в паспорте нет",
     );
   });
 
   it("скрывается вместе со слоем «Нижняя бровка»", () => {
-    const { container } = renderPlan({ source: "survey", polylines: [[[44, 0], [44, 20]]] }, false);
+    const { container } = renderPlan(
+      { source: "angle", polylines: [[[42.68, 0], [42.68, 20]]], survey_polylines: [[[44, 0], [44, 20]]] },
+      false,
+    );
     expect(container.querySelector("polyline.lsp-toe")).toBeNull();
+    expect(container.querySelector("polyline.survey-toe")).toBeNull();
   });
 });

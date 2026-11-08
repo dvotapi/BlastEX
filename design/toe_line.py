@@ -1,24 +1,28 @@
 """Линия подошвы откоса: от неё считается ЛСП первого ряда скважин.
 
-Если у контура есть съёмка нижней бровки (`cad.bottom`, контур не правили) —
-берутся рёбра её кольца, не касающиеся вершин верхнего контура (тыл и фланги
-кольцо делит с контуром, продления флангов начинаются в его вершинах); иначе
-линия строится смещением верхней бровки наружу на проекцию откоса в плане
-(«подошва по углу»).
+По умолчанию (решение владельца 07.11.2026: нижнюю бровку на съёмке часто
+снять нельзя — мешают неубранная горная масса и снег) линия строится
+смещением верхней бровки наружу на проекцию откоса в плане H · tan(90° − угол)
+(«подошва по углу»); угол — угол откоса блока, 90° и круче — «не задан»,
+берётся `DEFAULT_FACE_ANGLE_DEG` (75° от горизонтали, 15° от вертикали).
+
+Съёмка нижней бровки — только когда на блоке выбрано `toe_source = "survey"`
+и она есть (`cad.bottom`, контур не правили): берутся рёбра её кольца, не
+касающиеся вершин верхнего контура (тыл и фланги кольцо делит с контуром,
+продления флангов начинаются в его вершинах). Без съёмки — по углу.
 
 Съёмка с развалом (решение 21.10.2026, блок №66): если ближайшая к скважине
 точка съёмки лежит от верхней бровки дальше `SURVEY_SPOIL_WIDTH_FACTOR · H`,
 там не откос, а развал или берма — ЛСП этой скважины считается по углу
 откоса: расстояние от точки оси на уровне подошвы до верхней бровки плюс
 H · tan(90° − угол). H — высота уступа по оси скважины (`Hole.bench_height_m`,
-без неё — высота блока). Угол 90° и круче здесь — «угол не задан» (умолчание
-сервера у старых паспортов): берётся 15° от вертикали (75° от горизонтали),
-иначе подошва по углу совпала бы с бровкой и ЛСП занизилась бы.
+без неё — высота блока). Угол — `effective_face_angle_deg`.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 import shapely
@@ -56,9 +60,10 @@ SHADOW_REACH_RATIO = 1.05
 # 45° от вертикали) — развал или берма, а не откос: ЛСП считается по углу.
 SURVEY_SPOIL_WIDTH_FACTOR = 1.0
 
-# Угол откоса (от горизонтали) для подошвы по углу вместо развала, когда угол
-# блока не задан (90° — умолчание сервера): 15° от вертикали.
-SPOIL_DEFAULT_FACE_ANGLE_DEG = 75.0
+# Угол откоса (от горизонтали) для подошвы по углу, когда угол блока не задан
+# (90° — умолчание сервера у старых паспортов): 15° от вертикали. Иначе подошва
+# по углу совпала бы с бровкой и ЛСП занизилась бы.
+DEFAULT_FACE_ANGLE_DEG = 75.0
 
 # Источник линии подошвы у скважины: съёмка нижней бровки или построение по углу.
 TOE_SOURCE_SURVEY = "survey"
@@ -91,23 +96,22 @@ def _offset_m(height_m: float, face_angle_deg: float) -> float:
     return max(0.0, height_m * math.tan(math.radians(90.0 - angle)))
 
 
+def effective_face_angle_deg(bench: BenchSurface) -> float:
+    """Угол откоса для подошвы по углу (и вместо съёмки-развала).
+
+    90° и круче — «угол не задан» (умолчание сервера у старых паспортов):
+    берётся `DEFAULT_FACE_ANGLE_DEG`.
+    """
+    angle = bench.face_angle_deg
+    return angle if angle < 90.0 else DEFAULT_FACE_ANGLE_DEG
+
+
 def slope_offset_m(bench: BenchSurface) -> float:
     """Смещение подошвы от верхней бровки в плане: H · tan(90° − угол откоса).
 
-    Угол откоса — от горизонтали, не положе `MIN_FACE_ANGLE_DEG`.
+    Угол откоса — `effective_face_angle_deg`, не положе `MIN_FACE_ANGLE_DEG`.
     """
-    return _offset_m(bench.height_m, bench.face_angle_deg)
-
-
-def spoil_face_angle_deg(bench: BenchSurface) -> float:
-    """Угол откоса для подошвы по углу там, где съёмка — развал.
-
-    90° и круче — «угол не задан» (умолчание сервера у паспортов, сохранённых до
-    правки импорта): берётся `SPOIL_DEFAULT_FACE_ANGLE_DEG`. Без съёмки угол
-    блока используется как есть.
-    """
-    angle = bench.face_angle_deg
-    return angle if angle < 90.0 else SPOIL_DEFAULT_FACE_ANGLE_DEG
+    return _offset_m(bench.height_m, effective_face_angle_deg(bench))
 
 
 def _free_polylines(contour: BlockContour) -> list[Polyline]:
@@ -121,10 +125,23 @@ def _free_polylines(contour: BlockContour) -> list[Polyline]:
 
 
 def _built(contour: BlockContour, free: list[Polyline], offset: float) -> list[Polyline]:
+    """Свободные поверхности, смещённые наружу на `offset` (подошва по углу)."""
     if offset <= 0:
         return [list(line) for line in free]
-    polygon = Polygon(contour.points_xy)
-    result: list[Polyline] = []
+    key = (tuple(contour.points_xy), tuple(tuple(line) for line in free), float(offset))
+    return [list(line) for line in _built_cached(*key)]
+
+
+@lru_cache(maxsize=256)
+def _built_cached(
+    points: tuple[tuple[float, float], ...],
+    free: tuple[tuple[tuple[float, float], ...], ...],
+    offset: float,
+) -> tuple[tuple[tuple[float, float], ...], ...]:
+    """Построение подошвы по углу один раз на контур и смещение: генератор и
+    перебор зовут линию подошвы сотни раз на одну раскладку."""
+    polygon = Polygon(points)
+    result: list = []
     for line in free:
         base = LineString(line)
         best = None
@@ -138,8 +155,8 @@ def _built(contour: BlockContour, free: list[Polyline], offset: float) -> list[P
                 break
         if best is None:
             best = [base]
-        result.extend([(float(x), float(y)) for x, y in g.coords] for g in best)
-    return result
+        result.extend(tuple((float(x), float(y)) for x, y in g.coords) for g in best)
+    return tuple(result)
 
 
 def _survey(ring: list[tuple[float, float]], top: list[tuple[float, float]]) -> list[Polyline]:
@@ -182,30 +199,48 @@ def _survey(ring: list[tuple[float, float]], top: list[tuple[float, float]]) -> 
 def angle_toe_line(contour: BlockContour, face_angle_deg: float | None = None) -> ToeLine | None:
     """Линия подошвы по углу откоса блока; None, если свободных поверхностей нет.
 
-    `face_angle_deg` — угол вместо угла блока (подошва по углу вместо развала).
+    `face_angle_deg` — угол вместо угла блока; без него — `effective_face_angle_deg`.
     """
     free = _free_polylines(contour)
     if not free:
         return None
-    angle = contour.bench.face_angle_deg if face_angle_deg is None else face_angle_deg
+    angle = effective_face_angle_deg(contour.bench) if face_angle_deg is None else face_angle_deg
     offset = _offset_m(contour.bench.height_m, angle)
     return ToeLine(polylines=_built(contour, free, offset), source=TOE_SOURCE_ANGLE)
+
+
+def survey_selected(contour: BlockContour) -> bool:
+    """Выбрана ли на блоке подошва по съёмке (`toe_source = "survey"`)."""
+    return contour.toe_source == TOE_SOURCE_SURVEY
+
+
+def survey_toe_line(contour: BlockContour) -> ToeLine | None:
+    """Снятая нижняя бровка вдоль свободных поверхностей, выбрана она или нет;
+    None — свободных поверхностей, съёмки или её собственных рёбер нет.
+
+    Нужна плану: при подошве по углу снятая бровка показывается пунктиром
+    для сравнения (решение владельца 07.11.2026).
+    """
+    if not _free_polylines(contour):
+        return None
+    ring = drawing_bottom(contour)
+    if ring is None:
+        return None
+    polylines = _survey(ring, contour.points_xy)
+    return ToeLine(polylines=polylines, source=TOE_SOURCE_SURVEY) if polylines else None
 
 
 def toe_line(contour: BlockContour) -> ToeLine | None:
     """Линия подошвы вдоль свободных поверхностей; None, если их нет.
 
-    Съёмка, если она есть, — целиком: проверку на развал делает `floor_burdens`
-    по каждой скважине.
+    По умолчанию — по углу откоса; съёмка — только выбранная на блоке
+    (`survey_selected`) и найденная (`survey_toe_line`), целиком: проверку на
+    развал делает `floor_burdens` по каждой скважине.
     """
-    free = _free_polylines(contour)
-    if not free:
-        return None
-    ring = drawing_bottom(contour)
-    if ring is not None:
-        polylines = _survey(ring, contour.points_xy)
-        if polylines:
-            return ToeLine(polylines=polylines, source=TOE_SOURCE_SURVEY)
+    if survey_selected(contour):
+        survey = survey_toe_line(contour)
+        if survey is not None:
+            return survey
     return angle_toe_line(contour)
 
 
@@ -513,13 +548,13 @@ def toe_positions(
         beyond = [bool(not inside[i] and face_side[i] and not bottom.covers(points[i])) for i in range(len(points))]
         _spoil_to_angle(contour, heights_m, points, toe_geom, crest_geom, inside, crest_d, values, sources, toe_points)
         # Развал: подошва по углу с высотой уступа у точки.
-        angle = spoil_face_angle_deg(contour.bench)
+        angle = effective_face_angle_deg(contour.bench)
         for i in range(len(points)):
             if sources[i] == TOE_SOURCE_ANGLE:
                 offset = _offset_m(heights_m[i], angle)
                 beyond[i] = bool(not inside[i] and face_side[i] and crest_d[i] > offset + 1e-9)
     else:
-        offset = _offset_m(contour.bench.height_m, contour.bench.face_angle_deg)
+        offset = slope_offset_m(contour.bench)
         beyond = [bool(not inside[i] and face_side[i] and crest_d[i] > offset + 1e-9) for i in range(len(points))]
     return [
         ToePosition(
@@ -843,9 +878,9 @@ def _spoil_to_angle(
     d(p_i, бровка) + H_i · tan(90° − угол): для точки внутри блока это ровно
     расстояние до бровки, смещённой наружу на проекцию откоса (у смещённой
     кривой с круглыми стыками расстояния складываются). Точка за бровкой
-    (наклонная скважина) — |смещение − d|. Угол — `spoil_face_angle_deg`.
+    (наклонная скважина) — |смещение − d|. Угол — `effective_face_angle_deg`.
     """
-    angle = spoil_face_angle_deg(contour.bench)
+    angle = effective_face_angle_deg(contour.bench)
     nearest_survey = shapely.get_point(shapely.shortest_line(toe_geom, points), 0)
     survey_gap = shapely.distance(nearest_survey, crest_geom)
     fallback_geom = None
@@ -876,7 +911,7 @@ def spoil_angle_toe_lines(design: BlastDesign, burdens: dict[str, FloorBurden]) 
     """Куски подошвы по углу у скважин, чья ЛСП считана по ней вместо съёмки-развала.
 
     Для плана: у каждой такой скважины — своя линия по углу
-    (`spoil_face_angle_deg`), смещённая от бровки на H_i · tan(90° − угол) с
+    (`effective_face_angle_deg`), смещённая от бровки на H_i · tan(90° − угол) с
     высотой уступа H_i у этой скважины, как в ЛСП, в пределах ±a/2 от ближайшей
     к скважине точки (a — шаг сетки). Куски не сливаются: у скважин разной
     высоты они лежат на разном удалении от бровки. Пусто, если съёмки нет
@@ -888,7 +923,7 @@ def spoil_angle_toe_lines(design: BlastDesign, burdens: dict[str, FloorBurden]) 
     if not ids or toe is None or toe.source != TOE_SOURCE_SURVEY:
         return []
     free = _free_polylines(contour)
-    angle = spoil_face_angle_deg(contour.bench)
+    angle = effective_face_angle_deg(contour.bench)
     block_h = contour.bench.height_m
     a, _ = grid_steps_m(design.pattern_params)
     # Линия по углу для каждой встретившейся высоты: смещение одно на высоту.

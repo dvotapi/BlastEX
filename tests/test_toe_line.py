@@ -36,9 +36,10 @@ def test_offset_for_15_degrees_from_vertical():
     assert slope_offset_m(bench) == pytest.approx(2.6795, abs=1e-4)
 
 
-def test_vertical_face_has_zero_offset():
+def test_vertical_face_is_unset_angle():
+    # 90° — «угол не задан» (решение 07.11.2026): подошва по 75°, не под бровкой.
     bench = BenchSurface(crest_z_m=0, toe_z_m=-10, face_angle_deg=90)
-    assert slope_offset_m(bench) == pytest.approx(0.0)
+    assert slope_offset_m(bench) == pytest.approx(2.6795, abs=1e-4)
 
 
 def test_built_toe_line_lies_outside_block_at_offset():
@@ -50,7 +51,7 @@ def test_built_toe_line_lies_outside_block_at_offset():
 
 def test_survey_toe_line_uses_bottom_ring_edge_near_free_face():
     # cad.bottom — кольцо по нижней бровке: фронт на y = -3, тыл и фланги совпадают с контуром.
-    contour = rect_contour(cad={"bottom": [[0, -3], [40, -3], [40, 22], [0, 22]]})
+    contour = rect_contour(toe_source="survey", cad={"bottom": [[0, -3], [40, -3], [40, 22], [0, 22]]})
     line = toe_line(contour)
     assert line.source == "survey"
     ys = {round(y, 6) for poly in line.polylines for _, y in poly}
@@ -58,13 +59,13 @@ def test_survey_toe_line_uses_bottom_ring_edge_near_free_face():
 
 
 def test_edited_contour_ignores_survey():
-    contour = rect_contour(cad={"bottom": [[0, -3], [40, -3], [40, 22], [0, 22]], "edited": True})
+    contour = rect_contour(toe_source="survey", cad={"bottom": [[0, -3], [40, -3], [40, 22], [0, 22]], "edited": True})
     assert toe_line(contour).source == "angle"
 
 
 def test_survey_without_own_edges_falls_back_to_built():
     # Нижняя бровка не найдена: кольцо совпадает с верхним контуром (S низ = S верх).
-    contour = rect_contour(cad={"bottom": [[0, 0], [40, 0], [40, 22], [0, 22]]})
+    contour = rect_contour(toe_source="survey", cad={"bottom": [[0, 0], [40, 0], [40, 22], [0, 22]]})
     assert toe_line(contour).source == "angle"
 
 
@@ -137,7 +138,7 @@ def test_flat_angle_is_clamped_to_30_degrees():
 
 
 def test_survey_used_with_vertical_face_angle():
-    contour = rect_contour(cad={"bottom": [[0, -2.68], [40, -2.68], [40, 22], [0, 22]]})
+    contour = rect_contour(toe_source="survey", cad={"bottom": [[0, -2.68], [40, -2.68], [40, 22], [0, 22]]})
     contour.bench.face_angle_deg = 90.0
     line = toe_line(contour)
     assert line.source == "survey"
@@ -151,6 +152,7 @@ def test_legacy_passport_with_default_angle_uses_survey():
         free_faces=[[0, 1]],
         bench=BenchSurface(crest_z_m=0, toe_z_m=-10),
         cad={"bottom": [[0, -2.68], [40, -2.68], [40, 22], [0, 22]]},
+        toe_source="survey",
     )
     assert contour.bench.face_angle_deg == 90.0
     line = toe_line(contour)
@@ -161,7 +163,7 @@ def test_legacy_passport_with_default_angle_uses_survey():
 def test_survey_farther_than_entered_angle_is_taken_whole():
     # Реальный откос положе введённого: подошва в 5,77 м (60°), угол на блоке 75°.
     toe = [[x, -5.77] for x in range(0, 41)]
-    contour = rect_contour(cad={"bottom": [*toe, [40, 22], [0, 22]]})
+    contour = rect_contour(toe_source="survey", cad={"bottom": [*toe, [40, 22], [0, 22]]})
     line = toe_line(contour)
     assert line.source == "survey"
     assert {round(y, 6) for poly in line.polylines for _, y in poly} == {-5.77}
@@ -182,6 +184,7 @@ def test_dense_flank_vertices_shared_with_top_are_not_toe_line():
         free_faces=[[0, 1]],
         bench=BenchSurface(crest_z_m=0, toe_z_m=-10, face_angle_deg=75),
         cad={"bottom": [list(p) for p in bottom]},
+        toe_source="survey",
     )
     line = toe_line(contour)
     assert line.source == "survey"
@@ -194,7 +197,7 @@ def test_dense_flank_vertices_shared_with_top_are_not_toe_line():
 def spoil_contour() -> BlockContour:
     # H = 10 м. Левая половина фронта: подошва по съёмке в 3 м от бровки (откос);
     # правая — в 12 м (> H: развал), переход — наклонное ребро.
-    return rect_contour(cad={"bottom": [[0, -3], [20, -3], [24, -12], [40, -12], [40, 22], [0, 22]]})
+    return rect_contour(toe_source="survey", cad={"bottom": [[0, -3], [20, -3], [24, -12], [40, -12], [40, 22], [0, 22]]})
 
 
 def test_survey_spoil_part_uses_angle_line_near_part_keeps_survey():
@@ -210,7 +213,7 @@ def test_survey_spoil_part_uses_angle_line_near_part_keeps_survey():
 
 def test_survey_within_bench_height_is_kept():
     # Подошва в 9,9 м от бровки при H = 10 м — откос, хоть и пологий.
-    contour = rect_contour(cad={"bottom": [[0, -9.9], [40, -9.9], [40, 22], [0, 22]]})
+    contour = rect_contour(toe_source="survey", cad={"bottom": [[0, -9.9], [40, -9.9], [40, 22], [0, 22]]})
     hole = vertical_hole("1-01", x=10, y=1.0, row=0)
     fb = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=[hole], pattern_params=PATTERN))["1-01"]
     assert fb.toe_source == "survey"
@@ -228,14 +231,14 @@ def test_spoil_with_default_90_degrees_uses_15_from_vertical():
     assert fb.value_m == pytest.approx(1.0 + 2.6795, abs=1e-3)
 
 
-def test_no_survey_with_90_degrees_keeps_crest_as_toe():
-    # Без съёмки угол блока берётся как есть: 90° — подошва под бровкой.
+def test_no_survey_with_90_degrees_uses_default_angle():
+    # Без съёмки 90° — «угол не задан» (решение 07.11.2026): подошва по 75°.
     contour = rect_contour()
     contour.bench.face_angle_deg = 90.0
     hole = vertical_hole("1-01", x=10, y=3.7, row=0)
     fb = floor_burdens(BlastDesign(design_id="t", contour=contour, holes=[hole], pattern_params=PATTERN))["1-01"]
     assert fb.toe_source == "angle"
-    assert fb.value_m == pytest.approx(3.7, abs=1e-3)
+    assert fb.value_m == pytest.approx(3.7 + 2.6795, abs=1e-3)
 
 
 def test_spoil_threshold_and_offset_use_hole_bench_height():
@@ -467,7 +470,7 @@ def test_hole_past_back_edge_is_not_beyond_toe():
 
 def test_survey_toe_beyond_uses_bottom_ring():
     # Съёмка нижней бровки y = −3 (ближе H — откос, не развал).
-    contour = rect_contour(cad={"bottom": [[0, -3], [40, -3], [40, 22], [0, 22]]})
+    contour = rect_contour(toe_source="survey", cad={"bottom": [[0, -3], [40, -3], [40, 22], [0, 22]]})
     inside = inclined_hole("1-01", x=10, y=3.0, row=0, angle_deg=15, azimuth_deg=180)  # y_подошва = 0,32
     out = inclined_hole("1-02", x=20, y=1.0, row=0, angle_deg=30, azimuth_deg=180)  # y_подошва = −4,77
     design = BlastDesign(design_id="t", contour=contour, holes=[inside, out], pattern_params=PATTERN)

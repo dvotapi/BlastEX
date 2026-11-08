@@ -69,6 +69,9 @@ class BlockContourSchema(BaseModel):
     bench: BenchSurfaceSchema = Field(default_factory=BenchSurfaceSchema)
     name: str = "Блок"
     cad: CadContourInfoSchema | None = None
+    # Источник линии подошвы: "survey" — съёмка нижней бровки, "angle" или нет
+    # ключа — по углу откоса (решение владельца 07.11.2026).
+    toe_source: Literal["survey", "angle"] | None = None
 
 
 class DataProvenanceSchema(BaseModel):
@@ -1145,10 +1148,14 @@ class ToeLineSchema(BaseModel):
     # "survey" — нижняя бровка из чертежа, "angle" — от верхней бровки по углу откоса.
     source: str
     polylines: list[list[list[float]]] = Field(default_factory=list)
-    # Почему по углу: "no_survey" — нижней бровки в паспорте нет, "edited" —
+    # Почему по углу: "default" — съёмка на блоке не выбрана (умолчание); выбрана,
+    # но не годится: "no_survey" — нижней бровки в паспорте нет, "edited" —
     # контур правили после построения, "survey_unmatched" — нижний контур из
     # чертежа совпал с верхним (откос при импорте не найден). Пусто — по съёмке.
     reason: str = ""
+    # Снятая нижняя бровка — для сравнения пунктиром на плане, когда ЛСП по
+    # углу; пусто, если её нет или она и есть линия для ЛСП.
+    survey_polylines: list[list[list[float]]] = Field(default_factory=list)
 
 
 class HoleRecomputeResponse(BaseModel):

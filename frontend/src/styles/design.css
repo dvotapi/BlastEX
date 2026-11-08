@@ -128,7 +128,8 @@
 .contour-edge.toe.angle-toe { stroke-dasharray:2 4; }
 /* Подошва, от которой считается ЛСП: по съёмке — сплошная, по углу — пунктир. */
 .lsp-toe { stroke:#d9893b; stroke-width:2; }
-.lsp-toe.by-angle { stroke-dasharray:6 4; }
+/* Снятая нижняя бровка при подошве по углу — для сравнения. */
+.survey-toe { stroke:#8a948f; stroke-width:1.5; stroke-dasharray:6 4; }
 .hole-id-label { fill:#173125; font-size:9px; font-weight:var(--font-weight-strong); text-anchor:middle; paint-order:stroke; stroke:#fbfcfb; stroke-width:2.8px; stroke-linejoin:round; }
 .plan-north { position:absolute; left:10px; top:10px; pointer-events:none; }
 /* Блочный svg: строчный оставил бы под собой зазор под выносные элементы шрифта. */

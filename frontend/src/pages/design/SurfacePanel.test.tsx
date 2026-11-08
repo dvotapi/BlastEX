@@ -106,3 +106,36 @@ describe("SurfacePanel: порода блока", () => {
     expect(select.value).toBe("Базальт");
   });
 });
+
+describe("SurfacePanel: линия подошвы (решение 07.11.2026)", () => {
+  it("по умолчанию — по углу; съёмку можно выбрать, если она есть", () => {
+    const props = renderPanel(0, { hasSurveyToe: true, onToeSourceChange: vi.fn() });
+    const select = screen.getByLabelText("Линия подошвы") as HTMLSelectElement;
+
+    expect(select.value).toBe("angle");
+    fireEvent.change(select, { target: { value: "survey" } });
+    expect(props.onToeSourceChange).toHaveBeenCalledWith("survey");
+  });
+
+  it("возврат к углу убирает выбор съёмки", () => {
+    const props = renderPanel(0, { toeSource: "survey", hasSurveyToe: true, onToeSourceChange: vi.fn() });
+    const select = screen.getByLabelText("Линия подошвы") as HTMLSelectElement;
+
+    expect(select.value).toBe("survey");
+    fireEvent.change(select, { target: { value: "angle" } });
+    expect(props.onToeSourceChange).toHaveBeenCalledWith(null);
+  });
+
+  it("без съёмки вариант «по съёмке» недоступен", () => {
+    renderPanel(0, { hasSurveyToe: false, onToeSourceChange: vi.fn() });
+
+    const option = screen.getByRole("option", { name: "по съёмке нижней бровки" }) as HTMLOptionElement;
+    expect(option.disabled).toBe(true);
+  });
+
+  it("угол 90° — не задан: подсказка про 15° от вертикали", () => {
+    renderPanel(0, { bench: { crest_z_m: 420, toe_z_m: 410, face_angle_deg: 90 }, onToeSourceChange: vi.fn() });
+
+    expect(screen.getByText(/угол не задан — подошва строится с 15° от вертикали/)).toBeTruthy();
+  });
+});

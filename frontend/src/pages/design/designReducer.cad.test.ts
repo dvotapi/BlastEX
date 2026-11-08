@@ -228,3 +228,31 @@ describe("APPLY_CAD_CONTOUR: ситуация и СК объекта (PR 4)", ()
     expect(built.present.surfaces.top?.coordinate_system).toEqual(ROOF.coordinate_system);
   });
 });
+
+describe("SET_TOE_SOURCE: линия подошвы (решение 07.11.2026)", () => {
+  it("съёмка пишет ключ, «по углу» его убирает; каждый выбор — шаг отмены", () => {
+    const start = initDesignState({ ...emptyDesign(), contour: { ...emptyDesign().contour, cad: CAD } });
+    expect("toe_source" in start.present.contour).toBe(false);
+
+    const survey = designReducer(start, { type: "SET_TOE_SOURCE", toe_source: "survey" });
+    expect(survey.present.contour.toe_source).toBe("survey");
+
+    const angle = designReducer(survey, { type: "SET_TOE_SOURCE", toe_source: null });
+    expect("toe_source" in angle.present.contour).toBe(false);
+
+    expect(designReducer(angle, { type: "UNDO" }).present.contour.toe_source).toBe("survey");
+  });
+
+  it("«Построить блок» выбор не сбрасывает", () => {
+    const start = designReducer(initDesignState(emptyDesign()), { type: "SET_TOE_SOURCE", toe_source: "survey" });
+    const built = designReducer(start, {
+      type: "APPLY_CAD_CONTOUR",
+      vertices: VERTICES,
+      free_faces: [[1, 2]],
+      bench: { crest_z_m: 420, toe_z_m: 410 },
+      cad: CAD,
+      surface: ROOF,
+    });
+    expect(built.present.contour.toe_source).toBe("survey");
+  });
+});

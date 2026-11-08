@@ -126,6 +126,7 @@ export function recomputeKey(design: BlastDesign, params: Record<string, unknown
     contour: design.contour.vertices.map((vertex) => [round(vertex.x, 3), round(vertex.y, 3)]),
     faces: design.contour.free_faces,
     faceAngle: design.contour.bench.face_angle_deg,
+    toeSource: design.contour.toe_source ?? null,
     cad: cad
       ? [cad.edited, (cad.bottom ?? []).map((point) => [round(point[0], 3), round(point[1], 3)]), cad.area_mean_m2 ?? null]
       : null,
@@ -135,7 +136,7 @@ export function recomputeKey(design: BlastDesign, params: Record<string, unknown
 
 /**
  * То, от чего зависит линия подошвы (`toe_line.toe_line`): вершины, свободные
- * поверхности, уступ (высота и угол) и нижний контур из чертежа. Линия чужого
+ * поверхности, уступ (высота и угол), источник подошвы и нижний контур из чертежа. Линия чужого
  * ключа не показывается: пока правка контура ждёт ответа, старая подошва не
  * висит поперёк блока.
  */
@@ -146,6 +147,7 @@ export function toeLineKey(design: BlastDesign): string {
     vertices: contour.vertices.map((vertex) => [round(vertex.x, 3), round(vertex.y, 3)]),
     faces: contour.free_faces,
     bench: [contour.bench.crest_z_m, contour.bench.toe_z_m, contour.bench.face_angle_deg],
+    toeSource: contour.toe_source ?? null,
     cad: cad ? [cad.edited, (cad.bottom ?? []).map((point) => [round(point[0], 3), round(point[1], 3)])] : null,
   });
 }

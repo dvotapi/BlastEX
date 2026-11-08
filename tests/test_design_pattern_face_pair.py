@@ -259,6 +259,7 @@ def _floor_rising_to_face(gap_m: float):
 
     contour = _contour()
     contour.cad = {"bottom": [[0.0, -gap_m], [40.0, -gap_m], [40.0, 30.0], [0.0, 30.0]]}
+    contour.toe_source = "survey"
     points = [
         Point3(x=x, y=y, z=-10.5 + 0.2 * (3.0 - y))
         for x in (-10.0, 20.0, 50.0)

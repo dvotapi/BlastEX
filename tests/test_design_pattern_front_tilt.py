@@ -688,18 +688,24 @@ def test_recompute_keeps_tilt():
 # --- Ограничение угла: забой не ближе 1 м к линии подошвы ---
 
 
+# Почти вертикальный откос: подошва в 1,7 мм от бровки. 90° — «угол не
+# задан» (решение 07.11.2026), подошва легла бы на 75°.
+NEAR_VERTICAL_DEG = 89.99
+NEAR_VERTICAL_OFFSET_M = 10.0 * math.tan(math.radians(90.0 - NEAR_VERTICAL_DEG))
+
+
 def test_tilt_angle_is_capped_by_floor_burden():
-    # Откос вертикальный (90°): подошва — сама бровка y = 0. W не задана
+    # Откос почти вертикальный: подошва — почти сама бровка y = 0. W не задана
     # (нет burden_b_m) — цель 1 м. Первый ряд в 3 м: ЛСП вертикальной 3 м,
     # H = 10 м — угол не больше atan((3 − 1)/10) ≈ 11,3°.
-    contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
+    contour = _rect_contour(40.0, 30.0, face_angle_deg=NEAR_VERTICAL_DEG)
     base = {k: v for k, v in BASE.items() if k != "burden_b_m"} | {"spacing_a_m": 3.5}
     params = base | {"offset_from_face_m": 3.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 30}
     assert tilt_floor_burden_target_m(params) == FRONT_TILT_MIN_FLOOR_BURDEN_M
     holes = generate_pattern(contour, params)
     first, second = rows(holes)[:2]
-    expected = math.degrees(math.atan((3.0 - FRONT_TILT_MIN_FLOOR_BURDEN_M) / 10.0))
-    assert expected == pytest.approx(11.31, abs=0.01)
+    expected = math.degrees(math.atan((3.0 + NEAR_VERTICAL_OFFSET_M - FRONT_TILT_MIN_FLOOR_BURDEN_M) / 10.0))
+    assert expected == pytest.approx(11.32, abs=0.01)
     for hole in first:
         assert hole.angle_deg == pytest.approx(expected, abs=1e-6)
         assert hole.azimuth_deg == pytest.approx(180.0)
@@ -715,13 +721,13 @@ def test_tilt_angle_is_capped_by_floor_burden():
 def test_tilt_angle_is_capped_at_lower_floor_burden_bound():
     # W = 3,5 м: цель 0,8·W = 2,8 м. ЛСП вертикальной 5 м, H = 10 м —
     # угол atan((5 − 2,8)/10) ≈ 12,4°, ЛСП после наклона 2,8 м — не «мало».
-    contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
+    contour = _rect_contour(40.0, 30.0, face_angle_deg=NEAR_VERTICAL_DEG)
     params = BASE | {"offset_from_face_m": 5.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 30}
     target = tilt_floor_burden_target_m(params)
     assert target == pytest.approx(FLOOR_BURDEN_MIN_RATIO * 3.5)
     holes = generate_pattern(contour, params)
     first = rows(holes)[0]
-    expected = math.degrees(math.atan((5.0 - target) / 10.0))
+    expected = math.degrees(math.atan((5.0 + NEAR_VERTICAL_OFFSET_M - target) / 10.0))
     assert expected == pytest.approx(12.41, abs=0.01)
     design = BlastDesign(design_id="t", contour=contour, holes=holes, pattern_params=params)
     burdens = floor_burdens(design)
@@ -736,14 +742,14 @@ def test_tilt_angle_is_capped_at_lower_floor_burden_bound():
 
 
 def test_small_angle_is_not_capped():
-    contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
+    contour = _rect_contour(40.0, 30.0, face_angle_deg=NEAR_VERTICAL_DEG)
     params = BASE | {"offset_from_face_m": 5.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 5}
     assert all(h.angle_deg == pytest.approx(5.0) for h in rows(generate_pattern(contour, params))[0])
 
 
 def test_no_room_means_common_angle():
     # ЛСП вертикальной 1 м — не больше запаса: ряд остаётся с общим углом.
-    contour = _rect_contour(40.0, 30.0, face_angle_deg=90.0)
+    contour = _rect_contour(40.0, 30.0, face_angle_deg=NEAR_VERTICAL_DEG)
     params = BASE | {"offset_from_face_m": 1.0, "angle_deg": 3.0, "azimuth_deg": 0.0, "front_rows_tilt_count": 1}
     first = rows(generate_pattern(contour, params))[0]
     assert all(h.angle_deg == pytest.approx(3.0) and math.cos(math.radians(h.azimuth_deg)) == pytest.approx(1.0) for h in first)

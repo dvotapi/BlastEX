@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { faceAngleFromVerticalInput } from "../../lib/faceAngle";
 import { ruNumber } from "../../lib/format";
-import type { BenchSurface, CoordinateSystem, SurfaceKind, SurfaceModel, SurfaceSet } from "../../types/design";
+import type { BenchSurface, BlockContour, CoordinateSystem, SurfaceKind, SurfaceModel, SurfaceSet } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
 import { isCrsUnconfirmed } from "./workflowStatus";
 
@@ -58,6 +58,9 @@ export function SurfacePanel({
   rockNames = [],
   onRockNameChange,
   onBenchChange,
+  toeSource = null,
+  hasSurveyToe = false,
+  onToeSourceChange,
   onCoordinateSystemChange,
   onImport,
   onImportBlock,
@@ -75,6 +78,12 @@ export function SurfacePanel({
   rockNames?: string[];
   onRockNameChange?: (rockName: string) => void;
   onBenchChange: (patch: Partial<BenchSurface>) => void;
+  /** Источник линии подошвы блока: "survey" — съёмка, иначе по углу (умолчание). */
+  toeSource?: BlockContour["toe_source"];
+  /** Есть ли снятая нижняя бровка, годная для ЛСП (контур из чертежа, не правленый). */
+  hasSurveyToe?: boolean;
+  /** Выбор источника: "survey" — съёмка, null — по углу (ключ в паспорте не пишется). */
+  onToeSourceChange?: (source: "survey" | null) => void;
   onCoordinateSystemChange: (patch: Partial<CoordinateSystem>) => void;
   onImport: (kind: SurfaceKind, file: File) => void;
   onImportBlock: (files: File[]) => void;
@@ -248,6 +257,32 @@ export function SurfacePanel({
               }}
             />
           </label>
+          {bench.face_angle_deg >= 90 && (
+            <small>0° — угол не задан — подошва строится с 15° от вертикали.</small>
+          )}
+          {onToeSourceChange && (
+            <>
+              <label>
+                Линия подошвы
+                <select
+                  value={toeSource === "survey" ? "survey" : "angle"}
+                  onChange={(e) => onToeSourceChange(e.target.value === "survey" ? "survey" : null)}
+                >
+                  <option value="angle">по углу откоса</option>
+                  <option value="survey" disabled={!hasSurveyToe && toeSource !== "survey"}>
+                    по съёмке нижней бровки
+                  </option>
+                </select>
+              </label>
+              <small>
+                {toeSource === "survey"
+                  ? hasSurveyToe
+                    ? "ЛСП первого ряда — от снятой нижней бровки."
+                    : "Снятой нижней бровки нет или контур правили — подошва строится по углу."
+                  : "Подошва — от верхней бровки по углу откоса на высоту уступа: нижнюю бровку часто не снять из-за горной массы и снега. Снятая бровка на плане — серым пунктиром."}
+              </small>
+            </>
+          )}
           <small>Плоскость используется, если съёмка не покрывает точку.</small>
         </Section>
 

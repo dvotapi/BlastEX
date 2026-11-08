@@ -15,12 +15,14 @@ from design.models import BenchSurface, BlastDesign, BlockContour, Hole, Point3
 PATTERN = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.7}
 
 
-def rect_contour(cad=None, free_faces=None) -> BlockContour:
+def rect_contour(cad=None, free_faces=None, toe_source=None) -> BlockContour:
+    """`toe_source="survey"` — подошва по съёмке `cad.bottom` (без него — по углу)."""
     return BlockContour(
         vertices=[Point3(0, 0, 0), Point3(40, 0, 0), Point3(40, 22, 0), Point3(0, 22, 0)],
         free_faces=[[0, 1]] if free_faces is None else free_faces,
         bench=BenchSurface(crest_z_m=0, toe_z_m=-10, face_angle_deg=75),
         cad=cad,
+        toe_source=toe_source,
     )
 
 

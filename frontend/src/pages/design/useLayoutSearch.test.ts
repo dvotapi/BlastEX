@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api/endpoints";
 import { HttpError } from "../../api/client";
 import { emptyDesign, type LayoutSearchStatus } from "../../types/design";
-import { LAYOUT_SEARCH_POLL_MS, layoutFingerprint, useLayoutSearch } from "./useLayoutSearch";
+import { LAYOUT_SEARCH_POLL_MS, layoutFingerprint, layoutSearchInputs, useLayoutSearch } from "./useLayoutSearch";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -316,6 +316,15 @@ describe("layoutFingerprint", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("layoutSearchInputs: линия подошвы", () => {
+  it("выбор съёмки на блоке входит в отпечаток подбора", async () => {
+    const design = emptyDesign();
+    const angle = layoutSearchInputs(design, {});
+    const survey = layoutSearchInputs({ ...design, contour: { ...design.contour, toe_source: "survey" } }, {});
+    expect(await layoutFingerprint(survey)).not.toBe(await layoutFingerprint(angle));
   });
 });
 

@@ -307,6 +307,16 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
     expect(screen.queryByLabelText(BACK_LOCK)).toBeNull();
   });
 
+  it("«Отступ от контура» у «от тыла» — подсказка: только боковые стороны", () => {
+    mountWithContour({ ...RECT, layout_anchor: "back" });
+    const back = (screen.getByLabelText("Отступ от контура, м").closest("label") as HTMLLabelElement).title;
+    expect(back).toMatch(/боковым сторонам/);
+    cleanup();
+    mountWithContour(RECT);
+    const crest = (screen.getByLabelText("Отступ от контура, м").closest("label") as HTMLLabelElement).title;
+    expect(crest).not.toMatch(/боковым сторонам/);
+  });
+
   it("«от тыла»: из первого ряда у откоса — только предпочтительный наклон и отступ от кромки", () => {
     mountWithContour({ ...RECT, layout_anchor: "back" });
     expect(screen.queryByLabelText(SCHEME)).toBeNull();

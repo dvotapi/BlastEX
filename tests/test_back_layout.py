@@ -654,3 +654,23 @@ def test_back_mode_default_offset_is_twenty_diameters():
     holes = generate_pattern(c, params)
     top = max(h.collar.y for h in holes if h.kind == params.get("default_kind", "production"))
     assert top == pytest.approx(30.0 - 2.9, abs=1e-6)
+
+
+def _collars(holes):
+    return sorted((round(h.collar.x, 6), round(h.collar.y, 6)) for h in holes)
+
+
+def test_edge_margin_trims_only_flanks():
+    """«Отступ от контура» у «от тыла» — только боковые стороны (решение
+    владельца 08.11.2026): у тыла — отступ от тыла, у бровки — ЛСП. Отступ,
+    равный отступу от тыла (2,9 м), не выбивает узлы приконтурного ряда и не
+    сжимает столбцы у бровки: остаются те же скважины, что без отступа, кроме
+    столбцов ближе 2,9 м к флангам."""
+    c = rect(40, 30)
+    base = {**_end_params(2.9), "layout_anchor": LAYOUT_ANCHOR_BACK, "grid_shift_along_m": 2.0}
+    plain = generate_pattern(c, base)
+    trimmed = generate_pattern(c, {**base, "edge_margin_m": 2.9})
+    expected = [p for p in _collars(plain) if 2.9 <= p[0] <= 40 - 2.9]
+    assert expected
+    assert _collars(trimmed) == expected
+    assert {round(h.collar.x, 6) for h in trimmed} == {6.0, 10.0, 14.0, 18.0, 22.0, 26.0, 30.0, 34.0}

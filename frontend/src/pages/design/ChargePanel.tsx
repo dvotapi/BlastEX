@@ -103,8 +103,6 @@ export function ChargePanel({
           </select>
         </label>
 
-        <label>Коэффициент разбуривания<input type="number" min="1" max="1.5" step="0.01" {...num("hole_oversize_coeff")} /></label>
-
         <div className="pattern-type-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <button
             type="button"

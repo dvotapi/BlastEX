@@ -541,7 +541,6 @@ export const api = {
       rock?: { name: string; density_t_m3: number; ucs_mpa: number; fissuring_ff: number };
       explosive?: ChargeExplosive;
       explosives?: ChargeExplosive[];
-      hole_oversize_coeff?: number;
       work_object_name?: string;
     }) => post<FragmentationPredictResponse>(`${V1}/design/fragmentation`, payload),
     movementModels: () => get<{

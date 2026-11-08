@@ -88,3 +88,16 @@ class DesignCostConversionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChargeDiameterTransferTests(unittest.TestCase):
+    def test_charge_diameter_is_hole_diameter(self):
+        # В смету уходит диаметр заряда = диаметр скважины паспорта: он уже с
+        # учётом разбуривания, коэффициент правил заряда не применяется.
+        from api.services.design_service import _design_to_hole_and_block
+
+        design = _design()
+        design.charge_rules = {"hole_oversize_coeff": 1.2}
+        hole, _, _ = _design_to_hole_and_block(design)
+        expected = sum(h.diameter_mm for h in design.holes) / len(design.holes) / 1000.0
+        self.assertAlmostEqual(hole.charge_diameter_m, expected, places=9)

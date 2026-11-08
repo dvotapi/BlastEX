@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Iterable
 
 from Blast import ExplosiveProperties
-from cost.geometry import charge_diameter_m, linear_capacity_kg_per_m
+from cost.geometry import linear_capacity_kg_per_m
 from design.editing import local_burden, local_spacing
 from design.geology import designed_rock_intervals, designed_water_intervals
 from design.geometry import true_burden
@@ -34,6 +34,16 @@ from design.models import (
 _EPS = 1e-9
 _LENGTH_EPS = 1e-6
 WET_WATER = frozenset({"wet", "flowing"})
+
+
+def hole_charge_diameter_m(hole: Hole) -> float:
+    """Диаметр заряда, м, — диаметр скважины `Hole.diameter_mm`.
+
+    В поле «Диаметр скважины» вкладки «Сетка» вводится фактическая скважина
+    (уже с учётом разбуривания; решение владельца 07.11.2026), поэтому
+    коэффициент разбуривания правил заряда (`hole_oversize_coeff`) заряд не
+    применяет — иначе разбуривание учтено дважды."""
+    return hole.diameter_mm / 1000.0
 
 
 @dataclass(frozen=True)
@@ -150,7 +160,7 @@ def build_hole_context(
         volume = grid_a * grid_b * hole.bench_height_m
         stemming = _stemming_from_rules(hole, rules)
         charge_len = max(0.0, hole.length_m - stemming)
-        diameter = charge_diameter_m(hole.diameter_mm, float(rules.get("hole_oversize_coeff", 1.05)))
+        diameter = hole_charge_diameter_m(hole)
         capacity = linear_capacity_kg_per_m(diameter, explosive.density_t_m3)
         target_pf = (charge_len * capacity) / volume if volume > 0 else None
 
@@ -509,7 +519,7 @@ def _deck_mass(
     if action.mass_kg is not None:
         return max(0.0, action.mass_kg)
     chosen = _lookup_explosive(action.explosive_key or action.product, catalog, default)
-    diameter = charge_diameter_m(hole.diameter_mm, float(rules.get("hole_oversize_coeff", 1.05)))
+    diameter = hole_charge_diameter_m(hole)
     capacity = linear_capacity_kg_per_m(diameter, chosen.density_t_m3)
     return (to_m - from_m) * capacity
 

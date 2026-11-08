@@ -142,3 +142,29 @@ def test_layout_search_algorithm_version_bumped():
     from design.layout_search.jobs import SEARCH_ALGORITHM_VERSION
 
     assert SEARCH_ALGORITHM_VERSION >= 3
+
+
+# --- По углу — с высотой уступа у скважины (решение владельца 08.11.2026) ------
+
+
+def test_angle_floor_burden_uses_hole_bench_height():
+    low = vertical_hole("1-01", x=10, y=2.0, row=0, bench_h=6.0)
+    high = vertical_hole("1-02", x=30, y=2.0, row=0, bench_h=14.0)
+    result = floor_burdens(_design(_contour(cad=SURVEY), [low, high]))
+    assert result["1-01"].toe_source == "angle"
+    assert result["1-01"].value_m == pytest.approx(2.0 + 6.0 * TAN15, abs=1e-3)
+    assert result["1-02"].value_m == pytest.approx(2.0 + 14.0 * TAN15, abs=1e-3)
+
+
+def test_angle_beyond_toe_uses_hole_bench_height():
+    # Устье за бровкой на 2 м: при H = 6 м подошва в 1,61 м — за ней; при H = 10 м (2,68 м) — нет.
+    low = vertical_hole("1-01", x=10, y=-2.0, row=0, bench_h=6.0)
+    mid = vertical_hole("1-02", x=30, y=-2.0, row=0, bench_h=10.0)
+    assert holes_beyond_toe(_design(_contour(), [low, mid])) == ["1-01"]
+
+
+def test_angle_hole_on_contour_corner_counts_as_inside():
+    # Устье на углу контура (x чуть меньше 0 от округления): ЛСП = y + H·tg 15°, а не |H·tg 15° − y|.
+    hole = vertical_hole("1-01", x=-1e-12, y=3.0, row=0, bench_h=6.0)
+    fb = floor_burdens(_design(_contour(), [hole]))["1-01"]
+    assert fb.value_m == pytest.approx(3.0 + 6.0 * TAN15, abs=1e-3)

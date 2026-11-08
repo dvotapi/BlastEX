@@ -520,12 +520,13 @@ def toe_positions(
 ) -> list[ToePosition] | None:
     """Расстояние до линии подошвы для точек на уровне подошвы; None — подошвы нет.
 
-    Та же линия, что у ЛСП: съёмка нижней бровки с правилом развала (по высоте
-    уступа `heights_m` у каждой точки) или подошва по углу. «За подошвой» —
+    Та же линия, что у ЛСП: съёмка нижней бровки с правилом развала или
+    подошва по углу; по углу — с высотой уступа `heights_m` у каждой точки
+    (`_angle_points`, решение владельца 08.11.2026). «За подошвой» —
     точка вне верхнего контура, ближайший край которого — свободная
     поверхность (со стороны откоса, а не за тылом или флангом), и при этом:
     у съёмки — вне кольца нижней бровки, у подошвы по углу — дальше смещения
-    H · tan(90° − угол) от бровки.
+    H_i · tan(90° − угол) от бровки.
     """
     toe = toe_line(contour)
     toe_geom = _geometry(toe)
@@ -546,16 +547,19 @@ def toe_positions(
     if toe.source == TOE_SOURCE_SURVEY:
         bottom = _valid_polygon(drawing_bottom(contour))
         beyond = [bool(not inside[i] and face_side[i] and not bottom.covers(points[i])) for i in range(len(points))]
-        _spoil_to_angle(contour, heights_m, points, toe_geom, crest_geom, inside, crest_d, values, sources, toe_points)
-        # Развал: подошва по углу с высотой уступа у точки.
-        angle = effective_face_angle_deg(contour.bench)
-        for i in range(len(points)):
-            if sources[i] == TOE_SOURCE_ANGLE:
-                offset = _offset_m(heights_m[i], angle)
-                beyond[i] = bool(not inside[i] and face_side[i] and crest_d[i] > offset + 1e-9)
+        by_angle = _spoil_points(heights_m, points, toe_geom, crest_geom)
     else:
-        offset = slope_offset_m(contour.bench)
-        beyond = [bool(not inside[i] and face_side[i] and crest_d[i] > offset + 1e-9) for i in range(len(points))]
+        # Подошва по углу — с высотой уступа у точки (решение владельца
+        # 08.11.2026). Где она равна высоте блока, расстояние — до самой линии
+        # (уже посчитано выше), иначе — `_angle_points`.
+        block_h = contour.bench.height_m
+        block_offset = slope_offset_m(contour.bench)
+        beyond = [bool(not inside[i] and face_side[i] and crest_d[i] > block_offset + 1e-9) for i in range(len(points))]
+        by_angle = [i for i in range(len(points)) if abs(heights_m[i] - block_h) > 1e-9]
+    # По углу со своей высотой: развал под съёмкой или уступ другой высоты.
+    offsets = _angle_points(contour, by_angle, heights_m, points, crest_geom, inside, crest_d, values, sources, toe_points)
+    for i, offset in zip(by_angle, offsets):
+        beyond[i] = bool(not inside[i] and face_side[i] and crest_d[i] > offset + 1e-9)
     return [
         ToePosition(
             distance_m=values[i],
@@ -868,43 +872,62 @@ def hole_bench_height_m(hole: Hole, block_height_m: float) -> float:
     return own if own > 0 else block_height_m
 
 
-def _spoil_to_angle(
-    contour: BlockContour, heights, points, toe_geom, crest_geom, inside, crest_d, values, sources, toe_points
-) -> None:
-    """Точки, у которых съёмка подошвы — развал, переводятся на подошву по углу.
-
-    Развал: ближайшая к точке p_i точка съёмки дальше `SURVEY_SPOIL_WIDTH_FACTOR · H_i`
-    от верхней бровки, H_i — высота уступа у скважины. ЛСП по углу —
-    d(p_i, бровка) + H_i · tan(90° − угол): для точки внутри блока это ровно
-    расстояние до бровки, смещённой наружу на проекцию откоса (у смещённой
-    кривой с круглыми стыками расстояния складываются). Точка за бровкой
-    (наклонная скважина) — |смещение − d|. Угол — `effective_face_angle_deg`.
-    """
-    angle = effective_face_angle_deg(contour.bench)
+def _spoil_points(heights, points, toe_geom, crest_geom) -> list[int]:
+    """Точки, у которых съёмка подошвы — развал: ближайшая к точке p_i точка
+    съёмки дальше `SURVEY_SPOIL_WIDTH_FACTOR · H_i` от верхней бровки, H_i —
+    высота уступа у скважины."""
     nearest_survey = shapely.get_point(shapely.shortest_line(toe_geom, points), 0)
     survey_gap = shapely.distance(nearest_survey, crest_geom)
+    return [
+        i for i in range(len(points)) if heights[i] > 0 and survey_gap[i] > SURVEY_SPOIL_WIDTH_FACTOR * heights[i]
+    ]
+
+
+def _angle_points(
+    contour: BlockContour, indices, heights, points, crest_geom, inside, crest_d, values, sources, toe_points
+) -> list[float]:
+    """ЛСП точек `indices` по подошве по углу с высотой уступа H_i у точки;
+    возвращает смещения H_i · tan(90° − угол).
+
+    ЛСП — d(p_i, бровка) + смещение: для точки внутри блока это ровно
+    расстояние до бровки, смещённой наружу (у смещённой кривой с круглыми
+    стыками расстояния складываются). Точка за бровкой (наклонная скважина) —
+    |смещение − d|. Угол — `effective_face_angle_deg`. Так считаются и
+    подошва по умолчанию, и развал под съёмкой.
+    """
+    if not indices:
+        return []
+    angle = effective_face_angle_deg(contour.bench)
+    idx = np.asarray(indices, dtype=np.int64)
+    offsets = [_offset_m(float(heights[i]), angle) for i in indices]
+    off = np.asarray(offsets, dtype=float)
+    d = np.asarray(crest_d, dtype=float)[idx]
+    # Точка на границе контура (угол, ошибка округления) — внутри: иначе
+    # вместо d + смещение вышло бы |смещение − d|.
+    selected = points[idx]
+    ins = np.asarray(inside, dtype=bool)[idx] | (shapely.distance(selected, _valid_polygon(contour.points_xy)) <= 1e-6)
+    vals = np.where(ins, d + off, np.abs(off - d))
+    crest_pts = shapely.get_point(shapely.shortest_line(crest_geom, selected), 0)
+    px, py = shapely.get_x(selected), shapely.get_y(selected)
+    cx, cy = shapely.get_x(crest_pts), shapely.get_y(crest_pts)
+    safe = np.where(d > 1e-9, d, 1.0)
+    ux, uy = (cx - px) / safe, (cy - py) / safe
+    # Точка за бровкой, подошва ещё дальше от блока — направление от бровки.
+    flip = ~ins & (off >= d)
+    ux, uy = np.where(flip, -ux, ux), np.where(flip, -uy, uy)
     fallback_geom = None
-    for i in range(len(points)):
-        height = heights[i]
-        if height <= 0 or survey_gap[i] <= SURVEY_SPOIL_WIDTH_FACTOR * height:
-            continue
-        offset = _offset_m(height, angle)
-        d = float(crest_d[i])
-        values[i] = d + offset if inside[i] else abs(offset - d)
+    for k, i in enumerate(indices):
+        values[i] = float(vals[k])
         sources[i] = TOE_SOURCE_ANGLE
-        px, py = points[i].x, points[i].y
-        if d > 1e-9:
-            c = nearest_points(crest_geom, points[i])[0]
-            ux, uy = (c.x - px) / d, (c.y - py) / d
-            if not inside[i] and offset >= d:
-                ux, uy = -ux, -uy  # точка за бровкой, подошва ещё дальше от блока
-            toe_points[i] = shapely.Point(px + ux * values[i], py + uy * values[i])
+        if d[k] > 1e-9:
+            toe_points[i] = shapely.Point(px[k] + ux[k] * vals[k], py[k] + uy[k] * vals[k])
         else:
             # Точка на самой бровке: направление — к линии по углу блока.
             if fallback_geom is None:
                 fallback_geom = _geometry(angle_toe_line(contour, angle))
             if fallback_geom is not None:
                 toe_points[i] = nearest_points(fallback_geom, points[i])[0]
+    return offsets
 
 
 def spoil_angle_toe_lines(design: BlastDesign, burdens: dict[str, FloorBurden]) -> list[Polyline]:

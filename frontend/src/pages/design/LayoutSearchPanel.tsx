@@ -3,7 +3,7 @@
 // «Применить». Сам опрос — в useLayoutSearch, применение — на странице.
 import { ruNumber } from "../../lib/format";
 import type { LayoutSearchStage, LayoutSearchState, LayoutSearchStatus, LayoutSearchVariant } from "../../types/design";
-import { BACK_OFFSET_DEFAULT_RATIO, isSquarePattern } from "./designParams";
+import { backOffsetDefaultM, isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
 
 const STATE_LABELS: Record<LayoutSearchState, string> = {
@@ -39,6 +39,7 @@ const ANCHORS_HINT =
   "Подбор пробует обе опоры сетки — от бровки и от тыла (от тыла — у квадратной и прямоугольной сетки) — и выбирает лучшие варианты из обеих.";
 const STALE_TEXT = "Устарел: контур, съёмка или параметры изменились после подбора";
 const BOUNDS_CHANGED_TEXT = "Устарел: границы темпа отбойки породы изменились после подбора";
+const ALGORITHM_CHANGED_TEXT = "Устарел: подбор сделан прежней версией алгоритма, запустите заново";
 /** Нижняя граница темпа у итогов прежней версии (без сохранённых границ), мс/м. */
 const DEFAULT_RELIEF_MIN_MS_M = 3;
 const ALL_REJECTED_TEXT = "Ни один вариант не прошёл проверки — показаны лучшие из отбракованных.";
@@ -87,12 +88,11 @@ function isBackVariant(params: Record<string, unknown>): boolean {
   return params.layout_anchor === "back" && (isSquarePattern(params.pattern) || params.pattern === "rectangular");
 }
 
-/** Отступ приконтурного ряда от тыла: ключ, без него — 0,65·b, как у генератора. */
+/** Отступ приконтурного ряда от тыла: ключ, без него — 20·d, как у генератора. */
 function backOffsetText(params: Record<string, unknown>): string {
   const own = numberOf(params.back_offset_m);
   if (own !== null && own > 0) return ruNumber(own);
-  const b = isSquarePattern(params.pattern) ? numberOf(params.spacing_a_m) : numberOf(params.burden_b_m) ?? numberOf(params.spacing_a_m);
-  return b === null ? "—" : ruNumber(BACK_OFFSET_DEFAULT_RATIO * b);
+  return ruNumber(backOffsetDefaultM(numberOf(params.diameter_mm)));
 }
 
 /** Шаги раскладки: у квадратной сетки генератор берёт b = a. */
@@ -191,7 +191,11 @@ export function LayoutSearchPanel({
 
   // Нижняя граница темпа, с которой шёл подбор: по ней считана доля быстрых.
   const reliefMinMsM = numberOf(result?.relief_min_ms_m) ?? DEFAULT_RELIEF_MIN_MS_M;
-  const staleText = status?.bounds_changed ? BOUNDS_CHANGED_TEXT : STALE_TEXT;
+  const staleText = status?.algorithm_changed
+    ? ALGORITHM_CHANGED_TEXT
+    : status?.bounds_changed
+      ? BOUNDS_CHANGED_TEXT
+      : STALE_TEXT;
 
   function apply(variant: LayoutSearchVariant) {
     if (manualCount > 0 && !window.confirm(`Ручные правки (${manualCount}) будут потеряны. Применить вариант?`)) return;

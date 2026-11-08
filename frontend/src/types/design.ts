@@ -904,7 +904,7 @@ export type PatternParams = {
   // Опора сетки: "back" — шаблон «от тыла» (только квадратная и прямоугольная);
   // нет ключа — от бровки
   layout_anchor?: "back";
-  // Отступ приконтурного ряда от тыла, м; нет ключа — 0,65·b
+  // Отступ приконтурного ряда от тыла, м; нет ключа — 20·d (d — диаметр скважины)
   back_offset_m?: number;
   default_kind: HoleKind;
   row_params: RowPatternParams[];
@@ -3552,4 +3552,6 @@ export type LayoutSearchStatus = {
   error: string | null;
   /** Границы темпа породы итога в справочнике уже другие — итог устарел. */
   bounds_changed?: boolean;
+  /** Итог посчитан прежней версией алгоритма перебора — итог устарел. */
+  algorithm_changed?: boolean;
 };

@@ -204,8 +204,8 @@ describe("LayoutSearchPanel: карточки", () => {
 
   it("опора сетки: от бровки и от тыла — с отступом, без схемы первого ряда", () => {
     const back = { pattern: "rectangular", row_azimuth_deg: 179.8, spacing_a_m: 3.81, burden_b_m: 3.8, layout_anchor: "back", back_offset_m: 2.47 };
-    // Без отступа — умолчание генератора 0,65·b.
-    const backDefault = { pattern: "square", row_azimuth_deg: 179.8, spacing_a_m: 4, layout_anchor: "back" };
+    // Без отступа — умолчание генератора 20·d: 20 × 0,145 = 2,9 м.
+    const backDefault = { pattern: "square", row_azimuth_deg: 179.8, spacing_a_m: 4, diameter_mm: 145, layout_anchor: "back" };
     mount({ status: status({ result: result({ best: [variant(), variant({ params: back }), variant({ params: backDefault })] }) }) });
     const crest = within(card(0));
     expect(crest.getByText("Опора сетки")).toBeTruthy();
@@ -218,7 +218,7 @@ describe("LayoutSearchPanel: карточки", () => {
     expect(fromBack.getByText("2,47")).toBeTruthy();
     expect(fromBack.getByText("конец столбца по ЛСП")).toBeTruthy();
     expect(fromBack.queryByText("вертикальный")).toBeNull();
-    expect(within(card(2)).getByText("2,60")).toBeTruthy();
+    expect(within(card(2)).getByText("2,90")).toBeTruthy();
   });
 
   it("ключ «от тыла» у шахматной сетки генератор не применяет — карточка «от бровки»", () => {
@@ -403,5 +403,10 @@ describe("LayoutSearchPanel: границы темпа итога", () => {
   it("границы породы изменились — своя пометка «Устарел»", () => {
     mount({ stale: true, status: status({ bounds_changed: true }) });
     expect(screen.getByText("Устарел: границы темпа отбойки породы изменились после подбора")).toBeTruthy();
+  });
+
+  it("итог прежней версии алгоритма — своя пометка «Устарел»", () => {
+    mount({ stale: true, status: status({ algorithm_changed: true }) });
+    expect(screen.getByText("Устарел: подбор сделан прежней версией алгоритма, запустите заново")).toBeTruthy();
   });
 });

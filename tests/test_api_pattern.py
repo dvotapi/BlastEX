@@ -116,3 +116,16 @@ class PatternApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BackOffsetDefaultTests(unittest.TestCase):
+    def test_back_offset_default_is_twenty_diameters(self):
+        # «От тыла» без `back_offset_m`: ряд у тыла в 20·d, d — диаметр скважины.
+        contour = _contour_payload(40.0, 30.0)
+        params = {
+            "pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 4.0, "row_azimuth_deg": 90.0,
+            "layout_anchor": "back", "diameter_mm": 145.0, "edge_margin_m": 0.0,
+        }
+        response = design_service.generate_pattern(PatternGenerateRequest(contour=contour, params=params))
+        top = max(h.collar.y for h in response.holes)
+        self.assertAlmostEqual(top, 30.0 - 2.9, places=6)

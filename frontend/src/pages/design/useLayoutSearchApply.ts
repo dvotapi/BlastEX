@@ -178,9 +178,10 @@ export function useLayoutSearchApply({
   // с подбором, хотя результат свежий: входы после применения помним отдельно.
   // Только для свежего результата — устаревший так и остаётся устаревшим.
   const [applied, setApplied] = useState<{ result: string | null; inputs: string } | null>(null);
-  // Сменившиеся границы темпа породы применённый вариант не исправляет.
+  // Сменившиеся границы темпа породы и версию алгоритма применённый вариант не исправляет.
   const stale =
     search.boundsChanged ||
+    search.algorithmChanged ||
     (search.stale &&
       !(applied && applied.result === search.status?.fingerprint && applied.inputs === inputsFingerprint));
   const staleRef = useRef(stale);

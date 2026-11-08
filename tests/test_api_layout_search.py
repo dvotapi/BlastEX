@@ -325,3 +325,36 @@ def test_relief_bounds_repository_failure_is_not_change(jobs):
     with patch.object(repository, "get_reference_snapshot", side_effect=EconomicsRepositoryError("нет связи")):
         data = client.get(f"{BASE}/layout-search/d1").json()
     assert data["bounds_changed"] is False
+
+
+def test_result_of_previous_algorithm_version_is_outdated(jobs):
+    # Итог прежнего алгоритма (без версии или с другой) — «устарел», даже если
+    # входы паспорта те же: новый перебор мог выбрать иначе.
+    from design.layout_search.jobs import SEARCH_ALGORITHM_VERSION
+    from design.persistence import layout_search_path
+
+    client = _client(jobs)
+    assert client.post(f"{BASE}/layout-search", json=_body()).status_code == 202
+    data = _poll(client)
+    assert data["state"] == "done", data.get("error")
+    assert data["algorithm_changed"] is False
+
+    path = layout_search_path("org-a", "d1")
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert stored["algorithm_version"] == SEARCH_ALGORITHM_VERSION
+
+    stored.pop("algorithm_version")
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    data = client.get(f"{BASE}/layout-search/d1").json()
+    assert data["state"] == "done"
+    assert data["result"] is not None
+    assert data["algorithm_changed"] is True
+
+    stored["algorithm_version"] = SEARCH_ALGORITHM_VERSION - 1
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    assert client.get(f"{BASE}/layout-search/d1").json()["algorithm_changed"] is True
+
+
+def test_running_and_idle_status_are_not_algorithm_changed(jobs):
+    client = _client(jobs)
+    assert client.get(f"{BASE}/layout-search/d1").json()["algorithm_changed"] is False

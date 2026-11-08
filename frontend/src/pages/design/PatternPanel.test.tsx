@@ -252,11 +252,31 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
     expect((screen.getByRole("option", { name: /^От тыла/ }) as HTMLOptionElement).disabled).toBe(true);
   });
 
-  it("«Отступ от тыла»: подсказка 0,65·b, ввод пишет ключ, пусто убирает", () => {
-    const onChange = mountWithContour({ ...RECT, burden_b_m: 4, layout_anchor: "back" });
+  it("«Отступ от тыла»: подсказка 20·d", () => {
+    const onChange = mountWithContour({ ...RECT, burden_b_m: 4, diameter_mm: 145, layout_anchor: "back" });
     const field = screen.getByLabelText(BACK_OFFSET) as HTMLInputElement;
     expect(field.value).toBe("");
-    expect(field.placeholder).toBe("2,6");
+    // 20 × 0,145 = 2,9 м — не зависит от b.
+    expect(field.placeholder).toBe("2,9");
+    expect((field.closest("label") as HTMLLabelElement).title).toMatch(/20·d/);
+    expect((field.closest("label") as HTMLLabelElement).title).not.toMatch(/разбуривания/);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("«от тыла» прячет поля шаблона от бровки; «Отступ от контура» остаётся", () => {
+    const CREST_ONLY = ["Отступ от откоса, м", "ЛНС первого ряда, м", "Первый ряд повторяет открытый откос"];
+    mountWithContour({ ...RECT, layout_anchor: "back" });
+    for (const label of CREST_ONLY) expect(screen.queryByLabelText(label)).toBeNull();
+    expect(screen.getByLabelText("Отступ от контура, м")).toBeTruthy();
+    cleanup();
+    mountWithContour(RECT);
+    for (const label of CREST_ONLY) expect(screen.getByLabelText(label)).toBeTruthy();
+    expect(screen.getByLabelText("Отступ от контура, м")).toBeTruthy();
+  });
+
+  it("«Отступ от тыла»: ввод пишет ключ, пусто убирает", () => {
+    const onChange = mountWithContour({ ...RECT, burden_b_m: 4, layout_anchor: "back" });
+    const field = screen.getByLabelText(BACK_OFFSET) as HTMLInputElement;
     fireEvent.change(field, { target: { value: "3" } });
     expect(onChange).toHaveBeenCalledWith({ back_offset_m: 3 });
     cleanup();

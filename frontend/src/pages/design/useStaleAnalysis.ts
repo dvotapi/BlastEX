@@ -18,7 +18,7 @@ export interface AnalysisInputs {
   spacingAM: number | null | undefined;
   burdenBM: number | null | undefined;
   /** Контур блока: вершины в плане и пометки откосов. */
-  contour: Pick<BlockContour, "vertices" | "free_faces">;
+  contour: Pick<BlockContour, "vertices" | "free_faces" | "toe_source">;
   /** Вид основной сетки (`pattern_params.default_kind`). */
   defaultKind: string | null | undefined;
 }
@@ -56,6 +56,8 @@ export function analysisInputsKey(inputs: AnalysisInputs): string {
     inputs.spacingAM ?? "",
     inputs.burdenBM ?? "",
     contourKey(inputs.contour),
+    // Линия подошвы (съёмка или по углу) меняет ЛСП в предупреждениях анализа.
+    inputs.contour.toe_source === "survey" ? "survey" : "",
     inputs.defaultKind ?? "",
   ].join("#");
 }

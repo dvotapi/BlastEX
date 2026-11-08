@@ -72,6 +72,12 @@ describe("analysisInputsKey", () => {
     expect(analysisInputsKey({ ...inputs, burdenBM: 4 })).not.toBe(key);
   });
 
+  it("changes on toe line source; null and absent are the same", () => {
+    const key = analysisInputsKey(inputs);
+    expect(analysisInputsKey({ ...inputs, contour: { ...CONTOUR, toe_source: "survey" } })).not.toBe(key);
+    expect(analysisInputsKey({ ...inputs, contour: { ...CONTOUR, toe_source: null } })).toBe(key);
+  });
+
   it("changes on contour in plan, free faces and default kind, not on vertex z", () => {
     const key = analysisInputsKey(inputs);
     const moved = { ...CONTOUR, vertices: [CONTOUR.vertices[0], { x: 22, y: 0, z: 420 }, CONTOUR.vertices[2]] };

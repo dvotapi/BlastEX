@@ -326,6 +326,15 @@ describe("layoutSearchInputs: линия подошвы", () => {
     const survey = layoutSearchInputs({ ...design, contour: { ...design.contour, toe_source: "survey" } }, {});
     expect(await layoutFingerprint(survey)).not.toBe(await layoutFingerprint(angle));
   });
+
+  it("null, «angle» и отсутствие ключа дают один отпечаток", async () => {
+    const design = emptyDesign();
+    const absent = await layoutFingerprint(layoutSearchInputs(design, {}));
+    for (const toe_source of [null, "angle"] as const) {
+      const inputs = layoutSearchInputs({ ...design, contour: { ...design.contour, toe_source } }, {});
+      expect(await layoutFingerprint(inputs)).toBe(absent);
+    }
+  });
 });
 
 describe("layoutFingerprint: основной путь", () => {

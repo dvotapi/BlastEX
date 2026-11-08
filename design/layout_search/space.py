@@ -40,7 +40,10 @@ TAPER_COUNTS = (1, 2)
 TAPER_TILTS_DEG = (15, 30)
 FRONT_ROW_KEYS = ("front_rows_mode", "front_rows_tilt_count", "front_rows_tilt_deg")
 # Шаблон «от тыла»: ключи опоры и отступа от тыла.
-BACK_ANCHOR_KEYS = ("layout_anchor", "back_offset_m")
+BACK_ANCHOR_KEYS = ("layout_anchor", "back_offset_m", "back_turn_locked")
+# Галочка «Без поворота от тыла» (решение владельца 08.11.2026): при опоре
+# «от тыла» перебор пробует только этот шаблон и ряды строго по азимуту тыла.
+BACK_TURN_LOCK_KEY = "back_turn_locked"
 # Этап 1 «от тыла»: поворот около азимута тыла (±5°, шаг 2,5°; этап 3 —
 # ±1,25° внутри тех же ±5°). Отступ от тыла с вкладки «Сетка» перебор держит;
 # поле пустое — пробует 20·d (без ключа, его берёт генератор) и доли b
@@ -88,6 +91,11 @@ def back_applicable(base: dict, contour: BlockContour) -> bool:
     if pattern not in PATTERN_TYPES:
         pattern = "square"
     return pattern in LAYOUT_ANCHOR_PATTERNS and bool(contour.free_faces) and back_side(contour) is not None
+
+
+def back_turn_locked(base: dict) -> bool:
+    """Поворот рядов от тыла запрещён: галочка задана при опоре «от тыла»."""
+    return is_back(base) and base.get(BACK_TURN_LOCK_KEY) is True
 
 
 def interleave_templates(items: list[Candidate]) -> list[Candidate]:
@@ -143,9 +151,13 @@ def _with_shift(params: dict, shift: float) -> dict:
 
 def stage1(base: dict, contour: BlockContour) -> list[Candidate]:
     """Этап 1: варианты от бровки (288), затем «от тыла» (200, с отступом с
-    вкладки — 40), если шаблон применим."""
+    вкладки — 40), если шаблон применим. Поворот от тыла запрещён
+    (`back_turn_locked`) — только «от тыла» без поворота (40, с отступом — 8)."""
+    applicable = back_applicable(base, contour)
+    if applicable and back_turn_locked(base):
+        return _dedup(_back_stage1(base, contour))
     out = _crest_stage1(base, contour)
-    if back_applicable(base, contour):
+    if applicable:
         out += _back_stage1(base, contour)
     return _dedup(out)
 
@@ -155,7 +167,8 @@ def _back_stage1(base: dict, contour: BlockContour) -> list[Candidate]:
     фланг (5 × 4 × 5 × 2 = 200). Отступ — `back_offset_m` базы, если задан (тогда
     вариантов 40); иначе 20·d (ключа нет) и 0,5/0,6/0,7/0,8·b. Схем первого
     ряда нет, `offset_from_face_m` не пишется; `front_rows_tilt_deg` базы
-    (предел наклона конца эшелона) сохраняется."""
+    (предел наклона конца эшелона) сохраняется. Поворот запрещён — азимут
+    рядов базы без поворота (4 × 5 × 2 = 40)."""
     ref = back_azimuth_deg(contour)
     if ref is None:
         return []
@@ -169,8 +182,16 @@ def _back_stage1(base: dict, contour: BlockContour) -> list[Candidate]:
     # ключ не пишется) и доли b.
     own_offset = positive_number(base.get("back_offset_m"))
     offsets = [own_offset] if own_offset is not None else [None, *(round(r * b, 4) for r in BACK_OFFSET_RATIOS)]
+    locked = back_turn_locked(base)
+    if locked:
+        # Без поворота — азимут рядов с вкладки как есть (при выборе опоры его
+        # ставит азимут тыла); без азимута на вкладке — азимут тыла.
+        plain[BACK_TURN_LOCK_KEY] = True
+        own_azimuth = base.get("row_azimuth_deg")
+        if isinstance(own_azimuth, (int, float)) and not isinstance(own_azimuth, bool):
+            ref = float(own_azimuth)
     out: list[Candidate] = []
-    for turn in BACK_TURNS_DEG:
+    for turn in (0.0,) if locked else BACK_TURNS_DEG:
         az = _azimuth(ref + turn)
         for ks in range(4):
             for offset in offsets:
@@ -248,7 +269,8 @@ def stage3(seeds: list[Candidate], base: dict, contour: BlockContour | None = No
 
 
 def _back_stage3(seeds: list[Candidate], base: dict, ref: float | None) -> list[Candidate]:
-    """«От тыла»: геометрия (поворот ±1,25°, сдвиг ±a/8) — 9 вариантов, и шаги
+    """«От тыла»: геометрия (поворот ±1,25°, сдвиг ±a/8; поворот запрещён —
+    только сдвиг) — 9 вариантов (3), и шаги
     a и b ×{0,97; 1; 1,03} при геометрии семени — ещё 8 (у квадратной — 2).
     Шаги не перемножаются с геометрией: генерация «от тыла» в 4–8 раз дольше,
     чем от бровки. Поворот — в ±5° от азимута тыла `ref`; отступ от тыла —
@@ -261,9 +283,12 @@ def _back_stage3(seeds: list[Candidate], base: dict, ref: float | None) -> list[
         p = seed.params
         az0 = float(p.get("row_azimuth_deg", 0.0) or 0.0)
         sh0 = float(p.get("grid_shift_along_m", 0.0) or 0.0)
-        for daz in (-FINE_AZIMUTH_DEG, 0.0, FINE_AZIMUTH_DEG):
+        locked = back_turn_locked(p)
+        # Без поворота — азимут семени (с вкладки) как есть, предела ±5° нет.
+        turns = (0.0,) if locked else (-FINE_AZIMUTH_DEG, 0.0, FINE_AZIMUTH_DEG)
+        for daz in turns:
             az = az0 + daz
-            if ref is not None and abs(_turn(az, ref)) > BACK_TURN_LIMIT_DEG + BACK_TURN_TOLERANCE_DEG:
+            if not locked and ref is not None and abs(_turn(az, ref)) > BACK_TURN_LIMIT_DEG + BACK_TURN_TOLERANCE_DEG:
                 continue
             for dsh in (-a0 / 8.0, 0.0, a0 / 8.0):
                 params = _with_shift(dict(p), sh0 + dsh)

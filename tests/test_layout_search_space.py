@@ -120,6 +120,42 @@ class SpaceTests(unittest.TestCase):
             back = _back(stage1({**RECT, "back_offset_m": bad}, contour))
             self.assertEqual({c.params.get("back_offset_m") for c in back}, {None, 2.5, 3.0, 3.5, 4.0})
 
+    def test_back_turn_locked_only_back_without_turn(self):
+        # Галочка «Без поворота от тыла» (решение владельца 08.11.2026): перебор
+        # пробует только «от тыла» и ряды строго по азимуту с вкладки (его при
+        # выборе опоры ставит азимут тыла) — без вариантов от бровки и без
+        # поворота ±5°; ключ остаётся у вариантов.
+        contour = _contour([[0, 1]])
+        ref = back_azimuth_deg(contour)
+        for own, expected in ((ref, ref), (33.0, 33.0), (None, ref)):
+            base = {**RECT, "layout_anchor": "back", "back_turn_locked": True}
+            if own is None:
+                base.pop("row_azimuth_deg")
+            else:
+                base["row_azimuth_deg"] = own
+            cands = stage1(base, contour)
+            self.assertEqual(_crest(cands), [])
+            self.assertEqual(len(cands), 4 * 5 * 2)
+            for c in cands:
+                self.assertEqual(round(_turn(c.params["row_azimuth_deg"], expected), 6), 0.0)
+                self.assertIs(c.params["back_turn_locked"], True)
+            out = stage3([cands[0]], base, contour)
+            # Сдвиг ±a/8 без поворота (3) и шаги a × b (8) — даже когда азимут
+            # с вкладки дальше 5° от тыла.
+            self.assertEqual(len(out), 3 + 8)
+            self.assertEqual({round(_turn(c.params["row_azimuth_deg"], expected), 6) for c in out}, {0.0})
+
+    def test_back_turn_lock_without_back_anchor_is_ignored(self):
+        # Галочка без опоры «от тыла» (или без тыла у блока) не действует и в
+        # варианты не попадает: перебор как без неё.
+        contour = _contour([[0, 1]])
+        cands = stage1({**RECT, "back_turn_locked": True}, contour)
+        self.assertEqual([c.key() for c in cands], [c.key() for c in stage1(RECT, contour)])
+        no_back = _contour([])
+        cands = stage1({**RECT, "layout_anchor": "back", "back_turn_locked": True}, no_back)
+        self.assertTrue(cands)
+        self.assertTrue(all(not is_back(c.params) and "back_turn_locked" not in c.params for c in cands))
+
     def test_stage3_back_seed(self):
         contour = _contour([[0, 1]])
         ref = back_azimuth_deg(contour)

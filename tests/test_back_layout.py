@@ -674,3 +674,25 @@ def test_edge_margin_trims_only_flanks():
     assert expected
     assert _collars(trimmed) == expected
     assert {round(h.collar.x, 6) for h in trimmed} == {6.0, 10.0, 14.0, 18.0, 22.0, 26.0, 30.0, 34.0}
+
+
+def test_edge_margin_holds_at_flank_ends_block66():
+    """Блок 66: короткий боковой край у бровки — скважина у его конца не ближе
+    отступа от контура (полоса с плоскими концами пускала её на 0,68 м)."""
+    import shapely
+
+    from design.back_layout import _back_edge_indices, _free_edge_indices
+    from tests.test_trunk_network import _block66_contour
+
+    c = _block66_contour()
+    params = {"pattern": "square", "spacing_a_m": 3.7, "diameter_mm": 145, "subdrill_m": 1.0,
+              "layout_anchor": LAYOUT_ANCHOR_BACK, "row_azimuth_deg": back_azimuth_deg(c), "edge_margin_m": 2.9,
+              "back_offset_m": 2.9, "min_crest_offset_m": 0.2, "grid_shift_along_m": 0.925}
+    holes = generate_pattern(c, params)
+    pts = c.points_xy
+    n = len(pts)
+    skip = set(_back_edge_indices(c)) | _free_edge_indices(c)
+    flanks = [shapely.LineString([pts[k], pts[(k + 1) % n]]) for k in range(n) if k not in skip]
+    assert flanks
+    gap = min(f.distance(shapely.Point(h.collar.x, h.collar.y)) for f in flanks for h in holes)
+    assert gap >= 2.9 - 1e-3  # дуга буфера — многоугольник

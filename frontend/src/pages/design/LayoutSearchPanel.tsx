@@ -126,6 +126,8 @@ function variantRows(
       ["Вруб у фланга", v.cut_flank === "right" ? "правого" : "левого"],
     ],
     metrics: [
+      // Первый показатель ранжирования после отбраковки — меньше площади без скважин.
+      ["Не покрыто, м²", ruNumber(v.uncovered_m2, 0)],
       ["ЛСП вне коридора", String(v.lsp_out)],
       [`Быстрее ${plain(reliefMinMsM)} мс/м, %`, percent(v.fast_share)],
       ["Стыки фронтов, м", ruNumber(v.converging_length_m, 1)],

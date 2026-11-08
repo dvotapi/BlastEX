@@ -99,8 +99,10 @@ def back_boundary(contour: BlockContour, edge_margin: float) -> list[Point2]:
     тыла», у бровки — ЛСП и отступ устья от кромки: сжатие и там выбивало
     узлы приконтурного ряда (отступ, равный отступу от тыла, кладёт их на
     границу) и прижимало конец столбца к соседке. Боковые — несвободные рёбра
-    вне тыла; у каждого вычитается полоса шириной `edge_margin` с плоскими
-    концами. Распалась граница — наибольшая часть."""
+    вне тыла; у каждого вычитается полоса шириной `edge_margin` со скруглёнными
+    концами: и у стыка бокового края с бровкой скважина не ближе отступа к
+    краю (плоские концы пускали её на 0,68 м, блок 66). Распалась граница —
+    наибольшая часть."""
     pts = contour.points_xy
     n = len(pts)
     back = set(_back_edge_indices(contour) or [])
@@ -113,7 +115,7 @@ def back_boundary(contour: BlockContour, edge_margin: float) -> list[Point2]:
     if edge_margin <= 0 or not flanks or n < 3:
         return ensure_ccw(pts)
     area = shapely.Polygon(pts).buffer(0).difference(
-        shapely.union_all([line.buffer(edge_margin, cap_style="flat") for line in flanks])
+        shapely.union_all([line.buffer(edge_margin, quad_segs=64) for line in flanks])
     )
     parts = [g for g in getattr(area, "geoms", [area]) if isinstance(g, shapely.Polygon) and not g.is_empty]
     if not parts:

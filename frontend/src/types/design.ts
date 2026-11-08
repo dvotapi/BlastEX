@@ -3534,6 +3534,8 @@ export type LayoutSearchVariant = {
   outside_share: number | null;
   robust_spread: number | null;
   hole_count: number;
+  /** Площадь блока без скважин, м²; у итогов прежних версий нет. */
+  uncovered_m2?: number | null;
   window8_max_holes: number;
   downhole_ms: number | null;
   warnings: string[];

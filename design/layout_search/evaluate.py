@@ -11,10 +11,22 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field, replace
 
+import shapely
+
 from design.analysis import collar_crest_warnings
+from design.back_layout import back_boundary, back_offset_m, back_side
+from design.geometry import ensure_ccw, offset_polygon
 from design.layout_search.space import Candidate
-from design.models import BlastDesign, BlastDomain, Hole, InitiationNetwork, in_main_grid, main_grid_kind
-from design.pattern import generate_pattern
+from design.models import (
+    BlastDesign,
+    BlastDomain,
+    BlockContour,
+    Hole,
+    InitiationNetwork,
+    in_main_grid,
+    main_grid_kind,
+)
+from design.pattern import LAYOUT_ANCHOR_BACK, LAYOUT_ANCHOR_PATTERNS, generate_pattern
 from design.relief import RELIEF_MIN_MS_M, burden_relief
 from design.spatial.surfaces import SurfaceSet
 from design.timing import SYSTEM_TYPES, resolve_times
@@ -24,6 +36,7 @@ from design.toe_line import (
     FloorBurden,
     design_burden_m,
     floor_checks,
+    grid_steps_m,
 )
 from design.trunk_network import build_trunk_chains_network
 
@@ -43,6 +56,11 @@ WINDOW_MS = 8.0
 # Шаги округления перед сравнением: доли — 0,01, длина стыков — 0,5 м.
 SHARE_STEP = 0.01
 LENGTH_STEP_M = 0.5
+# Покрытие блока (решение владельца 08.11.2026): точка не покрыта, если до
+# ближайшей скважины дальше ¾ большего шага (центр ячейки a × b — не дальше
+# 0,71·max(a, b)); площадь сравнивается в целых ячейках a·b варианта — углы
+# зоны (единицы м²) порядок не решают, полоса, куда влез бы эшелон, — решает.
+COVER_RADIUS_RATIO = 0.75
 _EPS = 1e-6
 
 
@@ -90,9 +108,21 @@ class Evaluation:
     window8_max_holes: int
     downhole_ms: float
     warnings: list[str] = field(default_factory=list)
+    # Площадь блока без скважин, м² (`uncovered_area_m2`).
+    uncovered_m2: float = 0.0
+
+    def uncovered_cells(self) -> int:
+        """Площадь без скважин в целых ячейках a·b варианта."""
+        a, b = grid_steps_m(self.candidate.params)
+        cell = a * b
+        if not math.isfinite(self.uncovered_m2) or cell <= 0:
+            return 0
+        return int(round(self.uncovered_m2 / cell))
 
     def rank_key(self) -> tuple:
-        """Ключ сравнения, меньше — лучше: отбраковка, ЛСП вне коридора, быстрые
+        """Ключ сравнения, меньше — лучше: отбраковка, площадь без скважин
+        (решение владельца 08.11.2026: покрытие блока у краёв; в целых ячейках
+        a·b), ЛСП вне коридора, быстрые
         доли, стыки, доля вне ±25 %, разброс (None — хуже любого числа), число
         скважин. Без статистики темпа (`relief` None) доли и стыки — `inf`.
         Доли и разброс — до 0,01, стыки — до 0,5 м: шум генератора порядок не
@@ -100,6 +130,7 @@ class Evaluation:
         spread = math.inf if self.robust_spread is None else _round_step(self.robust_spread, SHARE_STEP)
         return (
             self.rejected,
+            self.uncovered_cells(),
             self.lsp_out,
             _round_step(self.fast_share, SHARE_STEP),
             _round_step(self.converging_length_m, LENGTH_STEP_M),
@@ -107,6 +138,39 @@ class Evaluation:
             spread,
             self.hole_count,
         )
+
+
+def uncovered_area_m2(contour: BlockContour, params: dict, holes: list[Hole]) -> float:
+    """Площадь блока без скважин, м²: часть зоны раскладки дальше
+    `COVER_RADIUS_RATIO`·max(a, b) от устьев всех скважин варианта.
+
+    Зона раскладки — граница генератора без полос, которые скважинам заданы
+    пустыми: от бровки — контур, сжатый на отступ от контура; «от тыла» —
+    сжатый у боковых сторон (`back_boundary`) и без полосы отступа от тыла.
+    Одна мера для обоих шаблонов: полоса у фланга, куда влез бы ещё эшелон,
+    и недостроенная глубина блока видны одинаково."""
+    verts = ensure_ccw(contour.points_xy)
+    if len(verts) < 3:
+        return 0.0
+    try:
+        margin = max(float(params.get("edge_margin_m", 0.0) or 0.0), 0.0)
+    except (TypeError, ValueError):
+        margin = 0.0
+    back = None
+    if params.get("layout_anchor") == LAYOUT_ANCHOR_BACK and str(params.get("pattern", "square")) in LAYOUT_ANCHOR_PATTERNS:
+        back = back_side(contour)
+    ring = back_boundary(contour, margin) if back is not None else (offset_polygon(verts, margin) if margin > 0 else verts)
+    if len(ring) < 3:
+        return 0.0
+    zone = shapely.Polygon(ring).buffer(0)
+    if back is not None:
+        zone = zone.difference(shapely.LineString(back).buffer(back_offset_m(params)))
+    a, b = grid_steps_m(params)
+    radius = COVER_RADIUS_RATIO * max(a, b)
+    if not holes or radius <= 0:
+        return float(zone.area)
+    covered = shapely.union_all(shapely.buffer(shapely.points([(h.collar.x, h.collar.y) for h in holes]), radius))
+    return float(zone.difference(covered).area)
 
 
 def _round_step(value: float, step: float) -> float:
@@ -349,4 +413,5 @@ def _evaluated(ctx: SearchContext, candidate: Candidate, holes: list[Hole], moun
         window8_max_holes=window_max_holes(times),
         downhole_ms=float(network.timing_params.get("downhole_delay_ms", 0.0) or 0.0),
         warnings=warnings,
+        uncovered_m2=uncovered_area_m2(base.contour, candidate.params, holes),
     )

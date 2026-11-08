@@ -25,6 +25,7 @@ function variant(extra: Partial<LayoutSearchVariant> = {}): LayoutSearchVariant 
     outside_share: 0.184,
     robust_spread: 0.27,
     hole_count: 64,
+    uncovered_m2: 37.4,
     window8_max_holes: 3,
     downhole_ms: 500,
     warnings: [],
@@ -172,6 +173,12 @@ describe("LayoutSearchPanel: ход подбора", () => {
 });
 
 describe("LayoutSearchPanel: карточки", () => {
+  it("итог прежней версии без площади без скважин — прочерк", () => {
+    mount({ status: status({ result: result({ best: [variant({ uncovered_m2: undefined })] }) }) });
+    const row = within(card(0)).getByText("Не покрыто, м²").parentElement as HTMLElement;
+    expect(within(row).getByText("—")).toBeTruthy();
+  });
+
   it("три карточки с параметрами и подписями показателей", () => {
     mount();
     expect(cards()).toHaveLength(3);
@@ -181,6 +188,7 @@ describe("LayoutSearchPanel: карточки", () => {
       "Шаги a × b, м",
       "Первый ряд",
       "Вруб у фланга",
+      "Не покрыто, м²",
       "ЛСП вне коридора",
       "Быстрее 3 мс/м, %",
       "Стыки фронтов, м",
@@ -197,6 +205,7 @@ describe("LayoutSearchPanel: карточки", () => {
     expect(first.getByText("левого")).toBeTruthy();
     expect(first.getByText("18")).toBeTruthy(); // 0,184 → 18 %
     expect(first.getByText("64")).toBeTruthy();
+    expect(first.getByText("37")).toBeTruthy();
     expect(within(card(1)).getByText("пара 15°")).toBeTruthy();
     expect(within(card(1)).getByText("правого")).toBeTruthy();
     expect(within(card(2)).getByText("переход, 2 ряда, 12°")).toBeTruthy();

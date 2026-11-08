@@ -33,6 +33,7 @@ def evaluation_to_dict(e: Evaluation) -> dict[str, Any]:
         "outside_share": _finite(e.outside_share),
         "robust_spread": _finite(e.robust_spread),
         "hole_count": int(e.hole_count),
+        "uncovered_m2": _finite(e.uncovered_m2),
         "window8_max_holes": int(e.window8_max_holes),
         "downhole_ms": _finite(e.downhole_ms),
         "warnings": list(e.warnings),

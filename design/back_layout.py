@@ -16,7 +16,7 @@ from typing import Any
 
 import shapely
 
-from design.geometry import drape_collar, local_basis, point_in_polygon, polygon_centroid, polygon_signed_area
+from design.geometry import drape_collar, ensure_ccw, local_basis, point_in_polygon, polygon_centroid, polygon_signed_area
 from design.models import BlockContour, Hole, main_grid_kind
 from design.toe_line import (
     TOE_BURDEN_TOLERANCE,
@@ -85,6 +85,46 @@ def back_side(contour: BlockContour) -> list[Point2] | None:
     больше `BACK_SPLIT_TURN_DEG` её делит. Длина стороны — сумма длин рёбер.
     None — несвободных рёбер нет (или у контура меньше трёх вершин).
     """
+    edges = _back_edge_indices(contour)
+    if edges is None:
+        return None
+    pts = contour.points_xy
+    n = len(pts)
+    return [pts[edges[0]]] + [pts[(k + 1) % n] for k in edges]
+
+
+def back_boundary(contour: BlockContour, edge_margin: float) -> list[Point2]:
+    """Граница узлов «от тыла»: контур, сжатый на `edge_margin` только у боковых
+    сторон (решение владельца 08.11.2026). У тыла отступ задаёт «Отступ от
+    тыла», у бровки — ЛСП и отступ устья от кромки: сжатие и там выбивало
+    узлы приконтурного ряда (отступ, равный отступу от тыла, кладёт их на
+    границу) и прижимало конец столбца к соседке. Боковые — несвободные рёбра
+    вне тыла; у каждого вычитается полоса шириной `edge_margin` с плоскими
+    концами. Распалась граница — наибольшая часть."""
+    pts = contour.points_xy
+    n = len(pts)
+    back = set(_back_edge_indices(contour) or [])
+    free = _free_edge_indices(contour)
+    flanks = [
+        shapely.LineString([pts[k], pts[(k + 1) % n]])
+        for k in range(n)
+        if k not in back and k not in free and math.dist(pts[k], pts[(k + 1) % n]) > 1e-9
+    ]
+    if edge_margin <= 0 or not flanks or n < 3:
+        return ensure_ccw(pts)
+    area = shapely.Polygon(pts).buffer(0).difference(
+        shapely.union_all([line.buffer(edge_margin, cap_style="flat") for line in flanks])
+    )
+    parts = [g for g in getattr(area, "geoms", [area]) if isinstance(g, shapely.Polygon) and not g.is_empty]
+    if not parts:
+        return []
+    ring = list(max(parts, key=lambda g: g.area).exterior.coords)[:-1]
+    out = [(float(x), float(y)) for x, y in ring]
+    return out if polygon_signed_area(out) > 0 else out[::-1]
+
+
+def _back_edge_indices(contour: BlockContour) -> list[int] | None:
+    """Номера рёбер тыла по обходу (см. `back_side`); None — тыла нет."""
     pts = contour.points_xy
     n = len(pts)
     if n < 3:
@@ -119,8 +159,7 @@ def back_side(contour: BlockContour) -> list[Point2] | None:
             sides[-1].append(k)
         else:
             sides.append([k])
-    best = max(sides, key=lambda side: sum(lengths[k] for k in side))
-    return [pts[best[0]]] + [pts[(k + 1) % n] for k in best]
+    return max(sides, key=lambda side: sum(lengths[k] for k in side))
 
 
 def back_azimuth_deg(contour: BlockContour) -> float | None:

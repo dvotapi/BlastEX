@@ -153,9 +153,13 @@ def generate_pattern(
     origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
 
     if params.get("layout_anchor") == LAYOUT_ANCHOR_BACK and pattern in LAYOUT_ANCHOR_PATTERNS:
-        from design.back_layout import back_grid, back_side
+        from design.back_layout import back_boundary, back_grid, back_side
 
         if back_side(contour) is not None:
+            # «Отступ от контура» у «от тыла» — только боковые стороны.
+            boundary = back_boundary(contour, edge_margin)
+            if len(boundary) < 3:
+                return _keep_manual(existing_holes)
             return _finish_pattern(
                 back_grid(contour, params, boundary, surfaces),
                 contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,

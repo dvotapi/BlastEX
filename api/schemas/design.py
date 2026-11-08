@@ -1253,6 +1253,8 @@ class LayoutSearchStatusResponse(BaseModel):
     error: str | None = None
     # Границы темпа породы итога в справочнике уже другие: итог устарел.
     bounds_changed: bool = False
+    # Итог посчитан прежней версией алгоритма перебора: итог устарел.
+    algorithm_changed: bool = False
 
 
 class ReliefTriangleSchema(BaseModel):

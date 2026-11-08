@@ -122,6 +122,16 @@ describe("useLayoutSearch", () => {
     expect(result.current.stale).toBe(true);
   });
 
+  it("algorithm_changed: итог прежней версии алгоритма — результат устарел", async () => {
+    vi.spyOn(api.design, "layoutSearchStatus").mockResolvedValue(
+      status({ state: "done", fingerprint: "a", result: RESULT, algorithm_changed: true }),
+    );
+    const { result } = renderHook(() => useLayoutSearch("d1", "a"));
+    await flush();
+    expect(result.current.algorithmChanged).toBe(true);
+    expect(result.current.stale).toBe(true);
+  });
+
   it("409 до первого ответа статуса: один запрос статуса, дальше опрос по нему", async () => {
     const poll = vi.spyOn(api.design, "layoutSearchStatus")
       .mockImplementationOnce(() => new Promise<LayoutSearchStatus>(() => {}))

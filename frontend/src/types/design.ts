@@ -3552,4 +3552,6 @@ export type LayoutSearchStatus = {
   error: string | null;
   /** Границы темпа породы итога в справочнике уже другие — итог устарел. */
   bounds_changed?: boolean;
+  /** Итог посчитан прежней версией алгоритма перебора — итог устарел. */
+  algorithm_changed?: boolean;
 };

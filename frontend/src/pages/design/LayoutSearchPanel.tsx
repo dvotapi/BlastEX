@@ -39,6 +39,7 @@ const ANCHORS_HINT =
   "Подбор пробует обе опоры сетки — от бровки и от тыла (от тыла — у квадратной и прямоугольной сетки) — и выбирает лучшие варианты из обеих.";
 const STALE_TEXT = "Устарел: контур, съёмка или параметры изменились после подбора";
 const BOUNDS_CHANGED_TEXT = "Устарел: границы темпа отбойки породы изменились после подбора";
+const ALGORITHM_CHANGED_TEXT = "Устарел: подбор сделан прежней версией алгоритма, запустите заново";
 /** Нижняя граница темпа у итогов прежней версии (без сохранённых границ), мс/м. */
 const DEFAULT_RELIEF_MIN_MS_M = 3;
 const ALL_REJECTED_TEXT = "Ни один вариант не прошёл проверки — показаны лучшие из отбракованных.";
@@ -190,7 +191,11 @@ export function LayoutSearchPanel({
 
   // Нижняя граница темпа, с которой шёл подбор: по ней считана доля быстрых.
   const reliefMinMsM = numberOf(result?.relief_min_ms_m) ?? DEFAULT_RELIEF_MIN_MS_M;
-  const staleText = status?.bounds_changed ? BOUNDS_CHANGED_TEXT : STALE_TEXT;
+  const staleText = status?.algorithm_changed
+    ? ALGORITHM_CHANGED_TEXT
+    : status?.bounds_changed
+      ? BOUNDS_CHANGED_TEXT
+      : STALE_TEXT;
 
   function apply(variant: LayoutSearchVariant) {
     if (manualCount > 0 && !window.confirm(`Ручные правки (${manualCount}) будут потеряны. Применить вариант?`)) return;

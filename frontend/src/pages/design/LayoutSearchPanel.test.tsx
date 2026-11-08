@@ -404,4 +404,9 @@ describe("LayoutSearchPanel: границы темпа итога", () => {
     mount({ stale: true, status: status({ bounds_changed: true }) });
     expect(screen.getByText("Устарел: границы темпа отбойки породы изменились после подбора")).toBeTruthy();
   });
+
+  it("итог прежней версии алгоритма — своя пометка «Устарел»", () => {
+    mount({ stale: true, status: status({ algorithm_changed: true }) });
+    expect(screen.getByText("Устарел: подбор сделан прежней версией алгоритма, запустите заново")).toBeTruthy();
+  });
 });

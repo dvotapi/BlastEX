@@ -50,6 +50,11 @@ STATE_DONE = "done"
 STATE_STOPPED = "stopped"
 STATE_FAILED = "failed"
 
+# Версия алгоритма перебора. Поднимается, когда тот же вход даёт другие
+# варианты (07.11.2026: отступ от тыла 20·d, введённый отступ держится):
+# итог другой версии (у старых файлов ключа нет) — «устарел».
+SEARCH_ALGORITHM_VERSION = 2
+
 BUSY_MESSAGE = "Подбор раскладки уже идёт: блок «{name}». Дождитесь окончания или остановите его."
 # Подбор блока другой команды (организации): имя её блока не раскрывается.
 BUSY_OTHER_MESSAGE = "Сервер занят подбором раскладки другого блока. Попробуйте позже."
@@ -284,6 +289,7 @@ class LayoutSearchJobs:
                     "fingerprint": job.fingerprint,
                     "result": None,
                     "error": None,
+                    "algorithm_changed": False,
                 }
             failed = self._failed.get((team_id, design_id))
         if failed is not None:
@@ -299,6 +305,7 @@ class LayoutSearchJobs:
                 "fingerprint": None,
                 "result": None,
                 "error": error,
+                "algorithm_changed": False,
             }
         stored = _read_stored(path)
         result = stored.get("result") if stored else None
@@ -313,6 +320,8 @@ class LayoutSearchJobs:
             "fingerprint": stored.get("fingerprint") if stored else None,
             "result": result,
             "error": None,
+            "algorithm_changed": stored is not None
+            and stored.get("algorithm_version") != SEARCH_ALGORITHM_VERSION,
             # Порода запуска (только у сохранённого итога): по ней сервис сверяет
             # границы темпа итога с текущим справочником.
             "rock_name": rock_name if isinstance(rock_name, str) else None,
@@ -433,6 +442,7 @@ class LayoutSearchJobs:
             return
         payload = {
             "fingerprint": job.fingerprint,
+            "algorithm_version": SEARCH_ALGORITHM_VERSION,
             # `stopped` — перебор прерван по просьбе пользователя; исчерпанный
             # бюджет — `done` с пометкой `stopped_early` в итоге.
             "state": STATE_STOPPED if job.stop_event.is_set() and result.get("stopped_early") else STATE_DONE,

@@ -123,6 +123,8 @@ export interface LayoutSearchHook {
   stale: boolean;
   /** Границы темпа породы итога в справочнике уже другие. */
   boundsChanged: boolean;
+  /** Итог посчитан прежней версией алгоритма перебора. */
+  algorithmChanged: boolean;
 }
 
 /** Ошибки, которые повтор не исправит: нет входа, нет прав, нет такого блока. */
@@ -253,6 +255,10 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
   }, [designId, accept, clearTimer, schedule]);
 
   const boundsChanged = Boolean(status?.result && status.bounds_changed);
-  const stale = boundsChanged || (Boolean(status?.result) && fingerprint !== null && status?.fingerprint !== fingerprint);
-  return { status, start, stop, error, stale, boundsChanged };
+  const algorithmChanged = Boolean(status?.result && status.algorithm_changed);
+  const stale =
+    boundsChanged ||
+    algorithmChanged ||
+    (Boolean(status?.result) && fingerprint !== null && status?.fingerprint !== fingerprint);
+  return { status, start, stop, error, stale, boundsChanged, algorithmChanged };
 }

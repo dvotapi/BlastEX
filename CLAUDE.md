@@ -296,6 +296,21 @@ a × b при геометрии семени (9 + 8). Галочка «Без �
 (`isSquarePattern`) карточка показывает «Шаг a × a» (b = a). Подробности —
 `Docs/LAYOUT_SEARCH.md`.
 
+## Паспорт на бурение (TASK-015)
+
+Формулы `drill-v1` — только `design/drilling_passport.py` (чистые функции):
+s = roundup(max(2,0; H₁·(ctg γ − ctg α)), 0,1 м) — округление вверх до
+0,1 м; c_min = s − e и W — для инженера, не печатаются. Первый ряд — наименьший
+`logical_row` основной сетки (ряды впереди первого — сами впереди), без
+свободной поверхности — наибольший перебур с предупреждением. α, γ — у объекта,
+e — у типа станка (схемы Cost V2), payload паспорта их переопределяет; α
+объекта главнее угла откоса проекта (в UI умолчание 75°), без e — e = 0.
+Хранение — `drilling_passports` и неизменяемые `drilling_passport_revisions`
+(`design/drilling_passport_repository.py`, `content_sha256` по
+`canonical_json`), API — `/design/drilling-passports` за флагом
+`drill_passport` (`BLASTEX_DRILL_PASSPORT_ENABLED`). Полей в `BlastDesign` не
+добавлять. Ход работ — `Docs/plans/TASK-015-progress.md`.
+
 ## Интерфейс
 
 Streamlit удалён: UI — только `frontend/` (React + TypeScript). Расчётные

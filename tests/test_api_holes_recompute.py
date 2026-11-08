@@ -143,7 +143,8 @@ def test_toe_line_comes_with_the_recompute(client):
     assert response.status_code == 200
     toe = response.json()["toe_line"]
     assert toe["source"] == "angle"
-    assert toe["reason"] == "no_survey"
+    assert toe["reason"] == "default"
+    assert toe["survey_polylines"] == []
     assert len(toe["polylines"]) == 1
     xs = {round(point[0], 3) for point in toe["polylines"][0]}
     assert xs == {round(40 + 10 * math.tan(math.radians(15)), 3)}
@@ -154,18 +155,37 @@ def test_survey_toe_line_is_the_bottom_crest(client):
         **CONTOUR,
         "free_faces": [[1, 2]],
         "cad": {"bottom": [[0, 0], [40, 0], [44, 0], [44, 20], [40, 20], [0, 20]], "edited": False},
+        "toe_source": "survey",
     }
     toe = client.post(PATH, json={"holes": [], "contour": contour, "params": {}}).json()["toe_line"]
 
     assert toe["source"] == "survey"
     assert toe["reason"] == ""
     assert toe["polylines"] == [[[44.0, 0.0], [44.0, 20.0]]]
+    # Снятая бровка и есть линия для ЛСП — второй раз пунктиром не рисуется.
+    assert toe["survey_polylines"] == []
+
+
+def test_default_toe_line_is_by_angle_with_survey_for_comparison(client):
+    # Решение 07.11.2026: без выбора на блоке подошва — по углу, съёмка — пунктиром.
+    contour = {
+        **CONTOUR,
+        "free_faces": [[1, 2]],
+        "bench": {**CONTOUR["bench"], "face_angle_deg": 90.0},
+        "cad": {"bottom": [[0, 0], [40, 0], [44, 0], [44, 20], [40, 20], [0, 20]], "edited": False},
+    }
+    toe = client.post(PATH, json={"holes": [], "contour": contour, "params": {}}).json()["toe_line"]
+
+    assert (toe["source"], toe["reason"]) == ("angle", "default")
+    xs = {round(point[0], 3) for point in toe["polylines"][0]}
+    assert xs == {round(40 + 10 * math.tan(math.radians(15)), 3)}
+    assert toe["survey_polylines"] == [[[44.0, 0.0], [44.0, 20.0]]]
 
 
 def test_bottom_equal_to_top_is_reported_as_unmatched_survey(client):
     # Блок 67 до исправления импорта: фланг промахнулся, нижний контур = верхнему.
     ring = [[0, 0], [40, 0], [40, 20], [0, 20]]
-    contour = {**CONTOUR, "free_faces": [[1, 2]], "cad": {"bottom": ring, "edited": False}}
+    contour = {**CONTOUR, "free_faces": [[1, 2]], "cad": {"bottom": ring, "edited": False}, "toe_source": "survey"}
     toe = client.post(PATH, json={"holes": [], "contour": contour, "params": {}}).json()["toe_line"]
 
     assert (toe["source"], toe["reason"]) == ("angle", "survey_unmatched")
@@ -173,7 +193,7 @@ def test_bottom_equal_to_top_is_reported_as_unmatched_survey(client):
 
 def test_edited_contour_is_reported(client):
     bottom = [[0, 0], [40, 0], [44, 0], [44, 20], [40, 20], [0, 20]]
-    contour = {**CONTOUR, "free_faces": [[1, 2]], "cad": {"bottom": bottom, "edited": True}}
+    contour = {**CONTOUR, "free_faces": [[1, 2]], "cad": {"bottom": bottom, "edited": True}, "toe_source": "survey"}
     toe = client.post(PATH, json={"holes": [], "contour": contour, "params": {}}).json()["toe_line"]
 
     assert (toe["source"], toe["reason"]) == ("angle", "edited")

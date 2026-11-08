@@ -61,6 +61,8 @@ export type DesignAction =
       crs?: CadCrs | null;
     }
   | { type: "SET_BENCH"; bench: Partial<BenchSurface> }
+  /** Источник линии подошвы блока: "survey" — съёмка, null — по углу (ключ убирается). */
+  | { type: "SET_TOE_SOURCE"; toe_source: "survey" | null }
   | { type: "SET_COORDINATE_SYSTEM"; patch: Partial<CoordinateSystem> }
   | { type: "SET_SURFACE"; surface: SurfaceModel }
   | { type: "CLEAR_SURFACE"; kind: SurfaceKind }
@@ -325,6 +327,14 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     }
     case "SET_BENCH":
       return { ...document, contour: { ...document.contour, bench: { ...document.contour.bench, ...action.bench } } };
+    case "SET_TOE_SOURCE": {
+      // Ключ — только у выбранной съёмки: «по углу» — умолчание, паспорт без ключа.
+      const { toe_source: _previous, ...contour } = document.contour;
+      return {
+        ...document,
+        contour: action.toe_source === "survey" ? { ...contour, toe_source: "survey" } : contour,
+      };
+    }
     case "SET_COORDINATE_SYSTEM":
       return { ...document, coordinate_system: { ...document.coordinate_system, ...action.patch } };
     case "SET_SURFACE":
@@ -559,6 +569,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "APPLY_CAD_CONTOUR",
   "TOGGLE_FREE_FACE",
   "SET_BENCH",
+  "SET_TOE_SOURCE",
   "SET_SURFACE",
   "CLEAR_SURFACE",
   "SET_HOLES",

@@ -116,7 +116,7 @@ import { PatternPanel } from "./PatternPanel";
 import { LayoutSearchPanel } from "./LayoutSearchPanel";
 import { useLayoutSearchApply, type ChargeGrid } from "./useLayoutSearchApply";
 import { PlanCanvas, type PlanMeasureState } from "./PlanCanvas";
-import { toeLineWarning } from "./toeLineText";
+import { hasSurveyToe, toeLineWarning } from "./toeLineText";
 import { StageInspector } from "./StageInspector";
 import { VisibilityPanel } from "./VisibilityPanel";
 import { MapStatusBar } from "./MapStatusBar";
@@ -2910,6 +2910,9 @@ export function DesignPage({
                 rockNames={rockNames}
                 onRockNameChange={(rock_name) => dispatch({ type: "SET_ROCK_NAME", rock_name })}
                 onBenchChange={(bench) => dispatch({ type: "SET_BENCH", bench })}
+                toeSource={document.contour.toe_source}
+                hasSurveyToe={hasSurveyToe(document.contour)}
+                onToeSourceChange={(toe_source) => dispatch({ type: "SET_TOE_SOURCE", toe_source })}
                 onCoordinateSystemChange={(patch) => dispatch({ type: "SET_COORDINATE_SYSTEM", patch })}
                 onImport={importSurface}
                 onImportBlock={importDrawings}

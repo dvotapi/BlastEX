@@ -5,7 +5,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyDesign, emptyHoleGeology, type BlastDesign, type Hole, type HoleRecomputeResponse } from "../../types/design";
-import { recomputeKey, useHoleRecompute } from "./useHoleRecompute";
+import { recomputeKey, toeLineKey, useHoleRecompute } from "./useHoleRecompute";
 
 function hole(id: string, extra: Partial<Hole> = {}): Hole {
   return {
@@ -169,6 +169,12 @@ describe("recomputeKey", () => {
     expect(recomputeKey(design({ holes: [hole("a", { collar: { x: 11, y: 5, z: 420 }, toe: { x: 11, y: 5, z: 408 } })] }), {})).not.toBe(key);
     expect(recomputeKey(design({ holes: [hole("a", { manual: ["length"] })] }), {})).not.toBe(key);
     expect(recomputeKey(base, { stab_depth_m: 4 })).not.toBe(key);
+  });
+
+  it("меняется от выбора линии подошвы (съёмка или по углу)", () => {
+    const key = recomputeKey(base, {});
+    expect(recomputeKey(design({ contour: { ...base.contour, toe_source: "survey" } }), {})).not.toBe(key);
+    expect(toeLineKey(design({ contour: { ...base.contour, toe_source: "survey" } }))).not.toBe(toeLineKey(base));
   });
 });
 

@@ -131,7 +131,7 @@ from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
 from design.timing import TimingExprError, build_template_network, resolve_network
-from design.toe_line import TOE_SOURCE_ANGLE, grid_steps_m, toe_line
+from design.toe_line import TOE_SOURCE_ANGLE, grid_steps_m, survey_selected, survey_toe_line, toe_line
 from design.trunk_network import TRUNK_SCHEME, build_trunk_chains_network
 from cost.v2.legacy_adapter import LegacyReferences
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
@@ -997,9 +997,13 @@ def _toe_line_schema(contour: BlockContour) -> ToeLineSchema | None:
     if line is None:
         return None
     reason = ""
+    survey = None
     if line.source == TOE_SOURCE_ANGLE:
         cad = contour.cad or {}
-        if cad.get("edited"):
+        survey = survey_toe_line(contour)
+        if not survey_selected(contour):
+            reason = "default"
+        elif cad.get("edited"):
             reason = "edited"
         elif len(cad.get("bottom") or []) >= 3:
             reason = "survey_unmatched"
@@ -1009,6 +1013,9 @@ def _toe_line_schema(contour: BlockContour) -> ToeLineSchema | None:
         source=line.source,
         polylines=[[[round(x, 3), round(y, 3)] for x, y in polyline] for polyline in line.polylines],
         reason=reason,
+        survey_polylines=[
+            [[round(x, 3), round(y, 3)] for x, y in polyline] for polyline in (survey.polylines if survey else [])
+        ],
     )
 
 

@@ -18,7 +18,7 @@ export interface AnalysisInputs {
   spacingAM: number | null | undefined;
   burdenBM: number | null | undefined;
   /** Контур блока: вершины в плане и пометки откосов. */
-  contour: Pick<BlockContour, "vertices" | "free_faces">;
+  contour: Pick<BlockContour, "vertices" | "free_faces" | "toe_source">;
   /** Вид основной сетки (`pattern_params.default_kind`). */
   defaultKind: string | null | undefined;
 }
@@ -56,6 +56,8 @@ export function analysisInputsKey(inputs: AnalysisInputs): string {
     inputs.spacingAM ?? "",
     inputs.burdenBM ?? "",
     contourKey(inputs.contour),
+    // Линия подошвы (съёмка или по углу) меняет ЛСП в предупреждениях анализа.
+    inputs.contour.toe_source === "survey" ? "survey" : "",
     inputs.defaultKind ?? "",
   ].join("#");
 }
@@ -128,7 +130,7 @@ export function useStaleAnalysisReset(inputs: AnalysisInputs, reset: () => void)
  * «подошва по углу») строится от бровки контура по углу откоса и высоте
  * уступа у каждой скважины, а показатели карт — по устьям и глубинам скважин.
  * Поэтому в ключ входят вершины контура в плане, откосы, отметки и угол
- * уступа, замена или правка контура с чертежа, устья (с отметкой) и забои
+ * уступа, источник подошвы, замена или правка контура с чертежа, устья (с отметкой) и забои
  * скважин, их вид и включённость.
  */
 export function mapsInputsKey(holes: Hole[], contour: BlockContour): string {
@@ -139,7 +141,7 @@ export function mapsInputsKey(holes: Hole[], contour: BlockContour): string {
     .join("|");
   return [
     contourKey(contour),
-    `${bench.crest_z_m}:${bench.toe_z_m}:${bench.face_angle_deg}`,
+    `${bench.crest_z_m}:${bench.toe_z_m}:${bench.face_angle_deg}:${contour.toe_source ?? ""}`,
     cad,
     holesKey,
   ].join("#");

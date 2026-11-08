@@ -29,7 +29,7 @@ import { healthColor, holeDepthM, type HoleHealthCode, type HoleHealthMap } from
 import { DEFAULT_MAP_LAYERS, type MapLayerVisibility } from "./MapLegend";
 import { SituationCanvas } from "./SituationCanvas";
 import { situationStrokes, type SituationShown } from "./situationLayer";
-import { lspToeTitle } from "./toeLineText";
+import { lspToeTitle, SURVEY_TOE_TITLE } from "./toeLineText";
 import {
   holeMarkerRadiusPx,
   labelsVisibleAtScale,
@@ -1468,11 +1468,24 @@ export function PlanCanvas({
             />
           ) : null
         ))}
+        {/* Снятая нижняя бровка при подошве по углу — серым пунктиром для сравнения (решение 07.11.2026). */}
+        {layers.toe && floorToeLine && (floorToeLine.survey_polylines ?? []).map((line, lineIndex) => (
+          line.length >= 2 ? (
+            <polyline
+              key={`survey-toe-${lineIndex}`}
+              className="survey-toe"
+              fill="none"
+              points={line.map(([x, y]) => { const p = toScreen({ x, y }); return `${p.x},${p.y}`; }).join(" ")}
+            >
+              <title>{SURVEY_TOE_TITLE}</title>
+            </polyline>
+          ) : null
+        ))}
         {layers.toe && floorToeLine && floorToeLine.polylines.map((line, lineIndex) => (
           line.length >= 2 ? (
             <polyline
               key={`lsp-toe-${lineIndex}`}
-              className={`lsp-toe${floorToeLine.source === "angle" ? " by-angle" : ""}`}
+              className="lsp-toe"
               fill="none"
               points={line.map(([x, y]) => { const p = toScreen({ x, y }); return `${p.x},${p.y}`; }).join(" ")}
             >

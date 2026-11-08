@@ -58,8 +58,11 @@ export function layoutSearchInputs(
   patternParams: Record<string, unknown>,
   wired: string[] = wiredContourHoles(design.holes, design.network),
 ): LayoutFingerprintInput {
+  // Источник подошвы: только выбранная съёмка; null, "angle" и отсутствие
+  // ключа — одно и то же (по углу), отпечаток от них не меняется.
+  const { toe_source: toeSource, ...contour } = design.contour;
   return {
-    contour: design.contour,
+    contour: toeSource === "survey" ? { ...contour, toe_source: toeSource } : contour,
     surfaces: design.surfaces,
     domains: design.domains,
     pattern_params: patternParams,

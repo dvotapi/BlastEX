@@ -231,6 +231,12 @@ export type BlockContour = {
   bench: BenchSurface;
   name: string;
   cad?: CadContourInfo | null;
+  /**
+   * Источник линии подошвы (решение владельца 07.11.2026): "survey" — нижняя
+   * бровка из съёмки; нет ключа (или "angle") — по углу откоса. Пишется только
+   * когда выбрана съёмка.
+   */
+  toe_source?: "survey" | "angle" | null;
 };
 
 export type HoleKind =
@@ -336,11 +342,14 @@ export type ToeLine = {
   source: "survey" | "angle" | string;
   polylines: number[][][];
   /**
-   * Почему по углу: "no_survey" — нижней бровки нет, "edited" — контур правили
-   * после построения, "survey_unmatched" — нижний контур совпал с верхним
-   * (откос при импорте не найден). Пусто — по съёмке.
+   * Почему по углу: "default" — съёмка на блоке не выбрана (умолчание);
+   * выбрана, но не годится: "no_survey" — нижней бровки нет, "edited" — контур
+   * правили после построения, "survey_unmatched" — нижний контур совпал с
+   * верхним (откос при импорте не найден). Пусто — по съёмке.
    */
   reason?: string;
+  /** Снятая нижняя бровка для сравнения пунктиром, когда ЛСП — по углу. */
+  survey_polylines?: number[][][];
 };
 
 export type HoleRecomputeResponse = {

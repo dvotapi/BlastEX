@@ -489,6 +489,17 @@ def _cad_without_empty_optional(cad: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Источник линии подошвы блока (`BlockContour.toe_source`, решение владельца
+# 07.11.2026): "survey" — нижняя бровка из съёмки, "angle" — от верхней бровки
+# по углу откоса. Нет ключа — по углу.
+TOE_SOURCES = ("survey", "angle")
+
+
+def _toe_source(value: Any) -> str | None:
+    text = str(value).strip().lower() if isinstance(value, str) else ""
+    return text if text in TOE_SOURCES else None
+
+
 @dataclass
 class BlockContour:
     """Контур блока в плане: замкнутый полигон + помеченные открытые откосы."""
@@ -500,6 +511,8 @@ class BlockContour:
     # Контур из чертежа маркшейдера (TASK-013): источник, способ, участки, оба
     # контура и площади — паспорт не зависит от повторного импорта.
     cad: dict[str, Any] | None = None
+    # Источник линии подошвы (`TOE_SOURCES`); None — по углу (умолчание).
+    toe_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -512,6 +525,10 @@ class BlockContour:
         # паспорта, и `"cad": null` сменил бы хэш у всех старых паспортов.
         if self.cad is not None:
             data["cad"] = _cad_without_empty_optional(self.cad)
+        # Тоже только заданный: иначе сменился бы хэш утверждённых паспортов.
+        source = _toe_source(self.toe_source)
+        if source is not None:
+            data["toe_source"] = source
         return data
 
     @classmethod
@@ -523,6 +540,7 @@ class BlockContour:
             bench=BenchSurface.from_dict(data.get("bench", {})),
             name=str(data.get("name", "Блок")),
             cad=_cad_without_empty_optional(cad) if isinstance(cad, dict) else None,
+            toe_source=_toe_source(data.get("toe_source")),
         )
 
     @property

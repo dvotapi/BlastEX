@@ -49,6 +49,11 @@ def _contour() -> BlockContour:
     )
 
 
+def _survey_contour() -> BlockContour:
+    """Блок 67 с подошвой по съёмке нижней бровки (`toe_source = "survey"`)."""
+    return BlockContour.from_dict({**_contour().to_dict(), "toe_source": "survey"})
+
+
 def _base() -> dict:
     return {
         "pattern": "rectangular",
@@ -67,8 +72,8 @@ def _tilt(hole) -> float:
     )
 
 
-def _report(params: dict):
-    contour = _contour()
+def _report(params: dict, contour: BlockContour | None = None):
+    contour = contour or _contour()
     holes = generate_pattern(contour, params)
     design = BlastDesign(design_id="b67", contour=contour, holes=holes, pattern_params=params)
     burdens = floor_burdens(design)
@@ -94,7 +99,8 @@ def test_fixture_is_local_and_has_the_face():
 
 
 def test_block67_back_layout_beats_crest_layout():
-    """Устья первого ряда не дальше от бровки, чем у пары, отбраковки нет.
+    """Подошва по съёмке (до решения 07.11.2026 — умолчание): устья первого
+    ряда не дальше от бровки, чем у пары, отбраковки нет.
 
     Пара у откоса сама сдвигает устье к кромке (PR #153), поэтому медиана
     расстояния устья до бровки у обоих шаблонов — отступ 0,5 м; у пары после
@@ -110,14 +116,30 @@ def test_block67_back_layout_beats_crest_layout():
     20·d, и 0,5–0,8·b.
     """
     base = {**_base(), "diameter_mm": 145.0}
-    back = _report({**base, "layout_anchor": "back"})
-    crest = _report({**base, "front_rows_mode": "pair"})
+    survey = _survey_contour()
+    back = _report({**base, "layout_anchor": "back"}, survey)
+    crest = _report({**base, "front_rows_mode": "pair"}, survey)
     assert back["median_m"] <= crest["median_m"] + 1e-3
     assert not back["codes"] & REJECT, back["codes"]
     assert back["in_corridor"] > 0.28
-    share = _report({**base, "layout_anchor": "back", "back_offset_m": round(0.65 * W, 4)})
+    share = _report({**base, "layout_anchor": "back", "back_offset_m": round(0.65 * W, 4)}, survey)
     assert not share["codes"] & REJECT, share["codes"]
     assert share["in_corridor"] > 0.4
+
+
+def test_block67_toe_by_angle_puts_first_row_in_corridor():
+    """Подошва по углу 75° (умолчание с 07.11.2026): съёмка здесь уводит
+    подошву на 3,2–4,8 м от бровки, а по углу — 2,37 м (H = 8,83 м). ЛСП в
+    коридоре у «от тыла» (20·d) — 93 %, наклонных 6; у пары — 89 %, без
+    наклона (устья сдвинуты к кромке). Отбраковки нет ни у одной."""
+    base = {**_base(), "diameter_mm": 145.0}
+    back = _report({**base, "layout_anchor": "back"})
+    crest = _report({**base, "front_rows_mode": "pair"})
+    assert not back["codes"] & REJECT, back["codes"]
+    assert not crest["codes"] & REJECT, crest["codes"]
+    assert back["in_corridor"] > 0.9
+    assert crest["in_corridor"] > 0.85
+    assert back["in_corridor"] >= crest["in_corridor"]
 
 
 @pytest.mark.parametrize(
@@ -139,8 +161,11 @@ def test_block67_back_variants_are_not_rejected(offset, shift, turn):
 
 
 def test_block66_back_layout_compared_with_crest_layout():
-    """Блок 66 (`fixtures/cad/block66.dxf`): сравнение шаблонов. Тыл — западная
-    сторона; «от тыла» не хуже по доле ЛСП в коридоре, без отбраковки."""
+    """Блок 66 (`fixtures/cad/block66.dxf`, нижней бровки в фикстуре нет, угол
+    не задан): сравнение шаблонов. Тыл — западная сторона. До 07.11.2026 подошва
+    без угла лежала под бровкой, и «от тыла» был не хуже пары; с подошвой по
+    углу 75° у пары ЛСП в коридоре 78 %, у «от тыла» — 61 %, отбраковки нет —
+    шаблон выбирает перебор."""
     from tests.test_trunk_network import BLOCK66_PARAMS, _block66_contour
 
     contour = _block66_contour()
@@ -155,9 +180,11 @@ def test_block66_back_layout_compared_with_crest_layout():
         return sum(1 for v in burdens.values() if not v.excess and not v.short) / len(burdens), codes
 
     back, back_codes = share({**BLOCK66_PARAMS, "row_azimuth_deg": azimuth, "layout_anchor": "back"})
-    crest, _ = share({**BLOCK66_PARAMS, "front_rows_mode": "pair"})
+    crest, crest_codes = share({**BLOCK66_PARAMS, "front_rows_mode": "pair"})
     assert not back_codes & REJECT, back_codes
-    assert back >= crest
+    assert not crest_codes & REJECT, crest_codes
+    assert back > 0.55
+    assert crest > 0.75
 
 
 def test_block67_back_layout_fires_from_the_crest():

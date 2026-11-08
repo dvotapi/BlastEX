@@ -915,6 +915,9 @@ export type PatternParams = {
   layout_anchor?: "back";
   // Отступ приконтурного ряда от тыла, м; нет ключа — 20·d (d — диаметр скважины)
   back_offset_m?: number;
+  // Подбор раскладки не поворачивает ряды «от тыла»: только этот шаблон и азимут
+  // рядов с вкладки; нет ключа — поворот ±5° и оба шаблона
+  back_turn_locked?: true;
   default_kind: HoleKind;
   row_params: RowPatternParams[];
   contour_row: boolean;

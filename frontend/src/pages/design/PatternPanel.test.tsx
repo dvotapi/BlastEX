@@ -189,6 +189,7 @@ describe("PatternPanel: шаг b у квадратной сетки", () => {
 
 const ANCHOR = "Опора сетки";
 const BACK_OFFSET = "Отступ от тыла, м";
+const BACK_LOCK = "Без поворота рядов от тыла";
 const CONTOUR: BlockContour = {
   vertices: [
     { x: 0, y: 0, z: 0 },
@@ -229,7 +230,7 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
     const onChange = mountWithContour({ ...RECT, layout_anchor: "back", back_offset_m: 2 });
     fireEvent.change(screen.getByLabelText(ANCHOR), { target: { value: "crest" } });
     const [patch] = onChange.mock.calls[0];
-    expect(Object.keys(patch).sort()).toEqual(["back_offset_m", "layout_anchor"]);
+    expect(Object.keys(patch).sort()).toEqual(["back_offset_m", "back_turn_locked", "layout_anchor"]);
     expect(Object.values(patch).every((v) => v === undefined)).toBe(true);
   });
 
@@ -287,6 +288,25 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
     expect(patch.back_offset_m).toBeUndefined();
   });
 
+  it("«Без поворота рядов от тыла»: галочка пишет ключ, снятая — убирает; от бровки её нет", () => {
+    const onChange = mountWithContour({ ...RECT, layout_anchor: "back" });
+    const box = screen.getByLabelText(BACK_LOCK) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect((box.closest("label") as HTMLLabelElement).title).toMatch(/подбор/i);
+    fireEvent.click(box);
+    expect(onChange).toHaveBeenCalledWith({ back_turn_locked: true });
+    cleanup();
+    const onChange2 = mountWithContour({ ...RECT, layout_anchor: "back", back_turn_locked: true });
+    const box2 = screen.getByLabelText(BACK_LOCK) as HTMLInputElement;
+    expect(box2.checked).toBe(true);
+    fireEvent.click(box2);
+    const [patch] = onChange2.mock.calls[0];
+    expect("back_turn_locked" in patch && patch.back_turn_locked === undefined).toBe(true);
+    cleanup();
+    mountWithContour(RECT);
+    expect(screen.queryByLabelText(BACK_LOCK)).toBeNull();
+  });
+
   it("«от тыла»: из первого ряда у откоса — только предпочтительный наклон и отступ от кромки", () => {
     mountWithContour({ ...RECT, layout_anchor: "back" });
     expect(screen.queryByLabelText(SCHEME)).toBeNull();
@@ -315,10 +335,11 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
   });
 
   it("смена сетки на шахматную убирает ключи «от тыла»", () => {
-    const onChange = mountWithContour({ ...RECT, layout_anchor: "back", back_offset_m: 2 });
+    const onChange = mountWithContour({ ...RECT, layout_anchor: "back", back_offset_m: 2, back_turn_locked: true });
     fireEvent.click(screen.getByRole("button", { name: /Шахматная/ }));
     const [patch] = onChange.mock.calls[0];
     expect(patch.pattern).toBe("staggered");
+    expect("back_turn_locked" in patch && patch.back_turn_locked === undefined).toBe(true);
     expect("layout_anchor" in patch && patch.layout_anchor === undefined).toBe(true);
     expect("back_offset_m" in patch && patch.back_offset_m === undefined).toBe(true);
     cleanup();

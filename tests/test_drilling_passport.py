@@ -135,9 +135,13 @@ def test_too_close_and_missing_offset(rows66):
     check = first_row_check(rows66, 75.0, 65.0, 0.0, 2.0, None)
     assert check.c_min_m == pytest.approx(2.4)
     assert "first_row_too_close" in [issue.code for issue in check.issues]
-    missing = first_row_check(rows66, 75.0, 65.0, None, None, None)
-    assert missing.c_min_m is None
-    assert "axis_offset_missing" in [issue.code for issue in missing.issues]
+    # Нет e — по спеке §2.2 e = 0 (консервативно для c_min) с предупреждением; W считается.
+    missing = first_row_check(rows66, 75.0, 65.0, None, None, 4.0)
+    assert missing.c_min_m == pytest.approx(2.4)
+    assert missing.c_m == pytest.approx(2.4)
+    assert round(missing.w_m, 2) == 5.54
+    codes = [issue.code for issue in missing.issues]
+    assert codes == ["axis_offset_missing", "first_row_burden"]
     assert all(issue.level == "warning" for issue in missing.issues)
 
 
@@ -216,11 +220,26 @@ def test_resolve_inputs_sources(block66):
     assert (values["gamma_deg"], provenance["gamma_deg"]) == (55.0, "MANUAL_OVERRIDE")
     assert (values["w_max_m"], provenance["w_max_m"]) == (5.0, "MANUAL_OVERRIDE")
 
+    # Угол откоса проекта (в интерфейсе по умолчанию 75°) не перекрывает объект.
     design = BlastDesign.from_dict(block66.to_dict())
     design.contour.bench = BenchSurface(face_angle_deg=72.0)
     values, provenance = resolve_inputs(design, site, None, {})
-    assert (values["alpha_deg"], provenance["alpha_deg"]) == (72.0, "DESIGN")
+    assert (values["alpha_deg"], provenance["alpha_deg"]) == (75.0, "REFERENCE")
     assert values["axis_offset_m"] is None and provenance["axis_offset_m"] is None
+    # У объекта α нет — берётся угол проекта.
+    values, provenance = resolve_inputs(design, {"stable_slope_angle_deg": 55}, None, {})
+    assert (values["alpha_deg"], provenance["alpha_deg"]) == (72.0, "DESIGN")
+
+
+def test_alpha_mismatch_between_design_and_site(block66):
+    design = BlastDesign.from_dict(block66.to_dict())
+    design.contour.bench = BenchSurface(face_angle_deg=75.0)
+    site = {"bench_face_angle_deg": 70, "stable_slope_angle_deg": 55}
+    context = passport_context(design, {"block_area_m2": 2790, "w_max_m": 6}, site, {"axis_offset_m": 1.2})
+    assert context["first_row_check"]["s_m"] == 4.0
+    assert "alpha_mismatch" in [issue["code"] for issue in context["issues"]]
+    same = passport_context(block66, {"block_area_m2": 2790, "w_max_m": 6}, site, {"axis_offset_m": 1.2})
+    assert "alpha_mismatch" not in [issue["code"] for issue in same["issues"]]
 
 
 def test_resolve_inputs_area(block66):

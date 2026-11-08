@@ -246,3 +246,8 @@ def test_service_key_cannot_issue_revision(client):
     client.app.dependency_overrides[require_internal_access] = lambda: {"sub": "api-key", "role": "service", "org": "org-a"}
     response = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
     assert response.status_code == 403
+
+
+def test_too_long_passport_number_is_422(client):
+    response = client.post(BASE, json={"design_id": "block-66", "passport_no": "1" * 121})
+    assert response.status_code == 422

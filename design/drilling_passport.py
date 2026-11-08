@@ -234,18 +234,18 @@ def first_row_check(
     prism = h1 * (_ctg(gamma_deg) - _ctg(alpha_deg))
     s = round_up_tenth(max(MIN_CREST_DISTANCE_M, prism))
 
-    c_min: float | None = None
     if e_m is None:
+        # Спека §2.2: без вылета e принимается e = 0 — c_min не занижается.
         issues.append(
             _issue(
                 "warning",
                 "axis_offset_missing",
-                "Не задан вылет оси скважины e у станка: минимум от бровки до оси первого ряда не проверен.",
+                "Не задан вылет оси скважины e у станка: принято e = 0, минимум от бровки "
+                "до оси первого ряда равен s. Внесите e в справочник станков.",
                 "axis_offset_m",
             )
         )
-    else:
-        c_min = s - e_m
+    c_min = s - (e_m or 0.0)
     accepted_c = c_m if c_m is not None else c_min
     if c_m is not None and c_min is not None and c_m < c_min - _EPS:
         issues.append(
@@ -258,7 +258,7 @@ def first_row_check(
         )
 
     w: float | None = None
-    if accepted_c is not None:
+    if accepted_c is not None:  # c_min считается всегда, когда есть s
         burdens = [(row.bench_height_m * (_ctg(alpha_deg) - _ctg(row.dip_deg)) + accepted_c, row) for row in first]
         w = max(item[0] for item in burdens)
         if w_max_m is not None and w > w_max_m + _EPS:
@@ -282,15 +282,6 @@ def first_row_check(
                 "w_max_missing",
                 "Не задана допустимая ЛСПП Wпред: проверка ЛСПП первого ряда пропущена.",
                 "w_max_m",
-            )
-        )
-    elif w is None:
-        issues.append(
-            _issue(
-                "warning",
-                "first_row_burden_unchecked",
-                "Не задано расстояние от бровки до оси первого ряда c: ЛСПП не проверена.",
-                "first_row_offset_m",
             )
         )
     return FirstRowCheck(h1, prism, s, c_min, accepted_c, w, w_max_m, issues)
@@ -318,6 +309,13 @@ def _first_source(*candidates: tuple[float | None, str]) -> tuple[float | None, 
     return None, None
 
 
+def _design_alpha(design: BlastDesign) -> float | None:
+    """Угол откоса уступа из проекта; 90° — значение модели по умолчанию, не угол."""
+
+    face = design.contour.bench.face_angle_deg
+    return face if face and not math.isclose(face, 90.0) else None
+
+
 def resolve_inputs(
     design: BlastDesign,
     site: Mapping[str, Any] | None,
@@ -327,15 +325,16 @@ def resolve_inputs(
     """Величины расчёта и их происхождение (`FIELD_SOURCES`); None — нет нигде."""
 
     manual = "MANUAL_OVERRIDE"
-    face = design.contour.bench.face_angle_deg
-    design_alpha = face if face and not math.isclose(face, 90.0) else None
+    design_alpha = _design_alpha(design)
     vertices = design.contour.points_xy
     contour_area = polygon_area(vertices) if len(vertices) >= 3 else 0.0
     resolved = {
+        # Объект раньше проекта: в интерфейсе у нового блока угол откоса по
+        # умолчанию 75°, и он перекрыл бы техпроект объекта.
         "alpha_deg": _first_source(
             (_number(payload, "alpha_deg"), manual),
-            (design_alpha, "DESIGN"),
             (_number(site, "bench_face_angle_deg"), "REFERENCE"),
+            (design_alpha, "DESIGN"),
         ),
         "gamma_deg": _first_source(
             (_number(payload, "gamma_deg"), manual),
@@ -370,6 +369,23 @@ def passport_context(
 
     values, provenance = resolve_inputs(design, site, rig, payload)
     first_ids, issues = first_row_selection(design)
+    design_alpha = _design_alpha(design)
+    if (
+        design_alpha is not None
+        and values["alpha_deg"] is not None
+        and provenance["alpha_deg"] != "DESIGN"
+        and not math.isclose(design_alpha, values["alpha_deg"], abs_tol=0.05)
+    ):
+        issues.append(
+            _issue(
+                "warning",
+                "alpha_mismatch",
+                f"Угол откоса в проекте блока {design_alpha:g}° не совпадает с принятым "
+                f"{values['alpha_deg']:g}° ({'паспорт' if provenance['alpha_deg'] == 'MANUAL_OVERRIDE' else 'справочник объекта'}): "
+                "расстояние s посчитано по принятому.",
+                "alpha_deg",
+            )
+        )
     rows = holes_for_passport(design, first_ids)
     if not rows:
         issues.append(_issue("error", "no_holes", "В проекте нет включённых скважин.", "holes"))

@@ -54,7 +54,7 @@ class DrillingPassportPayload(BaseModel):
 
 class DrillingPassportCreateSchema(BaseModel):
     design_id: str = Field(min_length=1)
-    passport_no: str | None = None
+    passport_no: str | None = Field(default=None, min_length=1, max_length=120)
     passport_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     payload: DrillingPassportPayload | None = None
 

@@ -33,6 +33,10 @@ from design.mass_blast import content_sha256
 from design.models import BlastDesign
 
 
+# Длина колонки `drilling_passports.passport_no`.
+PASSPORT_NO_MAX_LENGTH = 120
+
+
 class UnacknowledgedWarningsError(RuntimeError):
     """Предупреждения проверки не отмечены «просмотрено»."""
 
@@ -111,6 +115,10 @@ def create_passport(
         payload["site_code"] = _default_site_code(economics_repository, organization_id)
     passport_date = request.passport_date or date.today().isoformat()
     passport_no = request.passport_no or default_passport_no(payload["block"], passport_date)
+    if len(passport_no) > PASSPORT_NO_MAX_LENGTH:
+        raise ValueError(
+            f"№ паспорта «{passport_no[:40]}…» длиннее {PASSPORT_NO_MAX_LENGTH} символов: задайте номер вручную."
+        )
     return repository.create_passport(organization_id, actor, design.design_id, passport_no, passport_date, payload)
 
 

@@ -1231,6 +1231,8 @@ class LayoutSearchVariantSchema(BaseModel):
     outside_share: float | None = None
     robust_spread: float | None = None
     hole_count: int = 0
+    # Площадь блока без скважин, м²; у итогов прежних версий — None.
+    uncovered_m2: float | None = None
     window8_max_holes: int = 0
     downhole_ms: float | None = None
     warnings: list[str] = Field(default_factory=list)

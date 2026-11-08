@@ -58,6 +58,7 @@ def _evaluation(**overrides) -> Evaluation:
         candidate=Candidate({}, "left"), holes=[], network=InitiationNetwork(), rejected=False,
         reject_codes=[], lsp_out=0, fast_share=0.0, converging_length_m=0.0, outside_share=0.0,
         robust_spread=0.1, hole_count=50, window8_max_holes=1, downhole_ms=500.0, warnings=[],
+        uncovered_m2=0.0,
     )
     values.update(overrides)
     return Evaluation(**values)
@@ -143,10 +144,11 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(ev.converging_length_m, math.inf)
         self.assertEqual(ev.outside_share, math.inf)
         self.assertIsNone(ev.robust_spread)
-        self.assertEqual(ev.rank_key()[2:6], (math.inf,) * 4)
+        self.assertEqual(ev.rank_key()[3:7], (math.inf,) * 4)
         # Вариант с темпом, но хуже по всем его показателям, всё равно впереди.
         with_relief = _evaluation(fast_share=0.9, converging_length_m=500.0, outside_share=0.9,
-                                  robust_spread=5.0, hole_count=ev.hole_count + 100)
+                                  robust_spread=5.0, hole_count=ev.hole_count + 100,
+                                  uncovered_m2=ev.uncovered_m2)
         self.assertLess(with_relief.rank_key(), ev.rank_key())
 
     def test_empty_pattern_rejected(self):
@@ -167,7 +169,7 @@ class EvaluateTests(unittest.TestCase):
         self.assertLess(_evaluation(robust_spread=0.5).rank_key(), _evaluation(robust_spread=None).rank_key())
         # Шум меньше шага округления порядок не решает.
         self.assertEqual(
-            _evaluation(outside_share=0.1201).rank_key()[:5], _evaluation(outside_share=0.1199).rank_key()[:5]
+            _evaluation(outside_share=0.1201).rank_key()[:6], _evaluation(outside_share=0.1199).rank_key()[:6]
         )
         self.assertEqual(
             _evaluation(converging_length_m=10.1).rank_key(), _evaluation(converging_length_m=9.9).rank_key()
@@ -177,6 +179,45 @@ class EvaluateTests(unittest.TestCase):
             _evaluation(window8_max_holes=1, downhole_ms=500.0).rank_key(),
             _evaluation(window8_max_holes=7, downhole_ms=1000.0).rank_key(),
         )
+
+    def test_less_uncovered_area_ranks_first(self):
+        # Решение владельца 08.11.2026: после отбраковки — меньше площади блока
+        # без скважин (покрытие у краёв), и только потом ЛСП и темп. Площадь
+        # сравнивается в ячейках a·b: углы зоны (меньше половины ячейки) порядок
+        # не решают — его решает ЛСП.
+        cell = {"spacing_a_m": 4.0, "burden_b_m": 4.0}
+        covered = _evaluation(candidate=Candidate(cell, "left"), uncovered_m2=0.0, lsp_out=5, fast_share=0.3)
+        bare = _evaluation(candidate=Candidate(cell, "left"), uncovered_m2=40.0)
+        self.assertLess(covered.rank_key(), bare.rank_key())
+        self.assertLess(bare.rank_key(), _evaluation(uncovered_m2=0.0, rejected=True).rank_key())
+        corners = _evaluation(candidate=Candidate(cell, "left"), uncovered_m2=7.5, lsp_out=1)
+        self.assertLess(corners.rank_key(), _evaluation(candidate=Candidate(cell, "left"), lsp_out=2).rank_key())
+
+    def test_uncovered_area_extra_column_by_shift(self):
+        # «От тыла», прямоугольник 40 × 30, шаг 4 × 4, отступ от контура 2,5 м у
+        # флангов: без сдвига столбцы x = 4…36 (до флангов 4 м — покрыто), со
+        # сдвигом 2 м — x = 6…34: у флангов полосы 0,5 м дальше ¾ шага (3 м).
+        params = {**BASE, "layout_anchor": "back", "back_offset_m": 2.9, "edge_margin_m": 2.5,
+                  "row_azimuth_deg": 90.0}
+        params.pop("offset_from_face_m")
+        ctx = _ctx(params)
+        full = evaluate(ctx, Candidate(dict(params), "left"))
+        shifted = evaluate(ctx, Candidate({**params, "grid_shift_along_m": 2.0}, "left"))
+        self.assertLess(full.uncovered_m2, 5.0)
+        self.assertGreater(shifted.uncovered_m2, 15.0)
+        self.assertLess(full.rank_key(), shifted.rank_key())
+
+    def test_uncovered_area_crest_template_counts_strip_behind(self):
+        # От бровки: на всю глубину блока сетка не дошла (скважины только в
+        # полосе y ≤ 10 у бровки) — площадь за ними не покрыта.
+        from design.layout_search.evaluate import uncovered_area_m2
+
+        holes = [h for h in generate_pattern(CONTOUR, BASE) if h.collar.y <= 10.0]
+        bare = uncovered_area_m2(CONTOUR, BASE, holes)
+        full = uncovered_area_m2(CONTOUR, BASE, generate_pattern(CONTOUR, BASE))
+        # Полная сетка: непокрыты лишь углы зоны у флангов.
+        self.assertLess(full, 20.0)
+        self.assertGreater(bare, 300.0)
 
     def test_relief_bounds_passed_through(self):
         cand = Candidate(dict(BASE), "left")

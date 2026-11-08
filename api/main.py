@@ -19,7 +19,7 @@ from pydantic import ValidationError
 
 from api import config
 from api.exceptions import BlastExError
-from api.routers import auth, blast, block_economics, cad, cost, calibration, datasets, design, drift, economics, learning, mass_blast, optimization, outcomes, recommendation, references, registry, scenarios, spatial, workspace
+from api.routers import auth, blast, block_economics, cad, cost, calibration, datasets, design, drift, drilling_passport, economics, learning, mass_blast, optimization, outcomes, recommendation, references, registry, scenarios, spatial, workspace
 from api.security import require_internal_access
 
 API_PREFIX = "/api/v1"
@@ -188,6 +188,9 @@ app.include_router(design.router, prefix=API_PREFIX, dependencies=_internal_depe
 # Импорт чертежа — всегда включён (роутер `spatial` ниже — ML-слой).
 app.include_router(cad.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(mass_blast.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
+# Паспорт на бурение (TASK-015) — только при включённом флаге, иначе маршрутов нет (404).
+if config.drill_passport_enabled():
+    app.include_router(drilling_passport.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(scenarios.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(workspace.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 

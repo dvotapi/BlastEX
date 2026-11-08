@@ -10,6 +10,8 @@ import os
 
 DATABASE_URL_ENV = "BLASTEX_DATABASE_URL"
 INTELLIGENCE_ENABLED_ENV = "BLASTEX_INTELLIGENCE_ENABLED"
+# Паспорт на бурение (TASK-015) — за флагом до PR 6 (интерфейс).
+DRILL_PASSPORT_ENABLED_ENV = "BLASTEX_DRILL_PASSPORT_ENABLED"
 
 # Префиксы ML-слоя: роутеры регистрируются только при включённом флаге.
 INTELLIGENCE_PREFIXES: tuple[str, ...] = (
@@ -51,7 +53,13 @@ def intelligence_enabled() -> bool:
     return os.getenv(INTELLIGENCE_ENABLED_ENV, "").strip().lower() in _TRUE_VALUES
 
 
+def drill_passport_enabled() -> bool:
+    """Включён ли паспорт на бурение (TASK-015). По умолчанию выключен."""
+
+    return os.getenv(DRILL_PASSPORT_ENABLED_ENV, "").strip().lower() in _TRUE_VALUES
+
+
 def features() -> dict[str, bool]:
     """Состав включённых модулей — фронт скрывает разделы по этому ответу."""
 
-    return {"intelligence": intelligence_enabled()}
+    return {"intelligence": intelligence_enabled(), "drill_passport": drill_passport_enabled()}

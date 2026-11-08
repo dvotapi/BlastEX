@@ -26,10 +26,11 @@ DISABLED_CALLS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _client(monkeypatch, *, intelligence: bool) -> TestClient:
+def _client(monkeypatch, *, intelligence: bool, drill_passport: bool = False) -> TestClient:
     monkeypatch.setenv(config.DATABASE_URL_ENV, "postgresql+psycopg://user@host/project1")
     monkeypatch.setenv("BLASTEX_API_KEY", "test-api-key")
     monkeypatch.setenv(config.INTELLIGENCE_ENABLED_ENV, "true" if intelligence else "false")
+    monkeypatch.setenv(config.DRILL_PASSPORT_ENABLED_ENV, "true" if drill_passport else "false")
     module = importlib.reload(importlib.import_module("api.main"))
     return TestClient(module.app, headers={"X-API-Key": "test-api-key"})
 
@@ -56,10 +57,12 @@ def test_disabled_module_answers_501(monkeypatch, method: str, path: str) -> Non
 
 def test_features_endpoint_reports_the_flag(monkeypatch) -> None:
     assert _client(monkeypatch, intelligence=False).get("/api/v1/features").json() == {
-        "intelligence": False
+        "intelligence": False,
+        "drill_passport": False,
     }
     assert _client(monkeypatch, intelligence=True).get("/api/v1/features").json() == {
-        "intelligence": True
+        "intelligence": True,
+        "drill_passport": False,
     }
 
 
@@ -76,3 +79,17 @@ def test_other_routes_keep_working_while_module_is_disabled(monkeypatch) -> None
 
     assert client.get("/api/v1/design/passport/roles").status_code == 200
     assert client.get("/health").status_code == 200
+
+
+def test_drill_passport_routes_follow_the_flag(monkeypatch) -> None:
+    """Паспорт на бурение (TASK-015) до PR 6 за флагом: выключен — маршрутов нет, 404."""
+
+    disabled = _client(monkeypatch, intelligence=False)
+    assert disabled.post("/api/v1/design/drilling-passports", json={"design_id": "x"}).status_code == 404
+    assert "/api/v1/design/drilling-passports" not in disabled.get("/openapi.json").json()["paths"]
+
+    enabled = _client(monkeypatch, intelligence=False, drill_passport=True)
+    paths = enabled.get("/openapi.json").json()["paths"]
+    assert "/api/v1/design/drilling-passports" in paths
+    assert "/api/v1/design/drilling-passports/{passport_id}/revisions" in paths
+    assert enabled.get("/api/v1/features").json()["drill_passport"] is True

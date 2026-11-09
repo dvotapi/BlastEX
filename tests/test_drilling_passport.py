@@ -294,7 +294,7 @@ def test_resolve_inputs_area(block66):
 
 def test_passport_context_is_deterministic(block66):
     site = {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}
-    payload = {"block_area_m2": 2790, "first_row_offset_m": 2.0, "w_max_m": 4.9}
+    payload = {"block_area_m2": 2790, "first_row_offset_m": 2.0, "w_max_m": 4.9, "bit_diameter_mm": 140}
     first = passport_context(block66, payload, site, {"axis_offset_m": 1.2})
     second = passport_context(block66, dict(payload), dict(site), {"axis_offset_m": 1.2})
     assert first == second
@@ -452,7 +452,9 @@ def test_context_carries_print_data(block66):
     ctx = passport_context(block66, {}, None, None)
     assert ctx["summary"]["grid_a_m"] == pytest.approx(3.7)
     assert ctx["summary"]["grid_b_m"] == pytest.approx(3.7)
-    assert ctx["summary"]["bit_diameter_mm"] == pytest.approx(115.0)
+    # Диаметр скважины (с разбуриванием, 115 мм) — не диаметр инструмента.
+    assert ctx["summary"]["bit_diameter_mm"] is None
+    assert "bit_diameter_missing" in [issue["code"] for issue in ctx["issues"]]
     profile = ctx["profile"]
     assert profile["code"] == ""
     assert len(profile["safety_items"]) == 10
@@ -465,6 +467,7 @@ def test_context_carries_print_data(block66):
 def test_payload_diameter_wins(block66):
     ctx = passport_context(block66, {"bit_diameter_mm": 140}, None, None)
     assert ctx["summary"]["bit_diameter_mm"] == 140
+    assert "bit_diameter_missing" not in [issue["code"] for issue in ctx["issues"]]
 
 
 def test_grid_unknown_without_pattern_steps(block66):

@@ -147,7 +147,7 @@ def client(monkeypatch, repository, references, block66) -> TestClient:
     return TestClient(app)
 
 
-PAYLOAD = {"site_code": "ZHK", "rig_type_code": "JK830", "block_area_m2": 2790, "w_max_m": 6.0}
+PAYLOAD = {"site_code": "ZHK", "rig_type_code": "JK830", "block_area_m2": 2790, "w_max_m": 6.0, "bit_diameter_mm": 140}
 
 
 def _create(client, payload=PAYLOAD) -> dict:
@@ -473,3 +473,13 @@ def test_unchanged_snapshot_of_approved_passport_is_conflict(client, repository)
     response = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
     assert response.status_code == 409
     assert "только из черновика" in response.json()["detail"]
+
+
+def test_old_draft_with_long_texts_still_opens(client, repository):
+    passport = _create(client)
+    stored = repository.passports[passport["id"]]
+    stored["payload"]["basis"] = "т" * 400
+    stored["payload"]["personnel"] = [{"name": "Иванов", "position": "машинист"}] * 25
+    response = client.get(f"{BASE}/{passport['id']}")
+    assert response.status_code == 200, response.text
+    assert len(response.json()["payload"]["personnel"]) == 25

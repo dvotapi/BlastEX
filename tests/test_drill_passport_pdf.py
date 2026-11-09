@@ -162,3 +162,20 @@ def test_longest_allowed_texts_stay_readable():
     payload["personnel"] = [{"name": "Ф" * 120, "position": "Д" * 120} for _ in range(20)]
     # Ужатие не больше чем на четверть: страница остаётся читаемой.
     assert max(_page_scales(context66(payload))) <= 1.25
+
+
+@pytest.mark.parametrize("items", [[133] * 12, [250] * 6 + [16] * 6, [117] * 12], ids=["12x133", "6x250", "12x117"])
+def test_longest_allowed_profile_stays_readable(items):
+    """Самый длинный профиль справочника и самые длинные поля паспорта — стр. 2 ужата не больше чем на четверть."""
+
+    payload = deepcopy(PAYLOAD_V07)
+    for key in ("site_preparation", "stakeout", "drilling_order", "access_route", "power_lines",
+                "adjacent_works", "acceptance"):
+        payload[key] = "т " * 150
+    words = "слово " * 200
+    context = context66(payload)
+    context["profile"] = {
+        "code": "MAX", "safety_items": [words[:size] for size in items],
+        "safety_basis": "О" * 200, "drilling_technology": words[:300],
+    }
+    assert max(_page_scales(context)) <= 1.25

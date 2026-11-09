@@ -788,3 +788,19 @@ def test_drill_passport_profile_section() -> None:
         {"drill_passport_profiles": [_item("KGOK", {"safety_items": [{"text": "п. 1"}]}, "КГОК")]}
     )
     assert [issue for issue in issues if issue.section == "drill_passport_profiles"] == []
+
+
+def test_drill_passport_profile_limits_keep_page_readable() -> None:
+    from cost.v2.schemas.drill_profile import DrillPassportProfilePayload
+
+    with pytest.raises(ValidationError):
+        DrillPassportProfilePayload.model_validate({"safety_items": [{"text": "т" * 251}]})
+    with pytest.raises(ValidationError, match="1600"):
+        DrillPassportProfilePayload.model_validate({"safety_items": [{"text": "т" * 200}] * 9})
+    with pytest.raises(ValidationError):
+        DrillPassportProfilePayload.model_validate({"drilling_technology": "т" * 301})
+    with pytest.raises(ValidationError):
+        DrillPassportProfilePayload.model_validate({"safety_basis": "т" * 201})
+    DrillPassportProfilePayload.model_validate(
+        {"safety_items": [{"text": "т" * 133}] * 12, "drilling_technology": "т" * 300, "safety_basis": "т" * 200}
+    )

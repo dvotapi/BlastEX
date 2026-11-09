@@ -113,6 +113,7 @@ from design.hole_recompute import recompute_holes as run_recompute_holes
 from design.maps import engineering_maps
 from design.layout_search.evaluate import wired_wall_holes
 from design.layout_search.jobs import LayoutSearchJobs
+from design.layout_search.space import BACK_TURN_LOCK_KEY, SEARCH_OPTION_KEYS, STEPS_LOCK_KEY
 from design.relief import RELIEF_MIN_MS_M, burden_relief
 from design.models import (
     AsChargedHole,
@@ -393,11 +394,21 @@ def resolve_relief_bounds(
 LAYOUT_SEARCH_FIELDS = ("contour", "surfaces", "domains", "pattern_params", "rock_name", "name", "network")
 
 
-def _layout_search_inputs(design: BlastDesign) -> dict:
-    """В дочерний процесс подбора уходят только поля, нужные перебору."""
+def _layout_search_inputs(design: BlastDesign, *, keep_back_azimuth: bool = False, keep_steps: bool = False) -> dict:
+    """В дочерний процесс подбора уходят только поля, нужные перебору.
+
+    Галочки окна подбора уходят ключами запуска в копию `pattern_params`;
+    прежний ключ поворота, сохранённый в паспорте, перебор не читает.
+    """
     data = design.to_dict()
     inputs = {key: data[key] for key in LAYOUT_SEARCH_FIELDS}
     inputs["holes"] = [h.to_dict() for h in wired_wall_holes(design)]
+    params = {k: v for k, v in (inputs.get("pattern_params") or {}).items() if k not in SEARCH_OPTION_KEYS}
+    if keep_back_azimuth:
+        params[BACK_TURN_LOCK_KEY] = True
+    if keep_steps:
+        params[STEPS_LOCK_KEY] = True
+    inputs["pattern_params"] = params
     return inputs
 
 
@@ -431,7 +442,7 @@ def start_layout_search(
         organization_id,
         request.design_id,
         design.name,
-        _layout_search_inputs(design),
+        _layout_search_inputs(design, keep_back_azimuth=request.keep_back_azimuth, keep_steps=request.keep_steps),
         request.fingerprint,
         min_ms_m,
         max_ms_m,

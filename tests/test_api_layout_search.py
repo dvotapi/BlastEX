@@ -205,6 +205,28 @@ def test_child_gets_only_search_inputs(jobs):
         assert full["include_contour"] is wired
 
 
+def test_search_options_go_to_child_not_passport(jobs):
+    # Галочки окна «Подбор раскладки» (решение владельца 09.11.2026) — параметры
+    # запуска: в паспорт не пишутся, перебору приходят в его копии
+    # `pattern_params`; прежний ключ поворота из паспорта не действует.
+    client = _client(jobs)
+    cases = (
+        ({}, {}),
+        ({"keep_back_azimuth": True}, {"back_turn_locked": True}),
+        ({"keep_steps": True}, {"steps_locked": True}),
+        ({"keep_back_azimuth": True, "keep_steps": True}, {"back_turn_locked": True, "steps_locked": True}),
+    )
+    for options, expected in cases:
+        body = _body()
+        body["design"]["pattern_params"]["back_turn_locked"] = True
+        body.update(options)
+        with patch.object(jobs, "start") as start:
+            assert client.post(f"{BASE}/layout-search", json=body).status_code == 202
+        params = start.call_args.args[3]["pattern_params"]
+        own = {k: v for k, v in body["design"]["pattern_params"].items() if k != "back_turn_locked"}
+        assert params == {**own, **expected}
+
+
 def test_background_search_wires_walls(jobs):
     # Базовая сеть монтирует контурный ряд — и у варианта из фонового подбора
     # стенки в сети и получают время (п. 5 ревью #124).

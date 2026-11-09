@@ -124,7 +124,8 @@ class SpaceTests(unittest.TestCase):
         # Галочка «Без поворота от тыла» (решение владельца 08.11.2026): перебор
         # пробует только «от тыла» и ряды строго по азимуту с вкладки (его при
         # выборе опоры ставит азимут тыла) — без вариантов от бровки и без
-        # поворота ±5°; ключ остаётся у вариантов.
+        # поворота ±5°. Галочка — параметр запуска (окно «Подбор раскладки»,
+        # 09.11.2026), в варианты ключ не попадает.
         contour = _contour([[0, 1]])
         ref = back_azimuth_deg(contour)
         for own, expected in ((ref, ref), (33.0, 33.0), (None, ref)):
@@ -138,12 +139,31 @@ class SpaceTests(unittest.TestCase):
             self.assertEqual(len(cands), 4 * 5 * 2)
             for c in cands:
                 self.assertEqual(round(_turn(c.params["row_azimuth_deg"], expected), 6), 0.0)
-                self.assertIs(c.params["back_turn_locked"], True)
+                self.assertNotIn("back_turn_locked", c.params)
             out = stage3([cands[0]], base, contour)
             # Сдвиг ±a/8 без поворота (3) и шаги a × b (8) — даже когда азимут
             # с вкладки дальше 5° от тыла.
             self.assertEqual(len(out), 3 + 8)
             self.assertEqual({round(_turn(c.params["row_azimuth_deg"], expected), 6) for c in out}, {0.0})
+
+    def test_steps_locked_keeps_tab_steps(self):
+        # Галочка «Держать шаг сетки» (решение владельца 09.11.2026): этап 3 не
+        # меняет a и b ни у одного шаблона; ключ в варианты не попадает.
+        contour = _contour([[0, 1]])
+        for grid in (RECT, SQUARE):
+            base = {**grid, "steps_locked": True}
+            cands = stage1(base, contour)
+            self.assertTrue(cands)
+            seeds = [_crest(cands)[0]] + _back(cands)[:1]
+            out = stage3(seeds, base, contour)
+            self.assertTrue(out)
+            for c in cands + out:
+                self.assertNotIn("steps_locked", c.params)
+                self.assertEqual(c.params.get("spacing_a_m"), grid["spacing_a_m"])
+                self.assertEqual(c.params.get("burden_b_m"), grid.get("burden_b_m"))
+            # Без галочки шаги перебираются.
+            free = stage3(seeds, grid, contour)
+            self.assertGreater(len({c.params.get("spacing_a_m") for c in free}), 1)
 
     def test_back_turn_lock_without_back_anchor_is_ignored(self):
         # Галочка без опоры «от тыла» (или без тыла у блока) не действует и в

@@ -67,6 +67,7 @@ function mount(extra: Partial<Props> = {}) {
     manualCount: 0,
     locked: false,
     previewIndex: null,
+    backAnchored: false,
     onStart: vi.fn(),
     onStop: vi.fn(),
     onPreview: vi.fn(),
@@ -78,6 +79,8 @@ function mount(extra: Partial<Props> = {}) {
 }
 
 const START = "Подобрать раскладку";
+const KEEP_STEPS = "Держать шаг сетки";
+const KEEP_AZIMUTH = "Держать азимут рядов от тыла";
 const ANCHORS_HINT =
   "Подбор пробует обе опоры сетки — от бровки и от тыла (от тыла — у квадратной и прямоугольной сетки) — и выбирает лучшие варианты из обеих.";
 const GRID_FROM_PARAMS_HINT =
@@ -121,6 +124,35 @@ describe("LayoutSearchPanel: запуск", () => {
     const { props } = mount({ status: null });
     fireEvent.click(screen.getByRole("button", { name: START }));
     expect(props.onStart).toHaveBeenCalledTimes(1);
+    expect(props.onStart).toHaveBeenCalledWith({ keep_back_azimuth: false, keep_steps: false });
+  });
+
+  it("галочки «Держать шаг сетки» и «Держать азимут рядов от тыла» уходят в запуск", () => {
+    // Решение владельца 09.11.2026: обе галочки — в окне подбора, не на вкладке «Сетка».
+    const { props } = mount({ status: null, backAnchored: true });
+    fireEvent.click(screen.getByRole("checkbox", { name: KEEP_STEPS }));
+    fireEvent.click(screen.getByRole("checkbox", { name: KEEP_AZIMUTH }));
+    fireEvent.click(screen.getByRole("button", { name: START }));
+    expect(props.onStart).toHaveBeenCalledWith({ keep_back_azimuth: true, keep_steps: true });
+  });
+
+  it("азимут держится только при опоре «от тыла»: от бровки галочки нет и в запуск она не идёт", () => {
+    const { props, view } = mount({ status: null, backAnchored: true });
+    fireEvent.click(screen.getByRole("checkbox", { name: KEEP_AZIMUTH }));
+    view.rerender(<LayoutSearchPanel {...props} backAnchored={false} />);
+    expect(screen.queryByRole("checkbox", { name: KEEP_AZIMUTH })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: KEEP_STEPS })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: START }));
+    expect(props.onStart).toHaveBeenCalledWith({ keep_back_azimuth: false, keep_steps: false });
+  });
+
+  it("во время подбора и у закрытого паспорта галочки не меняются", () => {
+    mount({ locked: true, status: null, backAnchored: true });
+    expect((screen.getByRole("checkbox", { name: KEEP_STEPS }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("checkbox", { name: KEEP_AZIMUTH }) as HTMLInputElement).disabled).toBe(true);
+    cleanup();
+    mount({ status: status({ state: "running", result: null }), backAnchored: true });
+    expect((screen.getByRole("checkbox", { name: KEEP_STEPS }) as HTMLInputElement).disabled).toBe(true);
   });
 
   it("ошибка запуска видна", () => {

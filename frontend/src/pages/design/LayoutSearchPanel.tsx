@@ -1,8 +1,15 @@
 // Панель «Подбор раскладки» (часть 4в): запуск перебора на сервере, ход по
 // этапам, три лучших варианта карточками, показ варианта на плане и
 // «Применить». Сам опрос — в useLayoutSearch, применение — на странице.
+import { useState } from "react";
 import { ruNumber } from "../../lib/format";
-import type { LayoutSearchStage, LayoutSearchState, LayoutSearchStatus, LayoutSearchVariant } from "../../types/design";
+import type {
+  LayoutSearchOptions,
+  LayoutSearchStage,
+  LayoutSearchState,
+  LayoutSearchStatus,
+  LayoutSearchVariant,
+} from "../../types/design";
 import { backOffsetDefaultM, isSquarePattern } from "./designParams";
 import { RoleBadge } from "./RoleBadge";
 
@@ -37,6 +44,11 @@ const GRID_FROM_PARAMS_HINT =
 // Перебор пробует оба шаблона раскладки (`design/layout_search/space.py`).
 const ANCHORS_HINT =
   "Подбор пробует обе опоры сетки — от бровки и от тыла (от тыла — у квадратной и прямоугольной сетки) — и выбирает лучшие варианты из обеих.";
+// Галочки запуска (решение владельца 09.11.2026): в паспорт не пишутся.
+const KEEP_STEPS_HINT =
+  "Подбор не меняет шаги a и b: берёт их с вкладки „Сетка“. Снята — пробует шаги на 3 % меньше и больше.";
+const KEEP_AZIMUTH_HINT =
+  "Подбор не поворачивает ряды: пробует только опору от тыла с азимутом рядов с вкладки „Сетка“. Снята — пробует поворот ±5° от тыла и раскладку от бровки.";
 const STALE_TEXT = "Устарел: контур, съёмка или параметры изменились после подбора";
 const BOUNDS_CHANGED_TEXT = "Устарел: границы темпа отбойки породы изменились после подбора";
 const ALGORITHM_CHANGED_TEXT = "Устарел: подбор сделан прежней версией алгоритма, запустите заново";
@@ -161,6 +173,7 @@ export function LayoutSearchPanel({
   manualCount,
   locked,
   previewIndex,
+  backAnchored,
   onStart,
   onStop,
   onPreview,
@@ -177,12 +190,17 @@ export function LayoutSearchPanel({
   /** Проектную часть паспорта править нельзя (статус «утверждён» и дальше). */
   locked: boolean;
   previewIndex: number | null;
-  onStart: () => void;
+  /** На вкладке «Сетка» выбрана опора «от тыла»: только тогда можно держать азимут. */
+  backAnchored: boolean;
+  onStart: (options: LayoutSearchOptions) => void;
   onStop: () => void;
   onPreview: (index: number | null) => void;
   onApply: (variant: LayoutSearchVariant) => void;
 }) {
   const running = status?.state === "running";
+  const [keepSteps, setKeepSteps] = useState(false);
+  const [keepBackAzimuth, setKeepBackAzimuth] = useState(false);
+  const optionsDisabled = locked || running;
   const result = running ? null : status?.result ?? null;
   const stopMark =
     result?.stopped_early && result.best.length > 0
@@ -213,10 +231,30 @@ export function LayoutSearchPanel({
     <section className="panel layout-search">
       <header><b>Подбор раскладки</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
+        <label className="checkbox-row" title={KEEP_STEPS_HINT}>
+          <input
+            type="checkbox"
+            checked={keepSteps}
+            disabled={optionsDisabled}
+            onChange={(e) => setKeepSteps(e.target.checked)}
+          />
+          Держать шаг сетки
+        </label>
+        {backAnchored && (
+          <label className="checkbox-row" title={KEEP_AZIMUTH_HINT}>
+            <input
+              type="checkbox"
+              checked={keepBackAzimuth}
+              disabled={optionsDisabled}
+              onChange={(e) => setKeepBackAzimuth(e.target.checked)}
+            />
+            Держать азимут рядов от тыла
+          </label>
+        )}
         <button
           type="button"
           className="calculate-button"
-          onClick={onStart}
+          onClick={() => onStart({ keep_back_azimuth: backAnchored && keepBackAzimuth, keep_steps: keepSteps })}
           disabled={locked || designId === null || running}
           title={designId === null ? NO_DESIGN_HINT : undefined}
         >

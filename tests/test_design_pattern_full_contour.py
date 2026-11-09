@@ -271,8 +271,8 @@ class RectangleUnchangedTests(unittest.TestCase):
         expected = []
         for row, y in enumerate((2.5, 7.5, 12.5, 17.5)):
             for col, x in enumerate((5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0)):
-                # id — по позиции: север (большой y) — первый ряд.
-                expected.append((f"{4 - row}-{col + 1:02d}", row, col, x, y))
+                # id — по эшелонам: с запада (левый фланг с откоса), внутри — от бровки.
+                expected.append((f"{col + 1}-{row + 1:02d}", row, col, x, y))
         got = [(h.id, h.row, h.col, round(h.collar.x, 6), round(h.collar.y, 6)) for h in holes]
         self.assertEqual(got, expected)
 

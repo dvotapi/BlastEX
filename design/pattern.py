@@ -548,7 +548,9 @@ def _finish_pattern(
     if params.get("infill_holes"):
         holes.extend(_generate_infill_holes(holes, contour, params, surfaces))
 
-    # Id — по расположению (север→юг, запад→восток); row/col остаются техническими.
+    # Id — по расположению; row/col остаются техническими. Сетка — по эшелонам:
+    # с левого фланга (с откоса вглубь), внутри эшелона — от бровки
+    # (`advance_dir` после `pattern_origin` смотрит вглубь блока).
     # Сдвинутые плавным переходом — по месту в сетке до сдвига.
     # Пара у откоса — номер своей вертикальной с «T».
     numbered = _keep_manual(existing_holes) + holes
@@ -558,6 +560,7 @@ def _finish_pattern(
         row_azimuth_deg=float(params.get("row_azimuth_deg", 0.0)),
         positions=[lattice_xy.get(id(h)) for h in numbered] if lattice_xy else None,
         partners=[index_of.get(pair_of[id(h)]) if id(h) in pair_of else None for h in numbered],
+        deep_dir=advance_dir,
     )
 
 

@@ -12,7 +12,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HttpError } from "../../api/client";
 import { api } from "../../api/endpoints";
-import type { BlastDesign, Hole, InitiationNetwork, LayoutSearchStatus } from "../../types/design";
+import {
+  NO_LAYOUT_SEARCH_OPTIONS,
+  type BlastDesign,
+  type Hole,
+  type InitiationNetwork,
+  type LayoutSearchOptions,
+  type LayoutSearchStatus,
+} from "../../types/design";
 
 /** Пауза между запросами статуса, пока подбор идёт. */
 export const LAYOUT_SEARCH_POLL_MS = 1000;
@@ -119,7 +126,7 @@ export async function fingerprintOfJson(json: string): Promise<string> {
 
 export interface LayoutSearchHook {
   status: LayoutSearchStatus | null;
-  start: (design: BlastDesign) => Promise<void>;
+  start: (design: BlastDesign, options?: LayoutSearchOptions) => Promise<void>;
   stop: () => Promise<void>;
   error: string | null;
   /** Есть результат, посчитанный по другим входам, чем текущие (или по другим границам темпа). */
@@ -216,7 +223,7 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
   }, [designId, clearTimer]);
 
   const start = useCallback(
-    async (design: BlastDesign) => {
+    async (design: BlastDesign, options: LayoutSearchOptions = NO_LAYOUT_SEARCH_OPTIONS) => {
       if (!designId) return;
       if (fingerprintRef.current === null) {
         setError("Подождите, данные блока ещё готовятся.");
@@ -228,7 +235,7 @@ export function useLayoutSearch(designId: string | null, fingerprint: string | n
       clearTimer();
       setError(null);
       try {
-        accept(designId, gen, await api.design.layoutSearchStart(designId, design, fingerprintRef.current));
+        accept(designId, gen, await api.design.layoutSearchStart(designId, design, fingerprintRef.current, options));
       } catch (e) {
         if (gen !== generation.current) return;
         setError(messageOf(e));

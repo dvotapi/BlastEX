@@ -165,6 +165,7 @@ function Page({ design, probe }: { design: BlastDesign; probe: { current: Probe 
         error={layout.search.error}
         manualCount={state.present.holes.filter((h) => h.source === "manual").length}
         locked={false}
+        backAnchored={false}
         previewIndex={layout.previewIndex}
         onStart={() => {}}
         onStop={() => {}}

@@ -80,7 +80,7 @@ export function PatternPanel({
   async function selectAnchor(value: string) {
     if (value !== "back") {
       // «От бровки» — ключи убираем, чтобы паспорт не отличался от нетронутого
-      onChange({ layout_anchor: undefined, back_offset_m: undefined, back_turn_locked: undefined });
+      onChange({ layout_anchor: undefined, back_offset_m: undefined });
       return;
     }
     const before = paramsRef.current;
@@ -104,12 +104,8 @@ export function PatternPanel({
   function selectPattern(pattern: PatternType) {
     const stale =
       !BACK_ANCHOR_PATTERNS.includes(pattern) &&
-      (params.layout_anchor != null || params.back_offset_m != null || params.back_turn_locked != null);
-    onChange(
-      stale
-        ? { pattern, layout_anchor: undefined, back_offset_m: undefined, back_turn_locked: undefined }
-        : { pattern },
-    );
+      (params.layout_anchor != null || params.back_offset_m != null);
+    onChange(stale ? { pattern, layout_anchor: undefined, back_offset_m: undefined } : { pattern });
   }
   const taperCount = params.front_rows_tilt_count ?? 0;
   // Старые проекты хранят только число рядов — это «Плавный переход»
@@ -178,19 +174,6 @@ export function PatternPanel({
               </label>
             )}
           </div>
-        )}
-        {fromBack && (
-          <label
-            className="checkbox-row"
-            title="Подбор раскладки не поворачивает ряды: пробует только шаблон «от тыла» с азимутом рядов с этой вкладки (при выборе опоры — азимут тыла). Снята — подбор пробует поворот ±5° от тыла и раскладку от бровки."
-          >
-            <input
-              type="checkbox"
-              checked={params.back_turn_locked === true}
-              onChange={(e) => onChange({ back_turn_locked: e.target.checked ? true : undefined })}
-            />
-            Без поворота рядов от тыла
-          </label>
         )}
 
         <div className="field-pair">

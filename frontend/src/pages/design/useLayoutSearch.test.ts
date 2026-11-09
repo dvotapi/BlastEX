@@ -36,6 +36,16 @@ const flush = () => act(async () => {});
 const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
 
 describe("useLayoutSearch", () => {
+  it("галочки окна подбора уходят в запуск", async () => {
+    vi.spyOn(api.design, "layoutSearchStatus").mockResolvedValue(status());
+    const startSpy = vi.spyOn(api.design, "layoutSearchStart").mockResolvedValue(status({ state: "running", total: 4 }));
+    const { result } = renderHook(() => useLayoutSearch("d1", "fp"));
+    await flush();
+    const options = { keep_back_azimuth: true, keep_steps: true };
+    await act(async () => { await result.current.start(emptyDesign(), options); });
+    expect(startSpy).toHaveBeenCalledWith("d1", expect.anything(), "fp", options);
+  });
+
   it("старт → опрос раз в секунду до done", async () => {
     vi.spyOn(api.design, "layoutSearchStatus")
       .mockResolvedValueOnce(status())
@@ -47,7 +57,8 @@ describe("useLayoutSearch", () => {
     expect(result.current.status?.state).toBe("idle");
 
     await act(async () => { await result.current.start(emptyDesign()); });
-    expect(startSpy).toHaveBeenCalledWith("d1", expect.anything(), "fp");
+    // Без галочек окна — обе выключены.
+    expect(startSpy).toHaveBeenCalledWith("d1", expect.anything(), "fp", { keep_back_azimuth: false, keep_steps: false });
     expect(result.current.status?.state).toBe("running");
 
     await tick(LAYOUT_SEARCH_POLL_MS);

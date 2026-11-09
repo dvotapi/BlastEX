@@ -1214,6 +1214,11 @@ class LayoutSearchStartRequest(BaseModel):
     design: BlastDesignSchema
     # Отпечаток входа, по которому фронт узнаёт устаревший итог.
     fingerprint: str
+    # Галочки окна «Подбор раскладки» — параметры запуска, в паспорт не пишутся:
+    # без поворота рядов от тыла (только при опоре «от тыла») и без подстройки
+    # шагов a и b.
+    keep_back_azimuth: bool = False
+    keep_steps: bool = False
 
 
 class LayoutSearchVariantSchema(BaseModel):
@@ -1264,6 +1269,8 @@ class LayoutSearchStatusResponse(BaseModel):
     bounds_changed: bool = False
     # Итог посчитан прежней версией алгоритма перебора: итог устарел.
     algorithm_changed: bool = False
+    # Галочки окна подбора, с которыми шёл запуск; у итогов прежних версий — None.
+    options: dict[str, bool] | None = None
 
 
 class ReliefTriangleSchema(BaseModel):

@@ -30,6 +30,7 @@ import type {
   AnalyzeResponse,
   BlastDesign,
   BlockContour,
+  LayoutSearchOptions,
   LayoutSearchStatus,
   ChargeExplosive,
   ChargeGenerateResponse,
@@ -626,8 +627,8 @@ export const api = {
         mic_window_ms: micWindowMs,
         ppv,
       }),
-    layoutSearchStart: (designId: string, design: BlastDesign, fingerprint: string) =>
-      post<LayoutSearchStatus>(`${V1}/design/layout-search`, { design_id: designId, design, fingerprint }),
+    layoutSearchStart: (designId: string, design: BlastDesign, fingerprint: string, options: LayoutSearchOptions) =>
+      post<LayoutSearchStatus>(`${V1}/design/layout-search`, { design_id: designId, design, fingerprint, ...options }),
     layoutSearchStatus: (designId: string) =>
       get<LayoutSearchStatus>(`${V1}/design/layout-search/${encodeURIComponent(designId)}`),
     layoutSearchStop: (designId: string) =>

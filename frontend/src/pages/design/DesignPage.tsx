@@ -2962,9 +2962,10 @@ export function DesignPage({
               manualCount={document.holes.filter((hole) => hole.source === "manual").length}
               locked={designedLocked}
               previewIndex={layout.previewIndex}
-              onStart={() => {
+              backAnchored={patternParams.layout_anchor === "back"}
+              onStart={(options) => {
                 if (rejectLocked("designed")) return;
-                void layout.search.start(designPayload());
+                void layout.search.start(designPayload(), options);
               }}
               onStop={() => void layout.search.stop()}
               onPreview={layout.setPreviewIndex}

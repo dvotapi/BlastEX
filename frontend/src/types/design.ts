@@ -915,9 +915,6 @@ export type PatternParams = {
   layout_anchor?: "back";
   // Отступ приконтурного ряда от тыла, м; нет ключа — 20·d (d — диаметр скважины)
   back_offset_m?: number;
-  // Подбор раскладки не поворачивает ряды «от тыла»: только этот шаблон и азимут
-  // рядов с вкладки; нет ключа — поворот ±5° и оба шаблона
-  back_turn_locked?: true;
   default_kind: HoleKind;
   row_params: RowPatternParams[];
   contour_row: boolean;
@@ -3554,6 +3551,16 @@ export type LayoutSearchResult = {
   relief_max_ms_m?: number | null;
 };
 
+/** Галочки окна «Подбор раскладки»: параметры запуска, в паспорт не пишутся. */
+export type LayoutSearchOptions = {
+  /** Без поворота рядов от тыла: только шаблон «от тыла» с азимутом вкладки (действует при опоре «от тыла»). */
+  keep_back_azimuth: boolean;
+  /** Шаги a и b — с вкладки «Сетка», без подстройки ±3 %. */
+  keep_steps: boolean;
+};
+
+export const NO_LAYOUT_SEARCH_OPTIONS: LayoutSearchOptions = { keep_back_azimuth: false, keep_steps: false };
+
 export type LayoutSearchStatus = {
   state: LayoutSearchState;
   stage: LayoutSearchStage | null;
@@ -3568,4 +3575,6 @@ export type LayoutSearchStatus = {
   bounds_changed?: boolean;
   /** Итог посчитан прежней версией алгоритма перебора — итог устарел. */
   algorithm_changed?: boolean;
+  /** Галочки окна, с которыми шёл последний запуск; у итогов прежних версий — null. */
+  options?: LayoutSearchOptions | null;
 };

@@ -16,7 +16,7 @@ from api.routers import design
 from api.security import current_team_id, require_internal_access
 from api.services.economics_service import get_economics_repository
 from cost.v2.repository import InMemoryEconomicsRepository
-from design.layout_search.jobs import LayoutSearchJobs, get_layout_search_jobs
+from design.layout_search.jobs import LayoutSearchJobs, get_layout_search_jobs, layout_search_path
 from design.layout_search.evaluate import network_params
 from design.models import BlastDesign, Hole, InitiationNetwork
 from design.pattern import generate_pattern
@@ -97,6 +97,22 @@ def test_start_poll_result(jobs):
         assert "connectors" in variant["network"]
         assert variant["cut_flank"] in ("left", "right")
         assert "row_azimuth_deg" in variant["params"]
+
+
+def test_status_keeps_search_options(jobs):
+    # Галочки запуска хранятся с итогом: окно подбора восстанавливает их после
+    # перезагрузки и смены вкладки. Итог без них (прежний) — options = None.
+    client = _client(jobs)
+    body = {**_body(), "keep_steps": True}
+    running = client.post(f"{BASE}/layout-search", json=body).json()
+    assert running["options"] == {"keep_back_azimuth": False, "keep_steps": True}
+    data = _poll(client)
+    assert data["options"] == {"keep_back_azimuth": False, "keep_steps": True}
+    target = layout_search_path("org-a", "d1")
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored.pop("options")
+    target.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+    assert client.get(f"{BASE}/layout-search/d1").json()["options"] is None
 
 
 def test_second_start_conflict(jobs):
@@ -203,6 +219,28 @@ def test_child_gets_only_search_inputs(jobs):
         full = network_params(BlastDesign.from_dict(body["design"]))
         assert network_params(BlastDesign.from_dict(inputs)) == full
         assert full["include_contour"] is wired
+
+
+def test_search_options_go_to_child_not_passport(jobs):
+    # Галочки окна «Подбор раскладки» (решение владельца 09.11.2026) — параметры
+    # запуска: в паспорт не пишутся, перебору приходят в его копии
+    # `pattern_params`; прежний ключ поворота из паспорта не действует.
+    client = _client(jobs)
+    cases = (
+        ({}, {}),
+        ({"keep_back_azimuth": True}, {"back_turn_locked": True}),
+        ({"keep_steps": True}, {"steps_locked": True}),
+        ({"keep_back_azimuth": True, "keep_steps": True}, {"back_turn_locked": True, "steps_locked": True}),
+    )
+    for options, expected in cases:
+        body = _body()
+        body["design"]["pattern_params"]["back_turn_locked"] = True
+        body.update(options)
+        with patch.object(jobs, "start") as start:
+            assert client.post(f"{BASE}/layout-search", json=body).status_code == 202
+        params = start.call_args.args[3]["pattern_params"]
+        own = {k: v for k, v in body["design"]["pattern_params"].items() if k != "back_turn_locked"}
+        assert params == {**own, **expected}
 
 
 def test_background_search_wires_walls(jobs):

@@ -12,6 +12,9 @@
 семян (азимут, сдвиги, шаги a и b в пределах ±3 % от базовых; у переменной
 сетки и сетки по доменам шаги не перебираются; у «от тыла» шаги — при
 геометрии семени). Каждый этап удаляет дубли по `Candidate.key()`.
+
+Галочки окна «Подбор раскладки» приходят в базу ключами запуска
+(`BACK_TURN_LOCK_KEY`, `STEPS_LOCK_KEY`): в паспорт и в варианты не пишутся.
 """
 from __future__ import annotations
 
@@ -40,11 +43,17 @@ TAPER_COUNTS = (1, 2)
 TAPER_TILTS_DEG = (15, 30)
 FRONT_ROW_KEYS = ("front_rows_mode", "front_rows_tilt_count", "front_rows_tilt_deg")
 # Шаблон «от тыла»: ключи опоры и отступа от тыла.
-BACK_ANCHOR_KEYS = ("layout_anchor", "back_offset_m", "back_turn_locked")
-# Галочка «Без поворота от тыла» (решение владельца 08.11.2026): при опоре
-# «от тыла» перебор пробует только этот шаблон и азимут рядов с вкладки без
-# поворота (при выборе опоры фронт ставит туда азимут тыла).
+BACK_ANCHOR_KEYS = ("layout_anchor", "back_offset_m")
+# Галочка «Держать азимут рядов от тыла» (решение владельца 08.11.2026, с
+# 09.11.2026 — в окне «Подбор раскладки»): при опоре «от тыла» перебор пробует
+# только этот шаблон и азимут рядов с вкладки без поворота (при выборе опоры
+# фронт ставит туда азимут тыла).
 BACK_TURN_LOCK_KEY = "back_turn_locked"
+# Галочка «Держать шаг сетки» (решение владельца 09.11.2026): этап 3 не меняет
+# a и b — шаги с вкладки «Сетка» у обоих шаблонов.
+STEPS_LOCK_KEY = "steps_locked"
+# Ключи запуска (галочки окна подбора): в варианты не попадают.
+SEARCH_OPTION_KEYS = (BACK_TURN_LOCK_KEY, STEPS_LOCK_KEY)
 # Этап 1 «от тыла»: поворот около азимута тыла (±5°, шаг 2,5°; этап 3 —
 # ±1,25° внутри тех же ±5°). Отступ от тыла с вкладки «Сетка» перебор держит;
 # поле пустое — пробует 20·d (без ключа, его берёт генератор) и доли b
@@ -56,7 +65,10 @@ BACK_TURN_LIMIT_DEG = 5.0
 # и семя на краю (±5°) читается как 5,00003° — без допуска его подстройка терялась.
 BACK_TURN_TOLERANCE_DEG = 1e-3
 # Ключи, которыми перебор управляет сам; из базы они убираются.
-_OWN_KEYS = ("first_row_burden_m", "grid_shift_along_m", "offset_from_face_m", *FRONT_ROW_KEYS, *BACK_ANCHOR_KEYS)
+_OWN_KEYS = (
+    "first_row_burden_m", "grid_shift_along_m", "offset_from_face_m",
+    *FRONT_ROW_KEYS, *BACK_ANCHOR_KEYS, *SEARCH_OPTION_KEYS,
+)
 
 
 @dataclass(frozen=True)
@@ -97,6 +109,11 @@ def back_applicable(base: dict, contour: BlockContour) -> bool:
 def back_turn_locked(base: dict) -> bool:
     """Поворот рядов от тыла запрещён: галочка задана при опоре «от тыла»."""
     return is_back(base) and base.get(BACK_TURN_LOCK_KEY) is True
+
+
+def steps_locked(base: dict) -> bool:
+    """Шаги a и b не перебираются: галочка «Держать шаг сетки»."""
+    return base.get(STEPS_LOCK_KEY) is True
 
 
 def interleave_templates(items: list[Candidate]) -> list[Candidate]:
@@ -187,7 +204,6 @@ def _back_stage1(base: dict, contour: BlockContour) -> list[Candidate]:
     if locked:
         # Без поворота — азимут рядов с вкладки как есть (при выборе опоры его
         # ставит азимут тыла); без азимута на вкладке — азимут тыла.
-        plain[BACK_TURN_LOCK_KEY] = True
         own_azimuth = base.get("row_azimuth_deg")
         if isinstance(own_azimuth, (int, float)) and not isinstance(own_azimuth, bool):
             ref = float(own_azimuth)
@@ -269,6 +285,15 @@ def stage3(seeds: list[Candidate], base: dict, contour: BlockContour | None = No
     return _dedup(out)
 
 
+def _step_multipliers(base: dict) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Множители шагов a и b этапа 3: у квадратной b = a; у переменной сетки,
+    сетки по доменам и при галочке «Держать шаг сетки» — только 1."""
+    fixed = _own_steps(base) or steps_locked(base)
+    mults_a = (1.0,) if fixed else STEP_MULTIPLIERS
+    mults_b = (1.0,) if fixed or _is_square(base) else STEP_MULTIPLIERS
+    return mults_a, mults_b
+
+
 def _back_stage3(seeds: list[Candidate], base: dict, ref: float | None) -> list[Candidate]:
     """«От тыла»: геометрия (поворот ±1,25°, сдвиг ±a/8; поворот запрещён —
     только сдвиг) — 9 вариантов (3), и шаги
@@ -278,13 +303,13 @@ def _back_stage3(seeds: list[Candidate], base: dict, ref: float | None) -> list[
     семени (этап 3 его не меняет)."""
     a0, b0 = grid_steps_m(base)
     square = _is_square(base)
-    mults_b = (1.0,) if square else STEP_MULTIPLIERS
+    mults_a, mults_b = _step_multipliers(base)
+    locked = back_turn_locked(base)
     out: list[Candidate] = []
     for seed in seeds:
         p = seed.params
         az0 = float(p.get("row_azimuth_deg", 0.0) or 0.0)
         sh0 = float(p.get("grid_shift_along_m", 0.0) or 0.0)
-        locked = back_turn_locked(p)
         # Без поворота — азимут семени (с вкладки) как есть, предела ±5° нет.
         turns = (0.0,) if locked else (-FINE_AZIMUTH_DEG, 0.0, FINE_AZIMUTH_DEG)
         for daz in turns:
@@ -295,7 +320,7 @@ def _back_stage3(seeds: list[Candidate], base: dict, ref: float | None) -> list[
                 params = _with_shift(dict(p), sh0 + dsh)
                 params["row_azimuth_deg"] = _azimuth(az)
                 out.append(Candidate(params, seed.cut_flank))
-        for ma in STEP_MULTIPLIERS:
+        for ma in mults_a:
             for mb in mults_b:
                 params = dict(p)
                 params["spacing_a_m"] = round(a0 * ma, 4)
@@ -310,10 +335,9 @@ def _crest_stage3(seeds: list[Candidate], base: dict) -> list[Candidate]:
     a0, b0 = grid_steps_m(base)
     o0 = min_crest_offset_m(base)
     square = _is_square(base)
-    # Переменная сетка и сетка по доменам: шаги не перебираются (множитель 1).
+    # Переменная сетка и сетка по доменам: шаги не перебираются и не пишутся.
     fixed = _own_steps(base)
-    mults_a = (1.0,) if fixed else STEP_MULTIPLIERS
-    mults_b = (1.0,) if square or fixed else STEP_MULTIPLIERS
+    mults_a, mults_b = _step_multipliers(base)
     out: list[Candidate] = []
     for seed in seeds:
         p = seed.params

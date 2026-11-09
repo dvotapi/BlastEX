@@ -9,21 +9,40 @@ DXF X — восток (внутренний `x`), Y — север (`y`), Z —
 
 Повторный выпуск той же ревизии даёт те же байты: метаданные ezdxf (даты
 создания и правки, GUID) фиксируются, дата выпуска — дата ревизии.
+
+`holes_dwg` переводит DXF в DWG R2000 утилитой LibreDWG `dxf2dwg` и читает
+результат обратно `dwg2dxf`: сущности слоёв `BLX_*` и вставки скважин должны
+совпасть с допуском 1 мм. Не вышло — отдаётся DXF с предупреждением (§4).
 """
 from __future__ import annotations
 
 import io
+import logging
 import math
 import threading
+from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import date
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import ezdxf
 from ezdxf.enums import MTextEntityAlignment, TextEntityAlignment
 
-__all__ = ["DEFAULT_CIRCLE_MM", "HOLE_ATTRIBUTES", "HOLE_LAYERS", "holes_dxf"]
+from design.spatial.dwg import dwg_to_dxf, dxf_to_dwg
+
+__all__ = [
+    "DEFAULT_CIRCLE_MM",
+    "DWG_FALLBACK_WARNING",
+    "DwgExport",
+    "HOLE_ATTRIBUTES",
+    "HOLE_LAYERS",
+    "holes_dwg",
+    "holes_dxf",
+]
+
+logger = logging.getLogger(__name__)
 
 # Слой → цвет ACI; тип линии у всех Continuous (§4).
 LAYER_COLORS: dict[str, int] = {
@@ -225,3 +244,67 @@ def _build(context: Mapping[str, Any], revision_no: int | None, issued_on: date 
     stream = io.StringIO()
     doc.write(stream)
     return stream.getvalue().encode("utf-8")
+
+
+DWG_FALLBACK_WARNING = "DWG не сформирован, используйте DXF (открывается в AutoCAD / nanoCAD)."
+# Допуск сверки координат после обратного чтения DWG, м.
+DWG_TOLERANCE_M = 0.001
+# Сущности, которые сверяются по слоям `BLX_*`. ATTRIB не считаются: `dwg2dxf`
+# выводит их и отдельно от вставок.
+_CHECKED_TYPES = ("POINT", "INSERT", "TEXT", "MTEXT", "CIRCLE", "LINE", "LWPOLYLINE")
+
+
+@dataclass(frozen=True)
+class DwgExport:
+    """Результат выгрузки DWG: DWG или, при отказе, исходный DXF с предупреждением."""
+
+    data: bytes
+    format: Literal["dwg", "dxf"]
+    warning: str | None = None
+
+
+def _signature(dxf: bytes) -> tuple[Counter, dict[str, tuple[float, float, float]]]:
+    """Число сущностей по (тип, слой) на слоях `BLX_*` и вставки скважин по номеру."""
+
+    # `dwg2dxf` пишет UTF-8 при любой `$DWGCODEPAGE` (ezdxf — тоже, R2010) и
+    # концы строк CRLF: `newline=None` переводит их, иначе пустое бинарное поле
+    # (группа 310) читается как «\r» и разбор падает.
+    doc = ezdxf.read(io.StringIO(dxf.decode("utf-8"), newline=None))
+    counts: Counter = Counter()
+    inserts: dict[str, tuple[float, float, float]] = {}
+    for entity in doc.modelspace():
+        layer = entity.dxf.get("layer", "")
+        if entity.dxftype() not in _CHECKED_TYPES or not layer.startswith("BLX_"):
+            continue
+        counts[(entity.dxftype(), layer)] += 1
+        if entity.dxftype() == "INSERT" and layer == "BLX_HOLE":
+            point = entity.dxf.insert
+            inserts[entity.get_attrib_text("NUM") or ""] = (point.x, point.y, point.z)
+    return counts, inserts
+
+
+def _same_drawing(expected: bytes, actual: bytes) -> bool:
+    counts, inserts = _signature(expected)
+    back_counts, back_inserts = _signature(actual)
+    if counts != back_counts or inserts.keys() != back_inserts.keys():
+        return False
+    return all(
+        abs(a - b) <= DWG_TOLERANCE_M
+        for number, point in inserts.items()
+        for a, b in zip(point, back_inserts[number])
+    )
+
+
+def holes_dwg(dxf: bytes) -> DwgExport:
+    """DWG R2000 из DXF `holes_dxf` со сверкой обратным чтением; отказ — DXF."""
+
+    try:
+        dwg = dxf_to_dwg(dxf)
+        same = _same_drawing(dxf, dwg_to_dxf(dwg, "holes.dwg"))
+    except Exception:  # noqa: BLE001 — любой отказ утилит или чтения даёт DXF
+        logger.warning("DWG скважин не сформирован, отдаётся DXF", exc_info=True)
+        return DwgExport(dxf, "dxf", DWG_FALLBACK_WARNING)
+    if not same:
+        logger.warning("DWG скважин не совпал с DXF при обратном чтении, отдаётся DXF")
+        return DwgExport(dxf, "dxf", DWG_FALLBACK_WARNING)
+    return DwgExport(dwg, "dwg")

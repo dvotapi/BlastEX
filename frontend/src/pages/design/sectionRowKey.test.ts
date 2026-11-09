@@ -17,6 +17,10 @@ describe("sectionRowKey", () => {
     expect(sectionRowKey({ kind: "production", id: "1-04", row: 3 })).not.toBe("grid:2");
   });
 
+  it("keeps trim holes in their own family, not grid row 1", () => {
+    expect(sectionRowKey({ kind: "trim", id: "T1-01", row: -1 })).toBe("trim:1");
+  });
+
   it("keeps stabilisation holes in their own family, not the production row", () => {
     expect(sectionRowKey({ kind: "stab", id: "S1-01", row: -1003 })).toBe("stab:1");
     expect(sectionRowKey({ kind: "stab", id: "S1-01", row: -1003 })).not.toBe("grid:1");

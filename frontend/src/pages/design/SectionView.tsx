@@ -64,7 +64,7 @@ export const sectionRowKey = (hole: { kind: string; id: string; row: number; sou
   return `${family}:${m ? m[1] : hole.row}`;
 };
 const FAMILY_ORDER: Record<string, number> = {
-  grid: 0, presplit: 1, contour: 2, buffer: 3, stab: 4, satellite: 5, infill: 6, manual: 7,
+  grid: 0, presplit: 1, contour: 2, buffer: 3, trim: 4, stab: 5, satellite: 6, infill: 7, manual: 8,
 };
 const rowTitleFromId = (id: string, row: number, kind: string): string => {
   if (rowFamily(kind) === "grid") return rowLabel(row);

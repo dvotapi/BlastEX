@@ -47,6 +47,10 @@
   DXF: только в нём есть `$INSUNITS` и таблица слоёв с цветами. Если ezdxf
   полный вывод не читает, берётся минимальный (`-m`), и пользователь видит
   предупреждение `minimal_dxf`.
+- **Запись DWG** (паспорт на бурение, TASK-015 PR 4) — обратная утилита того
+  же LibreDWG `dxf2dwg` (`design/spatial/dwg.py::dxf_to_dwg`, переменная
+  `BLASTEX_DXF2DWG`), только R2000; результат сверяется обратным `dwg2dxf`
+  (`design/export_survey.py::holes_dwg`).
 - **Сущности.** Читается всё пространство модели:
   - линии: LWPOLYLINE (с bulge), POLYLINE 2D/3D, LINE, ARC, CIRCLE, ELLIPSE,
     SPLINE; кривые спрямляются с отклонением хорды не больше 0,05 м;

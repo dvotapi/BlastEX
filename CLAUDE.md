@@ -357,7 +357,21 @@ c_min/W/Wпред — нет; диаметр инструмента — толь
 Раскладка — `design/reporting/drill/plan.py`: масштаб по листу — самый
 крупный кратный 10, не крупнее 1:200 (не ряд 1:200…1:2000), север вверх,
 глубина «11,6»; отрисовка — `plan_drawing.py`. Ревизия до PR 3 печатает
-кружки по устьям с пометкой. Ход работ — `Docs/plans/TASK-015-progress.md`.
+кружки по устьям с пометкой. Чертёж скважин (PR 4) —
+`design/export_survey.py`: `holes_dxf` (DXF R2010, `$INSUNITS = 6`,
+`$DWGCODEPAGE = ANSI_1251`, слои `BLX_*` спеки §4, блок `BLX_HOLE` — круг
+Ø 1 м в масштабе Ø скважины и невидимые атрибуты `NUM`/`DEPTH`/`ANGLE`/`AZIM`/
+`ZCOL`/`ZTOE`; числа с точкой, как у маркшейдера — решение владельца
+10.11.2026; координаты СК объекта без пересчёта; СК — `context["crs"]`;
+метаданные ezdxf фиксируются — повтор даёт те же байты) и `holes_dwg` (DWG
+R2000 через LibreDWG `dxf2dwg`, `design/spatial/dwg.py::dxf_to_dwg`,
+`BLASTEX_DXF2DWG`; DWG — с сигнатуры `AC1015`; обратное чтение `dwg2dxf` —
+UTF-8 с CRLF, длинный MTEXT режется по 250 байт посреди буквы — и сверка
+числа сущностей, текстов, атрибутов и точек до 1 мм; не вышло — DXF и
+`X-BlastEX-Warning`). Стиль Standard — `arial.ttf`: `txt.shx` не везде знает
+кириллицу. Маршруты —
+`GET /revisions/{rid}/holes.dxf`, `/holes.dwg`. Ход работ —
+`Docs/plans/TASK-015-progress.md`.
 
 ## Нумерация скважин
 

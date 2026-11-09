@@ -597,3 +597,16 @@ def test_non_finite_situation_points_are_skipped(block66):
     ]}
     (layer,) = plan_geometry(block66, [bad])["situation"]
     assert len(layer["lines"]) == 1
+
+
+def test_context_carries_coordinate_system(block66):
+    assert passport_context(block66, {}, None, None)["crs"] == {"name": "local", "epsg": None, "height_system": ""}
+
+
+def test_context_carries_named_coordinate_system():
+    from design.spatial.coordinates import CoordinateSystem
+
+    design = _block66_design()
+    design.coordinate_system = CoordinateSystem(name="МСК-66 зона 1", epsg=None, height_system="Балтийская 1977")
+    crs = passport_context(design, {}, None, None)["crs"]
+    assert crs == {"name": "МСК-66 зона 1", "epsg": None, "height_system": "Балтийская 1977"}

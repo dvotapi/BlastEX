@@ -636,6 +636,13 @@ def passport_context(
         "issues": [issue.to_dict() for issue in [*issues, *check.issues]],
         "profile": drill_profile(profile, profile_code),
         "plan": plan_geometry(design, situation),
+        # СК объекта для `BLX_INFO` чертежа скважин (PR 4): координаты в
+        # снимке уже в ней, без пересчёта.
+        "crs": {
+            "name": design.coordinate_system.name,
+            "epsg": design.coordinate_system.epsg,
+            "height_system": design.coordinate_system.height_system,
+        },
     }
 
 

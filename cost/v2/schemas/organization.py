@@ -167,6 +167,41 @@ class SitePayload(ReferencePayload):
         gt=0,
         le=24,
     )
+    # Углы уступа для паспорта на бурение (TASK-015): по ним считается
+    # ширина призмы обрушения и безопасное расстояние станка от бровки.
+    bench_face_angle_deg: Decimal | None = UnitField(
+        "°",
+        title="Угол откоса рабочего уступа α",
+        description=(
+            "Из технического проекта отработки, таблица «Элементы системы разработки»; "
+            "по нему и углу γ считается расстояние станка от бровки"
+        ),
+        default=None,
+        ge=30,
+        le=90,
+    )
+    stable_slope_angle_deg: Decimal | None = UnitField(
+        "°",
+        title="Угол устойчивого борта уступа γ",
+        description=(
+            "Из технического проекта отработки, таблица «Элементы системы разработки»; "
+            "меньше угла откоса α"
+        ),
+        default=None,
+        ge=20,
+        le=90,
+    )
+    design_bench_height_m: Decimal | None = UnitField(
+        "м",
+        title="Высота рабочего уступа по проекту отработки",
+        description=(
+            "Технический проект, таблица элементов системы разработки; "
+            "по ней считается расстояние станка от бровки в паспорте на бурение"
+        ),
+        default=None,
+        ge=3,
+        le=30,
+    )
     geology: list[GeologyShare] = Field(
         default_factory=list,
         title="Плановая геология",
@@ -189,6 +224,11 @@ class SitePayload(ReferencePayload):
             if row.rock_code in rocks:
                 field_error(type(self), ("geology", index, "rock_code"), "Порода уже есть в плановой геологии", row.rock_code)
             rocks.add(row.rock_code)
+        alpha, gamma = self.bench_face_angle_deg, self.stable_slope_angle_deg
+        if alpha is not None and gamma is not None and gamma >= alpha:
+            field_error(
+                type(self), "stable_slope_angle_deg", "Угол устойчивого борта γ должен быть меньше угла откоса α", gamma
+            )
         total = sum((row.share for row in self.geology), Decimal("0"))
         if self.geology and abs(total - 1) > GEOLOGY_TOLERANCE:
             field_error(

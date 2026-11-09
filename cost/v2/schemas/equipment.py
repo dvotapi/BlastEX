@@ -101,6 +101,16 @@ class EquipmentTypePayload(ReferencePayload):
         "ед.", title="Ёмкость", description="Грузоподъёмность или ёмкость — для вывода смен и рейсов", default=None
     )
     capacity_unit: str | None = RefField("units", description="Единица ёмкости", default=None)
+    axis_offset_m: Decimal | None = UnitField(
+        "м",
+        title="Вылет оси скважины e",
+        description=(
+            "Только для бурового станка: от оси скважины до переднего края гусениц, "
+            "замер на станке или по РЭ; нужен для проверки первого ряда в паспорте на бурение"
+        ),
+        default=None,
+        le=5,
+    )
 
     @model_validator(mode="after")
     def _monthly_budget_needs_amount(self) -> "EquipmentTypePayload":

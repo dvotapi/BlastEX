@@ -11,8 +11,10 @@ from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
+from api.main import request_validation_handler
 from api.routers import drilling_passport
 from api.security import require_internal_access
 from api.services import drilling_passport_service
@@ -126,6 +128,8 @@ def client(monkeypatch, repository, references, block66) -> TestClient:
 
     monkeypatch.setattr(drilling_passport_service.design_persistence, "load_design", load_design)
     app = FastAPI()
+    # Обработчик 422 приложения: бесконечность во входе он отдаёт без падения.
+    app.add_exception_handler(RequestValidationError, request_validation_handler)
     app.include_router(drilling_passport.router, prefix="/api/v1")
     app.dependency_overrides[require_internal_access] = lambda: dict(SESSION)
     app.dependency_overrides[get_drilling_passport_repository] = lambda: repository
@@ -251,3 +255,11 @@ def test_service_key_cannot_issue_revision(client):
 def test_too_long_passport_number_is_422(client):
     response = client.post(BASE, json={"design_id": "block-66", "passport_no": "1" * 121})
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("field", ["w_max_m", "block_area_m2", "first_row_offset_m", "bit_diameter_mm"])
+def test_infinite_number_is_422(client, field):
+    # 1e400 в JSON — бесконечность: в JSONB её не записать, ответ не сериализовать.
+    body = '{"design_id": "block-66", "payload": {"%s": 1e400}}' % field
+    response = client.post(BASE, content=body, headers={"Content-Type": "application/json"})
+    assert response.status_code == 422, response.text

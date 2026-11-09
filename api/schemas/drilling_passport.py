@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from design.drilling_passport import DEFAULT_ACCEPTANCE
 
@@ -21,6 +21,9 @@ class PersonSchema(BaseModel):
 
 class DrillingPassportPayload(BaseModel):
     """Поля листа «Реквизиты» формы v0.6 и ручные переопределения расчёта."""
+
+    # Бесконечность в JSONB не записать: 422, а не 503.
+    model_config = ConfigDict(allow_inf_nan=False)
 
     agreed_by: SignerSchema = Field(default_factory=SignerSchema, description="СОГЛАСОВАНО")
     approved_by: SignerSchema = Field(default_factory=SignerSchema, description="УТВЕРЖДАЮ")

@@ -2,9 +2,12 @@
 
 Чистые функции без базы и HTTP. Единственное место, где складываются формулы
 расстояния станка от бровки: H₁ — наибольшая высота уступа по скважинам
-первого ряда, ширина призмы обрушения Bпр = H₁·(ctg γ − ctg α), расстояние
-s = roundup(max(2,0; Bпр), 0,1 м). Для инженера (не печатается):
-c_min = s − e и ЛСПП у подошвы W = H₁·(ctg α − ctg β) + c.
+первого ряда, Hs — проектная высота уступа (нет — H₁), ширина призмы
+обрушения Bпр = Hs·(ctg γ − ctg α), расстояние s = roundup(max(2,0; Bпр),
+0,1 м). Для инженера (не печатается): c_min = max(s − e, 0) и ЛСПП у подошвы
+W = H·ctg α + c − d по каждой скважине первого ряда, где d — смещение оси на
+уровне подошвы к откосу (у наклона к откосу d = H·ctg β, в массив — со
+знаком минус).
 """
 from __future__ import annotations
 
@@ -12,12 +15,15 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Literal, Mapping
 
+from shapely.geometry import Point
+from shapely.ops import nearest_points
+
 from design.geometry import polygon_area
 from design.lifecycle import designed_sha256
 from design.mass_blast import ValidationIssue
 from design.models import BlastDesign, Point3, in_main_grid
 from design.pattern import front_row_ranks
-from design.toe_line import crest_geometry, grid_steps_m
+from design.toe_line import crest_geometry, floor_point, grid_steps_m
 
 DRILL_FORMULA_VERSION = "drill-v1"
 
@@ -54,6 +60,10 @@ class DrillHoleRow:
     subdrill_m: float
     bench_height_m: float
     collar: Point3
+    # Смещение оси на уровне подошвы в сторону откоса, м: у вертикальной 0,
+    # у наклона в массив — отрицательное; None — направление к откосу не
+    # известно (нет бровки).
+    face_shift_m: float | None = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -167,6 +177,7 @@ def holes_for_passport(design: BlastDesign, first_row: set[str] | None = None) -
     """Строки таблицы глубин в порядке таблицы скважин паспорта БВР."""
 
     first = first_row_ids(design) if first_row is None else first_row
+    crest = crest_geometry(design.contour)
     rows: list[DrillHoleRow] = []
     for hole in _passport_holes(design):
         dip = 90.0 - hole.angle_deg
@@ -180,9 +191,32 @@ def holes_for_passport(design: BlastDesign, first_row: set[str] | None = None) -
                 subdrill_m=hole.subdrill_m,
                 bench_height_m=hole.bench_height_m,
                 collar=Point3(hole.collar.x, hole.collar.y, hole.collar.z),
+                face_shift_m=_face_shift(hole, crest),
             )
         )
     return rows
+
+
+def _face_shift(hole, crest) -> float | None:
+    """Смещение оси на уровне подошвы к ближайшей точке верхней бровки, м.
+
+    Проекция смещения «устье → точка оси на подошве» (`toe_line.floor_point`)
+    на направление от устья к бровке: наклон к откосу уменьшает ЛСПП, вдоль
+    бровки — не меняет, в массив — увеличивает.
+    """
+
+    floor_x, floor_y = floor_point(hole)
+    dx, dy = floor_x - hole.collar.x, floor_y - hole.collar.y
+    if math.hypot(dx, dy) < 1e-6:
+        return 0.0
+    if crest is None:
+        return None
+    _, nearest = nearest_points(Point(hole.collar.x, hole.collar.y), crest)
+    to_x, to_y = nearest.x - hole.collar.x, nearest.y - hole.collar.y
+    norm = math.hypot(to_x, to_y)
+    if norm < 1e-6:
+        return None  # устье на бровке: направление к откосу не определить
+    return (dx * to_x + dy * to_y) / norm
 
 
 # --- сводка ---------------------------------------------------------------
@@ -317,9 +351,23 @@ def first_row_check(
             )
         )
 
+    unknown = [row.number for row in first if row.face_shift_m is None]
+    if unknown:
+        issues.append(
+            _issue(
+                "warning",
+                "first_row_tilt_direction_unknown",
+                "Направление наклона к откосу не определено (нет бровки): ЛСПП посчитана как при "
+                f"наклоне к откосу и может быть занижена; скважины: {_listed(unknown)}.",
+                "holes",
+            )
+        )
+
     w: float | None = None
     if accepted_c is not None:  # c_min считается всегда, когда есть s
-        burdens = [(row.bench_height_m * (_ctg(alpha_deg) - _ctg(row.dip_deg)) + accepted_c, row) for row in first]
+        burdens = [
+            (row.bench_height_m * _ctg(alpha_deg) + accepted_c - _assumed_face_shift(row), row) for row in first
+        ]
         w = max(item[0] for item in burdens)
         if w_max_m is not None and w > w_max_m + _EPS:
             over = sorted(
@@ -345,6 +393,16 @@ def first_row_check(
             )
         )
     return FirstRowCheck(h1, prism, s, c_min, accepted_c, w, w_max_m, issues, hs_m, hs_source)
+
+
+def _assumed_face_shift(row: DrillHoleRow) -> float:
+    """Смещение к откосу; не известно — как у наклона к откосу (формула §2.2)."""
+
+    if row.face_shift_m is not None:
+        return row.face_shift_m
+    if row.dip_deg <= _EPS or row.dip_deg >= VERTICAL_DIP_DEG:
+        return 0.0
+    return row.bench_height_m * _ctg(row.dip_deg)
 
 
 # --- исходные величины ----------------------------------------------------
@@ -453,6 +511,18 @@ def passport_context(
     rows = holes_for_passport(design, first_ids)
     if not rows:
         issues.append(_issue("error", "no_holes", "В проекте нет включённых скважин.", "holes"))
+    upward = [row.number for row in rows if row.dip_deg <= _EPS]
+    if upward:
+        # Горизонтальную или восходящую скважину станок паспорта не бурит, и
+        # высоты уступа у неё нет.
+        issues.append(
+            _issue(
+                "error",
+                "hole_not_downward",
+                f"Скважины не направлены вниз (забой не ниже устья): {_listed(upward)}. Исправьте их в проекте.",
+                "holes",
+            )
+        )
     data = summary(rows, values["block_area_m2"])
     if data["block_area_m2"] is None:
         issues.append(

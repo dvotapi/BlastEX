@@ -379,3 +379,68 @@ def test_passport_context_hs_from_site(block66):
     assert plain["provenance"]["bench_height_for_s_m"] == "CALCULATED"
     assert plain["first_row_check"]["s_m"] == 2.4
     assert "bench_above_design" not in [issue["code"] for issue in plain["issues"]]
+
+
+# --- направление наклона в ЛСПП и горизонтальные скважины (ревью Codex) ----
+
+_TAN75 = math.tan(math.radians(75.0))
+
+
+def _tilted_row_design(shift_x: float, shift_y: float, *, free_faces=([0, 1],), toe_dz: float = -10.0) -> BlastDesign:
+    """Ряд у прямой бровки y = 0 (откос к югу), все скважины наклонены на (shift_x, shift_y)."""
+    holes = [
+        Hole(
+            id=f"A{i}",
+            row=0,
+            col=i,
+            collar=Point3(4.0 * i, 3.0, 0.0),
+            toe=Point3(4.0 * i + shift_x, 3.0 + shift_y, toe_dz),
+            diameter_mm=115,
+        )
+        for i in range(5)
+    ]
+    return BlastDesign(
+        design_id="tilted",
+        contour=BlockContour(
+            vertices=[Point3(-2, 0, 0), Point3(20, 0, 0), Point3(20, 10, 0), Point3(-2, 10, 0)],
+            free_faces=[list(face) for face in free_faces],
+        ),
+        holes=holes,
+        pattern_params={"pattern": "square", "spacing_a_m": 4.0},
+    )
+
+
+@pytest.mark.parametrize(
+    ("shift", "expected_w"),
+    [
+        # β = 75°, H = 10: смещение подошвы по оси 10·ctg 75° = 2,68 м.
+        ((0.0, -10.0 / _TAN75), 2.0),  # к откосу: W = H·(ctg α − ctg β) + c
+        ((10.0 / _TAN75, 0.0), 2.0 + 10.0 / _TAN75),  # вдоль бровки: как вертикальная
+        ((0.0, 10.0 / _TAN75), 2.0 + 2 * 10.0 / _TAN75),  # в массив: 7,36 м
+    ],
+)
+def test_first_row_burden_follows_tilt_direction(shift, expected_w):
+    design = _tilted_row_design(*shift)
+    rows = holes_for_passport(design)
+    assert {row.number for row in rows if row.first_row} == {f"A{i}" for i in range(5)}
+    check = first_row_check(rows, 75.0, 65.0, None, 2.0, 4.9)
+    assert check.w_m == pytest.approx(expected_w, abs=1e-6)
+    over = "first_row_burden" in [issue.code for issue in check.issues]
+    assert over is (expected_w > 4.9)
+
+
+def test_tilt_direction_unknown_without_crest_is_warned():
+    """Без бровки направление к откосу не известно: W — как при наклоне к откосу, с предупреждением."""
+    design = _tilted_row_design(0.0, 10.0 / _TAN75, free_faces=())
+    context = passport_context(design, {"w_max_m": 6}, {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}, None)
+    codes = [issue["code"] for issue in context["issues"]]
+    assert "first_row_tilt_direction_unknown" in codes
+    assert context["first_row_check"]["w_m"] == pytest.approx(context["first_row_check"]["c_m"], abs=1e-6)
+
+
+def test_horizontal_hole_is_validation_error_not_crash():
+    design = _tilted_row_design(5.0, 0.0, toe_dz=0.0)
+    context = passport_context(design, {"w_max_m": 6}, {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}, None)
+    errors = [issue for issue in context["issues"] if issue["level"] == "error"]
+    assert [issue["code"] for issue in errors] == ["hole_not_downward"]
+    assert "A0" in errors[0]["message"]

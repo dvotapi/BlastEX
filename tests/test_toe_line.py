@@ -864,3 +864,14 @@ def test_free_chains_join_adjacent_edges_in_any_order():
     )
     chains = sorted(tuple(c if c[0] < c[-1] else c[::-1]) for c in _free_chains(contour))
     assert chains == [(2, 3, 4, 5), (7, 8, 9)]
+
+
+def test_overlapping_free_faces_reduce_to_edges():
+    """Перекрывающиеся элементы `free_faces` сводятся к рёбрам: без возврата по
+    ребру и без отдельного обрывка внутри цепочки (ревью #165)."""
+    from design.toe_line import _chains_of_edges
+
+    assert _chains_of_edges(10, ((0, 1), (0, 1, 2))) == ((0, 1, 2),)
+    assert _chains_of_edges(10, ((0, 1, 2, 3, 4), (2, 3))) == ((0, 1, 2, 3, 4),)
+    # Вся граница свободна — одно замкнутое кольцо.
+    assert _chains_of_edges(4, ((0, 1), (1, 2), (2, 3), (3, 0))) == ((0, 1, 2, 3, 0),)

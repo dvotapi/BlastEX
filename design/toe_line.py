@@ -23,6 +23,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from functools import lru_cache
+from itertools import pairwise
 
 import numpy as np
 import shapely
@@ -127,53 +128,57 @@ def slope_offset_m(bench: BenchSurface) -> float:
 
 
 def _free_chains(contour: BlockContour) -> list[list[int]]:
-    """Свободные поверхности — цепочки номеров вершин: элементы `free_faces`,
-    смежные по вершине контура (конец одного — начало или конец другого),
-    склеены в одну цепочку (с разворотом, если нужно).
+    """Свободные поверхности — цепочки номеров вершин: рёбра всех элементов
+    `free_faces` (пары соседних номеров), без повторов в любую сторону,
+    склеены по общим вершинам контура (`_chains_of_edges`).
 
     Чертёж часто отдаёт свободную поверхность отдельными рёбрами
     ([[3, 4], [4, 5], …], блок 67): подошва по углу, сдвинутая по каждому ребру
     отдельно, в вогнутом изломе бровки торчала концами за точку пересечения
     (ЛСП мерилась до них), в выпуклом — рвалась. Сдвиг сшитой цепочки
-    (`_built_cached`) даёт сплошную линию.
+    (`_built_cached`) даёт сплошную линию. Перекрывающиеся элементы
+    ([[0, 1], [0, 1, 2]]) тоже сводятся к рёбрам — без возвратов и обрывков.
     """
     n = len(contour.points_xy)
-    chains: list[list[int]] = []
-    seen: set[tuple[int, ...]] = set()
-    for face in contour.free_faces:
-        chain = [i for i in face if 0 <= i < n]
-        # Повторённое ребро (в любую сторону) склеилось бы с собой в петлю.
-        if len(chain) >= 2 and tuple(chain) not in seen and tuple(chain[::-1]) not in seen:
-            seen.add(tuple(chain))
-            chains.append(chain)
+    faces = tuple(tuple(int(i) for i in face) for face in contour.free_faces)
+    return [list(chain) for chain in _chains_of_edges(n, faces)]
 
-    def joined(a: list[int], b: list[int]) -> list[int] | None:
-        if a[0] == a[-1] or b[0] == b[-1]:
-            return None  # замкнутая цепочка (вся граница свободна) не продолжается
-        if a[-1] == b[0]:
-            return a + b[1:]
-        if a[-1] == b[-1]:
-            return a + b[-2::-1]
-        if a[0] == b[-1]:
-            return b + a[1:]
-        if a[0] == b[0]:
-            return b[::-1] + a[1:]
-        return None
 
-    merged = True
-    while merged:
-        merged = False
-        for k in range(len(chains)):
-            for m in range(k + 1, len(chains)):
-                chain = joined(chains[k], chains[m])
-                if chain is not None:
-                    chains[k] = chain
-                    del chains[m]
-                    merged = True
-                    break
-            if merged:
-                break
-    return chains
+@lru_cache(maxsize=256)
+def _chains_of_edges(n: int, faces: tuple[tuple[int, ...], ...]) -> tuple[tuple[int, ...], ...]:
+    """Склейка рёбер `faces` в цепочки — один раз на контур (линию подошвы зовут
+    сотни раз на раскладку). Обход по смежности: сначала от концов (вершин
+    нечётной степени), затем замкнутые; на развилке — меньший номер соседа."""
+    edges: set[tuple[int, int]] = set()
+    for face in faces:
+        idx = [i for i in face if 0 <= i < n]
+        for a, b in pairwise(idx):
+            if a != b:
+                edges.add((min(a, b), max(a, b)))
+    neighbours: dict[int, list[int]] = {}
+    for a, b in sorted(edges):
+        neighbours.setdefault(a, []).append(b)
+        neighbours.setdefault(b, []).append(a)
+    for links in neighbours.values():
+        links.sort()
+    used: set[tuple[int, int]] = set()
+    chains: list[tuple[int, ...]] = []
+
+    def walk(start: int) -> tuple[int, ...]:
+        chain = [start]
+        while True:
+            here = chain[-1]
+            step = next((v for v in neighbours[here] if (min(here, v), max(here, v)) not in used), None)
+            if step is None:
+                return tuple(chain)
+            used.add((min(here, step), max(here, step)))
+            chain.append(step)
+
+    starts = [v for v in sorted(neighbours) if len(neighbours[v]) % 2 == 1]
+    for v in starts + sorted(neighbours):
+        while any((min(v, u), max(v, u)) not in used for u in neighbours[v]):
+            chains.append(walk(v))
+    return tuple(chains)
 
 
 def _free_polylines(contour: BlockContour) -> list[Polyline]:
@@ -747,8 +752,9 @@ def floor_checks(
         index = [i for i in range(len(grid)) if _measured(grid[i], main_kind)]
         main = [grid[i] for i in index]
         steps = _hole_steps(design, main, b)
-        # Концевые скважины «от тыла» — последние в своём коридоре (ЛСП меряется у них).
-        back = (design.pattern_params or {}).get("layout_anchor") == "back"
+        # Концевые скважины «от тыла» — последние в своём коридоре (ЛСП меряется у
+        # них); только если сетка и правда построена от тыла (`_back_layout`).
+        back = _back_layout(design)
         ends = [back and hole.id in result for hole in main]
         if steps is not None:
             gaps = _row_gaps(
@@ -764,6 +770,23 @@ def floor_checks(
                 ends,
             )
     return result, beyond, gaps
+
+
+def _back_layout(design: BlastDesign) -> bool:
+    """Сетка построена шаблоном «от тыла» — то же условие, что у генератора
+    (`pattern.generate_pattern`): ключ `layout_anchor = "back"`, квадратная или
+    прямоугольная сетка и тыл у блока. Иначе (нет тыла, сетка другого вида —
+    ключ остался в старом паспорте) генератор раскладывает от бровки, и допуск
+    концевой `END_GAP_TOLERANCE` не действует."""
+    from design.back_layout import back_side
+    from design.pattern import LAYOUT_ANCHOR_BACK, LAYOUT_ANCHOR_PATTERNS
+
+    params = design.pattern_params or {}
+    if params.get("layout_anchor") != LAYOUT_ANCHOR_BACK:
+        return False
+    if str(params.get("pattern", "square")) not in LAYOUT_ANCHOR_PATTERNS:
+        return False
+    return back_side(design.contour) is not None
 
 
 def _measured(hole: Hole, main_kind: str) -> bool:
@@ -861,7 +884,9 @@ def _row_gaps(
     наименьшим отношением, при равенстве — своего ряда.
 
     `ends` — концевые скважины эшелона «от тыла» (см. `floor_checks`): если
-    сосед впереди — такая, допуск пары — шаг + `END_GAP_TOLERANCE`, а не + 3 %.
+    сосед впереди — такая и стоит в том же столбце решётки в другом ряду
+    (пара «предыдущая → концевая», которую генератор двигает), допуск пары —
+    шаг + `END_GAP_TOLERANCE`, а не + 3 %. Пары по шагу a и наискосок — + 3 %.
     """
     if not ids:
         return {}
@@ -911,10 +936,13 @@ def _row_gaps(
     labels = np.where(
         ~exact, "grid", np.where(count == 1, letter, np.char.add(count.astype(str), letter))
     )
+    # Концевая впереди в своём столбце (вдоль ряда меньше полшага a) — допуск + 20 %.
+    end = np.asarray(ends, dtype=bool)[j] if ends is not None else np.zeros(j.shape, dtype=bool)
+    end &= ~same & (cols_apart == 0)
     i, j, same, advance, expected, labels = i[ahead], j[ahead], same[ahead], advance[ahead], expected[ahead], labels[ahead]
+    end = end[ahead]
     if i.size == 0:
         return {}
-    end = np.asarray(ends, dtype=bool)[j] if ends is not None else np.zeros(j.shape, dtype=bool)
     tolerance = np.where(end, END_GAP_TOLERANCE, TOE_BURDEN_TOLERANCE)
     allowed = expected * (1.0 + tolerance)
     ratio = advance / allowed

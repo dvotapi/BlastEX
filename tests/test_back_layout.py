@@ -801,3 +801,84 @@ def test_end_gap_tolerance_only_for_back_end_holes():
     warnings = validate(BlastDesign(design_id="t", contour=c, holes=farther, pattern_params=params))
     messages = [w["message"] for w in warnings if w["code"] == "floor_row_gap_excess"]
     assert messages and all("+ 20%" in m for m in messages), messages
+
+
+def test_end_gap_tolerance_needs_real_back_layout():
+    """Ключ `layout_anchor = "back"` без тыла (все рёбра свободны) — генератор
+    раскладывает от бровки, и проверка разрыва — с допуском + 3 %, как без
+    ключа (ревью #165: ключ включал + 20 % и у раскладки от бровки)."""
+    from dataclasses import replace
+
+    from design.analysis import validate
+    from design.models import BlastDesign
+    from design.pattern import generate_pattern
+    from design.toe_line import floor_burdens
+
+    c = rect(40, 30, free=([0, 1], [1, 2], [2, 3], [3, 0]))
+    assert back_side(c) is None
+    keyed = _end_params(2.0, layout_anchor="back")
+    plain = {k: v for k, v in keyed.items() if k != "layout_anchor"}
+    holes = generate_pattern(c, keyed)
+    front = set(floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=plain)))
+    assert front
+    # Передние — на 0,5 м к ближайшей кромке (больше 3 %, меньше 20 % шага).
+    def toward_edge(h):
+        x, y = h.collar.x, h.collar.y
+        dx, dy = min(((-0.5, 0.0, x), (0.5, 0.0, 40 - x), (0.0, -0.5, y), (0.0, 0.5, 30 - y)), key=lambda t: t[2])[:2]
+        return replace(h, collar=replace(h.collar, x=x + dx, y=y + dy), toe=replace(h.toe, x=h.toe.x + dx, y=h.toe.y + dy))
+
+    moved = [toward_edge(h) if h.id in front else h for h in holes]
+
+    def gap_count(params):
+        warnings = validate(BlastDesign(design_id="t", contour=c, holes=moved, pattern_params=params))
+        return sum(1 for w in warnings if w["code"] == "floor_row_gap_excess")
+
+    assert gap_count(plain) > 0
+    assert gap_count(keyed) == gap_count(plain)
+
+
+def test_end_gap_tolerance_only_along_the_column():
+    """Допуск + 20 % — только у пары «предыдущая → концевая» в одном столбце;
+    сосед своего ряда (шаг a) и наискосок — + 3 %, даже если впереди концевая
+    (ревью #165: фланг со свободной стороной)."""
+    from design.models import BlastDesign
+    from design.pattern import generate_pattern
+    from design.toe_line import END_GAP_TOLERANCE, floor_checks
+
+    c = rect(40, 30, free=([0, 1], [1, 2]))
+    params = _end_params(0.7, layout_anchor="back")
+    holes = generate_pattern(c, params)
+    gaps = floor_checks(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))[2]
+    assert any(g.tolerance == END_GAP_TOLERANCE for g in gaps.values())
+    assert any("a" in g.step for g in gaps.values())
+    assert all(g.tolerance != END_GAP_TOLERANCE for g in gaps.values() if "a" in g.step or g.step == "grid")
+
+
+def test_end_move_rollback_restores_layout_without_it(monkeypatch):
+    """Откат концевой (рядом новый брак) возвращает эшелон таким, каким он был
+    бы без п. 5: наклон п. 3 или исходная, а остаток п. 4 — на месте."""
+    import design.back_layout as bl
+
+    def key(holes):
+        return sorted((h.id, round(h.collar.x, 6), round(h.collar.y, 6), round(h.toe.x, 6), round(h.toe.y, 6)) for h in holes)
+
+    def flags_after_first(calls):
+        # Первый вызов — раскладка без сдвигов (без брака), второй — со сдвигами: брак у всех.
+        def flags(contour, p, holes):
+            calls.append(1)
+            return set() if len(calls) == 1 else {h.id for h in holes}
+
+        return flags
+
+    c = rect(40, 30)
+    for extra in ({}, {"front_rows_tilt_deg": 0}):
+        params = _end_params(0.7, layout_anchor="back", **extra)
+        with monkeypatch.context() as m:
+            m.setattr(bl, "_end_moved", lambda *a, **k: None)
+            plain = back_grid(c, params, c.points_xy)
+        calls: list[int] = []
+        with monkeypatch.context() as m:
+            m.setattr(bl, "_excess_ids", flags_after_first(calls))
+            rolled = back_grid(c, params, c.points_xy)
+        assert len(calls) == 2
+        assert key(rolled) == key(plain), extra

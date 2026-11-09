@@ -521,8 +521,9 @@ def back_grid(
         if lsp <= allowed + 1e-9 and not beyond
     }
     remainders: dict[int, Hole] = {}
-    # Сдвинутые или наклонённые по п. 5: эшелон → исходная последняя.
-    moved: dict[int, Hole] = {}
+    # Сдвинутые или наклонённые по п. 5: эшелон → (исходная последняя, остаток п. 4
+    # с ЛСП > W + 3 % или None) — на случай отката.
+    moved: dict[int, tuple[Hole, Hole | None]] = {}
     for k in over:
         if k in fixed:
             echelons[k][-1] = tilted[k]
@@ -562,7 +563,7 @@ def back_grid(
             )
             if end is not None:
                 echelons[k][-1] = end
-                moved[k] = last
+                moved[k] = (last, extra)
                 continue
         if extra is not None:
             echelons[k].append(extra)
@@ -571,17 +572,43 @@ def back_grid(
             # 6. Места для остатка нет — наклон с наибольшим допустимым углом.
             echelons[k][-1] = tilted[k]
     if moved:
-        # Концевая по п. 5, у которой проверка видит разрыв (её закрыл от откоса
-        # сосед, и допуск + 20 % к ней не применился), — как при нехватке места
-        # (п. 6). До чистки остатков: иначе та убрала бы остатки рядом с ней.
-        flat = [h for echelon in echelons for h in echelon]
-        numbered = _face_rows(flat, [h for h in flat if all(h is not extra for extra in remainders.values())])
-        checked = _gap_excess_ids(contour, params, numbered)
-        flagged = {id(h) for h, n in zip(flat, numbered) if n.id in checked}
-        for k, original in moved.items():
-            echelon = echelons[k]
-            if id(echelon[-1]) in flagged or (len(echelon) > 1 and id(echelon[-2]) in flagged):
-                echelon[-1] = tilted.get(k, original)
+        # Концевая по п. 5 откатывается, если рядом с ней (в пределах коридора)
+        # проверка видит новый брак — разрыв у подошвы или ЛСП > W + 3 %, которых
+        # без сдвигов нет: её закрыл от откоса сосед и допуск + 20 % не
+        # применился, предыдущая вышла из её коридора и меряет свою ЛСП, она
+        # стала соседом впереди у концевой другого столбца. Откат — как без п. 5:
+        # остаток п. 4, иначе наклон п. 3, иначе исходная (п. 6). До чистки
+        # остатков: иначе та убрала бы остатки рядом с ней.
+        reach = 1.05 * max(spacing_a, burden_b) + burden_b
+
+        def fallback(state: list[list[Hole]], extras: dict[int, Hole], k: int) -> None:
+            original, extra = moved[k]
+            state[k][-1] = original
+            if extra is not None:
+                state[k].append(extra)
+                extras[k] = extra
+            elif k in tilted:
+                state[k][-1] = tilted[k]
+
+        def numbered(state: list[list[Hole]], extras: dict[int, Hole]) -> tuple[list[Hole], list[Hole]]:
+            flat = [h for echelon in state for h in echelon]
+            return flat, _face_rows(flat, [h for h in flat if all(h is not e for e in extras.values())])
+
+        base_state, base_extras = [list(e) for e in echelons], dict(remainders)
+        for k in moved:
+            fallback(base_state, base_extras, k)
+        base_flags = _excess_ids(contour, params, numbered(base_state, base_extras)[1])
+        flat, renumbered = numbered(echelons, remainders)
+        new = _excess_ids(contour, params, renumbered) - base_flags
+        if new:
+            for k in list(moved):
+                end = echelons[k][-1]
+                near = {
+                    n.id for h, n in zip(flat, renumbered)
+                    if math.hypot(h.collar.x - end.collar.x, h.collar.y - end.collar.y) <= reach
+                }
+                if near & new:
+                    fallback(echelons, remainders, k)
     if remainders:
         # Остаток стоит вне решётки (шаг меньше b), а проверка разрыва у подошвы
         # ждёт |Δряд|·b: где коридор к подошве идёт вбок (угол блока), она видит
@@ -650,6 +677,19 @@ def _gap_excess_ids(contour: BlockContour, params: dict[str, Any], holes: list[H
     design = BlastDesign(design_id="back_layout", contour=contour, holes=holes, pattern_params=params)
     _, _, gaps = floor_checks(design, with_gaps=True)
     return {hole_id for hole_id, gap in gaps.items() if gap.excess}
+
+
+def _excess_ids(contour: BlockContour, params: dict[str, Any], holes: list[Hole]) -> set[str]:
+    """Номера скважин с разрывом у подошвы или ЛСП > W + 3 % (не за подошвой),
+    как их видит `validate` — один расчёт `floor_checks`."""
+    from design.models import BlastDesign
+    from design.toe_line import floor_checks
+
+    design = BlastDesign(design_id="back_layout", contour=contour, holes=holes, pattern_params=params)
+    burdens, _, gaps = floor_checks(design, with_gaps=True)
+    return {hid for hid, gap in gaps.items() if gap.excess} | {
+        hid for hid, item in burdens.items() if item.excess and not item.beyond_toe
+    }
 
 
 def _corridors(contour: BlockContour, holes: list[Hole | None]) -> list[Point2]:

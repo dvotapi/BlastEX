@@ -487,3 +487,11 @@ def test_profile_record_goes_to_snapshot(block66):
     assert profile["safety_basis"] == "Основание: местное."
     # Пустое поле профиля — текст по умолчанию, а не пустая строка в паспорте.
     assert profile["drilling_technology"].startswith("В раздробленных")
+
+
+def test_grid_unknown_without_spacing_a(block66):
+    design = BlastDesign.from_dict(block66.to_dict())
+    design.pattern_params = {"pattern": "rectangular", "burden_b_m": 4.0}
+    ctx = passport_context(design, {}, None, None)
+    assert ctx["summary"]["grid_a_m"] is None
+    assert ctx["summary"]["grid_b_m"] is None

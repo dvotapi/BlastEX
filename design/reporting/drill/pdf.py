@@ -279,7 +279,7 @@ def _depth_table(page: DepthPage, rows_per_column: int) -> Table:
     # Пустой просвет между группами — левой рамкой каждой группы.
     for group in range(1, groups):
         style.append(("LINEBEFORE", (group * 5, 0), (group * 5, -1), 1.2, GRAPHITE))
-    table = Table(data, colWidths=widths, rowHeights=[None] + [10.6] * rows_per_column, repeatRows=1)
+    table = Table(data, colWidths=widths, rowHeights=[None] + [10.0] * rows_per_column, repeatRows=1)
     table.setStyle(TableStyle(style))
     return table
 

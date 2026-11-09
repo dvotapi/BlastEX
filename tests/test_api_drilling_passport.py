@@ -447,3 +447,29 @@ def test_passport_pdf_of_foreign_or_unknown_revision_is_404(client, repository):
     repository.passports[revision["passport_id"]]["organization_id"] = "org-b"
     assert client.get(f"{BASE}/revisions/{revision['id']}/passport.pdf").status_code == 404
     assert client.get(f"{BASE}/revisions/nope/passport.pdf").status_code == 404
+
+
+# --- правки по ревью PR 2 ----------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("drilling_order", "т" * 301),
+        ("basis", "т" * 301),
+        ("object_name", "т" * 201),
+        ("personnel", [{"name": "Иванов", "position": "машинист"}] * 21),
+    ],
+    ids=["drilling_order", "basis", "object_name", "personnel"],
+)
+def test_printed_fields_have_length_limits(client, field, value):
+    response = client.post(BASE, json={"design_id": "block-66", "payload": {**PAYLOAD, field: value}})
+    assert response.status_code == 422
+
+
+def test_unchanged_snapshot_of_approved_passport_is_conflict(client, repository):
+    revision = _revision(client)
+    passport = repository.passports[revision["passport_id"]]
+    passport["status"] = "approved"
+    response = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
+    assert response.status_code == 409
+    assert "только из черновика" in response.json()["detail"]

@@ -624,9 +624,9 @@ def _print_summary(design: BlastDesign, payload: Mapping[str, Any] | None) -> di
     """Сетка a × b и диаметр инструмента для титула паспорта."""
 
     params = design.pattern_params or {}
-    # Без введённых шагов (скважины из SHOTPlus) сетку не выдумывать.
-    has_steps = any(_number(params, key) for key in ("spacing_a_m", "burden_b_m"))
-    grid_a, grid_b = grid_steps_m(params) if has_steps else (None, None)
+    # Без введённого шага a (скважины из SHOTPlus) сетку не выдумывать: без
+    # него `grid_steps_m` подставил бы шаг по умолчанию.
+    grid_a, grid_b = grid_steps_m(params) if _number(params, "spacing_a_m") else (None, None)
     diameters = [hole.diameter_mm for hole in _passport_holes(design) if hole.diameter_mm > 0]
     diameter = _number(payload, "bit_diameter_mm") or (max(diameters) if diameters else None)
     return {"grid_a_m": grid_a, "grid_b_m": grid_b, "bit_diameter_mm": diameter}

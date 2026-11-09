@@ -243,6 +243,9 @@ def create_revision(
     passport = repository.get_passport(organization_id, passport_id)
     if passport["version"] != expected_version:
         raise DrillingPassportConflictError("Паспорт изменён другим пользователем. Обновите данные перед выпуском ревизии.")
+    if passport.get("status", "draft") != "draft":
+        # До сравнения со снимком: иначе неизменённый паспорт обходил бы проверку.
+        raise DrillingPassportConflictError("Ревизию можно выпустить только из черновика.")
     context = _context(passport, economics_repository, organization_id)
     if has_errors(context["issues"]):
         messages = "; ".join(issue["message"] for issue in context["issues"] if issue["level"] == "error")

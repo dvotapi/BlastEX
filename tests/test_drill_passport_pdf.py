@@ -127,3 +127,38 @@ def test_pages_match_golden(pdf66, tmp_path):
         diff = ImageChops.difference(actual, expected).point(lambda value: 255 if value > 32 else 0)
         share = diff.histogram()[255] / (diff.width * diff.height)
         assert share < GOLDEN_THRESHOLD, f"стр. {number}: отличается {share:.1%} пикселей"
+
+
+def _page_scales(context) -> list[float]:
+    """Во сколько раз ужата каждая страница (1.0 — не ужата)."""
+
+    from reportlab.platypus import KeepInFrame
+
+    scales: list[float] = []
+    original = KeepInFrame.wrap
+
+    def wrap(self, available_width, available_height):
+        result = original(self, available_width, available_height)
+        scales.append(getattr(self, "_scale", 1.0))
+        return result
+
+    KeepInFrame.wrap = wrap
+    try:
+        render_passport_pdf(context, revision_no=1)
+    finally:
+        KeepInFrame.wrap = original
+    return scales
+
+
+def test_block66_pages_are_not_shrunk():
+    assert all(scale <= 1.0 for scale in _page_scales(context66()))
+
+
+def test_longest_allowed_texts_stay_readable():
+    payload = deepcopy(PAYLOAD_V07)
+    for key in ("basis", "site_preparation", "stakeout", "drilling_order", "access_route",
+                "power_lines", "adjacent_works", "acceptance"):
+        payload[key] = "т" * 300
+    payload["personnel"] = [{"name": "Ф" * 120, "position": "Д" * 120} for _ in range(20)]
+    # Ужатие не больше чем на четверть: страница остаётся читаемой.
+    assert max(_page_scales(context66(payload))) <= 1.25

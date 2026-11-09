@@ -45,6 +45,11 @@ def test_header_r2010_metres_cp1251(doc):
     assert doc.header["$DWGCODEPAGE"] == "ANSI_1251"
 
 
+def test_text_style_is_ttf_with_cyrillic(doc):
+    # txt.shx не везде знает кириллицу — как у маркшейдера, TrueType Arial.
+    assert doc.styles.get("Standard").dxf.font == "arial.ttf"
+
+
 def test_layers(doc):
     names = {layer.dxf.name for layer in doc.layers}
     assert set(HOLE_LAYERS) <= names

@@ -52,12 +52,53 @@ def test_writer_failure_falls_back_to_dxf(dxf66, tmp_path, monkeypatch):
     assert (exported.format, exported.warning) == ("dxf", DWG_FALLBACK_WARNING)
 
 
+def _round_trip(tmp_path: Path, monkeypatch, read_back: bytes, written: str = "AC1015 dwg") -> None:
+    """Подделки: dxf2dwg пишет `written`, dwg2dxf возвращает `read_back`."""
+
+    back = tmp_path / "back.dxf"
+    back.write_bytes(read_back)
+    monkeypatch.setenv("BLASTEX_DXF2DWG", _script(tmp_path, "w", f'printf "{written}" > "$OUT"\n'))
+    monkeypatch.setenv("BLASTEX_DWG_CONVERTER", _script(tmp_path, "r", f'cp "{back}" "$OUT"\n'))
+
+
 def test_round_trip_passes_and_dwg_is_returned(dxf66, tmp_path, monkeypatch):
-    # «DWG» — копия DXF, обратное чтение — снова копия: сверка совпадает.
-    monkeypatch.setenv("BLASTEX_DXF2DWG", _script(tmp_path, "w", 'cat "$IN" > "$OUT"\n'))
-    monkeypatch.setenv("BLASTEX_DWG_CONVERTER", _script(tmp_path, "r", 'cat "$IN" > "$OUT"\n'))
+    _round_trip(tmp_path, monkeypatch, dxf66)
     exported = holes_dwg(dxf66)
-    assert (exported.format, exported.data, exported.warning) == ("dwg", dxf66, None)
+    assert (exported.format, exported.data, exported.warning) == ("dwg", b"AC1015 dwg", None)
+
+
+def test_writer_output_without_r2000_signature_falls_back(dxf66, tmp_path, monkeypatch):
+    # dxf2dwg «записал» копию DXF — это не DWG R2000.
+    _round_trip(tmp_path, monkeypatch, dxf66, written="  0")
+    assert holes_dwg(dxf66).format == "dxf"
+
+
+def _changed(**changes) -> bytes:
+    context = context66()
+    for key, value in changes.items():
+        if key == "passport_no":
+            context["passport"]["passport_no"] = value
+        else:
+            context["holes"][0][key] = value
+    return holes_dxf(context, revision_no=1, issued_on=date(2026, 11, 9))
+
+
+def test_changed_depth_on_read_back_falls_back(dxf66, tmp_path, monkeypatch):
+    _round_trip(tmp_path, monkeypatch, _changed(length_m=99.9))
+    assert holes_dwg(dxf66).format == "dxf"
+
+
+def test_changed_info_text_on_read_back_falls_back(dxf66, tmp_path, monkeypatch):
+    _round_trip(tmp_path, monkeypatch, _changed(passport_no="99-99/Б"))
+    assert holes_dwg(dxf66).format == "dxf"
+
+
+def test_shifted_collar_point_on_read_back_falls_back(dxf66, tmp_path, monkeypatch):
+    # Только POINT устья 1 (первое вхождение — точка до вставки) сдвинут на 2 мм.
+    shifted = dxf66.replace(b"1472880.04\n", b"1472880.042\n", 1)
+    assert shifted != dxf66
+    _round_trip(tmp_path, monkeypatch, shifted)
+    assert holes_dwg(dxf66).format == "dxf"
 
 
 def test_mismatch_on_read_back_falls_back_to_dxf(dxf66, tmp_path, monkeypatch):
@@ -104,6 +145,7 @@ def test_real_dwg_round_trip(dxf66):
         assert ref.get_attrib_text("DEPTH")
     info = msp.query('MTEXT[layer=="BLX_INFO"]')[0].plain_text()
     assert "Паспорт на бурение № 66-26/Б" in info
+    assert doc.styles.get("Standard").dxf.font == "arial.ttf"
 
 
 def test_crlf_read_back_is_accepted(dxf66, tmp_path, monkeypatch):
@@ -114,3 +156,29 @@ def test_crlf_read_back_is_accepted(dxf66, tmp_path, monkeypatch):
     monkeypatch.setenv("BLASTEX_DWG_CONVERTER", _script(tmp_path, "r", f'cp "{crlf}" "$OUT"\n'))
     exported = holes_dwg(dxf66)
     assert (exported.format, exported.data) == ("dwg", b"AC1015")
+
+
+def test_mtext_split_inside_utf8_character_is_accepted(tmp_path, monkeypatch):
+    # dwg2dxf режет длинный MTEXT на куски по 250 байт (группа 3) и может
+    # разрезать двухбайтовую букву: сверка склеивает байты, а не символы.
+    context = context66()
+    context["crs"] = {"name": "МСК-66 зона 1", "epsg": None, "height_system": "Балтийская 1977"}
+    dxf = holes_dxf(context, revision_no=1, issued_on=date(2026, 11, 9))
+    head = "  1\nПаспорт".encode()
+    assert dxf.count(head) == 1
+    start = dxf.index(head) + len(b"  1\n")
+    end = dxf.index(b"\n", start)
+    value = dxf[start:end]
+    split = dxf[:start - len(b"  1\n")] + b"  3\n" + value[:3] + b"\n  1\n" + value[3:] + dxf[end:]
+    _round_trip(tmp_path, monkeypatch, split)
+    assert holes_dwg(dxf).format == "dwg"
+
+
+@pytest.mark.skipif(find_writer() is None or find_converter() is None, reason="нет dxf2dwg или dwg2dxf (LibreDWG)")
+def test_real_dwg_with_inclined_hole_and_cyrillic_crs():
+    from tests.test_export_survey_dxf import _with_inclined
+
+    context = _with_inclined(context66())
+    context["crs"] = {"name": "МСК-66 зона 1", "epsg": None, "height_system": "Балтийская 1977"}
+    exported = holes_dwg(holes_dxf(context, revision_no=2, issued_on=date(2026, 11, 10)))
+    assert (exported.format, exported.warning) == ("dwg", None)

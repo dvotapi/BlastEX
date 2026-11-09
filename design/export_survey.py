@@ -11,8 +11,9 @@ DXF X — восток (внутренний `x`), Y — север (`y`), Z —
 создания и правки, GUID) фиксируются, дата выпуска — дата ревизии.
 
 `holes_dwg` переводит DXF в DWG R2000 утилитой LibreDWG `dxf2dwg` и читает
-результат обратно `dwg2dxf`: сущности слоёв `BLX_*` и вставки скважин должны
-совпасть с допуском 1 мм. Не вышло — отдаётся DXF с предупреждением (§4).
+результат обратно `dwg2dxf`: число сущностей слоёв `BLX_*`, тексты, атрибуты
+скважин и точки (устья, забои, вставки) должны совпасть, координаты — с
+допуском 1 мм. Не вышло — отдаётся DXF с предупреждением (§4).
 """
 from __future__ import annotations
 
@@ -68,6 +69,7 @@ INFO_HEIGHT_M = 1.0
 INFO_GAP_M = 3.0
 # Строки DWG R2000 — в кодовой странице чертежа; для русских программ — 1251.
 CODEPAGE = "ANSI_1251"
+TEXT_FONT = "arial.ttf"
 
 # Фиксация метаданных — глобальная опция ezdxf: построение под замком.
 _WRITE_LOCK = threading.Lock()
@@ -154,6 +156,9 @@ def _new_document():
     doc = ezdxf.new("R2010", units=6)
     doc.encoding = "cp1251"
     doc.header["$DWGCODEPAGE"] = CODEPAGE
+    # txt.shx не во всех CAD знает кириллицу: как в чертеже маркшейдера —
+    # TrueType Arial (подписи и BLX_INFO берут стиль Standard).
+    doc.styles.get("Standard").dxf.font = TEXT_FONT
     for name, color in LAYER_COLORS.items():
         doc.layers.add(name, color=color, linetype="Continuous")
     block = doc.blocks.new(HOLE_BLOCK)
@@ -250,8 +255,11 @@ DWG_FALLBACK_WARNING = "DWG не сформирован, используйте 
 # Допуск сверки координат после обратного чтения DWG, м.
 DWG_TOLERANCE_M = 0.001
 # Сущности, которые сверяются по слоям `BLX_*`. ATTRIB не считаются: `dwg2dxf`
-# выводит их и отдельно от вставок.
+# выводит их и отдельно от вставок (значения сверяются по вставкам).
 _CHECKED_TYPES = ("POINT", "INSERT", "TEXT", "MTEXT", "CIRCLE", "LINE", "LWPOLYLINE")
+_POINT_TYPES = ("POINT", "INSERT")
+# DWG R2000 начинается с версии формата.
+DWG_SIGNATURE = b"AC1015"
 
 
 @dataclass(frozen=True)
@@ -263,35 +271,64 @@ class DwgExport:
     warning: str | None = None
 
 
-def _signature(dxf: bytes) -> tuple[Counter, dict[str, tuple[float, float, float]]]:
-    """Число сущностей по (тип, слой) на слоях `BLX_*` и вставки скважин по номеру."""
+@dataclass
+class _Signature:
+    counts: Counter
+    texts: Counter
+    attribs: dict[str, tuple[str, ...]]
+    # (тип, слой) → точки: устья и забои (POINT), вставки скважин (INSERT).
+    points: dict[tuple[str, str], list[tuple[float, float, float]]]
+
+
+def _text(value: str) -> str:
+    """Строка с байтами, разрезанными посреди буквы UTF-8, — снова буквами."""
+
+    return value.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
+def _signature(dxf: bytes) -> _Signature:
+    """Что сверяется после обратного чтения: число сущностей, тексты, атрибуты, точки."""
 
     # `dwg2dxf` пишет UTF-8 при любой `$DWGCODEPAGE` (ezdxf — тоже, R2010) и
     # концы строк CRLF: `newline=None` переводит их, иначе пустое бинарное поле
-    # (группа 310) читается как «\r» и разбор падает.
-    doc = ezdxf.read(io.StringIO(dxf.decode("utf-8"), newline=None))
-    counts: Counter = Counter()
-    inserts: dict[str, tuple[float, float, float]] = {}
+    # (группа 310) читается как «\r» и разбор падает. Длинный MTEXT он режет
+    # на куски по 250 байт и может разрезать букву: `surrogateescape` хранит
+    # такие байты, `_text` склеивает их обратно.
+    doc = ezdxf.read(io.StringIO(dxf.decode("utf-8", "surrogateescape"), newline=None))
+    result = _Signature(Counter(), Counter(), {}, {})
     for entity in doc.modelspace():
-        layer = entity.dxf.get("layer", "")
-        if entity.dxftype() not in _CHECKED_TYPES or not layer.startswith("BLX_"):
+        kind, layer = entity.dxftype(), entity.dxf.get("layer", "")
+        if kind not in _CHECKED_TYPES or not layer.startswith("BLX_"):
             continue
-        counts[(entity.dxftype(), layer)] += 1
-        if entity.dxftype() == "INSERT" and layer == "BLX_HOLE":
-            point = entity.dxf.insert
-            inserts[entity.get_attrib_text("NUM") or ""] = (point.x, point.y, point.z)
-    return counts, inserts
+        result.counts[(kind, layer)] += 1
+        if kind == "TEXT":
+            result.texts[(layer, _text(entity.dxf.text))] += 1
+        elif kind == "MTEXT":
+            result.texts[(layer, _text(entity.text))] += 1
+        elif kind in _POINT_TYPES:
+            point = entity.dxf.location if kind == "POINT" else entity.dxf.insert
+            result.points.setdefault((kind, layer), []).append((point.x, point.y, point.z))
+            if kind == "INSERT" and layer == "BLX_HOLE":
+                result.attribs[_text(entity.get_attrib_text("NUM") or "")] = tuple(
+                    _text(attrib.dxf.text) for attrib in entity.attribs
+                )
+    return result
+
+
+def _same_points(a: list[tuple[float, float, float]], b: list[tuple[float, float, float]]) -> bool:
+    return len(a) == len(b) and all(
+        abs(p - q) <= DWG_TOLERANCE_M for left, right in zip(sorted(a), sorted(b)) for p, q in zip(left, right)
+    )
 
 
 def _same_drawing(expected: bytes, actual: bytes) -> bool:
-    counts, inserts = _signature(expected)
-    back_counts, back_inserts = _signature(actual)
-    if counts != back_counts or inserts.keys() != back_inserts.keys():
-        return False
-    return all(
-        abs(a - b) <= DWG_TOLERANCE_M
-        for number, point in inserts.items()
-        for a, b in zip(point, back_inserts[number])
+    want, got = _signature(expected), _signature(actual)
+    return (
+        want.counts == got.counts
+        and want.texts == got.texts
+        and want.attribs == got.attribs
+        and want.points.keys() == got.points.keys()
+        and all(_same_points(points, got.points[key]) for key, points in want.points.items())
     )
 
 
@@ -300,7 +337,7 @@ def holes_dwg(dxf: bytes) -> DwgExport:
 
     try:
         dwg = dxf_to_dwg(dxf)
-        same = _same_drawing(dxf, dwg_to_dxf(dwg, "holes.dwg"))
+        same = dwg.startswith(DWG_SIGNATURE) and _same_drawing(dxf, dwg_to_dxf(dwg, "holes.dwg"))
     except Exception:  # noqa: BLE001 — любой отказ утилит или чтения даёт DXF
         logger.warning("DWG скважин не сформирован, отдаётся DXF", exc_info=True)
         return DwgExport(dxf, "dxf", DWG_FALLBACK_WARNING)

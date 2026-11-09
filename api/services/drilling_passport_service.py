@@ -11,7 +11,7 @@ import logging
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from functools import lru_cache
 from threading import Lock
 from typing import Any, Literal, Mapping
@@ -383,15 +383,17 @@ def _file_stem(context: Mapping[str, Any]) -> str:
 
 
 def _revision_date(revision: Mapping[str, Any]) -> date | None:
-    # Дата выпуска чертежа — дата ревизии (UTC), а не время выгрузки: повтор —
-    # те же байты.
+    # Дата выпуска чертежа — дата ревизии по UTC, а не время выгрузки и не пояс
+    # соединения БД: повтор — те же байты.
     created = revision.get("created_at")
-    if isinstance(created, datetime):
-        return created.date()
-    try:
-        return datetime.fromisoformat(str(created)).date()
-    except ValueError:
-        return None
+    if not isinstance(created, datetime):
+        try:
+            created = datetime.fromisoformat(str(created))
+        except ValueError:
+            return None
+    if created.tzinfo is not None:
+        created = created.astimezone(timezone.utc)
+    return created.date()
 
 
 def holes_drawing(

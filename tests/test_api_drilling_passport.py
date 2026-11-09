@@ -737,3 +737,13 @@ def test_holes_of_foreign_or_unknown_revision_is_404(client, repository, name):
     repository.passports[revision["passport_id"]]["organization_id"] = "org-b"
     assert client.get(f"{BASE}/revisions/{revision['id']}/{name}").status_code == 404
     assert client.get(f"{BASE}/revisions/nope/{name}").status_code == 404
+
+
+def test_issue_date_is_utc_date_of_revision():
+    from datetime import date
+
+    from api.services.drilling_passport_service import _revision_date
+
+    # 01:00 в Екатеринбурге — ещё 9 ноября по UTC; пояс соединения БД не важен.
+    assert _revision_date({"created_at": "2026-11-10T01:00:00+05:00"}) == date(2026, 11, 9)
+    assert _revision_date({"created_at": "2026-11-09T20:00:00+00:00"}) == date(2026, 11, 9)

@@ -1,9 +1,18 @@
 """PDF паспорта на бурение (TASK-015, PR 2): формат чисел и отрисовка."""
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
+from copy import deepcopy
+from datetime import date as _date
+from pathlib import Path
+
 import pytest
 
 from design.reporting.drill import fmt
+from design.reporting.drill.pdf import render_passport_pdf
+from tests.drill_passport_context import PAYLOAD_V07, context66, with_holes
 
 NBSP = " "
 
@@ -40,3 +49,81 @@ def test_range():
     assert fmt.num_range(10.0, 13.84) == "10,0 – 13,8"
     assert fmt.num_range(10.0, 10.0) == "10,0"
     assert fmt.num_range(None, None) == "—"
+
+
+# --- отрисовка -------------------------------------------------------------
+
+GOLDEN = Path(__file__).parent / "fixtures" / "drill_passport" / "golden"
+GOLDEN_DPI = 50
+# Доля пикселей, отличающихся по яркости больше чем на 32 из 255.
+GOLDEN_THRESHOLD = 0.02
+
+
+def _pages(pdf: bytes) -> int:
+    return len(re.findall(rb"/Type /Page[^s]", pdf))
+
+
+@pytest.fixture(scope="module")
+def pdf66() -> bytes:
+    return render_passport_pdf(context66(), revision_no=1)
+
+
+def test_pdf_is_byte_stable(pdf66):
+    again = render_passport_pdf(deepcopy(context66()), revision_no=1)
+    assert pdf66.startswith(b"%PDF")
+    assert again == pdf66
+
+
+def test_pdf_has_no_generation_time(pdf66):
+    stamps = re.findall(rb"/CreationDate \(D:(\d{4})", pdf66)
+    assert stamps and all(int(year) < _date.today().year for year in stamps)
+
+
+def test_pdf_page_count(pdf66):
+    assert _pages(pdf66) == 4
+    assert _pages(render_passport_pdf(with_holes(context66(), 201), revision_no=1)) == 6
+    assert _pages(render_passport_pdf(with_holes(context66(), 401), revision_no=1)) == 6
+
+
+def test_long_texts_keep_four_pages():
+    payload = deepcopy(PAYLOAD_V07)
+    long = "очень длинный текст поля паспорта " * 12
+    for key in ("basis", "site_preparation", "stakeout", "drilling_order", "access_route", "adjacent_works"):
+        payload[key] = long
+    payload["agreed_by"]["name"] = "Ф" * 120
+    payload["personnel"] = [{"name": "Иванов И. И.", "position": long[:120]} for _ in range(20)]
+    context = context66(payload)
+    context["passport"]["passport_no"] = "№" * 120
+    assert _pages(render_passport_pdf(context, revision_no=1)) == 4
+
+
+def test_markup_in_user_text_is_escaped():
+    payload = deepcopy(PAYLOAD_V07)
+    payload["compiled_by"]["name"] = "<b>Плаксин</b> & <font>"
+    payload["basis"] = "<para>ТП</para>"
+    assert _pages(render_passport_pdf(context66(payload), revision_no=1)) == 4
+
+
+def test_revision_number_changes_only_title(pdf66):
+    other = render_passport_pdf(context66(), revision_no=2)
+    assert other != pdf66
+    assert _pages(other) == 4
+
+
+@pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="нет pdftoppm (poppler)")
+def test_pages_match_golden(pdf66, tmp_path):
+    from PIL import Image, ImageChops
+
+    source = tmp_path / "passport.pdf"
+    source.write_bytes(pdf66)
+    subprocess.run(
+        ["pdftoppm", "-r", str(GOLDEN_DPI), "-gray", "-png", "-f", "1", "-l", "3", str(source), str(tmp_path / "page")],
+        check=True,
+    )
+    for number in (1, 2, 3):
+        actual = Image.open(tmp_path / f"page-{number}.png").convert("L")
+        expected = Image.open(GOLDEN / f"page-{number}.png").convert("L")
+        assert actual.size == expected.size
+        diff = ImageChops.difference(actual, expected).point(lambda value: 255 if value > 32 else 0)
+        share = diff.histogram()[255] / (diff.width * diff.height)
+        assert share < GOLDEN_THRESHOLD, f"стр. {number}: отличается {share:.1%} пикселей"

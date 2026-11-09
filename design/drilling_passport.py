@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass, field
-from typing import Any, Iterable, Literal, Mapping
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
-from shapely.geometry import Point
+import shapely
+from shapely.geometry import LineString, Point
 from shapely.ops import nearest_points
 
 from design.geometry import polygon_area
@@ -23,7 +24,7 @@ from design.lifecycle import designed_sha256
 from design.mass_blast import ValidationIssue
 from design.models import BlastDesign, Point3, in_main_grid
 from design.pattern import front_row_ranks
-from design.toe_line import crest_geometry, floor_point, grid_steps_m
+from design.toe_line import crest_geometry, crest_polylines, floor_point, grid_steps_m, toe_line
 
 DRILL_FORMULA_VERSION = "drill-v1"
 
@@ -92,10 +93,15 @@ class DrillHoleRow:
     # у наклона в массив — отрицательное; None — направление к откосу не
     # известно (нет бровки).
     face_shift_m: float | None = 0.0
+    # Для плана на стр. 4 (PR 3): забой (отрезок наклонной в плане) и диаметр
+    # скважины (кружок). None — строка из ревизии до PR 3.
+    toe: Point3 | None = None
+    diameter_mm: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["collar"] = self.collar.to_dict()
+        data["toe"] = self.toe.to_dict() if self.toe is not None else None
         return data
 
 
@@ -244,6 +250,8 @@ def holes_for_passport(design: BlastDesign, first_row: set[str] | None = None) -
                 bench_height_m=hole.bench_height_m,
                 collar=Point3(hole.collar.x, hole.collar.y, hole.collar.z),
                 face_shift_m=_face_shift(hole, crest),
+                toe=Point3(hole.toe.x, hole.toe.y, hole.toe.z),
+                diameter_mm=hole.diameter_mm,
             )
         )
     return rows
@@ -540,6 +548,7 @@ def passport_context(
     rig: Mapping[str, Any] | None,
     profile: Mapping[str, Any] | None = None,
     profile_code: str = "",
+    situation: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Снимок для проверки и ревизии: строки, сводка, проверка первого ряда, источники.
 
@@ -626,6 +635,65 @@ def passport_context(
         "first_row_check": check.to_dict(),
         "issues": [issue.to_dict() for issue in [*issues, *check.issues]],
         "profile": drill_profile(profile, profile_code),
+        "plan": plan_geometry(design, situation),
+    }
+
+
+# Ситуация вокруг блока в снимке: габарит контура и устьев плюс запас. PDF
+# обрезает её по полю листа сам — снимок не зависит от вёрстки.
+PLAN_SITUATION_MARGIN_M = 60.0
+
+
+def _xy(points: Iterable[Sequence[float]]) -> list[list[float]]:
+    return [[round(float(p[0]), 3), round(float(p[1]), 3)] for p in points]
+
+
+def _clipped_lines(points: Sequence[Sequence[float]], closed: bool, box: tuple[float, float, float, float]):
+    coords = [(float(p[0]), float(p[1])) for p in points]
+    if closed and len(coords) > 2 and coords[0] != coords[-1]:
+        coords.append(coords[0])
+    if len(coords) < 2:
+        return []
+    clipped = shapely.clip_by_rect(LineString(coords), *box)
+    if clipped.is_empty:
+        return []
+    parts = getattr(clipped, "geoms", [clipped])
+    return [_xy(part.coords) for part in parts if part.geom_type == "LineString" and len(part.coords) >= 2]
+
+
+def plan_geometry(design: BlastDesign, situation: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    """Геометрия плана на стр. 4 для снимка ревизии (TASK-015, PR 3).
+
+    Контур блока, верхняя бровка (свободные поверхности), линия подошвы
+    (`toe_line`: по углу или по съёмке) и ситуация TASK-013 в
+    `PLAN_SITUATION_MARGIN_M` вокруг блока — плоские, до миллиметра.
+    `situation` — слои `{"kind", "lines": [{"points", "closed"}]}`.
+    """
+
+    contour = design.contour
+    ring = contour.points_xy if len(contour.vertices) >= 3 else []
+    top = crest_polylines(contour) if ring else []
+    toe = toe_line(contour) if top else None
+    xs = [p[0] for p in ring] + [h.collar.x for h in _passport_holes(design)]
+    ys = [p[1] for p in ring] + [h.collar.y for h in _passport_holes(design)]
+    layers: list[dict[str, Any]] = []
+    if xs and situation:
+        m = PLAN_SITUATION_MARGIN_M
+        box = (min(xs) - m, min(ys) - m, max(xs) + m, max(ys) + m)
+        for layer in situation:
+            lines = [
+                {"points": part, "closed": False}
+                for line in layer.get("lines") or ()
+                for part in _clipped_lines(line.get("points") or (), bool(line.get("closed")), box)
+            ]
+            if lines:
+                layers.append({"kind": str(layer.get("kind") or ""), "lines": lines})
+    return {
+        "contour": _xy(ring),
+        "crest_top": [_xy(line) for line in top],
+        "crest_toe": [_xy(line) for line in toe.polylines] if toe is not None else [],
+        "toe_source": toe.source if toe is not None else None,
+        "situation": layers,
     }
 
 

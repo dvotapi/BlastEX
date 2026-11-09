@@ -498,3 +498,70 @@ def test_grid_unknown_without_spacing_a(block66):
     ctx = passport_context(design, {}, None, None)
     assert ctx["summary"]["grid_a_m"] is None
     assert ctx["summary"]["grid_b_m"] is None
+
+
+# --- PR 3: геометрия плана в снимке ревизии ---------------------------------
+
+
+def test_plan_geometry_block66(block66):
+    from design.drilling_passport import plan_geometry
+
+    plan = plan_geometry(block66)
+    assert len(plan["contour"]) == 31
+    assert plan["crest_top"] and all(len(line) >= 2 for line in plan["crest_top"])
+    assert plan["crest_toe"] and all(len(line) >= 2 for line in plan["crest_toe"])
+    assert plan["toe_source"] == "angle"
+    assert plan["situation"] == []
+    # Координаты — до миллиметра: снимок стабилен.
+    assert all(round(v, 3) == v for point in plan["contour"] for v in point)
+
+
+def test_plan_geometry_without_contour_or_faces():
+    design = BlastDesign(design_id="x", name="x", contour=BlockContour(), holes=[])
+    plan = plan_geometry_of(design)
+    assert plan == {"contour": [], "crest_top": [], "crest_toe": [], "toe_source": None, "situation": []}
+
+
+def plan_geometry_of(design):
+    from design.drilling_passport import plan_geometry
+
+    return plan_geometry(design)
+
+
+def test_rows_carry_toe_and_diameter(rows66):
+    row = rows66[0].to_dict()
+    assert row["toe"]["z"] < row["collar"]["z"]
+    assert row["diameter_mm"] == 115.0
+
+
+def test_situation_is_clipped_around_block(block66):
+    from design.drilling_passport import plan_geometry
+
+    x, y = block66.holes[0].collar.x, block66.holes[0].collar.y
+    far = {"kind": "road", "lines": [{"points": [[0, 0, 0], [1, 1, 0]], "closed": False}]}
+    near = {"kind": "power_line", "lines": [{"points": [[x - 500, y, 5], [x + 500, y, 5]], "closed": False}]}
+    plan = plan_geometry(block66, [far, near])
+    assert [layer["kind"] for layer in plan["situation"]] == ["power_line"]
+    points = [p for line in plan["situation"][0]["lines"] for p in line["points"]]
+    xs = [p[0] for p in points]
+    assert max(xs) - min(xs) < 200
+    assert all(len(p) == 2 for p in points)
+
+
+def test_closed_situation_ring_stays_line(block66):
+    from design.drilling_passport import plan_geometry
+
+    x, y = block66.holes[0].collar.x, block66.holes[0].collar.y
+    ring = {"kind": "building", "lines": [{
+        "points": [[x - 5, y - 5], [x + 5, y - 5], [x + 5, y + 5], [x - 5, y + 5]], "closed": True,
+    }]}
+    (layer,) = plan_geometry(block66, [ring])["situation"]
+    (line,) = layer["lines"]
+    assert line["points"][0] == line["points"][-1]
+    assert len(line["points"]) == 5
+
+
+def test_context_has_plan(block66):
+    context = passport_context(block66, {}, None, None)
+    assert context["plan"]["contour"]
+    assert context["plan"]["situation"] == []

@@ -187,6 +187,11 @@ def _free_polylines(contour: BlockContour) -> list[Polyline]:
     return [[pts[i] for i in chain] for chain in _free_chains(contour)]
 
 
+def crest_polylines(contour: BlockContour) -> list[Polyline]:
+    """Верхняя бровка — свободные поверхности сшитыми цепочками (план паспорта на бурение)."""
+    return [list(line) for line in _free_polylines(contour)]
+
+
 def _built(contour: BlockContour, free: list[Polyline], offset: float) -> list[Polyline]:
     """Свободные поверхности, смещённые наружу на `offset` (подошва по углу)."""
     if offset <= 0:

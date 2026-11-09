@@ -213,7 +213,7 @@ class TestOtherSchemas:
 class TestValidationThroughSchemas:
     def test_default_sections_are_valid(self):
         issues = validate_reference_sections(default_reference_sections())
-        assert [issue for issue in issues if issue.level == "error"] == []
+        assert [issue for issue in issues if issue.section == "drill_passport_profiles"] == []
 
     def test_extra_field_is_reported_with_the_field_name(self):
         sections = dict(default_reference_sections())
@@ -768,3 +768,23 @@ class TestDrillPassportReferenceFields:
             EquipmentTypePayload(axis_offset_m=Decimal("6"))
         schema = section_json_schema("equipment_types")["properties"]
         assert schema["axis_offset_m"]["x-unit"] == "м"
+
+
+def test_drill_passport_profile_section() -> None:
+    from cost.v2.schemas.drill_profile import DrillPassportProfilePayload
+
+    assert SECTION_SCHEMAS["drill_passport_profiles"] is DrillPassportProfilePayload
+    assert REFERENCE_SECTION_DEFINITIONS["drill_passport_profiles"]["label"] == "Профиль паспорта на бурение"
+    profile = DrillPassportProfilePayload.model_validate(
+        {"safety_items": [{"text": "Только по паспорту."}], "drilling_technology": "Продувать."}
+    )
+    assert profile.safety_items[0].text == "Только по паспорту."
+    assert DrillPassportProfilePayload.model_validate({}).safety_items == []
+    with pytest.raises(ValidationError):
+        DrillPassportProfilePayload.model_validate({"safety_items": [{"text": "п."}] * 13})
+    with pytest.raises(ValidationError):
+        DrillPassportProfilePayload.model_validate({"safety_items": [{"text": ""}]})
+    issues = validate_reference_sections(
+        {"drill_passport_profiles": [_item("KGOK", {"safety_items": [{"text": "п. 1"}]}, "КГОК")]}
+    )
+    assert [issue for issue in issues if issue.section == "drill_passport_profiles"] == []

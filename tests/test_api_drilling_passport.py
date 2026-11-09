@@ -95,8 +95,15 @@ class _Repository:
         return deepcopy(revision)
 
 
+PROFILE = {
+    "safety_items": [{"text": "Только по паспорту."}, {"text": "Осмотреть бровку."}],
+    "safety_basis": "Основание: ФНП 505.",
+    "drilling_technology": "Продувать скважину.",
+}
+
+
 def _snapshot(site=SITE, rig=RIG):
-    items = {("sites", "ZHK"): site, ("equipment_types", "JK830"): rig}
+    items = {("sites", "ZHK"): site, ("equipment_types", "JK830"): rig, ("drill_passport_profiles", "KGOK"): PROFILE}
 
     def item(section, code):
         payload = items.get((section, code))
@@ -221,15 +228,59 @@ def test_revision_is_immutable_and_hash_repeats(client):
     assert stored == first
     assert stored["context"]["passport"]["payload"]["w_max_m"] == 6.0
 
-    # Вернули прежние поля — тот же снимок, тот же хэш.
+    # Вернули прежние поля — тот же снимок: новая ревизия не выпускается,
+    # возвращается последняя (один PDF — один номер ревизии).
     client.put(
         f"{BASE}/{passport['id']}",
         json={"passport_no": "66-26/Б", "passport_date": "2026-11-09", "payload": original, "expected_version": 3},
     )
     second = client.post(url, json={"expected_version": 4}).json()
+    assert second == first
+
+
+def test_changed_snapshot_gets_next_revision(client):
+    passport = _create(client)
+    url = f"{BASE}/{passport['id']}/revisions"
+    first = client.post(url, json={"expected_version": 1}).json()
+    changed = {**passport["payload"], "rig_number": "7"}
+    client.put(
+        f"{BASE}/{passport['id']}",
+        json={"passport_no": "66-26/Б", "passport_date": "2026-11-09", "payload": changed, "expected_version": 2},
+    )
+    second = client.post(url, json={"expected_version": 3}).json()
     assert second["revision_no"] == 2
-    assert second["content_sha256"] == first["content_sha256"]
-    assert second["context"] == first["context"]
+    assert second["content_sha256"] != first["content_sha256"]
+
+
+def test_profile_texts_go_to_revision(client):
+    passport = _create(client, {**PAYLOAD, "profile_code": "KGOK"})
+    revision = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": 1}).json()
+    profile = revision["context"]["profile"]
+    assert profile == {
+        "code": "KGOK",
+        "safety_items": ["Только по паспорту.", "Осмотреть бровку."],
+        "safety_basis": "Основание: ФНП 505.",
+        "drilling_technology": "Продувать скважину.",
+    }
+
+
+def test_unknown_profile_is_warned_and_default_used(client):
+    passport = _create(client, {**PAYLOAD, "profile_code": "NOPE"})
+    body = client.post(f"{BASE}/{passport['id']}/validate").json()
+    assert [issue["code"] for issue in body["issues"]] == ["drill_profile_not_found"]
+    revision = client.post(
+        f"{BASE}/{passport['id']}/revisions",
+        json={"expected_version": 1, "acknowledged_warnings": ["drill_profile_not_found"]},
+    ).json()
+    assert len(revision["context"]["profile"]["safety_items"]) == 10
+    assert revision["context"]["profile"]["code"] == ""
+
+
+def test_empty_profile_code_uses_default_without_warning(client):
+    passport = _create(client)
+    assert passport["payload"]["profile_code"] == ""
+    body = client.post(f"{BASE}/{passport['id']}/validate").json()
+    assert body["issues"] == []
 
 
 def test_stale_version_is_conflict(client):

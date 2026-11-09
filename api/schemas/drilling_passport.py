@@ -43,6 +43,9 @@ class DrillingPassportPayload(BaseModel):
     horizon: str = Field(default="", description="Горизонт")
     block_area_m2: float | None = Field(default=None, gt=0, description="Площадь блока, м²")
     rig_type_code: str = Field(default="", description="Тип бурового станка в справочнике")
+    profile_code: str = Field(
+        default="", max_length=80, description="Профиль паспорта в справочнике: тексты мер безопасности и технологии"
+    )
     rig_name: str = Field(default="", description="Буровая установка")
     rig_number: str = Field(default="", description="Номер станка")
     bit_diameter_mm: float | None = Field(default=None, gt=0, description="Диаметр инструмента, мм")

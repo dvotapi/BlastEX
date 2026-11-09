@@ -47,6 +47,34 @@ DEFAULT_EXTRA_APPROVALS = ("маркшейдер", "геолог")
 # Допуски по глубине скважины и положению устья по умолчанию, ± м.
 DEFAULT_TOLERANCE_M = 0.3
 
+# Профиль паспорта по умолчанию — тексты формы v0.7 (§2.1 спеки). Профиль
+# справочника («Профиль паспорта на бурение») их переопределяет; в ревизию
+# тексты попадают копией, PDF справочник не читает.
+DEFAULT_SAFETY_ITEMS = (
+    "Работать только по утверждённому паспорту; паспорт на бурение находится в кабине буровой установки.",
+    "Перед началом работ осмотреть блок и бровку уступа: козырьки, навесы, заколы. При их наличии работу "
+    "не начинать, сообщить мастеру.",
+    "Устанавливать станок не ближе безопасного расстояния от верхней бровки до ближайшей точки опоры, "
+    "указанного в паспорте (см. схему); на первом ряду продольная ось станка перпендикулярна бровке; "
+    "под домкраты породу не подкладывать.",
+    "Работа на первом ряду в тёмное время суток запрещена. Находиться в призме возможного обрушения запрещено.",
+    "Движение буровой установки с поднятой мачтой разрешено только по спланированным участкам блока; при "
+    "движении на неровных участках, при перегоне и под ЛЭП — только в транспортном положении, буровой "
+    "инструмент снят или закреплён.",
+    "Работа вблизи ЛЭП под напряжением — только по наряду-допуску с разрешением владельца ЛЭП.",
+    "Запрещается забуриваться в старые стаканы.",
+    "Не бурить при неисправной системе пылеподавления. Посторонним находиться в кабине и на площадках "
+    "станка во время работы запрещено.",
+    "Зону пробуренных скважин ограждать знаками (ГР.05.02). При заряжании вслед за бурением отводить станок "
+    "от заряжаемых скважин не менее чем на 10 м.",
+    "К работе допускаются машинисты, прошедшие инструктаж и ознакомленные с паспортом под подпись.",
+)
+DEFAULT_SAFETY_BASIS = "Основание: ФНП 505 пп. 989–991, 993; ФНП 494 п. 187."
+DEFAULT_DRILLING_TECHNOLOGY = (
+    "В раздробленных и обводнённых породах продувать скважину от устья до забоя многократно; штыб на "
+    "забое — не более 20 см. Буровой снаряд поднимать с вращением и малым расходом воздуха."
+)
+
 
 @dataclass(frozen=True)
 class DrillHoleRow:
@@ -118,6 +146,30 @@ def _listed(numbers: list[str]) -> str:
     shown = ", ".join(numbers[:MAX_LISTED_HOLES])
     rest = len(numbers) - MAX_LISTED_HOLES
     return f"{shown} и ещё {rest}" if rest > 0 else shown
+
+
+# --- профиль паспорта -----------------------------------------------------
+
+
+def _text(value: Any) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def drill_profile(record: Mapping[str, Any] | None, code: str = "") -> dict[str, Any]:
+    """Тексты паспорта из записи профиля; пустое поле — текст по умолчанию."""
+
+    record = record or {}
+    items = [
+        _text(item.get("text") if isinstance(item, Mapping) else item)
+        for item in record.get("safety_items") or ()
+    ]
+    items = [item for item in items if item]
+    return {
+        "code": code,
+        "safety_items": items or list(DEFAULT_SAFETY_ITEMS),
+        "safety_basis": _text(record.get("safety_basis")) or DEFAULT_SAFETY_BASIS,
+        "drilling_technology": _text(record.get("drilling_technology")) or DEFAULT_DRILLING_TECHNOLOGY,
+    }
 
 
 # --- скважины -------------------------------------------------------------
@@ -486,8 +538,14 @@ def passport_context(
     payload: Mapping[str, Any] | None,
     site: Mapping[str, Any] | None,
     rig: Mapping[str, Any] | None,
+    profile: Mapping[str, Any] | None = None,
+    profile_code: str = "",
 ) -> dict[str, Any]:
-    """Снимок для проверки и ревизии: строки, сводка, проверка первого ряда, источники."""
+    """Снимок для проверки и ревизии: строки, сводка, проверка первого ряда, источники.
+
+    Всё, что печатает PDF, — в снимке: сетка и диаметр в `summary`, тексты
+    мер безопасности и технологии — в `profile`.
+    """
 
     values, provenance = resolve_inputs(design, site, rig, payload)
     first_ids, issues = first_row_selection(design)
@@ -524,6 +582,7 @@ def passport_context(
             )
         )
     data = summary(rows, values["block_area_m2"])
+    data.update(_print_summary(design, payload))
     if data["block_area_m2"] is None:
         issues.append(
             _issue("warning", "block_area_missing", "Не задана площадь блока: объём и выход не посчитаны.", "block_area_m2")
@@ -557,7 +616,20 @@ def passport_context(
         "summary": data,
         "first_row_check": check.to_dict(),
         "issues": [issue.to_dict() for issue in [*issues, *check.issues]],
+        "profile": drill_profile(profile, profile_code),
     }
+
+
+def _print_summary(design: BlastDesign, payload: Mapping[str, Any] | None) -> dict[str, float | None]:
+    """Сетка a × b и диаметр инструмента для титула паспорта."""
+
+    params = design.pattern_params or {}
+    # Без введённых шагов (скважины из SHOTPlus) сетку не выдумывать.
+    has_steps = any(_number(params, key) for key in ("spacing_a_m", "burden_b_m"))
+    grid_a, grid_b = grid_steps_m(params) if has_steps else (None, None)
+    diameters = [hole.diameter_mm for hole in _passport_holes(design) if hole.diameter_mm > 0]
+    diameter = _number(payload, "bit_diameter_mm") or (max(diameters) if diameters else None)
+    return {"grid_a_m": grid_a, "grid_b_m": grid_b, "bit_diameter_mm": diameter}
 
 
 def has_errors(issues: Iterable[Mapping[str, Any]]) -> bool:

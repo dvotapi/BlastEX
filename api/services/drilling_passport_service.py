@@ -70,20 +70,50 @@ def _snapshot(economics_repository: EconomicsRepository | None, organization_id:
         return None
 
 
+def _warning(code: str, message: str, path: str) -> dict[str, str]:
+    return {"level": "warning", "code": code, "message": message, "path": path}
+
+
 def _reference_inputs(
     economics_repository: EconomicsRepository | None, organization_id: str, payload: Mapping[str, Any]
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str | None]:
-    """Запись объекта, запись типа станка и ревизия справочников; нет — None."""
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str | None, list[dict[str, str]]]:
+    """Запись объекта, запись типа станка, ревизия справочников и предупреждения.
 
+    Нет записи — None и предупреждение: справочник не прочитан или код из
+    паспорта в нём не найден (а не «внесите величину в справочник»).
+    """
+
+    site_code = str(payload.get("site_code") or "")
+    rig_code = str(payload.get("rig_type_code") or "")
     snapshot = _snapshot(economics_repository, organization_id)
     if snapshot is None:
-        return None, None, None
-    site = snapshot.item("sites", str(payload.get("site_code") or ""))
-    rig = snapshot.item("equipment_types", str(payload.get("rig_type_code") or ""))
+        return None, None, None, [
+            _warning(
+                "references_unavailable",
+                "Справочники не прочитаны: углы α, γ и вылет e взяты только из паспорта и проекта.",
+                "site_code",
+            )
+        ]
+    site = snapshot.item("sites", site_code) if site_code else None
+    rig = snapshot.item("equipment_types", rig_code) if rig_code else None
+    issues: list[dict[str, str]] = []
+    if site_code and site is None:
+        issues.append(
+            _warning("site_not_found", f"Объект с кодом «{site_code}» не найден в справочнике объектов.", "site_code")
+        )
+    if rig_code and rig is None:
+        issues.append(
+            _warning(
+                "rig_type_not_found",
+                f"Тип станка с кодом «{rig_code}» не найден в справочнике техники.",
+                "rig_type_code",
+            )
+        )
     return (
         dict(site.payload) if site else None,
         dict(rig.payload) if rig else None,
         snapshot.revision_id,
+        issues,
     )
 
 
@@ -140,8 +170,11 @@ def _context(
 ) -> dict[str, Any]:
     payload = dict(passport.get("payload") or {})
     design = _load_design(organization_id, str(passport["design_id"]))
-    site, rig, reference_revision_id = _reference_inputs(economics_repository, organization_id, payload)
+    site, rig, reference_revision_id, reference_issues = _reference_inputs(
+        economics_repository, organization_id, payload
+    )
     context = passport_context(design, payload, site, rig)
+    context["issues"] = [*reference_issues, *context["issues"]]
     context["passport"] = {
         "passport_no": passport["passport_no"],
         "passport_date": passport["passport_date"],

@@ -263,3 +263,27 @@ def test_infinite_number_is_422(client, field):
     body = '{"design_id": "block-66", "payload": {"%s": 1e400}}' % field
     response = client.post(BASE, content=body, headers={"Content-Type": "application/json"})
     assert response.status_code == 422, response.text
+
+
+def _codes(client, payload) -> list[str]:
+    passport = _create(client, payload)
+    return [issue["code"] for issue in client.post(f"{BASE}/{passport['id']}/validate").json()["issues"]]
+
+
+def test_unknown_site_and_rig_codes_are_warned(client):
+    codes = _codes(client, {**PAYLOAD, "site_code": "NOPE", "rig_type_code": "JK999", "alpha_deg": 75, "gamma_deg": 65})
+    assert "site_not_found" in codes
+    assert "rig_type_not_found" in codes
+
+
+def test_unread_references_are_warned(client, references):
+    references["snapshot"] = None
+    codes = _codes(client, {**PAYLOAD, "alpha_deg": 75, "gamma_deg": 65})
+    assert "references_unavailable" in codes
+    assert "site_not_found" not in codes and "rig_type_not_found" not in codes
+
+
+def test_empty_codes_are_not_warned_as_unknown(client):
+    codes = _codes(client, {**PAYLOAD, "rig_type_code": ""})
+    assert "rig_type_not_found" not in codes
+    assert "axis_offset_missing" in codes

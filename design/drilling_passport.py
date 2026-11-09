@@ -15,7 +15,9 @@ from typing import Any, Iterable, Literal, Mapping
 from design.geometry import polygon_area
 from design.lifecycle import designed_sha256
 from design.mass_blast import ValidationIssue
-from design.models import BlastDesign, Point3, is_main_grid_row, logical_row
+from design.models import BlastDesign, Point3, in_main_grid
+from design.pattern import front_row_ranks
+from design.toe_line import crest_geometry, grid_steps_m
 
 DRILL_FORMULA_VERSION = "drill-v1"
 
@@ -103,30 +105,40 @@ def _passport_holes(design: BlastDesign):
 
 
 def first_row_selection(design: BlastDesign) -> tuple[set[str], list[ValidationIssue]]:
-    """Скважины ряда, ближайшего к свободной поверхности, и предупреждения.
+    """Скважины первого ряда — у свободной поверхности — и предупреждения.
 
-    Первый ряд — наименьший `logical_row` среди рядов основной сетки: ряды
-    впереди первого (номера ниже FRONT_ROW_BASE) получают отрицательный
-    логический номер и оказываются впереди сами. Стеночные ряды и ручные
-    скважины в отбор не входят. Без свободной поверхности ряд не определить —
-    берутся скважины с наибольшим перебуром.
+    Первый ряд — скважины основной сетки (`in_main_grid`) ранга 1 по
+    `pattern.front_row_ranks`: в коридоре к верхней бровке перед ними нет
+    другой скважины сетки. Так на изогнутой бровке, где ряды впереди первого
+    стоят лишь у выступа, и в шаблоне «от тыла» с остатком эшелона у части
+    столбцов первым рядом остаётся вся линия у откоса, а не только самый
+    передний номер ряда. Шаги a, b — как у генератора (`grid_steps_m`).
+    Отдельные стеночные ряды в отбор не входят. Без бровки или без рядов
+    основной сетки первый ряд не определить — берутся скважины с наибольшим
+    перебуром и предупреждение `first_row_guessed`.
     """
 
     holes = _passport_holes(design)
-    grid = [hole for hole in holes if is_main_grid_row(hole.row)]
-    if design.contour.free_faces and grid:
-        front = min(logical_row(hole.row) for hole in grid)
-        return {hole.id for hole in grid if logical_row(hole.row) == front}, []
+    grid = [hole for hole in holes if in_main_grid(hole)]
+    crest = crest_geometry(design.contour)
+    if crest is not None and grid:
+        spacing_a, burden_b = grid_steps_m(design.pattern_params)
+        ranks = front_row_ranks(
+            [(hole.collar.x, hole.collar.y) for hole in grid], design.contour, spacing_a, burden_b
+        )
+        ids = {hole.id for hole, rank in zip(grid, ranks) if rank == 1}
+        if ids:
+            return ids, []
     if not holes:
         return set(), []
     deepest = max(hole.subdrill_m for hole in holes)
     ids = {hole.id for hole in holes if math.isclose(hole.subdrill_m, deepest, abs_tol=1e-6)}
-    reason = "нет свободной поверхности" if not design.contour.free_faces else "нет рядов основной сетки"
+    reason = "нет свободной поверхности" if crest is None else "нет скважин основной сетки у бровки"
     return ids, [
         _issue(
             "warning",
             "first_row_guessed",
-            f"Первый ряд не определён по рядам ({reason}): взяты скважины с наибольшим перебуром "
+            f"Первый ряд не определён по бровке ({reason}): взяты скважины с наибольшим перебуром "
             f"{deepest:.1f} м — {len(ids)} шт. Проверьте свободную поверхность блока.",
             "holes",
         )

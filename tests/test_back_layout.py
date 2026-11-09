@@ -724,3 +724,80 @@ def test_corridor_blockers_count_neighbour_on_the_threshold():
         assert (list(corridor_blockers(0, 10.0, points, target, tree, min_advance, reach)) == [1]) is blocked
         i, j = corridor_blocker_pairs([0], points, shapely.points([(0.0, 10.0), (0.3, 10.0)]), [10.0, 10.0 - advance], tree, min_advance, reach)
         assert (i.tolist(), j.tolist()) == (([0], [1]) if blocked else ([], []))
+
+
+def _end_case(**extra):
+    """Последняя в y = 1,3 (ЛСП 3,98 — в (W + 3 %; 1,2·W)): остатку места нет
+    (шаг до отступа от бровки 0,8 м < 1 м), наклон в разрыве b + 3 % доводит
+    ЛСП лишь до 3,88. Решение владельца 09.11.2026 — последняя сама идёт к
+    откосу до ЛСП ≈ W ценой разрыва до b + 20 %."""
+    from design.analysis import validate
+    from design.models import BlastDesign
+
+    c = rect(40, 30)
+    params = _end_params(0.7, layout_anchor="back", **extra)
+    holes = back_grid(c, params, c.points_xy)
+    codes = {w["code"] for w in validate(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))}
+    return c, holes, codes
+
+
+def test_end_hole_tilts_to_w_beyond_gap_tolerance():
+    from design.toe_line import END_GAP_TOLERANCE
+
+    c, holes, codes = _end_case()
+    for echelon in _echelons(holes):
+        assert len(echelon) == 9
+        prev, last = echelon[-2], echelon[-1]
+        assert last.collar.y == pytest.approx(1.3)
+        assert 0.0 < _angle(last) <= 30.0
+        assert _lsp(c, last) == pytest.approx(W, abs=0.01)
+        gap = floor_point(prev)[1] - floor_point(last)[1]
+        assert W * 1.03 < gap <= W * (1.0 + END_GAP_TOLERANCE)
+    assert not codes & {"floor_burden_excess", "floor_burden_short", "floor_row_gap_excess"}, codes
+
+
+def test_end_hole_shifts_to_w_when_tilt_is_off():
+    c, holes, codes = _end_case(front_rows_tilt_deg=0)
+    for echelon in _echelons(holes):
+        prev, last = echelon[-2], echelon[-1]
+        assert _angle(last) == pytest.approx(0.0, abs=1e-6)
+        # Сдвиг вдоль линии столбца: x тот же, устье ближе к бровке, не ближе отступа.
+        assert last.collar.x == pytest.approx(prev.collar.x)
+        assert 0.5 - 1e-6 <= last.collar.y < 1.3
+        assert _lsp(c, last) == pytest.approx(W, abs=0.01)
+    assert not codes & {"floor_burden_excess", "floor_burden_short", "floor_row_gap_excess"}, codes
+
+
+def test_end_gap_tolerance_only_for_back_end_holes():
+    """Проверка разрыва: у концевой скважины «от тыла» допуск — шаг + 20 %, у
+    той же раскладки без ключа опоры — шаг + 3 %; дальше 20 % — разрыв и там."""
+    from dataclasses import replace
+
+    from design.analysis import validate
+    from design.models import BlastDesign
+    from design.toe_line import END_GAP_TOLERANCE, floor_checks
+
+    c, holes, _ = _end_case(front_rows_tilt_deg=0)
+    params = _end_params(0.7, layout_anchor="back", front_rows_tilt_deg=0)
+
+    def gaps(hs, p):
+        return floor_checks(BlastDesign(design_id="t", contour=c, holes=hs, pattern_params=p))[2]
+
+    back = gaps(holes, params)
+    assert back and not any(g.excess for g in back.values())
+    # У предпоследней сосед впереди — концевая: её допуск + 20 %.
+    for echelon in _echelons(holes):
+        gap = back[echelon[-2].id]
+        assert gap.tolerance == END_GAP_TOLERANCE and gap.value_m > W * 1.03
+    crest = gaps(holes, {k: v for k, v in params.items() if k != "layout_anchor"})
+    assert any(g.excess and g.tolerance == pytest.approx(0.03) for g in crest.values())
+    # Концевые ещё на 0,5 м к бровке: разрыв ≈ 1,23·b — больше и 20 %.
+    ends = {id(e[-1]) for e in _echelons(holes)}
+    farther = [
+        replace(h, collar=replace(h.collar, y=h.collar.y - 0.5), toe=replace(h.toe, y=h.toe.y - 0.5))
+        if id(h) in ends else h
+        for h in holes
+    ]
+    warnings = validate(BlastDesign(design_id="t", contour=c, holes=farther, pattern_params=params))
+    messages = [w["message"] for w in warnings if w["code"] == "floor_row_gap_excess"]
+    assert messages and all("+ 20%" in m for m in messages), messages

@@ -336,9 +336,9 @@ class TemplateSearchTests(unittest.TestCase):
 class Block66SearchTests(unittest.TestCase):
     """Блок №66 с полным бюджетом: три лучших варианта не хуже базы без перебора.
 
-    С 09.11.2026 превышение ЛСП — брак: на 66 оно есть у всех вариантов, в том
-    числе у базы, поэтому и база, и итог отбракованы только им; итог — лучшие
-    из отбракованных (`all_rejected`)."""
+    С 09.11.2026 превышение ЛСП — брак: у базы (от бровки) оно есть, поэтому
+    база отбракована только им; итог — прошедшие варианты «от тыла», где
+    концевая сама идёт к откосу до ЛСП ≈ W."""
 
     def test_best_not_worse_than_base(self):
         contour = _block66_contour()
@@ -365,8 +365,8 @@ class Block66SearchTests(unittest.TestCase):
 
         res = search_layout(ctx, budget_s=150.0)
         self.assertEqual(len(res.best), 3)
-        self.assertTrue(res.all_rejected)
-        self.assertTrue(all(ev.reject_codes == ["floor_burden_excess"] for ev in res.best))
+        self.assertFalse(res.all_rejected)
+        self.assertTrue(all(not ev.rejected for ev in res.best))
         self.assertLessEqual(res.best[0].rank_key(), base_key)
 
 

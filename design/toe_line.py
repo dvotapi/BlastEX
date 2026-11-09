@@ -62,6 +62,11 @@ SHADOW_ADVANCE_TOLERANCE_M = 1e-6
 # (остаток конца эшелона «от тыла», `design/back_layout.py`), м: на самом пороге
 # проверка ЛСП после округления координат (паспорт, JSON) могла его не засчитать.
 SHADOW_ADVANCE_MARGIN_M = 0.015
+# Разрыв у подошвы до концевой скважины эшелона «от тыла» (последняя в своём
+# коридоре: соседа впереди нет, ЛСП меряется у неё) допустим до шага + 20 %, а
+# не + 3 %: генератор сдвигает или наклоняет её к откосу до ЛСП ≈ W даже ценой
+# разрыва (решение владельца 09.11.2026, `design/back_layout.py::back_grid`).
+END_GAP_TOLERANCE = 0.2
 
 # Съёмка подошвы дальше этой доли высоты уступа от верхней бровки (откос положе
 # 45° от вертикали) — развал или берма, а не откос: ЛСП считается по углу.
@@ -276,11 +281,13 @@ class FloorRowGap:
 
     hole_id: str
     value_m: float  # продвижение соседа впереди вдоль коридора, на уровне подошвы
-    allowed_m: float  # шаг + 3 %
+    allowed_m: float  # шаг + допуск (`tolerance`)
     excess: bool  # все соседи впереди дальше своего допуска
     # С каким шагом сравнивалось: "a" (по ряду), "b" (соседний ряд), "2b" (через ряд)
     # или "grid" — проекция решётки на коридор (косой ряд, дуга).
     step: str = "b"
+    # Допуск к шагу: 3 %, у соседа — концевой скважины «от тыла» — 20 % (`END_GAP_TOLERANCE`).
+    tolerance: float = TOE_BURDEN_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -694,6 +701,9 @@ def floor_checks(
         index = [i for i in range(len(grid)) if _measured(grid[i], main_kind)]
         main = [grid[i] for i in index]
         steps = _hole_steps(design, main, b)
+        # Концевые скважины «от тыла» — последние в своём коридоре (ЛСП меряется у них).
+        back = (design.pattern_params or {}).get("layout_anchor") == "back"
+        ends = [back and hole.id in result for hole in main]
         if steps is not None:
             gaps = _row_gaps(
                 [hole.id for hole in main],
@@ -705,6 +715,7 @@ def floor_checks(
                 min_advance,
                 reach,
                 a,
+                ends,
             )
     return result, beyond, gaps
 
@@ -782,6 +793,7 @@ def _row_gaps(
     min_advance: float,
     reach: float,
     step_a: float | None = None,
+    ends: list[bool] | None = None,
 ) -> dict[str, FloorRowGap]:
     """Разрыв у подошвы для точек основной сетки (см. `floor_checks`), пакетом.
 
@@ -801,6 +813,9 @@ def _row_gaps(
     считаются. Разрыв — если каждый сосед впереди дальше своего допуска
     (наименьшее отношение продвижения к допуску больше 1); в ответе — пара с
     наименьшим отношением, при равенстве — своего ряда.
+
+    `ends` — концевые скважины эшелона «от тыла» (см. `floor_checks`): если
+    сосед впереди — такая, допуск пары — шаг + `END_GAP_TOLERANCE`, а не + 3 %.
     """
     if not ids:
         return {}
@@ -853,7 +868,9 @@ def _row_gaps(
     i, j, same, advance, expected, labels = i[ahead], j[ahead], same[ahead], advance[ahead], expected[ahead], labels[ahead]
     if i.size == 0:
         return {}
-    allowed = expected * (1.0 + TOE_BURDEN_TOLERANCE)
+    end = np.asarray(ends, dtype=bool)[j] if ends is not None else np.zeros(j.shape, dtype=bool)
+    tolerance = np.where(end, END_GAP_TOLERANCE, TOE_BURDEN_TOLERANCE)
+    allowed = expected * (1.0 + tolerance)
     ratio = advance / allowed
     # При равных отношениях в ответ — сосед своего ряда (сравнение с a).
     order = np.lexsort((~same, np.round(ratio, 9), i))
@@ -865,6 +882,7 @@ def _row_gaps(
             allowed_m=float(allowed[p]),
             excess=bool(ratio[p] > 1.0 + 1e-9),
             step=str(labels[p]),
+            tolerance=float(tolerance[p]),
         )
         for p in first.tolist()
         for k in (int(i[p]),)

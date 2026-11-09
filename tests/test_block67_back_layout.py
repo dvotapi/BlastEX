@@ -215,9 +215,10 @@ def test_block67_back_layout_fires_from_the_crest():
 
 def test_block67_back_layout_toe_queries_are_bounded(monkeypatch):
     """Перебор (PR 3) зовёт генератор сотни раз: ЛСП считается пакетами, а
-    деления пополам останавливаются по точности — не больше 300 запросов к
-    линии подошвы на генерацию блока 67 (0,12 с; наклонный остаток вместо
-    вертикального с ЛСП > W + 3 % — около 290, без него было около 150)."""
+    деления пополам останавливаются по точности — не больше 330 запросов к
+    линии подошвы на генерацию блока 67 (0,13 с; наклонный остаток вместо
+    вертикального с ЛСП > W + 3 % — около 290, без него было около 150;
+    концевая, доведённая до ЛСП ≈ W наклоном или сдвигом, — 314, 09.11.2026)."""
     import design.back_layout as back_layout
     import design.pattern as pattern
     import design.toe_line as toe_line
@@ -232,7 +233,7 @@ def test_block67_back_layout_toe_queries_are_bounded(monkeypatch):
     for module in (toe_line, back_layout, pattern):
         monkeypatch.setattr(module, "toe_positions", counted)
     generate_pattern(_contour(), {**_base(), "layout_anchor": "back"})
-    assert len(calls) <= 300, len(calls)
+    assert len(calls) <= 330, len(calls)
 
 
 def _block(name: str):
@@ -287,11 +288,10 @@ def test_full_search_tries_both_templates(block):
     """Полный перебор блока с бюджетом 150 с: оба шаблона оценены и проходят
     отбраковку, итог — лучшие из обоих, бюджет хватает на все этапы.
 
-    С 09.11.2026 превышение ЛСП — брак (решение владельца). На 67 прошедшие
-    есть (лучшие — «от тыла» без превышения). На 66 превышение есть у всех
-    вариантов (у лучших — 2 скважины: 3,83 и 3,96 м при допуске 3,64 м):
-    итог — лучшие из отбракованных, и только по нему; остальные проверки
-    («прошедшие» — без брака по геометрии) те же."""
+    С 09.11.2026 превышение ЛСП — брак (решение владельца), а концевая «от
+    тыла» сама идёт к откосу до ЛСП ≈ W. На 67 прошедшие есть у обоих
+    шаблонов; на 66 — только «от тыла» (15 из 1116): у вариантов от бровки
+    превышение ЛСП остаётся (у лучших — 4 скважины, в том числе пара)."""
     from unittest import mock
 
     from design.layout_search import search as search_module
@@ -310,17 +310,16 @@ def test_full_search_tries_both_templates(block):
         res = search_module.search_layout(_search_ctx(contour, base), budget_s=150.0)
     assert not res.stopped_early, res.elapsed_s
     assert len(res.best) == 3
-    tolerated = {"floor_burden_excess"} if block == "66" else set()
-    assert res.all_rejected == (block == "66")
-    assert all(set(ev.reject_codes) <= tolerated for ev in res.best)
+    assert not res.all_rejected
+    assert all(not ev.rejected for ev in res.best)
     best_by_template = {}
     for ev in evaluations:
-        if not set(ev.reject_codes) <= tolerated:
+        if ev.rejected:
             continue
         key = is_back(ev.candidate.params)
         if key not in best_by_template or ev.rank_key() < best_by_template[key].rank_key():
             best_by_template[key] = ev
-    assert set(best_by_template) == {False, True}
+    assert set(best_by_template) == ({True} if block == "66" else {False, True})
     assert res.best[0].rank_key() <= min(ev.rank_key() for ev in best_by_template.values())
 
 
@@ -394,3 +393,32 @@ def test_block67_remainder_closes_its_last_with_margin():
         advance = ((ax - fx) * (tx - fx) + (ay - fy) * (ty - fy)) / length
         assert advance >= min_advance + 0.5 * SHADOW_ADVANCE_MARGIN_M, (hole.id, advance)
     assert remainders >= 1
+
+
+def test_block67_owner_back_search_has_passing_variants():
+    """Проверка владельца на стенде 09.11.2026: квадратная 3,7, d = 145 мм,
+    «от тыла», отступ от тыла и от контура 2,9 м, азимут тыла без поворота.
+    До доработки все 20 вариантов — брак `floor_burden_excess`: ЛСП последней
+    в (W + 3 %; 1,2·W), остатку места нет, наклон держит разрыв b + 3 %.
+    Последняя теперь сама идёт к откосу до ЛСП ≈ W (разрыв до b + 20 %) —
+    прошедшие есть, у лучших нет ни превышения ЛСП, ни разрыва."""
+    from design.layout_search.search import search_layout
+
+    contour = _contour()
+    base = {
+        "pattern": "square",
+        "spacing_a_m": 3.7,
+        "burden_b_m": 3.7,
+        "diameter_mm": 145.0,
+        "layout_anchor": "back",
+        "back_offset_m": 2.9,
+        "edge_margin_m": 2.9,
+        "row_azimuth_deg": round(back_azimuth_deg(contour), 4),
+        "back_turn_locked": True,
+        "subdrill_m": 1.0,
+    }
+    res = search_layout(_search_ctx(contour, base), budget_s=1e9)
+    assert res.evaluated == 20
+    assert not res.all_rejected
+    assert res.rejected < res.evaluated
+    assert res.best and all(not ev.rejected for ev in res.best)

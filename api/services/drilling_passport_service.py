@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
+from threading import Lock
 from typing import Any, Mapping
 
 from fastapi import HTTPException, status
@@ -203,6 +205,36 @@ def update_passport(
     )
 
 
+# Ситуация для плана: (организация, источник, версия) → слои и урезанные слои.
+# Проверку паспорта фронт зовёт часто, а чтение и упрощение ситуации большого
+# чертежа — секунды; переимпорт файла меняет `revision`, и ключ устаревает.
+_SITUATION_CACHE: OrderedDict[tuple[str, str, int], tuple[list[dict[str, Any]], list[str]]] = OrderedDict()
+_SITUATION_CACHE_SIZE = 8
+_SITUATION_CACHE_LOCK = Lock()
+
+
+def _situation_layers(repository, organization_id: str, source_id: str, revision: int):
+    key = (organization_id, source_id, int(revision))
+    with _SITUATION_CACHE_LOCK:
+        if key in _SITUATION_CACHE:
+            _SITUATION_CACHE.move_to_end(key)
+            return _SITUATION_CACHE[key]
+    geometry = source_situation(repository, organization_id, source_id)
+    value = (
+        [
+            {"kind": layer.kind, "lines": [{"points": line.points, "closed": line.closed} for line in layer.lines]}
+            for layer in geometry.layers
+            if layer.lines
+        ],
+        [layer.name for layer in geometry.layers if layer.omitted],
+    )
+    with _SITUATION_CACHE_LOCK:
+        _SITUATION_CACHE[key] = value
+        while len(_SITUATION_CACHE) > _SITUATION_CACHE_SIZE:
+            _SITUATION_CACHE.popitem(last=False)
+    return value
+
+
 def _plan_situation(organization_id: str, design: BlastDesign) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """Ситуация TASK-013 для плана на стр. 4: версии из `contour.cad.situation`.
 
@@ -235,27 +267,27 @@ def _plan_situation(organization_id: str, design: BlastDesign) -> tuple[list[dic
         if repository is None:
             issues.append(unavailable)
             continue
+        source_id = str(ref["source_id"])
         try:
-            geometry = source_situation(repository, organization_id, str(ref["source_id"]))
+            record = repository.get_source(organization_id, source_id)
+            if record is None:
+                raise CadSourceNotFound(source_id)
+            source_layers, capped = _situation_layers(repository, organization_id, source_id, record.revision)
         except CadSourceNotFound:
             issues.append(_warning("plan_situation_missing", f"Версия ситуации «{title}» удалена — на плане её нет.", "plan"))
             continue
         except Exception:  # noqa: BLE001 — повреждённый чертёж не должен ронять проверку паспорта
-            logger.exception("Ситуация %s не прочитана для плана паспорта на бурение", ref["source_id"])
+            logger.exception("Ситуация %s не прочитана для плана паспорта на бурение", source_id)
             issues.append(unavailable)
             continue
-        capped = [layer.name for layer in geometry.layers if layer.omitted]
         if capped:
             issues.append(_warning(
                 "plan_situation_capped",
                 f"Ситуация «{title}» слишком большая: на плане нет слоёв {', '.join(capped[:5])}.",
                 "plan",
             ))
-        layers += [
-            {"kind": layer.kind, "lines": [{"points": line.points, "closed": line.closed} for line in layer.lines]}
-            for layer in geometry.layers
-            if layer.lines
-        ]
+        # Только чтение: plan_geometry строит свои списки, кэш не меняется.
+        layers += source_layers
     return layers, issues
 
 

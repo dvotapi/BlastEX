@@ -515,10 +515,32 @@ def _situation_response(x: float, y: float, *, omitted: bool = False):
     return SimpleNamespace(layers=[layer])
 
 
+class _CadRepository:
+    """Каталог источников: версия (`revision`) — ключ кэша ситуации."""
+
+    def __init__(self) -> None:
+        self.revisions = {"sit-1": 1}
+
+    def get_source(self, organization_id, source_id, *, with_file=False):
+        revision = self.revisions.get(source_id)
+        return None if revision is None else SimpleNamespace(id=source_id, revision=revision)
+
+    def __repr__(self) -> str:
+        return "cad-repo"
+
+
 @pytest.fixture()
-def situation_refs(monkeypatch, block66):
+def cad_repository(monkeypatch) -> _CadRepository:
+    repository = _CadRepository()
+    monkeypatch.setattr(drilling_passport_service, "get_cad_repository", lambda: repository)
+    drilling_passport_service._SITUATION_CACHE.clear()
+    yield repository
+    drilling_passport_service._SITUATION_CACHE.clear()
+
+
+@pytest.fixture()
+def situation_refs(monkeypatch, block66, cad_repository):
     monkeypatch.setattr(block66.contour, "cad", {"situation": deepcopy(SITUATION_REF)})
-    monkeypatch.setattr(drilling_passport_service, "get_cad_repository", lambda: "cad-repo")
     return block66
 
 
@@ -534,7 +556,7 @@ def test_context_takes_situation_of_passport_design(client, situation_refs, monk
     passport = _create(client)
     revision = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
     assert revision.status_code == 201, revision.text
-    assert calls == [("cad-repo", "org-a", "sit-1")]
+    assert [(organization_id, source_id) for _, organization_id, source_id in calls] == [("org-a", "sit-1")]
     (layer,) = revision.json()["context"]["plan"]["situation"]
     assert layer["kind"] == "road"
     assert layer["lines"][0]["points"] == [
@@ -606,3 +628,33 @@ def test_duplicate_situation_refs_read_once(client, situation_refs, monkeypatch)
     passport = _create(client)
     client.post(f"{BASE}/{passport['id']}/validate")
     assert calls == ["sit-1"]
+
+
+def test_situation_is_read_once_per_source_revision(client, situation_refs, cad_repository, monkeypatch):
+    collar = situation_refs.holes[0].collar
+    calls = []
+
+    def source_situation(repository, organization_id, source_id):
+        calls.append(source_id)
+        return _situation_response(collar.x, collar.y)
+
+    monkeypatch.setattr(drilling_passport_service, "source_situation", source_situation)
+    passport = _create(client)
+    url = f"{BASE}/{passport['id']}/validate"
+    client.post(url)
+    client.post(url)
+    assert calls == ["sit-1"]
+    cad_repository.revisions["sit-1"] = 2   # файл ситуации переимпортирован
+    client.post(url)
+    assert calls == ["sit-1", "sit-1"]
+
+
+def test_deleted_situation_source_is_not_read(client, situation_refs, cad_repository, monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("удалённый источник не читают")
+
+    monkeypatch.setattr(drilling_passport_service, "source_situation", fail)
+    del cad_repository.revisions["sit-1"]
+    passport = _create(client)
+    codes = [item["code"] for item in client.post(f"{BASE}/{passport['id']}/validate").json()["issues"]]
+    assert "plan_situation_missing" in codes

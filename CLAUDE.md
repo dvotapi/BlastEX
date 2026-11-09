@@ -352,7 +352,8 @@ c_min/W/Wпред — нет; диаметр инструмента — толь
 09.11.2026): геометрия — `context["plan"]` (`drilling_passport.plan_geometry`:
 контур, верхняя бровка `toe_line.crest_polylines`, линия подошвы `toe_line`,
 ситуация в 60 м вокруг блока), забой и диаметр — в строках `holes`; ситуацию
-читает сервис по `contour.cad.situation` (удалена — `plan_situation_missing`).
+читает сервис по `contour.cad.situation` (удалена — `plan_situation_missing`;
+слои — кэш по версии источника `revision`).
 Раскладка — `design/reporting/drill/plan.py`: масштаб по листу — самый
 крупный кратный 10, не крупнее 1:200 (не ряд 1:200…1:2000), север вверх,
 глубина «11,6»; отрисовка — `plan_drawing.py`. Ревизия до PR 3 печатает

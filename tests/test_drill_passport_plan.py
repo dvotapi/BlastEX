@@ -248,3 +248,22 @@ def test_bad_points_in_snapshot_are_skipped():
 
     _register_fonts()
     legend(sheet, 180 * MM, font=FONT, bold_font=FONT_BOLD)
+
+
+def test_circle_uses_bit_diameter_of_passport():
+    # Кружок — диаметр инструмента из паспорта, а не скважины с разбуриванием.
+    context = _grid_context(4, 4)
+    context["summary"]["bit_diameter_mm"] = 400.0
+    for row in context["holes"]:
+        row["diameter_mm"] = 600.0
+    sheet = build_plan(context)
+    assert sheet.scale == 200
+    assert sheet.holes[0].r == pytest.approx(400.0 / 200 / 2)
+
+
+def test_circle_falls_back_to_hole_diameter():
+    context = _grid_context(4, 4)
+    context["summary"]["bit_diameter_mm"] = None
+    for row in context["holes"]:
+        row["diameter_mm"] = 600.0
+    assert build_plan(context).holes[0].r == pytest.approx(600.0 / 200 / 2)

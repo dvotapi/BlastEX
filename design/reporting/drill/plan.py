@@ -146,7 +146,8 @@ def build_plan(context: Mapping[str, Any]) -> PlanSheet:
     for row, collar, toe in zip(rows, collars, toes):
         if collar is None:
             continue
-        diameter = row.get("diameter_mm") or summary.get("bit_diameter_mm") or 0.0
+        # Диаметр инструмента из паспорта; нет — диаметр скважины (с разбуриванием).
+        diameter = summary.get("bit_diameter_mm") or row.get("diameter_mm") or 0.0
         x, y = sheet_xy(collar)
         holes.append(
             PlanHole(

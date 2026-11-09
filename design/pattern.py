@@ -1,6 +1,7 @@
 """Automatic blast-hole pattern generation inside a block contour."""
 from __future__ import annotations
 
+import bisect
 import math
 from dataclasses import replace
 from typing import Any, Callable
@@ -462,11 +463,47 @@ def generate_pattern(
         # `min_crest_offset_m` к кромке — после сдвига плавного перехода.
         holes = _off_crest(holes, contour, min_crest_offset_m(params))
 
+    if skip_regular_first:
+        lattice_xy.update(_face_row_numbering_xy(holes, row_dir, lattice_xy))
+
     return _finish_pattern(
         holes, contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
         spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
         lattice_xy=lattice_xy, pair_of=pair_of,
     )
+
+
+def _face_row_numbering_xy(
+    holes: list[Hole], row_dir: tuple[float, float], lattice_xy: dict[int, tuple[float, float]]
+) -> dict[int, tuple[float, float]]:
+    """Место для нумерации у ряда вдоль бровки (ряд 0): на линии ближайшего столбца.
+
+    Ряд вдоль изогнутой бровки не стоит на столбцах решётки; без этого каждая
+    его скважина была бы отдельным эшелоном. Сдвиг — только вдоль ряда, глубина
+    остаётся, поэтому скважина — «01» своего столбца. Столбцы — по скважинам
+    основной сетки других рядов (по месту в сетке до сдвига перехода).
+    """
+
+    def base(hole: Hole) -> tuple[float, float]:
+        return lattice_xy.get(id(hole), (hole.collar.x, hole.collar.y))
+
+    def along(point: tuple[float, float]) -> float:
+        return point[0] * row_dir[0] + point[1] * row_dir[1]
+
+    grid = [h for h in holes if row_family(h.kind) == "grid" and h.kind != FACE_TOE_KIND]
+    columns = sorted({along(base(h)) for h in grid if h.row != 0})
+    if not columns:
+        return {}
+    result: dict[int, tuple[float, float]] = {}
+    for hole in grid:
+        if hole.row != 0:
+            continue
+        x, y = base(hole)
+        u = along((x, y))
+        k = bisect.bisect_left(columns, u)
+        nearest = min(columns[max(k - 1, 0) : k + 1], key=lambda c: abs(c - u))
+        result[id(hole)] = (x + (nearest - u) * row_dir[0], y + (nearest - u) * row_dir[1])
+    return result
 
 
 def hole_spec(

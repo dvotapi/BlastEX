@@ -64,48 +64,6 @@ def _bands(
     return bands
 
 
-def _echelons(
-    items: list[tuple[int, Hole]],
-    right: tuple[float, float],
-    tolerance_m: float,
-    xy: Callable[[tuple[int, Hole]], tuple[float, float]],
-) -> list[list[tuple[int, Hole]]]:
-    """Эшелоны слева направо: полосы вдоль «вглубь» (`_bands` по `right`).
-
-    Одиночная скважина вне столбцов решётки (ряд вдоль изогнутой бровки)
-    уходит в ближайший эшелон, если до его линии не больше половины
-    медианного шага между эшелонами; одиночка на шаге решётки (короткий
-    столбец в углу блока) остаётся своим эшелоном.
-    """
-    bands = _bands(items, right, tolerance_m, xy)
-
-    def across(item: tuple[int, Hole]) -> float:
-        x, y = xy(item)
-        return x * right[0] + y * right[1]
-
-    def center(band: list[tuple[int, Hole]]) -> float:
-        return sum(across(item) for item in band) / len(band)
-
-    main = [band for band in bands if len(band) >= 2]
-    if len(main) < 2 or len(main) == len(bands):
-        return bands
-    centers = [center(band) for band in main]
-    gaps = sorted(b - a for a, b in zip(centers, centers[1:]))
-    spacing = gaps[len(gaps) // 2]
-    lone: list[list[tuple[int, Hole]]] = []
-    for band in bands:
-        if len(band) >= 2:
-            continue
-        u = across(band[0])
-        nearest = min(range(len(main)), key=lambda k: abs(centers[k] - u))
-        if abs(centers[nearest] - u) <= 0.5 * spacing:
-            main[nearest].append(band[0])
-        else:
-            lone.append(band)
-    keyed = list(zip(centers, main)) + [(across(band[0]), band) for band in lone]
-    return [band for _, band in sorted(keyed, key=lambda pair: pair[0])]
-
-
 def number_by_position(
     holes: list[Hole],
     tolerance_m: float = 0.05,
@@ -177,7 +135,7 @@ def number_by_position(
     for family, items in families.items():
         if family == "grid":
             # Эшелоны — полосы вдоль deep, слева направо; внутри — от бровки.
-            for echelon_index, band in enumerate(_echelons(items, right, tolerance_m, xy)):
+            for echelon_index, band in enumerate(_bands(items, right, tolerance_m, xy)):
                 depth = lambda item: xy(item)[0] * deep[0] + xy(item)[1] * deep[1]  # noqa: E731
                 for place, (index, hole) in enumerate(sorted(band, key=depth)):
                     result[index] = replace(hole, id=_id(family, echelon_index, place))

@@ -8,6 +8,7 @@ from collections import defaultdict
 
 from design.models import BenchSurface, BlockContour, Point3, row_family
 from design.pattern import generate_pattern
+from tests.test_block67_back_layout import _contour as block67_contour
 
 
 def _rect(free: list[list[int]], width: float = 20.0, height: float = 15.0) -> BlockContour:
@@ -74,6 +75,21 @@ class EchelonNumberingTest(unittest.TestCase):
         params = {**BASE, "layout_anchor": "back", "back_offset_m": 2.0}
         holes = generate_pattern(_rect([[0, 1]]), params)
         self.assert_echelons(holes, left_to_right_sign=1.0, crest_to_back_sign=1.0)
+
+
+class FaceFollowingRowTest(unittest.TestCase):
+    def test_face_row_holes_join_lattice_echelons(self):
+        # Ряд вдоль изогнутой бровки не на столбцах решётки: его скважины —
+        # «01» ближайшего столбца, а не отдельные эшелоны из одной скважины.
+        holes = generate_pattern(
+            block67_contour(), {**BASE, "row_azimuth_deg": 0.0, "first_row_follow_face": True}
+        )
+        grid = [h for h in holes if row_family(h.kind) == "grid" and h.kind != "face_toe"]
+        rows_of: dict[str, set[int]] = defaultdict(set)
+        for h in grid:
+            rows_of[h.id.split("-")[0]].add(h.row)
+        face_only = [e for e, rows in rows_of.items() if rows == {0}]
+        self.assertEqual(face_only, [])
 
 
 if __name__ == "__main__":

@@ -155,23 +155,14 @@ class MinimumSpacingBandsTest(unittest.TestCase):
         self.assertEqual(len({h.id.split("-")[0] for h in numbered}), 10)
 
 
-class OffLatticeEchelonTest(unittest.TestCase):
-    """Скважины вне столбцов решётки (ряд вдоль бровки) — в ближайший эшелон."""
-
-    def _columns(self, xs, depths=(2.0, 6.0, 10.0)):
-        return [_hole(f"c{x}-{y}", x=x, y=y) for x in xs for y in depths]
-
-    def test_lone_holes_near_column_join_it(self):
-        holes = self._columns((0.0, 4.0, 8.0)) + [_hole("f1", x=1.0, y=0.5), _hole("f2", x=7.0, y=0.3)]
-        numbered = {h.collar.x: h for h in number_by_position(holes, deep_dir=(0.0, 1.0)) if h.collar.y < 1.0}
-        self.assertEqual(numbered[1.0].id, "1-01")
-        self.assertEqual(numbered[7.0].id, "3-01")
-        ids = [h.id for h in number_by_position(holes, deep_dir=(0.0, 1.0))]
-        self.assertEqual(len(set(ids)), len(ids))
-        self.assertEqual(sorted({i.split("-")[0] for i in ids}), ["1", "2", "3"])
-
-    def test_short_column_on_lattice_stays_own_echelon(self):
-        # Угол блока: в крайнем столбце одна скважина, но он на шаге решётки.
-        holes = self._columns((0.0, 4.0)) + [_hole("corner", x=8.0, y=2.0)]
+class StaggeredEchelonTest(unittest.TestCase):
+    def test_three_row_staggered_keeps_straight_echelons(self):
+        # Шахматка в три ряда: сдвинутые столбцы по одной скважине — свои эшелоны, не зигзаг.
+        holes = [_hole(f"r{y}-{x}", x=x, y=y) for y in (0.0, 8.0) for x in (0.0, 4.0, 8.0)]
+        holes += [_hole(f"m-{x}", x=x, y=4.0) for x in (2.0, 6.0, 10.0)]
         numbered = number_by_position(holes, deep_dir=(0.0, 1.0))
-        self.assertEqual(numbered[-1].id, "3-01")
+        by_xy = {(h.collar.x, h.collar.y): h.id for h in numbered}
+        self.assertEqual(by_xy[(0.0, 0.0)], "1-01")
+        self.assertEqual(by_xy[(0.0, 8.0)], "1-02")
+        self.assertEqual(by_xy[(2.0, 4.0)], "2-01")
+        self.assertEqual(by_xy[(10.0, 4.0)], "6-01")

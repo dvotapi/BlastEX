@@ -398,3 +398,52 @@ def test_validate_returns_design_bench_height(client):
     plain = client.post(f"{BASE}/{_create(client)['id']}/validate").json()
     assert plain["inputs"]["bench_height_for_s_m"] == pytest.approx(11.7)
     assert plain["provenance"]["bench_height_for_s_m"] == "CALCULATED"
+
+
+# --- PDF из ревизии (PR 2) -------------------------------------------------
+
+def _revision(client, payload=PAYLOAD) -> dict:
+    passport = _create(client, payload)
+    response = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_passport_pdf_from_revision(client):
+    revision = _revision(client)
+    response = client.get(f"{BASE}/revisions/{revision['id']}/passport.pdf")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment;")
+    assert "filename*=UTF-8''" in disposition
+    assert "66-26-%D0%91" in disposition          # «/» в номере заменён
+    assert disposition.endswith("rev1.pdf")
+    again = client.get(f"{BASE}/revisions/{revision['id']}/passport.pdf")
+    assert again.content == response.content
+
+
+def test_passport_pdf_uses_revision_snapshot_only(client, repository):
+    revision = _revision(client)
+    url = f"{BASE}/revisions/{revision['id']}/passport.pdf"
+    before = client.get(url).content
+    # Черновик правят после выпуска — PDF ревизии тот же.
+    passport_id = revision["passport_id"]
+    draft = client.get(f"{BASE}/{passport_id}").json()
+    client.put(
+        f"{BASE}/{passport_id}",
+        json={"passport_no": "ДРУГОЙ", "passport_date": "2026-11-10",
+              "payload": {**draft["payload"], "rig_name": "СБШ-250"}, "expected_version": draft["version"]},
+    )
+    assert client.get(url).content == before
+    # Меняется снимок — меняется PDF.
+    repository.revisions[revision["id"]]["context"]["passport"]["passport_no"] = "77-26/Б"
+    assert client.get(url).content != before
+
+
+def test_passport_pdf_of_foreign_or_unknown_revision_is_404(client, repository):
+    revision = _revision(client)
+    repository.passports[revision["passport_id"]]["organization_id"] = "org-b"
+    assert client.get(f"{BASE}/revisions/{revision['id']}/passport.pdf").status_code == 404
+    assert client.get(f"{BASE}/revisions/nope/passport.pdf").status_code == 404

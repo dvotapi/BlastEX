@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
@@ -31,6 +32,7 @@ from design.drilling_passport_repository import (
     PostgresDrillingPassportRepository,
 )
 from design.mass_blast import content_sha256
+from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
 
 
@@ -258,6 +260,19 @@ def create_revision(
         organization_id, actor, passport_id, expected_version, context["reference_revision_id"],
         context, digest,
     )
+
+
+def passport_pdf(
+    repository: PostgresDrillingPassportRepository, organization_id: str, revision_id: str
+) -> tuple[bytes, str]:
+    """PDF паспорта и имя файла — только из снимка ревизии, без черновика и справочников."""
+
+    revision = repository.get_revision(organization_id, revision_id)
+    context = revision["context"]
+    number = str((context.get("passport") or {}).get("passport_no") or "")
+    safe = re.sub(r'[\\/:*?"<>|]+', "-", number).strip(" .-") or "б-н"
+    pdf = render_passport_pdf(context, revision_no=int(revision["revision_no"]))
+    return pdf, f"Паспорт на бурение {safe} rev{revision['revision_no']}.pdf"
 
 
 def repository_error(exc: Exception) -> HTTPException:

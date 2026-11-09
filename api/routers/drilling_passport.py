@@ -5,7 +5,9 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from api.schemas.drilling_passport import (
     DrillingPassportCreateSchema,
@@ -20,6 +22,7 @@ from api.services.drilling_passport_service import (
     create_passport,
     create_revision,
     get_drilling_passport_repository,
+    passport_pdf,
     repository_error,
     update_passport,
     validate_passport,
@@ -132,3 +135,23 @@ def get_revision(
         return DrillingPassportRevisionSchema.model_validate(repository.get_revision(organization_id, revision_id))
     except Exception as exc:
         raise _fail(exc) from exc
+
+
+@router.get("/revisions/{revision_id}/passport.pdf", response_class=Response)
+def get_passport_pdf(
+    revision_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
+) -> Response:
+    """PDF паспорта на бурение по форме v0.7 — только из неизменяемой ревизии."""
+
+    organization_id, _ = _identity(session)
+    try:
+        pdf, filename = passport_pdf(repository, organization_id, revision_id)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )

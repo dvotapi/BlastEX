@@ -87,9 +87,11 @@ def test_drill_passport_routes_follow_the_flag(monkeypatch) -> None:
     disabled = _client(monkeypatch, intelligence=False)
     assert disabled.post("/api/v1/design/drilling-passports", json={"design_id": "x"}).status_code == 404
     assert "/api/v1/design/drilling-passports" not in disabled.get("/openapi.json").json()["paths"]
+    assert disabled.get("/api/v1/design/drilling-passports/revisions/x/passport.pdf").status_code == 404
 
     enabled = _client(monkeypatch, intelligence=False, drill_passport=True)
     paths = enabled.get("/openapi.json").json()["paths"]
     assert "/api/v1/design/drilling-passports" in paths
     assert "/api/v1/design/drilling-passports/{passport_id}/revisions" in paths
+    assert "/api/v1/design/drilling-passports/revisions/{revision_id}/passport.pdf" in paths
     assert enabled.get("/api/v1/features").json()["drill_passport"] is True

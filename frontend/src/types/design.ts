@@ -3575,4 +3575,6 @@ export type LayoutSearchStatus = {
   bounds_changed?: boolean;
   /** Итог посчитан прежней версией алгоритма перебора — итог устарел. */
   algorithm_changed?: boolean;
+  /** Галочки окна, с которыми шёл последний запуск; у итогов прежних версий — null. */
+  options?: LayoutSearchOptions | null;
 };

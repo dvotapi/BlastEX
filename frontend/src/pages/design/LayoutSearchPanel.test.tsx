@@ -146,6 +146,16 @@ describe("LayoutSearchPanel: запуск", () => {
     expect(props.onStart).toHaveBeenCalledWith({ keep_back_azimuth: false, keep_steps: false });
   });
 
+  it("галочки восстанавливаются по последнему запуску (смена вкладки, перезагрузка)", () => {
+    const { props, view } = mount({ backAnchored: true, status: status({ options: { keep_back_azimuth: true, keep_steps: true } }) });
+    expect((screen.getByRole("checkbox", { name: KEEP_STEPS }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: KEEP_AZIMUTH }) as HTMLInputElement).checked).toBe(true);
+    // Опрос с теми же галочками не перетирает то, что пользователь снял.
+    fireEvent.click(screen.getByRole("checkbox", { name: KEEP_STEPS }));
+    view.rerender(<LayoutSearchPanel {...props} status={status({ options: { keep_back_azimuth: true, keep_steps: true } })} />);
+    expect((screen.getByRole("checkbox", { name: KEEP_STEPS }) as HTMLInputElement).checked).toBe(false);
+  });
+
   it("во время подбора и у закрытого паспорта галочки не меняются", () => {
     mount({ locked: true, status: null, backAnchored: true });
     expect((screen.getByRole("checkbox", { name: KEEP_STEPS }) as HTMLInputElement).disabled).toBe(true);

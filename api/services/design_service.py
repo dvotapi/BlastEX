@@ -448,6 +448,7 @@ def start_layout_search(
         max_ms_m,
         warnings,
         rock_name=design.rock_name,
+        options={"keep_back_azimuth": request.keep_back_azimuth, "keep_steps": request.keep_steps},
     )
     return layout_search_status(organization_id, request.design_id, jobs=jobs, repository=repository)
 

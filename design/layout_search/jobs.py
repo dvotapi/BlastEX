@@ -127,6 +127,8 @@ class _Job:
     relief_min_ms_m: float = 0.0
     relief_max_ms_m: float | None = None
     rock_name: str = ""
+    # Галочки окна подбора, с которыми шёл запуск (`keep_back_azimuth`, `keep_steps`).
+    options: dict[str, bool] | None = None
     queue: Any = None
     stop_event: Any = None
     worker: Any = None
@@ -170,6 +172,17 @@ def _stored_shape_ok(data: Any) -> bool:
         return False
     result = data.get("result")
     return result is None or isinstance(result, dict)
+
+
+SEARCH_OPTION_NAMES = ("keep_back_azimuth", "keep_steps")
+
+
+def _clean_options(options: Any) -> dict[str, bool] | None:
+    """Галочки запуска в виде для итога и статуса: не словарь — None (итог прежней
+    версии), неизвестные ключи отбрасываются, значение — только True/False."""
+    if not isinstance(options, dict):
+        return None
+    return {name: options.get(name) is True for name in SEARCH_OPTION_NAMES}
 
 
 def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -217,6 +230,7 @@ class LayoutSearchJobs:
         warnings: list[str],
         *,
         rock_name: str = "",
+        options: dict[str, bool] | None = None,
     ) -> None:
         """Запускает подбор блока; при идущем подборе — `LayoutSearchBusyError`.
 
@@ -237,6 +251,7 @@ class LayoutSearchJobs:
             relief_min_ms_m=float(relief_min_ms_m),
             relief_max_ms_m=None if relief_max_ms_m is None else float(relief_max_ms_m),
             rock_name=rock_name,
+            options=_clean_options(options),
         )
         spawn = multiprocessing.get_context("spawn")
         with self._lock:
@@ -293,6 +308,7 @@ class LayoutSearchJobs:
                     "result": None,
                     "error": None,
                     "algorithm_changed": False,
+                    "options": job.options,
                 }
             failed = self._failed.get((team_id, design_id))
         if failed is not None:
@@ -309,6 +325,7 @@ class LayoutSearchJobs:
                 "result": None,
                 "error": error,
                 "algorithm_changed": False,
+                "options": None,
             }
         stored = _read_stored(path)
         result = stored.get("result") if stored else None
@@ -328,6 +345,7 @@ class LayoutSearchJobs:
             # Порода запуска (только у сохранённого итога): по ней сервис сверяет
             # границы темпа итога с текущим справочником.
             "rock_name": rock_name if isinstance(rock_name, str) else None,
+            "options": _clean_options(stored.get("options")) if stored else None,
         }
 
     def stop(self, team_id: str, design_id: str) -> bool:
@@ -451,6 +469,7 @@ class LayoutSearchJobs:
             "state": STATE_STOPPED if job.stop_event.is_set() and result.get("stopped_early") else STATE_DONE,
             "finished_at": utc_now_iso(),
             "rock_name": job.rock_name,
+            "options": job.options,
             "result": result,
         }
         _write_atomic(layout_search_path(job.team_id, job.design_id), payload)

@@ -1269,6 +1269,8 @@ class LayoutSearchStatusResponse(BaseModel):
     bounds_changed: bool = False
     # Итог посчитан прежней версией алгоритма перебора: итог устарел.
     algorithm_changed: bool = False
+    # Галочки окна подбора, с которыми шёл запуск; у итогов прежних версий — None.
+    options: dict[str, bool] | None = None
 
 
 class ReliefTriangleSchema(BaseModel):

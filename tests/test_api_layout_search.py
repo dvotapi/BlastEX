@@ -16,7 +16,7 @@ from api.routers import design
 from api.security import current_team_id, require_internal_access
 from api.services.economics_service import get_economics_repository
 from cost.v2.repository import InMemoryEconomicsRepository
-from design.layout_search.jobs import LayoutSearchJobs, get_layout_search_jobs
+from design.layout_search.jobs import LayoutSearchJobs, get_layout_search_jobs, layout_search_path
 from design.layout_search.evaluate import network_params
 from design.models import BlastDesign, Hole, InitiationNetwork
 from design.pattern import generate_pattern
@@ -97,6 +97,22 @@ def test_start_poll_result(jobs):
         assert "connectors" in variant["network"]
         assert variant["cut_flank"] in ("left", "right")
         assert "row_azimuth_deg" in variant["params"]
+
+
+def test_status_keeps_search_options(jobs):
+    # Галочки запуска хранятся с итогом: окно подбора восстанавливает их после
+    # перезагрузки и смены вкладки. Итог без них (прежний) — options = None.
+    client = _client(jobs)
+    body = {**_body(), "keep_steps": True}
+    running = client.post(f"{BASE}/layout-search", json=body).json()
+    assert running["options"] == {"keep_back_azimuth": False, "keep_steps": True}
+    data = _poll(client)
+    assert data["options"] == {"keep_back_azimuth": False, "keep_steps": True}
+    target = layout_search_path("org-a", "d1")
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored.pop("options")
+    target.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+    assert client.get(f"{BASE}/layout-search/d1").json()["options"] is None
 
 
 def test_second_start_conflict(jobs):

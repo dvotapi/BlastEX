@@ -1,7 +1,7 @@
 // Панель «Подбор раскладки» (часть 4в): запуск перебора на сервере, ход по
 // этапам, три лучших варианта карточками, показ варианта на плане и
 // «Применить». Сам опрос — в useLayoutSearch, применение — на странице.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ruNumber } from "../../lib/format";
 import type {
   LayoutSearchOptions,
@@ -198,8 +198,18 @@ export function LayoutSearchPanel({
   onApply: (variant: LayoutSearchVariant) => void;
 }) {
   const running = status?.state === "running";
-  const [keepSteps, setKeepSteps] = useState(false);
-  const [keepBackAzimuth, setKeepBackAzimuth] = useState(false);
+  // Галочки — как в последнем запуске блока (панель пересоздаётся при смене
+  // вкладки и перезагрузке); опрос с теми же значениями правок не перетирает.
+  const savedSteps = status?.options?.keep_steps;
+  const savedAzimuth = status?.options?.keep_back_azimuth;
+  const [keepSteps, setKeepSteps] = useState(savedSteps === true);
+  const [keepBackAzimuth, setKeepBackAzimuth] = useState(savedAzimuth === true);
+  useEffect(() => {
+    if (savedSteps !== undefined) setKeepSteps(savedSteps);
+  }, [savedSteps]);
+  useEffect(() => {
+    if (savedAzimuth !== undefined) setKeepBackAzimuth(savedAzimuth);
+  }, [savedAzimuth]);
   const optionsDisabled = locked || running;
   const result = running ? null : status?.result ?? null;
   const stopMark =

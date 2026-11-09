@@ -35,6 +35,11 @@ _EPS = 1e-9
 
 PASSPORT_STATUSES = ("draft", "approved", "drilled", "accepted")
 DEFAULT_ACCEPTANCE = "исполнительная съёмка маркшейдерской службой заказчика"
+DEFAULT_SITE_PREPARATION = "бульдозером под руководством горного мастера заказчика; приём площадки по акту"
+# Должности без «ведущий» и без «(заказчик)»: на карьерах они называются по-разному.
+DEFAULT_EXTRA_APPROVALS = ("маркшейдер", "геолог")
+# Допуски по глубине скважины и положению устья по умолчанию, ± м.
+DEFAULT_TOLERANCE_M = 0.3
 
 
 @dataclass(frozen=True)

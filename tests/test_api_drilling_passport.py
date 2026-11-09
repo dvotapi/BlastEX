@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from types import SimpleNamespace
 from uuid import uuid4
@@ -287,3 +288,62 @@ def test_empty_codes_are_not_warned_as_unknown(client):
     codes = _codes(client, {**PAYLOAD, "rig_type_code": ""})
     assert "rig_type_not_found" not in codes
     assert "axis_offset_missing" in codes
+
+
+# --- форма v0.7 -------------------------------------------------------------
+
+
+def test_new_draft_has_form_v07_defaults(client):
+    passport = _create(client)
+    payload = passport["payload"]
+    assert payload["site_preparation"] == "бульдозером под руководством горного мастера заказчика; приём площадки по акту"
+    assert payload["extra_approvals"] == ["маркшейдер", "геолог"]
+    assert (payload["tol_depth_m"], payload["tol_collar_m"]) == (0.3, 0.3)
+    assert payload["bench_height_for_s_m"] is None
+    # Должности без «ведущий»: на карьерах они разные.
+    assert "ведущ" not in json.dumps(payload, ensure_ascii=False)
+
+
+def test_form_v07_fields_are_stored(client):
+    payload = {
+        **PAYLOAD,
+        "site_preparation": "грейдером",
+        "extra_approvals": ["маркшейдер Иванов И. И."],
+        "tol_depth_m": 0.2,
+        "tol_collar_m": 0.5,
+        "bench_height_for_s_m": 10.0,
+    }
+    passport = _create(client, payload)
+    stored = client.get(f"{BASE}/{passport['id']}").json()["payload"]
+    for key in ("site_preparation", "extra_approvals", "tol_depth_m", "tol_collar_m", "bench_height_for_s_m"):
+        assert stored[key] == payload[key]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("extra_approvals", ["маркшейдер", "геолог", "технолог"]),
+        ("extra_approvals", ["х" * 121]),
+        ("bench_height_for_s_m", 0),
+        ("bench_height_for_s_m", 31),
+        ("tol_depth_m", 0),
+        ("tol_collar_m", 2.5),
+    ],
+)
+def test_form_v07_fields_out_of_range_are_422(client, field, value):
+    response = client.post(BASE, json={"design_id": "block-66", "payload": {**PAYLOAD, field: value}})
+    assert response.status_code == 422
+
+
+def test_validate_returns_design_bench_height(client):
+    passport = _create(client, {**PAYLOAD, "bench_height_for_s_m": 10.0})
+    body = client.post(f"{BASE}/{passport['id']}/validate").json()
+    check = body["first_row_check"]
+    assert (check["hs_m"], check["hs_source"], check["s_m"]) == (10.0, "MANUAL_OVERRIDE", 2.0)
+    assert body["inputs"]["bench_height_for_s_m"] == 10.0
+    assert body["provenance"]["bench_height_for_s_m"] == "MANUAL_OVERRIDE"
+    assert "bench_above_design" in [issue["code"] for issue in body["issues"]]
+
+    plain = client.post(f"{BASE}/{_create(client)['id']}/validate").json()
+    assert plain["inputs"]["bench_height_for_s_m"] == pytest.approx(11.7)
+    assert plain["provenance"]["bench_height_for_s_m"] == "CALCULATED"

@@ -21,6 +21,7 @@ from api.schemas.drilling_passport import (
     DrillingPassportCreateSchema,
     DrillingPassportPayload,
     DrillingPassportUpdateSchema,
+    TEXT_LIMITS,
 )
 from api.services.cad_service import active_work_object_name, resolve_site_code
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
@@ -170,7 +171,9 @@ def create_passport(
     design = _load_design(organization_id, request.design_id)
     payload = (request.payload or DrillingPassportPayload()).model_dump()
     if not payload["block"]:
-        payload["block"] = design.contour.name or design.name
+        # Имя контура не ограничено, а блок паспорта — да: иначе черновик не
+        # сохранить повторно (предел проверяется при записи).
+        payload["block"] = (design.contour.name or design.name or "").strip()[: TEXT_LIMITS["block"]]
     if not payload["site_code"]:
         payload["site_code"] = _default_site_code(economics_repository, organization_id)
     passport_date = request.passport_date or date.today().isoformat()

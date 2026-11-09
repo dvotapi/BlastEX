@@ -484,3 +484,19 @@ def test_old_draft_with_long_texts_still_opens(client, repository):
     response = client.get(f"{BASE}/{passport['id']}")
     assert response.status_code == 200, response.text
     assert len(response.json()["payload"]["personnel"]) == 25
+
+
+def test_long_contour_name_is_cut_to_block_limit(client, block66, monkeypatch):
+    """Блок по умолчанию — имя контура; длиннее предела — обрезается, черновик сохраняется."""
+
+    monkeypatch.setattr(block66.contour, "name", "Б" * 45)
+    response = client.post(BASE, json={"design_id": "block-66", "passport_date": "2026-11-09", "payload": {"site_code": "ZHK"}})
+    assert response.status_code == 201, response.text
+    passport = response.json()
+    assert passport["payload"]["block"] == "Б" * 40
+    saved = client.put(
+        f"{BASE}/{passport['id']}",
+        json={"passport_no": "66-26/Б", "passport_date": "2026-11-09", "payload": passport["payload"],
+              "expected_version": passport["version"]},
+    )
+    assert saved.status_code == 200, saved.text

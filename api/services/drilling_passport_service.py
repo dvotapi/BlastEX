@@ -11,10 +11,10 @@ import logging
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from functools import lru_cache
 from threading import Lock
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
@@ -37,6 +37,7 @@ from design.drilling_passport_repository import (
     PostgresDrillingPassportRepository,
 )
 from design.mass_blast import content_sha256
+from design.export_survey import DwgExport, holes_dwg, holes_dxf
 from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
 from design.spatial.cad.repository import CadSourceNotFound
@@ -370,10 +371,47 @@ def passport_pdf(
 
     revision = repository.get_revision(organization_id, revision_id)
     context = revision["context"]
-    number = str((context.get("passport") or {}).get("passport_no") or "")
-    safe = re.sub(r'[\\/:*?"<>|]+', "-", number).strip(" .-") or "б-н"
     pdf = render_passport_pdf(context, revision_no=int(revision["revision_no"]))
-    return pdf, f"Паспорт на бурение {safe} rev{revision['revision_no']}.pdf"
+    return pdf, f"Паспорт на бурение {_file_stem(context)} rev{revision['revision_no']}.pdf"
+
+
+def _file_stem(context: Mapping[str, Any]) -> str:
+    """Номер паспорта для имени файла: без «/» и других запрещённых знаков."""
+
+    number = str((context.get("passport") or {}).get("passport_no") or "")
+    return re.sub(r'[\\/:*?"<>|]+', "-", number).strip(" .-") or "б-н"
+
+
+def _revision_date(revision: Mapping[str, Any]) -> date | None:
+    # Дата выпуска чертежа — дата ревизии (UTC), а не время выгрузки: повтор —
+    # те же байты.
+    created = revision.get("created_at")
+    if isinstance(created, datetime):
+        return created.date()
+    try:
+        return datetime.fromisoformat(str(created)).date()
+    except ValueError:
+        return None
+
+
+def holes_drawing(
+    repository: PostgresDrillingPassportRepository,
+    organization_id: str,
+    revision_id: str,
+    fmt: Literal["dxf", "dwg"],
+) -> tuple[DwgExport, str]:
+    """Чертёж скважин ревизии (TASK-015, PR 4) и имя файла — только из снимка.
+
+    DWG, который не удалось записать или сверить, отдаётся как DXF с
+    предупреждением (`DwgExport.warning`), имя — с расширением `.dxf`.
+    """
+
+    revision = repository.get_revision(organization_id, revision_id)
+    context = revision["context"]
+    number = int(revision["revision_no"])
+    dxf = holes_dxf(context, revision_no=number, issued_on=_revision_date(revision))
+    exported = holes_dwg(dxf) if fmt == "dwg" else DwgExport(dxf, "dxf")
+    return exported, f"Скважины {_file_stem(context)} rev{number}.{exported.format}"
 
 
 def repository_error(exc: Exception) -> HTTPException:

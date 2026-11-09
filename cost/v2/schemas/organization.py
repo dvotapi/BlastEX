@@ -191,6 +191,17 @@ class SitePayload(ReferencePayload):
         ge=20,
         le=90,
     )
+    design_bench_height_m: Decimal | None = UnitField(
+        "м",
+        title="Высота рабочего уступа по проекту отработки",
+        description=(
+            "Технический проект, таблица элементов системы разработки; "
+            "по ней считается расстояние станка от бровки в паспорте на бурение"
+        ),
+        default=None,
+        ge=3,
+        le=30,
+    )
     geology: list[GeologyShare] = Field(
         default_factory=list,
         title="Плановая геология",

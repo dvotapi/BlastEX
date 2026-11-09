@@ -746,6 +746,19 @@ class TestDrillPassportReferenceFields:
         assert schema["stable_slope_angle_deg"]["x-unit"] == "°"
         assert "технического проекта" in schema["bench_face_angle_deg"]["description"]
 
+    def test_site_design_bench_height(self):
+        from cost.v2.schemas.organization import SitePayload
+
+        assert SitePayload().design_bench_height_m is None
+        assert SitePayload(design_bench_height_m=Decimal("10")).design_bench_height_m == Decimal("10")
+        for wrong in ("2.9", "31"):
+            with pytest.raises(ValidationError):
+                SitePayload(design_bench_height_m=Decimal(wrong))
+        field = section_json_schema("sites")["properties"]["design_bench_height_m"]
+        assert field["x-unit"] == "м"
+        assert field["title"] == "Высота рабочего уступа по проекту отработки"
+        assert "технический проект" in field["description"].lower()
+
     def test_rig_axis_offset(self):
         from cost.v2.schemas.equipment import EquipmentTypePayload
 

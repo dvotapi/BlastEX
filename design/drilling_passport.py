@@ -27,6 +27,10 @@ MIN_CREST_DISTANCE_M = 2.0
 VERTICAL_DIP_DEG = 89.95
 # Сколько номеров скважин перечислять в предупреждении.
 MAX_LISTED_HOLES = 10
+# Первый ряд выше проектной высоты уступа Hs больше чем на столько — предупреждение, м.
+BENCH_ABOVE_DESIGN_TOLERANCE_M = 0.5
+# Сколько скважин с наибольшей высотой называть в предупреждении `bench_above_design`.
+MAX_LISTED_TALL_HOLES = 5
 _EPS = 1e-9
 
 PASSPORT_STATUSES = ("draft", "approved", "drilled", "accepted")
@@ -62,6 +66,9 @@ class FirstRowCheck:
     w_m: float | None
     w_max_m: float | None
     issues: list[ValidationIssue] = field(default_factory=list)
+    # Высота уступа, по которой посчитан s (Hs), и её происхождение.
+    hs_m: float | None = None
+    hs_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +79,8 @@ class FirstRowCheck:
             "c_m": self.c_m,
             "w_m": self.w_m,
             "w_max_m": self.w_max_m,
+            "hs_m": self.hs_m,
+            "hs_source": self.hs_source,
             "issues": [issue.to_dict() for issue in self.issues],
         }
 
@@ -216,10 +225,15 @@ def first_row_check(
     e_m: float | None,
     c_m: float | None,
     w_max_m: float | None,
+    *,
+    hs_m: float | None = None,
+    hs_source: str = "MANUAL_OVERRIDE",
 ) -> FirstRowCheck:
     """Расстояние s от бровки и проверка ЛСПП первого ряда.
 
-    Принятое расстояние c до оси первого ряда не задано — берётся c_min.
+    s считается по проектной высоте уступа Hs (`hs_m`; не задана — H₁,
+    источник CALCULATED), W — по фактической высоте каждой скважины первого
+    ряда. Принятое расстояние c до оси первого ряда не задано — берётся c_min.
     Ошибка только одна — нет углов α, γ: без них s не считается. Остальное —
     предупреждения: выпуск не блокируют, требуют отметки «просмотрено».
     """
@@ -228,8 +242,25 @@ def first_row_check(
     first = [row for row in rows if row.first_row]
     if not first:
         issues.append(_issue("error", "first_row_empty", "В паспорте нет скважин первого ряда.", "holes"))
-        return FirstRowCheck(None, None, None, None, c_m, None, w_max_m, issues)
+        return FirstRowCheck(None, None, None, None, c_m, None, w_max_m, issues, hs_m, hs_source if hs_m is not None else None)
     h1 = max(row.bench_height_m for row in first)
+    if hs_m is None:
+        hs_m, hs_source = h1, "CALCULATED"
+    elif h1 > hs_m + BENCH_ABOVE_DESIGN_TOLERANCE_M + _EPS:
+        tall = sorted(
+            (row for row in first if row.bench_height_m > hs_m + BENCH_ABOVE_DESIGN_TOLERANCE_M + _EPS),
+            key=lambda row: -row.bench_height_m,
+        )
+        issues.append(
+            _issue(
+                "warning",
+                "bench_above_design",
+                f"Высота уступа по первому ряду до {h1:.1f} м больше расчётной {hs_m:.1f} м "
+                f"(скв. {', '.join(row.number for row in tall[:MAX_LISTED_TALL_HOLES])}) — "
+                "проверить безопасное расстояние.",
+                "bench_height_for_s_m",
+            )
+        )
 
     if alpha_deg is None or gamma_deg is None or gamma_deg >= alpha_deg or gamma_deg <= 0:
         issues.append(
@@ -241,9 +272,9 @@ def first_row_check(
                 "alpha_deg",
             )
         )
-        return FirstRowCheck(h1, None, None, None, c_m, None, w_max_m, issues)
+        return FirstRowCheck(h1, None, None, None, c_m, None, w_max_m, issues, hs_m, hs_source)
 
-    prism = h1 * (_ctg(gamma_deg) - _ctg(alpha_deg))
+    prism = hs_m * (_ctg(gamma_deg) - _ctg(alpha_deg))
     s = round_up_tenth(max(MIN_CREST_DISTANCE_M, prism))
 
     if e_m is None:
@@ -308,7 +339,7 @@ def first_row_check(
                 "w_max_m",
             )
         )
-    return FirstRowCheck(h1, prism, s, c_min, accepted_c, w, w_max_m, issues)
+    return FirstRowCheck(h1, prism, s, c_min, accepted_c, w, w_max_m, issues, hs_m, hs_source)
 
 
 # --- исходные величины ----------------------------------------------------
@@ -368,6 +399,10 @@ def resolve_inputs(
             (_number(payload, "axis_offset_m"), manual),
             (_number(rig, "axis_offset_m"), "REFERENCE"),
         ),
+        "bench_height_for_s_m": _first_source(
+            (_number(payload, "bench_height_for_s_m"), manual),
+            (_number(site, "design_bench_height_m"), "REFERENCE"),
+        ),
         "first_row_offset_m": _first_source((_number(payload, "first_row_offset_m"), manual)),
         "w_max_m": _first_source((_number(payload, "w_max_m"), manual)),
         "block_area_m2": _first_source(
@@ -425,7 +460,13 @@ def passport_context(
         values["axis_offset_m"],
         values["first_row_offset_m"],
         values["w_max_m"],
+        hs_m=values["bench_height_for_s_m"],
+        hs_source=provenance["bench_height_for_s_m"] or "CALCULATED",
     )
+    if provenance["bench_height_for_s_m"] is None and check.hs_m is not None:
+        # Проектная высота не задана — s посчитан по H₁.
+        values["bench_height_for_s_m"] = check.hs_m
+        provenance["bench_height_for_s_m"] = "CALCULATED"
     if provenance["first_row_offset_m"] is None and check.c_m is not None:
         provenance["first_row_offset_m"] = "CALCULATED"
     for key in ("s_m", "c_min_m", "w_m"):

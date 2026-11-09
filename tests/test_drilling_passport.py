@@ -313,3 +313,69 @@ def test_axis_offset_larger_than_s_keeps_axis_behind_crest(rows66):
     assert check.c_m == 0.0
     assert check.w_m == pytest.approx(11.7 / math.tan(math.radians(75.0)))
     assert "axis_offset_exceeds_s" in [issue.code for issue in check.issues]
+
+
+# --- Hs: высота уступа для безопасного расстояния (форма v0.7) -------------
+
+
+def test_crest_distance_by_design_bench_height(rows66):
+    """Утверждённый пример формы v0.7: Hs = 10,0 → Bпр 1,98, s 2,0; H₁ 11,7 > 10,5 — предупреждение."""
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, None, 6.0, hs_m=10.0)
+    assert check.h1_m == pytest.approx(11.7)
+    assert check.hs_m == 10.0
+    assert check.hs_source == "MANUAL_OVERRIDE"
+    assert round(check.prism_m, 2) == 1.98
+    assert check.s_m == 2.0
+    # W — по фактической высоте каждой скважины первого ряда, а не по Hs.
+    assert check.c_min_m == pytest.approx(0.8)
+    assert check.w_m == pytest.approx(11.7 / math.tan(math.radians(75.0)) + 0.8)
+    warning = next(issue for issue in check.issues if issue.code == "bench_above_design")
+    assert warning.level == "warning"
+    tallest = max((row for row in rows66 if row.first_row), key=lambda row: row.bench_height_m)
+    assert tallest.number in warning.message
+    assert "11.7" in warning.message and "10.0" in warning.message
+    listed = warning.message.split("(скв. ")[1].split(")")[0].split(", ")
+    assert 1 <= len(listed) <= 5
+    assert check.to_dict()["hs_m"] == 10.0
+    assert check.to_dict()["hs_source"] == "MANUAL_OVERRIDE"
+
+
+def test_hs_defaults_to_first_row_height(rows66):
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, None, 6.0)
+    assert check.hs_m == pytest.approx(11.7)
+    assert check.hs_source == "CALCULATED"
+    assert check.s_m == 2.4
+    assert "bench_above_design" not in [issue.code for issue in check.issues]
+
+
+def test_hs_within_half_metre_is_not_warned(rows66):
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, None, 6.0, hs_m=11.5, hs_source="REFERENCE")
+    assert check.hs_source == "REFERENCE"
+    assert "bench_above_design" not in [issue.code for issue in check.issues]
+
+
+def test_resolve_inputs_bench_height_for_s(block66):
+    site = {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65, "design_bench_height_m": "10"}
+    values, provenance = resolve_inputs(block66, site, None, {})
+    assert (values["bench_height_for_s_m"], provenance["bench_height_for_s_m"]) == (10.0, "REFERENCE")
+    values, provenance = resolve_inputs(block66, site, None, {"bench_height_for_s_m": 11})
+    assert (values["bench_height_for_s_m"], provenance["bench_height_for_s_m"]) == (11.0, "MANUAL_OVERRIDE")
+    values, provenance = resolve_inputs(block66, None, None, {})
+    assert values["bench_height_for_s_m"] is None and provenance["bench_height_for_s_m"] is None
+
+
+def test_passport_context_hs_from_site(block66):
+    site = {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65, "design_bench_height_m": 10}
+    context = passport_context(block66, {"block_area_m2": 2790, "w_max_m": 6}, site, {"axis_offset_m": 1.2})
+    check = context["first_row_check"]
+    assert (check["hs_m"], check["hs_source"], check["s_m"]) == (10.0, "REFERENCE", 2.0)
+    assert context["inputs"]["bench_height_for_s_m"] == 10.0
+    assert context["provenance"]["bench_height_for_s_m"] == "REFERENCE"
+    assert "bench_above_design" in [issue["code"] for issue in context["issues"]]
+
+    # Hs нигде не задана — берётся H₁, источник CALCULATED, без предупреждения.
+    plain = passport_context(block66, {"block_area_m2": 2790, "w_max_m": 6}, {**site, "design_bench_height_m": None}, {"axis_offset_m": 1.2})
+    assert plain["inputs"]["bench_height_for_s_m"] == pytest.approx(11.7)
+    assert plain["provenance"]["bench_height_for_s_m"] == "CALCULATED"
+    assert plain["first_row_check"]["s_m"] == 2.4
+    assert "bench_above_design" not in [issue["code"] for issue in plain["issues"]]
